@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H, TAUX_MO_PREV_DEFAUT } from "../constants";
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
@@ -13,7 +13,25 @@ import {
 import { parseDevisExcel } from "../devisImport";
 import { buildChronoInitFromGroupesTypes, sortByChrono } from "./chronoTemplate";
 import { confirmPerteMassive } from "../guards";
-import { fetchPointages, indexPointagesParTache, sumLibreEtIndirect } from "../pointages";
+import { fetchPointages } from "../pointages";
+// SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
+// Ce composant ne calcule plus rien — il lit les Donnee du module et garde la présentation.
+import {
+  computeChantierFinance, indexPointagesParTache,
+  tachePointages as cfTachePointages,
+  tacheHeuresReelles as cfTacheHeuresReelles,
+  tacheHeuresVendues,
+  tachePointagesParOuvrier as cfTachePointagesParOuvrier,
+  heuresReellesOuvrage as cfHeuresReellesOuvrage,
+  heuresVenduesOuvrage, prixHTOuvrage, coutMatOuvrage, totalLignes,
+  avancementOuvrage, avancementOuvrageDetail, avancementTacheDetail,
+  ouvragesDuLot as cfOuvragesDuLot,
+  avancementLotDetail as cfAvancementLotDetail,
+  avancementChantierDetail as cfAvancementChantierDetail,
+  couleurDerive, couleurDepassement, couleurMarge,
+  fmtH, eur,
+  heuresParMois as cfHeuresParMois,
+} from "../chantierFinance";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
@@ -599,6 +617,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const ouvrages = phasage?.ouvrages || [];
   const chantier = chantiers.find(c => c.id === chantierId);
 
+  // ─── CALCULS : une seule passe du module (source de vérité) ──────────────
+  const fin = useMemo(() => computeChantierFinance({
+    phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
+  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots]);
+
   // Dernier compte rendu contenant une tâche liée à `t` : on matche par tache_id
   // (tâches créées/planifiées en V2) OU par nom (tâches migrées depuis la V1,
   // dont l'id a été régénéré). `rapports` est déjà trié du plus récent au plus ancien.
@@ -859,107 +882,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
-  // Heures réelles d'une tâche : somme des pointages du registre si présents
-  // (source de vérité depuis la validation de fin de journée), sinon repli sur
-  // l'ancien champ heures_reelles (gère le format tableau de la v1).
-  const tachePointages = (t) => pointagesParTache[String(t.id)] || [];
-  const tacheHeuresReelles = (t) => {
-    const pts = tachePointages(t);
-    if (pts.length > 0) return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0), 0);
-    if (Array.isArray(t.heures_reelles)) {
-      return t.heures_reelles.reduce((s, v) => s + (parseFloat(v) || 0), 0);
-    }
-    return parseFloat(t.heures_reelles) || 0;
-  };
-  // Couleur de dérive : vert si <= estimées, orange jusqu'à +20%, rouge au-delà.
-  const couleurDerive = (reelles, estimees) => {
-    if (!estimees || estimees <= 0) return null;
-    const ratio = reelles / estimees;
-    if (ratio <= 1)   return "#22c55e";
-    if (ratio <= 1.2) return "#f5a623";
-    return "#e15a5a";
-  };
+  // Liaisons vers le module (mêmes noms et signatures qu'avant : le reste du
+  // composant est inchangé). Le registre indexé et les taux sont pré-liés.
+  const tachePointages = (t) => cfTachePointages(t, pointagesParTache);
+  const tacheHeuresReelles = (t) => cfTacheHeuresReelles(t, pointagesParTache);
+  const tachePointagesParOuvrier = (t) => cfTachePointagesParOuvrier(t, pointagesParTache);
+  const heuresReellesOuvrage = (o) => cfHeuresReellesOuvrage(o, pointagesParTache);
+  const heuresReellesLot = (lotId) => fin.lots.find(l => l.id === lotId)?.heuresReelles || 0;
+  const heuresVenduesLot = (lotId) => fin.lots.find(l => l.id === lotId)?.heuresVendues || 0;
 
-  // Heures vendues d'une tâche (réparties par ratio depuis heures_devis de
-  // l'ouvrage). Agrégats réelles / vendues par ouvrage et par lot.
-  const tacheHeuresVendues   = (t) => parseFloat(t.heures_vendues) || 0;
-  const heuresReellesOuvrage = (o) => (o.taches || []).reduce((s, t) => s + tacheHeuresReelles(t), 0);
-  const heuresVenduesOuvrage = (o) => parseFloat(o.heures_devis) || 0;
-  const heuresReellesLot     = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + heuresReellesOuvrage(o), 0);
-  const heuresVenduesLot     = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + heuresVenduesOuvrage(o), 0);
-  // Rouge quand les heures réelles dépassent les heures vendues.
-  const couleurDepassement   = (reelles, vendues) => (vendues > 0 && reelles > vendues) ? "#e15a5a" : null;
-  // Formatte un nombre d'heures sans zéros inutiles (7 → "7", 2,75 → "2,75").
-  const fmtH = (n) => (parseFloat(n) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-
-  // ─── COÛTS & MARGE ──────────────────────────────────────────────────────
-  // Coût MO d'une tâche : on privilégie le registre de pointage — chaque
-  // écriture porte les heures réellement passées × le taux figé de l'ouvrier
-  // qui les a faites (le bon taux par personne, plus de raccourci ouvriers[0]).
-  // Repli legacy si la tâche n'a aucun pointage : heures_reelles × taux des
-  // ouvriers assignés.
-  const coutMOTache = (t) => {
-    const pts = tachePointages(t);
-    if (pts.length > 0) {
-      return pts.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0);
-    }
-    const hr = tacheHeuresReelles(t);
-    if (hr === 0) return 0;
-    const ouvs = Array.isArray(t.ouvriers) ? t.ouvriers.filter(Boolean) : [];
-    if (ouvs.length === 0) return 0;
-    return ouvs.reduce((s, nom) => s + hr * (parseFloat(tauxHoraires?.[nom]) || 0), 0);
-  };
-  // Détail du registre par ouvrier pour une tâche : qui a pointé, combien
-  // d'heures, à quel taux figé, et le coût correspondant. Sert à afficher la
-  // ventilation du coût MO réel dans la modale tâche.
-  const tachePointagesParOuvrier = (t) => {
-    const m = {};
-    tachePointages(t).forEach(p => {
-      const nom = p.ouvrier || "?";
-      const h = parseFloat(p.heures) || 0;
-      const taux = parseFloat(p.taux_horaire) || 0;
-      if (!m[nom]) m[nom] = { ouvrier: nom, heures: 0, cout: 0, taux };
-      m[nom].heures += h;
-      m[nom].cout += h * taux;
-      m[nom].taux = taux; // dernier taux figé connu (identique en pratique)
-    });
-    return Object.values(m).sort((a, b) => b.heures - a.heures);
-  };
-  const coutMOOuvrage  = (o) => (o.taches || []).reduce((s, t) => s + coutMOTache(t), 0);
-  const coutMOLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + coutMOOuvrage(o), 0);
-  const coutMOChantier = ouvrages.reduce((s, o) => s + coutMOOuvrage(o), 0);
-
-  // Prix HT (vendu) au niveau ouvrage / lot / chantier.
-  const prixHTOuvrage  = (o) => parseFloat(o.prix_ht) || 0;
-  const prixHTLot      = (lotId) => ouvragesDuLot(lotId).reduce((s, o) => s + prixHTOuvrage(o), 0);
-  const prixHTChantier = ouvrages.reduce((s, o) => s + prixHTOuvrage(o), 0);
-
-  // Coût matériaux par ouvrage (saisie manuelle dans la modale ouvrage —
-  // conservée pour l'affichage/édition de la modale ouvrage).
-  const coutMatOuvrage  = (o) => parseFloat(o.cout_materiaux) || 0;
-  // Total réel d'un jeu de lignes de commande (prix_total sinon PU × quantité).
-  const totalLignes = (lignes) => lignes.reduce(
-    (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
-  // Coût matériaux du chantier = somme RÉELLE des lignes de commande liées
-  // (et non plus la saisie manuelle cout_materiaux). Cohérent avec la modale
-  // « Commandes du chantier » ouverte depuis le KPI.
-  const coutMatChantier = totalLignes(commandeLignes);
-  // Heures totales : vendues (somme heures_devis des ouvrages) et réelles
-  // (somme heures_reelles des tâches, gère le format tableau v1 via helper).
-  const heuresVenduesChantier = ouvrages.reduce((s, o) => s + (parseFloat(o.heures_devis) || 0), 0);
-  const heuresReellesChantier = ouvrages.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => ss + tacheHeuresReelles(t), 0), 0);
-
-  // Heures + coût des pointages hors tâches d'ouvrage : "libres" (tache_id null,
-  // type "tache") et "indirects" (trajet, intempéries…). coutIndirect INCLUT le trajet.
-  const extras = useMemo(() => sumLibreEtIndirect(pointages), [pointages]);
-
-  // Reprise d'heures antérieures : pour les chantiers démarrés AVANT l'app, on
-  // saisit à la main le total d'heures (et un taux moyen) déjà consommé hors
-  // registre. Ajouté aux heures/coût réels, mais NON rattaché à un mois ni à un
-  // ouvrier — c'est un report d'antériorité. Stocké dans plan_travaux.meta.
-  const repriseHeures = parseFloat(phasage?.plan_travaux?.meta?.reprise_heures) || 0;
-  const repriseTaux   = parseFloat(phasage?.plan_travaux?.meta?.reprise_taux)   || 0;
-  const repriseCout   = repriseHeures * repriseTaux;
+  // Scalaires chantier — calculés une seule fois par computeChantierFinance.
+  const {
+    prixHTChantier, heuresVenduesChantier, heuresReellesTotalChantier,
+    coutMOTotalChantier, coutMatChantier, commandesPrevChantier,
+    moPrevChantier, tauxMOPrevEff, fgTauxHoraire, fgChantier,
+    margeChantier, margePctChantier,
+    repriseHeures, repriseTaux, repriseCout,
+  } = fin.brut;
+  const trajetStats   = { heures: fin.brut.trajetHeures,   cout: fin.brut.trajetCout };
+  const indirectStats = { heures: fin.brut.indirectHeures, cout: fin.brut.indirectCout };
   // Recharge les champs locaux depuis meta uniquement quand on change de chantier
   // (pas à chaque saveMeta, sinon on écraserait la frappe en cours).
   useEffect(() => {
@@ -968,69 +909,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     setRepriseTInput(m.reprise_taux ?? "");
   }, [phasage?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Totaux chantier alignés sur DashboardAnalyse (per-tâche + extras). Pas de
-  // double comptage : coutMOChantier/heuresReellesChantier ne somment que les
-  // pointages à tache_id d'un ouvrage ; extras ne somme que les type "indirect"
-  // ou tache_id null. Ensembles disjoints. + reprise d'antériorité.
-  const coutMOTotalChantier =
-    coutMOChantier + extras.coutLibre + extras.coutIndirect + repriseCout;
-  const heuresReellesTotalChantier =
-    heuresReellesChantier + extras.heuresLibre + extras.heuresIndirect + repriseHeures;
-
-  // Stats d'affichage (cartes informatives) — trajet et indirect hors trajet.
-  // Elles n'ajoutent rien au total : déjà comptées dans coutMOTotalChantier.
-  const trajetStats = useMemo(() => {
-    let heures = 0, cout = 0;
-    pointages.forEach(p => {
-      if (p.type_pointage !== "indirect") return;
-      if (!/trajet/i.test(p.motif_indirect || "")) return;
-      const h = parseFloat(p.heures) || 0;
-      heures += h; cout += h * (parseFloat(p.taux_horaire) || 0);
-    });
-    return { heures, cout };
-  }, [pointages]);
-
-  const indirectStats = useMemo(() => {   // indirect HORS trajet
-    let heures = 0, cout = 0;
-    pointages.forEach(p => {
-      if (p.type_pointage !== "indirect") return;
-      if (/trajet/i.test(p.motif_indirect || "")) return;
-      const h = parseFloat(p.heures) || 0;
-      heures += h; cout += h * (parseFloat(p.taux_horaire) || 0);
-    });
-    return { heures, cout };
-  }, [pointages]);
-
-  // Heures passées sur le chantier, ventilées PAR MOIS puis PAR OUVRIER.
-  // Toutes les heures pointées comptent (tâches + trajets + indirect), c.-à-d.
-  // le temps réellement passé. Renvoie une liste triée du mois le plus récent
-  // au plus ancien : [{ mois:"2026-07", label:"juillet 2026", heures, cout,
-  // ouvriers:[{ nom, heures, cout }] }].
-  const heuresParMois = useMemo(() => {
-    const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-    const parMois = {};
-    pointages.forEach(p => {
-      const d = (p.date || "").slice(0, 7); // "YYYY-MM"
-      if (!/^\d{4}-\d{2}$/.test(d)) return;
-      const h = parseFloat(p.heures) || 0;
-      const c = h * (parseFloat(p.taux_horaire) || 0);
-      const nom = (p.ouvrier || "—").trim() || "—";
-      const m = (parMois[d] ||= { mois: d, heures: 0, cout: 0, ouvriers: {} });
-      m.heures += h; m.cout += c;
-      const o = (m.ouvriers[nom] ||= { nom, heures: 0, cout: 0 });
-      o.heures += h; o.cout += c;
-    });
-    return Object.values(parMois)
-      .map(m => ({
-        ...m,
-        label: (() => { const [y, mo] = m.mois.split("-"); return `${MOIS[parseInt(mo, 10) - 1]} ${y}`; })(),
-        ouvriers: Object.values(m.ouvriers).sort((a, b) => b.heures - a.heures),
-      }))
-      .sort((a, b) => b.mois.localeCompare(a.mois));
-  }, [pointages]);
+  // Heures ventilées PAR MOIS / PAR OUVRIER (module) + mois en cours (horloge,
+  // donc côté UI). Le détail par mois reste accessible via la modale.
+  const heuresParMois = useMemo(() => cfHeuresParMois(pointages), [pointages]);
   const heuresTotalTousMois = useMemo(() => heuresParMois.reduce((s, m) => s + m.heures, 0), [heuresParMois]);
-  // Heures du MOIS EN COURS — affiché sur le KPI d'en-tête (plus parlant que le
-  // cumul). Le détail par mois / par ouvrier reste accessible via la modale.
   const moisCourant = useMemo(() => {
     const d = new Date();
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -1038,38 +920,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     return { k, label, heures: heuresParMois.find(m => m.mois === k)?.heures || 0 };
   }, [heuresParMois]);
 
-  // ── PRÉVISIONNEL ──────────────────────────────────────────────────────────
-  // Coût MO PRÉVU = heures vendues (Σ heures_devis) × taux horaire global réglé
-  // dans Admin → Taux MO prévisionnel (repli sur le défaut si non réglé).
-  // À distinguer du « Coût MO » réel (coutMOChantier) issu des pointages.
-  const tauxMOPrevEff = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
-  const moPrevChantier = heuresVenduesChantier * tauxMOPrevEff;
-  // Total matériaux PRÉVU = somme des coûts matériaux estimés des ouvrages
-  // (cout_materiaux, calculé depuis les matériaux liés de la bibliothèque).
-  // À distinguer du KPI « Matériaux » = commandes réellement passées
-  // (coutMatChantier, somme des lignes de commande).
-  const commandesPrevChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
-  // Frais généraux = taux horaire × heures RÉELLES (heures réellement passées :
-  // tâches + trajets + indirect). Ils couvrent l'admin/transport supporté par
-  // chaque heure travaillée, pas par les heures vendues. Configurable dans Suivi
-  // direction. On garde fg_pct en compat mais on privilégie fg_taux_horaire.
-  const fgTauxHoraire = (() => {
-    const v = parseFloat(phasage?.plan_travaux?.meta?.fg_taux_horaire);
-    return Number.isFinite(v) ? v : 0;
-  })();
-  const fgChantier = fgTauxHoraire * heuresReellesTotalChantier;
-  // Marge nette = Vendu − Coût MO (tâches + trajets + indirect) − Matériaux − FG.
-  const margeChantier  = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier;
-  const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
-  const fmtEur = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+  const fmtEur = (n) => eur(n);
 
   // ─── SUIVI DIRECTION (scalaires stockés dans plan_travaux.meta) ─────────
   // Compatibilité v1 : on lit/écrit dans phasage.plan_travaux.meta avec les
   // mêmes clés. La v1 PlanTravaux continue de fonctionner si on bascule.
   const meta = phasage?.plan_travaux?.meta || {};
-  const margeCible  = parseFloat(meta.marge_vendue_cible) || 0;
-  const seuilPrime  = parseFloat(meta.seuil_prime)        || 0;
-  const primeChant  = parseFloat(meta.prime)              || 0;
+  const margeCible  = fin.meta.margeCible;
+  const seuilPrime  = fin.meta.seuilPrime;
+  const primeChant  = fin.meta.prime;
   // Sauvegarde des meta dans plan_travaux. Le reste de plan_travaux est
   // conservé (les tâches v1 par phase, etc.).
   // CRITIQUE : on relit plan_travaux depuis la DB AVANT d'écrire, pas depuis
@@ -1407,116 +1266,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   }, {});
   const orphans = ouvrages.filter(o => !o.lot_id || !lots.some(l => l.id === o.lot_id)).length;
 
-  // ─── AVANCEMENT CALCULÉ ─────────────────────────────────────────────────
-  // Ouvrage = moyenne des avancements de ses tâches, pondérée par heures_estimees.
-  // Si aucune tâche n'a heures_estimees → moyenne simple. Si aucune tâche → 0.
-  const avancementOuvrage = (ouvrage) => {
-    const taches = ouvrage.taches || [];
-    if (taches.length === 0) return 0;
-    const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-    if (totalHE > 0) {
-      return Math.round(
-        taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / totalHE
-      );
-    }
-    return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
-  };
-  // Détails de calcul (affichés en tooltip pour debug). Le ratio % d'avancement
-  // multiplié par une charge (heures ou euros) donne la quantité ACCOMPLIE
-  // dans la même unité. Ex : 10% × 10h = 1h faite, 50% × 8000€ = 4000€ vendus
-  // accomplis. On affiche les valeurs avec leurs vraies unités, plus le ratio
-  // final en pourcentage.
-  const fmt1 = (n) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
-  const avancementOuvrageDetail = (ouvrage) => {
-    const taches = ouvrage.taches || [];
-    if (taches.length === 0) return "Aucune tâche";
-    const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-    if (totalHE > 0) {
-      const lines = taches.map((t, i) => {
-        const av = parseFloat(t.avancement) || 0;
-        const h  = parseFloat(t.heures_estimees) || 0;
-        const faites = (av / 100) * h;
-        return `  ${i+1}. "${t.nom || "(sans nom)"}" : ${av}% × ${fmt1(h)}h = ${fmt1(faites)}h`;
-      });
-      const heuresFaites = taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) / 100) * (parseFloat(t.heures_estimees) || 0), 0);
-      return `Calcul pondéré par heures estimées :\n${lines.join("\n")}\n\nHeures faites = ${fmt1(heuresFaites)}h\nTotal heures = ${fmt1(totalHE)}h\n→ ${fmt1(heuresFaites)} / ${fmt1(totalHE)} = ${(heuresFaites/totalHE*100).toFixed(2)} %`;
-    }
-    const moy = taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
-    return `Aucune heure estimée — moyenne simple :\n${taches.map((t, i) => `  ${i+1}. "${t.nom || "(sans nom)"}" : ${parseFloat(t.avancement) || 0}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
-  };
-  const avancementLotDetail = (lotId) => {
-    const lotOuvrages = ouvragesDuLot(lotId);
-    if (lotOuvrages.length === 0) return "Aucun ouvrage dans ce lot";
-    const totalPrix = lotOuvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-    if (totalPrix > 0) {
-      const lines = lotOuvrages.map((o, i) => {
-        const a = avancementOuvrage(o);
-        const p = parseFloat(o.prix_ht) || 0;
-        const accompli = (a / 100) * p;
-        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${accompli.toLocaleString("fr-FR")} €`;
-      });
-      const eurosAccomplis = lotOuvrages.reduce((s, o) => s + (avancementOuvrage(o) / 100) * (parseFloat(o.prix_ht) || 0), 0);
-      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\n€ accomplis = ${eurosAccomplis.toLocaleString("fr-FR")} €\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${eurosAccomplis.toLocaleString("fr-FR")} / ${totalPrix.toLocaleString("fr-FR")} = ${(eurosAccomplis/totalPrix*100).toFixed(2)} %`;
-    }
-    const moy = lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length;
-    return `Aucun prix HT renseigné — moyenne simple :\n${lotOuvrages.map((o, i) => `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${avancementOuvrage(o)}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
-  };
-  const avancementTacheDetail = (t) => {
-    const av = parseFloat(t.avancement) || 0;
-    const h  = parseFloat(t.heures_estimees);
-    if (h != null && !isNaN(h)) {
-      const faites = (av / 100) * h;
-      return `Avancement saisi : ${av} %\nHeures estimées : ${fmt1(h)}h\nHeures faites : ${av}% × ${fmt1(h)}h = ${fmt1(faites)}h`;
-    }
-    return `Avancement saisi : ${av} %\n(Pas d'heures estimées)`;
-  };
-  // Lot = moyenne des avancements de ses ouvrages, pondérée par prix_ht. Si
-  // aucun ouvrage n'a prix_ht → moyenne simple. Le pseudo-lot "_orphans"
-  // agrège les ouvrages sans lot_id reconnu.
-  const ouvragesDuLot = (lotId) => lotId === "_orphans"
-    ? ouvrages.filter(o => !o.lot_id || !lots.some(l => l.id === o.lot_id))
-    : ouvrages.filter(o => o.lot_id === lotId);
-  const avancementLot = (lotId) => {
-    const lotOuvrages = ouvragesDuLot(lotId);
-    if (lotOuvrages.length === 0) return 0;
-    const totalPrix = lotOuvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-    if (totalPrix > 0) {
-      return Math.round(
-        lotOuvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix
-      );
-    }
-    return Math.round(lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length);
-  };
-  // Avancement global du chantier : moyenne de TOUS les ouvrages (lots
-  // confondus), pondérée par prix_ht. Si aucun ouvrage n'a prix_ht →
-  // moyenne simple. Sert pour la barre persistante en bas de page.
-  const avancementChantier = (() => {
-    if (ouvrages.length === 0) return 0;
-    const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-    if (totalPrix > 0) {
-      return Math.round(
-        ouvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix
-      );
-    }
-    return Math.round(ouvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / ouvrages.length);
-  })();
-  // Détail du calcul global (tooltip debug) — mêmes conventions d'unité que
-  // les autres tooltips : avancement × prix = euros accomplis.
-  const avancementChantierDetail = (() => {
-    if (ouvrages.length === 0) return "Aucun ouvrage";
-    const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-    if (totalPrix > 0) {
-      const lines = ouvrages.map((o, i) => {
-        const a = avancementOuvrage(o);
-        const p = parseFloat(o.prix_ht) || 0;
-        const accompli = (a / 100) * p;
-        return `  ${i+1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${p.toLocaleString("fr-FR")} € = ${accompli.toLocaleString("fr-FR")} €`;
-      });
-      const eurosAccomplis = ouvrages.reduce((s, o) => s + (avancementOuvrage(o) / 100) * (parseFloat(o.prix_ht) || 0), 0);
-      return `Calcul pondéré par prix HT :\n${lines.join("\n")}\n\n€ accomplis = ${eurosAccomplis.toLocaleString("fr-FR")} €\nTotal prix HT = ${totalPrix.toLocaleString("fr-FR")} €\n→ ${eurosAccomplis.toLocaleString("fr-FR")} / ${totalPrix.toLocaleString("fr-FR")} = ${(eurosAccomplis/totalPrix*100).toFixed(2)} %`;
-    }
-    return "Aucun prix HT renseigné — moyenne simple des % des ouvrages";
-  })();
+  // ─── AVANCEMENT : liaisons vers le module (mêmes noms qu'avant) ──────────
+  // avancementOuvrage / avancementOuvrageDetail / avancementTacheDetail sont
+  // importés tels quels ; les fonctions par lot / chantier sont pré-liées.
+  const ouvragesDuLot = (lotId) => cfOuvragesDuLot(ouvrages, lots, lotId);
+  const avancementLot = (lotId) => fin.lots.find(l => l.id === lotId)?.avancement || 0;
+  const avancementLotDetail = (lotId) => cfAvancementLotDetail(ouvrages, lots, lotId);
+  const avancementChantier = fin.brut.avancementChantier;
+  const avancementChantierDetail = cfAvancementChantierDetail(ouvrages);
 
   const ouvragesLot = selectedLotId
     ? ouvrages.filter(o => (selectedLotId === "_orphans"
@@ -2436,9 +2193,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
       {/* ── Sous-header chantier (KPI + barre d'avancement, persistant) ── */}
       {chantierId && !loadingPhasage && ouvrages.length > 0 && (() => {
-        const margeColor = margeChantier < 0 ? "#e15a5a"
-                         : margePctChantier < 15 ? "#f5a623"
-                         : "#22c55e";
+        const margeColor = couleurMarge(margeChantier, margePctChantier);
         return (
           <div style={{
             flexShrink: 0,
@@ -2453,21 +2208,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
               gap: 10,
             }}>
-              <KpiCard T={T} icon={Banknote} iconColor="#f5c400" label="Vendu HT"
-                value={fmtEur(prixHTChantier)}
-                sub={`${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""}`}
+              <KpiCard T={T} icon={Banknote} iconColor="#f5c400" label={fin.venduHT.label}
+                value={fin.venduHT.valeurTexte}
+                sub={fin.venduHT.sousLabel}
                 onClick={() => setKpiDetail("vendu")}/>
-              <KpiCard T={T} icon={Target} iconColor="#818cf8" label="MO prév."
-                value={fmtEur(moPrevChantier)}
-                sub={`${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`}
+              <KpiCard T={T} icon={Target} iconColor="#818cf8" label={fin.moPrev.label}
+                value={fin.moPrev.valeurTexte}
+                sub={fin.moPrev.sousLabel}
                 onClick={() => setKpiDetail("mo_prev")}/>
-              <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label="Commandes prév."
-                value={fmtEur(commandesPrevChantier)}
-                sub="Estimé · matériaux liés"
+              <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label={fin.matPrev.label}
+                value={fin.matPrev.valeurTexte}
+                sub={fin.matPrev.sousLabel}
                 onClick={() => setKpiDetail("commandes_prev")}/>
-              <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label="Heures totales"
-                value={`${heuresReellesTotalChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`}
-                sub={heuresVenduesChantier > 0 ? `${Math.round((heuresReellesTotalChantier / heuresVenduesChantier) * 100)}% consommées` : "réelles / vendues"}
+              <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label={fin.heuresReelles.label}
+                value={fin.heuresReelles.valeurTexte}
+                sub={fin.heuresReelles.sousLabel}
                 accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
                 onClick={() => setKpiDetail("heures")}/>
               <KpiCard T={T} icon={Calendar} iconColor="#5b9cf6" label="Heures ce mois"
@@ -2476,36 +2231,32 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   ? `${moisCourant.label} · voir le détail`
                   : `${moisCourant.label} · aucun pointage`}
                 onClick={() => setMoisModal(true)}/>
-              <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label="Coût MO"
-                value={fmtEur(coutMOTotalChantier)}
-                sub="Tâches + trajets + indirect"
+              <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label={fin.moReel.label}
+                value={fin.moReel.valeurTexte}
+                sub={fin.moReel.sousLabel}
                 accent={coutMOTotalChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}
                 onClick={() => setKpiDetail("mo")}/>
-              <KpiCard T={T} icon={Car} iconColor="#f59e0b" label="Trajets"
-                value={trajetStats.heures > 0
-                  ? `${trajetStats.heures.toFixed(1)}h · ${fmtEur(trajetStats.cout)}`
-                  : "—"}
-                sub="Inclus dans le coût MO"
+              <KpiCard T={T} icon={Car} iconColor="#f59e0b" label={fin.trajets.label}
+                value={fin.trajets.valeurTexte}
+                sub={fin.trajets.sousLabel}
                 onClick={() => setKpiDetail("trajet")}/>
-              <KpiCard T={T} icon={Clock} iconColor="#f59e0b" label="Heures indirectes"
-                value={indirectStats.heures > 0
-                  ? `${indirectStats.heures.toFixed(1)}h · ${fmtEur(indirectStats.cout)}`
-                  : "—"}
-                sub="Intempéries, SAV, nettoyage…"
+              <KpiCard T={T} icon={Clock} iconColor="#f59e0b" label={fin.indirect.label}
+                value={fin.indirect.valeurTexte}
+                sub={fin.indirect.sousLabel}
                 onClick={() => setKpiDetail("indirect")}/>
-              <KpiCard T={T} icon={Receipt} iconColor="#f97316" label="Matériaux"
-                value={fmtEur(coutMatChantier)}
-                sub={`Voir les commandes (${commandeLignes.length})`}
+              <KpiCard T={T} icon={Receipt} iconColor="#f97316" label={fin.matReel.label}
+                value={fin.matReel.valeurTexte}
+                sub={fin.matReel.sousLabel}
                 onClick={() => setMatKpiModal(true)}/>
-              <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label="Frais généraux"
-                value={fmtEur(fgChantier)}
-                sub={fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles` : "0 — à régler"}
+              <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label={fin.fg.label}
+                value={fin.fg.valeurTexte}
+                sub={fin.fg.sousLabel}
                 onClick={() => setKpiDetail("fg")}/>
               <KpiCard T={T}
                 icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
-                iconColor={margeColor} label="Marge nette"
-                value={`${margeChantier >= 0 ? "+" : ""}${fmtEur(margeChantier)}`}
-                sub={prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : null}
+                iconColor={margeColor} label={fin.marge.label}
+                value={fin.marge.valeurTexte}
+                sub={fin.marge.sousLabel}
                 accent={margeColor} bold={true}
                 onClick={() => setKpiDetail("marge")}/>
               {(margeCible > 0 || primeChant > 0) && (
@@ -3200,194 +2951,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
       {/* ── Détail générique d'un KPI (Vendu / Heures / Coût MO / FG / Marge) ── */}
       {kpiDetail && (() => {
-        const eur = (n) => `${Math.round(parseFloat(n) || 0).toLocaleString("fr-FR")} €`;
-        const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || null;
-
-        // Construit la configuration d'affichage selon le KPI cliqué.
-        let cfg = null;
-
-        if (kpiDetail === "vendu") {
-          const rows = ouvrages
-            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), value: prixHTOuvrage(o) }))
-            .filter(r => r.value > 0)
-            .sort((a, b) => b.value - a.value);
-          cfg = {
-            icon: Banknote, color: "#f5c400", title: "Prix de vente HT",
-            subtitle: `${rows.length} ouvrage${rows.length > 1 ? "s" : ""} valorisé${rows.length > 1 ? "s" : ""}`,
-            empty: "Aucun prix de vente saisi sur les ouvrages.",
-            rows: rows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value) })),
-            total: prixHTChantier, totalLabel: "Total vendu HT", totalColor: "#f5c400",
-          };
-        } else if (kpiDetail === "heures") {
-          const rows = ouvrages
-            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id),
-              r: heuresReellesOuvrage(o), v: heuresVenduesOuvrage(o) }))
-            .filter(r => r.r > 0 || r.v > 0)
-            .sort((a, b) => b.v - a.v || b.r - a.r);
-          const rowsHeures = rows.map(r => ({
-            main: r.main, sub: r.sub,
-            right: `${fmtH(r.r)}h / ${fmtH(r.v)}h`,
-            rightColor: couleurDepassement(r.r, r.v),
-          }));
-          const hExtra = extras.heuresIndirect + extras.heuresLibre;
-          if (hExtra > 0.05) {
-            rowsHeures.push({ main: "Trajets + indirect + libres", sub: "hors tâche du plan", right: `${fmtH(hExtra)}h / —` });
-          }
-          cfg = {
-            icon: Clock, color: "#5b9cf6", title: "Heures réelles / vendues",
-            subtitle: `${heuresReellesTotalChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h vendues`,
-            empty: "Aucune heure vendue ni pointée.",
-            rows: rowsHeures,
-            total: `${fmtH(heuresReellesTotalChantier)}h / ${fmtH(heuresVenduesChantier)}h`,
-            totalLabel: "Total réelles / vendues",
-            totalColor: couleurDepassement(heuresReellesTotalChantier, heuresVenduesChantier) || "#5b9cf6",
-            totalIsText: true,
-          };
-        } else if (kpiDetail === "mo") {
-          // Ventilation du coût MO réel par ouvrier (registre de pointage, taux figé).
-          const m = {};
-          ouvrages.forEach(o => (o.taches || []).forEach(t => tachePointagesParOuvrier(t).forEach(p => {
-            if (!m[p.ouvrier]) m[p.ouvrier] = { ouvrier: p.ouvrier, heures: 0, cout: 0, taux: p.taux };
-            m[p.ouvrier].heures += p.heures;
-            m[p.ouvrier].cout += p.cout;
-            m[p.ouvrier].taux = p.taux;
-          })));
-          const rows = Object.values(m).sort((a, b) => b.cout - a.cout);
-          const ventile = rows.reduce((s, r) => s + r.cout, 0);
-          const reste = coutMOChantier - ventile;
-          const out = rows.map(r => ({
-            main: r.ouvrier,
-            sub: `${fmtH(r.heures)}h × ${eur(r.taux)}/h`,
-            right: eur(r.cout),
-          }));
-          // Tâches sans pointage : coût calculé sur les ouvriers assignés (repli legacy).
-          if (reste > 0.5) {
-            out.push({ main: "Heures sans pointage nominatif", sub: "coût estimé via ouvriers assignés", right: eur(reste) });
-          }
-          // Trajets + indirect + libres : hors tâches du plan mais comptés dans le coût MO.
-          if (trajetStats.cout > 0) {
-            out.push({ main: "Trajets", sub: `${fmtH(trajetStats.heures)}h · pointages indirects`, right: eur(trajetStats.cout) });
-          }
-          if (indirectStats.cout > 0) {
-            out.push({ main: "Heures indirectes", sub: "intempéries, SAV, nettoyage…", right: eur(indirectStats.cout) });
-          }
-          if (extras.coutLibre > 0.5) {
-            out.push({ main: "Heures libres", sub: "hors tâche du plan", right: eur(extras.coutLibre) });
-          }
-          cfg = {
-            icon: HardHat, color: "#60a5fa", title: "Coût main d'œuvre réel",
-            subtitle: rows.length > 0 ? `${rows.length} ouvrier${rows.length > 1 ? "s" : ""} au registre` : "depuis les heures réelles",
-            empty: "Aucune heure réelle pointée pour l'instant.",
-            rows: out,
-            total: coutMOTotalChantier, totalLabel: "Total coût MO", totalColor: "#60a5fa",
-          };
-        } else if (kpiDetail === "fg") {
-          // Ventilation par heures RÉELLES : par ouvrage + une ligne pour les
-          // heures travaillées hors tâche (trajets, indirect, libres).
-          const rows = fgTauxHoraire > 0
-            ? ouvrages
-                .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hr: heuresReellesOuvrage(o) }))
-                .filter(r => r.hr > 0)
-                .sort((a, b) => b.hr - a.hr)
-                .map(r => ({ main: r.main, sub: `${fmtH(r.hr)}h × ${fgTauxHoraire}€/h`, right: eur(r.hr * fgTauxHoraire) }))
-            : [];
-          const hExtra = extras.heuresIndirect + extras.heuresLibre;
-          if (fgTauxHoraire > 0 && hExtra > 0.05) {
-            rows.push({ main: "Trajets + indirect + libres", sub: `${fmtH(hExtra)}h × ${fgTauxHoraire}€/h`, right: eur(hExtra * fgTauxHoraire) });
-          }
-          cfg = {
-            icon: Percent, color: "#a78bfa", title: "Frais généraux",
-            subtitle: fgTauxHoraire > 0
-              ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles`
-              : "Taux horaire non réglé (Suivi direction)",
-            empty: fgTauxHoraire > 0 ? "Aucune heure réelle pointée." : "Définis un taux horaire de frais généraux dans « Suivi direction » pour ventiler ce coût.",
-            rows,
-            total: fgChantier, totalLabel: "Total frais généraux", totalColor: "#a78bfa",
-          };
-        } else if (kpiDetail === "marge") {
-          const margeColor = margeChantier < 0 ? "#e15a5a" : margePctChantier < 15 ? "#f5a623" : "#22c55e";
-          cfg = {
-            icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor,
-            title: "Marge nette", subtitle: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : "Vendu − MO − Matériaux − FG",
-            empty: null,
-            rows: [
-              { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
-              { main: "Coût main d'œuvre", sub: "tâches + trajets + indirect", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
-              { main: "Matériaux", sub: "commandes du chantier", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
-              { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures réelles` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
-            ],
-            total: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
-            totalLabel: "Marge nette", totalColor: margeColor, totalIsText: true,
-          };
-        } else if (kpiDetail === "mo_prev") {
-          // Coût MO prévu par ouvrage = heures vendues × taux global.
-          const rows = ouvrages
-            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hv: heuresVenduesOuvrage(o) }))
-            .filter(r => r.hv > 0)
-            .sort((a, b) => b.hv - a.hv)
-            .map(r => ({ main: r.main, sub: `${fmtH(r.hv)}h × ${tauxMOPrevEff}€/h`, right: eur(r.hv * tauxMOPrevEff) }));
-          cfg = {
-            icon: Target, color: "#818cf8", title: "Coût MO prévisionnel",
-            subtitle: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`,
-            empty: "Aucune heure vendue sur les ouvrages.",
-            rows,
-            total: moPrevChantier, totalLabel: "Total MO prévisionnel", totalColor: "#818cf8",
-          };
-        } else if (kpiDetail === "commandes_prev") {
-          // Matériaux prévus par ouvrage = cout_materiaux (estimé depuis la biblio).
-          const rows = ouvrages
-            .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), value: coutMatOuvrage(o) }))
-            .filter(r => r.value > 0)
-            .sort((a, b) => b.value - a.value);
-          cfg = {
-            icon: Boxes, color: "#fb923c", title: "Commandes prévisionnelles",
-            subtitle: `${rows.length} ouvrage${rows.length > 1 ? "s" : ""} avec matériaux liés`,
-            empty: "Aucun matériau lié aux ouvrages (associe une fiche biblio pour estimer les commandes).",
-            rows: rows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value) })),
-            total: commandesPrevChantier, totalLabel: "Total commandes prév.", totalColor: "#fb923c",
-          };
-        } else if (kpiDetail === "trajet") {
-          // Ventilation du coût trajet par ouvrier (pointages indirects « Trajet »).
-          const m = {};
-          pointages.forEach(p => {
-            if (p.type_pointage !== "indirect") return;
-            if (!/trajet/i.test(p.motif_indirect || "")) return;
-            const nom = p.ouvrier || "?";
-            const hh = parseFloat(p.heures) || 0;
-            const taux = parseFloat(p.taux_horaire) || 0;
-            if (!m[nom]) m[nom] = { ouvrier: nom, heures: 0, cout: 0, taux };
-            m[nom].heures += hh; m[nom].cout += hh * taux; m[nom].taux = taux;
-          });
-          const rows = Object.values(m).sort((a, b) => b.cout - a.cout);
-          cfg = {
-            icon: Car, color: "#f59e0b", title: "Trajets",
-            subtitle: `${trajetStats.heures.toFixed(1)}h · ${rows.length} ouvrier${rows.length > 1 ? "s" : ""} · inclus dans le coût MO`,
-            empty: "Aucun trajet pointé pour l'instant.",
-            rows: rows.map(r => ({ main: r.ouvrier, sub: `${fmtH(r.heures)}h × ${eur(r.taux)}/h`, right: eur(r.cout) })),
-            total: trajetStats.cout, totalLabel: "Total trajets", totalColor: "#f59e0b",
-          };
-        } else if (kpiDetail === "indirect") {
-          // Ventilation des heures indirectes (hors trajet) par motif.
-          const m = {};
-          pointages.forEach(p => {
-            if (p.type_pointage !== "indirect") return;
-            if (/trajet/i.test(p.motif_indirect || "")) return;
-            const motif = (p.motif_indirect || "").trim() || "Autre";
-            const hh = parseFloat(p.heures) || 0;
-            const taux = parseFloat(p.taux_horaire) || 0;
-            if (!m[motif]) m[motif] = { motif, heures: 0, cout: 0 };
-            m[motif].heures += hh; m[motif].cout += hh * taux;
-          });
-          const rows = Object.values(m).sort((a, b) => b.cout - a.cout);
-          cfg = {
-            icon: Clock, color: "#f59e0b", title: "Heures indirectes",
-            subtitle: `${indirectStats.heures.toFixed(1)}h · hors trajet · incluses dans le coût MO`,
-            empty: "Aucune heure indirecte (hors trajet) pointée.",
-            rows: rows.map(r => ({ main: r.motif, sub: `${fmtH(r.heures)}h`, right: eur(r.cout) })),
-            total: indirectStats.cout, totalLabel: "Total indirect (hors trajet)", totalColor: "#f59e0b",
-          };
-        }
-        if (!cfg) return null;
+        // Tout le CONTENU (titres, sous-titres, lignes, totaux, messages vides)
+        // vient des objets Donnee du module. Ne restent ici que la présentation :
+        // icône et couleurs par KPI.
+        const margeColor = couleurMarge(margeChantier, margePctChantier);
+        const PRESENTATION = {
+          vendu:          { d: fin.venduHT,      icon: Banknote, color: "#f5c400" },
+          heures:         { d: fin.heuresReelles, icon: Clock,   color: "#5b9cf6",
+                            totalColor: couleurDepassement(heuresReellesTotalChantier, heuresVenduesChantier) || "#5b9cf6" },
+          mo:             { d: fin.moReel,       icon: HardHat,  color: "#60a5fa" },
+          fg:             { d: fin.fg,           icon: Percent,  color: "#a78bfa" },
+          marge:          { d: fin.marge,        icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor },
+          mo_prev:        { d: fin.moPrev,       icon: Target,   color: "#818cf8" },
+          commandes_prev: { d: fin.matPrev,      icon: Boxes,    color: "#fb923c" },
+          trajet:         { d: fin.trajets,      icon: Car,      color: "#f59e0b" },
+          indirect:       { d: fin.indirect,     icon: Clock,    color: "#f59e0b" },
+        };
+        const pres = PRESENTATION[kpiDetail];
+        if (!pres) return null;
+        const cfg = {
+          icon: pres.icon, color: pres.color,
+          title: pres.d.titre, subtitle: pres.d.sousTitre, empty: pres.d.vide,
+          rows: pres.d.ventilation,
+          total: pres.d.totalTexte != null ? pres.d.totalTexte : pres.d.valeur,
+          totalLabel: pres.d.totalLabel,
+          totalColor: pres.totalColor || pres.color,
+          totalIsText: pres.d.totalTexte != null,
+        };
 
         return (
           <div onClick={() => setKpiDetail(null)}

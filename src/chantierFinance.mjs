@@ -312,22 +312,32 @@ export function statsIndirectHorsTrajet(pointages) {
   return { heures, cout };
 }
 
-// Avancement pondéré d'une liste de tâches (heures vendues comme poids) —
-// utilisé par les synthèses de groupes de la vue chrono/prévisionnel.
-export function avancementPondereTaches(taches) {
-  let hv = 0, wsum = 0, wtot = 0;
-  (taches || []).forEach(t => {
-    const h = parseFloat(t.heures_vendues) || 0;
-    const av = parseInt(t.avancement) || 0;
-    hv += h;
-    if (h > 0) { wsum += h * av; wtot += h; }
+// Heures passées, ventilées PAR MOIS puis PAR OUVRIER. Toutes les heures
+// pointées comptent (tâches + trajets + indirect). Triée du mois le plus
+// récent au plus ancien : [{ mois:"2026-07", label:"juillet 2026", heures,
+// cout, ouvriers:[{ nom, heures, cout }] }]. (Le « mois en cours » dépend de
+// l'horloge : il reste côté UI.)
+export function heuresParMois(pointages) {
+  const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+  const parMois = {};
+  (pointages || []).forEach(p => {
+    const d = (p.date || "").slice(0, 7); // "YYYY-MM"
+    if (!/^\d{4}-\d{2}$/.test(d)) return;
+    const h = parseFloat(p.heures) || 0;
+    const c = h * (parseFloat(p.taux_horaire) || 0);
+    const nom = (p.ouvrier || "—").trim() || "—";
+    const m = (parMois[d] ||= { mois: d, heures: 0, cout: 0, ouvriers: {} });
+    m.heures += h; m.cout += c;
+    const o = (m.ouvriers[nom] ||= { nom, heures: 0, cout: 0 });
+    o.heures += h; o.cout += c;
   });
-  const avance = wtot > 0
-    ? Math.round(wsum / wtot)
-    : ((taches || []).length
-        ? Math.round((taches || []).reduce((s, t) => s + (parseInt(t.avancement) || 0), 0) / taches.length)
-        : 0);
-  return { heuresVendues: hv, avancement: avance };
+  return Object.values(parMois)
+    .map(m => ({
+      ...m,
+      label: (() => { const [y, mo] = m.mois.split("-"); return `${MOIS[parseInt(mo, 10) - 1]} ${y}`; })(),
+      ouvriers: Object.values(m.ouvriers).sort((a, b) => b.heures - a.heures),
+    }))
+    .sort((a, b) => b.mois.localeCompare(a.mois));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
