@@ -4,7 +4,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
-  Pencil, Check, RotateCcw, GripVertical, Clock,
+  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -27,12 +27,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
+    "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","validation","heures-salaries","plans","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
+    "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","validation","heures-salaries","plans","phasage-v2","bibliotheque","biblio-materiaux",
     "visite","info-client"
   ],
@@ -40,7 +40,7 @@ const ROLE_PAGES = {
     "dashboard","chantiers","planning","plans","visite","info-client"
   ],
   comptable: [
-    "dashboard","chantiers","commandes","biblio-materiaux","phasage-v2","heures-salaries","etats-financiers"
+    "dashboard","chantiers","bilan-semaine","commandes","biblio-materiaux","phasage-v2","heures-salaries","etats-financiers"
   ],
 };
 
@@ -50,6 +50,7 @@ const ALL_NAV_ITEMS = [
   { id:"dashboard",        icon:LayoutDashboard, label:"Accueil",    longLabel:"Tableau de bord"     },
   { id:"chantiers",        icon:HardHat,         label:"Chantiers",  longLabel:"Chantiers"           },
   { id:"planning",         icon:Calendar,        label:"Planning",   longLabel:"Planning semaine"    },
+  { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan",      longLabel:"Bilan de semaine"    },
   { id:"notes-todo",       icon:ClipboardList,   label:"Notes",      longLabel:"Notes & To-do"       },
   { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel",    longLabel:"Planning mensuel"    },
   { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
@@ -247,6 +248,7 @@ function Sidebar({
     { id:"dashboard",        icon:LayoutDashboard, label:"Tableau de bord"  },
     { id:"chantiers",        icon:HardHat,         label:"Chantiers"        },
     { id:"planning",         icon:Calendar,        label:"Planning semaine" },
+    { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },
     { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
     { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
     { id:"commandes",        icon:Package,         label:"Commandes"        },
