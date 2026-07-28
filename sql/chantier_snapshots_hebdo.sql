@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS public.chantier_snapshots_hebdo (
   heures_vendues  numeric,
   heures_reelles  numeric,
 
+  -- Projections (étape 6) — mêmes formules que le module (champ brut)
+  marge_terminaison    numeric,   -- marge projetée à la fin du chantier
+  reste_a_faire_h      numeric,   -- heures restantes estimées
+  reste_a_faire_eur    numeric,   -- vendu restant à produire
+  situation_a_facturer numeric,   -- (avancement − % facturé) × vendu ; null si % facturé indisponible
+  reste_a_commander    numeric,   -- matériaux prévus non commandés ; null si biblio indisponible
+
   lots            jsonb,      -- [{id,label,heuresVendues,heuresReelles,avancement,ratioDerive}]
   warnings        jsonb,      -- warnings du module + {code:"reconstitue"} pour le backfill
 

@@ -395,6 +395,19 @@ export const METHODE_CALCUL = [
   { cle: "ratioDerive", label: "Dérive d'un lot",
     formule: "(heures réelles ÷ heures vendues) ÷ (avancement ÷ 100) — à 1,00 le lot est dans le devis, au-delà de 1,15 il dérive ; indéterminé si les heures vendues ou l'avancement sont à zéro",
     source: "Ouvrages du lot + registre de pointage" },
+  // ── Projections (étape 6) : où on va, pas seulement où on en est ──
+  { cle: "resteAFaire", label: "Reste à faire", projection: true,
+    formule: "Heures : somme des heures estimées restantes des tâches non terminées (heures estimées × part non faite). Euros : vendu HT × part du chantier restant à produire",
+    source: "Tâches des ouvrages (heures estimées + avancement)" },
+  { cle: "margeATerminaison", label: "Marge à terminaison", projection: true,
+    formule: "Vendu HT − (coût MO réel + heures restantes × taux MO prévisionnel) − (matériaux réels + reste à commander) − frais généraux projetés (taux × heures totales projetées)",
+    source: "Registre de pointage, tâches restantes, lignes de commande, bibliothèque de matériaux, Suivi direction" },
+  { cle: "situationAFacturer", label: "Situation à facturer", projection: true,
+    formule: "(avancement % − % facturé) × vendu HT — si l'avancement dépasse le facturé, une situation est à émettre",
+    source: "Avancement du chantier + % facturé des États financiers (CA à provisionner)" },
+  { cle: "resteACommander", label: "Reste à commander", projection: true,
+    formule: "Somme des matériaux prévus (bibliothèque) sans ligne de commande ni marquage « commandé » — même règle que la page Commandes à passer",
+    source: "Matériaux liés des ouvrages vs lignes de commande" },
 ];
 const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
 
@@ -409,6 +422,9 @@ export function computeChantierFinance({
   tauxHoraires = {},   // map { nom_ouvrier: taux } (réglages Admin)
   tauxMOPrev = 0,      // taux MO prévisionnel global (réglages Admin)
   lots = [],           // config des lots (planning_config.lots_travaux)
+  // ── Optionnels, pour les PROJECTIONS (étape 6) ──
+  pctFacture = null,     // % facturé du chantier, fraction 0-1 (États financiers) — null = non disponible
+  materiauxById = null,  // map { id: fiche } de materiaux_bibliotheque — null = reste à commander indisponible
 } = {}) {
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
   const meta = phasage?.plan_travaux?.meta || {};
@@ -488,6 +504,54 @@ export function computeChantierFinance({
     };
   });
 
+  // ── PROJECTIONS (étape 6) : du constat au pilotage ──
+  // Heures restantes estimées : tâches non terminées, heures_estimees × part
+  // restante. Une tâche à 100 % ne compte plus, une tâche sans heures estimées
+  // ne peut rien projeter.
+  const heuresRestantes = ouvrages.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => {
+    const av = Math.max(0, Math.min(100, parseFloat(t.avancement) || 0));
+    const he = parseFloat(t.heures_estimees) || 0;
+    return ss + (av >= 100 ? 0 : he * (100 - av) / 100);
+  }, 0), 0);
+  // Reste à faire en euros : la part du vendu restant à produire.
+  const resteAFaireEuros = prixHTChantier * Math.max(0, 100 - avancementGlobal) / 100;
+
+  // Reste à commander : même règle que la page « Commandes à passer » —
+  // matériaux prévus (bibliothèque) sans ligne de commande NI flag commande_le.
+  let resteACommanderVal = null;
+  if (materiauxById) {
+    resteACommanderVal = 0;
+    ouvrages.forEach(o => {
+      const liens = (o.materiaux_liens || []).filter(ml => ml && ml.materiau_id != null);
+      if (liens.length === 0) return;
+      const lignesO = (commandeLignes || []).filter(l =>
+        l.ouvrage_id === o.id ||
+        (!l.ouvrage_id && l.materiau_id && liens.some(ml => String(ml.materiau_id) === String(l.materiau_id))));
+      const matCmd = new Set(lignesO.map(l => l.materiau_id != null ? String(l.materiau_id) : null).filter(Boolean));
+      liens.forEach(ml => {
+        if (matCmd.has(String(ml.materiau_id)) || ml.commande_le) return;
+        const mat = materiauxById[String(ml.materiau_id)];
+        if (!mat) return;
+        const q = ml.quantite != null ? ml.quantite : 1;
+        resteACommanderVal += (parseFloat(mat.prix_unitaire) || 0) * (parseFloat(q) || 0);
+      });
+    });
+  }
+
+  // Marge à terminaison : ce qu'il restera une fois le chantier fini, si les
+  // heures restantes coûtent le taux MO prévisionnel et si le reste à
+  // commander est effectivement commandé.
+  const fgProjete = fgTauxHoraire * (heuresReellesTotalChantier + heuresRestantes);
+  const margeATerminaisonVal = prixHTChantier
+    - (coutMOTotalChantier + heuresRestantes * tauxMOPrevEff)
+    - (coutMatChantier + (resteACommanderVal ?? 0))
+    - fgProjete;
+
+  // Situation à facturer : avancement au-delà du % facturé (États financiers).
+  const situationVal = (pctFacture != null && Number.isFinite(parseFloat(pctFacture)) && prixHTChantier > 0)
+    ? (avancementGlobal - parseFloat(pctFacture) * 100) / 100 * prixHTChantier
+    : null;
+
   // ── Warnings agrégés (niveau chantier) ──
   const warnings = [];
   if (fgTauxHoraire <= 0) {
@@ -523,6 +587,12 @@ export function computeChantierFinance({
       });
     }
   });
+  if (situationVal != null && situationVal > 0) {
+    warnings.push({
+      code: "situation_a_facturer", gravite: "alerte",
+      message: `L'avancement (${avancementGlobal} %) dépasse le facturé (${(parseFloat(pctFacture) * 100).toFixed(0)} %) : une situation de ${eur(situationVal)} est à émettre.`,
+    });
+  }
 
   // ── Ventilations (mêmes lignes que les modales kpiDetail de PhasageV2) ──
 
@@ -892,9 +962,78 @@ export function computeChantierFinance({
     renseigne: repriseHeures > 0,
   });
 
+  // ── Donnee des projections (visuellement distinctes des chiffres à date) ──
+  const resteAFaire = D({
+    cle: "resteAFaire", label: "Reste à faire", format: "euro", projection: true,
+    valeur: resteAFaireEuros, valeurHeures: heuresRestantes,
+    valeurTexte: `${fmtH(heuresRestantes)}h · ${eur(resteAFaireEuros)}`,
+    sousLabel: "Projection · tâches non terminées",
+    formule: FORMULE.resteAFaire,
+    calculDetaille: `${fmtH(heuresRestantes)}h restantes estimées · ${eur(prixHTChantier)} × ${Math.max(0, 100 - avancementGlobal)} % restant = ${eur(resteAFaireEuros)}`,
+    source: "Tâches des ouvrages (heures estimées + avancement)",
+    renseigne: ouvrages.length > 0,
+  });
+
+  const margeATerminaison = D({
+    cle: "margeATerminaison", label: "Marge à terminaison", format: "euro", projection: true,
+    valeur: margeATerminaisonVal,
+    valeurTexte: `${margeATerminaisonVal >= 0 ? "+" : ""}${eur(margeATerminaisonVal)}`,
+    sousLabel: "Projection · si le restant coûte le prévu",
+    formule: FORMULE.margeATerminaison,
+    calculDetaille: `${eur(prixHTChantier)} − (${eur(coutMOTotalChantier)} + ${fmtH(heuresRestantes)}h × ${tauxMOPrevEff} €/h) − (${eur(coutMatChantier)} + ${eur(resteACommanderVal ?? 0)}) − ${eur(fgProjete)} (FG projetés) = ${eur(margeATerminaisonVal)}`,
+    ventilation: [
+      { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
+      { main: "Coût MO réel", sub: "déjà pointé", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
+      { main: "MO restante estimée", sub: `${fmtH(heuresRestantes)}h × ${tauxMOPrevEff} €/h`, right: `− ${eur(heuresRestantes * tauxMOPrevEff)}`, rightColor: "#e15a5a" },
+      { main: "Matériaux réels", sub: "commandes passées", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
+      { main: "Reste à commander", sub: materiauxById ? "matériaux prévus non commandés" : "bibliothèque non chargée → 0", right: `− ${eur(resteACommanderVal ?? 0)}`, rightColor: "#e15a5a" },
+      { main: "Frais généraux projetés", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${fmtH(heuresReellesTotalChantier + heuresRestantes)}h` : "non réglés", right: `− ${eur(fgProjete)}`, rightColor: "#e15a5a" },
+    ],
+    titre: "Marge à terminaison",
+    sousTitre: "Projection : marge restante si les heures restantes coûtent le taux prévisionnel",
+    totalLabel: "Marge à terminaison",
+    totalTexte: `${margeATerminaisonVal >= 0 ? "+" : ""}${eur(margeATerminaisonVal)}`,
+    source: "Registre de pointage, tâches restantes, commandes, bibliothèque, Suivi direction",
+    warnings: warnings.filter(w => w.code === "fg_non_regle"),
+    renseigne: prixHTChantier > 0,
+  });
+
+  const situationAFacturer = D({
+    cle: "situationAFacturer", label: "Situation à facturer", format: "euro", projection: true,
+    valeur: situationVal,
+    valeurTexte: situationVal != null ? `${situationVal >= 0 ? "+" : ""}${eur(situationVal)}` : "—",
+    sousLabel: pctFacture != null ? `facturé ${(parseFloat(pctFacture) * 100).toFixed(0)} % · avancement ${avancementGlobal} %` : "% facturé non disponible",
+    formule: FORMULE.situationAFacturer,
+    calculDetaille: situationVal != null
+      ? `(${avancementGlobal} % − ${(parseFloat(pctFacture) * 100).toFixed(0)} %) × ${eur(prixHTChantier)} = ${eur(situationVal)}`
+      : "Le % facturé de ce chantier n'est pas renseigné dans les États financiers.",
+    titre: "Situation à facturer",
+    sousTitre: "Projection : avancement au-delà du facturé",
+    source: "Avancement + % facturé (États financiers, CA à provisionner)",
+    warnings: warnings.filter(w => w.code === "situation_a_facturer"),
+    renseigne: situationVal != null,
+  });
+
+  const resteACommander = D({
+    cle: "resteACommander", label: "Reste à commander", format: "euro", projection: true,
+    valeur: resteACommanderVal,
+    valeurTexte: resteACommanderVal != null ? eur(resteACommanderVal) : "—",
+    sousLabel: "Projection · matériaux prévus non commandés",
+    formule: FORMULE.resteACommander,
+    calculDetaille: resteACommanderVal != null
+      ? `Matériaux liés non commandés → ${eur(resteACommanderVal)}`
+      : "Bibliothèque de matériaux non chargée : reste à commander indisponible.",
+    titre: "Reste à commander",
+    sousTitre: "Même règle que la page Commandes à passer",
+    source: "Matériaux liés des ouvrages vs lignes de commande",
+    renseigne: resteACommanderVal != null,
+  });
+
   return {
     venduHT, ecartVendu, moPrev, matPrev, moReel, matReel, fg, marge, margePct,
     heuresVendues, heuresReelles, avancement, trajets, indirect, reprise,
+    // Projections (étape 6) — à afficher distinctement des chiffres à date.
+    resteAFaire, margeATerminaison, situationAFacturer, resteACommander,
     lots: lotsOut,
     meta: { margeCible, seuilPrime, prime },
     warnings,
@@ -911,6 +1050,10 @@ export function computeChantierFinance({
       trajetHeures: trajet.heures, trajetCout: trajet.cout,
       indirectHeures: indirectHT.heures, indirectCout: indirectHT.cout,
       montantDevis, ecartVendu: ecartVenduVal,
+      heuresRestantes, resteAFaireEuros, fgProjete,
+      margeATerminaison: margeATerminaisonVal,
+      situationAFacturer: situationVal,
+      resteACommander: resteACommanderVal,
     },
   };
 }

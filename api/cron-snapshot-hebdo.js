@@ -91,6 +91,11 @@ function buildRow(cf, phasage, weekId, dateSnapshot, extraWarnings = []) {
       avancement:    b.avancementChantier,
       heures_vendues: r2(b.heuresVenduesChantier),
       heures_reelles: r2(b.heuresReellesTotalChantier),
+      marge_terminaison:    r2(b.margeATerminaison),
+      reste_a_faire_h:      r2(b.heuresRestantes),
+      reste_a_faire_eur:    r2(b.resteAFaireEuros),
+      situation_a_facturer: b.situationAFacturer != null ? r2(b.situationAFacturer) : null,
+      reste_a_commander:    b.resteACommander != null ? r2(b.resteACommander) : null,
       lots: fin.lots
         .filter(l => !l.vide)
         .map(l => ({
@@ -142,7 +147,7 @@ module.exports = async function handler(req, res) {
 
   try {
     // ── Données communes ──
-    const [phasages, pointages, commandeLignes, cfgTaux, cfgTauxMO, cfgLots] = await Promise.all([
+    const [phasages, pointages, commandeLignes, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux] = await Promise.all([
       fetchAll(supabase, "phasages", "*"),
       fetchAll(supabase, "pointages", "*"),
       fetchAll(supabase, "commande_lignes",
@@ -150,6 +155,8 @@ module.exports = async function handler(req, res) {
       supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
       supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
       supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
+      supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
+      fetchAll(supabase, "materiaux_bibliotheque", "id, prix_unitaire"),
     ]);
     const tauxHoraires = cfgTaux.data?.value || {};
     const tauxMOPrev = parseFloat(cfgTauxMO.data?.value) || 0;
@@ -166,6 +173,30 @@ module.exports = async function handler(req, res) {
     const clByChantier = {};
     commandeLignes.forEach(l => { (clByChantier[l.chantier_id] ||= []).push(l); });
 
+    // Projections : bibliothèque de matériaux (reste à commander) + % facturé
+    // par NOM de chantier (États financiers, période la plus récente).
+    const materiauxById = {};
+    (materiaux || []).forEach(mt => { materiauxById[String(mt.id)] = mt; });
+    const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+    const pctFactureParNom = {};
+    (() => {
+      const av = cfgEtats.data?.value?.avancement;
+      const periodId = av?.periods?.[0]?.id;
+      if (!periodId || !Array.isArray(av?.rows)) return;
+      av.rows.forEach(row => {
+        const v = row.values?.[periodId];
+        const nomCh = normNom(v?.chantier || row.chantier);
+        if (!nomCh) return;
+        const raw = parseFloat(String(v?.pctFacture ?? "").replace(",", "."));
+        if (!Number.isFinite(raw)) return;
+        pctFactureParNom[nomCh] = Math.abs(raw) > 1 ? raw / 100 : raw;
+      });
+    })();
+    const pctFactureDe = (ph) => {
+      const n = normNom(ph.chantier_nom);
+      return n in pctFactureParNom ? pctFactureParNom[n] : null;
+    };
+
     const rows = [];
     const skipped = [];
 
@@ -176,7 +207,8 @@ module.exports = async function handler(req, res) {
         if (!ph.chantier_id) continue;
         const pts = ptsByChantier[ph.chantier_id] || [];
         const cl = clByChantier[ph.chantier_id] || [];
-        const inputs = { phasage: ph, pointages: pts, commandeLignes: cl, tauxHoraires, tauxMOPrev, lots };
+        const inputs = { phasage: ph, pointages: pts, commandeLignes: cl, tauxHoraires, tauxMOPrev, lots,
+          pctFacture: pctFactureDe(ph), materiauxById };
         const { row, fin } = buildRow(cf, { ...ph, inputs }, weekId, dateSnapshot);
         if (!estActif(pts, fin.brut.avancementChantier, dateSnapshot)) {
           skipped.push({ chantier_id: ph.chantier_id, raison: "inactif" });
@@ -223,7 +255,8 @@ module.exports = async function handler(req, res) {
             : ph;
           const ptsAlors = ptsAll.filter(p => (p.date || "").slice(0, 10) <= friday);
           const clAlors = clAll.filter(l => !l.created_at || l.created_at.slice(0, 10) <= friday);
-          const inputs = { phasage: phasageAlors, pointages: ptsAlors, commandeLignes: clAlors, tauxHoraires, tauxMOPrev, lots };
+          const inputs = { phasage: phasageAlors, pointages: ptsAlors, commandeLignes: clAlors, tauxHoraires, tauxMOPrev, lots,
+            pctFacture: pctFactureDe(ph), materiauxById };
           const { row, fin } = buildRow(cf, { ...phasageAlors, inputs }, weekIdFor(friday), friday, [{
             code: "reconstitue", gravite: "info",
             message: `Snapshot reconstitué a posteriori (backfill du ${dateSnapshot}) : ouvrages via phasages_history, taux/réglages actuels.`,

@@ -385,11 +385,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     let cancelled = false;
     (async () => {
       try {
-        const [phQ, cfgTaux, cfgTauxMO, cfgLots] = await Promise.all([
+        const [phQ, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, matQ] = await Promise.all([
           supabase.from("phasages").select("*"),
           supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
+          supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
+          supabase.from("materiaux_bibliotheque").select("id, prix_unitaire"),
         ]);
         const phasages = phQ.data || [];
         const tauxHoraires = cfgTaux.data?.value || {};
@@ -398,6 +400,26 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         const lotsCfg = Array.isArray(items) && items.length > 0
           ? items.map((l, i) => ({ id: l.id || `lot_${i}`, label: l.label || `Lot ${i + 1}`, couleur: l.couleur || l.color || "#888888" }))
           : [];
+        // Bibliothèque des matériaux → reste à commander (projection).
+        const materiauxById = {};
+        (matQ.data || []).forEach(mt => { materiauxById[String(mt.id)] = mt; });
+        // % facturé par NOM de chantier — logique « CA à provisionner » des
+        // États financiers (période la plus récente = periods[0]).
+        const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+        const pctFactureParNom = {};
+        (() => {
+          const av = cfgEtats.data?.value?.avancement;
+          const periodId = av?.periods?.[0]?.id;
+          if (!periodId || !Array.isArray(av?.rows)) return;
+          av.rows.forEach(row => {
+            const v = row.values?.[periodId];
+            const nomCh = normNom(v?.chantier || row.chantier);
+            if (!nomCh) return;
+            const raw = parseFloat(String(v?.pctFacture ?? "").toString().replace(",", "."));
+            if (!Number.isFinite(raw)) return;
+            pctFactureParNom[nomCh] = Math.abs(raw) > 1 ? raw / 100 : raw;
+          });
+        })();
         // Pointages + lignes de commande : PAGINÉS (la limite Supabase de
         // 1 000 lignes par requête tronquerait les chantiers volumineux).
         const fetchTout = async (table, select) => {
@@ -431,10 +453,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         const finByCh = {}, actifs = new Set(), demarrages = {};
         phasages.forEach(ph => {
           if (!ph.chantier_id) return;
+          const nomCh = normNom(ph.chantier_nom || chantiers.find(c => c.id === ph.chantier_id)?.nom || "");
           const fin = computeChantierFinance({
             phasage: ph, pointages: ptsBy[ph.chantier_id] || [],
             commandeLignes: clsBy[ph.chantier_id] || [],
             tauxHoraires, tauxMOPrev, lots: lotsCfg,
+            pctFacture: nomCh in pctFactureParNom ? pctFactureParNom[nomCh] : null,
+            materiauxById,
           });
           finByCh[ph.chantier_id] = fin;
           const av = fin.brut.avancementChantier;
@@ -501,6 +526,11 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     matReel: { icon: Receipt, color: "#f97316" },
     fg: { icon: Percent, color: "#a78bfa" },
     marge: { icon: TrendingUp, color: "#22c55e" },
+    // Projections (étape 6) — teinte violette commune : « où on va »
+    resteAFaire: { icon: Clock, color: "#8b5cf6" },
+    margeATerminaison: { icon: TrendingDown, color: "#8b5cf6" },
+    situationAFacturer: { icon: Receipt, color: "#8b5cf6" },
+    resteACommander: { icon: Receipt, color: "#8b5cf6" },
   };
   const ouvrirVentilation = (donnee, chantierNom) => setKpiModal({ donnee, chantierNom });
 
@@ -839,6 +869,15 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               ${cell("Frais généraux", eur(b.fgChantier))}
               ${cell("Marge nette", `${b.margeChantier >= 0 ? "+" : ""}${eur(b.margeChantier)}`, margeC)}
               ${cell("Marge %", b.prixHTChantier > 0 ? `${b.margePctChantier.toFixed(1)}%` : "—", margeC)}
+            </tr>
+          </table>
+          <table class="fin-table" style="width:100%;border-collapse:collapse;border:1pt dashed #8b5cf6;border-radius:2pt;margin:0 0 7pt;">
+            <tr><td colspan="4" style="padding:3pt 10pt;font-size:6.5pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#8b5cf6;">Projections — où on va (pas des chiffres constatés)</td></tr>
+            <tr>
+              ${cell("Reste à faire", `${cfFmtH(b.heuresRestantes)}h · ${eur(b.resteAFaireEuros)}`, "#6d28d9").replace('border-left:1pt solid ' + LINE + ';', '')}
+              ${cell("Marge à terminaison", `${b.margeATerminaison >= 0 ? "+" : ""}${eur(b.margeATerminaison)}`, b.margeATerminaison >= 0 ? "#6d28d9" : RED)}
+              ${cell("Situation à facturer", b.situationAFacturer != null ? `${b.situationAFacturer >= 0 ? "+" : ""}${eur(b.situationAFacturer)}` : "—", "#6d28d9")}
+              ${cell("Reste à commander", b.resteACommander != null ? eur(b.resteACommander) : "—", "#6d28d9")}
             </tr>
           </table>
           ${lotsRows ? `
@@ -1917,6 +1956,29 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                               onClick={() => ouvrirVentilation(d, nom)}/>
                           );
                         })}
+                      </div>
+                      {/* Projections : où on va — visuellement distinctes des
+                          chiffres constatés (bord pointillé, teinte violette). */}
+                      <div style={{ marginTop:8, border:"1.5px dashed rgba(139,92,246,0.45)", borderRadius:10, padding:"8px 10px" }}>
+                        <div style={{ fontSize:10, fontWeight:800, letterSpacing:1.2, textTransform:"uppercase", color:"#8b5cf6", marginBottom:6 }}>
+                          Projections — où on va (pas des chiffres constatés)
+                        </div>
+                        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:8 }}>
+                          {["resteAFaire", "margeATerminaison", "situationAFacturer", "resteACommander"].map(cle => {
+                            const d = fin[cle];
+                            if (!d) return null;
+                            const pres = KPI_PRES[cle] || {};
+                            const accent = cle === "margeATerminaison"
+                              ? (fin.brut.margeATerminaison >= 0 ? "#8b5cf6" : "#e15a5a")
+                              : undefined;
+                            return (
+                              <KpiCard key={cle} T={T} icon={pres.icon} iconColor={pres.color}
+                                label={d.label} value={d.valeurTexte} sub={d.sousLabel}
+                                donnee={d} dateRef={todayRefISO} accent={accent}
+                                onClick={d.ventilation?.length ? () => ouvrirVentilation(d, nom) : undefined}/>
+                            );
+                          })}
+                        </div>
                       </div>
                       {alertes.length > 0 && (
                         <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
