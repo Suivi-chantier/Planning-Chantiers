@@ -1,0 +1,57 @@
+name: Snapshot hebdomadaire financier des chantiers
+
+# Prend la "photo" FINANCIÈRE complète (vendu, coûts, marge, avancement, lots)
+# de chaque chantier actif chaque vendredi 18h10 Paris — 10 minutes après le
+# snapshot d'avancement, sur le même modèle (cron-snapshot-avancement.yml).
+# Les formules viennent de src/chantierFinance.js via /api/cron-snapshot-hebdo.
+#
+# Secret requis : CRON_SECRET (déjà en place).
+
+on:
+  schedule:
+    - cron: '10 16 * * 5'       # Vendredi 16h10 UTC → 18h10 Paris (été), 17h10 (hiver)
+  workflow_dispatch:            # Bouton "Run workflow" : test manuel + backfill
+    inputs:
+      backfill:
+        description: 'Backfill (reconstituer les vendredis passés)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      weeks:
+        description: 'Nombre de semaines à reconstituer (backfill)'
+        required: false
+        default: '12'
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-snapshot-hebdo
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BACKFILL:    ${{ github.event.inputs.backfill || 'false' }}
+          WEEKS:       ${{ github.event.inputs.weeks || '12' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          url="https://planning-chantiers.vercel.app/api/cron-snapshot-hebdo"
+          if [ "$BACKFILL" = "true" ]; then
+            url="$url?backfill=true&weeks=$WEEKS"
+            echo "Mode BACKFILL ($WEEKS semaines)"
+          fi
+          echo "Appel : $url"
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 290 \
+            "$url")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Snapshot hebdo endpoint a renvoyé un statut non-200"
+            exit 1
+          fi
