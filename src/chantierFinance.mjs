@@ -341,6 +341,64 @@ export function heuresParMois(pointages) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MÉTHODE DE CALCUL — formules et sources en français, pour un conducteur de
+// travaux. C'est LE registre utilisé par computeChantierFinance (champ
+// `formule` des Donnee) ET par l'annexe « Méthode de calcul » du PDF / de
+// l'aide : un texte, un seul endroit, jamais rédigé en dur dans l'UI.
+// ─────────────────────────────────────────────────────────────────────────────
+export const METHODE_CALCUL = [
+  { cle: "venduHT", label: "Vendu HT",
+    formule: "Somme des prix de vente HT des ouvrages du phasage",
+    source: "Ouvrages du phasage (Phasage V2)" },
+  { cle: "ecartVendu", label: "Écart de vendu",
+    formule: "Somme des prix HT des ouvrages − montant du devis renseigné",
+    source: "Ouvrages du phasage vs montant de devis saisi" },
+  { cle: "heuresVendues", label: "Heures vendues",
+    formule: "Somme des heures vendues au devis (heures_devis) des ouvrages",
+    source: "Ouvrages du phasage (Phasage V2)" },
+  { cle: "heuresReelles", label: "Heures totales",
+    formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité",
+    source: "Registre de pointage (validations de fin de journée)" },
+  { cle: "moPrev", label: "MO prév.",
+    formule: "Heures vendues × taux de main d'œuvre prévisionnel (réglage Admin)",
+    source: "Ouvrages du phasage × taux Admin" },
+  { cle: "matPrev", label: "Commandes prév.",
+    formule: "Somme des coûts matériaux estimés des ouvrages (matériaux liés de la bibliothèque)",
+    source: "Bibliothèque de matériaux (cout_materiaux des ouvrages)" },
+  { cle: "moReel", label: "Coût MO",
+    formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
+    source: "Registre de pointage (validations de fin de journée)" },
+  { cle: "matReel", label: "Matériaux",
+    formule: "Somme des lignes de commande passées pour le chantier",
+    source: "Lignes de commande du chantier" },
+  { cle: "fg", label: "Frais généraux",
+    formule: "Taux horaire de frais généraux (Suivi direction) × heures réelles totales du chantier",
+    source: "Suivi direction (fg_taux_horaire) × registre de pointage" },
+  { cle: "marge", label: "Marge nette",
+    formule: "Vendu HT − coût main d'œuvre − matériaux − frais généraux",
+    source: "Ouvrages du phasage, registre de pointage, lignes de commande, Suivi direction" },
+  { cle: "margePct", label: "Marge %",
+    formule: "Marge nette ÷ vendu HT × 100",
+    source: "Dérivé de la marge nette" },
+  { cle: "avancement", label: "Avancement",
+    formule: "Moyenne des avancements des ouvrages, pondérée par leur prix de vente (chaque ouvrage : moyenne de ses tâches pondérée par les heures estimées)",
+    source: "Avancements des tâches saisis / déclarés en fin de journée" },
+  { cle: "trajets", label: "Trajets",
+    formule: "Heures de trajet pointées × taux horaire de l'ouvrier (déjà comptées dans le coût MO)",
+    source: "Registre de pointage (validations de fin de journée)" },
+  { cle: "indirect", label: "Heures indirectes",
+    formule: "Heures indirectes pointées (hors trajet) × taux horaire de l'ouvrier (déjà comptées dans le coût MO)",
+    source: "Registre de pointage (validations de fin de journée)" },
+  { cle: "reprise", label: "Reprise d'antériorité",
+    formule: "Heures consommées avant l'application × taux moyen saisi (Suivi direction)",
+    source: "Suivi direction (reprise_heures × reprise_taux)" },
+  { cle: "ratioDerive", label: "Dérive d'un lot",
+    formule: "(heures réelles ÷ heures vendues) ÷ (avancement ÷ 100) — à 1,00 le lot est dans le devis, au-delà de 1,15 il dérive ; indéterminé si les heures vendues ou l'avancement sont à zéro",
+    source: "Ouvrages du lot + registre de pointage" },
+];
+const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // computeChantierFinance — le point d'entrée. Reçoit les données déjà chargées
 // (les appelants font les I/O) et rend tous les indicateurs sous forme Donnee.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -612,7 +670,7 @@ export function computeChantierFinance({
     cle: "venduHT", label: "Vendu HT", format: "euro",
     valeur: prixHTChantier, valeurTexte: eur(prixHTChantier),
     sousLabel: `${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""}`,
-    formule: "Somme des prix de vente HT des ouvrages du phasage",
+    formule: FORMULE.venduHT,
     calculDetaille: `${venduRows.length} ouvrage${venduRows.length > 1 ? "s" : ""} valorisé${venduRows.length > 1 ? "s" : ""} → ${eur(prixHTChantier)}`,
     ventilation: venduVentilation,
     titre: "Prix de vente HT",
@@ -627,7 +685,7 @@ export function computeChantierFinance({
   const ecartVendu = D({
     cle: "ecartVendu", label: "Écart de vendu", format: "euro",
     valeur: ecartVenduVal, valeurTexte: ecartVenduVal != null ? eur(ecartVenduVal) : "—",
-    formule: "Somme des prix HT des ouvrages − montant du devis renseigné",
+    formule: FORMULE.ecartVendu,
     calculDetaille: montantDevis != null
       ? `${eur(prixHTChantier)} − ${eur(montantDevis)} = ${eur(ecartVenduVal)}`
       : "Aucun montant de devis renseigné (meta.prix_vendu ou colonne prix_vendu).",
@@ -641,7 +699,7 @@ export function computeChantierFinance({
   const heuresVendues = D({
     cle: "heuresVendues", label: "Heures vendues", format: "heure",
     valeur: heuresVenduesChantier, valeurTexte: `${fmtH(heuresVenduesChantier)}h`,
-    formule: "Somme des heures vendues au devis (heures_devis) des ouvrages",
+    formule: FORMULE.heuresVendues,
     calculDetaille: `${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""} → ${fmtH(heuresVenduesChantier)}h vendues`,
     source: sourceOuvrages,
     renseigne: heuresVenduesChantier > 0 || ouvrages.length > 0,
@@ -654,7 +712,7 @@ export function computeChantierFinance({
     sousLabel: heuresVenduesChantier > 0
       ? `${Math.round((heuresReellesTotalChantier / heuresVenduesChantier) * 100)}% consommées`
       : "réelles / vendues",
-    formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité",
+    formule: FORMULE.heuresReelles,
     calculDetaille: `${fmtH(heuresReellesChantier)}h (tâches) + ${fmtH(extras.heuresLibre)}h (libres) + ${fmtH(extras.heuresIndirect)}h (trajets + indirect)${repriseHeures > 0 ? ` + ${fmtH(repriseHeures)}h (reprise)` : ""} = ${fmtH(heuresReellesTotalChantier)}h`,
     ventilation: heuresVentilation,
     titre: "Heures réelles / vendues",
@@ -670,7 +728,7 @@ export function computeChantierFinance({
     cle: "moPrev", label: "MO prév.", format: "euro",
     valeur: moPrevChantier, valeurTexte: eur(moPrevChantier),
     sousLabel: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`,
-    formule: "Heures vendues × taux de main d'œuvre prévisionnel (réglage Admin)",
+    formule: FORMULE.moPrev,
     calculDetaille: `${fmtH(heuresVenduesChantier)}h × ${tauxMOPrevEff} €/h = ${eur(moPrevChantier)}`,
     ventilation: moPrevVentilation,
     titre: "Coût MO prévisionnel",
@@ -685,7 +743,7 @@ export function computeChantierFinance({
     cle: "matPrev", label: "Commandes prév.", format: "euro",
     valeur: commandesPrevChantier, valeurTexte: eur(commandesPrevChantier),
     sousLabel: "Estimé · matériaux liés",
-    formule: "Somme des coûts matériaux estimés des ouvrages (matériaux liés de la bibliothèque)",
+    formule: FORMULE.matPrev,
     calculDetaille: `${matPrevRows.length} ouvrage${matPrevRows.length > 1 ? "s" : ""} avec matériaux liés → ${eur(commandesPrevChantier)}`,
     ventilation: matPrevVentilation,
     titre: "Commandes prévisionnelles",
@@ -700,7 +758,7 @@ export function computeChantierFinance({
     cle: "moReel", label: "Coût MO", format: "euro",
     valeur: coutMOTotalChantier, valeurTexte: eur(coutMOTotalChantier),
     sousLabel: "Tâches + trajets + indirect",
-    formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
+    formule: FORMULE.moReel,
     calculDetaille: `${eur(coutMOChantier)} (tâches) + ${eur(extras.coutLibre)} (libres) + ${eur(extras.coutIndirect)} (trajets + indirect)${repriseCout > 0 ? ` + ${eur(repriseCout)} (reprise)` : ""} = ${eur(coutMOTotalChantier)}`,
     ventilation: moVentilation,
     titre: "Coût main d'œuvre réel",
@@ -717,7 +775,7 @@ export function computeChantierFinance({
     cle: "matReel", label: "Matériaux", format: "euro",
     valeur: coutMatChantier, valeurTexte: eur(coutMatChantier),
     sousLabel: `Voir les commandes (${(commandeLignes || []).length})`,
-    formule: "Somme des lignes de commande passées pour le chantier",
+    formule: FORMULE.matReel,
     calculDetaille: `${(commandeLignes || []).length} ligne${(commandeLignes || []).length > 1 ? "s" : ""} de commande → ${eur(coutMatChantier)}`,
     ventilation: matReelVentilation,
     titre: "Matériaux (commandes)",
@@ -734,7 +792,7 @@ export function computeChantierFinance({
     sousLabel: fgTauxHoraire > 0
       ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles`
       : "0 — à régler",
-    formule: "Taux horaire de frais généraux (Suivi direction) × heures réelles totales du chantier",
+    formule: FORMULE.fg,
     calculDetaille: fgTauxHoraire > 0
       ? `${fgTauxHoraire} €/h × ${fmtH(heuresReellesTotalChantier)}h réelles = ${eur(fgChantier)}`
       : "Taux horaire de frais généraux non réglé → 0 € (marge surestimée).",
@@ -757,7 +815,7 @@ export function computeChantierFinance({
     valeur: margeChantier,
     valeurTexte: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
     sousLabel: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : null,
-    formule: "Vendu HT − coût main d'œuvre − matériaux − frais généraux",
+    formule: FORMULE.marge,
     calculDetaille: `${eur(prixHTChantier)} − ${eur(coutMOTotalChantier)} − ${eur(coutMatChantier)} − ${eur(fgChantier)} = ${eur(margeChantier)}`,
     ventilation: margeVentilation,
     titre: "Marge nette",
@@ -773,7 +831,7 @@ export function computeChantierFinance({
     cle: "margePct", label: "Marge %", format: "pourcent",
     valeur: margePctChantier,
     valeurTexte: `${margePctChantier.toFixed(1)}%`,
-    formule: "Marge nette ÷ vendu HT × 100",
+    formule: FORMULE.margePct,
     calculDetaille: prixHTChantier > 0
       ? `${eur(margeChantier)} ÷ ${eur(prixHTChantier)} × 100 = ${margePctChantier.toFixed(1)} %`
       : "Vendu HT à 0 → pourcentage non calculable.",
@@ -784,7 +842,7 @@ export function computeChantierFinance({
   const avancement = D({
     cle: "avancement", label: "Avancement", format: "pourcent",
     valeur: avancementGlobal, valeurTexte: `${avancementGlobal}%`,
-    formule: "Moyenne des avancements des ouvrages, pondérée par leur prix de vente (chaque ouvrage : moyenne de ses tâches pondérée par les heures estimées)",
+    formule: FORMULE.avancement,
     calculDetaille: avancementChantierDetail(ouvrages),
     source: "Avancements des tâches saisis / déclarés en fin de journée",
     renseigne: ouvrages.length > 0,
@@ -795,7 +853,7 @@ export function computeChantierFinance({
     valeur: trajet.cout, valeurHeures: trajet.heures,
     valeurTexte: trajet.heures > 0 ? `${trajet.heures.toFixed(1)}h · ${eur(trajet.cout)}` : "—",
     sousLabel: "Inclus dans le coût MO",
-    formule: "Heures de trajet pointées × taux horaire de l'ouvrier (déjà comptées dans le coût MO)",
+    formule: FORMULE.trajets,
     calculDetaille: `${fmtH(trajet.heures)}h de trajet → ${eur(trajet.cout)}`,
     ventilation: trajetVentilation,
     titre: "Trajets",
@@ -811,7 +869,7 @@ export function computeChantierFinance({
     valeur: indirectHT.cout, valeurHeures: indirectHT.heures,
     valeurTexte: indirectHT.heures > 0 ? `${indirectHT.heures.toFixed(1)}h · ${eur(indirectHT.cout)}` : "—",
     sousLabel: "Intempéries, SAV, nettoyage…",
-    formule: "Heures indirectes pointées (hors trajet) × taux horaire de l'ouvrier (déjà comptées dans le coût MO)",
+    formule: FORMULE.indirect,
     calculDetaille: `${fmtH(indirectHT.heures)}h indirectes (hors trajet) → ${eur(indirectHT.cout)}`,
     ventilation: indirectVentilation,
     titre: "Heures indirectes",
@@ -826,7 +884,7 @@ export function computeChantierFinance({
     cle: "reprise", label: "Reprise d'antériorité", format: "euro",
     valeur: repriseCout, valeurHeures: repriseHeures,
     valeurTexte: repriseHeures > 0 ? `${fmtH(repriseHeures)}h · ${eur(repriseCout)}` : "—",
-    formule: "Heures consommées avant l'application × taux moyen saisi (Suivi direction)",
+    formule: FORMULE.reprise,
     calculDetaille: repriseHeures > 0
       ? `${fmtH(repriseHeures)}h × ${fmtH(repriseTaux)} €/h = ${eur(repriseCout)}`
       : "Aucune reprise saisie.",

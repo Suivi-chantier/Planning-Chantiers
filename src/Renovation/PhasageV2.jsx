@@ -32,6 +32,9 @@ import {
   fmtH, eur,
   heuresParMois as cfHeuresParMois,
 } from "../chantierFinance";
+// Composants partagés (KPI, infobulles, modale de ventilation) — communs avec
+// la page Bilan semaine. La présentation vit là, le contenu dans les Donnee.
+import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
@@ -921,6 +924,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   }, [heuresParMois]);
 
   const fmtEur = (n) => eur(n);
+  // Date de référence des infobulles <Donnee> (« à date du ... ») — horloge
+  // côté UI, jamais dans le module.
+  const todayRefISO = new Date().toISOString().slice(0, 10);
 
   // ─── SUIVI DIRECTION (scalaires stockés dans plan_travaux.meta) ─────────
   // Compatibilité v1 : on lit/écrit dans phasage.plan_travaux.meta avec les
@@ -2209,18 +2215,22 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               gap: 10,
             }}>
               <KpiCard T={T} icon={Banknote} iconColor="#f5c400" label={fin.venduHT.label}
+                donnee={fin.venduHT} dateRef={todayRefISO}
                 value={fin.venduHT.valeurTexte}
                 sub={fin.venduHT.sousLabel}
                 onClick={() => setKpiDetail("vendu")}/>
               <KpiCard T={T} icon={Target} iconColor="#818cf8" label={fin.moPrev.label}
+                donnee={fin.moPrev} dateRef={todayRefISO}
                 value={fin.moPrev.valeurTexte}
                 sub={fin.moPrev.sousLabel}
                 onClick={() => setKpiDetail("mo_prev")}/>
               <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label={fin.matPrev.label}
+                donnee={fin.matPrev} dateRef={todayRefISO}
                 value={fin.matPrev.valeurTexte}
                 sub={fin.matPrev.sousLabel}
                 onClick={() => setKpiDetail("commandes_prev")}/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label={fin.heuresReelles.label}
+                donnee={fin.heuresReelles} dateRef={todayRefISO}
                 value={fin.heuresReelles.valeurTexte}
                 sub={fin.heuresReelles.sousLabel}
                 accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
@@ -2232,29 +2242,35 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   : `${moisCourant.label} · aucun pointage`}
                 onClick={() => setMoisModal(true)}/>
               <KpiCard T={T} icon={HardHat} iconColor="#60a5fa" label={fin.moReel.label}
+                donnee={fin.moReel} dateRef={todayRefISO}
                 value={fin.moReel.valeurTexte}
                 sub={fin.moReel.sousLabel}
                 accent={coutMOTotalChantier > prixHTChantier && prixHTChantier > 0 ? "#e15a5a" : null}
                 onClick={() => setKpiDetail("mo")}/>
               <KpiCard T={T} icon={Car} iconColor="#f59e0b" label={fin.trajets.label}
+                donnee={fin.trajets} dateRef={todayRefISO}
                 value={fin.trajets.valeurTexte}
                 sub={fin.trajets.sousLabel}
                 onClick={() => setKpiDetail("trajet")}/>
               <KpiCard T={T} icon={Clock} iconColor="#f59e0b" label={fin.indirect.label}
+                donnee={fin.indirect} dateRef={todayRefISO}
                 value={fin.indirect.valeurTexte}
                 sub={fin.indirect.sousLabel}
                 onClick={() => setKpiDetail("indirect")}/>
               <KpiCard T={T} icon={Receipt} iconColor="#f97316" label={fin.matReel.label}
+                donnee={fin.matReel} dateRef={todayRefISO}
                 value={fin.matReel.valeurTexte}
                 sub={fin.matReel.sousLabel}
                 onClick={() => setMatKpiModal(true)}/>
               <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label={fin.fg.label}
+                donnee={fin.fg} dateRef={todayRefISO}
                 value={fin.fg.valeurTexte}
                 sub={fin.fg.sousLabel}
                 onClick={() => setKpiDetail("fg")}/>
               <KpiCard T={T}
                 icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
                 iconColor={margeColor} label={fin.marge.label}
+                donnee={fin.marge} dateRef={todayRefISO}
                 value={fin.marge.valeurTexte}
                 sub={fin.marge.sousLabel}
                 accent={margeColor} bold={true}
@@ -2274,22 +2290,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               }}>
                 Avancement
               </div>
-              <div title={avancementChantierDetail}
-                style={{
+              <InfoBulle contenu={avancementChantierDetail} T={T} style={{ flex: 1 }}>
+                <div style={{
                   flex: 1, position: "relative", height: 18,
                   background: "rgba(255,255,255,0.06)", borderRadius: 9,
                   overflow: "hidden", cursor: "help",
                   border: `1px solid ${T.border}`,
                 }}>
-                <div style={{
-                  width: `${Math.min(100, avancementChantier)}%`, height: "100%",
-                  background: avancementChantier >= 100
-                    ? "linear-gradient(90deg, #16a34a, #22c55e)"
-                    : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
-                  transition: "width .4s ease",
-                  boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
-                }}/>
-              </div>
+                  <div style={{
+                    width: `${Math.min(100, avancementChantier)}%`, height: "100%",
+                    background: avancementChantier >= 100
+                      ? "linear-gradient(90deg, #16a34a, #22c55e)"
+                      : `linear-gradient(90deg, color-mix(in srgb, ${acc.accent} 80%, transparent), ${acc.accent})`,
+                    transition: "width .4s ease",
+                    boxShadow: avancementChantier > 0 ? `0 0 8px color-mix(in srgb, ${acc.accent} 50%, transparent)` : "none",
+                  }}/>
+                </div>
+              </InfoBulle>
               <div style={{
                 fontSize: FONT.lg.size, fontWeight: 800,
                 color: avancementChantier >= 100 ? "#22c55e" : T.text,
@@ -2401,10 +2418,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                         if (hr === 0 && hv === 0) return null;
                         const col = couleurDepassement(hr, hv);
                         return (
-                          <div style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, marginTop: 2 }}
-                            title={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`}>
-                            {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
-                          </div>
+                          <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`} T={T}>
+                            <div style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, marginTop: 2, cursor: "help" }}>
+                              {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
+                            </div>
+                          </InfoBulle>
                         );
                       })()}
                     </div>
@@ -2422,10 +2440,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                           borderRadius: RADIUS.pill,
                           background: "rgba(0,0,0,0.18)", color: T.text,
                         }}>{count}</span>
-                        <span title={avancementLotDetail(l.id)}
-                          style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
-                          {av}%
-                        </span>
+                        <InfoBulle contenu={avancementLotDetail(l.id)} T={T}>
+                          <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
+                            {av}%
+                          </span>
+                        </InfoBulle>
                       </>
                     )}
                     <button
@@ -2462,10 +2481,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                       fontSize: 10, fontWeight: 800, padding: "2px 8px",
                       borderRadius: RADIUS.pill, background: "rgba(0,0,0,0.18)", color: T.text,
                     }}>{orphans}</span>
-                    <span title={avancementLotDetail("_orphans")}
-                      style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
-                      {av}%
-                    </span>
+                    <InfoBulle contenu={avancementLotDetail("_orphans")} T={T}>
+                      <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
+                        {av}%
+                      </span>
+                    </InfoBulle>
                   </div>
                 );
               })()}
@@ -2546,10 +2566,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                             return (
                               <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
                                 {showH && (
-                                  <span style={{ color: col || T.textMuted, fontWeight: col ? 700 : 400 }}
-                                    title={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`}>
-                                    {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
-                                  </span>
+                                  <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`} T={T}>
+                                    <span style={{ color: col || T.textMuted, fontWeight: col ? 700 : 400, cursor: "help" }}>
+                                      {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
+                                    </span>
+                                  </InfoBulle>
                                 )}
                                 {o.quantite ? `${showH ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
                                 {o.prix_ht ? `${(showH||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
@@ -2564,11 +2585,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               borderRadius: RADIUS.pill,
                               background: "rgba(0,0,0,0.18)", color: T.text, flexShrink: 0,
                             }}>{nbTaches}</span>
-                            <span
-                              title={avancementOuvrageDetail(o)}
-                              style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
-                              {av}%
-                            </span>
+                            <InfoBulle contenu={avancementOuvrageDetail(o)} T={T}>
+                              <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.text, minWidth: 34, textAlign: "right", cursor: "help" }}>
+                                {av}%
+                              </span>
+                            </InfoBulle>
                           </>
                         )}
                         <button
@@ -2652,10 +2673,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                 if (hr > 0 || hv > 0) {
                                   const col = couleurDepassement(hr, hv);
                                   return (
-                                    <span style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, whiteSpace: "nowrap" }}
-                                      title={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues (${Math.round(hr/hv*100)}%)` : `${fmtH(hr)}h réelles`}>
-                                      {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
-                                    </span>
+                                    <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues (${Math.round(hr/hv*100)}%)` : `${fmtH(hr)}h réelles`} T={T}>
+                                      <span style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, whiteSpace: "nowrap", cursor: "help" }}>
+                                        {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
+                                      </span>
+                                    </InfoBulle>
                                   );
                                 }
                                 return null;
@@ -2698,10 +2720,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                   )}
                                 </div>
                               )}
-                              <span title={avancementTacheDetail(t)}
-                                style={{ marginLeft: "auto", fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800, cursor: "help" }}>
-                                {av}%
-                              </span>
+                              <InfoBulle contenu={avancementTacheDetail(t)} T={T} style={{ marginLeft: "auto" }}>
+                                <span style={{ fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800, cursor: "help" }}>
+                                  {av}%
+                                </span>
+                              </InfoBulle>
                             </div>
                           </div>
                           {(() => {
@@ -2979,47 +3002,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           totalIsText: pres.d.totalTexte != null,
         };
 
-        return (
-          <div onClick={() => setKpiDetail(null)}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
-                width: "min(560px, 100%)", maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
-              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{
-                  width: 30, height: 30, borderRadius: RADIUS.md, flexShrink: 0,
-                  background: `color-mix(in srgb, ${cfg.color} 20%, transparent)`, color: cfg.color,
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <Icon as={cfg.icon} size={16}/>
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{cfg.title}</div>
-                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{chantier?.nom ? `${chantier.nom} · ` : ""}{cfg.subtitle}</div>
-                </div>
-                <button onClick={() => setKpiDetail(null)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
-              </div>
-              <div style={{ padding: "12px 20px" }}>
-                {cfg.rows.length === 0 ? (
-                  <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>{cfg.empty}</div>
-                ) : cfg.rows.map((r, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.border}` }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.main}</div>
-                      {r.sub && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>{r.sub}</div>}
-                    </div>
-                    <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: r.rightColor || T.text, whiteSpace: "nowrap", flexShrink: 0 }}>{r.right}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
-                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>{cfg.totalLabel}</span>
-                <span style={{ fontSize: 16, fontWeight: 900, color: cfg.totalColor }}>{cfg.totalIsText ? cfg.total : eur(cfg.total)}</span>
-              </div>
-            </div>
-          </div>
-        );
+        return <KpiDetailModal cfg={cfg} sousTitrePrefixe={chantier?.nom} T={T} onClose={() => setKpiDetail(null)}/>;
       })()}
 
       {moisModal && (
@@ -4109,10 +4092,11 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", flexShrink: 0,
             fontWeight: late ? 700 : 400,
           }} />
-        <span title={`${av}% réalisé`}
-          style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.textMuted, minWidth: 34, textAlign: "right", flexShrink: 0 }}>
-          {av}%
-        </span>
+        <InfoBulle contenu={`${av}% réalisé`} T={T}>
+          <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: av >= 100 ? "#22c55e" : T.textMuted, minWidth: 34, textAlign: "right", flexShrink: 0 }}>
+            {av}%
+          </span>
+        </InfoBulle>
       </div>
     );
   };
@@ -4966,12 +4950,14 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
                     {r.ouvrage.libelle || "(sans libellé)"}{note || ""}
                   </div>
                 </div>
-                <span title={`${av}% réalisé`} style={{
-                  flexShrink: 0, fontSize: 10, fontWeight: 800, minWidth: 32, textAlign: "right",
-                  color: av >= 100 ? "#22c55e" : av > 0 ? acc.accent : T.textMuted,
-                }}>
-                  {av}%
-                </span>
+                <InfoBulle contenu={`${av}% réalisé`} T={T}>
+                  <span style={{
+                    flexShrink: 0, fontSize: 10, fontWeight: 800, minWidth: 32, textAlign: "right",
+                    color: av >= 100 ? "#22c55e" : av > 0 ? acc.accent : T.textMuted,
+                  }}>
+                    {av}%
+                  </span>
+                </InfoBulle>
               </div>
             );
           };
@@ -5221,57 +5207,6 @@ function KpiCibleEtPrime({ T, margeCible, margePct, prime, seuilPrime, prixHT })
 }
 
 // ─── KPI Card (variante visuelle avec icône) ──────────────────────────────────
-function KpiCard({ T, icon, iconColor, label, value, sub, accent, bold, onClick }) {
-  const valColor = accent || T.text;
-  return (
-    <div onClick={onClick}
-      title={onClick ? "Cliquer pour voir le détail" : undefined}
-      className={onClick ? "p2-kpi-clic" : undefined}
-      style={{
-      background: T.surface,
-      border: `1px solid ${T.border}`,
-      borderRadius: 14,
-      boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24,40,0.06)",
-      padding: "11px 13px",
-      display: "flex", flexDirection: "column", gap: 6,
-      minWidth: 0,
-      cursor: onClick ? "pointer" : "default",
-    }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 6,
-        fontSize: 9, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase",
-        color: T.textMuted,
-      }}>
-        {icon && (
-          <span style={{
-            width: 18, height: 18, borderRadius: 5, flexShrink: 0,
-            background: `color-mix(in srgb, ${iconColor || T.textMuted} 18%, transparent)`,
-            color: iconColor || T.textMuted,
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <Icon as={icon} size={11} strokeWidth={2.4}/>
-          </span>
-        )}
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {label}
-        </span>
-      </div>
-      <div style={{
-        fontSize: FONT.md.size + 4, fontWeight: bold ? 900 : 800,
-        color: valColor, letterSpacing: -.4, lineHeight: 1.1,
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-      }}>
-        {value}
-      </div>
-      {sub && (
-        <div style={{ fontSize: FONT.xs.size, color: T.textMuted, opacity: .85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Composants modale d'édition ───────────────────────────────────────────────
 const modalInp = (T) => ({
   width: "100%", padding: "9px 12px", borderRadius: RADIUS.md,
