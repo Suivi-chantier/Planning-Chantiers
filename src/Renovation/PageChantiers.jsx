@@ -22,8 +22,10 @@ import {
 import {
   CYCLE_VIE_PHASES, getPhase, etapesTravauxDepuisGroupes,
   computeCycleVie, evaluerEtape, lireEtatsEtapes, lirePhaseDeclaree,
-  CV_META_PHASE_DECLAREE,
+  CV_META_PHASE_DECLAREE, CV_META_ETAPES,
 } from "./cycleVie";
+// Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
+import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, ACCEPT_DOCS } from "./storageChantier";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -32,7 +34,7 @@ import {
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
   Clock, Search, Package, Calendar, Info, StickyNote, Bold, Italic, Underline,
-  Palette, List, ListOrdered, ShieldCheck,
+  Palette, List, ListOrdered, ShieldCheck, Upload, Paperclip,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -361,13 +363,207 @@ function BandeauQCD({ qcd, overrides, sansPhasage, peutForcer, onForcer, onRetou
   );
 }
 
+// ─── UNE ÉTAPE DU CYCLE DE VIE (ligne de la frise) ───────────────────────────
+// Affiche l'état (fait / à faire + raison + données saisies) et porte les
+// actions du Prompt 6 : coche manuelle (avec champs), import de document qui
+// VALIDE l'étape, journal SAV, et pièce jointe possible sur TOUTE étape.
+// Les étapes "auto" n'ont aucune action de validation (jamais faussées à la
+// main) mais acceptent les pièces jointes en preuve.
+const CV_CHOIX_LABELS = { accepte: "Accepté", en_attente: "En attente", refuse: "Refusé" };
+
+function EtapeCycleVie({ etape, peutModifier, actions, T }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [valeurs, setValeurs] = useState({});
+  const [journalTexte, setJournalTexte] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileDocRef = useRef(null); // import qui VALIDE (nature document)
+  const filePjRef  = useRef(null); // pièce jointe simple (toute étape)
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
+  const etat = etape.etat || {};
+  const pjs = Array.isArray(etat.pieces_jointes) ? etat.pieces_jointes : [];
+  const entreesJournal = Array.isArray(etat.journal) ? etat.journal : [];
+  const champs = etape.champs || [];
+
+  const btn = (disabled) => ({
+    display: "inline-flex", alignItems: "center", gap: 5,
+    background: "transparent", border: `1px solid ${border}`,
+    borderRadius: RADIUS.md, padding: "4px 10px",
+    color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 600,
+    cursor: disabled ? "default" : "pointer", fontFamily: "inherit",
+    opacity: disabled ? .5 : 1,
+  });
+  const inputStyle = {
+    padding: "5px 8px", borderRadius: RADIUS.md, border: `1px solid ${border}`,
+    background: "transparent", color: text, fontSize: FONT.xs.size + 1,
+    fontFamily: "inherit", outline: "none", maxWidth: 150,
+  };
+
+  const valider = async (donnees) => {
+    setBusy(true);
+    await actions.onValider(etape.id, donnees || {});
+    setBusy(false);
+    setFormOpen(false);
+  };
+  const devalider = async () => { setBusy(true); await actions.onDevalider(etape.id); setBusy(false); };
+  const importerDoc = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    await actions.onAjouterPJ(etape.id, file, { valide: true, donnees: valeurs });
+    setBusy(false);
+  };
+  const joindre = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    await actions.onAjouterPJ(etape.id, file, { valide: false });
+    setBusy(false);
+  };
+  const ajouterJournal = async () => {
+    if (!journalTexte.trim() || busy) return;
+    setBusy(true);
+    await actions.onAjouterJournal(etape.id, journalTexte);
+    setBusy(false);
+    setJournalTexte("");
+  };
+
+  const champInput = (c) => c.type === "choix" ? (
+    <select key={c.id} value={valeurs[c.id] || ""} title={c.nom}
+      onChange={e => setValeurs(v => ({ ...v, [c.id]: e.target.value }))} style={inputStyle}>
+      <option value="">{c.nom}…</option>
+      {(c.options || []).map(o => <option key={o} value={o}>{CV_CHOIX_LABELS[o] || o}</option>)}
+    </select>
+  ) : (
+    <input key={c.id} type={c.type === "nombre" ? "number" : c.type === "date" ? "date" : "text"}
+      value={valeurs[c.id] || ""} placeholder={c.nom} title={c.nom}
+      onChange={e => setValeurs(v => ({ ...v, [c.id]: e.target.value }))} style={inputStyle}/>
+  );
+
+  // Résumé des données saisies (montant, date, réponse…), affiché sous la raison.
+  const resume = champs
+    .filter(c => etat.donnees?.[c.id] != null && etat.donnees[c.id] !== "")
+    .map(c => `${c.nom} : ${c.type === "choix" ? (CV_CHOIX_LABELS[etat.donnees[c.id]] || etat.donnees[c.id]) : etat.donnees[c.id]}`)
+    .join(" · ");
+
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+      <span style={{
+        width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        background: etape.fait ? "#22c55e" : "transparent",
+        border: `2px solid ${etape.fait ? "#22c55e" : border}`,
+      }}>{etape.fait ? <Icon as={Check} size={10} color="#fff"/> : null}</span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: etape.fait ? text : textSub }}>{etape.nom}</span>
+        <span style={{
+          marginLeft: 7, fontSize: 9.5, fontWeight: 700, letterSpacing: .5,
+          textTransform: "uppercase", color: textMuted,
+          border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "1px 7px",
+          verticalAlign: "middle",
+        }}>{etape.nature}</span>
+        <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{etape.raison}</div>
+        {resume && <div style={{ fontSize: FONT.xs.size + 1, color: textSub, marginTop: 2, fontWeight: 600 }}>{resume}</div>}
+
+        {/* Pièces jointes : consultables depuis la frise (URL signée) */}
+        {pjs.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {pjs.map(pj => (
+              <span key={pj.path} style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "2px 8px",
+                fontSize: FONT.xs.size + 1, color: textSub, maxWidth: "100%",
+              }}>
+                <button onClick={() => actions.onOuvrirPJ(pj)} title="Ouvrir / télécharger" style={{
+                  display: "inline-flex", alignItems: "center", gap: 4, background: "transparent",
+                  border: "none", color: textSub, cursor: "pointer", fontFamily: "inherit",
+                  fontSize: FONT.xs.size + 1, padding: 0, maxWidth: 220, overflow: "hidden",
+                  textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  <Icon as={Paperclip} size={10}/><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{pj.nom}</span>
+                </button>
+                {peutModifier && (
+                  <button onClick={() => actions.onSupprimerPJ(etape.id, pj)} title="Supprimer la pièce jointe" style={{
+                    background: "transparent", border: "none", color: textMuted, cursor: "pointer",
+                    padding: 0, display: "inline-flex",
+                  }}><Icon as={X} size={10}/></button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Journal (SAV) */}
+        {entreesJournal.length > 0 && (
+          <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 2 }}>
+            {entreesJournal.map((j, i) => (
+              <div key={i} style={{ fontSize: FONT.xs.size + 1, color: textSub }}>
+                · {j.date ? String(j.date).slice(0, 10) : ""} — {j.texte}{j.auteur ? ` (${j.auteur})` : ""}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Actions */}
+        {peutModifier && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+            {etape.nature === "coche" && !etape.journal && (etape.fait ? (
+              <button onClick={devalider} disabled={busy} style={btn(busy)}><Icon as={X} size={11}/> Annuler la validation</button>
+            ) : formOpen ? (
+              <>
+                {champs.map(champInput)}
+                <button onClick={() => valider(valeurs)} disabled={busy} style={btn(busy)}><Icon as={Check} size={11}/> Valider</button>
+                <button onClick={() => setFormOpen(false)} disabled={busy} style={btn(busy)}>Annuler</button>
+              </>
+            ) : (
+              <button onClick={() => { if (champs.length) { setValeurs(etat.donnees || {}); setFormOpen(true); } else valider({}); }}
+                disabled={busy} style={btn(busy)}>
+                <Icon as={Check} size={11}/> Valider{champs.length ? "…" : ""}
+              </button>
+            ))}
+            {etape.nature === "document" && !etape.fait && (
+              <>
+                {champs.filter(c => c.type === "date").map(champInput)}
+                <button onClick={() => fileDocRef.current?.click()} disabled={busy} style={btn(busy)}>
+                  <Icon as={Upload} size={11}/> Importer le document
+                </button>
+                <input ref={fileDocRef} type="file" accept={ACCEPT_DOCS} style={{ display: "none" }}
+                  onChange={e => { importerDoc(e.target.files?.[0]); e.target.value = ""; }}/>
+              </>
+            )}
+            {etape.nature === "document" && etape.fait && (
+              <button onClick={devalider} disabled={busy} style={btn(busy)}><Icon as={X} size={11}/> Annuler la validation</button>
+            )}
+            {etape.journal && (
+              <>
+                <input value={journalTexte} onChange={e => setJournalTexte(e.target.value)}
+                  placeholder="Intervention SAV…" style={{ ...inputStyle, maxWidth: 240, flex: 1, minWidth: 140 }}
+                  onKeyDown={e => { if (e.key === "Enter") ajouterJournal(); }}/>
+                <button onClick={ajouterJournal} disabled={!journalTexte.trim() || busy} style={btn(!journalTexte.trim() || busy)}>Ajouter</button>
+              </>
+            )}
+            <button onClick={() => filePjRef.current?.click()} disabled={busy} style={btn(busy)}
+              title="Joindre une preuve (photo ou document) — possible sur toute étape">
+              <Icon as={Paperclip} size={11}/> Joindre
+            </button>
+            <input ref={filePjRef} type="file" accept={ACCEPT_DOCS} style={{ display: "none" }}
+              onChange={e => { joindre(e.target.files?.[0]); e.target.value = ""; }}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── FRISE DU CYCLE DE VIE (Point 2a) ────────────────────────────────────────
 // Les 6 phases du chantier (devis → SAV), sous le bandeau QCD. Affichage pur :
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, etapesCourantes, peutModifier, onDeclarer, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, peutModifier, onDeclarer, actionsEtape, T }) {
   const [saving, setSaving] = useState(false);
+  const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
   const border    = T?.border    || "rgba(255,255,255,0.07)";
   const text      = T?.text      || "#f0f0f0";
@@ -389,9 +585,9 @@ function FriseCycleVie({ cv, etapesCourantes, peutModifier, onDeclarer, T }) {
         letterSpacing: 1.2, textTransform: "uppercase",
       }}>
         Cycle de vie du chantier
-        {cv && peutModifier && (
+        {cv && (
           <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .7 }}>
-            — cliquer sur une phase pour la déclarer à la main
+            — cliquer sur une phase pour consulter ses étapes et documents
           </span>
         )}
       </div>
@@ -410,27 +606,29 @@ function FriseCycleVie({ cv, etapesCourantes, peutModifier, onDeclarer, T }) {
                 {CYCLE_VIE_PHASES.map(ph => {
                   const courante = ph.id === cv.phaseId;
                   const atteinte = ph.ordre < cv.ordre;
+                  const consultee = ph.id === (phaseVue || cv.phaseId);
                   return (
-                    <button key={ph.id} onClick={() => declarer(ph.id)} disabled={!peutModifier || saving}
-                      title={peutModifier ? `Déclarer « ${ph.nom} » comme phase en cours` : undefined}
+                    <button key={ph.id} onClick={() => setPhaseVue(ph.id === cv.phaseId ? null : ph.id)}
+                      title={`Voir les étapes de « ${ph.nom} »`}
                       style={{
                         background: "transparent", border: "none", padding: 0,
-                        cursor: peutModifier ? "pointer" : "default", fontFamily: "inherit",
+                        cursor: "pointer", fontFamily: "inherit",
                         display: "flex", flexDirection: "column", alignItems: "center", gap: 5, minWidth: 0,
                       }}>
                       <span style={{
                         width: courante ? 32 : 26, height: courante ? 32 : 26, borderRadius: "50%",
                         display: "inline-flex", alignItems: "center", justifyContent: "center",
                         background: (atteinte || courante) ? ph.couleur : surface,
-                        border: `2px solid ${(atteinte || courante) ? ph.couleur : border}`,
+                        border: `2px solid ${(atteinte || courante) ? ph.couleur : (consultee ? text : border)}`,
                         color: (atteinte || courante) ? "#fff" : textMuted,
                         fontSize: 12, fontWeight: 800, flexShrink: 0,
-                        boxShadow: courante ? `0 0 10px ${ph.couleur}66` : "none",
+                        boxShadow: courante ? `0 0 10px ${ph.couleur}66` : (consultee ? `0 0 0 2px ${border}` : "none"),
                         marginTop: courante ? 0 : 3,
                       }}>{ph.ordre}</span>
                       <span style={{
-                        fontSize: FONT.xs.size, fontWeight: courante ? 800 : 600,
-                        color: courante ? text : textMuted, textAlign: "center", lineHeight: 1.2,
+                        fontSize: FONT.xs.size, fontWeight: (courante || consultee) ? 800 : 600,
+                        color: courante ? text : (consultee ? textSub : textMuted), textAlign: "center", lineHeight: 1.2,
+                        textDecoration: consultee && !courante ? "underline" : "none",
                       }}>{ph.nom}</span>
                     </button>
                   );
@@ -474,43 +672,65 @@ function FriseCycleVie({ cv, etapesCourantes, peutModifier, onDeclarer, T }) {
             </div>
           )}
 
-          {/* Étapes de la phase en cours : fait / à faire, avec la raison */}
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${border}` }}>
-            <div style={{
-              fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
-              letterSpacing: .5, textTransform: "uppercase", marginBottom: 8,
-            }}>
-              Étapes — {cv.phase.nom}
-            </div>
-            {etapesCourantes.length === 0 ? (
-              <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
-                Aucun groupe d'exécution défini dans la vue chrono du phasage.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {etapesCourantes.map(e => (
-                  <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          {/* Étapes de la phase consultée (par défaut : la phase en cours) —
+              validables par leur action, avec pièces jointes (Prompt 6). */}
+          {(() => {
+            const phaseVueId = phaseVue || cv.phaseId;
+            const phaseVueObj = getPhase(phaseVueId) || cv.phase;
+            const etapes = (phaseVueId === "cv_travaux"
+              ? etapesTravauxDepuisGroupes(chronoGroupes)
+              : (phaseVueObj?.etapes || [])
+            ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx), etat: (cvCtx?.etatsEtapes || {})[e.id] || null }));
+            const estPhaseCourante = phaseVueId === cv.phaseId;
+            return (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                  <span style={{
+                    fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+                    letterSpacing: .5, textTransform: "uppercase",
+                  }}>
+                    Étapes — {phaseVueObj?.nom}
+                  </span>
+                  {estPhaseCourante ? (
                     <span style={{
-                      width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                      display: "inline-flex", alignItems: "center", justifyContent: "center",
-                      background: e.fait ? "#22c55e" : "transparent",
-                      border: `2px solid ${e.fait ? "#22c55e" : border}`,
-                    }}>{e.fait ? <Icon as={Check} size={10} color="#fff"/> : null}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: e.fait ? text : textSub }}>{e.nom}</span>
-                      <span style={{
-                        marginLeft: 7, fontSize: 9.5, fontWeight: 700, letterSpacing: .5,
-                        textTransform: "uppercase", color: textMuted,
-                        border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "1px 7px",
-                        verticalAlign: "middle",
-                      }}>{e.nature}</span>
-                      <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{e.raison}</div>
-                    </div>
+                      fontSize: FONT.xs.size, fontWeight: 700, padding: "1px 8px", borderRadius: RADIUS.pill,
+                      color: phaseVueObj?.couleur, border: `1px solid ${phaseVueObj?.couleur}55`,
+                    }}>phase en cours</span>
+                  ) : (
+                    <>
+                      {peutModifier && (
+                        <button onClick={() => declarer(phaseVueId)} disabled={saving} style={{
+                          display: "inline-flex", alignItems: "center", gap: 5,
+                          background: "transparent", border: `1px solid ${border}`,
+                          borderRadius: RADIUS.md, padding: "4px 10px",
+                          color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 600,
+                          cursor: saving ? "default" : "pointer", fontFamily: "inherit", opacity: saving ? .5 : 1,
+                        }}>
+                          <Icon as={Pencil} size={11}/> Déclarer comme phase en cours
+                        </button>
+                      )}
+                      <button onClick={() => setPhaseVue(null)} style={{
+                        background: "transparent", border: "none", padding: 0,
+                        color: textMuted, fontSize: FONT.xs.size + 1, fontWeight: 600,
+                        cursor: "pointer", fontFamily: "inherit", textDecoration: "underline",
+                      }}>revenir à la phase en cours</button>
+                    </>
+                  )}
+                </div>
+                {etapes.length === 0 ? (
+                  <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
+                    Aucun groupe d'exécution défini dans la vue chrono du phasage.
                   </div>
-                ))}
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {etapes.map(e => (
+                      <EtapeCycleVie key={e.id} etape={e} peutModifier={peutModifier} actions={actionsEtape} T={T}/>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
         </>
       )}
     </div>
@@ -1372,19 +1592,93 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     equipesAffectees: cvEquipesAffectees,
     todayISO: cvCtx.todayISO,
   }) : null;
-  // Étapes de la phase courante, évaluées (fait / à faire + raison). La phase
-  // Travaux (dynamique) déroule les groupes du chantier.
-  const cvEtapesCourantes = !cv ? [] : (cv.phaseId === "cv_travaux"
-    ? etapesTravauxDepuisGroupes(chronoGroupesSelected)
-    : (getPhase(cv.phaseId)?.etapes || [])
-  ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx) }));
-
   // Déclare la phase en cours à la main (prioritaire) — null = retour auto.
   const declarerPhaseCV = (phaseId) => saveMetaPhasage({
     [CV_META_PHASE_DECLAREE]: phaseId ? {
       phaseId, auteur: profil?.nom || profil?.email || "", date: new Date().toISOString(),
     } : null,
   });
+
+  // ── Écriture de l'état d'UNE étape du cycle de vie ──
+  // Même read-before-write que saveMetaPhasage, mais le merge se fait au
+  // niveau de l'étape : l'updater reçoit l'état FRAIS relu en base (jamais le
+  // state local), pour ne pas écraser les autres étapes modifiées entre-temps.
+  const saveEtatEtapeCV = async (etapeId, updater) => {
+    if (!selectedPhasage?.id) return false;
+    const { data: fresh, error: fetchErr } = await supabase.from("phasages")
+      .select("plan_travaux").eq("id", selectedPhasage.id).maybeSingle();
+    if (fetchErr) { alert(`Sauvegarde impossible : ${fetchErr.message}`); return false; }
+    const currentPlan = fresh?.plan_travaux || {};
+    const etats = lireEtatsEtapes(currentPlan.meta || {});
+    const nouveau = typeof updater === "function" ? updater(etats[etapeId] || {}) : updater;
+    const nextEtats = { ...etats };
+    if (nouveau == null) delete nextEtats[etapeId]; else nextEtats[etapeId] = nouveau;
+    const newPlan = { ...currentPlan, meta: { ...(currentPlan.meta || {}), [CV_META_ETAPES]: nextEtats } };
+    const { error } = await supabase.from("phasages")
+      .update({ plan_travaux: newPlan, updated_at: new Date().toISOString() })
+      .eq("id", selectedPhasage.id);
+    if (error) { alert(`Sauvegarde impossible : ${error.message}`); return false; }
+    setPhasages(prev => prev.map(p => p.id === selectedPhasage.id ? { ...p, plan_travaux: newPlan } : p));
+    return true;
+  };
+
+  // ── Actions sur les étapes du cycle de vie (Prompt 6) ──
+  const auteurCV = profil?.nom || profil?.email || "";
+  // Coche manuelle (avec données saisies : montant, date, réponse…).
+  const validerEtapeCV = (etapeId, donnees = {}) => saveEtatEtapeCV(etapeId, (courant) => ({
+    ...courant, fait: true, date: new Date().toISOString(), auteur: auteurCV,
+    donnees: { ...(courant.donnees || {}), ...donnees },
+  }));
+  // Dé-validation : on garde les données saisies et les pièces jointes.
+  const devaliderEtapeCV = (etapeId) => saveEtatEtapeCV(etapeId, (courant) => ({
+    ...courant, fait: false, date: null, auteur: null,
+  }));
+  // Pièce jointe (toute étape) ; valide=true = import qui VALIDE l'étape
+  // (nature "document"), avec d'éventuelles données (date de signature…).
+  const ajouterPieceJointeCV = async (etapeId, file, { valide = false, donnees = {} } = {}) => {
+    if (!selectedPhasage?.id || !file) return false;
+    const doc = await uploadDocumentChantier(file, `cycle-vie/${selectedPhasage.id}/${etapeId}`);
+    if (!doc) {
+      alert("Échec de l'envoi du fichier. Vérifiez que le bucket « chantier-documents » existe (sql/202607_bucket_chantier_documents.sql).");
+      return false;
+    }
+    const nowIso = new Date().toISOString();
+    return saveEtatEtapeCV(etapeId, (courant) => ({
+      ...courant,
+      ...(valide ? { fait: true, date: nowIso, auteur: auteurCV, donnees: { ...(courant.donnees || {}), ...donnees } } : {}),
+      pieces_jointes: [
+        ...(Array.isArray(courant.pieces_jointes) ? courant.pieces_jointes : []),
+        { ...doc, date: nowIso, auteur: auteurCV },
+      ],
+    }));
+  };
+  const supprimerPieceJointeCV = async (etapeId, pj) => {
+    if (!window.confirm(`Supprimer la pièce jointe « ${pj.nom} » ?`)) return false;
+    await supprimerDocumentChantier(pj.path); // best-effort, la métadonnée part quoi qu'il arrive
+    return saveEtatEtapeCV(etapeId, (courant) => ({
+      ...courant,
+      pieces_jointes: (Array.isArray(courant.pieces_jointes) ? courant.pieces_jointes : []).filter(x => x.path !== pj.path),
+    }));
+  };
+  // Journal (interventions SAV) : entrées multiples, l'étape ne se termine pas.
+  const ajouterJournalCV = (etapeId, texte) => saveEtatEtapeCV(etapeId, (courant) => ({
+    ...courant,
+    journal: [
+      ...(Array.isArray(courant.journal) ? courant.journal : []),
+      { date: new Date().toISOString(), texte: String(texte || "").trim(), auteur: auteurCV },
+    ],
+  }));
+  // Ouverture d'un document (URL signée) — fenêtre ouverte AVANT l'await pour
+  // ne pas être bloqué par l'anti-popup.
+  const ouvrirPieceJointeCV = async (pj) => {
+    const fenetre = window.open("", "_blank");
+    const url = await urlDocumentChantier(pj.path);
+    if (url) { if (fenetre) fenetre.location = url; else window.open(url, "_blank"); }
+    else {
+      if (fenetre) fenetre.close();
+      alert("Impossible d'ouvrir le fichier (bucket « chantier-documents » manquant ou fichier supprimé).");
+    }
+  };
 
   // ── Styles communs (cohérent avec autres pages) ──
   const sectionTitle = {
@@ -1729,8 +2023,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           peutForcer={!!selectedPhasage} onForcer={forcerSommetQCD} onRetourAuto={retourAutoSommetQCD} T={T}/>
 
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
-        <FriseCycleVie cv={cv} etapesCourantes={cvEtapesCourantes}
-          peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV} T={T}/>
+        <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected}
+          peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV}
+          actionsEtape={{
+            onValider: validerEtapeCV,
+            onDevalider: devaliderEtapeCV,
+            onAjouterPJ: ajouterPieceJointeCV,
+            onSupprimerPJ: supprimerPieceJointeCV,
+            onAjouterJournal: ajouterJournalCV,
+            onOuvrirPJ: ouvrirPieceJointeCV,
+          }} T={T}/>
 
         {/* Onglets (mobile uniquement) — sur desktop tout s'affiche en scroll */}
         {isMobile && (

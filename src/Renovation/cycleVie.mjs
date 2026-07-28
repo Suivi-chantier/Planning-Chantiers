@@ -49,6 +49,7 @@ export const CYCLE_VIE_PHASES = [
     id: "cv_contrat", ordre: 2, nom: "Contrat", couleur: "#a78bfa",
     etapes: [
       { id: "devis_signe", nom: "Devis signé", nature: "document",
+        champs: [{ id: "date", nom: "Date de signature", type: "date" }],
         hint: "Se valide en important le devis signé. La date saisie à l'import sert de date de signature." },
       { id: "acompte_encaisse", nom: "Acompte encaissé", nature: "coche",
         champs: [{ id: "montant", nom: "Montant (€)", type: "nombre" }, { id: "date", nom: "Date d'encaissement", type: "date" }],
@@ -85,6 +86,7 @@ export const CYCLE_VIE_PHASES = [
     id: "cv_reception", ordre: 5, nom: "Réception", couleur: "#22c55e",
     etapes: [
       { id: "visite_reception", nom: "Visite de réception", nature: "document",
+        champs: [{ id: "date", nom: "Date de réception", type: "date" }],
         hint: "Se valide en important le PV de réception. La date saisie à l'import sert de date de réception." },
       { id: "levee_reserves", nom: "Levée des réserves", nature: "coche",
         hint: "Coche manuelle une fois toutes les réserves de réception levées." },
