@@ -10,6 +10,9 @@ import {
   avancementChantier as cfAvancementChantier,
   tacheHeuresReelles as cfTacheHeuresReelles,
 } from "../chantierFinance";
+// QCD (Point 2a) : calculs du triangle Qualité/Coût/Délai — module dédié,
+// indépendant de DashboardAnalyse (formules jugées fausses par le métier).
+import { computeQCD, qcdDepuisFinance, QCD_METHODE } from "./qcd";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -18,7 +21,7 @@ import {
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
   Clock, Search, Package, Calendar, Info, StickyNote, Bold, Italic, Underline,
-  Palette, List, ListOrdered,
+  Palette, List, ListOrdered, ShieldCheck,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -56,6 +59,158 @@ function ProgressBar({ value, color, height = 6 }) {
         background: pct >= 100 ? "#22c55e" : (color || "#FFC300"),
         transition: "width .4s ease",
       }}/>
+    </div>
+  );
+}
+
+// ─── BANDEAU QCD (Point 2a) ──────────────────────────────────────────────────
+// Triangle Qualité / Coût / Délai en tête de la fiche chantier. Affichage
+// uniquement : tous les calculs viennent de src/Renovation/qcd.js (module pur).
+// Clic sur un sommet (badge ou triangle) → panneau de détail : valeur, calcul
+// en clair (QCD_METHODE) et explication renvoyée par le module.
+const QCD_COULEURS = {
+  vert:   { color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
+  orange: { color: "#f5a623", bg: "rgba(245,166,35,0.12)"  },
+  rouge:  { color: "#e15a5a", bg: "rgba(225,90,90,0.12)"   },
+  gris:   { color: "#94a3b8", bg: "rgba(148,163,184,0.10)" },
+};
+
+// Libellé du statut, contextualisé par axe pour les cas gris (le gris du Délai
+// en démarrage n'est pas le gris de la Qualité non contrôlée).
+const qcdStatutLabel = (axeId, s) => {
+  if (s.statut === "vert")   return "OK";
+  if (s.statut === "orange") return "À surveiller";
+  if (s.statut === "rouge")  return "Alerte";
+  if (axeId === "qualite")   return "Non évalué";
+  if (axeId === "delai")     return s.demarrage ? "Trop tôt pour juger" : "Non calculable";
+  return "Non évaluable";
+};
+
+function BandeauQCD({ qcd, sansPhasage, T }) {
+  const [detail, setDetail] = useState(null); // "qualite" | "cout" | "delai" | null
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
+  // Sans phasage lié, les trois sommets sont gris avec une explication dédiée.
+  const placeholder = {
+    statut: "gris", valeur: null, valeurFormatee: "—", demarrage: false,
+    explication: "Aucun phasage lié à ce chantier : liez un phasage pour calculer cet indicateur.",
+  };
+  const sommets = {
+    qualite: qcd?.qualite || placeholder,
+    cout:    qcd?.cout    || placeholder,
+    delai:   qcd?.delai   || placeholder,
+  };
+  const AXES = [
+    { id: "qualite", label: "Qualité", icon: ShieldCheck },
+    { id: "cout",    label: "Coût",    icon: Wallet },
+    { id: "delai",   label: "Délai",   icon: Clock },
+  ];
+  const toggle = (id) => setDetail(d => (d === id ? null : id));
+  const detailSommet = detail ? sommets[detail] : null;
+
+  return (
+    <div className="ch-stat-card">
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, marginBottom: 10,
+        fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+        letterSpacing: 1.2, textTransform: "uppercase",
+      }}>
+        Pilotage QCD
+        <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .7 }}>
+          — cliquer sur un sommet pour le détail
+        </span>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        {/* Triangle : Qualité en haut, Coût en bas à gauche, Délai en bas à droite */}
+        <svg className="ch-qcd-tri" width="94" height="80" viewBox="0 0 100 84" style={{ flexShrink: 0 }}>
+          <polygon points="50,13 13,71 87,71" fill="none" stroke={border} strokeWidth="2"/>
+          {[["qualite", 50, 13, "Q"], ["cout", 13, 71, "C"], ["delai", 87, 71, "D"]].map(([id, cx, cy, lettre]) => (
+            <g key={id} onClick={() => toggle(id)} style={{ cursor: "pointer" }}>
+              <circle cx={cx} cy={cy} r="12" fill={QCD_COULEURS[sommets[id].statut].color}
+                stroke={detail === id ? text : "transparent"} strokeWidth="2"/>
+              <text x={cx} y={cy + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff"
+                style={{ pointerEvents: "none", userSelect: "none" }}>{lettre}</text>
+            </g>
+          ))}
+        </svg>
+
+        <div className="ch-qcd-grid" style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, minWidth: 0 }}>
+          {AXES.map(a => {
+            const s = sommets[a.id];
+            const st = QCD_COULEURS[s.statut];
+            const actif = detail === a.id;
+            return (
+              <button key={a.id} className="ch-qcd-som" onClick={() => toggle(a.id)} style={{
+                display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 5,
+                background: actif ? st.bg : "transparent",
+                border: `1px solid ${actif ? `${st.color}66` : border}`,
+                borderRadius: 12, padding: "10px 12px", minWidth: 0,
+                cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                transition: "background .12s, border-color .12s",
+              }}>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  fontSize: FONT.xs.size, color: textMuted, fontWeight: 600,
+                  letterSpacing: .3, textTransform: "uppercase",
+                }}>
+                  <Icon as={a.icon} size={11}/> {a.label}
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0, flexWrap: "wrap" }}>
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: st.color, boxShadow: `0 0 8px ${st.color}55`, flexShrink: 0 }}/>
+                  <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: st.color, lineHeight: 1.1 }}>
+                    {qcdStatutLabel(a.id, s)}
+                  </span>
+                  {s.valeurFormatee !== "—" && (
+                    <span style={{ fontSize: FONT.xs.size + 1, color: textSub, fontWeight: 600 }}>
+                      {a.id === "delai" ? `indice ${s.valeurFormatee}` : s.valeurFormatee}
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Panneau de détail : valeur, explication du module, calcul en clair */}
+      {detail && detailSommet && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${border}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>{QCD_METHODE[detail].titre}</span>
+            <span style={{
+              fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+              color: QCD_COULEURS[detailSommet.statut].color, background: QCD_COULEURS[detailSommet.statut].bg,
+              border: `1px solid ${QCD_COULEURS[detailSommet.statut].color}40`,
+            }}>{qcdStatutLabel(detail, detailSommet)}</span>
+            {detailSommet.valeurFormatee !== "—" && (
+              <span style={{ fontSize: FONT.sm.size, color: textSub, fontWeight: 700 }}>
+                {detail === "delai" ? `Indice : ${detailSommet.valeurFormatee}` : `Ratio retenu : ${detailSommet.valeurFormatee}`}
+              </span>
+            )}
+          </div>
+          {detail === "cout" && detailSommet.mo ? (
+            // Coût : les deux sous-ratios (MO / matériaux), chacun avec son statut.
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[detailSommet.mo, detailSommet.materiaux].map(r => (
+                <div key={r.libelle} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT.sm.size, color: textSub }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: QCD_COULEURS[r.statut].color, flexShrink: 0 }}/>
+                  {r.explication}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: FONT.sm.size, color: textSub }}>{detailSommet.explication}</div>
+          )}
+          <div style={{ marginTop: 8, fontSize: FONT.xs.size + 1, color: textMuted, display: "flex", gap: 6 }}>
+            <Icon as={Info} size={12} style={{ flexShrink: 0, marginTop: 1 }}/>
+            <span>Calcul : {QCD_METHODE[detail].formule}. {QCD_METHODE[detail].description}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -831,6 +986,24 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     reelles: s.reelles + o.reelles,
   }), { vendues: 0, reelles: 0 });
 
+  // ── QCD (Point 2a) : les trois sommets, calculés par le module dédié à
+  // partir des données déjà chargées (aucune requête supplémentaire).
+  // V2 : agrégats bruts de computeChantierFinance (mêmes chiffres que la
+  // section Finances). V1 legacy : totaux d'heures de la fiche + coût MO
+  // historique ; le prévisionnel matériaux n'existe pas en V1 → ratio
+  // matériaux non évaluable (gris), c'est voulu.
+  const qcd = !selectedPhasage ? null
+    : finances?.fin ? qcdDepuisFinance(finances.fin.brut)
+    : computeQCD({
+        heuresReelles: totalHeures.reelles,
+        heuresVendues: totalHeures.vendues,
+        avancement: (avancement || 0) / 100,
+        coutMOReel: finances?.coutMO,
+        coutMOPrevu: totalHeures.vendues > 0 ? totalHeures.vendues * (parseFloat(tauxMOPrev) || TAUX_MO_PREV_DEFAUT) : null,
+        coutMateriauxReel: finances?.coutMat,
+        coutMateriauxPrevu: null,
+      });
+
   // ── Styles communs (cohérent avec autres pages) ──
   const sectionTitle = {
     fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
@@ -1069,6 +1242,9 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           .pchan-detail .ch-stat-card{padding:12px!important}
           .pchan-detail .ch-stat-card > div:nth-child(2){font-size:16px!important}
           .pchan-detail .ch-fin-grid{grid-template-columns:1fr 1fr!important;gap:8px!important}
+          .pchan-detail .ch-qcd-tri{display:none}
+          .pchan-detail .ch-qcd-grid{gap:6px!important}
+          .pchan-detail .ch-qcd-som{padding:8px 8px!important}
         }
       `}</style>
 
@@ -1164,6 +1340,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       </div>
 
       <div className="pchan-detail-body" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
+
+        {/* ── Bandeau QCD (Point 2a) : santé du chantier, toujours visible
+            (hors onglets mobiles), avant tous les blocs existants ── */}
+        <BandeauQCD qcd={qcd} sansPhasage={!selectedPhasage} T={T}/>
 
         {/* Onglets (mobile uniquement) — sur desktop tout s'affiche en scroll */}
         {isMobile && (
