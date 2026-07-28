@@ -173,6 +173,19 @@ module.exports = async function handler(req, res) {
     const clByChantier = {};
     commandeLignes.forEach(l => { (clByChantier[l.chantier_id] ||= []).push(l); });
 
+    // UN SEUL phasage par chantier : la table peut contenir des doublons de
+    // chantier_id (l'app n'en lit qu'un via .maybeSingle()). Sans ce filtre,
+    // l'upsert reçoit deux lignes pour le même (chantier_id, date_snapshot) et
+    // Postgres refuse : « ON CONFLICT DO UPDATE cannot affect row a second time ».
+    // On garde le plus récemment modifié.
+    const parChantier = {};
+    phasages.forEach(ph => {
+      if (!ph.chantier_id) return;
+      const cur = parChantier[ph.chantier_id];
+      if (!cur || String(ph.updated_at || "") > String(cur.updated_at || "")) parChantier[ph.chantier_id] = ph;
+    });
+    const phasagesUniques = Object.values(parChantier);
+
     // Projections : bibliothèque de matériaux (reste à commander) + % facturé
     // par NOM de chantier (États financiers, période la plus récente).
     const materiauxById = {};
@@ -203,7 +216,7 @@ module.exports = async function handler(req, res) {
     if (!backfill) {
       // ── Snapshot du jour ──
       const weekId = weekIdFor(dateSnapshot);
-      for (const ph of phasages) {
+      for (const ph of phasagesUniques) {
         if (!ph.chantier_id) continue;
         const pts = ptsByChantier[ph.chantier_id] || [];
         const cl = clByChantier[ph.chantier_id] || [];
@@ -230,7 +243,7 @@ module.exports = async function handler(req, res) {
       // Historique des ouvrages : une requête PAR PHASAGE (couvre toute la
       // fenêtre), puis sélection en mémoire de la version ≤ chaque vendredi.
       const oldest = fridays[fridays.length - 1];
-      for (const ph of phasages) {
+      for (const ph of phasagesUniques) {
         if (!ph.chantier_id) continue;
         const { data: hist, error: hErr } = await supabase
           .from("phasages_history")
@@ -271,10 +284,16 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true, inserted: 0, date: dateSnapshot, backfill, note: "no chantier to snapshot", skipped });
     }
 
+    // Filet de sécurité : jamais deux lignes pour la même clé dans UN MÊME
+    // upsert (Postgres le refuse) — la dernière calculée l'emporte.
+    const parCle = {};
+    rows.forEach(r => { parCle[`${r.chantier_id}|${r.date_snapshot}`] = r; });
+    const rowsUniques = Object.values(parCle);
+
     // Upsert sur (chantier_id, date_snapshot) — idempotent.
     const { data: inserted, error: insErr } = await supabase
       .from("chantier_snapshots_hebdo")
-      .upsert(rows, { onConflict: "chantier_id,date_snapshot", ignoreDuplicates: false })
+      .upsert(rowsUniques, { onConflict: "chantier_id,date_snapshot", ignoreDuplicates: false })
       .select("id, chantier_id, date_snapshot, marge");
     if (insErr) throw new Error(insErr.message);
 
