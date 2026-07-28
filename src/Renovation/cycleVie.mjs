@@ -138,11 +138,32 @@ export const phaseSuivante = (phaseId) => {
   return i >= 0 && i + 1 < CYCLE_VIE_PHASES.length ? CYCLE_VIE_PHASES[i + 1] : null;
 };
 
+// ── Témoin « groupe contrôlé » — POINT DE BRANCHEMENT du Point 2 (b) ────────
+// Un groupe est « terminé » quand ses tâches sont à 100 % ; il est « validé »
+// quand son JALON DE CONTRÔLE a été réalisé — mécanisme livré par le Point
+// 2 (b). En attendant, cette source renvoie TOUJOURS non-contrôlé : c'est LE
+// seul endroit à remplir pour que les témoins s'allument (frise, règle de
+// clôture de la phase Travaux). Ne pas dupliquer cette logique ailleurs.
+export function controleGroupe(/* groupeId, contexte Point 2 b */) {
+  return { controle: false, raison: "contrôle de fin de groupe à venir (Point 2 b)" };
+}
+
+// Règle de clôture (Prompt 7) : la phase Travaux ne peut se terminer que
+// lorsque TOUS les groupes du chantier sont contrôlés.
+export function phaseTravauxTerminee(chronoGroupes) {
+  const groupes = Array.isArray(chronoGroupes) ? chronoGroupes.filter(g => g && g.id) : [];
+  if (!groupes.length) return false;
+  return groupes.every(g => controleGroupe(g.id).controle);
+}
+
 // ── Phase Travaux : entrées dérivées des groupes du chantier ────────────────
 // chronoGroupes = phasage.plan_travaux.meta.chrono_groupes ({ id, nom,
 // couleur, ordre, groupe_type_id? }). Une entrée par groupe, dans leur ordre,
-// de nature "auto" (le témoin « contrôlé » sera fourni par le Point 2 b).
-export function etapesTravauxDepuisGroupes(chronoGroupes) {
+// de nature "auto" (témoin « contrôlé » fourni par controleGroupe).
+// statsParGroupe (optionnel) = { [groupeId]: { avancement, termine, count } }
+// — voir statsGroupeChrono de src/chantierFinance.mjs — pour afficher
+// l'avancement de chaque groupe.
+export function etapesTravauxDepuisGroupes(chronoGroupes, statsParGroupe = {}) {
   const groupes = Array.isArray(chronoGroupes) ? chronoGroupes.filter(g => g && g.id) : [];
   return groupes
     .slice()
@@ -151,16 +172,22 @@ export function etapesTravauxDepuisGroupes(chronoGroupes) {
       const ob = Number.isFinite(parseFloat(b.ordre)) ? parseFloat(b.ordre) : 1e9;
       return oa - ob;
     })
-    .map(g => ({
-      id: `groupe_${g.id}`,
-      nom: g.nom || "Groupe",
-      nature: "auto",
-      signal: "groupe_controle",
-      phaseId: "cv_travaux",
-      groupeId: g.id,
-      couleur: g.couleur || null,
-      hint: "Groupe d'exécution : terminé quand ses tâches sont à 100 %, validé quand son jalon de contrôle est réalisé (Point 2 b).",
-    }));
+    .map(g => {
+      const stats = statsParGroupe?.[g.id] || null;
+      return {
+        id: `groupe_${g.id}`,
+        nom: g.nom || "Groupe",
+        nature: "auto",
+        signal: "groupe_controle",
+        phaseId: "cv_travaux",
+        groupeId: g.id,
+        couleur: g.couleur || null,
+        avancement: stats ? stats.avancement : null,
+        termine: stats ? !!stats.termine : false,
+        nbTaches: stats ? stats.count : null,
+        hint: "Groupe d'exécution : terminé quand ses tâches sont à 100 %, validé quand son jalon de contrôle est réalisé (Point 2 b).",
+      };
+    });
 }
 
 // ── Stockage dans phasages.plan_travaux.meta (Prompts 5 et 6) ───────────────
@@ -278,10 +305,18 @@ export function evaluerEtape(etape, ctx = {}) {
         raison: fait ? `Réception le ${ref} → parfait achèvement échu le ${limite}.` : `Réception le ${ref} → parfait achèvement jusqu'au ${limite}.`,
       };
     }
-    case "groupe_controle":
-      // Témoin « contrôlé / non contrôlé » livré par le Point 2 b : en
-      // attendant, la source renvoie toujours faux.
-      return { fait: false, auto: true, raison: "Jalon de contrôle du groupe : à venir (Point 2 b)." };
+    case "groupe_controle": {
+      // Témoin « contrôlé / non contrôlé » : source unique controleGroupe
+      // (Point 2 b). L'avancement vient de l'entrée (statsGroupeChrono).
+      const ctrl = controleGroupe(etape.groupeId);
+      if (ctrl.controle) return { fait: true, auto: true, raison: "Groupe contrôlé : jalon de contrôle réalisé." };
+      const av = Number.isFinite(parseFloat(etape.avancement)) ? Math.round(parseFloat(etape.avancement)) : null;
+      const etatTravaux = etape.termine ? "Tâches à 100 %"
+        : etape.nbTaches === 0 ? "Aucune tâche rattachée"
+        : av != null ? `Avancement ${av} %`
+        : "Avancement inconnu";
+      return { fait: false, auto: true, raison: `${etatTravaux} — ${ctrl.raison}.` };
+    }
     default:
       return { fait: !!etat?.fait, auto: true, raison: etape.hint || "" };
   }
@@ -301,6 +336,7 @@ export function computeCycleVie({
   etatsEtapes = {},
   phaseDeclaree = null,    // lirePhaseDeclaree(meta)
   equipesAffectees = null,
+  groupes = null,          // meta.chrono_groupes (règle de clôture Travaux)
   todayISO = "",
 } = {}) {
   const ctx = { etatsEtapes: etatsEtapes || {}, chiffrage, equipesAffectees, todayISO };
@@ -334,6 +370,17 @@ export function computeCycleVie({
   const av = parseFloat(avancement);
   if (Number.isFinite(av) && av > 0) bump(4, `Travaux avancés à ${Math.round(av)} %`);
   if (Number.isFinite(av) && av >= 100) bump(5, "Travaux à 100 %");
+
+  // Règle de clôture (Prompt 7) : tant que TOUS les groupes ne sont pas
+  // contrôlés (témoin Point 2 b), la DÉDUCTION ne dépasse pas Travaux — même
+  // à 100 % d'avancement ou statut Terminé. La phase déclarée à la main,
+  // elle, reste prioritaire et peut passer outre (jugement du conducteur).
+  const groupesList = Array.isArray(groupes) ? groupes.filter(g => g && g.id) : [];
+  if (groupesList.length > 0 && detected > 4 && !phaseTravauxTerminee(groupesList)) {
+    const nbControles = groupesList.filter(g => controleGroupe(g.id).controle).length;
+    detected = 4;
+    autoReasons.push(`Phase Travaux non clôturable : ${nbControles}/${groupesList.length} groupe(s) contrôlé(s)`);
+  }
 
   detected = Math.max(1, Math.min(CYCLE_VIE_PHASES.length, detected));
   const declared = phaseDeclaree ? getPhase(phaseDeclaree.phaseId) : null;

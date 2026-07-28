@@ -9,6 +9,7 @@ import {
   computeChantierFinance,
   avancementChantier as cfAvancementChantier,
   tacheHeuresReelles as cfTacheHeuresReelles,
+  statsGroupeChrono,
 } from "../chantierFinance";
 // QCD (Point 2a) : calculs du triangle Qualité/Coût/Délai — module dédié,
 // indépendant de DashboardAnalyse (formules jugées fausses par le métier).
@@ -466,6 +467,25 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
         <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{etape.raison}</div>
         {resume && <div style={{ fontSize: FONT.xs.size + 1, color: textSub, marginTop: 2, fontWeight: 600 }}>{resume}</div>}
 
+        {/* Entrée de GROUPE (phase Travaux) : avancement + témoin de contrôle
+            (emplacement explicite du « contrôlé / non contrôlé » — Point 2 b). */}
+        {etape.signal === "groupe_controle" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5, maxWidth: 380, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 120 }}>
+              <ProgressBar value={etape.avancement || 0} color={etape.couleur || undefined} height={5}/>
+            </div>
+            <span style={{ fontSize: FONT.xs.size + 1, color: textSub, fontWeight: 700, flexShrink: 0 }}>
+              {Math.round(etape.avancement || 0)} %{etape.termine ? " · terminé" : ""}
+            </span>
+            <span title="Témoin de contrôle de fin de groupe (Point 2 b)" style={{
+              fontSize: FONT.xs.size, fontWeight: 700, padding: "1px 8px", borderRadius: RADIUS.pill,
+              color: etape.fait ? "#22c55e" : textMuted,
+              border: `1px ${etape.fait ? "solid #22c55e" : `dashed ${border}`}`,
+              flexShrink: 0,
+            }}>{etape.fait ? "contrôlé" : "non contrôlé"}</span>
+          </div>
+        )}
+
         {/* Pièces jointes : consultables depuis la frise (URL signée) */}
         {pjs.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
@@ -561,7 +581,7 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, cvCtx, chronoGroupes, peutModifier, onDeclarer, actionsEtape, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, peutModifier, onDeclarer, actionsEtape, T }) {
   const [saving, setSaving] = useState(false);
   const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
@@ -678,7 +698,7 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, peutModifier, onDeclarer, act
             const phaseVueId = phaseVue || cv.phaseId;
             const phaseVueObj = getPhase(phaseVueId) || cv.phase;
             const etapes = (phaseVueId === "cv_travaux"
-              ? etapesTravauxDepuisGroupes(chronoGroupes)
+              ? etapesTravauxDepuisGroupes(chronoGroupes, statsGroupes)
               : (phaseVueObj?.etapes || [])
             ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx), etat: (cvCtx?.etatsEtapes || {})[e.id] || null }));
             const estPhaseCourante = phaseVueId === cv.phaseId;
@@ -1590,8 +1610,17 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     etatsEtapes: cvEtats,
     phaseDeclaree: cvPhaseDeclaree,
     equipesAffectees: cvEquipesAffectees,
+    groupes: chronoGroupesSelected, // règle : Travaux ne se clôture que si tous les groupes sont contrôlés
     todayISO: cvCtx.todayISO,
   }) : null;
+  // Avancement de chaque groupe (pondéré heures_vendues, comme la vue chrono).
+  const statsGroupesSelected = (() => {
+    const map = {};
+    chronoGroupesSelected.forEach(g => {
+      if (g?.id) map[g.id] = statsGroupeChrono(g.id, selectedPhasage?.ouvrages);
+    });
+    return map;
+  })();
   // Déclare la phase en cours à la main (prioritaire) — null = retour auto.
   const declarerPhaseCV = (phaseId) => saveMetaPhasage({
     [CV_META_PHASE_DECLAREE]: phaseId ? {
@@ -2023,7 +2052,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           peutForcer={!!selectedPhasage} onForcer={forcerSommetQCD} onRetourAuto={retourAutoSommetQCD} T={T}/>
 
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
-        <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected}
+        <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected} statsGroupes={statsGroupesSelected}
           peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV}
           actionsEtape={{
             onValider: validerEtapeCV,

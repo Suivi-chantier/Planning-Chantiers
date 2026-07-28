@@ -160,6 +160,30 @@ export function avancementOuvrage(ouvrage) {
   return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
 }
 
+// ── Groupes chrono (vue chrono / cycle de vie chantier) ─────────────────────
+// Synthèse d'un groupe d'exécution : tâches rattachées via chrono_groupe_id.
+// Avancement pondéré par heures_vendues — MÊME convention que groupStats de la
+// vue chrono (PhasageV2) ; elle diffère volontairement d'avancementOuvrage
+// (pondéré heures_estimees) : ne pas « harmoniser ».
+// `termine` = toutes les tâches du groupe à 100 % (définition du cycle de vie).
+export function statsGroupeChrono(groupeId, ouvrages) {
+  const taches = (ouvrages || [])
+    .flatMap(o => o?.taches || [])
+    .filter(t => t?.chrono_groupe_id === groupeId);
+  let wsum = 0, wtot = 0, ssum = 0;
+  taches.forEach(t => {
+    const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
+    const h = parseFloat(t.heures_vendues) || 0;
+    ssum += av;
+    if (h > 0) { wsum += av * h; wtot += h; }
+  });
+  const avancement = wtot > 0
+    ? Math.round(wsum / wtot)
+    : (taches.length ? Math.round(ssum / taches.length) : 0);
+  const termine = taches.length > 0 && taches.every(t => (parseInt(t.avancement) || 0) >= 100);
+  return { count: taches.length, avancement, termine };
+}
+
 // ── Lots ─────────────────────────────────────────────────────────────────────
 // Le pseudo-lot "_orphans" agrège les ouvrages sans lot_id reconnu.
 
