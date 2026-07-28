@@ -2,6 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
+// SOURCE DE VÉRITÉ des calculs financiers/avancement V2 : src/chantierFinance.js
+// (mêmes formules que Phasage V2). Les branches V1 legacy (plan_travaux sans
+// ouvrages) gardent leur calcul historique, qui n'existe nulle part ailleurs.
+import {
+  computeChantierFinance,
+  avancementChantier as cfAvancementChantier,
+  tacheHeuresReelles as cfTacheHeuresReelles,
+} from "../chantierFinance";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -65,44 +73,58 @@ function totalLignes(lignes) {
     (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
 }
 
-function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = []) {
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0) {
   const ouvrages = phasage?.ouvrages || [];
   const hasV2 = ouvrages.length > 0;
-  if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0 };
-  // MO : somme de TOUS les pointages du chantier (robuste, taux figé). Repli
-  // legacy par tâche si aucun pointage.
+  if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, fg: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0, ecartVendu: null, fin: null };
+
+  // ── V2 : tout vient du module (mêmes chiffres que Phasage V2, au centime).
+  // Le vendu est la SOMME DES OUVRAGES (plus le devis saisi), la marge est la
+  // MARGE NETTE (frais généraux déduits) et le coût MO gère le repli legacy
+  // par tâche + la reprise d'antériorité — exactement comme Phasage V2.
+  if (hasV2) {
+    const fin = computeChantierFinance({
+      phasage, pointages: pointagesChantier, commandeLignes, tauxHoraires, tauxMOPrev, lots: [],
+    });
+    const b = fin.brut;
+    return {
+      coutMO: b.coutMOTotalChantier,
+      coutMat: b.coutMatChantier,
+      fg: b.fgChantier,
+      coutTotal: b.coutMOTotalChantier + b.coutMatChantier + b.fgChantier,
+      prixVendu: b.prixHTChantier,
+      marge: b.margeChantier,
+      margePct: b.margePctChantier,
+      ecartVendu: b.ecartVendu,
+      montantDevis: b.montantDevis,
+      moPrev: b.moPrevChantier,
+      fin,
+    };
+  }
+
+  // ── Repli V1 legacy (plan_travaux sans ouvrages) : calcul historique,
+  // n'existe nulle part ailleurs (Phasage V2 ne gère pas la V1).
   let coutMO;
   if (Array.isArray(pointagesChantier) && pointagesChantier.length > 0) {
     coutMO = pointagesChantier.reduce((s, p) => s + (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0), 0);
   } else {
-    const allTaches = hasV2
-      ? ouvrages.flatMap(o => o.taches || [])
-      : PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
+    const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
     const coutMOTaches = allTaches.reduce((s, t) => s + coutMOEff(t, pointagesIndexes, tauxHoraires), 0);
     coutMO = coutMOTaches + (extraStats.coutLibre || 0) + (extraStats.coutIndirect || 0);
   }
-  // Coût matériaux RÉEL : V2 = somme des lignes de commande du chantier (source
-  // de vérité depuis la refonte commandes ; identique à PhasageV2, y compris 0
-  // tant qu'aucune commande n'est saisie — l'estimation cout_materiaux reste le
-  // PRÉVISIONNEL, affiché séparément). V1 legacy = cout_materiel des tâches.
-  const coutMat = hasV2
-    ? totalLignes(commandeLignes)
-    : PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || [])).reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
+  const coutMat = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || [])).reduce((s, t) => s + (parseFloat(t.cout_materiel) || 0), 0);
   const coutTotal = coutMO + coutMat;
   const prixVendu = parseFloat(phasage?.prix_vendu) || parseFloat(phasage?.plan_travaux?.meta?.prix_vendu) || 0;
   const marge     = prixVendu - coutTotal;
   const margePct  = prixVendu > 0 ? (marge / prixVendu) * 100 : 0;
-  return { coutMO, coutMat, coutTotal, prixVendu, marge, margePct };
+  return { coutMO, coutMat, fg: 0, coutTotal, prixVendu, marge, margePct, ecartVendu: null, fin: null };
 }
 
 function calcAvancement(phasage) {
-  // V2 : avancement depuis les tâches des ouvrages (pondéré prix_ht/heures via
-  // calcAvancementPondere). Repli V1 : tâches de plan_travaux.
+  // V2 : avancement du module (pondéré heures_estimees par ouvrage puis
+  // prix_ht au chantier — identique à Phasage V2). Repli V1 : plan_travaux.
   const ouvrages = phasage?.ouvrages || [];
-  if (ouvrages.length > 0) {
-    const allTaches = ouvrages.flatMap(o => (o.taches || []).map(t => ({ ...t, ouvrage_id: o.id })));
-    return calcAvancementPondere(ouvrages, allTaches);
-  }
+  if (ouvrages.length > 0) return cfAvancementChantier(ouvrages);
   if (!phasage?.plan_travaux) return 0;
   const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
   return calcAvancementPondere(ouvrages, allTaches);
@@ -746,7 +768,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const commandeLignesSelected = selectedPhasage
     ? commandeLignes.filter(l => l.chantier_id === selectedPhasage.chantier_id)
     : [];
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected) : null;
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
@@ -761,9 +783,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     const hasV2 = ouvrages.length > 0;
 
     if (hasV2) {
-      // Tâches rattachées directement à chaque ouvrage (structure V2).
+      // Tâches rattachées directement à chaque ouvrage (structure V2) — heures
+      // réelles du module (registre, repli legacy y c. format tableau v1).
       return ouvrages.map(o => {
-        const reelles = (o.taches || []).reduce((s, t) => s + heuresEff(t, ptsIndexSelected), 0);
+        const reelles = (o.taches || []).reduce((s, t) => s + cfTacheHeuresReelles(t, ptsIndexSelected), 0);
         const vendues = parseFloat(o.heures_devis) || 0;
         return { id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, vendues, reelles };
       }).filter(o => o.vendues > 0 || o.reelles > 0);
@@ -858,7 +881,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             const ph = trouverPhasage(phasages, c);
             if (!ph) return;
             const ptsCh = pointages.filter(p => p.chantier_id === ph.chantier_id);
-            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh);
+            const cmdCh = commandeLignes.filter(l => l.chantier_id === ph.chantier_id);
+            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh);
             caTotal += f.prixVendu || 0;
             margeTotal += f.marge || 0;
           });
@@ -1609,14 +1633,18 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             <div style={sectionTitle}>
               <Icon as={Wallet} size={13}/> Finances du chantier
             </div>
-            <div className="ch-fin-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
+            <div className="ch-fin-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${finances.fg > 0 ? 5 : 4},1fr)`, gap: 12 }}>
               {[
-                { label: "Prix marché HT",    val: fmt(finances.prixVendu), color: text,       sub: "Vendu au client",  icon: Banknote },
+                { label: finances.fin ? "Vendu HT" : "Prix marché HT",
+                  val: fmt(finances.prixVendu), color: text,
+                  sub: finances.fin ? "Somme des ouvrages" : "Vendu au client", icon: Banknote },
                 { label: "Coût main d'œuvre", val: fmt(finances.coutMO),   color: "#60a5fa",  sub: "Heures réelles",  icon: HardHat },
                 { label: "Coût matériaux",    val: fmt(finances.coutMat),  color: "#f59e0b",  sub: "Matériaux",        icon: Receipt },
-                { label: "Marge brute",       val: fmt(finances.marge),
+                ...(finances.fg > 0 ? [{ label: "Frais généraux", val: fmt(finances.fg), color: "#a78bfa", sub: "Taux × heures réelles", icon: Wallet }] : []),
+                { label: finances.fin ? "Marge nette" : "Marge brute",
+                  val: fmt(finances.marge),
                   color: finances.marge >= 0 ? "#22c55e" : "#e15a5a",
-                  sub: `${finances.margePct.toFixed(1)}% du marché`,
+                  sub: `${finances.margePct.toFixed(1)}% du ${finances.fin ? "vendu" : "marché"}`,
                   icon: finances.marge >= 0 ? TrendingUp : TrendingDown,
                   bold: true },
               ].map(s => (
@@ -1630,14 +1658,24 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                 </div>
               ))}
             </div>
+            {/* Contrôle d'écart : somme des ouvrages vs montant du devis saisi.
+                Un écart signale une donnée à corriger (avenant oublié, ouvrage
+                non chiffré), pas une marge. */}
+            {finances.fin?.warnings?.some(w => w.code === "ecart_vendu") && (
+              <div style={{ marginTop: 8, fontSize: FONT.xs.size + 1, color: "#f5a623", display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon as={Info} size={12}/>
+                {finances.fin.warnings.find(w => w.code === "ecart_vendu").message}
+              </div>
+            )}
             {finances.coutTotal > 0 && (
               <div style={{ marginTop: 12, background: card, border: `1px solid ${border}`, borderRadius: RADIUS.lg, padding: "12px 16px" }}>
                 <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginBottom: 8 }}>Décomposition du coût total ({fmt(finances.coutTotal)})</div>
                 <div style={{ display: "flex", height: 8, borderRadius: 6, overflow: "hidden", gap: 2 }}>
                   <div style={{ flex: finances.coutMO || 0.001, background: "#60a5fa" }}/>
                   <div style={{ flex: finances.coutMat || 0.001, background: "#f59e0b" }}/>
+                  {finances.fg > 0 && <div style={{ flex: finances.fg, background: "#a78bfa" }}/>}
                 </div>
-                <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+                <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: "#60a5fa", fontWeight: 600 }}>
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: "#60a5fa" }}/>
                     Main d'œuvre {finances.coutTotal > 0 ? `${Math.round((finances.coutMO/finances.coutTotal)*100)}%` : ""}
@@ -1646,6 +1684,12 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     <span style={{ width: 8, height: 8, borderRadius: 2, background: "#f59e0b" }}/>
                     Matériaux {finances.coutTotal > 0 ? `${Math.round((finances.coutMat/finances.coutTotal)*100)}%` : ""}
                   </span>
+                  {finances.fg > 0 && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: "#a78bfa", fontWeight: 600 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}/>
+                      Frais généraux {finances.coutTotal > 0 ? `${Math.round((finances.fg/finances.coutTotal)*100)}%` : ""}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -1664,10 +1708,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           const totalHVendues = totalHVenduOuvrages > 0
             ? totalHVenduOuvrages
             : allTaches.reduce((s, t) => s + (parseFloat(t.heures_vendues) || 0), 0);
-          // Coût MO prévisionnel = heures vendues × taux horaire global réglé
-          // dans Admin → Taux MO prévisionnel (repli sur le défaut si non réglé).
+          // Coût MO prévisionnel : V2 = module (heures vendues × taux Admin,
+          // identique à Phasage V2). Repli V1 : même formule sur les heures
+          // vendues des tâches du plan.
           const tauxMoyen      = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
-          const coutMOPrev     = totalHVendues * tauxMoyen;
+          const coutMOPrev     = finances?.fin ? finances.moPrev : totalHVendues * tauxMoyen;
           const coutMOReel     = finances?.coutMO || 0;
 
           // Détail matériaux : par OUVRAGE en V2 (prévu = cout_materiaux estimé,

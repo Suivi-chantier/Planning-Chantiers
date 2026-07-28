@@ -13,6 +13,17 @@
 // on filtre/somme en mémoire : plus efficace qu'une requête par tâche.
 
 import { supabase } from "./supabase";
+// Les agrégations pures (index par tâche, sommes, libres/indirects) vivent
+// dans le module de calcul unique src/chantierFinance.js : on les ré-exporte
+// ici pour garder les imports historiques valides sans dupliquer les formules.
+import {
+  indexPointagesParTache,
+  sumLibreEtIndirect,
+  sumHeures,
+  sumCoutMO,
+} from "./chantierFinance.mjs";
+
+export { indexPointagesParTache, sumLibreEtIndirect, sumHeures, sumCoutMO };
 
 // ── Récupération ──────────────────────────────────────────────────────────
 
@@ -58,38 +69,14 @@ export const filtrerParOuvrier  = (pts, ouvrier)     => (pts || []).filter(p => 
 export const filtrerProductives = (pts)              => (pts || []).filter(p => p.type_pointage !== "indirect");
 export const filtrerIndirectes  = (pts)              => (pts || []).filter(p => p.type_pointage === "indirect");
 
-// ── Agrégations pures ─────────────────────────────────────────────────────
-
-export function sumHeures(pts) {
-  return (pts || []).reduce((s, p) => s + (parseFloat(p.heures) || 0), 0);
-}
-
-export function sumCoutMO(pts) {
-  return (pts || []).reduce(
-    (s, p) => s + ((parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0)),
-    0,
-  );
-}
-
 // ── Helpers d'agrégation par tâche (P8/P9) ────────────────────────────────
 //
 // Ces helpers permettent à chaque écran qui affichait heures_reelles × ouvriers[0]
 // de basculer sur le registre tout en gardant un REPLI legacy : si une tâche
 // n'a aucun pointage, on retombe sur l'ancien calcul (heures_reelles × taux
 // du premier ouvrier), le temps que les pointages remplacent l'historique.
-
-// Indexe les pointages "tâche" (productifs, non-indirects, avec tache_id) par tache_id
-export function indexPointagesParTache(points) {
-  const m = {};
-  (points || []).forEach(p => {
-    if (p.type_pointage === "indirect") return;
-    if (!p.tache_id) return; // tâche libre : pas d'imputation au plan
-    const k = String(p.tache_id);
-    if (!m[k]) m[k] = [];
-    m[k].push(p);
-  });
-  return m;
-}
+// ⚠️ Ce repli ouvriers[0] diffère volontairement de celui de PhasageV2 (tous
+// les ouvriers assignés) — il ne sert plus qu'aux écrans V1 legacy.
 
 // Heures réelles effectives d'une tâche : somme des pointages si présents,
 // sinon ancienne valeur du plan (repli legacy).
@@ -114,19 +101,6 @@ export function coutMOEff(tache, pointagesParTache, tauxHoraires) {
   }
   const pO = (tache.ouvriers || (tache.ouvrier ? [tache.ouvrier] : []))[0] || "";
   return (parseFloat(tache.heures_reelles) || 0) * (pO ? (tauxHoraires?.[pO] || 0) : 0);
-}
-
-// Sommes des heures et coûts pour les pointages "libres" (tache_id null, type tache)
-// et "indirects" (type indirect) — au niveau chantier, hors tâches du plan.
-export function sumLibreEtIndirect(points) {
-  let heuresLibre = 0, coutLibre = 0, heuresIndirect = 0, coutIndirect = 0;
-  (points || []).forEach(p => {
-    const h = parseFloat(p.heures) || 0;
-    const c = h * (parseFloat(p.taux_horaire) || 0);
-    if (p.type_pointage === "indirect") { heuresIndirect += h; coutIndirect += c; }
-    else if (!p.tache_id) { heuresLibre += h; coutLibre += c; }
-  });
-  return { heuresLibre, coutLibre, heuresIndirect, coutIndirect };
 }
 
 // ── Construction des lignes de pointages d'un rapport ─────────────────────

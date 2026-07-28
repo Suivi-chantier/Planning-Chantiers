@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { fetchPointages } from "../pointages";
+import { avancementChantier as cfAvancementChantier } from "../chantierFinance";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -307,19 +308,11 @@ function BilanSemaine({ rapports, chantiers, cells: cellsProp, weekId, onClose, 
       (phasagesQ.data || []).forEach(ph => {
         const plan = ph.plan_travaux || {};
         prixVenduByCh[ph.chantier_id] = parseFloat(plan.meta?.prix_vendu) || 0;
-        // V2 : avancement depuis les ouvrages (pondéré heures_estimees puis prix_ht).
+        // V2 : avancement du module chantierFinance (formule Phasage V2 — la
+        // source de vérité, y compris l'arrondi par ouvrage avant pondération).
         const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
         if (ouvrages.length > 0) {
-          const avOuv = (o) => {
-            const ts = o.taches || []; if (!ts.length) return 0;
-            const he = ts.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-            if (he > 0) return ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / he;
-            return ts.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / ts.length;
-          };
-          const totalPrix = ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-          actuelByCh[ph.chantier_id] = totalPrix > 0
-            ? Math.round(ouvrages.reduce((s, o) => s + avOuv(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix)
-            : Math.round(ouvrages.reduce((s, o) => s + avOuv(o), 0) / ouvrages.length);
+          actuelByCh[ph.chantier_id] = cfAvancementChantier(ouvrages);
           return;
         }
         // Repli V1 : plan_travaux
@@ -1675,11 +1668,14 @@ function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defau
       const { data: addr } = await supabase.from("planning_config").select("value").eq("key", "chantier_adresses").maybeSingle();
       const addrCh = addr?.value?.[chantier.id];
       if (addrCh?.adresse) setAdresse(addrCh.adresse);
-      // Avancement depuis phasage
+      // Avancement depuis phasage — V2 : formule du module (Phasage V2 fait
+      // foi) ; repli V1 : moyenne simple/pondérée des tâches de plan_travaux.
       const { data: ph } = await supabase.from("phasages").select("ouvrages, plan_travaux").eq("chantier_id", chantier.id).maybeSingle();
-      if (ph?.plan_travaux) {
+      if (Array.isArray(ph?.ouvrages) && ph.ouvrages.length > 0) {
+        const av = cfAvancementChantier(ph.ouvrages);
+        if (av > 0) setAvancement(String(av));
+      } else if (ph?.plan_travaux) {
         const allTaches = Object.values(ph.plan_travaux).filter(Array.isArray).flat();
-        // Calcul simple : moyenne pondérée par heures_estimees (sinon moyenne simple)
         const totalHE = allTaches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
         const av = totalHE > 0
           ? Math.round(allTaches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0)), 0) / totalHE)
