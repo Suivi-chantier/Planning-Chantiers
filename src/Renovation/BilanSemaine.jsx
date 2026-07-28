@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { fetchPointages } from "../pointages";
 import {
@@ -11,7 +11,7 @@ import { Icon } from "../ui";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
-  TrendingUp, TrendingDown, Target, AlertTriangle,
+  TrendingUp, TrendingDown, Target, AlertTriangle, Trash2,
 } from "lucide-react";
 
 // Un chantier est « en cours » par son ACTIVITÉ, pas par un statut : au moins
