@@ -200,3 +200,161 @@ export function lirePhaseDeclaree(meta) {
     date: typeof brut.date === "string" ? brut.date : "",
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ÉVALUATION D'UNE ÉTAPE (fait / à faire) — pur.
+// Contexte fourni par l'appelant (le module ne lit ni la DB ni l'horloge) :
+//  - etatsEtapes      : lireEtatsEtapes(meta)
+//  - chiffrage        : bool — le chantier a un phasage chiffré
+//  - equipesAffectees : bool | null — chaque groupe a ses ouvriers (null =
+//                       aucun groupe défini, indéterminé)
+//  - todayISO         : "YYYY-MM-DD"
+// Renvoie { fait, auto, raison } — la raison est toujours affichable telle
+// quelle (POURQUOI c'est validé ou non, exigence des étapes auto).
+// ─────────────────────────────────────────────────────────────────────────────
+const addJours = (iso, n) => {
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// Date de référence portée par une étape validée : donnée saisie (champ date)
+// en priorité, sinon date de validation.
+const dateEtape = (etats, etapeId) => {
+  const e = etats?.[etapeId];
+  if (!e) return null;
+  const d = e.donnees?.date || e.date;
+  return typeof d === "string" && d.length >= 10 ? d.slice(0, 10) : null;
+};
+
+export function evaluerEtape(etape, ctx = {}) {
+  const etats = ctx.etatsEtapes || {};
+  const etat = etats[etape.id];
+
+  if (etape.nature !== "auto") {
+    const fait = !!etat?.fait;
+    return {
+      fait, auto: false,
+      raison: fait
+        ? `Validée${etat.date ? ` le ${String(etat.date).slice(0, 10)}` : ""}${etat.auteur ? ` par ${etat.auteur}` : ""}.`
+        : etape.hint || "",
+    };
+  }
+
+  switch (etape.signal) {
+    case "chiffrage_existant": {
+      const fait = !!ctx.chiffrage;
+      return { fait, auto: true, raison: fait ? "Phasage chiffré présent pour ce chantier." : "Aucun phasage chiffré pour ce chantier." };
+    }
+    case "signature_plus_14j": {
+      const ref = dateEtape(etats, "devis_signe");
+      if (!ref) return { fait: false, auto: true, raison: "En attente du devis signé (date de signature inconnue)." };
+      const limite = addJours(ref, 14);
+      const fait = !!(limite && ctx.todayISO && String(ctx.todayISO) >= limite);
+      return {
+        fait, auto: true,
+        raison: fait ? `Signature le ${ref} → délai purgé depuis le ${limite}.` : `Signature le ${ref} → délai purgé le ${limite}.`,
+      };
+    }
+    case "equipes_sur_groupes": {
+      if (ctx.equipesAffectees == null) return { fait: false, auto: true, raison: "Aucun groupe d'exécution défini (vue chrono du phasage)." };
+      return {
+        fait: !!ctx.equipesAffectees, auto: true,
+        raison: ctx.equipesAffectees
+          ? "Chaque groupe a ses ouvriers affectés (ou est marqué externe)."
+          : "Des groupes n'ont pas encore d'ouvriers affectés.",
+      };
+    }
+    case "reception_plus_1an": {
+      const ref = dateEtape(etats, "visite_reception");
+      if (!ref) return { fait: false, auto: true, raison: "En attente du PV de réception (date de réception inconnue)." };
+      const limite = addJours(ref, 365);
+      const fait = !!(limite && ctx.todayISO && String(ctx.todayISO) >= limite);
+      return {
+        fait, auto: true,
+        raison: fait ? `Réception le ${ref} → parfait achèvement échu le ${limite}.` : `Réception le ${ref} → parfait achèvement jusqu'au ${limite}.`,
+      };
+    }
+    case "groupe_controle":
+      // Témoin « contrôlé / non contrôlé » livré par le Point 2 b : en
+      // attendant, la source renvoie toujours faux.
+      return { fait: false, auto: true, raison: "Jalon de contrôle du groupe : à venir (Point 2 b)." };
+    default:
+      return { fait: !!etat?.fait, auto: true, raison: etape.hint || "" };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POSITIONNEMENT DANS LE CYCLE — même mécanique que computeCRMClientTimeline
+// (src/Invest/CRM.jsx) : la phase DÉDUITE est un maximum monotone (elle ne
+// recule jamais toute seule), chaque signal empile une raison ; la phase
+// DÉCLARÉE à la main est PRIORITAIRE (une rétrogradation manuelle tient, même
+// si les signaux disent plus avancé — on l'affiche alors à côté).
+// ─────────────────────────────────────────────────────────────────────────────
+export function computeCycleVie({
+  statutChantier = null,   // "planifie" | "en_cours" | "en_pause" | "termine"
+  avancement = null,       // entier 0-100 (convention de l'appli)
+  chiffrage = false,
+  etatsEtapes = {},
+  phaseDeclaree = null,    // lirePhaseDeclaree(meta)
+  equipesAffectees = null,
+  todayISO = "",
+} = {}) {
+  const ctx = { etatsEtapes: etatsEtapes || {}, chiffrage, equipesAffectees, todayISO };
+  const autoReasons = [];
+  let detected = 1;
+  // Fait avancer la détection (jamais reculer). La raison est retenue si le
+  // signal fait avancer OU corrobore le niveau atteint (plus parlant que le
+  // strict « seulement si ça avance » du CRM : deux signaux au même niveau
+  // valent mieux qu'un pour expliquer la position).
+  const bump = (ordre, raison) => {
+    if (ordre > detected) detected = ordre;
+    if (raison && ordre === detected) autoReasons.push(raison);
+  };
+
+  // Étapes validées : une étape faite place le chantier au moins dans sa
+  // phase ; une phase statique complète le place au moins dans la suivante.
+  CYCLE_VIE_PHASES.forEach(ph => {
+    if (ph.dynamique || !ph.etapes.length) return;
+    const faits = ph.etapes.filter(e => evaluerEtape(e, ctx).fait).length;
+    if (faits > 0) bump(ph.ordre, `Étape validée dans « ${ph.nom} »`);
+    if (faits === ph.etapes.length) {
+      const next = CYCLE_VIE_PHASES.find(p => p.ordre === ph.ordre + 1);
+      if (next) bump(next.ordre, `Phase « ${ph.nom} » complète`);
+    }
+  });
+  // Devis accepté → au moins Contrat.
+  if ((etatsEtapes || {}).reponse_client?.donnees?.reponse === "accepte") bump(2, "Devis accepté par le client");
+  // Statut du chantier (planning) et avancement des travaux.
+  if (statutChantier === "en_cours" || statutChantier === "en_pause") bump(4, "Chantier en cours (statut)");
+  if (statutChantier === "termine") bump(5, "Chantier marqué Terminé");
+  const av = parseFloat(avancement);
+  if (Number.isFinite(av) && av > 0) bump(4, `Travaux avancés à ${Math.round(av)} %`);
+  if (Number.isFinite(av) && av >= 100) bump(5, "Travaux à 100 %");
+
+  detected = Math.max(1, Math.min(CYCLE_VIE_PHASES.length, detected));
+  const declared = phaseDeclaree ? getPhase(phaseDeclaree.phaseId) : null;
+  const declaredOrdre = declared ? declared.ordre : 0;
+
+  // Arbitrage : le déclaré gagne toujours s'il existe (règle CRM V20.3).
+  const ordre = declaredOrdre || detected;
+  const phase = CYCLE_VIE_PHASES[ordre - 1];
+  const detectedPhase = CYCLE_VIE_PHASES[detected - 1];
+  const detectedAhead = declaredOrdre > 0 && detected > declaredOrdre;
+
+  const reasons = [
+    declared ? `Phase déclarée à la main : ${phase.nom}` : `Phase déduite : ${phase.nom}`,
+    ...autoReasons.slice(-2), // les derniers bumps justifient la position finale
+  ];
+
+  return {
+    phaseId: phase.id, phase, ordre,
+    declaredPhaseId: declared ? declared.id : null,
+    declaredPar: phaseDeclaree?.auteur || "",
+    declaredLe: phaseDeclaree?.date || "",
+    detectedPhaseId: detectedPhase.id, detectedPhase, detectedOrdre: detected,
+    verrouManuel: !!declared, detectedAhead,
+    reasons,
+  };
+}

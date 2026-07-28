@@ -16,6 +16,14 @@ import {
   computeQCD, qcdDepuisFinance, QCD_METHODE,
   lireOverridesQCD, construireOverrideQCD, QCD_OVERRIDE_KEYS, QCD_STATUTS_FORCABLES,
 } from "./qcd";
+// Cycle de vie du chantier (Point 2a) : référentiel des 6 phases (devis → SAV),
+// déduction de la phase (modèle frise CRM Invest) et évaluation des étapes.
+// Rien à voir avec les phases V1 du phasage (plan_travaux[phase_id]).
+import {
+  CYCLE_VIE_PHASES, getPhase, etapesTravauxDepuisGroupes,
+  computeCycleVie, evaluerEtape, lireEtatsEtapes, lirePhaseDeclaree,
+  CV_META_PHASE_DECLAREE,
+} from "./cycleVie";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -348,6 +356,162 @@ function BandeauQCD({ qcd, overrides, sansPhasage, peutForcer, onForcer, onRetou
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FRISE DU CYCLE DE VIE (Point 2a) ────────────────────────────────────────
+// Les 6 phases du chantier (devis → SAV), sous le bandeau QCD. Affichage pur :
+// le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
+// sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
+// phase déduite toujours visible à côté, raisons affichées.
+function FriseCycleVie({ cv, etapesCourantes, peutModifier, onDeclarer, T }) {
+  const [saving, setSaving] = useState(false);
+  const surface   = T?.surface   || "#262a32";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
+  const declarer = async (phaseId) => {
+    if (!peutModifier || saving) return;
+    setSaving(true);
+    await onDeclarer?.(phaseId);
+    setSaving(false);
+  };
+
+  return (
+    <div className="ch-stat-card">
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+        fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+        letterSpacing: 1.2, textTransform: "uppercase",
+      }}>
+        Cycle de vie du chantier
+        {cv && peutModifier && (
+          <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .7 }}>
+            — cliquer sur une phase pour la déclarer à la main
+          </span>
+        )}
+      </div>
+
+      {!cv ? (
+        <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
+          Aucun phasage lié à ce chantier : la frise s'activera dès qu'un phasage est lié.
+        </div>
+      ) : (
+        <>
+          {/* Les 6 phases sur un rail horizontal (scroll sur mobile) */}
+          <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+            <div style={{ position: "relative", minWidth: 560 }}>
+              <div style={{ position: "absolute", left: 32, right: 32, top: 15, height: 2, background: border }}/>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6, position: "relative" }}>
+                {CYCLE_VIE_PHASES.map(ph => {
+                  const courante = ph.id === cv.phaseId;
+                  const atteinte = ph.ordre < cv.ordre;
+                  return (
+                    <button key={ph.id} onClick={() => declarer(ph.id)} disabled={!peutModifier || saving}
+                      title={peutModifier ? `Déclarer « ${ph.nom} » comme phase en cours` : undefined}
+                      style={{
+                        background: "transparent", border: "none", padding: 0,
+                        cursor: peutModifier ? "pointer" : "default", fontFamily: "inherit",
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 5, minWidth: 0,
+                      }}>
+                      <span style={{
+                        width: courante ? 32 : 26, height: courante ? 32 : 26, borderRadius: "50%",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        background: (atteinte || courante) ? ph.couleur : surface,
+                        border: `2px solid ${(atteinte || courante) ? ph.couleur : border}`,
+                        color: (atteinte || courante) ? "#fff" : textMuted,
+                        fontSize: 12, fontWeight: 800, flexShrink: 0,
+                        boxShadow: courante ? `0 0 10px ${ph.couleur}66` : "none",
+                        marginTop: courante ? 0 : 3,
+                      }}>{ph.ordre}</span>
+                      <span style={{
+                        fontSize: FONT.xs.size, fontWeight: courante ? 800 : 600,
+                        color: courante ? text : textMuted, textAlign: "center", lineHeight: 1.2,
+                      }}>{ph.nom}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Raisons + déclaration manuelle (déduite toujours visible à côté) */}
+          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+            {cv.verrouManuel && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+                color: cv.phase.couleur, border: `1px dashed ${cv.phase.couleur}`,
+              }}>
+                <Icon as={Pencil} size={10}/> déclarée à la main{cv.declaredPar ? ` par ${cv.declaredPar}` : ""}
+              </span>
+            )}
+            {cv.verrouManuel && (
+              <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 600 }}>
+                auto : <span style={{ color: cv.detectedPhase.couleur, fontWeight: 700 }}>{cv.detectedPhase.nom}</span>
+              </span>
+            )}
+            <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>{cv.reasons.join(" · ")}</span>
+            {cv.verrouManuel && peutModifier && (
+              <button onClick={() => declarer(null)} disabled={saving} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: "transparent", border: `1px solid ${border}`,
+                borderRadius: RADIUS.md, padding: "5px 11px",
+                color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 600,
+                cursor: saving ? "default" : "pointer", fontFamily: "inherit", opacity: saving ? .5 : 1,
+              }}>
+                <Icon as={X} size={12}/> Revenir à l'automatique
+              </button>
+            )}
+          </div>
+          {cv.detectedAhead && (
+            <div style={{ marginTop: 5, fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 600 }}>
+              Signaux plus avancés détectés : phase « {cv.detectedPhase.nom} ». Position conservée sur la phase déclarée à la main.
+            </div>
+          )}
+
+          {/* Étapes de la phase en cours : fait / à faire, avec la raison */}
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+            <div style={{
+              fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+              letterSpacing: .5, textTransform: "uppercase", marginBottom: 8,
+            }}>
+              Étapes — {cv.phase.nom}
+            </div>
+            {etapesCourantes.length === 0 ? (
+              <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
+                Aucun groupe d'exécution défini dans la vue chrono du phasage.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {etapesCourantes.map(e => (
+                  <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <span style={{
+                      width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 1,
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: e.fait ? "#22c55e" : "transparent",
+                      border: `2px solid ${e.fait ? "#22c55e" : border}`,
+                    }}>{e.fait ? <Icon as={Check} size={10} color="#fff"/> : null}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: e.fait ? text : textSub }}>{e.nom}</span>
+                      <span style={{
+                        marginLeft: 7, fontSize: 9.5, fontWeight: 700, letterSpacing: .5,
+                        textTransform: "uppercase", color: textMuted,
+                        border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "1px 7px",
+                        verticalAlign: "middle",
+                      }}>{e.nature}</span>
+                      <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{e.raison}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -1177,6 +1341,51 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   };
   const retourAutoSommetQCD = (axeId) => saveMetaPhasage({ [QCD_OVERRIDE_KEYS[axeId]]: null });
 
+  // ── Cycle de vie (Point 2a) : positionnement déduit + phase déclarée ──
+  const metaSelected = selectedPhasage?.plan_travaux?.meta || {};
+  const cvEtats = lireEtatsEtapes(metaSelected);
+  const cvPhaseDeclaree = lirePhaseDeclaree(metaSelected);
+  const chronoGroupesSelected = Array.isArray(metaSelected.chrono_groupes) ? metaSelected.chrono_groupes : [];
+  // « Équipes affectées » : chaque groupe a au moins une tâche et toutes ses
+  // tâches ont des ouvriers (ou sont marquées externes). null = aucun groupe
+  // défini (indéterminé).
+  const cvEquipesAffectees = (() => {
+    if (!chronoGroupesSelected.length) return null;
+    const taches = (selectedPhasage?.ouvrages || []).flatMap(o => o.taches || []);
+    return chronoGroupesSelected.every(g => {
+      const tg = taches.filter(t => t.chrono_groupe_id === g.id);
+      return tg.length > 0 && tg.every(t => (Array.isArray(t.ouvriers) && t.ouvriers.length > 0) || t.externe);
+    });
+  })();
+  const cvCtx = {
+    etatsEtapes: cvEtats,
+    chiffrage: totalHeures.vendues > 0 || (finances?.prixVendu || 0) > 0,
+    equipesAffectees: cvEquipesAffectees,
+    todayISO: new Date().toISOString().slice(0, 10),
+  };
+  const cv = selectedPhasage ? computeCycleVie({
+    statutChantier: getStatut(selectedChantier, selectedPhasage),
+    avancement, // entier 0-100
+    chiffrage: cvCtx.chiffrage,
+    etatsEtapes: cvEtats,
+    phaseDeclaree: cvPhaseDeclaree,
+    equipesAffectees: cvEquipesAffectees,
+    todayISO: cvCtx.todayISO,
+  }) : null;
+  // Étapes de la phase courante, évaluées (fait / à faire + raison). La phase
+  // Travaux (dynamique) déroule les groupes du chantier.
+  const cvEtapesCourantes = !cv ? [] : (cv.phaseId === "cv_travaux"
+    ? etapesTravauxDepuisGroupes(chronoGroupesSelected)
+    : (getPhase(cv.phaseId)?.etapes || [])
+  ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx) }));
+
+  // Déclare la phase en cours à la main (prioritaire) — null = retour auto.
+  const declarerPhaseCV = (phaseId) => saveMetaPhasage({
+    [CV_META_PHASE_DECLAREE]: phaseId ? {
+      phaseId, auteur: profil?.nom || profil?.email || "", date: new Date().toISOString(),
+    } : null,
+  });
+
   // ── Styles communs (cohérent avec autres pages) ──
   const sectionTitle = {
     fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
@@ -1518,6 +1727,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             (hors onglets mobiles), avant tous les blocs existants ── */}
         <BandeauQCD qcd={qcd} overrides={qcdOverrides} sansPhasage={!selectedPhasage}
           peutForcer={!!selectedPhasage} onForcer={forcerSommetQCD} onRetourAuto={retourAutoSommetQCD} T={T}/>
+
+        {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
+        <FriseCycleVie cv={cv} etapesCourantes={cvEtapesCourantes}
+          peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV} T={T}/>
 
         {/* Onglets (mobile uniquement) — sur desktop tout s'affiche en scroll */}
         {isMobile && (
