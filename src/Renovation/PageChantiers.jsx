@@ -12,7 +12,10 @@ import {
 } from "../chantierFinance";
 // QCD (Point 2a) : calculs du triangle Qualité/Coût/Délai — module dédié,
 // indépendant de DashboardAnalyse (formules jugées fausses par le métier).
-import { computeQCD, qcdDepuisFinance, QCD_METHODE } from "./qcd";
+import {
+  computeQCD, qcdDepuisFinance, QCD_METHODE,
+  lireOverridesQCD, construireOverrideQCD, QCD_OVERRIDE_KEYS, QCD_STATUTS_FORCABLES,
+} from "./qcd";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -86,8 +89,12 @@ const qcdStatutLabel = (axeId, s) => {
   return "Non évaluable";
 };
 
-function BandeauQCD({ qcd, sansPhasage, T }) {
+function BandeauQCD({ qcd, overrides, sansPhasage, peutForcer, onForcer, onRetourAuto, T }) {
   const [detail, setDetail] = useState(null); // "qualite" | "cout" | "delai" | null
+  const [formOpen, setFormOpen] = useState(false);       // formulaire de correction manuelle
+  const [formStatut, setFormStatut] = useState(null);
+  const [formCommentaire, setFormCommentaire] = useState("");
+  const [saving, setSaving] = useState(false);
   const border    = T?.border    || "rgba(255,255,255,0.07)";
   const text      = T?.text      || "#f0f0f0";
   const textSub   = T?.textSub   || "#9aa5c0";
@@ -108,8 +115,39 @@ function BandeauQCD({ qcd, sansPhasage, T }) {
     { id: "cout",    label: "Coût",    icon: Wallet },
     { id: "delai",   label: "Délai",   icon: Clock },
   ];
-  const toggle = (id) => setDetail(d => (d === id ? null : id));
+  const toggle = (id) => { setDetail(d => (d === id ? null : id)); setFormOpen(false); };
   const detailSommet = detail ? sommets[detail] : null;
+  const detailOverride = detail ? (overrides?.[detail] || null) : null;
+
+  const ouvrirForm = () => {
+    setFormStatut(detailOverride?.statut || null);
+    setFormCommentaire(detailOverride?.commentaire || "");
+    setFormOpen(true);
+  };
+  const soumettreForm = async () => {
+    if (!formStatut || !formCommentaire.trim() || saving) return;
+    setSaving(true);
+    const ok = await onForcer?.(detail, formStatut, formCommentaire);
+    setSaving(false);
+    if (ok) setFormOpen(false);
+  };
+  const revenirAuto = async () => {
+    if (saving) return;
+    setSaving(true);
+    await onRetourAuto?.(detail);
+    setSaving(false);
+    setFormOpen(false);
+  };
+
+  // Petit bouton bordé, cohérent avec les boutons secondaires de la fiche.
+  const btnStyle = (disabled) => ({
+    display: "inline-flex", alignItems: "center", gap: 6,
+    background: "transparent", border: `1px solid ${border}`,
+    borderRadius: RADIUS.md, padding: "6px 12px",
+    color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 600,
+    cursor: disabled ? "default" : "pointer", fontFamily: "inherit",
+    opacity: disabled ? .5 : 1,
+  });
 
   return (
     <div className="ch-stat-card">
@@ -127,21 +165,28 @@ function BandeauQCD({ qcd, sansPhasage, T }) {
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
         {/* Triangle : Qualité en haut, Coût en bas à gauche, Délai en bas à droite */}
         <svg className="ch-qcd-tri" width="94" height="80" viewBox="0 0 100 84" style={{ flexShrink: 0 }}>
-          <polygon points="50,13 13,71 87,71" fill="none" stroke={border} strokeWidth="2"/>
-          {[["qualite", 50, 13, "Q"], ["cout", 13, 71, "C"], ["delai", 87, 71, "D"]].map(([id, cx, cy, lettre]) => (
-            <g key={id} onClick={() => toggle(id)} style={{ cursor: "pointer" }}>
-              <circle cx={cx} cy={cy} r="12" fill={QCD_COULEURS[sommets[id].statut].color}
-                stroke={detail === id ? text : "transparent"} strokeWidth="2"/>
-              <text x={cx} y={cy + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff"
-                style={{ pointerEvents: "none", userSelect: "none" }}>{lettre}</text>
-            </g>
-          ))}
+          <polygon points="50,15 15,69 85,69" fill="none" stroke={border} strokeWidth="2"/>
+          {[["qualite", 50, 15, "Q"], ["cout", 15, 69, "C"], ["delai", 85, 69, "D"]].map(([id, cx, cy, lettre]) => {
+            const ov = overrides?.[id] || null;
+            const col = QCD_COULEURS[ov ? ov.statut : sommets[id].statut].color;
+            return (
+              <g key={id} onClick={() => toggle(id)} style={{ cursor: "pointer" }}>
+                {/* anneau pointillé = statut forcé à la main */}
+                {ov && <circle cx={cx} cy={cy} r="14.5" fill="none" stroke={col} strokeWidth="1.5" strokeDasharray="3 2.5"/>}
+                <circle cx={cx} cy={cy} r="12" fill={col}
+                  stroke={detail === id ? text : "transparent"} strokeWidth="2"/>
+                <text x={cx} y={cy + 3.5} textAnchor="middle" fontSize="10" fontWeight="800" fill="#fff"
+                  style={{ pointerEvents: "none", userSelect: "none" }}>{lettre}</text>
+              </g>
+            );
+          })}
         </svg>
 
         <div className="ch-qcd-grid" style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, minWidth: 0 }}>
           {AXES.map(a => {
             const s = sommets[a.id];
-            const st = QCD_COULEURS[s.statut];
+            const ov = overrides?.[a.id] || null;
+            const st = QCD_COULEURS[ov ? ov.statut : s.statut]; // statut effectif : le forcé prime
             const actif = detail === a.id;
             return (
               <button key={a.id} className="ch-qcd-som" onClick={() => toggle(a.id)} style={{
@@ -162,36 +207,75 @@ function BandeauQCD({ qcd, sansPhasage, T }) {
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0, flexWrap: "wrap" }}>
                   <span style={{ width: 10, height: 10, borderRadius: "50%", background: st.color, boxShadow: `0 0 8px ${st.color}55`, flexShrink: 0 }}/>
                   <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: st.color, lineHeight: 1.1 }}>
-                    {qcdStatutLabel(a.id, s)}
+                    {ov ? qcdStatutLabel(a.id, { statut: ov.statut }) : qcdStatutLabel(a.id, s)}
                   </span>
-                  {s.valeurFormatee !== "—" && (
+                  {ov && (
+                    <span title="Statut forcé à la main" style={{ display: "inline-flex" }}>
+                      <Icon as={Pencil} size={11} color={st.color}/>
+                    </span>
+                  )}
+                  {!ov && s.valeurFormatee !== "—" && (
                     <span style={{ fontSize: FONT.xs.size + 1, color: textSub, fontWeight: 600 }}>
                       {a.id === "delai" ? `indice ${s.valeurFormatee}` : s.valeurFormatee}
                     </span>
                   )}
                 </span>
+                {/* Rappel de la valeur automatique quand le sommet est forcé */}
+                {ov && (
+                  <span style={{ fontSize: FONT.xs.size, color: textMuted, fontWeight: 600 }}>
+                    auto : {qcdStatutLabel(a.id, s)}{s.valeurFormatee !== "—" ? ` · ${s.valeurFormatee}` : ""}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Panneau de détail : valeur, explication du module, calcul en clair */}
+      {/* Panneau de détail : valeur, explication du module, calcul en clair,
+          correction manuelle (l'override se SUPERPOSE : l'auto reste visible) */}
       {detail && detailSommet && (
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>{QCD_METHODE[detail].titre}</span>
-            <span style={{
-              fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
-              color: QCD_COULEURS[detailSommet.statut].color, background: QCD_COULEURS[detailSommet.statut].bg,
-              border: `1px solid ${QCD_COULEURS[detailSommet.statut].color}40`,
-            }}>{qcdStatutLabel(detail, detailSommet)}</span>
-            {detailSommet.valeurFormatee !== "—" && (
-              <span style={{ fontSize: FONT.sm.size, color: textSub, fontWeight: 700 }}>
-                {detail === "delai" ? `Indice : ${detailSommet.valeurFormatee}` : `Ratio retenu : ${detailSommet.valeurFormatee}`}
-              </span>
+            {detailOverride ? (
+              <>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+                  color: QCD_COULEURS[detailOverride.statut].color, background: QCD_COULEURS[detailOverride.statut].bg,
+                  border: `1px dashed ${QCD_COULEURS[detailOverride.statut].color}`,
+                }}>
+                  <Icon as={Pencil} size={10}/>
+                  {qcdStatutLabel(detail, { statut: detailOverride.statut })} (forcé)
+                </span>
+                <span style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 600 }}>
+                  auto : <span style={{ color: QCD_COULEURS[detailSommet.statut].color, fontWeight: 700 }}>{qcdStatutLabel(detail, detailSommet)}</span>
+                  {detailSommet.valeurFormatee !== "—" ? ` (${detail === "delai" ? "indice " : ""}${detailSommet.valeurFormatee})` : ""}
+                </span>
+              </>
+            ) : (
+              <>
+                <span style={{
+                  fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+                  color: QCD_COULEURS[detailSommet.statut].color, background: QCD_COULEURS[detailSommet.statut].bg,
+                  border: `1px solid ${QCD_COULEURS[detailSommet.statut].color}40`,
+                }}>{qcdStatutLabel(detail, detailSommet)}</span>
+                {detailSommet.valeurFormatee !== "—" && (
+                  <span style={{ fontSize: FONT.sm.size, color: textSub, fontWeight: 700 }}>
+                    {detail === "delai" ? `Indice : ${detailSommet.valeurFormatee}` : `Ratio retenu : ${detailSommet.valeurFormatee}`}
+                  </span>
+                )}
+              </>
             )}
           </div>
+          {detailOverride && (
+            <div style={{ fontSize: FONT.sm.size, color: textSub, marginBottom: 6 }}>
+              Forcé{detailOverride.auteur ? ` par ${detailOverride.auteur}` : ""}
+              {detailOverride.date ? ` le ${new Date(detailOverride.date).toLocaleDateString("fr-FR")}` : ""}
+              {" — « "}{detailOverride.commentaire}{" »"}
+            </div>
+          )}
           {detail === "cout" && detailSommet.mo ? (
             // Coût : les deux sous-ratios (MO / matériaux), chacun avec son statut.
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -209,6 +293,60 @@ function BandeauQCD({ qcd, sansPhasage, T }) {
             <Icon as={Info} size={12} style={{ flexShrink: 0, marginTop: 1 }}/>
             <span>Calcul : {QCD_METHODE[detail].formule}. {QCD_METHODE[detail].description}</span>
           </div>
+
+          {/* Correction manuelle : forcer / modifier / revenir à l'automatique */}
+          {peutForcer && !formOpen && (
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {detailOverride ? (
+                <>
+                  <button onClick={revenirAuto} disabled={saving} style={btnStyle(saving)}>
+                    <Icon as={X} size={12}/> Revenir à l'automatique
+                  </button>
+                  <button onClick={ouvrirForm} disabled={saving} style={btnStyle(saving)}>
+                    <Icon as={Pencil} size={12}/> Modifier la correction
+                  </button>
+                </>
+              ) : (
+                <button onClick={ouvrirForm} style={btnStyle(false)}>
+                  <Icon as={Pencil} size={12}/> Corriger à la main
+                </button>
+              )}
+            </div>
+          )}
+          {peutForcer && formOpen && (
+            <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {QCD_STATUTS_FORCABLES.map(sid => {
+                const c = QCD_COULEURS[sid];
+                const sel = formStatut === sid;
+                return (
+                  <button key={sid} onClick={() => setFormStatut(sid)} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px",
+                    borderRadius: RADIUS.pill, border: `1px solid ${sel ? c.color : border}`,
+                    background: sel ? c.bg : "transparent", color: c.color,
+                    fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                  }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.color }}/>
+                    {sid === "vert" ? "Vert" : sid === "orange" ? "Orange" : "Rouge"}
+                  </button>
+                );
+              })}
+              <input value={formCommentaire} onChange={e => setFormCommentaire(e.target.value)}
+                placeholder="Commentaire (obligatoire)"
+                onKeyDown={e => { if (e.key === "Enter") soumettreForm(); }}
+                style={{
+                  flex: 1, minWidth: 180, padding: "7px 10px", borderRadius: RADIUS.md,
+                  border: `1px solid ${border}`, background: "transparent", color: text,
+                  fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none",
+                }}/>
+              <button onClick={soumettreForm} disabled={!formStatut || !formCommentaire.trim() || saving}
+                style={btnStyle(!formStatut || !formCommentaire.trim() || saving)}>
+                <Icon as={Check} size={12}/> Forcer
+              </button>
+              <button onClick={() => setFormOpen(false)} disabled={saving} style={btnStyle(saving)}>
+                Annuler
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -588,7 +726,7 @@ function NotesChantier({ chantierId, T, accent }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
+export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
   // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
@@ -1003,6 +1141,41 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         coutMateriauxReel: finances?.coutMat,
         coutMateriauxPrevu: null,
       });
+  // Overrides manuels des sommets (superposés à l'auto, jamais à sa place).
+  const qcdOverrides = lireOverridesQCD(selectedPhasage?.plan_travaux?.meta);
+
+  // ── Écriture des meta du phasage (overrides QCD) ──
+  // Réplique STRICTEMENT le read-before-write de PhasageV2.saveMeta : on relit
+  // plan_travaux depuis la DB AVANT d'écrire. Le state local `phasages` est
+  // chargé une fois au montage, sans realtime : écrire à partir de lui
+  // écraserait le travail V1/chrono fait entre-temps dans PhasageV2
+  // (incident du 2026-06-03).
+  const saveMetaPhasage = async (patch) => {
+    if (!selectedPhasage?.id) return false;
+    const { data: fresh, error: fetchErr } = await supabase.from("phasages")
+      .select("plan_travaux").eq("id", selectedPhasage.id).maybeSingle();
+    if (fetchErr) { alert(`Sauvegarde impossible : ${fetchErr.message}`); return false; }
+    const currentPlan = fresh?.plan_travaux || {};
+    const newPlan = { ...currentPlan, meta: { ...(currentPlan.meta || {}), ...patch } };
+    const { error } = await supabase.from("phasages")
+      .update({ plan_travaux: newPlan, updated_at: new Date().toISOString() })
+      .eq("id", selectedPhasage.id);
+    if (error) { alert(`Sauvegarde impossible : ${error.message}`); return false; }
+    setPhasages(prev => prev.map(p => p.id === selectedPhasage.id ? { ...p, plan_travaux: newPlan } : p));
+    return true;
+  };
+
+  // Force un sommet (commentaire obligatoire, auteur + date tracés) / retour auto.
+  const forcerSommetQCD = async (axeId, statut, commentaire) => {
+    const override = construireOverrideQCD({
+      statut, commentaire,
+      auteur: profil?.nom || profil?.email || "",
+      date: new Date().toISOString(),
+    });
+    if (!override) return false;
+    return saveMetaPhasage({ [QCD_OVERRIDE_KEYS[axeId]]: override });
+  };
+  const retourAutoSommetQCD = (axeId) => saveMetaPhasage({ [QCD_OVERRIDE_KEYS[axeId]]: null });
 
   // ── Styles communs (cohérent avec autres pages) ──
   const sectionTitle = {
@@ -1343,7 +1516,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
         {/* ── Bandeau QCD (Point 2a) : santé du chantier, toujours visible
             (hors onglets mobiles), avant tous les blocs existants ── */}
-        <BandeauQCD qcd={qcd} sansPhasage={!selectedPhasage} T={T}/>
+        <BandeauQCD qcd={qcd} overrides={qcdOverrides} sansPhasage={!selectedPhasage}
+          peutForcer={!!selectedPhasage} onForcer={forcerSommetQCD} onRetourAuto={retourAutoSommetQCD} T={T}/>
 
         {/* Onglets (mobile uniquement) — sur desktop tout s'affiche en scroll */}
         {isMobile && (

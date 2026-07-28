@@ -194,6 +194,53 @@ export function qcdDepuisFinance(brut) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CORRECTION MANUELLE des sommets (override).
+// Le jugement du conducteur prime, comme dans la frise CRM : l'override se
+// SUPERPOSE à la valeur automatique (qui reste calculée et affichée à côté),
+// il ne l'altère jamais. Stockage dans phasages.plan_travaux.meta, en CLÉS
+// PLATES (le saveMeta du repo fait un merge shallow au niveau meta : une clé
+// par sommet évite d'écraser les overrides voisins).
+// ─────────────────────────────────────────────────────────────────────────────
+export const QCD_OVERRIDE_KEYS = {
+  qualite: "qcd_override_qualite",
+  cout: "qcd_override_cout",
+  delai: "qcd_override_delai",
+};
+
+// Seuls les trois statuts « réels » sont forçables (pas le gris).
+export const QCD_STATUTS_FORCABLES = [QCD_VERT, QCD_ORANGE, QCD_ROUGE];
+
+// Lit et valide les overrides depuis meta (tolérant aux données absentes ou
+// corrompues). Renvoie { qualite, cout, delai } — chaque entrée est
+// { statut, commentaire, auteur, date } ou null.
+export function lireOverridesQCD(meta) {
+  const out = { qualite: null, cout: null, delai: null };
+  if (!meta || typeof meta !== "object") return out;
+  for (const [axe, key] of Object.entries(QCD_OVERRIDE_KEYS)) {
+    const o = meta[key];
+    if (o && typeof o === "object" && QCD_STATUTS_FORCABLES.includes(o.statut)) {
+      out[axe] = {
+        statut: o.statut,
+        commentaire: typeof o.commentaire === "string" ? o.commentaire : "",
+        auteur: typeof o.auteur === "string" ? o.auteur : "",
+        date: typeof o.date === "string" ? o.date : "",
+      };
+    }
+  }
+  return out;
+}
+
+// Construit l'objet à stocker pour forcer un sommet. Renvoie null si le statut
+// n'est pas forçable ou si le commentaire (obligatoire) est vide. La date est
+// fournie par l'appelant : module pur, pas d'horloge ici.
+export function construireOverrideQCD({ statut, commentaire, auteur, date } = {}) {
+  if (!QCD_STATUTS_FORCABLES.includes(statut)) return null;
+  const com = String(commentaire || "").trim();
+  if (!com) return null;
+  return { statut, commentaire: com, auteur: String(auteur || "").trim(), date: String(date || "") };
+}
+
 // ── Méthode de calcul en clair (infobulles / panneau de détail du bandeau).
 // Règle du repo : un texte, un seul endroit, jamais rédigé en dur dans l'UI.
 export const QCD_METHODE = {
