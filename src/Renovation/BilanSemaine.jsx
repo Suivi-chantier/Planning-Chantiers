@@ -563,24 +563,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     return pts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finData, chantiersBilan, progressions, chantierIdsKey]);
-  // Un point déjà repris dans les blocages (même chantier, texte commençant
-  // pareil) ne se propose plus — proposition uniquement, jamais d'ajout auto.
-  const pointsProposables = pointsAttention.filter(pt =>
-    !(bilanExtras.blocages || []).some(b => b.chantier_id === pt.cId && normTexteBilan(b.texte).startsWith(normTexteBilan(pt.message).slice(0, 40)))
-  );
   const deplierChantier = (cId) => {
     setExpandedCh(prev => ({ ...prev, [cId]: true }));
     setTimeout(() => document.getElementById(`bilan-ch-${cId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
   };
-  const ajouterPointAuxBlocages = (pt) => updateExtras(prev => ({
-    ...prev,
-    blocages: [...prev.blocages, {
-      chantier_id: pt.cId,
-      chantier_nom: pt.nom,
-      texte: pt.message,
-      statut: "info",
-    }],
-  }));
 
   // Total € généré cette semaine : somme des delta € positifs des progressions.
   // Les chantiers en régression (delta < 0) ne sont pas comptés ici (le total
@@ -637,6 +623,22 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       return next;
     });
   }, [persistExtras]);
+
+  // Un point d'attention déjà repris dans les blocages (même chantier, texte
+  // commençant pareil) ne se propose plus — proposition uniquement, jamais
+  // d'ajout automatique. (Déclaré ICI, après bilanExtras/updateExtras.)
+  const pointsProposables = pointsAttention.filter(pt =>
+    !(bilanExtras.blocages || []).some(b => b.chantier_id === pt.cId && normTexteBilan(b.texte).startsWith(normTexteBilan(pt.message).slice(0, 40)))
+  );
+  const ajouterPointAuxBlocages = (pt) => updateExtras(prev => ({
+    ...prev,
+    blocages: [...prev.blocages, {
+      chantier_id: pt.cId,
+      chantier_nom: pt.nom,
+      texte: pt.message,
+      statut: "info",
+    }],
+  }));
 
   // ── Suggestions de blocages : tâches "en cours" depuis 3 semaines ou plus ────
   // On croise l'historique des rapports sur une fenêtre de 5 semaines. Une tâche
