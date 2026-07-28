@@ -78,3 +78,47 @@ export function useDirtyGuard(key, isDirty) {
     return () => markClean(k)
   }, [k, isDirty])
 }
+
+// ── Brouillons à clé DYNAMIQUE (loadDraft / saveDraft / clearDraft) ─────────
+// useDraft exige une clé fixée au montage. Dans les gros écrans Invest, un même
+// composant enchaîne les entités (prospect A → prospect B, client X → client Y) :
+// la clé du brouillon change en cours de vie. Ces helpers manipulent les mêmes
+// entrées localStorage (préfixe draft:) mais laissent le composant décider
+// QUAND charger / sauver / vider.
+//
+// Le blocage de l'auto-reload pendant la frappe est assuré par le garde global
+// DOM de src/pwa.js : ces helpers ne touchent pas au registre dirty.
+//
+// Motifs d'usage :
+//  - formulaire de CRÉATION : sauver quand il est non vide, vider sinon
+//      useEffect(() => { estVide ? clearDraft(k) : saveDraft(k, form) }, [form])
+//  - formulaire d'ÉDITION : sauver quand il diffère de la version hydratée
+//    (snapshot JSON gardé en ref), vider quand il est revenu à l'identique.
+
+const draftTimers = new Map()
+
+/** Lit un brouillon (null si absent ou illisible). */
+export function loadDraft(key) {
+  try {
+    const raw = localStorage.getItem(PREFIX + key)
+    return raw != null ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+/** Sauvegarde (débouncée 500 ms) un brouillon. */
+export function saveDraft(key, value) {
+  const k = PREFIX + key
+  clearTimeout(draftTimers.get(k))
+  draftTimers.set(k, setTimeout(() => {
+    draftTimers.delete(k)
+    try { localStorage.setItem(k, JSON.stringify(value)) } catch { /* quota plein */ }
+  }, 500))
+}
+
+/** Efface un brouillon (à appeler après un envoi RÉUSSI, ou quand la saisie est vide). */
+export function clearDraft(key) {
+  const k = PREFIX + key
+  clearTimeout(draftTimers.get(k))
+  draftTimers.delete(k)
+  try { localStorage.removeItem(k) } catch { /* ignore */ }
+}

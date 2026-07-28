@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
+import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { Icon } from "../ui";
 import { FONT, RADIUS } from "../constants";
 import { THEMES_INV, SU, WA, DA, fmtDashboardEur } from "./_shared";
@@ -3098,7 +3099,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [advisorFilter, setAdvisorFilter] = useState("all");
   const [viewMode, setViewMode] = useState("pipeline");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
-  const [bulkImportText, setBulkImportText] = useState("");
+  const [bulkImportText, setBulkImportText] = useState(() => loadDraft("invest-prospection-import") || "");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -3112,6 +3113,30 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const [mailNotice, setMailNotice] = useState(null);
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // ── Brouillons localStorage (perte de saisie sur reload/crash) ────────────
+  // Snapshot JSON de la fiche telle qu'elle a été hydratée (BDD ou vierge) :
+  // le brouillon n'est sauvegardé que si la saisie s'en écarte.
+  const formSnapRef = useRef("");
+
+  const formDraftKey = isCreating || selected ? "invest-prospect-" + (selected?.id || "new") : null;
+  useEffect(() => {
+    if (!formDraftKey) return;
+    if (JSON.stringify(form) !== formSnapRef.current) saveDraft(formDraftKey, form);
+    else clearDraft(formDraftKey);
+  }, [form, formDraftKey]);
+
+  const actionDraftKey = selected?.id ? "invest-prospect-action-" + selected.id : null;
+  useEffect(() => {
+    if (!actionDraftKey) return;
+    if (JSON.stringify(actionForm) !== JSON.stringify({ ...EMPTY_ACTION })) saveDraft(actionDraftKey, actionForm);
+    else clearDraft(actionDraftKey);
+  }, [actionForm, actionDraftKey]);
+
+  useEffect(() => {
+    if (String(bulkImportText || "").trim()) saveDraft("invest-prospection-import", bulkImportText);
+    else clearDraft("invest-prospection-import");
+  }, [bulkImportText]);
 
   const showMailNotice = useCallback((type, text) => {
     setMailNotice({ type, text });
@@ -3442,8 +3467,11 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const selectProspect = (p) => {
     setIsCreating(false);
     setSelected(p);
-    setForm(prospectToForm(p));
-    setActionForm({ ...EMPTY_ACTION });
+    const fresh = prospectToForm(p);
+    formSnapRef.current = JSON.stringify(fresh);
+    // Brouillon non sauvegardé laissé sur ce prospect (reload, fermeture…) : on le restaure.
+    setForm(loadDraft("invest-prospect-" + p.id) || fresh);
+    setActionForm(loadDraft("invest-prospect-action-" + p.id) || { ...EMPTY_ACTION });
     setMsg("");
     setError("");
     setMailNotice(null);
@@ -3452,12 +3480,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
   const newProspect = () => {
     setIsCreating(true);
     setSelected(null);
-    setForm({
+    const fresh = {
       ...EMPTY_FORM,
       responsable: profil?.prenom || profil?.nom || "",
       prochaine_action: "Appeler",
       date_prochaine_action: todayIso(),
-    });
+    };
+    formSnapRef.current = JSON.stringify(fresh);
+    setForm(loadDraft("invest-prospect-new") || fresh);
     setActions([]);
     setActionForm({ ...EMPTY_ACTION });
     setMsg("");
@@ -3709,7 +3739,11 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
 
     setIsCreating(false);
     setSelected(res.data);
+    formSnapRef.current = JSON.stringify(prospectToForm(res.data));
     setForm(prospectToForm(res.data));
+    // Envoi réussi → les brouillons de cette fiche n'ont plus lieu d'être.
+    clearDraft("invest-prospect-new");
+    clearDraft("invest-prospect-" + res.data.id);
     await loadActions(res.data.id);
     await loadProspects();
 
@@ -4045,6 +4079,8 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
       return;
     }
 
+    clearDraft("invest-prospect-" + selected.id);
+    clearDraft("invest-prospect-action-" + selected.id);
     setIsCreating(false);
     setSelected(null);
     setForm({ ...EMPTY_FORM });

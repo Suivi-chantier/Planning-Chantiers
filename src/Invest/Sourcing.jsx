@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
+import { loadDraft, saveDraft, clearDraft } from "../hooks";
 
 const STATUS_LABELS = {
   nouveau: "Nouveau",
@@ -1155,12 +1156,12 @@ export default function Sourcing({ profil, T }) {
   const [saving, setSaving] = useState(false);
   const [filterStatut, setFilterStatut] = useState("tous");
   const [filterSearch, setFilterSearch] = useState("");
-  const [newAnnonce, setNewAnnonce] = useState(EMPTY_ANNONCE);
+  const [newAnnonce, setNewAnnonce] = useState(() => loadDraft("invest-sourcing-annonce") || EMPTY_ANNONCE);
   const [savingCritere, setSavingCritere] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [collecteMessage, setCollecteMessage] = useState("");
   const [collecteUrls, setCollecteUrls] = useState([]);
-  const [importUrlsText, setImportUrlsText] = useState("");
+  const [importUrlsText, setImportUrlsText] = useState(() => loadDraft("invest-sourcing-urls") || "");
   const [importingUrls, setImportingUrls] = useState(false);
   const [capturingId, setCapturingId] = useState(null);
   const [editingAnnonce, setEditingAnnonce] = useState(null);
@@ -1169,6 +1170,37 @@ export default function Sourcing({ profil, T }) {
   const [savingEditingAnnonce, setSavingEditingAnnonce] = useState(false);
   const [editingCritereId, setEditingCritereId] = useState(null);
   const [critereForm, setCritereForm] = useState(EMPTY_CRITERE);
+  // searchForm était utilisé sans jamais être déclaré → l'onglet « Recherches »
+  // plantait en ReferenceError au rendu.
+  const [searchForm, setSearchForm] = useState(SEARCH_FORM_DEFAULT);
+
+  // ── Brouillons localStorage (formulaires sans autosave Supabase) ──────────
+  const editAnnonceSnapRef = useRef("");
+  const critereSnapRef = useRef("");
+
+  useEffect(() => {
+    if (JSON.stringify(newAnnonce) !== JSON.stringify(EMPTY_ANNONCE)) saveDraft("invest-sourcing-annonce", newAnnonce);
+    else clearDraft("invest-sourcing-annonce");
+  }, [newAnnonce]);
+
+  useEffect(() => {
+    if (String(importUrlsText || "").trim()) saveDraft("invest-sourcing-urls", importUrlsText);
+    else clearDraft("invest-sourcing-urls");
+  }, [importUrlsText]);
+
+  useEffect(() => {
+    if (!editingAnnonce?.id || !editingAnnonceForm) return;
+    const key = "invest-sourcing-annonce-edit-" + editingAnnonce.id;
+    if (JSON.stringify(editingAnnonceForm) !== editAnnonceSnapRef.current) saveDraft(key, editingAnnonceForm);
+    else clearDraft(key);
+  }, [editingAnnonceForm, editingAnnonce?.id]);
+
+  useEffect(() => {
+    const key = "invest-sourcing-critere-" + (editingCritereId || "new");
+    const snap = editingCritereId ? critereSnapRef.current : JSON.stringify(EMPTY_CRITERE);
+    if (JSON.stringify(critereForm) !== snap) saveDraft(key, critereForm);
+    else clearDraft(key);
+  }, [critereForm, editingCritereId]);
 
   async function loadData() {
     setLoading(true);
@@ -1412,7 +1444,7 @@ L’annonce reste modifiable manuellement.`
   function startEditAnnonce(annonce) {
     setEditingAnnonce(annonce);
     setEditingAnnonceRawText("");
-    setEditingAnnonceForm({
+    const fresh = {
       titre: annonce?.titre || "",
       source_url: annonce?.source_url || "",
       description: annonce?.description || "",
@@ -1429,7 +1461,9 @@ L’annonce reste modifiable manuellement.`
       vendeur_type: annonce?.vendeur_type || "inconnu",
       url_photo: annonce?.url_photo || "",
       notes: annonce?.notes || "",
-    });
+    };
+    editAnnonceSnapRef.current = JSON.stringify(fresh);
+    setEditingAnnonceForm(loadDraft("invest-sourcing-annonce-edit-" + annonce?.id) || fresh);
   }
 
   function closeEditAnnonce() {
@@ -1547,6 +1581,7 @@ L’annonce reste modifiable manuellement.`
     }
 
     setAnnonces((prev) => prev.map((a) => (a.id === editingAnnonce.id ? { ...a, ...updatePayload } : a)));
+    clearDraft("invest-sourcing-annonce-edit-" + editingAnnonce.id);
     closeEditAnnonce();
     alert(`Annonce enregistrée et analysée : score ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}`);
   }
@@ -1599,7 +1634,7 @@ L’annonce reste modifiable manuellement.`
 
   function startEditCritere(critere) {
     setEditingCritereId(critere.id);
-    setCritereForm({
+    const fresh = {
       nom: critere.nom || "",
       zones: listToText(critere.zones),
       types_biens: listToText(critere.types_biens),
@@ -1615,7 +1650,9 @@ L’annonce reste modifiable manuellement.`
       frequence: critere.frequence || "quotidien",
       actif: critere.actif !== false,
       score_min_alerte: critere.score_min_alerte ?? 65,
-    });
+    };
+    critereSnapRef.current = JSON.stringify(fresh);
+    setCritereForm(loadDraft("invest-sourcing-critere-" + critere.id) || fresh);
   }
 
   async function handleSaveCritere(e) {
@@ -1658,6 +1695,7 @@ L’annonce reste modifiable manuellement.`
     }
 
     setSavingCritere(false);
+    clearDraft("invest-sourcing-critere-" + (editingCritereId || "new"));
     resetCritereForm();
     await loadData();
   }

@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
+import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
@@ -289,7 +290,11 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const clientFullName = (c) => [c?.prenom, c?.nom].filter(Boolean).join(" ") || c?.email || "Client";
   const sortClientsByName = (list=[]) => [...list].sort((a,b) => clientFullName(a).localeCompare(clientFullName(b), "fr", { sensitivity:"base" }));
   const openClientCreator = () => {
-    setNewClientForm(prev => ({
+    // Brouillon localStorage : une saisie interrompue (reload, fermeture) est
+    // restaurée à la réouverture de la modale.
+    const draft = loadDraft("invest-struct-newclient");
+    if (draft) setNewClientForm(draft);
+    else setNewClientForm(prev => ({
       prenom:"",
       nom:"",
       email:"",
@@ -300,6 +305,11 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     }));
     setShowClientCreator(true);
   };
+
+  useEffect(() => {
+    if (newClientForm.prenom || newClientForm.nom || newClientForm.email || newClientForm.telephone) saveDraft("invest-struct-newclient", newClientForm);
+    else clearDraft("invest-struct-newclient");
+  }, [newClientForm]);
   const currentClient = clients.find(c => c.id === dossier?.client_id) || dossier?.client || null;
 
   const calc = useCallback((d = data) => {

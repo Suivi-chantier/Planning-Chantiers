@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "../supabase";
+import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
@@ -1599,20 +1600,34 @@ function InpNum(props) { return <input className="inv-inp" type="number" {...pro
 
 function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
   const isEdit = !!bien;
-  const [form, setForm] = useState({
-    adresse: bien?.adresse||"", ville: bien?.ville||"", code_postal: bien?.code_postal||"",
-    latitude: bien?.latitude||"", longitude: bien?.longitude||"",
-    commentaire: bien?.commentaire||"", interlocuteur: bien?.interlocuteur||"",
-    telephone_interlocuteur: bien?.telephone_interlocuteur||"", agence: bien?.agence||"",
-    lien_annonce: bien?.lien_annonce||"", lien_drive: bien?.lien_drive||"", lien_rentabilite: bien?.lien_rentabilite||"",
-    statut: bien?.statut||"À analyser", prix_vente: bien?.prix_vente||0, prix_travaux: bien?.prix_travaux||0,
-    cout_total: bien?.cout_total||0, rendement_brut: bien?.rendement_brut||0, cashflow_estime: bien?.cashflow_estime||0,
-    montant_offre: bien?.montant_offre||0,
-    date_relance: bien?.date_relance||"", statut_relance: bien?.statut_relance||"",
-    date_visite: bien?.date_visite||"",
-    reference_interne: bien?.reference_interne||"", conseiller_profero: bien?.conseiller_profero||"", source_bien: bien?.source_bien||"",
-  });
+  const draftKey = "invest-bien-" + (bien?.id || "new");
+  // Valeurs telles que chargées (auto-calcul du coût total inclus) : le brouillon
+  // localStorage n'est sauvegardé que si la saisie s'en écarte.
+  const pristine = useMemo(() => {
+    const p = {
+      adresse: bien?.adresse||"", ville: bien?.ville||"", code_postal: bien?.code_postal||"",
+      latitude: bien?.latitude||"", longitude: bien?.longitude||"",
+      commentaire: bien?.commentaire||"", interlocuteur: bien?.interlocuteur||"",
+      telephone_interlocuteur: bien?.telephone_interlocuteur||"", agence: bien?.agence||"",
+      lien_annonce: bien?.lien_annonce||"", lien_drive: bien?.lien_drive||"", lien_rentabilite: bien?.lien_rentabilite||"",
+      statut: bien?.statut||"À analyser", prix_vente: bien?.prix_vente||0, prix_travaux: bien?.prix_travaux||0,
+      cout_total: bien?.cout_total||0, rendement_brut: bien?.rendement_brut||0, cashflow_estime: bien?.cashflow_estime||0,
+      montant_offre: bien?.montant_offre||0,
+      date_relance: bien?.date_relance||"", statut_relance: bien?.statut_relance||"",
+      date_visite: bien?.date_visite||"",
+      reference_interne: bien?.reference_interne||"", conseiller_profero: bien?.conseiller_profero||"", source_bien: bien?.source_bien||"",
+    };
+    const ct = (parseFloat(p.prix_vente)||0) + (parseFloat(p.prix_travaux)||0);
+    if (ct > 0) p.cout_total = ct;
+    return p;
+  }, [bien]);
+  const [form, setForm] = useState(() => loadDraft(draftKey) || pristine);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (JSON.stringify(form) !== JSON.stringify(pristine)) saveDraft(draftKey, form);
+    else clearDraft(draftKey);
+  }, [form, draftKey, pristine]);
 
   // Auto-calcul coût total
   useEffect(() => {
@@ -1666,7 +1681,7 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
     }
     if (error) { console.error("Erreur bien:", error); alert("Erreur : " + error.message); }
     setSaving(false);
-    if (!error) onSave();
+    if (!error) { clearDraft(draftKey); onSave(); }
   };
 
   return (
@@ -4118,15 +4133,30 @@ function DossierMediaEditor({ title, icon, items = [], onChange, T=THEMES_INV.da
 }
 
 function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSaved, selectedSimulationId = "" }) {
-  const [data, setData] = useState(() => mergeDossierPresentationData(bien, selectedSimulationId));
+  // Brouillon localStorage par bien + simulation : le dossier n'a pas d'autosave
+  // Supabase, un reload (ou un changement de simulation) perdait la saisie.
+  const draftKey = `invest-dossier-${bien?.id || "sans-bien"}-${selectedSimulationId || "actif"}`;
+  const snapRef = useRef("");
+  const [data, setData] = useState(() => {
+    const fresh = mergeDossierPresentationData(bien, selectedSimulationId);
+    snapRef.current = JSON.stringify(fresh);
+    return loadDraft(draftKey) || fresh;
+  });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [section, setSection] = useState("identite");
 
   useEffect(() => {
-    setData(mergeDossierPresentationData(bien, selectedSimulationId));
+    const fresh = mergeDossierPresentationData(bien, selectedSimulationId);
+    snapRef.current = JSON.stringify(fresh);
+    setData(loadDraft(draftKey) || fresh);
     setSection("identite");
   }, [bien?.id, selectedSimulationId]);
+
+  useEffect(() => {
+    if (JSON.stringify(data) !== snapRef.current) saveDraft(draftKey, data);
+    else clearDraft(draftKey);
+  }, [data, draftKey]);
 
   const metrics = getSimulationMetricsFromBien(bien, selectedSimulationId);
   const lots = getDossierLotsFromBien(bien, selectedSimulationId);
@@ -4169,7 +4199,9 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
       setMsg(`Erreur : ${error.message}`);
       return;
     }
+    snapRef.current = JSON.stringify(dossier_presentation);
     setData(dossier_presentation);
+    clearDraft(draftKey);
     setMsg("Dossier investisseur sauvegardé");
     onSaved?.();
     setTimeout(()=>setMsg(""),2500);
@@ -4442,8 +4474,18 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [clients, setClients] = useState([]);
   const [showEdit, setShowEdit] = useState(false);
   const [showProp, setShowProp] = useState(false);
-  const [newProp, setNewProp] = useState({ client_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+  const [newProp, setNewProp] = useState(() => loadDraft("invest-bien-prop-" + id) || { client_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
+
+  // Brouillon localStorage de la proposition à un client (par bien).
+  useEffect(() => {
+    setNewProp(loadDraft("invest-bien-prop-" + id) || { client_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+  }, [id]);
+  useEffect(() => {
+    const vide = !newProp.client_id && !newProp.commentaire && !newProp.lien_dossier && newProp.statut === "proposé";
+    if (vide) clearDraft("invest-bien-prop-" + id);
+    else saveDraft("invest-bien-prop-" + id, newProp);
+  }, [newProp, id]);
   const [geolocatingBien, setGeolocatingBien] = useState(false);
   const [geoMessageBien, setGeoMessageBien] = useState("");
   const [ficheTab, setFicheTab] = useState("fiche");

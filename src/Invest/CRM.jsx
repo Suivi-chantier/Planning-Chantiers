@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
+import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
@@ -20,10 +21,25 @@ import {
 import Simulateur from "./Simulateur";
 
 function ClientStrategyCard({ client, T=THEMES_INV.dark, onSaved }) {
-  const [data, setData] = useState(() => clientStrategy(client));
+  // Brouillon localStorage par client : la stratégie ne se sauvegarde qu'au clic.
+  const draftKey = "invest-strategie-" + (client?.id || "sans-client");
+  const snapRef = useRef("");
+  const [data, setData] = useState(() => {
+    const fresh = clientStrategy(client);
+    snapRef.current = JSON.stringify(fresh);
+    return loadDraft(draftKey) || fresh;
+  });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-  useEffect(() => { setData(clientStrategy(client)); }, [client?.id]);
+  useEffect(() => {
+    const fresh = clientStrategy(client);
+    snapRef.current = JSON.stringify(fresh);
+    setData(loadDraft(draftKey) || fresh);
+  }, [client?.id]);
+  useEffect(() => {
+    if (JSON.stringify(data) !== snapRef.current) saveDraft(draftKey, data);
+    else clearDraft(draftKey);
+  }, [data, draftKey]);
   const update = (k, v) => setData(prev => ({...prev, [k]:v}));
   const save = async () => {
     setSaving(true); setMsg("");
@@ -31,7 +47,7 @@ function ClientStrategyCard({ client, T=THEMES_INV.dark, onSaved }) {
     const { error } = await supabase.from("invest_clients").update(payload).eq("id", client.id);
     setSaving(false);
     if (error) setMsg(`Erreur sauvegarde stratégie : ${error.message}`);
-    else { setMsg("Stratégie sauvegardée"); onSaved?.(); setTimeout(()=>setMsg(""),2200); }
+    else { snapRef.current = JSON.stringify(data); clearDraft(draftKey); setMsg("Stratégie sauvegardée"); onSaved?.(); setTimeout(()=>setMsg(""),2200); }
   };
   const field = (label, key, options, type="text") => (
     <div>
@@ -546,9 +562,16 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
   const [crmPropositions, setCrmPropositions] = useState([]);
   const [timelineStepFilter, setTimelineStepFilter] = useState("");
   const [timelineSelectedStep, setTimelineSelectedStep] = useState("");
-  const [timelineDrafts, setTimelineDrafts] = useState({});
+  const [timelineDrafts, setTimelineDrafts] = useState(() => loadDraft("invest-crm-timeline") || {});
   const [pilotageFilter, setPilotageFilter] = useState("auto");
   const [crmSaveError, setCrmSaveError] = useState("");
+
+  // Brouillons localStorage des modifications de la frise CRM (bouton « Maj »
+  // par client) : un reload perdait toutes les lignes en attente.
+  useEffect(() => {
+    if (Object.keys(timelineDrafts).length) saveDraft("invest-crm-timeline", timelineDrafts);
+    else clearDraft("invest-crm-timeline");
+  }, [timelineDrafts]);
 
   const charger = async () => {
     setLoading(true);
@@ -1641,7 +1664,10 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
 
 function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }) {
   const isEdit = !!client;
-  const [form, setForm] = useState({
+  const draftKey = "invest-client-" + (client?.id || "new");
+  // Valeurs telles que chargées : le brouillon localStorage n'est sauvegardé
+  // que si la saisie s'en écarte, et restauré au retour (reload, fermeture…).
+  const pristine = useMemo(() => ({
     nom: client?.nom||"", prenom: client?.prenom||"",
     email: client?.email||"", telephone: client?.telephone||"",
     conseiller: client?.conseiller || profil?.nom||"",
@@ -1651,8 +1677,14 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
     prochaine_action: client?.prochaine_action||"",
     date_prochaine_action: client?.date_prochaine_action||"",
     notes_rapides: client?.notes_rapides||"",
-  });
+  }), [client]);
+  const [form, setForm] = useState(() => loadDraft(draftKey) || pristine);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (JSON.stringify(form) !== JSON.stringify(pristine)) saveDraft(draftKey, form);
+    else clearDraft(draftKey);
+  }, [form, draftKey, pristine]);
 
   const sauvegarder = async () => {
     if (!form.nom.trim()) return;
@@ -1686,7 +1718,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
     }
     if (error) { console.error("Erreur sauvegarde client:", error); alert("Erreur : " + error.message); }
     setSaving(false);
-    if (!error) onSave();
+    if (!error) { clearDraft(draftKey); onSave(); }
   };
 
   return (
@@ -2978,17 +3010,39 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
   const [props, setProps]     = useState([]);
   const [biens, setBiens]     = useState([]); // liste des biens du stock pour la modale "Proposer un bien"
   const [simulations, setSimulations] = useState([]); // simulations liées à ce client
-  const [newNote, setNewNote] = useState({ type:"commentaire", contenu:"" });
+  const [newNote, setNewNote] = useState(() => loadDraft("invest-note-" + id) || { type:"commentaire", contenu:"" });
   const [noteFilter, setNoteFilter] = useState("tous");
   const [savingNote, setSavingNote] = useState(false);
   const [savingCrmAction, setSavingCrmAction] = useState(false);
   const [crmPointEtape, setCrmPointEtape] = useState({ label:"", date:"" });
-  const [collaboratorTask, setCollaboratorTask] = useState({ title:"", owner:"", email:"", due_date:"" });
+  const [collaboratorTask, setCollaboratorTask] = useState(() => loadDraft("invest-tache-" + id) || { title:"", owner:"", email:"", due_date:"" });
   const [assigningCollaboratorTask, setAssigningCollaboratorTask] = useState(false);
   const [showProp, setShowProp] = useState(false);
-  const [newProp, setNewProp] = useState({ bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+  const [newProp, setNewProp] = useState(() => loadDraft("invest-client-prop-" + id) || { bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
   const [missionStageInfo, setMissionStageInfo] = useState({ key:"", label:"" });
+
+  // Brouillons localStorage par client : note, tâche collaborateur et proposition
+  // ne partent en base qu'au clic — un reload perdait la saisie. La fiche n'est
+  // pas remontée au changement de client, d'où la resynchronisation sur [id]
+  // (qui évite aussi qu'une saisie « fuie » d'un client vers un autre).
+  useEffect(() => {
+    setNewNote(loadDraft("invest-note-" + id) || { type:"commentaire", contenu:"" });
+    setCollaboratorTask(loadDraft("invest-tache-" + id) || { title:"", owner:"", email:"", due_date:"" });
+    setNewProp(loadDraft("invest-client-prop-" + id) || { bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
+  }, [id]);
+  useEffect(() => {
+    if (newNote.contenu.trim() || newNote.type !== "commentaire") saveDraft("invest-note-" + id, newNote);
+    else clearDraft("invest-note-" + id);
+  }, [newNote, id]);
+  useEffect(() => {
+    if (collaboratorTask.title || collaboratorTask.owner || collaboratorTask.email || collaboratorTask.due_date) saveDraft("invest-tache-" + id, collaboratorTask);
+    else clearDraft("invest-tache-" + id);
+  }, [collaboratorTask, id]);
+  useEffect(() => {
+    if (newProp.bien_id || newProp.commentaire || newProp.lien_dossier || newProp.statut !== "proposé") saveDraft("invest-client-prop-" + id, newProp);
+    else clearDraft("invest-client-prop-" + id);
+  }, [newProp, id]);
 
   const charger = async () => {
     const [{ data: c }, { data: n }, { data: p }, { data: b }] = await Promise.all([
