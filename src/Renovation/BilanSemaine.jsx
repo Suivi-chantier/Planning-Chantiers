@@ -18,6 +18,9 @@ import {
 // un pointage dans les JOURS_ACTIVITE derniers jours OU avancement strictement
 // entre 1 % et 99 %. (Même règle que le cron de snapshot hebdo.)
 const JOURS_ACTIVITE = 21;
+// Seuils des points d'attention automatiques (étape 5) — constantes nommées.
+const SEUIL_STAGNATION_PTS = 3;   // delta d'avancement hebdo en dessous duquel un chantier « stagne »
+const JOURS_DEMARRAGE_LOT = 15;   // lot démarrant sous N jours sans commande passée → alerte
 
 // ─── PAGE BILAN SEMAINE ───────────────────────────────────────────────────────
 // Bilan hebdomadaire multi-chantiers, sorti de la modale d'Équipe (étape 3 du
@@ -420,7 +423,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           const d = new Date(); d.setDate(d.getDate() - JOURS_ACTIVITE);
           return d.toISOString().slice(0, 10);
         })();
-        const finByCh = {}, actifs = new Set();
+        const aujourdhui = new Date().toISOString().slice(0, 10);
+        const horizon = (() => {
+          const d = new Date(); d.setDate(d.getDate() + JOURS_DEMARRAGE_LOT);
+          return d.toISOString().slice(0, 10);
+        })();
+        const finByCh = {}, actifs = new Set(), demarrages = {};
         phasages.forEach(ph => {
           if (!ph.chantier_id) return;
           const fin = computeChantierFinance({
@@ -432,8 +440,26 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           const av = fin.brut.avancementChantier;
           const recent = (fin.fraicheur.dernierPointage || "") >= seuilActif;
           if (recent || (av > 0 && av < 100)) actifs.add(ph.chantier_id);
+          // Règle « démarrage sous N jours sans commande » : par lot, première
+          // date prévue d'une tâche non terminée dans la fenêtre, croisée avec
+          // les lignes de commande du chantier rattachées à ce lot.
+          const lotsAvecCommande = new Set((clsBy[ph.chantier_id] || []).map(l => l.lot_id).filter(Boolean));
+          const premiereDateParLot = {};
+          (ph.ouvrages || []).forEach(o => {
+            if (!o.lot_id) return;
+            (o.taches || []).forEach(t => {
+              if ((parseFloat(t.avancement) || 0) >= 100) return;
+              const d = (t.date_prevue || "").slice(0, 10);
+              if (!d || d < aujourdhui || d > horizon) return;
+              if (!premiereDateParLot[o.lot_id] || d < premiereDateParLot[o.lot_id]) premiereDateParLot[o.lot_id] = d;
+            });
+          });
+          const lst = Object.entries(premiereDateParLot)
+            .filter(([lid]) => !lotsAvecCommande.has(lid))
+            .map(([lid, d]) => ({ lotId: lid, label: lotsCfg.find(l => l.id === lid)?.label || lid, date: d }));
+          if (lst.length) demarrages[ph.chantier_id] = lst;
         });
-        setFinData({ finByCh, actifs });
+        setFinData({ finByCh, actifs, demarrages });
       } catch (e) {
         console.warn("Bilan finances:", e?.message || e);
         if (!cancelled) setFinData({ finByCh: {}, actifs: new Set() });
@@ -477,6 +503,54 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     marge: { icon: TrendingUp, color: "#22c55e" },
   };
   const ouvrirVentilation = (donnee, chantierNom) => setKpiModal({ donnee, chantierNom });
+
+  // ── Points d'attention automatiques (étape 5) ──────────────────────────────
+  // Remonte ce qui cloche, tous chantiers confondus. Les règles financières
+  // (marge sous seuil de prime, dérive de lot, données manquantes) viennent
+  // DIRECTEMENT des warnings du module — on les consomme, on ne les
+  // réimplémente pas. S'y ajoutent : stagnation d'avancement (snapshots),
+  // compte rendu hebdo manquant, lot démarrant sans commande.
+  const pointsAttention = useMemo(() => {
+    if (!finData) return [];
+    const pts = [];
+    chantiersBilan.forEach(cId => {
+      const nom = parChantier[cId]?.nom || chantiers.find(c => c.id === cId)?.nom || cId;
+      const fin = finData.finByCh[cId];
+      (fin?.warnings || []).forEach(w => pts.push({ cId, nom, code: w.code, finance: true, message: w.message }));
+      const p = progressions[cId];
+      if (p && p.delta != null && p.delta < SEUIL_STAGNATION_PTS) {
+        pts.push({ cId, nom, code: "stagnation", finance: false,
+          message: `Avancement stagnant : ${p.delta > 0 ? "+" : ""}${p.delta} pt${Math.abs(p.delta) > 1 ? "s" : ""} cette semaine (seuil ${SEUIL_STAGNATION_PTS}).` });
+      }
+      if (!parChantier[cId]) {
+        pts.push({ cId, nom, code: "cr_manquant", finance: false, message: "Aucun compte rendu hebdo cette semaine." });
+      }
+      (finData.demarrages?.[cId] || []).forEach(dm => {
+        pts.push({ cId, nom, code: "demarrage_sans_commande", finance: false,
+          message: `Lot ${dm.label} : travaux prévus le ${dm.date.split("-").reverse().join("/")} sans aucune commande passée.` });
+      });
+    });
+    return pts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finData, chantiersBilan, progressions, chantierIdsKey]);
+  // Un point déjà repris dans les blocages (même chantier, texte commençant
+  // pareil) ne se propose plus — proposition uniquement, jamais d'ajout auto.
+  const pointsProposables = pointsAttention.filter(pt =>
+    !(bilanExtras.blocages || []).some(b => b.chantier_id === pt.cId && normTexteBilan(b.texte).startsWith(normTexteBilan(pt.message).slice(0, 40)))
+  );
+  const deplierChantier = (cId) => {
+    setExpandedCh(prev => ({ ...prev, [cId]: true }));
+    setTimeout(() => document.getElementById(`bilan-ch-${cId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
+  const ajouterPointAuxBlocages = (pt) => updateExtras(prev => ({
+    ...prev,
+    blocages: [...prev.blocages, {
+      chantier_id: pt.cId,
+      chantier_nom: pt.nom,
+      texte: pt.message,
+      statut: "info",
+    }],
+  }));
 
   // Total € généré cette semaine : somme des delta € positifs des progressions.
   // Les chantiers en régression (delta < 0) ne sont pas comptés ici (le total
@@ -974,6 +1048,20 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     </tr>
   </table>
   ${syntheseHTML}
+  ${(() => {
+    // Points d'attention (étape 5) : mêmes détections que l'encart de la page,
+    // limitées aux chantiers inclus ; les points financiers suivent le drapeau
+    // includeFinances.
+    const pts = pointsAttention.filter(pt => idsInclus.includes(pt.cId) && (includeFinances || !pt.finance));
+    if (pts.length === 0) return "";
+    return `
+    <div class="synthese" style="border:1pt solid ${ORANGE};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
+      <div style="background:${ORANGE};color:#fff;font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:6pt 14pt;">Points d'attention</div>
+      <div style="padding:9pt 14pt;">
+        ${pts.map(pt => `<div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 4pt;padding-left:14pt;position:relative;line-height:1.45;"><span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span><strong style="color:${INK};">${esc(pt.nom)}</strong> — ${esc(pt.message)}</div>`).join("")}
+      </div>
+    </div>`;
+  })()}
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun chantier sélectionné pour cette semaine.</div>`}
   ${includeFinances ? `
   <div style="page-break-before:always;">
@@ -1506,6 +1594,41 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           {Object.keys(parChantier).length === 0 && (
             <div style={{ textAlign:"center", padding:"40px 0", color:T.textMuted, fontSize:15 }}>
               Aucun compte rendu pour cette semaine.
+            </div>
+          )}
+
+          {/* ── Points d'attention automatiques (étape 5) — en tête de page ── */}
+          {pointsAttention.length > 0 && (
+            <div style={{ background:"rgba(245,166,35,0.08)", border:"1px solid rgba(245,166,35,0.35)",
+              borderRadius:14, padding:"14px 18px", flexShrink:0 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:10 }}>
+                <span style={{ fontSize:15, fontWeight:800, color:T.text, display:"inline-flex", alignItems:"center", gap:8 }}>
+                  <Icon as={AlertTriangle} size={15} color="#f5a623"/>
+                  Points d'attention
+                </span>
+                <span style={{ fontSize:12, color:T.textMuted }}>
+                  Détectés automatiquement · clique pour ouvrir le chantier · « + » pour pré-remplir un blocage
+                </span>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {pointsAttention.map((pt, i) => (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                    <div onClick={() => deplierChantier(pt.cId)}
+                      style={{ flex:"1 1 260px", minWidth:0, fontSize:12.5, color:T.textSub, lineHeight:1.45, cursor:"pointer" }}>
+                      <strong style={{ color:T.text }}>{pt.nom}</strong> · {pt.message}
+                    </div>
+                    {pointsProposables.includes(pt) && (
+                      <button onClick={() => ajouterPointAuxBlocages(pt)}
+                        title="Pré-remplir un blocage avec ce point (tu peux l'éditer ensuite)"
+                        style={{ background:"transparent", border:"1px solid rgba(245,166,35,0.5)", borderRadius:8,
+                          padding:"4px 10px", color:"#e0a020", fontFamily:"inherit", fontSize:11.5, fontWeight:700,
+                          cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
+                        + Blocage
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
