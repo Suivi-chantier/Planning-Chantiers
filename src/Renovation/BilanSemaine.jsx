@@ -1,13 +1,23 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { fetchPointages } from "../pointages";
-import { avancementChantier as cfAvancementChantier } from "../chantierFinance";
+import {
+  computeChantierFinance, avancementChantier as cfAvancementChantier,
+  couleurMarge, eur, METHODE_CALCUL, SEUIL_RATIO_DERIVE, fmtH as cfFmtH,
+} from "../chantierFinance";
+import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierFinanceUI";
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
+  TrendingUp, TrendingDown, Target, AlertTriangle,
 } from "lucide-react";
+
+// Un chantier est « en cours » par son ACTIVITÉ, pas par un statut : au moins
+// un pointage dans les JOURS_ACTIVITE derniers jours OU avancement strictement
+// entre 1 % et 99 %. (Même règle que le cron de snapshot hebdo.)
+const JOURS_ACTIVITE = 21;
 
 // ─── PAGE BILAN SEMAINE ───────────────────────────────────────────────────────
 // Bilan hebdomadaire multi-chantiers, sorti de la modale d'Équipe (étape 3 du
@@ -364,6 +374,110 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     return () => { cancelled = true; };
   }, [etape, weekId, chantierIdsKey]);
 
+  // ── Finances par chantier (module chantierFinance — mêmes chiffres que
+  // Phasage V2, au centime). Lecture À DATE : phasages + tous les pointages +
+  // lignes de commande + réglages, indépendamment de la semaine affichée.
+  const [finData, setFinData] = useState(null); // { finByCh, actifs:Set }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [phQ, cfgTaux, cfgTauxMO, cfgLots] = await Promise.all([
+          supabase.from("phasages").select("*"),
+          supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
+          supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
+          supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
+        ]);
+        const phasages = phQ.data || [];
+        const tauxHoraires = cfgTaux.data?.value || {};
+        const tauxMOPrev = parseFloat(cfgTauxMO.data?.value) || 0;
+        const items = cfgLots.data?.value?.items;
+        const lotsCfg = Array.isArray(items) && items.length > 0
+          ? items.map((l, i) => ({ id: l.id || `lot_${i}`, label: l.label || `Lot ${i + 1}`, couleur: l.couleur || l.color || "#888888" }))
+          : [];
+        // Pointages + lignes de commande : PAGINÉS (la limite Supabase de
+        // 1 000 lignes par requête tronquerait les chantiers volumineux).
+        const fetchTout = async (table, select) => {
+          const out = [];
+          for (let from = 0; ; from += 1000) {
+            const { data, error } = await supabase.from(table).select(select).range(from, from + 999);
+            if (error) { console.warn(`Bilan finances: ${table}`, error.message); break; }
+            out.push(...(data || []));
+            if (!data || data.length < 1000) break;
+          }
+          return out;
+        };
+        const [pts, cls] = await Promise.all([
+          fetchTout("pointages", "*"),
+          fetchTout("commande_lignes", "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, commande:commandes(fournisseur_nom)"),
+        ]);
+        if (cancelled) return;
+        const ptsBy = {}, clsBy = {};
+        pts.forEach(p => { (ptsBy[p.chantier_id] ||= []).push(p); });
+        cls.forEach(l => { (clsBy[l.chantier_id] ||= []).push(l); });
+
+        const seuilActif = (() => {
+          const d = new Date(); d.setDate(d.getDate() - JOURS_ACTIVITE);
+          return d.toISOString().slice(0, 10);
+        })();
+        const finByCh = {}, actifs = new Set();
+        phasages.forEach(ph => {
+          if (!ph.chantier_id) return;
+          const fin = computeChantierFinance({
+            phasage: ph, pointages: ptsBy[ph.chantier_id] || [],
+            commandeLignes: clsBy[ph.chantier_id] || [],
+            tauxHoraires, tauxMOPrev, lots: lotsCfg,
+          });
+          finByCh[ph.chantier_id] = fin;
+          const av = fin.brut.avancementChantier;
+          const recent = (fin.fraicheur.dernierPointage || "") >= seuilActif;
+          if (recent || (av > 0 && av < 100)) actifs.add(ph.chantier_id);
+        });
+        setFinData({ finByCh, actifs });
+      } catch (e) {
+        console.warn("Bilan finances:", e?.message || e);
+        if (!cancelled) setFinData({ finByCh: {}, actifs: new Set() });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Accordéon + sélection PDF ──
+  const [expandedCh, setExpandedCh] = useState({});
+  const [selPdf, setSelPdf] = useState({});
+  const [includeFinances, setIncludeFinances] = useState(true); // drapeau : bilan sans marges possible
+  const [kpiModal, setKpiModal] = useState(null); // { donnee, chantierNom }
+  const nbSelectionnes = Object.values(selPdf).filter(Boolean).length;
+  const todayRefISO = new Date().toISOString().slice(0, 10);
+
+  // Liste des chantiers du bilan : ceux qui ont des rapports cette semaine ∪
+  // les chantiers ACTIFS (un chantier silencieux est une information, pas un
+  // vide → badge « aucune activité cette semaine »).
+  const chantiersBilan = useMemo(() => {
+    const ids = new Set(Object.keys(parChantier));
+    (finData ? [...finData.actifs] : []).forEach(id => ids.add(id));
+    return [...ids].sort((a, b) => {
+      const na = parChantier[a]?.nom || chantiers.find(c => c.id === a)?.nom || a;
+      const nb = parChantier[b]?.nom || chantiers.find(c => c.id === b)?.nom || b;
+      return String(na).localeCompare(String(nb));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chantierIdsKey, finData]);
+
+  // Présentation (icône + couleur) des indicateurs pour la modale de
+  // ventilation — le contenu vient des Donnee du module.
+  const KPI_PRES = {
+    venduHT: { icon: Banknote, color: "#f5c400" },
+    heuresReelles: { icon: Clock, color: "#5b9cf6" },
+    moPrev: { icon: Target, color: "#818cf8" },
+    matPrev: { icon: Receipt, color: "#fb923c" },
+    moReel: { icon: HardHat, color: "#60a5fa" },
+    matReel: { icon: Receipt, color: "#f97316" },
+    fg: { icon: Percent, color: "#a78bfa" },
+    marge: { icon: TrendingUp, color: "#22c55e" },
+  };
+  const ouvrirVentilation = (donnee, chantierNom) => setKpiModal({ donnee, chantierNom });
+
   // Total € généré cette semaine : somme des delta € positifs des progressions.
   // Les chantiers en régression (delta < 0) ne sont pas comptés ici (le total
   // représente la valeur AJOUTÉE durant la semaine, pas un solde).
@@ -616,10 +730,68 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       ? (p.delta < 0 ? RED : p.delta < 3 ? ORANGE : GREEN)
       : "#c2c6cc";
 
-    const chantierBlocs = Object.entries(parChantier).map(([cId, grp]) => {
+    // Chantiers inclus : la SÉLECTION (cases cochées). Un chantier actif sans
+    // rapport cette semaine sort quand même (bloc « aucune activité »).
+    const idsInclus = chantiersBilan.filter(id => selPdf[id]);
+
+    // Bloc financier d'un chantier — indicateurs du module, jamais recalculés
+    // ici. Tableaux protégés contre la coupure entre deux pages (.fin-table).
+    const financesHTML = (fin) => {
+      if (!includeFinances || !fin) return "";
+      const b = fin.brut;
+      const margeC = b.margeChantier < 0 ? RED : b.margePctChantier < 15 ? ORANGE : GREEN;
+      const cell = (label, val, color = INK) => `
+        <td style="padding:7pt 10pt;text-align:center;border-left:1pt solid ${LINE};">
+          <div style="font-size:11pt;font-weight:800;color:${color};white-space:nowrap;">${val}</div>
+          <div style="font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};margin-top:2pt;white-space:nowrap;">${label}</div>
+        </td>`;
+      const lotsRows = fin.lots.filter(l => !l.vide).map(l => `
+        <tr>
+          <td style="padding:4pt 8pt;font-size:9pt;color:#2a2f37;border-top:1pt solid #f0f1f3;">${esc(l.label)}</td>
+          <td style="padding:4pt 8pt;font-size:9pt;text-align:right;color:#5a616b;border-top:1pt solid #f0f1f3;white-space:nowrap;">${cfFmtH(l.heuresReelles)}h / ${cfFmtH(l.heuresVendues)}h</td>
+          <td style="padding:4pt 8pt;font-size:9pt;text-align:right;font-weight:700;color:${INK};border-top:1pt solid #f0f1f3;">${l.avancement}%</td>
+          <td style="padding:4pt 8pt;font-size:9pt;text-align:right;font-weight:800;border-top:1pt solid #f0f1f3;color:${l.ratioDerive == null ? GREY : l.ratioDerive > SEUIL_RATIO_DERIVE ? RED : l.ratioDerive > 1 ? ORANGE : GREEN};">
+            ${l.ratioDerive == null ? "—" : `×${l.ratioDerive.toFixed(2)}`}
+          </td>
+        </tr>`).join("");
+      return `
+        <div class="taches-section">
+          ${titreSectionGlobal("Finances", "#6b7280")}
+          <table class="fin-table" style="width:100%;border-collapse:collapse;border:1pt solid ${LINE};border-radius:2pt;margin:0 0 7pt;">
+            <tr>
+              ${cell("Vendu HT", eur(b.prixHTChantier)).replace('border-left:1pt solid ' + LINE + ';', '')}
+              ${cell("Coût MO", eur(b.coutMOTotalChantier))}
+              ${cell("Matériaux", eur(b.coutMatChantier))}
+              ${cell("Frais généraux", eur(b.fgChantier))}
+              ${cell("Marge nette", `${b.margeChantier >= 0 ? "+" : ""}${eur(b.margeChantier)}`, margeC)}
+              ${cell("Marge %", b.prixHTChantier > 0 ? `${b.margePctChantier.toFixed(1)}%` : "—", margeC)}
+            </tr>
+          </table>
+          ${lotsRows ? `
+          <table class="fin-table" style="width:100%;border-collapse:collapse;">
+            <tr>
+              <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:left;">Lot</th>
+              <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Heures réelles / vendues</th>
+              <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Avancement</th>
+              <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Dérive</th>
+            </tr>
+            ${lotsRows}
+          </table>` : ""}
+          ${(fin.warnings || []).length > 0 ? `
+          <div style="margin-top:5pt;">
+            ${fin.warnings.map(w => `<div class="remarque-row" style="font-size:8.5pt;color:${ORANGE};margin:0 0 2pt;line-height:1.4;">⚠ ${esc(w.message)}</div>`).join("")}
+          </div>` : ""}
+        </div>`;
+    };
+    const titreSectionGlobal = (label, color) => `<div class="sect-title" style="color:${color};">${label}</div>`;
+
+    const chantierBlocs = idsInclus.map(cId => {
+      const grp = parChantier[cId] || { nom: chantiers.find(c => c.id === cId)?.nom || cId, rapports: [] };
       const ch = chantiers.find(c => c.id === cId);
       const couleur = ch?.couleur || "#5b8af5";
       const heures = heuresParChantier[cId] || 0;
+      const finCh = finData?.finByCh?.[cId] || null;
+      const sansActivite = !parChantier[cId];
       const tachesRaw = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
       // 1) On ne garde qu'une seule version de chaque tâche, au statut le plus
       //    avancé (faite > en_cours > non_faite) — sinon une tâche "non faite"
@@ -674,6 +846,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             </tr>
           </table>
           <div style="padding:12pt 14pt;">
+            ${sansActivite ? `<div style="font-size:9pt;color:${GREY};font-style:italic;margin:0 0 8pt;">Aucune activité cette semaine.</div>` : ""}
+            ${financesHTML(finCh)}
             ${faites.length > 0 ? `<div class="taches-section">${titreSection(`✓ ${faites.length} tâche${faites.length>1?"s":""} terminée${faites.length>1?"s":""}`, GREEN)}${listeTaches(faites, GREEN, "✓", true)}</div>` : ""}
             ${enCours.length > 0 ? `<div class="taches-section">${titreSection("En cours", ORANGE)}${listeTaches(enCours, ORANGE, "↻")}</div>` : ""}
             ${blocagesCh.length > 0 ? `
@@ -704,7 +878,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     // ── Encart de synthèse (résumé exécutif, placé sous le bandeau) ──────────
     // Une ligne par chantier (pastille + nom + progression + généré €) puis la
     // liste de TOUTES les décisions attendues, tous chantiers confondus.
-    const synthChantiers = Object.entries(parChantier).map(([cId, grp]) => {
+    const synthChantiers = idsInclus.map(cId => {
+      const grp = parChantier[cId] || { nom: chantiers.find(c => c.id === cId)?.nom || cId };
       const p = progressions[cId];
       const dot = pastilleDe(p);
       let droite;
@@ -731,7 +906,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       ? decisions.map(b => `<div class="remarque-row" style="font-size:10pt;color:#2a2f37;margin:0 0 5pt;padding-left:16pt;position:relative;line-height:1.45;"><span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span><strong style="color:${INK};">${esc(b.chantier_nom || "—")}</strong> — ${fmt(b.texte)}</div>`).join("")
       : `<div style="font-size:9pt;color:#a0a5ad;font-style:italic;">Aucune décision en attente</div>`;
 
-    const syntheseHTML = Object.keys(parChantier).length === 0 ? "" : `
+    const syntheseHTML = idsInclus.length === 0 ? "" : `
       <div class="synthese" style="border:1pt solid ${INK};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
         <div style="background:${INK};color:${YELLOW};font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:6pt 14pt;">Synthèse de la semaine</div>
         <div style="padding:10pt 14pt;">
@@ -764,7 +939,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
      gros trous blancs quand une longue liste "Réalisé" (30+ items) ne tient
      pas sur la fin de page. Chaque <li> reste intact donc on ne coupe
      jamais une ligne de texte en deux. */
-  .presence-row, .remarque-row, li, .card-header, .bilan-banner, .sect-title {
+  .presence-row, .remarque-row, li, .card-header, .bilan-banner, .sect-title,
+  .fin-table, .methode-row {
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -798,7 +974,18 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     </tr>
   </table>
   ${syntheseHTML}
-  ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun compte rendu pour cette semaine.</div>`}
+  ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun chantier sélectionné pour cette semaine.</div>`}
+  ${includeFinances ? `
+  <div style="page-break-before:always;">
+    <div style="font-size:13pt;font-weight:800;color:${INK};margin:0 0 4pt;">Annexe — Méthode de calcul</div>
+    <div style="font-size:8.5pt;color:${GREY};margin:0 0 12pt;">Chaque indicateur du bilan, sa formule et sa source. Générée automatiquement depuis le module de calcul de l'application (les mêmes formules que la page Phasage).</div>
+    ${METHODE_CALCUL.map(m => `
+    <div class="methode-row" style="border-left:2.5pt solid ${LINE};padding:5pt 10pt;margin:0 0 7pt;">
+      <div style="font-size:9.5pt;font-weight:800;color:${INK};">${esc(m.label)}</div>
+      <div style="font-size:9pt;color:#2a2f37;line-height:1.45;margin-top:1pt;">${esc(m.formule)}</div>
+      <div style="font-size:7.5pt;color:${GREY};margin-top:1pt;">Source : ${esc(m.source)}</div>
+    </div>`).join("")}
+  </div>` : ""}
   <div style="text-align:center;margin-top:16pt;padding-top:9pt;border-top:1pt solid ${LINE};font-size:8pt;color:#a0a5ad;">Profero Rénovation · Bilan généré le ${new Date().toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}</div>
 </div></body></html>`;
   };
@@ -1178,17 +1365,24 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                 </>
               )}
             </button>
-            <button onClick={genPDFBilan} disabled={generatingPDF} title="Télécharger le PDF" className="cr-export-btn"
-              style={{ background: generatingPDF ? "rgba(255,255,255,0.1)" : "rgba(245,196,0,0.92)",
+            <button onClick={genPDFBilan} disabled={generatingPDF || nbSelectionnes === 0}
+              title={nbSelectionnes === 0 ? "Coche au moins un chantier dans la liste" : "Télécharger le PDF"}
+              className="cr-export-btn"
+              style={{ background: (generatingPDF || nbSelectionnes === 0) ? "rgba(255,255,255,0.1)" : "rgba(245,196,0,0.92)",
                 border:"none", borderRadius:10, padding:"0 16px", height:40,
-                cursor: generatingPDF ? "wait" : "pointer", fontSize:13, fontWeight:700,
-                color: generatingPDF ? "#fff" : "#1a1a1a",
+                cursor: generatingPDF ? "wait" : nbSelectionnes === 0 ? "not-allowed" : "pointer", fontSize:13, fontWeight:700,
+                color: (generatingPDF || nbSelectionnes === 0) ? "#fff" : "#1a1a1a",
+                opacity: nbSelectionnes === 0 ? 0.6 : 1,
                 display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
-              {generatingPDF ? <><Icon as={RefreshCw} size={13}/> Génération…</> : <><Icon as={FileDown} size={14}/> PDF</>}
+              {generatingPDF ? <><Icon as={RefreshCw} size={13}/> Génération…</> : <><Icon as={FileDown} size={14}/> PDF{nbSelectionnes > 0 ? ` (${nbSelectionnes})` : ""}</>}
             </button>
-            <button onClick={() => { setShowEmail(true); setEmailStatus(null); }} title="Envoyer le bilan par mail"
-              style={{ background:"rgba(91,138,245,0.92)", border:"none", borderRadius:10, padding:"0 16px", height:40,
-                cursor:"pointer", fontSize:13, fontWeight:700, color:"#fff",
+            <button onClick={() => { setShowEmail(true); setEmailStatus(null); }}
+              disabled={nbSelectionnes === 0}
+              title={nbSelectionnes === 0 ? "Coche au moins un chantier dans la liste" : "Envoyer le bilan par mail"}
+              style={{ background: nbSelectionnes === 0 ? "rgba(255,255,255,0.1)" : "rgba(91,138,245,0.92)",
+                border:"none", borderRadius:10, padding:"0 16px", height:40,
+                cursor: nbSelectionnes === 0 ? "not-allowed" : "pointer", fontSize:13, fontWeight:700, color:"#fff",
+                opacity: nbSelectionnes === 0 ? 0.6 : 1,
                 display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
               ✉ Mail
             </button>
@@ -1444,95 +1638,187 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             </div>
           )}
 
-          {Object.entries(parChantier).map(([cId, grp]) => {
+          {/* ── Barre de sélection PDF + drapeau finances ── */}
+          {chantiersBilan.length > 0 && (
+            <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
+              background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"8px 14px" }}>
+              <label style={{ display:"inline-flex", alignItems:"center", gap:7, fontSize:FONT.xs.size + 2, fontWeight:700, color:T.textSub, cursor:"pointer" }}>
+                <input type="checkbox"
+                  checked={nbSelectionnes > 0 && nbSelectionnes === chantiersBilan.length}
+                  onChange={e => {
+                    const v = e.target.checked;
+                    setSelPdf(Object.fromEntries(chantiersBilan.map(id => [id, v])));
+                  }}
+                  style={{ width:15, height:15, accentColor:T.accent, cursor:"pointer" }}/>
+                Tout sélectionner pour le PDF
+              </label>
+              <span style={{ fontSize:FONT.xs.size + 1, color:T.textMuted }}>
+                {nbSelectionnes} chantier{nbSelectionnes > 1 ? "s" : ""} coché{nbSelectionnes > 1 ? "s" : ""}
+              </span>
+              <label style={{ marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:7, fontSize:FONT.xs.size + 2, fontWeight:700, color:T.textSub, cursor:"pointer" }}>
+                <input type="checkbox" checked={includeFinances}
+                  onChange={e => setIncludeFinances(e.target.checked)}
+                  style={{ width:15, height:15, accentColor:T.accent, cursor:"pointer" }}/>
+                Inclure les finances (page + PDF)
+              </label>
+            </div>
+          )}
+
+          {chantiersBilan.map(cId => {
+            const grp = parChantier[cId] || null;
             const ch = chantiers.find(c => c.id === cId);
+            const nom = grp?.nom || ch?.nom || cId;
             const heures = heuresParChantier[cId] || 0;
-            const detailJours = presencesDuChantier(cId);
-            const toutesTouches = grp.rapports.flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
+            const detailJours = grp ? presencesDuChantier(cId) : [];
+            const toutesTouches = (grp?.rapports || []).flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
             const faites    = toutesTouches.filter(t => t.statut==="faite");
             const enCours   = toutesTouches.filter(t => t.statut==="en_cours");
             const nonFaites = toutesTouches.filter(t => t.statut==="non_faite");
-            const remarques = grp.rapports.filter(r => r.remarque?.trim());
+            const remarques = (grp?.rapports || []).filter(r => r.remarque?.trim());
+            const fin = finData?.finByCh?.[cId] || null;
+            const p = progressions[cId];
+            const open = !!expandedCh[cId];
+            const sansActivite = !grp;
+            const alertes = fin?.warnings || [];
+            const margeColor = fin ? couleurMarge(fin.brut.margeChantier, fin.brut.margePctChantier) : T.textMuted;
+            const avHeader = p?.maintenant ?? fin?.brut?.avancementChantier ?? null;
+            const blocagesCh = (bilanExtras.blocages || []).filter(b => b.chantier_id === cId && (b.texte || "").trim());
+            const suiteCh    = (bilanExtras.semaineSuivante || []).filter(s => s.chantier_id === cId && (s.texte || "").trim());
+            const badge = (children, styleExtra = {}) => (
+              <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700,
+                background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"3px 9px",
+                color:T.textSub, whiteSpace:"nowrap", ...styleExtra }}>{children}</span>
+            );
             return (
-              <div key={cId} style={{ background:T.surface, border:`1px solid ${T.border}`,
+              <div key={cId} id={`bilan-ch-${cId}`} style={{ background:T.surface, border:`1px solid ${T.border}`,
                 borderRadius:14, overflow:"hidden", borderLeft:`5px solid ${ch?.couleur||"#5b8af5"}`,
                 flexShrink: 0 }}>
-                <div style={{ padding:"16px 20px", display:"flex", alignItems:"center",
-                  justifyContent:"space-between", flexWrap:"wrap", gap:12,
-                  background: ch ? ch.couleur+"18" : T.card }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-                    {ch && <div style={{ width:14, height:14, borderRadius:4, background:ch.couleur, flexShrink:0 }}/>}
-                    <div style={{ fontSize:18, fontWeight:800, color:T.text }}>{grp.nom}</div>
-                    {progressions[cId] && (() => {
-                      const p = progressions[cId];
-                      // Si pas de snapshot avant → on n'a pas de point de comparaison
-                      if (p.avant == null) {
-                        return (
-                          <div title="Pas encore d'historique : 1er snapshot pris le prochain vendredi" style={{
-                            display:"inline-flex", alignItems:"center", gap:6,
-                            background: T.card, border:`1px solid ${T.border}`,
-                            borderRadius:8, padding:"4px 10px",
-                            fontSize:11, color:T.textMuted, fontWeight:600,
-                          }}>
-                            Avancement : <strong style={{ color:T.text }}>{p.maintenant}%</strong>
-                          </div>
-                        );
-                      }
-                      const deltaColor = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : T.textMuted;
-                      const deltaSign  = p.delta > 0 ? "+" : "";
-                      const fmtEur = (n) => `${n > 0 ? "+" : ""}${Math.abs(n).toLocaleString("fr-FR")} €`.replace("+-", "-");
+                {/* ── En-tête replié : pastille · nom · avancement+delta · vendu · marge · alertes ── */}
+                <div onClick={() => setExpandedCh(prev => ({ ...prev, [cId]: !prev[cId] }))}
+                  style={{ padding:"12px 16px", display:"flex", alignItems:"center", gap:10,
+                    flexWrap:"wrap", cursor:"pointer", background: ch ? ch.couleur+"18" : T.card }}>
+                  <input type="checkbox" checked={!!selPdf[cId]}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setSelPdf(prev => ({ ...prev, [cId]: e.target.checked }))}
+                    title="Inclure ce chantier dans le PDF"
+                    style={{ width:16, height:16, accentColor:T.accent, cursor:"pointer", flexShrink:0 }}/>
+                  <div style={{ width:12, height:12, borderRadius:4, background:ch?.couleur||"#5b8af5", flexShrink:0 }}/>
+                  <div style={{ fontSize:16, fontWeight:800, color:T.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>{nom}</div>
+                  {sansActivite && badge("aucune activité cette semaine", { color:T.textMuted, fontStyle:"italic" })}
+                  {avHeader != null && badge(<>
+                    {avHeader}%
+                    {p?.delta != null && (
+                      <span style={{ color: p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : T.textMuted, fontWeight:800 }}>
+                        {p.delta > 0 ? "+" : ""}{p.delta} pt{Math.abs(p.delta) > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </>)}
+                  {includeFinances && fin && fin.brut.prixHTChantier > 0 && badge(<>{eur(fin.brut.prixHTChantier)}</>)}
+                  {includeFinances && fin && badge(
+                    <span style={{ color: margeColor, fontWeight:800 }}>
+                      {fin.brut.margeChantier >= 0 ? "+" : ""}{eur(fin.brut.margeChantier)}
+                    </span>
+                  )}
+                  {alertes.length > 0 && badge(<>
+                    <Icon as={AlertTriangle} size={11} color="#f5a623"/>
+                    <span style={{ color:"#f5a623", fontWeight:800 }}>{alertes.length}</span>
+                  </>, { borderColor:"rgba(245,166,35,0.4)" })}
+                  <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+                    {heures > 0 && (
+                      <span style={{ fontSize:13, fontWeight:800, color:T.accent, whiteSpace:"nowrap" }}>
+                        {heures.toFixed(1)}h
+                      </span>
+                    )}
+                    <Icon as={ChevronDown} size={16} color={T.textMuted}
+                      style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform .2s ease", flexShrink:0 }}/>
+                  </div>
+                </div>
+                {open && (
+                <div style={{ padding:"14px 20px", display:"flex", flexDirection:"column", gap:14, borderTop:`1px solid ${T.border}` }}>
+                  {/* 1. Progression de la semaine */}
+                  {p && (() => {
+                    if (p.avant == null) {
                       return (
-                        <div title={`Snapshot du ${p.dateAvant} → maintenant`} style={{
-                          display:"inline-flex", alignItems:"center", gap:6,
-                          background: deltaColor + "18", border:`1px solid ${deltaColor}55`,
+                        <div style={{
+                          display:"inline-flex", alignItems:"center", gap:6, alignSelf:"flex-start",
+                          background: T.card, border:`1px solid ${T.border}`,
                           borderRadius:8, padding:"4px 10px",
-                          fontSize:11, fontWeight:600, color:T.text, flexWrap:"wrap",
+                          fontSize:11, color:T.textMuted, fontWeight:600,
                         }}>
-                          <span style={{ color: T.textMuted }}>{p.avant}%</span>
-                          <span style={{ color: T.textMuted, fontSize:10 }}>→</span>
-                          <strong style={{ color: T.text }}>{p.maintenant}%</strong>
-                          <span style={{ color: deltaColor, fontWeight:800 }}>
-                            ({deltaSign}{p.delta} pt{Math.abs(p.delta) > 1 ? "s" : ""})
-                          </span>
-                          {p.deltaEuros != null && (
-                            <span style={{ color: deltaColor, fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33` }}>
-                              {p.deltaEuros > 0 ? "+" : ""}{p.deltaEuros.toLocaleString("fr-FR")} €
-                            </span>
-                          )}
+                          Avancement : <strong style={{ color:T.text }}>{p.maintenant}%</strong>
+                          <span style={{ fontStyle:"italic" }}> · pas encore d'historique (1er snapshot le prochain vendredi)</span>
                         </div>
                       );
-                    })()}
-                  </div>
-                  {heures > 0 && (
-                    <div style={{ background:T.accent+"22", border:`1.5px solid ${T.accent}55`,
-                      borderRadius:10, padding:"8px 16px", textAlign:"center" }}>
-                      <div style={{ fontSize:22, fontWeight:800, color:T.accent, lineHeight:1 }}>{heures.toFixed(1)}h</div>
-                      <div style={{ fontSize:10, color:T.textMuted, textTransform:"uppercase", letterSpacing:1, marginTop:2 }}>{hasPointages ? "validées" : "estimées"}</div>
-                    </div>
-                  )}
-                </div>
-                <div style={{ padding:"14px 20px", display:"flex", flexDirection:"column", gap:14 }}>
-                  {detailJours.length > 0 && (
+                    }
+                    const deltaColor = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : T.textMuted;
+                    const deltaSign  = p.delta > 0 ? "+" : "";
+                    return (
+                      <div style={{
+                        display:"inline-flex", alignItems:"center", gap:6, alignSelf:"flex-start",
+                        background: deltaColor + "18", border:`1px solid ${deltaColor}55`,
+                        borderRadius:8, padding:"4px 10px",
+                        fontSize:11, fontWeight:600, color:T.text, flexWrap:"wrap",
+                      }}>
+                        <span style={{ color: T.textMuted }}>{p.avant}%</span>
+                        <span style={{ color: T.textMuted, fontSize:10 }}>→</span>
+                        <strong style={{ color: T.text }}>{p.maintenant}%</strong>
+                        <span style={{ color: deltaColor, fontWeight:800 }}>
+                          ({deltaSign}{p.delta} pt{Math.abs(p.delta) > 1 ? "s" : ""})
+                        </span>
+                        {p.deltaEuros != null && (
+                          <span style={{ color: deltaColor, fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33` }}>
+                            {p.deltaEuros > 0 ? "+" : ""}{p.deltaEuros.toLocaleString("fr-FR")} €
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 2. Finances (module chantierFinance — mêmes chiffres que Phasage V2) */}
+                  {includeFinances && fin && (
                     <div>
                       <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>
-                        <Icon as={Clock} size={11}/>
-                        Présences
+                        <Icon as={Banknote} size={11}/>
+                        Finances
                       </div>
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                        {detailJours.map(({jour, ouvriers}) => (
-                          <div key={jour} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"7px 12px" }}>
-                            <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, marginBottom:4 }}>{jour}</div>
-                            <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-                              {ouvriers.map(o => (
-                                <span key={o} style={{ background:ch?.couleur+"44"||T.tagBg, color:T.text,
-                                  borderRadius:4, padding:"1px 7px", fontSize:11, fontWeight:700 }}>{o}</span>
-                              ))}
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:8 }}>
+                        {["venduHT", "heuresReelles", "moReel", "matReel", "fg", "marge"].map(cle => {
+                          const d = fin[cle];
+                          const pres = KPI_PRES[cle] || {};
+                          const isMarge = cle === "marge";
+                          return (
+                            <KpiCard key={cle} T={T} icon={pres.icon} iconColor={isMarge ? margeColor : pres.color}
+                              label={d.label} value={d.valeurTexte} sub={d.sousLabel}
+                              donnee={d} dateRef={todayRefISO}
+                              accent={isMarge ? margeColor : undefined} bold={isMarge}
+                              onClick={() => ouvrirVentilation(d, nom)}/>
+                          );
+                        })}
+                      </div>
+                      {alertes.length > 0 && (
+                        <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:4 }}>
+                          {alertes.map((w, i) => (
+                            <div key={i} style={{ fontSize:FONT.xs.size + 1, color:"#f5a623", display:"flex", gap:6 }}>
+                              <Icon as={AlertTriangle} size={12} style={{ flexShrink:0, marginTop:1 }}/>
+                              {w.message}
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {/* 3. Lots (ratio de dérive par lot) */}
+                  {includeFinances && fin && fin.lots.some(l => !l.vide) && (
+                    <div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textMuted, marginBottom:6 }}>
+                        Lots
+                      </div>
+                      <LotsTableau lots={fin.lots} T={T} compact/>
+                    </div>
+                  )}
+
+                  {/* 4. Tâches faites / en cours (existant) */}
                   {faites.length > 0 && (
                     <div>
                       <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#22c55e", marginBottom:8 }}>
@@ -1578,23 +1864,87 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                       ))}
                     </div>
                   )}
-                  {remarques.length > 0 && (
+
+                  {/* 5. Blocages / semaine suivante de CE chantier (saisis plus haut) */}
+                  {blocagesCh.length > 0 && (
                     <div>
-                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#a0b8ff", marginBottom:8 }}>
-                        <Icon as={MessageSquare} size={11}/>
-                        Remarques
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#e15a5a", marginBottom:8 }}>
+                        ⚠ Blocages / arbitrages
                       </div>
-                      {remarques.map((r,i) => (
-                        <div key={i} style={{ fontSize:13, color:T.textSub, marginBottom:4 }}>
-                          <strong style={{color:T.text}}>{r.ouvrier}</strong> : {r.remarque}
+                      {blocagesCh.map((b, i) => (
+                        <div key={i} style={{ fontSize:13, color:T.text, marginBottom:4, display:"flex", gap:8 }}>
+                          <span style={{ color:"#f5a623", flexShrink:0 }}>!</span>
+                          <span>{b.statut === "decision" && <strong style={{ color:"#f5a623" }}>Décision attendue — </strong>}{b.texte}</span>
                         </div>
                       ))}
                     </div>
                   )}
+                  {suiteCh.length > 0 && (
+                    <div>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>
+                        → Semaine suivante
+                      </div>
+                      {suiteCh.map((s, i) => (
+                        <div key={i} style={{ fontSize:13, color:T.text, marginBottom:4, display:"flex", gap:8 }}>
+                          <span style={{ color:T.textMuted, flexShrink:0 }}>→</span>
+                          <span>{s.texte}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 6. Présences et remarques (discret) */}
+                  {(detailJours.length > 0 || remarques.length > 0) && (
+                    <div style={{ paddingTop:10, borderTop:`1px solid ${T.border}`, opacity:.85 }}>
+                      {detailJours.length > 0 && (
+                        <div style={{ marginBottom: remarques.length > 0 ? 10 : 0 }}>
+                          <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textMuted, marginBottom:8 }}>
+                            <Icon as={Clock} size={11}/>
+                            Présences
+                          </div>
+                          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                            {detailJours.map(({jour, ouvriers}) => (
+                              <div key={jour} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:8, padding:"7px 12px" }}>
+                                <div style={{ fontSize:11, fontWeight:700, color:T.textMuted, marginBottom:4 }}>{jour}</div>
+                                <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+                                  {ouvriers.map(o => (
+                                    <span key={o} style={{ background:ch?.couleur+"44"||T.tagBg, color:T.text,
+                                      borderRadius:4, padding:"1px 7px", fontSize:11, fontWeight:700 }}>{o}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {remarques.length > 0 && (
+                        <div>
+                          <div style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#a0b8ff", marginBottom:8 }}>
+                            <Icon as={MessageSquare} size={11}/>
+                            Remarques
+                          </div>
+                          {remarques.map((r,i) => (
+                            <div key={i} style={{ fontSize:13, color:T.textSub, marginBottom:4 }}>
+                              <strong style={{color:T.text}}>{r.ouvrier}</strong> : {r.remarque}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
+                )}
               </div>
             );
           })}
+
+          {/* Modale de ventilation d'un indicateur (3e niveau de lecture) */}
+          {kpiModal && (
+            <KpiDetailModal
+              cfg={cfgFromDonnee(kpiModal.donnee, KPI_PRES[kpiModal.donnee.cle] || { icon: Banknote, color: T.accent })}
+              sousTitrePrefixe={kpiModal.chantierNom}
+              T={T} onClose={() => setKpiModal(null)}/>
+          )}
         </div>
       </div>
     </div>

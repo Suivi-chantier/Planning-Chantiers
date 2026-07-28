@@ -2,6 +2,9 @@ import React, { useState } from "react";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { HelpCircle, X, Check, Info } from "lucide-react";
+// Méthode de calcul des indicateurs financiers : GÉNÉRÉE depuis le module de
+// calcul unique (jamais rédigée ici) — mêmes textes que l'annexe du PDF bilan.
+import { METHODE_CALCUL } from "../chantierFinance";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AIDE PAR PAGE
@@ -16,6 +19,24 @@ import { HelpCircle, X, Check, Info } from "lucide-react";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const AIDE_CONTENU = {
+  "bilan-semaine": {
+    titre: "Bilan de semaine",
+    sousTitre: "Le point hebdomadaire multi-chantiers : opérationnel + financier.",
+    intro: "Chaque chantier est une ligne d'accordéon : replié, l'essentiel (avancement, vendu, marge, alertes) ; déplié, la progression de la semaine, les finances, les lots, les tâches, les blocages et les présences. Coche les chantiers à inclure puis génère le PDF ou envoie-le par mail.",
+    etapes: [
+      "Choisis la semaine avec les flèches en haut (par défaut : la semaine en cours).",
+      "Déplie un chantier pour voir sa progression, ses finances et ses tâches de la semaine.",
+      "Survole un chiffre (ou reste appuyé au doigt) pour lire sa formule ; clique pour la ventilation complète.",
+      "Saisis les blocages / arbitrages et les points « semaine suivante » — ils partent dans le PDF.",
+      "Coche les chantiers à inclure, puis PDF ou ✉ Mail. Décoche « Inclure les finances » pour un document sans les marges.",
+    ],
+    savoir: [
+      "Un chantier « en cours » se déduit de son ACTIVITÉ (pointage récent ou avancement entre 1 et 99 %) — un chantier silencieux s'affiche quand même, avec un badge.",
+      "Les chiffres financiers sont exactement ceux de la page Phasage (même module de calcul).",
+      "Un chiffre en italique pointillé = donnée non renseignée (ex : taux de frais généraux à régler), à ne pas confondre avec un vrai zéro.",
+    ],
+    methode: METHODE_CALCUL,
+  },
   dashboard: {
     titre: "Tableau de bord",
     sousTitre: "La page d'accueil : l'activité du jour en un coup d'œil.",
@@ -445,6 +466,23 @@ function FenetreAide({ contenu, acc, T, onClose }) {
                 <span style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>Ce qui vient de changer</span>
               </div>
               <div style={{ fontSize: FONT.sm.size + 1, color: textSub, lineHeight: 1.6 }}>{contenu.nouveautes}</div>
+            </div>
+          )}
+
+          {/* Méthode de calcul — générée depuis le module chantierFinance,
+              identique à l'annexe du PDF du bilan. Rien n'est rédigé ici. */}
+          {contenu.methode?.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: textMuted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                Méthode de calcul
+              </div>
+              {contenu.methode.map(m => (
+                <div key={m.cle} style={{ borderLeft: `3px solid ${border}`, padding: "6px 12px", marginBottom: 8 }}>
+                  <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: text }}>{m.label}</div>
+                  <div style={{ fontSize: FONT.sm.size, color: textSub, lineHeight: 1.5, marginTop: 2 }}>{m.formule}</div>
+                  <div style={{ fontSize: FONT.xs.size, color: textMuted, marginTop: 2 }}>Source : {m.source}</div>
+                </div>
+              ))}
             </div>
           )}
         </div>
