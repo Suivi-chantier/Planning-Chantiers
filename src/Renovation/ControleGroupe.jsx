@@ -29,6 +29,7 @@ import { X, Check, AlertTriangle, ClipboardCheck, RotateCw, ArrowLeft } from "lu
 import { PhotosPicker } from "./RapportMobile";
 import { T as TT } from "./EspaceOuvrier"; // thème clair terrain (contrat du kit mobile)
 import { loadDraft, saveDraft, clearDraft, useDirtyGuard } from "../hooks";
+import { ancienneteJours, libelleAnciennete, nbControlesDepuis } from "./controles";
 
 // Statuts d'exception — mêmes couleurs que le reste de l'appli
 // (réserve = warning des visites, NOK = danger sémantique).
@@ -51,6 +52,14 @@ export default function ControleGroupe({
   const [saving, setSaving] = useState(false);
   const [fini, setFini] = useState(false);
   const [erreur, setErreur] = useState("");
+  // Réserves ouvertes du groupe (tous contrôles confondus) : affichées en
+  // tête avec leur ancienneté, levables explicitement (Prompt 4).
+  const [reservesOuvertes, setReservesOuvertes] = useState([]);
+  const [controlesChantier, setControlesChantier] = useState([]); // pour « non levée depuis N contrôles »
+  const [leveeOuverte, setLeveeOuverte] = useState(null);         // id de la réserve dont la levée est en cours de saisie
+  const [leveeSaisie, setLeveeSaisie] = useState({ commentaire: "", photos: [] });
+  const [leveeEnvoi, setLeveeEnvoi] = useState(false);
+  const todayISO = new Date().toISOString().slice(0, 10);
 
   const cleDraft = `controle-${chantierId}-${groupe?.id}`;
   const nbExceptions = Object.keys(exceptions).length;
@@ -67,29 +76,38 @@ export default function ControleGroupe({
     let actif = true;
     (async () => {
       try {
+        // Tous les contrôles du chantier : le dernier de CE groupe sert à
+        // l'édition, l'ensemble sert à « non levée depuis N contrôles ».
         const { data: ctrls, error } = await supabase.from("controles_groupe")
+          .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
+          .eq("chantier_id", chantierId)
+          .order("date_controle", { ascending: false });
+        if (error) throw error;
+        const tousControles = ctrls || [];
+        const dernier = tousControles.find(c => c.groupe_id === groupe.id) || null;
+        // Toutes les réserves du groupe : les OUVERTES s'affichent en tête
+        // (ancienneté + levée) ; celles du dernier contrôle préremplissent
+        // l'édition. Les réserves LEVÉES restent en base (historique).
+        const { data: res, error: errRes } = await supabase.from("reserves")
           .select("*")
           .eq("chantier_id", chantierId).eq("groupe_id", groupe.id)
-          .order("date_controle", { ascending: false }).limit(1);
-        if (error) throw error;
-        const dernier = ctrls?.[0] || null;
+          .order("created_at", { ascending: true });
+        if (errRes) throw errRes;
+        const ouvertes = (res || []).filter(r => !r.levee_le);
         let exc = {};
-        if (dernier) {
-          const { data: res, error: errRes } = await supabase.from("reserves")
-            .select("*").eq("controle_id", dernier.id);
-          if (errRes) throw errRes;
-          (res || []).forEach(r => {
-            if (r.levee_le) return; // les réserves levées restent dans l'historique, pas dans l'édition
-            exc[r.tache_id] = {
-              statut: r.statut, commentaire: r.commentaire || "",
-              photos: Array.isArray(r.photos) ? r.photos : [], reserveId: r.id,
-            };
-          });
-        }
+        ouvertes.filter(r => r.controle_id === dernier?.id).forEach(r => {
+          exc[r.tache_id] = {
+            statut: r.statut, commentaire: r.commentaire || "",
+            photos: Array.isArray(r.photos) ? r.photos : [], reserveId: r.id,
+          };
+        });
         // Brouillon local (saisie interrompue) prioritaire sur la base.
         const draft = loadDraft(cleDraft);
         if (draft && typeof draft === "object" && !Array.isArray(draft)) exc = draft;
-        if (actif) { setControle(dernier); setExceptions(exc); setLoading(false); }
+        if (actif) {
+          setControle(dernier); setControlesChantier(tousControles);
+          setReservesOuvertes(ouvertes); setExceptions(exc); setLoading(false);
+        }
       } catch (e) {
         if (!actif) return;
         setErreur(/relation .* does not exist|42P01/i.test(e?.message || "")
@@ -181,12 +199,52 @@ export default function ControleGroupe({
         }
       }
       clearDraft(cleDraft);
-      setControle(c => c ? { ...c, id: controleId } : { id: controleId });
+      setControle(c => c ? { ...c, id: controleId, nb_taches: taches.length, nb_conformes: nbConformes } : { id: controleId, nb_taches: taches.length, nb_conformes: nbConformes });
+      // Rafraîchit le registre des réserves ouvertes affiché en tête.
+      const { data: resApres } = await supabase.from("reserves").select("*")
+        .eq("chantier_id", chantierId).eq("groupe_id", groupe.id)
+        .order("created_at", { ascending: true });
+      setReservesOuvertes((resApres || []).filter(r => !r.levee_le));
       setFini(true);
     } catch (e) {
       alert(`Enregistrement impossible : ${e?.message || e}\n\nSi les tables n'existent pas, lancez sql/202607_controles_groupe.sql dans Supabase.`);
     }
     setSaving(false);
+  };
+
+  // ── Levée d'une réserve (Prompt 4) : explicite, datée, attribuée, avec
+  // photo de la reprise possible. La réserve levée SORT des réserves
+  // ouvertes mais reste en base — on ne supprime jamais une réserve levée.
+  const confirmerLevee = async (r) => {
+    if (leveeEnvoi) return;
+    setLeveeEnvoi(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase.from("reserves").update({
+        levee_le: nowIso, levee_par: auteur,
+        levee_commentaire: (leveeSaisie.commentaire || "").trim(),
+        levee_photos: Array.isArray(leveeSaisie.photos) ? leveeSaisie.photos : [],
+        updated_at: nowIso,
+      }).eq("id", r.id);
+      if (error) throw error;
+      setReservesOuvertes(prev => prev.filter(x => x.id !== r.id));
+      // Si la réserve appartenait au contrôle en cours d'édition, sa tâche
+      // redevient conforme (le problème est réglé, pas « dé-signalé »).
+      setExceptions(prev => {
+        if (prev[r.tache_id]?.reserveId === r.id) {
+          const next = { ...prev };
+          delete next[r.tache_id];
+          saveDraft(cleDraft, next);
+          return next;
+        }
+        return prev;
+      });
+      setLeveeOuverte(null);
+      setLeveeSaisie({ commentaire: "", photos: [] });
+    } catch (e) {
+      alert(`Levée impossible : ${e?.message || e}`);
+    }
+    setLeveeEnvoi(false);
   };
 
   const fermer = () => { onClose?.(); };
@@ -259,7 +317,8 @@ export default function ControleGroupe({
             </div>
             <div style={{ fontSize: 12.5, color: TT.textMuted, fontWeight: 600 }}>
               {chantierNom || chantierId} · {taches.length} tâche{taches.length > 1 ? "s" : ""}
-              {controle ? ` · dernier contrôle le ${new Date(controle.date_controle).toLocaleDateString("fr-FR")}` : ""}
+              {controle?.date_controle ? ` · dernier contrôle le ${new Date(controle.date_controle).toLocaleDateString("fr-FR")}` : ""}
+              {controle?.nb_taches > 0 ? ` · conformité ${Math.round((controle.nb_conformes / controle.nb_taches) * 100)} %` : ""}
             </div>
           </div>
           <button onClick={fermer} title="Fermer" style={{
@@ -295,6 +354,95 @@ export default function ControleGroupe({
               <div style={{ fontSize: 13, color: TT.textMuted, fontWeight: 600, margin: "2px 2px 12px", lineHeight: 1.35 }}>
                 Tout est réputé <strong style={{ color: VERT }}>conforme</strong> par défaut — signalez uniquement ce qui pose problème.
               </div>
+
+              {/* ── Réserves ouvertes du groupe, EN TÊTE, avec leur ancienneté
+                  (« ouverte depuis 12 jours · non levée depuis 2 contrôles »)
+                  et la levée explicite avec photo de la reprise. ── */}
+              {reservesOuvertes.length > 0 && (
+                <div style={{
+                  background: "#f59e0b10", border: "1.5px solid #f59e0b55",
+                  borderRadius: 16, padding: "12px 14px", marginBottom: 14,
+                }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 800, color: "#b45309", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon as={AlertTriangle} size={15}/> Réserves ouvertes ({reservesOuvertes.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {reservesOuvertes.map(r => {
+                      const st = STATUTS_EXCEPTION[r.statut] || STATUTS_EXCEPTION.reserve;
+                      const tache = taches.find(t => t.id === r.tache_id) || null;
+                      const jours = ancienneteJours(r, todayISO);
+                      const nCtrl = nbControlesDepuis(r, controlesChantier);
+                      const enLevee = leveeOuverte === r.id;
+                      return (
+                        <div key={r.id} style={{
+                          background: TT.surface, borderRadius: 12, padding: "10px 12px",
+                          border: `1.5px solid ${st.couleur}44`, borderLeft: `4px solid ${st.couleur}`,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.25 }}>
+                                {tache ? tache.nom : `${r.tache_nom || "Tâche"} `}
+                                {!tache && <span style={{ fontSize: 11.5, color: TT.textMuted, fontWeight: 600 }}>(tâche retirée du phasage)</span>}
+                              </div>
+                              {r.commentaire && <div style={{ fontSize: 13, color: TT.textSub, marginTop: 1 }}>{r.commentaire}</div>}
+                              <div style={{ fontSize: 12.5, color: st.couleur, fontWeight: 800, marginTop: 3 }}>
+                                {libelleAnciennete(jours)}
+                                {nCtrl >= 1 ? ` · non levée depuis ${nCtrl} contrôle${nCtrl > 1 ? "s" : ""}` : ""}
+                                {Array.isArray(r.photos) && r.photos.length > 0 ? ` · ${r.photos.length} photo${r.photos.length > 1 ? "s" : ""}` : ""}
+                              </div>
+                            </div>
+                            <span style={{
+                              flexShrink: 0, fontSize: 11, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
+                              color: st.couleur, padding: "2px 8px", borderRadius: 999, background: `${st.couleur}14`,
+                            }}>{st.label}</span>
+                          </div>
+                          {enLevee ? (
+                            <div style={{ marginTop: 9 }}>
+                              <textarea rows={2} value={leveeSaisie.commentaire}
+                                onChange={e => setLeveeSaisie(s => ({ ...s, commentaire: e.target.value }))}
+                                placeholder="Note de reprise (comment ça a été réglé)…"
+                                style={{
+                                  width: "100%", boxSizing: "border-box", padding: "10px 12px",
+                                  borderRadius: RADIUS.lg, border: `1.5px solid ${TT.border}`,
+                                  background: TT.bg, color: TT.text, fontFamily: "inherit",
+                                  fontSize: 16, resize: "vertical", outline: "none",
+                                }}/>
+                              <div style={{ margin: "8px 0" }}>
+                                <PhotosPicker photos={leveeSaisie.photos}
+                                  onChange={arr => setLeveeSaisie(s => ({ ...s, photos: arr }))}
+                                  pathPrefix={`controles/${chantierId}/${groupe.id}/levee-${r.id}`}
+                                  color={VERT} label="Photo de la reprise"/>
+                              </div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button onClick={() => confirmerLevee(r)} disabled={leveeEnvoi} style={{
+                                  flex: 1, padding: "12px 6px", borderRadius: RADIUS.lg, border: "none",
+                                  background: leveeEnvoi ? TT.textMuted : VERT, color: "#fff",
+                                  fontSize: 14.5, fontWeight: 800, cursor: leveeEnvoi ? "default" : "pointer", fontFamily: "inherit",
+                                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                                }}><Icon as={Check} size={15}/> Confirmer la levée</button>
+                                <button onClick={() => { setLeveeOuverte(null); setLeveeSaisie({ commentaire: "", photos: [] }); }}
+                                  disabled={leveeEnvoi} style={{
+                                    padding: "12px 14px", borderRadius: RADIUS.lg, border: `1.5px solid ${TT.border}`,
+                                    background: TT.surface, color: TT.textSub, fontSize: 14.5, fontWeight: 700,
+                                    cursor: "pointer", fontFamily: "inherit",
+                                  }}>Annuler</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button onClick={() => { setLeveeOuverte(r.id); setLeveeSaisie({ commentaire: "", photos: [] }); }} style={{
+                              marginTop: 8, width: "100%", padding: "11px 6px", borderRadius: RADIUS.lg,
+                              border: `2px solid ${VERT}`, background: `${VERT}12`, color: VERT,
+                              fontSize: 14.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                            }}><Icon as={Check} size={15}/> Lever la réserve…</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {taches.map(t => {
                 const exc = exceptions[t.id] || null;
                 const st = exc ? STATUTS_EXCEPTION[exc.statut] : null;
