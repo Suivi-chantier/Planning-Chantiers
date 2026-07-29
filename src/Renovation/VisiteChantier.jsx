@@ -268,7 +268,7 @@ async function saveChecklistTemplate(items) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageVisiteChantier({ chantiers = [], T, branch = "renovation" }) {
+export default function PageVisiteChantier({ chantiers = [], T, branch = "renovation", onOuvrirControles = null }) {
   const acc = getBranchAccent(branch);
   const [view,     setView]     = useState("liste");
   const [visites,  setVisites]  = useState([]);
@@ -443,13 +443,14 @@ export default function PageVisiteChantier({ chantiers = [], T, branch = "renova
         onSelect={v => { setSelected(v); setView("audit"); }}
         onDelete={askDelete}
         onOpenTemplate={() => setShowTemplate(true)}
+        onOuvrirControles={onOuvrirControles}
       />
     </>
   );
 }
 
 // ─── LISTE ────────────────────────────────────────────────────────────────────
-function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete, onOpenTemplate }) {
+function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete, onOpenTemplate, onOuvrirControles }) {
   const ch = (id) => chantiers.find(c => c.id === id);
 
   // ── Stats globales
@@ -508,16 +509,42 @@ function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete, o
               <Icon as={ListChecks} size={13}/>
               Checklist
             </button>
-            <button onClick={onNew} style={{
+            {/* Le bouton « Nouvelle visite » est volontairement retiré : les
+                visites « tout le chantier » sont remplacées par les CONTRÔLES
+                DE FIN DE GROUPE (Point 2 b). Le formulaire de création (onNew,
+                vue "new") reste intact dans le code : ré-afficher ce bouton
+                suffit à le réactiver en secours. */}
+          </div>
+        </div>
+
+        {/* ── Redirection vers les contrôles de fin de groupe ── */}
+        <div style={{
+          background: acc.bg10, border: `1px solid ${acc.border}`, borderRadius: RADIUS.lg,
+          padding: "13px 16px", marginBottom: 18,
+          display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+        }}>
+          <Icon as={ClipboardCheck} size={19} color={acc.accent} style={{ flexShrink: 0 }}/>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: FONT.sm.size + 1, fontWeight: 800, color: T.text }}>
+              Les visites sont remplacées par les contrôles de fin de groupe
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 2, lineHeight: 1.35 }}>
+              À la fin de chaque groupe d'exécution, son jalon « Contrôle » ouvre un audit par exception
+              limité au groupe (tout conforme par défaut). Les visites ci-dessous restent consultables
+              et exportables.
+            </div>
+          </div>
+          {onOuvrirControles && (
+            <button onClick={onOuvrirControles} style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "9px 16px", borderRadius: RADIUS.md, border: "none",
               background: acc.accent, color: acc.onAccent,
-              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer", flexShrink: 0,
             }}>
-              <Icon as={Plus} size={14}/>
-              Nouvelle visite
+              <Icon as={ClipboardCheck} size={14}/>
+              Ouvrir le phasage
             </button>
-          </div>
+          )}
         </div>
 
         {/* ── Stats ── */}
@@ -566,19 +593,22 @@ function ListeVisites({ visites, chantiers, T, acc, onNew, onSelect, onDelete, o
             }}>
               <Icon as={ClipboardCheck} size={28} strokeWidth={1.5}/>
             </div>
-            <div style={{ fontSize: FONT.lg.size, fontWeight: 700, color: T.text, marginBottom: 8 }}>Aucune visite pour l'instant</div>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 700, color: T.text, marginBottom: 8 }}>Aucune visite archivée</div>
             <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.7, marginBottom: 22 }}>
-              Crée une visite pour auditer un chantier : choisis les lots du jour, puis valide les tâches faites, note les réserves et ce qui reste à réaliser.
+              Les audits terrain se font désormais par les contrôles de fin de groupe,
+              directement depuis la vue chronologique du phasage.
             </div>
-            <button onClick={onNew} style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              background: acc.accent, color: acc.onAccent, border: "none",
-              borderRadius: RADIUS.md, padding: "11px 22px",
-              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
-            }}>
-              <Icon as={Plus} size={14}/>
-              Créer ma première visite
-            </button>
+            {onOuvrirControles && (
+              <button onClick={onOuvrirControles} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: acc.accent, color: acc.onAccent, border: "none",
+                borderRadius: RADIUS.md, padding: "11px 22px",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>
+                <Icon as={ClipboardCheck} size={14}/>
+                Ouvrir le phasage
+              </button>
+            )}
           </div>
         )}
 
