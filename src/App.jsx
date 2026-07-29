@@ -59,7 +59,10 @@ import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
 import PageAdmin              from "./Renovation/Admin";
 import PageRapportMobile      from "./Renovation/RapportMobile";
-import PageVisiteChantier     from "./Renovation/VisiteChantier";
+// VisiteChantier (2 600 lignes) : module gelé en consultation depuis les
+// contrôles de fin de groupe (Point 2 b) → chargé à la demande comme
+// PhasageV2/Bibliotheque, plus dans le bundle principal.
+const PageVisiteChantier = lazy(() => import("./Renovation/VisiteChantier"));
 import PageInfoClient         from "./Renovation/PageInfoClient";
 import PageChantiers          from "./Renovation/PageChantiers";
 

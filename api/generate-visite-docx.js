@@ -5,7 +5,7 @@ const {
 } = require('docx');
 
 const GOLD = "E6AE00", DARK = "1A1F2E", GREY = "5B6A8A";
-const GREEN = "1A6B3A", ORANGE = "B05A10", SLATE = "64748B";
+const GREEN = "1A6B3A", ORANGE = "B05A10", SLATE = "64748B", RED = "C0392B";
 
 const STATUTS = {
   en_cours: "En cours",
@@ -13,14 +13,17 @@ const STATUTS = {
   annulee:  "Annulée",
 };
 
-// Statuts d'une tâche auditée (V2)
+// Statuts d'une tâche auditée (V2 + "nok" historique des visites V1 :
+// rendu fidèle en lecture — il sortait à tort en « — »).
 const statutLabel = (s) =>
   s === "valide"       ? "VALIDÉ" :
   s === "reserve"      ? "RÉSERVE" :
+  s === "nok"          ? "NON CONFORME" :
   s === "non_commence" ? "PAS COMMENCÉ" : "—";
 const statutColor = (s) =>
   s === "valide"       ? GREEN :
   s === "reserve"      ? ORANGE :
+  s === "nok"          ? RED :
   s === "non_commence" ? SLATE : GREY;
 
 const fmtDate = (d) => {

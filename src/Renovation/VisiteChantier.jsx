@@ -33,8 +33,12 @@ const STATUTS_TACHE = [
   { id: "reserve",      label: "Réserve",  full: "Réserve",             color: "#f59e0b" },
   { id: "non_commence", label: "Pas com.", full: "Pas encore commencé", color: "#94a3b8" },
 ];
-const statutColorOf = (s) => STATUTS_TACHE.find(x => x.id === s)?.color || "#3a4252";
-const statutLabelOf = (s) => STATUTS_TACHE.find(x => x.id === s)?.full || "Non évalué";
+// "nok" : statut V1 historique, retiré de la saisie par la refonte V2 mais
+// rendu fidèlement en LECTURE (les visites archivées en contiennent — il
+// s'affichait à tort « Non évalué » à l'écran et « — » dans les exports).
+// La notion de non-conformité vit désormais dans les contrôles de groupe.
+const statutColorOf = (s) => (s === "nok" ? "#e15a5a" : (STATUTS_TACHE.find(x => x.id === s)?.color || "#3a4252"));
+const statutLabelOf = (s) => (s === "nok" ? "Non conforme (NOK)" : (STATUTS_TACHE.find(x => x.id === s)?.full || "Non évalué"));
 
 // ─── CHECKLIST PAR DÉFAUT (points de vigilance récurrents) ──────────────────
 const CHECKLIST_DEFAUT = [
