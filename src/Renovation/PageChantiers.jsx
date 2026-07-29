@@ -35,7 +35,7 @@ import {
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
   Clock, Search, Package, Calendar, Info, StickyNote, Bold, Italic, Underline,
-  Palette, List, ListOrdered, ShieldCheck, Upload, Paperclip,
+  Palette, List, ListOrdered, ShieldCheck, Upload, Paperclip, Send,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -366,6 +366,182 @@ function BandeauQCD({ qcd, overrides, sansPhasage, peutForcer, onForcer, onRetou
   );
 }
 
+// ─── MODALE « ENVOYER UN DOCUMENT » ──────────────────────────────────────────
+// Envoie une pièce jointe d'étape par email aux utilisateurs de l'application
+// (table utilisateurs — comptes actifs avec un vrai email ; les comptes
+// locaux @profero.local n'ont pas de boîte). Passe par /api/send-email
+// (proxy Resend) : le fichier est JOINT s'il fait ≤ 3 Mo (limite du body
+// Vercel), et l'email contient dans tous les cas un lien signé valable
+// 7 jours (le bucket chantier-documents est privé).
+const escHtml = (s) => String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function ModaleEnvoiDocument({ envoi, chantierNom, auteur, T, onClose }) {
+  const [users, setUsers] = useState(null); // null = chargement
+  const [sel, setSel] = useState(() => new Set());
+  const [message, setMessage] = useState("");
+  const [enCours, setEnCours] = useState(false);
+  const surface   = T?.surface   || "#262a32";
+  const border    = T?.border    || "rgba(255,255,255,0.07)";
+  const text      = T?.text      || "#f0f0f0";
+  const textSub   = T?.textSub   || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
+  useEffect(() => {
+    let actif = true;
+    supabase.from("utilisateurs").select("id, nom, email, actif").order("nom")
+      .then(({ data, error }) => {
+        if (!actif) return;
+        setUsers((error ? [] : (data || [])).filter(u =>
+          u.actif !== false && u.email && !String(u.email).toLowerCase().endsWith("@profero.local")));
+      });
+    return () => { actif = false; };
+  }, []);
+
+  const toggle = (email) => setSel(s => {
+    const n = new Set(s);
+    if (n.has(email)) n.delete(email); else n.add(email);
+    return n;
+  });
+
+  const envoyer = async () => {
+    if (!sel.size || enCours) return;
+    setEnCours(true);
+    try {
+      const pj = envoi.pj;
+      const lien = await urlDocumentChantier(pj.path, 7 * 24 * 3600);
+      if (!lien) throw new Error("lien du document introuvable (bucket « chantier-documents »)");
+      // Fichier joint si ≤ 3 Mo ; sinon le lien signé suffit.
+      let attachments = null;
+      if ((pj.taille || 0) > 0 && pj.taille <= 3 * 1024 * 1024) {
+        try {
+          const rep = await fetch(lien);
+          if (rep.ok) {
+            const blob = await rep.blob();
+            const base64 = await new Promise((resolve, reject) => {
+              const fr = new FileReader();
+              fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
+              fr.onerror = reject;
+              fr.readAsDataURL(blob);
+            });
+            if (base64) attachments = [{ filename: pj.nom || "document", content: base64 }];
+          }
+        } catch { /* repli : lien seul */ }
+      }
+      const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
+        <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
+          <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Document de chantier</div>
+          <div style="color:#fff;font-size:20px;font-weight:800">📎 ${escHtml(pj.nom || "Document")}</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px;font-size:14px;line-height:1.7">
+          <p style="margin:0 0 10px">${escHtml(auteur || "Un utilisateur")} vous partage un document du chantier <strong>${escHtml(chantierNom || "")}</strong>${envoi.etapeNom ? ` (étape « ${escHtml(envoi.etapeNom)} »)` : ""}.</p>
+          ${message.trim() ? `<p style="margin:0 0 14px;padding:10px 14px;background:#f6f7fb;border-left:3px solid #FFC200;border-radius:4px">${escHtml(message).replace(/\n/g, "<br/>")}</p>` : ""}
+          ${attachments ? `<p style="margin:0 0 10px">Le document est joint à cet email.</p>` : ""}
+          <p style="margin:14px 0 0"><a href="${lien}" style="display:inline-block;background:#FFC200;color:#1a1f2e;font-weight:700;padding:11px 20px;border-radius:8px;text-decoration:none">Ouvrir le document</a></p>
+          <p style="margin:10px 0 0;font-size:11px;color:#999">Lien valable 7 jours.</p>
+        </div>
+        <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
+      </div>`;
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: [...sel],
+          subject: `Chantier ${chantierNom || ""} — ${pj.nom || "document"}`,
+          html,
+          ...(attachments ? { attachments } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "envoi refusé");
+      onClose();
+    } catch (e) {
+      alert(`Envoi impossible : ${e?.message || e}`);
+    }
+    setEnCours(false);
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(3px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T?.modal || surface, borderRadius: RADIUS.xl, padding: 22,
+        width: "100%", maxWidth: 440, border: `1px solid ${border}`,
+        display: "flex", flexDirection: "column", gap: 14, maxHeight: "86vh",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon as={Send} size={18} color={text}/>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              Envoyer « {envoi.pj?.nom || "document"} »
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+              {chantierNom}{envoi.etapeNom ? ` · ${envoi.etapeNom}` : ""}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            width: 28, height: 28, borderRadius: RADIUS.sm, border: `1px solid ${border}`,
+            background: "transparent", color: textMuted, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}><Icon as={X} size={14}/></button>
+        </div>
+
+        <div style={{ overflowY: "auto", maxHeight: 280, display: "flex", flexDirection: "column", gap: 4 }}>
+          {users === null ? (
+            <div style={{ color: textMuted, fontSize: FONT.sm.size, padding: "10px 0" }}>Chargement des utilisateurs…</div>
+          ) : users.length === 0 ? (
+            <div style={{ color: textMuted, fontSize: FONT.sm.size, padding: "10px 0", fontStyle: "italic" }}>
+              Aucun utilisateur avec une adresse email.
+            </div>
+          ) : users.map(u => (
+            <label key={u.id} style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+              borderRadius: RADIUS.md, cursor: "pointer",
+              border: `1px solid ${sel.has(u.email) ? "#22c55e66" : border}`,
+              background: sel.has(u.email) ? "rgba(34,197,94,0.08)" : "transparent",
+            }}>
+              <input type="checkbox" checked={sel.has(u.email)} onChange={() => toggle(u.email)}
+                style={{ width: 15, height: 15, accentColor: "#22c55e", cursor: "pointer", flexShrink: 0 }}/>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: FONT.sm.size, fontWeight: 700, color: text }}>{u.nom || u.email}</span>
+                <span style={{ display: "block", fontSize: FONT.xs.size, color: textMuted, overflow: "hidden", textOverflow: "ellipsis" }}>{u.email}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <textarea rows={2} value={message} onChange={e => setMessage(e.target.value)}
+          placeholder="Message (optionnel)…"
+          style={{
+            width: "100%", boxSizing: "border-box", padding: "9px 11px",
+            borderRadius: RADIUS.md, border: `1px solid ${border}`,
+            background: "transparent", color: text, fontFamily: "inherit",
+            fontSize: 16, resize: "vertical", outline: "none",
+          }}/>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} disabled={enCours} style={{
+            padding: "9px 16px", borderRadius: RADIUS.md, border: `1px solid ${border}`,
+            background: "transparent", color: textSub, fontSize: FONT.sm.size, fontWeight: 600,
+            cursor: "pointer", fontFamily: "inherit",
+          }}>Annuler</button>
+          <button onClick={envoyer} disabled={!sel.size || enCours} style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+            background: !sel.size || enCours ? (textMuted) : "#22c55e", color: "#fff",
+            fontSize: FONT.sm.size, fontWeight: 800,
+            cursor: !sel.size || enCours ? "default" : "pointer", fontFamily: "inherit",
+          }}>
+            <Icon as={Send} size={14}/>
+            {enCours ? "Envoi…" : `Envoyer${sel.size ? ` (${sel.size})` : ""}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── UNE ÉTAPE DU CYCLE DE VIE (ligne de la frise) ───────────────────────────
 // Affiche l'état (fait / à faire + raison + données saisies) et porte les
 // actions du Prompt 6 : coche manuelle (avec champs), import de document qui
@@ -505,6 +681,10 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
                 }}>
                   <Icon as={Paperclip} size={10}/><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{pj.nom}</span>
                 </button>
+                <button onClick={() => actions.onEnvoyerPJ?.(etape, pj)} title="Envoyer par email à des utilisateurs de l'application" style={{
+                  background: "transparent", border: "none", color: textMuted, cursor: "pointer",
+                  padding: 0, display: "inline-flex",
+                }}><Icon as={Send} size={10}/></button>
                 {peutModifier && (
                   <button onClick={() => actions.onSupprimerPJ(etape.id, pj)} title="Supprimer la pièce jointe" style={{
                     background: "transparent", border: "none", color: textMuted, cursor: "pointer",
@@ -1734,6 +1914,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       { date: new Date().toISOString(), texte: String(texte || "").trim(), auteur: auteurCV },
     ],
   }));
+  // Envoi d'une pièce jointe par email (modale de choix des destinataires).
+  const [envoiPJ, setEnvoiPJ] = useState(null); // { pj, etapeNom } | null
   // Ouverture d'un document (URL signée) — fenêtre ouverte AVANT l'await pour
   // ne pas être bloqué par l'anti-popup.
   const ouvrirPieceJointeCV = async (pj) => {
@@ -2098,7 +2280,14 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             onSupprimerPJ: supprimerPieceJointeCV,
             onAjouterJournal: ajouterJournalCV,
             onOuvrirPJ: ouvrirPieceJointeCV,
+            onEnvoyerPJ: (etape, pj) => setEnvoiPJ({ pj, etapeNom: etape.nom }),
           }} T={T}/>
+
+        {/* Modale d'envoi d'un document d'étape par email */}
+        {envoiPJ && (
+          <ModaleEnvoiDocument envoi={envoiPJ} chantierNom={selectedChantier?.nom || ""}
+            auteur={auteurCV} T={T} onClose={() => setEnvoiPJ(null)}/>
+        )}
 
         {/* Onglets (mobile uniquement) — sur desktop tout s'affiche en scroll */}
         {isMobile && (
