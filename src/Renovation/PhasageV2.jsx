@@ -18,6 +18,8 @@ import {
 // Écran de contrôle de fin de groupe (Point 2 b) — overlay plein écran monté
 // depuis la vue chrono (bouton « Contrôler » du jalon de contrôle).
 import ControleGroupe from "./ControleGroupe";
+// État de contrôle d'un groupe (badge signalé, jamais bloquant).
+import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
@@ -1167,6 +1169,32 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     chronoAutoGenRef.current = chantierId;
     initChronoDepuisGroupesTypes("init");
   }, [viewMode, loadingPhasage, chantierId, phasage, chronoVierge, ouvrages, groupesTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Contrôles & réserves du chantier (Point 2 b) : alimentent le badge d'état
+  // des groupes de la vue chrono. Rechargés à la fermeture de l'écran de
+  // contrôle (controleVersion). Tables absentes (SQL pas lancé) → listes
+  // vides, badge simplement absent : jamais bloquant.
+  const [controlesChantier, setControlesChantier] = useState([]);
+  const [reservesChantier, setReservesChantier] = useState([]);
+  const [controleVersion, setControleVersion] = useState(0);
+  useEffect(() => {
+    if (!chantierId) { setControlesChantier([]); setReservesChantier([]); return; }
+    let actif = true;
+    (async () => {
+      const [rc, rr] = await Promise.all([
+        supabase.from("controles_groupe")
+          .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
+          .eq("chantier_id", chantierId),
+        supabase.from("reserves")
+          .select("id, groupe_id, controle_id, statut, created_at, levee_le")
+          .eq("chantier_id", chantierId),
+      ]);
+      if (!actif) return;
+      setControlesChantier(rc.error ? [] : (rc.data || []));
+      setReservesChantier(rr.error ? [] : (rr.data || []));
+    })();
+    return () => { actif = false; };
+  }, [chantierId, controleVersion]);
 
   // Rattrapage Point 2 b : garantit à chaque groupe déjà existant son jalon
   // de contrôle. Ajout SEUL (rien d'autre ne bouge), une seule écriture, une
@@ -2422,6 +2450,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             phasageId: phasage?.id || null,
             auteur: profil?.nom || profil?.email || "",
           }}
+          controlesChantier={controlesChantier} reservesChantier={reservesChantier}
+          onControleChange={() => setControleVersion(v => v + 1)}
         />
       ) : viewMode === "gantt" ? (
         <GanttV2
@@ -3765,9 +3795,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne, controleCtx }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne, controleCtx, controlesChantier = [], reservesChantier = [], onControleChange }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [controleOuvert, setControleOuvert] = useState(null); // groupe dont le contrôle est ouvert
+  const todayISO = new Date().toISOString().slice(0, 10);     // ancienneté des réserves (badge)
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   // Tout est REPLIÉ par défaut : on mémorise les groupes DÉPLIÉS (local à la
   // vue) — un nouveau groupe ou un autre chantier arrive donc toujours replié.
@@ -4306,6 +4337,11 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     const emptyOver = overKey === `group:${g.id}`;
     const isCollapsed = !deplies.has(g.id);
     const st = groupStats(g.id);
+    // État de contrôle (Point 2 b) : « terminé » = TOUTES les tâches à 100 %
+    // (définition canonique, cf. statsGroupeChrono) — pas l'avancement pondéré.
+    const tachesG = itemsOfGroup(g.id);
+    const termine = tachesG.length > 0 && tachesG.every(({ tache: t }) => (parseInt(t.avancement) || 0) >= 100);
+    const etatCtrl = etatControleGroupe(g.id, { reserves: reservesChantier, controles: controlesChantier, termine, todayISO });
     const rangeLbl = st.dmin ? (st.dmax && +st.dmax !== +st.dmin ? `${fmtShort(st.dmin)} – ${fmtShort(st.dmax)}` : fmtShort(st.dmin)) : null;
     const hvLbl = st.hv > 0 ? `${Math.round(st.hv * 10) / 10} h vendues` : null;
     return (
@@ -4341,6 +4377,25 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
               style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 800, color: "#e15a5a", background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.35)", borderRadius: RADIUS.pill, padding: "2px 8px", flexShrink: 0 }}>
               <Icon as={AlertTriangle} size={11} /> {st.nbLate}
             </span>
+          )}
+          {/* État de contrôle du groupe (Point 2 b) : signalé, JAMAIS bloquant.
+              Rouge « Contrôle à faire » quand le groupe est terminé sans
+              contrôle ; vert/orange/rouge selon les réserves une fois
+              contrôlé. Clic = accès direct à l'écran de contrôle. Visible
+              groupe replié (les groupes le sont par défaut). */}
+          {etatCtrl?.couleur && (
+            <button onClick={() => setControleOuvert(g)}
+              title={`${etatCtrl.raison} Ouvrir le contrôle.`}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 10, fontWeight: 800, color: etatCtrl.couleur,
+                background: `color-mix(in srgb, ${etatCtrl.couleur} 12%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${etatCtrl.couleur} 40%, transparent)`,
+                borderRadius: RADIUS.pill, padding: "2px 8px", flexShrink: 0,
+                cursor: "pointer", fontFamily: "inherit",
+              }}>
+              <Icon as={ClipboardCheck} size={11} /> {etatCtrl.etat === "a_controler" ? "Contrôle à faire" : etatCtrl.label}
+            </button>
           )}
           <div style={{ display: "inline-flex", gap: 2, flexShrink: 0 }}>
             <button onClick={() => reorderGroupe(gIndex, -1)} disabled={gIndex === 0} title="Monter le groupe"
@@ -4897,7 +4952,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
           taches={itemsOfGroup(controleOuvert.id).map(it => ({
             id: it.tache.id, nom: it.tache.nom || "", ouvrage: it.ouvrage?.libelle || "",
           }))}
-          onClose={() => setControleOuvert(null)}
+          onClose={() => { setControleOuvert(null); onControleChange?.(); }}
         />
       )}
     </div>

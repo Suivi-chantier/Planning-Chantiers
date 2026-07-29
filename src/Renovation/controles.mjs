@@ -61,7 +61,52 @@ export function statsReservesGroupe(groupeId, reserves, controles, todayISO) {
     nbNok,
     tauxConformite: dernier && dernier.nb_taches > 0 ? dernier.nb_conformes / dernier.nb_taches : null,
     plusAncienneJours: anciennetes.length ? Math.max(...anciennetes) : null,
+    // Pire « non levée depuis N contrôles » parmi les réserves ouvertes.
+    maxControlesDepuis: ouvertes.reduce((m, r) => Math.max(m, nbControlesDepuis(r, controles)), 0),
   };
+}
+
+// ── ÉTAT DE GROUPE réutilisable (Prompt 5) ───────────────────────────────────
+// Le même état alimente la vue chrono (badge de la ligne titre), la frise du
+// cycle de vie (via cycleVie.controleGroupe) et, à terme, la Qualité du QCD :
+// une seule logique, jamais dupliquée.
+//  - "a_controler"  : groupe TERMINÉ mais jamais contrôlé → ROUGE signalé
+//                     (obligatoire mais NON bloquant : aucun verrouillage).
+//  - "non_controle" : pas encore terminé ni contrôlé → neutre (pas de badge).
+//  - "conforme"     : contrôlé, aucune réserve ouverte → vert.
+//  - "reserves"     : réserves ouvertes « fraîches » → orange.
+//  - "non_conforme" : NOK ouvert, OU réserve ancienne (elle traîne d'un
+//                     contrôle à l'autre, ou dépasse le seuil en jours) → rouge.
+export const SEUIL_RESERVE_ANCIENNE_JOURS = 14;    // réserve qui traîne (calendaire)
+export const SEUIL_RESERVE_ANCIENNE_CONTROLES = 1; // non levée alors qu'on est repassé en contrôle
+
+export function etatControleGroupe(groupeId, { reserves, controles, termine = false, todayISO } = {}) {
+  const stats = statsReservesGroupe(groupeId, reserves, controles, todayISO);
+  if (!stats.controle) {
+    return termine
+      ? { etat: "a_controler", couleur: "#e15a5a", label: "Contrôle à faire", raison: "Groupe terminé, contrôle à faire.", stats }
+      : { etat: "non_controle", couleur: null, label: "Non contrôlé", raison: "Groupe pas encore contrôlé.", stats };
+  }
+  const ancienne = (stats.plusAncienneJours != null && stats.plusAncienneJours >= SEUIL_RESERVE_ANCIENNE_JOURS)
+    || stats.maxControlesDepuis >= SEUIL_RESERVE_ANCIENNE_CONTROLES;
+  if (stats.nbNok > 0 || (stats.reservesOuvertes > 0 && ancienne)) {
+    return {
+      etat: "non_conforme", couleur: "#e15a5a", label: "Non conforme",
+      raison: stats.nbNok > 0
+        ? `${stats.nbNok} non-conformité${stats.nbNok > 1 ? "s" : ""} (NOK) ouverte${stats.nbNok > 1 ? "s" : ""}.`
+        : `Réserve non levée depuis ${stats.plusAncienneJours} jours${stats.maxControlesDepuis >= 1 ? ` et ${stats.maxControlesDepuis} contrôle${stats.maxControlesDepuis > 1 ? "s" : ""}` : ""}.`,
+      stats,
+    };
+  }
+  if (stats.reservesOuvertes > 0) {
+    return {
+      etat: "reserves", couleur: "#f59e0b",
+      label: `${stats.reservesOuvertes} réserve${stats.reservesOuvertes > 1 ? "s" : ""}`,
+      raison: `${stats.reservesOuvertes} réserve${stats.reservesOuvertes > 1 ? "s" : ""} ouverte${stats.reservesOuvertes > 1 ? "s" : ""}.`,
+      stats,
+    };
+  }
+  return { etat: "conforme", couleur: "#22c55e", label: "Conforme", raison: "Contrôlé, aucune réserve ouverte.", stats };
 }
 
 // ── Compteurs PAR CHANTIER ───────────────────────────────────────────────────

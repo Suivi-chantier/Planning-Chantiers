@@ -1583,6 +1583,21 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
   // ── Cycle de vie (Point 2a) : positionnement déduit + phase déclarée ──
   const metaSelected = selectedPhasage?.plan_travaux?.meta || {};
+  // Contrôles de groupe du chantier (Point 2 b) : ils allument les témoins
+  // « contrôlé » de la frise (controleGroupe) et la règle de clôture de la
+  // phase Travaux. Tables absentes (SQL pas lancé) → liste vide, témoins
+  // pointillés comme avant.
+  const cvChantierId = selectedPhasage?.chantier_id || null;
+  const [controlesGroupesSel, setControlesGroupesSel] = useState([]);
+  useEffect(() => {
+    if (!cvChantierId) { setControlesGroupesSel([]); return; }
+    let actif = true;
+    supabase.from("controles_groupe")
+      .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
+      .eq("chantier_id", cvChantierId)
+      .then(({ data, error }) => { if (actif) setControlesGroupesSel(error ? [] : (data || [])); });
+    return () => { actif = false; };
+  }, [cvChantierId]);
   const cvEtats = lireEtatsEtapes(metaSelected);
   const cvPhaseDeclaree = lirePhaseDeclaree(metaSelected);
   const chronoGroupesSelected = Array.isArray(metaSelected.chrono_groupes) ? metaSelected.chrono_groupes : [];
@@ -1601,6 +1616,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     etatsEtapes: cvEtats,
     chiffrage: totalHeures.vendues > 0 || (finances?.prixVendu || 0) > 0,
     equipesAffectees: cvEquipesAffectees,
+    controles: controlesGroupesSel, // témoins « contrôlé » (Point 2 b)
     todayISO: new Date().toISOString().slice(0, 10),
   };
   const cv = selectedPhasage ? computeCycleVie({
@@ -1611,6 +1627,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     phaseDeclaree: cvPhaseDeclaree,
     equipesAffectees: cvEquipesAffectees,
     groupes: chronoGroupesSelected, // règle : Travaux ne se clôture que si tous les groupes sont contrôlés
+    controles: controlesGroupesSel,
     todayISO: cvCtx.todayISO,
   }) : null;
   // Avancement de chaque groupe (pondéré heures_vendues, comme la vue chrono).

@@ -29,6 +29,8 @@
 // importe la façade src/Renovation/cycleVie.js.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { dernierControleGroupe } from "./controles.mjs";
+
 export const CV_NATURES = ["auto", "document", "coche"];
 
 export const CYCLE_VIE_PHASES = [
@@ -138,22 +140,29 @@ export const phaseSuivante = (phaseId) => {
   return i >= 0 && i + 1 < CYCLE_VIE_PHASES.length ? CYCLE_VIE_PHASES[i + 1] : null;
 };
 
-// ── Témoin « groupe contrôlé » — POINT DE BRANCHEMENT du Point 2 (b) ────────
+// ── Témoin « groupe contrôlé » — REMPLI par le Point 2 (b), Prompt 5 ────────
 // Un groupe est « terminé » quand ses tâches sont à 100 % ; il est « validé »
-// quand son JALON DE CONTRÔLE a été réalisé — mécanisme livré par le Point
-// 2 (b). En attendant, cette source renvoie TOUJOURS non-contrôlé : c'est LE
-// seul endroit à remplir pour que les témoins s'allument (frise, règle de
-// clôture de la phase Travaux). Ne pas dupliquer cette logique ailleurs.
-export function controleGroupe(/* groupeId, contexte Point 2 b */) {
-  return { controle: false, raison: "contrôle de fin de groupe à venir (Point 2 b)" };
+// quand son jalon de contrôle a été RÉALISÉ : au moins un contrôle enregistré
+// pour ce groupe (table controles_groupe, lignes passées en argument — module
+// pur, les appelants chargent). C'est LE seul témoin : la frise du cycle de
+// vie et la règle de clôture de la phase Travaux le consomment tel quel.
+export function controleGroupe(groupeId, controles) {
+  const dernier = dernierControleGroupe(groupeId, controles);
+  if (!dernier) return { controle: false, raison: "contrôle de fin de groupe à faire" };
+  const dateLbl = String(dernier.date_controle || "").slice(0, 10);
+  return {
+    controle: true,
+    raison: `contrôlé le ${dateLbl.split("-").reverse().join("/")}`,
+    controleLe: dernier.date_controle || null,
+  };
 }
 
-// Règle de clôture (Prompt 7) : la phase Travaux ne peut se terminer que
-// lorsque TOUS les groupes du chantier sont contrôlés.
-export function phaseTravauxTerminee(chronoGroupes) {
+// Règle de clôture (Prompt 7 du 2 a) : la phase Travaux ne peut se terminer
+// que lorsque TOUS les groupes du chantier sont contrôlés.
+export function phaseTravauxTerminee(chronoGroupes, controles) {
   const groupes = Array.isArray(chronoGroupes) ? chronoGroupes.filter(g => g && g.id) : [];
   if (!groupes.length) return false;
-  return groupes.every(g => controleGroupe(g.id).controle);
+  return groupes.every(g => controleGroupe(g.id, controles).controle);
 }
 
 // ── Phase Travaux : entrées dérivées des groupes du chantier ────────────────
@@ -306,10 +315,11 @@ export function evaluerEtape(etape, ctx = {}) {
       };
     }
     case "groupe_controle": {
-      // Témoin « contrôlé / non contrôlé » : source unique controleGroupe
-      // (Point 2 b). L'avancement vient de l'entrée (statsGroupeChrono).
-      const ctrl = controleGroupe(etape.groupeId);
-      if (ctrl.controle) return { fait: true, auto: true, raison: "Groupe contrôlé : jalon de contrôle réalisé." };
+      // Témoin « contrôlé / non contrôlé » : source unique controleGroupe.
+      // Les contrôles réels sont passés via ctx.controles (table
+      // controles_groupe) ; l'avancement vient de l'entrée (statsGroupeChrono).
+      const ctrl = controleGroupe(etape.groupeId, ctx.controles);
+      if (ctrl.controle) return { fait: true, auto: true, raison: `Groupe ${ctrl.raison}.` };
       const av = Number.isFinite(parseFloat(etape.avancement)) ? Math.round(parseFloat(etape.avancement)) : null;
       const etatTravaux = etape.termine ? "Tâches à 100 %"
         : etape.nbTaches === 0 ? "Aucune tâche rattachée"
@@ -337,9 +347,10 @@ export function computeCycleVie({
   phaseDeclaree = null,    // lirePhaseDeclaree(meta)
   equipesAffectees = null,
   groupes = null,          // meta.chrono_groupes (règle de clôture Travaux)
+  controles = null,        // lignes controles_groupe du chantier (témoins)
   todayISO = "",
 } = {}) {
-  const ctx = { etatsEtapes: etatsEtapes || {}, chiffrage, equipesAffectees, todayISO };
+  const ctx = { etatsEtapes: etatsEtapes || {}, chiffrage, equipesAffectees, controles, todayISO };
   const autoReasons = [];
   let detected = 1;
   // Fait avancer la détection (jamais reculer). La raison est retenue si le
@@ -376,8 +387,8 @@ export function computeCycleVie({
   // à 100 % d'avancement ou statut Terminé. La phase déclarée à la main,
   // elle, reste prioritaire et peut passer outre (jugement du conducteur).
   const groupesList = Array.isArray(groupes) ? groupes.filter(g => g && g.id) : [];
-  if (groupesList.length > 0 && detected > 4 && !phaseTravauxTerminee(groupesList)) {
-    const nbControles = groupesList.filter(g => controleGroupe(g.id).controle).length;
+  if (groupesList.length > 0 && detected > 4 && !phaseTravauxTerminee(groupesList, controles)) {
+    const nbControles = groupesList.filter(g => controleGroupe(g.id, controles).controle).length;
     detected = 4;
     autoReasons.push(`Phase Travaux non clôturable : ${nbControles}/${groupesList.length} groupe(s) contrôlé(s)`);
   }
