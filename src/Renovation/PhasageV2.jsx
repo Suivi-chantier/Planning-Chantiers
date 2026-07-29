@@ -362,7 +362,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Repli du bandeau KPI (on ne garde que la barre d'avancement). Préférence
   // d'affichage locale, mémorisée entre les sessions.
   const [kpiCollapsed, setKpiCollapsed] = useState(() => {
-    try { return localStorage.getItem("p2_kpi_collapsed") === "1"; } catch { return false; }
+    try {
+      const memo = localStorage.getItem("p2_kpi_collapsed");
+      if (memo != null) return memo === "1";
+    } catch { /* ignore */ }
+    // Sans préférence mémorisée : replié par défaut sur MOBILE — la douzaine
+    // de cartes empilées occupait tout l'écran et repoussait la vue (qui
+    // porte le scroll) hors de portée.
+    return typeof window !== "undefined" && window.innerWidth < 768;
   });
   const toggleKpiCollapsed = () => setKpiCollapsed(v => {
     const n = !v;
@@ -2014,9 +2021,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const noChantier = !chantierId;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, overflow: "hidden" }}>
+    <div className="p2-root" style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, overflow: "hidden" }}>
       {/* CSS bubbles — couleur de chaque bulle = --bubble-color (var inline). */}
       <style>{`
+        /* Mobile : le scroll passe au niveau de la PAGE (sur desktop chaque
+           vue scrolle en interne sous le bandeau KPI ; sur mobile ce bandeau
+           empilé pouvait dépasser l'écran et rendre la vue inatteignable). */
+        @media(max-width:767px) {
+          .p2-root { overflow-y: auto !important; }
+          .p2-kpi-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+        }
         .p2-bubble {
           --c: var(--bubble-color, #888);
           /* --av : 0% par défaut. Surchargé inline sur les bulles tâches
@@ -2277,7 +2291,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             display: "flex", flexDirection: "column", gap: 8,
           }}>
             {!kpiCollapsed && (
-            <div style={{
+            <div className="p2-kpi-grid" style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
               gap: 10,
