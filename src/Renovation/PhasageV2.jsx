@@ -8,10 +8,10 @@ import {
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
   FileText, User, Calendar, Link2, Car, ListOrdered, GripVertical, FolderPlus, Flag,
-  ChevronUp, ChevronRight, Filter, CalendarClock,
+  ChevronUp, ChevronRight, Filter, CalendarClock, ClipboardCheck,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
-import { buildChronoInitFromGroupesTypes, sortByChrono } from "./chronoTemplate";
+import { buildChronoInitFromGroupesTypes, sortByChrono, estJalonControle, JALON_TYPE_REPERE } from "./chronoTemplate";
 import { confirmPerteMassive } from "../guards";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
@@ -3854,12 +3854,19 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   };
 
   // ── Jalons : CRUD ──
+  // Le bouton « Jalon » crée toujours un REPÈRE manuel (type explicite ; les
+  // jalons historiques sans type restent des repères — cf. chronoTemplate).
   const addJalon = (groupeId) => {
     const ordre = entriesOfGroup(groupeId).reduce((m, e) => Math.max(m, e.ordre ?? 0), -1) + 1;
-    setJalons([...jalons, { id: rid(), nom: "Jalon", date: null, groupe_id: groupeId, ordre }]);
+    setJalons([...jalons, { id: rid(), nom: "Jalon", date: null, groupe_id: groupeId, ordre, type: JALON_TYPE_REPERE }]);
   };
   const setJalonDate = (j, date) => setJalons(jalons.map(x => x.id === j.id ? { ...x, date: date || null } : x));
-  const deleteJalon = (j) => setJalons(jalons.filter(x => x.id !== j.id));
+  // Un jalon de contrôle est obligatoire : jamais supprimable à la main
+  // (garde au niveau fonction, pas seulement au niveau bouton).
+  const deleteJalon = (j) => {
+    if (estJalonControle(j)) return;
+    setJalons(jalons.filter(x => x.id !== j.id));
+  };
 
   // ── Glisser-déposer ──
   // Dépose l'entrée traînée (tâche OU jalon) dans `groupeId` à la position
@@ -3867,6 +3874,13 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   // applyChrono, les jalons via setJalons, dans le même espace d'ordre.
   const handleDrop = (groupeId, index) => {
     if (!drag) return;
+    // Garde-fou : un jalon de CONTRÔLE ne se déplace jamais (ni dans son
+    // groupe, ni vers un autre). Il n'est pas draggable côté rendu, mais on
+    // protège aussi ici (le drop est le seul endroit qui réécrit groupe_id).
+    if (drag.kind === "jalon") {
+      const jDrag = jalons.find(x => x.id === drag.id);
+      if (jDrag && estJalonControle(jDrag)) { setDrag(null); setOverKey(null); return; }
+    }
     const entries = entriesOfGroup(groupeId).filter(e => !(e.kind === drag.kind && e.id === drag.id));
     const pos = index == null ? entries.length : Math.min(index, entries.length);
     entries.splice(pos, 0, { kind: drag.kind, id: drag.id });
@@ -4101,10 +4115,44 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     );
   };
 
-  // ── Rendu d'un jalon (repère daté intercalé entre les tâches). ──
+  // ── Rendu d'un jalon. Deux natures (cf. chronoTemplate) :
+  //  - repère (défaut, jalons historiques inclus) : comportement inchangé —
+  //    renommable, datable, supprimable, glissable ;
+  //  - contrôle : géré automatiquement (Point 2 b) — figé : ni drag, ni
+  //    renommage, ni date, ni suppression. On garde onDragOver/onDrop sur sa
+  //    ligne pour pouvoir déposer une tâche/un repère À SA POSITION.
   const renderJalon = (j, color, groupeId, index) => {
-    const dragging = drag?.kind === "jalon" && drag?.id === j.id;
     const rowKey = `row:${groupeId || "_u"}:${index}`;
+    if (estJalonControle(j)) {
+      const isOverC = overKey === rowKey;
+      return (
+        <div key={"j" + j.id} className="chrono-jalon chrono-jalon-controle"
+          title="Jalon de contrôle de fin de groupe — créé automatiquement, non déplaçable (Point 2 b)"
+          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (drag && overKey !== rowKey) setOverKey(rowKey); }}
+          onDrop={e => { e.preventDefault(); e.stopPropagation(); groupeId ? handleDrop(groupeId, index) : handleDropUnassigned(); }}
+          style={{
+            "--c": color,
+            display: "flex", alignItems: "center", gap: 9,
+            padding: "7px 12px", margin: "6px 0",
+            borderRadius: RADIUS.md,
+            border: `1.5px solid ${color}`,
+            borderTop: isOverC ? `2px solid ${color}` : `1.5px solid ${color}`,
+            background: `color-mix(in srgb, ${color} 8%, transparent)`,
+          }}>
+          <Icon as={ClipboardCheck} size={14} color={color} style={{ flexShrink: 0 }} />
+          <span style={{
+            flex: 1, minWidth: 0, color: T.text, fontSize: FONT.sm.size, fontWeight: 800,
+            letterSpacing: .2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>{j.nom || "Contrôle"}</span>
+          <span style={{
+            flexShrink: 0, fontSize: 9.5, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase",
+            color, border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`,
+            borderRadius: 999, padding: "2px 8px",
+          }}>contrôle</span>
+        </div>
+      );
+    }
+    const dragging = drag?.kind === "jalon" && drag?.id === j.id;
     const isOver = overKey === rowKey && !dragging;
     const dateLbl = j.date ? new Date(j.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }) : "";
     return (
@@ -4568,7 +4616,9 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             });
             const nextTasks = incomplete.slice(0, 6);
             const currentGroup = incomplete[0]?.g || null;
-            const upJalons = jalons.filter(j => { const d = parseD(j.date); return d && d >= today; }).sort((a, b) => parseD(a.date) - parseD(b.date));
+            // « Prochain jalon » = repères datés uniquement (les jalons de
+            // contrôle, non datés, vivent dans l'ordre du groupe — Point 2 b).
+            const upJalons = jalons.filter(j => { if (estJalonControle(j)) return false; const d = parseD(j.date); return d && d >= today; }).sort((a, b) => parseD(a.date) - parseD(b.date));
             const nextJalon = upJalons[0] || null;
             const daysTo = nextJalon ? Math.round((parseD(nextJalon.date) - today) / 86400000) : null;
             const nbLate = plan.filter(x => overdueT(x.it.tache)).length;

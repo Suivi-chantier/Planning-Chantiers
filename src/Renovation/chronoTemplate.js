@@ -12,6 +12,21 @@
 // vides quand leur groupe « Passage réseau » reçoit des tâches : les tâches
 // d'appareillage s'y déplacent ensuite à la main.
 
+// ── Natures de jalons (Point 2 b) ────────────────────────────────────────────
+// Deux natures cohabitent dans meta.chrono_jalons :
+//  - "repere"   : jalon manuel historique (livraison, réception…). Un jalon
+//                 SANS champ type est un repère — RÉTROCOMPATIBILITÉ STRICTE,
+//                 aucune migration : les jalons existants ne sont jamais
+//                 réécrits, l'absence de type vaut repère.
+//  - "controle" : jalon de contrôle de fin de groupe, créé automatiquement
+//                 (un par groupe, en dernière position). Non renommable, non
+//                 datable, non supprimable à la main, non déplaçable — il
+//                 suit son groupe. Obligatoire mais NON bloquant.
+export const JALON_TYPE_REPERE = "repere";
+export const JALON_TYPE_CONTROLE = "controle";
+export const jalonType = (j) => (j?.type === JALON_TYPE_CONTROLE ? JALON_TYPE_CONTROLE : JALON_TYPE_REPERE);
+export const estJalonControle = (j) => jalonType(j) === JALON_TYPE_CONTROLE;
+
 export const CHRONO_TEMPLATE = [
   { ordre: 10,  nom: "Démolition",                          couleur: "#e15a5a", motsCles: ["demol", "depose", "curage"] },
   { ordre: 20,  nom: "Menuiserie extérieure / Couverture",  couleur: "#8b5cf6", motsCles: ["menuiserie ext", "fenetre", "couverture", "toiture", "velux"] },
