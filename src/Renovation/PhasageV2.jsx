@@ -4361,7 +4361,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     return (
       <div key={g.id} style={{ marginBottom: 18 }}>
         {/* Ligne titre */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <div className="chrono-group-title" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <button onClick={() => setDeplies(s => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n; })}
             title={isCollapsed ? "Déplier" : "Replier"}
             style={{ ...iconBtn({ border: "none", width: 22 }) }}>
@@ -4586,7 +4586,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   };
 
   return (
-    <div ref={scrollRef} onDragOver={onRootDragOver} onDrop={stopAutoScroll}
+    <div ref={scrollRef} onDragOver={onRootDragOver} onDrop={stopAutoScroll} className="chrono-root"
       style={{ flex: 1, overflowY: "auto", padding: "18px 22px", minHeight: 0 }}>
       <style>{`
         .chrono-row:hover {
@@ -4599,6 +4599,29 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         .chrono-cr-btn:hover {
           border-color: color-mix(in srgb, var(--c) 60%, transparent) !important;
           color: var(--c) !important;
+        }
+        /* ── Mobile : la ligne de tâche (8 éléments en ligne sur desktop)
+           passe sur DEUX lignes — nom + % en haut, groupe + date en bas —
+           au lieu de déborder de l'écran. Desktop inchangé. ── */
+        @media(max-width:767px) {
+          .chrono-root { padding: 12px 10px !important; }
+          .chrono-row { flex-wrap: wrap; row-gap: 8px; }
+          .chrono-row > *:last-child { order: 4; margin-left: auto; } /* le % reste en 1re ligne, calé à droite */
+          .chrono-row > select {
+            order: 5; flex: 1 1 48%; min-width: 0; max-width: none !important;
+            font-size: 16px !important; /* anti-zoom iOS */
+          }
+          .chrono-row > input[type=date] {
+            order: 6; flex: 1 1 36%; min-width: 0;
+            font-size: 16px !important;
+          }
+          .chrono-row .chrono-cr-btn { order: 7; opacity: 1; } /* pas de survol au doigt */
+          .chrono-jalon { flex-wrap: wrap; row-gap: 6px; }
+          .chrono-jalon > input[type=date] { font-size: 16px !important; }
+          /* Ligne titre du groupe : le nom garde une largeur lisible, les
+             badges/boutons passent à la ligne si besoin. */
+          .chrono-group-title { flex-wrap: wrap; row-gap: 6px; }
+          .chrono-group-title > input:not([type=color]) { flex: 1 1 140px !important; }
         }
       `}</style>
 
