@@ -132,7 +132,7 @@ export async function uploadRapportPhoto(file, pathPrefix) {
 }
 
 // ─── COMPOSANT PHOTOS PICKER ──────────────────────────────────────────────────
-function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Photos" }) {
+export function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", label="Photos" }) {
   const [uploading, setUploading] = useState(0);
   const [errors, setErrors] = useState([]); // [{ name, msg }]
   const cameraRef = React.useRef(null); // capture="environment" → ouvre l'appareil photo

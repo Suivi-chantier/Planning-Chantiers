@@ -15,6 +15,9 @@ import {
   buildChronoInitFromGroupesTypes, sortByChrono,
   estJalonControle, JALON_TYPE_REPERE, buildJalonControle, completerJalonsControle,
 } from "./chronoTemplate";
+// Écran de contrôle de fin de groupe (Point 2 b) — overlay plein écran monté
+// depuis la vue chrono (bouton « Contrôler » du jalon de contrôle).
+import ControleGroupe from "./ControleGroupe";
 import { confirmPerteMassive } from "../guards";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
@@ -321,7 +324,7 @@ function PrevisionnelEditor({ prev, updatePrev, chantier, T, acc }) {
   );
 }
 
-function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation" }) {
+function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
 
   // ── État ────────────────────────────────────────────────────────────────
@@ -2413,6 +2416,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
           onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
+          controleCtx={{
+            chantierId,
+            chantierNom: chantiers.find(c => c.id === chantierId)?.nom || phasage?.chantier_nom || "",
+            phasageId: phasage?.id || null,
+            auteur: profil?.nom || profil?.email || "",
+          }}
         />
       ) : viewMode === "gantt" ? (
         <GanttV2
@@ -3756,8 +3765,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne, controleCtx }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
+  const [controleOuvert, setControleOuvert] = useState(null); // groupe dont le contrôle est ouvert
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   // Tout est REPLIÉ par défaut : on mémorise les groupes DÉPLIÉS (local à la
   // vue) — un nouveau groupe ou un autre chantier arrive donc toujours replié.
@@ -4213,6 +4223,17 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             color, border: `1px solid color-mix(in srgb, ${color} 45%, transparent)`,
             borderRadius: 999, padding: "2px 8px",
           }}>contrôle</span>
+          {/* Ouvre l'écran de contrôle du groupe (audit par exception) */}
+          <button onClick={() => { const g = groupes.find(x => x.id === (j.groupe_id ?? groupeId)); if (g) setControleOuvert(g); }}
+            title="Contrôler ce groupe (audit par exception : tout conforme par défaut)"
+            style={{
+              flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "5px 12px", borderRadius: 999,
+              border: "none", background: color, color: "#fff",
+              fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+            }}>
+            <Icon as={ClipboardCheck} size={12}/> Contrôler
+          </button>
         </div>
       );
     }
@@ -4862,6 +4883,22 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             groupesTries.map((g, i) => renderGroup(g, i))
           )}
         </>
+      )}
+
+      {/* ── Écran de contrôle de fin de groupe (Point 2 b) : overlay plein
+          écran, tâches lues DIRECTEMENT du phasage (aucune copie). ── */}
+      {controleOuvert && (
+        <ControleGroupe
+          chantierId={controleCtx?.chantierId}
+          chantierNom={controleCtx?.chantierNom}
+          phasageId={controleCtx?.phasageId}
+          auteur={controleCtx?.auteur || ""}
+          groupe={controleOuvert}
+          taches={itemsOfGroup(controleOuvert.id).map(it => ({
+            id: it.tache.id, nom: it.tache.nom || "", ouvrage: it.ouvrage?.libelle || "",
+          }))}
+          onClose={() => setControleOuvert(null)}
+        />
       )}
     </div>
   );
