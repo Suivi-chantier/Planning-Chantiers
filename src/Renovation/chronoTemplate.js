@@ -27,6 +27,31 @@ export const JALON_TYPE_CONTROLE = "controle";
 export const jalonType = (j) => (j?.type === JALON_TYPE_CONTROLE ? JALON_TYPE_CONTROLE : JALON_TYPE_REPERE);
 export const estJalonControle = (j) => jalonType(j) === JALON_TYPE_CONTROLE;
 
+// Jalon de contrôle d'un groupe : non daté (il vit dans l'ordre du groupe,
+// pas dans le calendrier — le Gantt et « Prochain jalon » ne le voient pas),
+// ordre très haut par convention ; l'invariant « toujours en dernier » est de
+// toute façon imposé par le tri des entrées de groupe (entriesOfGroup).
+export const buildJalonControle = (groupe, ridFn) => ({
+  id: ridFn(),
+  nom: `Contrôle — ${groupe?.nom || "Groupe"}`,
+  date: null,
+  groupe_id: groupe.id,
+  ordre: 1e9,
+  type: JALON_TYPE_CONTROLE,
+});
+
+// Complète une liste de jalons : ajoute le jalon de contrôle MANQUANT de
+// chaque groupe (rattrapage / semis). N'enlève rien, ne modifie rien.
+// Renvoie le nouveau tableau, ou null si rien ne manque (aucune écriture).
+export function completerJalonsControle(groupes, jalons, ridFn) {
+  const list = Array.isArray(jalons) ? jalons : [];
+  const manquants = (Array.isArray(groupes) ? groupes : []).filter(g =>
+    g && g.id && !list.some(j => (j.groupe_id ?? null) === g.id && estJalonControle(j))
+  );
+  if (!manquants.length) return null;
+  return [...list, ...manquants.map(g => buildJalonControle(g, ridFn))];
+}
+
 export const CHRONO_TEMPLATE = [
   { ordre: 10,  nom: "Démolition",                          couleur: "#e15a5a", motsCles: ["demol", "depose", "curage"] },
   { ordre: 20,  nom: "Menuiserie extérieure / Couverture",  couleur: "#8b5cf6", motsCles: ["menuiserie ext", "fenetre", "couverture", "toiture", "velux"] },

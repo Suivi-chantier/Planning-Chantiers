@@ -11,7 +11,10 @@ import {
   ChevronUp, ChevronRight, Filter, CalendarClock, ClipboardCheck,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
-import { buildChronoInitFromGroupesTypes, sortByChrono, estJalonControle, JALON_TYPE_REPERE } from "./chronoTemplate";
+import {
+  buildChronoInitFromGroupesTypes, sortByChrono,
+  estJalonControle, JALON_TYPE_REPERE, buildJalonControle, completerJalonsControle,
+} from "./chronoTemplate";
 import { confirmPerteMassive } from "../guards";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
@@ -1020,6 +1023,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const chronoJalons = Array.isArray(phasage?.plan_travaux?.meta?.chrono_jalons)
     ? phasage.plan_travaux.meta.chrono_jalons : [];
   const setChronoJalons = (next) => saveMeta({ chrono_jalons: next });
+  // Écriture COMBINÉE groupes + jalons en UN SEUL saveMeta. Indispensable :
+  // saveMeta relit la DB avant d'écrire (non debouncé) — deux appels dans le
+  // même tick se perdent mutuellement un patch. Même principe que saveReprise.
+  const setChronoGroupesEtJalons = (g, j) => saveMeta({ chrono_groupes: g, chrono_jalons: j });
   // Applique en un seul passage un lot d'affectations
   // { [tacheId]: { groupe_id, ordre } } sur les tâches concernées.
   const applyChrono = (assignments) => {
@@ -1066,9 +1073,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         if (!assignments[t.id]) assignments[t.id] = { groupe_id: null, ordre: 0 };
       }));
       // Les jalons étaient accrochés aux anciens groupes → supprimés aussi
-      // (même règle que la suppression manuelle d'un groupe).
-      if (chronoJalons.length) setChronoJalons([]);
-      setChronoGroupes(init.groupes);
+      // (même règle que la suppression manuelle d'un groupe), et chaque
+      // nouveau groupe reçoit son jalon de contrôle. UNE seule écriture
+      // (l'ancien couple setChronoJalons + setChronoGroupes se perdait un
+      // patch : race du read-before-write de saveMeta).
+      setChronoGroupesEtJalons(init.groupes, completerJalonsControle(init.groupes, [], rid) || []);
       applyChrono(assignments);
       return;
     }
@@ -1086,7 +1095,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       .map(gt => ({ id: rid(), nom: gt.nom, couleur: gt.couleur, ordre: gt.ordre ?? 0, groupe_type_id: gt.id }));
     const adoptes = next.some((g, i) => g !== chronoGroupes[i]);
     if (!crees.length && !adoptes) return;
-    setChronoGroupes([...next, ...crees]);
+    const tousGroupes = [...next, ...crees];
+    // Jalons de contrôle des groupes créés (et rattrapage des manquants),
+    // dans la MÊME écriture que les groupes (race saveMeta sinon).
+    const nextJalons = completerJalonsControle(tousGroupes, chronoJalons, rid);
+    if (nextJalons) setChronoGroupesEtJalons(tousGroupes, nextJalons);
+    else setChronoGroupes(tousGroupes);
   };
   // ─── Équipe par défaut d'un groupe chrono ─────────────────────────────────
   // Résolution : groupe.groupe_type_id → groupe type → equipe_id → équipe.
@@ -1150,6 +1164,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     chronoAutoGenRef.current = chantierId;
     initChronoDepuisGroupesTypes("init");
   }, [viewMode, loadingPhasage, chantierId, phasage, chronoVierge, ouvrages, groupesTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rattrapage Point 2 b : garantit à chaque groupe déjà existant son jalon
+  // de contrôle. Ajout SEUL (rien d'autre ne bouge), une seule écriture, une
+  // seule fois par chantier chargé — la garde est posée AVANT l'écriture car
+  // chaque saveMeta fait changer `phasage` et relancerait l'effet.
+  const controleBackfillRef = useRef(null);
+  useEffect(() => {
+    if (loadingPhasage || !chantierId) return;
+    if (phasage?.chantier_id !== chantierId) return; // anti-course au changement de chantier
+    if (controleBackfillRef.current === chantierId) return;
+    controleBackfillRef.current = chantierId;
+    const next = completerJalonsControle(chronoGroupes, chronoJalons, rid);
+    if (next) setChronoJalons(next);
+  }, [loadingPhasage, chantierId, phasage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Déplace une tâche vers un autre ouvrage (réparation des tâches atterries
   // dans « Divers / hors devis »). La tâche garde son id : ses pointages
@@ -1630,7 +1658,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       const es = [];
       tItems.forEach(({ o, lot, t }) => { if (t.chrono_groupe_id === gid) es.push({ kind: "tache", ordre: t.chrono_ordre ?? 1e9, o, lot, t }); });
       chronoJalons.forEach(j => { if ((j.groupe_id ?? null) === gid) es.push({ kind: "jalon", ordre: j.ordre ?? 1e9, j }); });
-      es.sort((a, b) => (a.ordre - b.ordre) || (a.kind === b.kind ? 0 : a.kind === "tache" ? -1 : 1));
+      // Même règle de tri que entriesOfGroup (vue chrono) : le jalon de
+      // CONTRÔLE reste toujours en fin de groupe, quel que soit son ordre.
+      es.sort((a, b) => {
+        const ca = a.kind === "jalon" && estJalonControle(a.j) ? 1 : 0;
+        const cb = b.kind === "jalon" && estJalonControle(b.j) ? 1 : 0;
+        if (ca !== cb) return ca - cb;
+        return (a.ordre - b.ordre) || (a.kind === b.kind ? 0 : a.kind === "tache" ? -1 : 1);
+      });
       return es;
     };
     const rowTache = ({ o, lot, t }) => {
@@ -1653,7 +1688,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
     const groupHTML = grs.map(g => {
       const es = entriesFor(g.id);
-      if (es.length === 0) return "";
+      // Un groupe « vide » contient désormais toujours son jalon de contrôle :
+      // on l'ignore dans le PDF comme avant s'il n'a rien d'autre.
+      if (!es.some(e => e.kind === "tache" || !estJalonControle(e.j))) return "";
       const couleur = g.couleur || "#5b8af5";
       let dmin = null, dmax = null, hv = 0, wsum = 0, wtot = 0, nbT = 0;
       es.forEach(e => {
@@ -2367,6 +2404,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           ouvrages={ouvrages} lots={lots} groupes={chronoGroupes} jalons={chronoJalons}
           acc={acc} T={T}
           applyChrono={applyChrono} patchTaches={patchTaches} setGroupes={setChronoGroupes} setJalons={setChronoJalons}
+          setGroupesEtJalons={setChronoGroupesEtJalons}
           updateTache={updateTache}
           onInitGroupesTypes={groupesTypes.length > 0 ? initChronoDepuisGroupesTypes : null}
           chronoVierge={chronoVierge} nbGtManquants={gtManquants.length}
@@ -3718,7 +3756,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [overKey, setOverKey] = useState(null);  // clé de la zone/ligne survolée
   // Tout est REPLIÉ par défaut : on mémorise les groupes DÉPLIÉS (local à la
@@ -3737,7 +3775,19 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   const setDraft = (id, key, v) => setDrafts(d => ({ ...d, [id]: { ...d[id], [key]: v } }));
   const commit = (g, key) => {
     const v = drafts[g.id]?.[key];
-    if (v != null && v !== g[key]) setGroupes(groupes.map(x => x.id === g.id ? { ...x, [key]: v } : x));
+    if (v == null || v === g[key]) return;
+    const nextGroupes = groupes.map(x => x.id === g.id ? { ...x, [key]: v } : x);
+    // Renommage : le jalon de contrôle suit le nom de son groupe, dans la
+    // MÊME écriture (deux saveMeta successifs se perdraient un patch).
+    if (key === "nom") {
+      const nextJalons = jalons.map(j =>
+        ((j.groupe_id ?? null) === g.id && estJalonControle(j)) ? { ...j, nom: `Contrôle — ${v}` } : j);
+      if (nextJalons.some((j, i) => j !== jalons[i])) {
+        setGroupesEtJalons(nextGroupes, nextJalons);
+        return;
+      }
+    }
+    setGroupes(nextGroupes);
   };
   // Confirmation avant de semer un chantier qui a DÉJÀ des groupes
   // (ajouter les manquants vs tout remplacer).
@@ -3828,7 +3878,17 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
       if ((j.groupe_id ?? null) === gid)
         es.push({ kind: "jalon", id: j.id, ordre: j.ordre ?? 1e9, jalon: j });
     });
-    es.sort((a, b) => (a.ordre - b.ordre) || (a.kind === b.kind ? 0 : a.kind === "tache" ? -1 : 1));
+    // Invariant Point 2 b : le jalon de CONTRÔLE reste TOUJOURS en fin de
+    // groupe, quel que soit son ordre stocké. Cette règle de tri est le point
+    // unique qui tient l'invariant face à tous les chemins qui posent une
+    // entrée « en fin de groupe » (drag & drop, moveTacheToGroup, bulkAssign,
+    // addJalon) — pas besoin de normaliser les ordres après coup.
+    es.sort((a, b) => {
+      const ca = a.kind === "jalon" && estJalonControle(a.jalon) ? 1 : 0;
+      const cb = b.kind === "jalon" && estJalonControle(b.jalon) ? 1 : 0;
+      if (ca !== cb) return ca - cb;
+      return (a.ordre - b.ordre) || (a.kind === b.kind ? 0 : a.kind === "tache" ? -1 : 1);
+    });
     return es;
   };
 
@@ -3836,7 +3896,9 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
   const addGroupe = () => {
     const ordre = groupes.reduce((m, g) => Math.max(m, g.ordre ?? 0), 0) + 1;
     const couleur = CHRONO_PALETTE[groupes.length % CHRONO_PALETTE.length];
-    setGroupes([...groupes, { id: rid(), nom: "Nouveau groupe", couleur, ordre }]);
+    const g = { id: rid(), nom: "Nouveau groupe", couleur, ordre };
+    // Chaque groupe naît avec son jalon de contrôle, en UNE écriture.
+    setGroupesEtJalons([...groupes, g], [...jalons, buildJalonControle(g, rid)]);
   };
   const deleteGroupe = (g) => {
     // Détache les tâches du groupe supprimé (retour à « À classer »)…
@@ -3846,11 +3908,13 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
       toDetach.forEach(it => { assignments[it.tache.id] = { groupe_id: null, ordre: 0 }; });
       applyChrono(assignments);
     }
-    // … et supprime ses jalons (repères propres au groupe).
-    if (jalons.some(j => (j.groupe_id ?? null) === g.id)) {
-      setJalons(jalons.filter(j => (j.groupe_id ?? null) !== g.id));
-    }
-    setGroupes(groupes.filter(x => x.id !== g.id));
+    // … et supprime ses jalons (repères ET contrôle : le contrôle suit son
+    // groupe). UNE seule écriture groupes+jalons — l'ancien enchaînement
+    // setJalons puis setGroupes se perdait un patch (race saveMeta).
+    const nextJalons = jalons.filter(j => (j.groupe_id ?? null) !== g.id);
+    const nextGroupes = groupes.filter(x => x.id !== g.id);
+    if (nextJalons.length !== jalons.length) setGroupesEtJalons(nextGroupes, nextJalons);
+    else setGroupes(nextGroupes);
   };
 
   // ── Jalons : CRUD ──
@@ -4408,16 +4472,23 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
               background: emptyOver ? `color-mix(in srgb, ${couleur} 8%, transparent)` : "transparent",
               padding: "4px 10px", minHeight: 52, transition: "border-color .12s, background .12s",
             }}>
-            {entries.length === 0
-              ? <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0", fontStyle: "italic" }}>
-                  {allEntries.length === 0 ? "Glissez des tâches ici, ajoutez un jalon…" : "Aucune tâche ne correspond au filtre."}
-                </div>
-              : entries.map(e => {
-                  const ui = allEntries.findIndex(x => x.kind === e.kind && x.id === e.id);
-                  return e.kind === "tache"
-                    ? renderRow(e.it, couleur, g.id, ui)
-                    : renderJalon(e.jalon, couleur, g.id, ui);
-                })}
+            {/* Le jalon de contrôle étant toujours présent, « liste vide » ne
+                signifie plus « groupe vide » : on teste l'absence de tâches. */}
+            {!allEntries.some(e => e.kind === "tache") ? (
+              <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0 4px", fontStyle: "italic" }}>
+                Glissez des tâches ici, ajoutez un jalon…
+              </div>
+            ) : !entries.some(e => e.kind === "tache") ? (
+              <div style={{ textAlign: "center", color: T.textMuted, fontSize: FONT.xs.size, padding: "14px 0 4px", fontStyle: "italic" }}>
+                Aucune tâche ne correspond au filtre.
+              </div>
+            ) : null}
+            {entries.map(e => {
+              const ui = allEntries.findIndex(x => x.kind === e.kind && x.id === e.id);
+              return e.kind === "tache"
+                ? renderRow(e.it, couleur, g.id, ui)
+                : renderJalon(e.jalon, couleur, g.id, ui);
+            })}
           </div>
         )}
       </div>
