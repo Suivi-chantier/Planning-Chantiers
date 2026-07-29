@@ -22,6 +22,46 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Filet anti-écran-blanc (PWA). Symptôme vécu le 2026-07-29 : un service
+         worker/cache périmé sert un index.html dont le bundle hashé n'existe
+         plus sur Vercel ; la requête retombe sur le fallback HTML ("Expected a
+         JavaScript module... MIME text/html") et PLUS AUCUN JS ne s'exécute —
+         l'appli ne peut donc pas s'auto-réparer. Ce script inline (donc
+         toujours exécuté, même quand le bundle ne charge pas) détecte l'échec
+         de chargement d'un script /assets/, purge service workers + caches et
+         recharge UNE seule fois (garde sessionStorage anti-boucle). -->
+    <script>
+      (function () {
+        var CLE = "pwa_recovery_at";
+        window.addEventListener("error", function (e) {
+          var el = e.target;
+          if (!el || el.tagName !== "SCRIPT" || !el.src) return;
+          if (el.src.indexOf("/assets/") === -1) return;
+          var dernier = 0;
+          try { dernier = parseInt(sessionStorage.getItem(CLE), 10) || 0; } catch (_) {}
+          if (Date.now() - dernier < 60 * 1000) return; // déjà tenté il y a < 1 min : on ne boucle pas
+          try { sessionStorage.setItem(CLE, String(Date.now())); } catch (_) {}
+          var nettoyages = [];
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            nettoyages.push(
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (r) { return r.unregister(); }));
+              }).catch(function () {})
+            );
+          }
+          if (window.caches && caches.keys) {
+            nettoyages.push(
+              caches.keys().then(function (cles) {
+                return Promise.all(cles.map(function (c) { return caches.delete(c); }));
+              }).catch(function () {})
+            );
+          }
+          Promise.all(nettoyages).then(function () {
+            window.location.reload();
+          });
+        }, true);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
