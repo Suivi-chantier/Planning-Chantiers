@@ -274,7 +274,9 @@ function BandeauQCD({ qcd, overrides, sansPhasage, peutForcer, onForcer, onRetou
                 }}>{qcdStatutLabel(detail, detailSommet)}</span>
                 {detailSommet.valeurFormatee !== "—" && (
                   <span style={{ fontSize: FONT.sm.size, color: textSub, fontWeight: 700 }}>
-                    {detail === "delai" ? `Indice : ${detailSommet.valeurFormatee}` : `Ratio retenu : ${detailSommet.valeurFormatee}`}
+                    {detail === "delai" ? `Indice : ${detailSommet.valeurFormatee}`
+                      : detail === "qualite" ? `Conformité : ${detailSommet.valeurFormatee}`
+                      : `Ratio retenu : ${detailSommet.valeurFormatee}`}
                   </span>
                 )}
               </>
@@ -1465,6 +1467,32 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const commandeLignesSelected = selectedPhasage
     ? commandeLignes.filter(l => l.chantier_id === selectedPhasage.chantier_id)
     : [];
+  // Contrôles de groupe + réserves du chantier (Point 2 b) : ils alimentent
+  // le sommet QUALITÉ du QCD (calculQualite), les témoins « contrôlé » de la
+  // frise (controleGroupe) et la règle de clôture de la phase Travaux.
+  // Tables absentes (SQL pas lancé) → listes vides : Qualité grise, témoins
+  // pointillés, comme avant.
+  const cvChantierId = selectedPhasage?.chantier_id || null;
+  const [controlesGroupesSel, setControlesGroupesSel] = useState([]);
+  const [reservesGroupesSel, setReservesGroupesSel] = useState([]);
+  useEffect(() => {
+    if (!cvChantierId) { setControlesGroupesSel([]); setReservesGroupesSel([]); return; }
+    let actif = true;
+    (async () => {
+      const [rc, rr] = await Promise.all([
+        supabase.from("controles_groupe")
+          .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
+          .eq("chantier_id", cvChantierId),
+        supabase.from("reserves")
+          .select("id, groupe_id, controle_id, statut, created_at, levee_le")
+          .eq("chantier_id", cvChantierId),
+      ]);
+      if (!actif) return;
+      setControlesGroupesSel(rc.error ? [] : (rc.data || []));
+      setReservesGroupesSel(rr.error ? [] : (rr.data || []));
+    })();
+    return () => { actif = false; };
+  }, [cvChantierId]);
   const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
@@ -1534,8 +1562,14 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // section Finances). V1 legacy : totaux d'heures de la fiche + coût MO
   // historique ; le prévisionnel matériaux n'existe pas en V1 → ratio
   // matériaux non évaluable (gris), c'est voulu.
+  // Contexte du sommet Qualité (Point 2 b) : contrôles + réserves du chantier.
+  const qualiteCtx = {
+    reserves: reservesGroupesSel,
+    controles: controlesGroupesSel,
+    todayISO: new Date().toISOString().slice(0, 10),
+  };
   const qcd = !selectedPhasage ? null
-    : finances?.fin ? qcdDepuisFinance(finances.fin.brut)
+    : finances?.fin ? qcdDepuisFinance(finances.fin.brut, qualiteCtx)
     : computeQCD({
         heuresReelles: totalHeures.reelles,
         heuresVendues: totalHeures.vendues,
@@ -1544,6 +1578,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         coutMOPrevu: totalHeures.vendues > 0 ? totalHeures.vendues * (parseFloat(tauxMOPrev) || TAUX_MO_PREV_DEFAUT) : null,
         coutMateriauxReel: finances?.coutMat,
         coutMateriauxPrevu: null,
+        ...qualiteCtx,
       });
   // Overrides manuels des sommets (superposés à l'auto, jamais à sa place).
   const qcdOverrides = lireOverridesQCD(selectedPhasage?.plan_travaux?.meta);
@@ -1583,21 +1618,6 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
   // ── Cycle de vie (Point 2a) : positionnement déduit + phase déclarée ──
   const metaSelected = selectedPhasage?.plan_travaux?.meta || {};
-  // Contrôles de groupe du chantier (Point 2 b) : ils allument les témoins
-  // « contrôlé » de la frise (controleGroupe) et la règle de clôture de la
-  // phase Travaux. Tables absentes (SQL pas lancé) → liste vide, témoins
-  // pointillés comme avant.
-  const cvChantierId = selectedPhasage?.chantier_id || null;
-  const [controlesGroupesSel, setControlesGroupesSel] = useState([]);
-  useEffect(() => {
-    if (!cvChantierId) { setControlesGroupesSel([]); return; }
-    let actif = true;
-    supabase.from("controles_groupe")
-      .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
-      .eq("chantier_id", cvChantierId)
-      .then(({ data, error }) => { if (actif) setControlesGroupesSel(error ? [] : (data || [])); });
-    return () => { actif = false; };
-  }, [cvChantierId]);
   const cvEtats = lireEtatsEtapes(metaSelected);
   const cvPhaseDeclaree = lirePhaseDeclaree(metaSelected);
   const chronoGroupesSelected = Array.isArray(metaSelected.chrono_groupes) ? metaSelected.chrono_groupes : [];

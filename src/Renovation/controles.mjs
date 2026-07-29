@@ -128,5 +128,7 @@ export function statsReservesChantier(reserves, controles, todayISO) {
     nbNok,
     tauxConformite: taches > 0 ? conformes / taches : null,
     plusAncienneJours: anciennetes.length ? Math.max(...anciennetes) : null,
+    // Pire « non levée depuis N contrôles » parmi les réserves ouvertes.
+    maxControlesDepuis: ouvertes.reduce((m, r) => Math.max(m, nbControlesDepuis(r, controles)), 0),
   };
 }

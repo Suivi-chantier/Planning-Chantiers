@@ -17,6 +17,10 @@
 //  - statut ∈ { "vert", "orange", "rouge", "gris" } ;
 //  - chaque sommet renvoie { statut, valeur, valeurFormatee, explication }.
 // ─────────────────────────────────────────────────────────────────────────────
+import {
+  statsReservesChantier,
+  SEUIL_RESERVE_ANCIENNE_JOURS, SEUIL_RESERVE_ANCIENNE_CONTROLES,
+} from "./controles.mjs";
 
 // ── Statuts et seuils (constantes exportées, faciles à recalibrer) ──────────
 export const QCD_VERT = "vert";
@@ -148,16 +152,59 @@ export function calculCout({ coutMOReel, coutMOPrevu, coutMateriauxReel, coutMat
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// QUALITÉ — POINT DE BRANCHEMENT UNIQUE du Point 2 (b).
-// Alimentée à terme par les contrôles de fin de groupe (réserves, conformité).
-// Tant qu'aucun contrôle n'existe, elle renvoie TOUJOURS l'état gris / non
-// évalué. C'est LE seul endroit à modifier pour allumer le sommet Qualité :
-// tout consommateur (bandeau, frise, PDF…) doit passer par cette fonction.
+// QUALITÉ — REMPLIE par le Point 2 (b) : contrôles de fin de groupe.
+// LE seul point de calcul de la Qualité (tout consommateur — bandeau, frise,
+// PDF — passe par cette fonction). Module pur : les lignes des tables
+// controles_groupe et reserves sont passées en argument par l'appelant.
+//
+//  ⚪ gris   : aucun groupe contrôlé → message incitatif (volontaire : le gris
+//              pousse à faire le contrôle).
+//  🟢 vert   : aucune réserve ouverte sur les groupes contrôlés.
+//  🟠 orange : réserves ouvertes « fraîches » (statut reserve).
+//  🔴 rouge  : au moins un NOK ouvert, OU réserve ANCIENNE non levée (elle
+//              traîne d'un contrôle à l'autre, ou dépasse le seuil en jours
+//              — le signal le plus fort), OU conformité faible (pondération :
+//              une réserve sur 50 tâches ne bascule pas le chantier au rouge,
+//              mais 20 % de tâches signalées, si).
 // ─────────────────────────────────────────────────────────────────────────────
-export function calculQualite() {
+export const SEUIL_QUALITE_CONFORMITE_ROUGE = 0.8; // < 80 % de tâches conformes → rouge
+
+export function calculQualite({ reserves = null, controles = null, todayISO = "" } = {}) {
+  const stats = statsReservesChantier(reserves, controles, todayISO);
+
+  if (!stats.nbGroupesControles) {
+    return {
+      statut: QCD_GRIS, valeur: null, valeurFormatee: "—", stats,
+      explication: "Ce chantier n'a pas encore été contrôlé — réalisez les contrôles de fin de groupe.",
+    };
+  }
+
+  const ancienne = (stats.plusAncienneJours != null && stats.plusAncienneJours >= SEUIL_RESERVE_ANCIENNE_JOURS)
+    || stats.maxControlesDepuis >= SEUIL_RESERVE_ANCIENNE_CONTROLES;
+  const conformiteFaible = stats.tauxConformite != null && stats.tauxConformite < SEUIL_QUALITE_CONFORMITE_ROUGE;
+
+  const statut = (stats.nbNok > 0 || (stats.reservesOuvertes > 0 && ancienne) || conformiteFaible) ? QCD_ROUGE
+    : stats.reservesOuvertes > 0 ? QCD_ORANGE
+    : QCD_VERT;
+
+  const s = (n) => (n > 1 ? "s" : "");
+  const explication = [
+    `${stats.nbGroupesControles} groupe${s(stats.nbGroupesControles)} contrôlé${s(stats.nbGroupesControles)}`,
+    stats.tauxConformite != null ? `conformité ${fmtPct(stats.tauxConformite)}` : null,
+    stats.reservesOuvertes > 0
+      ? `${stats.reservesOuvertes} réserve${s(stats.reservesOuvertes)} ouverte${s(stats.reservesOuvertes)}`
+      : "aucune réserve ouverte",
+    stats.nbNok > 0 ? `${stats.nbNok} NOK` : null,
+    stats.reservesOuvertes > 0 && stats.plusAncienneJours != null
+      ? `la plus ancienne depuis ${stats.plusAncienneJours} jour${s(stats.plusAncienneJours)}${stats.maxControlesDepuis >= 1 ? ` et ${stats.maxControlesDepuis} contrôle${s(stats.maxControlesDepuis)} sans levée` : ""}`
+      : null,
+  ].filter(Boolean).join(" · ") + ".";
+
   return {
-    statut: QCD_GRIS, valeur: null, valeurFormatee: "—",
-    explication: "Ce chantier n'a pas encore été contrôlé — les contrôles de fin de groupe alimenteront ce sommet.",
+    statut,
+    valeur: stats.tauxConformite,
+    valeurFormatee: stats.tauxConformite != null ? fmtPct(stats.tauxConformite) : "—",
+    explication, stats,
   };
 }
 
@@ -168,7 +215,7 @@ export function computeQCD(donnees = {}) {
   return {
     delai: calculDelai(donnees),
     cout: calculCout(donnees),
-    qualite: calculQualite(),
+    qualite: calculQualite(donnees), // lit reserves / controles / todayISO
   };
 }
 
@@ -180,8 +227,10 @@ export function computeQCD(donnees = {}) {
 //  - avancement : entier 0-100 dans l'appli → converti en fraction ici ;
 //  - MO prévu = moPrevChantier (heures vendues × taux MO prévisionnel) ;
 //  - matériaux prévu = commandesPrevChantier (Σ ouvrages[].cout_materiaux).
-export function qcdDepuisFinance(brut) {
-  if (!brut) return computeQCD({});
+// qualiteCtx (Point 2 b) : { reserves, controles, todayISO } — les lignes des
+// tables reserves / controles_groupe du chantier, pour le sommet Qualité.
+export function qcdDepuisFinance(brut, qualiteCtx = {}) {
+  if (!brut) return computeQCD({ ...qualiteCtx });
   const avancement100 = toNum(brut.avancementChantier);
   return computeQCD({
     heuresReelles: brut.heuresReellesTotalChantier,
@@ -191,6 +240,7 @@ export function qcdDepuisFinance(brut) {
     coutMOPrevu: brut.moPrevChantier,
     coutMateriauxReel: brut.coutMatChantier,
     coutMateriauxPrevu: brut.commandesPrevChantier,
+    ...qualiteCtx,
   });
 }
 
@@ -264,9 +314,10 @@ export const QCD_METHODE = {
   },
   qualite: {
     titre: "Qualité",
-    formule: "contrôles de fin de groupe (réserves ouvertes, conformité)",
+    formule: "contrôles de fin de groupe (réserves ouvertes, NOK, ancienneté, conformité)",
     description:
-      "Alimentée par les contrôles de fin de groupe (Point 2 b) : vert sans réserve ouverte, orange sur réserves "
-      + "mineures, rouge sur non-conformité ou réserves anciennes non levées. Gris tant qu'aucun contrôle n'existe.",
+      "Alimentée par les contrôles de fin de groupe : vert sans réserve ouverte, orange sur réserves fraîches, "
+      + `rouge sur NOK ouvert, réserve ancienne (≥ ${SEUIL_RESERVE_ANCIENNE_JOURS} j ou non levée malgré un contrôle suivant) `
+      + `ou conformité < ${fmtPct(SEUIL_QUALITE_CONFORMITE_ROUGE)}. Gris tant qu'aucun groupe n'est contrôlé.`,
   },
 };
