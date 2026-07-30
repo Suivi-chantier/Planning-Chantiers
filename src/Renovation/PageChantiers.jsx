@@ -1668,8 +1668,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const cvChantierId = selectedPhasage?.chantier_id || null;
   const [controlesGroupesSel, setControlesGroupesSel] = useState([]);
   const [reservesGroupesSel, setReservesGroupesSel] = useState([]);
-  // Seuils d'avancement des factures de situation (réglage Admin → Taux).
+  // Factures de situation (réglage Admin → Fact. de situation) : seuils
+  // d'avancement + rôles destinataires de la notification.
   const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
+  const [rolesSituations, setRolesSituations] = useState(["admin", "conducteur"]);
   useEffect(() => {
     if (!cvChantierId) { setControlesGroupesSel([]); setReservesGroupesSel([]); return; }
     let actif = true;
@@ -1687,8 +1689,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       if (!actif) return;
       setControlesGroupesSel(rc.error ? [] : (rc.data || []));
       setReservesGroupesSel(rr.error ? [] : (rr.data || []));
-      if (!rs.error && Array.isArray(rs.data?.value?.seuils) && rs.data.value.seuils.length > 0) {
-        setSeuilsSituations(normaliserSeuilsSituations(rs.data.value.seuils));
+      if (!rs.error && rs.data?.value) {
+        if (Array.isArray(rs.data.value.seuils) && rs.data.value.seuils.length > 0) {
+          setSeuilsSituations(normaliserSeuilsSituations(rs.data.value.seuils));
+        }
+        if (Array.isArray(rs.data.value.roles)) setRolesSituations(rs.data.value.roles);
       }
     })();
     return () => { actif = false; };
@@ -1948,6 +1953,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   useEffect(() => {
     if (!selectedPhasage?.id || !selectedChantier) return;
     if (getStatut(selectedChantier, selectedPhasage) === "termine") return; // chantier soldé : pas de relance
+    if (!rolesSituations.length) return; // aucun rôle coché en Admin : pas de notification
     const aPrevenir = seuilsSituations.filter(s =>
       (avancement || 0) >= s
       && !cvEtats[`situation_${s}`]?.fait
@@ -1959,7 +1965,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     notifSituationRef.current = cle;
     (async () => {
       const { data: users } = await supabase.from("utilisateurs")
-        .select("email, role, actif").in("role", ["admin", "conducteur"]);
+        .select("email, role, actif").in("role", rolesSituations);
       const dests = (users || [])
         .filter(u => u.actif !== false && u.email && !String(u.email).toLowerCase().endsWith("@profero.local"))
         .map(u => u.email);
@@ -1994,7 +2000,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPhasage?.id, avancement, seuilsSituations]);
+  }, [selectedPhasage?.id, avancement, seuilsSituations, rolesSituations]);
   // Ouverture d'un document (URL signée) — fenêtre ouverte AVANT l'await pour
   // ne pas être bloqué par l'anti-popup.
   const ouvrirPieceJointeCV = async (pj) => {

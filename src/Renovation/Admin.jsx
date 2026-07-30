@@ -9,7 +9,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, Clock, Wrench,
   Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye, ListOrdered,
+  Boxes, Car, Eye, ListOrdered, Receipt,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -2280,8 +2280,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
   const [excDate, setExcDate]     = useState("");
   const [excHeures, setExcHeures] = useState("0");
-  // Seuils d'avancement (%) qui déclenchent les factures de situation.
+  // Factures de situation : seuils d'avancement (%) qui les déclenchent, et
+  // rôles destinataires de l'email « facture de situation prête ».
   const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
+  const [rolesSituations, setRolesSituations] = useState(["admin", "conducteur"]);
   const [nouveauSeuil, setNouveauSeuil] = useState("");
 
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
@@ -2308,8 +2310,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           if (r.key === "heures_par_jour" && r.value) {
             setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
           }
-          if (r.key === "situations_seuils" && Array.isArray(r.value?.seuils) && r.value.seuils.length > 0) {
-            setSeuilsSituations(normaliserSeuilsSituations(r.value.seuils));
+          if (r.key === "situations_seuils" && r.value) {
+            if (Array.isArray(r.value.seuils) && r.value.seuils.length > 0) {
+              setSeuilsSituations(normaliserSeuilsSituations(r.value.seuils));
+            }
+            if (Array.isArray(r.value.roles)) setRolesSituations(r.value.roles);
           }
         });
       }
@@ -2371,11 +2376,15 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     saveConfig("heures_par_jour", next);
   };
 
-  // ─── SEUILS DES FACTURES DE SITUATION ────────────────────────────────────
+  // ─── FACTURES DE SITUATION : seuils + rôles destinataires ────────────────
+  // Une seule clé planning_config ("situations_seuils") porte les deux :
+  // { seuils: [25, 50…], roles: ["admin", …] } — toujours écrite ENTIÈRE.
+  const saveSituationsCfg = (seuils, roles) =>
+    saveConfig("situations_seuils", { seuils, roles });
   const majSeuilsSituations = (arr) => {
     const clean = normaliserSeuilsSituations(arr);
     setSeuilsSituations(clean);
-    saveConfig("situations_seuils", { seuils: clean });
+    saveSituationsCfg(clean, rolesSituations);
   };
   const addSeuilSituation = () => {
     const v = Math.round(parseFloat(nouveauSeuil) || 0);
@@ -2386,6 +2395,13 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const removeSeuilSituation = (s) => {
     if (seuilsSituations.length <= 1) return; // toujours au moins un seuil
     majSeuilsSituations(seuilsSituations.filter(x => x !== s));
+  };
+  const toggleRoleSituation = (roleId) => {
+    const next = rolesSituations.includes(roleId)
+      ? rolesSituations.filter(r => r !== roleId)
+      : [...rolesSituations, roleId];
+    setRolesSituations(next);
+    saveSituationsCfg(seuilsSituations, next);
   };
 
   // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
@@ -2824,6 +2840,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["fournisseurs", "Fournisseurs", Truck],
       ["vehicules",    "Véhicules",    Car],
       ["emails",       "Emails",       Mail],
+      ["situations",   "Fact. de situation", Receipt],
       ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
     ]},
     { id:"outils", label:"Outils", icon:Wrench, tabs:[
@@ -4111,13 +4128,57 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             )}
           </div>
 
-          {/* ── Factures de situation : seuils d'avancement qui les déclenchent ── */}
-          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Factures de situation</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:12,maxWidth:640,lineHeight:1.6}}>
-            Seuils d'<strong>avancement du chantier</strong> (%) qui déclenchent les factures de situation dans la frise
-            du cycle de vie (phase Travaux). Quand un seuil est franchi, la situation passe « à émettre » et un email
-            est envoyé aux administrateurs et conducteurs. Défaut : {SEUILS_SITUATIONS.join(" · ")} %.
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux horaires par ouvrier</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:18}}>
+            Coût horaire de chaque ouvrier — utilisé pour calculer le coût MO <strong>réel</strong> (pointages) dans le phasage.
           </div>
+          {ouvriers.map((o,i)=>(
+            <div key={i} className="ar" style={{gap:12}}>
+              <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>{o}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input
+                  type="number" min="0" step="0.5"
+                  value={tauxHoraires?.[o]||""}
+                  onChange={e=>{
+                    const t={...tauxHoraires,[o]:parseFloat(e.target.value)||0};
+                    setTauxHoraires(t);
+                    saveConfig("taux_horaires",t);
+                  }}
+                  placeholder="0"
+                  style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                    fontFamily:"inherit",fontSize:15,fontWeight:700,outline:"none"}}
+                />
+                <span style={{fontSize:13,color:T.textMuted}}>€/h</span>
+              </div>
+              {tauxHoraires?.[o]>0&&(
+                <span style={{fontSize:12,color:T.textMuted}}>
+                  = {(tauxHoraires[o]*8).toFixed(0)}€/jour
+                </span>
+              )}
+            </div>
+          ))}
+          {ouvriers.length===0&&(
+            <div style={{color:T.textMuted,fontStyle:"italic",fontSize:13}}>
+              Ajoutez d'abord des ouvriers dans l'onglet Ouvriers.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── FACTURES DE SITUATION : seuils d'avancement + rôles notifiés ── */}
+      {adminTab==="situations"&&(
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Factures de situation</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:18,maxWidth:640,lineHeight:1.6}}>
+            À chaque seuil d'<strong>avancement du chantier</strong> franchi, une facture de situation passe
+            « à émettre » dans la frise du cycle de vie (phase Travaux) et un email de notification part
+            automatiquement — une seule fois par seuil et par chantier (les chantiers au statut Terminé sont exclus).
+          </div>
+
+          {/* Seuils */}
+          <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:T.text}}>Seuils de déclenchement</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:10}}>Défaut : {SEUILS_SITUATIONS.join(" · ")} %.</div>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
             {seuilsSituations.map(s => (
               <span key={s} style={{
@@ -4154,39 +4215,33 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               }}>+ Ajouter un seuil</button>
           </div>
 
-          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux horaires par ouvrier</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:18}}>
-            Coût horaire de chaque ouvrier — utilisé pour calculer le coût MO <strong>réel</strong> (pointages) dans le phasage.
+          {/* Rôles destinataires */}
+          <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:T.text}}>Destinataires de la notification</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:10,maxWidth:640,lineHeight:1.6}}>
+            L'email « facture de situation prête » est envoyé aux utilisateurs <strong>actifs</strong> des rôles cochés
+            (seuls les comptes avec une vraie adresse email la reçoivent — les comptes locaux sont ignorés).
           </div>
-          {ouvriers.map((o,i)=>(
-            <div key={i} className="ar" style={{gap:12}}>
-              <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>{o}</div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <input
-                  type="number" min="0" step="0.5"
-                  value={tauxHoraires?.[o]||""}
-                  onChange={e=>{
-                    const t={...tauxHoraires,[o]:parseFloat(e.target.value)||0};
-                    setTauxHoraires(t);
-                    saveConfig("taux_horaires",t);
-                  }}
-                  placeholder="0"
-                  style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
-                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
-                    fontFamily:"inherit",fontSize:15,fontWeight:700,outline:"none"}}
-                />
-                <span style={{fontSize:13,color:T.textMuted}}>€/h</span>
-              </div>
-              {tauxHoraires?.[o]>0&&(
-                <span style={{fontSize:12,color:T.textMuted}}>
-                  = {(tauxHoraires[o]*8).toFixed(0)}€/jour
-                </span>
-              )}
-            </div>
-          ))}
-          {ouvriers.length===0&&(
-            <div style={{color:T.textMuted,fontStyle:"italic",fontSize:13}}>
-              Ajoutez d'abord des ouvriers dans l'onglet Ouvriers.
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
+            {ROLES_DEFAULT_RENOVATION.map(r => {
+              const coche = rolesSituations.includes(r.id);
+              return (
+                <label key={r.id} style={{
+                  display:"inline-flex",alignItems:"center",gap:8,
+                  padding:"9px 14px",borderRadius:RADIUS.lg,cursor:"pointer",
+                  border:`1px solid ${coche ? r.color : T.border}`,
+                  background:coche ? `${r.color}1a` : T.surface,
+                }}>
+                  <input type="checkbox" checked={coche} onChange={()=>toggleRoleSituation(r.id)}
+                    style={{width:15,height:15,accentColor:r.color,cursor:"pointer"}}/>
+                  <span style={{fontSize:14,fontWeight:700,color:coche ? r.color : T.textSub}}>{r.label}</span>
+                </label>
+              );
+            })}
+          </div>
+          {rolesSituations.length===0&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.4)",borderRadius:RADIUS.md,fontSize:13,color:"#f59e0b",fontWeight:600}}>
+              <Icon as={AlertTriangle} size={14}/>
+              Aucun rôle coché : aucune notification ne sera envoyée (les situations restent signalées dans la frise).
             </div>
           )}
         </div>
