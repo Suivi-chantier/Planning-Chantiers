@@ -59,8 +59,18 @@ function frToISO(fr) {
 
 function dateLabel(dateStr) {
   if (!dateStr) return "";
-  const d = new Date(dateStr + "T00:00:00");
+  // Accepte l'ISO (input date) comme le FR (rapports.date_rapport stockée "JJ/MM/AAAA").
+  const d = new Date(frToISO(dateStr) + "T00:00:00");
+  if (isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+// Tronque les libellés injectés dans les <option> : la liste déroulante native
+// s'élargit à la taille de l'option la plus longue, et certaines tâches du plan
+// portent un descriptif complet de plusieurs centaines de caractères.
+function libelleCourt(s, max = 90) {
+  const str = String(s || "");
+  return str.length > max ? str.slice(0, max - 1).trimEnd() + "…" : str;
 }
 
 function weekIdAndJourFromDate(dateStr) {
@@ -1463,10 +1473,10 @@ function LigneEditable({
               const ph = phasesById[groupe];
               const label = ph ? `${ph.emoji || ""} ${ph.label}` : groupe;
               return (
-                <optgroup key={groupe} label={label}>
+                <optgroup key={groupe} label={libelleCourt(label)}>
                   {tachesParGroupe[groupe].map(t => (
                     <option key={t.id} value={t.id}>
-                      {t.nom}{ligne.tache_id === t.id ? " ✓" : ""}
+                      {libelleCourt(t.nom)}{ligne.tache_id === t.id ? " ✓" : ""}
                     </option>
                   ))}
                 </optgroup>
