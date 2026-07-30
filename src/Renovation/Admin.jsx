@@ -17,6 +17,8 @@ import {
   ROLE_PAGES_DEFAULT_RENOVATION, ROLE_PAGES_DEFAULT_INVEST,
 } from "../access";
 import EspaceOuvrier from "./EspaceOuvrier";
+// Seuils des factures de situation (frise du cycle de vie, phase Travaux).
+import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
 const callEdgeFunction = async (fnName, payload) => {
@@ -2278,11 +2280,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
   const [excDate, setExcDate]     = useState("");
   const [excHeures, setExcHeures] = useState("0");
+  // Seuils d'avancement (%) qui déclenchent les factures de situation.
+  const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
+  const [nouveauSeuil, setNouveauSeuil] = useState("");
 
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "heures_par_jour"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "heures_par_jour", "situations_seuils"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2302,6 +2307,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "heures_par_jour" && r.value) {
             setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
+          }
+          if (r.key === "situations_seuils" && Array.isArray(r.value?.seuils) && r.value.seuils.length > 0) {
+            setSeuilsSituations(normaliserSeuilsSituations(r.value.seuils));
           }
         });
       }
@@ -2361,6 +2369,23 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     const next = { ...heuresParJour, exceptions };
     setHeuresParJour(next);
     saveConfig("heures_par_jour", next);
+  };
+
+  // ─── SEUILS DES FACTURES DE SITUATION ────────────────────────────────────
+  const majSeuilsSituations = (arr) => {
+    const clean = normaliserSeuilsSituations(arr);
+    setSeuilsSituations(clean);
+    saveConfig("situations_seuils", { seuils: clean });
+  };
+  const addSeuilSituation = () => {
+    const v = Math.round(parseFloat(nouveauSeuil) || 0);
+    if (v < 1 || v > 100) return;
+    majSeuilsSituations([...seuilsSituations, v]);
+    setNouveauSeuil("");
+  };
+  const removeSeuilSituation = (s) => {
+    if (seuilsSituations.length <= 1) return; // toujours au moins un seuil
+    majSeuilsSituations(seuilsSituations.filter(x => x !== s));
   };
 
   // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
@@ -4084,6 +4109,49 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 non réglé → {TAUX_MO_PREV_DEFAUT} €/h
               </span>
             )}
+          </div>
+
+          {/* ── Factures de situation : seuils d'avancement qui les déclenchent ── */}
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Factures de situation</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:12,maxWidth:640,lineHeight:1.6}}>
+            Seuils d'<strong>avancement du chantier</strong> (%) qui déclenchent les factures de situation dans la frise
+            du cycle de vie (phase Travaux). Quand un seuil est franchi, la situation passe « à émettre » et un email
+            est envoyé aux administrateurs et conducteurs. Défaut : {SEUILS_SITUATIONS.join(" · ")} %.
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+            {seuilsSituations.map(s => (
+              <span key={s} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                padding:"6px 6px 6px 12px",borderRadius:RADIUS.pill,
+                border:`1px solid ${T.border}`,background:T.surface,
+                fontSize:14,fontWeight:800,color:T.accent,
+              }}>
+                {s} %
+                <button onClick={()=>removeSeuilSituation(s)}
+                  title={seuilsSituations.length<=1?"Au moins un seuil requis":"Retirer ce seuil"}
+                  disabled={seuilsSituations.length<=1}
+                  style={{
+                    width:20,height:20,borderRadius:"50%",border:"none",
+                    background:T.card,color:T.textMuted,cursor:seuilsSituations.length<=1?"default":"pointer",
+                    display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    fontFamily:"inherit",fontSize:12,fontWeight:800,opacity:seuilsSituations.length<=1?0.4:1,
+                  }}>×</button>
+              </span>
+            ))}
+            <input type="number" min="1" max="100" step="5" value={nouveauSeuil}
+              onChange={e=>setNouveauSeuil(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter")addSeuilSituation();}}
+              placeholder="%"
+              style={{width:64,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                fontFamily:"inherit",fontSize:14,fontWeight:700,outline:"none"}}/>
+            <button onClick={addSeuilSituation}
+              disabled={!(parseFloat(nouveauSeuil)>=1&&parseFloat(nouveauSeuil)<=100)}
+              style={{
+                padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+                background:T.surface,color:T.textSub,fontFamily:"inherit",
+                fontSize:13,fontWeight:700,cursor:"pointer",
+              }}>+ Ajouter un seuil</button>
           </div>
 
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux horaires par ouvrier</div>

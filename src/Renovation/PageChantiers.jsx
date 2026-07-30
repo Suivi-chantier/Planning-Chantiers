@@ -24,6 +24,7 @@ import {
   CYCLE_VIE_PHASES, getPhase, etapesTravauxDepuisGroupes,
   computeCycleVie, evaluerEtape, lireEtatsEtapes, lirePhaseDeclaree,
   CV_META_PHASE_DECLAREE, CV_META_ETAPES,
+  etapesSituationsTravaux, normaliserSeuilsSituations, SEUILS_SITUATIONS,
 } from "./cycleVie";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
 import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, ACCEPT_DOCS } from "./storageChantier";
@@ -642,6 +643,15 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
           border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "1px 7px",
           verticalAlign: "middle",
         }}>{etape.nature}</span>
+        {/* Facture de situation : seuil franchi et pas encore émise → signalée */}
+        {etape.prete && !etape.fait && (
+          <span style={{
+            marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: .5,
+            textTransform: "uppercase", color: "#f59e0b",
+            border: "1px solid #f59e0b88", background: "#f59e0b14",
+            borderRadius: RADIUS.pill, padding: "1px 7px", verticalAlign: "middle",
+          }}>à émettre</span>
+        )}
         <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{etape.raison}</div>
         {resume && <div style={{ fontSize: FONT.xs.size + 1, color: textSub, marginTop: 2, fontWeight: 600 }}>{resume}</div>}
 
@@ -763,7 +773,7 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, peutModifier, onDeclarer, actionsEtape, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, avancementChantier, seuilsSituations, peutModifier, onDeclarer, actionsEtape, T }) {
   const [saving, setSaving] = useState(false);
   const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
@@ -880,7 +890,10 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, peutModifier, o
             const phaseVueId = phaseVue || cv.phaseId;
             const phaseVueObj = getPhase(phaseVueId) || cv.phase;
             const etapes = (phaseVueId === "cv_travaux"
-              ? etapesTravauxDepuisGroupes(chronoGroupes, statsGroupes)
+              // Travaux : les groupes d'exécution, puis les factures de
+              // situation indexées sur l'avancement (seuils réglés en Admin).
+              ? [...etapesTravauxDepuisGroupes(chronoGroupes, statsGroupes),
+                 ...etapesSituationsTravaux(avancementChantier, seuilsSituations)]
               : (phaseVueObj?.etapes || [])
             ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx), etat: (cvCtx?.etatsEtapes || {})[e.id] || null }));
             const estPhaseCourante = phaseVueId === cv.phaseId;
@@ -1655,21 +1668,28 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const cvChantierId = selectedPhasage?.chantier_id || null;
   const [controlesGroupesSel, setControlesGroupesSel] = useState([]);
   const [reservesGroupesSel, setReservesGroupesSel] = useState([]);
+  // Seuils d'avancement des factures de situation (réglage Admin → Taux).
+  const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
   useEffect(() => {
     if (!cvChantierId) { setControlesGroupesSel([]); setReservesGroupesSel([]); return; }
     let actif = true;
     (async () => {
-      const [rc, rr] = await Promise.all([
+      const [rc, rr, rs] = await Promise.all([
         supabase.from("controles_groupe")
           .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
           .eq("chantier_id", cvChantierId),
         supabase.from("reserves")
           .select("id, groupe_id, controle_id, statut, created_at, levee_le")
           .eq("chantier_id", cvChantierId),
+        supabase.from("planning_config")
+          .select("value").eq("key", "situations_seuils").maybeSingle(),
       ]);
       if (!actif) return;
       setControlesGroupesSel(rc.error ? [] : (rc.data || []));
       setReservesGroupesSel(rr.error ? [] : (rr.data || []));
+      if (!rs.error && Array.isArray(rs.data?.value?.seuils) && rs.data.value.seuils.length > 0) {
+        setSeuilsSituations(normaliserSeuilsSituations(rs.data.value.seuils));
+      }
     })();
     return () => { actif = false; };
   }, [cvChantierId]);
@@ -1916,6 +1936,65 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   }));
   // Envoi d'une pièce jointe par email (modale de choix des destinataires).
   const [envoiPJ, setEnvoiPJ] = useState(null); // { pj, etapeNom } | null
+
+  // ── Notification « facture de situation prête » (best-effort, côté client).
+  // Quand l'avancement franchit un seuil (réglage Admin) et que la situation
+  // n'est ni émise ni déjà notifiée : email aux admin + conducteurs via
+  // /api/send-email (pas de nouvelle fonction Vercel : plafond des 12
+  // atteint — la détection se fait à l'ouverture de la fiche). Drapeau PLAT
+  // par seuil dans meta (situation_mail_<seuil>), posé seulement si l'envoi
+  // a réussi ; garde de session anti-doublon pendant l'aller-retour réseau.
+  const notifSituationRef = useRef(null);
+  useEffect(() => {
+    if (!selectedPhasage?.id || !selectedChantier) return;
+    if (getStatut(selectedChantier, selectedPhasage) === "termine") return; // chantier soldé : pas de relance
+    const aPrevenir = seuilsSituations.filter(s =>
+      (avancement || 0) >= s
+      && !cvEtats[`situation_${s}`]?.fait
+      && !metaSelected[`situation_mail_${s}`]
+    );
+    if (!aPrevenir.length) return;
+    const cle = `${selectedPhasage.id}:${aPrevenir.join(",")}`;
+    if (notifSituationRef.current === cle) return;
+    notifSituationRef.current = cle;
+    (async () => {
+      const { data: users } = await supabase.from("utilisateurs")
+        .select("email, role, actif").in("role", ["admin", "conducteur"]);
+      const dests = (users || [])
+        .filter(u => u.actif !== false && u.email && !String(u.email).toLowerCase().endsWith("@profero.local"))
+        .map(u => u.email);
+      if (!dests.length) return;
+      for (const seuil of aPrevenir) {
+        const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
+          <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
+            <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Facturation</div>
+            <div style="color:#fff;font-size:20px;font-weight:800">💶 Facture de situation à émettre</div>
+          </div>
+          <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px;font-size:14px;line-height:1.7">
+            <p style="margin:0 0 10px">Le chantier <strong>${escHtml(selectedChantier.nom)}</strong> a atteint
+            <strong>${Math.round(avancement || 0)} %</strong> d'avancement : la facture de situation du seuil
+            <strong>${seuil} %</strong> est prête à être émise.</p>
+            <p style="margin:0;color:#666">Une fois émise, validez l'étape « Facture de situation — ${seuil} % »
+            dans la frise du chantier (phase Travaux), avec le montant et la date — la facture peut y être jointe.</p>
+          </div>
+          <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
+        </div>`;
+        try {
+          const res = await fetch("/api/send-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: dests,
+              subject: `Facture de situation à émettre — ${selectedChantier.nom} (${seuil} %)`,
+              html,
+            }),
+          });
+          if (res.ok) await saveMetaPhasage({ [`situation_mail_${seuil}`]: new Date().toISOString() });
+        } catch { /* réessaiera à une prochaine ouverture de la fiche */ }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhasage?.id, avancement, seuilsSituations]);
   // Ouverture d'un document (URL signée) — fenêtre ouverte AVANT l'await pour
   // ne pas être bloqué par l'anti-popup.
   const ouvrirPieceJointeCV = async (pj) => {
@@ -2272,6 +2351,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
         <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected} statsGroupes={statsGroupesSelected}
+          avancementChantier={avancement} seuilsSituations={seuilsSituations}
           peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV}
           actionsEtape={{
             onValider: validerEtapeCV,

@@ -37,6 +37,8 @@ export const CYCLE_VIE_PHASES = [
   {
     id: "cv_devis", ordre: 1, nom: "Devis", couleur: "#5b9cf6",
     etapes: [
+      { id: "metres", nom: "Métrés", nature: "coche",
+        hint: "Coche manuelle une fois les métrés relevés sur site (joindre le relevé en preuve si besoin)." },
       { id: "chiffrage_realise", nom: "Chiffrage réalisé", nature: "auto",
         signal: "chiffrage_existant",
         hint: "Validé automatiquement dès que le chantier a un phasage chiffré (ouvrages avec heures ou prix)." },
@@ -197,6 +199,46 @@ export function etapesTravauxDepuisGroupes(chronoGroupes, statsParGroupe = {}) {
         hint: "Groupe d'exécution : terminé quand ses tâches sont à 100 %, validé quand son jalon de contrôle est réalisé (Point 2 b).",
       };
     });
+}
+
+// ── Factures de situation (phase Travaux) ───────────────────────────────────
+// Jalons de facturation intermédiaire indexés sur l'AVANCEMENT du chantier :
+// à chaque seuil franchi, la facture de situation correspondante devient
+// « à émettre » (prete: true) — signalée, jamais bloquante. Étapes de nature
+// "coche" : validées à l'émission (montant + date), la facture peut être
+// jointe en preuve et envoyée par email depuis la frise comme toute pièce.
+// L'état vit dans meta.cycle_vie_etapes sous les ids situation_<seuil>.
+// Les seuils sont RÉGLABLES dans Admin → Taux horaires (planning_config,
+// clé "situations_seuils", forme { seuils: [25, 50, …] }) ; défaut ci-dessous.
+export const SEUILS_SITUATIONS = [25, 50, 75, 100];
+
+// Nettoie une liste de seuils (nombres entiers 1-100, uniques, croissants).
+export function normaliserSeuilsSituations(seuils) {
+  const liste = (Array.isArray(seuils) ? seuils : [])
+    .map(s => Math.round(parseFloat(s) || 0))
+    .filter(s => s >= 1 && s <= 100);
+  const uniques = [...new Set(liste)].sort((a, b) => a - b);
+  return uniques.length ? uniques : [...SEUILS_SITUATIONS];
+}
+
+export function etapesSituationsTravaux(avancement, seuils = SEUILS_SITUATIONS) {
+  const avNum = parseFloat(avancement);
+  const av = Number.isFinite(avNum) ? Math.max(0, Math.min(100, avNum)) : null;
+  return normaliserSeuilsSituations(seuils).map(seuil => ({
+    id: `situation_${seuil}`,
+    nom: `Facture de situation — ${seuil} %`,
+    nature: "coche",
+    phaseId: "cv_travaux",
+    seuil,
+    prete: av != null && av >= seuil, // seuil franchi et pas encore émise → à émettre
+    champs: [
+      { id: "montant", nom: "Montant (€ HT)", type: "nombre" },
+      { id: "date", nom: "Date d'émission", type: "date" },
+    ],
+    hint: av != null && av >= seuil
+      ? `Avancement ${Math.round(av)} % — facture de situation à émettre.`
+      : `À émettre quand l'avancement atteint ${seuil} %${av != null ? ` (actuel : ${Math.round(av)} %)` : ""}.`,
+  }));
 }
 
 // ── Stockage dans phasages.plan_travaux.meta (Prompts 5 et 6) ───────────────
