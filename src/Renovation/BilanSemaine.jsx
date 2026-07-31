@@ -892,10 +892,6 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             </tr>
             ${lotsRows}
           </table>` : ""}
-          ${(fin.warnings || []).length > 0 ? `
-          <div style="margin-top:5pt;">
-            ${fin.warnings.map(w => `<div class="remarque-row" style="font-size:8.5pt;color:${ORANGE};margin:0 0 2pt;line-height:1.4;">⚠ ${esc(w.message)}</div>`).join("")}
-          </div>` : ""}
         </div>`;
     };
     const titreSectionGlobal = (label, color) => `<div class="sect-title" style="color:${color};">${label}</div>`;
@@ -1089,20 +1085,6 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     </tr>
   </table>
   ${syntheseHTML}
-  ${(() => {
-    // Points d'attention (étape 5) : mêmes détections que l'encart de la page,
-    // limitées aux chantiers inclus ; les points financiers suivent le drapeau
-    // includeFinances.
-    const pts = pointsAttention.filter(pt => idsInclus.includes(pt.cId) && (includeFinances || !pt.finance));
-    if (pts.length === 0) return "";
-    return `
-    <div class="synthese" style="border:1pt solid ${ORANGE};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
-      <div style="background:${ORANGE};color:#fff;font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:6pt 14pt;">Points d'attention</div>
-      <div style="padding:9pt 14pt;">
-        ${pts.map(pt => `<div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 4pt;padding-left:14pt;position:relative;line-height:1.45;"><span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span><strong style="color:${INK};">${esc(pt.nom)}</strong> — ${esc(pt.message)}</div>`).join("")}
-      </div>
-    </div>`;
-  })()}
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun chantier sélectionné pour cette semaine.</div>`}
   ${includeFinances ? `
   <div style="page-break-before:always;">
