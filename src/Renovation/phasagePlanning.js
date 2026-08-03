@@ -6,6 +6,7 @@
 // de PhasageV2, incident du 2026-06-03) et ne touche qu'UN champ d'UNE tâche.
 
 import { supabase } from "../supabase";
+import { statsGroupeChrono } from "../chantierFinance";
 
 // Heures travaillées par jour (horaires affichés aux ouvriers : 7h30 → 17h30
 // lun-mer, 7h30 → 16h30 jeu-ven, moins 1 h de pause). Ajuster ici si les
@@ -26,6 +27,120 @@ export async function loadPhasagePourPlanning(chantierId) {
     chronoGroupes: Array.isArray(data.plan_travaux?.meta?.chrono_groupes)
       ? data.plan_travaux.meta.chrono_groupes : [],
   };
+}
+
+// ─── OPÉRATION : chargement groupé des phasages des chantiers frères ─────────
+// Pour la vue Chemin de fer : à partir des chantiers d'une opération (objets
+// de planning_config/chantiers, déjà filtrés par operation_id et dans l'ordre
+// du référentiel), charge leurs phasages en UNE requête (.in, patron
+// BilanSemaine) et rend une structure par logement prête à afficher.
+// LECTURE SEULE — aucune écriture, aucun state.
+//
+// Retour : {
+//   chantiers: [{
+//     chantier,            // l'objet chantier tel quel { id, nom, couleur, … }
+//     statut,              // "ok" | "v1" (plan_travaux legacy, non représentable)
+//                          //        | "sans_phasage"
+//     groupes: [{ id, nom, couleur, ordre, groupe_type_id, taches: […],
+//                 debut, fin,            // min/max des date_prevue ("" si aucune)
+//                 nbTaches, nbTachesDatees,
+//                 heuresEstimees, heuresVendues,
+//                 avancement, termine }],// statsGroupeChrono (pondéré h. vendues)
+//     tachesHorsGroupe,    // tâches sans chrono_groupe_id reconnu (non barrées)
+//     bornes: { debut, fin } // bornes datées du logement (null si rien de daté)
+//   }],
+//   bornes: { debut, fin },  // bornes de l'OPÉRATION (null si rien de daté)
+// }
+const isISO = (d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}/.test(d);
+
+export async function loadPhasagesOperation(chantiersOperation) {
+  const list = (Array.isArray(chantiersOperation) ? chantiersOperation : []).filter(c => c && c.id);
+  const vide = { chantiers: [], bornes: { debut: null, fin: null } };
+  if (list.length === 0) return vide;
+
+  const { data, error } = await supabase.from("phasages")
+    .select("id, chantier_id, ouvrages, plan_travaux")
+    .in("chantier_id", list.map(c => c.id));
+  if (error) { console.warn("loadPhasagesOperation:", error.message); return vide; }
+
+  // Index par chantier_id — en cas de doublon (deux phasages sur le même
+  // chantier, cas réel réparé par la synchro Admin), on garde le premier.
+  const parId = {};
+  (data || []).forEach(ph => { if (!parId[ph.chantier_id]) parId[ph.chantier_id] = ph; });
+
+  let debutOp = null, finOp = null;
+  const rows = list.map(c => {
+    const ph = parId[c.id];
+    const base = { chantier: c, groupes: [], tachesHorsGroupe: [], bornes: { debut: null, fin: null } };
+    if (!ph) return { ...base, statut: "sans_phasage" };
+
+    // V2 exploitable ⟺ ouvrages non vide (pas de champ data_version : c'est
+    // LE test utilisé partout — Equipe, BilanSemaine, DashboardAnalyse).
+    const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+    if (ouvrages.length === 0) return { ...base, statut: "v1" };
+
+    const groupesMeta = Array.isArray(ph.plan_travaux?.meta?.chrono_groupes)
+      ? ph.plan_travaux.meta.chrono_groupes : [];
+    const groupeIds = new Set(groupesMeta.map(g => g.id));
+
+    // Projection légère d'une tâche : ce que le chemin de fer affiche (barre,
+    // survol) sans traîner tout le phasage.
+    const projette = (t) => ({
+      id: t.id,
+      nom: t.nom || "",
+      date_prevue: isISO(t.date_prevue) ? t.date_prevue.slice(0, 10) : "",
+      avancement: Math.max(0, Math.min(100, parseInt(t.avancement) || 0)),
+      heures_estimees: parseFloat(t.heures_estimees) || 0,
+      heures_vendues: parseFloat(t.heures_vendues) || 0,
+      chrono_groupe_id: t.chrono_groupe_id || null,
+      chrono_ordre: t.chrono_ordre ?? null,
+      ouvriers: Array.isArray(t.ouvriers) ? t.ouvriers : [],
+      externe: !!t.externe,
+    });
+    const toutes = ouvrages.flatMap(o => (o?.taches || []).map(projette));
+
+    let debutCh = null, finCh = null;
+    const majBornes = (d) => {
+      if (!d) return;
+      if (!debutCh || d < debutCh) debutCh = d;
+      if (!finCh || d > finCh) finCh = d;
+    };
+
+    const groupes = groupesMeta
+      .map(g => {
+        const taches = toutes
+          .filter(t => t.chrono_groupe_id === g.id)
+          .sort((a, b) => (a.chrono_ordre ?? 0) - (b.chrono_ordre ?? 0));
+        const datees = taches.map(t => t.date_prevue).filter(Boolean).sort();
+        datees.forEach(majBornes);
+        return {
+          id: g.id,
+          nom: g.nom || "",
+          couleur: g.couleur || "#5b8af5",
+          ordre: g.ordre ?? 0,
+          groupe_type_id: g.groupe_type_id || null,
+          taches,
+          debut: datees[0] || "",
+          fin: datees[datees.length - 1] || "",
+          nbTaches: taches.length,
+          nbTachesDatees: datees.length,
+          heuresEstimees: taches.reduce((s, t) => s + t.heures_estimees, 0),
+          heuresVendues: taches.reduce((s, t) => s + t.heures_vendues, 0),
+          ...statsGroupeChrono(g.id, ouvrages), // { count, avancement, termine }
+        };
+      })
+      .sort((a, b) => a.ordre - b.ordre);
+
+    const tachesHorsGroupe = toutes.filter(t => !t.chrono_groupe_id || !groupeIds.has(t.chrono_groupe_id));
+    tachesHorsGroupe.map(t => t.date_prevue).filter(Boolean).forEach(majBornes);
+
+    if (debutCh && (!debutOp || debutCh < debutOp)) debutOp = debutCh;
+    if (finCh && (!finOp || finCh > finOp)) finOp = finCh;
+
+    return { ...base, statut: "ok", groupes, tachesHorsGroupe, bornes: { debut: debutCh, fin: finCh } };
+  });
+
+  return { chantiers: rows, bornes: { debut: debutOp, fin: finOp } };
 }
 
 // Convertit (week_id "YYYY-Wnn", jour "Lundi"…) en date ISO "YYYY-MM-DD".
