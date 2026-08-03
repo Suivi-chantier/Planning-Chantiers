@@ -9,7 +9,7 @@
 // Chrono — aucune donnée nouvelle, aucun champ « zone » (la zone = le
 // chantier). Données chargées par loadPhasagesOperation (une requête).
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   TrainFront, FileDown, RefreshCw, X, Home, Settings, CalendarDays, Calendar,
 } from "lucide-react";
@@ -36,12 +36,21 @@ const numSemaine = (d) => {
   return 1 + Math.round(((x - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
 };
 
-const LABEL_W = 190;
 const ROW_H = 46;
 const HEADER_H = 44;
 
 export default function PageCheminDeFer({ chantiers = [], T, branch = "renovation", onOuvrirAdmin }) {
   const acc = getBranchAccent(branch);
+
+  // Mobile : colonne des logements resserrée, la vue reste secondaire mais ne
+  // casse pas (défilement horizontal + en-têtes sticky conservés).
+  const [narrow, setNarrow] = useState(() => window.innerWidth < 640);
+  useEffect(() => {
+    const h = () => setNarrow(window.innerWidth < 640);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  const LABEL_W = narrow ? 120 : 190;
 
   // Référentiels (globaux, un seul chargement)
   const [operations, setOperations] = useState([]);
@@ -148,6 +157,30 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
   const totalW = scale.totalDays * DAY_PX;
   const todayX = diffDays(scale.dateMin, scale.today) * DAY_PX;
   const todayVisible = todayX >= 0 && todayX <= totalW;
+  const todayISO = isoDay(scale.today);
+
+  // Retard : le groupe aurait dû être fini (fin passée) et ne l'est pas.
+  // Aucun nouveau calcul : on compare la date du jour à l'avancement existant.
+  const enRetard = (g) => !!g.debut && !!g.fin && g.fin < todayISO && !g.termine && g.avancement < 100;
+
+  // Groupes à tâches mais sans AUCUNE date : impossibles à placer sur la
+  // frise → zone « Non planifié » en marge (jamais ignorés silencieusement).
+  const nonPlanifies = useMemo(() =>
+    (data?.chantiers || []).flatMap(row =>
+      row.statut === "ok"
+        ? (row.groupes || []).filter(g => g.nbTaches > 0 && !g.debut).map(g => ({ chantier: row.chantier, groupe: g }))
+        : []
+    ), [data]);
+
+  // Au chargement (et au changement de zoom) : centre la vue sur aujourd'hui.
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !data) return;
+    // La colonne des logements est sticky : la fenêtre de temps visible
+    // commence après elle. On place aujourd'hui au premier tiers.
+    el.scrollLeft = Math.max(0, todayX - (el.clientWidth - LABEL_W) / 3);
+  }, [data, zoom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Équipe par défaut d'un groupe (même résolution que le Phasage :
   //    groupe_type_id → groupe type → equipe_id → équipe) ────────────────────
@@ -228,6 +261,14 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
         ${legende.map(l => `<span style="display:inline-flex;align-items:center;white-space:nowrap;"><span style="display:inline-block;width:9pt;height:9pt;background:${l.couleur};border-radius:2pt;margin-right:3pt;"></span>${esc(l.nom)}</span>`).join("")}
       </div>`;
 
+    const nonPlanifiesHTML = nonPlanifies.length === 0 ? "" : `
+      <div style="margin-top:12pt;padding:8pt 12pt;background:#fff8dc;border:1pt dashed #d4a017;border-radius:4pt;break-inside:avoid;">
+        <div style="font-size:8pt;font-weight:700;color:#9a7a00;letter-spacing:.4pt;text-transform:uppercase;margin-bottom:6pt;">Non planifié (${nonPlanifies.length}) — aucune tâche datée</div>
+        <ul style="margin:0;padding:0 0 0 14pt;font-size:8pt;color:#333;">
+          ${nonPlanifies.map(({ chantier: c2, groupe: g2 }) => `<li style="margin-bottom:2pt;">${esc(g2.nom)} <span style="color:#888;">— ${esc(c2.nom)} · ${g2.nbTaches} tâche${g2.nbTaches > 1 ? "s" : ""}</span></li>`).join("")}
+        </ul>
+      </div>`;
+
     return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <title>Chemin de fer ${esc(titre)}</title>
 <style>
@@ -277,6 +318,7 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
     </tbody>
   </table>
   ${legendeHTML}
+  ${nonPlanifiesHTML}
 </body></html>`;
   };
 
@@ -305,7 +347,7 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
       ["Tâches", `${g.nbTachesDatees}/${g.nbTaches} datée${g.nbTachesDatees > 1 ? "s" : ""}`],
       ["Heures", `${g.heuresVendues || g.heuresEstimees || 0} h ${g.heuresVendues ? "vendues" : "estimées"}`],
       ["Équipe", eq ? `${eq.nom}${eq.externe ? " (externe)" : ""}` : "—"],
-      ["Avancement", `${g.avancement}%${g.termine ? " · terminé" : ""}`],
+      ["Avancement", `${g.avancement}%${g.termine ? " · terminé" : enRetard(g) ? " · EN RETARD" : ""}`],
     ];
     const busy = saving || loading;
     const shiftBtns = [
@@ -449,7 +491,7 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
       {/* ── La frise ── */}
       {data && chantiersOp.length > 0 && (
         <>
-          <div style={{ ...card, overflow: "auto", maxHeight: "calc(100vh - 220px)", position: "relative" }}>
+          <div ref={scrollRef} style={{ ...card, overflow: "auto", maxHeight: "calc(100vh - 220px)", position: "relative" }}>
             <div style={{ width: LABEL_W + totalW, minWidth: "100%" }}>
               {/* En-tête : mois + semaines (sticky top) */}
               <div style={{ position: "sticky", top: 0, zIndex: 3, display: "flex", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
@@ -540,15 +582,16 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
                           const w = Math.max((diffDays(parseD(g.debut), parseD(g.fin)) + 1) * DAY_PX - 2, 8);
                           const eq = equipePourGroupe(g);
                           const isSel = detail && detail.chantierId === c.id && detail.groupeId === g.id;
+                          const retard = enRetard(g);
                           return (
                             <div key={g.id}
                               onClick={() => setDetail(isSel ? null : { chantierId: c.id, groupeId: g.id })}
-                              title={`${g.nom} — ${fmtFR(g.debut)} → ${fmtFR(g.fin)} · ${g.avancement}%${eq ? ` · ${eq.nom}` : ""}`}
+                              title={`${g.nom} — ${fmtFR(g.debut)} → ${fmtFR(g.fin)} · ${g.avancement}%${retard ? " · EN RETARD" : ""}${eq ? ` · ${eq.nom}` : ""}`}
                               style={{
                                 position: "absolute", left, top: (ROW_H - 26) / 2, width: w, height: 26,
                                 background: g.couleur, borderRadius: 6, cursor: "pointer",
-                                border: isSel ? `2px solid ${T.text}` : "2px solid transparent",
-                                boxShadow: "0 1px 3px rgba(0,0,0,.25)",
+                                border: isSel ? `2px solid ${T.text}` : retard ? "2px solid #e15a5a" : "2px solid transparent",
+                                boxShadow: retard ? "0 0 0 1px rgba(225,90,90,.35), 0 1px 3px rgba(0,0,0,.25)" : "0 1px 3px rgba(0,0,0,.25)",
                                 display: "flex", alignItems: "center", overflow: "hidden",
                               }}>
                               {/* Avancement : liseré bas */}
@@ -560,7 +603,7 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
                                   padding: "0 7px", fontSize: FONT.xs.size, fontWeight: 800, color: "#fff",
                                   textShadow: "0 0 3px rgba(0,0,0,.55)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                                 }}>
-                                  {g.nom}{g.avancement > 0 ? ` · ${g.avancement}%` : ""}
+                                  {retard ? "⚠ " : ""}{g.nom}{g.avancement > 0 ? ` · ${g.avancement}%` : ""}
                                 </span>
                               )}
                             </div>
@@ -573,6 +616,38 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
               </div>
             </div>
           </div>
+
+          {/* Zone « Non planifié » : les groupes qu'aucune date ne permet de
+              placer sur la frise. Clic → carte de détail, comme une barre. */}
+          {nonPlanifies.length > 0 && (
+            <div style={{
+              marginTop: 10, padding: "10px 14px", borderRadius: RADIUS.lg,
+              border: "1px dashed #d4a017", background: "rgba(212,160,23,0.07)",
+            }}>
+              <div style={{ fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: "#b8860b", marginBottom: 8 }}>
+                Non planifié ({nonPlanifies.length}) — aucune tâche datée
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                {nonPlanifies.map(({ chantier: c, groupe: g }) => {
+                  const isSel = detail && detail.chantierId === c.id && detail.groupeId === g.id;
+                  return (
+                    <button key={`${c.id}_${g.id}`} onClick={() => setDetail(isSel ? null : { chantierId: c.id, groupeId: g.id })}
+                      title={`${g.nbTaches} tâche${g.nbTaches > 1 ? "s" : ""} sans date — à dater depuis la vue Chronologique du chantier`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px",
+                        borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: FONT.xs.size + 1,
+                        border: isSel ? `1.5px solid ${T.text}` : `1px solid ${T.border}`,
+                        background: T.surface, color: T.text, fontWeight: 700,
+                      }}>
+                      <span style={{ width: 9, height: 9, borderRadius: 3, background: g.couleur, display: "inline-block" }} />
+                      {g.nom}
+                      <span style={{ color: T.textMuted, fontWeight: 600 }}>· {c.nom}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Détail du groupe cliqué */}
           {detailGroupe}
@@ -590,6 +665,10 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: T.textSub }}>
                 <span style={{ width: 2, height: 12, background: "#e15a5a", display: "inline-block" }} />
                 Aujourd'hui
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, border: "2px solid #e15a5a", display: "inline-block" }} />
+                En retard (fin passée, pas terminé)
               </span>
             </div>
           )}

@@ -2622,6 +2622,20 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     if (i < 0) return;
     updateChantier(i, { operation_id: operationId || "" });
   };
+  // Ordre des logements DANS une opération = leur ordre dans le référentiel
+  // chantiers (celui que suit le chemin de fer). Monter/descendre échange les
+  // positions de deux logements frères dans le tableau global — les chantiers
+  // intercalés d'autres opérations ne bougent pas.
+  const moveChantierDansOperation = (operationId, chantierId, dir) => {
+    const freres = chantiers.map((c, i) => ({ c, i })).filter(x => x.c.operation_id === operationId);
+    const pos = freres.findIndex(x => x.c.id === chantierId);
+    const cible = pos + dir;
+    if (pos < 0 || cible < 0 || cible >= freres.length) return;
+    const a = [...chantiers];
+    [a[freres[pos].i], a[freres[cible].i]] = [a[freres[cible].i], a[freres[pos].i]];
+    setChantiers(a);
+    saveConfig("chantiers", a);
+  };
 
   // ─── BACKUP JSON ─────────────────────────────────────────────────────────
   const doBackup = async () => {
@@ -4470,10 +4484,23 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   }
                 </div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:10}}>
-                  {rattaches.map(c=>(
+                  {rattaches.map((c,ri)=>(
                     <span key={c.id} style={{display:"inline-flex",alignItems:"center",gap:6,border:`1px solid ${T.border}`,borderRadius:999,padding:"4px 10px",fontSize:FONT.xs.size+1,color:T.text}}>
+                      <span style={{color:T.textMuted,fontWeight:700,fontSize:FONT.xs.size}}>{ri+1}.</span>
                       <span style={{width:8,height:8,borderRadius:"50%",background:c.couleur,display:"inline-block"}}/>
                       {c.nom}
+                      {rattaches.length>1&&(
+                        <span style={{display:"inline-flex",flexDirection:"column",gap:0}}>
+                          <button className="ib" onClick={()=>moveChantierDansOperation(o.id,c.id,-1)} disabled={ri===0}
+                            title="Monter (ordre des lignes du chemin de fer)" style={{padding:0,height:10,opacity:ri===0?.3:1}}>
+                            <Icon as={ChevronUp} size={10}/>
+                          </button>
+                          <button className="ib" onClick={()=>moveChantierDansOperation(o.id,c.id,1)} disabled={ri===rattaches.length-1}
+                            title="Descendre" style={{padding:0,height:10,opacity:ri===rattaches.length-1?.3:1}}>
+                            <Icon as={ChevronDown} size={10}/>
+                          </button>
+                        </span>
+                      )}
                       <button className="ib" onClick={()=>setChantierOperation(c.id,"")} title="Détacher de l'opération">
                         <Icon as={X} size={11}/>
                       </button>
