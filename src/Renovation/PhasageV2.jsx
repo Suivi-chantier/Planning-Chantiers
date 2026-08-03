@@ -8,7 +8,7 @@ import {
   Pencil, Settings, FileDown, GanttChartSquare, LayoutGrid,
   Banknote, HardHat, Receipt, TrendingUp, TrendingDown, Percent, Clock, Target,
   FileText, User, Calendar, Link2, Car, ListOrdered, GripVertical, FolderPlus, Flag,
-  ChevronUp, ChevronRight, Filter, CalendarClock, ClipboardCheck,
+  ChevronUp, ChevronRight, Filter, CalendarClock, ClipboardCheck, Network,
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import {
@@ -21,6 +21,9 @@ import ControleGroupe from "./ControleGroupe";
 // État de contrôle d'un groupe (badge signalé, jamais bloquant).
 import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
+// Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
+// l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
+import { calculerRangs, predecesseursEffectifs } from "./rang";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
 // Ce composant ne calcule plus rien — il lit les Donnee du module et garde la présentation.
@@ -2008,6 +2011,113 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     }
   };
 
+  // ── Export PDF Rang (Point 4a) — l'ordre logique par rangs ──────────────────
+  // Même patron que les autres exports : HTML → fenêtre → print. Portrait A4.
+  const buildRangHTML = () => {
+    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
+    const dateGen = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const titre = chantier?.nom || chantierId;
+
+    const { parRang, sources, incoherences } = calculerRangs(ouvrages, chronoGroupes);
+    const effectifs = predecesseursEffectifs(ouvrages, chronoGroupes);
+    const index = new Map();
+    ouvrages.forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) index.set(String(t.id), t); }));
+    const gById = new Map((chronoGroupes || []).map(g => [g.id, g]));
+    const nomDe = (id) => index.get(String(id))?.nom || "(tâche supprimée)";
+
+    if (parRang.length === 0) {
+      return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rang ${esc(titre)}</title></head><body style="font-family:Arial;padding:40pt;text-align:center;color:#666;">Aucune tâche à ranger — organise d'abord la vue Chronologique.</body></html>`;
+    }
+
+    const bandes = parRang.map((ids, i) => {
+      const visibles = ids.filter(id => sources.get(id) !== "hors_chaine");
+      if (visibles.length === 0) return "";
+      const lignes = visibles.map(id => {
+        const t = index.get(id);
+        const g = gById.get(t?.chrono_groupe_id);
+        const preds = effectifs.get(id)?.ids || [];
+        const src = sources.get(id);
+        const h = parseFloat(t?.heures_vendues) || parseFloat(t?.heures_estimees) || 0;
+        return `<tr style="break-inside:avoid;">
+          <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:8pt;white-space:nowrap;">
+            <span style="display:inline-block;width:8pt;height:8pt;background:${g?.couleur || "#888"};border-radius:2pt;vertical-align:middle;margin-right:5pt;"></span>
+            <strong>${esc(t?.nom || "(sans nom)")}</strong>
+          </td>
+          <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:7.5pt;color:#666;white-space:nowrap;">${esc(g?.nom || "à classer")}</td>
+          <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:7.5pt;color:#666;text-align:right;white-space:nowrap;">${h ? `${h} h` : "—"}</td>
+          <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:7.5pt;color:#666;">
+            ${preds.length === 0 ? "<em>aucun prédécesseur</em>" : `← ${preds.map(nomDe).map(esc).join(", ")}`}
+            <span style="color:#999;"> (${src === "explicite" ? "saisi" : "auto"})</span>
+          </td>
+        </tr>`;
+      }).join("");
+      return `<div style="break-inside:avoid;margin-bottom:8pt;">
+        <div style="padding:4pt 8pt;background:#f3f4f6;border-left:3pt solid #1a1f2e;font-size:8.5pt;font-weight:800;color:#1a1f2e;">
+          Rang ${i + 1}${visibles.length > 1 ? ` — ${visibles.length} tâches en parallèle` : ""}
+        </div>
+        <table style="width:100%;border-collapse:collapse;">${lignes}</table>
+      </div>`;
+    }).join("");
+
+    const { cycles, bloquees, ordresContradictoires, introuvables } = incoherences;
+    const incoHTML = (cycles.length + bloquees.length + ordresContradictoires.length + introuvables.length) === 0 ? "" : `
+      <div style="margin-top:10pt;padding:8pt 12pt;background:#fdf0f0;border:1pt dashed #e15a5a;border-radius:4pt;break-inside:avoid;">
+        <div style="font-size:8pt;font-weight:700;color:#b34040;letter-spacing:.4pt;text-transform:uppercase;margin-bottom:6pt;">Incohérences détectées</div>
+        <ul style="margin:0;padding:0 0 0 14pt;font-size:8pt;color:#333;">
+          ${cycles.map(c => `<li>Cycle : ${c.map(nomDe).map(esc).join(" → ")} → ${esc(nomDe(c[0]))}</li>`).join("")}
+          ${bloquees.map(id => `<li>« ${esc(nomDe(id))} » : bloquée par un cycle en amont</li>`).join("")}
+          ${ordresContradictoires.map(x => `<li>« ${esc(nomDe(x.tacheId))} » est placée avant son prédécesseur « ${esc(nomDe(x.predId))} »</li>`).join("")}
+          ${introuvables.map(x => `<li>« ${esc(nomDe(x.tacheId))} » référence une tâche supprimée (ignorée)</li>`).join("")}
+        </ul>
+      </div>`;
+
+    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>Rang ${esc(titre)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,Helvetica,sans-serif;color:#1a1f2e;font-size:9pt;}
+  @page{size:A4;margin:12mm;}
+  @page {
+    @bottom-left   { content: "Profero Rénovation — Ordre logique (rangs)"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-center { content: "${esc(titre)}"; font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+    @bottom-right  { content: "Page " counter(page) " / " counter(pages); font-size: 8pt; color: #999; font-family: Arial, sans-serif; }
+  }
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body>
+  <table style="margin-bottom:10pt;width:100%;border-collapse:collapse;background:#0a0a0a;">
+    <tr>
+      <td style="padding:8pt 12pt;vertical-align:middle;width:60pt;">
+        <img src="${logoUrl}" alt="Profero" style="height:24pt;object-fit:contain;display:block;"/>
+      </td>
+      <td style="padding:8pt 6pt;vertical-align:middle;white-space:nowrap;">
+        <div style="color:#f5c400;font-size:6.5pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;">Ordre logique — méthode des rangs</div>
+        <div style="color:#fff;font-size:12pt;font-weight:800;line-height:1.1;margin-top:1pt;">${esc(titre)}</div>
+      </td>
+      <td style="padding:8pt 10pt;vertical-align:middle;text-align:right;color:rgba(255,255,255,.7);font-size:8pt;white-space:nowrap;">
+        Les tâches d'un même rang peuvent se faire en même temps · Édité le ${dateGen}
+      </td>
+    </tr>
+  </table>
+  ${bandes}
+  ${incoHTML}
+</body></html>`;
+  };
+
+  const exportRangPDF = () => {
+    try {
+      const html = buildRangHTML();
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Rang-${chantier?.nom || chantierId}`;
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+    } catch (e) {
+      alert("Erreur génération PDF Rang : " + (e.message || e));
+    }
+  };
+
   // ── Statut sauvegarde ──
   const statusColor = autoSaveStatus === "saved"  ? "#22c55e"
                     : autoSaveStatus === "saving" ? acc.accent
@@ -2195,6 +2305,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               {[
                 { id: "list",         icon: LayoutGrid,        label: "Liste" },
                 { id: "chrono",       icon: ListOrdered,       label: "Chronologique" },
+                { id: "rang",         icon: Network,           label: "Rang" },
                 { id: "gantt",        icon: GanttChartSquare,  label: "Gantt" },
                 { id: "previsionnel", icon: Calendar,          label: "Prévisionnel" },
               ].map(opt => {
@@ -2216,8 +2327,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 );
               })}
             </div>
-            <button onClick={viewMode === "gantt" ? exportGanttPDF : viewMode === "previsionnel" ? exportPrevisionnelPDF : viewMode === "chrono" ? exportChronoPDF : exportRapportPDF}
-              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : viewMode === "previsionnel" ? "Exporter le prévisionnel client en PDF" : viewMode === "chrono" ? "Exporter le planning chantier en PDF (par groupe)" : "Exporter le phasage en PDF"}
+            <button onClick={viewMode === "gantt" ? exportGanttPDF : viewMode === "previsionnel" ? exportPrevisionnelPDF : viewMode === "chrono" ? exportChronoPDF : viewMode === "rang" ? exportRangPDF : exportRapportPDF}
+              title={viewMode === "gantt" ? "Exporter le Gantt en PDF (paysage)" : viewMode === "previsionnel" ? "Exporter le prévisionnel client en PDF" : viewMode === "chrono" ? "Exporter le planning chantier en PDF (par groupe)" : viewMode === "rang" ? "Exporter l'ordre logique par rangs en PDF" : "Exporter le phasage en PDF"}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 6,
                 padding: "8px 14px", borderRadius: RADIUS.md,
@@ -2228,7 +2339,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               onMouseEnter={e => { e.currentTarget.style.color = acc.accent; e.currentTarget.style.borderColor = acc.border; }}
               onMouseLeave={e => { e.currentTarget.style.color = T.textSub; e.currentTarget.style.borderColor = T.border; }}>
               <Icon as={FileDown} size={14}/>
-              PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : viewMode === "chrono" ? "Planning" : ""}
+              PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : viewMode === "chrono" ? "Planning" : viewMode === "rang" ? "Rang" : ""}
             </button>
             <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
               style={{
@@ -2473,6 +2584,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           avancementOuvrage={avancementOuvrage}
           tacheHeuresReelles={tacheHeuresReelles}
           crWindowPourTache={crWindowPourTache}
+          onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
+        />
+      ) : viewMode === "rang" ? (
+        <RangView
+          ouvrages={ouvrages} groupes={chronoGroupes} acc={acc} T={T}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
         />
       ) : (
@@ -3808,6 +3924,184 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // affectation + ordre des tâches → sur la tâche (chrono_groupe_id /
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
+
+// ─── VUE RANG (Point 4a) — l'ordre logique déduit des prédécesseurs ──────────
+// Une bande par rang : les tâches d'une même bande peuvent se faire EN MÊME
+// TEMPS. Le chaînage vient du calcul pur de rang.js (défaut déduit de la
+// Chrono, exceptions via tache.predecesseurs — édition au Prompt 4).
+// LECTURE seule : le clic sur une tâche ouvre sa modale (comme le Gantt).
+function RangView({ ouvrages, groupes, acc, T, onClickTache }) {
+  const calc = useMemo(() => calculerRangs(ouvrages, groupes), [ouvrages, groupes]);
+  const effectifs = useMemo(() => predecesseursEffectifs(ouvrages, groupes), [ouvrages, groupes]);
+  const index = useMemo(() => {
+    const m = new Map();
+    (ouvrages || []).forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) m.set(String(t.id), { tache: t, ouvrageId: o.id }); }));
+    return m;
+  }, [ouvrages]);
+  const gById = useMemo(() => new Map((groupes || []).map(g => [g.id, g])), [groupes]);
+
+  const { parRang, sources, incoherences } = calc;
+  const { cycles, bloquees, ordresContradictoires, introuvables } = incoherences;
+  const nbInco = cycles.length + bloquees.length + ordresContradictoires.length + introuvables.length;
+  const horsChaine = [...sources.entries()].filter(([, s]) => s === "hors_chaine").map(([id]) => id);
+
+  const nomDe = (id) => index.get(String(id))?.tache?.nom || "(tâche supprimée)";
+  const clic = (id) => { const e = index.get(String(id)); if (e) onClickTache(e.ouvrageId, e.tache.id); };
+
+  // Puce cliquable vers une tâche (bandeau d'incohérences).
+  const puce = (id) => (
+    <button key={id} onClick={() => clic(id)} title="Ouvrir la tâche"
+      style={{
+        display: "inline-flex", alignItems: "center", padding: "1px 8px", borderRadius: 999,
+        border: `1px solid ${T.border}`, background: T.surface, color: T.text,
+        fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
+      }}>{nomDe(id)}</button>
+  );
+
+  // Carte d'une tâche dans sa bande de rang.
+  const carte = (id) => {
+    const e = index.get(String(id));
+    if (!e) return null;
+    const t = e.tache;
+    const g = gById.get(t.chrono_groupe_id);
+    const src = sources.get(String(id));
+    const preds = effectifs.get(String(id))?.ids || [];
+    const h = parseFloat(t.heures_vendues) || parseFloat(t.heures_estimees) || 0;
+    return (
+      <div key={id} onClick={() => clic(id)}
+        title={preds.length ? `Après : ${preds.map(nomDe).join(", ")}` : "Aucun prédécesseur"}
+        style={{
+          borderLeft: `4px solid ${g?.couleur || "#888"}`, border: `1px solid ${T.border}`,
+          borderLeftWidth: 4, borderLeftColor: g?.couleur || "#888",
+          borderRadius: RADIUS.sm, background: T.surface, padding: "7px 10px",
+          minWidth: 180, maxWidth: 280, cursor: "pointer",
+        }}>
+        <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {t.nom || "(sans nom)"}
+        </div>
+        <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {g?.nom || "à classer"}{h ? ` · ${fmtH(h)}` : ""}
+        </div>
+        <div style={{ fontSize: FONT.xs.size, marginTop: 4, display: "flex", alignItems: "baseline", gap: 5, minWidth: 0 }}>
+          <span style={{
+            flexShrink: 0, padding: "0 6px", borderRadius: 999, fontWeight: 800, fontSize: FONT.xs.size - 1,
+            background: src === "explicite" ? acc.bg10 : "transparent",
+            color: src === "explicite" ? acc.accent : T.textMuted,
+            border: `1px solid ${src === "explicite" ? acc.border : T.border}`,
+          }} title={src === "explicite" ? "Prédécesseurs saisis sur la tâche" : "Chaînage par défaut, déduit de l'ordre de la Chronologique"}>
+            {src === "explicite" ? "saisi" : "auto"}
+          </span>
+          <span style={{ color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {preds.length === 0 ? "aucun prédécesseur" : `← ${preds.map(nomDe).join(", ")}`}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  if (parRang.length === 0 && horsChaine.length === 0) {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 30 }}>
+        <div style={{ textAlign: "center", color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.7 }}>
+          <Icon as={Network} size={30} style={{ color: T.textMuted }} /><br />
+          Aucune tâche à ranger.<br />
+          Organise d'abord la vue <strong>Chronologique</strong> (groupes + ordre) : le chaînage par défaut s'en déduit tout seul.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: "14px 18px", minHeight: 0 }}>
+      {/* Message d'intention + légende des badges */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+        <span><strong style={{ color: T.text }}>Les tâches d'un même rang peuvent se faire en même temps.</strong></span>
+        <span><span style={{ padding: "0 6px", borderRadius: 999, border: `1px solid ${T.border}`, color: T.textMuted, fontWeight: 800, fontSize: FONT.xs.size - 1 }}>auto</span> = déduit de l'ordre de la Chrono</span>
+        <span><span style={{ padding: "0 6px", borderRadius: 999, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: FONT.xs.size - 1 }}>saisi</span> = prédécesseurs renseignés</span>
+      </div>
+
+      {/* Bandeau d'incohérences */}
+      {nbInco > 0 && (
+        <div style={{
+          border: "1px dashed #e15a5a", background: "rgba(225,90,90,0.06)",
+          borderRadius: RADIUS.md, padding: "10px 14px", marginBottom: 14,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: "#c04747", marginBottom: 8 }}>
+            <Icon as={AlertTriangle} size={13} />
+            {nbInco} incohérence{nbInco > 1 ? "s" : ""} détectée{nbInco > 1 ? "s" : ""}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+            {cycles.map((c, i) => (
+              <div key={`cy${i}`} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <strong style={{ color: "#c04747" }}>Cycle :</strong>
+                {c.map((id, j) => <React.Fragment key={id}>{j > 0 && <span>→</span>}{puce(id)}</React.Fragment>)}
+                <span>→ {nomDe(c[0])}</span>
+              </div>
+            ))}
+            {ordresContradictoires.map((x, i) => (
+              <div key={`oc${i}`} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <strong style={{ color: "#b8860b" }}>Ordre contradictoire :</strong>
+                {puce(x.tacheId)} <span>est placée avant son prédécesseur</span> {puce(x.predId)}
+              </div>
+            ))}
+            {bloquees.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <strong>Bloquées par un cycle :</strong>
+                {bloquees.map(puce)}
+              </div>
+            )}
+            {introuvables.map((x, i) => (
+              <div key={`in${i}`} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <strong>Prédécesseur supprimé :</strong>
+                {puce(x.tacheId)} <span>référence une tâche qui n'existe plus (ignorée)</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Les bandes de rangs */}
+      {parRang.map((ids, i) => {
+        const visibles = ids.filter(id => sources.get(id) !== "hors_chaine");
+        if (visibles.length === 0) return null;
+        return (
+          <div key={i} style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "flex-start" }}>
+            <div style={{
+              flexShrink: 0, width: 64, textAlign: "center", padding: "7px 0",
+              borderRadius: RADIUS.sm, background: acc.bg10, color: acc.accent,
+              fontWeight: 800, fontSize: FONT.xs.size + 1,
+            }}>
+              Rang {i + 1}
+              {visibles.length > 1 && (
+                <div style={{ fontSize: FONT.xs.size - 1, fontWeight: 700, color: T.textSub, marginTop: 1 }}>
+                  ×{visibles.length} en //
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, flex: 1, minWidth: 0 }}>
+              {visibles.map(carte)}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Tâches à classer : hors chaîne, jamais chaînées de force */}
+      {horsChaine.length > 0 && (
+        <div style={{
+          marginTop: 14, padding: "10px 14px", borderRadius: RADIUS.md,
+          border: `1px dashed ${T.border}`, background: "transparent",
+        }}>
+          <div style={{ fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
+            À classer ({horsChaine.length}) — hors chaînage tant qu'elles ne sont pas dans un groupe
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {horsChaine.map(carte)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne, controleCtx, controlesChantier = [], reservesChantier = [], onControleChange }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
