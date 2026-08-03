@@ -18,7 +18,7 @@ import {
   loadOperations, loadGroupesTypes, loadEquipes,
 } from "../constants";
 import { Icon } from "../ui";
-import { loadPhasagesOperation } from "./phasagePlanning";
+import { loadPhasagesOperation, shiftGroupePhasage } from "./phasagePlanning";
 
 // ── Helpers dates (calendaires : le chemin de fer se lit en semaines) ────────
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
@@ -92,8 +92,35 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
   }, [opId, chantiersOp, reloadKey]);
 
   const [zoom, setZoom] = useState("semaine"); // "semaine" | "jour"
-  const [detail, setDetail] = useState(null);  // { chantier, groupe } (clic sur une barre)
+  // Sélection par IDS (pas par objets) : la carte de détail reste ouverte et
+  // à jour quand les données sont rechargées après un décalage.
+  const [detail, setDetail] = useState(null);  // { chantierId, groupeId }
+  const [saving, setSaving] = useState(false);
   useEffect(() => { setDetail(null); }, [opId]);
+  const detailCtx = useMemo(() => {
+    if (!detail || !data) return null;
+    const row = (data.chantiers || []).find(r => r.chantier.id === detail.chantierId);
+    const groupe = row?.groupes?.find(g => g.id === detail.groupeId);
+    return row && groupe ? { chantier: row.chantier, groupe } : null;
+  }, [detail, data]);
+
+  // ── Décalage d'un groupe (Prompt 4) : écrit date_prevue via le module
+  //    phasagePlanning, dans LE phasage du logement cliqué uniquement.
+  //    Jamais de décalage en cascade des logements suivants. ─────────────────
+  const doShift = async (jours, ouvres) => {
+    if (!detailCtx || saving || loading) return;
+    setSaving(true);
+    const res = await shiftGroupePhasage(detailCtx.chantier.id, detailCtx.groupe.id, {
+      jours, ouvres, expectedDebut: detailCtx.groupe.debut,
+    });
+    setSaving(false);
+    if (!res.ok && res.reason === "conflit") {
+      alert("Ce groupe a été modifié ailleurs entre-temps. Rien n'a été écrit — les données vont être rechargées.");
+    } else if (!res.ok) {
+      alert("Décalage impossible : " + res.reason);
+    }
+    setReloadKey(k => k + 1); // recharge (source unique : la DB)
+  };
 
   // ── Échelle de temps ───────────────────────────────────────────────────────
   const DAY_PX = zoom === "jour" ? 26 : 9;
@@ -270,9 +297,9 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
   // ── Rendus ─────────────────────────────────────────────────────────────────
   const card = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg };
 
-  const detailGroupe = detail && (() => {
-    const eq = equipePourGroupe(detail.groupe);
-    const g = detail.groupe;
+  const detailGroupe = detailCtx && (() => {
+    const eq = equipePourGroupe(detailCtx.groupe);
+    const g = detailCtx.groupe;
     const items = [
       ["Dates", g.debut ? `${fmtFR(g.debut)} → ${fmtFR(g.fin)}` : "non planifié"],
       ["Tâches", `${g.nbTachesDatees}/${g.nbTaches} datée${g.nbTachesDatees > 1 ? "s" : ""}`],
@@ -280,24 +307,53 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
       ["Équipe", eq ? `${eq.nom}${eq.externe ? " (externe)" : ""}` : "—"],
       ["Avancement", `${g.avancement}%${g.termine ? " · terminé" : ""}`],
     ];
+    const busy = saving || loading;
+    const shiftBtns = [
+      ["−1 sem.", -7, false], ["−1 j", -1, true], ["+1 j", +1, true], ["+1 sem.", +7, false],
+    ];
     return (
-      <div style={{ ...card, padding: "12px 16px", marginTop: 10, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 160 }}>
-          <span style={{ width: 12, height: 12, borderRadius: 3, background: g.couleur, display: "inline-block", flexShrink: 0 }} />
-          <div>
-            <div style={{ fontWeight: 800, color: T.text, fontSize: FONT.sm.size }}>{g.nom}</div>
-            <div style={{ color: T.textSub, fontSize: FONT.xs.size }}>{detail.chantier.nom}</div>
+      <div style={{ ...card, padding: "12px 16px", marginTop: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 160 }}>
+            <span style={{ width: 12, height: 12, borderRadius: 3, background: g.couleur, display: "inline-block", flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 800, color: T.text, fontSize: FONT.sm.size }}>{g.nom}</div>
+              <div style={{ color: T.textSub, fontSize: FONT.xs.size }}>{detailCtx.chantier.nom}</div>
+            </div>
           </div>
+          {items.map(([k, v]) => (
+            <div key={k}>
+              <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: .5 }}>{k}</div>
+              <div style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 700 }}>{v}</div>
+            </div>
+          ))}
+          <button className="ib" onClick={() => setDetail(null)} title="Fermer" style={{ marginLeft: "auto" }}>
+            <Icon as={X} size={14} />
+          </button>
         </div>
-        {items.map(([k, v]) => (
-          <div key={k}>
-            <div style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: .5 }}>{k}</div>
-            <div style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 700 }}>{v}</div>
+        {/* ── Décaler le groupe (écrit date_prevue — Gantt et Chrono suivent) ── */}
+        {g.debut && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>
+            <span style={{ fontSize: FONT.xs.size, color: T.textMuted, textTransform: "uppercase", letterSpacing: .5, fontWeight: 700 }}>Décaler</span>
+            {shiftBtns.map(([label, jours, ouvres]) => (
+              <button key={label} className="btn-g" disabled={busy}
+                onClick={() => doShift(jours, ouvres)}
+                title={ouvres ? "Décale d'un jour ouvré (jamais de week-end)" : "Décale d'une semaine (même jour)"}
+                style={{ padding: "5px 12px", fontSize: FONT.xs.size + 1, fontWeight: 700, opacity: busy ? .5 : 1 }}>
+                {label}
+              </button>
+            ))}
+            <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+              Toutes les tâches datées du groupe (et ses jalons) bougent d'autant — les autres logements ne bougent pas.
+            </span>
+            {busy && (
+              <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, fontWeight: 700, color: acc.accent }}>
+                <span className="dot-pulse" />
+                {saving ? "Enregistrement…" : "Actualisation…"}
+              </span>
+            )}
           </div>
-        ))}
-        <button className="ib" onClick={() => setDetail(null)} title="Fermer" style={{ marginLeft: "auto" }}>
-          <Icon as={X} size={14} />
-        </button>
+        )}
       </div>
     );
   })();
@@ -483,10 +539,10 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
                           const left = x(g.debut);
                           const w = Math.max((diffDays(parseD(g.debut), parseD(g.fin)) + 1) * DAY_PX - 2, 8);
                           const eq = equipePourGroupe(g);
-                          const isSel = detail && detail.chantier.id === c.id && detail.groupe.id === g.id;
+                          const isSel = detail && detail.chantierId === c.id && detail.groupeId === g.id;
                           return (
                             <div key={g.id}
-                              onClick={() => setDetail(isSel ? null : { chantier: c, groupe: g })}
+                              onClick={() => setDetail(isSel ? null : { chantierId: c.id, groupeId: g.id })}
                               title={`${g.nom} — ${fmtFR(g.debut)} → ${fmtFR(g.fin)} · ${g.avancement}%${eq ? ` · ${eq.nom}` : ""}`}
                               style={{
                                 position: "absolute", left, top: (ROW_H - 26) / 2, width: w, height: 26,

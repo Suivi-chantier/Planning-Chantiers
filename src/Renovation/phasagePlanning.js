@@ -143,6 +143,79 @@ export async function loadPhasagesOperation(chantiersOperation) {
   return { chantiers: rows, bornes: { debut: debutOp, fin: finOp } };
 }
 
+// ─── OPÉRATION : décaler un groupe d'un logement (vue Chemin de fer) ─────────
+// Même mécanisme que shiftGroupe de la vue Chronologique (PhasageV2) : décale
+// date_prevue de TOUTES les tâches datées du groupe, plus les jalons datés du
+// groupe — mais paramétré par chantierId (la vue manipule plusieurs chantiers,
+// on écrit dans LE BON phasage, jamais via le saveMeta du Phasage qui est lié
+// au chantier affiché).
+// Règles d'écriture (incident du 2026-06-03) :
+//  - on RELIT le phasage depuis la DB juste avant d'écrire (jamais un state) ;
+//  - tâches (colonne ouvrages) + jalons (colonne plan_travaux) partent dans
+//    UN SEUL update — pas de double écriture qui pourrait se perdre un patch ;
+//  - garde optimiste `expectedDebut` : si le début du groupe en base ne vaut
+//    plus ce que la vue affichait, on n'écrit RIEN ({ ok:false, reason:
+//    "conflit" }) et l'appelant recharge.
+// `jours` : décalage signé. `ouvres:true` → en jours OUVRÉS (jamais de date
+// week-end, invisible dans le Gantt) ; sinon calendaires (±7 = même jour de
+// semaine). Aucun effet domino : seul CE groupe de CE chantier bouge.
+// Retourne { ok, taches } ou { ok:false, reason }.
+export async function shiftGroupePhasage(chantierId, groupeId, { jours = 0, ouvres = false, expectedDebut } = {}) {
+  if (!chantierId || !groupeId || !jours) return { ok: false, reason: "paramètres invalides" };
+
+  const shiftISO = (s) => {
+    const d = new Date(`${s.slice(0, 10)}T00:00:00`);
+    if (isNaN(d.getTime())) return s;
+    if (ouvres) {
+      const step = jours >= 0 ? 1 : -1;
+      let left = Math.abs(jours);
+      while (left > 0) {
+        d.setDate(d.getDate() + step);
+        const w = d.getDay();
+        if (w !== 0 && w !== 6) left--;
+      }
+    } else {
+      d.setDate(d.getDate() + jours);
+    }
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  const { data, error } = await supabase.from("phasages")
+    .select("id, ouvrages, plan_travaux").eq("chantier_id", chantierId).maybeSingle();
+  if (error || !data?.id) return { ok: false, reason: "phasage introuvable" };
+
+  const ouvrages = Array.isArray(data.ouvrages) ? data.ouvrages : [];
+  const datees = ouvrages.flatMap(o => o?.taches || [])
+    .filter(t => t?.chrono_groupe_id === groupeId && isISO(t.date_prevue))
+    .map(t => t.date_prevue.slice(0, 10)).sort();
+  if (datees.length === 0) return { ok: false, reason: "aucune tâche datée dans ce groupe" };
+  if (expectedDebut !== undefined && datees[0] !== expectedDebut) return { ok: false, reason: "conflit" };
+
+  let taches = 0;
+  const nextOuvrages = ouvrages.map(o => ({
+    ...o,
+    taches: (o?.taches || []).map(t => {
+      if (t?.chrono_groupe_id !== groupeId || !isISO(t.date_prevue)) return t;
+      taches++;
+      return { ...t, date_prevue: shiftISO(t.date_prevue) };
+    }),
+  }));
+
+  const patch = { ouvrages: nextOuvrages, updated_at: new Date().toISOString() };
+  const plan = data.plan_travaux || {};
+  const jalons = Array.isArray(plan.meta?.chrono_jalons) ? plan.meta.chrono_jalons : [];
+  if (jalons.some(j => (j?.groupe_id ?? null) === groupeId && isISO(j.date))) {
+    const nextJalons = jalons.map(j =>
+      (j?.groupe_id ?? null) === groupeId && isISO(j.date) ? { ...j, date: shiftISO(j.date) } : j
+    );
+    patch.plan_travaux = { ...plan, meta: { ...(plan.meta || {}), chrono_jalons: nextJalons } };
+  }
+
+  const { error: e2 } = await supabase.from("phasages").update(patch).eq("id", data.id);
+  if (e2) { console.warn("shiftGroupePhasage:", e2.message); return { ok: false, reason: e2.message }; }
+  return { ok: true, taches };
+}
+
 // Convertit (week_id "YYYY-Wnn", jour "Lundi"…) en date ISO "YYYY-MM-DD".
 const JOURS_SEM = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 export function dateFromWeekJour(weekId, jourName) {
