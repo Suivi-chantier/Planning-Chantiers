@@ -265,3 +265,50 @@ export function cycleApresPatch(ouvrages, groupes, patch) {
   const touchees = new Set(Object.keys(cible));
   return incoherences.cycles.find(c => c.some(id => touchees.has(id))) || null;
 }
+
+// ── 6) Réordonnancement PROPOSÉ (Prompt 5) ───────────────────────────────────
+// Quand l'ordre manuel contredit les rangs, propose le nouvel ordre — SANS
+// RIEN ÉCRIRE : l'appelant affiche l'aperçu, demande confirmation, puis passe
+// `assignments` à applyChrono (le mécanisme existant), en un seul passage.
+// Règles :
+//  - INTRA-GROUPE seulement : une tâche ne change jamais de groupe, l'ordre
+//    des groupes n'est pas modifié ;
+//  - tri stable par rang (à rang égal, l'ordre manuel actuel est conservé) ;
+//  - les valeurs de chrono_ordre existantes sont RÉATTRIBUÉES (permutation) :
+//    un jalon repère intercalé entre deux valeurs garde sa place ; si le
+//    groupe a des doublons ou des valeurs manquantes (numérotation déjà
+//    dégénérée), on renumérote 0..n-1 ;
+//  - un groupe contenant une tâche NON RANGEABLE (cycle / aval de cycle)
+//    n'est pas réordonné : il est listé dans `nonReordonnables`, à résoudre
+//    d'abord via les incohérences.
+// Retour : { changements: [{ groupe, avant: [ids], apres: [ids],
+//            deplacements: [{ tacheId, de, vers }] }],
+//            nonReordonnables: [groupe], assignments: { [id]: { groupe_id, ordre } } }.
+export function reordonnancementPropose(ouvrages, groupes) {
+  const { groupesTries, parGroupe } = organiserTaches(ouvrages, groupes);
+  const { rangs } = calculerRangs(ouvrages, groupes);
+  const changements = [];
+  const nonReordonnables = [];
+  const assignments = {};
+  groupesTries.forEach(g => {
+    const list = parGroupe.get(g.id) || [];
+    if (list.length < 2) return;
+    if (list.some(t => !rangs.has(String(t.id)))) { nonReordonnables.push(g); return; }
+    const propose = list.slice().sort((a, b) => rangs.get(String(a.id)) - rangs.get(String(b.id)));
+    if (propose.every((t, i) => t === list[i])) return;
+    const vals = list.map(t => t.chrono_ordre).filter(v => typeof v === "number");
+    const valeurs = (vals.length === list.length && new Set(vals).size === list.length)
+      ? vals.slice().sort((a, b) => a - b)
+      : list.map((_, i) => i);
+    propose.forEach((t, i) => { assignments[t.id] = { groupe_id: g.id, ordre: valeurs[i] }; });
+    changements.push({
+      groupe: g,
+      avant: list.map(t => String(t.id)),
+      apres: propose.map(t => String(t.id)),
+      deplacements: propose
+        .map((t, i) => ({ tacheId: String(t.id), de: list.indexOf(t), vers: i }))
+        .filter(d => d.de !== d.vers),
+    });
+  });
+  return { changements, nonReordonnables, assignments };
+}

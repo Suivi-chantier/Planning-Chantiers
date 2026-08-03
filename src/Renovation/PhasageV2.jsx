@@ -23,7 +23,7 @@ import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
-import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches } from "./rang";
+import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches, reordonnancementPropose } from "./rang";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
 // Ce composant ne calcule plus rien — il lit les Donnee du module et garde la présentation.
@@ -2612,6 +2612,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           ouvrages={ouvrages} groupes={chronoGroupes} acc={acc} T={T}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           appliquerPredecesseurs={appliquerPredecesseurs}
+          applyChrono={applyChrono}
         />
       ) : (
         <div className={`p2-cols ${selectedOuvrageId ? "show-taches" : selectedLotId ? "show-ouvrages" : "show-lots"}`}
@@ -4062,12 +4063,20 @@ function PredsEditor({ ouvrages, groupes, tacheId, T, acc, appliquerPredecesseur
 // sélection permet les actions groupées : parallèles libres, retour au
 // défaut, même prédécesseur, chaîner la sélection — chacune en UN SEUL
 // patchTaches gardé anti-cycle (appliquerPredecesseurs).
-function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesseurs }) {
+function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesseurs, applyChrono }) {
   const calc = useMemo(() => calculerRangs(ouvrages, groupes), [ouvrages, groupes]);
   const effectifs = useMemo(() => predecesseursEffectifs(ouvrages, groupes), [ouvrages, groupes]);
   const [selection, setSelection] = useState(() => new Set());
   const [picker, setPicker] = useState(false);       // choix du prédécesseur commun
   const [pickerSearch, setPickerSearch] = useState("");
+  const [apercu, setApercu] = useState(false);       // aperçu du réordonnancement
+  // Réordonnancement proposé (Prompt 5) : jamais appliqué sans confirmation.
+  const proposition = useMemo(() => reordonnancementPropose(ouvrages, groupes), [ouvrages, groupes]);
+  const nbDeplacements = proposition.changements.reduce((s, c) => s + c.deplacements.length, 0);
+  const confirmerReordonnancement = () => {
+    applyChrono(proposition.assignments);
+    setApercu(false);
+  };
   const index = useMemo(() => {
     const m = new Map();
     (ouvrages || []).forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) m.set(String(t.id), { tache: t, ouvrageId: o.id }); }));
@@ -4184,7 +4193,95 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesse
         <span><strong style={{ color: T.text }}>Les tâches d'un même rang peuvent se faire en même temps.</strong></span>
         <span><span style={{ padding: "0 6px", borderRadius: 999, border: `1px solid ${T.border}`, color: T.textMuted, fontWeight: 800, fontSize: FONT.xs.size - 1 }}>auto</span> = déduit de l'ordre de la Chrono</span>
         <span><span style={{ padding: "0 6px", borderRadius: 999, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: FONT.xs.size - 1 }}>saisi</span> = prédécesseurs renseignés</span>
+        {proposition.changements.length > 0 && (
+          <button onClick={() => setApercu(true)}
+            title="L'ordre manuel de la Chrono contredit les rangs : voir ce qui bougerait, puis confirmer (ou non)"
+            style={{
+              marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", borderRadius: RADIUS.md,
+              border: "1px solid #d4a017", background: "rgba(212,160,23,0.1)", color: "#b8860b",
+              fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer",
+            }}>
+            <Icon as={ListOrdered} size={13}/>
+            Réordonner selon les rangs ({nbDeplacements} tâche{nbDeplacements > 1 ? "s" : ""})
+          </button>
+        )}
       </div>
+
+      {/* Aperçu du réordonnancement : rien ne bouge sans confirmation */}
+      {apercu && (
+        <div onClick={() => setApercu(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(3px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.modal || T.surface, borderRadius: RADIUS.xl, padding: 22,
+            width: "100%", maxWidth: 620, maxHeight: "82vh", overflow: "auto",
+            border: `1px solid ${T.border}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text, marginBottom: 6 }}>
+              Réordonner selon les rangs
+            </div>
+            <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6, marginBottom: 14 }}>
+              Aperçu : {nbDeplacements} tâche{nbDeplacements > 1 ? "s" : ""} changerai{nbDeplacements > 1 ? "en" : ""}t de place, <strong>à l'intérieur de leur groupe</strong> uniquement.
+              Aucune date ne bouge, aucune tâche ne change de groupe, l'ordre des groupes est inchangé.
+            </div>
+            {proposition.changements.map(ch => {
+              const bouge = new Set(ch.deplacements.map(d => d.tacheId));
+              return (
+                <div key={ch.groupe.id} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .4, textTransform: "uppercase", color: T.textSub, marginBottom: 6 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 2, background: ch.groupe.couleur || "#888", display: "inline-block" }}/>
+                    {ch.groupe.nom}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {ch.apres.map((id, i) => {
+                      const aBouge = bouge.has(id);
+                      const avantIdx = ch.avant.indexOf(id);
+                      return (
+                        <div key={id} style={{
+                          display: "flex", alignItems: "center", gap: 8, padding: "4px 10px",
+                          borderRadius: RADIUS.sm, fontSize: FONT.xs.size + 1,
+                          background: aBouge ? acc.bg10 : "transparent",
+                          border: `1px solid ${aBouge ? acc.border : "transparent"}`,
+                          color: T.text,
+                        }}>
+                          <span style={{ width: 20, textAlign: "right", fontWeight: 800, color: aBouge ? acc.accent : T.textMuted }}>{i + 1}.</span>
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: aBouge ? 700 : 500 }}>{nomDe(id)}</span>
+                          {aBouge && (
+                            <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>était n° {avantIdx + 1}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {proposition.nonReordonnables.length > 0 && (
+              <div style={{ fontSize: FONT.xs.size + 1, color: "#b8860b", marginBottom: 12 }}>
+                ⚠ Non réordonné{proposition.nonReordonnables.length > 1 ? "s" : ""} : {proposition.nonReordonnables.map(g => g.nom).join(", ")} — résous d'abord le cycle signalé dans les incohérences.
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+              <button onClick={() => setApercu(false)} style={{
+                background: "transparent", border: `1px solid ${T.border}`,
+                borderRadius: RADIUS.md, padding: "9px 18px", color: T.textSub,
+                fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Annuler</button>
+              <button onClick={confirmerReordonnancement} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: acc.accent, color: acc.onAccent || "#000", border: "none",
+                borderRadius: RADIUS.md, padding: "9px 18px",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+              }}>
+                <Icon as={Check} size={13}/>
+                Confirmer le réordonnancement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Barre d'actions groupées (dès qu'une tâche est cochée) */}
       {selection.size > 0 && (
