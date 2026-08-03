@@ -9,7 +9,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, Clock, Wrench,
   Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye, ListOrdered, Receipt,
+  Boxes, Car, Eye, ListOrdered, Receipt, Home,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -2244,6 +2244,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [ouvrierToDelete,setOuvrierToDelete]=useState(null);
   const [chantierToDelete,setChantierToDelete]=useState(null);
 
+  // ─── OPÉRATIONS (regroupement de chantiers d'une même maison) ────────────
+  const [operations, setOperations]   = useState([]);
+  const [editOpIdx, setEditOpIdx]     = useState(null);
+  const [opToDelete, setOpToDelete]   = useState(null);
+  const [newOpNom, setNewOpNom]       = useState("");
+
   // ─── NOUVELLES CONFIGS (Bloc 1) ──────────────────────────────────────────
   const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, visitesEnCours: 0, ouvriersActifs: 0, derniersRapports: [], dernieresVisites: [] });
   const [backuping, setBackuping]       = useState(false);
@@ -2289,7 +2295,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "email_templates", "heures_par_jour", "situations_seuils"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2303,6 +2309,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "equipes" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
             setEquipes(r.value.items);
+          }
+          if (r.key === "operations" && r.value && Array.isArray(r.value.items)) {
+            setOperations(r.value.items);
           }
           if (r.key === "email_templates" && r.value) {
             setEmailTemplates({ ...EMAIL_TEMPLATES_DEFAUT, ...r.value });
@@ -2579,6 +2588,41 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     setResetEqConfirm(false);
   };
 
+  // ─── OPÉRATIONS CRUD ─────────────────────────────────────────────────────
+  // Référentiel planning_config/operations ({ items: [{ id, nom, adresse,
+  // couleur }] }). Le lien vit sur le chantier (operation_id, optionnel) :
+  // une opération se supprime uniquement si aucun chantier n'y est rattaché.
+  const saveOperations = async (next) => {
+    setOperations(next);
+    await saveConfig("operations", { items: next });
+  };
+  const addOperation = () => {
+    if (!newOpNom.trim()) return;
+    const id = `op_${Date.now()}`;
+    saveOperations([...operations, { id, nom: newOpNom.trim(), adresse: "", couleur: COULEURS_PALETTE[operations.length % COULEURS_PALETTE.length] }]);
+    setNewOpNom("");
+  };
+  const updOperation = (i, patch) => {
+    const next = operations.map((o, idx) => idx === i ? { ...o, ...patch } : o);
+    setOperations(next);
+    if (saveDebounce.current) clearTimeout(saveDebounce.current);
+    saveDebounce.current = setTimeout(() => saveConfig("operations", { items: next }), 600);
+  };
+  const removeOperation = () => {
+    if (opToDelete === null) return;
+    const op = operations[opToDelete];
+    if (op && chantiers.some(c => c.operation_id === op.id)) { setOpToDelete(null); return; }
+    saveOperations(operations.filter((_, idx) => idx !== opToDelete));
+    setOpToDelete(null);
+  };
+  // Rattache / détache un chantier (operationId "" = détacher). Passe par
+  // updateChantier pour bénéficier du merge par patch et du save existants.
+  const setChantierOperation = (chantierId, operationId) => {
+    const i = chantiers.findIndex(c => c.id === chantierId);
+    if (i < 0) return;
+    updateChantier(i, { operation_id: operationId || "" });
+  };
+
   // ─── BACKUP JSON ─────────────────────────────────────────────────────────
   const doBackup = async () => {
     setBackuping(true);
@@ -2824,6 +2868,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     ]},
     { id:"referentiels", label:"Référentiels", icon:Boxes, tabs:[
       ["chantiers",     "Chantiers",     Building2],
+      ["operations",    "Opérations",    Home],
       ["lots",          "Lots",          Boxes],
       ["phases",        "Phases",        ClipboardCheck],
       ["groupes_types", "Groupes types", ListOrdered],
@@ -4338,6 +4383,15 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   </div>
                 :<input className="ti" value={c.nom} onChange={e=>updateChantier(i,{nom:e.target.value.toUpperCase()})} style={{fontWeight:700}}/>
               }
+              {editChIdx!==i&&operations.length>0&&(
+                <select className="ti" value={c.operation_id||""}
+                  onChange={e=>updateChantier(i,{operation_id:e.target.value})}
+                  title="Opération (maison) de rattachement"
+                  style={{maxWidth:180,color:c.operation_id?T.text:T.textMuted}}>
+                  <option value="">— Sans opération —</option>
+                  {operations.map(o=><option key={o.id} value={o.id}>{o.nom}</option>)}
+                </select>
+              )}
               {editChIdx!==i
                 ?<button className="btn-d" onClick={()=>setChantierToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
                   <Icon as={Trash2} size={11}/>
@@ -4363,6 +4417,91 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             </button>
           </div>
 
+        </div>
+      )}
+
+      {adminTab==="operations"&&(
+        <div className="ac">
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Opérations (maisons / adresses)</div>
+          <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>
+            Une opération regroupe les chantiers/logements d'une même maison. Le rattachement est optionnel : un chantier sans opération fonctionne exactement comme avant.
+          </div>
+          {operations.length===0&&(
+            <div style={{color:T.textMuted,fontSize:FONT.sm.size,marginBottom:14}}>
+              Aucune opération pour l'instant. Crée la première ci-dessous, puis rattache ses chantiers.
+            </div>
+          )}
+          {operations.map((o,i)=>{
+            const rattaches=chantiers.filter(c=>c.operation_id===o.id);
+            const libres=chantiers.filter(c=>!c.operation_id);
+            return (
+              <div key={o.id} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:12,marginBottom:10}}>
+                <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <div className={`cdot ${editOpIdx===i?"sel":""}`}
+                    style={{background:o.couleur,border:`2px solid ${T.border}`}}
+                    onClick={()=>setEditOpIdx(editOpIdx===i?null:i)} title="Couleur"/>
+                  {editOpIdx===i
+                    ?<div style={{display:"flex",flexWrap:"wrap",gap:6,flex:1}}>
+                        {COULEURS_PALETTE.map(col=>(
+                          <div key={col} className={`cdot ${o.couleur===col?"sel":""}`}
+                            style={{background:col}} onClick={()=>{updOperation(i,{couleur:col});setEditOpIdx(null);}}/>
+                        ))}
+                      </div>
+                    :<>
+                        <input className="ti" value={o.nom} onChange={e=>updOperation(i,{nom:e.target.value})}
+                          placeholder="Nom de l'opération…" style={{fontWeight:700,flex:1,minWidth:140}}/>
+                        <input className="ti" value={o.adresse||""} onChange={e=>updOperation(i,{adresse:e.target.value})}
+                          placeholder="Adresse…" style={{flex:2,minWidth:180}}/>
+                      </>
+                  }
+                  {editOpIdx===i
+                    ?<button className="btn-g" style={{fontSize:FONT.xs.size+1,padding:"5px 10px",display:"inline-flex",alignItems:"center",gap:4}} onClick={()=>setEditOpIdx(null)}>
+                        <Icon as={X} size={11}/>
+                      </button>
+                    :rattaches.length===0
+                      ?<button className="btn-d" onClick={()=>setOpToDelete(i)} style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                          <Icon as={Trash2} size={11}/>
+                          Supprimer
+                        </button>
+                      :<span style={{fontSize:FONT.xs.size+1,color:T.textMuted,whiteSpace:"nowrap"}}
+                          title="Détache d'abord tous ses chantiers pour pouvoir la supprimer">
+                          {rattaches.length} logement{rattaches.length>1?"s":""}
+                        </span>
+                  }
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:10}}>
+                  {rattaches.map(c=>(
+                    <span key={c.id} style={{display:"inline-flex",alignItems:"center",gap:6,border:`1px solid ${T.border}`,borderRadius:999,padding:"4px 10px",fontSize:FONT.xs.size+1,color:T.text}}>
+                      <span style={{width:8,height:8,borderRadius:"50%",background:c.couleur,display:"inline-block"}}/>
+                      {c.nom}
+                      <button className="ib" onClick={()=>setChantierOperation(c.id,"")} title="Détacher de l'opération">
+                        <Icon as={X} size={11}/>
+                      </button>
+                    </span>
+                  ))}
+                  {rattaches.length===0&&(
+                    <span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Aucun chantier rattaché.</span>
+                  )}
+                  {libres.length>0&&(
+                    <select className="ti" value="" onChange={e=>{if(e.target.value)setChantierOperation(e.target.value,o.id);}}
+                      title="Rattacher un chantier à cette opération" style={{maxWidth:220}}>
+                      <option value="">+ Rattacher un chantier…</option>
+                      {libres.map(c=><option key={c.id} value={c.id}>{c.nom}</option>)}
+                    </select>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{display:"flex",gap:10,marginTop:18,flexWrap:"wrap",alignItems:"center"}}>
+            <input className="ti" value={newOpNom} onChange={e=>setNewOpNom(e.target.value)}
+              placeholder="Nom de l'opération (ex : Tourbouton 102)…" style={{flex:1,minWidth:180}}
+              onKeyDown={e=>e.key==="Enter"&&addOperation()}/>
+            <button className="btn-p" onClick={addOperation} style={{display:"inline-flex",alignItems:"center",gap:5}}>
+              <Icon as={Plus} size={12}/>
+              Créer l'opération
+            </button>
+          </div>
         </div>
       )}
 
@@ -4443,6 +4582,51 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
               }}>Annuler</button>
               <button onClick={confirmRemoveChantier} style={{
+                display:"inline-flex",alignItems:"center",gap:6,
+                background:"#e15a5a",color:"#fff",border:"none",
+                borderRadius:RADIUS.md,padding:"9px 18px",
+                fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",
+              }}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal suppression opération ── */}
+      {opToDelete !== null && (
+        <div onClick={()=>setOpToDelete(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{
+                width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,
+                background:"rgba(224,92,92,0.12)",color:"#e15a5a",
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer cette opération&nbsp;?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              L'opération <strong style={{color:T.text}}>« {operations[opToDelete]?.nom} »</strong> sera retirée de la liste.
+              <br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Aucun chantier n'y est rattaché : rien d'autre ne sera modifié.</span>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setOpToDelete(null)} style={{
+                background:"transparent",border:`1px solid ${T.border}`,
+                borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,
+                fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",
+              }}>Annuler</button>
+              <button onClick={removeOperation} style={{
                 display:"inline-flex",alignItems:"center",gap:6,
                 background:"#e15a5a",color:"#fff",border:"none",
                 borderRadius:RADIUS.md,padding:"9px 18px",
