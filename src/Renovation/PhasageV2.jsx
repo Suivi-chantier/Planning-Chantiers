@@ -23,7 +23,7 @@ import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
-import { calculerRangs, predecesseursEffectifs } from "./rang";
+import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches } from "./rang";
 import { fetchPointages } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
 // Ce composant ne calcule plus rien — il lit les Donnee du module et garde la présentation.
@@ -1060,6 +1060,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       ...o,
       taches: (o.taches || []).map(t => patchesById[t.id] ? { ...t, ...patchesById[t.id] } : t),
     })));
+  };
+
+  // ── Écriture GARDÉE des prédécesseurs (Point 4a) ─────────────────────────
+  // patchMap : { [tacheId]: string[] | null } — tableau = explicite ([] =
+  // parallèle libre), null = revenir au chaînage par défaut. Refuse l'écriture
+  // si elle créerait un cycle (message avec la boucle), sinon UN SEUL
+  // patchTaches. Le chaînage par défaut n'est JAMAIS écrit en base.
+  const appliquerPredecesseurs = (patchMap) => {
+    const cycle = cycleApresPatch(ouvrages, chronoGroupes, patchMap);
+    if (cycle) {
+      const nomDe = (id) => {
+        for (const o of ouvrages) { const t = (o.taches || []).find(x => String(x.id) === String(id)); if (t) return t.nom || "(sans nom)"; }
+        return "(tâche supprimée)";
+      };
+      alert(`Impossible : cela créerait une boucle de dépendances :\n${[...cycle, cycle[0]].map(nomDe).join(" → ")}\n\nRien n'a été modifié.`);
+      return false;
+    }
+    patchTaches(Object.fromEntries(
+      Object.entries(patchMap).map(([id, v]) => [id, { predecesseurs: Array.isArray(v) ? v : null }])
+    ));
+    return true;
   };
 
   // ─── Semis de la vue Chrono depuis les GROUPES TYPES (référentiel Admin) ─
@@ -2590,6 +2611,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <RangView
           ouvrages={ouvrages} groupes={chronoGroupes} acc={acc} T={T}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
+          appliquerPredecesseurs={appliquerPredecesseurs}
         />
       ) : (
         <div className={`p2-cols ${selectedOuvrageId ? "show-taches" : selectedLotId ? "show-ouvrages" : "show-lots"}`}
@@ -3833,6 +3855,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               )}
             </ModalField>
 
+            {/* ── Prédécesseurs (ordre logique — vue Rang, Point 4a) ── */}
+            <ModalField label="Prédécesseurs (ordre logique — vue Rang)">
+              <PredsEditor key={t.id}
+                ouvrages={ouvrages} groupes={chronoGroupes} tacheId={t.id}
+                T={T} acc={acc} appliquerPredecesseurs={appliquerPredecesseurs}/>
+            </ModalField>
+
             {/* ── Section Planification ── */}
             <div style={{
               marginTop: 6, paddingTop: 14,
@@ -3925,20 +3954,150 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 // chrono_ordre) via applyChrono ; date → updateTache.
 const CHRONO_PALETTE = ["#5b8af5", "#22c55e", "#f5a623", "#e15a5a", "#a855f7", "#14b8a6", "#ec4899", "#f97316"];
 
+// ─── ÉDITEUR DE PRÉDÉCESSEURS (Point 4a) ─────────────────────────────────────
+// Partagé entre la modale de tâche et la vue Rang. Application IMMÉDIATE à
+// chaque geste via appliquerPredecesseurs (garde anti-cycle + un seul
+// patchTaches) — comme les autres champs de la modale. Le défaut n'est jamais
+// écrit : « Revenir au défaut » remet le champ à null.
+function PredsEditor({ ouvrages, groupes, tacheId, T, acc, appliquerPredecesseurs }) {
+  const [search, setSearch] = useState("");
+  const id = String(tacheId);
+  const tache = useMemo(() => {
+    for (const o of ouvrages || []) { const t = (o.taches || []).find(x => String(x.id) === id); if (t) return t; }
+    return null;
+  }, [ouvrages, id]);
+  const effectifs = useMemo(() => predecesseursEffectifs(ouvrages, groupes), [ouvrages, groupes]);
+  const { groupesTries, parGroupe, horsGroupe } = useMemo(
+    () => organiserTaches(ouvrages, groupes), [ouvrages, groupes]);
+
+  if (!tache) return null;
+  const explicite = Array.isArray(tache.predecesseurs);
+  const courants = new Set((effectifs.get(id)?.ids || []).map(String));
+
+  const basculer = (predId) => {
+    const next = new Set(courants);
+    if (next.has(predId)) next.delete(predId); else next.add(predId);
+    appliquerPredecesseurs({ [id]: [...next] });
+  };
+
+  const norm = (s) => (s || "").toString().toLowerCase();
+  const filtre = norm(search);
+  const sections = [
+    ...groupesTries.map(g => ({ g, taches: (parGroupe.get(g.id) || []) })),
+    { g: { id: "__hors__", nom: "À classer", couleur: "#888" }, taches: horsGroupe },
+  ].map(s => ({
+    ...s,
+    taches: s.taches.filter(t => String(t.id) !== id && (!filtre || norm(t.nom).includes(filtre))),
+  })).filter(s => s.taches.length > 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{
+          padding: "1px 8px", borderRadius: 999, fontWeight: 800, fontSize: FONT.xs.size - 1,
+          background: explicite ? acc.bg10 : "transparent",
+          color: explicite ? acc.accent : T.textMuted,
+          border: `1px solid ${explicite ? acc.border : T.border}`,
+        }}>{explicite ? "saisi" : "auto (chaînage par défaut)"}</span>
+        <button onClick={() => appliquerPredecesseurs({ [id]: [] })}
+          title="Aucun prédécesseur : la tâche peut se faire dès le départ"
+          style={{ padding: "3px 10px", borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer" }}>
+          Parallèle libre
+        </button>
+        {explicite && (
+          <button onClick={() => appliquerPredecesseurs({ [id]: null })}
+            title="Efface la saisie : le chaînage par défaut (déduit de la Chrono) reprend la main"
+            style={{ padding: "3px 10px", borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer" }}>
+            Revenir au défaut
+          </button>
+        )}
+      </div>
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher une tâche…"
+        style={{
+          width: "100%", padding: "6px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+          background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
+        }}/>
+      <div style={{ maxHeight: 180, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: RADIUS.sm, padding: "6px 8px" }}>
+        {sections.length === 0 && (
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>Aucune tâche ne correspond.</div>
+        )}
+        {sections.map(({ g, taches }) => (
+          <div key={g.id} style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: FONT.xs.size - 1, fontWeight: 800, letterSpacing: .4, textTransform: "uppercase", color: T.textMuted, margin: "3px 0" }}>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: g.couleur || "#888", display: "inline-block" }}/>
+              {g.nom}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {taches.map(t => {
+                const sel = courants.has(String(t.id));
+                return (
+                  <button key={t.id} onClick={() => basculer(String(t.id))}
+                    style={{
+                      padding: "2px 9px", borderRadius: 999, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      border: `1px solid ${sel ? acc.accent : T.border}`,
+                      background: sel ? acc.bg10 : "transparent",
+                      color: sel ? acc.accent : T.textSub,
+                      fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: sel ? 800 : 600, cursor: "pointer",
+                    }}>
+                    {t.nom || "(sans nom)"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+        Cocher/décocher enregistre aussitôt. Une saisie qui créerait une boucle est refusée.
+      </div>
+    </div>
+  );
+}
+
 // ─── VUE RANG (Point 4a) — l'ordre logique déduit des prédécesseurs ──────────
 // Une bande par rang : les tâches d'une même bande peuvent se faire EN MÊME
 // TEMPS. Le chaînage vient du calcul pur de rang.js (défaut déduit de la
-// Chrono, exceptions via tache.predecesseurs — édition au Prompt 4).
-// LECTURE seule : le clic sur une tâche ouvre sa modale (comme le Gantt).
-function RangView({ ouvrages, groupes, acc, T, onClickTache }) {
+// Chrono, exceptions via tache.predecesseurs). Le clic sur une carte ouvre la
+// modale de la tâche (qui contient l'éditeur de prédécesseurs) ; la case de
+// sélection permet les actions groupées : parallèles libres, retour au
+// défaut, même prédécesseur, chaîner la sélection — chacune en UN SEUL
+// patchTaches gardé anti-cycle (appliquerPredecesseurs).
+function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesseurs }) {
   const calc = useMemo(() => calculerRangs(ouvrages, groupes), [ouvrages, groupes]);
   const effectifs = useMemo(() => predecesseursEffectifs(ouvrages, groupes), [ouvrages, groupes]);
+  const [selection, setSelection] = useState(() => new Set());
+  const [picker, setPicker] = useState(false);       // choix du prédécesseur commun
+  const [pickerSearch, setPickerSearch] = useState("");
   const index = useMemo(() => {
     const m = new Map();
     (ouvrages || []).forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) m.set(String(t.id), { tache: t, ouvrageId: o.id }); }));
     return m;
   }, [ouvrages]);
   const gById = useMemo(() => new Map((groupes || []).map(g => [g.id, g])), [groupes]);
+
+  const basculerSelection = (id) => setSelection(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const patchSelection = (valeur) => {
+    if (selection.size === 0) return;
+    appliquerPredecesseurs(Object.fromEntries([...selection].map(id => [id, valeur])));
+  };
+  // Chaîner la sélection dans l'ordre manuel : la 2e suit la 1re, etc.
+  // La première garde ses prédécesseurs actuels (on ne chaîne QUE la suite).
+  const chainerSelection = () => {
+    if (selection.size < 2) return;
+    const pos = positionsManuelles(ouvrages, groupes);
+    const ordonnes = [...selection].sort((a, b) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity));
+    const patch = {};
+    for (let i = 1; i < ordonnes.length; i++) patch[ordonnes[i]] = [ordonnes[i - 1]];
+    appliquerPredecesseurs(patch);
+  };
+  const memePredecesseur = (predId) => {
+    setPicker(false); setPickerSearch("");
+    appliquerPredecesseurs(Object.fromEntries([...selection].map(id => [id, [String(predId)]])));
+  };
 
   const { parRang, sources, incoherences } = calc;
   const { cycles, bloquees, ordresContradictoires, introuvables } = incoherences;
@@ -3976,8 +4135,15 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache }) {
           borderRadius: RADIUS.sm, background: T.surface, padding: "7px 10px",
           minWidth: 180, maxWidth: 280, cursor: "pointer",
         }}>
-        <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {t.nom || "(sans nom)"}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <input type="checkbox" checked={selection.has(String(id))}
+            onClick={e => e.stopPropagation()}
+            onChange={() => basculerSelection(String(id))}
+            title="Sélectionner pour une action groupée"
+            style={{ margin: 0, cursor: "pointer", flexShrink: 0 }}/>
+          <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+            {t.nom || "(sans nom)"}
+          </div>
         </div>
         <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {g?.nom || "à classer"}{h ? ` · ${fmtH(h)}` : ""}
@@ -4019,6 +4185,69 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache }) {
         <span><span style={{ padding: "0 6px", borderRadius: 999, border: `1px solid ${T.border}`, color: T.textMuted, fontWeight: 800, fontSize: FONT.xs.size - 1 }}>auto</span> = déduit de l'ordre de la Chrono</span>
         <span><span style={{ padding: "0 6px", borderRadius: 999, border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent, fontWeight: 800, fontSize: FONT.xs.size - 1 }}>saisi</span> = prédécesseurs renseignés</span>
       </div>
+
+      {/* Barre d'actions groupées (dès qu'une tâche est cochée) */}
+      {selection.size > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+          border: `1px solid ${acc.border}`, background: acc.bg10,
+          borderRadius: RADIUS.md, padding: "8px 12px", marginBottom: 12,
+        }}>
+          <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: acc.accent }}>
+            {selection.size} tâche{selection.size > 1 ? "s" : ""} sélectionnée{selection.size > 1 ? "s" : ""}
+          </span>
+          {[
+            ["Parallèles libres", () => patchSelection([]), "Aucun prédécesseur pour la sélection : ces tâches peuvent démarrer librement", true],
+            ["Même prédécesseur…", () => setPicker(p => !p), "Donner LE MÊME prédécesseur à toute la sélection (= parallèles entre elles)", true],
+            ["Chaîner dans l'ordre", chainerSelection, "La 2e suit la 1re, la 3e suit la 2e… (ordre de la Chrono)", selection.size >= 2],
+            ["Revenir au défaut", () => patchSelection(null), "Efface les saisies : le chaînage par défaut reprend la main", true],
+          ].map(([label, fn, title, enabled]) => (
+            <button key={label} onClick={enabled ? fn : undefined} disabled={!enabled} title={title}
+              style={{
+                padding: "4px 12px", borderRadius: 999, border: `1px solid ${T.border}`,
+                background: T.surface, color: enabled ? T.text : T.textMuted,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
+                cursor: enabled ? "pointer" : "not-allowed", opacity: enabled ? 1 : .55,
+              }}>{label}</button>
+          ))}
+          <button onClick={() => { setSelection(new Set()); setPicker(false); }}
+            title="Tout désélectionner"
+            style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: 999, border: "none", background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.xs.size + 1, cursor: "pointer" }}>
+            <Icon as={X} size={12}/>
+          </button>
+          {/* Choix du prédécesseur commun */}
+          {picker && (
+            <div style={{ flexBasis: "100%", marginTop: 6 }}>
+              <input autoFocus value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
+                placeholder="Choisir le prédécesseur commun — rechercher une tâche…"
+                style={{
+                  width: "100%", padding: "6px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                  background: T.surface, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", marginBottom: 6,
+                }}/>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 120, overflow: "auto" }}>
+                {[...index.entries()]
+                  .filter(([tid]) => !selection.has(tid))
+                  .filter(([, e]) => !pickerSearch || (e.tache.nom || "").toLowerCase().includes(pickerSearch.toLowerCase()))
+                  .map(([tid, e]) => {
+                    const g = gById.get(e.tache.chrono_groupe_id);
+                    return (
+                      <button key={tid} onClick={() => memePredecesseur(tid)}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 9px", borderRadius: 999,
+                          maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          border: `1px solid ${T.border}`, background: T.surface, color: T.textSub,
+                          fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 600, cursor: "pointer",
+                        }}>
+                        <span style={{ width: 7, height: 7, borderRadius: 2, background: g?.couleur || "#888", flexShrink: 0 }}/>
+                        {e.tache.nom || "(sans nom)"}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bandeau d'incohérences */}
       {nbInco > 0 && (

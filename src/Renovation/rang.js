@@ -244,3 +244,24 @@ export function ordrePropose(ouvrages, groupes) {
   const nonRangees = taches.filter(t => !rangs.has(String(t.id)));
   return { ordonnees, nonRangees };
 }
+
+// ── 5) Garde anti-cycle avant écriture ───────────────────────────────────────
+// Simule l'application d'un patch de prédécesseurs { [tacheId]: string[] | null }
+// (null = revenir au chaînage par défaut) et renvoie le PREMIER cycle qui
+// impliquerait une tâche patchée — ou null si l'écriture est sûre. Un cycle
+// PRÉEXISTANT qui ne touche pas au patch ne bloque pas : on n'empêche que
+// d'en créer. Aucune écriture ici : l'appelant refuse le patch si non-null.
+export function cycleApresPatch(ouvrages, groupes, patch) {
+  const cible = patch && typeof patch === "object" ? patch : {};
+  const patched = (Array.isArray(ouvrages) ? ouvrages : []).map(o => ({
+    ...o,
+    taches: (Array.isArray(o?.taches) ? o.taches : []).map(t => {
+      if (!t || t.id == null || !(String(t.id) in cible)) return t;
+      const v = cible[String(t.id)];
+      return Array.isArray(v) ? { ...t, predecesseurs: v } : { ...t, predecesseurs: null };
+    }),
+  }));
+  const { incoherences } = calculerRangs(patched, groupes);
+  const touchees = new Set(Object.keys(cible));
+  return incoherences.cycles.find(c => c.some(id => touchees.has(id))) || null;
+}
