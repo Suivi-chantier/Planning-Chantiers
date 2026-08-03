@@ -70,6 +70,7 @@ import PageChantiers          from "./Renovation/PageChantiers";
 // alléger le bundle initial. recharts (DashboardAnalyse, Invest) et xlsx
 // (PhasageV2 via devisImport) ne sont ainsi plus dans le chunk principal.
 const PagePhasageV2          = lazy(() => import("./Renovation/PhasageV2"));
+const PageCheminDeFer        = lazy(() => import("./Renovation/CheminDeFer"));
 const PageBibliotheque       = lazy(() => import("./Renovation/Bibliotheque"));
 const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliothequeMateriaux"));
 const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages"));
@@ -699,6 +700,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
+          {page==="chemin-de-fer"      && (canAccess(role,"chemin-de-fer")      ? <PageCheminDeFer chantiers={chantiers} T={T} branch={branch} onOuvrirAdmin={()=>setPage("admin")}/> : <AccesRefuse T={T} page="chemin-de-fer"/>)}
           {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
