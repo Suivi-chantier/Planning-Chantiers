@@ -798,6 +798,54 @@ export function fusionnerSeriesPourGraphe({ reelles = null, reference = null } =
   });
 }
 
+// ── Consolidé tous chantiers (Prompt 5) ──────────────────────────────────────
+// Somme mensuelle de séries CUMULÉES de plusieurs chantiers : sur un mois sans
+// point, un chantier contribue sa dernière valeur connue (report), et 0 avant
+// son premier point (il n'a pas commencé). Les séries non renseignées ne
+// contribuent pas (elles sont comptées, jamais mises à zéro en douce).
+function sommerSeries(series) {
+  const actives = (series || []).filter((s) => s && s.renseigne !== false && Array.isArray(s.points) && s.points.length > 0);
+  if (actives.length === 0) return { renseigne: false, points: [], nbSeries: 0 };
+  const maps = actives.map((s) => new Map(s.points.map((p) => [p.mois, p.cumul])));
+  const mois = [...new Set(maps.flatMap((m) => [...m.keys()]))].sort();
+  const dernier = new Array(maps.length).fill(0);
+  const points = mois.map((m) => {
+    maps.forEach((map, i) => { if (map.has(m)) dernier[i] = map.get(m); });
+    return { mois: m, label: labelMois(m), cumul: dernier.reduce((a, b) => a + b, 0) };
+  });
+  return { renseigne: true, points, nbSeries: actives.length };
+}
+
+// Consolide les séries de N chantiers en 6 séries entreprise.
+// `entrees` = [{ chantierId, nom, reelles, reference }] où `reelles` vient de
+// seriesReellesChantier et `reference` est le champ `series` de la référence
+// figée courante (null si le chantier n'en a pas).
+// RÈGLE : un chantier SANS référence figée n'entre PAS dans les courbes de
+// référence consolidées (sinon la référence globale serait fausse) — il reste
+// compté dans le réel, et listé dans stats.sansReference.
+export function consoliderSeries(entrees = []) {
+  const avecRef = entrees.filter((e) => e.reference);
+  const reelles = {
+    depenses: sommerSeries(entrees.map((e) => e.reelles?.depenses)),
+    recettes: sommerSeries(entrees.map((e) => e.reelles?.recettes)),
+    valeurGeneree: sommerSeries(entrees.map((e) => e.reelles?.valeurGeneree)),
+  };
+  const reference = {
+    depenses: sommerSeries(avecRef.map((e) => e.reference?.depenses)),
+    recettes: sommerSeries(avecRef.map((e) => e.reference?.recettes)),
+    valeurGeneree: sommerSeries(avecRef.map((e) => e.reference?.valeurGeneree)),
+  };
+  const stats = {
+    nbChantiers: entrees.length,
+    nbAvecReference: avecRef.length,
+    sansReference: entrees.filter((e) => !e.reference).map((e) => ({ id: e.chantierId, nom: e.nom })),
+    nonApparies: entrees
+      .filter((e) => e.reelles?.appariement?.statut === "non_apparie")
+      .map((e) => ({ id: e.chantierId, nom: e.nom })),
+  };
+  return { reelles, reference, stats };
+}
+
 // ── Les deux écarts « du jour » (Prompt 4) ───────────────────────────────────
 // Les deux messages utiles du diagramme, lisibles sans interpréter les
 // courbes, calculés au DERNIER mois connu de la valeur générée réelle :

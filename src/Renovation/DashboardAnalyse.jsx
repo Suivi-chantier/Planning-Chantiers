@@ -1976,9 +1976,15 @@ const TABS = [
   { key: 'trajets',        label: '🚗 Trajets' },
   { key: 'pipeline',       label: '🔖 Pipeline' },
   { key: 'analyseSociete', label: '📊 Point financier' },
+  { key: 'diagFinancier',  label: '📈 Diagramme financier' },
   { key: 'primes',         label: '🎯 Primes' },
   { key: 'finances',       label: '💰 Trésorerie' },
 ];
+
+// Diagramme financier consolidé (Point 5) : composant autonome (charge ses
+// données lui-même, réutilise le module diagrammeFinancier et le composant
+// recharts de la fiche chantier), chargé à la demande.
+const DiagrammeFinancierConsolide = React.lazy(() => import("./DiagrammeFinancierConsolide"));
 
 export default function DashboardAnalyse({ T, branch = "renovation", onOpenChantier }) {
   const acc = getBranchAccent(branch);
@@ -2380,6 +2386,11 @@ export default function DashboardAnalyse({ T, branch = "renovation", onOpenChant
         {activeTab === 'trajets'        && <TrajetsTab       pointagesByChantier={pointagesByChantier} chantiers={chantiers} T={T} acc={acc}/>}
         {activeTab === 'pipeline'       && <PipelineTab      pipeline={pipeline} onAdd={() => setPipeModal({ open: true, item: null })} onEdit={item => setPipeModal({ open: true, item })} T={T} acc={acc}/>}
         {activeTab === 'analyseSociete' && <SocieteFinanceTab derivedFinance={derivedFinance} T={T} acc={acc}/>}
+        {activeTab === 'diagFinancier'  && (
+          <React.Suspense fallback={<div style={{ color: T?.textSub, fontSize: 13, padding: 20 }}>Chargement du diagramme financier…</div>}>
+            <DiagrammeFinancierConsolide T={T} acc={acc}/>
+          </React.Suspense>
+        )}
         {activeTab === 'primes'         && <PrimesTab        chantiers={chantiers} T={T} acc={acc}/>}
         {activeTab === 'finances'       && <FinancesTab      fin={finances} setFin={setFinances} T={T} acc={acc}/>}
       </div>

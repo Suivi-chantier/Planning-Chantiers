@@ -15,7 +15,7 @@ import {
   seriesReellesChantier, seriesEtatsFinanciers, periodesMensuelles,
   moisDePeriode, parseFraction, normNomChantier,
   seriesPrevuesChantier, resolutionAcomptePct, dateSignatureChantier,
-  recapReference, fusionnerSeriesPourGraphe, ecartsReels,
+  recapReference, fusionnerSeriesPourGraphe, ecartsReels, consoliderSeries,
 } from "../src/Renovation/diagrammeFinancier.mjs";
 
 let ok = 0, ko = 0;
@@ -315,6 +315,45 @@ check("écarts : au dernier mois de la valeur générée", ec.mois, "2026-06");
 check("écarts : marge en formation = 9 500 − 1 800", ec.marge.valeur, 7700);
 check("écarts : produit non facturé = 9 500 − 8 000", ec.decalage.valeur, 1500);
 check("écarts : null-safe (pas de séries)", ecartsReels(null).renseigne, false);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONSOLIDÉ TOUS CHANTIERS (Prompt 5)
+// ═════════════════════════════════════════════════════════════════════════════
+console.log("\nConsolidé :");
+const serie = (pts) => ({ renseigne: true, points: pts.map(([mois, cumul]) => ({ mois, cumul })) });
+const consolide = consoliderSeries([
+  { // Chantier A : dépenses jan/mars, recettes jan, référence figée présente.
+    chantierId: "A", nom: "Chantier A",
+    reelles: {
+      depenses: serie([["2026-01", 100], ["2026-03", 300]]),
+      recettes: serie([["2026-01", 10]]),
+      valeurGeneree: serie([["2026-01", 20]]),
+      appariement: { statut: "apparie" },
+    },
+    reference: { depenses: serie([["2026-01", 200]]), recettes: serie([["2026-01", 60]]), valeurGeneree: serie([["2026-01", 80]]) },
+  },
+  { // Chantier B : dépenses février seulement, non apparié, SANS référence.
+    chantierId: "B", nom: "Chantier B",
+    reelles: {
+      depenses: serie([["2026-02", 50]]),
+      recettes: { renseigne: false, points: [] },
+      valeurGeneree: { renseigne: false, points: [] },
+      appariement: { statut: "non_apparie" },
+    },
+    reference: null,
+  },
+]);
+// Somme avec report : jan 100+0, fév 100(report)+50, mars 300+50(report).
+check("consolidé : dépenses janvier", consolide.reelles.depenses.points.find(p => p.mois === "2026-01")?.cumul, 100);
+check("consolidé : dépenses février (report A + B)", consolide.reelles.depenses.points.find(p => p.mois === "2026-02")?.cumul, 150);
+check("consolidé : dépenses mars (A + report B)", consolide.reelles.depenses.points.find(p => p.mois === "2026-03")?.cumul, 350);
+check("consolidé : recettes = A seul (B non renseigné, pas 0)", consolide.reelles.recettes.nbSeries, 1);
+check("consolidé : référence = chantiers AVEC référence seulement", consolide.reference.depenses.nbSeries, 1);
+check("consolidé : référence dépenses janvier", consolide.reference.depenses.points.find(p => p.mois === "2026-01")?.cumul, 200);
+check("consolidé : stats inclus/exclus", `${consolide.stats.nbAvecReference}/${consolide.stats.sansReference.length}`, "1/1");
+check("consolidé : exclu = B", consolide.stats.sansReference[0]?.nom, "Chantier B");
+check("consolidé : non appariés listés", consolide.stats.nonApparies[0]?.nom, "Chantier B");
+check("consolidé : vide → non renseigné", consoliderSeries([]).reelles.depenses.renseigne, false);
 
 console.log(`\nRésultat : ${ok} OK, ${ko} KO.`);
 process.exit(ko > 0 ? 1 : 0);
