@@ -15,7 +15,7 @@ import {
   seriesReellesChantier, seriesEtatsFinanciers, periodesMensuelles,
   moisDePeriode, parseFraction, normNomChantier,
   seriesPrevuesChantier, resolutionAcomptePct, dateSignatureChantier,
-  recapReference,
+  recapReference, fusionnerSeriesPourGraphe, ecartsReels,
 } from "../src/Renovation/diagrammeFinancier.mjs";
 
 let ok = 0, ko = 0;
@@ -281,6 +281,40 @@ const recapComplet = recapReference(
 check("recap complet : aucune tâche non datée", recapComplet.nbTachesNonDatees, 0);
 check("recap complet : complete = true", recapComplet.complete, true);
 check("recap complet : avancement prévu final 100 %", recapComplet.avancementPrevuFinal, 1);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FUSION POUR LE GRAPHIQUE + LES DEUX ÉCARTS (Prompt 4)
+// ═════════════════════════════════════════════════════════════════════════════
+console.log("\nFusion graphique + écarts :");
+const fusion = fusionnerSeriesPourGraphe({
+  reelles: series,
+  reference: { depenses: prev.depenses, valeurGeneree: prev.valeurGeneree, recettes: prev.recettes },
+});
+check("fusion : 3 mois (avril → juin)", fusion.length, 3);
+check("fusion : dépenses réelles null avant leur 1er point", fusion[0]?.depReel, null);
+check("fusion : recettes référence dès avril (acompte)", fusion[0]?.recRef, 4500);
+check("fusion : juin réel = 1 800 / 8 000 / 9 500", `${fusion[2]?.depReel}/${fusion[2]?.recReel}/${fusion[2]?.valReel}`, "1800/8000/9500");
+check("fusion : juin dépenses référence", fusion[2]?.depRef, 6250);
+check("fusion : juin recettes référence", fusion[2]?.recRef, 13000);
+check("fusion : juin valeur référence", fusion[2]?.valRef, 13000);
+
+// Report (courbe plate) : une série sans point sur un mois intermédiaire garde
+// sa dernière valeur — jamais de trou ni de retour à zéro.
+const fusionReport = fusionnerSeriesPourGraphe({
+  reelles: {
+    depenses: { renseigne: true, points: [{ mois: "2026-01", cumul: 100 }] },
+    recettes: { renseigne: false, points: [] },
+    valeurGeneree: { renseigne: true, points: [{ mois: "2026-03", cumul: 50 }] },
+  },
+});
+check("fusion : report de la dernière valeur (mois sans point)", fusionReport.at(-1)?.depReel, 100);
+check("fusion : série non renseignée absente (null)", fusionReport.at(-1)?.recReel, null);
+
+const ec = ecartsReels(series);
+check("écarts : au dernier mois de la valeur générée", ec.mois, "2026-06");
+check("écarts : marge en formation = 9 500 − 1 800", ec.marge.valeur, 7700);
+check("écarts : produit non facturé = 9 500 − 8 000", ec.decalage.valeur, 1500);
+check("écarts : null-safe (pas de séries)", ecartsReels(null).renseigne, false);
 
 console.log(`\nRésultat : ${ok} OK, ${ko} KO.`);
 process.exit(ko > 0 ? 1 : 0);

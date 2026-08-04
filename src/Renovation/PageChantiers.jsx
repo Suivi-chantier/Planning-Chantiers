@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
@@ -30,8 +30,14 @@ import {
 import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, ACCEPT_DOCS } from "./storageChantier";
 // Diagramme financier (Point 5) : séries prévues + récapitulatif (calcul pur)
 // et référence figée (table INSERT-only chantier_reference_financiere).
-import { seriesPrevuesChantier, recapReference, labelMois } from "./diagrammeFinancier";
+import {
+  seriesPrevuesChantier, recapReference, labelMois,
+  seriesReellesChantier, fusionnerSeriesPourGraphe, ecartsReels,
+} from "./diagrammeFinancier";
 import { loadReferenceFinanciere, prendreReference } from "./referenceFinanciere";
+// Le rendu recharts du diagramme est chargé à la demande (React.lazy) pour
+// que le chunk "charts" ne pèse pas sur l'ouverture de la page Chantiers.
+const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -979,7 +985,49 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
     return () => { actif = false; };
   }, [chantierId]);
 
+  // Données du RÉEL pour le diagramme (Prompt 4) : pointages + lignes de
+  // commande AVEC leur date métier (jointure commandes.date_doc — la seule
+  // date fiable, cf. audit) + États financiers. Chargées par chantier,
+  // indépendantes des données de la page (qui n'ont pas la jointure date).
+  const [donnees, setDonnees] = useState({ charge: false, pointages: [], commandeLignes: [], etatsFinanciers: null, erreur: null });
+  useEffect(() => {
+    let actif = true;
+    setDonnees({ charge: false, pointages: [], commandeLignes: [], etatsFinanciers: null, erreur: null });
+    if (!chantierId) return;
+    (async () => {
+      const [pts, cl, cfg] = await Promise.all([
+        supabase.from("pointages").select("*").eq("chantier_id", chantierId),
+        supabase.from("commande_lignes")
+          .select("id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)")
+          .eq("chantier_id", chantierId),
+        supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
+      ]);
+      if (!actif) return;
+      setDonnees({
+        charge: true,
+        pointages: pts.error ? [] : (pts.data || []),
+        commandeLignes: cl.error ? [] : (cl.data || []),
+        etatsFinanciers: cfg.error ? null : (cfg.data?.value || null),
+        erreur: pts.error?.message || cl.error?.message || cfg.error?.message || null,
+      });
+    })();
+    return () => { actif = false; };
+  }, [chantierId]);
+
+  // Les 6 courbes : réel calculé ici, référence relue telle que FIGÉE en base.
+  const reelles = useMemo(() => (finance && donnees.charge)
+    ? seriesReellesChantier({
+        finance, pointages: donnees.pointages, commandeLignes: donnees.commandeLignes,
+        etatsFinanciers: donnees.etatsFinanciers, chantierNom,
+      })
+    : null, [finance, donnees, chantierNom]);
+  const dataGraphe = useMemo(
+    () => fusionnerSeriesPourGraphe({ reelles, reference: refs.courante?.series || null }),
+    [reelles, refs.courante]);
+  const ecarts = useMemo(() => ecartsReels(reelles), [reelles]);
+
   const fmtE = (n) => n == null ? "—" : `${Math.round(n).toLocaleString("fr-FR")} €`;
+  const fmtSigne = (n) => `${n >= 0 ? "+" : "−"} ${Math.abs(Math.round(n)).toLocaleString("fr-FR")} €`;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "";
   const fmtPeriode = (p) => p ? `${labelMois(p.debut)} → ${labelMois(p.fin)}` : "—";
 
@@ -1045,7 +1093,7 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
     <div className="ch-stat-card" style={{ padding: "14px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
         <div style={{ fontWeight: 800, fontSize: 13.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <Icon as={ShieldCheck} size={14}/> Référence financière <span style={{ color: T.textMuted, fontWeight: 600 }}>(prévisionnel figé)</span>
+          <Icon as={ShieldCheck} size={14}/> Diagramme financier <span style={{ color: T.textMuted, fontWeight: 600 }}>dépenses · facturation · valeur générée</span>
         </div>
         <div style={{ flex: 1 }}/>
         {courante ? (
@@ -1088,6 +1136,69 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
       {erreurAction && !modale && (
         <div style={{ marginTop: 6, fontSize: 12.5, color: "#e15a5a" }}>{erreurAction}</div>
       )}
+
+      {/* ── États financiers non appariés : le dire, plutôt que des courbes fausses ── */}
+      {reelles && !reelles.recettes.renseigne && (
+        <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: "rgba(245,166,35,.12)",
+          border: "1px solid rgba(245,166,35,.4)", fontSize: 12.5, color: "#b97a10", fontWeight: 600 }}>
+          {reelles.appariement.statut === "non_apparie"
+            ? <>États financiers non appariés à ce chantier (la jointure se fait par nom) : recettes et valeur générée réelles indisponibles — le nom du chantier doit correspondre à une ligne des États financiers.</>
+            : reelles.recettes.raison}
+        </div>
+      )}
+      {donnees.erreur && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: "#e15a5a" }}>Chargement des données du diagramme : {donnees.erreur}</div>
+      )}
+
+      {/* ── Le diagramme : 6 courbes cumulées (réel plein, référence pointillés) ── */}
+      {dataGraphe.length > 0 ? (
+        <div style={{ marginTop: 12, minWidth: 0 }}>
+          <Suspense fallback={<div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: 13 }}>Chargement du graphique…</div>}>
+            <DiagrammeFinancierChart T={T} data={dataGraphe} hauteur={280}/>
+          </Suspense>
+          <div style={{ fontSize: 11.5, color: T.textMuted, textAlign: "center", marginTop: 2 }}>
+            Trait plein = réel · pointillés = référence figée{courante ? ` (« ${courante.libelle} »)` : " (aucune prise)"} · courbes cumulées, € HT, par fin de mois
+          </div>
+        </div>
+      ) : donnees.charge ? (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: T.textMuted }}>
+          Aucune donnée mensuelle à afficher pour l'instant : ni dépense datée, ni État financier apparié{courante ? "" : ", ni référence figée"}.
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: T.textMuted }}>Chargement des données…</div>
+      )}
+
+      {/* ── Les deux écarts, en clair — les deux messages du diagramme ── */}
+      {ecarts?.renseigne ? (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
+          <div style={{ flex: "1 1 240px", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.inputBg }}>
+            <div style={{ fontSize: 11, color: T.textMuted, fontWeight: 800, letterSpacing: .3 }}>MARGE EN TRAIN DE SE CONSTITUER</div>
+            {ecarts.marge.renseigne ? (
+              <div style={{ fontSize: 19, fontWeight: 800, color: ecarts.marge.valeur >= 0 ? "#22c55e" : "#e15a5a" }}>
+                {fmtSigne(ecarts.marge.valeur)}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12.5, color: T.textMuted, fontStyle: "italic" }}>non renseigné — {ecarts.marge.raison}</div>
+            )}
+            <div style={{ fontSize: 11.5, color: T.textSub }}>valeur générée − dépenses · à fin {labelMois(ecarts.mois)}</div>
+          </div>
+          <div style={{ flex: "1 1 240px", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.inputBg }}>
+            <div style={{ fontSize: 11, color: T.textMuted, fontWeight: 800, letterSpacing: .3 }}>PRODUIT MAIS PAS ENCORE FACTURÉ</div>
+            {ecarts.decalage.renseigne ? (
+              <div style={{ fontSize: 19, fontWeight: 800, color: ecarts.decalage.valeur > 0 ? "#f5a623" : "#5B8AF5" }}>
+                {fmtSigne(ecarts.decalage.valeur)}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12.5, color: T.textMuted, fontStyle: "italic" }}>non renseigné — {ecarts.decalage.raison}</div>
+            )}
+            <div style={{ fontSize: 11.5, color: T.textSub }}>valeur générée − facturation (décalage de trésorerie) · à fin {labelMois(ecarts.mois)}</div>
+          </div>
+        </div>
+      ) : (ecarts && donnees.charge && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: T.textMuted, fontStyle: "italic" }}>
+          Écarts indisponibles — {ecarts.raison}
+        </div>
+      ))}
 
       {/* ── Modale de prise / re-basage : récapitulatif AVANT de figer ── */}
       {(modale === "prendre" || modale === "rebaser") && prep && (

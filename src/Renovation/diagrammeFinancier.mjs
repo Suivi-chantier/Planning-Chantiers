@@ -770,3 +770,62 @@ export function recapReference(prevues, finance) {
       && (nonPlace.ouvragesMatNonDates || []).length === 0,
   };
 }
+
+// ── Fusion des séries pour le graphique (Prompt 4) ───────────────────────────
+// Aligne les 6 séries (3 flux × réel/référence) sur l'union de leurs mois :
+// une ligne par mois { mois, label, depReel, recReel, valReel, depRef, recRef,
+// valRef }. Les séries sont des CUMULS : un mois sans point reporte la
+// dernière valeur connue (courbe plate, jamais de trou ni de retour à zéro) ;
+// null avant le premier point d'une série (la courbe ne démarre pas à 0).
+// `reference` = le champ `series` d'une ligne de chantier_reference_financiere.
+export function fusionnerSeriesPourGraphe({ reelles = null, reference = null } = {}) {
+  const defs = [
+    ["depReel", reelles?.depenses], ["recReel", reelles?.recettes], ["valReel", reelles?.valeurGeneree],
+    ["depRef", reference?.depenses], ["recRef", reference?.recettes], ["valRef", reference?.valeurGeneree],
+  ];
+  const maps = defs.map(([k, s]) => [k, new Map(
+    (s?.renseigne !== false && Array.isArray(s?.points) ? s.points : []).map((p) => [p.mois, p.cumul]),
+  )]);
+  const mois = [...new Set(maps.flatMap(([, m]) => [...m.keys()]))].sort();
+  const dernier = {};
+  return mois.map((m) => {
+    const row = { mois: m, label: labelMois(m) };
+    maps.forEach(([k, map]) => {
+      if (map.has(m)) dernier[k] = map.get(m);
+      row[k] = dernier[k] ?? null;
+    });
+    return row;
+  });
+}
+
+// ── Les deux écarts « du jour » (Prompt 4) ───────────────────────────────────
+// Les deux messages utiles du diagramme, lisibles sans interpréter les
+// courbes, calculés au DERNIER mois connu de la valeur générée réelle :
+//   marge en train de se constituer = valeur générée − dépenses ;
+//   produit mais pas encore facturé = valeur générée − facturation.
+// Chaque terme manquant est signalé (renseigne:false + raison), jamais à 0.
+export function ecartsReels(reelles) {
+  const val = reelles?.valeurGeneree, dep = reelles?.depenses, rec = reelles?.recettes;
+  if (!val?.renseigne || (val.points || []).length === 0) {
+    return { renseigne: false, raison: val?.raison || "Valeur générée indisponible (États financiers)." };
+  }
+  const dernierVal = val.points[val.points.length - 1];
+  const auMois = (serie) => {
+    if (!serie?.renseigne) return null;
+    const points = (serie.points || []).filter((p) => p.mois <= dernierVal.mois);
+    return points.length > 0 ? points[points.length - 1] : null;
+  };
+  const depAuMois = auMois(dep);
+  const recAuMois = auMois(rec);
+  return {
+    renseigne: true,
+    mois: dernierVal.mois,
+    valeurGeneree: dernierVal.cumul,
+    marge: depAuMois
+      ? { renseigne: true, valeur: dernierVal.cumul - depAuMois.cumul, depenses: depAuMois.cumul }
+      : { renseigne: false, raison: dep?.raison || "Dépenses indisponibles." },
+    decalage: recAuMois
+      ? { renseigne: true, valeur: dernierVal.cumul - recAuMois.cumul, recettes: recAuMois.cumul }
+      : { renseigne: false, raison: rec?.raison || "Facturation indisponible." },
+  };
+}
