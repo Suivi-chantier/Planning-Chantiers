@@ -41,7 +41,10 @@
 //    mois de la série pour que le cumul final retombe AU CENTIME sur
 //    brut.coutMOTotalChantier / brut.coutMatChantier (contrôle intégré).
 // ─────────────────────────────────────────────────────────────────────────────
-import { heuresParMois, sumCoutMO, totalLignes } from "../chantierFinance.mjs";
+import {
+  heuresParMois, sumCoutMO, totalLignes,
+  tacheHeuresVendues, coutMatOuvrage, situationAFacturerVal,
+} from "../chantierFinance.mjs";
 
 // ── Utilitaires de parsing (tolérance identique à EtatsFinanciers.jsx) ──────
 const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin",
@@ -455,4 +458,277 @@ export function seriesReellesChantier({
     periodesNonDatables: etats.periodesNonDatables,
     warnings,
   };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SÉRIES PRÉVUES (Prompt 2) — le prévisionnel placé dans le temps par les
+// date_prevue du planning. Toujours du calcul pur, ni affichage ni stockage
+// (la référence FIGÉE arrive au Prompt 3 : elle enregistrera CES séries).
+//
+// Arbitrages actés (audit Prompt 0) :
+//  - MO prévue datée par tâche = heures VENDUES (tache.heures_vendues) × taux
+//    MO prévisionnel — pas les heures estimées — pour que le total boucle sur
+//    moPrev du module (heures_devis × taux). L'écart de répartition
+//    (heures_devis − Σ tache.heures_vendues) est isolé dans nonPlace.
+//  - avancement PLANIFIÉ pondéré par heures vendues (comme les groupes chrono),
+//    PAS la définition de l'avancement réel (heures_estimees puis prix_ht) :
+//    les deux conventions coexistent déjà dans chantierFinance (ne pas
+//    harmoniser).
+//  - recettes prévues : acompte au mois de signature, puis chaque mois la
+//    formule situationAFacturerVal de chantierFinance (RÉUTILISÉE, pas
+//    réécrite) appliquée à l'avancement prévu — clampée à 0 (on n'émet pas de
+//    facture négative, l'acompte reste acquis).
+//  - les tâches sans date_prevue ne peuvent pas être placées : renvoyées à
+//    part (elles rendent la référence incomplète — à savoir AVANT de figer).
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Mois "YYYY-MM" d'une date "YYYY-MM-DD", ou null.
+const moisDeDate = (d) => {
+  const s = (d || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.slice(0, 7) : null;
+};
+
+// Date de signature du chantier, depuis le cycle de vie (Point 2a) :
+// meta.cycle_vie_etapes.devis_signe.donnees.date (date métier saisie),
+// repli sur la date de validation de l'étape, puis sur l'acompte encaissé.
+// null si rien — l'appelant placera l'acompte au premier mois et le signalera.
+export function dateSignatureChantier(meta) {
+  const etapes = meta?.cycle_vie_etapes || {};
+  for (const id of ["devis_signe", "acompte_encaisse"]) {
+    const e = etapes[id];
+    if (!e) continue;
+    const d = (e.donnees?.date || e.date || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return { date: d, source: id };
+  }
+  return null;
+}
+
+// % d'acompte applicable au chantier (fraction 0-1), par priorité :
+//  1. États financiers du chantier (acompteMois, moyenne pondérée par
+//     montantHT des lignes appariées) — la donnée la plus proche du réel ;
+//  2. surcharge par chantier : meta.acompte_pct (posée par l'UI au Prompt 3+) ;
+//  3. réglage Admin : planning_config "acompte_pct_defaut" (passé en argument).
+// Saisies tolérantes partout : 30 ou 0,3 → 0,30 (parseFraction).
+export function resolutionAcomptePct({ etatsFinanciers, chantierNom, meta, acomptePctDefaut } = {}) {
+  const app = apparierLignesEtats(etatsFinanciers?.avancement, chantierNom);
+  if (app.statut === "apparie") {
+    const { mois: moisList } = periodesMensuelles(etatsFinanciers.avancement);
+    let somme = 0, poids = 0;
+    app.lignes.forEach((row) => {
+      let ac = null, mHT = null;
+      moisList.forEach(({ periodId }) => { // dernier état connu, ordre chrono
+        const v = row?.values?.[periodId];
+        if (!v) return;
+        const a = parseFraction(v.acompteMois);
+        const m = parseNombre(v.montantHT);
+        if (a != null) ac = a;
+        if (m != null) mHT = m;
+      });
+      if (ac != null && mHT != null && mHT > 0) { somme += ac * mHT; poids += mHT; }
+    });
+    if (poids > 0) return { fraction: somme / poids, source: "etats_financiers" };
+  }
+  const surcharge = parseFraction(meta?.acompte_pct);
+  if (surcharge != null) return { fraction: surcharge, source: "chantier" };
+  const defaut = parseFraction(acomptePctDefaut);
+  if (defaut != null) return { fraction: defaut, source: "admin" };
+  return { fraction: null, source: null };
+}
+
+// Les 3 séries mensuelles PRÉVUES d'un chantier. `finance` = résultat de
+// computeChantierFinance (les totaux prévus — moPrev, matPrev, vendu, taux —
+// viennent de lui, jamais recalculés ici) ; `phasage` = la ligne phasages
+// (tâches + date_prevue + meta cycle de vie).
+export function seriesPrevuesChantier({
+  finance, phasage, etatsFinanciers = null, chantierNom = "",
+  acomptePctDefaut = null,
+} = {}) {
+  const brut = finance?.brut;
+  if (!brut) {
+    const raison = "Résultat de computeChantierFinance manquant (paramètre finance).";
+    return {
+      depenses: { renseigne: false, raison, points: [] },
+      valeurGeneree: { renseigne: false, raison, points: [] },
+      recettes: { renseigne: false, raison, points: [] },
+      tachesNonDatees: [], warnings: [],
+    };
+  }
+  const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
+  const meta = phasage?.plan_travaux?.meta || {};
+  const taux = brut.tauxMOPrevEff;
+  const venduHT = brut.prixHTChantier;
+  const totalHeuresVendues = brut.heuresVenduesChantier;
+
+  // ── MO prévue datée + heures vendues placées (base de l'avancement prévu) ──
+  const moParMois = new Map();  // mois → € MO prévue
+  const hvParMois = new Map();  // mois → heures vendues
+  const tachesNonDatees = [];   // heures vendues impossibles à placer
+  let heuresReparties = 0;
+  ouvrages.forEach((o) => (o.taches || []).forEach((t) => {
+    const hv = tacheHeuresVendues(t);
+    if (hv <= 0) return; // sans heures vendues : aucun poids dans la référence
+    heuresReparties += hv;
+    const mois = moisDeDate(t.date_prevue);
+    if (!mois) {
+      tachesNonDatees.push({
+        ouvrage: o.libelle || "(sans libellé)", tache: t.nom || "(sans nom)",
+        heures: hv, montant: hv * taux,
+      });
+      return;
+    }
+    moParMois.set(mois, (moParMois.get(mois) || 0) + hv * taux);
+    hvParMois.set(mois, (hvParMois.get(mois) || 0) + hv);
+  }));
+  // Heures vendues au devis (heures_devis) jamais réparties sur les tâches :
+  // pas plaçables non plus — comptées à part pour que le contrôle boucle.
+  const heuresNonReparties = totalHeuresVendues - heuresReparties;
+  const heuresNonDatees = tachesNonDatees.reduce((s, t) => s + t.heures, 0);
+
+  // ── Matériaux prévus, placés au démarrage de l'ouvrage qui les consomme ────
+  // (= plus petite date_prevue de ses tâches — même règle que la date de
+  // besoin de la page Planning des commandes). Montant = cout_materiaux de
+  // l'ouvrage, la valeur retenue par matPrev du module.
+  const matParMois = new Map();
+  const ouvragesMatNonDates = [];
+  ouvrages.forEach((o) => {
+    const montant = coutMatOuvrage(o);
+    if (montant <= 0) return;
+    const dates = (o.taches || []).map((t) => (t.date_prevue || "").slice(0, 10))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+    const demarrage = dates.length > 0 ? dates.sort()[0] : null;
+    const mois = demarrage ? demarrage.slice(0, 7) : null;
+    if (!mois) {
+      ouvragesMatNonDates.push({ ouvrage: o.libelle || "(sans libellé)", montant });
+      return;
+    }
+    matParMois.set(mois, (matParMois.get(mois) || 0) + montant);
+  });
+
+  // ── Série des dépenses prévues (cumulées) ──────────────────────────────────
+  const moisDepenses = [...new Set([...moParMois.keys(), ...matParMois.keys()])].sort();
+  let cumulMO = 0, cumulMat = 0;
+  const pointsDepenses = moisDepenses.map((mois) => {
+    const mo = moParMois.get(mois) || 0;
+    const materiaux = matParMois.get(mois) || 0;
+    cumulMO += mo; cumulMat += materiaux;
+    return { mois, label: labelMois(mois), mo, materiaux, depense: mo + materiaux, cumulMO, cumulMat, cumul: cumulMO + cumulMat };
+  });
+  const nonPlace = {
+    tachesNonDatees,
+    moTachesNonDatees: heuresNonDatees * taux,
+    heuresNonReparties,
+    moHeuresNonReparties: heuresNonReparties * taux,
+    ouvragesMatNonDates,
+    materiauxNonDates: ouvragesMatNonDates.reduce((s, o) => s + o.montant, 0),
+  };
+  // Contrôle : datée + non plaçable = totaux prévus du module, au centime.
+  const EPS = 0.005;
+  const ecartMO = (cumulMO + nonPlace.moTachesNonDatees + nonPlace.moHeuresNonReparties) - brut.moPrevChantier;
+  const ecartMat = (cumulMat + nonPlace.materiauxNonDates) - brut.commandesPrevChantier;
+  const controle = {
+    moSerie: cumulMO, moNonPlace: nonPlace.moTachesNonDatees + nonPlace.moHeuresNonReparties,
+    moModule: brut.moPrevChantier, ecartMO,
+    matSerie: cumulMat, matNonPlace: nonPlace.materiauxNonDates,
+    matModule: brut.commandesPrevChantier, ecartMat,
+    ok: Math.abs(ecartMO) <= EPS && Math.abs(ecartMat) <= EPS,
+  };
+  const depenses = pointsDepenses.length > 0
+    ? { renseigne: true, points: pointsDepenses, nonPlace, controle }
+    : { renseigne: false, raison: "Aucune tâche datée (date_prevue) : le prévisionnel ne peut pas être placé dans le temps.", points: [], nonPlace, controle };
+
+  // ── Valeur générée prévue = avancement planifié × vendu HT ─────────────────
+  // Avancement planifié (fraction) = cumul des heures vendues datées ÷ total
+  // des heures vendues du chantier (heuresVenduesChantier du module).
+  const moisHV = [...hvParMois.keys()].sort();
+  let cumulHV = 0;
+  const pointsValeur = moisHV.map((mois) => {
+    cumulHV += hvParMois.get(mois);
+    const avancementPrevu = totalHeuresVendues > 0 ? cumulHV / totalHeuresVendues : 0;
+    return { mois, label: labelMois(mois), heuresVendues: hvParMois.get(mois), cumulHeures: cumulHV, avancementPrevu, cumul: avancementPrevu * venduHT };
+  });
+  const valeurGeneree = (totalHeuresVendues > 0 && venduHT > 0 && pointsValeur.length > 0)
+    ? { renseigne: true, points: pointsValeur, avancementPrevuFinal: pointsValeur[pointsValeur.length - 1].avancementPrevu }
+    : { renseigne: false, raison: totalHeuresVendues <= 0 ? "Aucune heure vendue sur les ouvrages." : venduHT <= 0 ? "Aucun prix de vente sur les ouvrages." : "Aucune tâche datée.", points: [] };
+
+  // ── Recettes prévues : acompte au mois de signature, puis situations ───────
+  const acompte = resolutionAcomptePct({ etatsFinanciers, chantierNom, meta, acomptePctDefaut });
+  const signature = dateSignatureChantier(meta);
+  const montantAcompte = acompte.fraction != null && venduHT > 0 ? acompte.fraction * venduHT : null;
+
+  let recettes;
+  if (venduHT <= 0) {
+    recettes = { renseigne: false, raison: "Aucun prix de vente sur les ouvrages.", points: [] };
+  } else if (pointsValeur.length === 0 && montantAcompte == null) {
+    recettes = { renseigne: false, raison: "Ni tâche datée ni % d'acompte : aucune recette prévisionnelle calculable.", points: [] };
+  } else {
+    const premierMois = moisHV[0] || null;
+    const moisAcompte = signature ? signature.date.slice(0, 7) : premierMois;
+    const acompteAuPremierMoisFauteDeSignature = !signature && montantAcompte != null;
+    const moisRecettes = [...new Set([
+      ...(montantAcompte != null && moisAcompte ? [moisAcompte] : []),
+      ...moisHV,
+    ])].sort();
+    const avancementAuMois = new Map(pointsValeur.map((p) => [p.mois, p.avancementPrevu]));
+    let cumulFacture = 0, dernierAvancement = 0;
+    const pointsRecettes = moisRecettes.map((mois) => {
+      const acompteDuMois = (montantAcompte != null && mois === moisAcompte) ? montantAcompte : 0;
+      cumulFacture += acompteDuMois;
+      if (avancementAuMois.has(mois)) dernierAvancement = avancementAuMois.get(mois);
+      // LA formule du module (situationAFacturerVal), appliquée à l'avancement
+      // PRÉVU, avec le cumul facturé prévu en guise de % facturé. Clampée à 0.
+      const situation = Math.max(0, situationAFacturerVal(dernierAvancement * 100, cumulFacture / venduHT, venduHT) ?? 0);
+      cumulFacture += situation;
+      return { mois, label: labelMois(mois), acompte: acompteDuMois, situation, cumul: cumulFacture };
+    });
+    recettes = {
+      renseigne: true, points: pointsRecettes,
+      acompte: {
+        fraction: acompte.fraction, montant: montantAcompte, source: acompte.source,
+        mois: montantAcompte != null ? moisAcompte : null,
+        dateSignature: signature?.date || null, sourceSignature: signature?.source || null,
+        placeAuPremierMoisFauteDeSignature: acompteAuPremierMoisFauteDeSignature,
+      },
+    };
+  }
+
+  // ── Warnings ────────────────────────────────────────────────────────────────
+  const warnings = [];
+  if (tachesNonDatees.length > 0) {
+    warnings.push({
+      code: "taches_non_datees", gravite: "alerte",
+      message: `${tachesNonDatees.length} tâche(s) avec heures vendues sans date_prevue (${Math.round(heuresNonDatees)} h, ${Math.round(nonPlace.moTachesNonDatees)} €) : la référence serait incomplète.`,
+    });
+  }
+  if (Math.abs(heuresNonReparties) > 0.05) {
+    warnings.push({
+      code: "heures_non_reparties", gravite: "info",
+      message: `${Math.round(heuresNonReparties)} h vendues au devis non réparties sur les tâches : non plaçables dans le temps (comptées à part).`,
+    });
+  }
+  if (ouvragesMatNonDates.length > 0) {
+    warnings.push({
+      code: "materiaux_prevus_sans_date", gravite: "alerte",
+      message: `${ouvragesMatNonDates.length} ouvrage(s) avec matériaux prévus mais aucune tâche datée (${Math.round(nonPlace.materiauxNonDates)} €) : démarrage non plaçable.`,
+    });
+  }
+  if (recettes.renseigne && recettes.acompte?.montant == null) {
+    warnings.push({
+      code: "acompte_pct_absent", gravite: "info",
+      message: "Aucun % d'acompte (États financiers, chantier ou réglage Admin) : recettes prévues sans acompte.",
+    });
+  }
+  if (recettes.renseigne && recettes.acompte?.placeAuPremierMoisFauteDeSignature) {
+    warnings.push({
+      code: "signature_absente", gravite: "info",
+      message: "Pas de date de signature (cycle de vie) : acompte placé au premier mois planifié.",
+    });
+  }
+  if (!controle.ok) {
+    warnings.push({
+      code: "controle_prevu_ecart", gravite: "alerte",
+      message: `Le prévisionnel placé ne retombe pas sur moPrev/matPrev du module (écart MO ${ecartMO.toFixed(2)} €, matériaux ${ecartMat.toFixed(2)} €).`,
+    });
+  }
+
+  return { depenses, valeurGeneree, recettes, tachesNonDatees, warnings };
 }

@@ -2291,11 +2291,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
   const [rolesSituations, setRolesSituations] = useState(["admin", "conducteur"]);
   const [nouveauSeuil, setNouveauSeuil] = useState("");
+  // % d'acompte par défaut (Point 5) : utilisé par les recettes prévues du
+  // diagramme financier quand ni les États financiers ni le chantier n'en ont.
+  const [acomptePctDefaut, setAcomptePctDefaut] = useState("");
 
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils", "acompte_pct_defaut"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2324,6 +2327,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               setSeuilsSituations(normaliserSeuilsSituations(r.value.seuils));
             }
             if (Array.isArray(r.value.roles)) setRolesSituations(r.value.roles);
+          }
+          if (r.key === "acompte_pct_defaut" && r.value != null && r.value !== "") {
+            setAcomptePctDefaut(String(r.value));
           }
         });
       }
@@ -4183,6 +4189,38 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             {!(tauxMOPrev>0)&&(
               <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
                 non réglé → {TAUX_MO_PREV_DEFAUT} €/h
+              </span>
+            )}
+          </div>
+
+          {/* % d'acompte par défaut (Point 5) — recettes prévues du diagramme
+              financier. Priorité : États financiers du chantier > surcharge
+              chantier > CE réglage. Saisie en % (30 = 30 %). */}
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Acompte par défaut</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
+            % d'acompte à la signature, utilisé par les <strong>recettes prévisionnelles</strong> du diagramme financier quand ni les États financiers ni le chantier n'en précisent un.
+          </div>
+          <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+            <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>Acompte à la signature (par défaut)</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input
+                type="number" min="0" max="100" step="1"
+                value={acomptePctDefaut}
+                onChange={e=>{
+                  const v=e.target.value;
+                  setAcomptePctDefaut(v);
+                  saveConfig("acompte_pct_defaut",v===""?"":parseFloat(v)||0);
+                }}
+                placeholder="30"
+                style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                  border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                  fontFamily:"inherit",fontSize:15,fontWeight:700,outline:"none"}}
+              />
+              <span style={{fontSize:13,color:T.textMuted}}>%</span>
+            </div>
+            {(acomptePctDefaut===""||acomptePctDefaut==null)&&(
+              <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
+                non réglé → pas d'acompte dans le prévisionnel
               </span>
             )}
           </div>

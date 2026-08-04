@@ -287,6 +287,18 @@ export function avancementTacheDetail(t) {
   return `Avancement saisi : ${av} %\n(Pas d'heures estimées)`;
 }
 
+// ── Situation à facturer (formule partagée) ──────────────────────────────────
+// LA formule de la situation : (avancement % − % facturé) × vendu HT.
+// `avancementPct` en 0-100, `pctFacture` en FRACTION 0-1 (États financiers),
+// null si le % facturé est indisponible ou le vendu nul — jamais un faux zéro.
+// Exportée pour être RÉUTILISÉE (diagramme financier : recettes prévues =
+// même formule appliquée à l'avancement prévu), jamais réécrite ailleurs.
+export function situationAFacturerVal(avancementPct, pctFacture, prixHT) {
+  return (pctFacture != null && Number.isFinite(parseFloat(pctFacture)) && prixHT > 0)
+    ? (avancementPct - parseFloat(pctFacture) * 100) / 100 * prixHT
+    : null;
+}
+
 // ── Lignes de commande ───────────────────────────────────────────────────────
 // Total réel d'un jeu de lignes : prix_total sinon PU × quantité (un prix_total
 // à 0 explicite retombe sur PU × quantité — comportement historique conservé).
@@ -572,9 +584,7 @@ export function computeChantierFinance({
     - fgProjete;
 
   // Situation à facturer : avancement au-delà du % facturé (États financiers).
-  const situationVal = (pctFacture != null && Number.isFinite(parseFloat(pctFacture)) && prixHTChantier > 0)
-    ? (avancementGlobal - parseFloat(pctFacture) * 100) / 100 * prixHTChantier
-    : null;
+  const situationVal = situationAFacturerVal(avancementGlobal, pctFacture, prixHTChantier);
 
   // ── Warnings agrégés (niveau chantier) ──
   const warnings = [];

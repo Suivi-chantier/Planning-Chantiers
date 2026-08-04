@@ -14,6 +14,7 @@ import { computeChantierFinance } from "../src/chantierFinance.mjs";
 import {
   seriesReellesChantier, seriesEtatsFinanciers, periodesMensuelles,
   moisDePeriode, parseFraction, normNomChantier,
+  seriesPrevuesChantier, resolutionAcomptePct, dateSignatureChantier,
 } from "../src/Renovation/diagrammeFinancier.mjs";
 
 let ok = 0, ko = 0;
@@ -167,6 +168,84 @@ const series2 = seriesReellesChantier({
 });
 check("cumul final hors sans-date", series2.depenses.points[1]?.cumul, 320 + 500 + 160 + 30);
 check("contrôle toujours ok (sans-date compté à part)", series2.depenses.controle.ok, true);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SÉRIES PRÉVUES (Prompt 2)
+// ═════════════════════════════════════════════════════════════════════════════
+// vendu 15 000 €, 150 h vendues (140 réparties + 10 non réparties), taux 25 €/h
+// → moPrev 3 750 €, matPrev 3 000 €. Signature au 2026-04-02 (cycle de vie).
+const phasagePrev = {
+  chantier_id: "test", chantier_nom: "TEST - LOT 1",
+  plan_travaux: { meta: {
+    cycle_vie_etapes: { devis_signe: { fait: true, date: "2026-04-05T09:00:00Z", donnees: { date: "2026-04-02" } } },
+  } },
+  ouvrages: [
+    { id: "o1", libelle: "Ouvrage 1", prix_ht: 10000, heures_devis: 100, cout_materiaux: 2000, taches: [
+      { id: "t1", nom: "Mai", heures_vendues: 40, date_prevue: "2026-05-10" },
+      { id: "t2", nom: "Juin", heures_vendues: 40, date_prevue: "2026-06-20" },
+      { id: "t3", nom: "Sans date", heures_vendues: 10, date_prevue: "" },
+    ] },
+    { id: "o2", libelle: "Ouvrage 2", prix_ht: 5000, heures_devis: 50, cout_materiaux: 1000, taches: [
+      { id: "t4", nom: "Juin bis", heures_vendues: 50, date_prevue: "2026-06-05" },
+    ] },
+  ],
+};
+const financePrev = computeChantierFinance({ phasage: phasagePrev, pointages: [], commandeLignes: [], tauxHoraires, tauxMOPrev: 25, lots: [] });
+
+console.log("\nSéries prévues :");
+const prev = seriesPrevuesChantier({ finance: financePrev, phasage: phasagePrev, acomptePctDefaut: 30 });
+
+// Dépenses prévues : mai = MO 1 000 (40 h) + mat o1 2 000 ; juin = MO 2 250
+// (90 h) + mat o2 1 000. Non plaçable : t3 (250 €) + 10 h non réparties (250 €).
+const dp = prev.depenses;
+check("dépenses prévues renseignées", dp.renseigne, true);
+check("dépenses prévues : cumul mai", dp.points.find(p => p.mois === "2026-05")?.cumul, 3000);
+check("dépenses prévues : cumul final", dp.points.at(-1)?.cumul, 6250);
+check("dépenses prévues : mat au démarrage de l'ouvrage", dp.points.find(p => p.mois === "2026-05")?.materiaux, 2000);
+check("nonPlace : tâches non datées (250 €)", dp.nonPlace.moTachesNonDatees, 250);
+check("nonPlace : heures non réparties (10 h)", dp.nonPlace.heuresNonReparties, 10);
+check("CONTRÔLE PRÉVU : ok", dp.controle.ok, true);
+check("CONTRÔLE PRÉVU : MO daté + non placé = moPrev", dp.controle.moSerie + dp.controle.moNonPlace, financePrev.brut.moPrevChantier);
+check("CONTRÔLE PRÉVU : mat = matPrev", dp.controle.matSerie + dp.controle.matNonPlace, financePrev.brut.commandesPrevChantier);
+check("tâches non datées listées à part", prev.tachesNonDatees.length, 1);
+check("warning tâches non datées", prev.warnings.some(w => w.code === "taches_non_datees"), true);
+
+// Valeur générée prévue : mai 40/150 × 15 000 = 4 000 ; juin 130/150 = 13 000.
+const vp = prev.valeurGeneree;
+check("valeur prévue : mai", vp.points.find(p => p.mois === "2026-05")?.cumul, 4000);
+check("valeur prévue : juin", vp.points.find(p => p.mois === "2026-06")?.cumul, 13000);
+check("valeur prévue : avancement final 130/150", vp.avancementPrevuFinal, 130 / 150);
+
+// Recettes prévues : acompte 30 % (Admin) = 4 500 € au mois de SIGNATURE
+// (avril), puis situations — mai clampé (4 000 < 4 500 déjà facturés), juin
+// rattrape à 13 000 (formule situationAFacturerVal réutilisée).
+const rp = prev.recettes;
+check("recettes prévues renseignées", rp.renseigne, true);
+check("recettes prévues : acompte au mois de signature", rp.points[0]?.mois, "2026-04");
+check("recettes prévues : avril = acompte 4 500", rp.points.find(p => p.mois === "2026-04")?.cumul, 4500);
+check("recettes prévues : mai clampé (pas de facture négative)", rp.points.find(p => p.mois === "2026-05")?.cumul, 4500);
+check("recettes prévues : juin = 13 000", rp.points.find(p => p.mois === "2026-06")?.cumul, 13000);
+check("acompte : source admin", rp.acompte?.source, "admin");
+check("acompte : fraction 30 % tolérée", rp.acompte?.fraction, 0.3);
+check("signature : date du cycle de vie", rp.acompte?.dateSignature, "2026-04-02");
+
+// Priorité du % d'acompte : États financiers (0,1 sur TEST - LOT 1) > Admin.
+const acEtats = resolutionAcomptePct({ etatsFinanciers, chantierNom: "TEST - LOT 1", meta: {}, acomptePctDefaut: 30 });
+check("acompte : États financiers prioritaires", acEtats.fraction, 0.1);
+check("acompte : source etats_financiers", acEtats.source, "etats_financiers");
+const acChantier = resolutionAcomptePct({ etatsFinanciers: null, chantierNom: "X", meta: { acompte_pct: "0,25" }, acomptePctDefaut: 30 });
+check("acompte : surcharge chantier > Admin", acChantier.fraction, 0.25);
+
+// Sans date de signature : acompte posé au PREMIER mois planifié + signalé.
+const phasageSansSign = { ...phasagePrev, plan_travaux: { meta: {} } };
+const prevSansSign = seriesPrevuesChantier({
+  finance: computeChantierFinance({ phasage: phasageSansSign, pointages: [], commandeLignes: [], tauxHoraires, tauxMOPrev: 25, lots: [] }),
+  phasage: phasageSansSign, acomptePctDefaut: 30,
+});
+check("signature absente : acompte au 1er mois planifié", prevSansSign.recettes.points[0]?.mois, "2026-05");
+check("signature absente : signalé", prevSansSign.recettes.acompte?.placeAuPremierMoisFauteDeSignature, true);
+check("signature absente : warning", prevSansSign.warnings.some(w => w.code === "signature_absente"), true);
+check("dateSignatureChantier : null si rien", dateSignatureChantier({}), null);
 
 console.log(`\nRésultat : ${ok} OK, ${ko} KO.`);
 process.exit(ko > 0 ? 1 : 0);
