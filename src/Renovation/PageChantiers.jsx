@@ -28,6 +28,10 @@ import {
 } from "./cycleVie";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
 import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, ACCEPT_DOCS } from "./storageChantier";
+// Diagramme financier (Point 5) : séries prévues + récapitulatif (calcul pur)
+// et référence figée (table INSERT-only chantier_reference_financiere).
+import { seriesPrevuesChantier, recapReference, labelMois } from "./diagrammeFinancier";
+import { loadReferenceFinanciere, prendreReference } from "./referenceFinanciere";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
@@ -947,6 +951,237 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, avancementChant
             );
           })()}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Référence financière figée (Point 5, Prompt 3) ──────────────────────────
+// Le prévisionnel FIGÉ du diagramme financier : pris par action EXPLICITE avec
+// récapitulatif (tâches non datées comprises), jamais recalculé tout seul,
+// re-basé explicitement — l'ancienne référence part dans l'historique (table
+// INSERT-only, voir sql/202608_reference_financiere.sql). Le diagramme
+// lui-même arrive au Prompt 4 : ce bloc porte l'action et l'état.
+function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance, auteur }) {
+  const [refs, setRefs] = useState({ courante: null, historique: [], erreur: null });
+  const [modale, setModale] = useState(null); // "prendre" | "rebaser" | "historique"
+  const [prep, setPrep] = useState(null);     // { prevues, recap } calculés à l'ouverture de la modale
+  const [libelle, setLibelle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [erreurAction, setErreurAction] = useState("");
+
+  useEffect(() => {
+    let actif = true;
+    (async () => {
+      const r = await loadReferenceFinanciere(chantierId);
+      if (actif) setRefs(r);
+    })();
+    return () => { actif = false; };
+  }, [chantierId]);
+
+  const fmtE = (n) => n == null ? "—" : `${Math.round(n).toLocaleString("fr-FR")} €`;
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "";
+  const fmtPeriode = (p) => p ? `${labelMois(p.debut)} → ${labelMois(p.fin)}` : "—";
+
+  // Ouvre la modale de prise / re-basage : calcule les séries prévues À CET
+  // INSTANT (c'est la seule fois — jamais de recalcul silencieux ensuite).
+  const ouvrirPrise = async (mode) => {
+    setErreurAction("");
+    if (!phasage || !finance) { setErreurAction("Un phasage V2 est requis pour calculer le prévisionnel."); return; }
+    setBusy(true);
+    const { data } = await supabase.from("planning_config")
+      .select("key,value").in("key", ["etats_financiers", "acompte_pct_defaut"]);
+    const etatsFinanciers = (data || []).find(r => r.key === "etats_financiers")?.value || null;
+    const acomptePctDefaut = (data || []).find(r => r.key === "acompte_pct_defaut")?.value ?? null;
+    const prevues = seriesPrevuesChantier({ finance, phasage, etatsFinanciers, chantierNom, acomptePctDefaut });
+    setPrep({ prevues, recap: recapReference(prevues, finance) });
+    setLibelle(mode === "prendre" ? "Référence initiale" : "");
+    setBusy(false);
+    setModale(mode);
+  };
+
+  const confirmer = async () => {
+    if (!prep) return;
+    const lib = libelle.trim();
+    if (!lib) {
+      setErreurAction(modale === "rebaser"
+        ? "Un libellé est requis pour re-baser (ex. « Avenant n°2 »)."
+        : "Un libellé est requis.");
+      return;
+    }
+    setBusy(true);
+    const res = await prendreReference({
+      chantierId, chantierNom, phasageId: phasage?.id || null,
+      libelle: lib, auteur,
+      series: {
+        depenses: prep.prevues.depenses,
+        valeurGeneree: prep.prevues.valeurGeneree,
+        recettes: prep.prevues.recettes,
+      },
+      recap: prep.recap, warnings: prep.prevues.warnings,
+    });
+    setBusy(false);
+    if (!res.ok) { setErreurAction(res.erreur || "Échec de l'enregistrement."); return; }
+    setModale(null); setPrep(null); setErreurAction("");
+    setRefs(await loadReferenceFinanciere(chantierId));
+  };
+
+  const btn = (primary) => ({
+    padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit",
+    fontSize: 12.5, fontWeight: 700, border: primary ? "none" : `1px solid ${T.border}`,
+    background: primary ? "#5B8AF5" : T.inputBg, color: primary ? "#fff" : T.text,
+  });
+  const overlay = { position: "fixed", inset: 0, background: "rgba(15,18,25,.55)", zIndex: 260,
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 16 };
+  const boite = { background: T.cardBg || T.bg, border: `1px solid ${T.border}`, borderRadius: 14,
+    padding: "20px 22px", width: "min(560px, 96vw)", maxHeight: "86vh", overflowY: "auto", color: T.text };
+  const ligne = { display: "flex", justifyContent: "space-between", gap: 12, padding: "5px 0",
+    borderBottom: `1px dashed ${T.border}`, fontSize: 13 };
+
+  const courante = refs.courante;
+  const recapC = courante?.recap || null;
+
+  return (
+    <div className="ch-stat-card" style={{ padding: "14px 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ fontWeight: 800, fontSize: 13.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon as={ShieldCheck} size={14}/> Référence financière <span style={{ color: T.textMuted, fontWeight: 600 }}>(prévisionnel figé)</span>
+        </div>
+        <div style={{ flex: 1 }}/>
+        {courante ? (
+          <>
+            {refs.historique.length > 0 && (
+              <button style={btn(false)} onClick={() => setModale("historique")}>
+                Historique ({refs.historique.length})
+              </button>
+            )}
+            <button style={btn(false)} disabled={busy} onClick={() => ouvrirPrise("rebaser")}>
+              Reprendre une nouvelle référence
+            </button>
+          </>
+        ) : (
+          <button style={btn(true)} disabled={busy} onClick={() => ouvrirPrise("prendre")}>
+            {busy ? "Calcul…" : "Prendre la référence"}
+          </button>
+        )}
+      </div>
+
+      {refs.erreur ? (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: "#e15a5a" }}>
+          Référence indisponible : {refs.erreur} (la table <code>chantier_reference_financiere</code> existe-t-elle ? Lancer <code>sql/202608_reference_financiere.sql</code>.)
+        </div>
+      ) : courante ? (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: T.textSub, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
+          <span>« <strong style={{ color: T.text }}>{courante.libelle}</strong> » prise le {fmtDate(courante.date_prise)}{courante.auteur ? ` par ${courante.auteur}` : ""}</span>
+          {recapC && <span>vendu {fmtE(recapC.venduHT)}</span>}
+          {recapC?.periode && <span>{fmtPeriode(recapC.periode)}</span>}
+          {recapC && recapC.nbTachesNonDatees > 0 && (
+            <span style={{ color: "#f5a623", fontWeight: 700 }}>incomplète : {recapC.nbTachesNonDatees} tâche(s) non datée(s)</span>
+          )}
+        </div>
+      ) : (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: T.textSub }}>
+          Aucune référence figée — le diagramme financier n'affichera que le réel tant qu'elle n'est pas prise.
+          La référence fige les courbes prévues du jour : décaler ensuite le planning ne les bougera plus (c'est ce qui rend la dérive visible).
+        </div>
+      )}
+      {erreurAction && !modale && (
+        <div style={{ marginTop: 6, fontSize: 12.5, color: "#e15a5a" }}>{erreurAction}</div>
+      )}
+
+      {/* ── Modale de prise / re-basage : récapitulatif AVANT de figer ── */}
+      {(modale === "prendre" || modale === "rebaser") && prep && (
+        <div style={overlay} onClick={() => !busy && setModale(null)}>
+          <div style={boite} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
+              {modale === "rebaser" ? "Reprendre une nouvelle référence" : "Prendre la référence"}
+            </div>
+            <div style={{ fontSize: 12.5, color: T.textSub, marginBottom: 12 }}>
+              {modale === "rebaser"
+                ? "Nouvelle référence calculée sur le planning ACTUEL. L'ancienne référence sera conservée dans l'historique, jamais écrasée."
+                : "Le prévisionnel ci-dessous sera FIGÉ : il ne se recalculera jamais tout seul, même si le planning change."}
+            </div>
+
+            <div style={ligne}><span>Vendu HT</span><strong>{fmtE(prep.recap.venduHT)}</strong></div>
+            <div style={ligne}><span>Dépenses prévues placées (MO + matériaux)</span><strong>{fmtE(prep.recap.depensesPrevuesPlacees)}</strong></div>
+            {prep.recap.depensesNonPlacees > 0.5 && (
+              <div style={ligne}><span style={{ color: "#f5a623" }}>Dépenses prévues NON plaçables</span>
+                <strong style={{ color: "#f5a623" }}>{fmtE(prep.recap.depensesNonPlacees)}</strong></div>
+            )}
+            <div style={ligne}><span>Recettes prévues (fin)</span><strong>{fmtE(prep.recap.recettesFinales)}</strong></div>
+            <div style={ligne}>
+              <span>Valeur générée prévue (fin)</span>
+              <strong>{fmtE(prep.recap.valeurGenereeFinale)}{prep.recap.avancementPrevuFinal != null ? ` (${Math.round(prep.recap.avancementPrevuFinal * 100)} %)` : ""}</strong>
+            </div>
+            <div style={ligne}><span>Période couverte</span><strong>{fmtPeriode(prep.recap.periode)}</strong></div>
+            {prep.recap.acompte?.montant != null && (
+              <div style={ligne}>
+                <span>Acompte prévu ({{ etats_financiers: "États financiers", chantier: "réglage chantier", admin: "réglage Admin" }[prep.recap.acompte.source] || "?"})</span>
+                <strong>{fmtE(prep.recap.acompte.montant)} — {labelMois(prep.recap.acompte.mois)}</strong>
+              </div>
+            )}
+
+            {prep.recap.nbTachesNonDatees > 0 ? (
+              <div style={{ margin: "12px 0", padding: "10px 12px", borderRadius: 10,
+                background: "rgba(245,166,35,.12)", border: "1px solid rgba(245,166,35,.4)", fontSize: 12.5 }}>
+                <div style={{ fontWeight: 800, color: "#b97a10", marginBottom: 4 }}>
+                  ⚠️ {prep.recap.nbTachesNonDatees} tâche(s) sans date prévue ({Math.round(prep.recap.heuresNonDatees)} h) — la référence sera incomplète
+                </div>
+                <div style={{ color: T.textSub }}>
+                  {prep.recap.tachesNonDatees.slice(0, 6).map((t, i) => (
+                    <div key={i}>· {t.ouvrage} — {t.tache} ({Math.round(t.heures)} h)</div>
+                  ))}
+                  {prep.recap.tachesNonDatees.length > 6 && <div>… et {prep.recap.tachesNonDatees.length - 6} autre(s)</div>}
+                </div>
+                <div style={{ marginTop: 4, color: T.textSub }}>Tu peux dater ces tâches dans le phasage puis reprendre la référence, ou figer en connaissance de cause.</div>
+              </div>
+            ) : (
+              <div style={{ margin: "12px 0", fontSize: 12.5, color: "#22c55e", fontWeight: 700 }}>
+                ✓ Toutes les tâches à heures vendues sont datées : référence complète.
+              </div>
+            )}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700 }}>Libellé</span>
+              <input value={libelle} onChange={(e) => setLibelle(e.target.value)}
+                placeholder={modale === "rebaser" ? "Avenant n°2, nouveau marché…" : "Référence initiale"}
+                style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`,
+                  background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none" }}/>
+            </div>
+            {erreurAction && <div style={{ marginTop: 8, fontSize: 12.5, color: "#e15a5a" }}>{erreurAction}</div>}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button style={btn(false)} disabled={busy} onClick={() => setModale(null)}>Annuler</button>
+              <button style={btn(true)} disabled={busy} onClick={confirmer}>
+                {busy ? "Enregistrement…" : (modale === "rebaser" ? "Figer la nouvelle référence" : "Figer la référence")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modale historique : les références passées, jamais perdues ── */}
+      {modale === "historique" && (
+        <div style={overlay} onClick={() => setModale(null)}>
+          <div style={boite} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 10 }}>Historique des références</div>
+            {[{ ...courante, _courante: true }, ...refs.historique].map((r) => (
+              <div key={r.id} style={{ ...ligne, flexDirection: "column", gap: 2, alignItems: "stretch" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <strong>« {r.libelle} »{r._courante ? " — courante" : ""}</strong>
+                  <span style={{ color: T.textSub }}>{fmtDate(r.date_prise)}{r.auteur ? ` · ${r.auteur}` : ""}</span>
+                </div>
+                <div style={{ color: T.textSub, fontSize: 12.5 }}>
+                  vendu {fmtE(r.recap?.venduHT)} · dépenses placées {fmtE(r.recap?.depensesPrevuesPlacees)} · {fmtPeriode(r.recap?.periode)}
+                  {r.recap?.nbTachesNonDatees > 0 ? ` · ${r.recap.nbTachesNonDatees} tâche(s) non datée(s)` : ""}
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button style={btn(false)} onClick={() => setModale(null)}>Fermer</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2368,6 +2603,10 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             onOuvrirPJ: ouvrirPieceJointeCV,
             onEnvoyerPJ: (etape, pj) => setEnvoiPJ({ pj, etapeNom: etape.nom }),
           }} T={T}/>
+
+        {/* ── Référence financière figée (Point 5) : sous la frise cycle de vie ── */}
+        <BlocReferenceFinanciere T={T} chantierId={selected} chantierNom={selectedChantier?.nom || ""}
+          phasage={selectedPhasage} finance={finances?.fin || null} auteur={auteurCV}/>
 
         {/* Modale d'envoi d'un document d'étape par email */}
         {envoiPJ && (

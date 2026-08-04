@@ -15,6 +15,7 @@ import {
   seriesReellesChantier, seriesEtatsFinanciers, periodesMensuelles,
   moisDePeriode, parseFraction, normNomChantier,
   seriesPrevuesChantier, resolutionAcomptePct, dateSignatureChantier,
+  recapReference,
 } from "../src/Renovation/diagrammeFinancier.mjs";
 
 let ok = 0, ko = 0;
@@ -246,6 +247,40 @@ check("signature absente : acompte au 1er mois planifié", prevSansSign.recettes
 check("signature absente : signalé", prevSansSign.recettes.acompte?.placeAuPremierMoisFauteDeSignature, true);
 check("signature absente : warning", prevSansSign.warnings.some(w => w.code === "signature_absente"), true);
 check("dateSignatureChantier : null si rien", dateSignatureChantier({}), null);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// RÉCAPITULATIF DE PRISE DE RÉFÉRENCE (Prompt 3)
+// ═════════════════════════════════════════════════════════════════════════════
+console.log("\nRécapitulatif de référence :");
+const recap = recapReference(prev, financePrev);
+check("recap : vendu HT", recap.venduHT, 15000);
+check("recap : dépenses placées", recap.depensesPrevuesPlacees, 6250);
+check("recap : dépenses non plaçables (250 + 250)", recap.depensesNonPlacees, 500);
+check("recap : recettes finales", recap.recettesFinales, 13000);
+check("recap : valeur générée finale", recap.valeurGenereeFinale, 13000);
+check("recap : période avril → juin", `${recap.periode?.debut}→${recap.periode?.fin}`, "2026-04→2026-06");
+check("recap : 1 tâche non datée signalée", recap.nbTachesNonDatees, 1);
+check("recap : heures non datées", recap.heuresNonDatees, 10);
+check("recap : référence marquée incomplète", recap.complete, false);
+
+// Chantier entièrement daté et réparti → référence complète.
+const phasageComplet = {
+  chantier_id: "ok", chantier_nom: "OK",
+  plan_travaux: { meta: {} },
+  ouvrages: [{ id: "o1", libelle: "O", prix_ht: 1000, heures_devis: 10, cout_materiaux: 0, taches: [
+    { id: "t1", nom: "T", heures_vendues: 10, date_prevue: "2026-05-04" },
+  ] }],
+};
+const recapComplet = recapReference(
+  seriesPrevuesChantier({
+    finance: computeChantierFinance({ phasage: phasageComplet, pointages: [], commandeLignes: [], tauxHoraires, tauxMOPrev: 25, lots: [] }),
+    phasage: phasageComplet, acomptePctDefaut: null,
+  }),
+  computeChantierFinance({ phasage: phasageComplet, pointages: [], commandeLignes: [], tauxHoraires, tauxMOPrev: 25, lots: [] }),
+);
+check("recap complet : aucune tâche non datée", recapComplet.nbTachesNonDatees, 0);
+check("recap complet : complete = true", recapComplet.complete, true);
+check("recap complet : avancement prévu final 100 %", recapComplet.avancementPrevuFinal, 1);
 
 console.log(`\nRésultat : ${ok} OK, ${ko} KO.`);
 process.exit(ko > 0 ? 1 : 0);

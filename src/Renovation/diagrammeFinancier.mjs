@@ -732,3 +732,41 @@ export function seriesPrevuesChantier({
 
   return { depenses, valeurGeneree, recettes, tachesNonDatees, warnings };
 }
+
+// ── Récapitulatif avant prise de référence (Prompt 3) ────────────────────────
+// Ce que l'utilisateur doit voir AVANT de figer : montant total, période
+// couverte, et surtout les TÂCHES NON DATÉES qui rendraient la référence
+// incomplète. Calcul pur à partir du résultat de seriesPrevuesChantier et de
+// computeChantierFinance — c'est aussi ce qui est stocké dans recap.
+export function recapReference(prevues, finance) {
+  const b = finance?.brut || {};
+  const tousMois = [
+    ...(prevues?.depenses?.points || []),
+    ...(prevues?.valeurGeneree?.points || []),
+    ...(prevues?.recettes?.points || []),
+  ].map((p) => p.mois).sort();
+  const dernierPointDep = prevues?.depenses?.points?.at(-1) || null;
+  const nonPlace = prevues?.depenses?.nonPlace || {};
+  const depensesNonPlacees = (nonPlace.moTachesNonDatees || 0)
+    + (nonPlace.moHeuresNonReparties || 0) + (nonPlace.materiauxNonDates || 0);
+  const tachesNonDatees = prevues?.tachesNonDatees || [];
+  return {
+    venduHT: b.prixHTChantier ?? null,
+    moPrev: b.moPrevChantier ?? null,
+    matPrev: b.commandesPrevChantier ?? null,
+    depensesPrevuesPlacees: dernierPointDep?.cumul ?? 0,
+    depensesNonPlacees,
+    recettesFinales: prevues?.recettes?.points?.at(-1)?.cumul ?? null,
+    valeurGenereeFinale: prevues?.valeurGeneree?.points?.at(-1)?.cumul ?? null,
+    avancementPrevuFinal: prevues?.valeurGeneree?.avancementPrevuFinal ?? null,
+    acompte: prevues?.recettes?.acompte || null,
+    periode: tousMois.length > 0
+      ? { debut: tousMois[0], fin: tousMois[tousMois.length - 1], nbMois: new Set(tousMois).size }
+      : null,
+    nbTachesNonDatees: tachesNonDatees.length,
+    heuresNonDatees: tachesNonDatees.reduce((s, t) => s + (t.heures || 0), 0),
+    tachesNonDatees,
+    complete: tachesNonDatees.length === 0 && Math.abs(nonPlace.heuresNonReparties || 0) <= 0.05
+      && (nonPlace.ouvragesMatNonDates || []).length === 0,
+  };
+}
