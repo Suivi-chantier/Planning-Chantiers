@@ -35,6 +35,7 @@ import {
   seriesReellesChantier, fusionnerSeriesPourGraphe, ecartsReels,
 } from "./diagrammeFinancier";
 import { loadReferenceFinanciere, prendreReference } from "./referenceFinanciere";
+import { exporterDiagrammePDF } from "./diagrammeFinancierPdf";
 // Le rendu recharts du diagramme est chargé à la demande (React.lazy) pour
 // que le chunk "charts" ne pèse pas sur l'ouverture de la page Chantiers.
 const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
@@ -975,6 +976,9 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
   const [libelle, setLibelle] = useState("");
   const [busy, setBusy] = useState(false);
   const [erreurAction, setErreurAction] = useState("");
+  const [masques, setMasques] = useState({}); // séries masquées via la légende
+  const grapheRef = useRef(null);             // conteneur du graphe (export PDF)
+  const isMobile = useIsMobile();             // le diagramme reste secondaire sur petit écran
 
   useEffect(() => {
     let actif = true;
@@ -1096,6 +1100,22 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
           <Icon as={ShieldCheck} size={14}/> Diagramme financier <span style={{ color: T.textMuted, fontWeight: 600 }}>dépenses · facturation · valeur générée</span>
         </div>
         <div style={{ flex: 1 }}/>
+        {dataGraphe.length > 0 && (
+          <button style={btn(false)} title="Exporter le diagramme en PDF"
+            onClick={() => exporterDiagrammePDF({
+              titre: `Diagramme financier — ${chantierNom || chantierId}`,
+              sousTitre: courante
+                ? `Référence « ${courante.libelle} » prise le ${fmtDate(courante.date_prise)}${courante.auteur ? ` par ${courante.auteur}` : ""}`
+                : "Sans référence figée (réel seul)",
+              conteneur: grapheRef.current,
+              lignesInfos: ecarts?.renseigne ? [
+                ecarts.marge.renseigne ? `Marge en train de se constituer : ${fmtSigne(ecarts.marge.valeur)} (valeur générée − dépenses, à fin ${labelMois(ecarts.mois)})` : null,
+                ecarts.decalage.renseigne ? `Produit mais pas encore facturé : ${fmtSigne(ecarts.decalage.valeur)} (valeur générée − facturation)` : null,
+              ] : [],
+            })}>
+            PDF
+          </button>
+        )}
         {courante ? (
           <>
             {refs.historique.length > 0 && (
@@ -1153,11 +1173,15 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
       {/* ── Le diagramme : 6 courbes cumulées (réel plein, référence pointillés) ── */}
       {dataGraphe.length > 0 ? (
         <div style={{ marginTop: 12, minWidth: 0 }}>
-          <Suspense fallback={<div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: 13 }}>Chargement du graphique…</div>}>
-            <DiagrammeFinancierChart T={T} data={dataGraphe} hauteur={280}/>
-          </Suspense>
+          <div ref={grapheRef}>
+            <Suspense fallback={<div style={{ height: isMobile ? 220 : 280, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: 13 }}>Chargement du graphique…</div>}>
+              <DiagrammeFinancierChart T={T} data={dataGraphe} hauteur={isMobile ? 220 : 280}
+                masques={masques}
+                onToggleSerie={(k) => k && setMasques((m) => ({ ...m, [k]: !m[k] }))}/>
+            </Suspense>
+          </div>
           <div style={{ fontSize: 11.5, color: T.textMuted, textAlign: "center", marginTop: 2 }}>
-            Trait plein = réel · pointillés = référence figée{courante ? ` (« ${courante.libelle} »)` : " (aucune prise)"} · courbes cumulées, € HT, par fin de mois
+            Trait plein = réel · pointillés = référence figée{courante ? ` (« ${courante.libelle} »)` : " (aucune prise)"} · courbes cumulées, € HT, par fin de mois · clic sur la légende = masquer/afficher
           </div>
         </div>
       ) : donnees.charge ? (

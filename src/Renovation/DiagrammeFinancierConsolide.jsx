@@ -16,23 +16,27 @@
 // Performance : tout est chargé en UNE passe (Promise.all + regroupement par
 // chantier côté client, patron de DashboardAnalyse/loadPhasagesOperation),
 // jamais un appel par chantier.
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabase";
 import { computeChantierFinance } from "../chantierFinance";
 import {
   seriesReellesChantier, consoliderSeries, fusionnerSeriesPourGraphe,
+  rapprochementEtatsChantiers,
 } from "./diagrammeFinancier";
 import { loadReferencesFinancieres } from "./referenceFinanciere";
+import { exporterDiagrammePDF } from "./diagrammeFinancierPdf";
 import DiagrammeFinancierChart from "./DiagrammeFinancierChart";
 
 const JOURS_ACTIVITE = 21; // même règle que le cron snapshot : pointage récent
 
 export default function DiagrammeFinancierConsolide({ T, acc }) {
-  const [etat, setEtat] = useState({ charge: false, entrees: [], erreurs: [] });
+  const [etat, setEtat] = useState({ charge: false, entrees: [], erreurs: [], rapprochement: null });
   const [periode, setPeriode] = useState("12");   // "12" | "24" | "tout" (mois)
   const [actifsSeuls, setActifsSeuls] = useState(false);
   const [masques, setMasques] = useState({});     // masquage de séries via la légende
   const [voirExclus, setVoirExclus] = useState(false);
+  const [voirOrphelines, setVoirOrphelines] = useState(false);
+  const grapheRef = useRef(null);                 // conteneur du graphe (export PDF)
 
   useEffect(() => {
     let actif = true;
@@ -87,7 +91,14 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
           dernierPointage: finance.fraicheur?.dernierPointage || null,
         };
       });
-      if (actif) setEtat({ charge: true, entrees, erreurs });
+      // Rapprochement global : lignes d'États financiers sans chantier
+      // correspondant (noms à corriger) et chantiers sans ligne — c'est LE
+      // risque de faux chiffres de la jointure par nom, rendu visible ici.
+      const rapprochement = rapprochementEtatsChantiers(
+        { avancement: etatsFinanciers?.avancement },
+        phasages.map((ph) => ({ id: ph.chantier_id, nom: ph.chantier_nom || ph.chantier_id })),
+      );
+      if (actif) setEtat({ charge: true, entrees, erreurs, rapprochement });
     })();
     return () => { actif = false; };
   }, []);
@@ -149,6 +160,19 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
           </button>
         )}
         <div style={{ flex: 1 }}/>
+        {dataGraphe.length > 0 && (
+          <button title="Exporter le diagramme en PDF"
+            style={{ ...select, cursor: "pointer", fontWeight: 700 }}
+            onClick={() => exporterDiagrammePDF({
+              titre: "Diagramme financier consolidé — tous chantiers",
+              sousTitre: `${entreesFiltrees.length} chantier(s)${actifsSeuls ? " actifs" : ""} · référence : ${stats.nbAvecReference} inclus / ${stats.sansReference.length} exclus · ${periode === "tout" ? "tout l'historique" : `${periode} derniers mois`}`,
+              conteneur: grapheRef.current,
+              lignesInfos: stats.sansReference.length > 0
+                ? [`Sans référence figée (hors courbes de référence) : ${fmtListe(stats.sansReference)}`] : [],
+            })}>
+            PDF
+          </button>
+        )}
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: T.textSub, cursor: "pointer" }}>
           <input type="checkbox" checked={actifsSeuls} onChange={(e) => setActifsSeuls(e.target.checked)}/>
           Chantiers actifs seulement
@@ -173,9 +197,28 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
         </div>
       )}
 
+      {/* Lignes d'États financiers ORPHELINES : le vrai risque de faux
+          chiffres de la jointure par nom — liste pour corriger les noms. */}
+      {etat.rapprochement && etat.rapprochement.lignesNonAppariees.length > 0 && (
+        <div style={{ padding: "8px 12px", borderRadius: 10, border: `1px dashed rgba(245,166,35,.55)`, fontSize: 12.5, color: T.textSub }}>
+          <button onClick={() => setVoirOrphelines(v => !v)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit",
+              fontSize: 12.5, fontWeight: 800, color: "#b97a10" }}>
+            {voirOrphelines ? "▾" : "▸"} {etat.rapprochement.lignesNonAppariees.length} ligne(s) des États financiers sans chantier correspondant — corriger les noms pour les rattacher
+          </button>
+          {voirOrphelines && (
+            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: "2px 18px" }}>
+              {etat.rapprochement.lignesNonAppariees.map((l, i) => (
+                <span key={i}>· {l.nom}{l.devis ? ` (${l.devis})` : ""}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Le graphique — même composant que la fiche chantier */}
       {dataGraphe.length > 0 ? (
-        <div style={{ background: T.cardBg || "transparent", border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 14px 6px", minWidth: 0 }}>
+        <div ref={grapheRef} style={{ background: T.cardBg || "transparent", border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 14px 6px", minWidth: 0 }}>
           <DiagrammeFinancierChart T={T} data={dataGraphe} hauteur={340}
             masques={masques}
             onToggleSerie={(k) => k && setMasques((m) => ({ ...m, [k]: !m[k] }))}/>
