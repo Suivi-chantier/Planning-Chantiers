@@ -402,6 +402,9 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   const [travaux,   setTravaux]   = useState(projet?.donnees?.descriptions?.travaux||"");
   const [atouts,    setAtouts]    = useState(projet?.donnees?.descriptions?.atouts||"");
   const [adresse,   setAdresse]   = useState(projet?.donnees?.descriptions?.adresse||"");
+  // Note de visite interne : clé top-level (et non dans `descriptions`, que
+  // syncSimulateurFromVisiteData reconstruit champ par champ et écraserait).
+  const [noteInterne, setNoteInterne] = useState(projet?.donnees?.note_interne||"");
   const [photos,    setPhotos]    = useState(projet?.donnees?.photos||[null,null,null,null]);
   // Liaison optionnelle vers un bien du stock (table invest_biens)
   const [bienId,    setBienId]    = useState(projet?.donnees?.bien_id||"");
@@ -465,9 +468,12 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     lots:lots.map(l=>({...l})), budgetQty:{...budgetQty}, budgetPrice:{...budgetPrice},
     customDivers:customDivers.map(c=>({...c})),
     descriptions:{description:desc,travaux,atouts,adresse},
+    // USAGE INTERNE — ne jamais reprendre ce champ dans un export investisseur
+    // (genererFicheClient, genererFiche, dossier_presentation de la fiche bien).
+    note_interne: noteInterne,
     photos:photos.slice(),
     bien_id: bienId || null,
-  }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,adresse,photos,bienId]);
+  }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,adresse,noteInterne,photos,bienId]);
 
   const sauvegarder = useCallback(async(options = {})=>{
     const silent = !!options?.silent;
@@ -593,7 +599,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     apport1, apport2, taux1, taux2, duree1, duree2,
     coefEtat, imprevusPct, gestionActive, modeDetention, tmi, selectedScen,
     lots, budgetQty, budgetPrice, customDivers,
-    desc, travaux, atouts, adresse, photos, bienId,
+    desc, travaux, atouts, adresse, noteInterne, photos, bienId,
   ]);
 
   // ── Reset ───────────────────────────────────────────────────────────────────
@@ -603,7 +609,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     setApport1(0);setApport2(0);setTaux1(0);setTaux2(0);setDuree1(0);setDuree2(0);
     setCoefEtat(1);setImprevusPct(10);setGestionActive(false);setModeDetention("IS");setTmi(0.30);
     setLots([{type:"Sélectionner",m2:0,loyer:0,niveau:"RDC",comment:""}]);
-    setDesc("");setTravaux("");setAtouts("");setAdresse("");setBienId("");setPhotos([null,null,null,null]);
+    setDesc("");setTravaux("");setAtouts("");setAdresse("");setNoteInterne("");setBienId("");setPhotos([null,null,null,null]);
     setCustomDivers([]);
     const b=initBudgetState([],0); setBudgetQty(b.qty); setBudgetPrice(b.price);
     setShowReset(false);
@@ -978,6 +984,20 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                     ))}
                     <div className="inv-row sub"><span className="inv-lbl">Frais gestion locative (€/an)</span><span className="inv-val calc">{gestionActive?fmt(totGestAn):"0 €"}</span></div>
                     <div className="inv-row total"><span className="inv-lbl bold">TOTAL CHARGES (€/an)</span><span className="inv-val orange">{fmt(totCharges)}</span></div>
+                  </div>
+                </div>
+
+                {/* Note de visite — INTERNE : jamais reprise dans les fiches investisseur */}
+                <div className="inv-card inv-no-print">
+                  <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Lock} size={13} strokeWidth={2.2}/>Note de visite — Interne</span></div>
+                  <div className="inv-card-bd">
+                    <div style={{fontSize:FONT.xs.size,fontWeight:600,color:T.textMuted,marginBottom:SPACING.sm,lineHeight:1.45}}>
+                      Usage interne uniquement — n'apparaît sur aucune fiche investisseur.
+                    </div>
+                    <textarea className="inv-textarea" rows={8}
+                      placeholder="Éléments constatés pendant la visite : état général, toiture, humidité, chauffage, électricité, voisinage, accès, points bloquants, ressenti vendeur…"
+                      value={noteInterne}
+                      onChange={e=>{setNoteInterne(e.target.value);scheduleAutoSave();}}/>
                   </div>
                 </div>
               </div>

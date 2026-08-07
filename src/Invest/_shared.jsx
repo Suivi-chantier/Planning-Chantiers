@@ -514,6 +514,10 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
   .inv-kpi-bar{grid-template-columns:1fr 1fr!important;}
   .inv-fisca-grid{grid-template-columns:1fr!important;}
 }
+/* Blocs strictement internes : ne doivent jamais sortir sur une impression écran. */
+@media print{
+  .inv-no-print{display:none!important;}
+}
 `;
 const CSS = getCSS(THEMES_INV.dark);
 function NumInput({value,onChange,style,min,step}) {
