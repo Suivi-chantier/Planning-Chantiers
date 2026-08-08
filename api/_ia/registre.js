@@ -20,7 +20,7 @@
 //   calculer_confiance(resultat)   optionnel → nombre 0..1
 
 const TACHES = [
-  // require("./taches/ping"),   // ← Étape 3 du Chantier 0
+  require("./taches/ping"),
 ];
 
 module.exports = Object.fromEntries(TACHES.map((t) => [t.id, t]));
