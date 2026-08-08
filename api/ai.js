@@ -34,6 +34,44 @@ const TARIFS_EUR_PAR_MTOK = {
   "claude-haiku-4-5": { entree: 0.92, sortie: 4.6 },
 };
 
+// Quotas & coupe-circuit (§ 3.5) — paramétrables dans planning_config sous la
+// clé "ia_config" (jsonb) ; toute valeur absente retombe sur ces défauts.
+// { "active": false } = coupe-circuit : coupe toutes les fonctions IA en
+// moins d'une minute, sans redéploiement.
+const IA_CONFIG_DEFAUT = {
+  active: true,
+  plafond_appels_user_jour: 200, // nb d'appels par utilisateur, 24 h glissantes
+  plafond_eur_user_jour: 5,      // coût cumulé par utilisateur, 24 h glissantes
+  plafond_eur_global_mois: 200,  // coût cumulé entreprise, mois calendaire
+  alerte_pct: 80,                // seuil d'alerte du plafond global
+};
+
+async function chargerConfigIA(admin) {
+  const { data, error } = await admin
+    .from("planning_config").select("value").eq("key", "ia_config").maybeSingle();
+  if (error) throw new Error(`planning_config/ia_config : ${error.message}`);
+  return { ...IA_CONFIG_DEFAUT, ...((data && data.value) || {}) };
+}
+
+// Compte les appels et somme les coûts dans ia_jobs depuis une date, pour un
+// utilisateur (email) ou globalement (email null). Paginé : PostgREST limite
+// chaque requête à ~1000 lignes, une somme sur données tronquées serait fausse.
+async function statsJobs(admin, depuisISO, email) {
+  let count = 0, cout = 0;
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    let q = admin.from("ia_jobs").select("cout_eur")
+      .gte("cree_le", depuisISO).range(from, from + PAGE - 1);
+    if (email) q = q.eq("utilisateur_email", email);
+    const { data, error } = await q;
+    if (error) throw new Error(`ia_jobs stats : ${error.message}`);
+    count += data.length;
+    for (const r of data) cout += Number(r.cout_eur) || 0;
+    if (data.length < PAGE) break;
+  }
+  return { count, cout };
+}
+
 function calculerCout(modele, tokensEntree, tokensSortie) {
   const t = TARIFS_EUR_PAR_MTOK[modele];
   if (!t || !Number.isFinite(tokensEntree) || !Number.isFinite(tokensSortie)) return null;
@@ -169,8 +207,38 @@ module.exports = async function handler(req, res) {
       return echouer(403, "non_autorise", `Le rôle "${profil.role}" n'est pas autorisé pour cette tâche`);
     }
 
-    // 4) Quotas & coupe-circuit — Étape 4 du Chantier 0 (plafond par
-    //    utilisateur/jour, plafond global mensuel, drapeau planning_config).
+    // 4) Coupe-circuit + quotas (§ 3.5). Les refus sont journalisés dans
+    //    ia_jobs comme n'importe quel échec. En cas de panne du contrôle
+    //    lui-même, on BLOQUE (fail-closed) : les quotas sont la protection
+    //    contre l'emballement des coûts, pas une option.
+    const cfg = await chargerConfigIA(admin);
+    if (cfg.active === false) {
+      return echouer(503, "modele_indisponible", "Fonctions IA désactivées par l'administrateur (coupe-circuit)");
+    }
+    {
+      const depuis24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const debutMois = new Date();
+      debutMois.setDate(1); debutMois.setHours(0, 0, 0, 0);
+      const [statsUser, statsGlobal] = await Promise.all([
+        statsJobs(admin, depuis24h, profil.email),
+        statsJobs(admin, debutMois.toISOString(), null),
+      ]);
+      if (cfg.plafond_appels_user_jour && statsUser.count >= cfg.plafond_appels_user_jour) {
+        return echouer(429, "quota_depasse", `Plafond de ${cfg.plafond_appels_user_jour} appels IA par 24 h atteint`);
+      }
+      if (cfg.plafond_eur_user_jour && statsUser.cout >= cfg.plafond_eur_user_jour) {
+        return echouer(429, "quota_depasse", `Plafond de ${cfg.plafond_eur_user_jour} € d'IA par 24 h atteint`);
+      }
+      if (cfg.plafond_eur_global_mois && statsGlobal.cout >= cfg.plafond_eur_global_mois) {
+        return echouer(429, "quota_depasse", `Plafond mensuel global de ${cfg.plafond_eur_global_mois} € atteint pour l'entreprise`);
+      }
+      const seuilAlerte = cfg.plafond_eur_global_mois * ((cfg.alerte_pct || 80) / 100);
+      if (cfg.plafond_eur_global_mois && statsGlobal.cout >= seuilAlerte) {
+        // L'écran admin (étape 6) affichera la barre de progression ; en
+        // attendant, la trace serveur suffit à ne pas être aveugle.
+        console.warn(`[ia] alerte coût : ${Math.round(statsGlobal.cout * 100) / 100} € consommés ce mois-ci (seuil ${cfg.alerte_pct || 80}% de ${cfg.plafond_eur_global_mois} €)`);
+      }
+    }
 
     // 5) Valider l'entrée
     const vEntree = valider(tache.schema_entree, entree);
