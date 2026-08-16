@@ -5,7 +5,7 @@ import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package,
+  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy,
 } from "lucide-react";
 
 // LOTS dynamiques (phasage v2) : init avec les défauts, remplacement async au mount
@@ -307,7 +307,7 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
 }
 
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, T, acc }) {
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
@@ -589,7 +589,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
             marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.sectionDivider}`,
             flexWrap: "wrap", gap: 10,
           }}>
-            <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 onClick={() => onDelete(ouvrage.id)}
                 style={{
@@ -600,6 +600,18 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
                 }}>
                 <Icon as={Trash2} size={12}/>
                 Supprimer
+              </button>
+              <button
+                onClick={() => onDuplicate(editData)}
+                title="Créer une copie de cet ouvrage (sous-tâches et matériaux inclus) pour en faire une déclinaison"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  background: "transparent", border: `1px solid ${T.border}`,
+                  borderRadius: RADIUS.md, padding: "8px 14px", color: T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+                }}>
+                <Icon as={Copy} size={12}/>
+                Dupliquer
               </button>
             </div>
             <button
@@ -778,6 +790,33 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       setShowNew(false); setNewLibelle(""); setNewUnite("U");
       setEditId(data[0].id);
     }
+  }
+
+  // Clone complet d'un ouvrage (état affiché, y compris modifs non sauvegardées)
+  // pour créer une déclinaison : sous-tâches et matériaux liés copiés, même
+  // catégorie (préfixe d'identifiant conservé), et ouverture directe en édition.
+  async function dupliquerOuvrage(ouvrage) {
+    let prefix = "autre";
+    for (const cat of categories) {
+      const match = cat.ids.find(k => ouvrage.identifiant?.startsWith(k));
+      if (match) { prefix = match; break; }
+    }
+    const clone = {
+      identifiant: `${prefix}_${Date.now()}`,
+      libelle: `${ouvrage.libelle} (copie)`,
+      unite: ouvrage.unite || "",
+      cadence: ouvrage.cadence ?? null,
+      sous_taches: JSON.parse(JSON.stringify(ouvrage.sous_taches || [])),
+      materiaux_liens: JSON.parse(JSON.stringify(ouvrage.materiaux_liens || [])),
+    };
+    const { data, error } = await supabase.from("bibliotheque_ratios").insert([clone]).select();
+    if (error || !data?.[0]) {
+      flash("error", "Erreur lors de la duplication : " + (error?.message || "insertion vide"));
+      return;
+    }
+    setOuvrages(prev => [...prev, data[0]]);
+    setEditId(data[0].id);
+    flash("ok", `Copie créée : « ${clone.libelle} » — renommez-la et ajustez les différences`);
   }
 
   async function confirmSupprimerOuvrage() {
@@ -1236,6 +1275,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                       onToggleEdit={id => setEditId(editId === id ? null : id)}
                       onSave={saveOuvrage}
                       onDelete={(id) => setToDelete(ouvrages.find(o => o.id === id))}
+                      onDuplicate={dupliquerOuvrage}
                       saving={saving}
                       ouvrages={ouvrages}
                       setOuvrages={setOuvrages}
