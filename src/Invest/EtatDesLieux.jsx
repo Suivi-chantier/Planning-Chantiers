@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
+import {
+  listerEDL, chargerEDL, creerEDL, majEDL, supprimerEDL,
+  idbAdd, idbList, idbDelete, idbClear,
+  archiverPhotos, signerPhotos, recompresser, fichierVersDataUrl,
+} from "./edlStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ÉTAT DES LIEUX CONTRADICTOIRE — page autonome de Profero Invest
@@ -199,7 +204,6 @@ const METAFIELDS = [
   { k:"tiers",    label:"Tiers présents (agent, témoin)" },
 ];
 
-const KEY = "edl_alhana_v1";
 const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap";
 
 /* ============ Feuille de style scopée ============ */
@@ -466,6 +470,40 @@ const EDL_CSS = `
 }
 @media (prefers-reduced-motion:reduce){.edl *,.edl-report-portal *{transition:none!important}}
 
+/* ---------- Liste des dossiers ---------- */
+.edl .dossiers{width:100%;border-collapse:collapse;font-size:13.5px}
+.edl .dossiers th{
+  text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-60);border-bottom:1px solid var(--ink);padding:7px 8px;font-weight:500;white-space:nowrap
+}
+.edl .dossiers td{border-bottom:1px solid #EDEBE4;padding:9px 8px;vertical-align:middle}
+.edl .dossiers tr.row{cursor:pointer}
+.edl .dossiers tr.row:hover td{background:#FAF9F6}
+.edl .dossiers .t{font-weight:600}
+.edl .dossiers .a{font-size:12px;color:var(--ink-60)}
+.edl .dossiers .num{font-family:var(--mono);font-size:12px;color:var(--ink-60);white-space:nowrap}
+.edl .dossiers .del{
+  border:1px solid var(--line);background:#fff;color:var(--brick);border-radius:var(--radius);
+  padding:4px 9px;font-size:12px;cursor:pointer
+}
+.edl .dossiers .del:hover{border-color:var(--brick)}
+.edl .tag{
+  display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 8px;border-radius:100px;white-space:nowrap
+}
+.edl .tag.entree{background:var(--majorelle-soft);color:var(--majorelle)}
+.edl .tag.sortie{background:#FBF3E2;color:#6A5310}
+.edl .tag.brouillon{background:#F0EEE7;color:var(--ink-60)}
+.edl .tag.archive{background:#E4F1EA;color:var(--pine)}
+.edl .empty{padding:26px 4px;text-align:center;color:var(--ink-60);font-size:13.5px}
+.edl .banner{
+  font-size:13px;padding:10px 13px;border-radius:var(--radius);margin:0 0 14px;
+  border-left:3px solid var(--saffron);background:#FBF3E2;color:#6A5310
+}
+.edl .banner.info{border-left-color:var(--majorelle);background:var(--majorelle-soft);color:var(--ink-60)}
+.edl .banner.err{border-left-color:var(--brick);background:#F7E8E4;color:#7A2E1E}
+.edl .sync{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#8E90A8}
+
 /* ---------- Impression : seul le rapport sort ---------- */
 @media print{
   @page{size:A4;margin:13mm 12mm}
@@ -508,7 +546,7 @@ function useGoogleFonts() {
 }
 
 /* ============ Bloc signature ============ */
-function SignaturePad({ role, who, value, onChange }) {
+function SignaturePad({ role, who, value, onChange, readOnly = false }) {
   const cvRef = useRef(null);
   const drawing = useRef(false);
   const painted = useRef(null);
@@ -578,12 +616,15 @@ function SignaturePad({ role, who, value, onChange }) {
     <div className="sigbox">
       <div className="lab">
         <span>{role}</span>
-        <button type="button" onClick={clear}>Effacer</button>
+        {!readOnly && <button type="button" onClick={clear}>Effacer</button>}
       </div>
       <canvas
         ref={cvRef} width={600} height={260}
-        onPointerDown={onDown} onPointerMove={onMove}
-        onPointerUp={end} onPointerLeave={end}
+        style={readOnly ? { cursor:"default", touchAction:"auto" } : undefined}
+        onPointerDown={readOnly ? undefined : onDown}
+        onPointerMove={readOnly ? undefined : onMove}
+        onPointerUp={readOnly ? undefined : end}
+        onPointerLeave={readOnly ? undefined : end}
       />
       <div className="who">{who || ""}</div>
     </div>
@@ -591,14 +632,14 @@ function SignaturePad({ role, who, value, onChange }) {
 }
 
 /* ============ Rapport imprimable ============ */
-function Rapport({ meta, general, sigs, refEntree, getIt, onBack }) {
+function Rapport({ meta, general, sigs, refEntree, getIt, photosPour, onBack }) {
   useEffect(() => {
     document.body.classList.add("edl-printing");
     return () => document.body.classList.remove("edl-printing");
   }, []);
 
   const done     = ALL_ITEMS.filter(x => getIt(x.item.c).s).length;
-  const photos   = ALL_ITEMS.reduce((a, x) => a + getIt(x.item.c).p.length, 0);
+  const photos   = ALL_ITEMS.reduce((a, x) => a + photosPour(x.item.c).length, 0);
   const reserves = ALL_ITEMS.filter(x => RESERVE.has(getIt(x.item.c).s));
   const missing  = ALL_ITEMS.filter(x => !getIt(x.item.c).s);
   const dstr = meta.date
@@ -658,14 +699,15 @@ function Rapport({ meta, general, sigs, refEntree, getIt, onBack }) {
         </p>
 
         {ROOMS.map((r, ri) => {
-          const pics = r.items.flatMap(i =>
-            getIt(i.c).p.map((p, k) => (
+          const pics = r.items.flatMap(i => {
+            const ph = photosPour(i.c);
+            return ph.map((src, k) => (
               <figure key={`${i.c}-${k}`}>
-                <img src={p} alt=""/>
-                <figcaption>{i.c} · {i.l.slice(0, 58)} — {k + 1}/{getIt(i.c).p.length}</figcaption>
+                <img src={src} alt=""/>
+                <figcaption>{i.c} · {i.l.slice(0, 58)} — {k + 1}/{ph.length}</figcaption>
               </figure>
-            ))
-          );
+            ));
+          });
           return (
             <section className="rep-sec" key={r.id}>
               <h2><span className="n">{String(ri + 1).padStart(2, "0")}</span>{r.name}</h2>
@@ -776,32 +818,35 @@ function Rapport({ meta, general, sigs, refEntree, getIt, onBack }) {
   );
 }
 
-/* ============ Page ============ */
-export default function EtatDesLieux() {
-  useGoogleFonts();
+/* ============ Saisie d'un état des lieux ============ */
+function SaisieEDL({ dossier, profil, onRetour }) {
+  const archive = dossier.statut === "archive";
+  const d0 = dossier.donnees || {};
 
-  // Restauration de la sauvegarde locale (hors photos) au premier rendu.
-  const saved = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  }, []);
-
-  const [meta, setMeta]         = useState(() => ({ ...DEFAULT_META, ...(saved?.meta || {}) }));
-  const [items, setItems]       = useState(() => normalizeItems(saved?.items));
-  const [general, setGeneral]   = useState(() => saved?.general || "");
-  const [sigs, setSigs]         = useState(() => saved?.sigs || { b:null, l1:null, l2:null });
-  const [refEntree, setRefEntree] = useState(() => saved?.ref || null);
+  const [meta, setMeta]         = useState(() => ({ ...DEFAULT_META, ...(d0.meta || {}) }));
+  const [items, setItems]       = useState(() => normalizeItems(d0.items));
+  const [general, setGeneral]   = useState(() => d0.general || "");
+  const [sigs, setSigs]         = useState(() => d0.sigs || { b:null, l1:null, l2:null });
+  const [refEntree, setRefEntree] = useState(() => (d0.ref ? normalizeItems(d0.ref) : null));
   const [current, setCurrent]   = useState(ROOMS[0].id);
   const [reportMode, setReportMode] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
 
-  const scrollRef = useRef(null);
-  const jsonInput = useRef(null);
+  // Photos du brouillon : locales à l'appareil (IndexedDB), jamais envoyées
+  // tant que le rapport n'est pas archivé. { code: [{id, dataUrl}] }
+  const [photosLocales, setPhotosLocales] = useState({});
+  // Rapport archivé : chemins Storage → URLs signées.
+  const [urlsSignees, setUrlsSignees] = useState({});
+  const [sync, setSync]         = useState("");
+  const [erreur, setErreur]     = useState("");
+  const [archivage, setArchivage] = useState(null); // {fait, total} pendant l'envoi
+
+  const scrollRef  = useRef(null);
   const photoInput = useRef(null);
   const photoTarget = useRef(null);
   const toastTimer = useRef(null);
+  const saveTimer  = useRef(null);
+  const premierRendu = useRef(true);
 
   const getIt = useCallback((c) => items[c] || EMPTY_ITEM, [items]);
 
@@ -815,109 +860,196 @@ export default function EtatDesLieux() {
     toastTimer.current = setTimeout(() => setToastMsg(""), 2200);
   }, []);
 
-  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  useEffect(() => () => { clearTimeout(toastTimer.current); clearTimeout(saveTimer.current); }, []);
 
-  // Sauvegarde locale silencieuse — les photos sont exclues (quota localStorage).
+  // Chargement des photos : IndexedDB pour un brouillon, URLs signées pour un
+  // rapport déjà archivé.
   useEffect(() => {
-    try {
-      const light = {};
-      for (const k in items) light[k] = { s:items[k].s, o:items[k].o, v:items[k].v, p:[] };
-      localStorage.setItem(KEY, JSON.stringify({ meta, items:light, general, sigs, ref:refEntree }));
-    } catch { /* quota dépassé : la saisie continue, l'export .json reste possible */ }
-  }, [meta, items, general, sigs, refEntree]);
+    let annule = false;
+    if (archive) {
+      signerPhotos(dossier.donnees || {})
+        .then(m => { if (!annule) setUrlsSignees(m); })
+        .catch(e => { if (!annule) setErreur("Photos illisibles : " + (e.message || e)); });
+    } else {
+      idbList(dossier.id).then(p => { if (!annule) setPhotosLocales(p); });
+    }
+    return () => { annule = true; };
+  }, [dossier.id, archive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = useMemo(() => {
-    let done = 0, photos = 0, res = 0;
+    let done = 0, res = 0, photos = 0;
     for (const { item } of ALL_ITEMS) {
       const d = items[item.c] || EMPTY_ITEM;
       if (d.s) done++;
-      photos += d.p.length;
       if (RESERVE.has(d.s)) res++;
+      photos += archive ? d.p.length : (photosLocales[item.c]?.length || 0);
     }
-    return { done, photos, res, total: ALL_ITEMS.length };
-  }, [items]);
+    return { done, res, photos, total: ALL_ITEMS.length };
+  }, [items, photosLocales, archive]);
 
-  // Garde-fou : les photos ne sont pas dans le localStorage, quitter les perd.
+  // Photos à afficher pour un élément — même signature quel que soit l'étage
+  // de stockage, pour que la saisie et le rapport n'aient pas à s'en soucier.
+  const photosPour = useCallback((code) => {
+    if (archive) return (items[code]?.p || []).map(p => urlsSignees[p]).filter(Boolean);
+    return (photosLocales[code] || []).map(x => x.dataUrl);
+  }, [archive, items, urlsSignees, photosLocales]);
+
+  /* ---- Sauvegarde automatique de la saisie (sans les photos) ---- */
+  // `enAttente` porte le dernier état non encore écrit. Il sert à deux choses :
+  // la sauvegarde différée, et le rattrapage au démontage — sans quoi les
+  // 1,2 s d'édition précédant un « ← Dossiers » partiraient à la poubelle.
+  const enAttente = useRef(null);
+
+  const ecrire = useCallback(async () => {
+    const patch = enAttente.current;
+    if (!patch) return;
+    try {
+      await majEDL(dossier.id, patch);
+      if (enAttente.current === patch) enAttente.current = null;
+      setSync("Enregistré");
+      setErreur("");
+    } catch (e) {
+      setSync("");
+      setErreur("Enregistrement impossible : " + (e.message || e));
+    }
+  }, [dossier.id]);
+
   useEffect(() => {
-    if (!stats.photos) return;
+    if (archive) return;
+    if (premierRendu.current) { premierRendu.current = false; return; }
+    const light = {};
+    for (const k in items) light[k] = { s:items[k].s, o:items[k].o, v:items[k].v, p:[] };
+    enAttente.current = {
+      donnees: { meta, items:light, general, sigs, ref:refEntree },
+      type: meta.type,
+      date_edl: meta.date || null,
+      nb_elements: ALL_ITEMS.length,
+      nb_renseignes: stats.done,
+      nb_photos: stats.photos,
+      nb_reserves: stats.res,
+    };
+    setSync("Modifications non enregistrées");
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(ecrire, 1200);
+  }, [meta, items, general, sigs, refEntree]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    clearTimeout(saveTimer.current);
+    if (!archive && enAttente.current) majEDL(dossier.id, enAttente.current).catch(() => {});
+  }, [dossier.id, archive]);
+
+  /* ---- Comparaison sortie / entrée ---- */
+  // Sur un état des lieux de SORTIE, on peut rappeler en regard de chaque
+  // élément ce qui avait été constaté à l'entrée. Remplace l'ancien import de
+  // fichier .json : la référence se prend directement dans le dossier.
+  const [entrees, setEntrees] = useState([]);
+  useEffect(() => {
+    if (archive || meta.type !== "SORTIE") { setEntrees([]); return; }
+    let annule = false;
+    listerEDL()
+      .then(rs => { if (!annule) setEntrees(rs.filter(r => r.type === "ENTRÉE" && r.statut === "archive")); })
+      .catch(() => {});
+    return () => { annule = true; };
+  }, [meta.type, archive]);
+
+  const prendreReference = async (id) => {
+    if (!id) { setRefEntree(null); return; }
+    try {
+      const row = await chargerEDL(id);
+      setRefEntree(normalizeItems(row?.donnees?.items));
+      toast("État des lieux d'entrée pris comme référence");
+    } catch (e) {
+      setErreur("Référence illisible : " + (e.message || e));
+    }
+  };
+
+  /* ---- Photos ---- */
+  const addPhotos = async (code, files) => {
+    const list = [...files];
+    if (!list.length) return;
+    let ok = 0;
+    for (const f of list) {
+      try {
+        const src = await fichierVersDataUrl(f);
+        // 1400 px : confortable à l'écran. La réduction pour l'archivage
+        // (1000 px) n'a lieu qu'au moment de figer le rapport.
+        const dataUrl = await recompresser(src, 1400, 0.72, "dataUrl");
+        const id = await idbAdd(dossier.id, code, dataUrl);
+        setPhotosLocales(prev => ({ ...prev, [code]: [...(prev[code] || []), { id, dataUrl }] }));
+        ok++;
+      } catch { /* photo ignorée, on continue les suivantes */ }
+    }
+    toast(ok ? `${ok} photo(s) ajoutée(s)` : "Photo illisible");
+  };
+
+  const removePhoto = async (code, index) => {
+    const photo = (photosLocales[code] || [])[index];
+    if (photo?.id != null) await idbDelete(photo.id);
+    setPhotosLocales(prev => ({ ...prev, [code]: (prev[code] || []).filter((_, k) => k !== index) }));
+  };
+
+  /* ---- Archivage : c'est ici, et seulement ici, que les photos partent ---- */
+  const archiver = async () => {
+    const nb = stats.photos;
+    const ok = window.confirm(
+      `Figer le rapport ?\n\n${nb} photo(s) vont être envoyées sur l'application et le dossier passera en lecture seule.\n\n`
+      + `Le rapport restera consultable et imprimable à tout moment, mais la saisie ne sera plus modifiable.`
+    );
+    if (!ok) return;
+
+    // Impératif : une sauvegarde différée encore en vol réécrirait `donnees`
+    // avec p:[] APRÈS l'archivage et effacerait les chemins des photos.
+    clearTimeout(saveTimer.current);
+    enAttente.current = null;
+
+    setArchivage({ fait:0, total:nb });
+    setErreur("");
+    try {
+      const light = {};
+      for (const k in items) light[k] = { s:items[k].s, o:items[k].o, v:items[k].v, p:[] };
+      const base = { meta, items:light, general, sigs, ref:refEntree };
+
+      const donnees = await archiverPhotos(dossier.id, base, photosLocales,
+        (fait, total) => setArchivage({ fait, total }));
+
+      await majEDL(dossier.id, {
+        donnees,
+        statut: "archive",
+        type: meta.type,
+        date_edl: meta.date || null,
+        nb_elements: ALL_ITEMS.length,
+        nb_renseignes: stats.done,
+        nb_photos: nb,
+        nb_reserves: stats.res,
+        archive_le: new Date().toISOString(),
+        auteur: profil?.nom || profil?.email || null,
+      });
+
+      await idbClear(dossier.id);
+      setArchivage(null);
+      toast("Rapport archivé");
+      onRetour(true);
+    } catch (e) {
+      setArchivage(null);
+      setErreur("Archivage interrompu : " + (e.message || e) + " — la saisie est intacte, vous pouvez réessayer.");
+    }
+  };
+
+  // Garde-fou : les photos d'un brouillon vivent sur cet appareil uniquement.
+  useEffect(() => {
+    if (archive || !stats.photos) return;
     const handler = (e) => { e.preventDefault(); e.returnValue = ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [stats.photos]);
-
-  /* ---- Photos (compression avant stockage) ---- */
-  const addPhotos = (code, files) => {
-    const list = [...files];
-    if (!list.length) return;
-    let n = 0;
-    list.forEach(f => {
-      const rd = new FileReader();
-      rd.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          const max = 1400, sc = Math.min(1, max / Math.max(img.width, img.height));
-          const cv = document.createElement("canvas");
-          cv.width = Math.round(img.width * sc);
-          cv.height = Math.round(img.height * sc);
-          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-          const url = cv.toDataURL("image/jpeg", 0.72);
-          setItems(prev => {
-            const d = prev[code] || EMPTY_ITEM;
-            return { ...prev, [code]: { ...d, p: [...d.p, url] } };
-          });
-          if (++n === list.length) toast(n + " photo(s) ajoutée(s)");
-        };
-        img.src = rd.result;
-      };
-      rd.readAsDataURL(f);
-    });
-  };
-
-  /* ---- Dossier .json ---- */
-  const saveDossier = () => {
-    const payload = { meta, items, general, sigs, ref:refEntree };
-    const blob = new Blob([JSON.stringify(payload)], { type:"application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `EDL_${meta.type === "SORTIE" ? "sortie" : "entree"}_AlHana16_${meta.date || todayISO()}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast("Dossier enregistré, photos comprises");
-  };
-
-  const loadDossier = (file) => {
-    if (!file) return;
-    const rd = new FileReader();
-    rd.onload = () => {
-      try {
-        const d = JSON.parse(rd.result);
-        // Cas particulier : on saisit une sortie et on ouvre l'entrée → elle
-        // devient la référence affichée en regard de chaque élément.
-        if (meta.type === "SORTIE" && d.meta?.type === "ENTRÉE") {
-          setRefEntree(normalizeItems(d.items));
-          toast("État des lieux d'entrée chargé comme référence");
-        } else {
-          setMeta(m => ({ ...m, ...(d.meta || {}) }));
-          setItems(normalizeItems(d.items));
-          setGeneral(d.general || "");
-          setSigs(d.sigs || { b:null, l1:null, l2:null });
-          setRefEntree(d.ref ? normalizeItems(d.ref) : null);
-          toast("Dossier ouvert");
-        }
-      } catch {
-        toast("Fichier illisible : choisissez un dossier .json exporté ici");
-      }
-    };
-    rd.readAsText(file);
-  };
+  }, [stats.photos, archive]);
 
   if (reportMode) {
     return createPortal(
       <>
         <style>{EDL_CSS}</style>
         <Rapport
-          meta={meta} general={general} sigs={sigs}
-          refEntree={refEntree} getIt={getIt} onBack={() => setReportMode(false)}
+          meta={meta} general={general} sigs={sigs} refEntree={refEntree}
+          getIt={getIt} photosPour={photosPour} onBack={() => setReportMode(false)}
         />
       </>,
       document.body
@@ -938,9 +1070,15 @@ export default function EtatDesLieux() {
       <style>{EDL_CSS}</style>
 
       <header className="masthead">
-        <p className="eyebrow">Loi n° 67-12 · Bail meublé · Marrakech</p>
-        <h1>État des lieux contradictoire<br/><em>Résidence Al Hana — Apt 16, Guéliz</em></h1>
-        <p className="sub">Saisissez pièce par pièce, ajoutez les photos, puis générez le rapport à signer.</p>
+        <p className="eyebrow">
+          Loi n° 67-12 · Bail meublé · {meta.type === "SORTIE" ? "État des lieux de sortie" : "État des lieux d'entrée"}
+        </p>
+        <h1>État des lieux contradictoire<br/><em>{dossier.titre}</em></h1>
+        <p className="sub">
+          {archive
+            ? "Rapport archivé : lecture seule. Il reste consultable et imprimable à tout moment."
+            : "Saisissez pièce par pièce, ajoutez les photos, puis archivez le rapport à signer."}
+        </p>
       </header>
 
       <nav className="roomnav" role="tablist" aria-label="Pièces">
@@ -957,6 +1095,26 @@ export default function EtatDesLieux() {
       </nav>
 
       <div className="wrap">
+        {erreur && <p className="banner err">{erreur}</p>}
+        {archivage && (
+          <p className="banner">
+            Envoi des photos en cours — {archivage.fait}/{archivage.total}. Ne fermez pas cet onglet.
+          </p>
+        )}
+        {archive && (
+          <p className="banner info">
+            Ce rapport est figé{dossier.archive_le
+              ? ` depuis le ${new Date(dossier.archive_le).toLocaleDateString("fr-FR")}`
+              : ""}. La saisie n'est plus modifiable : c'est ce qui lui donne sa valeur de référence.
+          </p>
+        )}
+        {!archive && stats.photos > 0 && (
+          <p className="banner">
+            {stats.photos} photo(s) sur cet appareil uniquement. Elles ne seront envoyées sur l'application
+            qu'au moment d'archiver le rapport.
+          </p>
+        )}
+
         <section className="card">
           <div className="card-hd">
             <h2>Cadre du document</h2>
@@ -968,17 +1126,39 @@ export default function EtatDesLieux() {
                 <label className="f" key={f.k}>
                   <span>{f.label}</span>
                   {f.type === "select" ? (
-                    <select value={meta[f.k]} onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}>
+                    <select value={meta[f.k]} disabled={archive}
+                      onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}>
                       <option value="ENTRÉE">Entrée</option>
                       <option value="SORTIE">Sortie</option>
                     </select>
                   ) : (
-                    <input type={f.type || "text"} value={meta[f.k] || ""}
+                    <input type={f.type || "text"} value={meta[f.k] || ""} disabled={archive}
                       onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}/>
                   )}
                 </label>
               ))}
             </div>
+
+            {!archive && meta.type === "SORTIE" && (
+              <div style={{ marginTop:14 }}>
+                <label className="f">
+                  <span>Comparer à l'état des lieux d'entrée</span>
+                  <select defaultValue="" onChange={e => prendreReference(e.target.value)}>
+                    <option value="">— Aucune référence —</option>
+                    {entrees.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.titre} — {r.date_edl || "sans date"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="hint" style={{ marginTop:6 }}>
+                  {entrees.length
+                    ? "L'état constaté à l'entrée s'affichera en regard de chaque élément, et dans le rapport."
+                    : "Aucun état des lieux d'entrée archivé pour l'instant."}
+                </p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -1010,7 +1190,7 @@ export default function EtatDesLieux() {
 
                     <div className="scale">
                       {STATES.map(s => (
-                        <button key={s.k} type="button" data-s={s.k} aria-pressed={d.s === s.k}
+                        <button key={s.k} type="button" data-s={s.k} aria-pressed={d.s === s.k} disabled={archive}
                           onClick={() => patchItem(i.c, { s: d.s === s.k ? null : s.k })}>
                           {s.l}
                         </button>
@@ -1021,32 +1201,37 @@ export default function EtatDesLieux() {
                       <div className="extra">
                         <label className="f">
                           <span>{i.f}</span>
-                          <input type="text" value={d.v}
+                          <input type="text" value={d.v} disabled={archive}
                             onChange={e => patchItem(i.c, { v:e.target.value })}/>
                         </label>
                       </div>
                     ) : null}
 
                     <div className="obs">
-                      <textarea value={d.o} onChange={e => patchItem(i.c, { o:e.target.value })}
+                      <textarea value={d.o} disabled={archive}
+                        onChange={e => patchItem(i.c, { o:e.target.value })}
                         placeholder="Observations : rayure, tache, jeu, fuite, fonctionnement testé…"/>
                     </div>
 
                     <div className="photos">
-                      {d.p.map((p, n) => (
+                      {photosPour(i.c).map((src, n) => (
                         <div className="thumb" key={n}>
-                          <img src={p} alt={`Photo ${n + 1} de ${i.l}`}/>
-                          <button type="button" aria-label="Supprimer la photo"
-                            onClick={() => patchItem(i.c, { p: d.p.filter((_, k) => k !== n) })}>×</button>
+                          <img src={src} alt={`Photo ${n + 1} de ${i.l}`}/>
+                          {!archive && (
+                            <button type="button" aria-label="Supprimer la photo"
+                              onClick={() => removePhoto(i.c, n)}>×</button>
+                          )}
                         </div>
                       ))}
-                      <button type="button" className="addphoto" onClick={() => {
-                        photoTarget.current = i.c;
-                        photoInput.current.value = "";
-                        photoInput.current.click();
-                      }}>
-                        <span className="plus">+</span>PHOTO
-                      </button>
+                      {!archive && (
+                        <button type="button" className="addphoto" onClick={() => {
+                          photoTarget.current = i.c;
+                          photoInput.current.value = "";
+                          photoInput.current.click();
+                        }}>
+                          <span className="plus">+</span>PHOTO
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -1054,19 +1239,21 @@ export default function EtatDesLieux() {
             })}
 
             <div className="rowbtns">
-              <button className="btn ghost sm" type="button" onClick={() => {
-                setItems(prev => {
-                  const next = { ...prev };
-                  room.items.forEach(i => {
-                    const d = next[i.c] || EMPTY_ITEM;
-                    if (!d.s) next[i.c] = { ...d, s:"BON" };
+              {!archive && (
+                <button className="btn ghost sm" type="button" onClick={() => {
+                  setItems(prev => {
+                    const next = { ...prev };
+                    room.items.forEach(i => {
+                      const d = next[i.c] || EMPTY_ITEM;
+                      if (!d.s) next[i.c] = { ...d, s:"BON" };
+                    });
+                    return next;
                   });
-                  return next;
-                });
-                toast("Éléments restants marqués « Bon »");
-              }}>
-                Marquer les éléments restants « Bon »
-              </button>
+                  toast("Éléments restants marqués « Bon »");
+                }}>
+                  Marquer les éléments restants « Bon »
+                </button>
+              )}
               {!isLast && (
                 <button className="btn sm" type="button" onClick={() => {
                   const idx = ROOMS.findIndex(x => x.id === current);
@@ -1087,7 +1274,7 @@ export default function EtatDesLieux() {
                 <p className="hint">Texte repris en fin de rapport.</p>
               </div>
               <div className="card-bd">
-                <textarea value={general} onChange={e => setGeneral(e.target.value)}
+                <textarea value={general} disabled={archive} onChange={e => setGeneral(e.target.value)}
                   placeholder="Réserves globales, points à reprendre par le bailleur, délais convenus…"/>
               </div>
             </section>
@@ -1102,11 +1289,11 @@ export default function EtatDesLieux() {
               </div>
               <div className="card-bd">
                 <div className="grid">
-                  <SignaturePad role="Le bailleur" who={meta.bailleur} value={sigs.b}
+                  <SignaturePad role="Le bailleur" who={meta.bailleur} value={sigs.b} readOnly={archive}
                     onChange={v => setSigs(s => ({ ...s, b:v }))}/>
-                  <SignaturePad role="Locataire 1" who={meta.loc1} value={sigs.l1}
+                  <SignaturePad role="Locataire 1" who={meta.loc1} value={sigs.l1} readOnly={archive}
                     onChange={v => setSigs(s => ({ ...s, l1:v }))}/>
-                  <SignaturePad role="Locataire 2" who={meta.loc2} value={sigs.l2}
+                  <SignaturePad role="Locataire 2" who={meta.loc2} value={sigs.l2} readOnly={archive}
                     onChange={v => setSigs(s => ({ ...s, l2:v }))}/>
                 </div>
               </div>
@@ -1120,23 +1307,274 @@ export default function EtatDesLieux() {
           <div><span className="lab">Renseignés</span><b>{stats.done}/{stats.total}</b></div>
           <div><span className="lab">Photos</span><b>{stats.photos}</b></div>
           <div className="reserves"><span className="lab">Réserves</span><b>{stats.res}</b></div>
+          {!archive && sync && (
+            <div style={{ alignSelf:"center" }}><span className="sync">{sync}</span></div>
+          )}
         </div>
         <div className="acts">
-          <button className="btn ghost sm" type="button" onClick={saveDossier}>Enregistrer le dossier</button>
-          <button className="btn ghost sm" type="button" onClick={() => {
-            jsonInput.current.value = "";
-            jsonInput.current.click();
-          }}>Ouvrir un dossier</button>
-          <button className="btn primary" type="button" onClick={() => setReportMode(true)}>Générer le rapport</button>
+          <button className="btn ghost sm" type="button" onClick={() => onRetour(false)}>← Dossiers</button>
+          <button className="btn ghost sm" type="button" onClick={() => setReportMode(true)}>
+            {archive ? "Voir le rapport" : "Aperçu du rapport"}
+          </button>
+          {!archive && (
+            <button className="btn primary" type="button" onClick={archiver} disabled={!!archivage}>
+              {archivage
+                ? `Envoi ${archivage.fait}/${archivage.total}…`
+                : "Archiver le rapport"}
+            </button>
+          )}
         </div>
       </div>
 
       <div className={`toast ${toastMsg ? "show" : ""}`}>{toastMsg}</div>
 
-      <input ref={jsonInput} type="file" accept="application/json" hidden
-        onChange={e => loadDossier(e.target.files[0])}/>
       <input ref={photoInput} type="file" accept="image/*" capture="environment" multiple hidden
         onChange={e => addPhotos(photoTarget.current, e.target.files)}/>
     </div>
+  );
+}
+
+/* ============ Liste des dossiers ============ */
+const NOUVEAU_VIDE = { titre:"", adresse:"", type:"ENTRÉE", date_edl:todayISO() };
+
+function ListeEDL({ profil, onOuvrir }) {
+  const [rows, setRows]       = useState(null);   // null = chargement en cours
+  const [erreur, setErreur]   = useState("");
+  const [form, setForm]       = useState(null);   // null = formulaire fermé
+  const [creation, setCreation] = useState(false);
+
+  const recharger = useCallback(() => {
+    listerEDL()
+      .then(r => { setRows(r); setErreur(""); })
+      .catch(e => {
+        setRows([]);
+        setErreur(
+          /relation .* does not exist|schema cache/i.test(e.message || "")
+            ? "La table invest_etats_des_lieux n'existe pas encore : exécutez sql/202608_invest_etats_des_lieux.sql dans l'éditeur SQL Supabase."
+            : "Chargement impossible : " + (e.message || e)
+        );
+      });
+  }, []);
+
+  useEffect(() => { recharger(); }, [recharger]);
+
+  const creer = async () => {
+    if (!form.titre.trim()) return;
+    setCreation(true);
+    try {
+      const row = await creerEDL({
+        titre: form.titre.trim(),
+        adresse: form.adresse.trim() || null,
+        type: form.type,
+        date_edl: form.date_edl || null,
+        statut: "brouillon",
+        auteur: profil?.nom || profil?.email || null,
+        donnees: {
+          meta: {
+            ...DEFAULT_META,
+            type: form.type,
+            date: form.date_edl || "",
+            adresse: form.adresse.trim() || DEFAULT_META.adresse,
+          },
+          items: {}, general:"", sigs:{ b:null, l1:null, l2:null },
+        },
+        nb_elements: ALL_ITEMS.length,
+      });
+      setForm(null);
+      onOuvrir(row);
+    } catch (e) {
+      setErreur("Création impossible : " + (e.message || e));
+    } finally {
+      setCreation(false);
+    }
+  };
+
+  const supprimer = async (row, e) => {
+    e.stopPropagation();
+    const ok = window.confirm(
+      `Supprimer « ${row.titre} » ?\n\n`
+      + (row.statut === "archive"
+          ? `Le rapport archivé et ses ${row.nb_photos} photo(s) seront définitivement effacés.`
+          : "Le brouillon sera définitivement effacé.")
+      + "\n\nCette action est irréversible."
+    );
+    if (!ok) return;
+    try {
+      await supprimerEDL(row.id);
+      recharger();
+    } catch (err) {
+      setErreur("Suppression impossible : " + (err.message || err));
+    }
+  };
+
+  const fmtDate = (d) => d
+    ? new Date(d + "T12:00").toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit", year:"numeric" })
+    : "—";
+
+  return (
+    <div className="edl">
+      <style>{EDL_CSS}</style>
+
+      <header className="masthead">
+        <p className="eyebrow">Loi n° 67-12 · Baux meublés · Profero Invest</p>
+        <h1>Dossier des <em>états des lieux</em></h1>
+        <p className="sub">
+          Chaque état des lieux est enregistré sur l'application. Une fois archivé, son rapport et ses photos
+          restent consultables et imprimables à tout moment, depuis n'importe quel poste.
+        </p>
+      </header>
+
+      <div className="wrap">
+        {erreur && <p className="banner err">{erreur}</p>}
+
+        <section className="card">
+          <div className="card-hd">
+            <h2>États des lieux</h2>
+            <p className="hint">{rows ? `${rows.length} dossier(s)` : "Chargement…"}</p>
+            <div style={{ marginLeft:"auto" }}>
+              <button className="btn primary sm" type="button"
+                onClick={() => setForm(form ? null : { ...NOUVEAU_VIDE })}>
+                {form ? "Annuler" : "+ Nouvel état des lieux"}
+              </button>
+            </div>
+          </div>
+
+          {form && (
+            <div className="card-bd" style={{ borderBottom:"1px solid var(--line)" }}>
+              <div className="grid">
+                <label className="f"><span>Intitulé du dossier</span>
+                  <input type="text" autoFocus value={form.titre} placeholder="Résidence Al Hana — Apt 16"
+                    onChange={e => setForm(f => ({ ...f, titre:e.target.value }))}/></label>
+                <label className="f"><span>Adresse du bien</span>
+                  <input type="text" value={form.adresse} placeholder="Guéliz, 40000 Marrakech"
+                    onChange={e => setForm(f => ({ ...f, adresse:e.target.value }))}/></label>
+                <label className="f"><span>Type</span>
+                  <select value={form.type} onChange={e => setForm(f => ({ ...f, type:e.target.value }))}>
+                    <option value="ENTRÉE">Entrée</option>
+                    <option value="SORTIE">Sortie</option>
+                  </select></label>
+                <label className="f"><span>Date</span>
+                  <input type="date" value={form.date_edl}
+                    onChange={e => setForm(f => ({ ...f, date_edl:e.target.value }))}/></label>
+              </div>
+              <div className="rowbtns">
+                <button className="btn" type="button" onClick={creer} disabled={!form.titre.trim() || creation}>
+                  {creation ? "Création…" : "Créer et commencer la saisie"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="card-bd">
+            {!rows ? (
+              <p className="empty">Chargement des dossiers…</p>
+            ) : rows.length === 0 ? (
+              <p className="empty">
+                Aucun état des lieux pour l'instant.<br/>
+                Cliquez sur « + Nouvel état des lieux » pour créer le premier.
+              </p>
+            ) : (
+              <div style={{ overflowX:"auto" }}>
+                <table className="dossiers">
+                  <thead>
+                    <tr>
+                      <th>Dossier</th>
+                      <th>Type</th>
+                      <th>Date</th>
+                      <th>État</th>
+                      <th>Saisie</th>
+                      <th>Photos</th>
+                      <th>Réserves</th>
+                      <th/>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr key={r.id} className="row" onClick={() => onOuvrir(r)}>
+                        <td>
+                          <div className="t">{r.titre}</div>
+                          {r.adresse && <div className="a">{r.adresse}</div>}
+                        </td>
+                        <td><span className={`tag ${r.type === "SORTIE" ? "sortie" : "entree"}`}>
+                          {r.type === "SORTIE" ? "Sortie" : "Entrée"}</span></td>
+                        <td className="num">{fmtDate(r.date_edl)}</td>
+                        <td><span className={`tag ${r.statut === "archive" ? "archive" : "brouillon"}`}>
+                          {r.statut === "archive" ? "Archivé" : "Brouillon"}</span></td>
+                        <td className="num">{r.nb_renseignes}/{r.nb_elements || ALL_ITEMS.length}</td>
+                        <td className="num">{r.nb_photos}</td>
+                        <td className="num">{r.nb_reserves}</td>
+                        <td style={{ textAlign:"right" }}>
+                          <button className="del" type="button" onClick={e => supprimer(r, e)}>Supprimer</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <p className="banner info">
+          Pendant la saisie, les photos restent sur l'appareil qui les prend — elles ne partent sur l'application
+          qu'au moment d'archiver le rapport, pour ne pas encombrer le stockage avec des brouillons. La saisie
+          elle-même (états, observations, quantités) est synchronisée en continu et se reprend depuis un autre poste.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ============ Page ============ */
+export default function EtatDesLieux({ profil }) {
+  useGoogleFonts();
+  const [dossier, setDossier] = useState(null);
+  const [chargement, setChargement] = useState(false);
+  const [erreur, setErreur] = useState("");
+
+  // La liste ne rapatrie pas la colonne `donnees` (lourde) : on la charge à
+  // l'ouverture du dossier.
+  const ouvrir = async (row) => {
+    setChargement(true);
+    setErreur("");
+    try {
+      setDossier(await chargerEDL(row.id));
+    } catch (e) {
+      setErreur("Ouverture impossible : " + (e.message || e));
+    } finally {
+      setChargement(false);
+    }
+  };
+
+  if (chargement) {
+    return (
+      <div className="edl">
+        <style>{EDL_CSS}</style>
+        <div className="wrap"><p className="empty">Ouverture du dossier…</p></div>
+      </div>
+    );
+  }
+
+  if (dossier) {
+    return (
+      <SaisieEDL
+        key={dossier.id}
+        dossier={dossier}
+        profil={profil}
+        onRetour={() => setDossier(null)}
+      />
+    );
+  }
+
+  return (
+    <>
+      {erreur && (
+        <div className="edl">
+          <style>{EDL_CSS}</style>
+          <div className="wrap"><p className="banner err">{erreur}</p></div>
+        </div>
+      )}
+      <ListeEDL profil={profil} onOuvrir={ouvrir}/>
+    </>
   );
 }
