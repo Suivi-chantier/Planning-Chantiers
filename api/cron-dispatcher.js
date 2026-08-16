@@ -13,8 +13,11 @@
 //   { "path": "/api/cron-dispatcher", "schedule": "50 14 * * 1-5" } → Lun-Ven 16h50 Paris (été), 15h50 (hiver)
 
 const { createClient } = require("@supabase/supabase-js");
-const { runRappelRapport, parisNow, heureAttendue } = require("./cron-rappel-rapport.js");
-const { runRecapCommandes }                          = require("./cron-recap-commandes.js");
+// Les deux handlers métier vivent dans api/_cron/ (dossier NON déployé en
+// fonctions — plan Hobby Vercel = max 12 fonctions serverless) et ne sont
+// joignables qu'à travers ce dispatcher.
+const { runRappelRapport, parisNow, heureAttendue } = require("./_cron/cron-rappel-rapport.js");
+const { runRecapCommandes }                          = require("./_cron/cron-recap-commandes.js");
 
 module.exports = async function handler(req, res) {
   // Auth

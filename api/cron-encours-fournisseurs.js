@@ -209,7 +209,7 @@ module.exports = async function handler(req, res) {
     const got = req.headers.authorization || "";
     if (got !== `Bearer ${expected}`) return res.status(401).json({ error: "Unauthorized" });
   }
-  const { parisNow } = require("./cron-recap-commandes.js");
+  const { parisNow } = require("./_cron/cron-recap-commandes.js");
   const t = parisNow();
   const supaUrl = process.env.VITE_SUPABASE_URL;
   const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_KEY;
