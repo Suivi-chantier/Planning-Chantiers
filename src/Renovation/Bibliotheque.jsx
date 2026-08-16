@@ -29,6 +29,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
   // Compat : on lit l'ancien champ `phaseId` (phasage v1) en repli sur `lotId`.
   const lotId = st.lotId ?? st.phaseId ?? "";
   const lot = LOTS.find(l => l.id === lotId);
+  const total = (editData.sous_taches || []).length;
 
   function update(field, value) {
     const next = [...(editData.sous_taches || [])];
@@ -41,10 +42,27 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
+  // L'ordre du tableau est repris tel quel à l'import devis → ordre des tâches
+  // dans le phasage. Monter/descendre = échange avec la ligne voisine.
+  function move(delta) {
+    const j = idx + delta;
+    if (j < 0 || j >= total) return;
+    const next = [...(editData.sous_taches || [])];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+  }
+
+  const arrowStyle = (disabled) => ({
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    background: "transparent", border: "none", padding: 0, lineHeight: 1,
+    color: T.textMuted, cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.2 : 1, height: 13,
+  });
+
   return (
     <div className="biblio-row" style={{
       display: "grid",
-      gridTemplateColumns: "1fr 180px 80px 26px",
+      gridTemplateColumns: "20px 1fr 180px 80px 26px",
       gap: 8,
       alignItems: "center",
       padding: "8px 12px",
@@ -52,6 +70,16 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
       background: T.card,
       border: `1px solid ${T.border}`,
     }}>
+      {/* Réordonner (l'ordre est repris dans le phasage) */}
+      <div className="biblio-reorder" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <button onClick={() => move(-1)} disabled={idx === 0} title="Monter" style={arrowStyle(idx === 0)}>
+          <Icon as={ChevronUp} size={13}/>
+        </button>
+        <button onClick={() => move(1)} disabled={idx === total - 1} title="Descendre" style={arrowStyle(idx === total - 1)}>
+          <Icon as={ChevronDown} size={13}/>
+        </button>
+      </div>
+
       {/* Nom de la sous-tâche */}
       <input
         value={st.nom || ""}
@@ -431,6 +459,9 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
                       fontSize: FONT.xs.size, color: T.textMuted, fontWeight: 600,
                       background: T.card, borderRadius: RADIUS.pill, padding: "1px 7px",
                     }}>{(editData.sous_taches || []).length}</div>
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+                      L'ordre est repris dans le phasage
+                    </div>
                   </div>
                   <div title="Le total des ratios doit faire 100 % pour répartir correctement les heures estimées de l'ouvrage entre les sous-tâches."
                     style={{
@@ -442,14 +473,14 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, saving, 
                   </div>
                 </div>
                 <div style={{
-                  display: "grid", gridTemplateColumns: "1fr 180px 80px 26px",
+                  display: "grid", gridTemplateColumns: "20px 1fr 180px 80px 26px",
                   gap: 8, padding: "0 12px 6px",
                 }}>
-                  {["Nom de la sous-tâche", "Lot de travail", "Ratio", ""].map((h, i) => (
+                  {["", "Nom de la sous-tâche", "Lot de travail", "Ratio", ""].map((h, i) => (
                     <div key={i} style={{
                       fontSize: 10, fontWeight: 700, color: T.textMuted,
                       textTransform: "uppercase", letterSpacing: 0.8,
-                      textAlign: i === 2 ? "center" : "left",
+                      textAlign: i === 3 ? "center" : "left",
                     }}>{h}</div>
                   ))}
                 </div>
@@ -827,6 +858,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
           .biblio-page .biblio-actions input{flex:1 1 100%;width:100%!important}
           .biblio-page .biblio-actions button{flex:1}
           .biblio-page .biblio-row{grid-template-columns:1fr!important;gap:8px!important;padding:10px 12px!important}
+          .biblio-page .biblio-reorder{flex-direction:row!important;gap:16px!important}
         }
       `}</style>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
