@@ -53,6 +53,7 @@ export const PAGES_INVEST = [
   { id: "crm",             label: "CRM Clients" },
   { id: "biens",           label: "Biens" },
   { id: "simulateur",      label: "Simulateur" },
+  { id: "etat_des_lieux",  label: "État des lieux" },
   { id: "structuration",   label: "Structuration" },
   { id: "finance",         label: "Finance" },
   { id: "suivi_financier", label: "Suivi financier" },
@@ -182,6 +183,7 @@ const INVEST_ADMIN_PAGES = [
   "crm",
   "biens",
   "simulateur",
+  "etat_des_lieux",
   "structuration",
   "finance",
   "suivi_financier",
@@ -194,6 +196,7 @@ const INVEST_DIRECTION_PAGES = [
   "crm",
   "biens",
   "simulateur",
+  "etat_des_lieux",
   "structuration",
   "finance",
   "suivi_financier",
@@ -205,6 +208,7 @@ const INVEST_COMMERCIAL_PAGES = [
   "crm",
   "biens",
   "simulateur",
+  "etat_des_lieux",
   "structuration",
 ];
 
@@ -214,6 +218,7 @@ const INVEST_CONSEILLER_PAGES = [
   "crm",
   "biens",
   "simulateur",
+  "etat_des_lieux",
   "structuration",
 ];
 
