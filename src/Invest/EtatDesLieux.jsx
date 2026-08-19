@@ -18,157 +18,235 @@ import {
 // dossier .json complet (photos et signatures comprises).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/* ============ Référentiel du bien ============ */
-const ROOMS = [
- {id:"E", name:"Entrée & dégagement", note:"Section ajoutée : elle n'apparaissait pas dans l'annexe rédigée. Relevez la serrure et le tableau électrique dès l'arrivée.", warn:true, items:[
-  {c:"E-01",l:"Porte palière, serrure et cylindre"},
-  {c:"E-02",l:"Sonnette / interphone"},
-  {c:"E-03",l:"Tableau électrique et disjoncteurs"},
-  {c:"E-04",l:"Sol du dégagement"},
-  {c:"E-05",l:"Murs et plafond du dégagement"},
-  {c:"E-06",l:"Interrupteurs, prises, éclairage"},
-  {c:"E-07",l:"Placard / rangement d'entrée"}
+/* ============ Référentiel : pièces et équipements ============ */
+// Point de départ volontairement neutre : ni nom, ni adresse, ni description
+// propre à un logement donné. Chaque dossier démarre sur la composition par
+// défaut ci-dessous puis la façonne librement (renommer, ajouter, supprimer
+// pièces et équipements, champs libres). La liste retenue est enregistrée dans
+// `donnees.rooms` du dossier : elle se fige donc à l'archivage avec le reste,
+// et faire évoluer les modèles n'altère jamais un rapport déjà établi.
+
+// Un modèle de pièce = un intitulé, un préfixe de code et une liste
+// d'équipements courants. Un équipement s'écrit soit en toutes lettres, soit
+// `{l, q, f}` : `q` = quantité annoncée, `f` = intitulé d'un champ libre à
+// renseigner sous l'état (nombre remis, index de compteur, marque…).
+const MODELES_PIECE = [
+ { k:"entree", nom:"Entrée & dégagement", prefixe:"E", items:[
+  "Porte palière, serrure et cylindre",
+  "Sonnette / interphone",
+  "Tableau électrique et disjoncteurs",
+  "Sol",
+  "Murs et plafond",
+  "Interrupteurs, prises, éclairage",
+  "Placard / rangement"
  ]},
- {id:"C1", name:"Chambre 1 — Suite parentale", note:"Mur d'accent rouge brique mat, autres murs blancs. Photographiez le mur d'accent de face et en biais.", items:[
-  {c:"C1-01",l:"Grand lit double : sommier et matelas"},
-  {c:"C1-02",l:"Tête de lit artisanale fixe, bois sculpté et ajouré"},
-  {c:"C1-03",l:"Tables de chevet bois clair, tiroirs blancs", q:2},
-  {c:"C1-04",l:"Luminaires de chevet", q:2},
-  {c:"C1-05",l:"Téléviseur écran plat fixé au mur (+ télécommande)"},
-  {c:"C1-06",l:"Support mural TV et câblage"},
-  {c:"C1-07",l:"Climatiseur split (+ télécommande, test de mise en route)"},
-  {c:"C1-08",l:"Mur d'accent rouge brique mat"},
-  {c:"C1-09",l:"Murs blancs et plafond"},
-  {c:"C1-10",l:"Revêtement de sol"},
-  {c:"C1-11",l:"Fenêtre, vitrage, volet / store"},
-  {c:"C1-12",l:"Placard / penderie"},
-  {c:"C1-13",l:"Jeu de draps complet fourni"},
-  {c:"C1-14",l:"Coussins et oreillers fournis", f:"Nombre"},
-  {c:"C1-15",l:"Prises, interrupteurs, éclairage plafond"}
+ { k:"salon", nom:"Séjour / salon", prefixe:"S", items:[
+  "Sol",
+  "Murs et plafond",
+  "Fenêtres ou baie vitrée, vitrages et fermetures",
+  "Volets, stores, rideaux et tringles",
+  "Chauffage / climatisation",
+  "Prises, interrupteurs, éclairage",
+  "Porte et poignée"
  ]},
- {id:"C2", name:"Chambre 2", note:"Configuration identique à la suite parentale : lit double, tête de lit ajourée, un pan rouge brique.", items:[
-  {c:"C2-01",l:"Grand lit double : sommier et matelas"},
-  {c:"C2-02",l:"Parure de lit"},
-  {c:"C2-03",l:"Tête de lit bois ajouré, style marocain"},
-  {c:"C2-04",l:"Tables de chevet bois et blanc", q:2},
-  {c:"C2-05",l:"Lampes de chevet", q:2},
-  {c:"C2-06",l:"Climatiseur split (+ télécommande)"},
-  {c:"C2-07",l:"Murs (pan rouge brique + murs blancs) et plafond"},
-  {c:"C2-08",l:"Sol imitation parquet"},
-  {c:"C2-09",l:"Fenêtre, vitrage, volet"},
-  {c:"C2-10",l:"Placard / penderie"},
-  {c:"C2-11",l:"Jeu de draps complet fourni"},
-  {c:"C2-12",l:"Coussins et oreillers fournis", f:"Nombre"},
-  {c:"C2-13",l:"Prises, interrupteurs, éclairage"}
+ { k:"cuisine", nom:"Cuisine", prefixe:"K", items:[
+  "Meubles hauts",
+  "Meubles bas",
+  "Plan de travail",
+  "Crédence",
+  "Évier, robinetterie, siphon et évacuation",
+  "Plaque de cuisson (test de tous les feux)",
+  "Hotte aspirante (moteur et éclairage)",
+  "Four",
+  "Réfrigérateur / congélateur",
+  "Lave-vaisselle",
+  "Lave-linge",
+  "Sol",
+  "Murs et plafond",
+  "Prises, interrupteurs, éclairage"
  ]},
- {id:"C3", name:"Chambre 3", items:[
-  {c:"C3-01",l:"Lits simples avec sommiers et matelas", q:2},
-  {c:"C3-02",l:"Têtes de lit en bois ciselé", q:2},
-  {c:"C3-03",l:"Murs peints et plafond"},
-  {c:"C3-04",l:"Sol parquet stratifié clair"},
-  {c:"C3-05",l:"Fenêtres vitrées et volets roulants intégrés (test montée/descente)"},
-  {c:"C3-06",l:"Jeux de draps complets", q:2},
-  {c:"C3-07",l:"Coussins et oreillers", f:"Nombre"},
-  {c:"C3-08",l:"Placard / rangement"},
-  {c:"C3-09",l:"Climatisation ou ventilation"},
-  {c:"C3-10",l:"Prises, interrupteurs, éclairage"}
+ { k:"chambre", nom:"Chambre", prefixe:"C", items:[
+  "Sol",
+  "Murs et plafond",
+  "Fenêtre, vitrage, volet ou store",
+  "Placard / penderie",
+  "Porte et poignée",
+  "Chauffage / climatisation",
+  "Prises, interrupteurs, éclairage"
  ]},
- {id:"S", name:"Salon", items:[
-  {c:"S-01",l:"Canapé d'angle modulable gris anthracite, assise capitonnée"},
-  {c:"S-02",l:"Fauteuil individuel assorti, tissu gris foncé"},
-  {c:"S-03",l:"Table basse rectangulaire, plateau blanc et piètement bois"},
-  {c:"S-04",l:"Meuble TV bas blanc"},
-  {c:"S-05",l:"Téléviseur écran plat (+ télécommande)"},
-  {c:"S-06",l:"Grand tapis à motifs géométriques"},
-  {c:"S-07",l:"Suspension lumineuse de plafond"},
-  {c:"S-08",l:"Baie vitrée coulissante aluminium, rails et serrure"},
-  {c:"S-09",l:"Murs et plafond"},
-  {c:"S-10",l:"Revêtement de sol"},
-  {c:"S-11",l:"Climatiseur / chauffage d'appoint"},
-  {c:"S-12",l:"Rideaux, voilages, tringles"},
-  {c:"S-13",l:"Prises, interrupteurs, éclairage"}
+ { k:"sdb", nom:"Salle de bain", prefixe:"B", items:[
+  "Douche ou baignoire, receveur et évacuation",
+  "Robinetterie, flexible, pomme de douche",
+  "Paroi de douche ou rideau",
+  "Vasque, meuble sous-vasque, miroir",
+  "Sèche-serviettes / radiateur",
+  { l:"Production d'eau chaude (marque, capacité)", f:"Marque" },
+  "Faïence, joints, silicone",
+  "Sol",
+  "VMC / ventilation",
+  "Éclairage et prises"
  ]},
- {id:"K", name:"Cuisine américaine", note:"Ouvrez chaque appareil, faites un cycle court si possible et photographiez l'intérieur du four et du réfrigérateur.", items:[
-  {c:"K-01",l:"Meubles hauts laqués blancs, ouverture sans poignée"},
-  {c:"K-02",l:"Meubles bas laqués blancs"},
-  {c:"K-03",l:"Plan de travail principal adossé au mur"},
-  {c:"K-04",l:"Crédence grès cérame effet marbre gris foncé"},
-  {c:"K-05",l:"Évier, robinetterie, siphon et évacuation"},
-  {c:"K-06",l:"Poubelle cylindrique inox"},
-  {c:"K-07",l:"Îlot central (plan libre et coin repas)"},
-  {c:"K-08",l:"Tabourets hauts bois blanc, assises grises", q:3},
-  {c:"K-09",l:"Plaque de cuisson (test de tous les feux)"},
-  {c:"K-10",l:"Hotte aspirante (test moteur et éclairage)"},
-  {c:"K-11",l:"Réfrigérateur / congélateur encastré"},
-  {c:"K-12",l:"Lave-linge intégré"},
-  {c:"K-13",l:"Lave-vaisselle sous l'îlot"},
-  {c:"K-14",l:"Four électrique encastré inox"},
-  {c:"K-15",l:"Four à micro-ondes encastré"},
-  {c:"K-16",l:"Suspensions opaline blanche au-dessus de l'îlot", q:3},
-  {c:"K-17",l:"Machine à café à capsules"},
-  {c:"K-18",l:"Assiettes", f:"Nombre"},
-  {c:"K-19",l:"Verres", f:"Nombre"},
-  {c:"K-20",l:"Couverts de table", f:"Nombre"},
-  {c:"K-21",l:"Casseroles et poêles", f:"Nombre"},
-  {c:"K-22",l:"Ustensiles de cuisine"},
-  {c:"K-23",l:"Petit électroménager rangé dans les placards"},
-  {c:"K-24",l:"Sol de la cuisine"},
-  {c:"K-25",l:"Murs et plafond"},
-  {c:"K-26",l:"Prises, interrupteurs, éclairage"}
+ { k:"wc", nom:"WC", prefixe:"W", items:[
+  "Cuvette, abattant, mécanisme de chasse",
+  "Lave-mains et robinetterie",
+  "Sol, murs et plafond",
+  "Ventilation et éclairage"
  ]},
- {id:"B1", name:"Salle de bain 1", note:"Section ajoutée : les pièces d'eau ne figuraient pas dans l'annexe rédigée. C'est la zone la plus contestée en fin de bail, documentez-la finement.", warn:true, items:[
-  {c:"B1-01",l:"Douche ou baignoire, receveur et évacuation"},
-  {c:"B1-02",l:"Robinetterie, flexible, pomme de douche"},
-  {c:"B1-03",l:"Paroi de douche ou rideau"},
-  {c:"B1-04",l:"Vasque, meuble sous-vasque, miroir"},
-  {c:"B1-05",l:"WC, abattant, mécanisme de chasse"},
-  {c:"B1-06",l:"Sèche-serviettes / radiateur"},
-  {c:"B1-07",l:"Chauffe-eau (marque, capacité, mise en service)"},
-  {c:"B1-08",l:"Faïence, joints, silicone"},
-  {c:"B1-09",l:"Sol"},
-  {c:"B1-10",l:"VMC / ventilation"},
-  {c:"B1-11",l:"Éclairage et prises"},
-  {c:"B1-12",l:"Linge de toilette fourni", f:"Nombre"}
+ { k:"bureau", nom:"Bureau", prefixe:"O", items:[
+  "Sol",
+  "Murs et plafond",
+  "Fenêtre, vitrage, volet ou store",
+  "Rangements",
+  "Chauffage / climatisation",
+  "Prises, interrupteurs, éclairage, réseau"
  ]},
- {id:"B2", name:"Salle d'eau 2 / WC", note:"À supprimer du rapport si le logement n'en comporte pas : laissez tous les éléments sur « Sans objet ».", warn:true, items:[
-  {c:"B2-01",l:"Douche, receveur et évacuation"},
-  {c:"B2-02",l:"Robinetterie"},
-  {c:"B2-03",l:"Vasque, meuble, miroir"},
-  {c:"B2-04",l:"WC, abattant, mécanisme de chasse"},
-  {c:"B2-05",l:"Faïence, joints, silicone"},
-  {c:"B2-06",l:"Sol, murs et plafond"},
-  {c:"B2-07",l:"Ventilation, éclairage, prises"}
+ { k:"buanderie", nom:"Buanderie / cellier", prefixe:"L", items:[
+  "Sol, murs et plafond",
+  "Arrivée et évacuation d'eau",
+  "Rangements",
+  "Ventilation",
+  "Prises, interrupteurs, éclairage"
  ]},
- {id:"T", name:"Terrasse (134 m²)", note:"Mention réglementaire : l'ensemble des coussins du salon de jardin a été changé à neuf et est de couleur blanche. Photographiez-les à part.", items:[
-  {c:"T-01",l:"Canapé extérieur 2 places"},
-  {c:"T-02",l:"Fauteuils extérieurs individuels", q:2},
-  {c:"T-03",l:"Coussins d'assise et de dossier — NEUFS, couleur blanche", f:"Nombre"},
-  {c:"T-04",l:"Table basse extérieure en lattes"},
-  {c:"T-05",l:"Chaises longues / bains de soleil, toiles foncées", q:2},
-  {c:"T-06",l:"Tables d'appoint d'extérieur", q:2},
-  {c:"T-07",l:"Grand parasol blanc et son pied"},
-  {c:"T-08",l:"Bacs à plantes maçonnés et muret orange brique"},
-  {c:"T-09",l:"Plantations (mini-palmiers, plantes vertes)"},
-  {c:"T-10",l:"Revêtement de sol de la terrasse"},
-  {c:"T-11",l:"Garde-corps, murets, étanchéité apparente"},
-  {c:"T-12",l:"Éclairage extérieur"},
-  {c:"T-13",l:"Point d'eau et évacuations"},
-  {c:"T-14",l:"Étendoir, local technique, rangements extérieurs"}
+ { k:"exterieur", nom:"Terrasse / balcon", prefixe:"T", items:[
+  "Revêtement de sol",
+  "Garde-corps, murets, étanchéité apparente",
+  "Éclairage extérieur",
+  "Point d'eau et évacuations",
+  "Mobilier extérieur",
+  "Plantations et jardinières"
  ]},
- {id:"G", name:"Compteurs, clés & général", note:"Relevez les index devant le bailleur : c'est ce qui coupe court aux litiges de charges.", items:[
-  {c:"G-01",l:"Compteur électricité — index relevé", f:"Index kWh"},
-  {c:"G-02",l:"Compteur eau — index relevé", f:"Index m³"},
-  {c:"G-03",l:"Clés de la porte palière remises", f:"Nombre"},
-  {c:"G-04",l:"Clés / badges immeuble et boîte aux lettres", f:"Nombre"},
-  {c:"G-05",l:"Télécommande portail ou parking", f:"Nombre"},
-  {c:"G-06",l:"Place de parking, cave ou local vélo"},
-  {c:"G-07",l:"Détecteur de fumée / extincteur"},
-  {c:"G-08",l:"Box internet et identifiants wifi"},
-  {c:"G-09",l:"Production d'eau chaude sanitaire"},
-  {c:"G-10",l:"Propreté générale à la remise des clés"},
-  {c:"G-11",l:"Notices, garanties et modes d'emploi remis"}
- ]}
+ { k:"annexe", nom:"Cave / garage / parking", prefixe:"A", items:[
+  "Porte, grille et fermeture",
+  "Sol, murs et plafond",
+  "Éclairage et prises",
+  { l:"Clé, badge ou télécommande remis", f:"Nombre" }
+ ]},
+ { k:"compteurs", nom:"Compteurs, clés & général", prefixe:"G", items:[
+  { l:"Compteur électricité — index relevé", f:"Index kWh" },
+  { l:"Compteur eau — index relevé", f:"Index m³" },
+  { l:"Compteur gaz — index relevé", f:"Index m³" },
+  { l:"Clés de la porte palière remises", f:"Nombre" },
+  { l:"Clés / badges immeuble et boîte aux lettres", f:"Nombre" },
+  { l:"Télécommande portail ou parking", f:"Nombre" },
+  "Détecteur de fumée / extincteur",
+  "Box internet et identifiants wifi",
+  "Production d'eau chaude sanitaire",
+  "Propreté générale à la remise des clés",
+  "Notices, garanties et modes d'emploi remis"
+ ]},
+ { k:"vide", nom:"Pièce libre (aucun équipement)", prefixe:"P", items:[] }
 ];
+
+// Composition d'un nouveau dossier : un logement standard, à ajuster pièce par
+// pièce dès la première saisie.
+const COMPO_DEFAUT = ["entree","salon","cuisine","chambre","sdb","wc","compteurs"];
+
+// Pièce technique où atterrissent les constats dont l'équipement a disparu de
+// la liste : ils restent visibles au lieu de s'évaporer du rapport.
+const ORPH_ID = "_HORS_LISTE";
+
+function modelePiece(k) {
+  return MODELES_PIECE.find(m => m.k === k) || MODELES_PIECE[MODELES_PIECE.length - 1];
+}
+
+function codeItem(roomId, n) {
+  return `${roomId}-${String(n).padStart(2, "0")}`;
+}
+
+// Ne conserve que les clés utiles : un `q` ou un `f` vide ne doit pas se
+// transformer en colonne vide dans le rapport.
+function nettoyerItem(i) {
+  const out = { c:i.c, l:i.l };
+  const q = typeof i.q === "string" ? i.q.trim() : i.q;
+  const f = typeof i.f === "string" ? i.f.trim() : i.f;
+  if (q) out.q = q;
+  if (f) out.f = f;
+  return out;
+}
+
+// `id` préfixe les codes des équipements, et ces codes sont la clé de toute la
+// saisie : il doit donc être unique dans le dossier et ne jamais changer.
+function construirePiece(k, id, nom) {
+  const m = modelePiece(k);
+  return {
+    id, name: (nom || "").trim() || m.nom, note:"", modele:m.k,
+    items: m.items.map((it, n) => nettoyerItem({
+      ...(typeof it === "string" ? { l:it } : it),
+      c: codeItem(id, n + 1),
+    })),
+  };
+}
+
+function idPieceLibre(rooms, k) {
+  const pris = new Set(rooms.map(r => r.id));
+  const p = modelePiece(k).prefixe;
+  if (!pris.has(p)) return p;
+  for (let n = 2; ; n++) if (!pris.has(p + n)) return p + n;
+}
+
+function codeItemLibre(room) {
+  const pris = new Set(room.items.map(i => i.c));
+  for (let n = room.items.length + 1; ; n++) {
+    const c = codeItem(room.id, n);
+    if (!pris.has(c)) return c;
+  }
+}
+
+const ROOMS_DEFAUT = COMPO_DEFAUT.reduce(
+  (acc, k) => [...acc, construirePiece(k, idPieceLibre(acc, k))], []
+);
+
+function tousItems(rooms) {
+  return (rooms || []).flatMap(r => r.items.map(item => ({ room:r, item })));
+}
+
+// Un dossier peut venir d'une version antérieure (pas de `rooms`) ou d'un
+// export tronqué : on garantit ids et codes uniques, sinon deux équipements
+// partageraient la même case de saisie.
+function normalizeRooms(raw) {
+  if (!Array.isArray(raw) || !raw.length) {
+    return ROOMS_DEFAUT.map(r => ({ ...r, items: r.items.map(i => ({ ...i })) }));
+  }
+  const prisId = new Set();
+  return raw.map((r, n) => {
+    let id = String(r?.id || "").trim() || `P${n + 1}`;
+    while (prisId.has(id)) id += "x";
+    prisId.add(id);
+    const prisC = new Set();
+    const items = (Array.isArray(r?.items) ? r.items : []).map((i, k) => {
+      let c = String(i?.c || "").trim() || codeItem(id, k + 1);
+      while (prisC.has(c)) c += "x";
+      prisC.add(c);
+      return nettoyerItem({ ...i, c, l: i?.l || c });
+    });
+    return {
+      id,
+      name: String(r?.name || "").trim() || `Pièce ${n + 1}`,
+      note: r?.note || "",
+      warn: !!r?.warn,
+      modele: r?.modele,
+      items,
+    };
+  });
+}
+
+function avecOrphelins(rooms, items) {
+  const connus = new Set(rooms.flatMap(r => r.items.map(i => i.c)));
+  const orph = Object.keys(items || {}).filter(c => {
+    if (connus.has(c)) return false;
+    const d = items[c] || {};
+    return !!(d.s || d.o || d.v || d.p?.length);
+  });
+  if (!orph.length) return rooms;
+  return [...rooms, {
+    id: ORPH_ID,
+    name: "Constats hors liste",
+    warn: true,
+    note: "Ces constats portent sur des équipements qui ne figurent plus dans la liste des pièces. "
+        + "Ils sont conservés pour ne rien perdre : recréez l'équipement au bon endroit, ou supprimez le constat.",
+    items: orph.map(c => ({ c, l:c })),
+  }];
+}
 
 const STATES = [
  {k:"NEUF",l:"Neuf"},{k:"TB",l:"Très bon"},{k:"BON",l:"Bon"},
@@ -179,29 +257,34 @@ const RESERVE = new Set(["MAUVAIS","ABSENT"]);
 const DOTCOL = {NEUF:"#1C6E52",TB:"#1C6E52",BON:"#3C7F5C",USAGE:"#B8860F",MAUVAIS:"#A8452F",ABSENT:"#A8452F",NA:"#9A9CB0"};
 const CLS = {NEUF:"e-ok",TB:"e-ok",BON:"e-ok",USAGE:"e-mid",MAUVAIS:"e-bad",ABSENT:"e-bad",NA:"e-na"};
 
-const ALL_ITEMS = ROOMS.flatMap(r => r.items.map(item => ({ room:r, item })));
+// Décompte du modèle par défaut : sert au moment de créer un dossier, avant
+// que la liste ne soit personnalisée.
+const ITEMS_DEFAUT = tousItems(ROOMS_DEFAUT);
 const EMPTY_ITEM = { s:null, o:"", v:"", p:[] };
 
-const DEFAULT_META = {
-  type:"ENTRÉE", date:"2026-08-17", heure:"",
-  bailleur:"M. Philippe AGUERRE",
-  loc1:"M. Matthieu FUMOLEAU",
-  loc2:"Mme Camille LANDAIS épouse FUMOLEAU",
-  adresse:"Résidence Al Hana, Appartement 16, 4ème étage, Guéliz, 40000 Marrakech, Maroc",
-  surface:"Appartement meublé 3 chambres + terrasse 134 m²",
-  tiers:"",
+// Aucune valeur nominative par défaut : un nouveau dossier démarre vide et
+// c'est la saisie qui renseigne le bien et les parties. `extras` porte les
+// champs libres ajoutés au cadre du document.
+const META_VIDE = {
+  type:"ENTRÉE", date:"", heure:"",
+  bailleur:"", loc1:"", loc2:"",
+  adresse:"", surface:"",
+  ville:"", reference:"", tiers:"",
+  extras:[],
 };
 
 const METAFIELDS = [
-  { k:"type",     label:"Type d'état des lieux", type:"select" },
-  { k:"date",     label:"Date",                  type:"date"   },
-  { k:"heure",    label:"Heure",                 type:"time"   },
-  { k:"bailleur", label:"Bailleur"               },
-  { k:"loc1",     label:"Locataire 1"            },
-  { k:"loc2",     label:"Locataire 2"            },
-  { k:"adresse",  label:"Adresse du bien"        },
-  { k:"surface",  label:"Surface / composition"  },
-  { k:"tiers",    label:"Tiers présents (agent, témoin)" },
+  { k:"type",      label:"Type d'état des lieux", type:"select" },
+  { k:"date",      label:"Date",  type:"date" },
+  { k:"heure",     label:"Heure", type:"time" },
+  { k:"bailleur",  label:"Bailleur",              ph:"Nom du bailleur" },
+  { k:"loc1",      label:"Locataire 1",           ph:"Nom du locataire" },
+  { k:"loc2",      label:"Locataire 2",           ph:"Co-locataire solidaire (facultatif)" },
+  { k:"adresse",   label:"Adresse du bien",       ph:"Adresse complète du logement" },
+  { k:"surface",   label:"Surface / composition", ph:"Ex. appartement 3 pièces, 68 m²" },
+  { k:"ville",     label:"Lieu de signature",     ph:"Ville" },
+  { k:"reference", label:"Référence du bail",     ph:"Numéro ou cadre du bail (facultatif)" },
+  { k:"tiers",     label:"Tiers présents (agent, témoin)", ph:"Facultatif" },
 ];
 
 const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap";
@@ -330,6 +413,31 @@ const EDL_CSS = `
 .edl .item .extra label.f{flex:0 0 150px}
 .edl .obs{margin-top:10px}
 .edl .obs textarea{min-height:46px;font-size:13.5px}
+
+/* ---------- Édition de la liste des pièces ---------- */
+.edl .roomedit{border:1px solid var(--line);border-radius:var(--radius);background:#FCFCFA;padding:13px;margin:0 0 14px}
+.edl .roomedit .grid{margin-bottom:11px}
+.edl .itemlist{display:flex;flex-direction:column;gap:7px}
+.edl .itemedit,.edl .addrow{
+  display:flex;gap:7px;align-items:center;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px
+}
+.edl .addrow{background:#FCFCFA;border-style:dashed}
+.edl .itemedit .code{font-family:var(--mono);font-size:10.5px;color:var(--ink-60);flex:0 0 52px}
+.edl .itemedit input.l,.edl .addrow input.l{flex:1 1 190px}
+.edl .itemedit input.q,.edl .addrow input.q{flex:0 0 62px;text-align:center}
+.edl .itemedit input.ff,.edl .addrow input.ff{flex:0 0 172px}
+.edl .itemedit .del,.edl .extrarow .del{
+  border:1px solid var(--line);background:#fff;color:var(--brick);border-radius:var(--radius);
+  padding:5px 10px;font-size:13px;line-height:1;cursor:pointer;flex:0 0 auto
+}
+.edl .itemedit .del:hover,.edl .extrarow .del:hover{border-color:var(--brick)}
+.edl .extras{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.edl .extrarow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.edl .extrarow input.lab{flex:0 0 210px}
+.edl .extrarow input.val{flex:1 1 190px}
+.edl .roomtab.add{border-style:dashed;color:var(--majorelle);font-weight:600}
+.edl .roomtab.add:hover{border-color:var(--majorelle);background:var(--majorelle-soft)}
 
 .edl .photos{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;align-items:center}
 .edl .thumb{position:relative;width:66px;height:66px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line)}
@@ -632,16 +740,17 @@ function SignaturePad({ role, who, value, onChange, readOnly = false }) {
 }
 
 /* ============ Rapport imprimable ============ */
-function Rapport({ meta, general, sigs, refEntree, getIt, photosPour, onBack }) {
+function Rapport({ meta, rooms, general, sigs, refEntree, getIt, photosPour, onBack }) {
   useEffect(() => {
     document.body.classList.add("edl-printing");
     return () => document.body.classList.remove("edl-printing");
   }, []);
 
-  const done     = ALL_ITEMS.filter(x => getIt(x.item.c).s).length;
-  const photos   = ALL_ITEMS.reduce((a, x) => a + photosPour(x.item.c).length, 0);
-  const reserves = ALL_ITEMS.filter(x => RESERVE.has(getIt(x.item.c).s));
-  const missing  = ALL_ITEMS.filter(x => !getIt(x.item.c).s);
+  const flat     = tousItems(rooms);
+  const done     = flat.filter(x => getIt(x.item.c).s).length;
+  const photos   = flat.reduce((a, x) => a + photosPour(x.item.c).length, 0);
+  const reserves = flat.filter(x => RESERVE.has(getIt(x.item.c).s));
+  const missing  = flat.filter(x => !getIt(x.item.c).s);
   const dstr = meta.date
     ? new Date(meta.date + "T12:00").toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" })
     : "—";
@@ -655,7 +764,7 @@ function Rapport({ meta, general, sigs, refEntree, getIt, photosPour, onBack }) 
     </div>
   );
 
-  const n = ROOMS.length;
+  const n = rooms.length;
 
   return (
     <div className="edl-report-portal">
@@ -666,26 +775,38 @@ function Rapport({ meta, general, sigs, refEntree, getIt, photosPour, onBack }) 
 
       <div className="sheet">
         <div className="rep-head">
-          <div className="kicker">Annexe au contrat de bail à usage d'habitation meublée · Loi n° 67-12</div>
+          <div className="kicker">
+            Annexe au contrat de bail — état des lieux contradictoire
+            {meta.reference ? ` · ${meta.reference}` : ""}
+          </div>
           <h1>
             État des lieux contradictoire {meta.type === "SORTIE" ? "de sortie" : "d'entrée"}<br/>
             et inventaire photographique
           </h1>
-          <p>{meta.adresse} — établi le {dstr}{meta.heure ? ` à ${meta.heure}` : ""}</p>
+          <p>
+            {meta.adresse || "Bien non renseigné"} — établi le {dstr}
+            {meta.heure ? ` à ${meta.heure}` : ""}
+          </p>
         </div>
 
         <div className="idcard">
-          <div>Bailleur</div><div>{meta.bailleur}</div>
+          <div>Bailleur</div><div>{meta.bailleur || "—"}</div>
           <div>Locataires solidaires</div>
-          <div>{meta.loc1}{meta.loc2 ? <><br/>{meta.loc2}</> : null}</div>
-          <div>Bien loué</div><div>{meta.adresse}</div>
-          <div>Composition</div><div>{meta.surface}</div>
+          <div>{meta.loc1 || "—"}{meta.loc2 ? <><br/>{meta.loc2}</> : null}</div>
+          <div>Bien loué</div><div>{meta.adresse || "—"}</div>
+          <div>Composition</div><div>{meta.surface || "—"}</div>
           <div>Date et heure</div><div>{dstr}{meta.heure ? " — " + meta.heure : ""}</div>
           <div>Tiers présents</div><div>{meta.tiers || "Aucun"}</div>
+          {meta.reference ? <><div>Référence du bail</div><div>{meta.reference}</div></> : null}
+          {(meta.extras || []).filter(x => x.label || x.value).map(x => (
+            <React.Fragment key={x.k}>
+              <div>{x.label || "—"}</div><div>{x.value || "—"}</div>
+            </React.Fragment>
+          ))}
         </div>
 
         <div className="kpis">
-          <div><b>{ALL_ITEMS.length}</b><span>Éléments inventoriés</span></div>
+          <div><b>{flat.length}</b><span>Éléments inventoriés</span></div>
           <div><b>{done}</b><span>Éléments constatés</span></div>
           <div><b>{photos}</b><span>Photos annexées</span></div>
           <div><b>{reserves.length}</b><span>Réserves</span></div>
@@ -693,12 +814,12 @@ function Rapport({ meta, general, sigs, refEntree, getIt, photosPour, onBack }) 
 
         <p className="rep-note">
           Le présent document est dressé contradictoirement entre les parties, en leur présence, lors de la remise des
-          clés. Il fait partie intégrante du contrat de bail signé à Marrakech et sert de référence unique pour la
-          comparaison en fin de location. Les photographies annexées sont réputées prises le jour de l'établissement du
-          présent état des lieux.
+          clés. Il fait partie intégrante du contrat de bail et sert de référence unique pour la comparaison en fin de
+          location. Les photographies annexées sont réputées prises le jour de l'établissement du présent état des
+          lieux.
         </p>
 
-        {ROOMS.map((r, ri) => {
+        {rooms.map((r, ri) => {
           const pics = r.items.flatMap(i => {
             const ph = photosPour(i.c);
             return ph.map((src, k) => (
@@ -803,7 +924,7 @@ function Rapport({ meta, general, sigs, refEntree, getIt, photosPour, onBack }) 
             {meta.tiers ? sigBlock("Tiers présent", meta.tiers, null, "t") : null}
           </div>
           <p className="legal">
-            Fait à Marrakech, le {dstr}, en autant d'exemplaires originaux que de parties, chacune reconnaissant avoir
+            Fait à {meta.ville || "……………………"}, le {dstr}, en autant d'exemplaires originaux que de parties, chacune reconnaissant avoir
             reçu le sien avec ses annexes photographiques. À défaut d'état des lieux de sortie contradictoire, la
             comparaison se fera sur la base du présent document. Les éventuelles dégradations constatées en fin de bail
             s'apprécient déduction faite de l'usure normale liée à l'usage du logement pendant la durée de la location.
@@ -823,12 +944,18 @@ function SaisieEDL({ dossier, profil, onRetour }) {
   const archive = dossier.statut === "archive";
   const d0 = dossier.donnees || {};
 
-  const [meta, setMeta]         = useState(() => ({ ...DEFAULT_META, ...(d0.meta || {}) }));
+  const [meta, setMeta]         = useState(() => ({ ...META_VIDE, ...(d0.meta || {}) }));
   const [items, setItems]       = useState(() => normalizeItems(d0.items));
   const [general, setGeneral]   = useState(() => d0.general || "");
   const [sigs, setSigs]         = useState(() => d0.sigs || { b:null, l1:null, l2:null });
   const [refEntree, setRefEntree] = useState(() => (d0.ref ? normalizeItems(d0.ref) : null));
-  const [current, setCurrent]   = useState(ROOMS[0].id);
+  // La liste des pièces appartient au dossier, pas au code : c'est elle qu'on
+  // modifie quand on ajoute une pièce, un équipement ou un champ libre.
+  const [rooms, setRooms]       = useState(() => normalizeRooms(d0.rooms));
+  const [current, setCurrent]   = useState(null);   // null = première pièce
+  const [editListe, setEditListe] = useState(false);
+  const [formPiece, setFormPiece] = useState(null); // {k, nom} pendant l'ajout
+  const [nouvelItem, setNouvelItem] = useState({ l:"", q:"", f:"" });
   const [reportMode, setReportMode] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
 
@@ -852,6 +979,20 @@ function SaisieEDL({ dossier, profil, onRetour }) {
 
   const patchItem = useCallback((c, patch) => {
     setItems(prev => ({ ...prev, [c]: { ...(prev[c] || EMPTY_ITEM), ...patch } }));
+  }, []);
+
+  const roomsEff = useMemo(() => avecOrphelins(rooms, items), [rooms, items]);
+  const flat     = useMemo(() => tousItems(roomsEff), [roomsEff]);
+
+  const patchRoom = useCallback((id, patch) => {
+    setRooms(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
+  }, []);
+
+  const patchRoomItem = useCallback((id, code, patch) => {
+    setRooms(prev => prev.map(r => (r.id !== id ? r : {
+      ...r,
+      items: r.items.map(i => (i.c === code ? nettoyerItem({ ...i, ...patch }) : i)),
+    })));
   }, []);
 
   const toast = useCallback((t) => {
@@ -878,14 +1019,14 @@ function SaisieEDL({ dossier, profil, onRetour }) {
 
   const stats = useMemo(() => {
     let done = 0, res = 0, photos = 0;
-    for (const { item } of ALL_ITEMS) {
+    for (const { item } of flat) {
       const d = items[item.c] || EMPTY_ITEM;
       if (d.s) done++;
       if (RESERVE.has(d.s)) res++;
       photos += archive ? d.p.length : (photosLocales[item.c]?.length || 0);
     }
-    return { done, res, photos, total: ALL_ITEMS.length };
-  }, [items, photosLocales, archive]);
+    return { done, res, photos, total: flat.length };
+  }, [items, photosLocales, archive, flat]);
 
   // Photos à afficher pour un élément — même signature quel que soit l'étage
   // de stockage, pour que la saisie et le rapport n'aient pas à s'en soucier.
@@ -920,10 +1061,10 @@ function SaisieEDL({ dossier, profil, onRetour }) {
     const light = {};
     for (const k in items) light[k] = { s:items[k].s, o:items[k].o, v:items[k].v, p:[] };
     enAttente.current = {
-      donnees: { meta, items:light, general, sigs, ref:refEntree },
+      donnees: { meta, rooms, items:light, general, sigs, ref:refEntree },
       type: meta.type,
       date_edl: meta.date || null,
-      nb_elements: ALL_ITEMS.length,
+      nb_elements: flat.length,
       nb_renseignes: stats.done,
       nb_photos: stats.photos,
       nb_reserves: stats.res,
@@ -931,7 +1072,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
     setSync("Modifications non enregistrées");
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(ecrire, 1200);
-  }, [meta, items, general, sigs, refEntree]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meta, rooms, items, general, sigs, refEntree]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => {
     clearTimeout(saveTimer.current);
@@ -988,6 +1129,84 @@ function SaisieEDL({ dossier, profil, onRetour }) {
     setPhotosLocales(prev => ({ ...prev, [code]: (prev[code] || []).filter((_, k) => k !== index) }));
   };
 
+  /* ---- Composition du dossier : pièces, équipements, champs libres ---- */
+  // Supprimer un équipement doit aussi effacer son constat et ses photos :
+  // sinon un code recréé plus tard hériterait en silence de l'ancien état.
+  const oublierCodes = useCallback(async (codes) => {
+    const cibles = new Set(codes);
+    if (!cibles.size) return;
+    setItems(prev => {
+      const next = { ...prev };
+      cibles.forEach(c => delete next[c]);
+      return next;
+    });
+    for (const c of cibles) {
+      for (const ph of (photosLocales[c] || [])) if (ph?.id != null) await idbDelete(ph.id);
+    }
+    setPhotosLocales(prev => {
+      const next = { ...prev };
+      cibles.forEach(c => delete next[c]);
+      return next;
+    });
+  }, [photosLocales]);
+
+  const ajouterItem = (roomId) => {
+    const l = nouvelItem.l.trim();
+    if (!l) return;
+    setRooms(prev => prev.map(r => (r.id !== roomId ? r : {
+      ...r,
+      items: [...r.items, nettoyerItem({ c:codeItemLibre(r), l, q:nouvelItem.q, f:nouvelItem.f })],
+    })));
+    setNouvelItem({ l:"", q:"", f:"" });
+  };
+
+  const supprimerItem = (roomId, code) => {
+    setRooms(prev => prev.map(r => (r.id !== roomId ? r : {
+      ...r, items: r.items.filter(i => i.c !== code),
+    })));
+    oublierCodes([code]);
+  };
+
+  const ajouterPiece = () => {
+    const id = idPieceLibre(rooms, formPiece.k);
+    setRooms(prev => [...prev, construirePiece(formPiece.k, id, formPiece.nom)]);
+    setCurrent(id);
+    setFormPiece(null);
+    setEditListe(false);
+    toast("Pièce ajoutée");
+  };
+
+  const supprimerPiece = (id) => {
+    const r = rooms.find(x => x.id === id);
+    if (!r) return;
+    const ok = window.confirm(
+      `Supprimer la pièce « ${r.name} » ?\n\n`
+      + `Ses ${r.items.length} équipement(s), leurs constats et leurs photos seront effacés.`
+    );
+    if (!ok) return;
+    setRooms(prev => prev.filter(x => x.id !== id));
+    oublierCodes(r.items.map(i => i.c));
+    setEditListe(false);
+    setCurrent(null);
+  };
+
+  /* ---- Champs libres du cadre du document ---- */
+  const ajouterExtra = () => setMeta(m => {
+    const ex = Array.isArray(m.extras) ? m.extras : [];
+    const pris = new Set(ex.map(x => x.k));
+    let n = ex.length + 1;
+    while (pris.has(`x${n}`)) n++;
+    return { ...m, extras:[...ex, { k:`x${n}`, label:"", value:"" }] };
+  });
+
+  const patchExtra = (k, patch) => setMeta(m => ({
+    ...m, extras:(m.extras || []).map(x => (x.k === k ? { ...x, ...patch } : x)),
+  }));
+
+  const supprimerExtra = (k) => setMeta(m => ({
+    ...m, extras:(m.extras || []).filter(x => x.k !== k),
+  }));
+
   /* ---- Archivage : c'est ici, et seulement ici, que les photos partent ---- */
   const archiver = async () => {
     const nb = stats.photos;
@@ -1007,7 +1226,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
     try {
       const light = {};
       for (const k in items) light[k] = { s:items[k].s, o:items[k].o, v:items[k].v, p:[] };
-      const base = { meta, items:light, general, sigs, ref:refEntree };
+      const base = { meta, rooms, items:light, general, sigs, ref:refEntree };
 
       const donnees = await archiverPhotos(dossier.id, base, photosLocales,
         (fait, total) => setArchivage({ fait, total }));
@@ -1017,7 +1236,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
         statut: "archive",
         type: meta.type,
         date_edl: meta.date || null,
-        nb_elements: ALL_ITEMS.length,
+        nb_elements: flat.length,
         nb_renseignes: stats.done,
         nb_photos: nb,
         nb_reserves: stats.res,
@@ -1048,7 +1267,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
       <>
         <style>{EDL_CSS}</style>
         <Rapport
-          meta={meta} general={general} sigs={sigs} refEntree={refEntree}
+          meta={meta} rooms={roomsEff} general={general} sigs={sigs} refEntree={refEntree}
           getIt={getIt} photosPour={photosPour} onBack={() => setReportMode(false)}
         />
       </>,
@@ -1056,11 +1275,13 @@ function SaisieEDL({ dossier, profil, onRetour }) {
     );
   }
 
-  const room = ROOMS.find(r => r.id === current) || ROOMS[0];
-  const isLast = ROOMS[ROOMS.length - 1].id === room.id;
+  const room     = roomsEff.find(r => r.id === current) || roomsEff[0] || null;
+  const orphelin = room?.id === ORPH_ID;
+  const isLast   = !room || roomsEff[roomsEff.length - 1].id === room.id;
 
   const goRoom = (id) => {
     setCurrent(id);
+    setEditListe(false);
     scrollRef.current?.parentElement?.scrollTo?.({ top:0 });
     window.scrollTo({ top:0 });
   };
@@ -1071,7 +1292,8 @@ function SaisieEDL({ dossier, profil, onRetour }) {
 
       <header className="masthead">
         <p className="eyebrow">
-          Loi n° 67-12 · Bail meublé · {meta.type === "SORTIE" ? "État des lieux de sortie" : "État des lieux d'entrée"}
+          Profero Invest · {meta.type === "SORTIE" ? "État des lieux de sortie" : "État des lieux d'entrée"}
+          {meta.reference ? ` · ${meta.reference}` : ""}
         </p>
         <h1>État des lieux contradictoire<br/><em>{dossier.titre}</em></h1>
         <p className="sub">
@@ -1082,16 +1304,22 @@ function SaisieEDL({ dossier, profil, onRetour }) {
       </header>
 
       <nav className="roomnav" role="tablist" aria-label="Pièces">
-        {ROOMS.map(r => {
+        {roomsEff.map(r => {
           const tot = r.items.length;
           const done = r.items.filter(i => getIt(i.c).s).length;
           return (
-            <button key={r.id} type="button" className={`roomtab ${done === tot ? "done" : ""}`}
-              role="tab" aria-selected={r.id === current} onClick={() => goRoom(r.id)}>
-              {r.name} <span className="tick">{done === tot ? "✓" : `${done}/${tot}`}</span>
+            <button key={r.id} type="button" className={`roomtab ${tot && done === tot ? "done" : ""}`}
+              role="tab" aria-selected={r.id === room?.id} onClick={() => goRoom(r.id)}>
+              {r.name} <span className="tick">{!tot ? "—" : done === tot ? "✓" : `${done}/${tot}`}</span>
             </button>
           );
         })}
+        {!archive && (
+          <button type="button" className="roomtab add"
+            onClick={() => setFormPiece(formPiece ? null : { k:"chambre", nom:"" })}>
+            + Pièce
+          </button>
+        )}
       </nav>
 
       <div className="wrap">
@@ -1118,7 +1346,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
         <section className="card">
           <div className="card-hd">
             <h2>Cadre du document</h2>
-            <p className="hint">Ces informations ouvrent le rapport.</p>
+            <p className="hint">Ces informations ouvrent le rapport. Tout est facultatif à ce stade.</p>
           </div>
           <div className="card-bd">
             <div className="grid">
@@ -1133,11 +1361,39 @@ function SaisieEDL({ dossier, profil, onRetour }) {
                     </select>
                   ) : (
                     <input type={f.type || "text"} value={meta[f.k] || ""} disabled={archive}
+                      placeholder={f.ph || ""}
                       onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}/>
                   )}
                 </label>
               ))}
             </div>
+
+            {(meta.extras || []).length > 0 && (
+              <div className="extras">
+                {(meta.extras || []).map(x => (
+                  <div className="extrarow" key={x.k}>
+                    <input className="lab" type="text" value={x.label} disabled={archive}
+                      placeholder="Intitulé du champ" aria-label="Intitulé du champ libre"
+                      onChange={e => patchExtra(x.k, { label:e.target.value })}/>
+                    <input className="val" type="text" value={x.value} disabled={archive}
+                      placeholder="Valeur" aria-label="Valeur du champ libre"
+                      onChange={e => patchExtra(x.k, { value:e.target.value })}/>
+                    {!archive && (
+                      <button className="del" type="button" aria-label="Supprimer ce champ"
+                        onClick={() => supprimerExtra(x.k)}>×</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!archive && (
+              <div className="rowbtns">
+                <button className="btn ghost sm" type="button" onClick={ajouterExtra}>
+                  + Champ libre
+                </button>
+              </div>
+            )}
 
             {!archive && meta.type === "SORTIE" && (
               <div style={{ marginTop:14 }}>
@@ -1162,84 +1418,213 @@ function SaisieEDL({ dossier, profil, onRetour }) {
           </div>
         </section>
 
+        {!archive && formPiece && (
+          <section className="card">
+            <div className="card-hd">
+              <h2>Ajouter une pièce</h2>
+              <p className="hint">Partez d'un modèle d'équipements courants, ou d'une pièce vide à composer.</p>
+            </div>
+            <div className="card-bd">
+              <div className="grid">
+                <label className="f">
+                  <span>Modèle de pièce</span>
+                  <select value={formPiece.k}
+                    onChange={e => setFormPiece(f => ({ ...f, k:e.target.value }))}>
+                    {MODELES_PIECE.map(m => <option key={m.k} value={m.k}>{m.nom}</option>)}
+                  </select>
+                </label>
+                <label className="f">
+                  <span>Intitulé de la pièce</span>
+                  <input type="text" autoFocus value={formPiece.nom}
+                    placeholder={modelePiece(formPiece.k).nom}
+                    onChange={e => setFormPiece(f => ({ ...f, nom:e.target.value }))}/>
+                </label>
+              </div>
+              <p className="hint" style={{ marginTop:8 }}>
+                {modelePiece(formPiece.k).items.length
+                  ? `${modelePiece(formPiece.k).items.length} équipement(s) seront pré-remplis, tous modifiables ensuite.`
+                  : "Aucun équipement pré-rempli : vous composerez la liste vous-même."}
+              </p>
+              <div className="rowbtns">
+                <button className="btn" type="button" onClick={ajouterPiece}>Ajouter la pièce</button>
+                <button className="btn ghost" type="button" onClick={() => setFormPiece(null)}>Annuler</button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {!room ? (
+          <section className="card">
+            <div className="card-bd">
+              <p className="empty">
+                Aucune pièce dans ce dossier.<br/>
+                Utilisez « + Pièce » dans la barre du haut pour composer la liste.
+              </p>
+            </div>
+          </section>
+        ) : (
         <section className="card">
           <div className="card-hd">
             <h2>{room.name}</h2>
-            <p className="hint">{room.items.length} éléments</p>
+            <p className="hint">{room.items.length} équipement(s)</p>
+            {!archive && !orphelin && (
+              <div style={{ marginLeft:"auto" }}>
+                <button className="btn ghost sm" type="button" onClick={() => setEditListe(v => !v)}>
+                  {editListe ? "Terminer la modification" : "Modifier la liste"}
+                </button>
+              </div>
+            )}
           </div>
           <div className="card-bd">
             {room.note && <p className={`room-note ${room.warn ? "warn" : ""}`}>{room.note}</p>}
 
-            {room.items.map(i => {
-              const d = getIt(i.c);
-              const rEnt = refEntree?.[i.c];
-              return (
-                <article className="item" key={i.c}>
-                  <div className="rail">
-                    <span className="code">{i.c}</span>
-                    <span className="dot" style={{ background: d.s ? DOTCOL[d.s] : "#DEDBD1" }}/>
+            {editListe && !archive && !orphelin ? (
+              <>
+                <div className="roomedit">
+                  <div className="grid">
+                    <label className="f">
+                      <span>Intitulé de la pièce</span>
+                      <input type="text" value={room.name}
+                        onChange={e => patchRoom(room.id, { name:e.target.value })}/>
+                    </label>
+                    <label className="f">
+                      <span>Consigne affichée pendant la saisie</span>
+                      <input type="text" value={room.note || ""} placeholder="Facultatif"
+                        onChange={e => patchRoom(room.id, { note:e.target.value })}/>
+                    </label>
                   </div>
-                  <div className="bd">
-                    <h3>{i.l}</h3>
-                    {i.q ? <span className="qty">Quantité annoncée : {i.q}</span> : null}
-                    {rEnt?.s ? (
-                      <div className="refline">
-                        Entrée : {STATE_LABEL[rEnt.s] || "—"}{rEnt.o ? ` — ${rEnt.o}` : ""}
-                      </div>
-                    ) : null}
+                  <button className="btn ghost sm" type="button" onClick={() => supprimerPiece(room.id)}>
+                    Supprimer la pièce
+                  </button>
+                </div>
 
-                    <div className="scale">
-                      {STATES.map(s => (
-                        <button key={s.k} type="button" data-s={s.k} aria-pressed={d.s === s.k} disabled={archive}
-                          onClick={() => patchItem(i.c, { s: d.s === s.k ? null : s.k })}>
-                          {s.l}
-                        </button>
-                      ))}
+                <div className="itemlist">
+                  {room.items.map(i => (
+                    <div className="itemedit" key={i.c}>
+                      <span className="code">{i.c}</span>
+                      <input className="l" type="text" value={i.l} aria-label="Intitulé de l'équipement"
+                        onChange={e => patchRoomItem(room.id, i.c, { l:e.target.value })}/>
+                      <input className="q" type="text" inputMode="numeric" placeholder="Qté" value={i.q ?? ""}
+                        aria-label="Quantité annoncée"
+                        onChange={e => patchRoomItem(room.id, i.c, { q:e.target.value })}/>
+                      <input className="ff" type="text" placeholder="Champ libre" value={i.f ?? ""}
+                        aria-label="Intitulé du champ libre"
+                        onChange={e => patchRoomItem(room.id, i.c, { f:e.target.value })}/>
+                      <button className="del" type="button" aria-label={`Supprimer ${i.l}`}
+                        onClick={() => supprimerItem(room.id, i.c)}>×</button>
                     </div>
+                  ))}
 
-                    {i.f ? (
-                      <div className="extra">
-                        <label className="f">
-                          <span>{i.f}</span>
-                          <input type="text" value={d.v} disabled={archive}
-                            onChange={e => patchItem(i.c, { v:e.target.value })}/>
-                        </label>
-                      </div>
-                    ) : null}
+                  <div className="addrow">
+                    <input className="l" type="text" placeholder="Nouvel équipement…" value={nouvelItem.l}
+                      aria-label="Nouvel équipement"
+                      onChange={e => setNouvelItem(v => ({ ...v, l:e.target.value }))}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); ajouterItem(room.id); } }}/>
+                    <input className="q" type="text" inputMode="numeric" placeholder="Qté" value={nouvelItem.q}
+                      aria-label="Quantité annoncée"
+                      onChange={e => setNouvelItem(v => ({ ...v, q:e.target.value }))}/>
+                    <input className="ff" type="text" placeholder="Champ libre" value={nouvelItem.f}
+                      aria-label="Intitulé du champ libre"
+                      onChange={e => setNouvelItem(v => ({ ...v, f:e.target.value }))}/>
+                    <button className="btn sm" type="button" disabled={!nouvelItem.l.trim()}
+                      onClick={() => ajouterItem(room.id)}>Ajouter</button>
+                  </div>
+                </div>
 
-                    <div className="obs">
-                      <textarea value={d.o} disabled={archive}
-                        onChange={e => patchItem(i.c, { o:e.target.value })}
-                        placeholder="Observations : rayure, tache, jeu, fuite, fonctionnement testé…"/>
+                <p className="hint" style={{ marginTop:11 }}>
+                  « Qté » affiche une quantité annoncée sous l'intitulé. « Champ libre » ajoute une case à renseigner
+                  sous l'état — nombre remis, index de compteur, marque, dimension… Supprimer un équipement efface
+                  aussi son constat et ses photos.
+                </p>
+              </>
+            ) : (
+              <>
+                {room.items.length === 0 && (
+                  <p className="empty">
+                    Aucun équipement dans cette pièce.
+                    {!archive && !orphelin ? " Cliquez sur « Modifier la liste » pour en ajouter." : ""}
+                  </p>
+                )}
+              {room.items.map(i => {
+                const d = getIt(i.c);
+                const rEnt = refEntree?.[i.c];
+                return (
+                  <article className="item" key={i.c}>
+                    <div className="rail">
+                      <span className="code">{i.c}</span>
+                      <span className="dot" style={{ background: d.s ? DOTCOL[d.s] : "#DEDBD1" }}/>
                     </div>
-
-                    <div className="photos">
-                      {photosPour(i.c).map((src, n) => (
-                        <div className="thumb" key={n}>
-                          <img src={src} alt={`Photo ${n + 1} de ${i.l}`}/>
-                          {!archive && (
-                            <button type="button" aria-label="Supprimer la photo"
-                              onClick={() => removePhoto(i.c, n)}>×</button>
-                          )}
+                    <div className="bd">
+                      <h3>{i.l}</h3>
+                      {i.q ? <span className="qty">Quantité annoncée : {i.q}</span> : null}
+                      {rEnt?.s ? (
+                        <div className="refline">
+                          Entrée : {STATE_LABEL[rEnt.s] || "—"}{rEnt.o ? ` — ${rEnt.o}` : ""}
                         </div>
-                      ))}
-                      {!archive && (
-                        <button type="button" className="addphoto" onClick={() => {
-                          photoTarget.current = i.c;
-                          photoInput.current.value = "";
-                          photoInput.current.click();
-                        }}>
-                          <span className="plus">+</span>PHOTO
-                        </button>
+                      ) : null}
+
+                      <div className="scale">
+                        {STATES.map(s => (
+                          <button key={s.k} type="button" data-s={s.k} aria-pressed={d.s === s.k} disabled={archive}
+                            onClick={() => patchItem(i.c, { s: d.s === s.k ? null : s.k })}>
+                            {s.l}
+                          </button>
+                        ))}
+                      </div>
+
+                      {i.f ? (
+                        <div className="extra">
+                          <label className="f">
+                            <span>{i.f}</span>
+                            <input type="text" value={d.v} disabled={archive}
+                              onChange={e => patchItem(i.c, { v:e.target.value })}/>
+                          </label>
+                        </div>
+                      ) : null}
+
+                      <div className="obs">
+                        <textarea value={d.o} disabled={archive}
+                          onChange={e => patchItem(i.c, { o:e.target.value })}
+                          placeholder="Observations : rayure, tache, jeu, fuite, fonctionnement testé…"/>
+                      </div>
+
+                      <div className="photos">
+                        {photosPour(i.c).map((src, n) => (
+                          <div className="thumb" key={n}>
+                            <img src={src} alt={`Photo ${n + 1} de ${i.l}`}/>
+                            {!archive && (
+                              <button type="button" aria-label="Supprimer la photo"
+                                onClick={() => removePhoto(i.c, n)}>×</button>
+                            )}
+                          </div>
+                        ))}
+                        {!archive && (
+                          <button type="button" className="addphoto" onClick={() => {
+                            photoTarget.current = i.c;
+                            photoInput.current.value = "";
+                            photoInput.current.click();
+                          }}>
+                            <span className="plus">+</span>PHOTO
+                          </button>
+                        )}
+                      </div>
+
+                      {orphelin && !archive && (
+                        <div className="rowbtns">
+                          <button className="btn ghost sm" type="button" onClick={() => oublierCodes([i.c])}>
+                            Supprimer ce constat
+                          </button>
+                        </div>
                       )}
                     </div>
-                  </div>
-                </article>
-              );
-            })}
+                  </article>
+                );
+              })}
+              </>
+            )}
 
             <div className="rowbtns">
-              {!archive && (
+              {!archive && !editListe && room.items.length > 0 && (
                 <button className="btn ghost sm" type="button" onClick={() => {
                   setItems(prev => {
                     const next = { ...prev };
@@ -1254,10 +1639,10 @@ function SaisieEDL({ dossier, profil, onRetour }) {
                   Marquer les éléments restants « Bon »
                 </button>
               )}
-              {!isLast && (
+              {!isLast && !editListe && (
                 <button className="btn sm" type="button" onClick={() => {
-                  const idx = ROOMS.findIndex(x => x.id === current);
-                  goRoom(ROOMS[idx + 1].id);
+                  const idx = roomsEff.findIndex(x => x.id === room.id);
+                  goRoom(roomsEff[idx + 1].id);
                 }}>
                   Pièce suivante →
                 </button>
@@ -1265,6 +1650,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
             </div>
           </div>
         </section>
+        )}
 
         {isLast && (
           <>
@@ -1371,14 +1757,17 @@ function ListeEDL({ profil, onOuvrir }) {
         auteur: profil?.nom || profil?.email || null,
         donnees: {
           meta: {
-            ...DEFAULT_META,
+            ...META_VIDE,
             type: form.type,
             date: form.date_edl || "",
-            adresse: form.adresse.trim() || DEFAULT_META.adresse,
+            adresse: form.adresse.trim(),
           },
+          // La composition par défaut est recopiée dans le dossier : elle lui
+          // appartient dès la création et suit ses propres modifications.
+          rooms: ROOMS_DEFAUT,
           items: {}, general:"", sigs:{ b:null, l1:null, l2:null },
         },
-        nb_elements: ALL_ITEMS.length,
+        nb_elements: ITEMS_DEFAUT.length,
       });
       setForm(null);
       onOuvrir(row);
@@ -1416,7 +1805,7 @@ function ListeEDL({ profil, onOuvrir }) {
       <style>{EDL_CSS}</style>
 
       <header className="masthead">
-        <p className="eyebrow">Loi n° 67-12 · Baux meublés · Profero Invest</p>
+        <p className="eyebrow">Profero Invest · Baux et locations</p>
         <h1>Dossier des <em>états des lieux</em></h1>
         <p className="sub">
           Chaque état des lieux est enregistré sur l'application. Une fois archivé, son rapport et ses photos
@@ -1500,7 +1889,7 @@ function ListeEDL({ profil, onOuvrir }) {
                         <td className="num">{fmtDate(r.date_edl)}</td>
                         <td><span className={`tag ${r.statut === "archive" ? "archive" : "brouillon"}`}>
                           {r.statut === "archive" ? "Archivé" : "Brouillon"}</span></td>
-                        <td className="num">{r.nb_renseignes}/{r.nb_elements || ALL_ITEMS.length}</td>
+                        <td className="num">{r.nb_renseignes}/{r.nb_elements || ITEMS_DEFAUT.length}</td>
                         <td className="num">{r.nb_photos}</td>
                         <td className="num">{r.nb_reserves}</td>
                         <td style={{ textAlign:"right" }}>
