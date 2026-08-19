@@ -401,6 +401,9 @@ export const METHODE_CALCUL = [
   { cle: "matPrev", label: "Commandes prév.",
     formule: "Somme des coûts matériaux estimés des ouvrages (matériaux liés de la bibliothèque)",
     source: "Bibliothèque de matériaux (cout_materiaux des ouvrages)" },
+  { cle: "margePrev", label: "Marge prév.",
+    formule: "Vendu HT − déboursé prévisionnel (MO prévisionnelle + commandes prévisionnelles) − frais généraux prévisionnels (taux horaire FG × heures vendues)",
+    source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, Suivi direction" },
   { cle: "moReel", label: "Coût MO",
     formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
     source: "Registre de pointage (validations de fin de journée)" },
@@ -489,6 +492,13 @@ export function computeChantierFinance({
   const fgChantier = fgTauxHoraire * heuresReellesTotalChantier;
   const margeChantier  = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
+  // Marge PRÉVISIONNELLE : le devis face à ce qu'on a prévu de dépenser —
+  // déboursé prévisionnel (MO prév. + commandes prév.) et FG au taux horaire
+  // appliqué aux heures VENDUES (pas encore pointées).
+  const fgPrevChantier = fgTauxHoraire * heuresVenduesChantier;
+  const deboursePrevChantier = moPrevChantier + commandesPrevChantier;
+  const margePrevChantier = prixHTChantier - deboursePrevChantier - fgPrevChantier;
+  const margePrevPctChantier = prixHTChantier > 0 ? (margePrevChantier / prixHTChantier) * 100 : 0;
   const avancementGlobal = avancementChantier(ouvrages);
   const trajet = statsTrajet(pointages);
   const indirectHT = statsIndirectHorsTrajet(pointages);
@@ -704,6 +714,13 @@ export function computeChantierFinance({
     { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures réelles` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
   ];
 
+  // « marge_prev » : vendu, déboursé prévisionnel (MO + matériaux), FG prévisionnels.
+  const margePrevVentilation = [
+    { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
+    { main: "Déboursé prévisionnel", sub: `MO prév. ${eur(moPrevChantier)} + matériaux prév. ${eur(commandesPrevChantier)}`, right: `− ${eur(deboursePrevChantier)}`, rightColor: "#e15a5a" },
+    { main: "Frais généraux prévisionnels", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${fmtH(heuresVenduesChantier)}h vendues` : "non réglés", right: `− ${eur(fgPrevChantier)}`, rightColor: "#e15a5a" },
+  ];
+
   // « mo_prev » : par ouvrage, heures vendues × taux global.
   const moPrevVentilation = ouvrages
     .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hv: heuresVenduesOuvrage(o) }))
@@ -856,6 +873,25 @@ export function computeChantierFinance({
     totalLabel: "Total commandes prév.",
     source: "Bibliothèque de matériaux (cout_materiaux des ouvrages)",
     renseigne: matPrevRows.length > 0,
+  });
+
+  const margePrev = D({
+    cle: "margePrev", label: "Marge prév.", format: "euro",
+    valeur: margePrevChantier,
+    valeurTexte: `${margePrevChantier >= 0 ? "+" : ""}${eur(margePrevChantier)}`,
+    sousLabel: prixHTChantier > 0 ? `${margePrevPctChantier.toFixed(1)}% du vendu` : "Vendu − déboursé prév. − FG prév.",
+    formule: FORMULE.margePrev,
+    calculDetaille: `${eur(prixHTChantier)} − ${eur(deboursePrevChantier)} (déboursé prév. : MO ${eur(moPrevChantier)} + matériaux ${eur(commandesPrevChantier)}) − ${eur(fgPrevChantier)} (FG prév.) = ${eur(margePrevChantier)}`,
+    ventilation: margePrevVentilation,
+    titre: "Marge prévisionnelle",
+    sousTitre: prixHTChantier > 0
+      ? `${margePrevPctChantier.toFixed(1)}% du vendu · au devis, avant le réel`
+      : "Vendu − déboursé prévisionnel − FG prévisionnels",
+    totalLabel: "Marge prévisionnelle",
+    totalTexte: `${margePrevChantier >= 0 ? "+" : ""}${eur(margePrevChantier)}`,
+    source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, Suivi direction",
+    warnings: warnings.filter(w => ["fg_non_regle", "ouvrages_sans_prix"].includes(w.code)),
+    renseigne: prixHTChantier > 0,
   });
 
   const moReel = D({
@@ -1064,7 +1100,7 @@ export function computeChantierFinance({
   });
 
   return {
-    venduHT, ecartVendu, moPrev, matPrev, moReel, matReel, fg, marge, margePct,
+    venduHT, ecartVendu, moPrev, matPrev, margePrev, moReel, matReel, fg, marge, margePct,
     heuresVendues, heuresReelles, avancement, trajets, indirect, reprise,
     // Projections (étape 6) — à afficher distinctement des chiffres à date.
     resteAFaire, margeATerminaison, situationAFacturer, resteACommander,
@@ -1079,6 +1115,7 @@ export function computeChantierFinance({
       heuresReellesTotalChantier, coutMOChantier, coutMOTotalChantier,
       coutMatChantier, commandesPrevChantier, moPrevChantier, tauxMOPrevEff,
       fgTauxHoraire, fgChantier, margeChantier, margePctChantier,
+      fgPrevChantier, deboursePrevChantier, margePrevChantier, margePrevPctChantier,
       avancementChantier: avancementGlobal,
       extras, repriseHeures, repriseTaux, repriseCout,
       trajetHeures: trajet.heures, trajetCout: trajet.cout,

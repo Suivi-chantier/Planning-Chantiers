@@ -918,6 +918,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     coutMOTotalChantier, coutMatChantier, commandesPrevChantier,
     moPrevChantier, tauxMOPrevEff, fgTauxHoraire, fgChantier,
     margeChantier, margePctChantier,
+    margePrevChantier, margePrevPctChantier,
     repriseHeures, repriseTaux, repriseCout,
   } = fin.brut;
   const trajetStats   = { heures: fin.brut.trajetHeures,   cout: fin.brut.trajetCout };
@@ -2443,6 +2444,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 value={fin.matPrev.valeurTexte}
                 sub={fin.matPrev.sousLabel}
                 onClick={() => setKpiDetail("commandes_prev")}/>
+              <KpiCard T={T}
+                icon={margePrevChantier >= 0 ? TrendingUp : TrendingDown}
+                iconColor={couleurMarge(margePrevChantier, margePrevPctChantier)} label={fin.margePrev.label}
+                donnee={fin.margePrev} dateRef={todayRefISO}
+                value={fin.margePrev.valeurTexte}
+                sub={fin.margePrev.sousLabel}
+                onClick={() => setKpiDetail("marge_prev")}/>
               <KpiCard T={T} icon={Clock} iconColor="#5b9cf6" label={fin.heuresReelles.label}
                 donnee={fin.heuresReelles} dateRef={todayRefISO}
                 value={fin.heuresReelles.valeurTexte}
@@ -3217,6 +3225,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           marge:          { d: fin.marge,        icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor },
           mo_prev:        { d: fin.moPrev,       icon: Target,   color: "#818cf8" },
           commandes_prev: { d: fin.matPrev,      icon: Boxes,    color: "#fb923c" },
+          marge_prev:     { d: fin.margePrev,    icon: margePrevChantier >= 0 ? TrendingUp : TrendingDown,
+                            color: couleurMarge(margePrevChantier, margePrevPctChantier) },
           trajet:         { d: fin.trajets,      icon: Car,      color: "#f59e0b" },
           indirect:       { d: fin.indirect,     icon: Clock,    color: "#f59e0b" },
         };
