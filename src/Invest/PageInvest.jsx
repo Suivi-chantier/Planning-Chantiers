@@ -11,7 +11,7 @@ import {
   TrendingUp, Wallet, Euro, MapPin, ExternalLink, Filter, ArrowLeft,
   Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Image as ImageIcon,
   Upload, Copy, Sparkles, Sun, Moon, LogOut, LayoutGrid, Send, Phone as PhoneIcon,
-  Handshake, Bell, Briefcase, Hammer, ClipboardList,
+  Handshake, Bell, Briefcase, Hammer, ClipboardList, Landmark,
 } from "lucide-react";
 
 import {
@@ -28,6 +28,7 @@ import AdminInvest from "./Admin";
 import Simulateur, { ListeProjets } from "./Simulateur";
 import Sourcing from "./Sourcing";
 import EtatDesLieux from "./EtatDesLieux";
+import Urbanisme from "./Urbanisme";
 
 const INVEST_PAGES_BASE = [
   { id: "dashboard", label: "Tableau de bord" },
@@ -37,6 +38,7 @@ const INVEST_PAGES_BASE = [
   { id: "biens", label: "Biens" },
   { id: "simulateur", label: "Simulateur" },
   { id: "etat_des_lieux", label: "État des lieux" },
+  { id: "urbanisme", label: "Urbanisme" },
   { id: "structuration", label: "Structuration" },
   { id: "finance", label: "Finance" },
   { id: "suivi_financier", label: "Suivi financier" },
@@ -100,6 +102,10 @@ function getInvestAllowedPages(rolePages, role) {
     const insertIndex = normalized.includes("simulateur") ? normalized.indexOf("simulateur") + 1 : normalized.length;
     normalized.splice(insertIndex, 0, "etat_des_lieux");
   }
+  if (role === "admin" && !normalized.includes("urbanisme")) {
+    const insertIndex = normalized.includes("etat_des_lieux") ? normalized.indexOf("etat_des_lieux") + 1 : normalized.length;
+    normalized.splice(insertIndex, 0, "urbanisme");
+  }
 
   return normalized;
 }
@@ -136,6 +142,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
     biens:      Building2,
     simulateur: BarChart3,
     etat_des_lieux: ClipboardList,
+    urbanisme:  Landmark,
     finance:    Wallet,
     suivi_financier: Euro,
     structuration: Briefcase,
@@ -402,6 +409,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
         {page === "sourcing"   && (canSee("sourcing")   ? <Sourcing profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="sourcing"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
         {page === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
+        {page === "urbanisme" && (canSee("urbanisme") ? <Urbanisme profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="urbanisme"/>)}
         {page === "structuration" && (canSee("structuration") ? <StructurationPatrimoniale profil={profil} T={T} initialClientId={structInitialClientId} /> : <AccesRefuseInvest T={T} page="structuration"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
         {page === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}

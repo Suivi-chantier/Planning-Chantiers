@@ -54,6 +54,7 @@ export const PAGES_INVEST = [
   { id: "biens",           label: "Biens" },
   { id: "simulateur",      label: "Simulateur" },
   { id: "etat_des_lieux",  label: "État des lieux" },
+  { id: "urbanisme",       label: "Urbanisme" },
   { id: "structuration",   label: "Structuration" },
   { id: "finance",         label: "Finance" },
   { id: "suivi_financier", label: "Suivi financier" },
@@ -184,6 +185,7 @@ const INVEST_ADMIN_PAGES = [
   "biens",
   "simulateur",
   "etat_des_lieux",
+  "urbanisme",
   "structuration",
   "finance",
   "suivi_financier",
@@ -197,6 +199,7 @@ const INVEST_DIRECTION_PAGES = [
   "biens",
   "simulateur",
   "etat_des_lieux",
+  "urbanisme",
   "structuration",
   "finance",
   "suivi_financier",
@@ -209,6 +212,7 @@ const INVEST_COMMERCIAL_PAGES = [
   "biens",
   "simulateur",
   "etat_des_lieux",
+  "urbanisme",
   "structuration",
 ];
 
@@ -219,6 +223,7 @@ const INVEST_CONSEILLER_PAGES = [
   "biens",
   "simulateur",
   "etat_des_lieux",
+  "urbanisme",
   "structuration",
 ];
 
