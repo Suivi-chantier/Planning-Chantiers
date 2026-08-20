@@ -1,6 +1,17 @@
 -- ============================================================================
 -- ARCHIVAGE DE invest_projets (Profero Invest).
--- À exécuter dans l'éditeur SQL Supabase APRÈS déploiement du code.
+--
+-- ⚠ CE FICHIER A UN DÉFAUT DE CONCEPTION, CORRIGÉ PAR :
+--     sql/2026xx_invest_projets_vue_compat.sql
+--
+-- Il renomme la table d'un bloc, ce qui impose un ordre strict entre la base
+-- et le déploiement : exécuté avant que le code cesse de lire invest_projets,
+-- il casse l'onglet Dashboard Financier en production (42P01). C'est arrivé.
+--
+-- La bonne méthode est en deux temps (expand / contract) : on ajoute le
+-- nouveau nom, on laisse l'ancien vivre le temps que le code bascule, puis on
+-- retire l'ancien. Aucun ordre à respecter, donc aucun ordre à inverser.
+-- La vue de compatibilité du fichier ci-dessus rétablit cette propriété.
 --
 -- Pourquoi : la table n'a plus de rédacteur. Le Simulateur a basculé en
 -- « calculatrice » — mode libre enregistré localement, et seule la simulation
