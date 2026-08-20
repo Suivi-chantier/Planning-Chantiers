@@ -18,6 +18,70 @@ import {
   INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar
 } from "./_shared";
 
+// Les simulations d'un bien vivent dans invest_biens.visite_data.
+//
+// invest_projets n'a plus de rédacteur depuis que le Simulateur a basculé en
+// « calculatrice » (mode libre → localStorage) et que la seule simulation
+// persistée est celle lancée depuis une fiche bien. La table gardait pourtant
+// deux lecteurs, dont celui-ci : tous les indicateurs projets de cet écran
+// portaient sur un jeu gelé à la date de ce changement, sans le moindre
+// message. Une simulation faite aujourd'hui n'y apparaissait jamais.
+//
+// On reconstitue donc la liste depuis le stock, dans la forme attendue par
+// getProjetSimFinance. Seules les simulations réellement saisies sont
+// retenues : pas de simulation par défaut fabriquée à partir de la fiche,
+// qui gonflerait les moyennes avec des biens jamais simulés.
+function simulationsDepuisBiens(biens = [], propositions = []) {
+  // Un bien proposé à plusieurs clients compte pour chacun d'eux — l'ancien
+  // invest_projets.client_id ne pouvait en désigner qu'un.
+  const clientsParBien = {};
+  for (const prop of propositions) {
+    const bienId = String(prop?.bien_id || "");
+    if (!bienId || !prop?.client_id) continue;
+    (clientsParBien[bienId] ||= new Set()).add(prop.client_id);
+  }
+
+  const sorties = [];
+  for (const b of biens) {
+    const visite = b?.visite_data || {};
+    const multi = Array.isArray(visite.simulateurs) ? visite.simulateurs.filter(x => x?.donnees) : [];
+    const brutes = multi.length
+      ? multi.map((x, i) => ({
+          id: x.id || `${b.id}-sim-${i}`,
+          nom: x.nom || x.donnees?.projectName || "",
+          donnees: x.donnees,
+          date: x.created_at || visite.simulateur_updated_at || b.updated_at,
+        }))
+      : (visite.simulateur
+          ? [{
+              id: `${b.id}-sim`,
+              nom: visite.simulateur.projectName || "",
+              donnees: visite.simulateur,
+              date: visite.simulateur.savedAt || visite.simulateur_updated_at || b.updated_at,
+            }]
+          : []);
+
+    const clients = Array.from(clientsParBien[String(b.id)] || []);
+    for (const sim of brutes) {
+      // Une simulation rattachée à plusieurs clients est dupliquée par client,
+      // comme le faisait une ligne invest_projets par client.
+      const cibles = clients.length ? clients : [null];
+      for (const clientId of cibles) {
+        sorties.push({
+          id: clients.length > 1 ? `${sim.id}-${clientId}` : sim.id,
+          nom: sim.nom,
+          bien_id: b.id,
+          client_id: clientId,
+          created_at: sim.date,
+          updated_at: sim.date,
+          donnees: sim.donnees,
+        });
+      }
+    }
+  }
+  return sorties;
+}
+
 function getProjetSimFinance(p = {}) {
   const d = p?.donnees || {};
   const inputs = d.inputs || {};
@@ -396,22 +460,23 @@ function DashboardFinancier({ profil, T=THEMES_INV.dark }) {
   const charger = useCallback(async () => {
     setLoading(true);
     setError("");
-    const [clientsRes, biensRes, propsRes, projetsRes] = await Promise.all([
+    const [clientsRes, biensRes, propsRes] = await Promise.all([
       supabase.from("invest_clients").select("*"),
       supabase.from("invest_biens").select("*"),
       supabase.from("invest_propositions").select("*, bien:invest_biens(*)"),
-      supabase.from("invest_projets").select("*"),
     ]);
-    const firstError = clientsRes.error || biensRes.error || propsRes.error || projetsRes.error;
+    const firstError = clientsRes.error || biensRes.error || propsRes.error;
     if (firstError) {
       console.error("Erreur Dashboard Financier:", firstError);
       setError(firstError.message || "Impossible de charger les données financières.");
     }
+    const biens = biensRes.data || [];
+    const propositions = propsRes.data || [];
     const data = {
       clients: clientsRes.data || [],
-      biens: biensRes.data || [],
-      propositions: propsRes.data || [],
-      projets: projetsRes.data || [],
+      biens,
+      propositions,
+      projets: simulationsDepuisBiens(biens, propositions),
     };
     setRaw(data);
     setStats(buildFinancePilotageStats(data));

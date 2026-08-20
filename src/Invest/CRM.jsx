@@ -545,7 +545,7 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
   };
 }
 
-function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialFilter }) {
+function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -1667,7 +1667,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuratio
               border:`1px solid ${T.border}`,
             }}
           >
-            <FicheClient id={ficheId} profil={profil} T={T} initialMissionStep={missionDeepLink?.clientId === ficheId ? missionDeepLink.stepKey : ""} initialMissionActionId={missionDeepLink?.clientId === ficheId ? missionDeepLink.actionId : ""} onRetour={() => { setFicheId(null); charger(); }} onOuvrirSimulation={onOuvrirSimulation} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />
+            <FicheClient id={ficheId} profil={profil} T={T} initialMissionStep={missionDeepLink?.clientId === ficheId ? missionDeepLink.stepKey : ""} initialMissionActionId={missionDeepLink?.clientId === ficheId ? missionDeepLink.actionId : ""} onRetour={() => { setFicheId(null); charger(); }} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} />
           </div>
         </div>
       )}
@@ -3084,12 +3084,11 @@ Laisse vide pour créer un événement en journée entière.`,
 }
 
 
-function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulation, onOpenStructuration, onOpenBien, initialMissionStep="", initialMissionActionId="" }) {
+function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialMissionStep="", initialMissionActionId="" }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
   const [props, setProps]     = useState([]);
   const [biens, setBiens]     = useState([]); // liste des biens du stock pour la modale "Proposer un bien"
-  const [simulations, setSimulations] = useState([]); // simulations liées à ce client
   const [newNote, setNewNote] = useState(() => loadDraft("invest-note-" + id) || { type:"commentaire", contenu:"" });
   const [noteFilter, setNoteFilter] = useState("tous");
   const [savingNote, setSavingNote] = useState(false);
@@ -3138,17 +3137,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOuvrirSimulati
       date: strat.crm_next_stage_date || "",
     });
 
-    // Charge les simulations liées à ce client. Tente avec client_id ; si la
-    // colonne n'existe pas (42703), on désactive la section silencieusement.
-    const sRes = await supabase.from("invest_projets")
-      .select("id,nom,created_by,created_at,updated_at,donnees,client_id")
-      .eq("client_id", id)
-      .order("updated_at", { ascending:false });
-    if (sRes.error?.code === "42703") {
-      setSimulations([]); // colonne pas encore créée — on cache la section
-    } else {
-      setSimulations(sRes.data || []);
-    }
   };
   useEffect(() => { charger(); setMissionStageInfo({ key:"", label:"" }); }, [id]);
 

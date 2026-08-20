@@ -353,19 +353,8 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
   const canSee = (p) => canSeeInvestPage(rolePages, role, p);
-  // Origine de l'ouverture du Simulateur : "liste" (depuis Simulateur) ou "crm"
-  // (depuis FicheClient). Détermine où on retombe au "← Retour".
-  const [simOrigine, setSimOrigine]     = useState("liste");
-
-  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); setSimOrigine("liste"); };
-  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); setSimOrigine("liste"); };
-  // Appelé depuis FicheClient pour ouvrir une simulation (existante ou nouvelle pour ce client)
-  const ouvrirSimulationDepuisCRM = (p) => {
-    setProjetOuvert(p);
-    setSimOrigine("crm");
-    setVueSim("simulateur");
-    setPage("simulateur"); // bascule le routeur sur la vue plein écran
-  };
+  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
+  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
   const ouvrirStructurationDepuisClient = (clientId) => {
     setStructInitialClientId(clientId);
     setPage("structuration");
@@ -374,10 +363,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     if (!bienId) return;
     naviguer("biens", NAV.ficheBien(bienId));
   };
-  const fermerSim = () => {
-    setVueSim("liste");
-    if (simOrigine === "crm") setPage("crm");
-  };
+  const fermerSim = () => setVueSim("liste");
 
   // Point d'entrée unique de la navigation inter-onglets.
   //
@@ -443,7 +429,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
-        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "sourcing"   && (canSee("sourcing")   ? <Sourcing profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="sourcing"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
         {page === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} initialFilter={edlInitialFilter} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
