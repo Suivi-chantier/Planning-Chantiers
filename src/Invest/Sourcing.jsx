@@ -1586,6 +1586,102 @@ L’annonce reste modifiable manuellement.`
     alert(`Annonce enregistrée et analysée : score ${analysis.score_opportunite}/100 — catégorie ${analysis.categorie}`);
   }
 
+  // Annonces ayant déjà produit un bien : { annonce_id -> bien_id }. Évite de
+  // créer deux fois le même bien, et transforme le bouton en lien.
+  const [biensParAnnonce, setBiensParAnnonce] = useState({});
+  useEffect(() => {
+    let annule = false;
+    supabase.from("invest_biens").select("id,annonce_id").not("annonce_id", "is", null)
+      .then(({ data, error }) => {
+        if (annule) return;
+        // Colonne absente : la détection de doublon est simplement indisponible.
+        if (error) { if (error.code !== "42703") console.warn("[Sourcing] rattachement annonces:", error.message); return; }
+        const carte = {};
+        for (const b of data || []) if (b.annonce_id) carte[b.annonce_id] = b.id;
+        setBiensParAnnonce(carte);
+      });
+    return () => { annule = true; };
+  }, []);
+
+  // Crée un bien du stock à partir d'une annonce retenue.
+  //
+  // Le bouton existait déjà, mais n'affichait qu'un alert() promettant une
+  // « prochaine étape ». Sourcing collectait donc des annonces qu'il fallait
+  // intégralement retaper dans l'onglet Biens : le mot invest_biens
+  // n'apparaissait pas une fois dans ce fichier.
+  //
+  // Une annonce n'a pas d'adresse de rue — les portails ne la publient pas.
+  // On reprend ville et code postal, et l'adresse reste à compléter sur la
+  // fiche : préremplir avec le titre de l'annonce donnerait une adresse fausse
+  // qui se propagerait ensuite dans l'urbanisme et les états des lieux.
+  async function handleCreerBien(annonce) {
+    const dejaCree = biensParAnnonce[annonce.id];
+    if (dejaCree) {
+      alert("Cette annonce a déjà produit un bien dans le stock.");
+      return;
+    }
+
+    const details = [
+      annonce.type_bien ? `Type : ${annonce.type_bien}` : null,
+      annonce.surface_m2 ? `Surface : ${annonce.surface_m2} m²` : null,
+      annonce.nb_pieces ? `Pièces : ${annonce.nb_pieces}` : null,
+      annonce.vendeur_type && annonce.vendeur_type !== "inconnu" ? `Vendeur : ${annonce.vendeur_type}` : null,
+      annonce.description || null,
+    ].filter(Boolean).join("\n");
+
+    const payload = {
+      reference_interne: annonce.titre || null,
+      ville: annonce.ville || null,
+      code_postal: annonce.code_postal || null,
+      prix_vente: Number(annonce.prix) || 0,
+      lien_annonce: annonce.source_url || null,
+      source_bien: annonce.source || "sourcing",
+      commentaire: details || null,
+      statut: "À analyser",
+      annonce_id: annonce.id,
+    };
+
+    // La colonne annonce_id peut ne pas encore exister (migration
+    // 2026xx_invest_biens_annonce_id.sql non appliquée). On crée le bien quand
+    // même — mais on le DIT, parce que sans elle le doublon n'est plus
+    // détectable. Même motif de repli que les colonnes latitude/longitude
+    // dans Biens.jsx.
+    let { data, error } = await supabase.from("invest_biens").insert(payload).select("id").single();
+    let sansRattachement = false;
+
+    if (error && (error.code === "42703" || error.code === "PGRST204"
+                  || /annonce_id/i.test(String(error.message || "")))) {
+      const { annonce_id, ...replizPayload } = payload;
+      const retry = await supabase.from("invest_biens").insert(replizPayload).select("id").single();
+      data = retry.data; error = retry.error;
+      sansRattachement = !error;
+    }
+
+    if (error) {
+      console.error("Création du bien depuis l'annonce :", error);
+      alert("Impossible de créer le bien : " + error.message);
+      return;
+    }
+
+    if (sansRattachement) {
+      setBiensParAnnonce((prev) => ({ ...prev }));   // pas de lien mémorisable
+      alert(
+        "Bien créé, mais SANS lien avec l'annonce : la colonne annonce_id n'existe pas encore.\n\n" +
+        "Exécutez sql/2026xx_invest_biens_annonce_id.sql, sinon rien n'empêchera " +
+        "de recréer ce même bien depuis cette annonce."
+      );
+    } else {
+      setBiensParAnnonce((prev) => ({ ...prev, [annonce.id]: data.id }));
+      alert("Bien créé dans le stock. L'adresse précise reste à compléter sur sa fiche.");
+    }
+
+    // L'annonce a rempli son office : on la marque retenue si elle ne l'est pas.
+    if (annonce.statut !== "retenu") {
+      await supabase.from("sourcing_annonces").update({ statut: "retenu" }).eq("id", annonce.id);
+      setAnnonces((prev) => prev.map((a) => (a.id === annonce.id ? { ...a, statut: "retenu" } : a)));
+    }
+  }
+
   async function handleArchiveAnnonce(annonce) {
     const ok = window.confirm("Archiver cette annonce ?");
     if (!ok) return;
@@ -1982,6 +2078,8 @@ L’annonce reste modifiable manuellement.`
                   onUpdateStatut={handleUpdateStatut}
                   onAnalyse={handleAnalyseAnnonce}
                   onArchive={handleArchiveAnnonce}
+                  onCreerBien={handleCreerBien}
+                  biensParAnnonce={biensParAnnonce}
                   onCaptureUrl={handleCaptureUrlAnnonce}
                   onEditAnnonce={startEditAnnonce}
                   capturingId={capturingId}
@@ -2152,6 +2250,8 @@ function AnnoncesTab({
   onAnalyse,
   onArchive,
   onCaptureUrl,
+  onCreerBien,
+  biensParAnnonce = {},
   onEditAnnonce,
   capturingId,
   editingAnnonce,
@@ -2314,7 +2414,13 @@ function AnnoncesTab({
                           </button>
                         ) : null}
                         <button type="button" onClick={() => onAnalyse(a)} style={{ ...S.buttonSecondary, color: S.accent, background: S.accentBg }}>Analyser</button>
-                        <button type="button" onClick={() => alert("Prochaine étape : création automatique d’une fiche bien dans Stock de biens.")} style={S.buttonPrimary}>Créer fiche bien</button>
+                        {biensParAnnonce[a.id] ? (
+                          <span style={{ ...S.buttonSecondary, color: "#15803d", background: "rgba(34,197,94,0.12)", textAlign: "center", cursor: "default" }}>
+                            ✓ Bien créé
+                          </span>
+                        ) : (
+                          <button type="button" onClick={() => onCreerBien(a)} style={S.buttonPrimary}>Créer fiche bien</button>
+                        )}
                         <button type="button" onClick={() => onArchive(a)} style={{ ...S.buttonSecondary, color: "#b91c1c", background: "rgba(239,68,68,0.10)" }}>Archiver</button>
                       </div>
                     </Td>
