@@ -16,8 +16,9 @@ const { createClient } = require("@supabase/supabase-js");
 // Les deux handlers métier vivent dans api/_cron/ (dossier NON déployé en
 // fonctions — plan Hobby Vercel = max 12 fonctions serverless) et ne sont
 // joignables qu'à travers ce dispatcher.
-const { runRappelRapport, parisNow, heureAttendue } = require("./_cron/cron-rappel-rapport.js");
+const { runRappelRapport, parisNow, heureAttendue, envoyerMail } = require("./_cron/cron-rappel-rapport.js");
 const { runRecapCommandes }                          = require("./_cron/cron-recap-commandes.js");
+const { runInvestEcheances }                         = require("./_cron/cron-invest-echeances.js");
 
 module.exports = async function handler(req, res) {
   // Auth
@@ -65,6 +66,25 @@ module.exports = async function handler(req, res) {
     } catch (e) {
       console.error("dispatcher rappel_rapport:", e);
       summary.rappel_rapport = { error: e.message };
+    }
+  }
+
+  // Branche 3 : veille des échéances Invest (Lun-Ven, tôt le matin).
+  //
+  // Invest n'avait aucune automatisation serveur : les dates max de dépôt
+  // d'urbanisme, les actions en retard et les relances de biens n'étaient
+  // portées à personne tant que quelqu'un n'ouvrait pas l'onglet.
+  //
+  // Créneau distinct de la branche 1 (récap commandes, vendredi 5h-11h) pour
+  // que les deux ne se déclenchent pas sur le même appel : la veille tourne
+  // avant 5h Paris, tous les jours ouvrés.
+  if (heureAttendue(t.weekday) !== null && t.hour >= 3 && t.hour < 5) {
+    try {
+      summary.invest_echeances = await runInvestEcheances(req, supabase, t, envoyerMail);
+      ranWith.push("invest_echeances");
+    } catch (e) {
+      console.error("dispatcher invest_echeances:", e);
+      summary.invest_echeances = { error: e.message };
     }
   }
 

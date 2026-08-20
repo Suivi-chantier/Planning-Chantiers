@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { FONT, RADIUS, SPACING } from "../constants";
 import { Icon } from "../ui";
-import { THEMES_INV, SU, WA, DA, IN, KPICard, CompletionBar } from "./_shared";
+import { THEMES_INV, SU, WA, DA, IN, KPICard, CompletionBar, readNavTarget } from "./_shared";
 import {
   FileText, Plus, Trash2, ArrowLeft, RefreshCw, Search, AlertTriangle, Check,
   CalendarClock, ClipboardList, ListChecks, Printer, Send, Building2, Landmark,
@@ -1606,7 +1606,7 @@ function OngletProcess({ d, set, setSous, T, comp, statut, onAllerPieces }) {
 
 /* ============ Racine ============ */
 
-export default function Urbanisme({ profil, T = T_DEFAUT }) {
+export default function Urbanisme({ profil, T = T_DEFAUT, initialFilter = null }) {
   const [ouvert, setOuvert] = useState(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState("");
@@ -1624,6 +1624,20 @@ export default function Urbanisme({ profil, T = T_DEFAUT }) {
       setChargement(false);
     }
   };
+
+  // Ouverture directe d'un dossier depuis un lien extérieur — typiquement le
+  // mail de veille quotidienne, dont chaque ligne pointe vers sa FDU. Sans
+  // cela, le lien déposait sur la liste et il fallait retrouver le dossier.
+  const navFaitRef = useRef(null);
+  useEffect(() => {
+    if (!initialFilter) { navFaitRef.current = null; return; }
+    const cible = readNavTarget(initialFilter);
+    if (cible.action !== "open" || !cible.id) return;
+    const jeton = `${cible.id}:${initialFilter._ts || ""}`;
+    if (navFaitRef.current === jeton) return;
+    navFaitRef.current = jeton;
+    ouvrir({ id: cible.id });
+  }, [initialFilter]);
 
   if (chargement) {
     return <div style={{ padding:"40px 28px", color:T.textMuted, fontStyle:"italic" }}>Ouverture du dossier…</div>;

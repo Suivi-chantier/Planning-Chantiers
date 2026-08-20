@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 
 import {
-  INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar
+  INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar,
+  NAV, normalizeNavTarget
 } from "./_shared";
 import TableauBord from "./Dashboard";
 import Prospection from "./Prospection";
@@ -89,22 +90,29 @@ function getInvestAllowedPages(rolePages, role) {
 
   const normalized = uniquePages(allowed);
 
-  // Sécurité : l'admin doit toujours pouvoir voir les nouvelles pages,
-  // même si l'ancienne configuration Supabase access_pages_invest ne les contient pas encore.
-  if (role === "admin" && !normalized.includes("prospection")) {
-    normalized.splice(1, 0, "prospection");
-  }
-  if (role === "admin" && !normalized.includes("sourcing")) {
-    const insertIndex = normalized.includes("crm") ? normalized.indexOf("crm") + 1 : normalized.length;
-    normalized.splice(insertIndex, 0, "sourcing");
-  }
-  if (role === "admin" && !normalized.includes("etat_des_lieux")) {
-    const insertIndex = normalized.includes("simulateur") ? normalized.indexOf("simulateur") + 1 : normalized.length;
-    normalized.splice(insertIndex, 0, "etat_des_lieux");
-  }
-  if (role === "admin" && !normalized.includes("urbanisme")) {
-    const insertIndex = normalized.includes("etat_des_lieux") ? normalized.indexOf("etat_des_lieux") + 1 : normalized.length;
-    normalized.splice(insertIndex, 0, "urbanisme");
+  // Filet de sécurité : une configuration `access_pages_invest` enregistrée en
+  // base avant l'ajout d'une page ne la contient pas, et l'admin se retrouverait
+  // sans accès à sa propre configuration d'accès.
+  //
+  // Quatre `splice` codés en dur remplissaient ce rôle page par page. Ils
+  // rendaient les oublis invisibles : `sourcing` était absent de access.js et
+  // personne ne l'a vu, parce que l'admin — le seul à tester — voyait l'onglet
+  // grâce à la rustine. Les autres rôles ne l'ont jamais eu, et l'écran Admin
+  // ne pouvait même pas l'accorder puisqu'il construit sa liste depuis
+  // PAGES_INVEST.
+  //
+  // Désormais l'admin reçoit la liste de référence complète, sans énumération
+  // à maintenir : une page ajoutée à INVEST_PAGES_BASE lui parvient seule.
+  if (role === "admin") {
+    for (const p of INVEST_PAGES_FALLBACK) {
+      if (!normalized.includes(p)) normalized.push(p);
+    }
+    // On rétablit l'ordre de référence plutôt que d'empiler en fin de liste.
+    normalized.sort((a, b) => {
+      const ia = INVEST_PAGES_FALLBACK.indexOf(a);
+      const ib = INVEST_PAGES_FALLBACK.indexOf(b);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
   }
 
   return normalized;
@@ -152,7 +160,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   // Construction de la nav depuis PAGES_INVEST, filtrée par les pages autorisées
   // pour le rôle courant (config dynamique avec fallback ROLE_PAGES_DEFAULT_INVEST).
   const allowed = getInvestAllowedPages(rolePages, role);
-  const NAV = getInvestPagesList()
+  const navItems = getInvestPagesList()
     .filter(p => p?.id && allowed.includes(p.id))
     .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
 
@@ -196,7 +204,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
 
       {/* Nav */}
       <nav style={{ flex:1, padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.sm}px`, overflowY:"auto" }}>
-        {NAV.map(n => {
+        {navItems.map(n => {
           const active = page === n.id;
           return (
             <button key={n.id} onClick={() => setPage(n.id)}
@@ -324,6 +332,9 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [vueSim, setVueSim]             = useState("liste");
   const [crmInitialFilter, setCrmInitialFilter] = useState(null);
   const [biensInitialFilter, setBiensInitialFilter] = useState(null);
+  const [prospectionInitialFilter, setProspectionInitialFilter] = useState(null);
+  const [urbanismeInitialFilter, setUrbanismeInitialFilter] = useState(null);
+  const [edlInitialFilter, setEdlInitialFilter] = useState(null);
   const [structInitialClientId, setStructInitialClientId] = useState(null);
 
   // Config d'accès Invest (chargée depuis planning_config, fallback hardcodé)
@@ -342,48 +353,106 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
   const canSee = (p) => canSeeInvestPage(rolePages, role, p);
-  // Origine de l'ouverture du Simulateur : "liste" (depuis Simulateur) ou "crm"
-  // (depuis FicheClient). Détermine où on retombe au "← Retour".
-  const [simOrigine, setSimOrigine]     = useState("liste");
-
-  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); setSimOrigine("liste"); };
-  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); setSimOrigine("liste"); };
-  // Appelé depuis FicheClient pour ouvrir une simulation (existante ou nouvelle pour ce client)
-  const ouvrirSimulationDepuisCRM = (p) => {
-    setProjetOuvert(p);
-    setSimOrigine("crm");
-    setVueSim("simulateur");
-    setPage("simulateur"); // bascule le routeur sur la vue plein écran
-  };
+  const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
+  const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
   const ouvrirStructurationDepuisClient = (clientId) => {
     setStructInitialClientId(clientId);
     setPage("structuration");
   };
   const ouvrirBienDepuisClient = (bienId) => {
     if (!bienId) return;
-    setBiensInitialFilter({ type:"open_bien", bien_id:bienId, _ts: Date.now() });
-    setPage("biens");
+    naviguer("biens", NAV.ficheBien(bienId));
   };
-  const fermerSim = () => {
-    setVueSim("liste");
-    if (simOrigine === "crm") setPage("crm");
+  const fermerSim = () => setVueSim("liste");
+
+  // Point d'entrée unique de la navigation inter-onglets.
+  //
+  // Avant : seuls "crm" et "biens" étaient routés, et les filtres transmis
+  // gardaient un vocabulaire propre à l'émetteur. Le Dashboard envoyait
+  // `type:"fiche"` — que personne ne savait lire — et `target:"prospection"`,
+  // qui n'était même pas testé ici. Les quatre sauts du bouton « Ouvrir la
+  // fiche complète » retombaient donc sur une liste, en silence.
+  //
+  // Désormais : toute cible passe par `normalizeNavTarget`, qui parle le même
+  // vocabulaire que les onglets destinataires. Une cible non routable est
+  // signalée en console plutôt qu'ignorée — c'est ce qui rendra visible le
+  // prochain onglet branché de travers.
+  const naviguer = (target, filter) => {
+    const cible = normalizeNavTarget(target, filter);
+    if (!cible) {
+      console.warn("[Invest] Navigation impossible : onglet inconnu", target, filter);
+      return;
+    }
+    if (!canSee(cible.tab)) {
+      console.warn("[Invest] Navigation refusée : accès manquant sur", cible.tab);
+      return;
+    }
+    switch (cible.tab) {
+      case "crm":           setCrmInitialFilter(cible); break;
+      case "biens":         setBiensInitialFilter(cible); break;
+      case "prospection":   setProspectionInitialFilter(cible); break;
+      case "urbanisme":     setUrbanismeInitialFilter(cible); break;
+      case "etat_des_lieux":setEdlInitialFilter(cible); break;
+      case "structuration": if (cible.id) setStructInitialClientId(cible.id); break;
+      default: break; // onglets sans cible profonde : on bascule seulement
+    }
+    setPage(cible.tab);
   };
 
-  const naviguerDepuisDashboard = (target, filter) => {
-    if (target === "crm") {
-      setCrmInitialFilter({ ...(filter || {}), _ts: Date.now() });
-      setPage("crm");
+  // Arrivée depuis un lien extérieur (mail de veille quotidienne, notification).
+  //
+  // Les liens du cron pointent vers un dossier précis. Sans ce bootstrap, on
+  // atterrissait sur le tableau de bord : l'onglet cible n'étant pas monté, son
+  // propre effet de lecture d'URL ne se déclenchait jamais. C'était déjà le cas
+  // du `?crm_client=` existant, qui ne fonctionnait que si l'utilisateur
+  // basculait ensuite sur le CRM à la main.
+  //
+  // On attend `rolePages` : router avant que la configuration d'accès soit
+  // chargée ferait refuser une cible que l'utilisateur a pourtant le droit de
+  // voir.
+  const bootstrapFait = useRef(false);
+  useEffect(() => {
+    if (bootstrapFait.current || typeof window === "undefined") return;
+    if (!rolePages) return;
+
+    const params = new URLSearchParams(window.location.search || "");
+    const liens = [
+      ["invest_urbanisme", (v) => NAV.ficheUrbanisme(v)],
+      ["invest_edl",       (v) => NAV.ficheEDL(v)],
+      ["invest_bien",      (v) => NAV.ficheBien(v)],
+      ["invest_prospect",  (v) => NAV.ficheProspect(v)],
+      ["crm_client",       (v) => NAV.actionsClient(v, params.get("mission_action") || null)],
+      ["client_id",        (v) => NAV.ficheClient(v)],
+    ];
+
+    for (const [cle, versCible] of liens) {
+      const valeur = params.get(cle);
+      if (!valeur) continue;
+      const cible = versCible(valeur);
+      bootstrapFait.current = true;
+      naviguer(cible.tab, cible);
+      // L'identifiant est retiré de la barre d'adresse : sans cela, un
+      // rechargement rouvrirait indéfiniment la même fiche par-dessus le
+      // travail en cours.
+      params.delete(cle);
+      params.delete("mission_action");
+      params.delete("mission_step");
+      const reste = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (reste ? `?${reste}` : ""));
+      return;
     }
-    if (target === "biens") {
-      setBiensInitialFilter({ ...(filter || {}), _ts: Date.now() });
-      setPage("biens");
-    }
-  };
+    bootstrapFait.current = true;
+  }, [rolePages]);
 
   const changerPage = (p) => {
     setPage(p);
+    // Un filtre de navigation ne vaut que pour le saut qui l'a produit : le
+    // conserver ferait rouvrir la même fiche au prochain passage sur l'onglet.
     if (p !== "crm") setCrmInitialFilter(null);
     if (p !== "biens") setBiensInitialFilter(null);
+    if (p !== "prospection") setProspectionInitialFilter(null);
+    if (p !== "urbanisme") setUrbanismeInitialFilter(null);
+    if (p !== "etat_des_lieux") setEdlInitialFilter(null);
     if (p !== "structuration") setStructInitialClientId(null);
   };
 
@@ -403,13 +472,13 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       <style>{CSS}</style>
       <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
-        {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguerDepuisDashboard} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
-        {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
-        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOuvrirSimulation={ouvrirSimulationDepuisCRM} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
+        {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
+        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
         {page === "sourcing"   && (canSee("sourcing")   ? <Sourcing profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="sourcing"/>)}
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
-        {page === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
-        {page === "urbanisme" && (canSee("urbanisme") ? <Urbanisme profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="urbanisme"/>)}
+        {page === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} initialFilter={edlInitialFilter} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
+        {page === "urbanisme" && (canSee("urbanisme") ? <Urbanisme profil={profil} T={T} initialFilter={urbanismeInitialFilter} /> : <AccesRefuseInvest T={T} page="urbanisme"/>)}
         {page === "structuration" && (canSee("structuration") ? <StructurationPatrimoniale profil={profil} T={T} initialClientId={structInitialClientId} /> : <AccesRefuseInvest T={T} page="structuration"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
         {page === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}

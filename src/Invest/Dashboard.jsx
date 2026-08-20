@@ -15,6 +15,7 @@ import {
   fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween,
   getClientName, getBienLabel, getBienScore,
   HONORAIRE_BASE_CONTRAT_HT,
+  NAV,
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
@@ -486,12 +487,20 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const openDecision = item => { setDecisionItem(item); setSelected(null); };
   const updateDecision = value => { if (!decisionItem) return; setRoutine(prev => ({ ...prev, decisions:{ ...prev.decisions, [decisionKey(decisionItem)]:value } })); };
 
+  // Ouvre la fiche complète du dossier consolidé.
+  //
+  // Un prospect issu de `invest_clients` (converti, ou saisi directement au CRM)
+  // n'existe pas dans la table prospection : le renvoyer là-bas afficherait une
+  // fiche vide. On le route vers le CRM, qui est sa vraie fiche.
   const openFullRecord = item => {
     if (!item) return;
-    if (item.type === "prospect") onNavigate?.("prospection", { type:"fiche", id:item.id, sourceTable:item.sourceTable });
-    else if (item.type === "client") onNavigate?.("crm", { type:"fiche", id:item.id });
-    else if (item.type === "bien") onNavigate?.("biens", { type:"fiche", id:item.id });
-    else onNavigate?.("crm", { type:"actions", id:item.id });
+    if (item.type === "prospect") {
+      if (item.sourceTable === "invest_clients") onNavigate?.("crm", NAV.ficheClient(item.id));
+      else onNavigate?.("prospection", NAV.ficheProspect(item.id, item.sourceTable));
+    }
+    else if (item.type === "client") onNavigate?.("crm", NAV.ficheClient(item.id));
+    else if (item.type === "bien")   onNavigate?.("biens", NAV.ficheBien(item.id));
+    else onNavigate?.("crm", NAV.actionsClient(item.raw?.client_id || item.client_id, item.id));
   };
   const createNotification = async ({ actionId, responsable, title, message, item }) => {
     if (!responsable || responsable === "Matthieu") return;
