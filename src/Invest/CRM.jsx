@@ -19,6 +19,7 @@ import {
   INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar,
   readNavTarget, useAnnuaireInvest, emailPourResponsable, responsablesInvest
 } from "./_shared";
+import { creerNotificationInvest } from "./notifications";
 import Simulateur from "./Simulateur";
 
 function ClientStrategyCard({ client, T=THEMES_INV.dark, onSaved }) {
@@ -3261,6 +3262,20 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
       alert("Impossible de créer la tâche collaborateur : " + (err?.message || "erreur inconnue"));
       return;
     }
+
+    // Notification dans l'application, en plus de l'e-mail. L'assignation ne
+    // produisait jusqu'ici QUE l'e-mail : un collaborateur déjà connecté ne
+    // voyait rien, et un e-mail non parti ne laissait aucune trace visible.
+    creerNotificationInvest({
+      destinataire: owner,
+      titre: `Tâche client — ${title}`,
+      message: `${clientFullName} · ${assignedStep.label}${due ? ` · échéance ${missionFormatDateFr(due)}` : ""}`,
+      entiteType: "team",
+      entiteId: id,
+      actionId: createdAction?.id || null,
+      source: "crm_assignation",
+      profil,
+    });
 
     const actionUrl = missionBuildActionUrl(id, createdAction?.id, assignedStep?.key) || buildFallbackClientUrl(createdAction?.id);
     const emailContent = missionBuildNotificationEmail({ ...createdAction, responsable:owner, responsable_email:email, step_label:assignedStep.label, step_key:assignedStep.key, action_title:title, due_date:due || createdAction?.due_date, id:createdAction?.id }, client);

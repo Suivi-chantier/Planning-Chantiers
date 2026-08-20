@@ -30,6 +30,7 @@ import Simulateur, { ListeProjets } from "./Simulateur";
 import Sourcing from "./Sourcing";
 import EtatDesLieux from "./EtatDesLieux";
 import Urbanisme from "./Urbanisme";
+import { ClocheNotifications } from "./notifications";
 
 const INVEST_PAGES_BASE = [
   { id: "dashboard", label: "Tableau de bord" },
@@ -130,7 +131,7 @@ function canSeeInvestPage(rolePages, role, pageId) {
   }
 }
 
-function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null }) {
+function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null }) {
   const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
@@ -273,6 +274,9 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
         gap: collapsed ? SPACING.xs : SPACING.xs+2, flexShrink:0,
         alignItems:"center", justifyContent: collapsed ? "center" : "space-between",
       }}>
+        {/* Notifications : l'e-mail de la veille quotidienne va chercher ceux
+            qui ne sont pas dans l'application, la cloche sert ceux qui y sont. */}
+        <ClocheNotifications profil={profil} theme={theme} onNaviguer={onNaviguer} collapsed={collapsed}/>
         {onRetourPortail && (
           <button onClick={onRetourPortail} title="Retour au portail"
             style={sidebarBtnStyle(T.accent)}
@@ -470,7 +474,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} />
+      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} />
       <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}

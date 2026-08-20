@@ -18,6 +18,7 @@ import {
   NAV,
   useAnnuaireInvest, responsablesInvest, estUtilisateurCourant,
 } from "./_shared";
+import { creerNotificationInvest } from "./notifications";
 
 // ─────────────────────────────────────────────────────────────
 // TABLEAU DE BORD V9 — Pilotage par dossier consolidé
@@ -629,13 +630,21 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     else if (item.type === "bien")   onNavigate?.("biens", NAV.ficheBien(item.id));
     else onNavigate?.("crm", NAV.actionsClient(item.raw?.client_id || item.client_id, item.id));
   };
-  const createNotification = async ({ actionId, responsable, title, message, item }) => {
-    // On ne se notifie pas soi-même. Cette règle comparait le responsable à la
-    // chaîne « Matthieu » : elle cassait dès qu'un autre compte pilotait, et
-    // taisait toute notification destinée à un homonyme.
-    if (!responsable || estUtilisateurCourant(responsable, profil)) return;
-    try { await supabase.from("invest_action_notifications").insert({ action_id:actionId || null, recipient:responsable, title:title || "Nouvelle action assignée", message:message || "Action créée depuis le Dashboard V9.", linked_entity_type:item?.type || null, linked_entity_id:item?.id ? String(item.id) : null, priority:item?.level === "danger" ? "high" : "normal", status:"unread", source_module:"dashboard_v9", created_by:profil?.email || profil?.nom || "inconnu" }); } catch(e) { console.warn("Notification non bloquante", e); }
-  };
+  // La création passe par creerNotificationInvest : même point d'entrée que le
+  // CRM, et la règle « on ne se notifie pas soi-même » n'existe qu'à un seul
+  // endroit.
+  const createNotification = ({ actionId, responsable, title, message, item }) =>
+    creerNotificationInvest({
+      destinataire: responsable,
+      titre: title || "Nouvelle action assignée",
+      message: message || "Action créée depuis le tableau de bord.",
+      entiteType: item?.type || null,
+      entiteId: item?.id || null,
+      actionId,
+      priorite: item?.level === "danger" ? "high" : "normal",
+      source: "dashboard_v9",
+      profil,
+    });
   const createMissionAction = async (item, d) => {
     if (!d?.create_task || !d?.responsable || !d?.next_action) return null;
     // Idem : pas de tâche déléguée à soi-même.
@@ -691,7 +700,25 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     <ActionPlanPDF plan={plan} T={T} onPrint={printPdf}/>
   </>;
   const renderMetier = () => <div style={{ display:"grid", gap:SPACING.md }}><SectionCard title="Prospects actifs" icon={Phone} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(filterDossiers(data.prospectDossiers, "all")).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Clients actifs" icon={Briefcase} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.clientDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Stock de biens" icon={Home} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.bienDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard></div>;
-  const renderEquipe = () => <SectionCard title="Pilotage équipe à distance" icon={Users} subtitle="Actions déléguées et notifications collaborateurs" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => { const list = data.allDossiers.filter(d => d.responsable === r && (d.category === "delegated" || d.type === "team")); return <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:8 }}><strong style={{ color:T.text }}>{r}</strong><AlertBadge level={list.some(x => x.level === "danger") ? "danger" : "info"} T={T}>{list.length}</AlertBadge></div>{list.slice(0,8).map(item => <button key={item.key} onClick={() => openDetail(item)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", padding:"7px 0", borderTop:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{item.next_action || item.label}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{item.label} · {safeDate(item.due_date)}</div></button>)}</div> })}</div>{notifications.length > 0 && <div style={{ marginTop:SPACING.md, color:T.textMuted, fontSize:FONT.sm.size }}>{notifications.filter(n => !n.read_at && n.status !== "read").length} notification(s) collaborateur non lue(s).</div>}</SectionCard>;
+  // Notifications non lues, PAR destinataire.
+  //
+  // Cette ligne affichait un total unique, calculé sur toutes les
+  // notifications de tout le monde — et comme rien ne renseignait jamais
+  // read_at, il ne pouvait que croître. Il mesurait l'historique, pas un reste
+  // à traiter. Le marquage lu existe maintenant (cloche), et le total ventilé
+  // dit quelque chose d'actionnable : qui n'a pas encore vu ce qu'on lui a
+  // assigné.
+  const notifsParDestinataire = useMemo(() => {
+    const parQui = {};
+    for (const n of notifications) {
+      if (n.read_at || n.status === "read") continue;
+      const qui = n.recipient || "—";
+      parQui[qui] = (parQui[qui] || 0) + 1;
+    }
+    return Object.entries(parQui).sort((a, b) => b[1] - a[1]);
+  }, [notifications]);
+
+  const renderEquipe = () => <SectionCard title="Pilotage équipe à distance" icon={Users} subtitle="Actions déléguées et notifications collaborateurs" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => { const list = data.allDossiers.filter(d => d.responsable === r && (d.category === "delegated" || d.type === "team")); return <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:8 }}><strong style={{ color:T.text }}>{r}</strong><AlertBadge level={list.some(x => x.level === "danger") ? "danger" : "info"} T={T}>{list.length}</AlertBadge></div>{list.slice(0,8).map(item => <button key={item.key} onClick={() => openDetail(item)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", padding:"7px 0", borderTop:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{item.next_action || item.label}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{item.label} · {safeDate(item.due_date)}</div></button>)}</div> })}</div>{notifsParDestinataire.length > 0 && <div style={{ marginTop:SPACING.md, paddingTop:SPACING.sm, borderTop:`1px solid ${T.border}`, color:T.textMuted, fontSize:FONT.sm.size, display:"flex", gap:SPACING.md, flexWrap:"wrap" }}>{notifsParDestinataire.map(([qui, n]) => <span key={qui}><strong style={{ color:T.textSub }}>{qui}</strong> : {n} non lue{n > 1 ? "s" : ""}</span>)}</div>}</SectionCard>;
 
   return <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1500, margin:"0 auto" }}>
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:SPACING.md, flexWrap:"wrap", marginBottom:SPACING.xl }}><div style={{ display:"flex", gap:SPACING.md, alignItems:"center" }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard pilotage quotidien</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub }}>V9 — 1 dossier = 1 carte consolidée. Pilotable à distance, sans doublons.</div></div></div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className={`inv-btn ${activeView === "pilotage" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("pilotage")}><Icon as={LayoutGrid} size={12}/>Pilotage</button><button className={`inv-btn ${activeView === "metier" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("metier")}><Icon as={ListChecks} size={12}/>Vue métier</button><button className={`inv-btn ${activeView === "equipe" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("equipe")}><Icon as={Users} size={12}/>Équipe</button></div></div>
