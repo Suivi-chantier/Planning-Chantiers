@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { readNavTarget } from "./_shared";
 import { createPortal } from "react-dom";
 import {
-  listerEDL, chargerEDL, creerEDL, majEDL, supprimerEDL,
+  listerEDL, chargerEDL, creerEDL, majEDL, supprimerEDL, listerBiensPourEDL,
   idbAdd, idbList, idbDelete, idbClear,
   archiverPhotos, signerPhotos, recompresser, fichierVersDataUrl,
 } from "./edlStore";
@@ -1722,13 +1722,18 @@ function SaisieEDL({ dossier, profil, onRetour }) {
 }
 
 /* ============ Liste des dossiers ============ */
-const NOUVEAU_VIDE = { titre:"", adresse:"", type:"ENTRÉE", date_edl:todayISO() };
+const NOUVEAU_VIDE = { titre:"", adresse:"", type:"ENTRÉE", date_edl:todayISO(), bien_id:"" };
 
 function ListeEDL({ profil, onOuvrir }) {
   const [rows, setRows]       = useState(null);   // null = chargement en cours
   const [erreur, setErreur]   = useState("");
   const [form, setForm]       = useState(null);   // null = formulaire fermé
   const [creation, setCreation] = useState(false);
+  // Stock de biens pour le rattachement. Vide = sélecteur masqué : soit la
+  // migration n'est pas passée, soit la table n'est pas lisible. Dans les deux
+  // cas la saisie libre de l'adresse continue de fonctionner.
+  const [biens, setBiens] = useState([]);
+  useEffect(() => { listerBiensPourEDL().then(setBiens); }, []);
 
   const recharger = useCallback(() => {
     listerEDL()
@@ -1756,6 +1761,7 @@ function ListeEDL({ profil, onOuvrir }) {
         date_edl: form.date_edl || null,
         statut: "brouillon",
         auteur: profil?.nom || profil?.email || null,
+        ...(form.bien_id ? { bien_id: form.bien_id } : {}),
         donnees: {
           meta: {
             ...META_VIDE,
@@ -1838,6 +1844,30 @@ function ListeEDL({ profil, onOuvrir }) {
                 <label className="f"><span>Adresse du bien</span>
                   <input type="text" value={form.adresse} placeholder="Guéliz, 40000 Marrakech"
                     onChange={e => setForm(f => ({ ...f, adresse:e.target.value }))}/></label>
+                {biens.length > 0 && (
+                  <label className="f"><span>Bien du stock (facultatif)</span>
+                    <select value={form.bien_id || ""} onChange={e => {
+                      const bienId = e.target.value;
+                      const bien = biens.find(b => String(b.id) === String(bienId));
+                      // On préremplit l'adresse si elle est encore vide : une
+                      // adresse déjà saisie peut être plus précise que la fiche
+                      // (bâtiment, étage, numéro d'appartement).
+                      setForm(f => ({
+                        ...f,
+                        bien_id: bienId,
+                        adresse: f.adresse?.trim()
+                          ? f.adresse
+                          : (bien ? [bien.adresse, bien.code_postal, bien.ville].filter(Boolean).join(", ") : f.adresse),
+                      }));
+                    }}>
+                      <option value="">Aucun — saisie libre de l'adresse</option>
+                      {biens.map(b => (
+                        <option key={b.id} value={b.id}>
+                          {[b.reference_interne, b.adresse, b.ville].filter(Boolean).join(" · ") || "Bien sans référence"}
+                        </option>
+                      ))}
+                    </select></label>
+                )}
                 <label className="f"><span>Type</span>
                   <select value={form.type} onChange={e => setForm(f => ({ ...f, type:e.target.value }))}>
                     <option value="ENTRÉE">Entrée</option>

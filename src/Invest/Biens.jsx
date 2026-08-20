@@ -12,7 +12,7 @@ import {
   TrendingUp, Wallet, Euro, MapPin, ExternalLink, Filter, ArrowLeft,
   Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Image as ImageIcon,
   Upload, Copy, Sparkles, Sun, Moon, LogOut, LayoutGrid, Send, Phone as PhoneIcon,
-  Handshake, Bell, Briefcase, Hammer, Landmark,
+  Handshake, Bell, Briefcase, Hammer, Landmark, ClipboardList,
 } from "lucide-react";
 
 import {
@@ -20,6 +20,7 @@ import {
   readNavTarget
 } from "./_shared";
 import Simulateur from "./Simulateur";
+import { listerEDLDuBien } from "./edlStore";
 
 function AutoScoreBienCard({ bien, T=THEMES_INV.dark }) {
   const score = computeAutoBienScore(bien);
@@ -4482,6 +4483,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   // existaient depuis la création de la table ; l'onglet Urbanisme les remplit
   // désormais, ce qui rend cette carte possible.
   const [dossiersUrba, setDossiersUrba] = useState([]);
+  const [edlDuBien, setEdlDuBien] = useState([]);
   const [clients, setClients] = useState([]);
   const [showEdit, setShowEdit] = useState(false);
   const [showProp, setShowProp] = useState(false);
@@ -4842,6 +4844,55 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     return () => { annule = true; };
   }, [ficheId]);
 
+  useEffect(() => {
+    if (!ficheId) { setEdlDuBien([]); return; }
+    let annule = false;
+    listerEDLDuBien(ficheId).then(r => { if (!annule) setEdlDuBien(r); });
+    return () => { annule = true; };
+  }, [ficheId]);
+
+  // États des lieux du bien, dans l'ordre chronologique inverse : la carte
+  // donne la suite entrée / sortie, que l'adresse en texte libre ne permettait
+  // pas de reconstituer.
+  const EtatsDesLieuxCard = () => {
+    if (!edlDuBien.length) return null;
+    return (
+      <div className="inv-card">
+        <div className="inv-card-hd">
+          <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+            <Icon as={ClipboardList} size={13} strokeWidth={2.2}/>États des lieux ({edlDuBien.length})
+          </span>
+        </div>
+        <div className="inv-card-bd">
+          {edlDuBien.map(e => {
+            const archive = e.statut === "archive";
+            return (
+              <div key={e.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
+                  <span style={{ fontWeight:700, fontSize:13, color:T.text }}>
+                    {e.type || "EDL"}{e.date_edl ? ` · ${new Date(e.date_edl).toLocaleDateString("fr-FR")}` : ""}
+                  </span>
+                  <span style={{ fontSize:11.5, fontWeight:800, color: archive ? SU : WA }}>
+                    {archive ? "Archivé" : "Brouillon"}
+                  </span>
+                </div>
+                <div style={{ fontSize:11.5, color:T.textMuted, marginTop:3 }}>
+                  {e.titre || "Sans titre"}
+                  {e.nb_reserves > 0 ? ` · ${e.nb_reserves} réserve(s)` : ""}
+                  {e.nb_photos > 0 ? ` · ${e.nb_photos} photo(s)` : ""}
+                  {/* Un brouillon garde ses photos sur le seul appareil de
+                      saisie : tant qu'il n'est pas archivé, elles n'existent
+                      nulle part ailleurs. */}
+                  {!archive ? " · photos encore locales à l'appareil de saisie" : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const UrbanismeCard = () => {
     if (!dossiersUrba.length) return null;
     const aujourdhui = new Date().toISOString().slice(0, 10);
@@ -5130,6 +5181,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
           <div style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
             <ClientsAssociesCard />
             <UrbanismeCard />
+            <EtatsDesLieuxCard />
 
             <div className="inv-card">
               <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Actions rapides</span></div>

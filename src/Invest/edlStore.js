@@ -135,12 +135,63 @@ export function fichierVersDataUrl(file) {
 
 /* ============ Supabase : dossiers ============ */
 
+const EDL_COLONNES_BASE =
+  "id,titre,adresse,type,date_edl,statut,nb_elements,nb_renseignes,nb_photos,nb_reserves,auteur,archive_le,created_at,updated_at";
+
 export async function listerEDL() {
+  // Le rattachement (bien_id / client_id) vient d'une migration qui peut ne pas
+  // être encore appliquée. On le demande, et on retombe sans lui plutôt que de
+  // faire échouer toute la liste : la migration doit rester applicable avant ou
+  // après le déploiement, sans ordre imposé.
+  let { data, error } = await supabase
+    .from(EDL_TABLE)
+    .select(`${EDL_COLONNES_BASE},bien_id,client_id`)
+    .order("updated_at", { ascending:false });
+
+  if (error && (error.code === "42703" || error.code === "PGRST204"
+                || /bien_id|client_id/.test(String(error.message || "")))) {
+    const repli = await supabase
+      .from(EDL_TABLE)
+      .select(EDL_COLONNES_BASE)
+      .order("updated_at", { ascending:false });
+    data = repli.data; error = repli.error;
+  }
+
+  if (error) throw error;
+  return data || [];
+}
+
+// Stock de biens, pour le sélecteur de rattachement du formulaire de création.
+// Renvoie [] si la table n'est pas lisible : le sélecteur se masque alors,
+// plutôt que d'empêcher la création d'un état des lieux.
+export async function listerBiensPourEDL() {
+  const { data, error } = await supabase
+    .from("invest_biens")
+    .select("id,reference_interne,adresse,code_postal,ville")
+    .order("created_at", { ascending:false });
+  if (error) {
+    console.warn("[EDL] stock de biens indisponible:", error.message);
+    return [];
+  }
+  return data || [];
+}
+
+// États des lieux d'un bien donné, pour la carte de sa fiche.
+// La colonne bien_id peut ne pas exister (migration non appliquée) : on renvoie
+// une liste vide plutôt que de faire échouer l'ouverture de la fiche.
+export async function listerEDLDuBien(bienId) {
+  if (!bienId) return [];
   const { data, error } = await supabase
     .from(EDL_TABLE)
-    .select("id,titre,adresse,type,date_edl,statut,nb_elements,nb_renseignes,nb_photos,nb_reserves,auteur,archive_le,created_at,updated_at")
-    .order("updated_at", { ascending:false });
-  if (error) throw error;
+    .select("id,titre,type,date_edl,statut,nb_reserves,nb_photos,archive_le")
+    .eq("bien_id", bienId)
+    .order("date_edl", { ascending:false });
+  if (error) {
+    if (error.code !== "42703" && error.code !== "42P01") {
+      console.warn("[EDL] états des lieux du bien:", error.message);
+    }
+    return [];
+  }
   return data || [];
 }
 
