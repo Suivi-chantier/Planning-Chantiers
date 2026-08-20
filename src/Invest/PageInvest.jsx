@@ -238,7 +238,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
         display:"flex", alignItems:"center",
         justifyContent: collapsed ? "center" : "flex-start",
         gap: SPACING.sm, flexShrink:0,
-      }} title="En ligne">
+      }} className="inv-sync-indicator" title="En ligne">
         <span style={{
           width:8, height:8, borderRadius:"50%",
           background:"#22c55e", flexShrink:0,
@@ -253,7 +253,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
 
       {/* User info */}
       {profil && !collapsed && (
-        <div style={{
+        <div className="inv-user-info" style={{
           padding:`${SPACING.sm+2}px ${SPACING.md+2}px`, borderTop:`1px solid ${T.sidebarBorder}`,
           display:"flex", flexDirection:"column", gap:1, flexShrink:0,
         }}>

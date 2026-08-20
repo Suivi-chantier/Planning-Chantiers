@@ -218,7 +218,7 @@ export function ClocheNotifications({ profil, theme = "dark", onNaviguer, collap
       </button>
 
       {ouvert && (
-        <div style={{
+        <div className="inv-notif-panel" style={{
           position: "absolute", bottom: collapsed ? 40 : "auto", top: collapsed ? "auto" : 40,
           left: 0, width: 320, maxHeight: 420, overflowY: "auto", zIndex: 200,
           background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,

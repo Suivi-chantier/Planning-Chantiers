@@ -503,7 +503,25 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
   .inv > div:first-child > nav::-webkit-scrollbar{display:none}
   .inv > div:first-child > nav button{flex:0 0 auto;width:auto!important;padding:8px 12px!important;font-size:${FONT.sm.size}px!important;margin-bottom:0!important;justify-content:center!important}
   .inv > div:first-child > nav button span:last-child{display:inline!important}
-  .inv > div:first-child > div:last-child{display:none}
+  /* Barre du bas : elle était purement masquée sur mobile, ce qui retirait la
+     déconnexion, le retour au portail, le thème ET la cloche de notifications.
+     On la replie à droite de la nav horizontale au lieu de la supprimer. */
+  .inv > div:first-child > div:last-child{
+    flex-direction:row!important; border-top:none!important;
+    border-left:1px solid ${T.sidebarBorder};
+    padding:4px 6px!important; gap:2px!important; flex-shrink:0;
+    align-self:stretch; align-items:center!important; justify-content:flex-end!important;
+  }
+  /* Indicateur de sync et bloc profil : eux, ne servent à rien sur un écran
+     étroit et prennent la place de la nav. */
+  .inv-sync-indicator, .inv-user-info{display:none!important}
+  /* La cloche passe en haut à droite : son panneau s'ouvrirait hors écran s'il
+     restait ancré à gauche et large de 320 px. */
+  .inv-notif-panel{
+    left:auto!important; right:0!important; top:100%!important; bottom:auto!important;
+    width:min(320px, calc(100vw - 16px))!important; max-height:70vh!important;
+    position:fixed!important; margin-top:4px;
+  }
   .inv-card-bd{padding:${SPACING.sm+2}px ${SPACING.md}px!important}
   .inv-row{flex-wrap:wrap;grid-template-columns:1fr!important;gap:${SPACING.xs+2}px!important}
   .inv-kpi{padding:${SPACING.sm+2}px ${SPACING.md}px!important}

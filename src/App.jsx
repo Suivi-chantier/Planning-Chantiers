@@ -62,6 +62,51 @@ import PageRapportMobile      from "./Renovation/RapportMobile";
 // VisiteChantier (2 600 lignes) : module gelé en consultation depuis les
 // contrôles de fin de groupe (Point 2 b) → chargé à la demande comme
 // PhasageV2/Bibliotheque, plus dans le bundle principal.
+// Chargement paresseux qui survit à un chunk disparu.
+//
+// L'application est une PWA à service worker « prompt » (skipWaiting: false) :
+// un téléphone peut rester longtemps sur un index.html précaché qui référence
+// des chunks supprimés par les déploiements suivants. Si le précache a été
+// partiellement évincé — ce que font les navigateurs mobiles sous pression de
+// stockage — la requête part au réseau, reçoit un 404, et l'import échoue.
+//
+// Sans reprise, React reste bloqué sur le Suspense : écran blanc, sans message,
+// et sur un téléphone on ne peut ni ouvrir la console ni forcer le vidage du
+// cache. C'était exactement le symptôme « impossible d'ouvrir Invest ».
+//
+// On retente une fois, puis on recharge en cassant le cache. Le drapeau en
+// sessionStorage empêche la boucle : si le rechargement ne suffit pas, on
+// laisse l'erreur remonter à l'ErrorBoundary, qui offre une sortie manuelle.
+function lazyAvecReprise(importer, cle) {
+  return lazy(() =>
+    importer().catch(async (err) => {
+      console.warn(`[chunk] échec de chargement (${cle})`, err);
+      try { return await importer(); } catch { /* deuxième essai perdu aussi */ }
+
+      const drapeau = `chunk_reload_${cle}`;
+      if (typeof sessionStorage !== "undefined" && !sessionStorage.getItem(drapeau)) {
+        sessionStorage.setItem(drapeau, "1");
+        // Purge des caches du service worker : c'est lui qui sert l'index
+        // périmé, un simple reload retomberait dessus.
+        try {
+          if ("caches" in window) {
+            const noms = await caches.keys();
+            await Promise.all(noms.map(n => caches.delete(n)));
+          }
+          if (navigator.serviceWorker?.getRegistrations) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+          }
+        } catch { /* on recharge quand même */ }
+        window.location.reload();
+        // Promesse qui ne se résout jamais : le rechargement est en cours.
+        return new Promise(() => {});
+      }
+      throw err;
+    })
+  );
+}
+
 const PageVisiteChantier = lazy(() => import("./Renovation/VisiteChantier"));
 import PageInfoClient         from "./Renovation/PageInfoClient";
 import PageChantiers          from "./Renovation/PageChantiers";
@@ -74,7 +119,7 @@ const PageCheminDeFer        = lazy(() => import("./Renovation/CheminDeFer"));
 const PageBibliotheque       = lazy(() => import("./Renovation/Bibliotheque"));
 const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliothequeMateriaux"));
 const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages"));
-const PageInvest             = lazy(() => import("./PageInvest"));
+const PageInvest             = lazyAvecReprise(() => import("./PageInvest"), "invest");
 const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
 const PageHeuresSalaries     = lazy(() => import("./Renovation/HeuresSalaries"));
 const PageEtatsFinanciers    = lazy(() => import("./Renovation/EtatsFinanciers"));
@@ -104,17 +149,64 @@ if (typeof window !== "undefined") {
 }
 
 // ─── ERROR BOUNDARY ───────────────────────────────────────────────────────────
+// Vide tout ce que le navigateur garde de l'application et recharge.
+//
+// Sur téléphone c'est la seule sortie possible : pas de console, et un simple
+// rafraîchissement retombe sur l'index.html servi par le service worker.
+async function reinitialiserEtRecharger() {
+  try {
+    if ("caches" in window) {
+      const noms = await caches.keys();
+      await Promise.all(noms.map(n => caches.delete(n)));
+    }
+    if (navigator.serviceWorker?.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (e) { console.warn("Purge du cache incomplète", e); }
+  window.location.reload();
+}
+
 class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { error: null }; }
+  constructor(props) { super(props); this.state = { error: null, detail: false }; }
   static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("[ErrorBoundary]", error, info); }
   render() {
-    if (this.state.error) return (
-      <div style={{background:"#1a0000",color:"#ff8888",padding:30,fontFamily:"monospace",minHeight:"100vh"}}>
-        <h2 style={{color:"#ff4444",marginBottom:16}}>🔴 Erreur — {this.state.error?.message}</h2>
-        <pre style={{whiteSpace:"pre-wrap",fontSize:12,lineHeight:1.6,opacity:.8}}>{this.state.error?.stack}</pre>
+    if (!this.state.error) return this.props.children;
+    const e = this.state.error;
+    return (
+      <div style={{background:"#12151b",color:"#e8ecf3",minHeight:"100vh",padding:"28px 20px",
+        fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif",display:"flex",
+        flexDirection:"column",alignItems:"center",justifyContent:"center",gap:18,textAlign:"center"}}>
+        <div style={{fontSize:44,lineHeight:1}}>⚠</div>
+        <div style={{fontSize:24,fontWeight:800,maxWidth:420,lineHeight:1.2}}>
+          {this.props.titre || "L'application n'a pas pu s'ouvrir"}
+        </div>
+        <div style={{fontSize:15,color:"#a3adbf",maxWidth:400,lineHeight:1.5}}>
+          Le plus souvent c'est une version en cache qui n'est plus à jour.
+          Le bouton ci-dessous la remplace par la dernière.
+        </div>
+        {/* Cible tactile large : ce bouton est parfois la seule issue. */}
+        <button onClick={reinitialiserEtRecharger}
+          style={{background:"#4070e8",color:"#fff",border:"none",borderRadius:10,
+            padding:"15px 28px",fontSize:16,fontWeight:800,cursor:"pointer",
+            fontFamily:"inherit",minWidth:220,marginTop:4}}>
+          Vider le cache et recharger
+        </button>
+        <button onClick={() => this.setState(s => ({ detail: !s.detail }))}
+          style={{background:"transparent",color:"#6f7889",border:"none",fontSize:13,
+            cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>
+          {this.state.detail ? "Masquer le détail technique" : "Détail technique"}
+        </button>
+        {this.state.detail && (
+          <pre style={{whiteSpace:"pre-wrap",wordBreak:"break-word",fontSize:11,lineHeight:1.5,
+            color:"#ea8079",background:"#191d25",border:"1px solid #2a3038",borderRadius:8,
+            padding:12,maxWidth:"100%",overflowX:"auto",textAlign:"left"}}>
+            {e?.message}{"\n\n"}{e?.stack}
+          </pre>
+        )}
       </div>
     );
-    return this.props.children;
   }
 }
 
@@ -835,10 +927,14 @@ export default function App() {
     </ErrorBoundary>
   );
 
+  // Invest était la seule branche SANS ErrorBoundary : toute erreur de rendu y
+  // donnait un écran blanc muet, impossible à diagnostiquer depuis un téléphone.
   if (authState === "invest") return (
-    <Suspense fallback={<PageLoader/>}>
-      <PageInvest profil={profil} onRetourPortail={handleRetourPortail} onLogout={handleLogout} />
-    </Suspense>
+    <ErrorBoundary titre="Profero Invest n'a pas pu s'ouvrir">
+      <Suspense fallback={<PageLoader/>}>
+        <PageInvest profil={profil} onRetourPortail={handleRetourPortail} onLogout={handleLogout} />
+      </Suspense>
+    </ErrorBoundary>
   );
 
   if (authState === "ouvrier") return (
