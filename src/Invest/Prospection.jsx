@@ -1016,6 +1016,21 @@ function parsePastedProspectList(content) {
 
 const NEW_PROSPECT_NOTIFICATION_EMAIL = "matthieu.fumoleau@groupe-profero.com";
 
+// Ce que perd la conversion quand la base refuse une colonne.
+//
+// `clientPayloads` tente quatre charges utiles de moins en moins riches, parce
+// que le schéma de invest_clients n'est pas versionné dans le dépôt et que le
+// code ne peut donc pas savoir quelles colonnes existent. Tant que ce n'est
+// pas corrigé côté base, l'index du niveau retenu dit exactement ce qui a été
+// abandonné — l'utilisateur peut le ressaisir, au lieu de découvrir des mois
+// plus tard une fiche client sans budget ni source.
+const CHAMPS_PERDUS_PAR_NIVEAU = {
+  1: "l'étape, le statut, la date de signature, la stratégie et les notes",
+  2: "la source, le budget, l'étape, le statut, la stratégie et les notes",
+  3: "le téléphone, l'email, la source, le budget et toutes les notes",
+};
+
+
 function monthKey(dateValue) {
   const d = dateValue ? new Date(dateValue) : new Date();
   if (Number.isNaN(d.getTime())) return "Non daté";
@@ -4259,8 +4274,9 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
         return;
       }
 
-      await markProspectAsConverted(existingClient.id, cleanProspect, "lié à un client existant");
+      const lie = await markProspectAsConverted(existingClient.id, cleanProspect, "lié à un client existant");
       setSaving(false);
+      if (!lie) return;   // markProspectAsConverted a déjà posé le message d'erreur
       setMsg("Prospect lié au client existant.");
       setTimeout(() => setMsg(""), 2400);
       return;
@@ -4318,8 +4334,10 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
 
     let client = null;
     let lastError = null;
+    let niveauUtilise = 0;
 
-    for (const clientPayload of clientPayloads) {
+    for (let i = 0; i < clientPayloads.length; i++) {
+      const clientPayload = clientPayloads[i];
       const { data, error: err } = await supabase
         .from("invest_clients")
         .insert(clientPayload)
@@ -4329,6 +4347,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
       if (!err) {
         client = data;
         lastError = null;
+        niveauUtilise = i;
         break;
       }
 
@@ -4353,8 +4372,36 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
       return;
     }
 
-    await markProspectAsConverted(client.id, cleanProspect, "créé");
+    // Le client est créé, mais le prospect n'est pas encore marqué converti :
+    // les deux écritures ne sont pas dans une transaction. Si la seconde
+    // échoue, la fiche client existe déjà — le dire, plutôt que d'annoncer un
+    // succès qui laisserait un client orphelin et un prospect toujours ouvert.
+    const marque = await markProspectAsConverted(client.id, cleanProspect, "créé");
     setSaving(false);
+
+    if (!marque) {
+      setError(
+        "Le client a bien été créé dans le CRM, mais le prospect n'a pas pu être " +
+        "marqué comme converti. Vérifie sa fiche avant de relancer la conversion, " +
+        "sous peine de créer un doublon."
+      );
+      return;
+    }
+
+    // La table invest_clients n'a pas de schéma versionné : la création
+    // retombe sur des charges utiles de plus en plus pauvres quand une colonne
+    // manque. Tant que ce n'est pas corrigé côté base, on dit au moins ce qui
+    // a été perdu au lieu d'annoncer une conversion complète.
+    if (niveauUtilise > 0) {
+      const perdus = CHAMPS_PERDUS_PAR_NIVEAU[niveauUtilise] || "certaines informations";
+      setError(
+        `Client créé, mais la base n'a pas accepté toutes les colonnes : ${perdus} ` +
+        "n'ont pas été enregistrés. À compléter à la main dans la fiche client."
+      );
+      setMsg("");
+      return;
+    }
+
     setMsg("Prospect converti en nouveau client CRM.");
     setTimeout(() => setMsg(""), 2400);
   };

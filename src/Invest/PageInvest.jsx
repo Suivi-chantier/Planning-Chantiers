@@ -90,22 +90,29 @@ function getInvestAllowedPages(rolePages, role) {
 
   const normalized = uniquePages(allowed);
 
-  // Sécurité : l'admin doit toujours pouvoir voir les nouvelles pages,
-  // même si l'ancienne configuration Supabase access_pages_invest ne les contient pas encore.
-  if (role === "admin" && !normalized.includes("prospection")) {
-    normalized.splice(1, 0, "prospection");
-  }
-  if (role === "admin" && !normalized.includes("sourcing")) {
-    const insertIndex = normalized.includes("crm") ? normalized.indexOf("crm") + 1 : normalized.length;
-    normalized.splice(insertIndex, 0, "sourcing");
-  }
-  if (role === "admin" && !normalized.includes("etat_des_lieux")) {
-    const insertIndex = normalized.includes("simulateur") ? normalized.indexOf("simulateur") + 1 : normalized.length;
-    normalized.splice(insertIndex, 0, "etat_des_lieux");
-  }
-  if (role === "admin" && !normalized.includes("urbanisme")) {
-    const insertIndex = normalized.includes("etat_des_lieux") ? normalized.indexOf("etat_des_lieux") + 1 : normalized.length;
-    normalized.splice(insertIndex, 0, "urbanisme");
+  // Filet de sécurité : une configuration `access_pages_invest` enregistrée en
+  // base avant l'ajout d'une page ne la contient pas, et l'admin se retrouverait
+  // sans accès à sa propre configuration d'accès.
+  //
+  // Quatre `splice` codés en dur remplissaient ce rôle page par page. Ils
+  // rendaient les oublis invisibles : `sourcing` était absent de access.js et
+  // personne ne l'a vu, parce que l'admin — le seul à tester — voyait l'onglet
+  // grâce à la rustine. Les autres rôles ne l'ont jamais eu, et l'écran Admin
+  // ne pouvait même pas l'accorder puisqu'il construit sa liste depuis
+  // PAGES_INVEST.
+  //
+  // Désormais l'admin reçoit la liste de référence complète, sans énumération
+  // à maintenir : une page ajoutée à INVEST_PAGES_BASE lui parvient seule.
+  if (role === "admin") {
+    for (const p of INVEST_PAGES_FALLBACK) {
+      if (!normalized.includes(p)) normalized.push(p);
+    }
+    // On rétablit l'ordre de référence plutôt que d'empiler en fin de liste.
+    normalized.sort((a, b) => {
+      const ia = INVEST_PAGES_FALLBACK.indexOf(a);
+      const ib = INVEST_PAGES_FALLBACK.indexOf(b);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
   }
 
   return normalized;
