@@ -17,7 +17,7 @@ import {
 
 import {
   INVEST_ACC, LOT_TYPES, NIVEAUX, MAX_LOTS, GESTION_PRICES, DEFAULT_LOTS, BUDGET_SECTIONS, COMP_FISCA, pmt, fmt, fmtPct, fmtMois, actLots, initBudgetState, openFicheClientInvestisseurPDF, THEMES_INV, SU, WA, DA, IN, getCSS, CSS, NumInput, ETAPES_CLIENT, TYPES_PLANNING_INVEST, isoDate, getWeekRange, isActionLateOrThisWeek, normTxt, compareValues, SortableHeader, KPICard, DASH_STAGE_COLORS, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween, isFilledDash, getClientName, getBienLabel, getBienScore, isBienFicheComplete, hasSimulateurBien, isGeolocBien, CLIENT_STRATEGIES_INVEST, CLIENT_TRAVAUX_ACCEPTES, CLIENT_URGENCE_INVEST, CLIENT_FISCALITES_INVEST, OFFRE_STATUTS_INVEST, CLIENT_DOCUMENT_CHECKLIST, BIEN_DOCUMENT_CHECKLIST, emptyClientStrategy, clientStrategy, checklistPct, getNumberLoose, bienTotalCost, bienLotsCount, computeAutoBienScore, computeClientBienMatch, DashboardPanel, DashboardAlertList, FILE_ICONS, DOCUMENT_CATEGORIES_BIEN, GOOGLE_DRIVE_API_KEY, GOOGLE_DRIVE_CLIENT_ID, GOOGLE_DRIVE_APP_ID, GOOGLE_DRIVE_SCOPE, GOOGLE_DRIVE_LINKS_TABLE, getGoogleDriveConfig, GOOGLE_DRIVE_SCRIPT_PROMISES, loadExternalScriptOnce, GOOGLE_DRIVE_FOLDER_MIME, GOOGLE_DRIVE_SHORTCUT_MIME, isGoogleDriveFolderMime, isGoogleDriveShortcutMime, getDriveEffectiveId, getDriveEffectiveMimeType, isGoogleDriveFolderItem, isGoogleDriveShortcutItem, getDriveUrlForDoc, normalizeDriveDoc, getFileIcon, fmtSize, GoogleDriveLinksSection, DocumentsSection, MISSION_COLLABORATEURS, HONORAIRE_BASE_CONTRAT_HT, HONORAIRE_CONSEIL_MOYEN_HT, STATUTS_PROP, CompletionBar,
-  readNavTarget
+  readNavTarget, useAnnuaireInvest, emailPourResponsable, responsablesInvest
 } from "./_shared";
 import Simulateur from "./Simulateur";
 
@@ -546,6 +546,10 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
 }
 
 function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
+  // Annuaire des collaborateurs. Alimente missionEmailForOwner, qui est appelé
+  // depuis des helpers hors composant — d'où le point de passage partagé.
+  const annuaireInvest = useAnnuaireInvest();
+  useEffect(() => { missionSetAnnuaire(annuaireInvest); }, [annuaireInvest]);
   const [clients, setClients]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
@@ -1890,14 +1894,27 @@ const missionRememberOwnerEmail = (owner, email) => {
   } catch {}
 };
 const missionLooksLikeEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+// Annuaire courant, renseigné par le composant CRM au montage. Ces fonctions
+// sont appelées depuis des helpers hors composant, d'où ce point de passage
+// plutôt qu'une prop threadée dans une dizaine de signatures.
+let missionAnnuaire = { parCle: {}, personnes: [], admins: [] };
+const missionSetAnnuaire = (a) => { if (a) missionAnnuaire = a; };
+// Liste proposée dans les sélecteurs : équipe active + rôles extérieurs
+// (Client, Notaire, Agence…), avec repli sur la constante historique.
+const missionResponsables = () => responsablesInvest(missionAnnuaire);
+
 const missionEmailForOwner = (owner, client = {}) => {
   const cleanOwner = String(owner || "").trim();
   if (!cleanOwner) return "";
   if (cleanOwner === "Client") return String(client?.email || "").trim();
-  const stored = missionStoredEmails();
-  // Priorité aux emails officiels codés en dur : cela évite qu'une ancienne adresse
-  // mémorisée dans le navigateur continue de bloquer les actions Mail / Agenda.
-  return MISSION_COLLABORATEURS_EMAILS[cleanOwner] || stored[cleanOwner] || "";
+  // Ordre : la table utilisateurs fait foi, puis les adresses historiques
+  // codées en dur, puis celles mémorisées dans le navigateur. Le dictionnaire
+  // en dur reste en repli le temps que tous les comptes soient créés — mais
+  // une adresse corrigée dans l'Admin l'emporte désormais sans redéploiement.
+  return emailPourResponsable(missionAnnuaire, cleanOwner)
+      || MISSION_COLLABORATEURS_EMAILS[cleanOwner]
+      || missionStoredEmails()[cleanOwner]
+      || "";
 };
 const missionClientDisplayName = (client = {}) => `${client?.prenom || ""} ${client?.nom || ""}`.trim() || client?.email || "Client";
 const missionBuildNotificationEmail = (action = {}, client = {}) => {
@@ -3053,7 +3070,7 @@ Laisse vide pour créer un événement en journée entière.`,
 
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:7,alignItems:"center",paddingTop:8,borderTop:"1px solid rgba(15,23,42,.08)"}}>
                     <select className="inv-sel" value={a.status || "a_faire"} onChange={e => updateAction(a, { status:e.target.value })} style={{fontSize:11,padding:"6px 7px"}}>{MISSION_STATUTS_ACTION.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
-                    <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"6px 7px"}}><option value="">Responsable</option>{MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}</select>
+                    <select className="inv-sel" value={a.responsable || ""} onChange={e => updateAction(a, { responsable:e.target.value || null, responsable_email:missionEmailForOwner(e.target.value, client) || null })} style={{fontSize:11,padding:"6px 7px"}}><option value="">Responsable</option>{missionResponsables().map(o => <option key={o}>{o}</option>)}</select>
                     <input className="inv-inp" type="date" title="Date échéance de la tâche" value={a.due_date || ""} onChange={e => updateAction(a, { due_date:e.target.value || null })} style={{fontSize:11,padding:"6px 7px",width:"100%"}}/>
                     {a.document_drive_attendu ? (
                       a.justificatif_drive_url ? (
@@ -3470,7 +3487,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
   const prochaineActionToday = client.date_prochaine_action && client.date_prochaine_action === ficheToday;
   const clientContact = [client.email, client.telephone].filter(Boolean).join(" · ") || "Coordonnées à compléter";
   const clientSourceOptions = Array.from(new Set([...SOURCES_CLIENT, client.source].filter(Boolean)));
-  const clientConseillerOptions = Array.from(new Set([profil?.nom, client.conseiller, ...MISSION_COLLABORATEURS].filter(Boolean)));
+  const clientConseillerOptions = Array.from(new Set([profil?.nom, client.conseiller, ...missionResponsables()].filter(Boolean)));
   const inlineInputStyle = { width:"100%", textAlign:"left", fontSize:12.5, padding:"7px 8px", background:"#fff" };
   const inlineSelectStyle = { width:"100%", fontSize:12.5, padding:"7px 8px", background:"#fff" };
   const InlineClientField = ({ label, helper, children, span = false }) => (
@@ -3792,7 +3809,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                         style={{width:"100%",fontSize:12,background:"#fff"}}
                       >
                         <option value="">Collaborateur</option>
-                        {MISSION_COLLABORATEURS.map(o => <option key={o}>{o}</option>)}
+                        {missionResponsables().map(o => <option key={o}>{o}</option>)}
                       </select>
                       <input
                         className="inv-inp"

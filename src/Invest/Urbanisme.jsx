@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING } from "../constants";
 import { Icon } from "../ui";
 import { THEMES_INV, SU, WA, DA, IN, KPICard, CompletionBar, readNavTarget } from "./_shared";
@@ -607,6 +608,47 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
       [bloc]: { ...(prev[bloc] || {}), [sous]: { ...((prev[bloc] || {})[sous] || {}), [champ]:valeur } },
     }));
   }, []);
+
+  // Stock de biens, pour rattacher la FDU au dossier qu'elle concerne.
+  //
+  // La table portait bien_id et client_id, avec leurs clés étrangères et un
+  // index dédié, depuis sa création — mais aucun écran ne les remplissait. Une
+  // FDU flottait : elle ne portait que l'adresse retapée à la main, et
+  // retrouver les autorisations d'un bien supposait de se souvenir de
+  // l'orthographe employée.
+  const [biensStock, setBiensStock] = useState([]);
+  useEffect(() => {
+    let annule = false;
+    supabase.from("invest_biens")
+      .select("id,reference_interne,adresse,code_postal,ville,statut")
+      .order("created_at", { ascending:false })
+      .then(({ data, error }) => {
+        if (annule) return;
+        if (error) { console.warn("[Urbanisme] stock de biens indisponible:", error.message); return; }
+        setBiensStock(data || []);
+      });
+    return () => { annule = true; };
+  }, []);
+
+  // Rattachement : on préremplit l'adresse depuis la fiche bien, sans écraser
+  // ce qui a déjà été saisi — une FDU en cours peut porter une adresse plus
+  // précise que la fiche (bâtiment, lot).
+  const rattacherBien = useCallback((bienId) => {
+    const bien = biensStock.find(x => String(x.id) === String(bienId));
+    setD(prev => {
+      const bienPrec = prev.bien || {};
+      return {
+        ...prev,
+        identification: { ...(prev.identification || {}), bien_id: bien ? bien.id : null },
+        bien: bien ? {
+          ...bienPrec,
+          adresse: txt(bienPrec.adresse) || bien.adresse || "",
+          code_postal: txt(bienPrec.code_postal) || bien.code_postal || "",
+          commune: txt(bienPrec.commune) || bien.ville || "",
+        } : bienPrec,
+      };
+    });
+  }, [biensStock]);
   const setRacine = useCallback((champ, valeur) => setD(prev => ({ ...prev, [champ]:valeur })), []);
 
   /* ---- Transitions de statut ---- */
@@ -767,6 +809,16 @@ function OngletDemande({ d, set, setSous, setD, T, arch }) {
           <Txt label="N° de dossier / référence chantier" value={id.reference} requis T={T} onChange={v => set("identification", "reference", v)}/>
           <Sel label="Entité concernée" value={id.entite} options={URBA_ENTITES} requis T={T} onChange={v => set("identification", "entite", v)}/>
           <Txt label="Commercial demandeur" value={id.commercial} requis T={T} onChange={v => set("identification", "commercial", v)}/>
+          <Sel label="Bien du stock concerné" value={id.bien_id || ""} T={T} span
+            vide="Aucun — saisie libre de l'adresse"
+            options={biensStock.map(x => ({
+              value: x.id,
+              label: [x.reference_interne, x.adresse, x.ville].filter(Boolean).join(" · ") || "Bien sans référence",
+            }))}
+            onChange={v => rattacherBien(v)}
+            aide={id.bien_id
+              ? "L'adresse est reprise de la fiche bien. La FDU apparaîtra sur ce bien."
+              : "Rattacher évite de retaper l'adresse et relie la FDU au dossier."}/>
           <Dte label="Date de la demande" value={id.date_demande} requis T={T} onChange={v => set("identification", "date_demande", v)}/>
           <Dte label="Date maximum de dépôt" value={id.date_max_depot} requis T={T} onChange={v => set("identification", "date_max_depot", v)}
             aide="Elle pilote tout le rétroplanning"/>

@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "../supabase";
+import {
+  ROLES_EXTERNES_INVEST, ANNUAIRE_VIDE, indexerAnnuaire, normaliserCleAnnuaire,
+  emailPourResponsable, responsablesInvest, estUtilisateurCourant,
+} from "./annuaire.mjs";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
@@ -1870,6 +1874,36 @@ function CompletionBar({ label, value, color, T=THEMES_INV.dark }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ANNUAIRE INVEST
+//
+// L'implémentation vit dans ./annuaire.mjs : la MÊME règle d'appariement
+// décide qui reçoit un e-mail côté serveur (veille quotidienne) et qui
+// apparaît dans les sélecteurs côté interface. Deux copies auraient divergé.
+// Ici, seulement le chargement Supabase et le hook React.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function chargerAnnuaireInvest() {
+  const { data, error } = await supabase
+    .from("utilisateurs").select("nom,email,role,actif").eq("actif", true).order("nom");
+  if (error) {
+    console.warn("[Invest] annuaire indisponible:", error.message);
+    return ANNUAIRE_VIDE;
+  }
+  return indexerAnnuaire(data || []);
+}
+
+// Charge l'annuaire une fois par montage de composant.
+function useAnnuaireInvest() {
+  const [annuaire, setAnnuaire] = React.useState(ANNUAIRE_VIDE);
+  React.useEffect(() => {
+    let annule = false;
+    chargerAnnuaireInvest().then(a => { if (!annule) setAnnuaire(a); });
+    return () => { annule = true; };
+  }, []);
+  return annuaire;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CONTRAT DE NAVIGATION ENTRE ONGLETS
 //
 // Un seul vocabulaire pour tous les sauts d'un onglet à l'autre : l'émetteur
@@ -1959,6 +1993,13 @@ function readNavTarget(initialFilter) {
 }
 
 export {
+  ROLES_EXTERNES_INVEST,
+  chargerAnnuaireInvest,
+  indexerAnnuaire,
+  emailPourResponsable,
+  responsablesInvest,
+  estUtilisateurCourant,
+  useAnnuaireInvest,
   NAV,
   NAV_TABS,
   NAV_ACTIONS,

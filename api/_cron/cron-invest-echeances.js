@@ -85,25 +85,22 @@ function ajouterJours(iso, n) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Annuaire
 //
-// Les champs `responsable`, `commercial`, `conseiller_profero` et `auteur`
-// contiennent un prénom saisi à la main (« Camille », « Tom »). La table
-// `utilisateurs` porte nom / email / role / actif. On rapproche les deux de
-// façon tolérante : le format exact de `nom` n'est pas garanti, et un cron qui
-// n'envoie rien parce qu'il n'a pas su apparier un prénom est un cron inutile.
+// La règle d'appariement vit dans src/Invest/annuaire.mjs — le MÊME module que
+// l'interface. Elle décide qui reçoit un e-mail ici et qui apparaît dans les
+// sélecteurs de responsable là-bas : deux copies auraient divergé.
 //
-// Trois clés par utilisateur, dans l'ordre de fiabilité décroissante :
-//   « camille landais »  nom complet normalisé
-//   « camille »          premier mot du nom
-//   « camille »          partie locale de l'email, avant le point
+// Import dynamique parce que ce fichier est en CommonJS et le module en ESM.
+// Même schéma que chantierFinance.mjs côté Rénovation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function normaliserCle(s) {
-  return String(s || "")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // accents
-    .toLowerCase().trim();
+let _annuaireMod = null;
+async function moduleAnnuaire() {
+  if (!_annuaireMod) _annuaireMod = await import("../../src/Invest/annuaire.mjs");
+  return _annuaireMod;
 }
 
 async function chargerAnnuaire(supabase) {
+  const { indexerAnnuaire, ANNUAIRE_VIDE } = await moduleAnnuaire();
   const { data, error } = await supabase
     .from("utilisateurs")
     .select("nom,email,role,actif")
@@ -111,34 +108,16 @@ async function chargerAnnuaire(supabase) {
 
   if (error) {
     console.warn("[invest-echeances] annuaire indisponible:", error.message);
-    return { parCle: {}, admins: [] };
+    return ANNUAIRE_VIDE;
   }
-
-  const parCle = {};
-  const admins = [];
-  for (const u of data || []) {
-    const email = String(u.email || "").trim();
-    if (!email) continue;
-
-    if (String(u.role || "").toLowerCase() === "admin") admins.push(email);
-
-    const nom = normaliserCle(u.nom);
-    const local = normaliserCle(email.split("@")[0]);
-    const cles = [nom, nom.split(/\s+/)[0], local, local.split(".")[0]].filter(Boolean);
-
-    for (const cle of cles) {
-      // Premier arrivé gagne : une clé ambiguë (deux « Camille ») ne doit pas
-      // basculer d'un destinataire à l'autre selon l'ordre de la requête.
-      if (!parCle[cle]) parCle[cle] = email;
-    }
-  }
-  return { parCle, admins };
+  return indexerAnnuaire(data || []);
 }
 
+// Version synchrone, utilisable dans les boucles de collecte : le module est
+// déjà chargé à ce stade (chargerAnnuaire a été appelé avant).
 function emailDe(annuaire, nomOuPrenom) {
-  const cle = normaliserCle(nomOuPrenom);
-  if (!cle) return null;
-  return annuaire.parCle[cle] || annuaire.parCle[cle.split(/\s+/)[0]] || null;
+  if (!_annuaireMod) return null;
+  return _annuaireMod.emailPourResponsable(annuaire, nomOuPrenom) || null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,10 +342,89 @@ function buildEmailHtml(lignes, dateFr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Envoi
+//
+// Invest n'envoie PAS par Resend : le bouton « Mail » du CRM et la conversion
+// de prospect passent par l'Edge Function Supabase `send-mission-email`, qui
+// expédie via Gmail depuis le compte d'automatisation. Resend ne sert qu'aux
+// crons Rénovation et à /api/send-email.
+//
+// La veille emprunte donc le même canal que le reste d'Invest : un seul chemin
+// à maintenir, et elle hérite d'une configuration déjà éprouvée en production.
+//
+// Le payload reprend celui du CRM. `actionId` et `clientId` sont omis : une
+// ligne de veille ne se rattache pas à une action unique. Si la fonction les
+// exige, l'erreur remonte telle quelle dans le résumé du dispatcher — c'est
+// exactement ce que scripts/diag-mail-invest.mjs sert à vérifier avant de
+// compter dessus.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const COMPTE_AUTOMATISATION = "og@groupe-profero.com";
+
+// Les erreurs d'Edge Function arrivent enveloppées : le message utile est dans
+// le corps de la réponse, pas dans error.message (qui dit juste « non-2xx »).
+async function detailErreurEdge(error) {
+  if (!error) return "";
+  if (error.context && typeof error.context.text === "function") {
+    try {
+      const brut = await error.context.text();
+      if (brut) {
+        try {
+          const parse = JSON.parse(brut);
+          return parse?.error || parse?.message || parse?.hint || brut;
+        } catch { return brut; }
+      }
+    } catch { /* corps illisible : on retombe sur le message générique */ }
+  }
+  return error.message || String(error);
+}
+
+// Convertit le HTML en texte lisible, pour le champ `body` que la fonction
+// attend en plus de `htmlBody`.
+function htmlVersTexte(html) {
+  return String(html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function envoyeurEdge(supabase) {
+  return async (_req, to, subject, html) => {
+    const { data, error } = await supabase.functions.invoke("send-mission-email", {
+      body: {
+        to,
+        subject,
+        body: htmlVersTexte(html),
+        htmlBody: html,
+        responsable: "",
+        clientName: "Veille Profero Invest",
+        senderEmail: COMPTE_AUTOMATISATION,
+        fromEmail: COMPTE_AUTOMATISATION,
+        actionUrl: APP_URL,
+        notificationType: "invest_veille_echeances",
+      },
+    });
+    // La fonction peut répondre 200 en signalant l'échec dans le corps :
+    // les deux cas comptent comme un échec.
+    if (error || data?.error) {
+      return { ok: false, status: 0, data: { message: await detailErreurEdge(error) || data?.error } };
+    }
+    return { ok: true, status: 200, data };
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Point d'entrée, appelé par le dispatcher
 // ─────────────────────────────────────────────────────────────────────────────
 
+// `envoyerMail` reste injectable pour les tests ; en production la veille
+// utilise l'Edge Function d'Invest.
 async function runInvestEcheances(req, supabase, t, envoyerMail) {
+  const expedier = envoyerMail || envoyeurEdge(supabase);
   const todayIso = t.dateIso;
   const resume = {
     lignes: 0, destinataires: 0, envoyes: [], echecs: [],
@@ -420,7 +478,7 @@ async function runInvestEcheances(req, supabase, t, envoyerMail) {
       : `[Profero Invest] ${sesLignes.length} point(s) à traiter aujourd'hui`;
 
     try {
-      const r = await envoyerMail(req, email, sujet, buildEmailHtml(sesLignes, t.dateFr));
+      const r = await expedier(req, email, sujet, buildEmailHtml(sesLignes, t.dateFr));
       if (r.ok) {
         resume.envoyes.push({ to: email, lignes: sesLignes.length });
         envoyesCeJour.add(email);
@@ -448,7 +506,9 @@ module.exports = { runInvestEcheances };
 // Exportés pour être testables isolément, sans base ni réseau.
 module.exports.chargerAnnuaire = chargerAnnuaire;
 module.exports.emailDe = emailDe;
-module.exports.normaliserCle = normaliserCle;
 module.exports.joursEntre = joursEntre;
 module.exports.ajouterJours = ajouterJours;
 module.exports.buildEmailHtml = buildEmailHtml;
+module.exports.envoyeurEdge = envoyeurEdge;
+module.exports.htmlVersTexte = htmlVersTexte;
+module.exports.COMPTE_AUTOMATISATION = COMPTE_AUTOMATISATION;

@@ -12,7 +12,7 @@ import {
   TrendingUp, Wallet, Euro, MapPin, ExternalLink, Filter, ArrowLeft,
   Lock, AlertTriangle, ChevronDown, ChevronUp, Eye, Image as ImageIcon,
   Upload, Copy, Sparkles, Sun, Moon, LogOut, LayoutGrid, Send, Phone as PhoneIcon,
-  Handshake, Bell, Briefcase, Hammer,
+  Handshake, Bell, Briefcase, Hammer, Landmark,
 } from "lucide-react";
 
 import {
@@ -4478,6 +4478,10 @@ function DossierPresentationInvestisseurCard({ bien, T = THEMES_INV.dark, onSave
 function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const [bien, setBien]       = useState(null);
   const [props, setProps]     = useState([]);
+  // Dossiers d'urbanisme rattachés à ce bien. La colonne bien_id et son index
+  // existaient depuis la création de la table ; l'onglet Urbanisme les remplit
+  // désormais, ce qui rend cette carte possible.
+  const [dossiersUrba, setDossiersUrba] = useState([]);
   const [clients, setClients] = useState([]);
   const [showEdit, setShowEdit] = useState(false);
   const [showProp, setShowProp] = useState(false);
@@ -4821,6 +4825,65 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     setFicheTab(key);
   };
 
+  useEffect(() => {
+    if (!ficheId) { setDossiersUrba([]); return; }
+    let annule = false;
+    supabase.from("invest_urbanisme_dossiers")
+      .select("id,reference,statut,autorisation,date_max_depot,date_depot,completude,nb_pieces_manquantes")
+      .eq("bien_id", ficheId)
+      .order("updated_at", { ascending:false })
+      .then(({ data, error }) => {
+        if (annule) return;
+        // 42P01 : module urbanisme absent de cet environnement — la carte se
+        // masque, ce n'est pas une erreur à remonter.
+        if (error) { if (error.code !== "42P01") console.warn("[Biens] dossiers urbanisme:", error.message); return; }
+        setDossiersUrba(data || []);
+      });
+    return () => { annule = true; };
+  }, [ficheId]);
+
+  const UrbanismeCard = () => {
+    if (!dossiersUrba.length) return null;
+    const aujourdhui = new Date().toISOString().slice(0, 10);
+    return (
+      <div className="inv-card">
+        <div className="inv-card-hd">
+          <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+            <Icon as={Landmark} size={13} strokeWidth={2.2}/>Dossiers urbanisme ({dossiersUrba.length})
+          </span>
+        </div>
+        <div className="inv-card-bd">
+          {dossiersUrba.map(dos => {
+            // Une date maximum de dépôt passée sur un dossier pas encore
+            // déposé est la seule alerte vraiment opposable de cette carte.
+            const enRetard = dos.date_max_depot && !dos.date_depot && dos.date_max_depot < aujourdhui;
+            return (
+              <div key={dos.id} style={{ padding:"10px 0", borderBottom:`1px solid ${T.border}` }}>
+                <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
+                  <span style={{ fontWeight:700, fontSize:13, color:T.text }}>
+                    {dos.reference || "Sans référence"}{dos.autorisation ? ` · ${dos.autorisation}` : ""}
+                  </span>
+                  <span style={{ fontSize:11.5, fontWeight:800, color: enRetard ? DA : T.textSub }}>
+                    {dos.statut}
+                  </span>
+                </div>
+                <div style={{ fontSize:11.5, color: enRetard ? DA : T.textMuted, marginTop:3 }}>
+                  {dos.date_depot
+                    ? `Déposé le ${new Date(dos.date_depot).toLocaleDateString("fr-FR")}`
+                    : dos.date_max_depot
+                      ? `${enRetard ? "Dépôt en retard depuis le" : "À déposer avant le"} ${new Date(dos.date_max_depot).toLocaleDateString("fr-FR")}`
+                      : "Aucune date de dépôt fixée"}
+                  {dos.nb_pieces_manquantes > 0 ? ` · ${dos.nb_pieces_manquantes} pièce(s) manquante(s)` : ""}
+                  {` · complétude ${dos.completude || 0}%`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const ClientsAssociesCard = () => (
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
@@ -5066,6 +5129,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
 
           <div style={{ display:"flex", flexDirection:"column", gap:16, minWidth:0 }}>
             <ClientsAssociesCard />
+            <UrbanismeCard />
 
             <div className="inv-card">
               <div className="inv-card-hd gold"><span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Sparkles} size={13}/>Actions rapides</span></div>
