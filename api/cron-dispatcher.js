@@ -16,7 +16,7 @@ const { createClient } = require("@supabase/supabase-js");
 // Les deux handlers métier vivent dans api/_cron/ (dossier NON déployé en
 // fonctions — plan Hobby Vercel = max 12 fonctions serverless) et ne sont
 // joignables qu'à travers ce dispatcher.
-const { runRappelRapport, parisNow, heureAttendue, envoyerMail } = require("./_cron/cron-rappel-rapport.js");
+const { runRappelRapport, parisNow, heureAttendue } = require("./_cron/cron-rappel-rapport.js");
 const { runRecapCommandes }                          = require("./_cron/cron-recap-commandes.js");
 const { runInvestEcheances }                         = require("./_cron/cron-invest-echeances.js");
 
@@ -80,7 +80,10 @@ module.exports = async function handler(req, res) {
   // avant 5h Paris, tous les jours ouvrés.
   if (heureAttendue(t.weekday) !== null && t.hour >= 3 && t.hour < 5) {
     try {
-      summary.invest_echeances = await runInvestEcheances(req, supabase, t, envoyerMail);
+      // Pas d'envoyeur injecté : la veille utilise l'Edge Function d'Invest
+      // (send-mission-email, Gmail), le même canal que le CRM. Resend ne sert
+      // qu'aux crons Rénovation.
+      summary.invest_echeances = await runInvestEcheances(req, supabase, t);
       ranWith.push("invest_echeances");
     } catch (e) {
       console.error("dispatcher invest_echeances:", e);
