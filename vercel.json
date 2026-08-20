@@ -2,22 +2,6 @@
   "functions": {
     "api/cron-snapshot-hebdo.js": { "maxDuration": 60 }
   },
-  "_comment_rewrites": [
-    "La règle attrape-tout renvoyait index.html pour TOUTE URL non trouvée,",
-    "y compris un fichier /assets/*.js supprimé par un déploiement. Le",
-    "navigateur recevait alors du HTML avec un code 200 là où il attendait un",
-    "module JavaScript, d'où « 'text/html' is not a valid JavaScript MIME",
-    "type ». Quand le fichier concerné est le chunk React, plus aucun script",
-    "ne s'exécute : ni l'ErrorBoundary, ni le filet de récupération.",
-    "",
-    "Le négatif sur /assets/ rend l'échec honnête : un chunk manquant renvoie",
-    "un vrai 404, que le navigateur signale par un événement d'erreur normal",
-    "— celui que le filet d'index.html sait intercepter. Les routes SPA",
-    "continuent de retomber sur index.html comme avant.",
-    "",
-    "Vercel sert les fichiers réellement présents AVANT d'appliquer les",
-    "rewrites : les assets existants ne sont pas affectés."
-  ],
   "rewrites": [
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ],
