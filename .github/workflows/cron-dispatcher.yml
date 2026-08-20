@@ -1,8 +1,9 @@
-name: Cron dispatcher (récap commandes + rappel rapport)
+name: Cron dispatcher (récap commandes + rappel rapport + veille Invest)
 
-# Déclenche le endpoint /api/cron-dispatcher de l'app Vercel à 2 créneaux :
+# Déclenche le endpoint /api/cron-dispatcher de l'app Vercel à 3 créneaux :
 #   - Vendredi 06h UTC (= 08h Paris été / 07h hiver)  →  récap commandes
 #   - Lun-Ven 14h50 UTC (= 16h50 Paris été / 15h50 hiver) →  rappel rapport
+#   - Lun-Ven 02h UTC (= 04h Paris été / 03h hiver)   →  veille échéances Invest
 #
 # Remplace les crons Vercel natifs, désactivés sur le plan Hobby depuis fin 2024.
 # Le dispatcher route ensuite vers la bonne fonction métier selon l'heure/jour Paris.
@@ -15,6 +16,10 @@ on:
   schedule:
     - cron: '0 6 * * 5'        # Vendredi 06h UTC → récap commandes vendredi matin
     - cron: '50 14 * * 1-5'    # Lun-Ven 14h50 UTC → rappel rapport fin de journée
+    # Veille Invest : 02h UTC tombe à 04h Paris en été et 03h en hiver — les
+    # deux dans la fenêtre 3h-5h que teste le dispatcher, donc aucun ajustement
+    # saisonnier à faire. Le mail arrive avant la prise de poste.
+    - cron: '0 2 * * 1-5'      # Lun-Ven 02h UTC → veille échéances Invest
   workflow_dispatch:           # Bouton "Run workflow" dans l'UI GitHub pour tester
 
 jobs:

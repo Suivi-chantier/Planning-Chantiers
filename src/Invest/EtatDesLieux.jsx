@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { readNavTarget } from "./_shared";
 import { createPortal } from "react-dom";
 import {
   listerEDL, chargerEDL, creerEDL, majEDL, supprimerEDL,
@@ -1915,7 +1916,7 @@ function ListeEDL({ profil, onOuvrir }) {
 }
 
 /* ============ Page ============ */
-export default function EtatDesLieux({ profil }) {
+export default function EtatDesLieux({ profil, initialFilter = null }) {
   useGoogleFonts();
   const [dossier, setDossier] = useState(null);
   const [chargement, setChargement] = useState(false);
@@ -1934,6 +1935,20 @@ export default function EtatDesLieux({ profil }) {
       setChargement(false);
     }
   };
+
+  // Ouverture directe depuis un lien extérieur (mail de veille quotidienne),
+  // qui signale notamment les brouillons dormants — dont les photos ne sont
+  // encore que sur l'appareil de saisie.
+  const navFaitRef = useRef(null);
+  useEffect(() => {
+    if (!initialFilter) { navFaitRef.current = null; return; }
+    const cible = readNavTarget(initialFilter);
+    if (cible.action !== "open" || !cible.id) return;
+    const jeton = `${cible.id}:${initialFilter._ts || ""}`;
+    if (navFaitRef.current === jeton) return;
+    navFaitRef.current = jeton;
+    ouvrir({ id: cible.id });
+  }, [initialFilter]);
 
   if (chargement) {
     return (

@@ -399,6 +399,51 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     setPage(cible.tab);
   };
 
+  // Arrivée depuis un lien extérieur (mail de veille quotidienne, notification).
+  //
+  // Les liens du cron pointent vers un dossier précis. Sans ce bootstrap, on
+  // atterrissait sur le tableau de bord : l'onglet cible n'étant pas monté, son
+  // propre effet de lecture d'URL ne se déclenchait jamais. C'était déjà le cas
+  // du `?crm_client=` existant, qui ne fonctionnait que si l'utilisateur
+  // basculait ensuite sur le CRM à la main.
+  //
+  // On attend `rolePages` : router avant que la configuration d'accès soit
+  // chargée ferait refuser une cible que l'utilisateur a pourtant le droit de
+  // voir.
+  const bootstrapFait = useRef(false);
+  useEffect(() => {
+    if (bootstrapFait.current || typeof window === "undefined") return;
+    if (!rolePages) return;
+
+    const params = new URLSearchParams(window.location.search || "");
+    const liens = [
+      ["invest_urbanisme", (v) => NAV.ficheUrbanisme(v)],
+      ["invest_edl",       (v) => NAV.ficheEDL(v)],
+      ["invest_bien",      (v) => NAV.ficheBien(v)],
+      ["invest_prospect",  (v) => NAV.ficheProspect(v)],
+      ["crm_client",       (v) => NAV.actionsClient(v, params.get("mission_action") || null)],
+      ["client_id",        (v) => NAV.ficheClient(v)],
+    ];
+
+    for (const [cle, versCible] of liens) {
+      const valeur = params.get(cle);
+      if (!valeur) continue;
+      const cible = versCible(valeur);
+      bootstrapFait.current = true;
+      naviguer(cible.tab, cible);
+      // L'identifiant est retiré de la barre d'adresse : sans cela, un
+      // rechargement rouvrirait indéfiniment la même fiche par-dessus le
+      // travail en cours.
+      params.delete(cle);
+      params.delete("mission_action");
+      params.delete("mission_step");
+      const reste = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (reste ? `?${reste}` : ""));
+      return;
+    }
+    bootstrapFait.current = true;
+  }, [rolePages]);
+
   const changerPage = (p) => {
     setPage(p);
     // Un filtre de navigation ne vaut que pour le saut qui l'a produit : le
