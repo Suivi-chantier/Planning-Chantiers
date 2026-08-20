@@ -494,27 +494,63 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
 
 /* ─── MOBILE ───────────────────────────────────────────────────────────── */
 @media(max-width:767px){
+  /* La sidebar devient une barre horizontale en haut, le contenu prend le reste.
+     Le ciblage se fait par CLASSE et non par position dans l'arbre : la version
+     précédente utilisait « .inv > div:first-child », or le premier enfant de
+     .inv est une balise <style>, pas un div. Le sélecteur ne correspondait donc
+     à RIEN — toute cette section était morte.
+
+     Effet observé sur téléphone : .inv passait bien en colonne, mais la sidebar
+     conservait son height:100% en ligne. Elle occupait tout l'écran en hauteur,
+     le contenu était poussé dessous, et overflow:hidden le masquait. On voyait
+     les onglets, et rien d'autre. */
   .inv{flex-direction:column!important;overflow:hidden}
-  .inv > div:first-child{width:100%!important;height:auto!important;flex-direction:row!important;border-right:none!important;border-bottom:1px solid ${T.border};flex-shrink:0;align-items:center}
-  .inv > div:first-child > div:first-child{padding:6px 10px!important;border-bottom:none!important;border-right:1px solid ${T.border};flex-shrink:0;align-self:stretch}
-  .inv > div:first-child > div:first-child img{height:24px!important;width:auto!important}
-  .inv > div:first-child > div:first-child button{display:none}
-  .inv > div:first-child > nav{flex:1;display:flex!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 6px!important;gap:2px}
-  .inv > div:first-child > nav::-webkit-scrollbar{display:none}
-  .inv > div:first-child > nav button{flex:0 0 auto;width:auto!important;padding:8px 12px!important;font-size:${FONT.sm.size}px!important;margin-bottom:0!important;justify-content:center!important}
-  .inv > div:first-child > nav button span:last-child{display:inline!important}
-  /* Barre du bas : elle était purement masquée sur mobile, ce qui retirait la
-     déconnexion, le retour au portail, le thème ET la cloche de notifications.
-     On la replie à droite de la nav horizontale au lieu de la supprimer. */
-  .inv > div:first-child > div:last-child{
+
+  .inv-sidebar{
+    width:100%!important; height:auto!important; min-height:0!important;
+    flex-direction:row!important; flex-shrink:0!important;
+    border-right:none!important; border-bottom:1px solid ${T.sidebarBorder};
+    align-items:center!important; overflow:visible!important;
+  }
+  /* minHeight:0 est indispensable : sans lui, un enfant flex refuse de
+     rétrécir sous la taille de son contenu et le débordement ne défile pas. */
+  .inv-content{flex:1 1 auto!important; min-height:0!important; overflow-y:auto!important; -webkit-overflow-scrolling:touch}
+
+  .inv-sidebar-head{
+    padding:6px 10px!important; border-bottom:none!important;
+    border-right:1px solid ${T.sidebarBorder}; flex-shrink:0; align-self:stretch;
+    display:flex!important; align-items:center!important;
+  }
+  .inv-sidebar-head img{height:26px!important; width:auto!important}
+  .inv-sidebar-head button{display:none!important}
+
+  .inv-sidebar > nav{
+    flex:1 1 auto!important; display:flex!important; overflow-x:auto;
+    -webkit-overflow-scrolling:touch; padding:4px 6px!important; gap:2px;
+  }
+  .inv-sidebar > nav::-webkit-scrollbar{display:none}
+  .inv-sidebar > nav button{
+    flex:0 0 auto; width:auto!important; padding:8px 12px!important;
+    font-size:${FONT.sm.size}px!important; margin-bottom:0!important;
+    justify-content:center!important; white-space:nowrap;
+  }
+  /* Le libellé, par classe : « span:last-child » attrapait en réalité la barre
+     d'indicateur de l'onglet actif, pas le texte. */
+  .inv-nav-label{display:inline!important; flex:0 0 auto!important}
+
+  /* Barre d'actions : retour au portail, thème, déconnexion, notifications.
+     Elle était purement masquée, ce qui privait l'utilisateur mobile de la
+     déconnexion. On la replie à droite de la nav. */
+  .inv-sidebar-actions{
     flex-direction:row!important; border-top:none!important;
     border-left:1px solid ${T.sidebarBorder};
     padding:4px 6px!important; gap:2px!important; flex-shrink:0;
     align-self:stretch; align-items:center!important; justify-content:flex-end!important;
   }
-  /* Indicateur de sync et bloc profil : eux, ne servent à rien sur un écran
-     étroit et prennent la place de la nav. */
+  /* Indicateur de synchronisation et bloc profil : inutiles sur un écran
+     étroit, et ils mangeaient la largeur de la nav. */
   .inv-sync-indicator, .inv-user-info{display:none!important}
+
   /* La cloche passe en haut à droite : son panneau s'ouvrirait hors écran s'il
      restait ancré à gauche et large de 320 px. */
   .inv-notif-panel{
@@ -522,6 +558,10 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
     width:min(320px, calc(100vw - 16px))!important; max-height:70vh!important;
     position:fixed!important; margin-top:4px;
   }
+
+  /* Les pages ont des marges pensées pour un écran large. */
+  .inv-content > div{padding-left:${SPACING.md}px!important; padding-right:${SPACING.md}px!important}
+
   .inv-card-bd{padding:${SPACING.sm+2}px ${SPACING.md}px!important}
   .inv-row{flex-wrap:wrap;grid-template-columns:1fr!important;gap:${SPACING.xs+2}px!important}
   .inv-kpi{padding:${SPACING.sm+2}px ${SPACING.md}px!important}

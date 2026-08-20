@@ -134,10 +134,26 @@ function canSeeInvestPage(rolePages, role, pageId) {
 function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null }) {
   const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
+  const [replieChoisi, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
+
+  // Écran étroit : la barre latérale devient horizontale et l'état « réduit »
+  // n'a plus de sens. Il est pourtant mémorisé dans le navigateur — et s'il a
+  // été posé depuis un ordinateur, les libellés des onglets ne sont PAS rendus
+  // du tout sur téléphone. Aucun CSS ne peut les faire réapparaître : c'est le
+  // JSX qui ne les produit pas. D'où cette neutralisation côté état.
+  const [etroit, setEtroit] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const maj = (e) => setEtroit(e.matches);
+    mq.addEventListener("change", maj);
+    return () => mq.removeEventListener("change", maj);
+  }, []);
+  const collapsed = etroit ? false : replieChoisi;
 
   const toggle = () => {
-    const next = !collapsed;
+    const next = !replieChoisi;
     setCollapsed(next);
     localStorage.setItem("invest_sidebar_collapsed", next ? "1" : "0");
   };
@@ -176,13 +192,13 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   });
 
   return (
-    <div style={{
+    <div className="inv-sidebar" style={{
       width:W, flexShrink:0, background:T.sidebar, borderRight:`1px solid ${T.sidebarBorder}`,
       display:"flex", flexDirection:"column", height:"100%",
       transition:"width .2s ease", overflow:"hidden",
     }}>
       {/* Header + toggle */}
-      <div style={{
+      <div className="inv-sidebar-head" style={{
         padding: collapsed ? "14px 0" : `${SPACING.lg}px ${SPACING.md+2}px ${SPACING.md}px`,
         borderBottom:`1px solid ${T.sidebarBorder}`, display:"flex", alignItems:"center",
         justifyContent: collapsed ? "center" : "space-between", gap:SPACING.sm, flexShrink:0,
@@ -224,7 +240,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
               onMouseEnter={e => { if (!active) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.color = T.textSub; }}}
               onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textMuted; }}}>
               <Icon as={n.icon} size={18} strokeWidth={active ? 2 : 1.75}/>
-              {!collapsed && <span style={{ flex:1 }}>{n.label}</span>}
+              {!collapsed && <span className="inv-nav-label" style={{ flex:1 }}>{n.label}</span>}
               {!collapsed && active && <span style={{ width:4, height:18, borderRadius:2, background:T.accent, flexShrink:0 }}/>}
             </button>
           );
@@ -267,7 +283,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
       )}
 
       {/* Boutons bas — icône-only 32×32 (style Profero Rénovation) */}
-      <div style={{
+      <div className="inv-sidebar-actions" style={{
         padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px ${SPACING.md-2}px` : `${SPACING.sm+2}px ${SPACING.md}px ${SPACING.md-1}px`,
         borderTop:`1px solid ${T.sidebarBorder}`,
         display:"flex", flexDirection: collapsed ? "column" : "row",
@@ -475,7 +491,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
       <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} />
-      <div style={{ flex:1, overflowY:"auto", background:T.bg }}>
+      <div className="inv-content" style={{ flex:1, minHeight:0, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
         {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
