@@ -46,6 +46,8 @@ function fauxSupabase(tables, journal = {}) {
     if (f.op === "lt")  return v != null && String(v) <  String(f.val);
     if (f.op === "lte") return v != null && String(v) <= String(f.val);
     if (f.op === "in")  return f.val.includes(v);
+    // .not(col, "is", null) → la colonne est renseignée
+    if (f.op === "notIsNull") return v !== null && v !== undefined;
     return true;
   }));
 
@@ -59,6 +61,21 @@ function fauxSupabase(tables, journal = {}) {
         lt(col, val)  { filtres.push({ col, val, op: "lt" });  return builder; },
         lte(col, val) { filtres.push({ col, val, op: "lte" }); return builder; },
         in(col, val)  { filtres.push({ col, val, op: "in" });  return builder; },
+        not(col, op, val) {
+          if (op === "is" && val === null) filtres.push({ col, op: "notIsNull" });
+          return builder;
+        },
+        update(patch) {
+          const cible = { table, patch, filtres: [...filtres] };
+          (journal.updates ||= []).push(cible);
+          // .update().eq() : le .eq arrive APRÈS, on renvoie donc un objet
+          // qui accepte encore les filtres puis se résout.
+          const suite = {
+            eq(col, val) { cible.filtres.push({ col, val, op: "eq" }); return suite; },
+            then(res, rej) { return Promise.resolve({ error: null }).then(res, rej); },
+          };
+          return suite;
+        },
         maybeSingle() {
           if (rows === undefined) return Promise.resolve({ data: null, error: { code: "42P01", message: "table absente" } });
           return Promise.resolve({ data: filtrer(rows, filtres)[0] || null, error: null });
@@ -284,7 +301,87 @@ verifie("un envoi en échec n'est pas mémorisé comme traité",
   "l'échec aurait été considéré comme envoyé : il ne repartirait jamais");
 
 // ════════════════════════════════════════════════════════════════════════════
-section("6. Robustesse");
+section("6. Relances consignées");
+
+// La règle centrale : une relance sortie doit être consignée, sinon elle repart
+// chaque jour ; une relance NON sortie ne doit pas l'être, sinon elle se taît à
+// jamais.
+const journalR = {};
+const boiteR = [];
+const tablesR = {
+  utilisateurs: UTILISATEURS,
+  planning_config: [],
+  invest_mission_actions: [
+    // Palier J+5 franchi (échéance 2026-08-10, aujourd'hui 2026-08-20)
+    { id: "r1", action_title: "Demander la CNI", due_date: "2026-08-10", status: "a_faire",
+      responsable: "Camille", client_id: "c1", relance_rule: "J+2 puis J+5 si non reçue",
+      due_reminder_enabled: true, last_reminder_sent_at: null, reminder_count: 0,
+      document_drive_attendu: true, justificatif_drive_url: null },
+    // Justificatif déposé → aucune relance
+    { id: "r2", action_title: "Fiche patrimoniale", due_date: "2026-08-10", status: "a_faire",
+      responsable: "Camille", client_id: "c1", relance_rule: "J+2 puis J+5 si non reçue",
+      due_reminder_enabled: true, last_reminder_sent_at: null, reminder_count: 0,
+      document_drive_attendu: true, justificatif_drive_url: "https://drive/ok" },
+    // Règle non calculable → aucune relance
+    { id: "r3", action_title: "Contacter la mairie", due_date: "2026-08-01", status: "a_faire",
+      responsable: "Camille", client_id: "c1", relance_rule: "Avant dépôt urbanisme",
+      due_reminder_enabled: true, last_reminder_sent_at: null, reminder_count: 0 },
+  ],
+};
+await runInvestEcheances({ headers: {} }, fauxSupabase(tablesR, journalR), t, fauxMailer(boiteR));
+
+const corpsR = JSON.stringify(boiteR);
+verifie("une relance due part", corpsR.includes("Demander la CNI"));
+verifie("le motif nomme le palier atteint", /J\+5/.test(corpsR),
+  "le destinataire doit savoir de quelle relance il s'agit");
+// Attention à ce qu'on affirme : ces deux actions ont une échéance dépassée,
+// donc collecteActions les signale légitimement. Ce qu'on vérifie ici, c'est
+// qu'elles ne produisent pas de RELANCE — les lignes de relance sont les seules
+// préfixées « Relance — ».
+const relancesEmises = (boiteR[0]?.html || "").match(/Relance — [^<]+/g) || [];
+verifie("un justificatif déposé ne produit pas de relance",
+  !relancesEmises.some(l => l.includes("Fiche patrimoniale")),
+  `relances émises : ${JSON.stringify(relancesEmises)}`);
+verifie("une règle non calculable ne produit pas de relance",
+  !relancesEmises.some(l => l.includes("Contacter la mairie")),
+  `relances émises : ${JSON.stringify(relancesEmises)}`);
+verifie("une seule relance émise au total", relancesEmises.length === 1,
+  `${relancesEmises.length} relance(s) : ${JSON.stringify(relancesEmises)}`);
+verifie("l'action en retard reste signalée par ailleurs",
+  corpsR.includes("Fiche patrimoniale"),
+  "collecteActions doit continuer à signaler une échéance dépassée");
+
+const majR = (journalR.updates || []).filter(u => u.table === "invest_mission_actions");
+verifie("la relance sortie est consignée", majR.length === 1,
+  `${majR.length} mise(s) à jour — attendu 1`);
+verifie("last_reminder_sent_at est posé",
+  !!majR[0]?.patch?.last_reminder_sent_at);
+verifie("le compteur est incrémenté", majR[0]?.patch?.reminder_count === 1);
+verifie("la consignation cible la bonne action",
+  majR[0]?.filtres?.some(f => f.col === "id" && f.val === "r1"));
+
+// Envoi en échec : la relance ne doit PAS être consignée, sinon elle ne
+// repartirait jamais.
+const journalKO = {};
+const boiteKO = [];
+await runInvestEcheances({ headers: {} }, fauxSupabase(tablesR, journalKO), t,
+  fauxMailer(boiteKO, { echouePour: ["camille.landais@groupe-profero.com"] }));
+verifie("un envoi en échec ne consigne aucune relance",
+  (journalKO.updates || []).filter(u => u.table === "invest_mission_actions").length === 0,
+  "sinon la relance serait perdue définitivement");
+
+// Deuxième passage le même jour : l'idempotence par destinataire doit tenir.
+const journal2e = {};
+const boite2e = [];
+await runInvestEcheances({ headers: {} }, fauxSupabase({
+  ...tablesR,
+  planning_config: [{ key: "invest_echeances_state",
+    value: { date: AUJOURDHUI, emails: ["camille.landais@groupe-profero.com"] } }],
+}, journal2e), t, fauxMailer(boite2e));
+verifie("second passage le même jour : aucune relance en double",
+  boite2e.length === 0 && (journal2e.updates || []).length === 0);
+
+section("7. Robustesse");
 
 const boite7 = [];
 // Modules pas encore déployés : les tables urbanisme et EDL n'existent pas.

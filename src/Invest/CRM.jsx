@@ -20,6 +20,7 @@ import {
   readNavTarget, useAnnuaireInvest, emailPourResponsable, responsablesInvest
 } from "./_shared";
 import { creerNotificationInvest } from "./notifications";
+import { decrireRelance, analyserRelance } from "./relances.mjs";
 import Simulateur from "./Simulateur";
 
 function ClientStrategyCard({ client, T=THEMES_INV.dark, onSaved }) {
@@ -3057,7 +3058,21 @@ Laisse vide pour créer un événement en journée entière.`,
                       <div style={{fontSize:10.5,color:T.textMuted,marginTop:4,display:"flex",gap:8,flexWrap:"wrap",lineHeight:1.45}}>
                         <span>👤 {a.responsable || "Responsable à définir"}</span>
                         <span>📅 Échéance {a.due_date ? missionFormatDateFr(a.due_date) : "—"}</span>
-                        {a.relance_rule && <span>🔔 {a.relance_rule}</span>}
+                        {a.relance_rule && (() => {
+                          // La règle brute reste affichée — c'est le texte que
+                          // le pôle a écrit. On y ajoute ce qu'elle DÉCLENCHE
+                          // vraiment : une trentaine des règles du modèle
+                          // portent sur un événement extérieur et ne peuvent
+                          // rien déclencher. Le dire évite de croire à un suivi
+                          // automatique qui n'existe pas.
+                          const r = analyserRelance(a.relance_rule);
+                          return (
+                            <span title={decrireRelance(a.relance_rule)}
+                              style={{ color: r.executable ? "#2563eb" : T.textMuted, fontWeight: r.executable ? 850 : 600 }}>
+                              🔔 {a.relance_rule}{r.executable ? "" : " (note)"}
+                            </span>
+                          );
+                        })()}
                         {a.due_reminder_enabled !== false && !isDone && <span>⏱ Relance quotidienne</span>}
                         {a.last_reminder_sent_at && <span style={{color:"#2563eb",fontWeight:850}}>🔁 relancé le {missionFormatDateFr(a.last_reminder_sent_at)}</span>}
                         {a.completed_at && <span style={{color:"#16a34a",fontWeight:950}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}

@@ -99,6 +99,15 @@ async function moduleAnnuaire() {
   return _annuaireMod;
 }
 
+// Moteur de relance, partagé avec l'interface (qui l'utilise pour AFFICHER ce
+// qu'une règle déclenchera réellement). Même raison qu'annuaire.mjs : deux
+// copies de la règle divergeraient.
+let _relancesMod = null;
+async function moduleRelances() {
+  if (!_relancesMod) _relancesMod = await import("../../src/Invest/relances.mjs");
+  return _relancesMod;
+}
+
 async function chargerAnnuaire(supabase) {
   const { indexerAnnuaire, ANNUAIRE_VIDE } = await moduleAnnuaire();
   const { data, error } = await supabase
@@ -201,6 +210,51 @@ async function collecteActions(supabase, annuaire, todayIso) {
       detail: `En retard de ${retard} jour(s)${a.step_label ? ` · ${a.step_label}` : ""}`,
       echeance: a.due_date,
       lien: a.client_id ? `${APP_URL}/?crm_client=${a.client_id}&mission_action=${a.id}` : APP_URL,
+    });
+  }
+  return lignes;
+}
+
+// Relances dues, d'après les règles écrites dans les modèles de mission.
+//
+// Soixante-six règles étaient stockées en texte libre (« J+2 puis J+5 si non
+// reçue », « Hebdomadaire »), affichées avec une cloche, recopiées dans les
+// e-mails — et lues par aucun moteur. Une intention documentée, pas un
+// mécanisme. src/Invest/relances.mjs les traduit ; ce collecteur les exécute.
+//
+// Distinct de collecteActions : celui-là signale une échéance dépassée UNE
+// fois, celui-ci applique la cadence prévue par la règle. Une même action peut
+// donc apparaître dans les deux — c'est voulu, ce sont deux informations
+// différentes (« c'est en retard » et « voici la Nᵉ relance prévue »).
+async function collecteRelances(supabase, annuaire, todayIso) {
+  const lignes = [];
+  const { relanceDue } = await moduleRelances();
+
+  const { data, error } = await supabase
+    .from("invest_mission_actions")
+    .select("id,action_title,due_date,status,responsable,responsable_email,client_id,step_label," +
+            "relance_rule,due_reminder_enabled,last_reminder_sent_at,reminder_count," +
+            "document_drive_attendu,justificatif_drive_url")
+    .not("relance_rule", "is", null);
+
+  if (error) {
+    if (error.code !== "42P01") console.warn("[invest-echeances] relances:", error.message);
+    return lignes;
+  }
+
+  for (const a of data || []) {
+    const due = relanceDue(a, todayIso);
+    if (!due) continue;
+    lignes.push({
+      destinataire: a.responsable_email || emailDe(annuaire, a.responsable),
+      gravite: due.rang >= 2 ? "critique" : "urgent",
+      titre: `Relance — ${a.action_title || "action sans intitulé"}`,
+      detail: `${due.motif}${a.step_label ? ` · ${a.step_label}` : ""}${a.relance_rule ? ` · règle : ${a.relance_rule}` : ""}`,
+      echeance: due.echeance,
+      lien: a.client_id ? `${APP_URL}/?crm_client=${a.client_id}&mission_action=${a.id}` : APP_URL,
+      // Consigné après envoi réussi seulement, pour que la même relance ne
+      // reparte pas demain — et qu'un échec la fasse repartir.
+      _relance: { actionId: a.id, compteur: Number(a.reminder_count || 0) + 1 },
     });
   }
   return lignes;
@@ -395,6 +449,7 @@ async function runInvestEcheances(req, supabase, t, envoyerMail) {
     collecteUrbanisme(supabase, annuaire, todayIso),
     collecteActions(supabase, annuaire, todayIso),
     collecteBiens(supabase, annuaire, todayIso),
+    collecteRelances(supabase, annuaire, todayIso),
     collecteEDL(supabase, annuaire, todayIso),
     collecteNotificationsEnEchec(supabase, todayIso),
   ]);
@@ -432,6 +487,28 @@ async function runInvestEcheances(req, supabase, t, envoyerMail) {
       if (r.ok) {
         resume.envoyes.push({ to: email, lignes: sesLignes.length });
         envoyesCeJour.add(email);
+        // Consignation des relances SORTIES, et d'elles seules.
+        //
+        // C'est ce qui empêche la même relance de repartir demain : relanceDue
+        // compare le palier franchi à last_reminder_sent_at. Marquer avant
+        // l'envoi ferait taire à jamais une relance jamais partie ; ne pas
+        // marquer du tout la ferait partir chaque jour.
+        for (const l of sesLignes) {
+          if (!l._relance) continue;
+          const { error } = await supabase.from("invest_mission_actions").update({
+            last_reminder_sent_at: new Date().toISOString(),
+            reminder_count: l._relance.compteur,
+            reminder_error: null,
+          }).eq("id", l._relance.actionId);
+          if (error) {
+            // Non consignée : elle repartira demain. Un doublon vaut mieux
+            // qu'une relance perdue, mais il faut le savoir.
+            console.warn("[invest-echeances] relance non consignée:", error.message);
+            (resume.relances_non_consignees ||= []).push(l._relance.actionId);
+          } else {
+            resume.relances_envoyees = (resume.relances_envoyees || 0) + 1;
+          }
+        }
       } else {
         resume.echecs.push({ to: email, status: r.status, data: r.data });
       }
