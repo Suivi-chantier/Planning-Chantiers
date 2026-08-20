@@ -518,32 +518,33 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
 
   .inv-sidebar-head{
     padding:6px 10px!important; border-bottom:none!important;
-    border-right:1px solid ${T.sidebarBorder}; flex-shrink:0; align-self:stretch;
+    border-right:none!important; flex:1 1 auto!important; align-self:stretch;
     display:flex!important; align-items:center!important;
   }
   .inv-sidebar-head img{height:26px!important; width:auto!important}
   .inv-sidebar-head button{display:none!important}
 
-  .inv-sidebar > nav{
-    flex:1 1 auto!important; display:flex!important; overflow-x:auto;
-    -webkit-overflow-scrolling:touch; padding:4px 6px!important; gap:2px;
+  /* La navigation est passée en bas (.inv-bottom-nav) : le bandeau de tête ne
+     garde que le logo et les actions. La nav verticale n'est même plus rendue
+     sur mobile, côté JSX. */
+
+  /* Navigation du bas — convention iOS / Android : la nav principale à portée
+     du pouce, pas en haut de l'écran. */
+  .inv-bottom-nav{
+    display:flex!important; position:fixed; bottom:0; left:0; right:0; z-index:200;
+    background:${T.sidebar}; border-top:2px solid ${T.accent};
+    align-items:stretch; padding-bottom:env(safe-area-inset-bottom);
   }
-  .inv-sidebar > nav::-webkit-scrollbar{display:none}
-  .inv-sidebar > nav button{
-    flex:0 0 auto; width:auto!important; padding:8px 12px!important;
-    font-size:${FONT.sm.size}px!important; margin-bottom:0!important;
-    justify-content:center!important; white-space:nowrap;
-  }
-  /* Le libellé, par classe : « span:last-child » attrapait en réalité la barre
-     d'indicateur de l'onglet actif, pas le texte. */
-  .inv-nav-label{display:inline!important; flex:0 0 auto!important}
+  /* Le contenu doit pouvoir défiler jusqu'au bout sans passer sous la barre.
+     58 px de barre + la zone sûre de l'indicateur d'accueil iPhone. */
+  .inv-content{padding-bottom:calc(62px + env(safe-area-inset-bottom))!important}
 
   /* Barre d'actions : retour au portail, thème, déconnexion, notifications.
      Elle était purement masquée, ce qui privait l'utilisateur mobile de la
      déconnexion. On la replie à droite de la nav. */
   .inv-sidebar-actions{
     flex-direction:row!important; border-top:none!important;
-    border-left:1px solid ${T.sidebarBorder};
+    border-left:none!important;
     padding:4px 6px!important; gap:2px!important; flex-shrink:0;
     align-self:stretch; align-items:center!important; justify-content:flex-end!important;
   }

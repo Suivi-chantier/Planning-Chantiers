@@ -25,6 +25,32 @@ const PREFIX = 'draft:'
  * @param {string} key      clé unique et stable du formulaire (ex: "commande-nouvelle")
  * @param {*} initial       valeur initiale (ou fonction () => valeur)
  */
+// Écran étroit (téléphone). Une seule définition pour les deux branches :
+// Renovation/Navigation.jsx en avait sa propre copie, sur un écouteur `resize`
+// qui se déclenche à chaque pixel. matchMedia ne notifie qu'au franchissement
+// du seuil, ce qui est à la fois plus juste et bien moins coûteux.
+//
+// Le seuil 768 px correspond au @media(max-width:767px) des deux feuilles de
+// style : les faire diverger produirait un état où le JSX se croit sur mobile
+// et le CSS non, ou l'inverse.
+export function useIsMobile() {
+  const requete = "(max-width: 767px)";
+  const [mobile, setMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(requete).matches);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(requete);
+    const maj = (e) => setMobile(e.matches);
+    mq.addEventListener("change", maj);
+    // L'état initial peut avoir changé entre le premier rendu et cet effet.
+    setMobile(mq.matches);
+    return () => mq.removeEventListener("change", maj);
+  }, []);
+
+  return mobile;
+}
+
 export function useDraft(key, initial) {
   const storageKey = PREFIX + key
 

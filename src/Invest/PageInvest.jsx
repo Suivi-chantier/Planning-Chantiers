@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
+import { useIsMobile } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
 import {
   LayoutDashboard, Users, UserPlus, Building2, BarChart3, Settings, Plus, Trash2,
@@ -48,6 +49,39 @@ const INVEST_PAGES_BASE = [
 ];
 
 const INVEST_PAGES_FALLBACK = INVEST_PAGES_BASE.map(p => p.id);
+// Ordre de priorité pour la barre du bas sur téléphone.
+//
+// Volontairement DIFFÉRENT de l'ordre de la barre latérale, qui suit le
+// parcours métier de gauche à droite sur grand écran. Un téléphone sert
+// d'autres usages :
+//   • États des lieux — saisi sur place, photos prises avec l'appareil. C'est
+//     LE cas d'usage mobile du module.
+//   • Biens — consulter une fiche en déplacement.
+//   • CRM — appeler un client, retrouver une action.
+//   • Tableau de bord — voir ce qui est dû.
+//
+// Quatre entrées maximum : au-delà, les libellés deviennent illisibles sur un
+// écran de 375 px. Le reste passe dans la feuille « Plus ».
+const INVEST_PRIORITE_MOBILE = ["dashboard", "crm", "biens", "etat_des_lieux"];
+const INVEST_MOBILE_MAX = 4;
+
+// Répartit les pages autorisées entre la barre du bas et la feuille « Plus ».
+function repartirPourMobile(nav) {
+  const parId = new Map(nav.map(n => [n.id, n]));
+  const barre = [];
+  for (const id of INVEST_PRIORITE_MOBILE) {
+    const item = parId.get(id);
+    if (item && barre.length < INVEST_MOBILE_MAX) { barre.push(item); parId.delete(id); }
+  }
+  // Si le rôle n'a pas accès aux pages prioritaires, on complète dans l'ordre
+  // de la barre latérale plutôt que de laisser des trous.
+  for (const n of nav) {
+    if (barre.length >= INVEST_MOBILE_MAX) break;
+    if (parId.has(n.id)) { barre.push(n); parId.delete(n.id); }
+  }
+  return { barre, reste: nav.filter(n => parId.has(n.id)) };
+}
+
 
 function getInvestPagesList() {
   const existing = Array.isArray(PAGES_INVEST) ? PAGES_INVEST : [];
@@ -131,7 +165,124 @@ function canSeeInvestPage(rolePages, role, pageId) {
   }
 }
 
-function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null }) {
+// Feuille « Plus » : les onglets qui ne tiennent pas dans la barre du bas.
+function FeuillePlus({ items, page, onChoisir, onFermer, T }) {
+  // Le fond ne doit pas défiler derrière la feuille.
+  useEffect(() => {
+    const avant = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = avant; };
+  }, []);
+
+  useEffect(() => {
+    const echap = (e) => { if (e.key === "Escape") onFermer(); };
+    document.addEventListener("keydown", echap);
+    return () => document.removeEventListener("keydown", echap);
+  }, [onFermer]);
+
+  return (
+    <div onClick={onFermer} style={{
+      position:"fixed", inset:0, zIndex:300, background:"rgba(0,0,0,.5)",
+      display:"flex", alignItems:"flex-end",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:"100%", background:T.sidebar, borderTop:`2px solid ${T.accent}`,
+        borderRadius:"16px 16px 0 0", maxHeight:"78vh", overflowY:"auto",
+        paddingBottom:"calc(12px + env(safe-area-inset-bottom))",
+      }}>
+        <div style={{
+          display:"flex", justifyContent:"space-between", alignItems:"center",
+          padding:"14px 18px 10px", borderBottom:`1px solid ${T.sidebarBorder}`,
+          position:"sticky", top:0, background:T.sidebar,
+        }}>
+          <strong style={{ color:T.text, fontSize:16 }}>Autres onglets</strong>
+          <button onClick={onFermer} aria-label="Fermer" style={{
+            background:"transparent", border:"none", color:T.textMuted,
+            cursor:"pointer", padding:6, display:"flex",
+          }}><Icon as={X} size={20}/></button>
+        </div>
+        {items.map(n => {
+          const actif = page === n.id;
+          return (
+            <button key={n.id} onClick={() => { onChoisir(n.id); onFermer(); }} style={{
+              width:"100%", display:"flex", alignItems:"center", gap:14,
+              padding:"15px 18px", border:"none", cursor:"pointer",
+              background: actif ? T.accentBg : "transparent",
+              color: actif ? T.accent : T.textSub,
+              fontFamily:"inherit", fontSize:15.5, fontWeight: actif ? 800 : 600,
+              textAlign:"left", borderBottom:`1px solid ${T.sidebarBorder}`,
+            }}>
+              <Icon as={n.icon} size={20} strokeWidth={actif ? 2 : 1.75}/>
+              <span style={{ flex:1 }}>{n.label}</span>
+              {actif && <span style={{ width:6, height:6, borderRadius:"50%", background:T.accent }}/>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Barre de navigation du bas, sur téléphone.
+//
+// Convention iOS et Android : la navigation principale vit en bas, à portée du
+// pouce. La barre latérale repliée en bandeau horizontal en haut fonctionnait,
+// mais imposait d'atteindre le haut de l'écran à chaque changement d'onglet.
+//
+// `env(safe-area-inset-bottom)` réserve la place de l'indicateur d'accueil des
+// iPhone sans encoche physique : sans lui, la dernière rangée passe dessous.
+function BarreBasInvest({ nav, page, setPage, T }) {
+  const [feuille, setFeuille] = useState(false);
+  const { barre, reste } = repartirPourMobile(nav);
+  const resteActif = reste.some(n => n.id === page);
+
+  const bouton = (contenu, actif, onClick, cle, libelle) => (
+    <button key={cle} onClick={onClick} aria-label={libelle}
+      aria-current={actif ? "page" : undefined}
+      style={{
+        flex:1, minWidth:0, display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center", gap:3,
+        padding:"7px 2px 5px", border:"none", cursor:"pointer",
+        background: actif ? T.accentBg : "transparent",
+        borderTop: `2px solid ${actif ? T.accent : "transparent"}`,
+        marginTop:-2, fontFamily:"inherit", transition:"background .12s",
+      }}>
+      {contenu}
+      <span style={{
+        fontSize:9, lineHeight:1.15, fontWeight: actif ? 800 : 600,
+        color: actif ? T.accent : T.textMuted, letterSpacing:.2,
+        textTransform:"uppercase", maxWidth:"100%", overflow:"hidden",
+        textOverflow:"ellipsis", whiteSpace:"nowrap",
+      }}>{libelle}</span>
+    </button>
+  );
+
+  return (
+    <>
+      <nav className="inv-bottom-nav" aria-label="Navigation principale">
+        {barre.map(n => bouton(
+          <Icon as={n.icon} size={21} strokeWidth={page === n.id ? 2.2 : 1.75}
+            color={page === n.id ? T.accent : T.textMuted}/>,
+          page === n.id, () => setPage(n.id), n.id, n.label
+        ))}
+        {reste.length > 0 && bouton(
+          <Icon as={LayoutGrid} size={21} strokeWidth={resteActif ? 2.2 : 1.75}
+            color={resteActif ? T.accent : T.textMuted}/>,
+          resteActif, () => setFeuille(true), "__plus",
+          // Quand l'onglet courant est dans la feuille, son nom vaut mieux
+          // que « Plus » : l'utilisateur voit où il est.
+          resteActif ? (reste.find(n => n.id === page)?.label || "Plus") : "Plus"
+        )}
+      </nav>
+      {feuille && (
+        <FeuillePlus items={reste} page={page} T={T}
+          onChoisir={setPage} onFermer={() => setFeuille(false)}/>
+      )}
+    </>
+  );
+}
+
+function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null, onNavItems = null }) {
   const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
   const [replieChoisi, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
@@ -141,15 +292,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   // été posé depuis un ordinateur, les libellés des onglets ne sont PAS rendus
   // du tout sur téléphone. Aucun CSS ne peut les faire réapparaître : c'est le
   // JSX qui ne les produit pas. D'où cette neutralisation côté état.
-  const [etroit, setEtroit] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 767px)");
-    const maj = (e) => setEtroit(e.matches);
-    mq.addEventListener("change", maj);
-    return () => mq.removeEventListener("change", maj);
-  }, []);
+  const etroit = useIsMobile();
   const collapsed = etroit ? false : replieChoisi;
 
   const toggle = () => {
@@ -180,6 +323,15 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   const navItems = getInvestPagesList()
     .filter(p => p?.id && allowed.includes(p.id))
     .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
+
+  // La barre du bas a besoin de la même liste, déjà filtrée par les droits.
+  // On la remonte plutôt que de recalculer les accès à deux endroits.
+  // `page` n'entre pas dans les dépendances : la liste des onglets n'en dépend
+  // pas, et l'y mettre déclencherait un setState inutile à chaque changement
+  // d'onglet. On compare les identifiants, pas la référence du tableau, qui
+  // est recréée à chaque rendu.
+  const clefNav = navItems.map(n => n.id).join("|");
+  useEffect(() => { onNavItems?.(navItems); }, [onNavItems, clefNav]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const W = collapsed ? 64 : 220;
 
@@ -220,7 +372,9 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
       </div>
 
       {/* Nav */}
-      <nav style={{ flex:1, padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.sm}px`, overflowY:"auto" }}>
+      {/* Sur téléphone, la navigation vit dans BarreBasInvest : la rendre ici
+          aussi doublerait les onglets et volerait la hauteur du bandeau. */}
+      {!etroit && <nav style={{ flex:1, padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.sm}px`, overflowY:"auto" }}>
         {navItems.map(n => {
           const active = page === n.id;
           return (
@@ -245,7 +399,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
             </button>
           );
         })}
-      </nav>
+      </nav>}
 
       {/* Sync indicator (factice mais cohérent avec Profero Rénovation) */}
       <div style={{
@@ -353,6 +507,10 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [crmInitialFilter, setCrmInitialFilter] = useState(null);
   const [biensInitialFilter, setBiensInitialFilter] = useState(null);
   const [prospectionInitialFilter, setProspectionInitialFilter] = useState(null);
+  // Entrées de navigation autorisées, remontées par la barre latérale pour que
+  // la barre du bas les réutilise sans recalculer les droits.
+  const [navItems, setNavItems] = useState([]);
+  const estMobile = useIsMobile();
   const [urbanismeInitialFilter, setUrbanismeInitialFilter] = useState(null);
   const [edlInitialFilter, setEdlInitialFilter] = useState(null);
   const [structInitialClientId, setStructInitialClientId] = useState(null);
@@ -490,7 +648,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} />
+      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} onNavItems={setNavItems} />
       <div className="inv-content" style={{ flex:1, minHeight:0, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
@@ -511,6 +669,11 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
           </div>
         ) : <AccesRefuseInvest T={T} page="simulateur"/>)}
       </div>
+      {/* Navigation du bas, téléphone uniquement. Rendue en dernier enfant de
+          .inv pour être au-dessus du contenu dans l'ordre de peinture. */}
+      {estMobile && navItems.length > 0 && (
+        <BarreBasInvest nav={navItems} page={page} setPage={changerPage} T={T}/>
+      )}
     </div>
   );
 }

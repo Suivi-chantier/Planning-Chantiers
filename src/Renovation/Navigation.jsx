@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useIsMobile } from "../hooks";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
@@ -12,16 +13,6 @@ import BoutonAide from "./PageAide";
 import { supabase } from "../supabase";
 
 // ─── HOOK MOBILE ──────────────────────────────────────────────────────────────
-function useIsMobile() {
-  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
-  useEffect(() => {
-    const handler = () => setMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, []);
-  return mobile;
-}
-
 const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
 
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
