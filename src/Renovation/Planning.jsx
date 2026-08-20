@@ -5,7 +5,8 @@ import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
-import { syncDatePrevueTache, HEURES_JOUR } from "./phasagePlanning";
+import { syncDatePrevueTache } from "./phasagePlanning";
+import { capaciteJour, estJourNonTravaille, libelleRythme, semainesDansAnnee } from "../rythmeSemaine";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft, Clock, TriangleAlert, Check,
@@ -58,8 +59,10 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   // Menu "déplacer vers …" — ancré sur la position du bouton dans la viewport.
   const [moveMenu, setMoveMenu] = useState(null); // { cId, jour, taskIdx, x, y }
 
-  const prevWeek = () => { if (week === 1) { setYear(y => y - 1); setWeek(52); } else setWeek(w => w - 1); };
-  const nextWeek = () => { if (week === 52) { setYear(y => y + 1); setWeek(1); } else setWeek(w => w + 1); };
+  // Navigation : respecte les années à 53 semaines ISO (ex. 2026) — sauter la
+  // W53 inverserait la parité perçue du rythme 4j/5j en début d'année suivante.
+  const prevWeek = () => { if (week === 1) { setYear(y => y - 1); setWeek(semainesDansAnnee(year - 1)); } else setWeek(w => w - 1); };
+  const nextWeek = () => { if (week >= semainesDansAnnee(year)) { setYear(y => y + 1); setWeek(1); } else setWeek(w => w + 1); };
   const goNow = () => { const { year:y, week:w } = getCurrentWeek(); setYear(y); setWeek(w); };
 
   const getDateDuJour = (dayIndex) => {
@@ -154,10 +157,12 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
 
   // Chips « ouvrier · Xh » d'un jour (ligne Charge de la grille + vue mobile).
   // Rouge : dépasse la capacité du jour ; vert : journée pleine pile.
+  // La capacité dépend de la parité de la semaine (rythme 4j/5j) : un vendredi
+  // de semaine impaire a une capacité de 0 h → toute heure posée passe en rouge.
   const renderChargeJour = (jour, compact = false) => {
     const totals = heuresJourAutresChantiers(jour, null);
     const noms = ouvriers.filter(o => totals[o] > 0);
-    const cap = HEURES_JOUR[jour] ?? 9;
+    const cap = capaciteJour(jour, year, week);
     if (noms.length === 0) return <span style={{ fontSize:10, color:T.textMuted, opacity:.5 }}>—</span>;
     return noms.map(o => {
       const h = Math.round(totals[o] * 4) / 4;
@@ -478,6 +483,16 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
           <span style={{ fontSize: FONT.sm.size, color: T.textMuted, fontWeight: 600 }}>
             {year}
           </span>
+          {libelleRythme(year, week) && (
+            <span title="Rythme alterné : semaines impaires 4 jours (lun-jeu), semaines paires 5 jours" style={{
+              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .4,
+              color: acc.accentDark || acc.accent, background: acc.bg10,
+              border: `1px solid ${acc.border}`, borderRadius: RADIUS.pill,
+              padding: "3px 10px", whiteSpace: "nowrap",
+            }}>
+              {libelleRythme(year, week)}
+            </span>
+          )}
         </div>
 
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -518,7 +533,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
           {(() => {
             const heuresVals = Object.values(heuresParOuvrier);
             const totalH = heuresVals.reduce((s, h) => s + h, 0);
-            const surcharge = heuresVals.filter(h => h > 40).length;
+            const capSemaine = JOURS.reduce((s, j) => s + capaciteJour(j, year, week), 0);
+            const surcharge = heuresVals.filter(h => h > capSemaine).length;
             const actifs = chantiers.filter(c => JOURS.some(j => {
               const cell = getCell(c.id, j);
               return cell.planifie || cell.ouvriers?.length > 0;
@@ -541,6 +557,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               const d = getDateDuJour(di);
               const sel = j === mobileDay;
               const today = getTodayJour() === j;
+              const off = estJourNonTravaille(j, year, week); // vendredi des semaines impaires (rythme 4j)
               const w = weatherByDay[toIsoDate(d)];
               const wi = w ? weatherInfo(w.code) : null;
               return (
@@ -553,6 +570,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                   border:    `1.5px solid ${sel ? "transparent" : T.border}`,
                   boxShadow:  sel ? `0 5px 14px ${acc.accent}55` : CARD_SHADOW,
                   fontWeight: sel ? 800 : 600,
+                  opacity: off && !sel ? 0.45 : 1,
                 }}>
                   <span style={{ fontSize: FONT.xs.size, letterSpacing:.8, textTransform:"uppercase" }}>{j.slice(0,3)}</span>
                   <span style={{ fontSize: 16, fontWeight: 800 }}>{d.getDate()}</span>
@@ -741,21 +759,29 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               {JOURS.map((j, di) => {
                 const d = getDateDuJour(di);
                 const today = getTodayJour() === j;
+                const off = estJourNonTravaille(j, year, week); // vendredi des semaines impaires (rythme 4j)
                 const w = weatherByDay[toIsoDate(d)];
                 const wi = w ? weatherInfo(w.code) : null;
                 return (
                   <div key={j} style={{
                     textAlign:"center", padding:"6px 0",
                     borderBottom: today ? `2px solid ${acc.accent}` : "2px solid transparent",
+                    opacity: off ? 0.5 : 1,
                   }}>
                     <div style={{
                       fontWeight: today ? 800 : 700, fontSize: FONT.xs.size + 1,
                       letterSpacing: 1.5, textTransform: "uppercase",
                       color: today ? acc.accent : T.textMuted,
+                      textDecoration: off ? "line-through" : "none",
                     }}>{j}</div>
                     <div style={{ fontSize: FONT.xs.size, color: T.textMuted, opacity: today ? 1 : .65, marginTop: 2 }}>
                       {d.getDate()} {MOIS_COURTS[d.getMonth()]}
                     </div>
+                    {off && (
+                      <div style={{ fontSize: FONT.xs.size - 1, fontWeight: 700, color: T.textMuted, marginTop: 2, textTransform: "none", letterSpacing: 0 }}>
+                        non travaillé
+                      </div>
+                    )}
                     {wi && (
                       <div title={`${wi.label} · ${Math.round(w.tempMax)}°${w.rain > 0.5 ? ` · ${w.rain.toFixed(1)} mm` : ""}`}
                         style={{ display:"inline-flex", alignItems:"center", gap:4, marginTop:4,

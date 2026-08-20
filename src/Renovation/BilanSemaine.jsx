@@ -8,6 +8,7 @@ import {
 import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierFinanceUI";
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
+import { profilSemaine } from "../rythmeSemaine";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
@@ -33,7 +34,9 @@ const JOURS_DEMARRAGE_LOT = 15;   // lot démarrant sous N jours sans commande p
 // Barème de REPLI du bilan : utilisé uniquement quand la semaine n'a aucun
 // pointage (rapports non validés, ou semaines antérieures au registre). Dès
 // qu'il existe des pointages, le bilan lit les heures validées directement.
-const HEURES_PAR_JOUR = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
+// Le barème dépend de la parité de la semaine ISO (rythme 4j/5j depuis le
+// 24/08/2026 — src/rythmeSemaine.js) : il est calculé par semaine dans le
+// composant (profilSemaine), plus de constante globale.
 
 // Priorité des statuts de tâche pour le bilan : la version "la plus avancée"
 // l'emporte si la même tâche est déclarée plusieurs fois dans la semaine.
@@ -136,6 +139,15 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     return () => { cancelled = true; };
   }, [weekId]);
   const hasPointages = (pointages || []).length > 0;
+
+  // Barème d'heures/jour de LA semaine affichée : profil 4j ou 5j selon la
+  // parité ISO (0 h le vendredi des semaines impaires), ancien barème 48 h
+  // pour les semaines antérieures à la rentrée du 24/08/2026.
+  const wmatch = /^(\d{4})-W(\d{1,2})$/.exec(weekId || "");
+  const HEURES_PAR_JOUR = profilSemaine(
+    wmatch ? parseInt(wmatch[1], 10) : 0,
+    wmatch ? parseInt(wmatch[2], 10) : 0
+  );
 
   // ── Détection ouvriers sur plusieurs chantiers un même jour ─────────────────
   const conflits = (() => {

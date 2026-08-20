@@ -82,11 +82,11 @@ export const THEMES = {
 };
 
 export function getWeekId(y,w){return`${y}-W${String(w).padStart(2,"0")}`;}
-export function getCurrentWeek(){
-  const now=new Date(),jan1=new Date(now.getFullYear(),0,1);
-  const w=Math.ceil(((now-jan1)/86400000+jan1.getDay()+1)/7);
-  return{year:now.getFullYear(),week:w};
-}
+// Semaine courante en ISO-8601 (via rythmeSemaine.js) — le rythme 4j/5j se
+// base sur la parité du numéro ISO, l'ancienne approximation (jan 1 + ceil)
+// divergeait certaines années. En 2026 les deux coïncident du lundi au
+// vendredi : aucun décalage sur les week_id existants.
+export function getCurrentWeek(){ return getISOWeek(new Date()); }
 export function getTodayJour(){
   const d=new Date().getDay();
   return JOURS_JS[d]||null;
@@ -449,6 +449,7 @@ export function matchFournisseur(raw, fournisseurs) {
 
 // Charge les phases personnalisées depuis Supabase, sinon retourne PHASES_DEFAUT.
 import { supabase as _supabase } from "./supabase";
+import { getISOWeek } from "./rythmeSemaine";
 export async function loadPhases() {
   try {
     const { data } = await _supabase.from("planning_config").select("value").eq("key", "phases_travaux").maybeSingle();

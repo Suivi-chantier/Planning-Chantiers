@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX } from "../constants";
 import { Icon } from "../ui";
+import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, getISOWeek, libelleRythme } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
   Settings, Users, HardHat, Euro, Building2, Palette,
@@ -2364,12 +2365,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const saveDebounce = React.useRef(null);
 
   // ─── HEURES PAR JOUR CRUD ────────────────────────────────────────────────
-  const updHeureJour = (jour, val) => {
-    const next = { ...heuresParJour, [jour]: parseFloat(val) || 0 };
-    setHeuresParJour(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
-  };
+  // Depuis le rythme 4j/5j (24/08/2026), le barème hebdomadaire est porté par
+  // src/rythmeSemaine.js (affiché en lecture seule dans l'onglet). La config
+  // "heures_par_jour" ne sert plus qu'aux EXCEPTIONS par date et aux semaines
+  // antérieures à la rentrée.
   const addExceptionJour = () => {
     if (!excDate) return;
     const next = { ...heuresParJour, exceptions: { ...(heuresParJour.exceptions || {}), [excDate]: parseFloat(excHeures) || 0 } };
@@ -3944,35 +3943,64 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         <div className="ac">
           <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Heures travaillées par jour</div>
           <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18,maxWidth:640,lineHeight:1.6}}>
-            Volume horaire attendu chaque jour dans le compte rendu de fin de journée des ouvriers :
-            le total saisi (tâches + trajets + heures indirectes) doit correspondre exactement à cette cible.
+            Depuis le {new Date(RYTHME_DATE_DEBUT + "T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})},
+            l'entreprise alterne une semaine sur deux selon le numéro de semaine du calendrier :
+            {" "}<strong style={{color:T.text}}>semaines impaires → 4 jours</strong> (lundi à jeudi),
+            {" "}<strong style={{color:T.text}}>semaines paires → 5 jours</strong>. 39 h travaillées dans les deux cas —
+            c'est la cible exacte des comptes rendus de fin de journée (tâches + trajets + heures indirectes).
           </div>
 
-          {/* Heures par jour de semaine */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:14}}>
-            {JOURS.map(j => (
-              <div key={j} style={{
-                background:T.surface,border:`1px solid ${T.border}`,
-                borderRadius:RADIUS.lg,padding:"12px 14px",
-              }}>
-                <div style={{fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>{j}</div>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <input type="number" min="0" step="0.5"
-                    value={heuresParJour[j] ?? 0}
-                    onChange={e=>updHeureJour(j,e.target.value)}
-                    style={{
-                      width:60,padding:"7px 10px",borderRadius:RADIUS.md,textAlign:"center",
-                      border:`1px solid ${T.border}`,background:T.inputBg||T.card,color:acc.accent,
-                      fontFamily:"inherit",fontSize:FONT.md.size,fontWeight:800,outline:"none",
-                    }}/>
-                  <span style={{fontSize:FONT.sm.size,color:T.textMuted}}>h</span>
+          {/* Profils du rythme alterné (source : src/rythmeSemaine.js, lecture seule) */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:10,marginBottom:14}}>
+            {[
+              { titre:"Semaines impaires — 4 jours", profil:PROFIL_4J, note:"vendredi non travaillé" },
+              { titre:"Semaines paires — 5 jours",   profil:PROFIL_5J, note:"" },
+            ].map(({titre, profil, note}) => {
+              const cur = getISOWeek(new Date());
+              const active = libelleRythme(cur.year, cur.week) !== "" &&
+                ((cur.week % 2 === 1) === (profil === PROFIL_4J));
+              return (
+                <div key={titre} style={{
+                  background:T.surface,border:`1.5px solid ${active ? acc.border : T.border}`,
+                  borderRadius:RADIUS.lg,padding:"14px 16px",
+                }}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <span style={{fontSize:FONT.sm.size,fontWeight:800,color:T.text}}>{titre}</span>
+                    {active && (
+                      <span style={{fontSize:FONT.xs.size,fontWeight:700,color:acc.accentDark||acc.accent,background:acc.bg10,border:`1px solid ${acc.border}`,borderRadius:RADIUS.pill,padding:"1px 8px"}}>
+                        semaine en cours
+                      </span>
+                    )}
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {JOURS.map(j => {
+                      const h = profil[j] ?? 0;
+                      return (
+                        <div key={j} style={{
+                          flex:"1 1 0", minWidth:44, textAlign:"center", padding:"8px 4px",
+                          background:h > 0 ? T.card : "transparent",
+                          border:`1px ${h > 0 ? "solid" : "dashed"} ${T.border}`, borderRadius:RADIUS.md,
+                          opacity:h > 0 ? 1 : .55,
+                        }}>
+                          <div style={{fontSize:FONT.xs.size-1,color:T.textMuted,fontWeight:700,letterSpacing:.8,textTransform:"uppercase"}}>{j.slice(0,3)}</div>
+                          <div style={{fontSize:FONT.md.size,fontWeight:800,color:h > 0 ? acc.accent : T.textMuted,marginTop:2}}>
+                            {h > 0 ? `${h}h` : "repos"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8}}>
+                    Total : <strong style={{color:T.text}}>{JOURS.reduce((s,j) => s + (parseFloat(profil[j])||0), 0)}h</strong>
+                    {note ? ` · ${note}` : ""}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"12px 14px",background:T.card,borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,color:T.textMuted,lineHeight:1.6,marginBottom:22}}>
             <Icon as={Info} size={13} style={{marginTop:2,flexShrink:0}}/>
-            <span>Total semaine : <strong style={{color:T.text}}>{JOURS.reduce((s,j) => s + (parseFloat(heuresParJour[j])||0), 0).toFixed(1)}h</strong>. Les modifications s'appliquent aux comptes rendus futurs ; les rapports déjà envoyés ne sont pas recalculés.</span>
+            <span>Ce rythme alimente la cible des comptes rendus ouvriers, la capacité du planning semaine et le barème de repli du bilan. Les rapports déjà envoyés ne sont pas recalculés. Pour modifier le rythme, demander une évolution de l'application.</span>
           </div>
 
           {/* Exceptions par date (fériés, ponts…) */}

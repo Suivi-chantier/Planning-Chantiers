@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
 import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "../constants";
 import { useDirtyGuard } from "../hooks";
-import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache, HEURES_JOUR } from "./phasagePlanning";
+import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache } from "./phasagePlanning";
+import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
 import { sortByChrono } from "./chronoTemplate";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
@@ -115,8 +116,9 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     }
     return null;
   };
-  // Capacité du jour (HEURES_JOUR est partagée : voir phasagePlanning.js).
-  const capaciteJour = HEURES_JOUR[jour] ?? 9;
+  // Capacité du jour — dépend de la parité de la semaine ISO (rythme 4j/5j,
+  // voir src/rythmeSemaine.js). 0 h un vendredi de semaine impaire.
+  const capaciteJour = capaciteJourRythme(jour, year, week);
   // Charge d'un ouvrier ce jour : autres chantiers + lignes de cette cellule
   // qui le concernent (une ligne sans assigné vaut pour tous les ouvriers de
   // la cellule). skipIdx : ligne à exclure (recalcul de sa propre durée).

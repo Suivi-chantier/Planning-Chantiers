@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from
 import { supabase } from "../supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW } from "../constants";
 import { Icon } from "../ui";
+import { profilSemaine, libelleRythme } from "../rythmeSemaine";
 import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
   ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
@@ -289,15 +290,20 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const {year, week} = getCurrentWeek();
   const weekId   = getWeekId(year, week);
   const todayJour = getTodayJour();
-  // Cible d'heures du jour, lue depuis la config Admin (onglet "Heures / jour").
-  // Une exception à la date du jour (férié, pont… — champ "exceptions" de la
-  // config) prime sur la valeur hebdomadaire ; 0 h est une valeur valide.
+  // Cible d'heures du jour. Priorités :
+  //  1. exception à la date du jour (férié, pont… — config Admin, 0 h valide) ;
+  //  2. profil de la semaine selon le rythme 4j/5j (src/rythmeSemaine.js) —
+  //     0 h le vendredi des semaines impaires ; avant la rentrée du 24/08/2026,
+  //     le profil retombe sur l'ancienne config Admin "heures_par_jour".
   const todayISO = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
   const excHeures  = parseFloat(heuresParJour?.exceptions?.[todayISO]);
-  const baseHeures = parseFloat(heuresParJour?.[todayJour]);
+  const baseHeures = todayJour ? parseFloat(profilSemaine(year, week, heuresParJour)[todayJour]) : NaN;
   const cibleHeures = Number.isFinite(excHeures) ? excHeures
     : Number.isFinite(baseHeures) ? baseHeures
     : (HEURES_PAR_JOUR_DEFAUT[todayJour] || 10);
+  // Jour ouvré sans heures attendues (vendredi de semaine 4 jours, férié…) :
+  // on affiche un bandeau "repos" à la place du compteur de journée.
+  const jourNonTravaille = !!todayJour && cibleHeures === 0;
 
   // Load config + planning
   useEffect(() => {
@@ -574,7 +580,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       alert(`Heures indirectes incomplètes\n\nChaque ligne d'heure indirecte doit avoir un motif, un chantier et un nombre d'heures > 0.`);
       return;
     }
-    // Cible exacte : tâches + trajets + heures indirectes = 10h Lun-Mer ou 9h Jeu-Ven
+    // Cible exacte : tâches + trajets + heures indirectes = cible du jour
+    // (profil de la semaine 4j/5j, ou exception de date — voir cibleHeures)
     const totalTachesHSubmit  = tachesRemplies.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
     const totalIndirectesH    = indirectesRemplies.reduce((s, h) => s + (parseFloat(h.heures) || 0), 0);
     const trajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
@@ -941,7 +948,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             <Icon as={Clock} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
             <span>
               Le total de tes heures (tâches + trajets) doit faire <strong style={{color:"#b88800"}}>{cibleHeures}h</strong>
-              {" "}({todayJour === "Jeudi" || todayJour === "Vendredi" ? "le jeudi et le vendredi" : "du lundi au mercredi"}).
+              {" "}aujourd'hui{libelleRythme(year, week) ? ` (${libelleRythme(year, week).toLowerCase()})` : ""}.
             </span>
           </li>
           <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:FONT.base.size,color:T.text,lineHeight:1.45}}>
@@ -966,8 +973,23 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       </div>
       )}
 
+      {/* ── Jour non travaillé (vendredi de semaine 4 jours, férié…) ── */}
+      {jourNonTravaille && (
+        <div style={{
+          ...S.card, border:`1.5px solid ${T.infoBd || T.border}`, padding:"14px 16px",
+          display:"flex", alignItems:"flex-start", gap:10,
+        }}>
+          <Icon as={Clock} size={18} color={T.info} strokeWidth={2} style={{flexShrink:0, marginTop:1}}/>
+          <div style={{fontSize:FONT.base.size, color:T.text, lineHeight:1.5}}>
+            <strong>Jour non travaillé</strong> — aucune heure n'est attendue aujourd'hui
+            {libelleRythme(year, week) === "Semaine de 4 jours" ? " (semaine de 4 jours : lundi → jeudi)" : ""}.
+            Si tu as quand même travaillé, contacte ton conducteur de travaux.
+          </div>
+        </div>
+      )}
+
       {/* ── Compteur total journée ── */}
-      {(() => {
+      {!jourNonTravaille && (() => {
         const col = matchCible ? T.success : Math.abs(ecartH) > 1 ? T.danger : T.warning;
         const bg  = matchCible ? T.successBg : Math.abs(ecartH) > 1 ? T.dangerBg : T.warningBg;
         const bdr = matchCible ? T.successBd : Math.abs(ecartH) > 1 ? T.dangerBd : T.warningBd;
