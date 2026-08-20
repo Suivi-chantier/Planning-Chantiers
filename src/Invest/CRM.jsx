@@ -1784,6 +1784,66 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
 
 const MISSION_AUTOMATION_ACCOUNT_EMAIL = "og@groupe-profero.com";
 const MISSION_COMPLETION_NOTIFICATION_EMAIL = "matthieu.fumoleau@groupe-profero.com";
+
+// État d'envoi d'une notification d'action, rendu lisible.
+//
+// Avant : le badge affichait « préparé » EN VERT même quand l'envoi avait
+// échoué, et le bouton Mail avait le même fond blanc pour « jamais envoyé »
+// que pour « envoi en erreur ». Une action assignée dont personne n'avait été
+// prévenu était strictement indiscernable d'une action pas encore notifiée —
+// alors que notification_status portait déjà l'information, sans lecteur.
+function missionNotifBadge(a = {}) {
+  if (a.notification_status === "erreur_envoi") {
+    return {
+      label: "\u2709\uFE0F échec d'envoi",
+      color: "#dc2626",
+      title: a.notification_error || "L'email n'est pas parti. Réessayer avec le bouton Mail.",
+    };
+  }
+  if (a.notification_status === "bloque_sans_email") {
+    return {
+      label: "\u2709\uFE0F sans destinataire",
+      color: "#d97706",
+      title: "Aucun email renseigné pour le responsable : renseigner sa fiche utilisateur.",
+    };
+  }
+  if (a.notification_sent_at) {
+    return {
+      label: `\u2709\uFE0F envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}`,
+      color: "#16a34a",
+      title: "",
+    };
+  }
+  if (a.notification_status === "envoi_en_cours") {
+    return { label: "\u2709\uFE0F envoi en cours", color: "#2563eb", title: "" };
+  }
+  if (a.notification_prepared_at) {
+    return {
+      label: `\u2709\uFE0F préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}`,
+      color: "#d97706",
+      title: "Le message est prêt mais n'a pas encore été confirmé envoyé.",
+    };
+  }
+  return null;
+}
+
+// Une action est « non notifiée » quand l'envoi a échoué ou n'a pas pu partir
+// faute d'adresse. C'est le seul état qui demande une reprise humaine : le
+// travail est assigné, mais personne ne le sait.
+function missionNotifEnEchec(a = {}) {
+  return a.notification_status === "erreur_envoi"
+      || a.notification_status === "bloque_sans_email";
+}
+
+// Couleurs du bouton Mail : cinq états distincts au lieu de trois.
+function missionNotifBtnStyle(a = {}, T = {}) {
+  if (a.notification_status === "erreur_envoi")      return { bg:"#fee2e2", border:"#fca5a5" };
+  if (a.notification_status === "bloque_sans_email") return { bg:"#fef3c7", border:"#fcd34d" };
+  if (a.notification_sent_at)                        return { bg:"#dcfce7", border:"#86efac" };
+  if (a.notification_status === "envoi_en_cours")    return { bg:"#dbeafe", border:"#93c5fd" };
+  return { bg:"#fff", border:T.border || "#e2e8f0" };
+}
+
 const missionEscapeHtml = (value = "") => String(value ?? "")
   .replaceAll("&", "&amp;")
   .replaceAll("<", "&lt;")
@@ -2223,12 +2283,16 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   const actionsStepTodo = actionsStep.filter(a => !missionActionDone(a));
   const actionsStepLate = actionsStepTodo.filter(a => a.due_date && a.due_date < today);
   const actionsStepWithoutPiece = actionsStepTodo.filter(a => a.document_drive_attendu && !a.justificatif_drive_url);
+  // Actions assignées dont le responsable n'a jamais été prévenu : l'échec
+  // était écrit en base depuis toujours, sans que rien ne le lise.
+  const actionsStepNotifKO = actionsStep.filter(missionNotifEnEchec);
   const actionsStepFiltered = actionsStep
     .filter(a => {
       if (responsableFilter && a.responsable !== responsableFilter) return false;
       if (actionFilter === "a_traiter" && missionActionDone(a)) return false;
       if (actionFilter === "retard" && !(a.due_date && a.due_date < today && !missionActionDone(a))) return false;
       if (actionFilter === "pieces" && !(a.document_drive_attendu && !a.justificatif_drive_url && !missionActionDone(a))) return false;
+      if (actionFilter === "notif_ko" && !missionNotifEnEchec(a)) return false;
       if (actionFilter === "fait" && !missionActionDone(a)) return false;
       return true;
     })
@@ -2926,6 +2990,7 @@ Laisse vide pour créer un événement en journée entière.`,
                 ["a_traiter", `À traiter (${actionsStepTodo.length})`],
                 ["retard", `Retard (${actionsStepLate.length})`],
                 ["pieces", `Pièces (${actionsStepWithoutPiece.length})`],
+                ...(actionsStepNotifKO.length ? [["notif_ko", `\u26A0 Non notifiés (${actionsStepNotifKO.length})`]] : []),
                 ["fait", `Fait (${actionsStep.filter(missionActionDone).length})`],
                 ["tous", `Tous (${actionsStep.length})`],
               ].map(([key,label]) => (
@@ -2979,7 +3044,7 @@ Laisse vide pour créer un événement en journée entière.`,
                         {a.last_reminder_sent_at && <span style={{color:"#2563eb",fontWeight:850}}>🔁 relancé le {missionFormatDateFr(a.last_reminder_sent_at)}</span>}
                         {a.completed_at && <span style={{color:"#16a34a",fontWeight:950}}>✅ fait le {missionFormatDateFr(a.completed_at)}</span>}
                         {a.justificatif_drive_url && <span style={{color:T.accent,fontWeight:850}}>📎 {a.justificatif_drive_name || "justificatif"}</span>}
-                        {a.notification_prepared_at && <span style={{color:"#16a34a",fontWeight:850}}>✉️ {a.notification_sent_at ? `envoyé ${new Date(a.notification_sent_at).toLocaleDateString("fr-FR")}` : `préparé ${new Date(a.notification_prepared_at).toLocaleDateString("fr-FR")}`}</span>}
+                        {missionNotifBadge(a) && <span style={{color:missionNotifBadge(a).color,fontWeight:850}} title={missionNotifBadge(a).title}>{missionNotifBadge(a).label}</span>}
                         {a.calendar_created_at && <span style={{color:"#7c3aed",fontWeight:850}}>📅 agenda {missionFormatCalendarDateFr(a.calendar_date || a.due_date, a.calendar_time || "")}</span>}
                         {a.calendar_status === "erreur_creation" && <span style={{color:"#dc2626",fontWeight:850}}>📅 agenda erreur</span>}
                       </div>
@@ -3004,7 +3069,7 @@ Laisse vide pour créer un événement en journée entière.`,
                       )
                     ) : <span style={{fontSize:11,color:T.textMuted}}>Aucune pièce attendue</span>}
                     <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-start",flexWrap:"wrap",minWidth:0}}>
-                      <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"6px 8px",background:a.notification_sent_at ? "#dcfce7" : a.notification_status === "envoi_en_cours" ? "#dbeafe" : "#fff",border:`1px solid ${a.notification_sent_at ? "#86efac" : a.notification_status === "envoi_en_cours" ? "#93c5fd" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Mail} size={12}/> Mail</button>
+                      <button className="inv-btn inv-btn-sm" onClick={() => notifyActionByEmail(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Envoyer un email automatique à ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’envoyer : aucun email responsable"} style={{fontSize:11,padding:"6px 8px",background:missionNotifBtnStyle(a, T).bg,border:`1px solid ${missionNotifBtnStyle(a, T).border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Mail} size={12}/> Mail</button>
                       <button className="inv-btn inv-btn-sm" onClick={() => addActionToAgenda(a)} title={a.responsable_email || missionEmailForOwner(a.responsable, client) ? `Choisir le jour / l’heure et ajouter cette action à l’agenda Google de ${a.responsable_email || missionEmailForOwner(a.responsable, client)}` : "Impossible d’ajouter à l’agenda : aucun email responsable"} style={{fontSize:11,padding:"6px 8px",background:a.calendar_created_at ? "#ede9fe" : a.calendar_status === "creation_en_cours" ? "#fef3c7" : "#fff",border:`1px solid ${a.calendar_created_at ? "#c4b5fd" : a.calendar_status === "creation_en_cours" ? "#fcd34d" : T.border}`,color:"black",justifyContent:"center",minWidth:0}}><Icon as={Calendar} size={12}/> Agenda</button>
                     </div>
                   </div>
