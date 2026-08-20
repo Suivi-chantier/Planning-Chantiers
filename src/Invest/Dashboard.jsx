@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC } from "../constants";
 import { Icon } from "../ui";
@@ -215,9 +215,60 @@ function worstLevel(alerts=[]) {
   return "success";
 }
 function entityKey(type, id) { return `${type}_${String(id || "unknown")}`; }
-function storageKeyFor() { return `profero_dashboard_v9_${todayIso()}`; }
 function emptyRoutine() { return { date:todayIso(), decisions:{}, resolved:{}, priorities:[{},{},{}], status:"in_progress", started_at:new Date().toISOString() }; }
 function decisionKey(item) { return item?.key || entityKey(item?.type, item?.id); }
+
+// Reconstitue la routine du jour à partir des lignes déjà écrites en base.
+//
+// La table invest_morning_routine_items recevait une ligne à chaque validation
+// depuis toujours — et n'était relue nulle part. L'état de la journée vivait
+// dans localStorage, donc dans UN navigateur : on pilotait du téléphone le
+// matin, on rouvrait du poste fixe l'après-midi, et les dossiers déjà arbitrés
+// remontaient en « à décider ».
+//
+// Une même carte peut avoir été validée plusieurs fois dans la journée
+// (correction d'un arbitrage) : on garde la dernière, d'où le tri par date
+// croissante — la plus récente écrase les précédentes.
+function routineDepuisLignes(lignes = []) {
+  const routine = emptyRoutine();
+  const triees = [...lignes].sort((a, b) =>
+    String(a.created_at || "").localeCompare(String(b.created_at || "")));
+
+  for (const l of triees) {
+    if (l.step_key === "priorite") {
+      const idx = Number(l.item_id);
+      if (Number.isInteger(idx) && idx >= 0 && idx < 3) {
+        routine.priorities[idx] = {
+          title: l.item_label || l.next_action || "",
+          responsable: l.responsable || "",
+          due_date: l.due_date || "",
+          comment: l.comment || "",
+        };
+      }
+      continue;
+    }
+
+    const cle = entityKey(l.item_type, l.item_id);
+    routine.decisions[cle] = {
+      decision: l.decision || "",
+      responsable: l.responsable || "",
+      next_action: l.next_action || "",
+      due_date: l.due_date || "",
+      comment: l.comment || "",
+      create_task: true,
+      created_task_id: l.created_task_id || null,
+      resolved_at: l.created_at || null,
+    };
+    routine.resolved[cle] = {
+      resolved_at: l.created_at || null,
+      label: l.item_label || "",
+      type: l.item_type || "",
+    };
+  }
+  return routine;
+}
+
+
 function isResolvedToday(routine, item) { return Boolean(routine?.resolved?.[decisionKey(item)]); }
 function defaultDecision(item={}) {
   const suggestedDue = item.due_date && isFuture(item.due_date) ? item.due_date : todayIso();
@@ -445,16 +496,57 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [actions, setActions] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [finance, setFinance] = useState([]);
-  const [routine, setRoutine] = useState(() => { try { const saved = window.localStorage.getItem(storageKeyFor()); return saved ? { ...emptyRoutine(), ...JSON.parse(saved) } : emptyRoutine(); } catch { return emptyRoutine(); } });
+  // La routine du jour est chargée depuis la base par loadDashboard : elle doit
+  // suivre l'utilisateur d'un appareil à l'autre, pas rester dans un navigateur.
+  const [routine, setRoutine] = useState(() => emptyRoutine());
+  const [routineChargee, setRoutineChargee] = useState(false);
 
-  useEffect(() => { try { window.localStorage.setItem(storageKeyFor(), JSON.stringify(routine)); } catch {} }, [routine]);
+  // Persistance des 3 priorités du jour.
+  //
+  // Elles se saisissent au clavier : on ne peut pas écrire à chaque frappe.
+  // Un délai d'inactivité, puis remplacement des lignes du jour — supprimer
+  // avant d'insérer évite d'avoir à supposer une contrainte d'unicité sur une
+  // table dont le schéma n'est pas versionné dans le dépôt.
+  //
+  // On n'écrit qu'après le premier chargement : sans cette garde, le state
+  // initial vide effacerait les priorités déjà saisies ailleurs.
+  const prioritesTimer = useRef(null);
+  useEffect(() => {
+    if (!routineChargee) return;
+    if (prioritesTimer.current) clearTimeout(prioritesTimer.current);
+    prioritesTimer.current = setTimeout(async () => {
+      const lignes = safeArr(routine.priorities)
+        .map((p, idx) => ({ p: p || {}, idx }))
+        .filter(({ p }) => String(p.title || "").trim())
+        .map(({ p, idx }) => ({
+          routine_date: todayIso(),
+          step_key: "priorite",
+          item_type: "priorite",
+          item_id: String(idx),
+          item_label: p.title || "",
+          next_action: p.title || "",
+          responsable: p.responsable || null,
+          due_date: p.due_date || null,
+          comment: p.comment || "",
+          status: "validated",
+        }));
+      try {
+        await supabase.from("invest_morning_routine_items")
+          .delete().eq("routine_date", todayIso()).eq("step_key", "priorite");
+        if (lignes.length) await supabase.from("invest_morning_routine_items").insert(lignes);
+      } catch (e) {
+        console.warn("[Dashboard] priorités non enregistrées", e);
+      }
+    }, 1200);
+    return () => { if (prioritesTimer.current) clearTimeout(prioritesTimer.current); };
+  }, [routine.priorities, routineChargee]);
 
   const safeQuery = useCallback(async (label, query, required=false) => {
     try { const { data, error } = await query; if (error) { console.warn(`[Dashboard V9] ${label}`, error); if (required) setError(`Impossible de charger ${label}. Vérifie Supabase / RLS.`); return []; } return data || []; } catch(e) { console.warn(`[Dashboard V9] ${label}`, e); if (required) setError(`Impossible de charger ${label}.`); return []; }
   }, []);
   const loadDashboard = useCallback(async () => {
     setLoading(true); setError("");
-    const [c,b,p,pl,a,n,fin] = await Promise.all([
+    const [c,b,p,pl,a,n,fin,routineRows] = await Promise.all([
       safeQuery("clients", supabase.from("invest_clients").select("*").order("created_at", { ascending:false }), true),
       safeQuery("biens", supabase.from("invest_biens").select("*").order("created_at", { ascending:false }), true),
       safeQuery("propositions", supabase.from("invest_propositions").select("*").limit(500)),
@@ -462,10 +554,14 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       safeQuery("actions équipe", supabase.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending:true, nullsFirst:false }).limit(700)),
       safeQuery("notifications", supabase.from("invest_action_notifications").select("*").order("created_at", { ascending:false }).limit(100)),
       safeQuery("finance", supabase.from("invest_suivi_financier").select("*").limit(800)),
+      safeQuery("routine du jour", supabase.from("invest_morning_routine_items").select("*").eq("routine_date", todayIso())),
     ]);
     const prospectTables = ["invest_prospects", "invest_prospection", "invest_crm_prospects", "invest_crm_prospection", "invest_prospection_contacts", "crm_prospection", "crm_prospects", "prospects"];
     const prospectRows = (await Promise.all(prospectTables.map(t => safeQuery(`prospection ${t}`, supabase.from(t).select("*").order("created_at", { ascending:false }).limit(1000))))).flatMap((rows, idx) => withSourceTable(rows, prospectTables[idx]));
-    setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setNotifications(n); setFinance(fin); setCrmProspects(prospectRows); setLoading(false);
+    setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setNotifications(n); setFinance(fin); setCrmProspects(prospectRows);
+    setRoutine(routineDepuisLignes(routineRows));
+    setRoutineChargee(true);
+    setLoading(false);
   }, [safeQuery]);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
