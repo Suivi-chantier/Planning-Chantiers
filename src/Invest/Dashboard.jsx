@@ -576,8 +576,19 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       safeQuery("finance", supabase.from("invest_suivi_financier").select("*").limit(800)),
       safeQuery("routine du jour", supabase.from("invest_morning_routine_items").select("*").eq("routine_date", todayIso())),
     ]);
-    const prospectTables = ["invest_prospects", "invest_prospection", "invest_crm_prospects", "invest_crm_prospection", "invest_prospection_contacts", "crm_prospection", "crm_prospects", "prospects"];
-    const prospectRows = (await Promise.all(prospectTables.map(t => safeQuery(`prospection ${t}`, supabase.from(t).select("*").order("created_at", { ascending:false }).limit(1000))))).flatMap((rows, idx) => withSourceTable(rows, prospectTables[idx]));
+    // Une seule table de prospects, et c'est la bonne.
+    //
+    // Ce chargement interrogeait huit noms candidats à chaque affichage :
+    // invest_prospection, invest_crm_prospects, invest_crm_prospection,
+    // invest_prospection_contacts, crm_prospection, crm_prospects, prospects.
+    // Relevé fait sur la base (scripts/introspect-invest.mjs) : AUCUNE des sept
+    // n'existe. Sept requêtes en échec à chaque ouverture du tableau de bord,
+    // avalées par safeQuery — et sept avertissements en console qui noyaient
+    // les vraies erreurs.
+    const prospectRows = withSourceTable(
+      await safeQuery("prospection", supabase.from("invest_prospects").select("*").order("created_at", { ascending:false }).limit(1000)),
+      "invest_prospects"
+    );
     setClients(c); setBiens(b); setPropositions(p); setPlanning(pl); setActions(a); setNotifications(n); setFinance(fin); setCrmProspects(prospectRows);
     setRoutine(routineDepuisLignes(routineRows));
     setRoutineChargee(true);
