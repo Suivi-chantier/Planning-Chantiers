@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { Icon } from "../ui";
 import { FONT, RADIUS } from "../constants";
-import { THEMES_INV, SU, WA, DA, fmtDashboardEur } from "./_shared";
+import { THEMES_INV, SU, WA, DA, fmtDashboardEur, readNavTarget } from "./_shared";
 import {
   UserPlus,
   Search,
@@ -3086,7 +3086,7 @@ function ActionRow({ action, T }) {
   );
 }
 
-export default function Prospection({ profil, T = THEMES_INV.dark }) {
+export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter = null }) {
   const [prospects, setProspects] = useState([]);
   const [selected, setSelected] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -3476,6 +3476,30 @@ export default function Prospection({ profil, T = THEMES_INV.dark }) {
     setError("");
     setMailNotice(null);
   };
+
+  // Réception d'une cible de navigation (contrat NAV de _shared.jsx).
+  //
+  // Cet onglet n'avait aucune prop `initialFilter` : le Dashboard lui envoyait
+  // pourtant des ouvertures de fiche, que le routeur ne transmettait à personne.
+  // Le clic ne produisait donc strictement rien.
+  //
+  // La liste peut ne pas être encore chargée au moment du saut : l'effet
+  // dépend aussi de `prospects` et s'exécutera de nouveau à l'arrivée des
+  // données. `navDoneRef` garantit qu'on n'ouvre la fiche qu'une fois, sinon
+  // toute modification de la liste rouvrirait le prospect par-dessus la saisie
+  // en cours.
+  const navDoneRef = useRef(null);
+  useEffect(() => {
+    if (!initialFilter) { navDoneRef.current = null; return; }
+    const cible = readNavTarget(initialFilter);
+    if (cible.action !== "open" || !cible.id) return;
+    const jeton = `${cible.id}:${initialFilter._ts || ""}`;
+    if (navDoneRef.current === jeton) return;
+    const cherche = prospects.find(x => String(x.id) === String(cible.id));
+    if (!cherche) return;               // pas encore chargé : on retentera
+    navDoneRef.current = jeton;
+    selectProspect(cherche);
+  }, [initialFilter, prospects]);
 
   const newProspect = () => {
     setIsCreating(true);

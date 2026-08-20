@@ -1869,7 +1869,101 @@ function CompletionBar({ label, value, color, T=THEMES_INV.dark }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTRAT DE NAVIGATION ENTRE ONGLETS
+//
+// Un seul vocabulaire pour tous les sauts d'un onglet à l'autre : l'émetteur
+// (Dashboard, cloche de notifications, carte de fiche) décrit sa cible avec
+// `NAV`, PageInvest la route, l'onglet destinataire la reçoit via sa prop
+// `initialFilter`.
+//
+// Pourquoi un contrat et pas des appels au cas par cas : chaque onglet lisait
+// jusqu'ici un `type` qui lui était propre. Le Dashboard envoyait
+// `type:"fiche"` que ni le CRM ni Biens ne savaient interpréter, et le bouton
+// « Ouvrir la fiche complète » atterrissait sur une liste non filtrée — sans
+// erreur, donc sans que personne ne le remarque. Un vocabulaire unique rend
+// ce genre de panne impossible : `normalizeNavTarget` refuse ce qu'elle ne
+// sait pas router au lieu de l'ignorer.
+//
+// `normalizeNavTarget` traduit aussi l'ancien vocabulaire (type:"fiche",
+// type:"open_bien", type:"statut"…) pour que les appels non encore migrés
+// continuent de fonctionner pendant la transition.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NAV_TABS = [
+  "dashboard", "prospection", "crm", "sourcing", "biens", "simulateur",
+  "etat_des_lieux", "urbanisme", "structuration", "finance",
+  "suivi_financier", "admin",
+];
+
+// Les trois seules intentions de navigation. `open` ouvre une fiche précise,
+// `actions` ouvre une fiche sur son volet actions, `filter` filtre une liste.
+const NAV_ACTIONS = ["open", "actions", "filter"];
+
+const NAV = {
+  ficheClient:   (id)               => ({ tab:"crm",         action:"open",    id }),
+  ficheBien:     (id)               => ({ tab:"biens",       action:"open",    id }),
+  ficheProspect: (id, sourceTable)  => ({ tab:"prospection", action:"open",    id, sourceTable }),
+  ficheUrbanisme:(id)               => ({ tab:"urbanisme",   action:"open",    id }),
+  ficheEDL:      (id)               => ({ tab:"etat_des_lieux", action:"open", id }),
+  actionsClient: (id, actionId)     => ({ tab:"crm",         action:"actions", id, actionId }),
+  filtre: (tab, key, value)         => ({ tab, action:"filter", key, value }),
+};
+
+// Ancien vocabulaire → nouveau. Chaque entrée correspond à un appel encore
+// présent dans le code ; la table disparaîtra quand tous seront migrés.
+const NAV_LEGACY = {
+  fiche:      (f) => ({ action:"open",    id:f.id, sourceTable:f.sourceTable }),
+  open_bien:  (f) => ({ action:"open",    id:f.bien_id || f.id }),
+  actions:    (f) => ({ action:"actions", id:f.id, actionId:f.actionId }),
+  statut:     (f) => ({ action:"filter",  key:"statut", value:f.value }),
+  etape:      (f) => ({ action:"filter",  key:"etape",  value:f.value }),
+};
+
+// Renvoie une cible normalisée, ou `null` si elle n'est pas routable.
+// Un `null` doit être signalé par l'appelant, jamais avalé : c'est le seul
+// moyen de voir qu'un émetteur parle une langue que personne ne comprend.
+function normalizeNavTarget(tab, filter) {
+  if (!tab || !NAV_TABS.includes(tab)) return null;
+  const f = filter && typeof filter === "object" ? filter : {};
+
+  // Déjà au nouveau format.
+  if (f.action && NAV_ACTIONS.includes(f.action)) {
+    return { ...f, tab, _ts: f._ts || Date.now() };
+  }
+
+  // Ancien format nommé.
+  const legacy = NAV_LEGACY[f.type];
+  if (legacy) return { ...f, ...legacy(f), tab, _ts: Date.now() };
+
+  // Filtres spéciaux historiques (sans_action, a_relancer, all…) : ils sont
+  // propres à chaque onglet, on les laisse passer tels quels sous `filter`.
+  if (f.type) return { ...f, action:"filter", key:f.type, value:f.value, tab, _ts: Date.now() };
+
+  return { action:"filter", tab, _ts: Date.now() };
+}
+
+// Lecture d'une cible côté onglet destinataire : évite de répéter la même
+// vérification défensive dans les cinq onglets qui la reçoivent.
+function readNavTarget(initialFilter) {
+  const t = initialFilter && typeof initialFilter === "object" ? initialFilter : null;
+  if (!t) return { action:null, id:null, key:"", value:"" };
+  return {
+    action: t.action || (t.type ? "filter" : null),
+    id:     t.id || t.bien_id || null,
+    key:    t.key || t.type || "",
+    value:  t.value ?? "",
+    actionId: t.actionId || null,
+    sourceTable: t.sourceTable || null,
+  };
+}
+
 export {
+  NAV,
+  NAV_TABS,
+  NAV_ACTIONS,
+  normalizeNavTarget,
+  readNavTarget,
   MISSION_COLLABORATEURS,
   HONORAIRE_BASE_CONTRAT_HT,
   HONORAIRE_CONSEIL_MOYEN_HT,
