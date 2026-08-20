@@ -16,6 +16,7 @@ import {
   getClientName, getBienLabel, getBienScore,
   HONORAIRE_BASE_CONTRAT_HT,
   NAV,
+  useAnnuaireInvest, responsablesInvest, estUtilisateurCourant,
 } from "./_shared";
 
 // ─────────────────────────────────────────────────────────────
@@ -26,7 +27,10 @@ import {
 // À décider maintenant / À surveiller / Délégué / Traité aujourd'hui.
 // ─────────────────────────────────────────────────────────────
 
-const V9_RESPONSABLES = ["Matthieu", "Tom", "Benjamin", "Camille", "Autre"];
+// Repli seulement : la liste réelle vient de l'annuaire (table utilisateurs),
+// via responsablesInvest(). Sert tant que l'annuaire n'est pas chargé, pour
+// qu'un sélecteur ne soit jamais vide.
+const V9_RESPONSABLES_FALLBACK = ["Matthieu", "Tom", "Benjamin", "Camille", "Autre"];
 const V9_ENTITY_FILTERS = [
   { key:"all", label:"Tous", icon:LayoutDashboard },
   { key:"prospect", label:"Prospects", icon:Phone },
@@ -134,7 +138,9 @@ function uniqueRows(rows=[]) {
   return Array.from(map.values());
 }
 
-function prospectOwner(c={}) { return firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to", "commercial", "collaborateur"]) || "Matthieu"; }
+// Le défaut n'est plus un prénom en dur : un dossier sans responsable revient
+// à qui pilote le tableau de bord, quel que soit son nom.
+function prospectOwner(c={}, defaut="") { return firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to", "commercial", "collaborateur"]) || defaut; }
 function prospectEmail(c={}) { return firstFilled(c, ["email", "mail", "adresse_email"]); }
 function prospectPhone(c={}) { return firstFilled(c, ["telephone", "téléphone", "phone", "mobile", "whatsapp"]); }
 function prospectSource(c={}) { return firstFilled(c, ["source_lead", "source", "origine", "canal", "provenance", "lead_source"]); }
@@ -180,7 +186,7 @@ function computeProspectScore(c={}) {
   return Math.max(0, Math.min(100, score));
 }
 
-function actionOwner(a={}) { return firstFilled(a, ["responsable", "owner", "assigned_to", "assignee", "collaborateur"]) || "Matthieu"; }
+function actionOwner(a={}, defaut="") { return firstFilled(a, ["responsable", "owner", "assigned_to", "assignee", "collaborateur"]) || defaut; }
 function actionTitle(a={}) { return firstFilled(a, ["action_title", "title", "titre", "nom", "label"]) || "Action"; }
 function isOpenAction(a={}) {
   const s = normTxt(firstFilled(a, ["status", "statut", "etat"]));
@@ -272,7 +278,7 @@ function routineDepuisLignes(lignes = []) {
 function isResolvedToday(routine, item) { return Boolean(routine?.resolved?.[decisionKey(item)]); }
 function defaultDecision(item={}) {
   const suggestedDue = item.due_date && isFuture(item.due_date) ? item.due_date : todayIso();
-  return { decision:"", responsable:item.responsable || "Matthieu", next_action:item.next_action || item.primaryAlert || "", due_date:suggestedDue, comment:"", create_task:true, force_reason:"" };
+  return { decision:"", responsable:item.responsable || "", next_action:item.next_action || item.primaryAlert || "", due_date:suggestedDue, comment:"", create_task:true, force_reason:"" };
 }
 function missingDecisionFields(item, d={}) {
   const miss = [];
@@ -289,12 +295,12 @@ function missingDecisionFields(item, d={}) {
 function isDecisionComplete(item, d={}) { return missingDecisionFields(item, d).length === 0; }
 function priorityComplete(p={}) { return String(p.title || "").trim() && String(p.responsable || "").trim() && String(p.due_date || "").trim() && String(p.comment || "").trim(); }
 
-function buildProspectDossier(c) {
+function buildProspectDossier(c, pilote="") {
   const alerts = [];
   const score = computeProspectScore(c);
   const nextAction = prospectNextAction(c);
   const nextDate = prospectNextDate(c);
-  const owner = prospectOwner(c);
+  const owner = prospectOwner(c, pilote);
   const lastDays = daysSince(prospectLastContact(c));
   if (!nextAction) alerts.push(makeAlert({ code:"no_next_action", label:"Sans prochaine action", level:"danger" }));
   if (!nextDate) alerts.push(makeAlert({ code:"no_next_date", label:"Sans date de relance", level:"danger" }));
@@ -309,13 +315,13 @@ function buildProspectDossier(c) {
   return {
     key:entityKey("prospect", c.id), type:"prospect", id:c.id, sourceTable:c._source_table || "invest_clients",
     label:getClientName(c), subtitle:joinNonEmpty([prospectStage(c), prospectSource(c), prospectZone(c)]),
-    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner || "Matthieu",
+    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner || pilote,
     next_action:nextAction || "Définir la prochaine action prospect", due_date:due,
     readOnly:level !== "danger" && isFuture(due), score, raw:c,
     meta:{ score, budget:prospectBudget(c), capacity:prospectCapacity(c), phone:prospectPhone(c), email:prospectEmail(c), source:prospectSource(c), goal:prospectGoal(c), lastContact:prospectLastContact(c) },
   };
 }
-function buildClientDossier(c, actions=[]) {
+function buildClientDossier(c, actions=[], pilote="") {
   const alerts = [];
   const nextAction = c.prochaine_action;
   const nextDate = c.date_prochaine_action;
@@ -341,12 +347,12 @@ function buildClientDossier(c, actions=[]) {
   const level = worstLevel(alerts);
   return {
     key:entityKey("client", c.id), type:"client", id:c.id, sourceTable:"invest_clients", label:getClientName(c), subtitle:joinNonEmpty([c.etape, c.statut, fmtDashboardEur(c.budget)]),
-    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner || "Matthieu",
+    level, alerts, primaryAlert:alerts[0]?.label || "Sous contrôle", responsable:owner || pilote,
     next_action:nextAction || "Définir la prochaine action client", due_date:nextDate || todayIso(), readOnly:level !== "danger" && nextDate && isFuture(nextDate), raw:c,
     meta:{ step:c.etape, status:c.statut, budget:c.budget, lastActivity:clientLastActivity(c), relatedActions },
   };
 }
-function buildBienDossier(b, actions=[], propositions=[]) {
+function buildBienDossier(b, actions=[], propositions=[], pilote="") {
   const alerts = [];
   const statut = b.statut || "Statut non renseigné";
   const txt = normTxt(statut);
@@ -371,7 +377,7 @@ function buildBienDossier(b, actions=[], propositions=[]) {
     meta:{ statut, prix:b.prix_vente, travaux:b.prix_travaux, cout:b.cout_total, rendement:b.rendement_brut, cashflow:b.cashflow_estime, score, propositions:safeArr(propositions).filter(p => String(p.bien_id || "") === String(b.id)) },
   };
 }
-function buildTeamDossiers(actions=[]) {
+function buildTeamDossiers(actions=[], pilote="") {
   return safeArr(actions).filter(a => isOpenAction(a) && !linkedEntityId(a)).map(a => {
     const due = a.due_date;
     const alerts = [];
@@ -379,20 +385,25 @@ function buildTeamDossiers(actions=[]) {
     if (due && isDueTodayOrPast(due)) alerts.push(makeAlert({ code:"late", label:`Échéance ${safeDate(due)}`, level:"danger", due_date:due }));
     if (due && isFuture(due) && isWithinNextDays(due, 7)) alerts.push(makeAlert({ code:"future", label:`À suivre sous 7 jours (${safeDate(due)})`, level:"warning", due_date:due }));
     const level = worstLevel(alerts);
-    return { key:entityKey("team", a.id), type:"team", id:a.id, label:actionTitle(a), subtitle:joinNonEmpty([actionOwner(a), a.step_label, a.status || a.statut]), level, alerts, primaryAlert:alerts[0]?.label || "Action sous contrôle", responsable:actionOwner(a), next_action:actionTitle(a), due_date:due || todayIso(), readOnly:level !== "danger" && due && isFuture(due), raw:a, meta:{ status:a.status || a.statut } };
+    return { key:entityKey("team", a.id), type:"team", id:a.id, label:actionTitle(a), subtitle:joinNonEmpty([actionOwner(a, pilote), a.step_label, a.status || a.statut]), level, alerts, primaryAlert:alerts[0]?.label || "Action sous contrôle", responsable:actionOwner(a, pilote), next_action:actionTitle(a), due_date:due || todayIso(), readOnly:level !== "danger" && due && isFuture(due), raw:a, meta:{ status:a.status || a.statut } };
   });
 }
-function consolidateData({ clients=[], crmProspects=[], biens=[], propositions=[], planning=[], actions=[] }) {
+function consolidateData({ clients=[], crmProspects=[], biens=[], propositions=[], planning=[], actions=[], profil=null, pilote="" }) {
   const prospects = uniqueRows([...safeArr(clients).filter(isActiveProspectRecord), ...safeArr(crmProspects).filter(isActiveProspectRecord)]);
   const clientsMetier = safeArr(clients).filter(isClientRecord);
   const biensActifs = safeArr(biens).filter(isActiveBien);
-  const prospectDossiers = prospects.map(buildProspectDossier);
-  const clientDossiers = clientsMetier.map(c => buildClientDossier(c, actions));
-  const bienDossiers = biensActifs.map(b => buildBienDossier(b, actions, propositions));
-  const teamDossiers = buildTeamDossiers(actions);
+  const prospectDossiers = prospects.map(c => buildProspectDossier(c, pilote));
+  const clientDossiers = clientsMetier.map(c => buildClientDossier(c, actions, pilote));
+  const bienDossiers = biensActifs.map(b => buildBienDossier(b, actions, propositions, pilote));
+  const teamDossiers = buildTeamDossiers(actions, pilote);
   const allDossiers = [...prospectDossiers, ...clientDossiers, ...bienDossiers, ...teamDossiers];
   allDossiers.forEach(d => {
-    d.category = d.level === "danger" && !d.readOnly ? "decision" : (d.responsable && d.responsable !== "Matthieu" && d.type !== "team" ? "delegated" : "watch");
+    // « délégué » = confié à quelqu'un d'autre que celui qui pilote. La
+    // comparaison portait sur la chaîne « Matthieu » : dès qu'un autre compte
+    // ouvrait le tableau de bord, ses propres dossiers apparaissaient comme
+    // délégués — donc comme traités par un tiers.
+    const confieAUnTiers = d.responsable && !estUtilisateurCourant(d.responsable, profil);
+    d.category = d.level === "danger" && !d.readOnly ? "decision" : (confieAUnTiers && d.type !== "team" ? "delegated" : "watch");
     if (d.type === "team") d.category = d.level === "danger" ? "decision" : "delegated";
   });
   return { prospects, clientsMetier, biensActifs, prospectDossiers, clientDossiers, bienDossiers, teamDossiers, allDossiers, planning, actions, propositions,
@@ -410,7 +421,7 @@ function planFromRoutine(routine, dossiers) {
   Object.entries(routine.decisions || {}).forEach(([key,d]) => {
     if (!d || !String(d.next_action || "").trim()) return;
     const item = dossiers.find(x => decisionKey(x) === key);
-    lines.push({ responsable:d.responsable || "Matthieu", title:d.next_action, due_date:d.due_date, comment:d.comment, source:item?.label || key, type:item?.type || "", decision:d.decision || "" });
+    lines.push({ responsable:d.responsable || "—", title:d.next_action, due_date:d.due_date, comment:d.comment, source:item?.label || key, type:item?.type || "", decision:d.decision || "" });
   });
   return lines;
 }
@@ -451,9 +462,9 @@ function DossierCard({ item, T=THEMES_INV.dark, onOpen, onDecide, compact=false 
 function BoardColumn({ column, items=[], T=THEMES_INV.dark, onOpen, onDecide }) {
   return <section style={{ minWidth:0, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, overflow:"hidden" }}><div style={{ padding:SPACING.md, borderBottom:`1px solid ${T.border}`, background:T.sectionHd }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ display:"inline-flex", alignItems:"center", gap:7, fontWeight:900, color:column.color }}><Icon as={column.icon} size={15}/>{column.label}</div><span style={{ fontFamily:"'DM Mono',monospace", color:column.color, fontWeight:900 }}>{items.length}</span></div><div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:4 }}>{column.help}</div></div><div style={{ padding:SPACING.md, display:"grid", gap:SPACING.md }}>{items.length ? items.map(item => <DossierCard key={item.key} item={item} T={T} onOpen={onOpen} onDecide={onDecide} compact />) : <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted, fontSize:FONT.sm.size }}>Aucun dossier dans cette colonne.</div>}</div></section>;
 }
-function PrioritiesPanel({ routine, setRoutine, T=THEMES_INV.dark }) {
+function PrioritiesPanel({ routine, setRoutine, responsables, T=THEMES_INV.dark }) {
   const update = (idx, patch) => setRoutine(prev => { const list = [...safeArr(prev.priorities)]; list[idx] = { ...(list[idx] || {}), ...patch }; return { ...prev, priorities:list }; });
-  return <SectionCard title="3 priorités du jour" icon={Sparkles} subtitle="À définir après lecture des dossiers à piloter" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{[0,1,2].map(idx => { const p = routine.priorities?.[idx] || {}; return <div key={idx} style={{ border:`1px solid ${priorityComplete(p) ? SU : WA}44`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Priorité n°{idx + 1}</div><input className="inv-inp" placeholder="Titre de la priorité" value={p.title || ""} onChange={e => update(idx, { title:e.target.value })} style={{ width:"100%", textAlign:"left", marginBottom:8 }}/><select className="inv-sel" value={p.responsable || ""} onChange={e => update(idx, { responsable:e.target.value })} style={{ width:"100%", marginBottom:8 }}><option value="">Responsable</option>{V9_RESPONSABLES.map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" type="date" value={p.due_date || ""} onChange={e => update(idx, { due_date:e.target.value })} style={{ width:"100%", marginBottom:8 }}/><textarea className="inv-inp" placeholder="Commentaire / objectif précis" value={p.comment || ""} onChange={e => update(idx, { comment:e.target.value })} style={{ width:"100%", minHeight:70, textAlign:"left" }}/></div> })}</div></SectionCard>;
+  return <SectionCard title="3 priorités du jour" icon={Sparkles} subtitle="À définir après lecture des dossiers à piloter" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{[0,1,2].map(idx => { const p = routine.priorities?.[idx] || {}; return <div key={idx} style={{ border:`1px solid ${priorityComplete(p) ? SU : WA}44`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Priorité n°{idx + 1}</div><input className="inv-inp" placeholder="Titre de la priorité" value={p.title || ""} onChange={e => update(idx, { title:e.target.value })} style={{ width:"100%", textAlign:"left", marginBottom:8 }}/><select className="inv-sel" value={p.responsable || ""} onChange={e => update(idx, { responsable:e.target.value })} style={{ width:"100%", marginBottom:8 }}><option value="">Responsable</option>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" type="date" value={p.due_date || ""} onChange={e => update(idx, { due_date:e.target.value })} style={{ width:"100%", marginBottom:8 }}/><textarea className="inv-inp" placeholder="Commentaire / objectif précis" value={p.comment || ""} onChange={e => update(idx, { comment:e.target.value })} style={{ width:"100%", minHeight:70, textAlign:"left" }}/></div> })}</div></SectionCard>;
 }
 function ActionPlanPDF({ plan=[], T=THEMES_INV.dark, onPrint }) {
   const owners = Array.from(new Set(plan.map(p => p.responsable || "À définir")));
@@ -464,7 +475,7 @@ function ActionPlanPDF({ plan=[], T=THEMES_INV.dark, onPrint }) {
 function DetailField({ label, value, T=THEMES_INV.dark, mono=false }) {
   return <div style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.md, padding:"8px 9px" }}><div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:900, textTransform:"uppercase", letterSpacing:.5 }}>{label}</div><div style={{ fontSize:FONT.sm.size + 1, color:T.text, fontWeight:800, marginTop:3, fontFamily:mono ? "'DM Mono',monospace" : "inherit" }}>{value || "—"}</div></div>;
 }
-function DecisionDrawer({ item, decision, setDecision, T=THEMES_INV.dark, onClose, onSave, onOpenFull, saving=false }) {
+function DecisionDrawer({ item, decision, setDecision, responsables, T=THEMES_INV.dark, onClose, onSave, onOpenFull, saving=false }) {
   if (!item) return null;
   const d = decision || defaultDecision(item);
   const missing = missingDecisionFields(item, d);
@@ -472,7 +483,7 @@ function DecisionDrawer({ item, decision, setDecision, T=THEMES_INV.dark, onClos
   const decisions = V9_DECISIONS[item.type] || V9_DECISIONS.team;
   const fieldGrid = { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:8 };
   const isBien = item.type === "bien";
-  return <div style={{ position:"fixed", inset:0, zIndex:80, background:"rgba(15,23,42,.32)", display:"flex", justifyContent:"flex-end" }} onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}><aside style={{ width:"min(560px,100%)", height:"100%", background:T.card, borderLeft:`1px solid ${T.border}`, boxShadow:"-12px 0 30px rgba(15,23,42,.18)", display:"flex", flexDirection:"column" }}><div style={{ padding:SPACING.lg, borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:12 }}><div><div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:7 }}><AlertBadge level={item.level} T={T}>{levelLabel(item.level)}</AlertBadge><AlertBadge level="info" T={T}>{item.type}</AlertBadge></div><div style={{ fontSize:FONT.xl.size, fontWeight:900, color:T.text }}>{item.label}</div><div style={{ fontSize:FONT.sm.size, color:T.textMuted, marginTop:3 }}>{item.subtitle}</div></div><button className="inv-btn inv-btn-out inv-btn-sm" onClick={onClose}><Icon as={X} size={13}/>Fermer</button></div><div style={{ padding:SPACING.lg, overflowY:"auto", display:"grid", gap:SPACING.md }}><section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Alertes consolidées</div><div style={{ display:"grid", gap:6 }}>{safeArr(item.alerts).length ? item.alerts.map(a => <div key={a.code} style={{ display:"flex", justifyContent:"space-between", gap:8, border:`1px solid ${levelColor(a.level, T)}35`, background:T.input, borderRadius:RADIUS.md, padding:"7px 8px" }}><span style={{ color:T.textSub, fontWeight:800 }}>{a.label}</span>{a.due_date && <span style={{ fontFamily:"'DM Mono',monospace", color:levelColor(a.level, T) }}>{safeDate(a.due_date)}</span>}</div>) : <div style={{ color:T.textMuted }}>Aucune alerte.</div>}</div></section><section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Lecture rapide</div><div style={fieldGrid}>{item.type === "prospect" && <><DetailField label="Score" value={`${item.score || 0}/100`} T={T} mono/><DetailField label="Budget" value={fmtDashboardEur(item.meta?.budget)} T={T}/><DetailField label="Capacité" value={fmtDashboardEur(item.meta?.capacity)} T={T}/><DetailField label="Téléphone" value={item.meta?.phone} T={T}/><DetailField label="Email" value={item.meta?.email} T={T}/><DetailField label="Source" value={item.meta?.source} T={T}/><DetailField label="Objectif" value={item.meta?.goal} T={T}/><DetailField label="Dernier contact" value={safeDate(item.meta?.lastContact)} T={T}/></>}{item.type === "client" && <><DetailField label="Étape" value={item.meta?.step} T={T}/><DetailField label="Statut" value={item.meta?.status} T={T}/><DetailField label="Budget" value={fmtDashboardEur(item.meta?.budget)} T={T}/><DetailField label="Dernière activité" value={safeDate(item.meta?.lastActivity)} T={T}/></>}{item.type === "bien" && <><DetailField label="Statut" value={item.meta?.statut} T={T}/><DetailField label="Prix" value={fmtDashboardEur(item.meta?.prix)} T={T}/><DetailField label="Travaux" value={fmtDashboardEur(item.meta?.travaux)} T={T}/><DetailField label="Rendement" value={item.meta?.rendement ? fmtDashboardPct(item.meta.rendement) : "—"} T={T}/><DetailField label="Cash-flow" value={fmtDashboardEur(item.meta?.cashflow)} T={T}/><DetailField label="Score" value={item.meta?.score} T={T} mono/></>}{item.type === "team" && <><DetailField label="Responsable" value={item.responsable} T={T}/><DetailField label="Statut" value={item.meta?.status} T={T}/><DetailField label="Échéance" value={safeDate(item.due_date)} T={T}/></>}</div><button className="inv-btn inv-btn-out inv-btn-sm" style={{ marginTop:SPACING.sm }} onClick={() => onOpenFull?.(item)}><Icon as={ExternalLink} size={12}/>Ouvrir la fiche complète</button></section><section style={{ border:`1px solid ${missing.length ? WA : SU}55`, borderRadius:RADIUS.lg, background:T.input, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:SPACING.sm }}><div style={{ fontWeight:900, color:T.text }}>Décision du jour</div>{missing.length ? <AlertBadge level="warning" T={T}>{missing.length} champ(s) manquant(s)</AlertBadge> : <AlertBadge level="success" T={T}>Complet</AlertBadge>}</div><div style={{ display:"grid", gap:8 }}><select className="inv-sel" value={d.decision || ""} onChange={e => set({ decision:e.target.value })}><option value="">Décision</option>{decisions.map(x => <option key={x}>{x}</option>)}</select><select className="inv-sel" value={d.responsable || ""} onChange={e => set({ responsable:e.target.value })}><option value="">Responsable</option>{V9_RESPONSABLES.map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" value={d.next_action || ""} onChange={e => set({ next_action:e.target.value })} placeholder="Action future" style={{ width:"100%", textAlign:"left" }}/><input className="inv-inp" type="date" value={d.due_date || ""} onChange={e => set({ due_date:e.target.value })} style={{ width:"100%" }}/>{isBien && (normTxt(d.decision).includes("proposer") || normTxt(d.decision).includes("matcher")) && <input className="inv-inp" value={d.client_id || ""} onChange={e => set({ client_id:e.target.value })} placeholder="Client à matcher / proposer" style={{ width:"100%", textAlign:"left" }}/>} {isBien && normTxt(d.decision).includes("offre") && <input className="inv-inp" value={d.offer_amount || ""} onChange={e => set({ offer_amount:e.target.value })} placeholder="Montant de l’offre" style={{ width:"100%", textAlign:"left" }}/>}<textarea className="inv-inp" value={d.comment || ""} onChange={e => set({ comment:e.target.value })} placeholder="Commentaire obligatoire" style={{ minHeight:92, width:"100%", textAlign:"left" }}/><label style={{ display:"flex", alignItems:"center", gap:7, fontSize:FONT.sm.size, color:T.textSub }}><input type="checkbox" checked={Boolean(d.force_validated)} onChange={e => set({ force_validated:e.target.checked })}/> Validation forcée</label>{d.force_validated && <textarea className="inv-inp" value={d.force_reason || ""} onChange={e => set({ force_reason:e.target.value })} placeholder="Motif obligatoire du forçage" style={{ minHeight:70, width:"100%", textAlign:"left" }}/>}<button className="inv-btn inv-btn-gold" disabled={saving || missing.length > 0} onClick={() => onSave?.(item, d)}><Icon as={Check} size={14}/>{saving ? "Validation…" : "Valider le suivi du jour"}</button>{missing.length > 0 && <div style={{ color:WA, fontSize:FONT.xs.size + 1 }}>Complète : {missing.join(", ")}</div>}</div></section></div></aside></div>;
+  return <div style={{ position:"fixed", inset:0, zIndex:80, background:"rgba(15,23,42,.32)", display:"flex", justifyContent:"flex-end" }} onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}><aside style={{ width:"min(560px,100%)", height:"100%", background:T.card, borderLeft:`1px solid ${T.border}`, boxShadow:"-12px 0 30px rgba(15,23,42,.18)", display:"flex", flexDirection:"column" }}><div style={{ padding:SPACING.lg, borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:12 }}><div><div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:7 }}><AlertBadge level={item.level} T={T}>{levelLabel(item.level)}</AlertBadge><AlertBadge level="info" T={T}>{item.type}</AlertBadge></div><div style={{ fontSize:FONT.xl.size, fontWeight:900, color:T.text }}>{item.label}</div><div style={{ fontSize:FONT.sm.size, color:T.textMuted, marginTop:3 }}>{item.subtitle}</div></div><button className="inv-btn inv-btn-out inv-btn-sm" onClick={onClose}><Icon as={X} size={13}/>Fermer</button></div><div style={{ padding:SPACING.lg, overflowY:"auto", display:"grid", gap:SPACING.md }}><section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Alertes consolidées</div><div style={{ display:"grid", gap:6 }}>{safeArr(item.alerts).length ? item.alerts.map(a => <div key={a.code} style={{ display:"flex", justifyContent:"space-between", gap:8, border:`1px solid ${levelColor(a.level, T)}35`, background:T.input, borderRadius:RADIUS.md, padding:"7px 8px" }}><span style={{ color:T.textSub, fontWeight:800 }}>{a.label}</span>{a.due_date && <span style={{ fontFamily:"'DM Mono',monospace", color:levelColor(a.level, T) }}>{safeDate(a.due_date)}</span>}</div>) : <div style={{ color:T.textMuted }}>Aucune alerte.</div>}</div></section><section style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Lecture rapide</div><div style={fieldGrid}>{item.type === "prospect" && <><DetailField label="Score" value={`${item.score || 0}/100`} T={T} mono/><DetailField label="Budget" value={fmtDashboardEur(item.meta?.budget)} T={T}/><DetailField label="Capacité" value={fmtDashboardEur(item.meta?.capacity)} T={T}/><DetailField label="Téléphone" value={item.meta?.phone} T={T}/><DetailField label="Email" value={item.meta?.email} T={T}/><DetailField label="Source" value={item.meta?.source} T={T}/><DetailField label="Objectif" value={item.meta?.goal} T={T}/><DetailField label="Dernier contact" value={safeDate(item.meta?.lastContact)} T={T}/></>}{item.type === "client" && <><DetailField label="Étape" value={item.meta?.step} T={T}/><DetailField label="Statut" value={item.meta?.status} T={T}/><DetailField label="Budget" value={fmtDashboardEur(item.meta?.budget)} T={T}/><DetailField label="Dernière activité" value={safeDate(item.meta?.lastActivity)} T={T}/></>}{item.type === "bien" && <><DetailField label="Statut" value={item.meta?.statut} T={T}/><DetailField label="Prix" value={fmtDashboardEur(item.meta?.prix)} T={T}/><DetailField label="Travaux" value={fmtDashboardEur(item.meta?.travaux)} T={T}/><DetailField label="Rendement" value={item.meta?.rendement ? fmtDashboardPct(item.meta.rendement) : "—"} T={T}/><DetailField label="Cash-flow" value={fmtDashboardEur(item.meta?.cashflow)} T={T}/><DetailField label="Score" value={item.meta?.score} T={T} mono/></>}{item.type === "team" && <><DetailField label="Responsable" value={item.responsable} T={T}/><DetailField label="Statut" value={item.meta?.status} T={T}/><DetailField label="Échéance" value={safeDate(item.due_date)} T={T}/></>}</div><button className="inv-btn inv-btn-out inv-btn-sm" style={{ marginTop:SPACING.sm }} onClick={() => onOpenFull?.(item)}><Icon as={ExternalLink} size={12}/>Ouvrir la fiche complète</button></section><section style={{ border:`1px solid ${missing.length ? WA : SU}55`, borderRadius:RADIUS.lg, background:T.input, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:SPACING.sm }}><div style={{ fontWeight:900, color:T.text }}>Décision du jour</div>{missing.length ? <AlertBadge level="warning" T={T}>{missing.length} champ(s) manquant(s)</AlertBadge> : <AlertBadge level="success" T={T}>Complet</AlertBadge>}</div><div style={{ display:"grid", gap:8 }}><select className="inv-sel" value={d.decision || ""} onChange={e => set({ decision:e.target.value })}><option value="">Décision</option>{decisions.map(x => <option key={x}>{x}</option>)}</select><select className="inv-sel" value={d.responsable || ""} onChange={e => set({ responsable:e.target.value })}><option value="">Responsable</option>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" value={d.next_action || ""} onChange={e => set({ next_action:e.target.value })} placeholder="Action future" style={{ width:"100%", textAlign:"left" }}/><input className="inv-inp" type="date" value={d.due_date || ""} onChange={e => set({ due_date:e.target.value })} style={{ width:"100%" }}/>{isBien && (normTxt(d.decision).includes("proposer") || normTxt(d.decision).includes("matcher")) && <input className="inv-inp" value={d.client_id || ""} onChange={e => set({ client_id:e.target.value })} placeholder="Client à matcher / proposer" style={{ width:"100%", textAlign:"left" }}/>} {isBien && normTxt(d.decision).includes("offre") && <input className="inv-inp" value={d.offer_amount || ""} onChange={e => set({ offer_amount:e.target.value })} placeholder="Montant de l’offre" style={{ width:"100%", textAlign:"left" }}/>}<textarea className="inv-inp" value={d.comment || ""} onChange={e => set({ comment:e.target.value })} placeholder="Commentaire obligatoire" style={{ minHeight:92, width:"100%", textAlign:"left" }}/><label style={{ display:"flex", alignItems:"center", gap:7, fontSize:FONT.sm.size, color:T.textSub }}><input type="checkbox" checked={Boolean(d.force_validated)} onChange={e => set({ force_validated:e.target.checked })}/> Validation forcée</label>{d.force_validated && <textarea className="inv-inp" value={d.force_reason || ""} onChange={e => set({ force_reason:e.target.value })} placeholder="Motif obligatoire du forçage" style={{ minHeight:70, width:"100%", textAlign:"left" }}/>}<button className="inv-btn inv-btn-gold" disabled={saving || missing.length > 0} onClick={() => onSave?.(item, d)}><Icon as={Check} size={14}/>{saving ? "Validation…" : "Valider le suivi du jour"}</button>{missing.length > 0 && <div style={{ color:WA, fontSize:FONT.xs.size + 1 }}>Complète : {missing.join(", ")}</div>}</div></section></div></aside></div>;
 }
 function printPlan(plan=[]) {
   const owners = Array.from(new Set(plan.map(p => p.responsable || "À définir")));
@@ -500,6 +511,15 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   // suivre l'utilisateur d'un appareil à l'autre, pas rester dans un navigateur.
   const [routine, setRoutine] = useState(() => emptyRoutine());
   const [routineChargee, setRoutineChargee] = useState(false);
+
+  // Annuaire : la liste des responsables assignables vient de la table
+  // utilisateurs, plus les rôles extérieurs (Client, Notaire, Agence…) qui
+  // n'ont pas de compte. Remplace un tableau de cinq prénoms codé en dur.
+  const annuaire = useAnnuaireInvest();
+  const responsables = useMemo(() => responsablesInvest(annuaire), [annuaire]);
+  // Nom d'affichage de qui pilote : sert de responsable par défaut aux
+  // dossiers non assignés, à la place du prénom codé en dur.
+  const pilote = profil?.nom || profil?.prenom || String(profil?.email || "").split("@")[0] || "";
 
   // Persistance des 3 priorités du jour.
   //
@@ -565,7 +585,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   }, [safeQuery]);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
-  const data = useMemo(() => consolidateData({ clients, crmProspects, biens, propositions, planning, actions }), [clients, crmProspects, biens, propositions, planning, actions]);
+  const data = useMemo(() => consolidateData({ clients, crmProspects, biens, propositions, planning, actions, profil, pilote }), [clients, crmProspects, biens, propositions, planning, actions, profil, pilote]);
   const doneItems = useMemo(() => safeArr(data.allDossiers).filter(d => isResolvedToday(routine, d)), [data.allDossiers, routine]);
   const openItems = useMemo(() => safeArr(data.allDossiers).filter(d => !isResolvedToday(routine, d)), [data.allDossiers, routine]);
   const byColumn = useMemo(() => {
@@ -599,12 +619,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     else onNavigate?.("crm", NAV.actionsClient(item.raw?.client_id || item.client_id, item.id));
   };
   const createNotification = async ({ actionId, responsable, title, message, item }) => {
-    if (!responsable || responsable === "Matthieu") return;
-    try { await supabase.from("invest_action_notifications").insert({ action_id:actionId || null, recipient:responsable, title:title || "Nouvelle action assignée", message:message || "Action créée depuis le Dashboard V9.", linked_entity_type:item?.type || null, linked_entity_id:item?.id ? String(item.id) : null, priority:item?.level === "danger" ? "high" : "normal", status:"unread", source_module:"dashboard_v9", created_by:profil?.email || profil?.nom || "Matthieu" }); } catch(e) { console.warn("Notification non bloquante", e); }
+    // On ne se notifie pas soi-même. Cette règle comparait le responsable à la
+    // chaîne « Matthieu » : elle cassait dès qu'un autre compte pilotait, et
+    // taisait toute notification destinée à un homonyme.
+    if (!responsable || estUtilisateurCourant(responsable, profil)) return;
+    try { await supabase.from("invest_action_notifications").insert({ action_id:actionId || null, recipient:responsable, title:title || "Nouvelle action assignée", message:message || "Action créée depuis le Dashboard V9.", linked_entity_type:item?.type || null, linked_entity_id:item?.id ? String(item.id) : null, priority:item?.level === "danger" ? "high" : "normal", status:"unread", source_module:"dashboard_v9", created_by:profil?.email || profil?.nom || "inconnu" }); } catch(e) { console.warn("Notification non bloquante", e); }
   };
   const createMissionAction = async (item, d) => {
     if (!d?.create_task || !d?.responsable || !d?.next_action) return null;
-    if (d.responsable === "Matthieu") return null;
+    // Idem : pas de tâche déléguée à soi-même.
+    if (estUtilisateurCourant(d.responsable, profil)) return null;
     const base = { responsable:d.responsable, action_title:d.next_action, due_date:d.due_date || null, status:"a_faire", step_label:`Dashboard V9 — ${item.type}`, client_id:item.type === "client" || (item.type === "prospect" && item.sourceTable === "invest_clients") ? item.id : null };
     const linked = { ...base, linked_entity_type:item.type, linked_entity_id:String(item.id), source_module:"dashboard_v9", source_context:{ comment:d.comment, decision:d.decision, routine_date:todayIso() } };
     let created = null;
@@ -652,17 +676,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"space-between", alignItems:"center", marginBottom:SPACING.md }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{V9_ENTITY_FILTERS.map(f => { const active = filter === f.key; return <button key={f.key} className={`inv-btn ${active ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setFilter(f.key)}><Icon as={f.icon} size={12}/>{f.label}</button> })}</div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={printPdf}><Icon as={Download} size={12}/>Plan PDF</button></div></div>
     <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:SPACING.md, alignItems:"start" }} className="v9-board-grid"><BoardColumn column={V9_COLUMNS[0]} items={byColumn.decision} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[1]} items={byColumn.watch} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[2]} items={byColumn.delegated} T={T} onOpen={openDetail} onDecide={openDecision}/></div>
     <SectionCard title="Traité aujourd’hui" icon={Check} subtitle="Dossiers consolidés validés dans la journée" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{byColumn.done.length ? byColumn.done.map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact/>) : <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucun dossier traité aujourd'hui.</div>}</div></SectionCard>
-    <PrioritiesPanel routine={routine} setRoutine={setRoutine} T={T}/>
+    <PrioritiesPanel routine={routine} setRoutine={setRoutine} responsables={responsables} T={T}/>
     <ActionPlanPDF plan={plan} T={T} onPrint={printPdf}/>
   </>;
   const renderMetier = () => <div style={{ display:"grid", gap:SPACING.md }}><SectionCard title="Prospects actifs" icon={Phone} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(filterDossiers(data.prospectDossiers, "all")).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Clients actifs" icon={Briefcase} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.clientDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Stock de biens" icon={Home} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.bienDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard></div>;
-  const renderEquipe = () => <SectionCard title="Pilotage équipe à distance" icon={Users} subtitle="Actions déléguées et notifications collaborateurs" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{V9_RESPONSABLES.map(r => { const list = data.allDossiers.filter(d => d.responsable === r && (d.category === "delegated" || d.type === "team")); return <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:8 }}><strong style={{ color:T.text }}>{r}</strong><AlertBadge level={list.some(x => x.level === "danger") ? "danger" : "info"} T={T}>{list.length}</AlertBadge></div>{list.slice(0,8).map(item => <button key={item.key} onClick={() => openDetail(item)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", padding:"7px 0", borderTop:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{item.next_action || item.label}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{item.label} · {safeDate(item.due_date)}</div></button>)}</div> })}</div>{notifications.length > 0 && <div style={{ marginTop:SPACING.md, color:T.textMuted, fontSize:FONT.sm.size }}>{notifications.filter(n => !n.read_at && n.status !== "read").length} notification(s) collaborateur non lue(s).</div>}</SectionCard>;
+  const renderEquipe = () => <SectionCard title="Pilotage équipe à distance" icon={Users} subtitle="Actions déléguées et notifications collaborateurs" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => { const list = data.allDossiers.filter(d => d.responsable === r && (d.category === "delegated" || d.type === "team")); return <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:8 }}><strong style={{ color:T.text }}>{r}</strong><AlertBadge level={list.some(x => x.level === "danger") ? "danger" : "info"} T={T}>{list.length}</AlertBadge></div>{list.slice(0,8).map(item => <button key={item.key} onClick={() => openDetail(item)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", padding:"7px 0", borderTop:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{item.next_action || item.label}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{item.label} · {safeDate(item.due_date)}</div></button>)}</div> })}</div>{notifications.length > 0 && <div style={{ marginTop:SPACING.md, color:T.textMuted, fontSize:FONT.sm.size }}>{notifications.filter(n => !n.read_at && n.status !== "read").length} notification(s) collaborateur non lue(s).</div>}</SectionCard>;
 
   return <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1500, margin:"0 auto" }}>
     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:SPACING.md, flexWrap:"wrap", marginBottom:SPACING.xl }}><div style={{ display:"flex", gap:SPACING.md, alignItems:"center" }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard pilotage quotidien</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub }}>V9 — 1 dossier = 1 carte consolidée. Pilotable à distance, sans doublons.</div></div></div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className={`inv-btn ${activeView === "pilotage" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("pilotage")}><Icon as={LayoutGrid} size={12}/>Pilotage</button><button className={`inv-btn ${activeView === "metier" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("metier")}><Icon as={ListChecks} size={12}/>Vue métier</button><button className={`inv-btn ${activeView === "equipe" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("equipe")}><Icon as={Users} size={12}/>Équipe</button></div></div>
     {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
     {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement du pilotage consolidé…</div> : activeView === "pilotage" ? renderPilotage() : activeView === "metier" ? renderMetier() : renderEquipe()}
-    <DecisionDrawer item={decisionItem || selected} decision={decisionItem ? currentDecision : null} setDecision={decisionItem ? updateDecision : null} T={T} onClose={() => { setDecisionItem(null); setSelected(null); }} onSave={decisionItem ? saveDecision : null} onOpenFull={openFullRecord} saving={saving}/>
+    <DecisionDrawer item={decisionItem || selected} decision={decisionItem ? currentDecision : null} setDecision={decisionItem ? updateDecision : null} responsables={responsables} T={T} onClose={() => { setDecisionItem(null); setSelected(null); }} onSave={decisionItem ? saveDecision : null} onOpenFull={openFullRecord} saving={saving}/>
     <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:1180px){.v9-board-grid{grid-template-columns:1fr!important}}`}</style>
   </div>;
 }

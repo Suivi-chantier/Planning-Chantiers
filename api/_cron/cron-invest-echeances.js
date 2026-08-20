@@ -85,25 +85,22 @@ function ajouterJours(iso, n) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Annuaire
 //
-// Les champs `responsable`, `commercial`, `conseiller_profero` et `auteur`
-// contiennent un prénom saisi à la main (« Camille », « Tom »). La table
-// `utilisateurs` porte nom / email / role / actif. On rapproche les deux de
-// façon tolérante : le format exact de `nom` n'est pas garanti, et un cron qui
-// n'envoie rien parce qu'il n'a pas su apparier un prénom est un cron inutile.
+// La règle d'appariement vit dans src/Invest/annuaire.mjs — le MÊME module que
+// l'interface. Elle décide qui reçoit un e-mail ici et qui apparaît dans les
+// sélecteurs de responsable là-bas : deux copies auraient divergé.
 //
-// Trois clés par utilisateur, dans l'ordre de fiabilité décroissante :
-//   « camille landais »  nom complet normalisé
-//   « camille »          premier mot du nom
-//   « camille »          partie locale de l'email, avant le point
+// Import dynamique parce que ce fichier est en CommonJS et le module en ESM.
+// Même schéma que chantierFinance.mjs côté Rénovation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function normaliserCle(s) {
-  return String(s || "")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // accents
-    .toLowerCase().trim();
+let _annuaireMod = null;
+async function moduleAnnuaire() {
+  if (!_annuaireMod) _annuaireMod = await import("../../src/Invest/annuaire.mjs");
+  return _annuaireMod;
 }
 
 async function chargerAnnuaire(supabase) {
+  const { indexerAnnuaire, ANNUAIRE_VIDE } = await moduleAnnuaire();
   const { data, error } = await supabase
     .from("utilisateurs")
     .select("nom,email,role,actif")
@@ -111,34 +108,16 @@ async function chargerAnnuaire(supabase) {
 
   if (error) {
     console.warn("[invest-echeances] annuaire indisponible:", error.message);
-    return { parCle: {}, admins: [] };
+    return ANNUAIRE_VIDE;
   }
-
-  const parCle = {};
-  const admins = [];
-  for (const u of data || []) {
-    const email = String(u.email || "").trim();
-    if (!email) continue;
-
-    if (String(u.role || "").toLowerCase() === "admin") admins.push(email);
-
-    const nom = normaliserCle(u.nom);
-    const local = normaliserCle(email.split("@")[0]);
-    const cles = [nom, nom.split(/\s+/)[0], local, local.split(".")[0]].filter(Boolean);
-
-    for (const cle of cles) {
-      // Premier arrivé gagne : une clé ambiguë (deux « Camille ») ne doit pas
-      // basculer d'un destinataire à l'autre selon l'ordre de la requête.
-      if (!parCle[cle]) parCle[cle] = email;
-    }
-  }
-  return { parCle, admins };
+  return indexerAnnuaire(data || []);
 }
 
+// Version synchrone, utilisable dans les boucles de collecte : le module est
+// déjà chargé à ce stade (chargerAnnuaire a été appelé avant).
 function emailDe(annuaire, nomOuPrenom) {
-  const cle = normaliserCle(nomOuPrenom);
-  if (!cle) return null;
-  return annuaire.parCle[cle] || annuaire.parCle[cle.split(/\s+/)[0]] || null;
+  if (!_annuaireMod) return null;
+  return _annuaireMod.emailPourResponsable(annuaire, nomOuPrenom) || null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,7 +427,6 @@ module.exports = { runInvestEcheances };
 // Exportés pour être testables isolément, sans base ni réseau.
 module.exports.chargerAnnuaire = chargerAnnuaire;
 module.exports.emailDe = emailDe;
-module.exports.normaliserCle = normaliserCle;
 module.exports.joursEntre = joursEntre;
 module.exports.ajouterJours = ajouterJours;
 module.exports.buildEmailHtml = buildEmailHtml;

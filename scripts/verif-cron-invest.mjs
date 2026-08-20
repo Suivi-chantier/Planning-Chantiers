@@ -16,8 +16,14 @@
 
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { runInvestEcheances, normaliserCle, emailDe, joursEntre, ajouterJours } =
+const { runInvestEcheances, joursEntre, ajouterJours } =
   require("../api/_cron/cron-invest-echeances.js");
+// La règle d'appariement est partagée avec l'interface : on la teste à la
+// source, pas sur une copie propre au cron.
+import {
+  normaliserCleAnnuaire, indexerAnnuaire, emailPourResponsable,
+  responsablesInvest, estUtilisateurCourant,
+} from "../src/Invest/annuaire.mjs";
 
 // ── Petit harnais d'assertions ──────────────────────────────────────────────
 let passes = 0, echecs = 0;
@@ -77,9 +83,6 @@ function fauxMailer(boite, { echouePour = [] } = {}) {
   };
 }
 
-const AUJOURDHUI = "2026-08-20";
-const t = { dateIso: AUJOURDHUI, dateFr: "20/08/2026", weekday: "Jeudi", hour: 4 };
-
 const UTILISATEURS = [
   { nom: "Matthieu Fumoleau", email: "matthieu.fumoleau@groupe-profero.com", role: "admin",      actif: true },
   { nom: "Camille Landais",   email: "camille.landais@groupe-profero.com",   role: "commercial", actif: true },
@@ -87,26 +90,46 @@ const UTILISATEURS = [
   { nom: "Ancien Parti",      email: "ancien@groupe-profero.com",            role: "commercial", actif: false },
 ];
 
+const AUJOURDHUI = "2026-08-20";
+const t = { dateIso: AUJOURDHUI, dateFr: "20/08/2026", weekday: "Jeudi", hour: 4 };
+
+
 // ════════════════════════════════════════════════════════════════════════════
 section("1. Fonctions pures");
 
-verifie("normaliserCle retire les accents et la casse",
-  normaliserCle("FRANÇOIS Huet") === "francois huet");
+verifie("normaliserCleAnnuaire retire les accents et la casse",
+  normaliserCleAnnuaire("FRANÇOIS Huet") === "francois huet");
 verifie("joursEntre compte à l'endroit", joursEntre(AUJOURDHUI, "2026-08-30") === 10);
 verifie("joursEntre compte à l'envers",  joursEntre("2026-08-30", AUJOURDHUI) === -10);
 verifie("ajouterJours franchit le mois", ajouterJours(AUJOURDHUI, 15) === "2026-09-04");
 verifie("ajouterJours recule",           ajouterJours("2026-08-01", -7) === "2026-07-25");
 
-const annuaireTest = {
-  parCle: { "camille landais": "camille.landais@x.fr", camille: "camille.landais@x.fr" },
-  admins: [],
-};
-verifie("emailDe apparie sur le prénom seul",
-  emailDe(annuaireTest, "Camille") === "camille.landais@x.fr");
-verifie("emailDe apparie sur le nom complet",
-  emailDe(annuaireTest, "Camille Landais") === "camille.landais@x.fr");
-verifie("emailDe renvoie null sur un inconnu",
-  emailDe(annuaireTest, "Personne") === null);
+const annuaireTest = indexerAnnuaire(UTILISATEURS);
+verifie("apparie sur le prénom seul",
+  emailPourResponsable(annuaireTest, "Camille") === "camille.landais@groupe-profero.com");
+verifie("apparie sur le nom complet",
+  emailPourResponsable(annuaireTest, "Camille Landais") === "camille.landais@groupe-profero.com");
+verifie("apparie malgré les accents",
+  emailPourResponsable(indexerAnnuaire([{ nom:"François Huet", email:"francois.huet@x.fr" }]), "François")
+    === "francois.huet@x.fr");
+verifie("renvoie vide sur un inconnu",
+  emailPourResponsable(annuaireTest, "Personne") === "");
+verifie("un compte inactif n'entre pas dans l'annuaire",
+  emailPourResponsable(annuaireTest, "Ancien") === "",
+  "les comptes inactifs sont filtrés à la requête, pas à l'indexation");
+verifie("les administrateurs sont repérés",
+  annuaireTest.admins.includes("matthieu.fumoleau@groupe-profero.com"));
+verifie("la liste des responsables contient l'équipe et les rôles extérieurs",
+  responsablesInvest(annuaireTest).includes("Camille Landais")
+  && responsablesInvest(annuaireTest).includes("Notaire"));
+verifie("la liste retombe sur le repli quand l'annuaire est vide",
+  responsablesInvest({ personnes: [] }).length > 0);
+verifie("estUtilisateurCourant reconnaît le prénom du connecté",
+  estUtilisateurCourant("Camille", { nom: "Camille Landais" }) === true);
+verifie("estUtilisateurCourant reconnaît via l'email",
+  estUtilisateurCourant("Camille", { email: "camille.landais@x.fr" }) === true);
+verifie("estUtilisateurCourant ne confond pas deux personnes",
+  estUtilisateurCourant("Tom", { nom: "Camille Landais" }) === false);
 
 // ════════════════════════════════════════════════════════════════════════════
 section("2. Fenêtres d'échéance");
