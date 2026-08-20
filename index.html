@@ -2,6 +2,103 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
+    <!-- CE BLOC DOIT RESTER LE PREMIER DU <head>.
+         Vite injecte le script du bundle à la fin du <head> : un filet placé
+         dans le <body>, comme il l'était jusqu'au 2026-08-20, s'enregistre
+         APRÈS le début du chargement du module. L'erreur pouvait donc survenir
+         sans écouteur en place — c'est ce qui l'a laissée passer. -->
+    <!-- Filet anti-écran-blanc (PWA).
+         Symptôme vécu le 2026-07-29, puis de nouveau le 2026-08-20 sur mobile :
+         un service worker périmé sert un index.html dont les bundles hashés
+         n'existent plus sur Vercel. PLUS AUCUN JS ne s'exécute — l'application
+         ne peut donc pas s'auto-réparer, et l'ErrorBoundary React ne peut rien
+         puisque React lui-même n'a pas chargé.
+
+         La première version de ce filet n'écoutait que les erreurs portées par
+         un élément <script>. Elle a laissé passer la panne du 2026-08-20 :
+         l'échec portait sur /assets/react-*.js, qui n'est PAS une balise
+         <script> mais un module importé par le module d'entrée. Aucun élément
+         ne portait l'erreur, donc le test sur tagName échouait.
+
+         Trois canaux sont désormais écoutés, parce qu'un échec de module se
+         manifeste différemment selon le navigateur :
+           1. erreur de chargement sur un élément <script> ou <link> (Chrome)
+           2. erreur globale mentionnant un type MIME ou un module (Safari)
+           3. promesse rejetée non gérée — la forme d'un import() qui échoue
+
+         Cause racine traitée séparément dans vercel.json : la règle
+         attrape-tout renvoyait index.html pour un asset manquant, donc du HTML
+         en 200 au lieu d'un 404 franc. -->
+    <script>
+      (function () {
+        var CLE = "pwa_recovery_at";
+        var FENETRE = 60 * 1000; // une seule tentative par minute : anti-boucle
+
+        function estEchecDAsset(texte) {
+          if (!texte) return false;
+          return /MIME type|Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Unexpected token '<'/i.test(texte);
+        }
+
+        function reparer(origine) {
+          var dernier = 0;
+          try { dernier = parseInt(sessionStorage.getItem(CLE), 10) || 0; } catch (_) {}
+          if (Date.now() - dernier < FENETRE) return;
+          try { sessionStorage.setItem(CLE, String(Date.now())); } catch (_) {}
+          console.warn("[filet PWA] récupération déclenchée par : " + origine);
+
+          var nettoyages = [];
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            nettoyages.push(
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (r) { return r.unregister(); }));
+              }).catch(function () {})
+            );
+          }
+          if (window.caches && caches.keys) {
+            nettoyages.push(
+              caches.keys().then(function (cles) {
+                return Promise.all(cles.map(function (c) { return caches.delete(c); }));
+              }).catch(function () {})
+            );
+          }
+          Promise.all(nettoyages).then(function () {
+            // Paramètre anti-cache : certains navigateurs mobiles reservent
+            // l'index depuis leur propre cache HTTP même après purge du SW.
+            var u = new URL(window.location.href);
+            u.searchParams.set("_r", String(Date.now()));
+            window.location.replace(u.toString());
+          });
+        }
+
+        // 1. Élément <script> ou <link rel="modulepreload"> qui n'a pas chargé.
+        window.addEventListener("error", function (e) {
+          var el = e.target;
+          if (!el || !el.tagName) return;
+          var url = el.src || el.href || "";
+          if (url.indexOf("/assets/") === -1) return;
+          if (el.tagName !== "SCRIPT" && el.tagName !== "LINK") return;
+          reparer(el.tagName + " " + url);
+        }, true);
+
+        // 2. Erreur globale : c'est la forme que prend l'échec de MIME sous
+        //    Safari, sans élément porteur.
+        window.addEventListener("error", function (e) {
+          if (e.target && e.target.tagName) return;   // déjà traité en 1
+          var msg = (e && e.message) || "";
+          var src = (e && e.filename) || "";
+          if (estEchecDAsset(msg) || (src.indexOf("/assets/") !== -1 && estEchecDAsset(msg))) {
+            reparer("erreur globale : " + msg);
+          }
+        });
+
+        // 3. import() qui échoue : une promesse rejetée, jamais un événement.
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e && e.reason;
+          var msg = (r && (r.message || r)) || "";
+          if (estEchecDAsset(String(msg))) reparer("promesse rejetée : " + msg);
+        });
+      })();
+    </script>
     <!-- Pas de maximum-scale ni user-scalable=no : iOS Safari zoom auto sur input <16px,
          et ces restrictions empêchent l'ouvrier de dézoomer ensuite. On laisse le zoom libre. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -22,46 +119,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Filet anti-écran-blanc (PWA). Symptôme vécu le 2026-07-29 : un service
-         worker/cache périmé sert un index.html dont le bundle hashé n'existe
-         plus sur Vercel ; la requête retombe sur le fallback HTML ("Expected a
-         JavaScript module... MIME text/html") et PLUS AUCUN JS ne s'exécute —
-         l'appli ne peut donc pas s'auto-réparer. Ce script inline (donc
-         toujours exécuté, même quand le bundle ne charge pas) détecte l'échec
-         de chargement d'un script /assets/, purge service workers + caches et
-         recharge UNE seule fois (garde sessionStorage anti-boucle). -->
-    <script>
-      (function () {
-        var CLE = "pwa_recovery_at";
-        window.addEventListener("error", function (e) {
-          var el = e.target;
-          if (!el || el.tagName !== "SCRIPT" || !el.src) return;
-          if (el.src.indexOf("/assets/") === -1) return;
-          var dernier = 0;
-          try { dernier = parseInt(sessionStorage.getItem(CLE), 10) || 0; } catch (_) {}
-          if (Date.now() - dernier < 60 * 1000) return; // déjà tenté il y a < 1 min : on ne boucle pas
-          try { sessionStorage.setItem(CLE, String(Date.now())); } catch (_) {}
-          var nettoyages = [];
-          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-            nettoyages.push(
-              navigator.serviceWorker.getRegistrations().then(function (regs) {
-                return Promise.all(regs.map(function (r) { return r.unregister(); }));
-              }).catch(function () {})
-            );
-          }
-          if (window.caches && caches.keys) {
-            nettoyages.push(
-              caches.keys().then(function (cles) {
-                return Promise.all(cles.map(function (c) { return caches.delete(c); }));
-              }).catch(function () {})
-            );
-          }
-          Promise.all(nettoyages).then(function () {
-            window.location.reload();
-          });
-        }, true);
-      })();
-    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
