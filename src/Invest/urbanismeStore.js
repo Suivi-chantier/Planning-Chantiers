@@ -285,6 +285,12 @@ export function urbaDossierVide(base = {}) {
       date_notaire: "",
       date_travaux: "",
       deja_proprietaire: "",           // 'Oui' | 'Non'
+      // Rattachement au stock de biens et au CRM. Les colonnes et leurs clés
+      // étrangères existaient en base depuis la création de la table, mais
+      // l'interface ne les remplissait jamais : une FDU flottait, sans lien
+      // avec le bien qu'elle concerne.
+      bien_id: base.bien_id || null,
+      client_id: base.client_id || null,
     },
     demandeur: {
       type: "societe",                 // 'societe' (existante) | 'a_creer'
@@ -815,6 +821,8 @@ export function urbaColonnes(donnees, statut) {
     completude: c.pct,
     nb_menuiseries: urbaLignesFacade(donnees).length,
     nb_pieces_manquantes: c.pieces.length,
+    bien_id: id.bien_id || null,
+    client_id: id.client_id || null,
     donnees,
   };
 }
