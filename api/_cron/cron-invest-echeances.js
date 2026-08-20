@@ -344,78 +344,28 @@ function buildEmailHtml(lignes, dateFr) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Envoi
 //
-// Invest n'envoie PAS par Resend : le bouton « Mail » du CRM et la conversion
-// de prospect passent par l'Edge Function Supabase `send-mission-email`, qui
-// expédie via Gmail depuis le compte d'automatisation. Resend ne sert qu'aux
-// crons Rénovation et à /api/send-email.
+// Deux canaux coexistent dans ce projet, et ils ne sont pas interchangeables :
 //
-// La veille emprunte donc le même canal que le reste d'Invest : un seul chemin
-// à maintenir, et elle hérite d'une configuration déjà éprouvée en production.
+//   • Edge Function Supabase `send-mission-email` (Gmail, depuis
+//     og@groupe-profero.com) — le bouton « Mail » du CRM. Elle EXIGE un
+//     `actionId` : c'est une notification attachée à une action de mission
+//     précise, qu'elle relit en base. Vérifié par diag-mail-invest.mjs, qui
+//     répond « actionId manquant ».
 //
-// Le payload reprend celui du CRM. `actionId` et `clientId` sont omis : une
-// ligne de veille ne se rattache pas à une action unique. Si la fonction les
-// exige, l'erreur remonte telle quelle dans le résumé du dispatcher — c'est
-// exactement ce que scripts/diag-mail-invest.mjs sert à vérifier avant de
-// compter dessus.
+//   • /api/send-email (Resend) — tous les crons du projet : récap commandes,
+//     rappel rapport, encours fournisseurs. C'est le canal des envois
+//     périodiques, qui ne se rattachent à aucune ligne métier.
+//
+// La veille appartient à la seconde famille : ses lignes viennent de cinq
+// tables différentes et aucune n'est une action de mission. Elle passe donc
+// par /api/send-email, comme les autres crons.
+//
+// Historique de cette décision, pour ne pas la refaire : j'ai d'abord cru que
+// Resend était un verrou à configurer (faux — il fonctionne, testé), puis
+// basculé sur l'Edge Function par souci de cohérence avec Invest (faux aussi —
+// elle exige un actionId que la veille n'a pas). Le canal correct est celui de
+// la famille d'usage, pas celui du module.
 // ─────────────────────────────────────────────────────────────────────────────
-
-const COMPTE_AUTOMATISATION = "og@groupe-profero.com";
-
-// Les erreurs d'Edge Function arrivent enveloppées : le message utile est dans
-// le corps de la réponse, pas dans error.message (qui dit juste « non-2xx »).
-async function detailErreurEdge(error) {
-  if (!error) return "";
-  if (error.context && typeof error.context.text === "function") {
-    try {
-      const brut = await error.context.text();
-      if (brut) {
-        try {
-          const parse = JSON.parse(brut);
-          return parse?.error || parse?.message || parse?.hint || brut;
-        } catch { return brut; }
-      }
-    } catch { /* corps illisible : on retombe sur le message générique */ }
-  }
-  return error.message || String(error);
-}
-
-// Convertit le HTML en texte lisible, pour le champ `body` que la fonction
-// attend en plus de `htmlBody`.
-function htmlVersTexte(html) {
-  return String(html || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function envoyeurEdge(supabase) {
-  return async (_req, to, subject, html) => {
-    const { data, error } = await supabase.functions.invoke("send-mission-email", {
-      body: {
-        to,
-        subject,
-        body: htmlVersTexte(html),
-        htmlBody: html,
-        responsable: "",
-        clientName: "Veille Profero Invest",
-        senderEmail: COMPTE_AUTOMATISATION,
-        fromEmail: COMPTE_AUTOMATISATION,
-        actionUrl: APP_URL,
-        notificationType: "invest_veille_echeances",
-      },
-    });
-    // La fonction peut répondre 200 en signalant l'échec dans le corps :
-    // les deux cas comptent comme un échec.
-    if (error || data?.error) {
-      return { ok: false, status: 0, data: { message: await detailErreurEdge(error) || data?.error } };
-    }
-    return { ok: true, status: 200, data };
-  };
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Point d'entrée, appelé par le dispatcher
@@ -424,7 +374,7 @@ function envoyeurEdge(supabase) {
 // `envoyerMail` reste injectable pour les tests ; en production la veille
 // utilise l'Edge Function d'Invest.
 async function runInvestEcheances(req, supabase, t, envoyerMail) {
-  const expedier = envoyerMail || envoyeurEdge(supabase);
+  const expedier = envoyerMail;
   const todayIso = t.dateIso;
   const resume = {
     lignes: 0, destinataires: 0, envoyes: [], echecs: [],
@@ -509,6 +459,3 @@ module.exports.emailDe = emailDe;
 module.exports.joursEntre = joursEntre;
 module.exports.ajouterJours = ajouterJours;
 module.exports.buildEmailHtml = buildEmailHtml;
-module.exports.envoyeurEdge = envoyeurEdge;
-module.exports.htmlVersTexte = htmlVersTexte;
-module.exports.COMPTE_AUTOMATISATION = COMPTE_AUTOMATISATION;

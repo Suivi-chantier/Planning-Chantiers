@@ -1,24 +1,26 @@
-// scripts/diag-mail-invest.mjs — Diagnostic du canal d'envoi Profero Invest.
+// scripts/diag-mail-invest.mjs — Diagnostic des canaux d'envoi Profero Invest.
 //
-// Appelle la VRAIE Edge Function `send-mission-email` avec le payload exact de
-// la veille quotidienne, et rapporte ce qui se passe.
+// Éprouve les DEUX canaux du projet et dit lequel convient à quoi :
 //
-// Pourquoi ce script : la fonction n'est pas dans le dépôt, seulement déployée.
-// Son contrat est inféré des appelants du CRM. Deux inconnues restent, et
-// aucune ne se voit avant l'envoi réel :
+//   • /api/send-email (Resend) — utilisé par tous les crons : récap commandes,
+//     rappel rapport, encours fournisseurs, et la veille d'échéances Invest.
+//     C'est le canal des envois périodiques, qui ne se rattachent à aucune
+//     ligne métier.
 //
-//   1. La veille omet `actionId` et `clientId` — une ligne d'échéance ne se
-//      rattache pas à une action unique. Si la fonction les exige, l'envoi
-//      échoue.
-//   2. Le cron s'authentifie avec la clé de service, pas avec une session
-//      utilisateur. Si la fonction attend un JWT d'utilisateur, elle refuse.
+//   • Edge Function `send-mission-email` (Gmail, og@groupe-profero.com) —
+//     le bouton « Mail » du CRM. Elle EXIGE un actionId : c'est une
+//     notification attachée à une action de mission précise.
 //
-// Découvrir ça à 4h du matin, c'est découvrir « aucun mail » — indiscernable
-// de « rien à signaler ». D'où ce script, à lancer AVANT de compter dessus.
+// Ce script existe parce que j'ai supposé, deux fois de suite et sans vérifier,
+// que ces canaux étaient interchangeables. Ils ne le sont pas.
+//
+// L'Edge Function n'est pas dans le dépôt, seulement déployée : son contrat ne
+// peut être qu'éprouvé, pas lu. Et un cron qui échoue tourne à 4h du matin sans
+// témoin — « aucun mail » y est indiscernable de « rien à signaler ».
 //
 // Usage :
-//   node scripts/diag-mail-invest.mjs                  → test à blanc (payload seul)
-//   node scripts/diag-mail-invest.mjs vous@exemple.fr  → envoi réel à cette adresse
+//   node scripts/diag-mail-invest.mjs                  → test à blanc (payloads seuls)
+//   node scripts/diag-mail-invest.mjs vous@exemple.fr  → envoi réel sur les deux canaux
 //
 // ⚠ Avec une adresse en argument, un VRAI e-mail part. Sans argument, rien
 //   n'est envoyé : le script se contente d'afficher ce qu'il enverrait.
@@ -102,7 +104,36 @@ if (!destinataire) {
   process.exit(0);
 }
 
-console.log("\nAppel de send-mission-email…");
+// ── Canal 1 : /api/send-email (Resend) — celui de la veille ───────────────
+console.log("\n1 · /api/send-email (Resend) — canal des crons");
+console.log("─".repeat(52));
+
+const APP = "https://planning-chantiers.vercel.app";
+let resendOk = false;
+try {
+  const resp = await fetch(`${APP}/api/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      to: destinataire,
+      subject: "[Profero Invest] Diagnostic — canal Resend",
+      html: payload.htmlBody,
+    }),
+  });
+  const corps = await resp.json().catch(() => ({}));
+  if (resp.ok && corps?.ok) {
+    resendOk = true;
+    console.log(`  ✓ accepté (id ${corps.id})`);
+  } else {
+    console.log(`  ✗ ÉCHEC ${resp.status} : ${corps?.error || JSON.stringify(corps)}`);
+    if (corps?.details) console.log(`    détail : ${JSON.stringify(corps.details)}`);
+  }
+} catch (e) {
+  console.log(`  ✗ ÉCHEC réseau : ${e.message}`);
+}
+
+// ── Canal 2 : Edge Function send-mission-email — celui du CRM ─────────────
+console.log("\n2 · send-mission-email (Gmail) — canal du CRM");
 console.log("─".repeat(52));
 
 const supabase = createClient(url, cle, { auth: { persistSession: false } });
@@ -123,21 +154,33 @@ async function detail(err) {
   return err?.message || String(err);
 }
 
+let edgeOk = false;
 if (error || data?.error) {
   const msg = (await detail(error)) || data?.error;
-  console.log(`  ✗ ÉCHEC : ${msg}`);
-  console.log("\n" + "═".repeat(52));
-  console.log("La veille ne pourra pas délivrer ses alertes en l'état.");
-  console.log("\nCauses les plus probables, dans l'ordre :");
-  console.log("  • la fonction exige actionId / clientId, que la veille n'a pas");
-  console.log("  • elle attend un JWT d'utilisateur, pas la clé de service");
-  console.log("  • le compte Gmail d'automatisation a perdu son autorisation");
-  console.log("\nLe message ci-dessus vient de la fonction elle-même : il tranche.");
-  process.exit(1);
+  console.log(`  ✗ REFUSÉ : ${msg}`);
+  if (/actionid/i.test(String(msg))) {
+    console.log("    → attendu : cette fonction notifie UNE action de mission,");
+    console.log("      qu'elle relit en base. Elle ne convient pas à un envoi");
+    console.log("      périodique dont les lignes viennent de cinq tables.");
+  }
+} else {
+  edgeOk = true;
+  console.log(`  ✓ accepté : ${JSON.stringify(data)}`);
 }
 
-console.log("  ✓ Acceptée par la fonction.");
-console.log(`  réponse : ${JSON.stringify(data)}`);
+// ── Verdict ───────────────────────────────────────────────────────────────
 console.log("\n" + "═".repeat(52));
-console.log(`✓ Canal opérationnel. Vérifiez la réception sur ${destinataire}.`);
-console.log("  La veille quotidienne pourra délivrer ses alertes.");
+if (resendOk) {
+  console.log(`✓ La veille quotidienne peut délivrer ses alertes.`);
+  console.log(`  Vérifiez la réception sur ${destinataire}.`);
+  if (!edgeOk) {
+    console.log("\n  L'Edge Function refuse le payload de la veille : c'est le");
+    console.log("  comportement attendu, elle sert les notifications d'action");
+    console.log("  du CRM. Les deux canaux ne sont pas interchangeables.");
+  }
+  process.exit(0);
+}
+console.log("✗ Le canal de la veille est HORS SERVICE.");
+console.log("  Les alertes d'échéance ne partiront pas. Vérifier RESEND_KEY");
+console.log("  et RESEND_FROM dans les variables d'environnement Vercel.");
+process.exit(1);
