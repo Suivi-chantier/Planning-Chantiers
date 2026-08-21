@@ -531,6 +531,18 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
   const canSee = (p) => canSeeInvestPage(rolePages, role, p);
+
+  // Page d'arrivée : l'app démarre sur "dashboard", mais un rôle restreint
+  // (ex. Agent EDL limité à l'État des lieux) n'y a pas forcément accès et
+  // tomberait sur « Accès refusé ». Dès que la config d'accès (re)charge, on
+  // bascule sur le premier onglet autorisé, dans l'ordre de la barre latérale.
+  React.useEffect(() => {
+    if (canSee(page)) return;
+    const autorisees = getInvestAllowedPages(rolePages, role);
+    const premiere = getInvestPagesList().map(p => p.id).find(id => autorisees.includes(id)) || autorisees[0];
+    if (premiere && premiere !== page) setPage(premiere);
+  }, [rolePages, role, page]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
   const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
   const ouvrirStructurationDepuisClient = (clientId) => {
