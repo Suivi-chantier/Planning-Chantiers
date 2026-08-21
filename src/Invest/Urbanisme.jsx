@@ -25,6 +25,7 @@ import {
   urbaSurfacePlancherTotale, urbaDelaiInstruction, urbaDelaiPreparation,
   listerDossiers, chargerDossier, creerDossier, majDossier, supprimerDossier,
   URBA_BUCKET, urbaTeleverserFichier, urbaSupprimerFichier, urbaSignerFichiers, urbaEstImage,
+  URBA_MAIL_POLE, urbaNotifierTransmission,
 } from "./urbanismeStore";
 import { imprimerFDU } from "./urbanismeImpression";
 
@@ -39,7 +40,11 @@ import { imprimerFDU } from "./urbanismeImpression";
 //
 // La règle d'or « une FDU incomplète n'est pas prise en charge et repart au
 // commercial » n'est pas une consigne écrite quelque part : le bouton
-// « Transmettre » est fermé tant que `urbaCompletude().transmissible` est faux,
+// « Transmettre » est fermé tant que les INFORMATIONS obligatoires manquent —
+// `urbaCompletude().transmissible`. Les pièces jointes ne bloquent PAS : elles
+// sont produites par le pôle urbanisme. Le jalon qui les exige est le DÉPÔT en
+// mairie, porté par `deposable`.
+//
 // et l'écran dit lequel des champs ou des pièces manque.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -642,6 +647,8 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
   // n'empêche pas d'imprimer la fiche — seules les annexes manqueront, et le
   // document le signale.
   const [preparationImpression, setPreparationImpression] = useState("");
+  const [notifPole, setNotifPole] = useState("");
+  const [notifPoleOk, setNotifPoleOk] = useState(true);
 
   const imprimer = useCallback(async () => {
     setPreparationImpression("Préparation des annexes…");
@@ -709,11 +716,14 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
   /* ---- Transitions de statut ---- */
   const changerStatut = (s) => {
     if (s === "transmis" && !comp.transmissible) {
+      // Seules les INFORMATIONS bloquent : les pièces sont produites par le
+      // pôle urbanisme lui-même, les exiger du commercial inverserait la
+      // responsabilité.
       alert(
-        "FDU incomplète : elle ne peut pas être transmise.\n\n"
-        + (comp.manquants.length ? comp.manquants.length + " champ(s) obligatoire(s) manquant(s).\n" : "")
-        + (comp.pieces.length ? comp.pieces.length + " pièce(s) obligatoire(s) non reçue(s).\n" : "")
-        + "\nLe détail est dans l'onglet Process."
+        "Informations incomplètes : la FDU ne peut pas être transmise.\n\n"
+        + comp.manquants.length + " champ(s) obligatoire(s) manquant(s).\n"
+        + "\nLe détail est dans l'onglet Process. Les pièces jointes, elles, "
+        + "ne sont pas requises pour transmettre."
       );
       setOnglet("process");
       return;
@@ -724,6 +734,21 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
       if (!txt(v.commercial_date)) set("validation", "commercial_date", urbaISO(new Date()));
       if (!txt(v.commercial_nom)) set("validation", "commercial_nom", profil?.nom || "");
       if (!transmisLe.current) transmisLe.current = new Date().toISOString();
+
+      // Notification au pôle urbanisme. Le changement de statut n'attend PAS
+      // l'e-mail : une boîte injoignable ne doit pas empêcher de transmettre un
+      // dossier. L'issue est affichée, jamais avalée — un envoi perdu en
+      // silence serait pire que pas d'envoi du tout.
+      setNotifPole("Notification du pôle urbanisme…");
+      urbaNotifierTransmission({
+        dossier, donnees:d, completude:comp,
+        auteur: profil?.nom || profil?.email || "",
+      }).then(r => {
+        setNotifPole(r.ok ? r.message : `Notification NON envoyée : ${r.message}`);
+        setNotifPoleOk(r.ok);
+        // Le succès s'effface, l'échec reste : il demande une action.
+        if (r.ok) setTimeout(() => setNotifPole(""), 6000);
+      });
     }
     if (s === "depose" && !txt(d?.suivi?.date_depot)) set("suivi", "date_depot", urbaISO(new Date()));
     if (s === "pieces_mairie" && !txt(d?.suivi?.date_pieces_mairie)) set("suivi", "date_pieces_mairie", urbaISO(new Date()));
@@ -796,18 +821,35 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
       </div>
 
       {erreur && <div style={{ marginBottom:SPACING.md }}><Bandeau level="danger" T={T}>{erreur}</Bandeau></div>}
+      {notifPole && (
+        <div style={{ marginBottom:SPACING.md }}>
+          <Bandeau level={notifPoleOk ? "success" : "danger"} T={T}>
+            {notifPole}
+            {!notifPoleOk && " — prévenez le pôle par un autre moyen, le dossier est bien transmis dans l'application."}
+          </Bandeau>
+        </div>
+      )}
 
       {/* Alertes transverses : elles suivent l'utilisateur sur tous les onglets */}
       <div style={{ display:"grid", gap:SPACING.sm, marginBottom:SPACING.lg }}>
         {!comp.transmissible && URBA_STATUTS_AVANT_DEPOT.includes(statut) && (
-          <Bandeau level={comp.manquants.length + comp.pieces.length > 6 ? "danger" : "warning"} T={T}>
-            FDU incomplète — {comp.manquants.length} champ(s) obligatoire(s) et {comp.pieces.length} pièce(s) manquants.
-            Tant que ce n'est pas soldé, le dossier n'est pas pris en charge.
+          <Bandeau level={comp.manquants.length > 6 ? "danger" : "warning"} T={T}>
+            Informations incomplètes — {comp.manquants.length} champ(s) obligatoire(s) manquant(s).
+            Tant que ce n'est pas soldé, le dossier ne peut pas être transmis.
             {" "}<button className="inv-btn inv-btn-sm inv-btn-out" onClick={() => setOnglet("process")}>Voir le détail</button>
           </Bandeau>
         )}
         {comp.transmissible && statut === "brouillon" && (
-          <Bandeau level="success" T={T}>FDU complète : elle peut être transmise au pôle urbanisme.</Bandeau>
+          <Bandeau level="success" T={T}>
+            Informations complètes : la FDU peut être transmise au pôle urbanisme.
+            {comp.pieces.length > 0 && ` Les ${comp.pieces.length} pièce(s) restantes seront produites par le pôle.`}
+          </Bandeau>
+        )}
+        {/* Le dépôt en mairie, lui, exige les pièces. Deux jalons distincts. */}
+        {comp.transmissible && !comp.deposable && statut !== "brouillon" && URBA_STATUTS_AVANT_DEPOT.includes(statut) && (
+          <Bandeau level="info" T={T}>
+            {comp.pieces.length} pièce(s) encore à produire avant le dépôt en mairie. Elles ne bloquent pas la transmission.
+          </Bandeau>
         )}
         {arch.obligatoire && (
           <Bandeau level="warning" T={T}>
@@ -1702,7 +1744,9 @@ function OngletProcess({ d, set, setSous, T, comp, statut, onAllerPieces }) {
   return (
     <>
       <Carte titre="Contrôle avant transmission" icone={ShieldAlert} ton={comp.transmissible ? "green" : "danger"} T={T}
-        sous={comp.transmissible ? "FDU complète" : `${comp.manquants.length} champ(s) + ${comp.pieces.length} pièce(s) manquants`}>
+        sous={comp.transmissible
+          ? (comp.deposable ? "Informations et pièces complètes" : `Informations complètes · ${comp.pieces.length} pièce(s) à produire par le pôle`)
+          : `${comp.manquants.length} champ(s) obligatoire(s) manquant(s)`}>
         {comp.transmissible ? (
           <Bandeau level="success" T={T}>
             Tous les champs obligatoires applicables sont remplis et toutes les pièces obligatoires sont au dossier.

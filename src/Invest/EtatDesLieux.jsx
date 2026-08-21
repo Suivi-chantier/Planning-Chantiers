@@ -799,7 +799,7 @@ function SignaturePad({ role, who, value, onChange, readOnly = false }) {
 }
 
 /* ============ Rapport imprimable ============ */
-function Rapport({ meta, rooms, general, sigs, refEntree, getIt, photosPour, onBack }) {
+function Rapport({ meta, rooms, general, sigs, refEntree, auteur, getIt, photosPour, onBack }) {
   useEffect(() => {
     document.body.classList.add("edl-printing");
     return () => document.body.classList.remove("edl-printing");
@@ -872,6 +872,7 @@ function Rapport({ meta, rooms, general, sigs, refEntree, getIt, photosPour, onB
           <div>Composition</div><div>{meta.surface || "—"}</div>
           <div>Date et heure</div><div>{dstr}{meta.heure ? " — " + meta.heure : ""}</div>
           <div>Tiers présents</div><div>{meta.tiers || "Aucun"}</div>
+          <div>État des lieux réalisé par</div><div>{auteur || "—"}</div>
           {meta.reference ? <><div>Référence du bail</div><div>{meta.reference}</div></> : null}
           {(meta.extras || []).filter(x => x.label || x.value).map(x => (
             <React.Fragment key={x.k}>
@@ -1050,6 +1051,14 @@ function SaisieEDL({ dossier, profil, onRetour }) {
   const premierRendu = useRef(true);
 
   const getIt = useCallback((c) => items[c] || EMPTY_ITEM, [items]);
+
+  // Qui a complété le dossier. Archivé, c'est figé : `auteur` a été inscrit au
+  // moment de l'archivage et le rapport ne bouge plus. Brouillon, c'est celui
+  // qui le tient en main — la saisie peut passer d'un collaborateur à l'autre,
+  // et c'est le dernier qui archive qui signera le rapport.
+  const auteurNom = (archive
+    ? dossier.auteur
+    : (profil?.nom || profil?.email || dossier.auteur)) || "";
 
   const locataires = meta.locataires || [];
 
@@ -1362,6 +1371,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
         <style>{EDL_CSS}</style>
         <Rapport
           meta={meta} rooms={roomsEff} general={general} sigs={sigs} refEntree={refEntree}
+          auteur={auteurNom}
           getIt={getIt} photosPour={photosPour} onBack={() => setReportMode(false)}
         />
       </>,
@@ -1446,7 +1456,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
           <p className="banner info">
             Ce rapport est figé{dossier.archive_le
               ? ` depuis le ${new Date(dossier.archive_le).toLocaleDateString("fr-FR")}`
-              : ""}. La saisie n'est plus modifiable : c'est ce qui lui donne sa valeur de référence.
+              : ""}{auteurNom ? `, complété par ${auteurNom}` : ""}. La saisie n'est plus modifiable : c'est ce qui lui donne sa valeur de référence.
           </p>
         )}
         {!archive && stats.photos > 0 && (
@@ -1459,7 +1469,10 @@ function SaisieEDL({ dossier, profil, onRetour }) {
         <section className="card">
           <div className="card-hd">
             <h2>Cadre du document</h2>
-            <p className="hint">Ces informations ouvrent le rapport. Tout est facultatif à ce stade.</p>
+            <p className="hint">
+              Ces informations ouvrent le rapport. Tout est facultatif à ce stade.
+              {auteurNom ? ` État des lieux complété par ${auteurNom}.` : ""}
+            </p>
           </div>
           <div className="card-bd">
             <div className="grid">
@@ -2037,6 +2050,7 @@ function ListeEDL({ profil, onOuvrir }) {
                       <th>Dossier</th>
                       <th>Type</th>
                       <th>Date</th>
+                      <th>Réalisé par</th>
                       <th>État</th>
                       <th>Saisie</th>
                       <th>Photos</th>
@@ -2054,6 +2068,7 @@ function ListeEDL({ profil, onOuvrir }) {
                         <td><span className={`tag ${r.type === "SORTIE" ? "sortie" : "entree"}`}>
                           {r.type === "SORTIE" ? "Sortie" : "Entrée"}</span></td>
                         <td className="num">{fmtDate(r.date_edl)}</td>
+                        <td className="a">{r.auteur || "—"}</td>
                         <td><span className={`tag ${r.statut === "archive" ? "archive" : "brouillon"}`}>
                           {r.statut === "archive" ? "Archivé" : "Brouillon"}</span></td>
                         <td className="num">{r.nb_renseignes}/{r.nb_elements || ITEMS_DEFAUT.length}</td>

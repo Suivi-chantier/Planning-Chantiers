@@ -143,7 +143,126 @@ verifie("urbaEstImage ne prend pas un PDF pour une image",
   S.urbaEstImage({ type:"application/pdf", nom:"notice.pdf" }) === false);
 
 // ════════════════════════════════════════════════════════════════════════════
-section("5. Les annexes sont bien DANS le document imprimé");
+section("5. Ce qui bloque la transmission — et ce qui ne bloque pas");
+
+// Règle métier : la FDU part dès que les INFORMATIONS sont complètes. Les
+// pièces sont produites par le pôle urbanisme lui-même ; les exiger du
+// commercial inverserait la responsabilité et retarderait chaque dossier.
+//
+// Le dépôt en mairie, lui, les exige : deux jalons distincts, deux drapeaux.
+
+// Un dossier vide : les informations manquent, donc rien ne part.
+const vierge = S.urbaCompletude(S.urbaDossierVide({}));
+verifie("un dossier vide n'est pas transmissible", vierge.transmissible === false);
+verifie("un dossier vide n'est pas déposable", vierge.deposable === false);
+
+// DOSSIER RÉELLEMENT COMPLET, construit champ par champ jusqu'à ce que
+// urbaCompletude ne signale plus aucun manque.
+//
+// Une première version de ce test fabriquait des objets { manquants, pieces,
+// transmissible } à la main. Elle vérifiait mon MODÈLE de la règle, pas la
+// règle : remettre l'ancienne condition dans urbaCompletude ne la faisait pas
+// tomber. Un test qui ne peut pas attraper la régression qu'il vise est pire
+// que pas de test, parce qu'il rassure à tort.
+function dossierComplet() {
+  const d = S.urbaDossierVide({});
+  Object.assign(d.identification, {
+    reference: "FDU-2026-001", entite: "Profero Invest", commercial: "Camille",
+    date_demande: "2026-08-01", date_max_depot: "2026-09-30",
+    origine_contrainte: "Compromis", date_travaux: "2026-12-01",
+    deja_proprietaire: "Non",
+  });
+  d.demandeur.type = "societe";
+  Object.assign(d.demandeur.societe, {
+    denomination: "SCI Test", forme: "SCI", siret: "12345678901234",
+    adresse_siege: "1 rue A, 44000 Nantes", representant: "M. Test",
+    qualite: "Gérant", telephone: "0600000000", email: "t@t.fr",
+  });
+  Object.assign(d.bien, {
+    adresse: "12 rue des Halles", code_postal: "44000", commune: "Nantes",
+    abf: "Non", copro: "Non", occupation: "Vacant", assainissement: "Collectif",
+    contact_nom: "M. Test", contact_tel: "0600000000",
+    cadastre: [{ id: "p1", section: "AB", numero: "123", surface: "300" }],
+  });
+  // Nature « ravalement » : elle déclenche le bloc 6 (façade), ce qui rend le
+  // dossier de test plus représentatif qu'une nature sans blocs conditionnels.
+  d.nature.natures = ["ravalement"];
+  d.nature.autorisation = "DP";
+  d.facade.lignes = [{
+    id: "l1", facade: "Rue", niveau: "R+1", piece: "Séjour",
+    existant: "Fenêtre 2 vantaux", projete: "Fenêtre 2 vantaux",
+    largeur: "120", hauteur: "150", materiau: "Bois", couleur: "RAL 7016",
+    type_ouverture: "À la française", modele: "Std",
+  }];
+  d.facade.vitrage = "Double vitrage 4/16/4";
+  d.facade.volets = "Volets roulants intégrés";
+  d.complement = "Ravalement complet avec remplacement des menuiseries.";
+  Object.assign(d.validation, {
+    commercial_nom: "Camille", commercial_date: "2026-08-01", commercial_visa: "CL",
+  });
+  return d;
+}
+
+let complet = dossierComplet();
+let comp = S.urbaCompletude(complet);
+
+// Le dossier de test doit vraiment être complet, sinon tout ce qui suit ne
+// prouve rien. On le dit explicitement, avec la liste de ce qui manque.
+verifie("le dossier de test ne présente AUCUN champ manquant",
+  comp.manquants.length === 0,
+  comp.manquants.length
+    ? `manque encore : ${comp.manquants.map(m => m.label).join(" · ")}`
+    : "");
+
+// Aucune pièce renseignée → toutes les pièces obligatoires sont manquantes.
+verifie("des pièces obligatoires manquent bien dans ce dossier",
+  comp.pieces.length > 0, `${comp.pieces.length} pièce(s) manquante(s)`);
+
+verifie("informations complètes + pièces manquantes → TRANSMISSIBLE",
+  comp.transmissible === true,
+  "c'est le changement demandé : le pôle urbanisme produit les pièces lui-même");
+verifie("… mais PAS déposable en mairie",
+  comp.deposable === false,
+  "les pièces comptent au dépôt, pas à la transmission");
+verifie("la complétude des informations est à 100 %", comp.pct === 100);
+
+// Retire un seul champ obligatoire : la transmission doit se refermer.
+const ampute = dossierComplet();
+ampute.identification.date_max_depot = "";
+const compAmpute = S.urbaCompletude(ampute);
+verifie("retirer UN champ obligatoire referme la transmission",
+  compAmpute.transmissible === false && compAmpute.manquants.length === 1,
+  "les informations, elles, restent bloquantes");
+
+verifie("urbaCompletude expose bien les deux drapeaux",
+  typeof comp.transmissible === "boolean" && typeof comp.deposable === "boolean");
+
+verifie("la boîte du pôle urbanisme est celle attendue",
+  S.URBA_MAIL_POLE === "contact@groupe-profero.com",
+  `obtenu ${S.URBA_MAIL_POLE}`);
+
+// La notification ne doit JAMAIS jeter : un e-mail perdu ne doit pas empêcher
+// de transmettre un dossier.
+globalThis.fetch = () => Promise.reject(new Error("réseau coupé"));
+globalThis.window = globalThis.window || { location: { origin: "https://x" } };
+const issue = await S.urbaNotifierTransmission({
+  dossier: { id: "d1", reference: "FDU-1" },
+  donnees: S.urbaDossierVide({}), completude: vierge, auteur: "Camille",
+});
+verifie("un réseau coupé renvoie un échec, sans jeter",
+  issue.ok === false && typeof issue.message === "string",
+  `obtenu ${JSON.stringify(issue)}`);
+
+globalThis.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, id: "x" }) });
+const issueOK = await S.urbaNotifierTransmission({
+  dossier: { id: "d1", reference: "FDU-1" },
+  donnees: S.urbaDossierVide({}), completude: vierge, auteur: "Camille",
+});
+verifie("un envoi accepté renvoie un succès nommant la boîte",
+  issueOK.ok === true && issueOK.message.includes("contact@groupe-profero.com"));
+
+// ════════════════════════════════════════════════════════════════════════════
+section("6. Les annexes sont bien DANS le document imprimé");
 
 // Ce bloc existe à cause d'une erreur de séquencement : le calcul des annexes
 // avait été placé APRÈS l'assemblage du HTML. `corps.join()` figeant le
@@ -225,7 +344,7 @@ verifie("le corps de la FDU est là dans tous les cas",
   /Fiche de demande urbanisme/.test(htmlProduit));
 
 // ════════════════════════════════════════════════════════════════════════════
-section("6. Furniture de page — identique sur chaque page");
+section("7. Furniture de page — identique sur chaque page");
 
 verifie("l'en-tête est en position fixe, donc répété à chaque page",
   /\.entete\{position:fixed/.test(htmlProduit),

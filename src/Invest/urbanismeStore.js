@@ -600,8 +600,17 @@ export function urbaCompletude(d) {
     total,
     ok,
     pct: total ? Math.round((ok / total) * 100) : 0,
-    // La FDU ne part que si les champs ET les pièces obligatoires sont là.
-    transmissible: manquants.length === 0 && pieces.length === 0,
+    // La FDU part dès que les INFORMATIONS sont complètes. Les pièces ne
+    // bloquent PAS : c'est le pôle urbanisme qui les produit — plans, notice,
+    // insertion — et exiger du commercial qu'il les fournisse avant de
+    // transmettre inversait la responsabilité et retardait chaque dossier.
+    //
+    // Elles restent suivies et affichées : `pieces` sert au pilotage du dossier
+    // APRÈS transmission, et à la checklist avant dépôt en mairie. Ce sont deux
+    // jalons distincts, et seul le second exige les pièces.
+    transmissible: manquants.length === 0,
+    // Prêt à DÉPOSER en mairie : là, les pièces comptent.
+    deposable: manquants.length === 0 && pieces.length === 0,
   };
 }
 
@@ -760,6 +769,103 @@ export function urbaRetroplanning(d) {
     // Ce que le commercial peut promettre, en mois depuis le dépôt.
     moisJusquauChantier: instr.mois + 2,
   };
+}
+
+/* ============ Notification de transmission ============ */
+
+// Boîte du pôle urbanisme. C'est elle qui reçoit les FDU transmises.
+export const URBA_MAIL_POLE = "contact@groupe-profero.com";
+
+// Envoie la notification de transmission au pôle urbanisme.
+//
+// Canal : /api/send-email (Resend), celui de TOUS les envois périodiques et
+// automatiques du projet. Pas l'Edge Function send-mission-email du CRM : elle
+// exige un actionId, car elle notifie une action de mission précise qu'elle
+// relit en base. Une FDU transmise n'est pas une action de mission.
+//
+// Ne jette JAMAIS : la transmission d'un dossier ne doit pas échouer parce
+// qu'un e-mail n'est pas parti. On renvoie l'issue, à charge de l'appelant de
+// l'afficher — un envoi silencieusement perdu serait pire que pas d'envoi.
+export async function urbaNotifierTransmission({ dossier, donnees, completude, auteur }) {
+  const id = donnees?.identification || {};
+  const b = donnees?.bien || {};
+  const nat = donnees?.nature || {};
+  const reference = id.reference || dossier?.reference || "sans référence";
+  const adresse = [b.adresse, b.code_postal, b.commune].filter(Boolean).join(", ");
+  const lien = `${typeof window !== "undefined" ? window.location.origin : ""}/?invest_urbanisme=${dossier?.id || ""}`;
+
+  const ech = (v) => String(v ?? "").replace(/[&<>"']/g,
+    c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+  const pieces = completude?.pieces || [];
+  const ligne = (k, v) => `<tr><th style="text-align:left;padding:6px 10px;background:#f7f8fa;`
+    + `border-bottom:1px solid #dcdfe6;font-weight:600;color:#535d70;width:38%">${ech(k)}</th>`
+    + `<td style="padding:6px 10px;border-bottom:1px solid #dcdfe6">${ech(v || "—")}</td></tr>`;
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;margin:0 auto;color:#1a1f2e">
+    <div style="border-bottom:3px solid #1a1f2e;padding-bottom:12px;margin-bottom:4px">
+      <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#8b93a3;font-weight:700">Groupe Profero · Urbanisme</div>
+      <div style="font-size:20px;font-weight:800;margin-top:5px">Nouvelle FDU transmise</div>
+    </div>
+    <div style="height:3px;width:70px;background:#c9a14f;margin-bottom:16px"></div>
+    <p style="margin:0 0 14px;font-size:14px">
+      <strong>${ech(reference)}</strong> vient d'être transmise au pôle urbanisme
+      par ${ech(auteur || "un commercial")}.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px">
+      ${ligne("Référence", reference)}
+      ${ligne("Entité", id.entite)}
+      ${ligne("Commercial", id.commercial)}
+      ${ligne("Adresse", adresse)}
+      ${ligne("Nature", (nat.natures || []).join(", "))}
+      ${ligne("Autorisation", nat.autorisation || "À trancher")}
+      ${ligne("Secteur ABF", b.abf || "À vérifier")}
+      ${ligne("Date maximum de dépôt", id.date_max_depot || "non fixée")}
+      ${ligne("Complétude des informations", (completude?.pct ?? 0) + " %")}
+    </table>
+    ${pieces.length ? `<div style="border-left:3px solid #c9a14f;background:#fdfbf6;padding:10px 12px;margin-bottom:16px;font-size:13px">
+      <strong>${pieces.length} pièce(s) à produire</strong> par le pôle avant dépôt :<br>
+      ${pieces.map(p => ech(p.label)).join("<br>")}
+    </div>` : `<div style="border-left:3px solid #2f6b4a;background:#f2f7f4;padding:10px 12px;margin-bottom:16px;font-size:13px">
+      Toutes les pièces sont déjà au dossier.
+    </div>`}
+    <div style="margin:18px 0">
+      <a href="${ech(lien)}" style="background:#1a1f2e;color:#fff;text-decoration:none;
+        padding:11px 22px;font-weight:700;font-size:13px;display:inline-block">Ouvrir la FDU →</a>
+    </div>
+    <p style="margin:16px 0 0;padding-top:12px;border-top:1px solid #dcdfe6;font-size:11px;color:#8b93a3">
+      Envoi automatique à la transmission. Les pièces jointes ne conditionnent pas
+      la transmission : elles sont produites par le pôle urbanisme.
+    </p>
+  </div>`;
+
+  const texte = [
+    `${reference} vient d'être transmise au pôle urbanisme par ${auteur || "un commercial"}.`,
+    "", `Adresse : ${adresse || "non renseignée"}`,
+    `Autorisation : ${nat.autorisation || "à trancher"}`,
+    `Date maximum de dépôt : ${id.date_max_depot || "non fixée"}`,
+    `Pièces à produire : ${pieces.length}`,
+    "", lien,
+  ].join("\n");
+
+  try {
+    const resp = await fetch("/api/send-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: URBA_MAIL_POLE,
+        subject: `[Urbanisme] FDU transmise — ${reference}`,
+        html, text: texte,
+      }),
+    });
+    const corps = await resp.json().catch(() => ({}));
+    if (!resp.ok || corps?.error) {
+      return { ok:false, message: corps?.error || `Erreur ${resp.status}` };
+    }
+    return { ok:true, message:`Pôle urbanisme notifié (${URBA_MAIL_POLE}).` };
+  } catch (e) {
+    return { ok:false, message: e?.message || "Réseau indisponible" };
+  }
 }
 
 /* ============ Pièces jointes ============ */
