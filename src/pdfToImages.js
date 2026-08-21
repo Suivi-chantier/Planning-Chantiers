@@ -17,6 +17,50 @@ const TARGET_MAX_PX = 1560;
 // Garde-fou : au-delà, on n'envoie pas 40 pages d'images (coût/poids).
 const MAX_PAGES = 15;
 
+// Rend un PDF en data URL, une par page, pour l'INSERTION DANS UNE PAGE.
+//
+// Distinct de pdfFileToImages, qui renvoie du base64 nu pour l'API d'analyse.
+// Ici on veut des `src` d'<img> directement utilisables dans une fenêtre
+// d'impression — c'est ce qui permet à un plan au format PDF de faire
+// réellement partie du dossier imprimé, au lieu d'être seulement listé.
+//
+// `maxPages` borne le rendu : un PDF de 60 pages jointes ne doit pas produire un
+// dossier illisible ni saturer la mémoire du téléphone.
+export async function pdfVersDataUrls(source, { maxPx = 1600, maxPages = 12 } = {}) {
+  const buf = source instanceof ArrayBuffer
+    ? source
+    : typeof source === "string"
+      ? await (await fetch(source)).arrayBuffer()   // URL signée
+      : await source.arrayBuffer();                  // File / Blob
+
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const nb = Math.min(pdf.numPages, maxPages);
+  const pages = [];
+
+  for (let i = 1; i <= nb; i++) {
+    const page = await pdf.getPage(i);
+    const base = page.getViewport({ scale: 1 });
+    const echelle = Math.min(2, maxPx / Math.max(base.width, base.height));
+    const viewport = page.getViewport({ scale: echelle > 0 ? echelle : 1 });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext("2d");
+    // Fond blanc : un PDF sans fond donnerait un canvas transparent, qui
+    // devient noir une fois aplati.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    pages.push({ dataUrl: canvas.toDataURL("image/jpeg", 0.85), page: i, total: pdf.numPages });
+    canvas.width = canvas.height = 0;
+  }
+
+  if (!pages.length) throw new Error("PDF vide (aucune page rendue).");
+  return pages;
+}
+
 // `file` : un File/Blob PDF. Renvoie [{ base64, mediaType: "image/png" }] (une
 // entrée par page). Jette une erreur si le PDF est illisible même par pdf.js.
 export async function pdfFileToImages(file) {

@@ -143,6 +143,84 @@ verifie("urbaEstImage ne prend pas un PDF pour une image",
   S.urbaEstImage({ type:"application/pdf", nom:"notice.pdf" }) === false);
 
 // ════════════════════════════════════════════════════════════════════════════
+section("5. Les annexes sont bien DANS le document imprimé");
+
+// Ce bloc existe à cause d'une erreur de séquencement : le calcul des annexes
+// avait été placé APRÈS l'assemblage du HTML. `corps.join()` figeant le
+// document, le corps.push() postérieur n'avait aucun effet — les annexes
+// n'apparaissaient jamais, sans la moindre erreur.
+//
+// Un test sur les données ne pouvait pas l'attraper : il faut inspecter le HTML
+// réellement produit.
+
+const sortieImpr = join(dossier, "impression.mjs");
+await esbuild.build({
+  entryPoints: ["src/Invest/urbanismeImpression.js"],
+  outfile: sortieImpr,
+  bundle: true, format: "esm", platform: "neutral", logLevel: "silent",
+  plugins: [{
+    name: "stub-supabase",
+    setup(build) { build.onResolve({ filter: /(^|\/)supabase$/ }, () => ({ path: stub })); },
+  }],
+});
+const I = await import(sortieImpr);
+
+// Fenêtre factice : on capture le HTML au lieu de l'imprimer.
+let htmlProduit = "";
+globalThis.window = {
+  open: () => ({
+    document: {
+      write: (h) => { htmlProduit += h; },
+      close: () => {},
+      images: [],
+    },
+    focus: () => {}, print: () => {},
+  }),
+};
+globalThis.alert = () => {};
+
+const rowTest = { reference: "FDU-TEST", statut: "brouillon", donnees: d };
+const pagesAnnexes = [
+  { piece: "Plan de masse", nom: "masse.jpg", url: "https://signe/masse.jpg", page: 1, total: 1 },
+  { piece: "Notice",        nom: "notice.pdf", url: "data:image/jpeg;base64,AAAA", page: 1, total: 3 },
+  { piece: "Notice",        nom: "notice.pdf", url: "data:image/jpeg;base64,BBBB", page: 2, total: 3 },
+];
+const annexesIgnorees = [{ piece: "Plan de coupe", nom: "coupe.dwg", raison: "format non rendu" }];
+
+I.imprimerFDU(rowTest, { pagesAnnexes, annexesIgnorees });
+
+verifie("le document contient la section Annexes",
+  /Annexes — pièces jointes/.test(htmlProduit),
+  "c'est exactement ce qui manquait : le push arrivait après corps.join()");
+verifie("chaque page d'annexe produit une section",
+  (htmlProduit.match(/class="annexe-page"/g) || []).length === 3,
+  `${(htmlProduit.match(/class="annexe-page"/g) || []).length} section(s) pour 3 pages fournies`);
+verifie("l'image signée est référencée",
+  htmlProduit.includes("https://signe/masse.jpg"));
+verifie("les pages de PDF rendues sont incorporées",
+  htmlProduit.includes("data:image/jpeg;base64,AAAA")
+  && htmlProduit.includes("data:image/jpeg;base64,BBBB"),
+  "un PDF doit faire partie du dossier, pas seulement y être listé");
+verifie("la pagination d'un PDF multipage est indiquée",
+  /page 2\/3/.test(htmlProduit));
+verifie("ce qui n'a pas pu être rendu est signalé",
+  /non reproduites/.test(htmlProduit) && htmlProduit.includes("coupe.dwg"),
+  "une pièce absente du dossier doit se voir");
+verifie("le saut de page avant chaque annexe est présent",
+  /page-break-before/.test(htmlProduit));
+
+// Sans annexes, le document doit rester propre.
+htmlProduit = "";
+I.imprimerFDU(rowTest);
+// Attention à ce qu'on teste : la règle CSS « .annexe-page » figure toujours
+// dans la feuille de style. Ce qui doit être absent, c'est une SECTION.
+verifie("sans annexe, aucune section d'annexe",
+  !/class="annexe-page"/.test(htmlProduit) && !/Annexes — pièces jointes/.test(htmlProduit),
+  `sections trouvées : ${(htmlProduit.match(/class="annexe-page"/g) || []).length}`);
+verifie("le corps de la FDU est là dans tous les cas",
+  /Fiche de demande urbanisme/.test(htmlProduit));
+
+// ════════════════════════════════════════════════════════════════════════════
 console.log("\n" + "═".repeat(56));
 console.log(echecs === 0
   ? `✓ ${passes} vérifications passées.`

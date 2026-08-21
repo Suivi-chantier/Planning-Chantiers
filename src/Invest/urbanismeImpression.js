@@ -38,10 +38,16 @@ function tableau(entetes, rangs) {
     + '</tbody></table>';
 }
 
-// `urlsPieces` : { chemin Storage -> URL signée }, produit par
-// urbaSignerFichiers. Absent, la FDU s'imprime sans annexes — l'appelant n'a
-// pas à gérer deux chemins de code.
-export function imprimerFDU(row, urlsPieces = {}) {
+// `pagesAnnexes` : pages prêtes à insérer, [{ piece, nom, url, page, total }].
+// Les images y sont sous leur URL signée, les PDF sous forme de data URL — une
+// entrée par page — produites par l'appelant via pdf.js.
+//
+// `annexesIgnorees` : [{ piece, nom, raison }], ce qui n'a pas pu être rendu.
+// On l'imprime au lieu de le taire : une pièce absente du dossier doit se voir.
+//
+// Les deux sont optionnels : sans eux la FDU s'imprime seule, l'appelant n'a pas
+// deux chemins de code à tenir.
+export function imprimerFDU(row, { pagesAnnexes = [], annexesIgnorees = [] } = {}) {
   const d = row?.donnees || {};
   const id = d.identification || {};
   const dem = d.demandeur || {};
@@ -213,6 +219,49 @@ export function imprimerFDU(row, urlsPieces = {}) {
       + '</ul>'));
   }
 
+  // ── Annexes ────────────────────────────────────────────────────────────
+  //
+  // Ce bloc DOIT rester avant l'assemblage de `html` : corps.join() figeant le
+  // document, un corps.push() postérieur n'a aucun effet. C'est l'erreur qui a
+  // fait que les annexes n'apparaissaient pas à l'impression.
+  //
+  // `pagesAnnexes` est fourni par l'appelant : images signées ET pages de PDF
+  // déjà rendues en data URL. Le rendu des PDF vit côté appelant parce qu'il
+  // demande pdf.js, qui n'a rien à faire dans un module de mise en page.
+  if (pagesAnnexes.length) {
+    const parPiece = new Map();
+    for (const a of pagesAnnexes) {
+      if (!parPiece.has(a.piece)) parPiece.set(a.piece, []);
+      parPiece.get(a.piece).push(a);
+    }
+
+    corps.push(bloc("Annexes — pièces jointes",
+      '<p class="annexe-intro">'
+      + esc(`${pagesAnnexes.length} page(s) d'annexe, ${parPiece.size} pièce(s) concernée(s). `)
+      + 'Chaque page est reproduite intégralement à la suite du dossier.</p>'
+      + tableau(["Pièce", "Fichier", "Pages"],
+          [...parPiece.entries()].map(([piece, liste]) => [
+            piece, liste[0].nom, String(liste.length),
+          ]))
+    ));
+
+    // Une page d'annexe par image : un plan coupé en deux ne sert à rien.
+    for (const a of pagesAnnexes) {
+      corps.push('<section class="annexe-page">'
+        + '<h3>' + esc(a.piece) + '</h3>'
+        + '<p class="annexe-nom">' + esc(a.nom)
+        + (a.total > 1 ? esc(` — page ${a.page}/${a.total}`) : "") + '</p>'
+        + '<img src="' + a.url + '" alt="' + esc(a.piece) + '"/>'
+        + '</section>');
+    }
+  }
+
+  if (annexesIgnorees.length) {
+    corps.push(bloc("Pièces jointes non reproduites",
+      '<p class="annexe-intro">Ces fichiers sont au dossier mais n\'ont pas pu être rendus. À joindre à la main.</p>'
+      + tableau(["Pièce", "Fichier", "Raison"], annexesIgnorees.map(x => [x.piece, x.nom, x.raison]))));
+  }
+
   const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'
     + '<title>FDU ' + esc(id.reference || row?.reference || "") + '</title>'
     + '<style>'
@@ -257,57 +306,6 @@ export function imprimerFDU(row, urlsPieces = {}) {
     + 'Une FDU incomplète n\'est pas prise en charge et repart au commercial.</footer>'
     + '</body></html>';
 
-  // ── Annexes ────────────────────────────────────────────────────────────
-  //
-  // Une image jointe devient une page d'annexe pleine largeur, légendée par le
-  // nom de la pièce : c'est ce qui part au dossier du chantier et en mairie.
-  //
-  // Les PDF ne sont PAS incorporés : aucun navigateur n'imprime un PDF distant
-  // placé dans un <embed> ou <iframe> depuis une fenêtre ouverte en écriture.
-  // Prétendre le faire produirait des pages blanches au milieu du dossier. Ils
-  // sont donc listés, avec leur nom, pour être joints à la main — et le
-  // document le dit, plutôt que de laisser croire qu'ils y sont.
-  const piecesAvecFichiers = urbaExigences(d)
-    .map(p => ({ p, fichiers: (d?.pieces?.[p.id]?.fichiers || []).filter(f => f?.path) }))
-    .filter(x => x.fichiers.length);
-
-  const images = [];
-  const documents = [];
-  for (const { p, fichiers } of piecesAvecFichiers) {
-    for (const f of fichiers) {
-      const url = urlsPieces[f.path];
-      const estImg = /^image\//i.test(f.type || "") || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.nom || "");
-      if (estImg && url) images.push({ piece:p.label, nom:f.nom, url });
-      else documents.push({ piece:p.label, nom:f.nom, dispo: !!url });
-    }
-  }
-
-  if (images.length || documents.length) {
-    let annexe = '<section class="bloc saut"><h2>Annexes — pièces jointes</h2>';
-    annexe += '<p class="annexe-intro">'
-      + esc(images.length + " image(s) reproduite(s) ci-après")
-      + (documents.length ? esc(" · " + documents.length + " document(s) à joindre séparément") : "")
-      + '.</p>';
-
-    if (documents.length) {
-      annexe += '<table class="grille"><thead><tr><th>Pièce</th><th>Fichier</th><th>À joindre</th></tr></thead><tbody>'
-        + documents.map(x => '<tr><td>' + esc(x.piece) + '</td><td>' + esc(x.nom) + '</td>'
-            + '<td>' + (x.dispo ? "séparément (PDF)" : "lien expiré — rouvrir la fiche") + '</td></tr>').join("")
-        + '</tbody></table>';
-    }
-    annexe += '</section>';
-
-    // Une image par page : un plan de façade coupé en deux ne sert à rien.
-    for (const img of images) {
-      annexe += '<section class="annexe-page">'
-        + '<h3>' + esc(img.piece) + '</h3>'
-        + '<p class="annexe-nom">' + esc(img.nom) + '</p>'
-        + '<img src="' + esc(img.url) + '" alt="' + esc(img.piece) + '"/>'
-        + '</section>';
-    }
-    corps.push(annexe);
-  }
-
   const win = window.open("", "_blank", "width=1000,height=800");
   if (!win) { alert("Autorisez les pop-ups pour imprimer la FDU."); return; }
   win.document.write(html);
@@ -318,7 +316,7 @@ export function imprimerFDU(row, urlsPieces = {}) {
   // produirait des pages blanches. On attend, avec un plafond — un lien
   // expiré ou un réseau coupé ne doit pas bloquer l'impression du reste.
   const lancer = () => { try { win.print(); } catch { /* l'utilisateur imprimera à la main */ } };
-  if (!images.length) { setTimeout(lancer, 350); return; }
+  if (!pagesAnnexes.length) { setTimeout(lancer, 350); return; }
 
   const attendreImages = () => {
     const liste = Array.from(win.document.images || []);

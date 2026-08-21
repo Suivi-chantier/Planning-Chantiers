@@ -641,11 +641,51 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
   // sont donc signées juste avant, pour deux heures. Un échec de signature
   // n'empêche pas d'imprimer la fiche — seules les annexes manqueront, et le
   // document le signale.
+  const [preparationImpression, setPreparationImpression] = useState("");
+
   const imprimer = useCallback(async () => {
+    setPreparationImpression("Préparation des annexes…");
+
+    // Les pièces vivent dans un bucket privé : on signe pour deux heures.
     let urls = {};
     try { urls = await urbaSignerFichiers(d); }
     catch (e) { console.warn("[urbanisme] annexes non signées:", e?.message || e); }
-    imprimerFDU({ ...dossier, statut, donnees:d }, urls);
+
+    const pagesAnnexes = [];
+    const annexesIgnorees = [];
+
+    for (const p of urbaExigences(d)) {
+      for (const f of (p.fichiers || [])) {
+        const url = urls[f.path];
+        if (!url) { annexesIgnorees.push({ piece:p.label, nom:f.nom, raison:"lien expiré" }); continue; }
+
+        if (urbaEstImage(f)) {
+          pagesAnnexes.push({ piece:p.label, nom:f.nom, url, page:1, total:1 });
+          continue;
+        }
+
+        // PDF : rendu page par page en image, pour qu'il fasse RÉELLEMENT partie
+        // du dossier imprimé. Aucun navigateur n'imprime un PDF distant placé
+        // dans un <embed> — le lister ne suffisait pas.
+        try {
+          setPreparationImpression(`Rendu de ${f.nom}…`);
+          const { pdfVersDataUrls } = await import("../pdfToImages");
+          const pages = await pdfVersDataUrls(url, { maxPx:1600, maxPages:12 });
+          for (const pg of pages) {
+            pagesAnnexes.push({ piece:p.label, nom:f.nom, url:pg.dataUrl, page:pg.page, total:pg.total });
+          }
+          if (pages.length && pages[0].total > pages.length) {
+            annexesIgnorees.push({ piece:p.label, nom:f.nom,
+              raison:`${pages[0].total - pages.length} page(s) au-delà de la 12ᵉ` });
+          }
+        } catch (e) {
+          annexesIgnorees.push({ piece:p.label, nom:f.nom, raison:"PDF illisible — " + (e?.message || "") });
+        }
+      }
+    }
+
+    setPreparationImpression("");
+    imprimerFDU({ ...dossier, statut, donnees:d }, { pagesAnnexes, annexesIgnorees });
   }, [d, dossier, statut]);
 
   const rattacherBien = useCallback((bienId) => {
@@ -735,7 +775,14 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
           <select className="inv-sel" value={statut} onChange={e => changerStatut(e.target.value)} title="Statut du dossier">
             {URBA_STATUTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
-          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={imprimer}>
+          {/* Le rendu d'un PDF joint prend plusieurs secondes : sans retour
+              visible, on croit que le bouton ne répond pas et on reclique. */}
+          {preparationImpression && (
+            <span style={{ fontSize:FONT.xs.size + 1, color:T.accent, fontWeight:700, alignSelf:"center" }}>
+              {preparationImpression}
+            </span>
+          )}
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={imprimer} disabled={!!preparationImpression} title={preparationImpression || "Imprimer la FDU avec ses annexes"}>
             <Icon as={Printer} size={12}/>Imprimer la FDU
           </button>
           {action && (
