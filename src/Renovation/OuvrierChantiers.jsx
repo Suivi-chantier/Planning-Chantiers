@@ -15,13 +15,14 @@ import { DEFAULT_CHANTIERS } from "../constants";
 import { Icon } from "../ui";
 import {
   Building2, MapPin, ArrowLeft, ChevronRight, FileText, Image as ImageIcon,
-  FolderOpen, Timer, HardHat, CheckCircle2,
+  FolderOpen, Timer, HardHat, CheckCircle2, Ruler, ImageOff,
 } from "lucide-react";
 import { MobileCard, MobileSection, MobileEmptyState, Pill, SummaryBar } from "../mobileUI";
 import { indexPointagesParTache, tacheHeuresReelles } from "../chantierFinance";
 import { urlDocumentChantier } from "./storageChantier";
 import { getEtape } from "./cycleVie";
 import { NavButtons } from "./ouvrierNav";
+import PlanViewerOuvrier from "./PlanViewerOuvrier";
 
 // Mêmes libellés/couleurs de statut que PageChantiers (bureau).
 const STATUTS = {
@@ -50,6 +51,8 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
   const [detail, setDetail]   = useState(null); // résultat de la RPC
   const [loading, setLoading] = useState(false);
   const [erreur, setErreur]   = useState(false);
+  const [plans, setPlans]     = useState(null); // plans de la page Plans (null = en cours)
+  const [planOuvert, setPlanOuvert] = useState(null); // { id, name } → visionneuse
 
   useEffect(() => {
     supabase.from("planning_config").select("key,value").in("key", ["chantiers", "chantier_adresses"])
@@ -64,7 +67,12 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
   }, []);
 
   const openChantier = async (c) => {
-    setSel(c); setDetail(null); setErreur(false); setLoading(true);
+    setSel(c); setDetail(null); setErreur(false); setLoading(true); setPlans(null);
+    // Plans de la page Plans (dessins) — chargés en parallèle du détail.
+    supabase.rpc("ouvrier_plans_chantier", { p_chantier_id: c.id }).then(({ data, error }) => {
+      if (error) { console.error("ouvrier_plans_chantier:", error); setPlans([]); return; }
+      setPlans(Array.isArray(data) ? data : []);
+    });
     const { data, error } = await supabase.rpc("ouvrier_chantier_detail", {
       p_chantier_id: c.id, p_chantier_nom: c.nom,
     });
@@ -187,7 +195,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
       {/* Retour à la liste */}
-      <button onClick={() => { setSel(null); setDetail(null); }} style={{
+      <button onClick={() => { setSel(null); setDetail(null); setPlans(null); setPlanOuvert(null); }} style={{
         alignSelf:"flex-start", display:"inline-flex", alignItems:"center", gap:7,
         background:T.surface, border:`1px solid ${T.border}`, borderRadius:12,
         padding:"9px 14px", color:T.textSub, cursor:"pointer",
@@ -230,12 +238,53 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
             { label:"Heures réelles", value:`${fmtH(totReelles)} h`, color:couleurDerive(tot.vendues, totReelles), icon:HardHat },
           ]}/>
 
-          {/* Plans & documents */}
-          <MobileSection T={T} accent={couleur} icon={FolderOpen} title="Plans & documents"
+          {/* Plans dessinés dans la page Plans (table plans, visionneuse vectorielle) */}
+          <MobileSection T={T} accent={couleur} icon={Ruler} title="Plans"
+            summary={plans === null ? "…" : (plans.length || "aucun")} defaultOpen>
+            {plans === null ? (
+              <div style={{ fontSize:13, color:T.textMuted, letterSpacing:1 }}>CHARGEMENT…</div>
+            ) : plans.length === 0 ? (
+              <div style={{ fontSize:13, color:T.textMuted, fontStyle:"italic" }}>
+                Aucun plan dessiné pour ce chantier.
+              </div>
+            ) : (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                {plans.map(p => (
+                  <div key={p.id} onClick={() => setPlanOuvert(p)} style={{
+                    background:T.card, border:`1px solid ${T.border}`, borderRadius:11,
+                    padding:8, cursor:"pointer",
+                  }}>
+                    {p.thumbnail ? (
+                      <img src={p.thumbnail} alt={p.name || "Plan"} style={{
+                        width:"100%", height:110, objectFit:"contain",
+                        background:"#12151f", borderRadius:8, display:"block",
+                      }}/>
+                    ) : (
+                      <div style={{
+                        height:110, borderRadius:8, background:"#12151f",
+                        display:"flex", alignItems:"center", justifyContent:"center", color:"#5b6a8a",
+                      }}>
+                        <Icon as={ImageOff} size={22}/>
+                      </div>
+                    )}
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text, marginTop:6, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {p.name || "Plan sans nom"}
+                    </div>
+                    {p.updated_at && (
+                      <div style={{ fontSize:11, color:T.textMuted, marginTop:1 }}>{fmtDate(p.updated_at)}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </MobileSection>
+
+          {/* Documents du cycle de vie (pièces jointes non financières) */}
+          <MobileSection T={T} accent={couleur} icon={FolderOpen} title="Documents"
             summary={nbDocs || "aucun"} defaultOpen={nbDocs > 0}>
             {nbDocs === 0 ? (
               <div style={{ fontSize:13, color:T.textMuted, fontStyle:"italic" }}>
-                Aucun plan ni document déposé pour ce chantier.
+                Aucun document déposé pour ce chantier.
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -307,6 +356,11 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
             )}
           </MobileSection>
         </>
+      )}
+
+      {/* Visionneuse plein écran (rendu vectoriel lecture seule) */}
+      {planOuvert && (
+        <PlanViewerOuvrier planId={planOuvert.id} name={planOuvert.name} onClose={() => setPlanOuvert(null)}/>
       )}
     </div>
   );
