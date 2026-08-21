@@ -168,11 +168,15 @@ const I = await import(sortieImpr);
 // Fenêtre factice : on capture le HTML au lieu de l'imprimer.
 let htmlProduit = "";
 globalThis.window = {
+  // Une origine est nécessaire : sans elle le logo n'est pas émis, et le test
+  // ne vérifierait jamais la furniture de page.
+  location: { origin: "https://planning-chantiers.vercel.app" },
   open: () => ({
     document: {
       write: (h) => { htmlProduit += h; },
       close: () => {},
       images: [],
+      fonts: { ready: Promise.resolve() },
     },
     focus: () => {}, print: () => {},
   }),
@@ -219,6 +223,36 @@ verifie("sans annexe, aucune section d'annexe",
   `sections trouvées : ${(htmlProduit.match(/class="annexe-page"/g) || []).length}`);
 verifie("le corps de la FDU est là dans tous les cas",
   /Fiche de demande urbanisme/.test(htmlProduit));
+
+// ════════════════════════════════════════════════════════════════════════════
+section("6. Furniture de page — identique sur chaque page");
+
+verifie("l'en-tête est en position fixe, donc répété à chaque page",
+  /\.entete\{position:fixed/.test(htmlProduit),
+  "sans position:fixed, l'en-tête n'apparaît que sur la première page");
+verifie("le pied est en position fixe",
+  /\.pied\{position:fixed/.test(htmlProduit));
+verifie("les marges de @page réservent la place de la furniture",
+  /@page\{size:A4;margin:27mm 15mm 19mm\}/.test(htmlProduit),
+  "sans marges suffisantes, en-tête et pied recouvrent le contenu dès la page 2");
+verifie("le logo Groupe Profero est en absolu",
+  htmlProduit.includes("https://planning-chantiers.vercel.app/logos/groupe-profero-h.png"),
+  "une URL relative ne résout pas dans une fenêtre about:blank");
+verifie("la référence du dossier figure dans le pied",
+  /class="pied"[\s\S]*?FDU-TEST/.test(htmlProduit),
+  "c'est ce qui identifie un feuillet détaché du dossier");
+
+// Un plus unaire sur une chaîne donne NaN : c'est arrivé sur l'en-tête, où le
+// titre a été remplacé par « NaN » sans que rien ne le signale.
+verifie("aucun NaN dans le document", !htmlProduit.includes("NaN"),
+  "un « + + » dans la concaténation produit un plus unaire, donc NaN");
+
+verifie("un seul pied de page dans le document",
+  (htmlProduit.match(/<footer/g) || []).length === 1,
+  "le pied fixe et un pied de fin de document feraient doublon sur la dernière page");
+
+verifie("l'or Groupe Profero est déclaré une seule fois comme variable",
+  /--or:#c9a14f/.test(htmlProduit));
 
 // ════════════════════════════════════════════════════════════════════════════
 console.log("\n" + "═".repeat(56));

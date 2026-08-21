@@ -262,48 +262,178 @@ export function imprimerFDU(row, { pagesAnnexes = [], annexesIgnorees = [] } = {
       + tableau(["Pièce", "Fichier", "Raison"], annexesIgnorees.map(x => [x.piece, x.nom, x.raison]))));
   }
 
+  // ── Mise en page ────────────────────────────────────────────────────────
+  //
+  // Charte Groupe Profero, déclinée pour le papier. Le parti pris : la rigueur
+  // ne se montre pas, elle se lit dans la contrainte. Donc une seule couleur
+  // d'accent — l'or Groupe #c9a14f — employée uniquement comme marquage
+  // structurel, jamais comme décoration ; un filet unique ; un alignement à
+  // gauche tenu sur toute la hauteur ; des chiffres tabulaires.
+  //
+  // En-tête et pied sont en position fixe : ils se répètent SUR CHAQUE PAGE à
+  // l'impression. Les marges de @page leur réservent la place — sans quoi ils
+  // recouvriraient le contenu de la deuxième page et des suivantes.
+  //
+  // Pas de numéro de page automatique : Chrome n'implémente pas les compteurs
+  // dans les boîtes de marge de @page, et un compteur posé dans un élément fixe
+  // ne s'incrémente pas. Plutôt que d'afficher « page 1 » sur toutes les pages,
+  // le pied porte la référence du dossier et la date d'édition — ce qui
+  // identifie réellement un feuillet détaché.
+  const origine = (typeof window !== "undefined" && window.location?.origin) || "";
+  const reference = id.reference || row?.reference || "sans référence";
+  const entite = id.entite || "Profero Invest";
+  const adresseCourte = [b.adresse, b.commune].filter(Boolean).join(", ");
+
   const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'
-    + '<title>FDU ' + esc(id.reference || row?.reference || "") + '</title>'
+    + '<title>FDU ' + esc(reference) + '</title>'
+    + '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    + '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+    + 'family=Barlow+Condensed:wght@500;600;700&family=DM+Mono:wght@400;500&display=swap">'
     + '<style>'
-    + '@page{size:A4;margin:14mm}'
+    // Marges généreuses en haut et en bas : c'est là que vivent l'en-tête et le
+    // pied fixes, qui doivent apparaître sur chaque page.
+    + '@page{size:A4;margin:27mm 15mm 19mm}'
     + '*{box-sizing:border-box}'
-    + 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:#111;margin:0;font-size:11.5px;line-height:1.45}'
-    + 'header.fdu{border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:16px}'
-    + 'header.fdu .eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:9.5px;color:#666;margin:0 0 4px}'
-    + 'header.fdu h1{font-size:19px;margin:0 0 6px}'
-    + 'header.fdu .meta{font-size:10.5px;color:#444}'
-    + '.bloc{margin:0 0 14px;break-inside:avoid}'
-    + '.bloc h2{font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;padding-bottom:3px;border-bottom:1px solid #bbb}'
-    + 'table{width:100%;border-collapse:collapse;margin:0 0 8px}'
-    + 'table.cv th{width:38%;text-align:left;font-weight:600;color:#333;background:#f4f4f4;border:1px solid #ddd;padding:4px 6px;vertical-align:top}'
-    + 'table.cv td{border:1px solid #ddd;padding:4px 6px}'
-    + 'table.grille th{background:#111;color:#fff;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;padding:4px 5px;border:1px solid #111;text-align:left}'
-    + 'table.grille td{border:1px solid #ccc;padding:4px 5px;font-size:10.5px}'
-    + '.vide{color:#b00;font-style:italic}'
-    + '.libre{border:1px solid #ddd;padding:8px;white-space:pre-wrap;min-height:40px}'
-    + '.vigilance{border:1px solid #111;background:#f7f2e0;padding:8px;margin:0 0 14px}'
-    + '.alertes{margin:6px 0 0;padding-left:18px}'
-    + '.alertes li{margin-bottom:3px}'
-    + '.regle{margin:8px 0 0;padding:7px;border-left:3px solid #111;background:#f4f4f4;font-style:italic}'
-    + 'footer{margin-top:18px;border-top:1px solid #bbb;padding-top:6px;font-size:9.5px;color:#666}'
-    /* Annexes : une image par page, jamais coupée. */
+    + ':root{'
+    +   '--encre:#1a1f2e;--encre-2:#535d70;--encre-3:#8b93a3;'
+    +   '--filet:#dcdfe6;--or:#c9a14f;--manque:#a8322c;--doux:#f7f8fa;'
+    + '}'
+    + 'html,body{margin:0;padding:0}'
+    + 'body{'
+    +   'font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;'
+    +   'color:var(--encre);font-size:10.4px;line-height:1.5;'
+    +   '-webkit-print-color-adjust:exact;print-color-adjust:exact;'
+    + '}'
+    + '.cond{font-family:"Barlow Condensed","Arial Narrow",sans-serif}'
+    + '.mono{font-family:"DM Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}'
+
+    /* ── Furniture de page, répétée à l'identique ───────────────────────── */
+    + '.entete{position:fixed;top:-21mm;left:0;right:0;height:17mm;'
+    +   'display:flex;align-items:flex-end;justify-content:space-between;gap:10mm;'
+    +   'border-bottom:1.6pt solid var(--encre);padding-bottom:2mm}'
+    + '.entete .marque{display:flex;align-items:flex-end;gap:3mm}'
+    + '.entete img{height:9mm;width:auto;display:block}'
+    + '.entete .titre{font-family:"Barlow Condensed","Arial Narrow",sans-serif;'
+    +   'font-size:13.5px;font-weight:700;letter-spacing:.2px;line-height:1;'
+    +   'text-transform:uppercase}'
+    + '.entete .droite{text-align:right;line-height:1.35}'
+    + '.entete .ref{font-family:"DM Mono",monospace;font-size:10px;font-weight:500;'
+    +   'letter-spacing:.3px}'
+    + '.entete .ent{font-size:8.4px;color:var(--encre-3);text-transform:uppercase;'
+    +   'letter-spacing:1.4px}'
+    /* Le seul emploi de l'or : un segment sous le filet d'en-tête, à gauche.
+       Il marque l'appartenance sans jamais concurrencer le texte. */
+    + '.entete::after{content:"";position:absolute;left:0;bottom:-1.6pt;'
+    +   'width:24mm;height:1.6pt;background:var(--or)}'
+
+    + '.pied{position:fixed;bottom:-14mm;left:0;right:0;height:10mm;'
+    +   'border-top:.5pt solid var(--filet);padding-top:1.6mm;'
+    +   'display:flex;justify-content:space-between;gap:6mm;'
+    +   'font-size:8.2px;color:var(--encre-3);letter-spacing:.2px}'
+    + '.pied .mono{font-size:8.2px}'
+
+    /* ── Bandeau d'ouverture, page 1 uniquement ─────────────────────────── */
+    + '.ouverture{margin:0 0 9mm}'
+    + '.ouverture h1{font-family:"Barlow Condensed","Arial Narrow",sans-serif;'
+    +   'font-size:26px;font-weight:700;line-height:1.02;margin:0 0 2.5mm;'
+    +   'letter-spacing:-.2px}'
+    + '.ouverture .sous{font-size:10.6px;color:var(--encre-2);margin:0 0 4mm}'
+    /* Grille des faits saillants : trois colonnes, largeurs égales, alignées
+       sur la même gouttière que le reste du document. */
+    + '.faits{display:grid;grid-template-columns:repeat(3,1fr);'
+    +   'border-top:.5pt solid var(--filet);border-left:.5pt solid var(--filet)}'
+    + '.faits div{border-right:.5pt solid var(--filet);border-bottom:.5pt solid var(--filet);'
+    +   'padding:2.4mm 3mm}'
+    + '.faits dt{font-size:7.8px;text-transform:uppercase;letter-spacing:1.1px;'
+    +   'color:var(--encre-3);margin:0 0 1mm}'
+    + '.faits dd{margin:0;font-size:10.8px;font-weight:600}'
+    + '.faits .alerte dd{color:var(--manque)}'
+
+    /* ── Sections ───────────────────────────────────────────────────────── */
+    + '.bloc{margin:0 0 7mm;break-inside:avoid}'
+    + '.bloc h2{font-family:"Barlow Condensed","Arial Narrow",sans-serif;'
+    +   'font-size:11.6px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;'
+    +   'margin:0 0 2.6mm;padding:0 0 1.4mm;border-bottom:.5pt solid var(--encre);'
+    +   'display:flex;align-items:baseline;gap:2.5mm}'
+    /* Marqueur de section : un carré plein, pas une puce ni une icône. */
+    + '.bloc h2::before{content:"";width:2.2mm;height:2.2mm;background:var(--or);'
+    +   'flex:0 0 auto;transform:translateY(-.3mm)}'
+
+    /* ── Tableaux ───────────────────────────────────────────────────────── */
+    + 'table{width:100%;border-collapse:collapse;margin:0}'
+    + 'table.cv th{width:36%;text-align:left;font-weight:600;font-size:9.6px;'
+    +   'color:var(--encre-2);background:var(--doux);'
+    +   'border-bottom:.5pt solid var(--filet);padding:2mm 3mm;vertical-align:top}'
+    + 'table.cv td{border-bottom:.5pt solid var(--filet);padding:2mm 3mm;vertical-align:top}'
+    + 'table.cv tr:last-child th,table.cv tr:last-child td{border-bottom:.5pt solid var(--encre)}'
+    + 'table.grille th{background:var(--encre);color:#fff;font-size:8.4px;'
+    +   'text-transform:uppercase;letter-spacing:1px;padding:2mm 2.6mm;text-align:left;'
+    +   'font-weight:600}'
+    + 'table.grille td{border-bottom:.5pt solid var(--filet);padding:2mm 2.6mm;font-size:9.8px}'
+    + 'table.grille tr:last-child td{border-bottom:.5pt solid var(--encre)}'
+
+    /* ── États ──────────────────────────────────────────────────────────── */
+    /* Le rouge ne sert qu'à une chose : ce qui manque. Jamais à décorer. */
+    + '.vide{color:var(--manque);font-style:normal;font-weight:600}'
+    + '.libre{border:.5pt solid var(--filet);border-left:1.2pt solid var(--encre);'
+    +   'padding:2.6mm 3mm;white-space:pre-wrap;min-height:11mm;background:var(--doux)}'
+    + '.vigilance{border:.5pt solid var(--encre);border-left:2.4pt solid var(--or);'
+    +   'padding:2.6mm 3.4mm;margin:0 0 7mm;background:#fdfbf6}'
+    + '.alertes{margin:1.6mm 0 0;padding-left:4.6mm;list-style:none}'
+    + '.alertes li{margin-bottom:.9mm;position:relative}'
+    + '.alertes li::before{content:"—";position:absolute;left:-4.6mm;color:var(--encre-3)}'
+    + '.regle{margin:2.6mm 0 0;padding:2.4mm 3mm;border-left:1.2pt solid var(--or);'
+    +   'background:var(--doux);font-size:9.6px;color:var(--encre-2)}'
+
+    /* ── Annexes ────────────────────────────────────────────────────────── */
     + '.saut{page-break-before:always}'
-    + '.annexe-intro{font-size:10.5px;color:#444;margin:0 0 10px}'
-    + '.annexe-page{page-break-before:always;text-align:center}'
-    + '.annexe-page h3{font-size:13px;margin:0 0 2px;text-align:left}'
-    + '.annexe-nom{font-size:9.5px;color:#666;margin:0 0 8px;text-align:left;font-style:italic}'
-    + '.annexe-page img{max-width:100%;max-height:23cm;object-fit:contain;border:1px solid #ccc}'
+    + '.annexe-intro{font-size:9.8px;color:var(--encre-2);margin:0 0 3.4mm}'
+    + '.annexe-page{page-break-before:always}'
+    + '.annexe-page h3{font-family:"Barlow Condensed","Arial Narrow",sans-serif;'
+    +   'font-size:11.6px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;'
+    +   'margin:0 0 .8mm;padding:0 0 1.4mm;border-bottom:.5pt solid var(--encre)}'
+    + '.annexe-nom{font-family:"DM Mono",monospace;font-size:8.6px;color:var(--encre-3);'
+    +   'margin:0 0 3.4mm;font-style:normal}'
+    /* La pièce occupe la page utile, centrée, jamais coupée ni déformée. */
+    + '.annexe-page img{display:block;margin:0 auto;max-width:100%;max-height:213mm;'
+    +   'object-fit:contain;border:.5pt solid var(--filet)}'
     + '</style></head><body>'
-    + '<header class="fdu"><p class="eyebrow">' + esc(id.entite || "Profero Invest") + ' · Urbanisme</p>'
-    + '<h1>Fiche de demande urbanisme — ' + esc(id.reference || row?.reference || "sans référence") + '</h1>'
-    + '<p class="meta">' + esc([b.adresse, b.code_postal, b.commune].filter(Boolean).join(", ") || "Adresse non renseignée")
-    + ' · ' + esc(naturesLabels || "Nature non précisée")
-    + ' · ' + esc(nat.autorisation || "Autorisation à trancher")
-    + (b.abf === "Oui" ? " · SECTEUR ABF" : "")
-    + ' · Statut : ' + esc(st.label) + '</p></header>'
+
+    // En-tête et pied : les MÊMES sur chaque page, par position fixe.
+    + '<header class="entete">'
+    +   '<span class="marque">'
+    +     (origine ? '<img src="' + esc(origine) + '/logos/groupe-profero-h.png" alt="Groupe Profero">' : "")
+    +     '<span class="titre">Fiche de demande urbanisme</span>'
+    +   '</span>'
+    +   '<span class="droite">'
+    +     '<span class="ref">' + esc(reference) + '</span><br>'
+    +     '<span class="ent">' + esc(entite) + '</span>'
+    +   '</span>'
+    + '</header>'
+    + '<footer class="pied">'
+    +   '<span>Document interne — une FDU incomplète n\'est pas prise en charge et repart au commercial.</span>'
+    +   '<span class="mono">' + esc(reference) + ' · ' + esc(new Date().toLocaleDateString("fr-FR")) + '</span>'
+    + '</footer>'
+
+    // Ouverture, page 1 : le dossier se présente avant de se dérouler.
+    + '<section class="ouverture">'
+    +   '<h1>' + esc(reference) + '</h1>'
+    +   '<p class="sous">' + esc(adresseCourte || "Adresse non renseignée") + '</p>'
+    +   '<dl class="faits">'
+    +     '<div><dt>Nature</dt><dd>' + esc(naturesLabels || "Non précisée") + '</dd></div>'
+    +     '<div><dt>Autorisation</dt><dd>' + esc(nat.autorisation || "À trancher") + '</dd></div>'
+    +     '<div' + (b.abf === "Oui" ? ' class="alerte"' : "") + '><dt>Secteur ABF</dt>'
+    +       '<dd>' + esc(b.abf || "À vérifier") + '</dd></div>'
+    +     '<div><dt>Statut</dt><dd>' + esc(st.label) + '</dd></div>'
+    +     '<div' + (c.pct < 100 ? ' class="alerte"' : "") + '><dt>Complétude</dt>'
+    +       '<dd class="mono">' + esc(String(c.pct)) + ' %</dd></div>'
+    +     '<div><dt>Date maximum de dépôt</dt>'
+    +       '<dd class="mono">' + esc(urbaFmtDate(id.date_max_depot) || "—") + '</dd></div>'
+    +   '</dl>'
+    + '</section>'
     + corps.join("")
-    + '<footer>Éditée le ' + esc(new Date().toLocaleDateString("fr-FR")) + '. '
-    + 'Une FDU incomplète n\'est pas prise en charge et repart au commercial.</footer>'
+    // Pas de pied en fin de document : le pied FIXE apparaît déjà sur chaque
+    // page, celui-ci ferait doublon sur la dernière.
     + '</body></html>';
 
   const win = window.open("", "_blank", "width=1000,height=800");
@@ -316,7 +446,19 @@ export function imprimerFDU(row, { pagesAnnexes = [], annexesIgnorees = [] } = {
   // produirait des pages blanches. On attend, avec un plafond — un lien
   // expiré ou un réseau coupé ne doit pas bloquer l'impression du reste.
   const lancer = () => { try { win.print(); } catch { /* l'utilisateur imprimera à la main */ } };
-  if (!pagesAnnexes.length) { setTimeout(lancer, 350); return; }
+
+  // Les polices Barlow Condensed et DM Mono viennent du réseau : imprimer avant
+  // leur chargement produirait une mise en page en police de repli, aux
+  // largeurs différentes. On les attend, sans jamais bloquer indéfiniment.
+  const attendrePolices = () => {
+    try {
+      return win.document.fonts?.ready
+        ? Promise.race([win.document.fonts.ready, new Promise(r => setTimeout(r, 3000))])
+        : Promise.resolve();
+    } catch { return Promise.resolve(); }
+  };
+
+  if (!pagesAnnexes.length) { attendrePolices().then(() => setTimeout(lancer, 250)); return; }
 
   const attendreImages = () => {
     const liste = Array.from(win.document.images || []);
@@ -326,7 +468,7 @@ export function imprimerFDU(row, { pagesAnnexes = [], annexesIgnorees = [] } = {
       : new Promise(res => { img.onload = res; img.onerror = res; })));
   };
   Promise.race([
-    attendreImages(),
+    Promise.all([attendreImages(), attendrePolices()]),
     new Promise(res => setTimeout(res, 8000)),   // plafond : 8 s
-  ]).then(() => setTimeout(lancer, 200));
+  ]).then(() => setTimeout(lancer, 250));
 }

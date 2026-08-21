@@ -265,28 +265,73 @@ const EMPTY_ITEM = { s:null, o:"", v:"", p:[] };
 
 // Aucune valeur nominative par défaut : un nouveau dossier démarre vide et
 // c'est la saisie qui renseigne le bien et les parties. `extras` porte les
-// champs libres ajoutés au cadre du document.
+// champs libres ajoutés au cadre du document, `locataires` la liste des
+// preneurs solidaires — il n'y a pas de nombre maximum : une colocation de
+// cinq personnes signe autant de fois qu'elle compte de titulaires du bail.
 const META_VIDE = {
   type:"ENTRÉE", date:"", heure:"",
-  bailleur:"", loc1:"", loc2:"",
+  bailleur:"",
+  locataires:[],
   adresse:"", surface:"",
   ville:"", reference:"", tiers:"",
   extras:[],
 };
 
-const METAFIELDS = [
+// Les deux moitiés du cadre du document : la liste des locataires s'insère
+// entre elles, juste après le bailleur, pour que les parties se lisent d'un
+// bloc avant la description du bien.
+const METAFIELDS_ENTETE = [
   { k:"type",      label:"Type d'état des lieux", type:"select" },
   { k:"date",      label:"Date",  type:"date" },
   { k:"heure",     label:"Heure", type:"time" },
   { k:"bailleur",  label:"Bailleur",              ph:"Nom du bailleur" },
-  { k:"loc1",      label:"Locataire 1",           ph:"Nom du locataire" },
-  { k:"loc2",      label:"Locataire 2",           ph:"Co-locataire solidaire (facultatif)" },
+];
+
+const METAFIELDS_BIEN = [
   { k:"adresse",   label:"Adresse du bien",       ph:"Adresse complète du logement" },
   { k:"surface",   label:"Surface / composition", ph:"Ex. appartement 3 pièces, 68 m²" },
   { k:"ville",     label:"Lieu de signature",     ph:"Ville" },
   { k:"reference", label:"Référence du bail",     ph:"Numéro ou cadre du bail (facultatif)" },
   { k:"tiers",     label:"Tiers présents (agent, témoin)", ph:"Facultatif" },
 ];
+
+// Les locataires étaient deux champs fixes, `loc1` et `loc2`. Ils deviennent
+// une liste, mais les clés `l1` et `l2` sont conservées telles quelles : les
+// signatures sont rangées dans `sigs` sous cette clé, et un rapport archivé
+// n'est plus modifiable — la migration doit rendre le paraphe déjà tracé à la
+// bonne personne, sans quoi elle le rendrait anonyme.
+function normalizeMeta(raw) {
+  // Le test porte sur `raw` et non sur l'objet fusionné : `META_VIDE` fournit
+  // déjà un tableau `locataires`, donc après fusion tout dossier paraîtrait
+  // au nouveau format et les noms saisis dans `loc1`/`loc2` partiraient à la
+  // poubelle. Un dossier sans `locataires` est un dossier d'avant la liste.
+  const src = raw || {};
+  const brut = Array.isArray(src.locataires)
+    ? src.locataires
+    : [{ k:"l1", nom:src.loc1 || "" }, ...(src.loc2 ? [{ k:"l2", nom:src.loc2 }] : [])];
+  const m = { ...META_VIDE, ...src };
+  const pris = new Set();
+  m.locataires = brut.map((x, i) => {
+    let k = typeof x?.k === "string" && x.k && !pris.has(x.k) ? x.k : `l${i + 1}`;
+    while (pris.has(k)) k += "b";
+    pris.add(k);
+    return { k, nom: typeof x?.nom === "string" ? x.nom : "" };
+  });
+  delete m.loc1;
+  delete m.loc2;
+  return m;
+}
+
+// Nouvelle clé de locataire. On ne réutilise jamais une clé encore présente
+// dans la liste ; celles des locataires retirés sont libérées en même temps
+// que leur signature, pour qu'un nouveau venu ne récupère pas le paraphe du
+// précédent.
+function cleLocataireLibre(list) {
+  const pris = new Set((list || []).map(x => x.k));
+  let n = 1;
+  while (pris.has(`l${n}`)) n++;
+  return `l${n}`;
+}
 
 const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap";
 
@@ -428,15 +473,24 @@ const EDL_CSS = `
 .edl .itemedit input.l,.edl .addrow input.l{flex:1 1 190px}
 .edl .itemedit input.q,.edl .addrow input.q{flex:0 0 62px;text-align:center}
 .edl .itemedit input.ff,.edl .addrow input.ff{flex:0 0 172px}
-.edl .itemedit .del,.edl .extrarow .del{
+.edl .itemedit .del,.edl .extrarow .del,.edl .locrow .del{
   border:1px solid var(--line);background:#fff;color:var(--brick);border-radius:var(--radius);
   padding:5px 10px;font-size:13px;line-height:1;cursor:pointer;flex:0 0 auto
 }
-.edl .itemedit .del:hover,.edl .extrarow .del:hover{border-color:var(--brick)}
+.edl .itemedit .del:hover,.edl .extrarow .del:hover,.edl .locrow .del:hover{border-color:var(--brick)}
 .edl .extras{display:flex;flex-direction:column;gap:7px;margin-top:12px}
 .edl .extrarow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .edl .extrarow input.lab{flex:0 0 210px}
 .edl .extrarow input.val{flex:1 1 190px}
+.edl .locs{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+.edl .locs>.lab{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-60)
+}
+.edl .locrow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.edl .locrow .rang{font-family:var(--mono);font-size:10.5px;color:var(--ink-60);flex:0 0 92px}
+.edl .locrow input{flex:1 1 190px}
+.edl .locs .vide{font-size:12.5px;color:var(--ink-60);margin:0}
 .edl .roomtab.add{border-style:dashed;color:var(--majorelle);font-weight:600}
 .edl .roomtab.add:hover{border-color:var(--majorelle);background:var(--majorelle-soft)}
 
@@ -552,7 +606,11 @@ const EDL_CSS = `
 .edl-report-portal .kpis b{display:block;font-family:var(--display);font-size:22px;font-weight:800;letter-spacing:-.02em}
 .edl-report-portal .kpis span{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-60)}
 .edl-report-portal .sigs{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:14px;page-break-inside:avoid}
-.edl-report-portal .sigs .s{border:1px solid var(--line);padding:12px;min-height:172px}
+/* Une colocation nombreuse dépasse la hauteur d'une page : au-delà de deux
+   rangées, on laisse la coupure tomber entre deux cadres plutôt que de
+   repousser tout le bloc de signatures sur une page vierge. */
+.edl-report-portal .sigs.many{page-break-inside:auto}
+.edl-report-portal .sigs .s{border:1px solid var(--line);padding:12px;min-height:172px;page-break-inside:avoid}
 .edl-report-portal .sigs .s .who{font-weight:600;font-size:12.5px;margin-bottom:2px}
 .edl-report-portal .sigs .s .role{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-60);margin-bottom:9px}
 .edl-report-portal .sigs .s .mention{font-size:10.5px;color:var(--ink-60);margin-bottom:6px}
@@ -767,6 +825,14 @@ function Rapport({ meta, rooms, general, sigs, refEntree, getIt, photosPour, onB
 
   const n = rooms.length;
 
+  // Locataires à faire figurer : ceux qui sont nommés, plus ceux qui ont
+  // signé sans être nommés (ça arrive sur une tablette passée de main en
+  // main). Si la liste est vide, on garde une ligne à signer : le document
+  // part souvent à l'impression avant que les noms ne soient saisis.
+  const locs = (meta.locataires || []).filter(x => (x.nom || "").trim() || sigs[x.k]);
+  const locsAff = locs.length ? locs : [{ k:"l1", nom:"" }];
+  const solidaires = locsAff.length > 1;
+
   return (
     <div className="edl-report-portal">
       <div className="reportbar">
@@ -792,8 +858,16 @@ function Rapport({ meta, rooms, general, sigs, refEntree, getIt, photosPour, onB
 
         <div className="idcard">
           <div>Bailleur</div><div>{meta.bailleur || "—"}</div>
-          <div>Locataires solidaires</div>
-          <div>{meta.loc1 || "—"}{meta.loc2 ? <><br/>{meta.loc2}</> : null}</div>
+          <div>{solidaires ? "Locataires solidaires" : "Locataire"}</div>
+          <div>
+            {locs.length
+              ? locs.map((x, i) => (
+                  <React.Fragment key={x.k}>
+                    {i > 0 ? <br/> : null}{x.nom || "—"}
+                  </React.Fragment>
+                ))
+              : "—"}
+          </div>
           <div>Bien loué</div><div>{meta.adresse || "—"}</div>
           <div>Composition</div><div>{meta.surface || "—"}</div>
           <div>Date et heure</div><div>{dstr}{meta.heure ? " — " + meta.heure : ""}</div>
@@ -918,10 +992,9 @@ function Rapport({ meta, rooms, general, sigs, refEntree, getIt, photosPour, onB
             reconnaissent avoir visité le logement ensemble, vérifié le fonctionnement des équipements listés et accepté
             les constats ci-dessus.
           </p>
-          <div className="sigs">
+          <div className={`sigs${1 + locsAff.length + (meta.tiers ? 1 : 0) > 4 ? " many" : ""}`}>
             {sigBlock("Le bailleur", meta.bailleur, sigs.b, "b")}
-            {sigBlock("Locataire solidaire", meta.loc1, sigs.l1, "l1")}
-            {meta.loc2 ? sigBlock("Locataire solidaire", meta.loc2, sigs.l2, "l2") : null}
+            {locsAff.map(x => sigBlock(solidaires ? "Locataire solidaire" : "Le locataire", x.nom, sigs[x.k], x.k))}
             {meta.tiers ? sigBlock("Tiers présent", meta.tiers, null, "t") : null}
           </div>
           <p className="legal">
@@ -945,7 +1018,7 @@ function SaisieEDL({ dossier, profil, onRetour }) {
   const archive = dossier.statut === "archive";
   const d0 = dossier.donnees || {};
 
-  const [meta, setMeta]         = useState(() => ({ ...META_VIDE, ...(d0.meta || {}) }));
+  const [meta, setMeta]         = useState(() => normalizeMeta(d0.meta));
   const [items, setItems]       = useState(() => normalizeItems(d0.items));
   const [general, setGeneral]   = useState(() => d0.general || "");
   const [sigs, setSigs]         = useState(() => d0.sigs || { b:null, l1:null, l2:null });
@@ -977,6 +1050,8 @@ function SaisieEDL({ dossier, profil, onRetour }) {
   const premierRendu = useRef(true);
 
   const getIt = useCallback((c) => items[c] || EMPTY_ITEM, [items]);
+
+  const locataires = meta.locataires || [];
 
   const patchItem = useCallback((c, patch) => {
     setItems(prev => ({ ...prev, [c]: { ...(prev[c] || EMPTY_ITEM), ...patch } }));
@@ -1191,6 +1266,24 @@ function SaisieEDL({ dossier, profil, onRetour }) {
     setCurrent(null);
   };
 
+  /* ---- Locataires ---- */
+  const ajouterLocataire = () => setMeta(m => ({
+    ...m,
+    locataires: [...(m.locataires || []), { k:cleLocataireLibre(m.locataires), nom:"" }],
+  }));
+
+  const patchLocataire = (k, nom) => setMeta(m => ({
+    ...m, locataires:(m.locataires || []).map(x => (x.k === k ? { ...x, nom } : x)),
+  }));
+
+  // La signature part avec le locataire : sans ça, la clé libérée serait
+  // réattribuée au locataire suivant, qui hériterait d'un paraphe qui n'est
+  // pas le sien sur un document qui fait foi entre deux parties.
+  const supprimerLocataire = (k) => {
+    setMeta(m => ({ ...m, locataires:(m.locataires || []).filter(x => x.k !== k) }));
+    setSigs(sg => (sg[k] ? { ...sg, [k]:null } : sg));
+  };
+
   /* ---- Champs libres du cadre du document ---- */
   const ajouterExtra = () => setMeta(m => {
     const ex = Array.isArray(m.extras) ? m.extras : [];
@@ -1280,6 +1373,25 @@ function SaisieEDL({ dossier, profil, onRetour }) {
   const orphelin = room?.id === ORPH_ID;
   const isLast   = !room || roomsEff[roomsEff.length - 1].id === room.id;
 
+  // Les champs du cadre du document se rendent de la même façon de part et
+  // d'autre de la liste des locataires.
+  const champMeta = (f) => (
+    <label className="f" key={f.k}>
+      <span>{f.label}</span>
+      {f.type === "select" ? (
+        <select value={meta[f.k]} disabled={archive}
+          onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}>
+          <option value="ENTRÉE">Entrée</option>
+          <option value="SORTIE">Sortie</option>
+        </select>
+      ) : (
+        <input type={f.type || "text"} value={meta[f.k] || ""} disabled={archive}
+          placeholder={f.ph || ""}
+          onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}/>
+      )}
+    </label>
+  );
+
   const goRoom = (id) => {
     setCurrent(id);
     setEditListe(false);
@@ -1351,22 +1463,40 @@ function SaisieEDL({ dossier, profil, onRetour }) {
           </div>
           <div className="card-bd">
             <div className="grid">
-              {METAFIELDS.map(f => (
-                <label className="f" key={f.k}>
-                  <span>{f.label}</span>
-                  {f.type === "select" ? (
-                    <select value={meta[f.k]} disabled={archive}
-                      onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}>
-                      <option value="ENTRÉE">Entrée</option>
-                      <option value="SORTIE">Sortie</option>
-                    </select>
-                  ) : (
-                    <input type={f.type || "text"} value={meta[f.k] || ""} disabled={archive}
-                      placeholder={f.ph || ""}
-                      onChange={e => setMeta(m => ({ ...m, [f.k]:e.target.value }))}/>
+              {METAFIELDS_ENTETE.map(f => champMeta(f))}
+            </div>
+
+            <div className="locs">
+              <div className="lab">
+                {locataires.length > 1 ? "Locataires solidaires" : "Locataire"}
+              </div>
+              {locataires.length ? locataires.map((x, i) => (
+                <div className="locrow" key={x.k}>
+                  <span className="rang">Locataire {i + 1}</span>
+                  <input type="text" value={x.nom} disabled={archive}
+                    placeholder="Nom et prénom du locataire"
+                    aria-label={`Nom du locataire ${i + 1}`}
+                    onChange={e => patchLocataire(x.k, e.target.value)}/>
+                  {!archive && (
+                    <button className="del" type="button"
+                      aria-label={`Retirer le locataire ${i + 1}`}
+                      onClick={() => supprimerLocataire(x.k)}>×</button>
                   )}
-                </label>
-              ))}
+                </div>
+              )) : (
+                <p className="vide">Aucun locataire renseigné.</p>
+              )}
+              {!archive && (
+                <div className="rowbtns" style={{ marginTop:4 }}>
+                  <button className="btn ghost sm" type="button" onClick={ajouterLocataire}>
+                    + Locataire
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid" style={{ marginTop:12 }}>
+              {METAFIELDS_BIEN.map(f => champMeta(f))}
             </div>
 
             {(meta.extras || []).length > 0 && (
@@ -1678,11 +1808,17 @@ function SaisieEDL({ dossier, profil, onRetour }) {
                 <div className="grid">
                   <SignaturePad role="Le bailleur" who={meta.bailleur} value={sigs.b} readOnly={archive}
                     onChange={v => setSigs(s => ({ ...s, b:v }))}/>
-                  <SignaturePad role="Locataire 1" who={meta.loc1} value={sigs.l1} readOnly={archive}
-                    onChange={v => setSigs(s => ({ ...s, l1:v }))}/>
-                  <SignaturePad role="Locataire 2" who={meta.loc2} value={sigs.l2} readOnly={archive}
-                    onChange={v => setSigs(s => ({ ...s, l2:v }))}/>
+                  {locataires.map((x, i) => (
+                    <SignaturePad key={x.k} role={`Locataire ${i + 1}`} who={x.nom}
+                      value={sigs[x.k] || null} readOnly={archive}
+                      onChange={v => setSigs(s => ({ ...s, [x.k]:v }))}/>
+                  ))}
                 </div>
+                {!locataires.length && (
+                  <p className="hint" style={{ marginTop:10 }}>
+                    Ajoutez un locataire dans « Cadre du document » pour recueillir sa signature.
+                  </p>
+                )}
               </div>
             </section>
           </>
