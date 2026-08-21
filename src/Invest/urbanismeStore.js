@@ -322,7 +322,7 @@ export function urbaDossierVide(base = {}) {
       derogation:"", derogation_justification:"", local_velo:"", local_poubelles:"",
     },
     complement: "",
-    pieces: {},                        // { [pieceId]: { statut, responsable, lien, commentaire } }
+    pieces: {},                        // { [pieceId]: { statut, responsable, lien, commentaire, fichiers:[] } }
     todo: {},                          // { [itemId]: true }
     validation: {
       commercial_nom: base.commercial || "", commercial_date:"", commercial_visa:"",
@@ -754,6 +754,96 @@ export function urbaRetroplanning(d) {
     // Ce que le commercial peut promettre, en mois depuis le dépôt.
     moisJusquauChantier: instr.mois + 2,
   };
+}
+
+/* ============ Pièces jointes ============ */
+//
+// Les fichiers vont dans le bucket PRIVÉ invest-documents, déjà utilisé par les
+// états des lieux, le CRM et la Structuration, sous le préfixe
+// urbanisme/<dossierId>/. On stocke des CHEMINS dans le JSONB, jamais les
+// fichiers eux-mêmes : un plan de façade en base64 pèserait plusieurs Mo par
+// ligne, et le Storage est fait pour ça.
+//
+// Le bucket étant privé, les URLs sont resignées à chaque impression — un lien
+// qui fuite expire. Même modèle que les photos d'états des lieux.
+
+export const URBA_BUCKET = "invest-documents";
+
+// Types acceptés. On refuse le reste plutôt que de laisser le pôle urbanisme
+// découvrir à l'ouverture qu'une pièce est illisible.
+const URBA_TYPES_ACCEPTES = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/i;
+const URBA_TAILLE_MAX = 15 * 1024 * 1024;   // 15 Mo : un plan scanné en A3 y tient
+
+export function urbaFichierAcceptable(file) {
+  if (!file) return "Fichier illisible.";
+  if (!URBA_TYPES_ACCEPTES.test(file.type || "")) {
+    return "Format refusé : seules les images (JPG, PNG, WEBP, HEIC) et les PDF sont acceptés.";
+  }
+  if (file.size > URBA_TAILLE_MAX) {
+    return `Fichier trop lourd (${Math.round(file.size / 1048576)} Mo). Maximum 15 Mo.`;
+  }
+  return null;
+}
+
+export function urbaEstImage(f) {
+  return /^image\//i.test(f?.type || "") || /\.(jpe?g|png|webp|heic|heif)$/i.test(f?.nom || "");
+}
+
+// Téléverse un fichier et renvoie son descripteur, à ranger dans
+// donnees.pieces[pieceId].fichiers.
+//
+// Les images sont recompressées à 1600 px — assez pour qu'un plan reste lisible
+// à l'impression, sans transporter 8 Mo de photo de téléphone. Les PDF partent
+// tels quels : les recompresser abîmerait un plan vectoriel.
+export async function urbaTeleverserFichier(dossierId, pieceId, file) {
+  const refus = urbaFichierAcceptable(file);
+  if (refus) throw new Error(refus);
+
+  let corps = file;
+  let type = file.type;
+  if (/^image\//i.test(file.type)) {
+    try {
+      const { recompresser, fichierVersDataUrl } = await import("./edlStore.js");
+      corps = await recompresser(await fichierVersDataUrl(file), 1600, 0.82, "blob");
+      type = "image/jpeg";
+    } catch (e) {
+      // Recompression impossible (HEIC non décodable par le navigateur) :
+      // on envoie l'original plutôt que de refuser la pièce.
+      console.warn("[urbanisme] recompression ignorée:", e?.message || e);
+    }
+  }
+
+  const propre = String(file.name || "piece")
+    .replace(/[^\w.\-]+/g, "_").slice(-80);
+  const chemin = `urbanisme/${dossierId}/${pieceId}_${Date.now()}_${propre}`;
+
+  const { error } = await supabase.storage.from(URBA_BUCKET)
+    .upload(chemin, corps, { upsert:false, contentType:type });
+  if (error) throw new Error("Envoi impossible : " + error.message);
+
+  return { path:chemin, nom:file.name || propre, type, taille:corps.size ?? file.size,
+           ajoute_le:new Date().toISOString() };
+}
+
+export async function urbaSupprimerFichier(chemin) {
+  const { error } = await supabase.storage.from(URBA_BUCKET).remove([chemin]);
+  if (error) throw new Error("Suppression impossible : " + error.message);
+}
+
+// Signe tous les fichiers d'un dossier. 2 h de validité : le temps de consulter
+// et d'imprimer, pas plus.
+export async function urbaSignerFichiers(donnees) {
+  const chemins = [];
+  for (const piece of Object.values(donnees?.pieces || {})) {
+    for (const f of (piece?.fichiers || [])) if (f?.path) chemins.push(f.path);
+  }
+  if (!chemins.length) return {};
+  const { data, error } = await supabase.storage.from(URBA_BUCKET)
+    .createSignedUrls(chemins, 7200);
+  if (error) { console.warn("[urbanisme] signature des pièces:", error.message); return {}; }
+  const map = {};
+  (data || []).forEach(r => { if (r?.path && r?.signedUrl) map[r.path] = r.signedUrl; });
+  return map;
 }
 
 /* ============ Supabase ============ */

@@ -38,7 +38,10 @@ function tableau(entetes, rangs) {
     + '</tbody></table>';
 }
 
-export function imprimerFDU(row) {
+// `urlsPieces` : { chemin Storage -> URL signée }, produit par
+// urbaSignerFichiers. Absent, la FDU s'imprime sans annexes — l'appelant n'a
+// pas à gérer deux chemins de code.
+export function imprimerFDU(row, urlsPieces = {}) {
   const d = row?.donnees || {};
   const id = d.identification || {};
   const dem = d.demandeur || {};
@@ -234,6 +237,13 @@ export function imprimerFDU(row) {
     + '.alertes li{margin-bottom:3px}'
     + '.regle{margin:8px 0 0;padding:7px;border-left:3px solid #111;background:#f4f4f4;font-style:italic}'
     + 'footer{margin-top:18px;border-top:1px solid #bbb;padding-top:6px;font-size:9.5px;color:#666}'
+    /* Annexes : une image par page, jamais coupée. */
+    + '.saut{page-break-before:always}'
+    + '.annexe-intro{font-size:10.5px;color:#444;margin:0 0 10px}'
+    + '.annexe-page{page-break-before:always;text-align:center}'
+    + '.annexe-page h3{font-size:13px;margin:0 0 2px;text-align:left}'
+    + '.annexe-nom{font-size:9.5px;color:#666;margin:0 0 8px;text-align:left;font-style:italic}'
+    + '.annexe-page img{max-width:100%;max-height:23cm;object-fit:contain;border:1px solid #ccc}'
     + '</style></head><body>'
     + '<header class="fdu"><p class="eyebrow">' + esc(id.entite || "Profero Invest") + ' · Urbanisme</p>'
     + '<h1>Fiche de demande urbanisme — ' + esc(id.reference || row?.reference || "sans référence") + '</h1>'
@@ -247,10 +257,78 @@ export function imprimerFDU(row) {
     + 'Une FDU incomplète n\'est pas prise en charge et repart au commercial.</footer>'
     + '</body></html>';
 
+  // ── Annexes ────────────────────────────────────────────────────────────
+  //
+  // Une image jointe devient une page d'annexe pleine largeur, légendée par le
+  // nom de la pièce : c'est ce qui part au dossier du chantier et en mairie.
+  //
+  // Les PDF ne sont PAS incorporés : aucun navigateur n'imprime un PDF distant
+  // placé dans un <embed> ou <iframe> depuis une fenêtre ouverte en écriture.
+  // Prétendre le faire produirait des pages blanches au milieu du dossier. Ils
+  // sont donc listés, avec leur nom, pour être joints à la main — et le
+  // document le dit, plutôt que de laisser croire qu'ils y sont.
+  const piecesAvecFichiers = urbaExigences(d)
+    .map(p => ({ p, fichiers: (d?.pieces?.[p.id]?.fichiers || []).filter(f => f?.path) }))
+    .filter(x => x.fichiers.length);
+
+  const images = [];
+  const documents = [];
+  for (const { p, fichiers } of piecesAvecFichiers) {
+    for (const f of fichiers) {
+      const url = urlsPieces[f.path];
+      const estImg = /^image\//i.test(f.type || "") || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.nom || "");
+      if (estImg && url) images.push({ piece:p.label, nom:f.nom, url });
+      else documents.push({ piece:p.label, nom:f.nom, dispo: !!url });
+    }
+  }
+
+  if (images.length || documents.length) {
+    let annexe = '<section class="bloc saut"><h2>Annexes — pièces jointes</h2>';
+    annexe += '<p class="annexe-intro">'
+      + esc(images.length + " image(s) reproduite(s) ci-après")
+      + (documents.length ? esc(" · " + documents.length + " document(s) à joindre séparément") : "")
+      + '.</p>';
+
+    if (documents.length) {
+      annexe += '<table class="grille"><thead><tr><th>Pièce</th><th>Fichier</th><th>À joindre</th></tr></thead><tbody>'
+        + documents.map(x => '<tr><td>' + esc(x.piece) + '</td><td>' + esc(x.nom) + '</td>'
+            + '<td>' + (x.dispo ? "séparément (PDF)" : "lien expiré — rouvrir la fiche") + '</td></tr>').join("")
+        + '</tbody></table>';
+    }
+    annexe += '</section>';
+
+    // Une image par page : un plan de façade coupé en deux ne sert à rien.
+    for (const img of images) {
+      annexe += '<section class="annexe-page">'
+        + '<h3>' + esc(img.piece) + '</h3>'
+        + '<p class="annexe-nom">' + esc(img.nom) + '</p>'
+        + '<img src="' + esc(img.url) + '" alt="' + esc(img.piece) + '"/>'
+        + '</section>';
+    }
+    corps.push(annexe);
+  }
+
   const win = window.open("", "_blank", "width=1000,height=800");
   if (!win) { alert("Autorisez les pop-ups pour imprimer la FDU."); return; }
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => { try { win.print(); } catch { /* l'utilisateur imprimera à la main */ } }, 350);
+
+  // Les annexes sont des images distantes : imprimer avant leur chargement
+  // produirait des pages blanches. On attend, avec un plafond — un lien
+  // expiré ou un réseau coupé ne doit pas bloquer l'impression du reste.
+  const lancer = () => { try { win.print(); } catch { /* l'utilisateur imprimera à la main */ } };
+  if (!images.length) { setTimeout(lancer, 350); return; }
+
+  const attendreImages = () => {
+    const liste = Array.from(win.document.images || []);
+    if (!liste.length) return Promise.resolve();
+    return Promise.all(liste.map(img => img.complete
+      ? Promise.resolve()
+      : new Promise(res => { img.onload = res; img.onerror = res; })));
+  };
+  Promise.race([
+    attendreImages(),
+    new Promise(res => setTimeout(res, 8000)),   // plafond : 8 s
+  ]).then(() => setTimeout(lancer, 200));
 }

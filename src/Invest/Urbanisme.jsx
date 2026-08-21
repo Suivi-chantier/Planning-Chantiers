@@ -8,6 +8,9 @@ import {
   CalendarClock, ClipboardList, ListChecks, Printer, Send, Building2, Landmark,
   Home, Ruler, Car, Camera, ChevronRight, ChevronDown, Info, Link as LinkIcon,
   MapPin, ShieldAlert, UserCheck, Clock, Layers,
+  Paperclip,
+  Image as ImageIcon,
+  X,
 } from "lucide-react";
 import {
   URBA_ENTITES, URBA_ORIGINES_CONTRAINTE, URBA_STATUTS, URBA_STATUTS_AVANT_DEPOT,
@@ -21,6 +24,7 @@ import {
   urbaSurfacesConcernees, urbaStationnementConcerne, urbaSocieteExistante, urbaEstABF,
   urbaSurfacePlancherTotale, urbaDelaiInstruction, urbaDelaiPreparation,
   listerDossiers, chargerDossier, creerDossier, majDossier, supprimerDossier,
+  URBA_BUCKET, urbaTeleverserFichier, urbaSupprimerFichier, urbaSignerFichiers, urbaEstImage,
 } from "./urbanismeStore";
 import { imprimerFDU } from "./urbanismeImpression";
 
@@ -633,6 +637,17 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
   // Rattachement : on préremplit l'adresse depuis la fiche bien, sans écraser
   // ce qui a déjà été saisi — une FDU en cours peut porter une adresse plus
   // précise que la fiche (bâtiment, lot).
+  // Impression : les pièces jointes vivent dans un bucket privé, leurs URLs
+  // sont donc signées juste avant, pour deux heures. Un échec de signature
+  // n'empêche pas d'imprimer la fiche — seules les annexes manqueront, et le
+  // document le signale.
+  const imprimer = useCallback(async () => {
+    let urls = {};
+    try { urls = await urbaSignerFichiers(d); }
+    catch (e) { console.warn("[urbanisme] annexes non signées:", e?.message || e); }
+    imprimerFDU({ ...dossier, statut, donnees:d }, urls);
+  }, [d, dossier, statut]);
+
   const rattacherBien = useCallback((bienId) => {
     const bien = biensStock.find(x => String(x.id) === String(bienId));
     setD(prev => {
@@ -720,7 +735,7 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
           <select className="inv-sel" value={statut} onChange={e => changerStatut(e.target.value)} title="Statut du dossier">
             {URBA_STATUTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
-          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => imprimerFDU({ ...dossier, statut, donnees:d })}>
+          <button className="inv-btn inv-btn-out inv-btn-sm" onClick={imprimer}>
             <Icon as={Printer} size={12}/>Imprimer la FDU
           </button>
           {action && (
@@ -773,7 +788,7 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
 
       {onglet === "demande" && <OngletDemande d={d} set={set} setSous={setSous} setD={setD} T={T} arch={arch} biensStock={biensStock} rattacherBien={rattacherBien}/>}
       {onglet === "projet"  && <OngletProjet  d={d} set={set} setSous={setSous} setD={setD} setRacine={setRacine} T={T}/>}
-      {onglet === "pieces"  && <OngletPieces  d={d} set={set} setSous={setSous} T={T}/>}
+      {onglet === "pieces"  && <OngletPieces  d={d} set={set} setSous={setSous} T={T} dossierId={dossier?.id}/>}
       {onglet === "retro"   && <OngletRetro   d={d} set={set} T={T} retro={retro} statut={statut}/>}
       {onglet === "process" && <OngletProcess d={d} set={set} setSous={setSous} T={T} comp={comp} statut={statut} onAllerPieces={() => setOnglet("pieces")}/>}
     </div>
@@ -1353,8 +1368,47 @@ function BlocStationnement({ d, set, T }) {
 // champ de saisie était détruit et le focus perdu. Il fallait recliquer entre
 // chaque lettre. Le key={p.id} n'y changeait rien : c'est le type qui changeait,
 // pas la clé.
-function LignePiece({ p, majPiece, T }) {
+function LignePiece({ p, majPiece, T, dossierId }) {
   const meta = urbaPieceStatut(p.statut);
+  const fichiers = Array.isArray(p.fichiers) ? p.fichiers : [];
+  const [envoi, setEnvoi] = useState(false);
+  const [erreurPJ, setErreurPJ] = useState("");
+  const champFichier = useRef(null);
+
+  const ajouter = async (liste) => {
+    if (!liste?.length) return;
+    if (!dossierId) { setErreurPJ("Enregistrez le dossier avant d'y joindre des pièces."); return; }
+    setEnvoi(true); setErreurPJ("");
+    const ajoutes = [];
+    for (const file of Array.from(liste)) {
+      try { ajoutes.push(await urbaTeleverserFichier(dossierId, p.id, file)); }
+      catch (e) { setErreurPJ(e.message || String(e)); }
+    }
+    // Un seul enregistrement pour tout le lot : une pièce par appel produirait
+    // autant de sauvegardes concurrentes que de fichiers.
+    if (ajoutes.length) majPiece(p.id, "fichiers", [...fichiers, ...ajoutes]);
+    setEnvoi(false);
+    if (champFichier.current) champFichier.current.value = "";
+  };
+
+  const retirer = async (f) => {
+    if (!window.confirm(`Retirer « ${f.nom} » ?`)) return;
+    // On retire d'abord de la fiche : si la suppression du Storage échoue, mieux
+    // vaut un fichier orphelin dans le bucket qu'une pièce qui reste affichée
+    // alors que l'utilisateur l'a retirée.
+    majPiece(p.id, "fichiers", fichiers.filter(x => x.path !== f.path));
+    try { await urbaSupprimerFichier(f.path); }
+    catch (e) { console.warn("[urbanisme] fichier non supprimé du bucket:", e?.message); }
+  };
+
+  const ouvrir = async (f) => {
+    try {
+      const { data, error } = await supabase.storage.from(URBA_BUCKET)
+        .createSignedUrl(f.path, 300);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank", "noopener");
+    } catch (e) { setErreurPJ("Ouverture impossible : " + (e.message || e)); }
+  };
   return (
 
       <div style={{ border:`1px solid ${p.manquante ? DA + "55" : T.border}`, background:p.manquante ? DA + "0d" : T.input,
@@ -1391,11 +1445,52 @@ function LignePiece({ p, majPiece, T }) {
         <input className="inv-inp" value={p.commentaire} placeholder="Commentaire (format, version, ce qui reste à obtenir…)"
           onChange={e => majPiece(p.id, "commentaire", e.target.value)}
           style={{ width:"100%", textAlign:"left", marginTop:SPACING.sm }}/>
+
+        {/* Pièces jointes. Les images partent en annexe de la FDU imprimée ;
+            les PDF y sont listés, un navigateur ne sachant pas les incorporer
+            dans une fenêtre d'impression. */}
+        <div style={{ marginTop:SPACING.sm, display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
+          <input ref={champFichier} type="file" multiple accept="image/*,application/pdf"
+            onChange={e => ajouter(e.target.files)} style={{ display:"none" }}/>
+          <button className="inv-btn inv-btn-sm inv-btn-out" disabled={envoi}
+            onClick={() => champFichier.current?.click()}>
+            <Icon as={Paperclip} size={11}/> {envoi ? "Envoi…" : "Joindre un fichier"}
+          </button>
+          {fichiers.map(f => (
+            <span key={f.path} style={{
+              display:"inline-flex", alignItems:"center", gap:5,
+              background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.pill,
+              padding:"3px 4px 3px 9px", fontSize:FONT.xs.size + 1, color:T.textSub, maxWidth:280,
+            }}>
+              <Icon as={urbaEstImage(f) ? ImageIcon : FileText} size={11}
+                color={urbaEstImage(f) ? SU : T.textMuted}/>
+              <button onClick={() => ouvrir(f)} title={`Ouvrir ${f.nom}`} style={{
+                background:"none", border:"none", padding:0, cursor:"pointer", color:T.textSub,
+                fontFamily:"inherit", fontSize:"inherit", maxWidth:190, overflow:"hidden",
+                textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"left",
+              }}>{f.nom}</button>
+              <span style={{ color:T.textMuted, fontSize:FONT.xs.size }}>
+                {Math.max(1, Math.round((f.taille || 0) / 1024))} Ko
+              </span>
+              <button onClick={() => retirer(f)} title="Retirer" aria-label={`Retirer ${f.nom}`} style={{
+                background:"none", border:"none", cursor:"pointer", color:DA, padding:"1px 3px", display:"flex",
+              }}><Icon as={X} size={11}/></button>
+            </span>
+          ))}
+          {!fichiers.length && !envoi && (
+            <span style={{ fontSize:FONT.xs.size, color:T.textMuted }}>
+              Images et PDF · 15 Mo max · les images passent en annexe de la FDU
+            </span>
+          )}
+        </div>
+        {erreurPJ && (
+          <div style={{ marginTop:5, fontSize:FONT.xs.size + 1, color:DA, fontWeight:700 }}>{erreurPJ}</div>
+        )}
       </div>
       );
 }
 
-function OngletPieces({ d, set, setSous, T }) {
+function OngletPieces({ d, set, setSous, T, dossierId }) {
   const exigences = urbaExigences(d);
   const obligatoires = exigences.filter(p => p.requis);
   const autres = exigences.filter(p => !p.requis);
@@ -1414,14 +1509,14 @@ function OngletPieces({ d, set, setSous, T }) {
               : "Toutes les pièces obligatoires de ce dossier sont au moins reçues."}
           </Bandeau>
         </div>
-        {obligatoires.map(p => <LignePiece key={p.id} p={p} majPiece={majPiece} T={T}/>)}
+        {obligatoires.map(p => <LignePiece key={p.id} p={p} majPiece={majPiece} T={T} dossierId={dossierId}/>)}
 
         {autres.length > 0 && (
           <div style={{ marginTop:SPACING.lg }}>
             <div style={{ fontSize:FONT.sm.size + 1, fontWeight:800, color:T.textMuted, marginBottom:SPACING.sm }}>
               Pièces non requises pour ce dossier (à renseigner si la mairie les demande)
             </div>
-            {autres.map(p => <LignePiece key={p.id} p={p} majPiece={majPiece} T={T}/>)}
+            {autres.map(p => <LignePiece key={p.id} p={p} majPiece={majPiece} T={T} dossierId={dossierId}/>)}
           </div>
         )}
       </Carte>
