@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS } from "../constants";
+import { getISOWeek, mondayOfWeek } from "../rythmeSemaine";
 import { Icon } from "../ui";
-import { MapPin, CalendarX, Building2, CalendarDays, Users } from "lucide-react";
+import { MapPin, CalendarX, Building2, CalendarDays, Users, ChevronLeft, ChevronRight, Undo2 } from "lucide-react";
 import { MobileCard, MobileEmptyState, MobileTabs } from "../mobileUI";
 import { NavButtons } from "./ouvrierNav";
 
@@ -21,15 +22,39 @@ function semaineCible() {
 }
 
 export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
-  const { year, week, showNext } = semaineCible();
+  // Semaine affichée : par défaut la cible (courante, ou suivante dès vendredi),
+  // navigable librement avec les flèches ‹ › (retour rapide via le bouton dédié).
+  const cible = semaineCible();
+  const [sem, setSem] = useState({ year: cible.year, week: cible.week });
+  const { year, week } = sem;
   const weekId    = getWeekId(year, week);
   const todayJour = getTodayJour();
+  const cur       = getCurrentWeek();
 
   const [loading, setLoading]     = useState(true);
   const [cellsByDay, setCellsByDay] = useState({});
   const [config, setConfig]       = useState({ chantiers: DEFAULT_CHANTIERS, adresses: {} });
   // Jour sélectionné : aujourd'hui si semaine en cours, sinon lundi (semaine suivante).
-  const [jour, setJour] = useState(showNext ? "Lundi" : (todayJour || "Lundi"));
+  const [jour, setJour] = useState(cible.showNext ? "Lundi" : (todayJour || "Lundi"));
+
+  // Navigation de semaine (ISO : gère les années à 52/53 semaines via les dates).
+  const allerSemaine = (y, w) => {
+    setSem({ year: y, week: w });
+    setJour(getWeekId(y, w) === getWeekId(cur.year, cur.week) ? (todayJour || "Lundi") : "Lundi");
+  };
+  const shiftSemaine = (delta) => {
+    const mon = mondayOfWeek(year, week);
+    mon.setDate(mon.getDate() + delta * 7);
+    const s = getISOWeek(mon);
+    allerSemaine(s.year, s.week);
+  };
+  // Écart en semaines avec la semaine en cours (pour le libellé).
+  const offset = Math.round((mondayOfWeek(year, week) - mondayOfWeek(cur.year, cur.week)) / (7 * 864e5));
+  const libSem = offset === 0 ? "Cette semaine"
+    : offset === 1  ? "Semaine prochaine"
+    : offset === -1 ? "Semaine dernière"
+    : `Semaine ${week} · ${year}`;
+  const horsCible = weekId !== getWeekId(cible.year, cible.week);
 
   // Lundi + décalage (même calcul ISO que le Planning conducteur).
   const dateDuJour = (dayIndex) => {
@@ -101,24 +126,51 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-      {/* Bandeau semaine */}
-      <MobileCard T={T} accent={accent} style={{ padding:"11px 14px", display:"flex", alignItems:"center", gap:10 }}>
-        <div style={{
-          width:38, height:38, borderRadius:12, flexShrink:0,
-          background:`linear-gradient(135deg, ${accent}, ${accent}c0)`, color:"#1a1f2e",
+      {/* Bandeau semaine avec navigation ‹ › */}
+      <MobileCard T={T} accent={accent} style={{ padding:"9px 10px", display:"flex", alignItems:"center", gap:8 }}>
+        <button onClick={() => shiftSemaine(-1)} aria-label="Semaine précédente" style={{
+          width:36, height:36, borderRadius:11, flexShrink:0, cursor:"pointer",
+          background:T.card, border:`1px solid ${T.border}`, color:T.textSub,
           display:"flex", alignItems:"center", justifyContent:"center",
         }}>
-          <Icon as={CalendarDays} size={19} strokeWidth={2.3}/>
-        </div>
-        <div style={{ minWidth:0 }}>
-          <div style={{ fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted }}>
-            {showNext ? "Semaine prochaine" : "Cette semaine"}
+          <Icon as={ChevronLeft} size={18} strokeWidth={2.4}/>
+        </button>
+        <div style={{ flex:1, minWidth:0, display:"flex", alignItems:"center", gap:10, justifyContent:"center" }}>
+          <div style={{
+            width:36, height:36, borderRadius:11, flexShrink:0,
+            background:`linear-gradient(135deg, ${accent}, ${accent}c0)`, color:"#1a1f2e",
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>
+            <Icon as={CalendarDays} size={18} strokeWidth={2.3}/>
           </div>
-          <div style={{ fontSize:15, fontWeight:800, color:T.text }}>
-            {fmtJour(dateDuJour(0))} – {fmtJour(dateDuJour(4))}
+          <div style={{ minWidth:0, textAlign:"left" }}>
+            <div style={{ fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase", color:T.textMuted, whiteSpace:"nowrap" }}>
+              {libSem}
+            </div>
+            <div style={{ fontSize:15, fontWeight:800, color:T.text, whiteSpace:"nowrap" }}>
+              {fmtJour(dateDuJour(0))} – {fmtJour(dateDuJour(4))} <span style={{ color:T.textMuted, fontWeight:700, fontSize:12.5 }}>· S{week}</span>
+            </div>
           </div>
         </div>
+        <button onClick={() => shiftSemaine(1)} aria-label="Semaine suivante" style={{
+          width:36, height:36, borderRadius:11, flexShrink:0, cursor:"pointer",
+          background:T.card, border:`1px solid ${T.border}`, color:T.textSub,
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <Icon as={ChevronRight} size={18} strokeWidth={2.4}/>
+        </button>
       </MobileCard>
+
+      {/* Retour rapide quand on s'est éloigné de la semaine par défaut */}
+      {horsCible && (
+        <button onClick={() => allerSemaine(cible.year, cible.week)} style={{
+          alignSelf:"center", display:"inline-flex", alignItems:"center", gap:6,
+          background:"transparent", border:"none", cursor:"pointer",
+          color:T.textSub, fontFamily:"inherit", fontSize:13, fontWeight:700, padding:"0 4px",
+        }}>
+          <Icon as={Undo2} size={14}/> Revenir à aujourd'hui
+        </button>
+      )}
 
       {/* Sélecteur de jour */}
       <MobileTabs tabs={tabs} value={jour} onChange={setJour} accent={accent} onAccent="#1a1f2e" T={T}/>
