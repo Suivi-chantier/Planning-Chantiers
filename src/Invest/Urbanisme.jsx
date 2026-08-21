@@ -771,7 +771,7 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
         })}
       </div>
 
-      {onglet === "demande" && <OngletDemande d={d} set={set} setSous={setSous} setD={setD} T={T} arch={arch}/>}
+      {onglet === "demande" && <OngletDemande d={d} set={set} setSous={setSous} setD={setD} T={T} arch={arch} biensStock={biensStock} rattacherBien={rattacherBien}/>}
       {onglet === "projet"  && <OngletProjet  d={d} set={set} setSous={setSous} setD={setD} setRacine={setRacine} T={T}/>}
       {onglet === "pieces"  && <OngletPieces  d={d} set={set} setSous={setSous} T={T}/>}
       {onglet === "retro"   && <OngletRetro   d={d} set={set} T={T} retro={retro} statut={statut}/>}
@@ -782,7 +782,13 @@ function FicheFDU({ dossier, profil, T = T_DEFAUT, onRetour }) {
 
 /* ---- Onglet 1 : Demande (blocs 1, 2, 3) ---- */
 
-function OngletDemande({ d, set, setSous, setD, T, arch }) {
+// biensStock et rattacherBien viennent de FicheFDU par PROPS.
+//
+// Ils y étaient référencés directement, comme si ce composant était imbriqué —
+// il est au premier niveau du module. Aucune fermeture lexicale, donc
+// « biensStock is not defined » au rendu de l'onglet Demande, et l'onglet
+// Urbanisme entier devenait inutilisable.
+function OngletDemande({ d, set, setSous, setD, T, arch, biensStock = [], rattacherBien = () => {} }) {
   const id = d.identification || {};
   const dem = d.demandeur || {};
   const b = d.bien || {};

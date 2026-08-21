@@ -4828,11 +4828,11 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   };
 
   useEffect(() => {
-    if (!ficheId) { setDossiersUrba([]); return; }
+    if (!id) { setDossiersUrba([]); return; }
     let annule = false;
     supabase.from("invest_urbanisme_dossiers")
       .select("id,reference,statut,autorisation,date_max_depot,date_depot,completude,nb_pieces_manquantes")
-      .eq("bien_id", ficheId)
+      .eq("bien_id", id)
       .order("updated_at", { ascending:false })
       .then(({ data, error }) => {
         if (annule) return;
@@ -4842,14 +4842,14 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
         setDossiersUrba(data || []);
       });
     return () => { annule = true; };
-  }, [ficheId]);
+  }, [id]);
 
   useEffect(() => {
-    if (!ficheId) { setEdlDuBien([]); return; }
+    if (!id) { setEdlDuBien([]); return; }
     let annule = false;
-    listerEDLDuBien(ficheId).then(r => { if (!annule) setEdlDuBien(r); });
+    listerEDLDuBien(id).then(r => { if (!annule) setEdlDuBien(r); });
     return () => { annule = true; };
-  }, [ficheId]);
+  }, [id]);
 
   // États des lieux du bien, dans l'ordre chronologique inverse : la carte
   // donne la suite entrée / sortie, que l'adresse en texte libre ne permettait
