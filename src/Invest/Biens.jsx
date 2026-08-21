@@ -324,6 +324,32 @@ function normaliseModeVisiteTerrain(bien = {}) {
   };
 }
 
+// QuickInput et QuickTextarea vivent au niveau MODULE.
+//
+// Elles étaient déclarées dans ModeVisiteTerrainOnglet, donc recréées à chaque
+// rendu. React voyait un type de composant différent et remontait le champ à
+// neuf : le focus était perdu à chaque frappe, et il fallait recliquer entre
+// chaque lettre. Même bug que celui signalé sur les pièces d'urbanisme.
+function QuickInput({ label, value, onChange, placeholder = "", type = "text" }) {
+  return (
+    <div>
+      <label className="inv-kpi-lbl">{label}</label>
+      <input className="inv-inp" type={type} value={value || ""} onChange={e => onChange(e.target.value)}
+        style={{ width:"100%", textAlign: type === "number" ? "right" : "left" }} placeholder={placeholder}/>
+    </div>
+  );
+}
+
+function QuickTextarea({ label, value, onChange, placeholder = "", rows = 2 }) {
+  return (
+    <div>
+      <label className="inv-kpi-lbl">{label}</label>
+      <textarea className="inv-textarea" rows={rows} value={value || ""}
+        onChange={e => onChange(e.target.value)} placeholder={placeholder}/>
+    </div>
+  );
+}
+
 function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
   const [data, setData] = useState(() => normaliseModeVisiteTerrain(bien));
   const [saving, setSaving] = useState(false);
@@ -536,20 +562,6 @@ function ModeVisiteTerrainOnglet({ bien, profil, T=THEMES_INV.dark, onSaved }) {
       </button>
     );
   };
-
-  const QuickInput = ({ label, value, onChange, placeholder="", type="text" }) => (
-    <div>
-      <label className="inv-kpi-lbl">{label}</label>
-      <input className="inv-inp" type={type} value={value || ""} onChange={e=>onChange(e.target.value)} style={{width:"100%",textAlign:type==="number"?"right":"left"}} placeholder={placeholder}/>
-    </div>
-  );
-
-  const QuickTextarea = ({ label, value, onChange, placeholder="", rows=2 }) => (
-    <div>
-      <label className="inv-kpi-lbl">{label}</label>
-      <textarea className="inv-textarea" rows={rows} value={value || ""} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>
-    </div>
-  );
 
   return (
     <div style={{display:"grid",gridTemplateColumns:"300px 1fr",gap:16,alignItems:"start"}}>

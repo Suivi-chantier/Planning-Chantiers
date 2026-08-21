@@ -1345,17 +1345,18 @@ function BlocStationnement({ d, set, T }) {
 
 /* ---- Onglet 3 : Pièces ---- */
 
-function OngletPieces({ d, set, setSous, T }) {
-  const exigences = urbaExigences(d);
-  const obligatoires = exigences.filter(p => p.requis);
-  const autres = exigences.filter(p => !p.requis);
-  const manquantes = obligatoires.filter(p => p.manquante).length;
+// LignePiece vit au niveau MODULE, pas dans OngletPieces.
+//
+// Elle y était déclarée en fonction locale : à chaque frappe, setD re-rendait
+// OngletPieces, qui recréait LignePiece. React voyait alors un TYPE de
+// composant différent, démontait le sous-arbre et en montait un neuf — le
+// champ de saisie était détruit et le focus perdu. Il fallait recliquer entre
+// chaque lettre. Le key={p.id} n'y changeait rien : c'est le type qui changeait,
+// pas la clé.
+function LignePiece({ p, majPiece, T }) {
+  const meta = urbaPieceStatut(p.statut);
+  return (
 
-  const majPiece = (pieceId, champ, v) => setSous("pieces", pieceId, champ, v);
-
-  const Ligne = ({ p }) => {
-    const meta = urbaPieceStatut(p.statut);
-    return (
       <div style={{ border:`1px solid ${p.manquante ? DA + "55" : T.border}`, background:p.manquante ? DA + "0d" : T.input,
         borderRadius:RADIUS.lg, padding:SPACING.md, marginBottom:SPACING.sm }}>
         <div style={{ display:"flex", gap:SPACING.sm, alignItems:"flex-start", flexWrap:"wrap" }}>
@@ -1391,8 +1392,16 @@ function OngletPieces({ d, set, setSous, T }) {
           onChange={e => majPiece(p.id, "commentaire", e.target.value)}
           style={{ width:"100%", textAlign:"left", marginTop:SPACING.sm }}/>
       </div>
-    );
-  };
+      );
+}
+
+function OngletPieces({ d, set, setSous, T }) {
+  const exigences = urbaExigences(d);
+  const obligatoires = exigences.filter(p => p.requis);
+  const autres = exigences.filter(p => !p.requis);
+  const manquantes = obligatoires.filter(p => p.manquante).length;
+
+  const majPiece = (pieceId, champ, v) => setSous("pieces", pieceId, champ, v);
 
   return (
     <>
@@ -1405,14 +1414,14 @@ function OngletPieces({ d, set, setSous, T }) {
               : "Toutes les pièces obligatoires de ce dossier sont au moins reçues."}
           </Bandeau>
         </div>
-        {obligatoires.map(p => <Ligne key={p.id} p={p}/>)}
+        {obligatoires.map(p => <LignePiece key={p.id} p={p} majPiece={majPiece} T={T}/>)}
 
         {autres.length > 0 && (
           <div style={{ marginTop:SPACING.lg }}>
             <div style={{ fontSize:FONT.sm.size + 1, fontWeight:800, color:T.textMuted, marginBottom:SPACING.sm }}>
               Pièces non requises pour ce dossier (à renseigner si la mairie les demande)
             </div>
-            {autres.map(p => <Ligne key={p.id} p={p}/>)}
+            {autres.map(p => <LignePiece key={p.id} p={p} majPiece={majPiece} T={T}/>)}
           </div>
         )}
       </Carte>

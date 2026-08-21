@@ -3117,6 +3117,26 @@ Laisse vide pour créer un événement en journée entière.`,
 }
 
 
+// InlineClientField vit au niveau MODULE.
+//
+// Elle était déclarée dans FicheClient, donc recréée à chaque rendu. Bien
+// qu'elle ne fasse qu'envelopper {children}, son TYPE changeait : React
+// démontait tout le sous-arbre, y compris les champs de saisie qu'elle
+// contient. Même bug que sur les pièces d'urbanisme.
+//
+// `T` passe désormais en prop, faute de fermeture lexicale.
+function InlineClientField({ label, helper, children, span = false, T = THEMES_INV.dark }) {
+  return (
+    <div style={{ border:`1px solid ${T.border}`, background:"#f8fafc", borderRadius:14,
+      padding:"9px 10px", minWidth:0, gridColumn: span ? "1 / -1" : undefined }}>
+      <div style={{ fontSize:9.5, color:T.textMuted, fontWeight:950, textTransform:"uppercase",
+        letterSpacing:.8, marginBottom:5 }}>{label}</div>
+      {children}
+      {helper && <div style={{ fontSize:10.5, color:T.textMuted, marginTop:5, lineHeight:1.35 }}>{helper}</div>}
+    </div>
+  );
+}
+
 function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialMissionStep="", initialMissionActionId="" }) {
   const [client, setClient]   = useState(null);
   const [notes, setNotes]     = useState([]);
@@ -3520,14 +3540,6 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
   const clientConseillerOptions = Array.from(new Set([profil?.nom, client.conseiller, ...missionResponsables()].filter(Boolean)));
   const inlineInputStyle = { width:"100%", textAlign:"left", fontSize:12.5, padding:"7px 8px", background:"#fff" };
   const inlineSelectStyle = { width:"100%", fontSize:12.5, padding:"7px 8px", background:"#fff" };
-  const InlineClientField = ({ label, helper, children, span = false }) => (
-    <div style={{border:`1px solid ${T.border}`,background:"#f8fafc",borderRadius:14,padding:"9px 10px",minWidth:0,gridColumn:span ? "1 / -1" : undefined}}>
-      <div style={{fontSize:9.5,color:T.textMuted,fontWeight:950,textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>{label}</div>
-      {children}
-      {helper && <div style={{fontSize:10.5,color:T.textMuted,marginTop:5,lineHeight:1.35}}>{helper}</div>}
-    </div>
-  );
-
   return (
     <div style={{ padding:"24px 28px", maxWidth:1280, margin:"0 auto", width:"100%" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24, flexWrap:"wrap" }}>
@@ -3561,7 +3573,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
             </div>
             <div className="inv-card-bd">
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10,maxWidth:"100%"}}>
-                <InlineClientField label="Nom *">
+                <InlineClientField T={T} label="Nom *">
                   <input
                     className="inv-inp"
                     value={client.nom || ""}
@@ -3571,7 +3583,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Prénom">
+                <InlineClientField T={T} label="Prénom">
                   <input
                     className="inv-inp"
                     value={client.prenom || ""}
@@ -3581,7 +3593,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Email">
+                <InlineClientField T={T} label="Email">
                   <input
                     className="inv-inp"
                     type="email"
@@ -3592,7 +3604,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Téléphone">
+                <InlineClientField T={T} label="Téléphone">
                   <input
                     className="inv-inp"
                     value={client.telephone || ""}
@@ -3602,7 +3614,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Conseiller">
+                <InlineClientField T={T} label="Conseiller">
                   <select
                     className="inv-sel"
                     value={client.conseiller || ""}
@@ -3614,7 +3626,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   </select>
                 </InlineClientField>
 
-                <InlineClientField label="Source">
+                <InlineClientField T={T} label="Source">
                   <select
                     className="inv-sel"
                     value={client.source || ""}
@@ -3626,7 +3638,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   </select>
                 </InlineClientField>
 
-                <InlineClientField label="Budget">
+                <InlineClientField T={T} label="Budget">
                   <input
                     className="inv-inp"
                     type="number"
@@ -3637,7 +3649,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Statut Kanban" helper="Met à jour la colonne du pipeline CRM.">
+                <InlineClientField T={T} label="Statut Kanban" helper="Met à jour la colonne du pipeline CRM.">
                   <select
                     className="inv-sel"
                     value={client.statut || "Prospect"}
@@ -3648,7 +3660,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   </select>
                 </InlineClientField>
 
-                <InlineClientField label="Étape en cours" helper="Cette étape est reprise dans la liste, les filtres et le suivi Kanban.">
+                <InlineClientField T={T} label="Étape en cours" helper="Cette étape est reprise dans la liste, les filtres et le suivi Kanban.">
                   <select
                     className="inv-sel"
                     value={client.etape || ""}
@@ -3660,7 +3672,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   </select>
                 </InlineClientField>
 
-                <InlineClientField label="Date signature contrat">
+                <InlineClientField T={T} label="Date signature contrat">
                   <input
                     className="inv-inp"
                     type="date"
@@ -3670,7 +3682,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Date avant contact">
+                <InlineClientField T={T} label="Date avant contact">
                   <input
                     className="inv-inp"
                     type="date"
@@ -3680,7 +3692,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   />
                 </InlineClientField>
 
-                <InlineClientField label="Notes rapides" span>
+                <InlineClientField T={T} label="Notes rapides" span>
                   <textarea
                     className="inv-textarea"
                     rows={2}
