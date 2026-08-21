@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
-import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant } from "./constants";
+import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant, normalizeBranches } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
 
@@ -127,7 +127,7 @@ const EspaceOuvrier          = lazy(() => import("./Renovation/EspaceOuvrier"));
 
 // ─── PERMISSIONS PAR RÔLE ────────────────────────────────────────────────────
 // Centralisé dans src/access.js. App.jsx charge la config au mount et propage.
-import { loadAccessConfig, canAccess as _canAccess, ROLE_PAGES_DEFAULT_RENOVATION } from "./access";
+import { loadAccessConfig, canAccess as _canAccess, ROLE_PAGES_DEFAULT_RENOVATION, PAGES_RENOVATION } from "./access";
 
 // ─── GESTIONNAIRE D'ERREUR GLOBAL ────────────────────────────────────────────
 if (typeof window !== "undefined") {
@@ -337,7 +337,7 @@ function PageLogin({ onLogin }) {
         setErreur("Votre compte a été désactivé. Contactez l'administrateur.");
         await supabase.auth.signOut(); setLoading(false); return;
       }
-      onLogin(data.user, profil);
+      onLogin(data.user, { ...profil, branches: normalizeBranches(profil.branches) });
     } catch { setErreur("Une erreur est survenue. Réessayez."); }
     setLoading(false);
   };
@@ -514,6 +514,16 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, []);
   const canAccess = (r, p) => _canAccess(rolePages, r, p);
+
+  // Page d'arrivée : l'app démarre sur "dashboard", mais un rôle restreint
+  // (ex. une seule page autorisée) n'y a pas forcément accès et tomberait sur
+  // « Accès refusé ». Dès que la config d'accès (re)charge, on bascule sur la
+  // première page autorisée du rôle, dans l'ordre de référence de la branche.
+  useEffect(() => {
+    if (canAccess(role, page)) return;
+    const premiere = PAGES_RENOVATION.map(p => p.id).find(id => canAccess(role, id));
+    if (premiere) setPage(premiere);
+  }, [rolePages, role, page]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData=useCallback(async()=>{
     setSyncing(true);
@@ -853,8 +863,9 @@ export default function App() {
         const { data: p } = await supabase
           .from("utilisateurs").select("*").eq("email", session.user.email).single();
         if (p && p.actif) {
-          setUser(session.user); setProfil(p);
-          setAuthState(destForProfil(p));
+          const prof = { ...p, branches: normalizeBranches(p.branches) };
+          setUser(session.user); setProfil(prof);
+          setAuthState(destForProfil(prof));
         } else {
           await supabase.auth.signOut(); setAuthState("login");
         }
@@ -884,8 +895,9 @@ export default function App() {
       const { data: p } = await supabase
         .from("utilisateurs").select("*").eq("email", session.user.email).single();
       if (p && p.actif) {
-        setUser(session.user); setProfil(p);
-        setAuthState(destForProfil(p));
+        const prof = { ...p, branches: normalizeBranches(p.branches) };
+        setUser(session.user); setProfil(prof);
+        setAuthState(destForProfil(prof));
       } else {
         setAuthState("login");
       }

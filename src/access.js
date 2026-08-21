@@ -159,12 +159,13 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   ],
 
   // Espace ouvrier : identifiants de pages DÉDIÉS, distincts des pages bureau
-  // ci-dessus. Ils correspondent aux 4 onglets du composant EspaceOuvrier et
+  // ci-dessus. Ils correspondent aux 5 onglets du composant EspaceOuvrier et
   // ne sont volontairement pas listés dans PAGES_RENOVATION (la matrice Admin
   // ne gère que les pages bureau ; l'espace ouvrier a sa propre navigation).
   ouvrier: [
     "ouvrier-dashboard",
     "ouvrier-planning",
+    "ouvrier-chantiers",
     "ouvrier-compte-rendu",
     "ouvrier-demande-commande",
   ],

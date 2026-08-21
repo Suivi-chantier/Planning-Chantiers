@@ -162,6 +162,25 @@ export const identifiantFromLoginEmail = (email) =>
 // Identifiant : 2 à 30 caractères, minuscules/chiffres, . _ - autorisés à l'intérieur.
 export const IDENTIFIANT_REGEX = /^[a-z0-9][a-z0-9._-]{1,29}$/;
 
+// utilisateurs.branches doit être un tableau, mais une ligne saisie à la main
+// (SQL, import) peut contenir une chaîne : "renovation", '["renovation"]' ou
+// '{renovation,invest}'. On tolère ces formats pour ne jamais planter l'UI.
+export function normalizeBranches(v) {
+  if (Array.isArray(v)) return v.length ? v : ["renovation"];
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (s.startsWith("[")) {
+      try {
+        const arr = JSON.parse(s);
+        if (Array.isArray(arr) && arr.length) return arr;
+      } catch { /* format inattendu → fallback ci-dessous */ }
+    }
+    const parts = s.replace(/[{}[\]"']/g, "").split(",").map(x => x.trim()).filter(Boolean);
+    if (parts.length) return parts;
+  }
+  return ["renovation"];
+}
+
 export const DEFAULT_OUVRIERS=["JP","Stev","Kev","Reza","Hamed","Mady","Yann","Julien","Steven"];
 export const DEFAULT_CHANTIERS=[
   {id:"lamartine",nom:"LAMARTINE",couleur:"#c8d8f0"},

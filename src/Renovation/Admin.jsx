@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX } from "../constants";
+import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
 import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, getISOWeek, libelleRythme } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
@@ -295,7 +295,7 @@ function OngletUtilisateurs({ T, acc }) {
   const charger = async () => {
     setLoading(true);
     const { data } = await supabase.from("utilisateurs").select("*").order("nom");
-    setUtilisateurs(data || []);
+    setUtilisateurs((data || []).map(u => ({ ...u, branches: normalizeBranches(u.branches) })));
     setLoading(false);
   };
   useEffect(() => { charger(); }, []);

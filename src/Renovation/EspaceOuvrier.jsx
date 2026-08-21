@@ -3,12 +3,13 @@ import { supabase } from "../supabase";
 import { PROFERO_YELLOW, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, CalendarDays, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
+  LayoutDashboard, CalendarDays, Building2, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
   Sun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, Zap,
 } from "lucide-react";
 import { MobileHero } from "../mobileUI";
 import OuvrierDashboard from "./OuvrierDashboard";
 import OuvrierPlanning from "./OuvrierPlanning";
+import OuvrierChantiers from "./OuvrierChantiers";
 import OuvrierCommande from "./OuvrierCommande";
 import PageRapportMobile from "./RapportMobile";
 
@@ -38,12 +39,13 @@ export const T = {
 };
 const ACCENT = PROFERO_YELLOW;
 
-// Les 4 onglets. Les id correspondent aux pages dédiées "ouvrier-*" (access.js).
+// Les 5 onglets. Les id correspondent aux pages dédiées "ouvrier-*" (access.js).
 const TABS = [
-  { id: "dashboard",        label: "Accueil",      icon: LayoutDashboard, titre: "Tableau de bord" },
-  { id: "planning",         label: "Planning",     icon: CalendarDays,    titre: "Mon planning" },
-  { id: "compte-rendu",     label: "Compte rendu", icon: ClipboardList,   titre: "Mon compte rendu" },
-  { id: "demande-commande", label: "Commande",     icon: ShoppingCart,    titre: "Mes demandes" },
+  { id: "dashboard",        label: "Accueil",   icon: LayoutDashboard, titre: "Tableau de bord" },
+  { id: "planning",         label: "Planning",  icon: CalendarDays,    titre: "Mon planning" },
+  { id: "chantiers",        label: "Chantiers", icon: Building2,       titre: "Les chantiers" },
+  { id: "compte-rendu",     label: "Rapport",   icon: ClipboardList,   titre: "Mon compte rendu" },
+  { id: "demande-commande", label: "Commande",  icon: ShoppingCart,    titre: "Mes demandes" },
 ];
 
 const NAV_H = 66; // hauteur bottom-nav
@@ -152,6 +154,7 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
 
           {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
           {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
+          {tab === "chantiers"        && <OuvrierChantiers T={T} accent={ACCENT}/>}
           {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT} preview={preview}/>}
         </div>
       )}
