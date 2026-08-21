@@ -480,6 +480,12 @@ export function urbaExigences(d) {
       responsable: etat.responsable || "",
       lien: etat.lien || "",
       commentaire: etat.commentaire || "",
+      // Les pièces jointes DOIVENT figurer ici. Cette fonction reconstruit
+      // chaque pièce champ par champ : tout champ oublié est silencieusement
+      // supprimé de ce que voit l'interface, alors qu'il est bien enregistré en
+      // base. C'est ce qui faisait « le fichier ne se joint pas » — il était
+      // téléversé et persisté, mais l'écran lisait un champ absent.
+      fichiers: Array.isArray(etat.fichiers) ? etat.fichiers : [],
       manquante: requis && !urbaPieceStatut(statut).acquise,
     };
   });
