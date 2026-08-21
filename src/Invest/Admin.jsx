@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "../supabase";
-import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
@@ -136,7 +136,7 @@ function OngletUtilisateursInvest({ T }) {
   const charger = async () => {
     setLoading(true);
     const { data } = await supabase.from("utilisateurs").select("*").order("nom");
-    setUtilisateurs(data || []);
+    setUtilisateurs((data || []).map(u => ({ ...u, branches: normalizeBranches(u.branches) })));
     setLoading(false);
   };
   useEffect(() => { charger(); }, []);

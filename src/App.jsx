@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
-import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant } from "./constants";
+import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant, normalizeBranches } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
 
@@ -337,7 +337,7 @@ function PageLogin({ onLogin }) {
         setErreur("Votre compte a été désactivé. Contactez l'administrateur.");
         await supabase.auth.signOut(); setLoading(false); return;
       }
-      onLogin(data.user, profil);
+      onLogin(data.user, { ...profil, branches: normalizeBranches(profil.branches) });
     } catch { setErreur("Une erreur est survenue. Réessayez."); }
     setLoading(false);
   };
@@ -853,8 +853,9 @@ export default function App() {
         const { data: p } = await supabase
           .from("utilisateurs").select("*").eq("email", session.user.email).single();
         if (p && p.actif) {
-          setUser(session.user); setProfil(p);
-          setAuthState(destForProfil(p));
+          const prof = { ...p, branches: normalizeBranches(p.branches) };
+          setUser(session.user); setProfil(prof);
+          setAuthState(destForProfil(prof));
         } else {
           await supabase.auth.signOut(); setAuthState("login");
         }
@@ -884,8 +885,9 @@ export default function App() {
       const { data: p } = await supabase
         .from("utilisateurs").select("*").eq("email", session.user.email).single();
       if (p && p.actif) {
-        setUser(session.user); setProfil(p);
-        setAuthState(destForProfil(p));
+        const prof = { ...p, branches: normalizeBranches(p.branches) };
+        setUser(session.user); setProfil(prof);
+        setAuthState(destForProfil(prof));
       } else {
         setAuthState("login");
       }
