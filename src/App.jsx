@@ -53,6 +53,7 @@ import PageRapprochementFactures from "./Renovation/RapprochementFactures";
 import PageEncoursFournisseurs from "./Renovation/PageEncoursFournisseurs";
 import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
 import BoutonAide             from "./Renovation/PageAide";
+import BulleTodo              from "./BulleTodo";
 import PageEquipe             from "./Renovation/Equipe";
 import PageBilanSemaine       from "./Renovation/BilanSemaine";
 import PageValidation         from "./Renovation/Validation";
@@ -815,6 +816,10 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         </div>
       </div>
       <BottomNav page={page} setPage={setPage} T={T} role={role} rolePages={rolePages}/>
+      {/* Barre todo persistante : visible sur toutes les pages, chaque
+          utilisateur n'y voit que les tâches qui lui sont assignées. */}
+      <BulleTodo T={T} profil={profil} branch="renovation"
+        onOuvrirPageTodo={canAccess(role,"notes-todo") ? () => setPage("notes-todo") : null}/>
     </div>
   );
 }

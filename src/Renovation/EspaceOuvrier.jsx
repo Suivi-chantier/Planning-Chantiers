@@ -12,6 +12,7 @@ import OuvrierPlanning from "./OuvrierPlanning";
 import OuvrierChantiers from "./OuvrierChantiers";
 import OuvrierCommande from "./OuvrierCommande";
 import PageRapportMobile from "./RapportMobile";
+import BulleTodo from "../BulleTodo";
 
 // Météo (Open-Meteo) — même mapping que Dashboard/Planning.
 function weatherInfo(code) {
@@ -209,6 +210,11 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
           );
         })}
       </nav>
+
+      {/* Barre todo persistante — l'ouvrier y retrouve les tâches qui lui sont
+          assignées depuis « Notes & To-do ». Position par défaut au-dessus de
+          la bottom-nav et de la barre d'action « compte rendu ». */}
+      <BulleTodo T={T} profil={profil} branch="renovation" defaultBottom={NAV_H + 82} defaultRight={14}/>
     </div>
   );
 }
