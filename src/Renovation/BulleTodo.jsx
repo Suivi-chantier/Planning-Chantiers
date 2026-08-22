@@ -84,6 +84,10 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
       borderRadius: RADIUS.lg,
       background: todo.fait ? "rgba(52,209,136,0.06)" : retard ? "rgba(224,92,92,0.05)" : "rgba(255,255,255,0.025)",
       overflow: "hidden",
+      // La liste est un conteneur flex colonne : sans ceci, dès que le total
+      // dépasse la hauteur du tiroir, les cartes se compriment et `overflow:
+      // hidden` rogne la ligne des badges (priorité, échéance, chantier).
+      flexShrink: 0,
     }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px" }}>
         <button
