@@ -53,7 +53,7 @@ import PageRapprochementFactures from "./Renovation/RapprochementFactures";
 import PageEncoursFournisseurs from "./Renovation/PageEncoursFournisseurs";
 import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
 import BoutonAide             from "./Renovation/PageAide";
-import BulleTodo              from "./BulleTodo";
+import BulleTodo              from "./Renovation/BulleTodo";
 import PageEquipe             from "./Renovation/Equipe";
 import PageBilanSemaine       from "./Renovation/BilanSemaine";
 import PageValidation         from "./Renovation/Validation";

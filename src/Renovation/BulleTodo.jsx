@@ -1,8 +1,9 @@
-// ─── BULLE « MES TÂCHES » — barre todo persistante, toutes branches ──────────
+// ─── BULLE « MES TÂCHES » — barre todo persistante (Rénovation) ─────────────
 //
-// Bulle flottante déplaçable + tiroir latéral, montée à la racine de chaque
-// branche (Rénovation, Invest, Espace ouvrier) pour rester visible sur TOUTES
-// les pages, sur le modèle de la bulle « Analyses » du Dashboard Analyse.
+// Bulle flottante déplaçable + tiroir latéral, montée à la racine de MainApp
+// pour rester visible sur toutes les pages de la branche Rénovation, sur le
+// modèle de la bulle « Analyses » du Dashboard Analyse. Réservée aux
+// collaborateurs du bureau : ni l'Espace ouvrier ni Invest ne la montent.
 //
 // Contrairement à celle-ci, le contenu n'est pas une checklist statique : ce
 // sont les vraies tâches de la page « Notes & To-do » (planning_config /
@@ -14,9 +15,9 @@
 // relit la valeur en base avant de la réécrire (read-modify-write).
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { supabase } from "./supabase";
-import { getBranchAccent, RADIUS } from "./constants";
-import { Icon } from "./ui";
+import { supabase } from "../supabase";
+import { getBranchAccent, RADIUS } from "../constants";
+import { Icon } from "../ui";
 import {
   ListTodo, X, Calendar, HardHat, ChevronDown, ChevronRight,
   CircleCheck, Circle, RefreshCw, User,
@@ -177,14 +178,16 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
 }
 
 // ─── BULLE + TIROIR ──────────────────────────────────────────────────────────
+// Position par défaut : au-dessus de la bulle « Analyses » du Dashboard
+// Analyse (bas 24) pour ne pas la recouvrir, et au-dessus de la barre de
+// navigation basse sur téléphone (~70 px).
+const BAS_DEFAUT = 96;
+const DROITE_DEFAUT = 24;
+
 export default function BulleTodo({
   T,
   profil,
   branch = "renovation",
-  // Décalage bas par défaut (px) — permet aux écrans à barre de navigation
-  // basse (mobile, espace ouvrier) de ne pas cacher la bulle.
-  defaultBottom = 96,
-  defaultRight = 24,
   // Optionnel : bouton « Ouvrir Notes & To-do » dans le pied du tiroir.
   onOuvrirPageTodo = null,
 }) {
@@ -285,7 +288,7 @@ export default function BulleTodo({
       const stored = JSON.parse(window.localStorage.getItem(positionKey) || "null");
       if (stored && typeof stored.right === "number" && typeof stored.bottom === "number") return stored;
     } catch (_e) {}
-    return { right: defaultRight, bottom: defaultBottom };
+    return { right: DROITE_DEFAUT, bottom: BAS_DEFAUT };
   });
   const dragState = useRef({ dragging: false, moved: false, startX: 0, startY: 0, startPos: null });
 
