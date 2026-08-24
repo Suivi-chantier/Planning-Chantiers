@@ -4799,6 +4799,30 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
     await persistSimulationsBien(next, next[0]?.id || "", next[0]?.donnees || null);
   };
 
+  useEffect(() => {
+    if (!id) { setDossiersUrba([]); return; }
+    let annule = false;
+    supabase.from("invest_urbanisme_dossiers")
+      .select("id,reference,statut,autorisation,date_max_depot,date_depot,completude,nb_pieces_manquantes")
+      .eq("bien_id", id)
+      .order("updated_at", { ascending:false })
+      .then(({ data, error }) => {
+        if (annule) return;
+        // 42P01 : module urbanisme absent de cet environnement — la carte se
+        // masque, ce n'est pas une erreur à remonter.
+        if (error) { if (error.code !== "42P01") console.warn("[Biens] dossiers urbanisme:", error.message); return; }
+        setDossiersUrba(data || []);
+      });
+    return () => { annule = true; };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) { setEdlDuBien([]); return; }
+    let annule = false;
+    listerEDLDuBien(id).then(r => { if (!annule) setEdlDuBien(r); });
+    return () => { annule = true; };
+  }, [id]);
+
   if (!bien) return <div style={{ textAlign:"center", padding:"60px", color:T.textMuted }}>Chargement…</div>;
 
   const couleur = STATUT_BIEN_COLORS[bien.statut] || "#9aa0b0";
@@ -4838,30 +4862,6 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
   const changerOngletFiche = async (key) => {
     setFicheTab(key);
   };
-
-  useEffect(() => {
-    if (!id) { setDossiersUrba([]); return; }
-    let annule = false;
-    supabase.from("invest_urbanisme_dossiers")
-      .select("id,reference,statut,autorisation,date_max_depot,date_depot,completude,nb_pieces_manquantes")
-      .eq("bien_id", id)
-      .order("updated_at", { ascending:false })
-      .then(({ data, error }) => {
-        if (annule) return;
-        // 42P01 : module urbanisme absent de cet environnement — la carte se
-        // masque, ce n'est pas une erreur à remonter.
-        if (error) { if (error.code !== "42P01") console.warn("[Biens] dossiers urbanisme:", error.message); return; }
-        setDossiersUrba(data || []);
-      });
-    return () => { annule = true; };
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) { setEdlDuBien([]); return; }
-    let annule = false;
-    listerEDLDuBien(id).then(r => { if (!annule) setEdlDuBien(r); });
-    return () => { annule = true; };
-  }, [id]);
 
   // États des lieux du bien, dans l'ordre chronologique inverse : la carte
   // donne la suite entrée / sortie, que l'adresse en texte libre ne permettait
