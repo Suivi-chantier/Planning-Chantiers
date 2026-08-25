@@ -13,6 +13,9 @@
 //          à une autre tâche du plan, modifier les heures, splitter, créer une
 //          nouvelle tâche du plan. Non destructif : rapports.taches[] reste
 //          intact — on travaille sur une copie locale `lignes`.
+//          + correction du CHANTIER du rapport (erreur de saisie de l'ouvrier) :
+//          sélecteur dans l'en-tête de la modale, tant que le rapport n'est pas
+//          validé (sinon passer par « Corriger » d'abord).
 //   - P5 : avancement arbitré. Champ "validé" pré-rempli avec la valeur
 //          déclarée par l'ouvrier. Garde-fou anti-régression si baisse vs plan.
 //          Affichage des propositions des autres ouvriers ayant pointé la même
@@ -725,6 +728,39 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     await load();
   }
 
+  // ── Correction du chantier d'un rapport ────────────────────────────────────
+  // L'ouvrier s'est trompé de chantier dans son compte rendu : on réaffecte le
+  // rapport (non validé) à un autre chantier. Les tache_id/phase_id des lignes
+  // pointaient vers le plan de l'ANCIEN chantier — on les détache pour que
+  // l'auto-match se relance sur le plan du nouveau chantier à la réouverture.
+  async function changerChantierRapport(rapport, newChantierId) {
+    if (!rapport || !newChantierId || String(newChantierId) === String(rapport.chantier_id)) return;
+    if (rapport.statut === "valide") {
+      alert("Ce rapport est déjà validé — clique d'abord sur « Corriger » pour le rouvrir.");
+      return;
+    }
+    const ch = chantiers.find(c => String(c.id) === String(newChantierId));
+    const nomNew = ch?.nom || newChantierId;
+    if (!window.confirm(
+      `Réaffecter ce rapport au chantier « ${nomNew} » ?\n\n`
+      + "Les lignes seront détachées du plan de l'ancien chantier et "
+      + "l'auto-détection se relancera sur le plan du nouveau chantier."
+    )) return;
+    setValidating(true);
+    const tachesNext = (rapport.taches || []).map(t => ({ ...t, tache_id: null, phase_id: null, ouvrage_id: null }));
+    const { error } = await supabase.from("rapports")
+      .update({ chantier_id: newChantierId, chantier_nom: nomNew, taches: tachesNext })
+      .eq("id", rapport.id);
+    if (error) {
+      console.error("Changement de chantier:", error);
+      alert(`Erreur lors du changement de chantier : ${error.message || error}`);
+      setValidating(false);
+      return;
+    }
+    setValidating(false);
+    await load(); // recharge rapports + phasages (dont celui du nouveau chantier)
+  }
+
   // ── Correction d'un rapport déjà validé (dé-validation) ───────────────────
   // Permet de rouvrir un rapport validé pour corriger une erreur de saisie.
   // On supprime les pointages issus de ce rapport (ils seront recréés à la
@@ -910,7 +946,13 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 
       {opened && (
         <ModaleRapport
+          // La clé inclut le chantier : un changement de chantier remonte la
+          // modale à neuf (lignes ré-initialisées depuis les tâches détachées,
+          // auto-match relancé sur le plan du nouveau chantier).
+          key={`${opened.id}:${opened.chantier_id}`}
           rapport={opened}
+          chantiers={chantiers}
+          onChangerChantier={(chId) => changerChantierRapport(opened, chId)}
           T={T} acc={acc}
           taux={parseFloat(tauxHoraires?.[opened.ouvrier]) || 0}
           alertes={alertesRapport(opened)}
@@ -1038,6 +1080,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
+  chantiers = [], onChangerChantier,
   nbChantiersDuJour = 1,
   autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
   onCreerTache, onClose, onValider, onDevalider, validating,
@@ -1201,6 +1244,34 @@ function ModaleRapport({
             <div style={{ fontWeight: 700, fontSize: 16 }}>
               {rapport.ouvrier} — {rapport.chantier_nom || rapport.chantier_id}
             </div>
+            {/* Correction : l'ouvrier s'est trompé de chantier sur son CR */}
+            {!verrouille && chantiers.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: T.textSub, textTransform: "uppercase", letterSpacing: .3, fontWeight: 600 }}>
+                  Chantier :
+                </span>
+                <select
+                  value={rapport.chantier_id || ""}
+                  onChange={e => { if (e.target.value) onChangerChantier?.(e.target.value); }}
+                  title="Réaffecter ce rapport à un autre chantier (erreur de saisie de l'ouvrier)"
+                  style={{
+                    padding: "3px 6px", borderRadius: RADIUS.md,
+                    border: `1px solid ${T.border}`, background: T.inputBg || T.surface, color: T.text,
+                    fontSize: 12, fontFamily: "inherit", maxWidth: 320,
+                  }}
+                >
+                  {/* Chantier courant absent de la liste (archivé ?) : option de repli */}
+                  {!chantiers.some(c => String(c.id) === String(rapport.chantier_id)) && (
+                    <option value={rapport.chantier_id || ""}>
+                      {libelleCourt(rapport.chantier_nom || rapport.chantier_id || "(inconnu)", 60)}
+                    </option>
+                  )}
+                  {[...chantiers].sort((a, b) => String(a.nom || a.id).localeCompare(String(b.nom || b.id))).map(c => (
+                    <option key={c.id} value={c.id}>{libelleCourt(c.nom || c.id, 60)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>
               {dateLabel(rapport.date_rapport)} · {fmtH(totalHTaches)}h tâches · taux {taux}€/h
               {trajetMin > 0 && (
