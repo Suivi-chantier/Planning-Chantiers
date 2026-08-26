@@ -413,6 +413,37 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       }
     });
 
+    // Tâches « À reprendre » (mêmes règles que le dashboard ouvrier) : phasage
+    // en retard (date_prevue < aujourd'hui, avancement < 100), équipe résolue
+    // par la RPC via le planning. Elles portent leur tache_id : la validation
+    // bureau et la remontée d'avancement/pointages fonctionnent tel quel.
+    // Formulaire public (anon) : la RPC est refusée par les grants → la liste
+    // reste vide, comportement inchangé.
+    const t0 = new Date();
+    const todayISO = `${t0.getFullYear()}-${String(t0.getMonth() + 1).padStart(2, "0")}-${String(t0.getDate()).padStart(2, "0")}`;
+    const { data: actives, error: errActives } = await supabase
+      .rpc("ouvrier_taches_actives", { p_aujourdhui: todayISO, p_prenom: nom });
+    if (errActives) console.warn("ouvrier_taches_actives (compte rendu):", errActives.message);
+    const dejaLa = new Set(tachesInit.map(t => String(t.tache_id || "")).filter(Boolean));
+    (Array.isArray(actives) ? actives : []).forEach(t => {
+      const id = String(t.tache_id || "");
+      if (!id || dejaLa.has(id)) return; // déjà planifiée aujourd'hui → pas de doublon
+      dejaLa.add(id);
+      const ch = chantiersData.find(c => c.id === t.chantier_id);
+      tachesInit.push({
+        chantier_id: t.chantier_id,
+        chantier_nom: ch?.nom || t.chantier_nom || t.chantier_id,
+        chantier_couleur: ch?.couleur || "#c8d8f0",
+        planifie: t.nom || "(sans nom)",
+        tache_id: id,
+        phase_id: null,
+        statut: null, remarque: "", pourTout: false,
+        aReprendre: true,
+        date_prevue: t.date_prevue || "",
+        avancement_actuel: Math.max(0, Math.min(100, parseInt(t.avancement) || 0)),
+      });
+    });
+
     setPlanData({ chantiersData });
     setTaches(tachesInit);
     setStep("rapport");
@@ -532,7 +563,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
   const soumettre = async () => {
     if (preview) return; // aperçu admin : lecture seule
-    const tachesRemplies = taches.filter(t => t.planifie.trim());
+    // Les tâches « À reprendre » jamais touchées (ni statut, ni heures, ni
+    // remarque, ni avancement) sont FACULTATIVES : on ne les soumet pas et
+    // elles ne bloquent pas l'envoi — pas de « Non faite — 0 % » forcé qui
+    // rabaisserait l'avancement du phasage à la validation. Elles resteront
+    // visibles demain (le phasage fait foi). Dès qu'un champ est rempli, la
+    // tâche redevient obligatoire comme les autres.
+    const aReprendreIntacte = (t) => t.aReprendre && !t.statut
+      && !String(t.heures_reelles ?? "").trim() && !t.remarque?.trim()
+      && (t.avancement === undefined || t.avancement === null || t.avancement === "");
+    const tachesRemplies = taches.filter(t => t.planifie.trim() && !aReprendreIntacte(t));
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
     // Chantier obligatoire pour les tâches ajoutées manuellement
     const sansChantier = tachesRemplies.filter(t => !t.chantier_id);
@@ -1280,8 +1320,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         const av100 = parseInt(t.avancement)===100;
         const expliRequise = t.statut==="en_cours"||t.statut==="non_faite";
         const explOk = !!t.remarque?.trim();
-        const stLabel = !t.statut ? "À remplir" : t.statut==="faite" ? "Faite" : t.statut==="en_cours" ? "En cours" : "Non faite";
-        const stColor = !t.statut ? "#c07800" : t.statut==="faite" ? T.success : t.statut==="en_cours" ? "#c07800" : T.danger;
+        const stLabel = !t.statut ? (t.aReprendre ? "À reprendre" : "À remplir") : t.statut==="faite" ? "Faite" : t.statut==="en_cours" ? "En cours" : "Non faite";
+        const stColor = !t.statut ? (t.aReprendre ? "#c2410c" : "#c07800") : t.statut==="faite" ? T.success : t.statut==="en_cours" ? "#c07800" : T.danger;
         const ouverte = !embedded || openTache === idx;
         return (
         <div key={idx} style={embedded ? {
@@ -1317,6 +1357,14 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
                 background:T.infoBg,color:T.info,
                 borderRadius:RADIUS.sm,padding:"2px 8px",fontSize:FONT.xs.size,fontWeight:700}}>
                 <Icon as={Users} size={11} strokeWidth={2.2}/> Pour tous
+              </span>
+            )}
+            {t.aReprendre && (
+              <span style={{display:"inline-flex",alignItems:"center",gap:4,
+                background:"#f9731622",color:"#c2410c",
+                borderRadius:RADIUS.sm,padding:"2px 8px",fontSize:FONT.xs.size,fontWeight:700}}>
+                <Icon as={RotateCw} size={11} strokeWidth={2.2}/>
+                À reprendre{t.date_prevue ? ` — prévue le ${t.date_prevue.slice(8,10)}/${t.date_prevue.slice(5,7)}` : ""} · {t.avancement_actuel || 0}%
               </span>
             )}
             {t.duree && (
