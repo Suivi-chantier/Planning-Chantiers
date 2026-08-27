@@ -57,6 +57,10 @@ export function nouvelIdDependance() {
 // Compatibilité descendante : on conserve lotId, mais on sait relire phaseId
 // des anciennes sous-tâches. L'appelant décide s'il veut réellement persister
 // l'enrichissement (`assignIds: true`) ou seulement inspecter les données.
+// IMPORTANT : l'absence de dépendance connue ne doit jamais être interprétée
+// comme « suit obligatoirement la ligne précédente ». Le défaut est donc
+// PARALLEL (= aucune dépendance dure interne connue). L'ordre reste une
+// préférence de planification via groupe/chrono.
 export function normaliserSousTacheV2(st, { assignIds = false } = {}) {
   const source = st && typeof st === "object" ? st : {};
   const id = str(source.id) || (assignIds ? nouvelIdSousTache() : null);
@@ -64,7 +68,7 @@ export function normaliserSousTacheV2(st, { assignIds = false } = {}) {
   const groupeTypeId = str(source.groupe_type_id) || null;
   const mode = Object.values(DEPENDANCE_MODES).includes(source.dependance_mode)
     ? source.dependance_mode
-    : DEPENDANCE_MODES.SEQUENCE;
+    : DEPENDANCE_MODES.PARALLEL;
   const preds = Array.isArray(source.predecesseur_ids)
     ? [...new Set(source.predecesseur_ids.map(str).filter(Boolean))]
     : [];
@@ -112,7 +116,7 @@ export function dependancesInternesOuvrage(ouvrage) {
   sts.forEach((st, idx) => {
     const successeurId = str(st.id);
     if (!successeurId) return;
-    const mode = st.dependance_mode || DEPENDANCE_MODES.SEQUENCE;
+    const mode = st.dependance_mode || DEPENDANCE_MODES.PARALLEL;
     let predIds = [];
     if (mode === DEPENDANCE_MODES.SEQUENCE && idx > 0) {
       const p = str(sts[idx - 1]?.id);
@@ -214,7 +218,7 @@ export function construireTachesDepuisOuvrageV2(ouvrage, {
       ratio,
       avancement: 0,
       heures_estimees: h,
-      dependance_mode_source: st.dependance_mode || DEPENDANCE_MODES.SEQUENCE,
+      dependance_mode_source: st.dependance_mode || DEPENDANCE_MODES.PARALLEL,
       dependances: [],
     };
   });
