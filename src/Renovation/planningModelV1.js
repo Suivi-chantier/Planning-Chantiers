@@ -26,6 +26,7 @@ export const DEPENDANCE_RELATIONS = Object.freeze({
 
 const str = v => String(v ?? "").trim();
 const num = v => {
+  if (v == null || (typeof v === "string" && v.trim() === "")) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
@@ -167,7 +168,8 @@ export function maturiteOuvrageV2(ouvrage) {
     else seen.add(str(st.id));
     if (!str(st.groupe_type_id)) erreurs.push(`Sous-tâche ${n} sans groupe d'exécution`);
     const r = num(st.ratio);
-    if (r != null) ratioTotal += r;
+    if (r == null) erreurs.push(`Sous-tâche ${n} sans ratio`);
+    else ratioTotal += r;
   });
   if (sts.length > 0 && Math.abs(ratioTotal - 100) > 0.001) erreurs.push(`Somme des ratios = ${ratioTotal}% au lieu de 100%`);
 
