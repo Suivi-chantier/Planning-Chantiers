@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'src/Renovation/planningModelV1.js'
+      - 'src/Renovation/planningModelAuditV1.js'
       - 'src/Renovation/planningGroupInferenceV1.js'
       - 'src/Renovation/planningDependencyInferenceV1.js'
       - 'src/Renovation/planningRulesV1.js'
@@ -32,6 +33,8 @@ jobs:
           cache: npm
       - name: Fixtures modèle métier
         run: node scripts/verif-planning-model-v1.mjs
+      - name: Fixtures audit global bibliothèque
+        run: node scripts/verif-planning-model-audit-v1.mjs
       - name: Fixtures affectation groupes
         run: node scripts/verif-planning-group-inference-v1.mjs
       - name: Fixtures dépendances internes
