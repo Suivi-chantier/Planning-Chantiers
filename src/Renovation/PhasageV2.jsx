@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import { parseDevisExcel } from "../devisImport";
 import {
+  PLANNING_MODEL_VERSION, codeOuvrageDepuisLibelle, construireTachesDepuisOuvrageV2,
+  estOuvrageV2, normaliserOuvrageV2,
+} from "./planningModelV1";
+import {
   buildChronoInitFromGroupesTypes, sortByChrono,
   estJalonControle, JALON_TYPE_REPERE, buildJalonControle, completerJalonsControle,
 } from "./chronoTemplate";
@@ -1286,57 +1290,91 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!importState) return;
     const selected = importState.items.filter(it => it.selectionne);
     if (selected.length === 0) { setImportState(null); return; }
+    const importedAt = new Date().toISOString();
+
     const newOuvrages = selected.map(it => {
-      // Heures estimées = cadence biblio × quantité (si dispo), sinon null.
-      const cadence = parseFloat(it.match?.cadence) || null;
+      const isV2 = !!it.match && estOuvrageV2(it.match);
+      const ref = isV2 ? normaliserOuvrageV2(it.match) : it.match;
+      const cadence = parseFloat(ref?.cadence) || null;
       const heuresEstimees = cadence && it.quantite ? parseFloat((cadence * it.quantite).toFixed(2)) : null;
-      // Tâches : copies des sous_taches de la biblio. Le ratio de chaque
-      // sous-tâche répartit DEUX grandeurs de l'ouvrage :
-      //   • les heures ESTIMÉES (cadence × quantité) → heures_estimees
-      //   • les heures VENDUES (heures_devis) → heures_vendues
-      // On stocke le `ratio` sur la tâche pour pouvoir redistribuer plus tard
-      // (recalcul à la modif des heures vendues de l'ouvrage). Les heures
-      // vendues restent EXACTES ici ; l'arrondi à 0,25 se fait seulement à
-      // l'envoi dans le planning hebdo.
-      const sousTaches = it.match?.sous_taches || [];
-      const sumRatios = sousTaches.reduce((s, st) => s + (parseFloat(st.ratio) || 0), 0);
+      const sousTaches = ref?.sous_taches || [];
+      const sumRatios = sousTaches.reduce((sum, st) => sum + (parseFloat(st.ratio) || 0), 0);
       const heuresDevis = parseFloat(it.heures);
-      const taches = sousTaches.map(st => {
-        const ratio = parseFloat(st.ratio) || 0;
-        const part = (sumRatios > 0 && ratio > 0) ? ratio / sumRatios : null;
-        const heuresTache = (heuresEstimees != null && part != null)
-          ? parseFloat((heuresEstimees * part).toFixed(2))
-          : null;
-        const heuresVenduesTache = (!isNaN(heuresDevis) && part != null)
-          ? parseFloat((heuresDevis * part).toFixed(2))
-          : null;
-        return {
-          id: rid(),
-          nom: st.nom || "",
-          ratio,
-          heures_estimees: heuresTache,
-          heures_vendues: heuresVenduesTache,
-          avancement: 0,
-        };
-      });
-      // Matériaux liés : copies des materiaux_liens de la biblio. Le coût
-      // matériaux est auto-calculé = quantité_ouvrage × Σ(qté_par_unité × prix_unitaire).
-      // Si l'utilisateur a déjà saisi manuellement un cout_materiaux, on ne l'écrase pas.
-      const liens = (it.match?.materiaux_liens || [])
+      const resolveChronoGroupId = (groupeTypeId) =>
+        chronoGroupes.find(g => String(g.groupe_type_id || "") === String(groupeTypeId || ""))?.id || null;
+
+      let taches;
+      if (isV2) {
+        // Le constructeur V2 conserve l'identité source, le groupe d'exécution,
+        // les dépendances riches et projette les HARD dans predecesseurs pour
+        // rester compatible avec rang.js. La répartition des heures conserve la
+        // règle historique : ratio normalisé par la somme réellement saisie.
+        taches = construireTachesDepuisOuvrageV2(ref, {
+          makeTaskId: rid,
+          resolveChronoGroupId,
+          heuresTotales: null,
+        }).map(t => {
+          const ratio = parseFloat(t.ratio) || 0;
+          const part = (sumRatios > 0 && ratio > 0) ? ratio / sumRatios : null;
+          return {
+            ...t,
+            heures_estimees: (heuresEstimees != null && part != null)
+              ? parseFloat((heuresEstimees * part).toFixed(2)) : null,
+            heures_vendues: (!isNaN(heuresDevis) && part != null)
+              ? parseFloat((heuresDevis * part).toFixed(2)) : null,
+          };
+        });
+      } else {
+        // Compatibilité stricte des ouvrages historiques : ancien chemin inchangé.
+        taches = sousTaches.map(st => {
+          const ratio = parseFloat(st.ratio) || 0;
+          const part = (sumRatios > 0 && ratio > 0) ? ratio / sumRatios : null;
+          return {
+            id: rid(),
+            nom: st.nom || "",
+            ratio,
+            heures_estimees: (heuresEstimees != null && part != null)
+              ? parseFloat((heuresEstimees * part).toFixed(2)) : null,
+            heures_vendues: (!isNaN(heuresDevis) && part != null)
+              ? parseFloat((heuresDevis * part).toFixed(2)) : null,
+            avancement: 0,
+          };
+        });
+      }
+
+      const liens = (ref?.materiaux_liens || [])
         .filter(ml => ml && ml.materiau_id != null)
         .map(ml => ({
           materiau_id: ml.materiau_id,
           quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
         }));
       const qOuvrage = parseFloat(it.quantite) || 0;
-      const coutMatParUnite = liens.reduce((s, ml) => {
+      const coutMatParUnite = liens.reduce((sum, ml) => {
         const m = materiauxBiblio.find(x => x.id === ml.materiau_id);
-        if (!m || ml.quantite == null) return s;
-        return s + (parseFloat(m.prix_unitaire) || 0) * (parseFloat(ml.quantite) || 0);
+        return sum + (parseFloat(m?.prix_unitaire) || 0) * (parseFloat(ml.quantite) || 0);
       }, 0);
-      const coutMateriaux = qOuvrage > 0 && coutMatParUnite > 0
-        ? parseFloat((qOuvrage * coutMatParUnite).toFixed(2))
+      const coutMateriaux = liens.length > 0 && qOuvrage > 0
+        ? parseFloat((coutMatParUnite * qOuvrage).toFixed(2))
         : null;
+
+      const codeOuvrage = isV2
+        ? (ref?.code_ouvrage || codeOuvrageDepuisLibelle(it.libelle) || null)
+        : null;
+      const biblioRef = isV2 ? {
+        id: ref?.id || null,
+        code_ouvrage: codeOuvrage,
+        planning_model_version: PLANNING_MODEL_VERSION,
+        importe_le: importedAt,
+        sous_taches: (ref?.sous_taches || []).map(st => ({
+          id: st.id || null,
+          groupe_type_id: st.groupe_type_id || null,
+          dependance_mode: st.dependance_mode || "sequence",
+          predecesseur_ids: Array.isArray(st.predecesseur_ids) ? st.predecesseur_ids : [],
+          delai_min_calendaire: parseFloat(st.delai_min_calendaire) || 0,
+          unite_delai: st.unite_delai || "heures",
+        })),
+      } : null;
+
       return {
         id: rid(),
         libelle: it.libelle,
@@ -1346,9 +1384,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         unite: it.unite || "U",
         prix_ht: it.prix_ht,
         heures_estimees: heuresEstimees,
-        bibliotheque_id: it.match?.id || null,
+        bibliotheque_id: ref?.id || null,
         materiaux_liens: liens,
         ...(coutMateriaux != null ? { cout_materiaux: coutMateriaux } : {}),
+        ...(isV2 ? {
+          code_ouvrage: codeOuvrage,
+          planning_model_version: PLANNING_MODEL_VERSION,
+          bibliotheque_ref: biblioRef,
+        } : {}),
         taches,
       };
     });
