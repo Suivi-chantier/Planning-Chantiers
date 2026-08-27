@@ -129,30 +129,30 @@ export function buildChronoInit(ouvrages, lots, rid) {
 
 // ─── INITIALISATION DEPUIS LES GROUPES TYPES (référentiel Admin) ─────────────
 // Version pilotée par le référentiel « groupes types » (planning_config/
-// groupes_types, éditable dans l'Admin) — elle remplace la CHRONO_TEMPLATE en
-// dur ci-dessus pour l'initialisation des nouveaux chantiers.
-// Instancie TOUS les groupes types (nom, couleur, ordre, groupe_type_id — le
-// lien vers l'origine, qui permettra de retrouver l'équipe par défaut) et
-// affecte chaque tâche au PREMIER groupe type (ordre croissant) rattaché au
-// lot de son ouvrage : lot Plomberie → « Passage réseau plomberie », et
-// « Appareillage plomberie » est créé vide (les tâches s'y déplacent à la
-// main). Les tâches dont le lot n'est référencé par aucun groupe type restent
-// « à classer ». `rid` : générateur d'id de l'appelant. Retourne null si le
-// référentiel est vide.
+// groupes_types, éditable dans l'Admin). Elle instancie TOUS les groupes types
+// et affecte d'abord une tâche à son `groupe_type_id` explicite quand celui-ci
+// existe (nouveaux ouvrages V2). Si ce champ est absent, on conserve le fallback
+// historique : premier groupe type rattaché au lot de l'ouvrage. Ainsi les
+// anciens phasages restent compatibles, tandis qu'un ouvrage V2 peut répartir
+// ses sous-tâches entre Réseaux et Appareillage dès l'import.
 export function buildChronoInitFromGroupesTypes(ouvrages, groupesTypes, rid) {
   const gts = [...(groupesTypes || [])].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0));
   if (gts.length === 0) return null;
   const groupes = gts.map(gt => ({
     id: rid(), nom: gt.nom, couleur: gt.couleur, ordre: gt.ordre ?? 0, groupe_type_id: gt.id,
   }));
-  const groupeParLot = new Map(); // lot_id → premier groupe instancié (rang le plus tôt)
+  const groupeParType = new Map(); // groupe_type_id → groupe concret du chantier
+  gts.forEach((gt, i) => groupeParType.set(String(gt.id), groupes[i]));
+  const groupeParLot = new Map(); // lot_id → premier groupe instancié (fallback historique)
   gts.forEach((gt, i) => { if (gt.lot_id && !groupeParLot.has(gt.lot_id)) groupeParLot.set(gt.lot_id, groupes[i]); });
+
   const compteurs = new Map();
   const assignments = {};
   (ouvrages || []).forEach(o => {
-    const g = groupeParLot.get(o.lot_id);
-    if (!g) return;
     (o.taches || []).forEach(t => {
+      const explicite = t?.groupe_type_id ? groupeParType.get(String(t.groupe_type_id)) : null;
+      const g = explicite || groupeParLot.get(o.lot_id);
+      if (!g) return;
       const n = compteurs.get(g.id) || 0;
       assignments[t.id] = { groupe_id: g.id, ordre: n };
       compteurs.set(g.id, n + 1);
