@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from
 import { supabase } from "../supabase";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW } from "../constants";
 import { Icon } from "../ui";
-import { profilSemaine, libelleRythme } from "../rythmeSemaine";
+import { profilSemaine, libelleRythme, getISOWeek } from "../rythmeSemaine";
 import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
   ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
@@ -284,12 +284,23 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const HEURES_PAR_JOUR_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
   const [heuresParJour, setHeuresParJour] = useState(HEURES_PAR_JOUR_DEFAUT);
 
-  const today    = new Date();
+  // ── Date du compte rendu ─────────────────────────────────────────────────
+  // Aujourd'hui par défaut ; en mode « rattrapage » (compte rendu d'un jour
+  // ouvré récent jamais envoyé — espace ouvrier uniquement), toutes les
+  // dérivées suivent la date choisie : clé de brouillon (le brouillon du jour
+  // manqué est retrouvé tel quel), semaine/jour du planning, cible d'heures,
+  // date_rapport à l'envoi. On ne modifie jamais un rapport existant.
+  const [dateRattrapage, setDateRattrapage] = useState(null); // "YYYY-MM-DD" | null
+  const enRattrapage = !!dateRattrapage;
+  const today    = enRattrapage ? new Date(`${dateRattrapage}T12:00:00`) : new Date();
   const dateStr  = today.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
   const dateKey  = today.toLocaleDateString("fr-FR");
-  const {year, week} = getCurrentWeek();
+  const {year, week} = enRattrapage ? getISOWeek(today) : getCurrentWeek();
   const weekId   = getWeekId(year, week);
-  const todayJour = getTodayJour();
+  const JOURS_SEMAINE = ["Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"];
+  const todayJour = enRattrapage
+    ? (today.getDay() >= 1 && today.getDay() <= 5 ? JOURS_SEMAINE[today.getDay()] : null)
+    : getTodayJour();
   // Cible d'heures du jour. Priorités :
   //  1. exception à la date du jour (férié, pont… — config Admin, 0 h valide) ;
   //  2. profil de la semaine selon le rythme 4j/5j (src/rythmeSemaine.js) —
@@ -366,8 +377,12 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     loadTaches(ouvrier.trim());
   };
 
-  // Quand ouvrier confirmé, charge ses tâches du jour
+  // Quand ouvrier confirmé, charge ses tâches du jour.
+  // loadSeqRef : un changement de date de rapport (rattrapage) invalide tout
+  // chargement encore en vol — sinon les tâches d'un jour pourraient s'afficher
+  // (et être brouillonnées) sous la date d'un autre.
   const loadTaches = async (nom) => {
+    const seq = ++loadSeqRef.current;
     if (!todayJour) { setStep("rapport"); return; }
     const { data: cells } = await supabase
       .from("planning_cells").select("*").eq("week_id", weekId);
@@ -419,8 +434,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // bureau et la remontée d'avancement/pointages fonctionnent tel quel.
     // Formulaire public (anon) : la RPC est refusée par les grants → la liste
     // reste vide, comportement inchangé.
-    const t0 = new Date();
-    const todayISO = `${t0.getFullYear()}-${String(t0.getMonth() + 1).padStart(2, "0")}-${String(t0.getDate()).padStart(2, "0")}`;
+    // todayISO suit la date du rapport (mode rattrapage : le jour rattrapé),
+    // pour que « à reprendre » = en retard PAR RAPPORT à ce jour-là.
     const { data: actives, error: errActives } = await supabase
       .rpc("ouvrier_taches_actives", { p_aujourdhui: todayISO, p_prenom: nom });
     if (errActives) console.warn("ouvrier_taches_actives (compte rendu):", errActives.message);
@@ -444,6 +459,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       });
     });
 
+    if (seq !== loadSeqRef.current) return; // date changée entre-temps
     setPlanData({ chantiersData });
     setTaches(tachesInit);
     setStep("rapport");
@@ -496,6 +512,66 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     if (prenomFige) confirmerPrenom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prenomFige]);
+
+  // ── Rattrapage d'un compte rendu manqué (espace ouvrier uniquement) ────────
+  // Détecte le jour ouvré le plus récent où l'ouvrier avait du planning mais
+  // n'a envoyé aucun rapport (envoi raté, oubli…). Les lectures sont filtrées
+  // par la RLS (ses cellules, ses rapports) ; sur le formulaire public anon,
+  // rapports n'est pas lisible → détection inerte, comportement inchangé.
+  const [rattrapageDispo, setRattrapageDispo] = useState(null); // { dateISO, label } | null
+  useEffect(() => {
+    if (!embedded || !prenomFige || preview) return;
+    let cancelled = false;
+    (async () => {
+      const maintenant = new Date();
+      for (let recul = 1; recul <= 4; recul++) {
+        const d = new Date(maintenant);
+        d.setDate(d.getDate() - recul);
+        if (d.getDay() === 0 || d.getDay() === 6) continue; // week-end
+        const s = getISOWeek(d);
+        const jour = ["Dimanche","Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi"][d.getDay()];
+        const { data: cells, error: e1 } = await supabase
+          .from("planning_cells").select("week_id")
+          .eq("week_id", getWeekId(s.year, s.week)).eq("jour", jour).limit(1);
+        if (e1 || !(cells || []).length) continue; // pas planifié ce jour-là → on remonte
+        const { data: raps, error: e2 } = await supabase
+          .from("rapports").select("id")
+          .eq("date_rapport", d.toLocaleDateString("fr-FR")).limit(1);
+        if (e2) return; // rapports illisible (anon) → pas de rattrapage
+        if (!cancelled && (raps || []).length === 0) {
+          setRattrapageDispo({
+            dateISO: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`,
+            label: d.toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" }),
+          });
+        }
+        return; // on ne propose que le dernier jour ouvré planifié
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [embedded, prenomFige, preview]);
+
+  // Bascule de date (rattrapage ↔ aujourd'hui). On vide les tâches DANS LE MÊME
+  // rendu que le changement de date : l'autosave (gardé par taches.length) ne
+  // peut ainsi jamais enregistrer les saisies d'un jour sous la clé de
+  // brouillon d'un autre jour. Le rechargement se fait dans l'effet ci-dessous,
+  // une fois la nouvelle date rendue (confirmerPrenom lit alors la bonne clé :
+  // brouillon du jour visé s'il existe, sinon planning de ce jour-là).
+  const rattrapageInitRef = useRef(false);
+  const loadSeqRef = useRef(0);
+  const changerDateRapport = (dateISO) => {
+    loadSeqRef.current++; // invalide un éventuel chargement en vol
+    setTaches([]);
+    setDateRattrapage(dateISO);
+  };
+  useEffect(() => {
+    if (!rattrapageInitRef.current) { rattrapageInitRef.current = true; return; }
+    setBrouillonRepris(false);
+    setLastSaved(null);
+    accordionInitRef.current = false;
+    chantierInitRef.current = false;
+    confirmerPrenom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRattrapage]);
 
   // Accordéon embarqué : à l'arrivée des tâches, ouvrir la première non remplie
   // (une seule fois — ensuite l'ouvrier pilote lui-même).
@@ -790,6 +866,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     effacerBrouillon();
     setBrouillonRepris(false);
     setLastSaved(null);
+    if (enRattrapage) setRattrapageDispo(null); // jour rattrapé : plus rien à proposer
     setSubmitting(false);
     setStep("done");
   };
@@ -989,6 +1066,70 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         )}
       </div>
 
+      {/* ── Bandeau rattrapage : jour ouvré planifié sans compte rendu ── */}
+      {!enRattrapage && rattrapageDispo && (
+        <div style={{
+          ...S.card,
+          background:T.warningBg,
+          borderLeft:`4px solid ${T.warning}`,
+          padding:"12px 16px",
+        }}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:8,flex:"1 1 200px"}}>
+              <Icon as={AlertTriangle} size={16} color={T.warning} strokeWidth={2.2} style={{flexShrink:0,marginTop:2}}/>
+              <div>
+                <div style={{fontSize:FONT.base.size,fontWeight:700,color:T.text,marginBottom:2}}>
+                  Compte rendu du {rattrapageDispo.label} jamais envoyé
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.4}}>
+                  Tu étais planifié ce jour-là mais aucun compte rendu n'a été reçu — tes heures ne sont pas comptées.
+                </div>
+              </div>
+            </div>
+            <button onClick={() => changerDateRapport(rattrapageDispo.dateISO)} style={{
+              padding:"8px 12px",borderRadius:RADIUS.md,border:`1.5px solid ${T.warning}`,
+              background:T.warning,color:"#fff",fontSize:FONT.sm.size,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit",
+              display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
+            }}>
+              <Icon as={Calendar} size={12} strokeWidth={2.5}/>
+              Le rattraper maintenant
+            </button>
+          </div>
+        </div>
+      )}
+      {enRattrapage && (
+        <div style={{
+          ...S.card,
+          background:T.warningBg,
+          borderLeft:`4px solid ${T.warning}`,
+          padding:"12px 16px",
+        }}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:8,flex:"1 1 200px"}}>
+              <Icon as={Calendar} size={16} color={T.warning} strokeWidth={2.2} style={{flexShrink:0,marginTop:2}}/>
+              <div>
+                <div style={{fontSize:FONT.base.size,fontWeight:700,color:T.text,marginBottom:2}}>
+                  Rattrapage — compte rendu du {dateStr}
+                </div>
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.4}}>
+                  Si tu avais commencé à saisir ce jour-là, tes saisies ont été rechargées. Le compte rendu sera bien daté du {dateKey}.
+                </div>
+              </div>
+            </div>
+            <button onClick={() => changerDateRapport(null)} style={{
+              padding:"8px 12px",borderRadius:RADIUS.md,border:`1.5px solid ${T.warning}`,
+              background:"transparent",color:T.warning,fontSize:FONT.sm.size,fontWeight:700,
+              cursor:"pointer",fontFamily:"inherit",
+              display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap",
+            }}>
+              <Icon as={RotateCw} size={11} strokeWidth={2.5}/>
+              Revenir à aujourd'hui
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Bandeau brouillon repris ── */}
       {brouillonRepris && (
         <div style={{
@@ -1003,7 +1144,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               <div>
                 <div style={{fontSize:FONT.base.size,fontWeight:700,color:T.text,marginBottom:2}}>Brouillon repris</div>
                 <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.4}}>
-                  On a récupéré ce que tu avais commencé à saisir aujourd'hui. Continue là où tu en étais.
+                  On a récupéré ce que tu avais commencé à saisir {enRattrapage ? `le ${dateKey}` : "aujourd'hui"}. Continue là où tu en étais.
                 </div>
               </div>
             </div>
