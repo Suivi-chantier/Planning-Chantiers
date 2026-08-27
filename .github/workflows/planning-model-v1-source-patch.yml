@@ -1,0 +1,57 @@
+name: Planning Model V1 — source patch
+
+on:
+  push:
+    branches:
+      - feature/planning-model-v1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: planning-model-v1-source-patch
+  cancel-in-progress: false
+
+jobs:
+  patch-and-verify:
+    if: ${{ !contains(github.event.head_commit.message, '[planning-model-v1 generated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branche de travail
+        uses: actions/checkout@v4
+        with:
+          ref: feature/planning-model-v1
+          fetch-depth: 0
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Appliquer les patches source contrôlés
+        run: node scripts/apply-planning-model-v1-source-patches.mjs
+
+      - name: Vérifier le modèle métier
+        run: node scripts/verif-planning-model-v1.mjs
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Compiler l'application
+        run: npm run build
+
+      - name: Vérifier les espaces / conflits de patch
+        run: git diff --check
+
+      - name: Committer les sources générées
+        run: |
+          if git diff --quiet -- src/Renovation/Bibliotheque.jsx src/Renovation/PhasageV2.jsx; then
+            echo "Aucune modification source à committer."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Renovation/Bibliotheque.jsx src/Renovation/PhasageV2.jsx
+          git commit -m "Planning Model V1: raccorde bibliothèque et phasage [planning-model-v1 generated]"
+          git push origin HEAD:feature/planning-model-v1
