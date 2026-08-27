@@ -36,7 +36,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
   const isV2 = estOuvrageV2(editData);
   const groupeTypeId = st.groupe_type_id || "";
   const groupeType = (groupesTypes || []).find(g => g.id === groupeTypeId);
-  const mode = st.dependance_mode || DEPENDANCE_MODES.SEQUENCE;
+  const mode = st.dependance_mode || DEPENDANCE_MODES.PARALLEL;
   const candidates = (editData.sous_taches || []).slice(0, idx).filter(x => x?.id);
 
   function update(field, value) {
@@ -404,7 +404,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
 
   function addSousTache() {
     const next = [...(editData.sous_taches || []), isV2
-      ? { id: nouvelIdSousTache(), nom: "", lotId: "", groupe_type_id: null, ratio: null, dependance_mode: DEPENDANCE_MODES.SEQUENCE, predecesseur_ids: [], delai_min_calendaire: 0, unite_delai: "heures" }
+      ? { id: nouvelIdSousTache(), nom: "", lotId: "", groupe_type_id: null, ratio: null, dependance_mode: DEPENDANCE_MODES.PARALLEL, predecesseur_ids: [], delai_min_calendaire: 0, unite_delai: "heures" }
       : { nom: "", lotId: "", ratio: null }];
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
