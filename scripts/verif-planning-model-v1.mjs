@@ -91,4 +91,27 @@ assert.ok(bad.erreurs.some(e => e.includes("sans nom")));
 assert.ok(bad.erreurs.some(e => e.includes("sans identifiant stable")));
 assert.ok(bad.erreurs.some(e => e.includes("sans groupe d'exécution")));
 
+// Un ratio null reste une donnée absente : il ne doit jamais être transformé
+// en 0 h ni permettre à l'ouvrage de devenir planifiable si les autres ratios
+// totalisent déjà 100 %.
+const ratioManquant = {
+  id: "ratio-missing",
+  identifiant: "ouvrages_v2_ratio-missing",
+  libelle: "E-099 : Test ratio manquant",
+  sous_taches: [
+    { id: "st_r1", nom: "A", lotId: "electricite", groupe_type_id: "gt_reseau_elec", ratio: 100, dependance_mode: "parallel" },
+    { id: "st_r2", nom: "B", lotId: "electricite", groupe_type_id: "gt_appareillage_elec", ratio: null, dependance_mode: "parallel" },
+  ],
+};
+const missingRatio = m.maturiteOuvrageV2(ratioManquant);
+assert.equal(missingRatio.planifiable, false);
+assert.ok(missingRatio.erreurs.some(e => e.includes("sans ratio")));
+let taskCounter = 0;
+const missingRatioTasks = m.construireTachesDepuisOuvrageV2(ratioManquant, {
+  makeTaskId: () => `ratio_task_${++taskCounter}`,
+  heuresTotales: 10,
+});
+assert.equal(missingRatioTasks[1].ratio, null);
+assert.equal(missingRatioTasks[1].heures_estimees, null);
+
 console.log("planningModelV1 fixtures: OK");
