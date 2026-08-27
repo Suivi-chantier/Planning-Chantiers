@@ -29,6 +29,9 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Corriger le littéral du transformateur temporaire
+        run: sed -i 's/`predecesseurs`/predecesseurs/' scripts/apply-planning-model-v1-source-patches.mjs
+
       - name: Appliquer les patches source contrôlés
         run: node scripts/apply-planning-model-v1-source-patches.mjs
 
