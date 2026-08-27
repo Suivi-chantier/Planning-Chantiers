@@ -91,6 +91,18 @@ export function normaliserOuvrageV2(ouvrage, { assignIds = false } = {}) {
   };
 }
 
+// Duplique un jeu de sous-tâches V2 sans réutiliser leurs identifiants stables.
+// Les dépendances explicites sont remappées vers les nouveaux ids.
+export function dupliquerSousTachesV2(sousTaches = []) {
+  const source = (Array.isArray(sousTaches) ? sousTaches : []).map(st => normaliserSousTacheV2(st, { assignIds: true }));
+  const remap = new Map(source.map(st => [str(st.id), nouvelIdSousTache()]));
+  return source.map(st => ({
+    ...st,
+    id: remap.get(str(st.id)),
+    predecesseur_ids: (st.predecesseur_ids || []).map(id => remap.get(str(id))).filter(Boolean),
+  }));
+}
+
 export function dependancesInternesOuvrage(ouvrage) {
   const o = normaliserOuvrageV2(ouvrage);
   const sts = Array.isArray(o?.sous_taches) ? o.sous_taches : [];
@@ -223,14 +235,15 @@ export function construireTachesDepuisOuvrageV2(ouvrage, {
     succ.dependances.push(riche);
   });
 
-  // Compatibilité avec rang.js : les dépendances HARD internes sont projetées
-  // sur `predecesseurs`. [] explicite = tâche réellement parallèle/libre.
+  // Compatibilité avec rang.js : pour une tâche issue d'un ouvrage V2,
+  // `predecesseurs` est TOUJOURS explicite. [] signifie réellement « libre ».
+  // Cela empêche rang.js de retomber sur son ancien chaînage global par défaut
+  // entre groupes / ouvrages. Les anciens phasages sans ce champ sont inchangés.
   taches.forEach(t => {
     const hard = (t.dependances || [])
       .filter(d => d.contrainte === DEPENDANCE_FORCES.HARD)
       .map(d => String(d.predecesseur_id));
-    if (t.dependance_mode_source === DEPENDANCE_MODES.PARALLEL) t.predecesseurs = [];
-    else if (hard.length > 0) t.predecesseurs = [...new Set(hard)];
+    t.predecesseurs = [...new Set(hard)];
   });
 
   return taches;
