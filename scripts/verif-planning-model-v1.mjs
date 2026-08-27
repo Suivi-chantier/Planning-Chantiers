@@ -24,6 +24,18 @@ const ouvrage = {
 assert.equal(m.estOuvrageV2(ouvrage), true);
 assert.equal(m.codeOuvrageDepuisLibelle(ouvrage.libelle), "E-007");
 
+// Règle fondamentale : ordre d'affichage ≠ dépendance dure.
+const sansMode = m.normaliserSousTacheV2({ id: "st_x", nom: "Tâche sans règle" });
+assert.equal(sansMode.dependance_mode, "parallel");
+const ouvrageSansMode = {
+  ...ouvrage,
+  sous_taches: [
+    { id: "st_x", nom: "A", lotId: "electricite", groupe_type_id: "gt_reseau_elec", ratio: 50 },
+    { id: "st_y", nom: "B", lotId: "electricite", groupe_type_id: "gt_reseau_elec", ratio: 50 },
+  ],
+};
+assert.equal(m.dependancesInternesOuvrage(ouvrageSansMode).length, 0);
+
 const mat = m.maturiteOuvrageV2(ouvrage);
 assert.equal(mat.planifiable, true);
 assert.equal(mat.stats.sous_taches, 2);
