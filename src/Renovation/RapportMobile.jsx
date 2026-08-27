@@ -641,6 +641,23 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
     setSubmitting(true);
 
+    // ── Fiabilité de l'envoi (bug « il faut envoyer deux fois ») ────────────
+    // Espace ouvrier = session authentifiée dans une PWA : après des heures en
+    // arrière-plan, le jeton peut être expiré au moment d'écrire → le premier
+    // insert échoue (401) et l'ouvrier devait renvoyer. On rafraîchit AVANT
+    // d'écrire (getSession relance le refresh si expiré), on re-tente une fois
+    // les erreurs transitoires (jeton/réseau), et on VÉRIFIE en fin d'envoi que
+    // le rapport est bien en base. Formulaire public anon : pas de session →
+    // préflight et vérification sont des no-op, comportement inchangé.
+    let sessionActive = false;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      sessionActive = !!session;
+    } catch (e) { console.warn("getSession avant envoi:", e); }
+    const erreurTransitoire = (err) =>
+      /jwt|expired|token|fetch|network|load failed|timeout|502|503/i
+        .test(`${err?.message || ""} ${err?.code || ""} ${err?.status || ""}`);
+
     // Regrouper par chantier (tâches + heures indirectes côte à côte sur le même rapport)
     const parChantier = {};
     tachesRemplies.forEach(t => {
@@ -670,6 +687,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     });
 
     let insertError = null;
+    // Filet : toute exception imprévue pendant l'envoi (réseau coupé au milieu,
+    // etc.) devient une erreur normale → alerte + brouillon conservé, jamais un
+    // bouton bloqué sur « Envoi en cours… » ni un faux écran de succès.
+    try {
     for (const k of Object.keys(parChantier)) {
       const grp = parChantier[k];
       const photosCh = photosChantier[grp.chantier_id] || [];
@@ -691,6 +712,13 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       let payload = { ...rapportFull };
       const optionalCols = ["trajet_matin_min", "trajet_soir_min", "photos_chantier", "heures_indirectes"];
       let { error: insErr } = await supabase.from("rapports").insert(payload);
+      // Erreur transitoire (jeton expiré, réseau) : on rafraîchit la session et
+      // on re-tente UNE fois — c'était la cause du « il faut envoyer deux fois ».
+      if (insErr && erreurTransitoire(insErr)) {
+        console.warn("Insert rapport — erreur transitoire, nouvelle tentative:", insErr.message);
+        if (sessionActive) { try { await supabase.auth.refreshSession(); } catch {} }
+        ({ error: insErr } = await supabase.from("rapports").insert(payload));
+      }
       while (insErr && insErr.code === "42703") {
         const dropped = optionalCols.find(c => new RegExp(c).test(insErr.message || ""));
         if (!dropped) break; // colonne manquante non gérée
@@ -724,15 +752,36 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       }
     } // ← fermeture du for
 
+    // Vérification finale (session authentifiée : la RLS laisse l'ouvrier
+    // relire SES rapports) : si les inserts ont répondu OK mais qu'aucun
+    // rapport du jour n'est retrouvé en base, on ne prétend PAS que c'est
+    // envoyé. Formulaire public anon : pas de session → pas de vérification
+    // (anon n'a pas le droit de SELECT rapports).
+    if (!insertError && sessionActive) {
+      const { data: verif, error: verifErr } = await supabase
+        .from("rapports").select("id")
+        .eq("date_rapport", dateKey).eq("ouvrier", ouvrier.trim()).limit(1);
+      if (!verifErr && (verif || []).length === 0) {
+        insertError = { message: "vérification après envoi : aucun rapport retrouvé en base" };
+      }
+    }
+    } catch (e) {
+      console.error("Envoi compte rendu — exception:", e);
+      insertError = { message: `envoi interrompu (${e?.message || e})` };
+    }
+
     // Un insert a échoué : on NE valide PAS (le brouillon est conservé pour réessai).
     if (insertError) {
       setSubmitting(false);
       alert(
-        "⚠ Ton compte rendu n'a pas pu être enregistré.\n\n" +
-        "Ton compte n'est peut-être pas correctement relié au planning " +
-        "(prénom-planning manquant). Préviens ton responsable — le compte rendu " +
-        "n'a PAS été envoyé, ton brouillon est conservé.\n\n" +
-        "Détail : " + (insertError.message || insertError.code || "erreur inconnue")
+        "⚠ Ton compte rendu n'a pas pu être enregistré — il n'a PAS été envoyé, " +
+        "ton brouillon est conservé.\n\n" +
+        (erreurTransitoire(insertError)
+          ? "Problème de connexion ou de session : vérifie ton réseau et appuie " +
+            "à nouveau sur « Valider mon compte rendu »."
+          : "Ton compte n'est peut-être pas correctement relié au planning " +
+            "(prénom-planning manquant). Préviens ton responsable.") +
+        "\n\nDétail : " + (insertError.message || insertError.code || "erreur inconnue")
       );
       return;
     }
