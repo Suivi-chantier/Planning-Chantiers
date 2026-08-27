@@ -1,0 +1,38 @@
+name: Verify Planning Model V1
+
+on:
+  push:
+    branches:
+      - feature/planning-model-v1
+  pull_request:
+    paths:
+      - 'src/Renovation/planningModelV1.js'
+      - 'src/Renovation/planningGroupInferenceV1.js'
+      - 'src/Renovation/planningRulesV1.js'
+      - 'src/Renovation/chronoTemplate.js'
+      - 'src/Renovation/Bibliotheque.jsx'
+      - 'src/Renovation/PhasageV2.jsx'
+      - 'scripts/*planning*model*v1*'
+      - 'scripts/*planning*group*inference*v1*'
+      - '.github/workflows/verify-planning-model-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Fixtures modèle métier
+        run: node scripts/verif-planning-model-v1.mjs
+      - name: Fixtures affectation groupes
+        run: node scripts/verif-planning-group-inference-v1.mjs
+      - name: Installer dépendances
+        run: npm ci
+      - name: Build Vite
+        run: npm run build
