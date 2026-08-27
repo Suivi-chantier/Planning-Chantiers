@@ -8,12 +8,14 @@ on:
     paths:
       - 'src/Renovation/planningModelV1.js'
       - 'src/Renovation/planningGroupInferenceV1.js'
+      - 'src/Renovation/planningDependencyInferenceV1.js'
       - 'src/Renovation/planningRulesV1.js'
       - 'src/Renovation/chronoTemplate.js'
       - 'src/Renovation/Bibliotheque.jsx'
       - 'src/Renovation/PhasageV2.jsx'
       - 'scripts/*planning*model*v1*'
       - 'scripts/*planning*group*inference*v1*'
+      - 'scripts/*planning*dependency*inference*v1*'
       - '.github/workflows/verify-planning-model-v1.yml'
 
 permissions:
@@ -32,6 +34,8 @@ jobs:
         run: node scripts/verif-planning-model-v1.mjs
       - name: Fixtures affectation groupes
         run: node scripts/verif-planning-group-inference-v1.mjs
+      - name: Fixtures dépendances internes
+        run: node scripts/verif-planning-dependency-inference-v1.mjs
       - name: Installer dépendances
         run: npm ci
       - name: Build Vite
