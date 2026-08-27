@@ -154,7 +154,7 @@ export function infererGroupeExecutionV1({ code, nom, lotId, position = null } =
   }
 
   // ── Électricité ──────────────────────────────────────────────────────────
-  if (["E", "EG"].includes(pfx) || lot === "electricite") {
+  if (["E", "EG"].includes(pfx) || (lot === "electricite" && !["P", "PC"].includes(pfx))) {
     // VMC : séparation volontaire rough-in / fit-off.
     if (c === "E-021") {
       if (has(n, "pose de la vmc", "passage des gaines", "passages des gaines", "fixation")) {
