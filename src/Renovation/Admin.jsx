@@ -18,6 +18,7 @@ import {
   ROLE_PAGES_DEFAULT_RENOVATION, ROLE_PAGES_DEFAULT_INVEST,
 } from "../access";
 import EspaceOuvrier from "./EspaceOuvrier";
+import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 // Seuils des factures de situation (frise du cycle de vie, phase Travaux).
 import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
 
@@ -2896,6 +2897,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["heures_jour",   "Heures / jour", Clock],
     ]},
     { id:"personnes", label:"Personnes & accès", icon:HardHat, tabs:[
+      ["ressources", "Ressources & absences", Clock],
       ["ouvriers", "Ouvriers", HardHat],
       ...(isAdmin ? [["utilisateurs", "Utilisateurs", Users]] : []),
       ...(isAdmin ? [["acces",        "Accès",        Lock]]  : []),
@@ -2984,6 +2986,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             );
           })}
         </div>
+      )}
+
+      {adminTab==="ressources" && (
+        <PlanningResourcesAdmin T={T} acc={acc}/>
       )}
 
       {adminTab==="utilisateurs" && isAdmin && (
