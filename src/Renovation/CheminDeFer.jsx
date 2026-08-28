@@ -11,8 +11,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
-  TrainFront, FileDown, RefreshCw, X, Home, Settings, CalendarDays, Calendar,
+  TrainFront, FileDown, RefreshCw, X, Home, Settings, CalendarDays, Calendar, Ruler,
 } from "lucide-react";
+import { supabase } from "../supabase";
 import {
   getBranchAccent, RADIUS, FONT, LOGO_RENO_H,
   loadOperations, loadGroupesTypes, loadEquipes,
@@ -21,7 +22,9 @@ import { Icon } from "../ui";
 import { loadPhasagesOperation, shiftGroupePhasage } from "./phasagePlanning";
 // Prévisionnel client d'OPÉRATION : blocs mois générés depuis les groupes
 // datés de tous les logements + gabarit PDF PROFERO (partagés avec le Phasage).
-import { blocsAutoDepuisGroupes, buildPrevisionnelDocHTML, NOTE_BAS_DEFAUT } from "./previsionnelDoc";
+import { blocsAutoDepuisGroupes, buildPrevisionnelDocHTML, buildPlansDocHTML, NOTE_BAS_DEFAUT } from "./previsionnelDoc";
+// Rendu hors écran des plans (table `plans`) en PNG pour le dossier de plans.
+import { renderPlanDataURL } from "./planRendu";
 
 // ── Helpers dates (calendaires : le chemin de fer se lit en semaines) ────────
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
@@ -325,6 +328,76 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
 </body></html>`;
   };
 
+  // ── PDF « Dossier de plans » de l'OPÉRATION ────────────────────────────────
+  // Charge les plans (table `plans`) des logements de l'opération, rend chaque
+  // dessin hors écran en PNG haute résolution (planRendu) et les assemble dans
+  // le document client au design commun (une planche par page).
+  const [plansBusy, setPlansBusy] = useState(false);
+  const exportPlansPDF = async () => {
+    if (plansBusy) return;
+    // Fenêtre ouverte AVANT les await : sinon le navigateur la bloque comme
+    // popup non sollicitée (l'ouverture doit rester dans le geste du clic).
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    w.document.write("<p style=\"font-family:sans-serif;padding:20px;color:#555;\">Préparation du dossier de plans…</p>");
+    setPlansBusy(true);
+    try {
+      const { data: plansData, error } = await supabase.from("plans")
+        .select("id, name, chantier_id, data")
+        .in("chantier_id", chantiersOp.map(c => c.id));
+      if (error) throw new Error(error.message);
+      const plans = plansData || [];
+      if (plans.length === 0) {
+        w.close();
+        alert("Aucun plan rattaché aux logements de cette opération. Rattache-les à leurs chantiers dans la page Plans.");
+        return;
+      }
+      // Ordre : celui des logements dans l'opération, puis nom de plan.
+      const ordreCh = new Map(chantiersOp.map((c, i) => [c.id, i]));
+      plans.sort((a, b) =>
+        ((ordreCh.get(a.chantier_id) ?? 99) - (ordreCh.get(b.chantier_id) ?? 99)) ||
+        (a.name || "").localeCompare(b.name || ""));
+      const planches = plans.map(p => {
+        const ch = chantiersOp.find(c => c.id === p.chantier_id);
+        return {
+          nom: p.name || "Plan",
+          logement: ch?.nom || "",
+          couleur: ch?.couleur || "#FFC200",
+          image: renderPlanDataURL(p.data, { largeur: 1000, hauteur: 700, dpi: 2 }),
+        };
+      }).filter(pl => pl.image); // plans sans aucun tracé : écartés
+      if (planches.length === 0) {
+        w.close();
+        alert("Les plans de cette opération sont vides (aucun tracé) — rien à mettre dans le dossier.");
+        return;
+      }
+      const nbLog = new Set(plans.map(p => p.chantier_id)).size;
+      const html = buildPlansDocHTML({
+        titre: operation?.nom || "Opération",
+        cardLabel: "Opération",
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        sousTitre: operation?.adresse || "",
+        chips: [`${planches.length} plan${planches.length > 1 ? "s" : ""}`, `${nbLog} logement${nbLog > 1 ? "s" : ""}`],
+        planches,
+      });
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.document.title = `Plans-${operation?.nom || opId}`;
+      // Attendre les polices (Barlow, Google Fonts) avant d'imprimer — les
+      // images sont des data-URLs, déjà disponibles.
+      w.onload = () => {
+        const go = () => setTimeout(() => { w.focus(); w.print(); }, 150);
+        (w.document.fonts?.ready || Promise.resolve()).then(go, go);
+      };
+    } catch (e) {
+      try { w.close(); } catch { /* déjà fermée */ }
+      alert("Erreur génération du dossier de plans : " + (e.message || e));
+    } finally {
+      setPlansBusy(false);
+    }
+  };
+
   // ── PDF Prévisionnel client de l'OPÉRATION ─────────────────────────────────
   // Généré AUTOMATIQUEMENT depuis les groupes datés (date_prevue) de tous les
   // logements — rien à remplir à la main. Chaque étape = « Groupe — Logement »
@@ -502,6 +575,12 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
           <button className="btn-g" onClick={() => setReloadKey(k => k + 1)} title="Recharger les données"
             style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 10px" }}>
             <Icon as={RefreshCw} size={13} />
+          </button>
+          <button className="btn-g" onClick={exportPlansPDF} disabled={chantiersOp.length === 0 || plansBusy}
+            title="Dossier des plans de l'opération à communiquer au client (PDF, une planche par plan)"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, opacity: chantiersOp.length === 0 || plansBusy ? .5 : 1 }}>
+            <Icon as={Ruler} size={14} />
+            {plansBusy ? "Plans…" : "PDF Plans"}
           </button>
           <button className="btn-g" onClick={exportPrevisionnelPDF} disabled={!data}
             title="Prévisionnel client de l'opération, généré automatiquement depuis les tâches planifiées (PDF portrait)"

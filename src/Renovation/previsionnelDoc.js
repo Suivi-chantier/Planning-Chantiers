@@ -207,30 +207,111 @@ function friseChartHTML(frise, esc) {
   return { html, periode };
 }
 
+// ─── ENVELOPPE COMMUNE DES DOCUMENTS CLIENT ───────────────────────────────────
+// Même langage visuel que le design system de l'app (src/mobileUI.jsx) :
+// héros en dégradé sombre avec halos ambre/bleu, chips de synthèse, jaune
+// marque #FFC200, typographie Barlow / Barlow Condensed (Google Fonts,
+// chargées dans la fenêtre d'impression — repli Arial), pied discret.
+// Sert au « Planning prévisionnel » ET au « Dossier de plans » : toute
+// évolution du décor se fait ICI, une seule fois.
+const OR = "#FFC200"; // jaune marque Profero
+const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
+
+// Titre de section : libellé condensé + filet dégradé jaune.
+const sectionTitre = (t) => `
+  <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 12pt;">
+    <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">${t}</span>
+    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
+  </div>`;
+
+function docClientHTML({ titreDoc, eyebrow, titre, sousTitre = "", chips = [], badgeHTML = "", logoUrl, corps, cssExtra = "" }) {
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<title>${esc(titreDoc)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Barlow',Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.5;}
+  .bc{font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;}
+  .page{max-width:720pt;margin:0 auto;}
+
+  /* ── Chips du héros ── */
+  .chip{display:inline-block;padding:3pt 10pt;border-radius:99pt;background:rgba(255,255,255,.09);border:1pt solid rgba(255,255,255,.18);color:rgba(255,255,255,.88);font-size:8pt;font-weight:600;letter-spacing:.3pt;white-space:nowrap;}
+
+  /* ── Frise verticale : un jalon par bloc ── */
+  .timeline{padding:2pt 0 0 4pt;}
+  .bloc{position:relative;padding:0 0 15pt 22pt;break-inside:avoid;page-break-inside:avoid;}
+  .rail{position:absolute;left:3.5pt;top:6pt;bottom:-4pt;width:2pt;background:#eceef2;border-radius:1pt;}
+  .marker{position:absolute;left:0;top:1.5pt;width:9pt;height:9pt;border-radius:50%;background:${OR};box-shadow:0 0 0 3pt rgba(255,194,0,.22);}
+  .marker-losange{border-radius:2pt;transform:rotate(45deg);background:#fff;border:2.5pt solid ${OR};box-shadow:none;left:.5pt;width:8pt;height:8pt;}
+  .bloc-titre{font-size:13.5pt;font-weight:800;letter-spacing:.8pt;text-transform:uppercase;color:#12151c;line-height:1.1;}
+  .steps{list-style:none;margin:6pt 0 0;padding:0;}
+  .step{display:flex;align-items:flex-start;gap:8pt;padding:2.5pt 0;}
+  .puce{width:4.5pt;height:4.5pt;border-radius:50%;background:${OR};margin-top:5pt;flex:0 0 auto;}
+  .step-txt{font-size:10pt;color:#252a35;font-weight:600;}
+  .step-suf{color:#7c8291;font-weight:500;}
+  .step-par{color:#9aa0ab;font-style:italic;font-weight:400;font-size:9pt;}
+
+  /* ── Encadré conditionnel ── */
+  .encadre{background:#fff8e0;border:1pt solid #f2e2ad;border-radius:9pt;padding:9pt 13pt;}
+  .encadre-titre{font-size:8pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#8a6d00;margin-bottom:3pt;}
+  .encadre-texte{font-size:9.5pt;color:#57534a;line-height:1.55;}
+
+  /* ── Frise horizontale (vue d'ensemble) ── */
+  .fr-chart{border:1pt solid #e9ebf0;border-radius:10pt;padding:10pt 12pt 9pt;break-inside:avoid;page-break-inside:avoid;box-shadow:0 1pt 2pt rgba(16,24,40,.04);}
+  .fr-row{display:flex;align-items:center;margin-bottom:3pt;}
+  .fr-label{width:105pt;flex:0 0 auto;padding-right:10pt;font-size:8.5pt;font-weight:600;color:#2a2f3a;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .fr-track{flex:1;position:relative;border-radius:4pt;overflow:hidden;}
+  .fr-legende{display:flex;flex-wrap:wrap;gap:5pt 12pt;margin-top:8pt;padding-top:7pt;border-top:1pt solid #eef0f4;}
+  .fr-leg-item{display:inline-flex;align-items:center;gap:4pt;font-size:7.5pt;font-weight:600;color:#4a4f5b;}
+  .fr-leg-dot{width:7pt;height:7pt;border-radius:2.5pt;display:inline-block;}
+${cssExtra}
+  @page{margin:12mm 13mm 14mm;size:A4;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body><div class="page">
+
+  <!-- ── Héros : dégradé sombre + halos (même langage que l'app) ── -->
+  <div style="position:relative;overflow:hidden;border-radius:14pt;background:linear-gradient(135deg,#161b28 0%,#232c42 55%,#2e2840 100%);padding:16pt 20pt 18pt;">
+    <div style="position:absolute;right:-45pt;top:-55pt;width:175pt;height:175pt;border-radius:50%;background:radial-gradient(circle,rgba(255,194,0,.30) 0%,rgba(255,194,0,0) 68%);"></div>
+    <div style="position:absolute;left:-35pt;bottom:-75pt;width:160pt;height:160pt;border-radius:50%;background:radial-gradient(circle,rgba(91,138,245,.26) 0%,rgba(91,138,245,0) 68%);"></div>
+    <img src="${logoUrl}" alt="Profero" style="height:23pt;object-fit:contain;display:block;position:relative;"/>
+    <table style="width:100%;border-collapse:collapse;position:relative;margin-top:16pt;">
+      <tr>
+        <td style="vertical-align:bottom;">
+          <div style="font-size:8pt;font-weight:700;letter-spacing:2.5pt;text-transform:uppercase;color:${OR};">${eyebrow}</div>
+          <div class="bc" style="font-size:24pt;font-weight:800;color:#fff;line-height:1.08;margin-top:3pt;">${esc(titre)}</div>
+          ${sousTitre ? `<div style="font-size:10pt;color:rgba(255,255,255,.62);margin-top:3pt;">${esc(sousTitre)}</div>` : ""}
+          ${chips.length ? `<div style="margin-top:9pt;display:flex;gap:6pt;flex-wrap:wrap;">${chips.map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
+        </td>
+        ${badgeHTML}
+      </tr>
+    </table>
+  </div>
+
+  ${corps}
+
+  <!-- ── Pied de page ── -->
+  <div style="margin-top:16pt;padding-top:9pt;border-top:1pt solid #e9eaee;display:flex;justify-content:space-between;align-items:baseline;">
+    <span style="font-size:7.5pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#b3b8c2;">Profero — Rénovation &amp; réhabilitation</span>
+    <span style="font-size:7.5pt;color:#b3b8c2;">Document confidentiel</span>
+  </div>
+</div></body></html>`;
+}
+
 // ─── GABARIT PDF « PLANNING PRÉVISIONNEL » ────────────────────────────────────
-// Document CLIENT — même langage visuel que le design system de l'app
-// (src/mobileUI.jsx) : héros en dégradé sombre avec halos ambre/bleu et chips
-// de synthèse, jaune marque #FFC200, typographie Barlow / Barlow Condensed
-// (Google Fonts, chargées dans la fenêtre d'impression — repli Arial),
 // VUE D'ENSEMBLE en frise horizontale (barres colorées par groupe), détail
 // mois par mois en frise verticale, encadrés conditionnels, mention légale.
 // Paramétré pour servir un chantier ("Chantier") comme une opération.
 //   frise : { rows } (cf. friseChartHTML) — optionnel, section omise sans dates
 //   chips : libellés courts affichés dans le héros (ex : "4 logements")
 export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUrl, previsionnel, frise = null, chips = [] }) {
-  const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
   const p = normalizePrevisionnel(previsionnel);
-  const OR = "#FFC200"; // jaune marque Profero
 
   // Vue d'ensemble (frise horizontale) + chips du héros (période en tête).
   const chart = friseChartHTML(frise, esc);
   const chipsHero = [chart.periode, ...(Array.isArray(chips) ? chips : [])].filter(Boolean);
-  const sectionTitre = (t) => `
-  <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 12pt;">
-    <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">${t}</span>
-    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
-  </div>`;
 
   // Une ligne d'étape « Nom — Précision (jusqu'à …) » est décomposée pour la
   // hiérarchie visuelle : nom en avant, précision (logement) et débordement
@@ -277,70 +358,7 @@ export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUr
         </div>
       </td>` : "";
 
-  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-<title>Prévisionnel ${esc(titre)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'Barlow',Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.5;}
-  .bc{font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;}
-  .page{max-width:720pt;margin:0 auto;}
-
-  /* ── Frise verticale : un jalon par bloc ── */
-  .timeline{padding:2pt 0 0 4pt;}
-  .bloc{position:relative;padding:0 0 15pt 22pt;break-inside:avoid;page-break-inside:avoid;}
-  .rail{position:absolute;left:3.5pt;top:6pt;bottom:-4pt;width:2pt;background:#eceef2;border-radius:1pt;}
-  .marker{position:absolute;left:0;top:1.5pt;width:9pt;height:9pt;border-radius:50%;background:${OR};box-shadow:0 0 0 3pt rgba(255,194,0,.22);}
-  .marker-losange{border-radius:2pt;transform:rotate(45deg);background:#fff;border:2.5pt solid ${OR};box-shadow:none;left:.5pt;width:8pt;height:8pt;}
-  .bloc-titre{font-size:13.5pt;font-weight:800;letter-spacing:.8pt;text-transform:uppercase;color:#12151c;line-height:1.1;}
-  .steps{list-style:none;margin:6pt 0 0;padding:0;}
-  .step{display:flex;align-items:flex-start;gap:8pt;padding:2.5pt 0;}
-  .puce{width:4.5pt;height:4.5pt;border-radius:50%;background:${OR};margin-top:5pt;flex:0 0 auto;}
-  .step-txt{font-size:10pt;color:#252a35;font-weight:600;}
-  .step-suf{color:#7c8291;font-weight:500;}
-  .step-par{color:#9aa0ab;font-style:italic;font-weight:400;font-size:9pt;}
-
-  /* ── Encadré conditionnel ── */
-  .encadre{background:#fff8e0;border:1pt solid #f2e2ad;border-radius:9pt;padding:9pt 13pt;}
-  .encadre-titre{font-size:8pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#8a6d00;margin-bottom:3pt;}
-  .encadre-texte{font-size:9.5pt;color:#57534a;line-height:1.55;}
-
-  /* ── Chips du héros ── */
-  .chip{display:inline-block;padding:3pt 10pt;border-radius:99pt;background:rgba(255,255,255,.09);border:1pt solid rgba(255,255,255,.18);color:rgba(255,255,255,.88);font-size:8pt;font-weight:600;letter-spacing:.3pt;white-space:nowrap;}
-
-  /* ── Frise horizontale (vue d'ensemble) ── */
-  .fr-chart{border:1pt solid #e9ebf0;border-radius:10pt;padding:10pt 12pt 9pt;break-inside:avoid;page-break-inside:avoid;box-shadow:0 1pt 2pt rgba(16,24,40,.04);}
-  .fr-row{display:flex;align-items:center;margin-bottom:3pt;}
-  .fr-label{width:105pt;flex:0 0 auto;padding-right:10pt;font-size:8.5pt;font-weight:600;color:#2a2f3a;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .fr-track{flex:1;position:relative;border-radius:4pt;overflow:hidden;}
-  .fr-legende{display:flex;flex-wrap:wrap;gap:5pt 12pt;margin-top:8pt;padding-top:7pt;border-top:1pt solid #eef0f4;}
-  .fr-leg-item{display:inline-flex;align-items:center;gap:4pt;font-size:7.5pt;font-weight:600;color:#4a4f5b;}
-  .fr-leg-dot{width:7pt;height:7pt;border-radius:2.5pt;display:inline-block;}
-
-  @page{margin:12mm 13mm 14mm;size:A4;}
-  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-</style></head><body><div class="page">
-
-  <!-- ── Héros : dégradé sombre + halos (même langage que l'app) ── -->
-  <div style="position:relative;overflow:hidden;border-radius:14pt;background:linear-gradient(135deg,#161b28 0%,#232c42 55%,#2e2840 100%);padding:16pt 20pt 18pt;">
-    <div style="position:absolute;right:-45pt;top:-55pt;width:175pt;height:175pt;border-radius:50%;background:radial-gradient(circle,rgba(255,194,0,.30) 0%,rgba(255,194,0,0) 68%);"></div>
-    <div style="position:absolute;left:-35pt;bottom:-75pt;width:160pt;height:160pt;border-radius:50%;background:radial-gradient(circle,rgba(91,138,245,.26) 0%,rgba(91,138,245,0) 68%);"></div>
-    <img src="${logoUrl}" alt="Profero" style="height:23pt;object-fit:contain;display:block;position:relative;"/>
-    <table style="width:100%;border-collapse:collapse;position:relative;margin-top:16pt;">
-      <tr>
-        <td style="vertical-align:bottom;">
-          <div style="font-size:8pt;font-weight:700;letter-spacing:2.5pt;text-transform:uppercase;color:${OR};">Planning prévisionnel — ${esc(cardLabel)}</div>
-          <div class="bc" style="font-size:24pt;font-weight:800;color:#fff;line-height:1.08;margin-top:3pt;">${esc(titre)}</div>
-          ${p.sous_titre ? `<div style="font-size:10pt;color:rgba(255,255,255,.62);margin-top:3pt;">${esc(p.sous_titre)}</div>` : ""}
-          ${chipsHero.length ? `<div style="margin-top:9pt;display:flex;gap:6pt;flex-wrap:wrap;">${chipsHero.map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
-        </td>
-        ${livraisonBadge}
-      </tr>
-    </table>
-  </div>
-
+  const corps = `
   ${chart.html ? `${sectionTitre("Vue d'ensemble")}
   ${chart.html}` : ""}
 
@@ -351,12 +369,57 @@ export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUr
     ${blocsHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucune étape renseignée. Ajoute des mois dans la vue Prévisionnel.</div>`}
   </div>
 
-  ${p.note_bas ? `<div style="margin-top:14pt;padding:8pt 12pt;background:#f6f7f9;border-radius:8pt;font-size:8.5pt;font-style:italic;color:#8a90a0;line-height:1.55;">${nl2br(p.note_bas)}</div>` : ""}
+  ${p.note_bas ? `<div style="margin-top:14pt;padding:8pt 12pt;background:#f6f7f9;border-radius:8pt;font-size:8.5pt;font-style:italic;color:#8a90a0;line-height:1.55;">${nl2br(p.note_bas)}</div>` : ""}`;
 
-  <!-- ── Pied de page ── -->
-  <div style="margin-top:16pt;padding-top:9pt;border-top:1pt solid #e9eaee;display:flex;justify-content:space-between;align-items:baseline;">
-    <span style="font-size:7.5pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#b3b8c2;">Profero — Rénovation &amp; réhabilitation</span>
-    <span style="font-size:7.5pt;color:#b3b8c2;">Document confidentiel</span>
-  </div>
-</div></body></html>`;
+  return docClientHTML({
+    titreDoc: `Prévisionnel ${titre}`,
+    eyebrow: `Planning prévisionnel — ${esc(cardLabel)}`,
+    titre,
+    sousTitre: p.sous_titre,
+    chips: chipsHero,
+    badgeHTML: livraisonBadge,
+    logoUrl,
+    corps,
+  });
+}
+
+// ─── GABARIT PDF « DOSSIER DE PLANS » ─────────────────────────────────────────
+// Présente les plans d'une opération (ou d'un chantier) au client : héros
+// commun, puis UNE PLANCHE PAR PLAN (numéro, nom du plan, pastille logement,
+// image haute résolution rendue hors écran par planRendu.renderPlanDataURL).
+// Une planche par page à l'impression (saut de page entre planches).
+//   planches : [{ nom, logement, couleur, image }] — image = data-URL PNG.
+export function buildPlansDocHTML({ titre, cardLabel = "Opération", logoUrl, sousTitre = "", chips = [], planches = [] }) {
+  const cssExtra = `
+  /* ── Planches du dossier de plans ── */
+  .planche{break-inside:avoid;page-break-inside:avoid;margin-top:18pt;}
+  .planche + .planche{page-break-before:always;break-before:page;padding-top:4pt;}
+  .planche-head{display:flex;align-items:center;gap:10pt;margin-bottom:9pt;}
+  .planche-num{width:24pt;height:24pt;border-radius:7pt;background:#12151c;color:${OR};display:flex;align-items:center;justify-content:center;font-size:12pt;font-weight:800;flex:0 0 auto;}
+  .planche-nom{font-size:15pt;font-weight:800;letter-spacing:.5pt;color:#12151c;line-height:1.1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .planche-log{display:inline-flex;align-items:center;gap:5pt;padding:3.5pt 11pt;border-radius:99pt;background:#f6f7f9;border:1pt solid #e5e7eb;font-size:8.5pt;font-weight:700;color:#4a4f5b;white-space:nowrap;}
+  .planche-dot{width:8pt;height:8pt;border-radius:50%;display:inline-block;flex:0 0 auto;}
+  .planche-img{border:1pt solid #e9ebf0;border-radius:12pt;padding:6pt;background:#fff;box-shadow:0 1pt 2pt rgba(16,24,40,.04);}
+  .planche-img img{width:100%;display:block;border-radius:8pt;}`;
+
+  const corps = (planches || []).map((pl, i) => `
+  <div class="planche">
+    <div class="planche-head">
+      <span class="planche-num bc">${String(i + 1).padStart(2, "0")}</span>
+      <span class="planche-nom bc">${esc(pl.nom || "Plan")}</span>
+      ${pl.logement ? `<span class="planche-log"><span class="planche-dot" style="background:${esc(pl.couleur || OR)};"></span>${esc(pl.logement)}</span>` : ""}
+    </div>
+    <div class="planche-img"><img src="${pl.image}" alt="${esc(pl.nom || "Plan")}"/></div>
+  </div>`).join("");
+
+  return docClientHTML({
+    titreDoc: `Plans ${titre}`,
+    eyebrow: `Dossier de plans — ${esc(cardLabel)}`,
+    titre,
+    sousTitre,
+    chips,
+    logoUrl,
+    corps,
+    cssExtra,
+  });
 }
