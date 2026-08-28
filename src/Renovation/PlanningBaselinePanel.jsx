@@ -10,6 +10,8 @@ import {
   indexerDerniereBaselineParChantierV1,
 } from "./planningBaselineDataV1.js";
 
+const UI_VERSION = "03.2";
+
 const fmtDateTime = value => {
   if (!value) return "—";
   const d = new Date(value);
@@ -23,7 +25,7 @@ const fmtDate = value => {
 };
 
 const chip = (label, color, bg) => (
-  <span style={{fontSize:10.5,fontWeight:800,color,background:bg,borderRadius:999,padding:"3px 8px",whiteSpace:"nowrap"}}>{label}</span>
+  <span style={{display:"inline-flex",alignItems:"center",minHeight:22,fontSize:10.5,fontWeight:800,color,background:bg,borderRadius:999,padding:"3px 8px",whiteSpace:"nowrap",lineHeight:1.2}}>{label}</span>
 );
 
 const changeLabel = change => {
@@ -118,10 +120,11 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:1300,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
       <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:980,maxHeight:"92vh",overflow:"hidden",display:"flex",flexDirection:"column",background:T.modal||T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,boxShadow:"0 24px 70px rgba(0,0,0,.45)"}}>
-        <div style={{padding:"18px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:14,alignItems:"flex-start"}}>
+        <div style={{padding:"18px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",gap:14,alignItems:"flex-start",flexShrink:0}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:9,fontSize:FONT.lg.size,fontWeight:900,color:T.text}}>
               <Icon as={Snowflake} size={18} color={acc.accent}/> Planning de référence
+              <span style={{fontSize:10,fontWeight:900,letterSpacing:.5,color:acc.accent,background:acc.bg10||"rgba(255,194,0,.10)",border:`1px solid ${acc.accent}33`,borderRadius:999,padding:"2px 7px"}}>UI {UI_VERSION}</span>
             </div>
             <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.6,maxWidth:760,marginTop:5}}>
               La référence est une photo immuable du planning. Déplacer ensuite une tâche modifie le planning courant, jamais la référence. Un rebaseline crée une nouvelle version et conserve toutes les précédentes.
@@ -135,84 +138,92 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
 
         {error && <div style={{margin:"12px 18px 0",padding:"9px 12px",borderRadius:RADIUS.md,background:"rgba(239,68,68,.10)",border:"1px solid rgba(239,68,68,.35)",color:"#ef4444",fontSize:12.5,fontWeight:700}}>{error}</div>}
 
-        <div style={{padding:18,overflowY:"auto",display:"flex",flexDirection:"column",gap:10}}>
-          {loading ? <div style={{padding:28,textAlign:"center",color:T.textMuted}}>Chargement des références…</div> : rows.map(row => {
+        <div style={{padding:18,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,minHeight:120}}>
+          {loading ? (
+            <div style={{padding:28,textAlign:"center",color:T.textMuted}}>Chargement des références…</div>
+          ) : rows.length === 0 ? (
+            <div style={{padding:24,border:`1px dashed ${T.border}`,borderRadius:RADIUS.lg,color:T.textSub,textAlign:"center"}}>Aucun chantier actif à afficher.</div>
+          ) : rows.map(row => {
             const { chantier, baseline, latestBaseline, versions, state } = row;
             const diff = state.diff?.resume;
             const isExpanded = expanded.has(chantier.id);
             const noChange = baseline && diff?.total === 0;
             const nextVersion = Number(latestBaseline?.version || 0) + 1;
             const historical = baseline && latestBaseline && Number(baseline.version) !== Number(latestBaseline.version);
-            return <div key={chantier.id} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.surface,overflow:"hidden"}}>
-              <div style={{padding:"13px 15px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <span style={{width:10,height:36,borderRadius:5,background:chantier.couleur||acc.accent,flexShrink:0}}/>
-                <div style={{flex:"1 1 220px",minWidth:180}}>
-                  <div style={{fontSize:FONT.sm.size+1,fontWeight:900,color:T.text}}>{chantier.nom}</div>
-                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2}}>
-                    {state.courant.length} allocation{state.courant.length!==1?"s":""} actuellement
-                    {state.lignes_manuelles>0 ? ` · ${state.lignes_manuelles} manuelle${state.lignes_manuelles>1?"s":""}` : ""}
-                    {state.sans_duree>0 ? ` · ${state.sans_duree} sans durée` : ""}
+            const disabled = !state.courant.length || !!state.erreur || creating===chantier.id;
+            return (
+              <div key={chantier.id} data-baseline-chantier={String(chantier.id)} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.surface,overflow:"hidden",minHeight:74,flexShrink:0}}>
+                <div style={{minHeight:72,padding:"12px 14px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",boxSizing:"border-box"}}>
+                  <span aria-hidden="true" style={{display:"block",width:10,height:42,borderRadius:5,background:chantier.couleur||acc.accent,flex:"0 0 10px"}}/>
+
+                  <div style={{flex:"1 1 250px",minWidth:210,display:"block"}}>
+                    <div style={{display:"block",fontSize:13,fontWeight:900,lineHeight:"18px",color:T.text,opacity:1,visibility:"visible"}}>{chantier.nom || "Chantier sans nom"}</div>
+                    <div style={{display:"block",fontSize:11,lineHeight:"16px",color:T.textMuted,marginTop:3,opacity:1,visibility:"visible"}}>
+                      {state.courant.length} allocation{state.courant.length!==1?"s":""} actuellement
+                      {state.lignes_manuelles>0 ? ` · ${state.lignes_manuelles} manuelle${state.lignes_manuelles>1?"s":""}` : ""}
+                      {state.sans_duree>0 ? ` · ${state.sans_duree} sans durée` : ""}
+                    </div>
                   </div>
+
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",minHeight:24}}>
+                    {!baseline ? chip("AUCUNE RÉFÉRENCE", "#f59e0b", "rgba(245,158,11,.12)") : <>
+                      {chip(`RÉF. V${baseline.version}`, acc.accent, acc.bg10||"rgba(255,194,0,.10)")}
+                      {historical && chip("HISTORIQUE", "#64748b", "rgba(100,116,139,.12)")}
+                      {noChange ? chip("AUCUN ÉCART", "#16a34a", "rgba(34,197,94,.12)") : diff?.total>0 ? chip(`${diff.total} ÉCART${diff.total>1?"S":""}`, "#f97316", "rgba(249,115,22,.12)") : null}
+                    </>}
+                  </div>
+
+                  {baseline && <button onClick={()=>toggle(chantier.id)} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,minHeight:34,padding:"7px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+                    Détails <Icon as={isExpanded?ChevronUp:ChevronDown} size={12}/>
+                  </button>}
+
+                  <button disabled={disabled} onClick={()=>setConfirm({chantierId:chantier.id,nextVersion})} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",minHeight:34,padding:"8px 12px",borderRadius:RADIUS.md,border:"none",background:disabled?T.border:acc.accent,color:disabled?T.textMuted:acc.onAccent,fontFamily:"inherit",fontSize:11.5,fontWeight:900,cursor:disabled?"default":"pointer",opacity:creating===chantier.id ? 0.65 : 1,whiteSpace:"nowrap"}}>
+                    {creating===chantier.id ? "Création…" : baseline ? `Rebaseline V${nextVersion}` : "Figer V1"}
+                  </button>
                 </div>
 
-                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                  {!baseline ? chip("AUCUNE RÉFÉRENCE", "#f59e0b", "rgba(245,158,11,.12)") : <>
-                    {chip(`RÉF. V${baseline.version}`, acc.accent, acc.bg10)}
-                    {historical && chip("HISTORIQUE", "#64748b", "rgba(100,116,139,.12)")}
-                    {noChange ? chip("AUCUN ÉCART", "#16a34a", "rgba(34,197,94,.12)") : diff?.total>0 ? chip(`${diff.total} ÉCART${diff.total>1?"S":""}`, "#f97316", "rgba(249,115,22,.12)") : null}
-                  </>}
-                </div>
+                {state.erreur && <div style={{padding:"0 15px 12px",fontSize:11.5,color:"#ef4444",fontWeight:700}}><Icon as={TriangleAlert} size={12}/> {state.erreur}</div>}
 
-                {baseline && <button onClick={()=>toggle(chantier.id)} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"7px 9px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontFamily:"inherit",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
-                  Détails <Icon as={isExpanded?ChevronUp:ChevronDown} size={12}/>
-                </button>}
-
-                <button disabled={!state.courant.length || !!state.erreur || creating===chantier.id} onClick={()=>setConfirm({chantierId:chantier.id,nextVersion})} style={{padding:"8px 12px",borderRadius:RADIUS.md,border:"none",background:(!state.courant.length||state.erreur)?T.border:acc.accent,color:(!state.courant.length||state.erreur)?T.textMuted:acc.onAccent,fontFamily:"inherit",fontSize:11.5,fontWeight:900,cursor:(!state.courant.length||state.erreur)?"default":"pointer",opacity:creating===chantier.id ? 0.65 : 1}}>
-                  {creating===chantier.id ? "Création…" : baseline ? `Rebaseline V${nextVersion}` : "Figer V1"}
-                </button>
+                {baseline && isExpanded && <div style={{borderTop:`1px solid ${T.border}`,padding:"12px 15px 14px",background:T.card}}>
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11.5,color:T.textSub,marginBottom:10}}>
+                    <span><Icon as={History} size={12}/> Créée le <strong>{fmtDateTime(baseline.created_at)}</strong></span>
+                    <span>{baseline.allocation_count} allocation{baseline.allocation_count!==1?"s":""} figée{baseline.allocation_count!==1?"s":""}</span>
+                    {baseline.source==="manual_rebaseline" && <span>Rebaseline explicite</span>}
+                    {versions.length>1 && <label style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:6}}>Comparer à
+                      <select value={baseline.version} onChange={e=>setSelectedVersion(v=>({...v,[chantier.id]:Number(e.target.value)}))} style={{background:T.surface,color:T.text,border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",fontFamily:"inherit",fontWeight:800}}>
+                        {versions.map(v=><option key={v.id} value={v.version}>V{v.version} · {fmtDateTime(v.created_at)}</option>)}
+                      </select>
+                    </label>}
+                  </div>
+                  {noChange ? <div style={{display:"flex",alignItems:"center",gap:6,color:"#16a34a",fontWeight:800,fontSize:12}}><Icon as={CheckCircle2} size={14}/> Le planning courant correspond exactement à la référence V{baseline.version}.</div> : (
+                    <>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                        {diff?.moved>0 && chip(`${diff.moved} déplacée${diff.moved>1?"s":""}`, "#2563eb", "rgba(37,99,235,.10)")}
+                        {diff?.resized>0 && chip(`${diff.resized} durée${diff.resized>1?"s":""} modifiée${diff.resized>1?"s":""}`, "#7c3aed", "rgba(124,58,237,.10)")}
+                        {diff?.restaffed>0 && chip(`${diff.restaffed} équipe${diff.restaffed>1?"s":""} modifiée${diff.restaffed>1?"s":""}`, "#0891b2", "rgba(8,145,178,.10)")}
+                        {diff?.added>0 && chip(`${diff.added} ajoutée${diff.added>1?"s":""}`, "#16a34a", "rgba(34,197,94,.10)")}
+                        {diff?.removed>0 && chip(`${diff.removed} retirée${diff.removed>1?"s":""}`, "#dc2626", "rgba(239,68,68,.10)")}
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {(state.diff?.changements || []).map((c,i) => {
+                          const a = c.after || c.before || {};
+                          return <div key={`${c.allocation_uid}-${i}`} style={{padding:"8px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,background:T.surface,display:"grid",gridTemplateColumns:"minmax(170px,1fr) minmax(160px,1.1fr)",gap:10,fontSize:11.5}}>
+                            <div><strong style={{color:T.text}}>{a.texte || "Tâche sans libellé"}</strong><div style={{color:T.textMuted,marginTop:2}}>{changeLabel(c)}</div></div>
+                            <div style={{color:T.textSub}}>
+                              {c.type==="changed" && c.details?.includes("date") && <div><Icon as={Clock} size={11}/> {fmtDate(c.before?.date)} → <strong>{fmtDate(c.after?.date)}</strong></div>}
+                              {c.type==="changed" && c.details?.includes("duree") && <div>Durée : {c.before?.duree||0} h → <strong>{c.after?.duree||0} h</strong></div>}
+                              {c.type==="changed" && c.details?.includes("ressources") && <div>Équipe : {(c.before?.ouvriers_noms||[]).join(", ")||"—"} → <strong>{(c.after?.ouvriers_noms||[]).join(", ")||"—"}</strong></div>}
+                              {c.type==="added" && <div>Ajout le {fmtDate(c.after?.date)} · {c.after?.duree||0} h</div>}
+                              {c.type==="removed" && <div>Référence : {fmtDate(c.before?.date)} · {c.before?.duree||0} h</div>}
+                            </div>
+                          </div>;
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>}
               </div>
-
-              {state.erreur && <div style={{padding:"0 15px 12px",fontSize:11.5,color:"#ef4444",fontWeight:700}}><Icon as={TriangleAlert} size={12}/> {state.erreur}</div>}
-
-              {baseline && isExpanded && <div style={{borderTop:`1px solid ${T.border}`,padding:"12px 15px 14px",background:T.card}}>
-                <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11.5,color:T.textSub,marginBottom:10}}>
-                  <span><Icon as={History} size={12}/> Créée le <strong>{fmtDateTime(baseline.created_at)}</strong></span>
-                  <span>{baseline.allocation_count} allocation{baseline.allocation_count!==1?"s":""} figée{baseline.allocation_count!==1?"s":""}</span>
-                  {baseline.source==="manual_rebaseline" && <span>Rebaseline explicite</span>}
-                  {versions.length>1 && <label style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:6}}>Comparer à
-                    <select value={baseline.version} onChange={e=>setSelectedVersion(v=>({...v,[chantier.id]:Number(e.target.value)}))} style={{background:T.surface,color:T.text,border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",fontFamily:"inherit",fontWeight:800}}>
-                      {versions.map(v=><option key={v.id} value={v.version}>V{v.version} · {fmtDateTime(v.created_at)}</option>)}
-                    </select>
-                  </label>}
-                </div>
-                {noChange ? <div style={{display:"flex",alignItems:"center",gap:6,color:"#16a34a",fontWeight:800,fontSize:12}}><Icon as={CheckCircle2} size={14}/> Le planning courant correspond exactement à la référence V{baseline.version}.</div> : (
-                  <>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
-                      {diff?.moved>0 && chip(`${diff.moved} déplacée${diff.moved>1?"s":""}`, "#2563eb", "rgba(37,99,235,.10)")}
-                      {diff?.resized>0 && chip(`${diff.resized} durée${diff.resized>1?"s":""} modifiée${diff.resized>1?"s":""}`, "#7c3aed", "rgba(124,58,237,.10)")}
-                      {diff?.restaffed>0 && chip(`${diff.restaffed} équipe${diff.restaffed>1?"s":""} modifiée${diff.restaffed>1?"s":""}`, "#0891b2", "rgba(8,145,178,.10)")}
-                      {diff?.added>0 && chip(`${diff.added} ajoutée${diff.added>1?"s":""}`, "#16a34a", "rgba(34,197,94,.10)")}
-                      {diff?.removed>0 && chip(`${diff.removed} retirée${diff.removed>1?"s":""}`, "#dc2626", "rgba(239,68,68,.10)")}
-                    </div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {(state.diff?.changements || []).map((c,i) => {
-                        const a = c.after || c.before || {};
-                        return <div key={`${c.allocation_uid}-${i}`} style={{padding:"8px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,background:T.surface,display:"grid",gridTemplateColumns:"minmax(170px,1fr) minmax(160px,1.1fr)",gap:10,fontSize:11.5}}>
-                          <div><strong style={{color:T.text}}>{a.texte || "Tâche sans libellé"}</strong><div style={{color:T.textMuted,marginTop:2}}>{changeLabel(c)}</div></div>
-                          <div style={{color:T.textSub}}>
-                            {c.type==="changed" && c.details?.includes("date") && <div><Icon as={Clock} size={11}/> {fmtDate(c.before?.date)} → <strong>{fmtDate(c.after?.date)}</strong></div>}
-                            {c.type==="changed" && c.details?.includes("duree") && <div>Durée : {c.before?.duree||0} h → <strong>{c.after?.duree||0} h</strong></div>}
-                            {c.type==="changed" && c.details?.includes("ressources") && <div>Équipe : {(c.before?.ouvriers_noms||[]).join(", ")||"—"} → <strong>{(c.after?.ouvriers_noms||[]).join(", ")||"—"}</strong></div>}
-                            {c.type==="added" && <div>Ajout le {fmtDate(c.after?.date)} · {c.after?.duree||0} h</div>}
-                            {c.type==="removed" && <div>Référence : {fmtDate(c.before?.date)} · {c.before?.duree||0} h</div>}
-                          </div>
-                        </div>;
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>}
-            </div>;
+            );
           })}
         </div>
 
