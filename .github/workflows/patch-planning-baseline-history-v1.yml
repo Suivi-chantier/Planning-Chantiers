@@ -1,0 +1,43 @@
+name: Patch Planning Baseline History V1
+
+on:
+  push:
+    branches:
+      - feature/planning-baseline-v1
+    paths:
+      - 'scripts/patch-planning-baseline-history-v1.mjs'
+      - '.github/workflows/patch-planning-baseline-history-v1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Appliquer le patch contrôlé
+        run: node scripts/patch-planning-baseline-history-v1.mjs
+      - name: Fixtures baseline chantier 03
+        run: node --experimental-default-type=module scripts/verif-planning-baseline-model-v1.mjs
+      - name: Installer dépendances
+        run: npm ci
+      - name: Compiler l'application
+        run: npm run build
+      - name: Vérifier le diff
+        run: git diff --check
+      - name: Committer l'historique baseline
+        run: |
+          git config user.name "Suivi-chantier"
+          git config user.email "suivi.chantier@groupe-profero.com"
+          git add src/Renovation/PlanningBaselinePanel.jsx
+          if git diff --cached --quiet; then
+            echo "Aucun changement à committer"
+          else
+            git commit -m "Ajoute la consultation des versions de référence"
+            git push
+          fi
