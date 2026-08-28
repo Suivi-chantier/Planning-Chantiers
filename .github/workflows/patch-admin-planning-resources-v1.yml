@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'Raccorde Ressources et absences dans Admin'
+    if: github.event.head_commit.message != 'Finalise le raccordement Ressources dans Admin'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,10 +35,10 @@ jobs:
         run: |
           git config user.name "Suivi-chantier"
           git config user.email "suivi.chantier@groupe-profero.com"
-          git add src/Renovation/Admin.jsx
+          git add src/Renovation/Admin.jsx src/Renovation/PlanningResourcesAdmin.jsx
           if git diff --cached --quiet; then
             echo "Aucun changement à committer"
           else
-            git commit -m "Raccorde Ressources et absences dans Admin"
+            git commit -m "Finalise le raccordement Ressources dans Admin"
             git push
           fi
