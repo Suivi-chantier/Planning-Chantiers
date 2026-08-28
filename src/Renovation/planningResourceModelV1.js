@@ -4,7 +4,8 @@
 //
 // Principes :
 // - une ressource planifiable possède son propre id stable ;
-// - le compte `utilisateurs` est un lien optionnel, pas l'identité métier ;
+// - `utilisateur_id` (profil métier) et `auth_user_id` (identité Auth/RLS) sont
+//   des liens optionnels, jamais l'identité de la ressource elle-même ;
 // - `nom_planning` assure la compatibilité avec les historiques encore en texte ;
 // - la capacité de base est fournie par `rythmeSemaine` par l'appelant ;
 // - le calendrier ne stocke que des EXCEPTIONS à cette capacité ;
@@ -57,6 +58,7 @@ export function normaliserRessource(resource) {
     nom: str(r.nom || r.nom_planning),
     nom_planning: str(r.nom_planning || r.nom),
     utilisateur_id: str(r.utilisateur_id) || null,
+    auth_user_id: str(r.auth_user_id) || null,
     kind,
     actif: r.actif !== false,
     capacite_facteur: capaciteFacteur == null ? 1 : Math.max(0, capaciteFacteur),
@@ -73,7 +75,10 @@ export function maturiteRessource(resource) {
     erreurs.push("Nom planning manquant pour une personne");
   }
   if (!r.utilisateur_id && r.kind === RESOURCE_KINDS.PERSONNE) {
-    warnings.push("Aucun compte utilisateur lié — la ressource reste planifiable");
+    warnings.push("Aucun profil utilisateur lié — la ressource reste planifiable");
+  }
+  if (r.utilisateur_id && !r.auth_user_id && r.kind === RESOURCE_KINDS.PERSONNE) {
+    warnings.push("Profil utilisateur lié sans identité Auth — l'accès personnel RLS ne pourra pas être accordé");
   }
   if (r.capacite_facteur > 1) {
     warnings.push("Capacité supérieure à 100 % — vérifier qu'il ne s'agit pas d'une équipe ou d'un prestataire");
@@ -115,6 +120,7 @@ export function auditerRessourcesLegacy({ ouvriers = [], utilisateurs = [], equi
     return {
       nom_planning: nom,
       utilisateur_id: match.utilisateur?.id || null,
+      auth_user_id: match.utilisateur?.auth_user_id || null,
       utilisateur_actif: match.utilisateur?.actif ?? null,
       compte_ambigu: match.ambigu,
       pseudo_externe: pseudoExterne,
