@@ -151,7 +151,7 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
                   Détails <Icon as={isExpanded?ChevronUp:ChevronDown} size={12}/>
                 </button>}
 
-                <button disabled={!state.courant.length || !!state.erreur || creating===chantier.id} onClick={()=>setConfirm({chantierId:chantier.id,nextVersion})} style={{padding:"8px 12px",borderRadius:RADIUS.md,border:"none",background:(!state.courant.length||state.erreur)?T.border:acc.accent,color:(!state.courant.length||state.erreur)?T.textMuted:acc.onAccent,fontFamily:"inherit",fontSize:11.5,fontWeight:900,cursor:(!state.courant.length||state.erreur)?"default":"pointer",opacity:creating===chantier.id?.65:1}}>
+                <button disabled={!state.courant.length || !!state.erreur || creating===chantier.id} onClick={()=>setConfirm({chantierId:chantier.id,nextVersion})} style={{padding:"8px 12px",borderRadius:RADIUS.md,border:"none",background:(!state.courant.length||state.erreur)?T.border:acc.accent,color:(!state.courant.length||state.erreur)?T.textMuted:acc.onAccent,fontFamily:"inherit",fontSize:11.5,fontWeight:900,cursor:(!state.courant.length||state.erreur)?"default":"pointer",opacity:creating===chantier.id ? 0.65 : 1}}>
                   {creating===chantier.id ? "Création…" : baseline ? `Rebaseline V${nextVersion}` : "Figer V1"}
                 </button>
               </div>
@@ -199,7 +199,7 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
           const row = rows.find(r=>r.chantier.id===confirm.chantierId);
           if (!row) return null;
           const isRebaseline = !!row.baseline;
-          return <div onClick={()=>setConfirm(null)} style={{position:"absolute",inset:0,background:"rgba(0,0,0,.58)",display:"grid",placeItems:"center",padding:18,zIndex:4}}>
+          return <div onClick={()=>setConfirm(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.58)",display:"grid",placeItems:"center",padding:18,zIndex:4}}>
             <div onClick={e=>e.stopPropagation()} style={{maxWidth:480,width:"100%",background:T.modal||T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:18,boxShadow:"0 20px 60px rgba(0,0,0,.4)"}}>
               <div style={{fontWeight:900,fontSize:FONT.md.size,color:T.text}}>{isRebaseline?`Créer la référence V${confirm.nextVersion} ?`:"Figer la référence V1 ?"}</div>
               <div style={{fontSize:12.5,lineHeight:1.65,color:T.textSub,marginTop:8}}>

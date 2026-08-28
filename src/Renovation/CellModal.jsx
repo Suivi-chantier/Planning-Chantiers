@@ -7,6 +7,7 @@ import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
 import { calculerCapaciteRessourcePourDate } from "./planningResourceCapacityV1.js";
 import { chargerRessourcesPlanningV1, chargerEvenementsRessourcesPourDateV1, indexerRessourcesParNomPlanningV1, ressourcePourNomPlanningV1 } from "./planningResourceDataV1.js";
 import { sortByChrono } from "./chronoTemplate";
+import { creerAllocationUid } from "./planningBaselineModelV1.js";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
 // estimées du phasage — modifiable ensuite dans la ligne de tâche).
@@ -114,12 +115,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // la cellule en cours remplace ce que la DB connaît de CE jour (la cellule
   // n'est sauvegardée qu'à la fermeture). skipDraftId : ligne du brouillon à
   // exclure (recalcul de sa propre durée).
-  const heuresDejaPlanifiees = (tacheId, skipDraftId = null) => {
+  const heuresDejaPlanifiees = (tacheId, skipDraftUid = null) => {
     let h = (planningMap[String(tacheId)] || [])
       .filter(l => !(l.weekId === weekId && l.jour === jour))
       .reduce((s, l) => s + l.duree * (l.nb || 1), 0);
     (draft.taches || []).forEach(x => {
-      if (x.id === skipDraftId) return;
+      if (skipDraftUid && (x.allocation_uid === skipDraftUid || (!x.allocation_uid && x.id === skipDraftUid))) return;
       if (String(x.tache_id || "") === String(tacheId)) h += (parseFloat(x.duree) || 0) * nbOuvriersLigne(x);
     });
     return h;
@@ -183,7 +184,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     if (!t) return undefined; // phasage pas chargé ou tâche inconnue : ne rien changer
     const total = arrondiQuart(dureeTotale(t)) || 0;
     if (total <= 0) return undefined;
-    const restantMO = Math.max(0, total - heuresDejaPlanifiees(line.tache_id, line.id));
+    const restantMO = Math.max(0, total - heuresDejaPlanifiees(line.tache_id, line.allocation_uid || line.id));
     const cibles = (line.ouvriers && line.ouvriers.length > 0) ? line.ouvriers : (draft.ouvriers || []);
     const nb = cibles.length || 1;
     let d = Math.round((restantMO / nb) * 4) / 4;
@@ -274,6 +275,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     if (duree != null && restantJour > 0 && duree > restantJour) duree = restantJour;
     const newT = {
       id: Math.random().toString(36).slice(2),
+      allocation_uid: creerAllocationUid(),
       tache_id: t.id,
       text: t.nom || "",
       duree,
@@ -448,7 +450,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
               )}
 
               {(draft.taches||[]).map((tache,idx)=>(
-                <div key={tache.id} style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
+                <div key={tache.allocation_uid || tache.id} style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
                   borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
                   <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                     <span style={{color:T.textMuted,fontSize:13,marginTop:2,flexShrink:0}}>{idx+1}.</span>
@@ -531,7 +533,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
               ))}
 
               <button onClick={()=>{
-                const newT={id:Math.random().toString(36).slice(2),text:"",ouvriers:[]};
+                const newT={id:Math.random().toString(36).slice(2),allocation_uid:creerAllocationUid(),text:"",ouvriers:[]};
                 const t=[...(draft.taches||[]),newT];
                 setDraft(p=>({...p,taches:t}));
               }} style={{

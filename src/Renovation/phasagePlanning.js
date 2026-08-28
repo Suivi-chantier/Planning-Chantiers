@@ -267,6 +267,8 @@ export async function planningParTache(chantierId) {
       map[key].push({
         weekId: cell.week_id, jour: cell.jour,
         date: dateFromWeekJour(cell.week_id, cell.jour),
+        allocation_uid: x.allocation_uid || null,
+        legacy_id: x.id || null,
         duree: parseFloat(x.duree) || 0,
         nb: (x.ouvriers && x.ouvriers.length) || (cell.ouvriers && cell.ouvriers.length) || 1,
       });
