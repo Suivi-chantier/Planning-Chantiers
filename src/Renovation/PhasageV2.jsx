@@ -46,6 +46,12 @@ import {
 // Composants partagés (KPI, infobulles, modale de ventilation) — communs avec
 // la page Bilan semaine. La présentation vit là, le contenu dans les Donnee.
 import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
+// Prévisionnel client : structure, génération auto depuis les groupes datés et
+// gabarit PDF — module partagé avec le Chemin de fer (prévisionnel d'opération).
+import {
+  defaultPrevisionnel, normalizePrevisionnel,
+  blocsAutoDepuisGroupes, buildPrevisionnelDocHTML,
+} from "./previsionnelDoc";
 
 // ─── PAGE PHASAGE V2 ──────────────────────────────────────────────────────────
 // Refonte du phasage : vue 3 colonnes (Lots → Ouvrages → Tâches) pour un
@@ -122,39 +128,17 @@ function getDateFromWeekAndDay(weekId, jourName) {
 }
 
 // ─── PRÉVISIONNEL CLIENT ──────────────────────────────────────────────────────
-// Structure d'un calendrier prévisionnel à communiquer au client (vue
-// "Prévisionnel" du phasage). Stocké dans phasage.plan_travaux.meta.previsionnel.
-//   • sous_titre       : ligne sous le nom du chantier (ex: "Rénovation — appts 1 à 5")
-//   • livraison_mois   : mois de livraison estimée (ex: "Oct.")
-//   • livraison_annee  : année de livraison (ex: "2026")
-//   • note_bas         : mention légale de bas de page
-//   • blocs            : séquence ordonnée de blocs, chacun étant soit
-//        { id, type:"mois", titre, lignes:[…] }  → un mois avec ses puces
-//        { id, type:"encadre", titre, texte }    → un encadré (étape conditionnelle)
-const NOTE_BAS_DEFAUT = "Dates communiquées à titre prévisionnel, susceptibles d'évoluer selon l'avancement du chantier et les interventions des tiers.";
-function defaultPrevisionnel() {
-  return { sous_titre: "", livraison_mois: "", livraison_annee: "", note_bas: NOTE_BAS_DEFAUT, blocs: [] };
-}
-function normalizePrevisionnel(p) {
-  const d = defaultPrevisionnel();
-  if (!p || typeof p !== "object") return d;
-  return {
-    sous_titre: p.sous_titre || "",
-    livraison_mois: p.livraison_mois || "",
-    livraison_annee: p.livraison_annee || "",
-    note_bas: p.note_bas != null ? p.note_bas : NOTE_BAS_DEFAUT,
-    blocs: Array.isArray(p.blocs) ? p.blocs.map(b => b.type === "encadre"
-      ? { id: b.id || rid(), type: "encadre", titre: b.titre || "", texte: b.texte || "" }
-      : { id: b.id || rid(), type: "mois", titre: b.titre || "", lignes: Array.isArray(b.lignes) ? b.lignes : [] }
-    ) : [],
-  };
-}
+// Structure, normalisation et gabarit PDF : src/Renovation/previsionnelDoc.js
+// (module PARTAGÉ avec le Chemin de fer pour le prévisionnel d'opération).
+// Stocké dans phasage.plan_travaux.meta.previsionnel.
 
 // ─── ÉDITEUR PRÉVISIONNEL CLIENT ──────────────────────────────────────────────
 // Formulaire d'édition du calendrier prévisionnel (sous-titre, livraison,
 // blocs mois/encadrés). Les modifications remontent via updatePrev (debounce +
 // persistance dans meta.previsionnel). Le rendu final se voit dans l'export PDF.
-function PrevisionnelEditor({ prev, updatePrev, chantier, T, acc }) {
+// onGenerer : remplit les blocs automatiquement depuis les groupes planifiés
+// (date_prevue) — la saisie manuelle reste possible pour retoucher.
+function PrevisionnelEditor({ prev, updatePrev, chantier, T, acc, onGenerer }) {
   const p = prev || defaultPrevisionnel();
 
   const setField = (field, val) => updatePrev(cur => ({ ...cur, [field]: val }));
@@ -199,12 +183,22 @@ function PrevisionnelEditor({ prev, updatePrev, chantier, T, acc }) {
     <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "20px 22px", background: T.bg || T.surface }}>
       <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
 
-        {/* En-tête d'aide */}
+        {/* En-tête d'aide + génération automatique depuis les tâches datées */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", background: acc.bg10, border: `1px solid ${acc.border}`, borderRadius: RADIUS.lg }}>
           <Icon as={Calendar} size={16} color={acc.accent} style={{ marginTop: 2, flexShrink: 0 }} />
-          <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.55 }}>
-            Prépare un <strong style={{ color: T.text }}>calendrier prévisionnel à communiquer au client</strong>. Renseigne les étapes par mois, ajoute des encadrés pour les conditions particulières, puis exporte en PDF via le bouton <strong style={{ color: T.text }}>PDF Prévisionnel</strong>.
+          <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.55, flex: 1 }}>
+            Prépare un <strong style={{ color: T.text }}>calendrier prévisionnel à communiquer au client</strong>. Si les tâches sont déjà datées, <strong style={{ color: T.text }}>génère les étapes automatiquement</strong> depuis le planning, retouche si besoin, puis exporte en PDF via le bouton <strong style={{ color: T.text }}>PDF Prévisionnel</strong>.
           </div>
+          {onGenerer && (
+            <button onClick={onGenerer} title="Remplit les mois automatiquement depuis les groupes de tâches datés (date prévue)" style={{
+              display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
+              padding: "8px 14px", borderRadius: RADIUS.md,
+              border: "none", background: acc.accent, color: "#1a1f2e",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            }}>
+              <Icon as={Sparkles} size={14} /> Générer depuis le planning
+            </button>
+          )}
         </div>
 
         {/* Bloc identité : sous-titre + livraison */}
@@ -1011,6 +1005,37 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     });
   };
 
+  // Génère les blocs du prévisionnel depuis les groupes chrono déjà planifiés
+  // (bornes des date_prevue) — module partagé previsionnelDoc. Remplace les
+  // blocs existants (après confirmation) ; sous-titre et mention de bas de
+  // page sont conservés, la livraison est recalculée depuis le planning.
+  const genererPrevisionnelAuto = () => {
+    const toutesTaches = ouvrages.flatMap(o => o?.taches || []);
+    const items = chronoGroupes
+      .slice().sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0))
+      .map(g => {
+        const taches = toutesTaches.filter(t => t.chrono_groupe_id === g.id);
+        if (taches.length === 0) return null;
+        const dates = taches.map(t => (t.date_prevue || "").slice(0, 10)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+        return { nom: g.nom || "", debut: dates[0] || "", fin: dates[dates.length - 1] || "", ordre: g.ordre ?? 0 };
+      })
+      .filter(Boolean);
+    const auto = blocsAutoDepuisGroupes(items);
+    if (auto.nbDates === 0) {
+      alert("Aucun groupe de tâches daté sur ce chantier. Planifie les tâches (vue Chronologique ou Planning) puis regénère.");
+      return;
+    }
+    const cur = normalizePrevisionnel(prev);
+    if ((cur.blocs || []).length > 0 &&
+      !window.confirm("Remplacer les étapes actuelles du prévisionnel par celles générées depuis le planning ?")) return;
+    updatePrev(c => ({
+      ...c,
+      blocs: auto.blocs,
+      livraison_mois: auto.livraison_mois,
+      livraison_annee: auto.livraison_annee,
+    }));
+  };
+
   const updateTache = (ouvrageId, tacheId, patch) => {
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: (o.taches || []).map(t => t.id === tacheId ? { ...t, ...patch } : t) }
@@ -1585,105 +1610,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
 
   // ─── EXPORT PDF DU PRÉVISIONNEL CLIENT ──────────────────────────────────
-  // Reproduit le document "Planning Prévisionnel" PROFERO : en-tête noir,
-  // carte chantier + pastille livraison, sections par mois, encadrés
-  // conditionnels, mention légale et pied de page.
-  const buildPrevisionnelHTML = () => {
-    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
-    const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
-    const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
-    const dateLongue = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-    const dateCourte = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
-    const titre = chantier?.nom || chantierId;
-    const p = normalizePrevisionnel(prev);
-    const OR = "#f5c400"; // jaune Profero
-
-    const blocsHTML = (p.blocs || []).map(b => {
-      if (b.type === "encadre") {
-        if (!b.titre && !b.texte) return "";
-        return `
-        <div style="margin:14pt 0;padding:11pt 14pt;background:#fdf6df;border-left:4pt solid ${OR};border-radius:0 5pt 5pt 0;break-inside:avoid;page-break-inside:avoid;">
-          ${b.titre ? `<span style="font-weight:800;color:#8a6d00;">${esc(b.titre)} :</span> ` : ""}<span style="color:#4a4a4a;">${nl2br(b.texte)}</span>
-        </div>`;
-      }
-      const lignes = (b.lignes || []).filter(l => (l || "").trim());
-      if (!b.titre && lignes.length === 0) return "";
-      return `
-        <div style="margin:0 0 6pt;break-inside:avoid;page-break-inside:avoid;">
-          <div style="font-size:11pt;font-weight:800;color:#1a1f2e;margin:14pt 0 6pt;">${esc(b.titre)}</div>
-          ${lignes.length === 0 ? "" : `<ul style="margin:0;padding:0;list-style:none;">
-            ${lignes.map(l => `<li style="display:flex;align-items:flex-start;gap:8pt;font-size:9.5pt;color:#333;padding:3pt 0;">
-              <span style="width:5pt;height:5pt;border-radius:50%;background:${OR};margin-top:4.5pt;flex:0 0 auto;"></span>
-              <span>${nl2br(l)}</span>
-            </li>`).join("")}
-          </ul>`}
-        </div>`;
-    }).join("");
-
-    const livraisonBox = (p.livraison_mois || p.livraison_annee) ? `
-      <td style="width:150pt;vertical-align:middle;padding-left:14pt;">
-        <div style="background:#0a0a0a;border-radius:8pt;padding:14pt 10pt;text-align:center;">
-          <div style="color:rgba(255,255,255,.55);font-size:8pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Livraison</div>
-          <div style="color:${OR};font-size:22pt;font-weight:800;line-height:1.05;margin-top:6pt;">${esc(p.livraison_mois)}</div>
-          <div style="color:${OR};font-size:22pt;font-weight:800;line-height:1.05;">${esc(p.livraison_annee)}</div>
-        </div>
-      </td>` : "";
-
-    return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-<title>Prévisionnel ${esc(titre)}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.45;}
-  .page{max-width:720pt;margin:0 auto;}
-  ul,li,section{break-inside:avoid;page-break-inside:avoid;}
-  @page{margin:14mm 12mm 14mm;size:A4;}
-  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-</style></head><body><div class="page">
-  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:10pt;overflow:hidden;margin:0 0 16pt;">
-    <tr>
-      <td style="padding:14pt 16pt;vertical-align:middle;width:150pt;">
-        <img src="${logoUrl}" alt="Profero" style="height:34pt;object-fit:contain;display:block;"/>
-      </td>
-      <td style="padding:14pt 8pt;vertical-align:middle;text-align:center;">
-        <div style="color:#cfcfcf;font-size:15pt;font-weight:800;">Planning Prévisionnel</div>
-      </td>
-      <td style="padding:14pt 16pt;vertical-align:middle;text-align:right;white-space:nowrap;">
-        <div style="color:#fff;font-size:11pt;font-weight:800;">Chantier de ${esc(titre)}</div>
-        <div style="color:rgba(255,255,255,.55);font-size:8.5pt;margin-top:2pt;text-transform:capitalize;">${dateLongue}</div>
-      </td>
-    </tr>
-  </table>
-
-  <table style="width:100%;border-collapse:collapse;margin:0 0 18pt;">
-    <tr>
-      <td style="vertical-align:middle;">
-        <div style="background:#f3f4f6;border-radius:8pt;padding:14pt 18pt;">
-          <div style="color:#8a8f98;font-size:8pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Chantier</div>
-          <div style="color:#1a1f2e;font-size:15pt;font-weight:800;margin-top:4pt;">${esc(titre)}</div>
-          ${p.sous_titre ? `<div style="color:#555;font-size:10pt;margin-top:3pt;">${esc(p.sous_titre)}</div>` : ""}
-        </div>
-      </td>
-      ${livraisonBox}
-    </tr>
-  </table>
-
-  <div style="display:flex;align-items:center;gap:8pt;border-bottom:1pt solid #e5e7eb;padding-bottom:6pt;margin:0 0 12pt;">
-    <span style="width:4pt;height:14pt;background:${OR};border-radius:2pt;display:inline-block;"></span>
-    <span style="font-size:10pt;font-weight:800;letter-spacing:1.5pt;text-transform:uppercase;color:#3a3f4a;">Calendrier prévisionnel</span>
-  </div>
-
-  ${blocsHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucune étape renseignée. Ajoute des mois dans la vue Prévisionnel.</div>`}
-
-  ${p.note_bas ? `<div style="margin-top:16pt;font-size:8.5pt;font-style:italic;color:#9a9a9a;">${nl2br(p.note_bas)}</div>` : ""}
-
-  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:8pt;overflow:hidden;margin-top:16pt;">
-    <tr>
-      <td style="padding:8pt 14pt;color:rgba(255,255,255,.7);font-size:8pt;">PROFERO — Document confidentiel</td>
-      <td style="padding:8pt 14pt;text-align:right;color:rgba(255,255,255,.7);font-size:8pt;">${dateCourte}</td>
-    </tr>
-  </table>
-</div></body></html>`;
-  };
+  // Gabarit PROFERO partagé (previsionnelDoc) — le même document sert au
+  // Chemin de fer pour le prévisionnel global d'une opération.
+  const buildPrevisionnelHTML = () => buildPrevisionnelDocHTML({
+    titre: chantier?.nom || chantierId,
+    cardLabel: "Chantier",
+    headerLigne: `Chantier de ${chantier?.nom || chantierId}`,
+    logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+    previsionnel: prev,
+  });
 
   const exportPrevisionnelPDF = () => {
     try {
@@ -2583,7 +2518,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           Chargement du phasage…
         </div>
       ) : viewMode === "previsionnel" ? (
-        <PrevisionnelEditor prev={prev} updatePrev={updatePrev} chantier={chantier} T={T} acc={acc} />
+        <PrevisionnelEditor prev={prev} updatePrev={updatePrev} chantier={chantier} T={T} acc={acc} onGenerer={genererPrevisionnelAuto} />
       ) : viewMode === "chrono" ? (
         <ChronoView
           ouvrages={ouvrages} lots={lots} groupes={chronoGroupes} jalons={chronoJalons}

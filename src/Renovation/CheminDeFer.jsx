@@ -19,6 +19,9 @@ import {
 } from "../constants";
 import { Icon } from "../ui";
 import { loadPhasagesOperation, shiftGroupePhasage } from "./phasagePlanning";
+// Prévisionnel client d'OPÉRATION : blocs mois générés depuis les groupes
+// datés de tous les logements + gabarit PDF PROFERO (partagés avec le Phasage).
+import { blocsAutoDepuisGroupes, buildPrevisionnelDocHTML, NOTE_BAS_DEFAUT } from "./previsionnelDoc";
 
 // ── Helpers dates (calendaires : le chemin de fer se lit en semaines) ────────
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
@@ -322,6 +325,50 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
 </body></html>`;
   };
 
+  // ── PDF Prévisionnel client de l'OPÉRATION ─────────────────────────────────
+  // Généré AUTOMATIQUEMENT depuis les groupes datés (date_prevue) de tous les
+  // logements — rien à remplir à la main. Chaque étape = « Groupe — Logement »
+  // dans le mois de son début ; livraison = dernière date connue ; les groupes
+  // à tâches non datées partent dans un encadré « restant à planifier ».
+  const exportPrevisionnelPDF = () => {
+    try {
+      const rows = (data?.chantiers || []).filter(r => r.statut === "ok");
+      const multi = rows.length > 1;
+      const items = rows.flatMap(r => (r.groupes || [])
+        .filter(g => g.nbTaches > 0)
+        .map(g => ({
+          nom: g.nom, debut: g.debut, fin: g.fin, ordre: g.ordre,
+          suffixe: multi ? r.chantier.nom : "",
+        })));
+      const auto = blocsAutoDepuisGroupes(items);
+      if (auto.nbDates === 0) {
+        alert("Aucun groupe de tâches daté dans cette opération — rien à mettre dans le prévisionnel. Planifie les tâches (Phasage ou Planning) puis réessaie.");
+        return;
+      }
+      const html = buildPrevisionnelDocHTML({
+        titre: operation?.nom || "Opération",
+        cardLabel: "Opération",
+        headerLigne: `Opération ${operation?.nom || ""}`.trim(),
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        previsionnel: {
+          sous_titre: operation?.adresse || "",
+          livraison_mois: auto.livraison_mois,
+          livraison_annee: auto.livraison_annee,
+          note_bas: NOTE_BAS_DEFAUT,
+          blocs: auto.blocs,
+        },
+      });
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `Previsionnel-${operation?.nom || opId}`;
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+    } catch (e) {
+      alert("Erreur génération PDF Prévisionnel : " + (e.message || e));
+    }
+  };
+
   const exportPDF = () => {
     try {
       const html = buildCheminDeFerHTML();
@@ -443,6 +490,12 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
           <button className="btn-g" onClick={() => setReloadKey(k => k + 1)} title="Recharger les données"
             style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 10px" }}>
             <Icon as={RefreshCw} size={13} />
+          </button>
+          <button className="btn-g" onClick={exportPrevisionnelPDF} disabled={!data}
+            title="Prévisionnel client de l'opération, généré automatiquement depuis les tâches planifiées (PDF portrait)"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, opacity: data ? 1 : .5 }}>
+            <Icon as={Calendar} size={14} />
+            PDF Prévisionnel
           </button>
           <button className="btn-p" onClick={exportPDF} disabled={!data}
             title="Exporter le chemin de fer en PDF (paysage)"
