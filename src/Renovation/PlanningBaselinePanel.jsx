@@ -10,8 +10,6 @@ import {
   indexerDerniereBaselineParChantierV1,
 } from "./planningBaselineDataV1.js";
 
-const UI_VERSION = "03.2";
-
 const fmtDateTime = value => {
   if (!value) return "—";
   const d = new Date(value);
@@ -124,7 +122,6 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
           <div>
             <div style={{display:"flex",alignItems:"center",gap:9,fontSize:FONT.lg.size,fontWeight:900,color:T.text}}>
               <Icon as={Snowflake} size={18} color={acc.accent}/> Planning de référence
-              <span style={{fontSize:10,fontWeight:900,letterSpacing:.5,color:acc.accent,background:acc.bg10||"rgba(255,194,0,.10)",border:`1px solid ${acc.accent}33`,borderRadius:999,padding:"2px 7px"}}>UI {UI_VERSION}</span>
             </div>
             <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.6,maxWidth:760,marginTop:5}}>
               La référence est une photo immuable du planning. Déplacer ensuite une tâche modifie le planning courant, jamais la référence. Un rebaseline crée une nouvelle version et conserve toutes les précédentes.
