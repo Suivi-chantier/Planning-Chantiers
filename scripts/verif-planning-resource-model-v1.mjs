@@ -12,15 +12,18 @@ async function loadModel() {
 const m = await loadModel();
 
 const ressources = [
-  { id: "res_davy", nom: "Davy", nom_planning: "Davy", utilisateur_id: "user_davy", actif: true },
-  { id: "res_selman", nom: "Selman", nom_planning: "Selman", utilisateur_id: "user_selman", actif: true },
-  { id: "res_keita", nom: "Mohamed", nom_planning: "Mohamed", utilisateur_id: "user_keita", actif: true },
+  { id: "res_davy", nom: "Davy", nom_planning: "Davy", utilisateur_id: "user_davy", auth_user_id: "auth_davy", actif: true },
+  { id: "res_selman", nom: "Selman", nom_planning: "Selman", utilisateur_id: "user_selman", auth_user_id: "auth_selman", actif: true },
+  { id: "res_keita", nom: "Mohamed", nom_planning: "Mohamed", utilisateur_id: "user_keita", auth_user_id: "auth_keita", actif: true },
 ];
 
-// Identité : un compte utilisateur est facultatif, l'id ressource ne l'est pas.
+// Identité : profil utilisateur et compte Auth sont facultatifs pour planifier ; l'id ressource ne l'est pas.
 const sansCompte = m.maturiteRessource({ id: "res_jp", nom: "JP", nom_planning: "JP" });
 assert.equal(sansCompte.valide, true);
-assert.ok(sansCompte.warnings.some(w => w.includes("Aucun compte utilisateur")));
+assert.ok(sansCompte.warnings.some(w => w.includes("profil utilisateur")));
+const profilSansAuth = m.maturiteRessource({ id: "res_test", nom: "Test", nom_planning: "Test", utilisateur_id: "user_test" });
+assert.equal(profilSansAuth.valide, true);
+assert.ok(profilSansAuth.warnings.some(w => w.includes("identité Auth")));
 const sansId = m.maturiteRessource({ nom: "JP", nom_planning: "JP" });
 assert.equal(sansId.valide, false);
 
