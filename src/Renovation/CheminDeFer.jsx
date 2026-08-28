@@ -348,7 +348,6 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
       const html = buildPrevisionnelDocHTML({
         titre: operation?.nom || "Opération",
         cardLabel: "Opération",
-        headerLigne: `Opération ${operation?.nom || ""}`.trim(),
         logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
         previsionnel: {
           sous_titre: operation?.adresse || "",
@@ -363,7 +362,11 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
       w.document.title = `Previsionnel-${operation?.nom || opId}`;
       w.document.write(html);
       w.document.close();
-      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+      // Attendre les polices (Barlow, Google Fonts) avant d'imprimer.
+      w.onload = () => {
+        const go = () => setTimeout(() => { w.focus(); w.print(); }, 150);
+        (w.document.fonts?.ready || Promise.resolve()).then(go, go);
+      };
     } catch (e) {
       alert("Erreur génération PDF Prévisionnel : " + (e.message || e));
     }

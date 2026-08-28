@@ -1615,7 +1615,6 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const buildPrevisionnelHTML = () => buildPrevisionnelDocHTML({
     titre: chantier?.nom || chantierId,
     cardLabel: "Chantier",
-    headerLigne: `Chantier de ${chantier?.nom || chantierId}`,
     logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
     previsionnel: prev,
   });
@@ -1628,7 +1627,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       w.document.title = `Previsionnel-${chantier?.nom || chantierId}`;
       w.document.write(html);
       w.document.close();
-      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 350);
+      // Le gabarit charge Barlow depuis Google Fonts : on attend les polices
+      // avant d'imprimer (sinon l'aperçu part avec le repli Arial).
+      w.onload = () => {
+        const go = () => setTimeout(() => { w.focus(); w.print(); }, 150);
+        (w.document.fonts?.ready || Promise.resolve()).then(go, go);
+      };
     } catch (e) {
       alert("Erreur génération PDF : " + (e.message || e));
     }

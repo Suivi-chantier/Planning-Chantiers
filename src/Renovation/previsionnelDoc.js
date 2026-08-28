@@ -116,101 +116,142 @@ export function blocsAutoDepuisGroupes(items) {
 }
 
 // ─── GABARIT PDF « PLANNING PRÉVISIONNEL » ────────────────────────────────────
-// Reproduit le document PROFERO : en-tête noir, carte identité + pastille
-// livraison, sections par mois, encadrés conditionnels, mention légale et
-// pied de page. Paramétré pour servir un chantier ("Chantier de X") comme une
-// opération ("Opération X").
-export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", headerLigne, logoUrl, previsionnel }) {
+// Document CLIENT — même langage visuel que le design system de l'app
+// (src/mobileUI.jsx) : héros en dégradé sombre avec halos ambre/bleu, jaune
+// marque #FFC200, typographie Barlow / Barlow Condensed (Google Fonts,
+// chargées dans la fenêtre d'impression — repli Arial), calendrier en FRISE
+// verticale (un jalon par mois), encadrés conditionnels, mention légale.
+// Paramétré pour servir un chantier ("Chantier") comme une opération.
+export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUrl, previsionnel }) {
   const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
-  const dateLongue = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const dateCourte = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const dateLongue = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   const p = normalizePrevisionnel(previsionnel);
-  const OR = "#f5c400"; // jaune Profero
+  const OR = "#FFC200"; // jaune marque Profero
 
-  const blocsHTML = (p.blocs || []).map(b => {
+  // Une ligne d'étape « Nom — Précision (jusqu'à …) » est décomposée pour la
+  // hiérarchie visuelle : nom en avant, précision (logement) et débordement
+  // de mois en retrait — purement présentation, la donnée reste une chaîne.
+  const ligneHTML = (l) => {
+    let reste = (l || "").trim(), paren = "";
+    const mp = reste.match(/^(.*?)\s*(\(jusqu[’']à[^)]*\))\s*$/);
+    if (mp) { reste = mp[1]; paren = mp[2]; }
+    const parts = reste.split(" — ");
+    const nom = parts[0], suffixe = parts.slice(1).join(" — ");
+    return `<span class="step-txt">${esc(nom)}${suffixe ? `<span class="step-suf"> — ${esc(suffixe)}</span>` : ""}${paren ? ` <span class="step-par">${esc(paren)}</span>` : ""}</span>`;
+  };
+
+  const blocs = (p.blocs || []).filter(b => b.type === "encadre" ? (b.titre || b.texte) : (b.titre || (b.lignes || []).some(l => (l || "").trim())));
+  const blocsHTML = blocs.map((b, i) => {
+    const isLast = i === blocs.length - 1;
+    const rail = isLast ? "" : `<span class="rail"></span>`;
     if (b.type === "encadre") {
-      if (!b.titre && !b.texte) return "";
       return `
-      <div style="margin:14pt 0;padding:11pt 14pt;background:#fdf6df;border-left:4pt solid ${OR};border-radius:0 5pt 5pt 0;break-inside:avoid;page-break-inside:avoid;">
-        ${b.titre ? `<span style="font-weight:800;color:#8a6d00;">${esc(b.titre)} :</span> ` : ""}<span style="color:#4a4a4a;">${nl2br(b.texte)}</span>
+      <div class="bloc">
+        ${rail}<span class="marker marker-losange"></span>
+        <div class="encadre">
+          ${b.titre ? `<div class="encadre-titre">${esc(b.titre)}</div>` : ""}
+          <div class="encadre-texte">${nl2br(b.texte)}</div>
+        </div>
       </div>`;
     }
     const lignes = (b.lignes || []).filter(l => (l || "").trim());
-    if (!b.titre && lignes.length === 0) return "";
     return `
-      <div style="margin:0 0 6pt;break-inside:avoid;page-break-inside:avoid;">
-        <div style="font-size:11pt;font-weight:800;color:#1a1f2e;margin:14pt 0 6pt;">${esc(b.titre)}</div>
-        ${lignes.length === 0 ? "" : `<ul style="margin:0;padding:0;list-style:none;">
-          ${lignes.map(l => `<li style="display:flex;align-items:flex-start;gap:8pt;font-size:9.5pt;color:#333;padding:3pt 0;">
-            <span style="width:5pt;height:5pt;border-radius:50%;background:${OR};margin-top:4.5pt;flex:0 0 auto;"></span>
-            <span>${nl2br(l)}</span>
-          </li>`).join("")}
+      <div class="bloc">
+        ${rail}<span class="marker"></span>
+        <div class="bloc-titre bc">${esc(b.titre)}</div>
+        ${lignes.length === 0 ? "" : `<ul class="steps">
+          ${lignes.map(l => `<li class="step"><span class="puce"></span>${ligneHTML(l)}</li>`).join("")}
         </ul>`}
       </div>`;
   }).join("");
 
-  const livraisonBox = (p.livraison_mois || p.livraison_annee) ? `
-    <td style="width:150pt;vertical-align:middle;padding-left:14pt;">
-      <div style="background:#0a0a0a;border-radius:8pt;padding:14pt 10pt;text-align:center;">
-        <div style="color:rgba(255,255,255,.55);font-size:8pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">Livraison</div>
-        <div style="color:${OR};font-size:22pt;font-weight:800;line-height:1.05;margin-top:6pt;">${esc(p.livraison_mois)}</div>
-        <div style="color:${OR};font-size:22pt;font-weight:800;line-height:1.05;">${esc(p.livraison_annee)}</div>
-      </div>
-    </td>` : "";
+  const livraisonBadge = (p.livraison_mois || p.livraison_annee) ? `
+      <td style="vertical-align:bottom;text-align:right;white-space:nowrap;padding-left:14pt;">
+        <div style="display:inline-block;background:${OR};border-radius:10pt;padding:9pt 16pt 10pt;text-align:center;">
+          <div style="font-size:6.5pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;color:rgba(0,0,0,.55);">Livraison estimée</div>
+          <div class="bc" style="font-size:18pt;font-weight:800;color:#12151c;line-height:1.05;margin-top:2pt;">${esc(`${p.livraison_mois} ${p.livraison_annee}`.trim())}</div>
+        </div>
+      </td>` : "";
 
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <title>Prévisionnel ${esc(titre)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.45;}
+  body{font-family:'Barlow',Arial,Helvetica,sans-serif;background:#fff;color:#1a1f2e;font-size:10pt;line-height:1.5;}
+  .bc{font-family:'Barlow Condensed','Arial Narrow',Arial,sans-serif;}
   .page{max-width:720pt;margin:0 auto;}
-  ul,li,section{break-inside:avoid;page-break-inside:avoid;}
-  @page{margin:14mm 12mm 14mm;size:A4;}
+
+  /* ── Frise verticale : un jalon par bloc ── */
+  .timeline{padding:2pt 0 0 4pt;}
+  .bloc{position:relative;padding:0 0 15pt 22pt;break-inside:avoid;page-break-inside:avoid;}
+  .rail{position:absolute;left:3.5pt;top:6pt;bottom:-4pt;width:2pt;background:#eceef2;border-radius:1pt;}
+  .marker{position:absolute;left:0;top:1.5pt;width:9pt;height:9pt;border-radius:50%;background:${OR};box-shadow:0 0 0 3pt rgba(255,194,0,.22);}
+  .marker-losange{border-radius:2pt;transform:rotate(45deg);background:#fff;border:2.5pt solid ${OR};box-shadow:none;left:.5pt;width:8pt;height:8pt;}
+  .bloc-titre{font-size:13.5pt;font-weight:800;letter-spacing:.8pt;text-transform:uppercase;color:#12151c;line-height:1.1;}
+  .steps{list-style:none;margin:6pt 0 0;padding:0;}
+  .step{display:flex;align-items:flex-start;gap:8pt;padding:2.5pt 0;}
+  .puce{width:4.5pt;height:4.5pt;border-radius:50%;background:${OR};margin-top:5pt;flex:0 0 auto;}
+  .step-txt{font-size:10pt;color:#252a35;font-weight:600;}
+  .step-suf{color:#7c8291;font-weight:500;}
+  .step-par{color:#9aa0ab;font-style:italic;font-weight:400;font-size:9pt;}
+
+  /* ── Encadré conditionnel ── */
+  .encadre{background:#fff8e0;border:1pt solid #f2e2ad;border-radius:9pt;padding:9pt 13pt;}
+  .encadre-titre{font-size:8pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#8a6d00;margin-bottom:3pt;}
+  .encadre-texte{font-size:9.5pt;color:#57534a;line-height:1.55;}
+
+  @page{margin:12mm 13mm 14mm;size:A4;}
   @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 </style></head><body><div class="page">
-  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:10pt;overflow:hidden;margin:0 0 16pt;">
-    <tr>
-      <td style="padding:14pt 16pt;vertical-align:middle;width:150pt;">
-        <img src="${logoUrl}" alt="Profero" style="height:34pt;object-fit:contain;display:block;"/>
-      </td>
-      <td style="padding:14pt 8pt;vertical-align:middle;text-align:center;">
-        <div style="color:#cfcfcf;font-size:15pt;font-weight:800;">Planning Prévisionnel</div>
-      </td>
-      <td style="padding:14pt 16pt;vertical-align:middle;text-align:right;white-space:nowrap;">
-        <div style="color:#fff;font-size:11pt;font-weight:800;">${esc(headerLigne || titre)}</div>
-        <div style="color:rgba(255,255,255,.55);font-size:8.5pt;margin-top:2pt;text-transform:capitalize;">${dateLongue}</div>
-      </td>
-    </tr>
-  </table>
 
-  <table style="width:100%;border-collapse:collapse;margin:0 0 18pt;">
-    <tr>
-      <td style="vertical-align:middle;">
-        <div style="background:#f3f4f6;border-radius:8pt;padding:14pt 18pt;">
-          <div style="color:#8a8f98;font-size:8pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;">${esc(cardLabel)}</div>
-          <div style="color:#1a1f2e;font-size:15pt;font-weight:800;margin-top:4pt;">${esc(titre)}</div>
-          ${p.sous_titre ? `<div style="color:#555;font-size:10pt;margin-top:3pt;">${esc(p.sous_titre)}</div>` : ""}
-        </div>
-      </td>
-      ${livraisonBox}
-    </tr>
-  </table>
-
-  <div style="display:flex;align-items:center;gap:8pt;border-bottom:1pt solid #e5e7eb;padding-bottom:6pt;margin:0 0 12pt;">
-    <span style="width:4pt;height:14pt;background:${OR};border-radius:2pt;display:inline-block;"></span>
-    <span style="font-size:10pt;font-weight:800;letter-spacing:1.5pt;text-transform:uppercase;color:#3a3f4a;">Calendrier prévisionnel</span>
+  <!-- ── Héros : dégradé sombre + halos (même langage que l'app) ── -->
+  <div style="position:relative;overflow:hidden;border-radius:14pt;background:linear-gradient(135deg,#161b28 0%,#232c42 55%,#2e2840 100%);padding:16pt 20pt 18pt;">
+    <div style="position:absolute;right:-45pt;top:-55pt;width:175pt;height:175pt;border-radius:50%;background:radial-gradient(circle,rgba(255,194,0,.30) 0%,rgba(255,194,0,0) 68%);"></div>
+    <div style="position:absolute;left:-35pt;bottom:-75pt;width:160pt;height:160pt;border-radius:50%;background:radial-gradient(circle,rgba(91,138,245,.26) 0%,rgba(91,138,245,0) 68%);"></div>
+    <table style="width:100%;border-collapse:collapse;position:relative;">
+      <tr>
+        <td style="vertical-align:top;">
+          <img src="${logoUrl}" alt="Profero" style="height:23pt;object-fit:contain;display:block;"/>
+        </td>
+        <td style="vertical-align:top;text-align:right;white-space:nowrap;">
+          <div style="font-size:6.5pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;color:rgba(255,255,255,.4);">Édité le</div>
+          <div style="font-size:9pt;font-weight:600;color:rgba(255,255,255,.85);margin-top:1pt;">${dateLongue}</div>
+        </td>
+      </tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;position:relative;margin-top:16pt;">
+      <tr>
+        <td style="vertical-align:bottom;">
+          <div style="font-size:8pt;font-weight:700;letter-spacing:2.5pt;text-transform:uppercase;color:${OR};">Planning prévisionnel — ${esc(cardLabel)}</div>
+          <div class="bc" style="font-size:24pt;font-weight:800;color:#fff;line-height:1.08;margin-top:3pt;">${esc(titre)}</div>
+          ${p.sous_titre ? `<div style="font-size:10pt;color:rgba(255,255,255,.62);margin-top:3pt;">${esc(p.sous_titre)}</div>` : ""}
+        </td>
+        ${livraisonBadge}
+      </tr>
+    </table>
   </div>
 
-  ${blocsHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucune étape renseignée. Ajoute des mois dans la vue Prévisionnel.</div>`}
+  <!-- ── Titre de section ── -->
+  <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 14pt;">
+    <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">Calendrier prévisionnel</span>
+    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
+  </div>
 
-  ${p.note_bas ? `<div style="margin-top:16pt;font-size:8.5pt;font-style:italic;color:#9a9a9a;">${nl2br(p.note_bas)}</div>` : ""}
+  <!-- ── Frise ── -->
+  <div class="timeline">
+    ${blocsHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucune étape renseignée. Ajoute des mois dans la vue Prévisionnel.</div>`}
+  </div>
 
-  <table style="width:100%;border-collapse:collapse;background:#0a0a0a;border-radius:8pt;overflow:hidden;margin-top:16pt;">
-    <tr>
-      <td style="padding:8pt 14pt;color:rgba(255,255,255,.7);font-size:8pt;">PROFERO — Document confidentiel</td>
-      <td style="padding:8pt 14pt;text-align:right;color:rgba(255,255,255,.7);font-size:8pt;">${dateCourte}</td>
-    </tr>
-  </table>
+  ${p.note_bas ? `<div style="margin-top:14pt;padding:8pt 12pt;background:#f6f7f9;border-radius:8pt;font-size:8.5pt;font-style:italic;color:#8a90a0;line-height:1.55;">${nl2br(p.note_bas)}</div>` : ""}
+
+  <!-- ── Pied de page ── -->
+  <div style="margin-top:16pt;padding-top:9pt;border-top:1pt solid #e9eaee;display:flex;justify-content:space-between;align-items:baseline;">
+    <span style="font-size:7.5pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#b3b8c2;">Profero — Rénovation &amp; réhabilitation</span>
+    <span style="font-size:7.5pt;color:#b3b8c2;">Document confidentiel</span>
+  </div>
 </div></body></html>`;
 }
