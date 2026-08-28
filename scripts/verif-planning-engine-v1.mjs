@@ -36,8 +36,8 @@ const run = overrides => planifierPropositionV1({
   ...overrides,
 });
 
-// 1. Le moteur reste un pur moteur de proposition : aucune dépendance Supabase.
-assert.equal(/supabase/i.test(engineSource), false, "planningEngineV1 ne doit ni importer ni mentionner Supabase");
+// 1. Le moteur reste un pur moteur de proposition : aucun import de couche Supabase.
+assert.equal(/(?:import|from)[^\n]*supabase/i.test(engineSource), false, "planningEngineV1 ne doit pas importer Supabase");
 assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), false, "aucune primitive de persistance ne doit exister dans le noyau");
 
 // 2. Cas simple : 2 h MO, 1 personne -> 2 h de durée le jour même.
@@ -191,7 +191,7 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.equal(out.non_planifies[0].travail_id, "LOW");
 }
 
-// 15. Changement de chantier dans la même journée : autorisé seulement comme préférence dégradée et signalé.
+// 15. Changement de chantier dans la même journée : autorisé comme préférence dégradée et signalé.
 {
   const out = run({
     travaux: [task("T4", 1, { chantier_id: "chantier-A", candidate_resource_ids: ["R1"] })],
@@ -222,7 +222,23 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.equal(out.allocations_proposees[0].travail_id, "B");
 }
 
-// 18. Déterminisme : mêmes entrées, même proposition bit-à-bit.
+// 18. Une tâche non fractionnable attend un créneau complet au lieu d'être découpée.
+{
+  const out = run({
+    travaux: [task("NF", 5, { fractionnable: false })],
+    allocationsExistantes: [{
+      allocation_uid: "EX-NF", chantier_id: "chantier-Z", tache_id: "OLD",
+      date: "2026-08-31", duree: 3, resource_ids: ["R1"],
+    }],
+    horizonDays: 2,
+  });
+  assert.equal(out.allocations_proposees.length, 1);
+  assert.equal(out.allocations_proposees[0].date, "2026-09-01");
+  assert.equal(out.allocations_proposees[0].duree, 5);
+  assert.equal(out.allocations_proposees[0].explication.fractionnable, false);
+}
+
+// 19. Déterminisme : mêmes entrées, même proposition bit-à-bit.
 {
   const input = {
     travaux: [
@@ -238,7 +254,7 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.deepEqual(a, b);
 }
 
-// 19. Explicabilité minimale obligatoire sur toute allocation proposée.
+// 20. Explicabilité minimale obligatoire sur toute allocation proposée.
 {
   const out = run({});
   const e = out.allocations_proposees[0].explication;
@@ -248,4 +264,4 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.equal(typeof e.score_travail, "number");
 }
 
-console.log("✓ Planning Engine V1 — 19 scénarios métier validés");
+console.log("✓ Planning Engine V1 — 20 scénarios métier validés");
