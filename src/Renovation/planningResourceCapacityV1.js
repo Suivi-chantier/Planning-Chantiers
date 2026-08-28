@@ -1,5 +1,5 @@
-import { capaciteJour, getISOWeek } from "../rythmeSemaine";
-import { calculerCapaciteRessource } from "./planningResourceModelV1";
+import { capaciteJour, getISOWeek } from "../rythmeSemaine.js";
+import { calculerCapaciteRessource } from "./planningResourceModelV1.js";
 
 const JOURS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 
@@ -16,9 +16,6 @@ export function capaciteBasePlanningPourDate(dateISO) {
   return capaciteJour(jour, year, week);
 }
 
-// Point d'entrée du futur moteur : la capacité hebdomadaire reste entièrement
-// dans rythmeSemaine ; le modèle Ressources ne fait qu'appliquer les exceptions
-// et retrancher les allocations déjà posées.
 export function calculerCapaciteRessourcePourDate({
   resource,
   dateISO,
