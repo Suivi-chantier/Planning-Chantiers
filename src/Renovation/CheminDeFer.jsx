@@ -345,6 +345,13 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
         alert("Aucun groupe de tâches daté dans cette opération — rien à mettre dans le prévisionnel. Planifie les tâches (Phasage ou Planning) puis réessaie.");
         return;
       }
+      // Vue d'ensemble : une ligne par logement, barres aux couleurs des
+      // groupes (les mêmes que le chemin de fer à l'écran).
+      const friseRows = rows.map(r => ({
+        label: r.chantier.nom,
+        bars: (r.groupes || []).filter(g => g.nbTaches > 0 && g.debut)
+          .map(g => ({ nom: g.nom, debut: g.debut, fin: g.fin || g.debut, couleur: g.couleur })),
+      })).filter(r => r.bars.length > 0);
       const html = buildPrevisionnelDocHTML({
         titre: operation?.nom || "Opération",
         cardLabel: "Opération",
@@ -356,6 +363,8 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
           note_bas: NOTE_BAS_DEFAUT,
           blocs: auto.blocs,
         },
+        frise: { rows: friseRows },
+        chips: friseRows.length ? [`${friseRows.length} logement${friseRows.length > 1 ? "s" : ""}`] : [],
       });
       const w = window.open("", "_blank", "width=900,height=700");
       if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }

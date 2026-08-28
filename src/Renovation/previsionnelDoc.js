@@ -115,19 +115,123 @@ export function blocsAutoDepuisGroupes(items) {
   };
 }
 
+// ─── FRISE HORIZONTALE (vue d'ensemble type feuille de route) ─────────────────
+// rows : [{ label, bars: [{ nom, debut, fin, couleur }] }] — dates ISO, une
+// ligne par groupe (chantier) ou par logement (opération). Rendu pur HTML/CSS
+// positionné en % (fiable à l'impression) : bandes de mois alternées, barres
+// arrondies aux couleurs des groupes (les mêmes que le Gantt / Chemin de fer),
+// deux « lanes » par ligne quand des barres se chevauchent (travaux en
+// parallèle), légende dédupliquée quand une ligne porte plusieurs barres.
+// Retourne { html, periode } — periode ex : "Sept. 2026 → Janv. 2027".
+function friseChartHTML(frise, esc) {
+  const rows = (frise?.rows || [])
+    .map(r => ({ label: r?.label || "", bars: (r?.bars || []).filter(b => isISO(b.debut)) }))
+    .filter(r => r.bars.length > 0);
+  if (rows.length === 0) return { html: "", periode: "" };
+
+  let min = null, max = null;
+  rows.forEach(r => r.bars.forEach(b => {
+    const f = isISO(b.fin) && b.fin > b.debut ? b.fin : b.debut;
+    if (!min || b.debut < min) min = b.debut;
+    if (!max || f > max) max = f;
+  }));
+
+  const DAY = 86400000;
+  const dateOf = (iso) => new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+  // Échelle : du 1er jour du mois de début au dernier jour du mois de fin.
+  const start = new Date(+min.slice(0, 4), +min.slice(5, 7) - 1, 1);
+  const end = new Date(+max.slice(0, 4), +max.slice(5, 7), 0);
+  const total = Math.round((end - start) / DAY) + 1;
+  const pct = (iso) => ((dateOf(iso) - start) / DAY) / total * 100;
+
+  const mois = [];
+  for (let d = new Date(start); d <= end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    mois.push({ m: d.getMonth(), y: d.getFullYear(), left: Math.round((d - start) / DAY) / total * 100, w: dim / total * 100 });
+  }
+  const bandes = mois.map((mo, i) =>
+    `${i % 2 ? "#f2f4f8" : "#fafbfd"} ${mo.left.toFixed(3)}% ${(mo.left + mo.w).toFixed(3)}%`).join(", ");
+  const petits = mois.length > 10;
+  const labelsMois = mois.map((mo, i) => {
+    const avecAnnee = i === 0 || mo.m === 0;
+    const txt = petits && !avecAnnee ? MOIS_COURT[mo.m].replace(".", "") : `${MOIS_COURT[mo.m]}${avecAnnee ? ` ${mo.y}` : ""}`;
+    return `<span style="position:absolute;left:${mo.left.toFixed(3)}%;width:${mo.w.toFixed(3)}%;text-align:center;overflow:hidden;white-space:nowrap;">${esc(txt)}</span>`;
+  }).join("");
+
+  const rowsHTML = rows.map(r => {
+    const bars = r.bars.slice().sort((a, b) => (a.debut < b.debut ? -1 : 1));
+    const finLane = ["", ""];
+    let deuxLanes = false;
+    const placees = bars.map(b => {
+      const fin = isISO(b.fin) && b.fin > b.debut ? b.fin : b.debut;
+      const lane = b.debut > finLane[0] ? 0 : (b.debut > finLane[1] ? 1 : (finLane[0] <= finLane[1] ? 0 : 1));
+      if (lane === 1) deuxLanes = true;
+      if (fin > finLane[lane]) finLane[lane] = fin;
+      const left = pct(b.debut);
+      const w = Math.max(pct(fin) + (100 / total) - left, 1.6);
+      return { ...b, lane, left, w };
+    });
+    const trackH = deuxLanes ? 23 : 15;
+    const barsHTML = placees.map(b =>
+      `<span style="position:absolute;left:${b.left.toFixed(3)}%;width:${b.w.toFixed(3)}%;top:${b.lane === 1 ? 12.5 : 3.5}pt;height:7.5pt;border-radius:4pt;background:${esc(b.couleur || "#5b8af5")};box-shadow:0 1pt 2pt rgba(16,24,40,.18);"></span>`
+    ).join("");
+    return `
+    <div class="fr-row">
+      <div class="fr-label">${esc(r.label)}</div>
+      <div class="fr-track" style="height:${trackH}pt;background:linear-gradient(90deg, ${bandes});">${barsHTML}</div>
+    </div>`;
+  }).join("");
+
+  // Légende : nécessaire quand une ligne porte plusieurs barres (opération).
+  let legendeHTML = "";
+  if (rows.some(r => r.bars.length > 1)) {
+    const seen = new Map();
+    rows.forEach(r => r.bars.forEach(b => { if (b.nom && !seen.has(b.nom)) seen.set(b.nom, b.couleur || "#5b8af5"); }));
+    legendeHTML = `<div class="fr-legende">${[...seen.entries()].map(([nom, c]) =>
+      `<span class="fr-leg-item"><span class="fr-leg-dot" style="background:${esc(c)};"></span>${esc(nom)}</span>`).join("")}</div>`;
+  }
+
+  const perLabel = (d) => `${MOIS_COURT[d.getMonth()]} ${d.getFullYear()}`;
+  const periode = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()
+    ? perLabel(start) : `${perLabel(start)} → ${perLabel(end)}`;
+
+  const html = `
+  <div class="fr-chart">
+    <div class="fr-row" style="margin-bottom:3pt;">
+      <div class="fr-label"></div>
+      <div style="flex:1;position:relative;height:11pt;font-size:${petits ? 6 : 7}pt;font-weight:700;letter-spacing:.6pt;text-transform:uppercase;color:#8a90a0;">${labelsMois}</div>
+    </div>
+    ${rowsHTML}
+    ${legendeHTML}
+  </div>`;
+  return { html, periode };
+}
+
 // ─── GABARIT PDF « PLANNING PRÉVISIONNEL » ────────────────────────────────────
 // Document CLIENT — même langage visuel que le design system de l'app
-// (src/mobileUI.jsx) : héros en dégradé sombre avec halos ambre/bleu, jaune
-// marque #FFC200, typographie Barlow / Barlow Condensed (Google Fonts,
-// chargées dans la fenêtre d'impression — repli Arial), calendrier en FRISE
-// verticale (un jalon par mois), encadrés conditionnels, mention légale.
+// (src/mobileUI.jsx) : héros en dégradé sombre avec halos ambre/bleu et chips
+// de synthèse, jaune marque #FFC200, typographie Barlow / Barlow Condensed
+// (Google Fonts, chargées dans la fenêtre d'impression — repli Arial),
+// VUE D'ENSEMBLE en frise horizontale (barres colorées par groupe), détail
+// mois par mois en frise verticale, encadrés conditionnels, mention légale.
 // Paramétré pour servir un chantier ("Chantier") comme une opération.
-export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUrl, previsionnel }) {
+//   frise : { rows } (cf. friseChartHTML) — optionnel, section omise sans dates
+//   chips : libellés courts affichés dans le héros (ex : "4 logements")
+export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUrl, previsionnel, frise = null, chips = [] }) {
   const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
   const dateLongue = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   const p = normalizePrevisionnel(previsionnel);
   const OR = "#FFC200"; // jaune marque Profero
+
+  // Vue d'ensemble (frise horizontale) + chips du héros (période en tête).
+  const chart = friseChartHTML(frise, esc);
+  const chipsHero = [chart.periode, ...(Array.isArray(chips) ? chips : [])].filter(Boolean);
+  const sectionTitre = (t) => `
+  <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 12pt;">
+    <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">${t}</span>
+    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
+  </div>`;
 
   // Une ligne d'étape « Nom — Précision (jusqu'à …) » est décomposée pour la
   // hiérarchie visuelle : nom en avant, précision (logement) et débordement
@@ -204,6 +308,18 @@ export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUr
   .encadre-titre{font-size:8pt;font-weight:700;letter-spacing:1.2pt;text-transform:uppercase;color:#8a6d00;margin-bottom:3pt;}
   .encadre-texte{font-size:9.5pt;color:#57534a;line-height:1.55;}
 
+  /* ── Chips du héros ── */
+  .chip{display:inline-block;padding:3pt 10pt;border-radius:99pt;background:rgba(255,255,255,.09);border:1pt solid rgba(255,255,255,.18);color:rgba(255,255,255,.88);font-size:8pt;font-weight:600;letter-spacing:.3pt;white-space:nowrap;}
+
+  /* ── Frise horizontale (vue d'ensemble) ── */
+  .fr-chart{border:1pt solid #e9ebf0;border-radius:10pt;padding:10pt 12pt 9pt;break-inside:avoid;page-break-inside:avoid;box-shadow:0 1pt 2pt rgba(16,24,40,.04);}
+  .fr-row{display:flex;align-items:center;margin-bottom:3pt;}
+  .fr-label{width:105pt;flex:0 0 auto;padding-right:10pt;font-size:8.5pt;font-weight:600;color:#2a2f3a;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .fr-track{flex:1;position:relative;border-radius:4pt;overflow:hidden;}
+  .fr-legende{display:flex;flex-wrap:wrap;gap:5pt 12pt;margin-top:8pt;padding-top:7pt;border-top:1pt solid #eef0f4;}
+  .fr-leg-item{display:inline-flex;align-items:center;gap:4pt;font-size:7.5pt;font-weight:600;color:#4a4f5b;}
+  .fr-leg-dot{width:7pt;height:7pt;border-radius:2.5pt;display:inline-block;}
+
   @page{margin:12mm 13mm 14mm;size:A4;}
   @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
 </style></head><body><div class="page">
@@ -229,19 +345,19 @@ export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUr
           <div style="font-size:8pt;font-weight:700;letter-spacing:2.5pt;text-transform:uppercase;color:${OR};">Planning prévisionnel — ${esc(cardLabel)}</div>
           <div class="bc" style="font-size:24pt;font-weight:800;color:#fff;line-height:1.08;margin-top:3pt;">${esc(titre)}</div>
           ${p.sous_titre ? `<div style="font-size:10pt;color:rgba(255,255,255,.62);margin-top:3pt;">${esc(p.sous_titre)}</div>` : ""}
+          ${chipsHero.length ? `<div style="margin-top:9pt;display:flex;gap:6pt;flex-wrap:wrap;">${chipsHero.map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
         </td>
         ${livraisonBadge}
       </tr>
     </table>
   </div>
 
-  <!-- ── Titre de section ── -->
-  <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 14pt;">
-    <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">Calendrier prévisionnel</span>
-    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
-  </div>
+  ${chart.html ? `${sectionTitre("Vue d'ensemble")}
+  ${chart.html}` : ""}
 
-  <!-- ── Frise ── -->
+  ${sectionTitre(chart.html ? "Détail mois par mois" : "Calendrier prévisionnel")}
+
+  <!-- ── Frise verticale (détail) ── -->
   <div class="timeline">
     ${blocsHTML || `<div style="text-align:center;padding:30pt;color:#999;">Aucune étape renseignée. Ajoute des mois dans la vue Prévisionnel.</div>`}
   </div>

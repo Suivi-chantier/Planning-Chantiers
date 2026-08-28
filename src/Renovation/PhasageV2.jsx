@@ -1005,22 +1005,28 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     });
   };
 
-  // Génère les blocs du prévisionnel depuis les groupes chrono déjà planifiés
-  // (bornes des date_prevue) — module partagé previsionnelDoc. Remplace les
-  // blocs existants (après confirmation) ; sous-titre et mention de bas de
-  // page sont conservés, la livraison est recalculée depuis le planning.
-  const genererPrevisionnelAuto = () => {
+  // Groupes chrono avec leurs bornes de dates (min/max des date_prevue) et
+  // leur couleur — sert à la génération auto des blocs ET à la frise
+  // horizontale « Vue d'ensemble » du PDF prévisionnel.
+  const groupesPourPrevisionnel = () => {
     const toutesTaches = ouvrages.flatMap(o => o?.taches || []);
-    const items = chronoGroupes
+    return chronoGroupes
       .slice().sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0))
       .map(g => {
         const taches = toutesTaches.filter(t => t.chrono_groupe_id === g.id);
         if (taches.length === 0) return null;
         const dates = taches.map(t => (t.date_prevue || "").slice(0, 10)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
-        return { nom: g.nom || "", debut: dates[0] || "", fin: dates[dates.length - 1] || "", ordre: g.ordre ?? 0 };
+        return { nom: g.nom || "", debut: dates[0] || "", fin: dates[dates.length - 1] || "", ordre: g.ordre ?? 0, couleur: g.couleur || "#5b8af5" };
       })
       .filter(Boolean);
-    const auto = blocsAutoDepuisGroupes(items);
+  };
+
+  // Génère les blocs du prévisionnel depuis les groupes chrono déjà planifiés
+  // (bornes des date_prevue) — module partagé previsionnelDoc. Remplace les
+  // blocs existants (après confirmation) ; sous-titre et mention de bas de
+  // page sont conservés, la livraison est recalculée depuis le planning.
+  const genererPrevisionnelAuto = () => {
+    const auto = blocsAutoDepuisGroupes(groupesPourPrevisionnel());
     if (auto.nbDates === 0) {
       alert("Aucun groupe de tâches daté sur ce chantier. Planifie les tâches (vue Chronologique ou Planning) puis regénère.");
       return;
@@ -1612,12 +1618,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // ─── EXPORT PDF DU PRÉVISIONNEL CLIENT ──────────────────────────────────
   // Gabarit PROFERO partagé (previsionnelDoc) — le même document sert au
   // Chemin de fer pour le prévisionnel global d'une opération.
-  const buildPrevisionnelHTML = () => buildPrevisionnelDocHTML({
-    titre: chantier?.nom || chantierId,
-    cardLabel: "Chantier",
-    logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
-    previsionnel: prev,
-  });
+  const buildPrevisionnelHTML = () => {
+    // Vue d'ensemble : une ligne par groupe daté, barre à la couleur du groupe.
+    const dates = groupesPourPrevisionnel().filter(g => g.debut);
+    return buildPrevisionnelDocHTML({
+      titre: chantier?.nom || chantierId,
+      cardLabel: "Chantier",
+      logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+      previsionnel: prev,
+      frise: { rows: dates.map(g => ({ label: g.nom, bars: [g] })) },
+      chips: dates.length ? [`${dates.length} étape${dates.length > 1 ? "s" : ""} planifiée${dates.length > 1 ? "s" : ""}`] : [],
+    });
+  };
 
   const exportPrevisionnelPDF = () => {
     try {
