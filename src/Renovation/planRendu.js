@@ -84,21 +84,39 @@ export const LEGENDE_TITRES = {
   chauff: "LÉGENDE CHAUFFAGE", global: "LÉGENDE GÉNÉRALE",
 };
 
-// ── Cadrage : viewport { x, y, scale } qui englobe segments, symboles,
-//    surfaces et cotes dans un canvas logique W×H (null si plan vide). ────────
+// ── Cadrage : viewport { x, y, scale } dans un canvas logique W×H (null si
+//    plan vide). Le cadre de référence est celui de l'ÉDITEUR bureau
+//    (Plans.jsx fitView) : segments + symboles — c'est le dessin lui-même.
+//    Les surfaces et cotes n'étendent le cadre que si elles restent PROCHES
+//    du dessin (marge de 35 % de son emprise) : un polygone parasite créé
+//    par erreur à des centaines de mètres (cas réel : zone « 90 028 m² »)
+//    n'écrase plus le cadrage — il sera simplement hors champ. ────────────────
 export function calerVue(d, W, H) {
   const segs = (d?.segments || []).filter(s => !s.deleted);
   const syms = (d?.symbols || []).filter(s => !s.deleted);
-  const b = getBounds(segs, syms);
-  let { minX, maxX, minY, maxY } = b;
-  (d?.surfaces || []).filter(s => !s.deleted).forEach(s => (s.points || []).forEach(p => {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-  }));
-  (d?.cotes || []).filter(c => !c.deleted).forEach(c => {
-    minX = Math.min(minX, c.x1, c.x2); maxX = Math.max(maxX, c.x1, c.x2);
-    minY = Math.min(minY, c.y1, c.y2); maxY = Math.max(maxY, c.y1, c.y2);
-  });
+  const surfPts = (d?.surfaces || []).filter(s => !s.deleted).flatMap(s => s.points || []);
+  const cotePts = (d?.cotes || []).filter(c => !c.deleted)
+    .flatMap(c => [{ x: c.x1, y: c.y1 }, { x: c.x2, y: c.y2 }]);
+
+  let minX, maxX, minY, maxY;
+  if (segs.length > 0 || syms.length > 0) {
+    const b = getBounds(segs, syms);
+    ({ minX, maxX, minY, maxY } = b);
+    const marge = Math.max(b.w, b.h, 1) * 0.35;
+    const dans = (p) => p.x >= b.minX - marge && p.x <= b.maxX + marge &&
+                        p.y >= b.minY - marge && p.y <= b.maxY + marge;
+    [...surfPts, ...cotePts].filter(dans).forEach(p => {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    });
+  } else {
+    // Pas de dessin : cadrer sur ce qui existe (surfaces / cotes seules).
+    const pts = [...surfPts, ...cotePts];
+    if (pts.length === 0) return null;
+    minX = Math.min(...pts.map(p => p.x)); maxX = Math.max(...pts.map(p => p.x));
+    minY = Math.min(...pts.map(p => p.y)); maxY = Math.max(...pts.map(p => p.y));
+  }
+
   const w = Math.max(maxX - minX, 0.01), h = Math.max(maxY - minY, 0.01);
   const scale = Math.min(W / (w * 1.15), H / (h * 1.15));
   if (!isFinite(scale) || scale <= 0) return null;
