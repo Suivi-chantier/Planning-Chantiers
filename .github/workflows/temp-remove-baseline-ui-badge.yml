@@ -1,0 +1,50 @@
+name: Temp Remove Baseline UI Badge
+
+on:
+  push:
+    branches:
+      - feature/planning-baseline-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Retire le badge diagnostic UI 03.2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/planning-baseline-v1
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Retirer uniquement le badge diagnostic
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/Renovation/PlanningBaselinePanel.jsx')
+          s = p.read_text()
+          before = s
+          s = s.replace('const UI_VERSION = "03.2";\n\n', '')
+          lines = s.splitlines(True)
+          lines2 = [line for line in lines if 'UI {UI_VERSION}' not in line]
+          s = ''.join(lines2)
+          if s == before:
+              raise SystemExit('Badge diagnostic introuvable')
+          if 'UI_VERSION' in s or 'UI {UI_VERSION}' in s:
+              raise SystemExit('Badge diagnostic encore present')
+          p.write_text(s)
+          PY
+      - run: git diff --check
+      - run: npm ci
+      - run: npm run build
+      - name: Commit
+        run: |
+          git config user.name 'Suivi-chantier'
+          git config user.email 'suivi.chantier@groupe-profero.com'
+          git add src/Renovation/PlanningBaselinePanel.jsx
+          git commit -m 'Retire le badge diagnostic UI 03.2'
+          git push origin HEAD:feature/planning-baseline-v1
