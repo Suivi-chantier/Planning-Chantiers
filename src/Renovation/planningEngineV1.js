@@ -166,8 +166,6 @@ function scorerTravail({ travail, date, contraintes, allocationsProposees }) {
     if (jours < 0) score += 1000 + Math.abs(jours) * 20;
     else score += Math.max(0, 300 - jours * 5);
   }
-  // À priorité égale, les groupes métier les plus tôt dans le process passent
-  // devant. Le tri final reste déterministe via ordre_tache puis id.
   score += Math.max(0, 150 - Math.min(150, travail.ordre_groupe));
   return score;
 }
@@ -176,7 +174,7 @@ function chargePour(charge, resourceId, date) {
   return charge.get(keyCharge(resourceId, date)) || { heures: 0, chantiers: new Set() };
 }
 
-function choisirEquipe({ travail, date, ressources, evenements, contraintes, charge }) {
+function choisirEquipe({ travail, date, ressources, evenements, contraintes, charge, requiredElapsed = null }) {
   const candidatesSet = new Set(travail.candidate_resource_ids);
   const allCandidates = ressources.filter(r =>
     r.actif !== false
@@ -194,6 +192,9 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintes, cha
       heuresDejaAllouees: load.heures,
     });
     if (capacite.capacite_disponible <= EPS) continue;
+    // Une tâche non fractionnable exige un créneau complet pour chaque membre
+    // de l'équipe. On élimine donc ici les ressources qui forceraient un split.
+    if (!travail.fractionnable && requiredElapsed != null && capacite.capacite_disponible + EPS < requiredElapsed) continue;
 
     const cEval = evaluerContraintesPlanning({
       contraintes,
@@ -206,7 +207,7 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintes, cha
     let score = capacite.capacite_disponible;
     if (travail.preferred_resource_ids.includes(r.id)) score += 1000;
     if (load.chantiers.has(travail.chantier_id)) score += 300;
-    else if (load.chantiers.size > 0) score -= 120; // changement de chantier : soft, pas impossible.
+    else if (load.chantiers.size > 0) score -= 120;
 
     scored.push({ resource: r, capacite, constraintEval: cEval, score });
   }
@@ -289,9 +290,6 @@ export function planifierPropositionV1({
     const date = dateAddDays(debut, dayIndex);
     const allocatedToday = new Set();
 
-    // Plusieurs passes permettent à un successeur de devenir éligible le même
-    // jour après achèvement de son prédécesseur. Une tâche n'est toutefois
-    // allouée qu'une seule fois par jour.
     let progress = true;
     while (progress) {
       progress = false;
@@ -332,6 +330,7 @@ export function planifierPropositionV1({
         const state = etats.get(t.id);
         if (!state || state.termine || allocatedToday.has(t.id)) continue;
 
+        const requiredElapsed = state.restant_mo / t.crew_size;
         const crew = choisirEquipe({
           travail: t,
           date,
@@ -339,6 +338,7 @@ export function planifierPropositionV1({
           evenements: evenementsRessources,
           contraintes: constraints,
           charge,
+          requiredElapsed,
         });
         if (!crew.ok) {
           attempts.get(t.id).dates_sans_equipe++;
@@ -346,7 +346,7 @@ export function planifierPropositionV1({
         }
 
         const maxElapsed = Math.min(...crew.selected.map(x => x.capacite.capacite_disponible));
-        const elapsed = round2(Math.min(maxElapsed, state.restant_mo / crew.selected.length));
+        const elapsed = round2(Math.min(maxElapsed, requiredElapsed));
         if (elapsed <= EPS) continue;
 
         const resourceIds = crew.selected.map(x => x.resource.id);
@@ -380,6 +380,7 @@ export function planifierPropositionV1({
             contraintes_appliquees: candidate.dateEval.applied_constraint_ids,
             violations: candidate.dateEval.violations,
             changement_chantier_ressources: switchedResources,
+            fractionnable: t.fractionnable,
             formule: "MO produite = durée allocation × nombre de ressources ; durée plafonnée par la capacité disponible la plus faible de l'équipe",
           },
         };
@@ -407,7 +408,7 @@ export function planifierPropositionV1({
           allocation_uid: allocation.allocation_uid,
           raison: `Travail éligible ; ${resourceIds.length} ressource(s) sélectionnée(s) ; ${produced} h MO proposées`,
         });
-        break; // recalculer l'ordre après chaque allocation.
+        break;
       }
     }
   }
