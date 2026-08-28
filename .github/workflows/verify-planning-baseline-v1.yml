@@ -1,0 +1,33 @@
+name: Verify Planning Baseline V1
+
+on:
+  push:
+    branches:
+      - feature/planning-baseline-v1
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Fixtures modèle métier chantier 01
+        run: node --experimental-default-type=module scripts/verif-planning-model-v1.mjs
+      - name: Fixtures ressources chantier 02
+        run: node scripts/verif-planning-resource-model-v1.mjs
+      - name: Fixtures capacité chantier 02
+        run: node --experimental-default-type=module scripts/verif-planning-resource-capacity-v1.mjs
+      - name: Fixtures contraintes chantier 02
+        run: node --experimental-default-type=module scripts/verif-planning-constraint-model-v1.mjs
+      - name: Fixtures baseline chantier 03
+        run: node --experimental-default-type=module scripts/verif-planning-baseline-model-v1.mjs
+      - name: Installer dépendances
+        run: npm ci
+      - name: Build Vite
+        run: npm run build

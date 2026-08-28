@@ -7,6 +7,8 @@ import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
 import { calculerCapaciteRessourcePourDate } from "./planningResourceCapacityV1.js";
 import { chargerRessourcesPlanningV1, chargerEvenementsRessourcesPourDateV1, indexerRessourcesParNomPlanningV1, ressourcePourNomPlanningV1 } from "./planningResourceDataV1.js";
 import { sortByChrono } from "./chronoTemplate";
+import { creerAllocationUid } from "./planningBaselineModelV1.js";
+import { chargerVerrousAllocationsV1, indexerVerrousAllocationsV1, verrouillerAllocationV1, deverrouillerAllocationV1 } from "./planningAllocationLockDataV1.js";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
 // estimées du phasage — modifiable ensuite dans la ligne de tâche).
@@ -52,6 +54,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   const dateISOJour = getDateISO();
   const [resourceIndex, setResourceIndex] = useState(() => new Map());
   const [resourceEvents, setResourceEvents] = useState([]);
+  const [allocationLocks, setAllocationLocks] = useState(() => new Map());
+  const [lockingUid, setLockingUid] = useState(null);
   useEffect(() => {
     let cancelled = false;
     if (!dateISOJour) { setResourceIndex(new Map()); setResourceEvents([]); return undefined; }
@@ -69,6 +73,44 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
       });
     return () => { cancelled = true; };
   }, [dateISOJour]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!chantier?.id) { setAllocationLocks(new Map()); return undefined; }
+    chargerVerrousAllocationsV1(chantier.id)
+      .then(rows => { if (!cancelled) setAllocationLocks(indexerVerrousAllocationsV1(rows)); })
+      .catch(e => { if (!cancelled) console.warn("Chargement verrous allocations :", e?.message || e); });
+    return () => { cancelled = true; };
+  }, [chantier?.id]);
+
+  const toggleAllocationLock = async (tache) => {
+    const uid = tache?.allocation_uid;
+    if (!uid || lockingUid) return;
+    const locked = allocationLocks.has(uid);
+    setLockingUid(uid);
+    try {
+      if (locked) {
+        await deverrouillerAllocationV1(uid);
+        setAllocationLocks(prev => { const next = new Map(prev); next.delete(uid); return next; });
+      } else {
+        // Une ligne sans équipe propre dépend de l’équipe de la cellule. Au verrouillage,
+        // on fige l’équipe effective sur la ligne pour rendre le verrou réellement stable.
+        if (!(tache.ouvriers || []).length && (draft.ouvriers || []).length) {
+          setDraft(p => ({
+            ...p,
+            taches: (p.taches || []).map(x => x.allocation_uid === uid ? { ...x, ouvriers:[...(p.ouvriers || [])] } : x),
+          }));
+        }
+        const row = await verrouillerAllocationV1({ chantierId:chantier.id, allocationUid:uid });
+        setAllocationLocks(prev => new Map(prev).set(uid, row));
+      }
+    } catch (e) {
+      console.warn("Verrou allocation :", e?.message || e);
+      window.alert(`Impossible de ${locked ? "déverrouiller" : "verrouiller"} cette allocation : ${e?.message || e}`);
+    } finally {
+      setLockingUid(null);
+    }
+  };
 
   // ── Tâches du phasage du chantier (sélecteur « Planifier depuis le phasage »).
   // Chargé à la première ouverture du panneau (lazy), trié dans l'ordre chrono
@@ -114,12 +156,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // la cellule en cours remplace ce que la DB connaît de CE jour (la cellule
   // n'est sauvegardée qu'à la fermeture). skipDraftId : ligne du brouillon à
   // exclure (recalcul de sa propre durée).
-  const heuresDejaPlanifiees = (tacheId, skipDraftId = null) => {
+  const heuresDejaPlanifiees = (tacheId, skipDraftUid = null) => {
     let h = (planningMap[String(tacheId)] || [])
       .filter(l => !(l.weekId === weekId && l.jour === jour))
       .reduce((s, l) => s + l.duree * (l.nb || 1), 0);
     (draft.taches || []).forEach(x => {
-      if (x.id === skipDraftId) return;
+      if (skipDraftUid && (x.allocation_uid === skipDraftUid || (!x.allocation_uid && x.id === skipDraftUid))) return;
       if (String(x.tache_id || "") === String(tacheId)) h += (parseFloat(x.duree) || 0) * nbOuvriersLigne(x);
     });
     return h;
@@ -183,7 +225,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     if (!t) return undefined; // phasage pas chargé ou tâche inconnue : ne rien changer
     const total = arrondiQuart(dureeTotale(t)) || 0;
     if (total <= 0) return undefined;
-    const restantMO = Math.max(0, total - heuresDejaPlanifiees(line.tache_id, line.id));
+    const restantMO = Math.max(0, total - heuresDejaPlanifiees(line.tache_id, line.allocation_uid || line.id));
     const cibles = (line.ouvriers && line.ouvriers.length > 0) ? line.ouvriers : (draft.ouvriers || []);
     const nb = cibles.length || 1;
     let d = Math.round((restantMO / nb) * 4) / 4;
@@ -274,6 +316,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     if (duree != null && restantJour > 0 && duree > restantJour) duree = restantJour;
     const newT = {
       id: Math.random().toString(36).slice(2),
+      allocation_uid: creerAllocationUid(),
       tache_id: t.id,
       text: t.nom || "",
       duree,
@@ -448,7 +491,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
               )}
 
               {(draft.taches||[]).map((tache,idx)=>(
-                <div key={tache.id} style={{background:T.fieldBg,border:`1.5px solid ${T.fieldBorder}`,
+                <div key={tache.allocation_uid || tache.id} style={{background:T.fieldBg,border:`1.5px solid ${allocationLocks.has(tache.allocation_uid)?"#f59e0b":T.fieldBorder}`,
                   borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
                   <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                     <span style={{color:T.textMuted,fontSize:13,marginTop:2,flexShrink:0}}>{idx+1}.</span>
@@ -470,6 +513,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                       <span style={{fontSize:12,color:T.textMuted}}>⏱</span>
                       <input
                         type="number" min="0.25" max="24" step="0.25"
+                        disabled={allocationLocks.has(tache.allocation_uid)}
                         value={tache.duree||""}
                         onChange={e=>{
                           const t=[...(draft.taches||[])];
@@ -482,7 +526,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                       />
                       <span style={{fontSize:11,color:T.textMuted}}>h</span>
                     </div>
-                    <button onClick={()=>{
+                    <button onClick={()=>toggleAllocationLock(tache)} disabled={!tache.allocation_uid || lockingUid===tache.allocation_uid}
+                      style={{background:"transparent",border:"none",cursor:"pointer",color:allocationLocks.has(tache.allocation_uid)?"#f59e0b":T.textMuted,fontSize:15,padding:"0 3px",flexShrink:0}}
+                      title={allocationLocks.has(tache.allocation_uid)?"Déverrouiller cette allocation":"Verrouiller date, durée et équipe"}>
+                      {allocationLocks.has(tache.allocation_uid)?"🔒":"🔓"}
+                    </button>
+                    <button disabled={allocationLocks.has(tache.allocation_uid)} onClick={()=>{
                       const t=(draft.taches||[]).filter((_,i)=>i!==idx);
                       setDraft(p=>({...p,taches:t,planifie:t.map(x=>x.text).join("\n")}));
                       onRemoveTache(tache);
@@ -496,7 +545,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                     {(draft.ouvriers||[]).map(o=>{
                       const sel=(tache.ouvriers||[]).includes(o);
                       return(
-                        <button key={o} onClick={()=>{
+                        <button key={o} disabled={allocationLocks.has(tache.allocation_uid)} onClick={()=>{
                           const list=[...(tache.ouvriers||[])];
                           const i=list.indexOf(o);
                           if(i>=0)list.splice(i,1);else list.push(o);
@@ -511,7 +560,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                           setDraft(p=>({...p,taches:t}));
                         }} style={{
                           padding:"3px 10px",borderRadius:6,fontSize:12,fontWeight:700,
-                          cursor:"pointer",fontFamily:"inherit",transition:"all .1s",
+                          cursor:allocationLocks.has(tache.allocation_uid)?"not-allowed":"pointer",fontFamily:"inherit",transition:"all .1s",
+                          opacity:allocationLocks.has(tache.allocation_uid) ? 0.6 : 1,
                           background:sel?chantier.couleur:"transparent",
                           border:`1.5px solid ${sel?"rgba(0,0,0,0.15)":T.border}`,
                           color:sel?"#1a1f2e":T.textSub,
@@ -531,7 +581,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
               ))}
 
               <button onClick={()=>{
-                const newT={id:Math.random().toString(36).slice(2),text:"",ouvriers:[]};
+                const newT={id:Math.random().toString(36).slice(2),allocation_uid:creerAllocationUid(),text:"",ouvriers:[]};
                 const t=[...(draft.taches||[]),newT];
                 setDraft(p=>({...p,taches:t}));
               }} style={{

@@ -1,4 +1,7 @@
 import CellModal from "./CellModal";
+import PlanningBaselinePanel from "./PlanningBaselinePanel";
+import { creerAllocationUid } from "./planningBaselineModelV1.js";
+import { estAllocationVerrouilleeV1 } from "./planningAllocationLockDataV1.js";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
@@ -9,7 +12,7 @@ import { syncDatePrevueTache } from "./phasagePlanning";
 import { capaciteJour, estJourNonTravaille, libelleRythme, semainesDansAnnee } from "../rythmeSemaine";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
-  ArrowRightLeft, Clock, TriangleAlert, Check,
+  ArrowRightLeft, Clock, TriangleAlert, Check, Snowflake,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap,
 } from "lucide-react";
 
@@ -51,6 +54,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const v = "planifie";
   const [showEmptyWeek, setShowEmptyWeek] = useState(false); // grille PC : afficher les chantiers sans tâche de la semaine
   const [modal, setModal] = useState(null);
+  const [baselineOpen, setBaselineOpen] = useState(false);
   const [cellDraft, setCellDraft] = useState(null);
   const [cmdDraft, setCmdDraft] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
@@ -183,7 +187,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const openModal = (cId, jour) => {
     setModal({ cId, jour });
     const existing = cells[`${cId}_${jour}`] || emptyCell();
-    const taches = parseTachesFromPlanifie(existing.planifie, existing.taches);
+    const taches = parseTachesFromPlanifie(existing.planifie, existing.taches)
+      .map(t => t.allocation_uid ? t : { ...t, allocation_uid: creerAllocationUid() });
     setCellDraft({ ...existing, taches });
     setCmdDraft(commandes[cId] || "");
     setNoteDraft(notesData[cId] || "");
@@ -211,11 +216,24 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     const toKey   = `${cId}_${toJour}`;
     const fromCell = cells[fromKey] || emptyCell();
     // On reconstruit toujours des tâches avec id stable (pour les legacy).
-    const fromTaches = getDisplayTaches(fromCell).map(t =>
-      String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t
-    );
+    const fromTaches = getDisplayTaches(fromCell).map(t => {
+      const base = String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t;
+      return base.allocation_uid ? base : { ...base, allocation_uid: creerAllocationUid() };
+    });
     if (taskIdx < 0 || taskIdx >= fromTaches.length) return;
     const moved = fromTaches[taskIdx];
+    if (moved?.allocation_uid) {
+      try {
+        if (await estAllocationVerrouilleeV1(moved.allocation_uid)) {
+          window.alert("Cette allocation est verrouillée. Déverrouille-la dans la cellule avant de la déplacer.");
+          return;
+        }
+      } catch (e) {
+        console.warn("Vérification verrou allocation :", e?.message || e);
+        window.alert("Impossible de vérifier le verrou de cette allocation. Le déplacement est annulé par sécurité.");
+        return;
+      }
+    }
     const newFromTaches = fromTaches.filter((_, i) => i !== taskIdx);
     const newFromCell = {
       ...fromCell,
@@ -223,9 +241,10 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       planifie: newFromTaches.map(t => t.text).join("\n"),
     };
     const toCell = cells[toKey] || emptyCell();
-    const toTaches = getDisplayTaches(toCell).map(t =>
-      String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t
-    );
+    const toTaches = getDisplayTaches(toCell).map(t => {
+      const base = String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t;
+      return base.allocation_uid ? base : { ...base, allocation_uid: creerAllocationUid() };
+    });
     const newToTaches = [...toTaches, moved];
     const newToCell = {
       ...toCell,
@@ -252,7 +271,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     if (!modal || !cellDraft) { setModal(null); return; }
     const { cId, jour } = modal;
     setSaving(true);
-    const taches = (cellDraft.taches || []).filter(t => t.text.trim());
+    const taches = (cellDraft.taches || []).filter(t => t.text.trim())
+      .map(t => t.allocation_uid ? t : { ...t, allocation_uid: creerAllocationUid() });
     const planifie = taches.map(t => t.text).join("\n");
     const finalDraft = { ...cellDraft, taches, planifie };
     setCells(prev => ({ ...prev, [`${cId}_${jour}`]: finalDraft }));
@@ -456,6 +476,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         </>
       )}
 
+      {baselineOpen && <PlanningBaselinePanel chantiers={chantiers} T={T} acc={acc} onClose={()=>setBaselineOpen(false)}/>}
+
       {modal && cellDraft && <CellModal
         chantier={modalChantier}
         jour={modal.jour}
@@ -518,6 +540,11 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         </div>
 
         <div style={{ marginLeft:"auto", display:"flex", gap:6, alignItems:"center" }}>
+          <button title="Planning de référence" onClick={()=>setBaselineOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>
+            <Icon as={Snowflake} size={14}/> Référence
+          </button>
           <button title="Imprimer / Exporter" onClick={handlePrint} style={navBtn}
             onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>
