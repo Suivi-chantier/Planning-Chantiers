@@ -8,11 +8,13 @@ on:
     paths:
       - 'src/Renovation/planningResourceModelV1.js'
       - 'src/Renovation/planningResourceCapacityV1.js'
+      - 'src/Renovation/planningConstraintModelV1.js'
       - 'src/Renovation/planningModelV1.js'
       - 'src/Renovation/planningRulesV1.js'
       - 'src/rythmeSemaine.js'
       - 'scripts/verif-planning-resource-model-v1.mjs'
       - 'scripts/verif-planning-resource-capacity-v1.mjs'
+      - 'scripts/verif-planning-constraint-model-v1.mjs'
       - 'scripts/verif-planning-model-v1.mjs'
       - 'scripts/verif-planning-model-audit-v1.mjs'
       - 'scripts/verif-planning-group-inference-v1.mjs'
@@ -46,6 +48,8 @@ jobs:
         run: node scripts/verif-planning-resource-model-v1.mjs
       - name: Fixtures capacité rythme + ressources chantier 02
         run: node --experimental-default-type=module scripts/verif-planning-resource-capacity-v1.mjs
+      - name: Fixtures contraintes chantier 02
+        run: node --experimental-default-type=module scripts/verif-planning-constraint-model-v1.mjs
       - name: Installer dépendances
         run: npm ci
       - name: Build Vite
