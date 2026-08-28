@@ -272,7 +272,7 @@ export default function PlanningResourcesAdmin({ T, acc }) {
           </div>
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:18}}>
             <button onClick={()=>setShowForm(false)} style={{padding:"8px 14px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,background:"transparent",color:T.textSub,fontFamily:"inherit",cursor:"pointer"}}>Annuler</button>
-            <button onClick={saveEvent} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:RADIUS.md,border:"none",background:acc.accent,color:acc.onAccent,fontFamily:"inherit",fontWeight:800,cursor:saving?"default":"pointer",opacity:saving?.6:1}}><Icon as={Check} size={13}/>{saving?"Enregistrement…":"Enregistrer"}</button>
+            <button onClick={saveEvent} disabled={saving} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:RADIUS.md,border:"none",background:acc.accent,color:acc.onAccent,fontFamily:"inherit",fontWeight:800,cursor:saving?"default":"pointer",opacity:saving ? 0.6 : 1}}><Icon as={Check} size={13}/>{saving?"Enregistrement…":"Enregistrer"}</button>
           </div>
         </div>
       </div>}
