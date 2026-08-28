@@ -1,0 +1,44 @@
+name: Patch Admin Planning Resources V1
+
+on:
+  push:
+    branches:
+      - feature/planning-resources-v1
+    paths:
+      - 'scripts/patch-admin-planning-resources-v1.mjs'
+      - '.github/workflows/patch-admin-planning-resources-v1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Raccorde Ressources et absences dans Admin'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Appliquer le patch contrôlé
+        run: node scripts/patch-admin-planning-resources-v1.mjs
+      - name: Vérifier les fixtures contraintes
+        run: node --experimental-default-type=module scripts/verif-planning-constraint-model-v1.mjs
+      - name: Installer les dépendances
+        run: npm ci
+      - name: Compiler l'application
+        run: npm run build
+      - name: Vérifier le diff
+        run: git diff --check
+      - name: Committer le raccordement
+        run: |
+          git config user.name "Suivi-chantier"
+          git config user.email "suivi.chantier@groupe-profero.com"
+          git add src/Renovation/Admin.jsx
+          if git diff --cached --quiet; then
+            echo "Aucun changement à committer"
+          else
+            git commit -m "Raccorde Ressources et absences dans Admin"
+            git push
+          fi
