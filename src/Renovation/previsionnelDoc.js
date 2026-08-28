@@ -220,7 +220,6 @@ function friseChartHTML(frise, esc) {
 export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUrl, previsionnel, frise = null, chips = [] }) {
   const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
-  const dateLongue = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
   const p = normalizePrevisionnel(previsionnel);
   const OR = "#FFC200"; // jaune marque Profero
 
@@ -328,17 +327,7 @@ export function buildPrevisionnelDocHTML({ titre, cardLabel = "Chantier", logoUr
   <div style="position:relative;overflow:hidden;border-radius:14pt;background:linear-gradient(135deg,#161b28 0%,#232c42 55%,#2e2840 100%);padding:16pt 20pt 18pt;">
     <div style="position:absolute;right:-45pt;top:-55pt;width:175pt;height:175pt;border-radius:50%;background:radial-gradient(circle,rgba(255,194,0,.30) 0%,rgba(255,194,0,0) 68%);"></div>
     <div style="position:absolute;left:-35pt;bottom:-75pt;width:160pt;height:160pt;border-radius:50%;background:radial-gradient(circle,rgba(91,138,245,.26) 0%,rgba(91,138,245,0) 68%);"></div>
-    <table style="width:100%;border-collapse:collapse;position:relative;">
-      <tr>
-        <td style="vertical-align:top;">
-          <img src="${logoUrl}" alt="Profero" style="height:23pt;object-fit:contain;display:block;"/>
-        </td>
-        <td style="vertical-align:top;text-align:right;white-space:nowrap;">
-          <div style="font-size:6.5pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;color:rgba(255,255,255,.4);">Édité le</div>
-          <div style="font-size:9pt;font-weight:600;color:rgba(255,255,255,.85);margin-top:1pt;">${dateLongue}</div>
-        </td>
-      </tr>
-    </table>
+    <img src="${logoUrl}" alt="Profero" style="height:23pt;object-fit:contain;display:block;position:relative;"/>
     <table style="width:100%;border-collapse:collapse;position:relative;margin-top:16pt;">
       <tr>
         <td style="vertical-align:bottom;">
