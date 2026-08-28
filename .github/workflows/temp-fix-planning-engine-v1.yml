@@ -10,14 +10,14 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'Corrige les garde-fous du moteur global V1'
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/planning-engine-v1
           fetch-depth: 0
-      - name: Patch engine + fixtures
+      - name: Patch engine and fixtures
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -80,10 +80,10 @@ jobs:
       - run: npm ci
       - run: node scripts/verif-planning-engine-v1.mjs
       - run: npm run build
-      - name: Commit
+      - name: Commit patch
         run: |
-          git config user.name 'Suivi-chantier'
-          git config user.email 'suivi.chantier@groupe-profero.com'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/Renovation/planningEngineV1.js scripts/verif-planning-engine-v1.mjs
           git commit -m 'Corrige les garde-fous du moteur global V1'
           git push origin HEAD:feature/planning-engine-v1
