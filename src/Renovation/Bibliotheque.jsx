@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
+import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
+import {
+  DEPENDANCE_MODES, dupliquerSousTachesV2, estOuvrageV2, maturiteOuvrageV2,
+  normaliserOuvrageV2, nouvelIdSousTache,
+} from "./planningModelV1";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy,
@@ -21,15 +25,19 @@ const CATEGORIES_BASE = [
 ];
 
 // ─── SOUS-TÂCHE ROW ──────────────────────────────────────────────────────────
-// Le ratio (%) détermine la répartition des heures ESTIMÉES de l'ouvrage
-// (= cadence × quantité, càd le coût de production interne), pas les heures
-// vendues au client. Permet à l'import devis de pré-remplir heures_estimees
-// de chaque tâche dans PhasageV2.
-function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) {
-  // Compat : on lit l'ancien champ `phaseId` (phasage v1) en repli sur `lotId`.
+// Le ratio (%) détermine la répartition des heures ESTIMÉES de l'ouvrage.
+// Pour les Ouvrages_V2, la ligne porte aussi son groupe d'exécution et sa
+// dépendance technique. Les ouvrages historiques gardent leur affichage sans
+// imposer ces nouvelles métadonnées.
+function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, groupesTypes, T }) {
   const lotId = st.lotId ?? st.phaseId ?? "";
   const lot = LOTS.find(l => l.id === lotId);
   const total = (editData.sous_taches || []).length;
+  const isV2 = estOuvrageV2(editData);
+  const groupeTypeId = st.groupe_type_id || "";
+  const groupeType = (groupesTypes || []).find(g => g.id === groupeTypeId);
+  const mode = st.dependance_mode || DEPENDANCE_MODES.PARALLEL;
+  const candidates = (editData.sous_taches || []).slice(0, idx).filter(x => x?.id);
 
   function update(field, value) {
     const next = [...(editData.sous_taches || [])];
@@ -37,13 +45,22 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
-  function remove() {
-    const next = (editData.sous_taches || []).filter((_, i) => i !== idx);
+  function updatePatch(patch) {
+    const next = [...(editData.sous_taches || [])];
+    next[idx] = { ...next[idx], ...patch };
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
-  // L'ordre du tableau est repris tel quel à l'import devis → ordre des tâches
-  // dans le phasage. Monter/descendre = échange avec la ligne voisine.
+  function remove() {
+    const removedId = st.id;
+    const next = (editData.sous_taches || [])
+      .filter((_, i) => i !== idx)
+      .map(x => removedId && Array.isArray(x.predecesseur_ids)
+        ? { ...x, predecesseur_ids: x.predecesseur_ids.filter(id => id !== removedId) }
+        : x);
+    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+  }
+
   function move(delta) {
     const j = idx + delta;
     if (j < 0 || j >= total) return;
@@ -52,90 +69,158 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, T }) 
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
+  function setMode(nextMode) {
+    updatePatch({
+      dependance_mode: nextMode,
+      ...(nextMode === DEPENDANCE_MODES.EXPLICIT ? {} : { predecesseur_ids: [] }),
+      ...(nextMode === DEPENDANCE_MODES.PARALLEL ? { delai_min_calendaire: 0 } : {}),
+    });
+  }
+
+  function togglePred(id) {
+    const cur = Array.isArray(st.predecesseur_ids) ? st.predecesseur_ids : [];
+    update("predecesseur_ids", cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]);
+  }
+
   const arrowStyle = (disabled) => ({
     display: "inline-flex", alignItems: "center", justifyContent: "center",
     background: "transparent", border: "none", padding: 0, lineHeight: 1,
     color: T.textMuted, cursor: disabled ? "default" : "pointer",
     opacity: disabled ? 0.2 : 1, height: 13,
   });
+  const fieldStyle = {
+    padding: "6px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+    background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1,
+    outline: "none",
+  };
 
   return (
     <div className="biblio-row" style={{
-      display: "grid",
-      gridTemplateColumns: "20px 1fr 180px 80px 26px",
-      gap: 8,
-      alignItems: "center",
-      padding: "8px 12px",
-      borderRadius: RADIUS.md,
-      background: T.card,
-      border: `1px solid ${T.border}`,
+      padding: "8px 12px", borderRadius: RADIUS.md,
+      background: T.card, border: `1px solid ${T.border}`,
     }}>
-      {/* Réordonner (l'ordre est repris dans le phasage) */}
-      <div className="biblio-reorder" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <button onClick={() => move(-1)} disabled={idx === 0} title="Monter" style={arrowStyle(idx === 0)}>
-          <Icon as={ChevronUp} size={13}/>
-        </button>
-        <button onClick={() => move(1)} disabled={idx === total - 1} title="Descendre" style={arrowStyle(idx === total - 1)}>
-          <Icon as={ChevronDown} size={13}/>
-        </button>
-      </div>
+      <div className="biblio-task-grid" style={{
+        display: "grid",
+        gridTemplateColumns: "20px minmax(220px,1.4fr) 150px 190px 72px 26px",
+        gap: 8, alignItems: "center",
+      }}>
+        <div className="biblio-reorder" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <button onClick={() => move(-1)} disabled={idx === 0} title="Monter" style={arrowStyle(idx === 0)}>
+            <Icon as={ChevronUp} size={13}/>
+          </button>
+          <button onClick={() => move(1)} disabled={idx === total - 1} title="Descendre" style={arrowStyle(idx === total - 1)}>
+            <Icon as={ChevronDown} size={13}/>
+          </button>
+        </div>
 
-      {/* Nom de la sous-tâche */}
-      <input
-        value={st.nom || ""}
-        onChange={e => update("nom", e.target.value)}
-        placeholder="ex: Pose des rails, Vis et joints…"
-        style={{
-          padding: "6px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
-          background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
-        }}
-      />
-
-      {/* Lot */}
-      <select
-        value={lotId}
-        onChange={e => update("lotId", e.target.value)}
-        style={{
-          padding: "6px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
-          background: T.inputBg, color: lotId ? (lot?.couleur || T.text) : T.textMuted,
-          fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", cursor: "pointer", fontWeight: lotId ? 700 : 400,
-        }}
-      >
-        <option value="">Lot automatique…</option>
-        {LOTS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
-      </select>
-
-      {/* Ratio (%) */}
-      <div style={{ position: "relative" }}>
         <input
-          type="number" min="0" max="100" step="1"
-          value={st.ratio ?? ""}
-          onChange={e => update("ratio", e.target.value === "" ? null : parseFloat(e.target.value))}
-          placeholder="—"
-          style={{
-            width: "100%", padding: "6px 22px 6px 10px",
-            borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
-            background: T.inputBg, color: T.text, fontFamily: "inherit",
-            fontSize: FONT.sm.size, outline: "none", textAlign: "center", fontWeight: 700,
-          }}
+          value={st.nom || ""}
+          onChange={e => update("nom", e.target.value)}
+          placeholder="ex: Pose des rails, Vis et joints…"
+          style={{ ...fieldStyle, padding: "6px 10px", fontSize: FONT.sm.size }}
         />
-        <span style={{
-          position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-          color: T.textMuted, fontSize: FONT.xs.size, pointerEvents: "none",
-        }}>%</span>
+
+        <select
+          value={lotId}
+          onChange={e => update("lotId", e.target.value)}
+          style={{ ...fieldStyle, color: lotId ? (lot?.couleur || T.text) : T.textMuted, cursor: "pointer", fontWeight: lotId ? 700 : 400 }}
+        >
+          <option value="">Lot automatique…</option>
+          {LOTS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+        </select>
+
+        {isV2 ? (
+          <select
+            value={groupeTypeId}
+            onChange={e => update("groupe_type_id", e.target.value || null)}
+            title="Moment d'exécution de cette sous-tâche dans le chantier"
+            style={{ ...fieldStyle, color: groupeTypeId ? (groupeType?.couleur || T.text) : T.textMuted, cursor: "pointer", fontWeight: groupeTypeId ? 700 : 400 }}
+          >
+            <option value="">Groupe d'exécution…</option>
+            {[...(groupesTypes || [])].sort((a,b) => (a.ordre ?? 0) - (b.ordre ?? 0)).map(g => (
+              <option key={g.id} value={g.id}>{g.nom}</option>
+            ))}
+          </select>
+        ) : (
+          <div style={{ ...fieldStyle, color: T.textMuted, fontStyle: "italic" }}>— historique —</div>
+        )}
+
+        <div style={{ position: "relative" }}>
+          <input
+            type="number" min="0" max="100" step="1"
+            value={st.ratio ?? ""}
+            onChange={e => update("ratio", e.target.value === "" ? null : parseFloat(e.target.value))}
+            placeholder="—"
+            style={{ ...fieldStyle, width: "100%", padding: "6px 20px 6px 8px", fontSize: FONT.sm.size, textAlign: "center", fontWeight: 700 }}
+          />
+          <span style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", color: T.textMuted, fontSize: FONT.xs.size, pointerEvents: "none" }}>%</span>
+        </div>
+
+        <button onClick={remove} title="Supprimer cette sous-tâche" style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          background: "transparent", border: "none", color: "#e15a5a", cursor: "pointer", padding: 0, lineHeight: 1,
+        }}>
+          <Icon as={X} size={14}/>
+        </button>
       </div>
 
-      <button
-        onClick={remove}
-        title="Supprimer cette sous-tâche"
-        style={{
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          background: "transparent", border: "none", color: "#e15a5a",
-          cursor: "pointer", padding: 0, lineHeight: 1,
-        }}
-      >
-        <Icon as={X} size={14}/>
-      </button>
+      {isV2 && (
+        <div style={{
+          margin: "8px 0 0 28px", padding: "7px 9px", borderRadius: RADIUS.sm,
+          background: T.inputBg, border: `1px solid ${T.sectionDivider}`,
+          display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap",
+        }}>
+          <div style={{ minWidth: 190 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: .7, marginBottom: 4 }}>Dépendance</div>
+            <select value={mode} onChange={e => setMode(e.target.value)} style={{ ...fieldStyle, width: "100%", cursor: "pointer" }}>
+              <option value={DEPENDANCE_MODES.SEQUENCE}>{idx === 0 ? "Début de séquence" : "Suit la tâche précédente"}</option>
+              <option value={DEPENDANCE_MODES.PARALLEL}>Peut être réalisée en parallèle</option>
+              <option value={DEPENDANCE_MODES.EXPLICIT}>Dépend de tâches spécifiques</option>
+            </select>
+          </div>
+
+          {mode === DEPENDANCE_MODES.EXPLICIT && (
+            <div style={{ flex: "1 1 260px", minWidth: 220 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: .7, marginBottom: 4 }}>Prédécesseurs</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                {candidates.length === 0 ? (
+                  <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>Aucune tâche précédente disponible</span>
+                ) : candidates.map(c => {
+                  const checked = (st.predecesseur_ids || []).includes(c.id);
+                  return (
+                    <label key={c.id} style={{
+                      display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 7px",
+                      borderRadius: RADIUS.sm, border: `1px solid ${checked ? "#5b8af5" : T.border}`,
+                      background: checked ? "rgba(91,138,245,.12)" : "transparent",
+                      color: checked ? "#5b8af5" : T.textSub, fontSize: FONT.xs.size, cursor: "pointer",
+                    }}>
+                      <input type="checkbox" checked={checked} onChange={() => togglePred(c.id)} style={{ margin: 0 }}/>
+                      {c.nom || "(sans nom)"}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {mode !== DEPENDANCE_MODES.PARALLEL && (
+            <div style={{ minWidth: 170 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: .7, marginBottom: 4 }}>Attente technique mini.</div>
+              <div style={{ display: "flex", gap: 5 }}>
+                <input
+                  type="number" min="0" step="1" value={st.delai_min_calendaire ?? 0}
+                  onChange={e => update("delai_min_calendaire", Math.max(0, parseFloat(e.target.value) || 0))}
+                  style={{ ...fieldStyle, width: 75, textAlign: "center" }}
+                />
+                <select value={st.unite_delai || "heures"} onChange={e => update("unite_delai", e.target.value)} style={{ ...fieldStyle, cursor: "pointer" }}>
+                  <option value="heures">heures</option>
+                  <option value="jours">jours</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -307,16 +392,20 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
 }
 
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, T, acc }) {
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
+  const isV2 = estOuvrageV2(editData);
+  const maturite = isV2 ? maturiteOuvrageV2(editData) : null;
 
   // Bloque l'auto-reload pendant l'édition d'un ouvrage (sauvegarde au clic).
   useDirtyGuard("ouvrage-edit-" + ouvrage.id, isEdit);
 
   function addSousTache() {
-    const next = [...(editData.sous_taches || []), { nom: "", lotId: "", ratio: null }];
+    const next = [...(editData.sous_taches || []), isV2
+      ? { id: nouvelIdSousTache(), nom: "", lotId: "", groupe_type_id: null, ratio: null, dependance_mode: DEPENDANCE_MODES.PARALLEL, predecesseur_ids: [], delai_min_calendaire: 0, unite_delai: "heures" }
+      : { nom: "", lotId: "", ratio: null }];
     setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
@@ -356,6 +445,18 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               </span>
             : <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>Pas de cadence</span>
           }
+          {maturite && (
+            <span title={[...(maturite.erreurs || []), ...(maturite.warnings || [])].join(" · ")} style={{
+              display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size, fontWeight: 700,
+              color: maturite.planifiable ? "#22c55e" : "#f5a623",
+              background: maturite.planifiable ? "rgba(34,197,94,.10)" : "rgba(245,166,35,.10)",
+              border: `1px solid ${maturite.planifiable ? "rgba(34,197,94,.28)" : "rgba(245,166,35,.28)"}`,
+              padding: "2px 8px", borderRadius: RADIUS.pill,
+            }}>
+              <Icon as={maturite.planifiable ? Check : AlertTriangle} size={10}/>
+              {maturite.planifiable ? "Prêt planning" : "Planning à compléter"}
+            </span>
+          )}
           {/* Aperçu des sous-tâches */}
           {!isEdit && (ouvrage.sous_taches || []).length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -436,6 +537,32 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
             </div>
           </div>
 
+          {maturite && isEdit && (
+            <div style={{
+              display: "flex", gap: 9, alignItems: "flex-start", padding: "10px 12px", marginBottom: 12,
+              borderRadius: RADIUS.md,
+              background: maturite.planifiable ? "rgba(34,197,94,.08)" : "rgba(245,166,35,.08)",
+              border: `1px solid ${maturite.planifiable ? "rgba(34,197,94,.25)" : "rgba(245,166,35,.25)"}`,
+            }}>
+              <Icon as={maturite.planifiable ? Check : AlertTriangle} size={14} color={maturite.planifiable ? "#22c55e" : "#f5a623"} style={{ marginTop: 1, flexShrink: 0 }}/>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: maturite.planifiable ? "#22c55e" : "#f5a623" }}>
+                  {maturite.planifiable ? "Ouvrage prêt pour la planification automatique" : "Référentiel planning incomplet"}
+                </div>
+                {!maturite.planifiable && (
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 3, lineHeight: 1.5 }}>
+                    {(maturite.erreurs || []).join(" · ")}
+                  </div>
+                )}
+                {(maturite.warnings || []).length > 0 && (
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
+                    {(maturite.warnings || []).join(" · ")}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* En-tête colonnes sous-tâches + total ratios */}
           {(editData.sous_taches || []).length > 0 && (() => {
             const sumRatios = (editData.sous_taches || [])
@@ -473,14 +600,14 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                   </div>
                 </div>
                 <div style={{
-                  display: "grid", gridTemplateColumns: "20px 1fr 180px 80px 26px",
+                  display: "grid", gridTemplateColumns: "20px minmax(220px,1.4fr) 150px 190px 72px 26px",
                   gap: 8, padding: "0 12px 6px",
                 }}>
-                  {["", "Nom de la sous-tâche", "Lot de travail", "Ratio", ""].map((h, i) => (
+                  {["", "Nom de la sous-tâche", "Lot", "Groupe d’exécution", "Ratio", ""].map((h, i) => (
                     <div key={i} style={{
                       fontSize: 10, fontWeight: 700, color: T.textMuted,
                       textTransform: "uppercase", letterSpacing: 0.8,
-                      textAlign: i === 3 ? "center" : "left",
+                      textAlign: i === 4 ? "center" : "left",
                     }}>{h}</div>
                   ))}
                 </div>
@@ -492,10 +619,11 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {(editData.sous_taches || []).map((st, idx) => (
               <SousTacheRow
-                key={idx}
+                key={st.id || idx}
                 st={st} idx={idx}
                 editData={editData} ouvrage={ouvrage}
                 setOuvrages={setOuvrages} ouvrages={ouvrages}
+                groupesTypes={groupesTypes}
                 T={T}
               />
             ))}
@@ -639,6 +767,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [ouvrages, setOuvrages] = useState([]);
   const [materiaux, setMateriaux] = useState([]);
+  const [groupesTypes, setGroupesTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
   const [search, setSearch] = useState("");
@@ -666,6 +795,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     loadOuvrages();
     loadCategoriesCustom();
     loadMateriaux();
+    loadGroupesTypes().then(setGroupesTypes);
     // Realtime : tout changement de la bibliothèque ou des catégories custom
     // est propagé en direct chez tous les utilisateurs connectés.
     const chOuvr = supabase.channel("biblio-ouvrages-rt")
@@ -699,7 +829,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     setLoading(true);
     const { data } = await supabase.from("bibliotheque_ratios").select("*").order("libelle");
     if (data && data.length > 0) {
-      setOuvrages(data);
+      setOuvrages(data.map(o => estOuvrageV2(o) ? normaliserOuvrageV2(o, { assignIds: true }) : o));
     } else {
       const inserts = BIBLIOTHEQUE_INITIALE.map(o => ({
         identifiant: o.identifiant, libelle: o.libelle, unite: o.unite || "", sous_taches: o.sous_taches,
@@ -806,7 +936,9 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       libelle: `${ouvrage.libelle} (copie)`,
       unite: ouvrage.unite || "",
       cadence: ouvrage.cadence ?? null,
-      sous_taches: JSON.parse(JSON.stringify(ouvrage.sous_taches || [])),
+      sous_taches: estOuvrageV2(ouvrage)
+        ? dupliquerSousTachesV2(ouvrage.sous_taches || [])
+        : JSON.parse(JSON.stringify(ouvrage.sous_taches || [])),
       materiaux_liens: JSON.parse(JSON.stringify(ouvrage.materiaux_liens || [])),
     };
     const { data, error } = await supabase.from("bibliotheque_ratios").insert([clone]).select();
@@ -831,27 +963,29 @@ function PageBibliotheque({ T, branch = "renovation" }) {
 
   async function saveOuvrage(ouvrage) {
     setSaving(ouvrage.id);
+    const ouvrageClean = estOuvrageV2(ouvrage) ? normaliserOuvrageV2(ouvrage, { assignIds: true }) : ouvrage;
     // Note : la validation "somme ratios = 100 %" a été retirée avec le refactor
     // des heures vendues (elles vivent désormais au niveau ouvrage uniquement).
     // Conserver cette validation bloquait silencieusement la sauvegarde des
     // sous-tâches saisies via la nouvelle UI (sans ratio).
     // Nettoyage : on ne persiste que les liens valides (matériau sélectionné).
-    const liensClean = (ouvrage.materiaux_liens || [])
+    const liensClean = (ouvrageClean.materiaux_liens || [])
       .filter(ml => ml && ml.materiau_id != null)
       .map(ml => ({
         materiau_id: ml.materiau_id,
         quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
       }));
     const { error } = await supabase.from("bibliotheque_ratios").update({
-      libelle: ouvrage.libelle, unite: ouvrage.unite,
-      cadence: ouvrage.cadence ?? null,
-      sous_taches: ouvrage.sous_taches,
+      libelle: ouvrageClean.libelle, unite: ouvrageClean.unite,
+      cadence: ouvrageClean.cadence ?? null,
+      sous_taches: ouvrageClean.sous_taches,
       materiaux_liens: liensClean,
       updated_at: new Date().toISOString(),
     }).eq("id", ouvrage.id);
     if (error) {
       flash("error", "Erreur lors de la sauvegarde : " + error.message);
     } else {
+      setOuvrages(prev => prev.map(o => o.id === ouvrage.id ? { ...o, ...ouvrageClean, materiaux_liens: liensClean } : o));
       flash("ok", "Ouvrage sauvegardé");
     }
     setSaving(null);
@@ -882,11 +1016,15 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   ouvrages.forEach(o => { const cat = getCat(o.identifiant); catCounts[cat] = (catCounts[cat] || 0) + 1; });
 
   // ── Stats globales ──────────────────────────────────────────────────────────
+  const v2 = ouvrages.filter(estOuvrageV2);
+  const v2Planifiables = v2.filter(o => maturiteOuvrageV2(o).planifiable).length;
   const stats = {
     total: ouvrages.length,
     categories: Object.keys(catCounts).length,
     avecCadence: ouvrages.filter(o => parseFloat(o.cadence) > 0).length,
     sansCadence: ouvrages.filter(o => !o.cadence).length,
+    v2Total: v2.length,
+    v2Planifiables,
   };
 
   return (
@@ -897,6 +1035,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
           .biblio-page .biblio-actions input{flex:1 1 100%;width:100%!important}
           .biblio-page .biblio-actions button{flex:1}
           .biblio-page .biblio-row{grid-template-columns:1fr!important;gap:8px!important;padding:10px 12px!important}
+          .biblio-page .biblio-task-grid{grid-template-columns:1fr!important}
           .biblio-page .biblio-reorder{flex-direction:row!important;gap:16px!important}
         }
       `}</style>
@@ -957,6 +1096,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
               { label: "Catégories",     value: stats.categories,  icon: FolderOpen, color: "#5b9cf6" },
               { label: "Avec cadence",   value: stats.avecCadence, icon: Clock,      color: "#22c55e" },
               { label: "Sans cadence",   value: stats.sansCadence, icon: Box,        color: stats.sansCadence > 0 ? "#f5a623" : T.textMuted },
+              { label: "V2 prêts planning", value: `${stats.v2Planifiables}/${stats.v2Total}`, icon: Check, color: stats.v2Planifiables === stats.v2Total && stats.v2Total > 0 ? "#22c55e" : "#f5a623" },
             ].map((s, i) => (
               <div key={i} style={{
                 background: T.surface, border: `1px solid ${T.border}`,
@@ -1283,6 +1423,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                       getCat={getCat}
                       changerCategorie={changerCategorie}
                       materiaux={materiaux}
+                      groupesTypes={groupesTypes}
                       T={T} acc={acc}
                     />
                   ))}
