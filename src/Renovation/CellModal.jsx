@@ -419,8 +419,10 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                     const ici=cumulParOuvrier[o]||0;
                     const ailleurs=parseFloat(autresHeuresJour[o])||0;
                     const h=Math.round((ici+ailleurs)*4)/4;
-                    // Rouge : dépasse la journée ; vert : journée pleine pile.
-                    const colH=h>capaciteJour?"#ef4444":h===capaciteJour?"#22c55e":(h>0?T.text:T.textMuted);
+                    const cap=capacitePourOuvrier(o);
+                    const capaciteReduite=cap<capaciteJour;
+                    // Rouge : dépasse la capacité réelle ; vert : capacité pleine pile.
+                    const colH=h>cap?"#ef4444":h===cap&&cap>0?"#22c55e":(h>0?T.text:T.textMuted);
                     return(
                       <span key={o}
                         title={ailleurs>0?`${ici}h sur ce chantier + ${ailleurs}h sur d'autres chantiers ce jour`:undefined}
@@ -428,7 +430,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                           background:chantier.couleur+"22",border:`1px solid ${chantier.couleur}55`,
                           borderRadius:8,padding:"3px 9px",fontSize:12.5}}>
                         <strong style={{color:T.text,fontWeight:700}}>{o}</strong>
-                        <span style={{color:colH,fontWeight:800}}>{h}h</span>
+                        <span style={{color:colH,fontWeight:800}}>{h}h / {cap}h</span>
+                        {capaciteReduite&&(
+                          <span style={{color:cap<=0?"#ef4444":"#f59e0b",fontSize:10.5,fontWeight:800}}>
+                            {cap<=0?"indisponible":"capacité réduite"}
+                          </span>
+                        )}
                         {ailleurs>0&&(
                           <span style={{color:T.textMuted,fontSize:10.5,fontWeight:700}}>
                             (dont {ailleurs}h ailleurs)

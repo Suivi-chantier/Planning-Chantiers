@@ -2546,7 +2546,36 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── ÉQUIPES CRUD ────────────────────────────────────────────────────────
   const saveEquipes = async (next) => {
     setEquipes(next);
-    await saveConfig("equipes", { items: next });
+    let items = next;
+    try {
+      const noms = [...new Set((next || []).flatMap(eq => [
+        eq?.responsable,
+        ...(eq?.membres || []).map(m => m?.ouvrier),
+      ]).filter(Boolean))];
+      if (noms.length) {
+        const { data, error } = await supabase.from("planning_resources")
+          .select("id,nom_planning")
+          .in("nom_planning", noms);
+        if (error) throw error;
+        const byName = new Map((data || []).map(r => [String(r.nom_planning || "").trim().toLocaleLowerCase("fr-FR"), r.id]));
+        items = (next || []).map(eq => {
+          if (eq?.externe) return { ...eq, responsable_resource_id: null, membres: eq.membres || [] };
+          const respKey = String(eq?.responsable || "").trim().toLocaleLowerCase("fr-FR");
+          return {
+            ...eq,
+            responsable_resource_id: byName.get(respKey) || null,
+            membres: (eq?.membres || []).map(m => ({
+              ...m,
+              resource_id: byName.get(String(m?.ouvrier || "").trim().toLocaleLowerCase("fr-FR")) || null,
+            })),
+          };
+        });
+        setEquipes(items);
+      }
+    } catch (e) {
+      console.warn("Alignement resource_id équipes impossible, noms conservés :", e?.message || e);
+    }
+    await saveConfig("equipes", { items });
   };
   const addEquipe = () => {
     saveEquipes([...equipes, {
