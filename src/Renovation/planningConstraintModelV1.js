@@ -102,7 +102,7 @@ export function maturiteContraintePlanning(value) {
   return { valide: erreurs.length === 0, erreurs, warnings, constraint: c };
 }
 
-export function contrainteS'applique(value, context = {}) {
+export function contrainteSapplique(value, context = {}) {
   const c = normaliserContraintePlanning(value);
   if (!c.actif) return false;
   switch (c.scope) {
@@ -133,7 +133,7 @@ export function evaluerContraintesPlanning({ contraintes = [], context = {}, dat
   const rid = str(resourceId) || null;
   const applicable = (Array.isArray(contraintes) ? contraintes : [])
     .map(normaliserContraintePlanning)
-    .filter(c => contrainteS'applique(c, context));
+    .filter(c => contrainteSapplique(c, context));
 
   const blocks = [];
   const violations = [];
