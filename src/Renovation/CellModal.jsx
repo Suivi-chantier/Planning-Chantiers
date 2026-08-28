@@ -4,6 +4,8 @@ import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "..
 import { useDirtyGuard } from "../hooks";
 import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache } from "./phasagePlanning";
 import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
+import { calculerCapaciteRessourcePourDate } from "./planningResourceCapacityV1.js";
+import { chargerRessourcesPlanningV1, chargerEvenementsRessourcesPourDateV1, indexerRessourcesParNomPlanningV1, ressourcePourNomPlanningV1 } from "./planningResourceDataV1.js";
 import { sortByChrono } from "./chronoTemplate";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
@@ -47,6 +49,26 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     const d = getDateObj();
     return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : null;
   };
+  const dateISOJour = getDateISO();
+  const [resourceIndex, setResourceIndex] = useState(() => new Map());
+  const [resourceEvents, setResourceEvents] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!dateISOJour) { setResourceIndex(new Map()); setResourceEvents([]); return undefined; }
+    Promise.all([chargerRessourcesPlanningV1(), chargerEvenementsRessourcesPourDateV1(dateISOJour)])
+      .then(([resources, events]) => {
+        if (cancelled) return;
+        setResourceIndex(indexerRessourcesParNomPlanningV1(resources));
+        setResourceEvents(events || []);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        console.warn("Capacité ressources indisponible, fallback rythmeSemaine :", e?.message || e);
+        setResourceIndex(new Map());
+        setResourceEvents([]);
+      });
+    return () => { cancelled = true; };
+  }, [dateISOJour]);
 
   // ── Tâches du phasage du chantier (sélecteur « Planifier depuis le phasage »).
   // Chargé à la première ouverture du panneau (lazy), trié dans l'ordre chrono
@@ -119,6 +141,14 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // Capacité du jour — dépend de la parité de la semaine ISO (rythme 4j/5j,
   // voir src/rythmeSemaine.js). 0 h un vendredi de semaine impaire.
   const capaciteJour = capaciteJourRythme(jour, year, week);
+  const capacitePourOuvrier = (nomOuvrier) => {
+    const resource = ressourcePourNomPlanningV1(resourceIndex, nomOuvrier);
+    if (!resource || !dateISOJour) return capaciteJour;
+    const evenements = resourceEvents.filter(e => e.resource_id === resource.id);
+    return calculerCapaciteRessourcePourDate({
+      resource, dateISO: dateISOJour, evenements, heuresDejaAllouees: 0,
+    }).capacite_apres_exceptions;
+  };
   // Charge d'un ouvrier ce jour : autres chantiers + lignes de cette cellule
   // qui le concernent (une ligne sans assigné vaut pour tous les ouvriers de
   // la cellule). skipIdx : ligne à exclure (recalcul de sa propre durée).
@@ -137,9 +167,11 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // charge de l'ouvrier le PLUS occupé parmi les assignés (tous chantiers).
   // Sans ouvrier connu : capacité moins la somme des lignes de la cellule.
   const restantJourPour = (taches, cibles, skipIdx = -1) => {
-    const charge = (cibles && cibles.length)
-      ? Math.max(...cibles.map(o => chargeOuvrier(taches, o, skipIdx)))
-      : taches.reduce((s, x, i) => i === skipIdx ? s : s + (parseFloat(x.duree) || 0), 0);
+    if (cibles && cibles.length) {
+      const restants = cibles.map(o => capacitePourOuvrier(o) - chargeOuvrier(taches, o, skipIdx));
+      return Math.max(0, Math.round(Math.min(...restants) * 4) / 4);
+    }
+    const charge = taches.reduce((s, x, i) => i === skipIdx ? s : s + (parseFloat(x.duree) || 0), 0);
     return Math.max(0, Math.round((capaciteJour - charge) * 4) / 4);
   };
   // Durée du jour proposée pour une ligne liée = MO restante de la tâche
