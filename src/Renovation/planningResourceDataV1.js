@@ -35,3 +35,9 @@ export function indexerRessourcesParNomPlanningV1(ressources = []) {
   }
   return map;
 }
+
+export function ressourcePourNomPlanningV1(index, nomPlanning) {
+  if (!(index instanceof Map)) return null;
+  const key = normaliserNomRessource(nomPlanning);
+  return key ? (index.get(key) || null) : null;
+}
