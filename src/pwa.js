@@ -3,19 +3,11 @@
 // Objectif : appliquer automatiquement les nouvelles versions déployées
 // SANS jamais interrompre une saisie en cours.
 //
-// Principe :
-//  - Un registre global des formulaires « en cours de saisie » (dirty).
-//    Deux sources alimentent ce registre :
-//      a) les hooks useDraft/useDirtyGuard posés formulaire par formulaire
-//         (écrans Renovation) ;
-//      b) un GARDE GLOBAL au niveau du DOM (ci-dessous) : champ éditable
-//         focalisé ou frappe récente → saisie en cours. Il couvre les pans
-//         de l'app non instrumentés (Profero Invest notamment).
-//  - Quand une nouvelle version est détectée, on la retient.
-//  - On recharge seulement quand PLUS RIEN n'est en cours (dirty vide).
-//    → si l'utilisateur tape, on attend qu'il ait fini/enregistré.
-//  - Filet complémentaire : le hook useDraft (src/hooks.js) sauvegarde les
-//    saisies en localStorage, donc même un reload imprévu ne perd rien.
+// IMPORTANT : les previews Vercel sont volontairement exclues du mode PWA.
+// Une branche de test peut être redéployée plusieurs fois en quelques minutes ;
+// y conserver un service worker ferait courir le risque de servir un ancien
+// bundle. Sur ces hôtes, on désinscrit donc le SW et son précache Workbox.
+// La production conserve exactement le fonctionnement PWA ci-dessous.
 
 import { registerSW } from 'virtual:pwa-register'
 
@@ -43,6 +35,44 @@ function maybeApply() {
   if (pending && dirty.size === 0 && applyUpdate) {
     pending = false
     applyUpdate()
+  }
+}
+
+// ── Previews Vercel : jamais pilotées par le service worker ─────────────────
+function isVercelPreviewHost() {
+  if (typeof window === 'undefined') return false
+  const host = String(window.location.hostname || '').toLowerCase()
+  if (!host.endsWith('.vercel.app')) return false
+
+  // Alias de branche Vercel : planning-chantiers-git-feature-...vercel.app
+  if (host.includes('-git-')) return true
+
+  // URL de déploiement immuable :
+  // planning-chantiers-95m81z4ig-suivi-chantiers-projects.vercel.app
+  return /^planning-chantiers-[a-z0-9]+-suivi-chantiers-projects\.vercel\.app$/.test(host)
+}
+
+async function disablePreviewPWA() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(regs.map(reg => reg.unregister()))
+    }
+  } catch (e) {
+    console.warn('Nettoyage SW preview Vercel :', e?.message || e)
+  }
+
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(
+        keys
+          .filter(key => /workbox|precache/i.test(key))
+          .map(key => caches.delete(key))
+      )
+    }
+  } catch (e) {
+    console.warn('Nettoyage cache preview Vercel :', e?.message || e)
   }
 }
 
@@ -95,9 +125,7 @@ function initGlobalGuard() {
 
 // Filet anti-blocage : si une MAJ attend et qu'une clé « dirty » traîne (bug,
 // modale laissée ouverte…), on force — mais UNIQUEMENT après une longue
-// inactivité totale. Jamais pendant que quelqu'un utilise l'app (l'ancien
-// délai fixe de 3 min rechargeait en pleine frappe sur les écrans sans
-// brouillon localStorage, comme Profero Invest).
+// inactivité totale. Jamais pendant que quelqu'un utilise l'app.
 let forceTimer = null
 function startForceWatch() {
   if (forceTimer) return
@@ -118,6 +146,15 @@ let started = false
 export function initPWA() {
   if (started || typeof window === 'undefined') return
   started = true
+
+  // Une preview sert à valider le code courant, jamais à tester l'offline.
+  // On retire aussi une éventuelle ancienne inscription provenant d'un build
+  // précédent de ce même hostname. Pas de reload forcé : le nettoyage prend
+  // effet immédiatement pour les navigations suivantes.
+  if (isVercelPreviewHost()) {
+    void disablePreviewPWA()
+    return
+  }
 
   initGlobalGuard()
 
