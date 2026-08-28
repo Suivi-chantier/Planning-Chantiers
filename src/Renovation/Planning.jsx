@@ -1,6 +1,7 @@
 import CellModal from "./CellModal";
 import PlanningBaselinePanel from "./PlanningBaselinePanel";
 import { creerAllocationUid } from "./planningBaselineModelV1.js";
+import { estAllocationVerrouilleeV1 } from "./planningAllocationLockDataV1.js";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
@@ -221,6 +222,18 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     });
     if (taskIdx < 0 || taskIdx >= fromTaches.length) return;
     const moved = fromTaches[taskIdx];
+    if (moved?.allocation_uid) {
+      try {
+        if (await estAllocationVerrouilleeV1(moved.allocation_uid)) {
+          window.alert("Cette allocation est verrouillée. Déverrouille-la dans la cellule avant de la déplacer.");
+          return;
+        }
+      } catch (e) {
+        console.warn("Vérification verrou allocation :", e?.message || e);
+        window.alert("Impossible de vérifier le verrou de cette allocation. Le déplacement est annulé par sécurité.");
+        return;
+      }
+    }
     const newFromTaches = fromTaches.filter((_, i) => i !== taskIdx);
     const newFromCell = {
       ...fromCell,
