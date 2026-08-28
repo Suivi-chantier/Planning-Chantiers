@@ -1,0 +1,60 @@
+name: Verify Planning Resources V1
+
+on:
+  push:
+    branches:
+      - feature/planning-resources-v1
+  pull_request:
+    paths:
+      - 'src/Renovation/planningResourceModelV1.js'
+      - 'src/Renovation/planningResourceCapacityV1.js'
+      - 'src/Renovation/planningResourceDataV1.js'
+      - 'src/Renovation/planningConstraintModelV1.js'
+      - 'src/Renovation/PlanningResourcesAdmin.jsx'
+      - 'src/Renovation/CellModal.jsx'
+      - 'src/Renovation/Admin.jsx'
+      - 'src/Renovation/planningModelV1.js'
+      - 'src/Renovation/planningRulesV1.js'
+      - 'src/rythmeSemaine.js'
+      - 'scripts/verif-planning-resource-model-v1.mjs'
+      - 'scripts/verif-planning-resource-capacity-v1.mjs'
+      - 'scripts/verif-planning-constraint-model-v1.mjs'
+      - 'scripts/verif-planning-model-v1.mjs'
+      - 'scripts/verif-planning-model-audit-v1.mjs'
+      - 'scripts/verif-planning-group-inference-v1.mjs'
+      - 'scripts/verif-planning-dependency-inference-v1.mjs'
+      - 'scripts/verif-planning-eligibility-v1.mjs'
+      - '.github/workflows/verify-planning-resources-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Fixtures modèle métier chantier 01
+        run: node scripts/verif-planning-model-v1.mjs
+      - name: Fixtures audit bibliothèque chantier 01
+        run: node scripts/verif-planning-model-audit-v1.mjs
+      - name: Fixtures groupes chantier 01
+        run: node scripts/verif-planning-group-inference-v1.mjs
+      - name: Fixtures dépendances chantier 01
+        run: node scripts/verif-planning-dependency-inference-v1.mjs
+      - name: Fixtures éligibilité chantier 01
+        run: node scripts/verif-planning-eligibility-v1.mjs
+      - name: Fixtures modèle ressources chantier 02
+        run: node scripts/verif-planning-resource-model-v1.mjs
+      - name: Fixtures capacité rythme + ressources chantier 02
+        run: node --experimental-default-type=module scripts/verif-planning-resource-capacity-v1.mjs
+      - name: Fixtures contraintes chantier 02
+        run: node --experimental-default-type=module scripts/verif-planning-constraint-model-v1.mjs
+      - name: Installer dépendances
+        run: npm ci
+      - name: Build Vite
+        run: npm run build

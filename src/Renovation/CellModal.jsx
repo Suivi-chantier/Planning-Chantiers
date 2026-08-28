@@ -4,6 +4,8 @@ import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "..
 import { useDirtyGuard } from "../hooks";
 import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache } from "./phasagePlanning";
 import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
+import { calculerCapaciteRessourcePourDate } from "./planningResourceCapacityV1.js";
+import { chargerRessourcesPlanningV1, chargerEvenementsRessourcesPourDateV1, indexerRessourcesParNomPlanningV1, ressourcePourNomPlanningV1 } from "./planningResourceDataV1.js";
 import { sortByChrono } from "./chronoTemplate";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
@@ -47,6 +49,26 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     const d = getDateObj();
     return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` : null;
   };
+  const dateISOJour = getDateISO();
+  const [resourceIndex, setResourceIndex] = useState(() => new Map());
+  const [resourceEvents, setResourceEvents] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!dateISOJour) { setResourceIndex(new Map()); setResourceEvents([]); return undefined; }
+    Promise.all([chargerRessourcesPlanningV1(), chargerEvenementsRessourcesPourDateV1(dateISOJour)])
+      .then(([resources, events]) => {
+        if (cancelled) return;
+        setResourceIndex(indexerRessourcesParNomPlanningV1(resources));
+        setResourceEvents(events || []);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        console.warn("Capacité ressources indisponible, fallback rythmeSemaine :", e?.message || e);
+        setResourceIndex(new Map());
+        setResourceEvents([]);
+      });
+    return () => { cancelled = true; };
+  }, [dateISOJour]);
 
   // ── Tâches du phasage du chantier (sélecteur « Planifier depuis le phasage »).
   // Chargé à la première ouverture du panneau (lazy), trié dans l'ordre chrono
@@ -119,6 +141,14 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // Capacité du jour — dépend de la parité de la semaine ISO (rythme 4j/5j,
   // voir src/rythmeSemaine.js). 0 h un vendredi de semaine impaire.
   const capaciteJour = capaciteJourRythme(jour, year, week);
+  const capacitePourOuvrier = (nomOuvrier) => {
+    const resource = ressourcePourNomPlanningV1(resourceIndex, nomOuvrier);
+    if (!resource || !dateISOJour) return capaciteJour;
+    const evenements = resourceEvents.filter(e => e.resource_id === resource.id);
+    return calculerCapaciteRessourcePourDate({
+      resource, dateISO: dateISOJour, evenements, heuresDejaAllouees: 0,
+    }).capacite_apres_exceptions;
+  };
   // Charge d'un ouvrier ce jour : autres chantiers + lignes de cette cellule
   // qui le concernent (une ligne sans assigné vaut pour tous les ouvriers de
   // la cellule). skipIdx : ligne à exclure (recalcul de sa propre durée).
@@ -137,9 +167,11 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // charge de l'ouvrier le PLUS occupé parmi les assignés (tous chantiers).
   // Sans ouvrier connu : capacité moins la somme des lignes de la cellule.
   const restantJourPour = (taches, cibles, skipIdx = -1) => {
-    const charge = (cibles && cibles.length)
-      ? Math.max(...cibles.map(o => chargeOuvrier(taches, o, skipIdx)))
-      : taches.reduce((s, x, i) => i === skipIdx ? s : s + (parseFloat(x.duree) || 0), 0);
+    if (cibles && cibles.length) {
+      const restants = cibles.map(o => capacitePourOuvrier(o) - chargeOuvrier(taches, o, skipIdx));
+      return Math.max(0, Math.round(Math.min(...restants) * 4) / 4);
+    }
+    const charge = taches.reduce((s, x, i) => i === skipIdx ? s : s + (parseFloat(x.duree) || 0), 0);
     return Math.max(0, Math.round((capaciteJour - charge) * 4) / 4);
   };
   // Durée du jour proposée pour une ligne liée = MO restante de la tâche
@@ -156,7 +188,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     const nb = cibles.length || 1;
     let d = Math.round((restantMO / nb) * 4) / 4;
     const restantJour = restantJourPour(taches, cibles, idx);
-    if (restantJour > 0 && d > restantJour) d = restantJour;
+    if (d > restantJour) d = restantJour;
     return d > 0 ? d : null;
   };
 
@@ -387,8 +419,10 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                     const ici=cumulParOuvrier[o]||0;
                     const ailleurs=parseFloat(autresHeuresJour[o])||0;
                     const h=Math.round((ici+ailleurs)*4)/4;
-                    // Rouge : dépasse la journée ; vert : journée pleine pile.
-                    const colH=h>capaciteJour?"#ef4444":h===capaciteJour?"#22c55e":(h>0?T.text:T.textMuted);
+                    const cap=capacitePourOuvrier(o);
+                    const capaciteReduite=cap<capaciteJour;
+                    // Rouge : dépasse la capacité réelle ; vert : capacité pleine pile.
+                    const colH=h>cap?"#ef4444":h===cap&&cap>0?"#22c55e":(h>0?T.text:T.textMuted);
                     return(
                       <span key={o}
                         title={ailleurs>0?`${ici}h sur ce chantier + ${ailleurs}h sur d'autres chantiers ce jour`:undefined}
@@ -396,7 +430,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                           background:chantier.couleur+"22",border:`1px solid ${chantier.couleur}55`,
                           borderRadius:8,padding:"3px 9px",fontSize:12.5}}>
                         <strong style={{color:T.text,fontWeight:700}}>{o}</strong>
-                        <span style={{color:colH,fontWeight:800}}>{h}h</span>
+                        <span style={{color:colH,fontWeight:800}}>{h}h / {cap}h</span>
+                        {capaciteReduite&&(
+                          <span style={{color:cap<=0?"#ef4444":"#f59e0b",fontSize:10.5,fontWeight:800}}>
+                            {cap<=0?"indisponible":"capacité réduite"}
+                          </span>
+                        )}
                         {ailleurs>0&&(
                           <span style={{color:T.textMuted,fontSize:10.5,fontWeight:700}}>
                             (dont {ailleurs}h ailleurs)
