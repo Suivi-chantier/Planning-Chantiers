@@ -45,6 +45,7 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
   const [creating, setCreating] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
+  const [selectedVersion, setSelectedVersion] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -57,10 +58,23 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
 
   const cellsByChantier = useMemo(() => indexerCellulesParChantierV1(data?.cells || []), [data]);
   const baselineByChantier = useMemo(() => indexerDerniereBaselineParChantierV1(data?.baselines || []), [data]);
+  const versionsByChantier = useMemo(() => {
+    const map = new Map();
+    for (const b of (data?.baselines || [])) {
+      const key = String(b.chantier_id || "");
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(b);
+    }
+    for (const list of map.values()) list.sort((a,b)=>Number(b.version||0)-Number(a.version||0));
+    return map;
+  }, [data]);
 
   const rows = useMemo(() => (chantiers || []).map(chantier => {
     const cells = cellsByChantier.get(String(chantier.id)) || [];
-    const baseline = baselineByChantier.get(String(chantier.id)) || null;
+    const versions = versionsByChantier.get(String(chantier.id)) || [];
+    const latestBaseline = baselineByChantier.get(String(chantier.id)) || null;
+    const wanted = selectedVersion[chantier.id];
+    const baseline = versions.find(b => Number(b.version) === Number(wanted)) || latestBaseline;
     let state;
     try {
       state = etatBaselineChantierV1({
@@ -72,8 +86,8 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
     } catch (e) {
       state = { chantier_id:chantier.id, courant:[], baseline, reference:[], diff:null, sans_duree:0, lignes_manuelles:0, erreur:e?.message || String(e) };
     }
-    return { chantier, cells, baseline, state };
-  }).sort((a,b) => String(a.chantier.nom||"").localeCompare(String(b.chantier.nom||""), "fr")), [chantiers, cellsByChantier, baselineByChantier, data]);
+    return { chantier, cells, baseline, latestBaseline, versions, state };
+  }).sort((a,b) => String(a.chantier.nom||"").localeCompare(String(b.chantier.nom||""), "fr")), [chantiers, cellsByChantier, baselineByChantier, versionsByChantier, selectedVersion, data]);
 
   const toggle = id => setExpanded(prev => {
     const next = new Set(prev);
@@ -90,7 +104,7 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
         chantierId: id,
         cells: data?.cells || [],
         resourceIndex: data?.resourceIndex || new Map(),
-        derniereBaseline: row.baseline,
+        derniereBaseline: row.latestBaseline,
       });
       setConfirm(null);
       await load();
@@ -123,11 +137,12 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
 
         <div style={{padding:18,overflowY:"auto",display:"flex",flexDirection:"column",gap:10}}>
           {loading ? <div style={{padding:28,textAlign:"center",color:T.textMuted}}>Chargement des références…</div> : rows.map(row => {
-            const { chantier, baseline, state } = row;
+            const { chantier, baseline, latestBaseline, versions, state } = row;
             const diff = state.diff?.resume;
             const isExpanded = expanded.has(chantier.id);
             const noChange = baseline && diff?.total === 0;
-            const nextVersion = Number(baseline?.version || 0) + 1;
+            const nextVersion = Number(latestBaseline?.version || 0) + 1;
+            const historical = baseline && latestBaseline && Number(baseline.version) !== Number(latestBaseline.version);
             return <div key={chantier.id} style={{border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,background:T.surface,overflow:"hidden"}}>
               <div style={{padding:"13px 15px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
                 <span style={{width:10,height:36,borderRadius:5,background:chantier.couleur||acc.accent,flexShrink:0}}/>
@@ -143,6 +158,7 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
                 <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                   {!baseline ? chip("AUCUNE RÉFÉRENCE", "#f59e0b", "rgba(245,158,11,.12)") : <>
                     {chip(`RÉF. V${baseline.version}`, acc.accent, acc.bg10)}
+                    {historical && chip("HISTORIQUE", "#64748b", "rgba(100,116,139,.12)")}
                     {noChange ? chip("AUCUN ÉCART", "#16a34a", "rgba(34,197,94,.12)") : diff?.total>0 ? chip(`${diff.total} ÉCART${diff.total>1?"S":""}`, "#f97316", "rgba(249,115,22,.12)") : null}
                   </>}
                 </div>
@@ -163,6 +179,11 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
                   <span><Icon as={History} size={12}/> Créée le <strong>{fmtDateTime(baseline.created_at)}</strong></span>
                   <span>{baseline.allocation_count} allocation{baseline.allocation_count!==1?"s":""} figée{baseline.allocation_count!==1?"s":""}</span>
                   {baseline.source==="manual_rebaseline" && <span>Rebaseline explicite</span>}
+                  {versions.length>1 && <label style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:6}}>Comparer à
+                    <select value={baseline.version} onChange={e=>setSelectedVersion(v=>({...v,[chantier.id]:Number(e.target.value)}))} style={{background:T.surface,color:T.text,border:`1px solid ${T.border}`,borderRadius:6,padding:"3px 7px",fontFamily:"inherit",fontWeight:800}}>
+                      {versions.map(v=><option key={v.id} value={v.version}>V{v.version} · {fmtDateTime(v.created_at)}</option>)}
+                    </select>
+                  </label>}
                 </div>
                 {noChange ? <div style={{display:"flex",alignItems:"center",gap:6,color:"#16a34a",fontWeight:800,fontSize:12}}><Icon as={CheckCircle2} size={14}/> Le planning courant correspond exactement à la référence V{baseline.version}.</div> : (
                   <>
@@ -198,13 +219,13 @@ export default function PlanningBaselinePanel({ chantiers = [], T, acc, onClose 
         {confirm && (() => {
           const row = rows.find(r=>r.chantier.id===confirm.chantierId);
           if (!row) return null;
-          const isRebaseline = !!row.baseline;
+          const isRebaseline = !!row.latestBaseline;
           return <div onClick={()=>setConfirm(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.58)",display:"grid",placeItems:"center",padding:18,zIndex:4}}>
             <div onClick={e=>e.stopPropagation()} style={{maxWidth:480,width:"100%",background:T.modal||T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.xl,padding:18,boxShadow:"0 20px 60px rgba(0,0,0,.4)"}}>
               <div style={{fontWeight:900,fontSize:FONT.md.size,color:T.text}}>{isRebaseline?`Créer la référence V${confirm.nextVersion} ?`:"Figer la référence V1 ?"}</div>
               <div style={{fontSize:12.5,lineHeight:1.65,color:T.textSub,marginTop:8}}>
                 {isRebaseline
-                  ? `La V${row.baseline.version} restera conservée. Le planning actuel de ${row.chantier.nom} deviendra simplement la nouvelle référence V${confirm.nextVersion}.`
+                  ? `La V${row.latestBaseline.version} restera conservée. Le planning actuel de ${row.chantier.nom} deviendra simplement la nouvelle référence V${confirm.nextVersion}.`
                   : `Le planning actuel de ${row.chantier.nom} sera figé comme référence V1. Les modifications futures seront comparées à cette photo.`}
               </div>
               {row.state.sans_duree>0 && <div style={{marginTop:10,padding:"8px 10px",borderRadius:RADIUS.md,background:"rgba(245,158,11,.10)",color:"#f59e0b",fontSize:11.5,fontWeight:700}}><Icon as={TriangleAlert} size={12}/> {row.state.sans_duree} allocation{row.state.sans_duree>1?"s":""} sans durée seront quand même figées.</div>}
