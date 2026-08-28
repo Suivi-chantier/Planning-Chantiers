@@ -25,6 +25,11 @@ const replacements = [
     to: '  const restantJourPour = (taches, cibles, skipIdx = -1) => {\n    if (cibles && cibles.length) {\n      const restants = cibles.map(o => capacitePourOuvrier(o) - chargeOuvrier(taches, o, skipIdx));\n      return Math.max(0, Math.round(Math.min(...restants) * 4) / 4);\n    }\n    const charge = taches.reduce((s, x, i) => i === skipIdx ? s : s + (parseFloat(x.duree) || 0), 0);\n    return Math.max(0, Math.round((capaciteJour - charge) * 4) / 4);\n  };\n',
     label: "reste journée par capacité individuelle",
   },
+  {
+    from: '    if (restantJour > 0 && d > restantJour) d = restantJour;\n',
+    to: '    if (d > restantJour) d = restantJour;\n',
+    label: "plafond y compris capacité nulle",
+  },
 ];
 
 for (const r of replacements) {
@@ -35,4 +40,4 @@ for (const r of replacements) {
 }
 
 fs.writeFileSync(path, source);
-console.log("CellModal raccordé aux capacités ressources V1");
+console.log("CellModal raccordé aux capacités ressources V1, capacité nulle incluse");
