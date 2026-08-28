@@ -188,7 +188,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     const nb = cibles.length || 1;
     let d = Math.round((restantMO / nb) * 4) / 4;
     const restantJour = restantJourPour(taches, cibles, idx);
-    if (restantJour > 0 && d > restantJour) d = restantJour;
+    if (d > restantJour) d = restantJour;
     return d > 0 ? d : null;
   };
 
