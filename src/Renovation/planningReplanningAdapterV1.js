@@ -13,12 +13,25 @@ import { appliquerStabiliteForecastV1 } from "./planningReplanningStabilityV1.js
 export const PLANNING_REPLANNING_ADAPTER_VERSION = 1;
 const EPS = 0.005;
 const round2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+const txt = v => String(v ?? "").trim();
+
+function sitesParChantierDepuisReferentiel(chantiers = []) {
+  const map = new Map();
+  for (const chantier of Array.isArray(chantiers) ? chantiers : []) {
+    const chantierId = txt(chantier?.id);
+    if (!chantierId) continue;
+    const siteId = txt(chantier?.site_id) || txt(chantier?.operation_id) || chantierId;
+    map.set(chantierId, siteId);
+  }
+  return map;
+}
 
 export function preparerSimulationReplanningV1(options = {}) {
   const startDate = String(options?.startDate || "").slice(0, 10);
   const etatReel = construireEtatReelPhasagesV1(options?.phasages || [], { today: startDate });
   const preparation = preparerSimulationPlanningGlobalV1(options);
   const etatParId = new Map(etatReel.travaux.map(t => [t.id, t]));
+  const sitesParChantier = sitesParChantierDepuisReferentiel(options?.chantiers || []);
 
   let travauxEnrichis = 0;
   let heuresBrutesVerifiees = 0;
@@ -59,6 +72,7 @@ export function preparerSimulationReplanningV1(options = {}) {
   const stabilite = appliquerStabiliteForecastV1({
     travaux: travauxEtatReel,
     allocationsForecast: preparation.forecastCourant.allocations_recalculables,
+    sitesParChantier,
   });
 
   return {
@@ -92,6 +106,7 @@ export function preparerSimulationReplanningV1(options = {}) {
       forecast_est_une_preference_soft: true,
       pool_metier_hard_inchange_par_forecast: true,
       continuite_operation_filtre_par_pool_metier: true,
+      resolution_site: "site_id > operation_id > chantier_id",
     },
   };
 }
