@@ -103,6 +103,10 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
   return {
     horizon: data.horizon,
     audit_lecture: data.audit_lecture,
+    referentiel: {
+      chantiers: data.config.chantiers.map(c => ({ id:c.id, nom:c.nom || c.id, couleur:c.couleur || null, statut:c.statut || null })),
+      ressources: data.ressources.map(r => ({ id:r.id, nom:r.nom, nom_planning:r.nom_planning, kind:r.kind })),
+    },
     preparation,
     invariants: { ...data.invariants, aucune_ecriture_persistante: true },
   };
@@ -125,6 +129,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
     horizon: prepared.horizon,
     audit_lecture: prepared.audit_lecture,
     audit_adaptateur: prepared.preparation.audit,
+    referentiel: prepared.referentiel,
     forecast_courant: prepared.preparation.forecastCourant,
     travaux_exclus: prepared.preparation.travaux_exclus,
     warnings_adaptateur: prepared.preparation.warnings,
