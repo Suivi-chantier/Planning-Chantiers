@@ -348,6 +348,20 @@ export function preparerSimulationPlanningGlobalV1({
         explication: `Ouvrier(s) du phasage sans ressource stable : ${mappingTache.nonMappes.join(", ")}`,
       });
 
+      // Ancien phasage sans groupe d'exécution ET sans ressource identifiable :
+      // ne jamais inventer une affectation parmi tous les salariés. On préfère
+      // une exclusion visible à une proposition faussement précise.
+      if (!groupe.groupe_type_id && mappingTache.ids.length === 0) {
+        travauxExclus.push({
+          travail_id: travailId,
+          chantier_id: chantierId,
+          tache_id: tacheId,
+          type: "contexte_affectation_insuffisant",
+          explication: "Tâche legacy sans groupe métier résolu ni ouvrier mappé : affectation automatique volontairement désactivée.",
+        });
+        continue;
+      }
+
       const prefGroupe = prefsGroupes.get(groupe.groupe_type_id) || null;
       if (!nomsTache.length && prefGroupe?.noms_non_mappes?.length) warnings.push({
         type: "groupe_ouvrier_prio_non_mappe",
