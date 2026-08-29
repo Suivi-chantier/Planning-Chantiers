@@ -25,6 +25,7 @@ jobs:
         run: |
           python3 scripts/temp_harden_engine_resource_pools.py
           python3 scripts/temp_fix_pool_fixture.py
+          python3 scripts/temp_fix_inference_pool_fixture.py
       - name: Install dependencies
         run: npm ci
       - name: Planning model V1
