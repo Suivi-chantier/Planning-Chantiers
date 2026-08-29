@@ -51,12 +51,19 @@ export function etatReelTacheV1({
   const chantier = txt(chantierId);
   const total = heuresReferenceTacheV1(tache);
   const avancement = normaliserAvancementTacheV1(tache);
-  const reste = resteAFaireTacheV1(tache);
+  const resteCalcule = resteAFaireTacheV1(tache);
   const datePrevue = dateOnly(tache?.date_prevue);
   const dateReference = dateOnly(today);
-  const terminee = avancement >= 100 - EPS || reste <= EPS || total <= EPS;
+
+  // Le phasage est la vérité physique : seule une progression à 100 % signifie
+  // que la tâche est terminée. Une absence de charge de référence ne doit jamais
+  // transformer artificiellement une tâche à 20/50/80 % en tâche terminée.
+  const terminee = avancement >= 100 - EPS;
+  const chargeQuantifiable = total > EPS;
+  const reste = terminee ? 0 : (chargeQuantifiable ? resteCalcule : null);
   const statutReel = terminee ? "terminee" : avancement > EPS ? "en_cours" : "a_faire";
   const enRetard = Boolean(!terminee && datePrevue && dateReference && datePrevue < dateReference);
+  const bloqueurCharge = !terminee && !chargeQuantifiable ? "charge_reference_manquante" : null;
 
   return {
     schema_version: 1,
@@ -67,20 +74,25 @@ export function etatReelTacheV1({
     statut_reel: statutReel,
     avancement,
     heures_reference: total,
-    reste_a_faire_heures: terminee ? 0 : reste,
+    charge_quantifiable: chargeQuantifiable,
+    reste_a_faire_heures: reste,
+    bloqueur_planification: bloqueurCharge,
     date_prevue: datePrevue,
     en_retard: enRetard,
-    planifiable: !terminee && reste > EPS && Boolean(chantier && tacheId),
+    planifiable: !terminee && chargeQuantifiable && resteCalcule > EPS && Boolean(chantier && tacheId),
     provenance: {
       source_verite: "phasage",
       calcul_reste: "heures_reference_x_avancement_physique",
-      heures_reference: num(tache?.heures_vendues, 0) > EPS ? "heures_vendues" : "heures_estimees",
+      heures_reference: num(tache?.heures_vendues, 0) > EPS
+        ? "heures_vendues"
+        : (num(tache?.heures_estimees, 0) > EPS ? "heures_estimees" : "absente"),
       dernier_avancement_connu_le: tache?.avancement_updated_at || phasageUpdatedAt || null,
     },
     audit: {
       heures_reelles_observees: tache?.heures_reelles == null ? null : round2(Math.max(0, num(tache.heures_reelles, 0))),
       heures_reelles_utilisees_pour_reste: false,
       date_prevue_utilisee_pour_statut_termine: false,
+      absence_charge_utilisee_pour_statut_termine: false,
     },
   };
 }
@@ -138,10 +150,13 @@ export function construireEtatReelPhasagesV1(phasages = [], { today } = {}) {
       taches_terminees: travaux.filter(t => t.statut_reel === "terminee").length,
       taches_en_cours: travaux.filter(t => t.statut_reel === "en_cours").length,
       taches_en_retard: travaux.filter(t => t.en_retard).length,
-      reste_a_faire_heures: round2(travaux.reduce((s, t) => s + t.reste_a_faire_heures, 0)),
+      taches_charge_non_quantifiable: travaux.filter(t => t.statut_reel !== "terminee" && !t.charge_quantifiable).length,
+      reste_a_faire_heures: round2(travaux.reduce((s, t) => s + Number(t.reste_a_faire_heures || 0), 0)),
     },
     invariants: {
       phasage_source_de_verite: true,
+      avancement_100_seul_termine_physiquement: true,
+      absence_charge_ne_termine_pas_tache: true,
       date_passee_ne_termine_pas_tache: true,
       heures_reelles_ne_reduisent_pas_le_reste: true,
       identite_tache_preservee: true,
