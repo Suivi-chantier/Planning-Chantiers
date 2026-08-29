@@ -44,14 +44,28 @@ function indexForecast(allocations = []) {
   return map;
 }
 
-function indexSitesTravaux(travaux = []) {
-  const siteParChantier = new Map();
+function normaliserSitesExternes(sitesParChantier) {
+  if (sitesParChantier instanceof Map) {
+    return new Map([...sitesParChantier.entries()]
+      .map(([chantierId, siteId]) => [txt(chantierId), txt(siteId)])
+      .filter(([chantierId, siteId]) => chantierId && siteId));
+  }
+  if (sitesParChantier && typeof sitesParChantier === "object" && !Array.isArray(sitesParChantier)) {
+    return new Map(Object.entries(sitesParChantier)
+      .map(([chantierId, siteId]) => [txt(chantierId), txt(siteId)])
+      .filter(([chantierId, siteId]) => chantierId && siteId));
+  }
+  return new Map();
+}
+
+function indexSitesTravaux(travaux = [], sitesParChantier = null) {
+  const map = normaliserSitesExternes(sitesParChantier);
   for (const t of Array.isArray(travaux) ? travaux : []) {
     const chantierId = txt(t?.chantier_id);
     const siteId = txt(t?.site_id || t?.chantier_id);
-    if (chantierId && siteId && !siteParChantier.has(chantierId)) siteParChantier.set(chantierId, siteId);
+    if (chantierId && siteId && !map.has(chantierId)) map.set(chantierId, siteId);
   }
-  return siteParChantier;
+  return map;
 }
 
 function indexForecastParSite(allocations = [], siteParChantier = new Map()) {
@@ -78,9 +92,9 @@ function indexForecastParSite(allocations = [], siteParChantier = new Map()) {
   return map;
 }
 
-export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast = [] } = {}) {
+export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast = [], sitesParChantier = null } = {}) {
   const forecastParTache = indexForecast(allocationsForecast);
-  const siteParChantier = indexSitesTravaux(travaux);
+  const siteParChantier = indexSitesTravaux(travaux, sitesParChantier);
   const forecastParSite = indexForecastParSite(allocationsForecast, siteParChantier);
 
   let travauxAvecForecast = 0;
@@ -93,7 +107,7 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
   const next = (Array.isArray(travaux) ? travaux : []).map(travail => {
     const key = cle(travail?.chantier_id, travail?.tache_id);
     const forecast = forecastParTache.get(key) || null;
-    const siteId = txt(travail?.site_id || travail?.chantier_id) || null;
+    const siteId = txt(travail?.site_id || siteParChantier.get(txt(travail?.chantier_id)) || travail?.chantier_id) || null;
     const siteForecast = siteId ? forecastParSite.get(siteId) || null : null;
     const candidatesList = uniq(travail?.candidate_resource_ids);
     const candidates = new Set(candidatesList);
@@ -169,6 +183,7 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
       ressource_hors_pool_jamais_reintroduite: true,
       preference_tache_avant_preference_site: true,
       preference_site_filtree_par_pool_metier: true,
+      resolution_site_utilise_referentiel_operation: true,
       absence_forecast_site_ne_change_pas_le_moteur: true,
     },
   };
