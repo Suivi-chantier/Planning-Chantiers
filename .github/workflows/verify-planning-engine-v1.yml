@@ -9,17 +9,61 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+      - name: Integrate simulation UI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/Renovation/Planning.jsx')
+          s = p.read_text()
+
+          imp = 'import PlanningEngineSimulationPanel from "./PlanningEngineSimulationPanel";\n'
+          anchor = 'import PlanningBaselinePanel from "./PlanningBaselinePanel";\n'
+          if imp not in s:
+              assert s.count(anchor) == 1, 'import baseline inattendu'
+              s = s.replace(anchor, anchor + imp)
+
+          state = '  const [simulationOpen, setSimulationOpen] = useState(false);\n'
+          anchor = '  const [baselineOpen, setBaselineOpen] = useState(false);\n'
+          if state not in s:
+              assert s.count(anchor) == 1, 'state baseline inattendu'
+              s = s.replace(anchor, anchor + state)
+
+          render = '      {simulationOpen && <PlanningEngineSimulationPanel T={T} acc={acc} onClose={()=>setSimulationOpen(false)}/>}\n'
+          anchor = '      {baselineOpen && <PlanningBaselinePanel chantiers={chantiers} T={T} acc={acc} onClose={()=>setBaselineOpen(false)}/>}\n'
+          if render not in s:
+              assert s.count(anchor) == 1, 'rendu baseline inattendu'
+              s = s.replace(anchor, anchor + render)
+
+          button = '''          <button title="Simuler le planning global" onClick={()=>setSimulationOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}\n            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}\n            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>\n            <Icon as={CalendarCheck} size={14}/> Simulation\n          </button>\n'''
+          anchor = '          <button title="Planning de référence" onClick={()=>setBaselineOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}\n'
+          if 'title="Simuler le planning global"' not in s:
+              assert s.count(anchor) == 1, 'bouton référence inattendu'
+              s = s.replace(anchor, button + anchor)
+
+          p.write_text(s)
+          PY
+      - name: Commit UI patch if needed
+        run: |
+          if ! git diff --quiet -- src/Renovation/Planning.jsx; then
+            git config user.name 'Suivi-chantier'
+            git config user.email 'suivi.chantier@groupe-profero.com'
+            git add src/Renovation/Planning.jsx
+            git commit -m 'Intègre le panneau de simulation globale V1'
+            git push origin HEAD:feature/planning-engine-v1
+          fi
       - name: Install dependencies
         run: npm ci
       - name: Planning model V1
