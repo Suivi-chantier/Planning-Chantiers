@@ -188,4 +188,16 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.deepEqual(preparerSimulationPlanningGlobalV1(structuredClone(input)), preparerSimulationPlanningGlobalV1(structuredClone(input)));
 }
 
-console.log("✓ Planning Engine Adapter V1 — 15 scénarios métier validés");
+// 16. Sans groupe métier ni ouvrier mappé, une tâche legacy est exclue plutôt qu'affectée arbitrairement.
+{
+  const out = base({
+    phasages: [phasage({
+      taches: [task("LEGACY", { chrono_groupe_id: "G_INCONNU", ouvriers: [] })],
+      groupes: [],
+    })],
+  });
+  assert.equal(out.engineInput.travaux.some(t => t.tache_id === "LEGACY"), false);
+  assert.equal(out.travaux_exclus.some(t => t.tache_id === "LEGACY" && t.type === "contexte_affectation_insuffisant"), true);
+}
+
+console.log("✓ Planning Engine Adapter V1 — 16 scénarios métier validés");
