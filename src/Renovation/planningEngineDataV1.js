@@ -10,6 +10,7 @@ import { planifierReplanningIncrementalV1 } from "./planningReplanningIncrementa
 import { diffReplanningAvecContinuiteV1 } from "./planningReplanningDiffContinuityV1.js";
 import { construirePlanApplicationReplanningV1 } from "./planningReplanningApplyPlanV1.js";
 import { evaluerSecuriteApplicationReplanningV1 } from "./planningReplanningApplySafetyV1.js";
+import { simulerSensibiliteHorizonsReplanningDepuisSnapshotV1 } from "./planningReplanningHorizonSensitivityV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
 const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
@@ -129,6 +130,55 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
     },
     preparation,
     invariants: { ...data.invariants, aucune_ecriture_persistante: true },
+  };
+}
+
+/**
+ * Compare plusieurs horizons depuis UNE SEULE photographie réelle maximale.
+ * Le plus grand horizon est chargé une fois, puis chaque variante filtre ce
+ * snapshot en mémoire avant de rejouer exactement la chaîne chantier 05.
+ */
+export async function simulerSensibiliteHorizonsReplanningV1({
+  startDate,
+  horizons = [42, 56, 84],
+  baseHorizonDays = 42,
+} = {}) {
+  const list = [...new Set((Array.isArray(horizons) ? horizons : [])
+    .map(v => Math.max(1, Math.min(366, Math.round(Number(v) || 0))))
+    .filter(Boolean))]
+    .sort((a, b) => a - b);
+  if (!list.length) throw new Error("Au moins un horizon est requis");
+  const maxHorizon = Math.max(...list);
+  const data = await chargerDonneesSimulationPlanningGlobalV1({ startDate, horizonDays:maxHorizon });
+  const sensibilite = simulerSensibiliteHorizonsReplanningDepuisSnapshotV1({
+    snapshot: {
+      phasages: data.phasages,
+      chantiers: data.config.chantiers,
+      cellules: data.cellules,
+      cellulesToutes: data.cellulesToutes,
+      ressources: data.ressources,
+      evenementsRessources: data.evenementsRessources,
+      contraintes: data.contraintes,
+      groupesTypes: data.config.groupesTypes,
+      equipes: data.config.equipes,
+    },
+    startDate: data.horizon.start_date,
+    horizons:list,
+    baseHorizonDays,
+  });
+  return {
+    schema_version: 1,
+    generated_at: new Date().toISOString(),
+    audit_lecture_snapshot_maximal: data.audit_lecture,
+    horizon_snapshot_maximal: data.horizon,
+    sensibilite,
+    invariants: {
+      ...data.invariants,
+      aucune_ecriture_persistante: true,
+      un_seul_snapshot_reel_pour_comparaison: true,
+      horizon_maximal_charge_une_fois: true,
+      sous_horizons_filtres_en_memoire: true,
+    },
   };
 }
 
