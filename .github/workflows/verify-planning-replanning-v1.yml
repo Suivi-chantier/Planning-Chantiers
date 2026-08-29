@@ -54,3 +54,13 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
+      - name: Upload audit source
+        uses: actions/upload-artifact@v4
+        with:
+          name: replanning-audit-source
+          path: |
+            package.json
+            package-lock.json
+            src/Renovation
+            src/rythmeSemaine.js
+          retention-days: 1
