@@ -33,9 +33,9 @@ const options = overrides => ({
   horizonDays: 10,
   ...overrides,
 });
-const forecastCell = (ouvriers, jour = "Mardi") => ({
-  id: `CELL-${jour}`, week_id: "2026-W36", chantier_id: "C1", jour, ouvriers,
-  taches: [{ allocation_uid: `A-${jour}`, tache_id: "T1", text: "T1", duree: 2, ouvriers }],
+const forecastCell = (ouvriers, jour = "Mardi", tacheId = "T1") => ({
+  id: `CELL-${jour}-${tacheId}`, week_id: "2026-W36", chantier_id: "C1", jour, ouvriers,
+  taches: [{ allocation_uid: `A-${jour}-${tacheId}`, tache_id: tacheId, text: tacheId, duree: 2, ouvriers }],
 });
 const externalOptions = (cellules = [], ressources = [res("R1"), res("EXT", "Externe", "prestataire", 0)]) => options({
   phasages: [phasage([task("T1")], "gt_ext")],
@@ -144,4 +144,33 @@ function retirerEtatReel(travaux) {
   assert.equal(out.audit.overrides_groupes_externes_depuis_forecast, 0);
 }
 
-console.log("OK — planning replanning adapter V1: 10 scénarios");
+// 11. Un prédécesseur à 80 % sans charge n'est ni terminé ni inventé : il devient un bloqueur connu.
+{
+  const t0 = task("T0", { avancement: 80, heures_vendues: null, heures_estimees: null, chrono_ordre: 0 });
+  const t1 = task("T1", { avancement: 0, chrono_ordre: 1 });
+  const out = preparerSimulationReplanningV1(options({ phasages: [phasage([t0, t1])] }));
+  assert.equal(out.engineInput.completedTaskIds.includes("C1::T0"), false);
+  assert.equal(out.engineInput.travaux.some(t => t.id === "C1::T0"), false);
+  assert.deepEqual(out.engineInput.travaux.find(t => t.id === "C1::T1")?.predecesseur_ids, ["C1::T0"]);
+  const ex = out.travaux_exclus.find(x => x.travail_id === "C1::T0");
+  assert.equal(ex?.type, "charge_reference_manquante");
+  assert.equal(ex?.avancement, 80);
+  assert.equal(ex?.bloque_ses_successeurs, true);
+  assert.equal(out.engineInput.replanning_exclusions.some(x => x.travail_id === "C1::T0"), true);
+}
+
+// 12. Une tâche incomplète sans charge mais déjà forecastée est explicitement signalée, sans réutiliser sa durée comme vérité physique.
+{
+  const t0 = task("T0", { avancement: 60, heures_vendues: null, heures_estimees: null, chrono_groupe_id: null });
+  const out = preparerSimulationReplanningV1(options({
+    phasages: [phasage([t0])],
+    cellules: [forecastCell(["R1"], "Lundi", "T0")],
+  }));
+  const ex = out.travaux_exclus.find(x => x.travail_id === "C1::T0");
+  assert.equal(ex?.type, "charge_reference_manquante");
+  assert.equal(ex?.forecast_existant, true);
+  assert.equal(out.engineInput.travaux.some(t => t.id === "C1::T0"), false);
+  assert.equal(out.etatReel.travaux.find(t => t.id === "C1::T0")?.reste_a_faire_heures, null);
+}
+
+console.log("OK — planning replanning adapter V1: 12 scénarios");
