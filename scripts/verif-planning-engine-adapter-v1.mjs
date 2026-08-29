@@ -264,7 +264,6 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(t.crew_size, 2);
 }
 
-console.log("✓ Planning Engine Adapter V1 — 19 scénarios métier validés");
 // 20. Un ancien ouvrier hors de l'équipe actuelle ne peut plus élargir le pool du groupe.
 {
   const out = base({
@@ -290,3 +289,25 @@ console.log("✓ Planning Engine Adapter V1 — 19 scénarios métier validés")
   assert.deepEqual(t.candidate_resource_ids.sort(), ["R1", "R2"]);
   assert.deepEqual(t.preferred_resource_ids, ["R2"]);
 }
+
+
+// 22. L'opération regroupe plusieurs chantiers sur un même site logique pour le moteur.
+{
+  const out = base({
+    chantiers:[{ id:"C1", nom:"Logement", statut:"en_cours", operation_id:"OP-CHANTIER" }],
+    cellules:[cell({ uid:"LOCK-SITE", duree:1 })],
+    contraintes:[{ id:"LOCK-SITE-C", type:"allocation_lock", scope:"allocation", allocation_id:"LOCK-SITE", chantier_id:"C1", hard:true, actif:true }],
+  });
+  assert.equal(out.engineInput.travaux[0].site_id, "OP-CHANTIER");
+  assert.equal(out.engineInput.allocationsExistantes[0].site_id, "OP-CHANTIER");
+}
+
+// 23. Un site_id explicite peut corriger un chantier legacy sans operation_id.
+{
+  const out = base({
+    chantiers:[{ id:"C1", nom:"Logement", statut:"en_cours", operation_id:"OP-OLD", site_id:"SITE-EXPLICITE" }],
+  });
+  assert.equal(out.engineInput.travaux[0].site_id, "SITE-EXPLICITE");
+}
+
+console.log("✓ Planning Engine Adapter V1 — 23 scénarios métier validés");

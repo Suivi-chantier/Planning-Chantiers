@@ -90,11 +90,9 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   const before = structuredClone(existing);
   const out = run({ travaux: [task("T3", 3)], allocationsExistantes: existing, horizonDays: 2 });
   assert.deepEqual(existing, before, "le moteur ne doit jamais muter les allocations existantes");
-  assert.equal(out.allocations_proposees.length, 2);
-  assert.equal(out.allocations_proposees[0].date, "2026-08-31");
-  assert.equal(out.allocations_proposees[0].duree, 1);
-  assert.equal(out.allocations_proposees[1].date, "2026-09-01");
-  assert.equal(out.allocations_proposees[1].duree, 2);
+  assert.equal(out.allocations_proposees.length, 1);
+  assert.equal(out.allocations_proposees[0].date, "2026-09-01");
+  assert.equal(out.allocations_proposees[0].duree, 3);
 }
 
 // 7. Dépendances explicites : le successeur ne devient éligible qu'après l'achèvement du prédécesseur.
@@ -191,18 +189,19 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.equal(out.non_planifies[0].travail_id, "LOW");
 }
 
-// 15. Changement de chantier dans la même journée : autorisé comme préférence dégradée et signalé.
+// 15. Une ressource déjà engagée sur un autre site ne saute pas de chantier pour remplir sa journée.
 {
   const out = run({
-    travaux: [task("T4", 1, { chantier_id: "chantier-A", candidate_resource_ids: ["R1"] })],
+    travaux: [task("T4", 1, { chantier_id: "chantier-A", site_id: "SITE-A", candidate_resource_ids: ["R1"] })],
     allocationsExistantes: [{
-      allocation_uid: "OTHER", chantier_id: "chantier-B", tache_id: "OLD",
+      allocation_uid: "OTHER", chantier_id: "chantier-B", site_id: "SITE-B", tache_id: "OLD",
       date: "2026-08-31", duree: 1, resource_ids: ["R1"],
     }],
+    horizonDays: 2,
   });
   assert.equal(out.allocations_proposees.length, 1);
-  assert.equal(out.warnings.some(w => w.type === "changement_chantier_meme_jour"), true);
-  assert.deepEqual(out.allocations_proposees[0].explication.changement_chantier_ressources, ["R1"]);
+  assert.equal(out.allocations_proposees[0].date, "2026-09-01");
+  assert.equal(out.warnings.some(w => w.type === "changement_chantier_meme_jour"), false);
 }
 
 // 16. Un prestataire externe n'est jamais auto-planifié comme une personne Profero.
@@ -264,7 +263,6 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.equal(typeof e.score_travail, "number");
 }
 
-console.log("✓ Planning Engine V1 — 20 scénarios métier validés");
 
 // 21. candidate_resource_ids est un pool hard : une ressource hors pool n'est jamais choisie, même préférée.
 {
@@ -274,3 +272,30 @@ console.log("✓ Planning Engine V1 — 20 scénarios métier validés");
   });
   assert.deepEqual(out.allocations_proposees[0].resource_ids, ["R2"]);
 }
+
+
+// 22. Deux chantiers d'un même site/opération peuvent être enchaînés le même jour.
+{
+  const out = run({
+    travaux: [task("SITE-SAME", 2, { chantier_id:"chantier-B", site_id:"OP-X", candidate_resource_ids:["R1"] })],
+    allocationsExistantes: [{
+      allocation_uid:"SAME", chantier_id:"chantier-A", site_id:"OP-X", tache_id:"OLD",
+      date:"2026-08-31", duree:1, resource_ids:["R1"],
+    }],
+    horizonDays:1,
+  });
+  assert.equal(out.allocations_proposees.length, 1);
+  assert.equal(out.allocations_proposees[0].date, "2026-08-31");
+  assert.equal(out.allocations_proposees[0].site_id, "OP-X");
+}
+
+// 23. Le fallback sans site explicite reste déterministe sur chantier_id.
+{
+  const out = run({
+    travaux:[task("FALLBACK", 1, { chantier_id:"chantier-A", candidate_resource_ids:["R1"] })],
+    horizonDays:1,
+  });
+  assert.equal(out.allocations_proposees[0].site_id, "chantier-A");
+}
+
+console.log("✓ Planning Engine V1 — 23 scénarios métier validés");

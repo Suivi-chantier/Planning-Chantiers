@@ -253,6 +253,11 @@ export function preparerSimulationPlanningGlobalV1({
   const chantierMap = new Map((Array.isArray(chantiers) ? chantiers : [])
     .filter(c => txt(c?.id))
     .map(c => [txt(c.id), c]));
+  const siteIdPourChantier = (chantierId) => {
+    const cid = txt(chantierId);
+    const chantier = chantierMap.get(cid);
+    return txt(chantier?.site_id) || txt(chantier?.operation_id) || cid || null;
+  };
   const configChantiersDisponible = chantierMap.size > 0;
   const groupesTypesParId = new Map((Array.isArray(groupesTypes) ? groupesTypes : [])
     .filter(g => txt(g?.id))
@@ -274,6 +279,7 @@ export function preparerSimulationPlanningGlobalV1({
     const chantierId = txt(ph?.chantier_id);
     if (!chantierId) continue;
     const chantier = chantierMap.get(chantierId);
+    const siteId = siteIdPourChantier(chantierId);
     if (configChantiersDisponible && !chantier) {
       warnings.push({ type: "phasage_hors_referentiel", chantier_id: chantierId, explication: "Phasage ignoré car son chantier n'existe plus dans le référentiel courant." });
       continue;
@@ -446,6 +452,7 @@ export function preparerSimulationPlanningGlobalV1({
         id: travailId,
         tache_id: tacheId,
         chantier_id: chantierId,
+        site_id: siteId,
         groupe_type_id: groupe.groupe_type_id,
         texte: txt(tache?.nom) || "Tâche sans libellé",
         heures_mo_restantes: restant,
@@ -459,6 +466,7 @@ export function preparerSimulationPlanningGlobalV1({
         fractionnable: typeof tache?.fractionnable === "boolean" ? tache.fractionnable : (regle?.fractionnable_default !== false),
         provenance: {
           phasage_id: txt(ph?.id) || null,
+          site_id: siteId,
           ouvrage_id: txt(ouvrage?.id) || null,
           code_ouvrage: txt(ouvrage?.code_ouvrage) || null,
           dependances: sourcePred.source,
@@ -481,6 +489,7 @@ export function preparerSimulationPlanningGlobalV1({
       allocation_uid: a.allocation_uid,
       tache_id: a.tache_id,
       chantier_id: a.chantier_id,
+      site_id: siteIdPourChantier(a.chantier_id),
       date: a.date,
       duree: a.duree,
       resource_ids: a.resource_ids || [],
@@ -534,6 +543,7 @@ export function preparerSimulationPlanningGlobalV1({
       allocations_futures_deverrouillees_recalculables: true,
       allocations_manuelles_ou_verrouillees_fixes: true,
       groupes_externes_sans_override_exclus: true,
+      continuite_site_journaliere: "site_id explicite, sinon operation_id, sinon chantier_id",
       formule_restant_mo: "MO restante = (heures vendues si > 0, sinon heures estimées) × (1 - avancement/100) - MO déjà réservée par les allocations futures verrouillées",
     },
   };

@@ -60,6 +60,7 @@ export function normaliserTravailMoteurV1(value, index = 0) {
     id: str(t.id || t.tache_id) || `travail_${index + 1}`,
     tache_id: str(t.tache_id || t.id) || null,
     chantier_id: str(t.chantier_id) || null,
+    site_id: str(t.site_id || t.operation_id || t.chantier_id) || null,
     groupe_type_id: groupe,
     texte: str(t.texte || t.text || t.nom) || "Tâche sans libellé",
     heures_mo_restantes: round2(heures),
@@ -81,6 +82,7 @@ export function normaliserAllocationExistanteV1(value, index = 0) {
     allocation_uid: str(a.allocation_uid || a.id) || `allocation_existante_${index + 1}`,
     tache_id: str(a.tache_id) || null,
     chantier_id: str(a.chantier_id) || null,
+    site_id: str(a.site_id || a.operation_id || a.chantier_id) || null,
     date: dateOnly(a.date),
     duree: Math.max(0, num(a.duree, 0)),
     resource_ids: uniq(a.resource_ids || a.ouvriers_resource_ids),
@@ -92,11 +94,13 @@ function keyCharge(resourceId, date) {
   return `${resourceId}@@${date}`;
 }
 
-function ajouterCharge(map, resourceId, date, heures, chantierId = null) {
+function ajouterCharge(map, resourceId, date, heures, chantierId = null, siteId = null) {
   const key = keyCharge(resourceId, date);
-  const prev = map.get(key) || { heures: 0, chantiers: new Set() };
+  const prev = map.get(key) || { heures: 0, chantiers: new Set(), sites: new Set() };
   prev.heures = round2(prev.heures + Math.max(0, num(heures, 0)));
   if (chantierId) prev.chantiers.add(String(chantierId));
+  const site = str(siteId || chantierId);
+  if (site) prev.sites.add(site);
   map.set(key, prev);
 }
 
@@ -105,7 +109,7 @@ export function construireChargeExistanteV1(allocations = []) {
   (Array.isArray(allocations) ? allocations : [])
     .map(normaliserAllocationExistanteV1)
     .filter(a => a.date && a.duree > EPS)
-    .forEach(a => a.resource_ids.forEach(rid => ajouterCharge(map, rid, a.date, a.duree, a.chantier_id)));
+    .forEach(a => a.resource_ids.forEach(rid => ajouterCharge(map, rid, a.date, a.duree, a.chantier_id, a.site_id)));
   return map;
 }
 
@@ -171,7 +175,7 @@ function scorerTravail({ travail, date, contraintes, allocationsProposees }) {
 }
 
 function chargePour(charge, resourceId, date) {
-  return charge.get(keyCharge(resourceId, date)) || { heures: 0, chantiers: new Set() };
+  return charge.get(keyCharge(resourceId, date)) || { heures: 0, chantiers: new Set(), sites: new Set() };
 }
 
 function choisirEquipe({ travail, date, ressources, evenements, contraintes, charge, requiredElapsed = null }) {
@@ -185,6 +189,10 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintes, cha
   const scored = [];
   for (const r of allCandidates) {
     const load = chargePour(charge, r.id, date);
+    // Contrat chantier 04 : une ressource reste sur un seul site physique par
+    // journée. Deux logements/chantiers d'une même opération peuvent partager
+    // le même `site_id`; un changement de site est différé au prochain jour.
+    if (load.sites.size > 0 && !load.sites.has(travail.site_id)) continue;
     const capacite = calculerCapaciteRessourcePourDate({
       resource: r,
       dateISO: date,
@@ -206,8 +214,8 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintes, cha
 
     let score = capacite.capacite_disponible;
     if (travail.preferred_resource_ids.includes(r.id)) score += 1000;
-    if (load.chantiers.has(travail.chantier_id)) score += 300;
-    else if (load.chantiers.size > 0) score -= 120;
+    if (load.chantiers.has(travail.chantier_id)) score += 350;
+    else if (load.sites.has(travail.site_id)) score += 220;
 
     scored.push({ resource: r, capacite, constraintEval: cEval, score });
   }
@@ -354,7 +362,7 @@ export function planifierPropositionV1({
         const switchedResources = crew.selected
           .filter(x => {
             const load = chargePour(charge, x.resource.id, date);
-            return load.chantiers.size > 0 && !load.chantiers.has(t.chantier_id);
+            return load.sites.size > 0 && !load.sites.has(t.site_id);
           })
           .map(x => x.resource.id);
 
@@ -364,6 +372,7 @@ export function planifierPropositionV1({
           travail_id: t.id,
           tache_id: t.tache_id,
           chantier_id: t.chantier_id,
+          site_id: t.site_id,
           groupe_type_id: t.groupe_type_id,
           texte: t.texte,
           date,
@@ -379,13 +388,14 @@ export function planifierPropositionV1({
             priorite_contraintes: prioriteContrainte(constraints, t),
             contraintes_appliquees: candidate.dateEval.applied_constraint_ids,
             violations: candidate.dateEval.violations,
+            site_id: t.site_id,
             changement_chantier_ressources: switchedResources,
             fractionnable: t.fractionnable,
             formule: "MO produite = durée allocation × nombre de ressources ; durée plafonnée par la capacité disponible la plus faible de l'équipe",
           },
         };
         allocations.push(allocation);
-        resourceIds.forEach(rid => ajouterCharge(charge, rid, date, elapsed, t.chantier_id));
+        resourceIds.forEach(rid => ajouterCharge(charge, rid, date, elapsed, t.chantier_id, t.site_id));
         state.restant_mo = round2(Math.max(0, state.restant_mo - produced));
         state.termine = state.restant_mo <= EPS;
         if (state.termine) state.finish_date = date;
@@ -398,7 +408,7 @@ export function planifierPropositionV1({
             travail_id: t.id,
             date,
             resource_ids: switchedResources,
-            explication: "Ressource déjà utilisée sur un autre chantier le même jour ; autorisé faute de meilleure option mais signalé comme préférence dégradée.",
+            explication: "Anomalie de continuité : une ressource sélectionnée appartenait déjà à un autre site le même jour.",
           });
         }
         decisionTrace.push({
@@ -454,6 +464,7 @@ export function planifierPropositionV1({
       aucune_ecriture_persistante: true,
       allocations_existantes_preservees: true,
       moteur_deterministe_a_entrees_identiques: true,
+      un_seul_site_par_ressource_et_par_jour: true,
     },
   };
 }
