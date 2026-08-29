@@ -54,24 +54,20 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
-      - name: Audit REST smoke
+      - name: Real replanning audit
         env:
-          SUPABASE_URL: https://yooksnzhlffqgpzkcjhl.supabase.co
-          SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlvb2tzbnpobGZmcWdwemtjamhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxMDAzMzIsImV4cCI6MjA4NzY3NjMzMn0.rpr3PgIvHOBchoMYhm-yfnmkD5lcz__tnSvRptIUMQ8
+          AUDIT_URL: https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/planning-replanning-audit-temp?token=IxA0eIKYZvPBYM30F8y6NL0ABAcxLybB-vLu5uLGI98
         run: |
-          status=$(curl -sS -o /tmp/replanning-rest-smoke.json -w '%{http_code}' \
-            -H "apikey: $SUPABASE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_KEY" \
-            "$SUPABASE_URL/rest/v1/planning_resources?select=id&limit=1")
-          echo "Supabase REST status: $status"
-          test "$status" = "200"
-      - name: Upload audit source
+          status=$(curl -sS -o /tmp/replanning-real-audit.json -w '%{http_code}' "$AUDIT_URL")
+          echo "Audit exporter status: $status"
+          if [ "$status" != "200" ]; then
+            cat /tmp/replanning-real-audit.json
+            exit 1
+          fi
+          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/replanning-real-audit.json","utf8")); if(x.error) throw new Error(x.error); console.log(`Audit real: baseline switches=${x.baseline.continuity.switches}, chantier05 switches=${x.chantier05.continuity.switches}, à vérifier=${x.chantier05.diff.changements_a_verifier}`)'
+      - name: Upload real replanning audit
         uses: actions/upload-artifact@v4
         with:
-          name: replanning-audit-source
-          path: |
-            package.json
-            package-lock.json
-            src/Renovation
-            src/rythmeSemaine.js
+          name: replanning-real-audit
+          path: /tmp/replanning-real-audit.json
           retention-days: 1
