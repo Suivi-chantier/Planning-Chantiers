@@ -11,6 +11,11 @@
 // 2. à défaut, ressources déjà prévues sur le MÊME site/opération ;
 // 3. à défaut, préférences statiques du groupe métier.
 // Dans tous les cas `candidate_resource_ids` reste le pool HARD inchangé.
+//
+// La forme d'équipe (crew_size) peut, elle, être reprise du forecast uniquement
+// si TOUTES les allocations de la tâche ont une taille identique et si aucune
+// ressource forecast ne sort du pool HARD. Cela évite de confondre une liste de
+// ressources de référence du phasage avec une obligation de présence simultanée.
 
 export const PLANNING_REPLANNING_STABILITY_VERSION = 1;
 
@@ -28,17 +33,22 @@ function indexForecast(allocations = []) {
     const tacheId = txt(a?.tache_id);
     if (!chantierId || !tacheId) continue;
     const key = cle(chantierId, tacheId);
-    const prev = map.get(key) || { resource_ids: [], dates: [], allocation_uids: [] };
-    prev.resource_ids.push(...uniq(a?.resource_ids));
+    const prev = map.get(key) || { resource_ids: [], dates: [], allocation_uids: [], crew_sizes: [] };
+    const resourceIds = uniq(a?.resource_ids);
+    prev.resource_ids.push(...resourceIds);
+    if (resourceIds.length) prev.crew_sizes.push(resourceIds.length);
     if (txt(a?.date)) prev.dates.push(txt(a.date).slice(0, 10));
     if (txt(a?.allocation_uid)) prev.allocation_uids.push(txt(a.allocation_uid));
     map.set(key, prev);
   }
   for (const [key, value] of map) {
+    const crewSizes = [...new Set(value.crew_sizes)].sort((a, b) => a - b);
     map.set(key, {
       resource_ids: uniq(value.resource_ids).sort(),
       dates: uniq(value.dates).sort(),
       allocation_uids: uniq(value.allocation_uids).sort(),
+      crew_sizes: crewSizes,
+      crew_size_stable: crewSizes.length === 1 ? crewSizes[0] : null,
     });
   }
   return map;
@@ -100,6 +110,7 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
   let travauxAvecForecast = 0;
   let travauxAvecPreferenceConservee = 0;
   let travauxAvecAffiniteSite = 0;
+  let travauxAvecCrewSizeConservee = 0;
   let ressourcesForecastCompatibles = 0;
   let ressourcesForecastHorsPool = 0;
   let ressourcesSiteCompatibles = 0;
@@ -113,15 +124,9 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
     const candidates = new Set(candidatesList);
     const staticPreferred = uniq(travail?.preferred_resource_ids).filter(id => candidates.has(id));
 
-    const compatiblesTache = forecast
-      ? forecast.resource_ids.filter(id => candidates.has(id))
-      : [];
-    const horsPoolTache = forecast
-      ? forecast.resource_ids.filter(id => !candidates.has(id))
-      : [];
-    const compatiblesSite = siteForecast
-      ? siteForecast.resource_ids.filter(id => candidates.has(id))
-      : [];
+    const compatiblesTache = forecast ? forecast.resource_ids.filter(id => candidates.has(id)) : [];
+    const horsPoolTache = forecast ? forecast.resource_ids.filter(id => !candidates.has(id)) : [];
+    const compatiblesSite = siteForecast ? siteForecast.resource_ids.filter(id => candidates.has(id)) : [];
 
     if (forecast) travauxAvecForecast++;
     ressourcesForecastCompatibles += compatiblesTache.length;
@@ -140,11 +145,24 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
       travauxAvecAffiniteSite++;
     }
 
+    // Une taille d'équipe forecast n'est fiable que si elle est stable sur
+    // toutes les allocations de la tâche ET si 100 % des ressources historiques
+    // sont encore compatibles avec le pool HARD actuel.
+    const crewSizeForecast = forecast?.crew_size_stable || null;
+    const crewSizeApplicable = Boolean(
+      crewSizeForecast
+      && horsPoolTache.length === 0
+      && compatiblesTache.length >= crewSizeForecast
+    );
+    const crewSize = crewSizeApplicable ? crewSizeForecast : travail?.crew_size;
+    if (crewSizeApplicable && Number(crewSize) !== Number(travail?.crew_size)) travauxAvecCrewSizeConservee++;
+
     const hasStabilityContext = Boolean(forecast || siteForecast);
     if (!hasStabilityContext) return { ...travail };
 
     return {
       ...travail,
+      crew_size: crewSize,
       preferred_resource_ids: preferred,
       stability_forecast: {
         source: "forecast_courant_recalculable",
@@ -154,6 +172,10 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
         resource_ids_historiques: forecast?.resource_ids || [],
         resource_ids_compatibles: compatiblesTache,
         resource_ids_hors_pool: horsPoolTache,
+        crew_sizes_historiques: forecast?.crew_sizes || [],
+        crew_size_historique_stable: crewSizeForecast,
+        crew_size_appliquee: crewSizeApplicable ? crewSizeForecast : null,
+        crew_size_originale: travail?.crew_size ?? null,
         site_id: siteId,
         site_allocation_uids: siteForecast?.allocation_uids || [],
         site_dates: siteForecast?.dates || [],
@@ -173,6 +195,7 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
       travaux_avec_forecast: travauxAvecForecast,
       travaux_avec_preference_forecast_conservee: travauxAvecPreferenceConservee,
       travaux_avec_affinite_site: travauxAvecAffiniteSite,
+      travaux_avec_crew_size_forecast_conservee: travauxAvecCrewSizeConservee,
       ressources_forecast_compatibles: ressourcesForecastCompatibles,
       ressources_forecast_hors_pool: ressourcesForecastHorsPool,
       ressources_site_compatibles: ressourcesSiteCompatibles,
@@ -181,6 +204,7 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
       forecast_est_une_preference_soft: true,
       candidate_resource_ids_inchange: true,
       ressource_hors_pool_jamais_reintroduite: true,
+      crew_size_forecast_uniquement_si_stable_et_100pct_compatible: true,
       preference_tache_avant_preference_site: true,
       preference_site_filtree_par_pool_metier: true,
       resolution_site_utilise_referentiel_operation: true,
