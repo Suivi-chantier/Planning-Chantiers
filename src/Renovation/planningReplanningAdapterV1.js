@@ -32,6 +32,42 @@ function cleTravail(chantierId, tacheId) {
   return c && t ? `${c}::${t}` : null;
 }
 
+function exclusionsChargeNonQuantifiablePertinentes({ etatReel, preparation, chantiers = [] } = {}) {
+  const refsPred = new Set((preparation?.engineInput?.travaux || [])
+    .flatMap(t => Array.isArray(t?.predecesseur_ids) ? t.predecesseur_ids : [])
+    .map(txt)
+    .filter(Boolean));
+  const refsForecast = new Set((preparation?.forecastCourant?.allocations_recalculables || [])
+    .map(a => cleTravail(a?.chantier_id, a?.tache_id))
+    .filter(Boolean));
+  const dejaExclus = new Set((preparation?.travaux_exclus || []).map(x => txt(x?.travail_id)).filter(Boolean));
+  const referentiel = Array.isArray(chantiers) ? chantiers : [];
+  const configDisponible = referentiel.some(c => txt(c?.id));
+  const eligibles = new Set(referentiel
+    .filter(c => txt(c?.id) && txt(c?.statut) !== "termine")
+    .map(c => txt(c.id)));
+
+  return (etatReel?.travaux || [])
+    .filter(etat => etat?.statut_reel !== "terminee")
+    .filter(etat => etat?.charge_quantifiable === false)
+    .filter(etat => !configDisponible || eligibles.has(txt(etat?.chantier_id)))
+    .filter(etat => refsPred.has(txt(etat?.id)) || refsForecast.has(txt(etat?.id)))
+    .filter(etat => !dejaExclus.has(txt(etat?.id)))
+    .map(etat => ({
+      travail_id: etat.id,
+      chantier_id: etat.chantier_id,
+      tache_id: etat.tache_id,
+      type: "charge_reference_manquante",
+      explication: `Tâche physiquement ${etat.statut_reel === "en_cours" ? `en cours à ${etat.avancement}%` : "à faire"}, mais sans heures vendues/estimées exploitables : le reste à faire ne peut pas être quantifié sans inventer de charge.`,
+      source_verite: "phasage",
+      avancement: etat.avancement,
+      charge_quantifiable: false,
+      bloque_ses_successeurs: refsPred.has(txt(etat.id)),
+      forecast_existant: refsForecast.has(txt(etat.id)),
+    }))
+    .sort((a, b) => `${a.chantier_id}|${a.tache_id}`.localeCompare(`${b.chantier_id}|${b.tache_id}`));
+}
+
 // Cas exceptionnel chantier 05 : un groupe peut être EXTERNE par défaut tout
 // en ayant déjà une affectation humaine interne explicite dans le forecast.
 // Cette affectation vaut override volontaire, exactement comme `tache.ouvriers`
@@ -99,6 +135,14 @@ export function preparerSimulationReplanningV1(options = {}) {
     ? preparerSimulationPlanningGlobalV1({ ...options, phasages: phasagesAvecOverrides })
     : preparationInitiale;
 
+  const exclusionsCharge = exclusionsChargeNonQuantifiablePertinentes({
+    etatReel,
+    preparation,
+    chantiers: options?.chantiers || [],
+  });
+  const travauxExclusReplanning = [...(preparation.travaux_exclus || []), ...exclusionsCharge]
+    .sort((a, b) => `${a?.type || ""}|${a?.travail_id || ""}`.localeCompare(`${b?.type || ""}|${b?.travail_id || ""}`));
+
   const etatParId = new Map(etatReel.travaux.map(t => [t.id, t]));
   const sitesParChantier = sitesParChantierDepuisReferentiel(options?.chantiers || []);
 
@@ -134,6 +178,8 @@ export function preparerSimulationReplanningV1(options = {}) {
           statut: etat.statut_reel,
           avancement: etat.avancement,
           reste_a_faire_heures: etat.reste_a_faire_heures,
+          charge_quantifiable: etat.charge_quantifiable,
+          bloqueur_planification: etat.bloqueur_planification,
           date_prevue: etat.date_prevue,
           en_retard: etat.en_retard,
           source_verite: etat.provenance.source_verite,
@@ -151,7 +197,12 @@ export function preparerSimulationReplanningV1(options = {}) {
 
   return {
     ...preparation,
-    engineInput: { ...preparation.engineInput, travaux: stabilite.travaux },
+    travaux_exclus: travauxExclusReplanning,
+    engineInput: {
+      ...preparation.engineInput,
+      travaux: stabilite.travaux,
+      replanning_exclusions: travauxExclusReplanning,
+    },
     etatReel,
     stabiliteForecast: stabilite,
     overridesExternesForecast: Object.fromEntries(overridesExternes),
@@ -161,8 +212,10 @@ export function preparerSimulationReplanningV1(options = {}) {
       etat_reel_taches: etatReel.audit.taches_total,
       etat_reel_taches_en_cours: etatReel.audit.taches_en_cours,
       etat_reel_taches_en_retard: etatReel.audit.taches_en_retard,
+      etat_reel_taches_charge_non_quantifiable: etatReel.audit.taches_charge_non_quantifiable,
       etat_reel_travaux_moteur_enrichis: travauxEnrichis,
       etat_reel_heures_brutes_verifiees: round2(heuresBrutesVerifiees),
+      exclusions_charge_non_quantifiable_pertinentes: exclusionsCharge.length,
       overrides_groupes_externes_depuis_forecast: overridesExternes.size,
       stabilite_travaux_avec_forecast: stabilite.audit.travaux_avec_forecast,
       stabilite_preferences_forecast_conservees: stabilite.audit.travaux_avec_preference_forecast_conservee,
@@ -173,6 +226,8 @@ export function preparerSimulationReplanningV1(options = {}) {
     invariants: {
       ...preparation.invariants,
       phasage_source_de_verite: true,
+      avancement_100_seul_termine_physiquement: true,
+      absence_charge_ne_termine_pas_tache: true,
       reste_a_faire_verifie_par_etat_reel: true,
       date_passee_ne_termine_pas_tache: true,
       heures_reelles_ne_reduisent_pas_le_reste: true,
