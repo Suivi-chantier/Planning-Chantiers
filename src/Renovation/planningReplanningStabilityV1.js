@@ -5,6 +5,12 @@
 // contrainte HARD. Lorsqu'une affectation actuelle reste compatible avec le pool
 // métier courant, elle devient une préférence SOFT pour éviter les permutations
 // arbitraires de ressources lors d'un recalcul.
+//
+// Ordre de préférence déterministe :
+// 1. ressources déjà prévues sur CETTE tâche ;
+// 2. à défaut, ressources déjà prévues sur le MÊME site/opération ;
+// 3. à défaut, préférences statiques du groupe métier.
+// Dans tous les cas `candidate_resource_ids` reste le pool HARD inchangé.
 
 export const PLANNING_REPLANNING_STABILITY_VERSION = 1;
 
@@ -38,43 +44,109 @@ function indexForecast(allocations = []) {
   return map;
 }
 
+function indexSitesTravaux(travaux = []) {
+  const siteParChantier = new Map();
+  for (const t of Array.isArray(travaux) ? travaux : []) {
+    const chantierId = txt(t?.chantier_id);
+    const siteId = txt(t?.site_id || t?.chantier_id);
+    if (chantierId && siteId && !siteParChantier.has(chantierId)) siteParChantier.set(chantierId, siteId);
+  }
+  return siteParChantier;
+}
+
+function indexForecastParSite(allocations = [], siteParChantier = new Map()) {
+  const map = new Map();
+  for (const a of Array.isArray(allocations) ? allocations : []) {
+    const chantierId = txt(a?.chantier_id);
+    const siteId = siteParChantier.get(chantierId) || chantierId || null;
+    if (!siteId) continue;
+    const prev = map.get(siteId) || { resource_ids: [], dates: [], allocation_uids: [], chantier_ids: [] };
+    prev.resource_ids.push(...uniq(a?.resource_ids));
+    if (txt(a?.date)) prev.dates.push(txt(a.date).slice(0, 10));
+    if (txt(a?.allocation_uid)) prev.allocation_uids.push(txt(a.allocation_uid));
+    if (chantierId) prev.chantier_ids.push(chantierId);
+    map.set(siteId, prev);
+  }
+  for (const [siteId, value] of map) {
+    map.set(siteId, {
+      resource_ids: uniq(value.resource_ids).sort(),
+      dates: uniq(value.dates).sort(),
+      allocation_uids: uniq(value.allocation_uids).sort(),
+      chantier_ids: uniq(value.chantier_ids).sort(),
+    });
+  }
+  return map;
+}
+
 export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast = [] } = {}) {
   const forecastParTache = indexForecast(allocationsForecast);
+  const siteParChantier = indexSitesTravaux(travaux);
+  const forecastParSite = indexForecastParSite(allocationsForecast, siteParChantier);
+
   let travauxAvecForecast = 0;
   let travauxAvecPreferenceConservee = 0;
+  let travauxAvecAffiniteSite = 0;
   let ressourcesForecastCompatibles = 0;
   let ressourcesForecastHorsPool = 0;
+  let ressourcesSiteCompatibles = 0;
 
   const next = (Array.isArray(travaux) ? travaux : []).map(travail => {
     const key = cle(travail?.chantier_id, travail?.tache_id);
     const forecast = forecastParTache.get(key) || null;
-    if (!forecast) return { ...travail };
-    travauxAvecForecast++;
+    const siteId = txt(travail?.site_id || travail?.chantier_id) || null;
+    const siteForecast = siteId ? forecastParSite.get(siteId) || null : null;
+    const candidatesList = uniq(travail?.candidate_resource_ids);
+    const candidates = new Set(candidatesList);
+    const staticPreferred = uniq(travail?.preferred_resource_ids).filter(id => candidates.has(id));
 
-    const candidates = new Set(uniq(travail?.candidate_resource_ids));
-    const compatibles = forecast.resource_ids.filter(id => candidates.has(id));
-    const horsPool = forecast.resource_ids.filter(id => !candidates.has(id));
-    ressourcesForecastCompatibles += compatibles.length;
-    ressourcesForecastHorsPool += horsPool.length;
+    const compatiblesTache = forecast
+      ? forecast.resource_ids.filter(id => candidates.has(id))
+      : [];
+    const horsPoolTache = forecast
+      ? forecast.resource_ids.filter(id => !candidates.has(id))
+      : [];
+    const compatiblesSite = siteForecast
+      ? siteForecast.resource_ids.filter(id => candidates.has(id))
+      : [];
 
-    // La préférence forecast remplace la préférence statique seulement si elle
-    // est encore compatible. Le pool candidat HARD est strictement inchangé.
-    const preferred = compatibles.length
-      ? compatibles
-      : uniq(travail?.preferred_resource_ids).filter(id => candidates.has(id));
-    if (compatibles.length) travauxAvecPreferenceConservee++;
+    if (forecast) travauxAvecForecast++;
+    ressourcesForecastCompatibles += compatiblesTache.length;
+    ressourcesForecastHorsPool += horsPoolTache.length;
+    ressourcesSiteCompatibles += compatiblesSite.length;
+
+    let preferred = staticPreferred;
+    let preferenceSource = "groupe_metier";
+    if (compatiblesTache.length) {
+      preferred = compatiblesTache;
+      preferenceSource = "forecast_tache";
+      travauxAvecPreferenceConservee++;
+    } else if (compatiblesSite.length) {
+      preferred = compatiblesSite;
+      preferenceSource = "forecast_site";
+      travauxAvecAffiniteSite++;
+    }
+
+    const hasStabilityContext = Boolean(forecast || siteForecast);
+    if (!hasStabilityContext) return { ...travail };
 
     return {
       ...travail,
       preferred_resource_ids: preferred,
       stability_forecast: {
         source: "forecast_courant_recalculable",
-        allocation_uids: forecast.allocation_uids,
-        dates: forecast.dates,
-        resource_ids_historiques: forecast.resource_ids,
-        resource_ids_compatibles: compatibles,
-        resource_ids_hors_pool: horsPool,
-        preference_appliquee: compatibles.length > 0,
+        preference_source: preferenceSource,
+        allocation_uids: forecast?.allocation_uids || [],
+        dates: forecast?.dates || [],
+        resource_ids_historiques: forecast?.resource_ids || [],
+        resource_ids_compatibles: compatiblesTache,
+        resource_ids_hors_pool: horsPoolTache,
+        site_id: siteId,
+        site_allocation_uids: siteForecast?.allocation_uids || [],
+        site_dates: siteForecast?.dates || [],
+        site_chantier_ids: siteForecast?.chantier_ids || [],
+        site_resource_ids_historiques: siteForecast?.resource_ids || [],
+        site_resource_ids_compatibles: compatiblesSite,
+        preference_appliquee: preferenceSource !== "groupe_metier",
         contrainte_hard: false,
       },
     };
@@ -86,14 +158,18 @@ export function appliquerStabiliteForecastV1({ travaux = [], allocationsForecast
       travaux_total: next.length,
       travaux_avec_forecast: travauxAvecForecast,
       travaux_avec_preference_forecast_conservee: travauxAvecPreferenceConservee,
+      travaux_avec_affinite_site: travauxAvecAffiniteSite,
       ressources_forecast_compatibles: ressourcesForecastCompatibles,
       ressources_forecast_hors_pool: ressourcesForecastHorsPool,
+      ressources_site_compatibles: ressourcesSiteCompatibles,
     },
     invariants: {
       forecast_est_une_preference_soft: true,
       candidate_resource_ids_inchange: true,
       ressource_hors_pool_jamais_reintroduite: true,
-      absence_forecast_ne_change_pas_le_moteur: true,
+      preference_tache_avant_preference_site: true,
+      preference_site_filtree_par_pool_metier: true,
+      absence_forecast_site_ne_change_pas_le_moteur: true,
     },
   };
 }
