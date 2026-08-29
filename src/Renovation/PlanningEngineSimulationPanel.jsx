@@ -85,6 +85,8 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
   const impact = result?.audit_impact_incremental;
   const p = result?.proposition;
   const diff = result?.diff_forecast;
+  const applyPlan = result?.plan_application;
+  const apply = applyPlan?.resume;
 
   const raisonsLisibles = useMemo(() => {
     const labels = new Map();
@@ -221,6 +223,27 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
               <Stat T={T} icon={Users} label="Équipes modifiées" value={diff?.resume?.ressources_changees ?? 0} sub={`${diff?.resume?.fractionnement_change ?? 0} fractionnements modifiés`} color="#06b6d4"/>
             </div>
 
+            {applyPlan && <>
+              <SectionTitle T={T}>Prévisualisation d’application</SectionTitle>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                <Stat T={T} icon={CalendarRange} label="Cellules touchées" value={apply?.cellules_impactees ?? 0} sub={`${apply?.cellules_mises_a_jour ?? 0} mise(s) à jour · ${apply?.cellules_a_creer ?? 0} création(s)`} color="#8b5cf6"/>
+                <Stat T={T} icon={ShieldCheck} label="UID réutilisés" value={apply?.allocations_uid_reutilises ?? 0} sub={`${apply?.allocations_uid_nouveaux ?? 0} nouvelle(s) identité(s) seulement si nécessaire`} color="#22c55e"/>
+                <Stat T={T} icon={Users} label="Allocations préservées" value={apply?.allocations_hors_scope_preservees ?? 0} sub="Manuelles, verrouillées ou hors recalcul conservées" color="#06b6d4"/>
+                <Stat T={T} icon={ShieldCheck} label="Garde d’écriture" value="Obligatoire" sub="Transaction unique + compare-before-write exact" color="#f59e0b"/>
+              </div>
+              <div style={{ marginTop:10, padding:"10px 12px", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.card, fontSize:11.5, lineHeight:1.45, color:T.textSub }}>
+                <strong style={{ color:T.text }}>Toujours en lecture seule.</strong> Cet aperçu décrit exactement les cellules qui seraient écrites. La future application devra recharger leur état, comparer chaque <code>expected_before</code> dans une transaction unique et annuler l’ensemble si une seule cellule a changé depuis la simulation.
+              </div>
+              {(applyPlan.operations || []).length > 0 && <div style={{ marginTop:8, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
+                {(applyPlan.operations || []).slice(0, 12).map((op, i) => <div key={op.cell_key} style={{ display:"grid", gridTemplateColumns:"minmax(210px,1fr) 90px minmax(180px,1fr)", gap:9, alignItems:"center", padding:"8px 10px", borderTop:i ? `1px solid ${T.border}` : "none", fontSize:11.5 }}>
+                  <strong style={{ color:T.textSub, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{op.cell_key.replaceAll("::", " · ")}</strong>
+                  <span style={{ color:op.type === "insert" ? "#8b5cf6" : "#5b8af5", fontWeight:850 }}>{op.type === "insert" ? "création" : "mise à jour"}</span>
+                  <span style={{ color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{(op.changed_fields || []).join(" · ") || "aucun champ"}</span>
+                </div>)}
+                {(applyPlan.operations || []).length > 12 && <div style={{ padding:"8px 10px", borderTop:`1px solid ${T.border}`, fontSize:11, color:T.textMuted }}>+ {(applyPlan.operations || []).length - 12} autres cellules dans le plan d’application complet.</div>}
+              </div>}
+            </>}
+
             {raisonsLisibles.length > 0 && <>
               <SectionTitle T={T}>Pourquoi le planning change</SectionTitle>
               <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
@@ -273,7 +296,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
 
             <div style={{ marginTop:18, padding:"10px 12px", border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, fontSize:11, lineHeight:1.45, color:T.textMuted, display:"flex", gap:8 }}>
               <Icon as={ShieldCheck} size={15} color="#22c55e" style={{ flex:"0 0 auto" }}/>
-              <span><strong style={{ color:T.textSub }}>Aucune modification n'a été appliquée.</strong> Ce panneau compare le forecast actuel au planning recalculé depuis le réel. L'application restera une étape séparée avec confirmation explicite.</span>
+              <span><strong style={{ color:T.textSub }}>Aucune modification n'a été appliquée.</strong> Ce panneau compare le forecast actuel au planning recalculé depuis le réel et prépare seulement un plan d’application transactionnel. L'écriture restera une étape séparée avec confirmation explicite.</span>
             </div>
           </>}
         </div>
