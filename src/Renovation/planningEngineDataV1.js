@@ -10,6 +10,7 @@ import { planifierReplanningIncrementalV1 } from "./planningReplanningIncrementa
 import { diffReplanningAvecContinuiteV1 } from "./planningReplanningDiffContinuityV1.js";
 import { construirePlanApplicationReplanningV1 } from "./planningReplanningApplyPlanV1.js";
 import { evaluerSecuriteApplicationReplanningV1 } from "./planningReplanningApplySafetyV1.js";
+import { completerGardesPhasagesApplicationV1 } from "./planningReplanningPhasageGuardsV1.js";
 import { simulerSensibiliteHorizonsReplanningDepuisSnapshotV1 } from "./planningReplanningHorizonSensitivityV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
@@ -208,13 +209,18 @@ export async function simulerPlanningGlobalV1(options = {}) {
     startDate: prepared.horizon.start_date,
     horizonDays: prepared.horizon.horizon_days,
   });
-  const securiteApplication = evaluerSecuriteApplicationReplanningV1({
+  const securiteBase = evaluerSecuriteApplicationReplanningV1({
     planApplication,
     cellulesToutes: prepared.snapshot_application.cellules_toutes,
     diff,
     phasages: prepared.snapshot_application.phasages,
     startDate: prepared.horizon.start_date,
     horizonDays: prepared.horizon.horizon_days,
+  });
+  const securiteApplication = completerGardesPhasagesApplicationV1({
+    securiteApplication: securiteBase,
+    planApplication,
+    phasages: prepared.snapshot_application.phasages,
   });
 
   return {
@@ -247,6 +253,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
       securite_application_evaluee_avant_toute_future_ecriture: true,
       compare_before_write_requis_avant_toute_future_application: true,
       phasage_updated_at_requis_pour_future_transaction: true,
+      tout_phasage_touche_verrouille_par_updated_at: true,
       diff_par_tache: true,
       diff_explicable_sans_cause_inventee: true,
       phasage_source_de_verite: true,
