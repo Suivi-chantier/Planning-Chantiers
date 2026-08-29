@@ -38,6 +38,8 @@ jobs:
         run: node scripts/verif-planning-replanning-date-stability-v1.mjs
       - name: Replanning residual capacity diagnostic V1
         run: node scripts/verif-planning-replanning-capacity-diagnostic-v1.mjs
+      - name: Replanning horizon sensitivity V1
+        run: node scripts/verif-planning-replanning-horizon-sensitivity-v1.mjs
       - name: Replanning explainable diff V1
         run: node scripts/verif-planning-replanning-diff-v1.mjs
       - name: Replanning continuity diff V1
