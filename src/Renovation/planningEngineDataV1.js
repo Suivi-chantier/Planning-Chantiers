@@ -8,6 +8,7 @@ import { supabase } from "../supabase";
 import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
 import { planifierReplanningIncrementalV1 } from "./planningReplanningIncrementalV1.js";
 import { diffReplanningAvecContinuiteV1 } from "./planningReplanningDiffContinuityV1.js";
+import { construirePlanApplicationReplanningV1 } from "./planningReplanningApplyPlanV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
 const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
@@ -32,7 +33,7 @@ export async function chargerDonneesSimulationPlanningGlobalV1({ startDate, hori
     supabase.from("phasages")
       .select("id,chantier_id,chantier_nom,ouvrages,plan_travaux,updated_at"),
     supabase.from("planning_cells")
-      .select("id,week_id,chantier_id,jour,taches,ouvriers")
+      .select("id,week_id,chantier_id,jour,planifie,reel,taches,ouvriers,vehicules")
       .in("week_id", horizon.week_ids),
     supabase.from("planning_resources")
       .select("id,nom,nom_planning,kind,actif,capacite_facteur,utilisateur_id,auth_user_id")
@@ -111,6 +112,10 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
       })),
       ressources: data.ressources.map(r => ({ id:r.id, nom:r.nom, nom_planning:r.nom_planning, kind:r.kind })),
     },
+    snapshot_application: {
+      cellules: data.cellules,
+      ressources: data.ressources,
+    },
     preparation,
     invariants: { ...data.invariants, aucune_ecriture_persistante: true },
   };
@@ -134,6 +139,15 @@ export async function simulerPlanningGlobalV1(options = {}) {
     proposition,
     travaux: prepared.preparation.engineInput.travaux,
   });
+  const planApplication = construirePlanApplicationReplanningV1({
+    cellules: prepared.snapshot_application.cellules,
+    forecastCourant: prepared.preparation.forecastCourant,
+    proposition,
+    ressources: prepared.snapshot_application.ressources,
+    startDate: prepared.horizon.start_date,
+    horizonDays: prepared.horizon.horizon_days,
+  });
+
   return {
     schema_version: 1,
     generated_at: new Date().toISOString(),
@@ -153,11 +167,14 @@ export async function simulerPlanningGlobalV1(options = {}) {
     warnings_etat_reel: prepared.preparation.etatReel?.warnings || [],
     proposition,
     diff_forecast: diff,
+    plan_application: planApplication,
     invariants: {
       ...prepared.invariants,
       moteur_deterministe: true,
       proposition_uniquement: true,
       application_automatique: false,
+      plan_application_est_un_apercu_sans_ecriture: true,
+      compare_before_write_requis_avant_toute_future_application: true,
       diff_par_tache: true,
       diff_explicable_sans_cause_inventee: true,
       phasage_source_de_verite: true,
