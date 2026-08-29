@@ -70,7 +70,7 @@ const base = cellules => ({
   ressources: [res("R1"), res("R2")],
   evenementsRessources: [], contraintes: [],
   groupesTypes: [{ id: "GT1", ordre: 10, equipe_id: "EQ1", ouvriers_prio: ["R1"] }],
-  equipes: [{ id: "EQ1", nom: "EQ1", responsable: "R1", membres: ["R2"], externe: false }],
+  equipes: [{ id: "EQ1", nom: "EQ1", responsable: "R1", membres: [{ ouvrier: "R2", date_dispo: null }], externe: false }],
   startDate: "2026-08-31", horizonDays: 2,
 });
 
@@ -81,7 +81,7 @@ const base = cellules => ({
     taches: [{ allocation_uid: "A1", tache_id: "T1", text: "T1", duree: 8, ouvriers: ["R2"] }],
   };
   const prep = preparerSimulationReplanningV1(base([cell]));
-  assert.deepEqual(prep.engineInput.travaux[0].candidate_resource_ids.sort(), ["R1", "R2"]);
+  assert.deepEqual([...prep.engineInput.travaux[0].candidate_resource_ids].sort(), ["R1", "R2"]);
   assert.deepEqual(prep.engineInput.travaux[0].preferred_resource_ids, ["R2"]);
   const proposition = planifierPropositionV1(prep.engineInput);
   assert.deepEqual(proposition.allocations_proposees[0].resource_ids, ["R2"]);
