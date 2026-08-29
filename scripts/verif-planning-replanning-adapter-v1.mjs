@@ -10,15 +10,15 @@ const source = await readFile(resolve(here, "../src/Renovation/planningReplannin
 assert.equal(/(?:\bimport\b|\bfrom\b)[^\n]*supabase/i.test(source), false, "le pont replanning doit rester pur");
 assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(source), false, "le pont replanning ne doit rien persister");
 
-const res = (id, nom = id) => ({ id, nom, nom_planning: nom, kind: "personne", actif: true, capacite_facteur: 1 });
+const res = (id, nom = id, kind = "personne", facteur = 1) => ({ id, nom, nom_planning: nom, kind, actif: true, capacite_facteur: facteur });
 const task = (id, extra = {}) => ({
   id, nom: id, heures_vendues: 10, heures_estimees: 8, avancement: 0,
   chrono_groupe_id: "G1", chrono_ordre: 0, ouvriers: [], ...extra,
 });
-const phasage = (taches = [task("T1")]) => ({
+const phasage = (taches = [task("T1")], groupeTypeId = "gt_reseau_elec") => ({
   id: "PH-C1", chantier_id: "C1", updated_at: "2026-08-30T18:00:00Z",
   ouvrages: [{ id: "O1", code_ouvrage: "E-001", taches }],
-  plan_travaux: { meta: { chrono_groupes: [{ id: "G1", ordre: 10, groupe_type_id: "gt_reseau_elec" }] } },
+  plan_travaux: { meta: { chrono_groupes: [{ id: "G1", ordre: 10, groupe_type_id: groupeTypeId }] } },
 });
 const options = overrides => ({
   phasages: [phasage()],
@@ -33,6 +33,17 @@ const options = overrides => ({
   horizonDays: 10,
   ...overrides,
 });
+const forecastCell = (ouvriers, jour = "Mardi") => ({
+  id: `CELL-${jour}`, week_id: "2026-W36", chantier_id: "C1", jour, ouvriers,
+  taches: [{ allocation_uid: `A-${jour}`, tache_id: "T1", text: "T1", duree: 2, ouvriers }],
+});
+const externalOptions = (cellules = [], ressources = [res("R1"), res("EXT", "Externe", "prestataire", 0)]) => options({
+  phasages: [phasage([task("T1")], "gt_ext")],
+  cellules,
+  ressources,
+  groupesTypes: [{ id: "gt_ext", ordre: 10, equipe_id: "EQ_EXT", ouvriers_prio: [] }],
+  equipes: [{ id: "EQ_EXT", nom: "Externe", responsable: "", membres: [], externe: true }],
+});
 
 function retirerEtatReel(travaux) {
   return travaux.map(t => {
@@ -41,7 +52,7 @@ function retirerEtatReel(travaux) {
   });
 }
 
-// 1. Le raccordement chantier 05 ne change pas le contrat fonctionnel du chantier 04.
+// 1. Le raccordement chantier 05 ne change pas le contrat fonctionnel du chantier 04 sans exception explicite.
 {
   const input = options();
   const old = preparerSimulationPlanningGlobalV1(input);
@@ -64,9 +75,7 @@ function retirerEtatReel(travaux) {
 
 // 3. Une tâche prévue hier mais incomplète reste dans le moteur et est signalée en retard.
 {
-  const out = preparerSimulationReplanningV1(options({
-    phasages: [phasage([task("T1", { avancement: 60, date_prevue: "2026-08-30" })])],
-  }));
+  const out = preparerSimulationReplanningV1(options({ phasages: [phasage([task("T1", { avancement: 60, date_prevue: "2026-08-30" })])] }));
   const t = out.engineInput.travaux[0];
   assert.equal(t.heures_mo_restantes, 4);
   assert.equal(t.provenance.etat_reel.statut, "en_cours");
@@ -75,17 +84,9 @@ function retirerEtatReel(travaux) {
 
 // 4. Un verrou réserve de la MO future sans falsifier le reste réel brut.
 {
-  const cell = {
-    id: "CELL-1", week_id: "2026-W36", chantier_id: "C1", jour: "Lundi", ouvriers: ["R1"],
-    taches: [{ allocation_uid: "LOCK-1", tache_id: "T1", text: "T1", duree: 2, ouvriers: ["R1"] }],
-  };
-  const contrainte = {
-    id: "K1", type: "allocation_lock", scope: "allocation", allocation_id: "LOCK-1",
-    hard: true, priority: 100, config: {}, source: "test", actif: true,
-  };
-  const out = preparerSimulationReplanningV1(options({
-    phasages: [phasage([task("T1", { avancement: 60 })])], cellules: [cell], contraintes: [contrainte],
-  }));
+  const cell = { id: "CELL-1", week_id: "2026-W36", chantier_id: "C1", jour: "Lundi", ouvriers: ["R1"], taches: [{ allocation_uid: "LOCK-1", tache_id: "T1", text: "T1", duree: 2, ouvriers: ["R1"] }] };
+  const contrainte = { id: "K1", type: "allocation_lock", scope: "allocation", allocation_id: "LOCK-1", hard: true, priority: 100, config: {}, source: "test", actif: true };
+  const out = preparerSimulationReplanningV1(options({ phasages: [phasage([task("T1", { avancement: 60 })])], cellules: [cell], contraintes: [contrainte] }));
   const t = out.engineInput.travaux[0];
   assert.equal(t.provenance.etat_reel.reste_a_faire_heures, 4);
   assert.equal(t.provenance.restant_brut_mo, 4);
@@ -106,4 +107,41 @@ function retirerEtatReel(travaux) {
   assert.deepEqual(preparerSimulationReplanningV1(input), preparerSimulationReplanningV1(input));
 }
 
-console.log("OK — planning replanning adapter V1: 6 scénarios");
+// 7. Groupe externe sans affectation forecast interne : exclusion inchangée.
+{
+  const out = preparerSimulationReplanningV1(externalOptions());
+  assert.equal(out.engineInput.travaux.length, 0);
+  assert.equal(out.travaux_exclus[0]?.type, "equipe_groupe_externe");
+  assert.equal(out.audit.overrides_groupes_externes_depuis_forecast, 0);
+}
+
+// 8. Affectation forecast interne explicite sur groupe externe : override limité à cette ressource.
+{
+  const out = preparerSimulationReplanningV1(externalOptions([forecastCell(["R1"])]));
+  assert.equal(out.engineInput.travaux.length, 1);
+  assert.deepEqual(out.engineInput.travaux[0].candidate_resource_ids, ["R1"]);
+  assert.deepEqual(out.engineInput.travaux[0].preferred_resource_ids, ["R1"]);
+  assert.deepEqual(out.engineInput.travaux[0].provenance.override_groupe_externe_forecast.ressource_noms, ["R1"]);
+  assert.equal(out.audit.overrides_groupes_externes_depuis_forecast, 1);
+}
+
+// 9. Une allocation vers le prestataire « Externe » ne devient jamais un salarié candidat.
+{
+  const out = preparerSimulationReplanningV1(externalOptions([forecastCell(["Externe"])]));
+  assert.equal(out.engineInput.travaux.length, 0);
+  assert.equal(out.audit.overrides_groupes_externes_depuis_forecast, 0);
+}
+
+// 10. Sur un groupe interne normal, le forecast ne peut toujours pas élargir le pool HARD.
+{
+  const out = preparerSimulationReplanningV1(options({
+    cellules: [forecastCell(["R2"])],
+    ressources: [res("R1"), res("R2")],
+  }));
+  assert.deepEqual(out.engineInput.travaux[0].candidate_resource_ids, ["R1"]);
+  assert.deepEqual(out.engineInput.travaux[0].preferred_resource_ids, ["R1"]);
+  assert.deepEqual(out.engineInput.travaux[0].stability_forecast.resource_ids_hors_pool, ["R2"]);
+  assert.equal(out.audit.overrides_groupes_externes_depuis_forecast, 0);
+}
+
+console.log("OK — planning replanning adapter V1: 10 scénarios");
