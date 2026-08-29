@@ -48,6 +48,12 @@ function indexExclusionsConnues(proposition = {}) {
     .map(x => [txt(x.travail_id), x]));
 }
 
+function indexDiagnosticsCapacite(proposition = {}) {
+  return new Map((proposition?.replanning?.diagnostics_capacite_residuelle || [])
+    .filter(x => txt(x?.travail_id))
+    .map(x => [txt(x.travail_id), x]));
+}
+
 function raison(code, label, details = null, niveau = "info") {
   return { code, label, details, niveau };
 }
@@ -91,7 +97,7 @@ function raisonExclusionConnue(exclusion) {
   );
 }
 
-function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion }) {
+function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite }) {
   const raisons = [];
   const etat = travail?.provenance?.etat_reel || null;
   const stability = travail?.stability_forecast || null;
@@ -194,7 +200,22 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
     }
   }
 
-  if (retarde && decisionDate?.preference_appliquee && decisionDate?.date_ancrage) {
+  if (retarde && diagnosticCapacite?.capacite_residuelle_confirme_retard === true) {
+    raisons.push(raison(
+      "capacite_equipe_saturee_avant_date_proposee",
+      "Dans la proposition calculée, aucun jour planifiable avant la nouvelle date ne conserve une équipe complète dans le pool métier HARD avec capacité résiduelle compatible.",
+      {
+        date_ancrage: diagnosticCapacite.date_ancrage,
+        date_proposee: diagnosticCapacite.date_proposee,
+        crew_size: diagnosticCapacite.crew_size,
+        candidate_resource_ids: diagnosticCapacite.candidate_resource_ids,
+        jours_sans_equipe_complete: diagnosticCapacite.jours_sans_equipe_complete,
+        raison_stabilite_date: diagnosticCapacite.raison_stabilite_date,
+        observation_post_calcul: true,
+      },
+      "important"
+    ));
+  } else if (retarde && decisionDate?.preference_appliquee && decisionDate?.date_ancrage) {
     raisons.push(raison(
       "date_forecast_devenue_incompatible",
       "La date du forecast a été conservée comme minimum, mais la tâche n'a pas pu être exécutée à cette date et a été repoussée.",
@@ -236,6 +257,7 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
   const nonPlanifiesParTravail = indexNonPlanifies(nonPlanifies);
   const decisionsDates = indexDecisionsDates(proposition);
   const exclusionsConnues = indexExclusionsConnues(proposition);
+  const diagnosticsCapacite = indexDiagnosticsCapacite(proposition);
 
   const changements = base.changements.map(changement => {
     const travail = travauxParId.get(changement.travail_id) || null;
@@ -243,7 +265,8 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
     const nonPlanifie = nonPlanifiesParTravail.get(changement.travail_id) || null;
     const decisionDate = decisionsDates.get(changement.travail_id) || null;
     const exclusion = exclusionsConnues.get(changement.travail_id) || null;
-    const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion });
+    const diagnosticCapacite = diagnosticsCapacite.get(changement.travail_id) || null;
+    const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite });
     const modifie = changement.statut !== "inchangé";
     const explique = !modifie || raisons.length > 0;
     return {
@@ -272,13 +295,14 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
     travaux_a_verifier: idsAVerifier,
     explication: {
       ...base.explication,
-      principe_replanning: "Une raison n'est affichée que si elle est démontrable depuis le phasage, le pool métier, les préférences de stabilité, une exclusion explicite ou la trace du moteur. Sinon le changement reste à vérifier.",
+      principe_replanning: "Une raison n'est affichée que si elle est démontrable depuis le phasage, le pool métier, les préférences de stabilité, une exclusion explicite ou un diagnostic post-calcul borné. Sinon le changement reste à vérifier.",
     },
     invariants: {
       aucune_invention_de_cause: true,
       phasage_source_du_reste_a_faire: true,
       forecast_est_une_preference_pas_une_verite: true,
       exclusion_connue_explique_sans_debloquer: true,
+      diagnostic_capacite_nexplique_que_si_tous_les_creneaux_residuels_sont_insuffisants: true,
     },
   };
 }
