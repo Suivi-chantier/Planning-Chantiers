@@ -6,7 +6,7 @@ import {
 import { Icon } from "../ui";
 import { FONT, RADIUS, SHADOW } from "../constants";
 import { capaciteBasePlanningPourDate } from "./planningResourceCapacityV1.js";
-import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
+import { simulerPlanningGlobalV1, simulerSensibiliteHorizonsReplanningV1 } from "./planningEngineDataV1.js";
 
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (dateISO, n) => {
@@ -63,6 +63,9 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  const [sensitivityLoading, setSensitivityLoading] = useState(false);
+  const [sensitivityError, setSensitivityError] = useState("");
+  const [sensitivity, setSensitivity] = useState(null);
 
   const nomsChantiers = useMemo(() => new Map((result?.referentiel?.chantiers || []).map(c => [c.id, c.nom || c.id])), [result]);
   const nomsRessources = useMemo(() => new Map((result?.referentiel?.ressources || []).map(r => [r.id, r.nom_planning || r.nom || r.id])), [result]);
@@ -78,6 +81,21 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
     } finally { setLoading(false); }
   };
 
+  const lancerSensibilite = async () => {
+    setSensitivityLoading(true); setSensitivityError("");
+    try {
+      const out = await simulerSensibiliteHorizonsReplanningV1({
+        startDate,
+        horizons:[42, 56, 84],
+        baseHorizonDays:42,
+      });
+      setSensitivity(out);
+    } catch (e) {
+      console.error("Comparaison horizons replanification V1:", e);
+      setSensitivityError(e?.message || "Impossible de comparer les horizons.");
+    } finally { setSensitivityLoading(false); }
+  };
+
   const a = result?.audit_adaptateur;
   const etat = result?.audit_etat_reel;
   const stabilite = result?.audit_stabilite_forecast;
@@ -87,6 +105,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
   const diff = result?.diff_forecast;
   const applyPlan = result?.plan_application;
   const apply = applyPlan?.resume;
+  const sens = sensitivity?.sensibilite || null;
 
   const raisonsLisibles = useMemo(() => {
     const labels = new Map();
@@ -171,7 +190,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
           <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"end", padding:12, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card }}>
             <label style={{ display:"flex", flexDirection:"column", gap:5 }}>
               <span style={{ fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, color:T.textMuted }}>Début recalculable</span>
-              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ height:36, padding:"0 10px", borderRadius:RADIUS.md, border:`1px solid ${T.fieldBorder}`, background:T.inputBg, color:T.text, fontFamily:"inherit" }}/>
+              <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setSensitivity(null); }} style={{ height:36, padding:"0 10px", borderRadius:RADIUS.md, border:`1px solid ${T.fieldBorder}`, background:T.inputBg, color:T.text, fontFamily:"inherit" }}/>
             </label>
             <label style={{ display:"flex", flexDirection:"column", gap:5 }}>
               <span style={{ fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, color:T.textMuted }}>Horizon</span>
@@ -179,8 +198,11 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
                 <option value={14}>2 semaines</option><option value={28}>4 semaines</option><option value={42}>6 semaines</option><option value={56}>8 semaines</option><option value={84}>12 semaines</option>
               </select>
             </label>
-            <button onClick={lancer} disabled={loading || !startDate} style={{ height:36, padding:"0 15px", border:0, borderRadius:RADIUS.md, background:acc.accent, color:acc.onAccent, fontFamily:"inherit", fontSize:12, fontWeight:850, cursor:loading ? "wait" : "pointer", display:"inline-flex", alignItems:"center", gap:7, opacity:loading ? .7 : 1 }}>
+            <button onClick={lancer} disabled={loading || sensitivityLoading || !startDate} style={{ height:36, padding:"0 15px", border:0, borderRadius:RADIUS.md, background:acc.accent, color:acc.onAccent, fontFamily:"inherit", fontSize:12, fontWeight:850, cursor:loading ? "wait" : "pointer", display:"inline-flex", alignItems:"center", gap:7, opacity:(loading || sensitivityLoading) ? .7 : 1 }}>
               <Icon as={loading ? RefreshCw : Play} size={14} className={loading ? "spin" : ""}/>{loading ? "Calcul en cours…" : result ? "Recalculer" : "Lancer la simulation"}
+            </button>
+            <button onClick={lancerSensibilite} disabled={loading || sensitivityLoading || !startDate} style={{ height:36, padding:"0 13px", borderRadius:RADIUS.md, border:`1px solid ${acc.border}`, background:acc.bg10, color:acc.accent, fontFamily:"inherit", fontSize:11.5, fontWeight:850, cursor:sensitivityLoading ? "wait" : "pointer", display:"inline-flex", alignItems:"center", gap:7, opacity:(loading || sensitivityLoading) ? .7 : 1 }}>
+              <Icon as={sensitivityLoading ? RefreshCw : CalendarRange} size={14} className={sensitivityLoading ? "spin" : ""}/>{sensitivityLoading ? "Comparaison…" : "Comparer 6 / 8 / 12 semaines"}
             </button>
             <div style={{ flex:"1 1 300px", fontSize:11, lineHeight:1.45, color:T.textMuted }}>
               Le réel vient du phasage. Le forecast courant sert à conserver les dates, équipes et continuités encore compatibles ; les allocations verrouillées restent fixes. Rien n'est appliqué automatiquement.
@@ -188,12 +210,42 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
           </div>
 
           {error && <div style={{ marginTop:12, padding:"10px 12px", borderRadius:RADIUS.md, background:"rgba(239,68,68,.09)", border:"1px solid rgba(239,68,68,.25)", color:"#ef4444", display:"flex", gap:8, alignItems:"flex-start", fontSize:12 }}><Icon as={CircleAlert} size={16}/><span>{error}</span></div>}
+          {sensitivityError && <div style={{ marginTop:12, padding:"10px 12px", borderRadius:RADIUS.md, background:"rgba(239,68,68,.09)", border:"1px solid rgba(239,68,68,.25)", color:"#ef4444", display:"flex", gap:8, alignItems:"flex-start", fontSize:12 }}><Icon as={CircleAlert} size={16}/><span>{sensitivityError}</span></div>}
 
-          {!result && !error && <div style={{ padding:"44px 16px", textAlign:"center", color:T.textMuted }}>
+          {!result && !sens && !error && !sensitivityError && <div style={{ padding:"44px 16px", textAlign:"center", color:T.textMuted }}>
             <Icon as={CalendarRange} size={30} style={{ opacity:.55, marginBottom:10 }}/>
             <div style={{ fontSize:14, fontWeight:750, color:T.textSub }}>Aucune simulation lancée</div>
             <div style={{ fontSize:12, marginTop:5 }}>Le calcul audite d'abord le réel, puis cherche une proposition stable et explicable.</div>
           </div>}
+
+          {sens && <>
+            <SectionTitle T={T}>Sensibilité à l’horizon — même snapshot réel</SectionTitle>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+              {(sens.resultats || []).map(r => {
+                const comp = (sens.comparaison || []).find(c => c.horizon_days === r.horizon_days) || {};
+                const semaines = Math.round(r.horizon_days / 7);
+                const blocked = r.non_replanifies?.total || 0;
+                return <div key={r.horizon_days} style={{ flex:"1 1 260px", minWidth:230, padding:"12px 14px", border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ fontSize:14, fontWeight:850, color:T.text }}>{semaines} semaines</div>
+                    <span style={{ marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:5, fontSize:10.5, fontWeight:800, color:r.application_autorisable ? "#22c55e" : "#f59e0b" }}><Icon as={r.application_autorisable ? CheckCircle2 : CircleAlert} size={13}/>{r.application_autorisable ? "autorisable" : "bloquée"}</span>
+                  </div>
+                  <div style={{ marginTop:9, fontSize:24, fontWeight:900, color:blocked ? "#ef4444" : "#22c55e" }}>{blocked}</div>
+                  <div style={{ fontSize:10.5, color:T.textMuted }}>forecast(s) courant(s) sans remplacement</div>
+                  <div style={{ marginTop:8, fontSize:11.5, lineHeight:1.45, color:T.textSub }}>
+                    <strong>{r.non_replanifies?.horizon_ou_capacite || 0}</strong> horizon/capacité · <strong>{r.non_replanifies?.donnee_ou_dependance || 0}</strong> donnée/dépendance<br/>
+                    {fmtH(r.proposition_resume?.heures_mo_non_planifiees)} de MO non planifiée
+                  </div>
+                  <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${T.border}`, fontSize:11, lineHeight:1.4, color:T.textMuted }}>
+                    {r.horizon_days === sens.base_horizon_days ? "Horizon de référence" : <><strong style={{ color:"#22c55e" }}>{comp.resolus_depuis_base || 0}</strong> blocker(s) de 6 sem. résolu(s) · <strong style={{ color:comp.encore_bloques_depuis_base ? "#f59e0b" : "#22c55e" }}>{comp.encore_bloques_depuis_base || 0}</strong> encore bloqué(s){comp.nouveaux_non_replanifies_hors_base ? ` · +${comp.nouveaux_non_replanifies_hors_base} nouveau(x) forecast(s) visible(s)` : ""}</>}
+                  </div>
+                </div>;
+              })}
+            </div>
+            <div style={{ marginTop:10, padding:"10px 12px", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.card, fontSize:11.5, lineHeight:1.45, color:T.textSub }}>
+              <strong style={{ color:T.text }}>{sens.resume?.resolus_au_plus_long || 0} blocker(s) du forecast 6 semaines sont résolus à 12 semaines</strong> ; {sens.resume?.encore_bloques_au_plus_long || 0} restent bloqués. Les nouveaux forecasts qui deviennent visibles au-delà de 6 semaines sont comptés séparément et ne sont jamais présentés comme une régression du même périmètre.
+            </div>
+          </>}
 
           {result && <>
             <SectionTitle T={T}>Synthèse de calcul</SectionTitle>
