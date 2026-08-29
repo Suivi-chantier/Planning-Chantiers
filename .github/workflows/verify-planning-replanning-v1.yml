@@ -26,6 +26,8 @@ jobs:
         run: node scripts/verif-planning-replanning-state-v1.mjs
       - name: Replanning adapter bridge V1
         run: node scripts/verif-planning-replanning-adapter-v1.mjs
+      - name: Replanning forecast stability V1
+        run: node scripts/verif-planning-replanning-stability-v1.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
