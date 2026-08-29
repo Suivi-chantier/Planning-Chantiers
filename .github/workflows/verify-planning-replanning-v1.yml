@@ -36,6 +36,8 @@ jobs:
         run: node scripts/verif-planning-replanning-date-stability-v1.mjs
       - name: Replanning explainable diff V1
         run: node scripts/verif-planning-replanning-diff-v1.mjs
+      - name: Replanning continuity diff V1
+        run: node scripts/verif-planning-replanning-diff-continuity-v1.mjs
       - name: Replanning impact scope V1
         run: node scripts/verif-planning-replanning-impact-v1.mjs
       - name: Replanning incremental V1
