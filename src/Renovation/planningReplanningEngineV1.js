@@ -3,7 +3,8 @@
 //
 // Il ne remplace pas le moteur du chantier 04. Il prépare seulement les
 // préférences de stabilité propres au chantier 05, puis délègue l'ordonnancement
-// à planifierPropositionV1.
+// à planifierPropositionV1. La continuité multi-jours est activée ici uniquement :
+// le moteur V1 direct conserve son comportement chantier 04 par défaut.
 
 import { planifierPropositionV1 } from "./planningEngineV1.js";
 import { appliquerStabiliteDatesForecastV1 } from "./planningReplanningDateStabilityV1.js";
@@ -20,6 +21,7 @@ export function planifierReplanningPropositionV1(engineInput = {}) {
   const proposition = planifierPropositionV1({
     ...engineInput,
     contraintes: stability.contraintes,
+    continuiteMultiJours: true,
   });
 
   const travailParId = new Map((engineInput?.travaux || []).map(t => [String(t?.id || ""), t]));
@@ -49,12 +51,18 @@ export function planifierReplanningPropositionV1(engineInput = {}) {
       stabilite_dates: stability.audit,
       contraintes_ephemeres: stability.contraintes_ephemeres,
       decisions_stabilite_dates: stability.decisions,
+      continuite_multi_jours: {
+        active: true,
+        reference: "jour ouvré précédent selon rythmeSemaine",
+        contrainte_hard: false,
+      },
     },
     invariants: {
       ...proposition.invariants,
       moteur_chantier_04_delegue_sans_reimplementation: true,
       forecast_est_une_preference_soft: true,
       contraintes_stabilite_non_persistantes: true,
+      continuite_multi_jours_soft_active: true,
     },
   };
 }
