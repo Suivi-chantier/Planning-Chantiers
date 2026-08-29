@@ -1,0 +1,117 @@
+import assert from "node:assert/strict";
+import { diffReplanningV1 } from "../src/Renovation/planningReplanningDiffV1.js";
+
+const forecast = (extra = {}) => ({
+  allocation_uid: "CUR-1", chantier_id: "C1", tache_id: "T1", date: "2026-09-01",
+  duree: 4, resource_ids: ["R1"], ouvriers_noms: [], ...extra,
+});
+const proposed = (extra = {}) => ({
+  allocation_uid: "PROP-1", travail_id: "C1::T1", chantier_id: "C1", tache_id: "T1",
+  date: "2026-09-01", duree: 4, resource_ids: ["R1"], heures_mo: 4, texte: "T1",
+  explication: {}, ...extra,
+});
+const travail = (extra = {}) => ({
+  id: "C1::T1", chantier_id: "C1", tache_id: "T1", site_id: "OP1",
+  candidate_resource_ids: ["R1", "R2"], preferred_resource_ids: ["R1"],
+  provenance: { etat_reel: { avancement: 50, reste_a_faire_heures: 4, source_verite: "phasage", en_retard: false, date_prevue: null } },
+  ...extra,
+});
+
+const codes = c => c.raisons.map(r => r.code);
+
+// 1. Forecast strictement compatible : le diff explique qu'il a été conservé.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast()],
+    proposition: { allocations_proposees: [proposed()], non_planifies: [], replanning: { decisions_stabilite_dates: [] } },
+    travaux: [travail()],
+  });
+  assert.equal(out.changements[0].statut, "inchangé");
+  assert.deepEqual(codes(out.changements[0]), ["forecast_compatible_conserve"]);
+  assert.equal(out.changements[0].qualite_explication, "explique");
+}
+
+// 2. Tâche sans forecast courant et réellement en retard : réinjection explicite.
+{
+  const out = diffReplanningV1({
+    forecast: [],
+    proposition: { allocations_proposees: [proposed()], non_planifies: [], replanning: { decisions_stabilite_dates: [] } },
+    travaux: [travail({ provenance: { etat_reel: { avancement: 60, reste_a_faire_heures: 4, source_verite: "phasage", en_retard: true, date_prevue: "2026-08-30" } } })],
+  });
+  assert.equal(out.changements[0].statut, "nouveau");
+  assert.equal(codes(out.changements[0]).includes("tache_en_retard_reinjectee"), true);
+}
+
+// 3. Une ancienne ressource sortie du pool explique le restaffing.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ resource_ids: ["R2"] })],
+    proposition: { allocations_proposees: [proposed({ resource_ids: ["R1"] })], non_planifies: [], replanning: { decisions_stabilite_dates: [] } },
+    travaux: [travail({
+      candidate_resource_ids: ["R1"], preferred_resource_ids: ["R1"],
+      stability_forecast: { preference_source: "groupe_metier", resource_ids_hors_pool: ["R2"], resource_ids_compatibles: [] },
+    })],
+  });
+  assert.equal(out.changements[0].details.includes("ressources"), true);
+  assert.equal(codes(out.changements[0]).includes("ancienne_ressource_hors_pool_metier"), true);
+}
+
+// 4. Une ressource retenue pour continuité d'opération est visible dans l'explication.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ resource_ids: ["R1"] })],
+    proposition: { allocations_proposees: [proposed({ resource_ids: ["R2"] })], non_planifies: [], replanning: { decisions_stabilite_dates: [] } },
+    travaux: [travail({
+      stability_forecast: {
+        preference_source: "forecast_site", site_id: "OP1",
+        site_resource_ids_compatibles: ["R2"], resource_ids_hors_pool: [], resource_ids_compatibles: [],
+      },
+    })],
+  });
+  assert.equal(codes(out.changements[0]).includes("continuite_operation"), true);
+}
+
+// 5. Une date avancée à cause d'une deadline explicite porte cette raison.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ date: "2026-09-02" })],
+    proposition: {
+      allocations_proposees: [proposed({ date: "2026-09-01" })], non_planifies: [],
+      replanning: { decisions_stabilite_dates: [{ travail_id: "C1::T1", raison: "deadline_avant_forecast", deadline: "2026-09-01", preference_appliquee: false, date_ancrage: "2026-09-02" }] },
+    },
+    travaux: [travail()],
+  });
+  assert.equal(codes(out.changements[0]).includes("deadline_avant_forecast"), true);
+}
+
+// 6. Une tâche non replanifiable reprend la raison exacte fournie par le moteur.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast()],
+    proposition: {
+      allocations_proposees: [],
+      non_planifies: [{ travail_id: "C1::T1", chantier_id: "C1", tache_id: "T1", heures_mo_restantes: 4, raison: "Prédécesseur(s) non terminé(s) dans l'horizon", tentatives: { dates_bloquees: 0, dates_sans_equipe: 0 } }],
+      replanning: { decisions_stabilite_dates: [] },
+    },
+    travaux: [travail()],
+  });
+  assert.equal(out.changements[0].statut, "non_replanifié");
+  assert.equal(codes(out.changements[0]).includes("non_planifiable_dans_horizon"), true);
+  assert.equal(out.changements[0].raisons.find(r => r.code === "non_planifiable_dans_horizon").label.includes("Prédécesseur"), true);
+}
+
+// 7. Un changement dont la cause n'est pas démontrable reste à vérifier au lieu d'être inventé.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ date: "2026-09-01" })],
+    proposition: { allocations_proposees: [proposed({ date: "2026-09-02" })], non_planifies: [], replanning: { decisions_stabilite_dates: [] } },
+    travaux: [{ id: "C1::T1", chantier_id: "C1", tache_id: "T1" }],
+  });
+  assert.equal(out.changements[0].statut, "modifié");
+  assert.deepEqual(out.changements[0].raisons, []);
+  assert.equal(out.changements[0].qualite_explication, "a_verifier");
+  assert.equal(out.resume.changements_a_verifier, 1);
+  assert.deepEqual(out.travaux_a_verifier, ["C1::T1"]);
+}
+
+console.log("OK — planning replanning diff V1: 7 scénarios");
