@@ -44,6 +44,8 @@ jobs:
         run: node scripts/verif-planning-replanning-impact-v1.mjs
       - name: Replanning incremental V1
         run: node scripts/verif-planning-replanning-incremental-v1.mjs
+      - name: Replanning safe apply plan V1
+        run: node scripts/verif-planning-replanning-apply-plan-v1.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
