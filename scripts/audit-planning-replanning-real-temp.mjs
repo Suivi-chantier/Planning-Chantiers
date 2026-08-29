@@ -13,6 +13,7 @@ const OUTPUT = process.argv[3] || "/tmp/replanning-real-audit.json";
 const START = "2026-08-31";
 const HORIZON = 42;
 const FOCUS = { briollay:"op_1788020786153", fourmond:"op_1785760193820", tourbouton:"op_1785759672880", tom_camille:"op_1785759754431" };
+const TARGET_WORK = "tom-&-camille-r+1-1776722692341::fb790df6-3f2e-489d-9ef1-192d80c57268";
 const txt = v => String(v ?? "").trim();
 const uniq = xs => [...new Set((Array.isArray(xs) ? xs : []).map(txt).filter(Boolean))];
 const round2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
@@ -83,6 +84,45 @@ function dependencyBlockers(prep, proposition, chantierNames) {
     return { ...x, blocked_hours:round2(x.blocked_hours), chantier_id:chantierId||null, chantier:chantierNames.get(chantierId)||chantierId||null, tache_id:taskParts.join("::")||null, root_kind:x.root.startsWith("capacity:")?"capacity":ex?"excluded":"missing_or_zero", exclusion:ex ? { type:ex.type, explication:ex.explication } : null };
   }).sort((a,b)=>b.blocked_tasks-a.blocked_tasks||b.blocked_hours-a.blocked_hours);
 }
+function targetDiagnostic(prep, proposition, targetId, resourceNames) {
+  const work = (prep?.engineInput?.travaux || []).find(t => txt(t?.id) === targetId) || null;
+  const current = (prep?.forecastCourant?.allocations_recalculables || []).filter(a => `${txt(a?.chantier_id)}::${txt(a?.tache_id)}` === targetId);
+  const proposed = (proposition?.allocations_proposees || []).filter(a => txt(a?.travail_id) === targetId);
+  const nonPlanned = (proposition?.non_planifies || []).find(x => txt(x?.travail_id) === targetId) || null;
+  const decision = (proposition?.replanning?.decisions_stabilite_dates || []).find(x => txt(x?.travail_id) === targetId) || null;
+  const trace = (proposition?.decision_trace || []).filter(x => txt(x?.travail_id) === targetId);
+  const targetResources = uniq([...current.flatMap(a=>a?.resource_ids||[]), ...proposed.flatMap(a=>a?.resource_ids||[])]);
+  const dates = [];
+  for (let d = START; d <= "2026-09-07"; d = addDays(d,1)) if (capaciteBasePlanningPourDate(d) > 0) dates.push(d);
+  const allLoadRows = [
+    ...(prep?.engineInput?.allocationsExistantes || []).map(a => ({...a, source:"fixe", heures_mo:Number(a?.duree||0)*Math.max(1,(a?.resource_ids||[]).length)})),
+    ...(proposition?.allocations_proposees || []).map(a => ({...a, source:"propose", heures_mo:Number(a?.heures_mo||0)})),
+  ];
+  const resource_loads = targetResources.map(rid => ({
+    resource_id: rid,
+    resource: resourceNames.get(rid) || rid,
+    days: dates.map(date => {
+      const rows = allLoadRows.filter(a => txt(a?.date)===date && (a?.resource_ids||[]).map(txt).includes(rid));
+      return {
+        date,
+        base_capacity_h: capaciteBasePlanningPourDate(date),
+        elapsed_load_h: round2(rows.reduce((s,a)=>s+Number(a?.duree||0),0)),
+        rows: rows.map(a=>({source:a.source,travail_id:a.travail_id||null,tache_id:a.tache_id||null,chantier_id:a.chantier_id||null,site_id:a.site_id||null,duree:a.duree,heures_mo:a.heures_mo||null})),
+      };
+    }),
+  }));
+  const completed = new Set((prep?.engineInput?.completedTaskIds || []).map(txt));
+  const jobs = new Map((prep?.engineInput?.travaux || []).map(t => [txt(t.id),t]));
+  const exclusions = new Map((prep?.travaux_exclus || []).map(x => [txt(x.travail_id),x]));
+  const predecessors = uniq(work?.predecesseur_ids).map(id => ({
+    id,
+    completed: completed.has(id),
+    in_engine: jobs.has(id),
+    excluded: exclusions.get(id)?.type || null,
+    proposed_finish: (proposition?.allocations_proposees||[]).filter(a=>txt(a?.travail_id)===id).map(a=>a.date).sort().at(-1)||null,
+  }));
+  return { target_work:targetId, work, current, proposed, non_planned:nonPlanned, date_stability_decision:decision, decision_trace:trace, predecessors, resource_loads };
+}
 
 const snap = JSON.parse(fs.readFileSync(INPUT, "utf8"));
 const config = parserConfigMoteurV1(snap.config_rows || []);
@@ -96,11 +136,12 @@ const operations = {}; for (const [name,id] of Object.entries(FOCUS)) operations
 const changes_to_verify = (rdiff.changements||[]).filter(x=>x.changement_a_verifier).slice(0,40).map(x=>({chantier:chantierNames.get(x.chantier_id)||x.chantier_id,tache_id:x.tache_id,texte:x.texte,details:x.details,courant:x.courant,propose:x.propose,impact:x.impact}));
 const top_chantier_impacts = (rdiff.par_chantier||[]).slice().sort((a,b)=>Math.abs(b.decalage_fin_jours||0)-Math.abs(a.decalage_fin_jours||0)).slice(0,30).map(x=>({...x,chantier:chantierNames.get(x.chantier_id)||x.chantier_id}));
 const dependency_blockers = dependencyBlockers(rprep, rprop, chantierNames);
+const target_diagnostic = targetDiagnostic(rprep, rprop, TARGET_WORK, resourceNames);
 const out = {
   source_commit:process.env.GITHUB_SHA||null, engine_reference_commit:"c58964ce8b9933bc028f5c95d5ed9098abe1de65", snapshot_captured_at:snap.captured_at, start_date:START, horizon_days:HORIZON,
   data_counts:{phasages:(snap.phasages||[]).length,cells:(snap.cellules||[]).length,resources:(snap.ressources||[]).length,events:(snap.evenements||[]).length,constraints:(snap.contraintes||[]).length,chantiers:config.chantiers.length},
   baseline:{audit:bprep.audit,proposal:bprop.resume,diff:bdiff.resume,continuity:enrich(bc),non_planned_reasons:groupReasons(bprop.non_planifies)},
-  chantier05:{audit:rprep.audit,real_state:rprep.etatReel?.audit||null,forecast_stability:rprep.stabiliteForecast?.audit||null,date_stability:rprop.replanning?.stabilite_dates||null,proposal:rprop.resume,diff:rdiff.resume,reasons:rdiff.raisons_resume,continuity:enrich(rc),non_planned_reasons:groupReasons(rprop.non_planifies),dependency_blockers,changes_to_verify,top_chantier_impacts},
+  chantier05:{audit:rprep.audit,real_state:rprep.etatReel?.audit||null,forecast_stability:rprep.stabiliteForecast?.audit||null,date_stability:rprop.replanning?.stabilite_dates||null,proposal:rprop.resume,diff:rdiff.resume,reasons:rdiff.raisons_resume,continuity:enrich(rc),non_planned_reasons:groupReasons(rprop.non_planifies),dependency_blockers,changes_to_verify,top_chantier_impacts,target_diagnostic},
   comparison:{resource_changes_delta:(rdiff.resume?.ressources_changees||0)-(bdiff.resume?.ressources_changees||0),modified_tasks_delta:(rdiff.resume?.modifiees||0)-(bdiff.resume?.modifiees||0),non_planned_delta:(rprop.resume?.travaux_non_planifies||0)-(bprop.resume?.travaux_non_planifies||0),site_switches_delta:rc.switches-bc.switches,aba_delta:rc.aba-bc.aba,same_site_rate_delta:round2((rc.same_site_rate||0)-(bc.same_site_rate||0))}, operations,
 };
 fs.writeFileSync(OUTPUT, JSON.stringify(out, null, 2));
