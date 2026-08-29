@@ -4,7 +4,7 @@ import {
   evaluerSecuriteApplicationReplanningV1,
 } from "../src/Renovation/planningReplanningApplySafetyV1.js";
 
-const cell = ({ id="CELL", week_id="2026-W36", chantier_id="C1", jour="Lundi", taches=[] } = {}) => ({ id, week_id, chantier_id, jour, taches });
+const cell = ({ id="CELL", week_id="2026-W36", chantier_id="C1", jour="Lundi", taches=[], ouvriers=[] } = {}) => ({ id, week_id, chantier_id, jour, taches, ouvriers });
 const line = (uid, tacheId, text="T") => ({ allocation_uid:uid, tache_id:tacheId, text, duree:1, ouvriers:["Kev"] });
 const phasage = ({ date="2026-08-31", updated_at="2026-08-29T12:00:00Z" } = {}) => ({
   id:"PH1", chantier_id:"C1", updated_at,
@@ -26,16 +26,22 @@ const cleanDiff = {
 assert.equal(dateDepuisWeekJourApplicationV1("2026-W36", "Lundi"), "2026-08-31");
 assert.equal(dateDepuisWeekJourApplicationV1("2026-W53", "Vendredi"), "2027-01-01");
 
-// 2. Un forecast courant sans remplacement bloque toujours l'application.
+// 2. Un forecast courant sans remplacement bloque toujours l'application et
+// distingue les cas horizon/capacité des cas de donnée/dépendance.
 {
   const out = evaluerSecuriteApplicationReplanningV1({
     planApplication: plan([op()]),
     cellulesToutes:[cell({ taches:[line("A1","T1")] })],
-    diff:{ ...cleanDiff, changements:[{ travail_id:"C1::T1", statut:"non_replanifié", changement_a_verifier:false }] },
+    diff:{ ...cleanDiff, changements:[{
+      travail_id:"C1::T1", statut:"non_replanifié", changement_a_verifier:false,
+      raisons:[{ code:"non_planifiable_dans_horizon" }],
+    }] },
     phasages:[phasage()], startDate:"2026-08-31",
   });
   assert.equal(out.application_autorisable, false);
   assert.equal(out.resume.changements_non_replanifies, 1);
+  assert.equal(out.resume.changements_non_replanifies_horizon_ou_capacite, 1);
+  assert.equal(out.resume.changements_non_replanifies_donnee_ou_dependance, 0);
   assert.equal(out.blockers.some(x => x.code === "forecast_courant_sans_remplacement"), true);
 }
 
@@ -153,4 +159,23 @@ assert.equal(dateDepuisWeekJourApplicationV1("2026-W53", "Vendredi"), "2027-01-0
   assert.equal(out.blockers.length, 0);
 }
 
-console.log("OK — planning replanning apply safety V1: 9 scénarios");
+// 10. Une tâche manuelle sans équipe propre hérite de cell.ouvriers : élargir
+// cette équipe serait une réaffectation silencieuse et doit bloquer V1.
+{
+  const manualFallback = { allocation_uid:"M1", text:"Rangement manuel", duree:1, ouvriers:[] };
+  const before = cell({ id:"MIX", taches:[manualFallback], ouvriers:["Kev"] });
+  const after = cell({ id:"MIX", taches:[manualFallback, line("A1","T1")], ouvriers:["Kev","Margaux"] });
+  const operation = {
+    cell_key:"2026-W36::C1::Lundi", type:"update",
+    expected_before:{ exists:true, id:"MIX", payload:before }, after,
+  };
+  const out = evaluerSecuriteApplicationReplanningV1({
+    planApplication:plan([operation]), cellulesToutes:[before], diff:cleanDiff,
+    phasages:[phasage()], startDate:"2026-08-31",
+  });
+  assert.equal(out.application_autorisable, false);
+  assert.equal(out.resume.cellules_fallback_manuel_bloquantes, 1);
+  assert.equal(out.blockers.some(x => x.code === "fallback_manuel_cellule_modifie"), true);
+}
+
+console.log("OK — planning replanning apply safety V1: 10 scénarios");
