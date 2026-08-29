@@ -196,17 +196,22 @@ export function planifierReplanningIncrementalV1({
 
   const moPreservee = round2(preserveesProposal.reduce((s, a) => s + num(a?.heures_mo, 0), 0));
   const moRecalculee = round2(recalcul.allocations_proposees.reduce((s, a) => s + num(a?.heures_mo, 0), 0));
+  const moTotale = round2(moPreservee + moRecalculee);
+  const moDemandee = round2(travaux.reduce((s, t) => s + Math.max(0, num(t?.heures_mo_restantes, 0)), 0));
 
   return {
     ...recalcul,
     allocations_proposees: allocationsCombinees,
     resume: {
       ...recalcul.resume,
+      allocations_proposees: allocationsCombinees.length,
+      heures_mo_proposees: moTotale,
+      heures_mo_non_planifiees: round2(Math.max(0, moDemandee - moTotale)),
       allocations_preservees: preserveesProposal.length,
       allocations_recalculees: recalcul.allocations_proposees.length,
       heures_mo_preservees: moPreservee,
       heures_mo_recalculees: moRecalculee,
-      heures_mo_proposees_total: round2(moPreservee + moRecalculee),
+      heures_mo_proposees_total: moTotale,
     },
     replanning: {
       ...(recalcul.replanning || {}),
@@ -228,6 +233,7 @@ export function planifierReplanningIncrementalV1({
       forecast_incomplet_jamais_gele: true,
       preservation_ephemere_non_persistante: true,
       dependances_des_taches_preservees_respectees_par_date: true,
+      resume_inclut_allocations_preservees_et_recalculees: true,
     },
   };
 }
