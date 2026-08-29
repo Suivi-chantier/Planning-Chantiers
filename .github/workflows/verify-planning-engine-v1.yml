@@ -40,6 +40,8 @@ jobs:
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1
         run: node scripts/verif-planning-engine-adapter-v1.mjs
+      - name: Planning engine data V1
+        run: node scripts/verif-planning-engine-data-v1.mjs
       - name: Vite build
         run: npm run build
       - name: Diff check
