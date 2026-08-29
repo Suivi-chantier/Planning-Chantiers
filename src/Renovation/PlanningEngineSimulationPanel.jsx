@@ -47,6 +47,16 @@ function SectionTitle({ children, T }) {
   return <div style={{ fontSize:11, fontWeight:850, letterSpacing:1.1, textTransform:"uppercase", color:T.textMuted, margin:"20px 0 9px" }}>{children}</div>;
 }
 
+function humanMode(mode) {
+  if (mode === "full_recalc") return "Recalcul global";
+  if (mode === "resource_unavailable") return "Recalcul ciblé · absence";
+  if (mode === "task_state_changed") return "Recalcul ciblé · avancement";
+  if (mode === "task_completed_early") return "Recalcul ciblé · avance";
+  if (mode === "task_overrun") return "Recalcul ciblé · dépassement";
+  if (mode === "site_blocked") return "Recalcul ciblé · site";
+  return mode ? `Recalcul ciblé · ${mode}` : "Recalcul global";
+}
+
 export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
   const [startDate, setStartDate] = useState(prochainJourPlanifiable);
   const [horizonDays, setHorizonDays] = useState(42);
@@ -63,20 +73,40 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
       const out = await simulerPlanningGlobalV1({ startDate, horizonDays:Number(horizonDays) || 42 });
       setResult(out);
     } catch (e) {
-      console.error("Simulation planning global V1:", e);
+      console.error("Simulation replanification V1:", e);
       setError(e?.message || "Impossible de calculer la simulation.");
     } finally { setLoading(false); }
   };
 
   const a = result?.audit_adaptateur;
+  const etat = result?.audit_etat_reel;
+  const stabilite = result?.audit_stabilite_forecast;
+  const stabiliteDates = result?.audit_stabilite_dates;
+  const impact = result?.audit_impact_incremental;
   const p = result?.proposition;
   const diff = result?.diff_forecast;
+
+  const raisonsLisibles = useMemo(() => {
+    const labels = new Map();
+    for (const c of diff?.changements || []) {
+      for (const r of c.raisons || []) if (r?.code && r?.label && !labels.has(r.code)) labels.set(r.code, r.label);
+    }
+    return (diff?.raisons_resume || []).map(r => ({ ...r, label:labels.get(r.code) || r.code.replaceAll("_", " ") }));
+  }, [diff]);
+
   const warnings = useMemo(() => {
     const bruts = [
       ...(result?.warnings_adaptateur || []).map(x => ({ ...x, origine:"Données" })),
+      ...(result?.warnings_etat_reel || []).map(x => ({ ...x, origine:"État réel" })),
       ...(result?.travaux_exclus || []).map(x => ({ ...x, origine:"Exclusion" })),
       ...(result?.proposition?.warnings || []).map(x => ({ ...x, origine:"Moteur" })),
       ...(result?.proposition?.non_planifies || []).map(x => ({ ...x, origine:"Non planifié", explication:x.raison })),
+      ...(diff?.changements || []).filter(x => x.changement_a_verifier).map(x => ({
+        ...x,
+        origine:"À vérifier",
+        chantier_id:x.chantier_id,
+        explication:`Changement détecté (${(x.details || []).join(", ") || "écart forecast"}) sans cause métier suffisamment démontrable.`,
+      })),
     ];
     const groupes = new Map();
     for (const w of bruts) {
@@ -88,7 +118,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
     return [...groupes.values()].sort((a,b) =>
       `${a.origine}|${a.chantier_id || ""}|${a.type || ""}`.localeCompare(`${b.origine}|${b.chantier_id || ""}|${b.type || ""}`)
     );
-  }, [result]);
+  }, [result, diff]);
 
   const chantiersImpactes = (diff?.par_chantier || []).slice().sort((x, y) =>
     Math.abs(y.decalage_fin_jours || 0) - Math.abs(x.decalage_fin_jours || 0)
@@ -100,11 +130,12 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
       const key = [x.date || "", x.chantier_id || "", x.groupe_type_id || "", resources.join(",")].join("|");
       const prev = groupes.get(key);
       if (!prev) {
-        groupes.set(key, { ...x, allocation_uid:`bloc_${key}`, resource_ids:resources, duree:Number(x.duree || 0), heures_mo:Number(x.heures_mo || 0), taches:[x.texte || "Tâche"], nb_taches:1 });
+        groupes.set(key, { ...x, allocation_uid:`bloc_${key}`, resource_ids:resources, duree:Number(x.duree || 0), heures_mo:Number(x.heures_mo || 0), taches:[x.texte || "Tâche"], nb_taches:1, preservedCount:x.preserved ? 1 : 0 });
       } else {
         prev.duree += Number(x.duree || 0);
         prev.heures_mo += Number(x.heures_mo || 0);
         prev.nb_taches += 1;
+        prev.preservedCount += x.preserved ? 1 : 0;
         prev.taches.push(x.texte || "Tâche");
       }
     }
@@ -124,10 +155,11 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
         <div style={{ display:"flex", alignItems:"center", gap:12, padding:"16px 18px", borderBottom:`1px solid ${T.border}`, background:T.surface }}>
           <div style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", background:acc.bg10, color:acc.accent }}><Icon as={Route} size={19}/></div>
           <div style={{ minWidth:0 }}>
-            <div style={{ fontSize:17, fontWeight:850, color:T.text }}>Simulation planning global</div>
-            <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>Moteur déterministe V1 · proposition uniquement</div>
+            <div style={{ fontSize:17, fontWeight:850, color:T.text }}>Simulation replanification continue</div>
+            <div style={{ fontSize:11, color:T.textMuted, marginTop:2 }}>Phasage = réel · forecast = préférence · proposition uniquement</div>
           </div>
-          <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
+            {result && <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"5px 9px", borderRadius:RADIUS.pill, fontSize:10, fontWeight:800, color:acc.accent, background:acc.bg10, border:`1px solid ${acc.border}` }}><Icon as={RefreshCw} size={12}/>{humanMode(result.replanning_mode)}</span>}
             <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"5px 9px", borderRadius:RADIUS.pill, fontSize:10, fontWeight:800, color:"#16a34a", background:"rgba(22,163,74,.10)", border:"1px solid rgba(22,163,74,.24)" }}><Icon as={ShieldCheck} size={12}/> Lecture seule</span>
             <button onClick={onClose} style={{ width:34, height:34, borderRadius:RADIUS.md, border:`1px solid ${T.border}`, background:"transparent", color:T.textSub, cursor:"pointer" }}><Icon as={X} size={16}/></button>
           </div>
@@ -148,8 +180,8 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
             <button onClick={lancer} disabled={loading || !startDate} style={{ height:36, padding:"0 15px", border:0, borderRadius:RADIUS.md, background:acc.accent, color:acc.onAccent, fontFamily:"inherit", fontSize:12, fontWeight:850, cursor:loading ? "wait" : "pointer", display:"inline-flex", alignItems:"center", gap:7, opacity:loading ? .7 : 1 }}>
               <Icon as={loading ? RefreshCw : Play} size={14} className={loading ? "spin" : ""}/>{loading ? "Calcul en cours…" : result ? "Recalculer" : "Lancer la simulation"}
             </button>
-            <div style={{ flex:"1 1 250px", fontSize:11, lineHeight:1.45, color:T.textMuted }}>
-              Le planning actuel n'est jamais modifié. Les créneaux futurs déverrouillés sont recalculables ; les lignes manuelles et allocations verrouillées restent fixes.
+            <div style={{ flex:"1 1 300px", fontSize:11, lineHeight:1.45, color:T.textMuted }}>
+              Le réel vient du phasage. Le forecast courant sert à conserver les dates, équipes et continuités encore compatibles ; les allocations verrouillées restent fixes. Rien n'est appliqué automatiquement.
             </div>
           </div>
 
@@ -158,7 +190,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
           {!result && !error && <div style={{ padding:"44px 16px", textAlign:"center", color:T.textMuted }}>
             <Icon as={CalendarRange} size={30} style={{ opacity:.55, marginBottom:10 }}/>
             <div style={{ fontSize:14, fontWeight:750, color:T.textSub }}>Aucune simulation lancée</div>
-            <div style={{ fontSize:12, marginTop:5 }}>Le premier calcul affichera d'abord la qualité des données utilisées avant la proposition.</div>
+            <div style={{ fontSize:12, marginTop:5 }}>Le calcul audite d'abord le réel, puis cherche une proposition stable et explicable.</div>
           </div>}
 
           {result && <>
@@ -170,12 +202,33 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
               <Stat T={T} icon={Users} label="Allocations proposées" value={p?.resume?.allocations_proposees ?? 0} sub={`${fmtH(p?.resume?.heures_mo_proposees)} proposées`} color="#8b5cf6"/>
             </div>
 
+            <SectionTitle T={T}>Réel & stabilité</SectionTitle>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+              <Stat T={T} icon={Clock} label="Tâches en cours" value={etat?.taches_en_cours ?? 0} sub={`${etat?.taches_en_retard ?? 0} détectées en retard`} color={(etat?.taches_en_retard || 0) ? "#ef4444" : "#22c55e"}/>
+              <Stat T={T} icon={Users} label="Équipes stabilisées" value={stabilite?.travaux_avec_preference_forecast_conservee ?? 0} sub={`${stabilite?.travaux_avec_affinite_site ?? 0} affinités d'opération`} color="#06b6d4"/>
+              <Stat T={T} icon={CalendarRange} label="Dates conservées" value={stabiliteDates?.dates_forecast_conservees ?? 0} sub={`${stabiliteDates?.dates_forecast_liberees_retard ?? 0} libérées pour retard réel`} color="#5b8af5"/>
+              <Stat T={T} icon={ShieldCheck} label="Changements expliqués" value={diff?.resume?.changements_expliques ?? 0} sub={`${diff?.resume?.changements_a_verifier ?? 0} changement(s) à vérifier`} color={(diff?.resume?.changements_a_verifier || 0) ? "#f59e0b" : "#22c55e"}/>
+            </div>
+
+            {result.replanning_mode !== "full_recalc" && impact && <div style={{ marginTop:10, padding:"10px 12px", borderRadius:RADIUS.md, background:acc.bg10, border:`1px solid ${acc.border}`, color:T.textSub, fontSize:11.5, lineHeight:1.45 }}>
+              <strong style={{ color:T.text }}>{humanMode(result.replanning_mode)}</strong> · {impact.travaux_impactes ?? 0} travail(aux) impacté(s) · {impact.allocations_preservables ?? 0} allocation(s) compatibles préservables · {impact.allocations_liberees ?? 0} libérée(s) pour recalcul.
+            </div>}
+
             <SectionTitle T={T}>Écart avec le forecast courant</SectionTitle>
             <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
               <Stat T={T} icon={ArrowRight} label="Tâches modifiées" value={diff?.resume?.modifiees ?? 0} sub={`${diff?.resume?.inchangees ?? 0} inchangées · ${diff?.resume?.nouvelles ?? 0} sans planification actuelle · ${diff?.resume?.non_replanifiees ?? 0} non replanifiées`} color="#f59e0b"/>
               <Stat T={T} icon={CalendarRange} label="Fins retardées" value={diff?.resume?.fin_retardee ?? 0} sub={`${diff?.resume?.fin_avancee ?? 0} avancées`} color={(diff?.resume?.fin_retardee || 0) ? "#ef4444" : "#22c55e"}/>
               <Stat T={T} icon={Users} label="Équipes modifiées" value={diff?.resume?.ressources_changees ?? 0} sub={`${diff?.resume?.fractionnement_change ?? 0} fractionnements modifiés`} color="#06b6d4"/>
             </div>
+
+            {raisonsLisibles.length > 0 && <>
+              <SectionTitle T={T}>Pourquoi le planning change</SectionTitle>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+                {raisonsLisibles.slice(0, 10).map(r => <div key={r.code} style={{ flex:"1 1 260px", minWidth:0, padding:"9px 11px", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, background:T.card }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:7 }}><strong style={{ color:T.text, fontSize:12 }}>{r.count}×</strong><span style={{ color:T.textSub, fontSize:11.5, lineHeight:1.35 }}>{r.label}</span></div>
+                </div>)}
+              </div>
+            </>}
 
             {chantiersImpactes.length > 0 && <>
               <SectionTitle T={T}>Impact par chantier</SectionTitle>
@@ -200,7 +253,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
                 <div key={x.allocation_uid} style={{ display:"grid", gridTemplateColumns:"90px minmax(135px,.8fr) minmax(220px,1.5fr) 65px minmax(130px,1fr)", gap:9, alignItems:"center", padding:"8px 10px", borderTop:i ? `1px solid ${T.border}` : "none", fontSize:11.5 }}>
                   <strong style={{ color:T.textSub }}>{fmtDate(x.date)}</strong>
                   <span style={{ color:T.text, fontWeight:750, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nomsChantiers.get(x.chantier_id) || x.chantier_id}</span>
-                  <span style={{ color:T.textSub, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={x.detail_taches || x.texte}>{x.texte}</span>
+                  <span style={{ color:T.textSub, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={x.detail_taches || x.texte}>{x.texte}{x.preservedCount > 0 ? " · conservé" : ""}</span>
                   <span style={{ color:T.text, fontWeight:750 }}>{x.duree} h</span>
                   <span style={{ color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{(x.resource_ids || []).map(id => nomsRessources.get(id) || id).join(" + ") || "—"}</span>
                 </div>
@@ -212,7 +265,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
             {warnings.length === 0 ? <div style={{ padding:"10px 12px", borderRadius:RADIUS.md, background:"rgba(34,197,94,.08)", color:"#22c55e", fontSize:12, display:"flex", gap:7, alignItems:"center" }}><Icon as={CheckCircle2} size={15}/> Aucun avertissement bloquant détecté sur cet horizon.</div> :
               <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                 {warnings.slice(0, 30).map((w, i) => <div key={`${w.origine}-${w.travail_id || w.tache_id || i}-${i}`} style={{ padding:"9px 11px", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, display:"flex", gap:8, alignItems:"flex-start", background:T.card }}>
-                  <Icon as={TriangleAlert} size={14} color={w.origine === "Non planifié" ? "#ef4444" : "#f59e0b"} style={{ marginTop:1, flex:"0 0 auto" }}/>
+                  <Icon as={TriangleAlert} size={14} color={w.origine === "Non planifié" || w.origine === "À vérifier" ? "#ef4444" : "#f59e0b"} style={{ marginTop:1, flex:"0 0 auto" }}/>
                   <div style={{ minWidth:0 }}><div style={{ fontSize:10, fontWeight:850, letterSpacing:.8, textTransform:"uppercase", color:T.textMuted }}>{w.origine}{w.chantier_id ? ` · ${nomsChantiers.get(w.chantier_id) || w.chantier_id}` : ""}{w.count > 1 ? ` · ×${w.count}` : ""}</div><div style={{ marginTop:2, fontSize:11.5, lineHeight:1.4, color:T.textSub }}>{w.explication || w.raison || w.type}</div></div>
                 </div>)}
                 {warnings.length > 30 && <div style={{ fontSize:11, color:T.textMuted, padding:"3px 2px" }}>+ {warnings.length - 30} autres points dans le résultat complet.</div>}
@@ -220,7 +273,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
 
             <div style={{ marginTop:18, padding:"10px 12px", border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, fontSize:11, lineHeight:1.45, color:T.textMuted, display:"flex", gap:8 }}>
               <Icon as={ShieldCheck} size={15} color="#22c55e" style={{ flex:"0 0 auto" }}/>
-              <span><strong style={{ color:T.textSub }}>Aucune modification n'a été appliquée.</strong> Ce panneau compare uniquement le forecast actuel à une proposition déterministe. L'étape « aperçu → confirmation → application » sera ajoutée séparément au chantier de replanification.</span>
+              <span><strong style={{ color:T.textSub }}>Aucune modification n'a été appliquée.</strong> Ce panneau compare le forecast actuel au planning recalculé depuis le réel. L'application restera une étape séparée avec confirmation explicite.</span>
             </div>
           </>}
         </div>
