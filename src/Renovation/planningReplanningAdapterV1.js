@@ -79,6 +79,8 @@ export function preparerSimulationReplanningV1(options = {}) {
       etat_reel_heures_brutes_verifiees: round2(heuresBrutesVerifiees),
       stabilite_travaux_avec_forecast: stabilite.audit.travaux_avec_forecast,
       stabilite_preferences_forecast_conservees: stabilite.audit.travaux_avec_preference_forecast_conservee,
+      stabilite_preferences_site_appliquees: stabilite.audit.travaux_avec_affinite_site,
+      stabilite_ressources_site_compatibles: stabilite.audit.ressources_site_compatibles,
       stabilite_ressources_hors_pool_ignorees: stabilite.audit.ressources_forecast_hors_pool,
     },
     invariants: {
@@ -89,6 +91,7 @@ export function preparerSimulationReplanningV1(options = {}) {
       heures_reelles_ne_reduisent_pas_le_reste: true,
       forecast_est_une_preference_soft: true,
       pool_metier_hard_inchange_par_forecast: true,
+      continuite_operation_filtre_par_pool_metier: true,
     },
   };
 }
