@@ -32,6 +32,39 @@ function cleTravail(chantierId, tacheId) {
   return c && t ? `${c}::${t}` : null;
 }
 
+// Compatibilité legacy chantier 05 : certains ouvrages historiques ont perdu
+// `code_ouvrage`, alors que leur libellé commence encore par le code d'origine
+// (ex. "EG-001 :Fourniture..."). On ne récupère QUE ce format strict en tête de
+// libellé ; aucun mot-clé, nom de chantier ou ouvrier n'est utilisé ici.
+export function codeOuvrageReplanningV1(ouvrage = {}) {
+  const direct = txt(ouvrage?.code_ouvrage || ouvrage?.code || ouvrage?.identifiant);
+  if (direct) return direct.toUpperCase();
+  const libelle = txt(ouvrage?.libelle || ouvrage?.nom || ouvrage?.designation);
+  const match = libelle.match(/^([A-Z]{1,3}-\d+(?:\.\d+)?)(?=\s|:|$)/i);
+  return match?.[1]?.toUpperCase() || null;
+}
+
+function normaliserCodesOuvragesLegacyV1(phasages = []) {
+  let codesRecuperes = 0;
+  const normalises = (Array.isArray(phasages) ? phasages : []).map(ph => {
+    let phChanged = false;
+    const ouvrages = (Array.isArray(ph?.ouvrages) ? ph.ouvrages : []).map(ouvrage => {
+      if (txt(ouvrage?.code_ouvrage || ouvrage?.code || ouvrage?.identifiant)) return ouvrage;
+      const recovered = codeOuvrageReplanningV1(ouvrage);
+      if (!recovered) return ouvrage;
+      codesRecuperes++;
+      phChanged = true;
+      return {
+        ...ouvrage,
+        code_ouvrage: recovered,
+        code_ouvrage_provenance_replanning: "libelle_legacy_prefixe",
+      };
+    });
+    return phChanged ? { ...ph, ouvrages } : ph;
+  });
+  return { phasages: normalises, codesRecuperes };
+}
+
 function exclusionsChargeNonQuantifiablePertinentes({ etatReel, preparation, chantiers = [] } = {}) {
   const refsPred = new Set((preparation?.engineInput?.travaux || [])
     .flatMap(t => Array.isArray(t?.predecesseur_ids) ? t.predecesseur_ids : [])
@@ -120,19 +153,20 @@ function appliquerOverridesExternesAuxPhasages(phasages = [], overrides = new Ma
 export function preparerSimulationReplanningV1(options = {}) {
   const startDate = String(options?.startDate || "").slice(0, 10);
   const etatReel = construireEtatReelPhasagesV1(options?.phasages || [], { today: startDate });
+  const codesLegacy = normaliserCodesOuvragesLegacyV1(options?.phasages || []);
+  const optionsNormalisees = { ...options, phasages: codesLegacy.phasages };
 
-  // Première passe inchangée = vérité du chantier 04. Elle sert à détecter les
-  // seules exclusions externes pour lesquelles le forecast apporte déjà un
-  // override interne explicite. Si aucun override n'existe, aucune seconde
-  // interprétation n'est introduite.
-  const preparationInitiale = preparerSimulationPlanningGlobalV1(options);
+  // Première passe déléguée au chantier 04, mais sur une vue en mémoire qui a
+  // seulement restauré les codes legacy explicitement présents dans les libellés.
+  // Aucune donnée source n'est modifiée ni persistée.
+  const preparationInitiale = preparerSimulationPlanningGlobalV1(optionsNormalisees);
   const overridesExternes = overridesInternesPourGroupesExternes({
     preparation: preparationInitiale,
     ressources: options?.ressources || [],
   });
-  const phasagesAvecOverrides = appliquerOverridesExternesAuxPhasages(options?.phasages || [], overridesExternes);
+  const phasagesAvecOverrides = appliquerOverridesExternesAuxPhasages(codesLegacy.phasages, overridesExternes);
   const preparation = overridesExternes.size
-    ? preparerSimulationPlanningGlobalV1({ ...options, phasages: phasagesAvecOverrides })
+    ? preparerSimulationPlanningGlobalV1({ ...optionsNormalisees, phasages: phasagesAvecOverrides })
     : preparationInitiale;
 
   const exclusionsCharge = exclusionsChargeNonQuantifiablePertinentes({
@@ -209,6 +243,7 @@ export function preparerSimulationReplanningV1(options = {}) {
     audit: {
       ...preparation.audit,
       replanning_adapter_version: PLANNING_REPLANNING_ADAPTER_VERSION,
+      codes_ouvrages_legacy_recuperes_depuis_libelle: codesLegacy.codesRecuperes,
       etat_reel_taches: etatReel.audit.taches_total,
       etat_reel_taches_en_cours: etatReel.audit.taches_en_cours,
       etat_reel_taches_en_retard: etatReel.audit.taches_en_retard,
@@ -233,6 +268,8 @@ export function preparerSimulationReplanningV1(options = {}) {
       heures_reelles_ne_reduisent_pas_le_reste: true,
       forecast_est_une_preference_soft: true,
       pool_metier_hard_inchange_par_forecast: true,
+      code_ouvrage_legacy_recupere_uniquement_depuis_prefixe_libelle: true,
+      code_ouvrage_legacy_non_persiste: true,
       exception_pool: "un groupe externe peut être remplacé uniquement par les ressources internes déjà explicitement affectées dans le forecast courant",
       override_externe_restreint_aux_ressources_forecast: true,
       continuite_operation_filtre_par_pool_metier: true,
