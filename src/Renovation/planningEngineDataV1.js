@@ -7,7 +7,7 @@
 import { supabase } from "../supabase";
 import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
 import { planifierReplanningPropositionV1 } from "./planningReplanningEngineV1.js";
-import { diffForecastPropositionV1 } from "./planningEngineDiffV1.js";
+import { diffReplanningV1 } from "./planningReplanningDiffV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
 const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
@@ -105,7 +105,7 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
     horizon: data.horizon,
     audit_lecture: data.audit_lecture,
     referentiel: {
-      chantiers: data.config.chantiers.map(c => ({ id:c.id, nom:c.nom || c.id, couleur:c.couleur || null, statut:c.statut || null })),
+      chantiers: data.config.chantiers.map(c => ({ id:c.id, nom:c.nom || c.id, couleur:c.couleur || null, statut:c.statut || null, operation_id:c.operation_id || null, site_id:c.site_id || null })),
       ressources: data.ressources.map(r => ({ id:r.id, nom:r.nom, nom_planning:r.nom_planning, kind:r.kind })),
     },
     preparation,
@@ -116,15 +116,16 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
 /**
  * Point d'entrée lecture seule de la simulation globale.
  * Le chantier 05 ajoute stabilité ressources + dates, puis délègue le calcul au
- * moteur du chantier 04. Aucune proposition n'est appliquée automatiquement.
+ * moteur du chantier 04. Le diff final explique seulement les causes réellement
+ * démontrables ; les autres changements sont explicitement marqués à vérifier.
  */
 export async function simulerPlanningGlobalV1(options = {}) {
   const prepared = await preparerDonneesReellesMoteurV1(options);
   const proposition = planifierReplanningPropositionV1(prepared.preparation.engineInput);
-  const diff = diffForecastPropositionV1({
+  const diff = diffReplanningV1({
     forecast: prepared.preparation.forecastCourant.allocations_recalculables,
-    proposition: proposition.allocations_proposees,
-    nonPlanifies: proposition.non_planifies,
+    proposition,
+    travaux: prepared.preparation.engineInput.travaux,
   });
   return {
     schema_version: 1,
@@ -148,6 +149,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
       proposition_uniquement: true,
       application_automatique: false,
       diff_par_tache: true,
+      diff_explicable_sans_cause_inventee: true,
       phasage_source_de_verite: true,
       reste_a_faire_verifie_par_etat_reel: true,
       forecast_est_une_preference_soft: true,
