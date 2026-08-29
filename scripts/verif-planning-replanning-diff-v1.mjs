@@ -168,4 +168,27 @@ const codes = c => c.raisons.map(r => r.code);
   assert.equal(codes(out.changements[0]).includes("non_planifiable_dans_horizon"), false);
 }
 
-console.log("OK — planning replanning diff V1: 10 scénarios");
+// 11. Un retard n'est expliqué par la capacité que si le diagnostic borné confirme
+// qu'aucun jour planifiable intermédiaire ne conserve une équipe complète.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ date: "2026-09-01", resource_ids:["R1","R2"], duree:1 })],
+    proposition: {
+      allocations_proposees: [proposed({ date:"2026-09-03", resource_ids:["R1","R2"], duree:1, heures_mo:2 })],
+      non_planifies: [],
+      replanning: {
+        decisions_stabilite_dates: [{ travail_id:"C1::T1", date_ancrage:"2026-09-01", raison:"date_forecast_deja_atteinte", preference_appliquee:false }],
+        diagnostics_capacite_residuelle: [{
+          travail_id:"C1::T1", date_ancrage:"2026-09-01", date_proposee:"2026-09-03", crew_size:2,
+          candidate_resource_ids:["R1","R2"], jours_sans_equipe_complete:["2026-09-01","2026-09-02"],
+          capacite_residuelle_confirme_retard:true, raison_stabilite_date:"date_forecast_deja_atteinte",
+        }],
+      },
+    },
+    travaux: [travail({ candidate_resource_ids:["R1","R2"], preferred_resource_ids:["R1","R2"] })],
+  });
+  assert.equal(codes(out.changements[0]).includes("capacite_equipe_saturee_avant_date_proposee"), true);
+  assert.equal(out.changements[0].changement_a_verifier, false);
+}
+
+console.log("OK — planning replanning diff V1: 11 scénarios");
