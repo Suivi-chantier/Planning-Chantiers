@@ -71,17 +71,52 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
   const a = result?.audit_adaptateur;
   const p = result?.proposition;
   const diff = result?.diff_forecast;
-  const warnings = [
-    ...(result?.warnings_adaptateur || []).map(x => ({ ...x, origine:"Données" })),
-    ...(result?.travaux_exclus || []).map(x => ({ ...x, origine:"Exclusion" })),
-    ...(p?.warnings || []).map(x => ({ ...x, origine:"Moteur" })),
-    ...(p?.non_planifies || []).map(x => ({ ...x, origine:"Non planifié", explication:x.raison })),
-  ];
+  const warnings = useMemo(() => {
+    const bruts = [
+      ...(result?.warnings_adaptateur || []).map(x => ({ ...x, origine:"Données" })),
+      ...(result?.travaux_exclus || []).map(x => ({ ...x, origine:"Exclusion" })),
+      ...(result?.proposition?.warnings || []).map(x => ({ ...x, origine:"Moteur" })),
+      ...(result?.proposition?.non_planifies || []).map(x => ({ ...x, origine:"Non planifié", explication:x.raison })),
+    ];
+    const groupes = new Map();
+    for (const w of bruts) {
+      const key = [w.origine, w.chantier_id || "", w.type || "", w.explication || w.raison || ""].join("|");
+      const prev = groupes.get(key);
+      if (prev) prev.count += 1;
+      else groupes.set(key, { ...w, count:1 });
+    }
+    return [...groupes.values()].sort((a,b) =>
+      `${a.origine}|${a.chantier_id || ""}|${a.type || ""}`.localeCompare(`${b.origine}|${b.chantier_id || ""}|${b.type || ""}`)
+    );
+  }, [result]);
 
   const chantiersImpactes = (diff?.par_chantier || []).slice().sort((x, y) =>
     Math.abs(y.decalage_fin_jours || 0) - Math.abs(x.decalage_fin_jours || 0)
   );
-  const allocations = (p?.allocations_proposees || []).slice(0, 80);
+  const blocsOperationnels = useMemo(() => {
+    const groupes = new Map();
+    for (const x of result?.proposition?.allocations_proposees || []) {
+      const resources = [...(x.resource_ids || [])].sort();
+      const key = [x.date || "", x.chantier_id || "", x.groupe_type_id || "", resources.join(",")].join("|");
+      const prev = groupes.get(key);
+      if (!prev) {
+        groupes.set(key, { ...x, allocation_uid:`bloc_${key}`, resource_ids:resources, duree:Number(x.duree || 0), heures_mo:Number(x.heures_mo || 0), taches:[x.texte || "Tâche"], nb_taches:1 });
+      } else {
+        prev.duree += Number(x.duree || 0);
+        prev.heures_mo += Number(x.heures_mo || 0);
+        prev.nb_taches += 1;
+        prev.taches.push(x.texte || "Tâche");
+      }
+    }
+    return [...groupes.values()].map(b => ({
+      ...b,
+      duree: Math.round((b.duree + Number.EPSILON) * 100) / 100,
+      heures_mo: Math.round((b.heures_mo + Number.EPSILON) * 100) / 100,
+      texte: b.nb_taches > 1 ? `${b.nb_taches} tâches · ${b.taches.slice(0,2).join(" + ")}${b.nb_taches > 2 ? "…" : ""}` : b.taches[0],
+      detail_taches: b.taches.join(" • "),
+    })).sort((a,b) => `${a.date}|${a.chantier_id}|${a.resource_ids.join(",")}|${a.groupe_type_id || ""}`.localeCompare(`${b.date}|${b.chantier_id}|${b.resource_ids.join(",")}|${b.groupe_type_id || ""}`));
+  }, [result]);
+  const allocations = blocsOperationnels.slice(0, 80);
 
   return (
     <div style={{ position:"fixed", inset:0, zIndex:180, background:"rgba(8,12,20,.58)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", padding:18 }} onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}>
@@ -137,7 +172,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
 
             <SectionTitle T={T}>Écart avec le forecast courant</SectionTitle>
             <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-              <Stat T={T} icon={ArrowRight} label="Tâches modifiées" value={diff?.resume?.modifiees ?? 0} sub={`${diff?.resume?.inchangees ?? 0} inchangées · ${diff?.resume?.nouvelles ?? 0} nouvelles`} color="#f59e0b"/>
+              <Stat T={T} icon={ArrowRight} label="Tâches modifiées" value={diff?.resume?.modifiees ?? 0} sub={`${diff?.resume?.inchangees ?? 0} inchangées · ${diff?.resume?.nouvelles ?? 0} nouvelles · ${diff?.resume?.non_replanifiees ?? 0} non replanifiées`} color="#f59e0b"/>
               <Stat T={T} icon={CalendarRange} label="Fins retardées" value={diff?.resume?.fin_retardee ?? 0} sub={`${diff?.resume?.fin_avancee ?? 0} avancées`} color={(diff?.resume?.fin_retardee || 0) ? "#ef4444" : "#22c55e"}/>
               <Stat T={T} icon={Users} label="Équipes modifiées" value={diff?.resume?.ressources_changees ?? 0} sub={`${diff?.resume?.fractionnement_change ?? 0} fractionnements modifiés`} color="#06b6d4"/>
             </div>
@@ -147,11 +182,12 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
               <div style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
                 {chantiersImpactes.map((c, i) => {
                   const delta = c.decalage_fin_jours;
-                  const col = delta > 0 ? "#ef4444" : delta < 0 ? "#22c55e" : T.textMuted;
-                  return <div key={c.chantier_id} style={{ display:"grid", gridTemplateColumns:"minmax(150px,1fr) 110px 24px 110px 95px", gap:8, alignItems:"center", padding:"9px 11px", borderTop:i ? `1px solid ${T.border}` : "none", fontSize:12 }}>
+                  const incomplete = c.proposition_complete === false;
+                  const col = incomplete ? "#f59e0b" : delta > 0 ? "#ef4444" : delta < 0 ? "#22c55e" : T.textMuted;
+                  return <div key={c.chantier_id} style={{ display:"grid", gridTemplateColumns:"minmax(150px,1fr) 110px 24px 135px 105px", gap:8, alignItems:"center", padding:"9px 11px", borderTop:i ? `1px solid ${T.border}` : "none", fontSize:12 }}>
                     <strong style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nomsChantiers.get(c.chantier_id) || c.chantier_id}</strong>
-                    <span style={{ color:T.textSub, textAlign:"right" }}>{fmtDate(c.fin_courante)}</span><Icon as={ArrowRight} size={13} color={T.textMuted}/><span style={{ color:T.textSub }}>{fmtDate(c.fin_proposee)}</span>
-                    <span style={{ color:col, fontWeight:850, textAlign:"right" }}>{delta == null ? "nouveau" : delta === 0 ? "stable" : `${delta > 0 ? "+" : ""}${delta} j`}</span>
+                    <span style={{ color:T.textSub, textAlign:"right" }}>{fmtDate(c.fin_courante)}</span><Icon as={ArrowRight} size={13} color={T.textMuted}/><span style={{ color:incomplete ? "#f59e0b" : T.textSub }}>{incomplete ? `incomplet (${c.taches_non_planifiees})` : fmtDate(c.fin_proposee)}</span>
+                    <span style={{ color:col, fontWeight:850, textAlign:"right" }}>{incomplete ? "à compléter" : delta == null ? "nouveau" : delta === 0 ? "stable" : `${delta > 0 ? "+" : ""}${delta} j`}</span>
                   </div>;
                 })}
               </div>
@@ -163,12 +199,12 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
                 <div key={x.allocation_uid} style={{ display:"grid", gridTemplateColumns:"90px minmax(135px,.8fr) minmax(220px,1.5fr) 65px minmax(130px,1fr)", gap:9, alignItems:"center", padding:"8px 10px", borderTop:i ? `1px solid ${T.border}` : "none", fontSize:11.5 }}>
                   <strong style={{ color:T.textSub }}>{fmtDate(x.date)}</strong>
                   <span style={{ color:T.text, fontWeight:750, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nomsChantiers.get(x.chantier_id) || x.chantier_id}</span>
-                  <span style={{ color:T.textSub, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={x.texte}>{x.texte}</span>
+                  <span style={{ color:T.textSub, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={x.detail_taches || x.texte}>{x.texte}</span>
                   <span style={{ color:T.text, fontWeight:750 }}>{x.duree} h</span>
                   <span style={{ color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{(x.resource_ids || []).map(id => nomsRessources.get(id) || id).join(" + ") || "—"}</span>
                 </div>
               ))}
-              {(p?.allocations_proposees?.length || 0) > allocations.length && <div style={{ padding:"8px 10px", borderTop:`1px solid ${T.border}`, fontSize:11, color:T.textMuted }}>+ {(p.allocations_proposees.length - allocations.length)} autres créneaux dans le calcul</div>}
+              {blocsOperationnels.length > allocations.length && <div style={{ padding:"8px 10px", borderTop:`1px solid ${T.border}`, fontSize:11, color:T.textMuted }}>+ {blocsOperationnels.length - allocations.length} autres blocs opérationnels · {p?.allocations_proposees?.length || 0} allocations détaillées au total</div>}
             </div>
 
             <SectionTitle T={T}>Qualité & points à traiter</SectionTitle>
@@ -176,7 +212,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
               <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                 {warnings.slice(0, 30).map((w, i) => <div key={`${w.origine}-${w.travail_id || w.tache_id || i}-${i}`} style={{ padding:"9px 11px", border:`1px solid ${T.border}`, borderRadius:RADIUS.md, display:"flex", gap:8, alignItems:"flex-start", background:T.card }}>
                   <Icon as={TriangleAlert} size={14} color={w.origine === "Non planifié" ? "#ef4444" : "#f59e0b"} style={{ marginTop:1, flex:"0 0 auto" }}/>
-                  <div style={{ minWidth:0 }}><div style={{ fontSize:10, fontWeight:850, letterSpacing:.8, textTransform:"uppercase", color:T.textMuted }}>{w.origine}{w.chantier_id ? ` · ${nomsChantiers.get(w.chantier_id) || w.chantier_id}` : ""}</div><div style={{ marginTop:2, fontSize:11.5, lineHeight:1.4, color:T.textSub }}>{w.explication || w.raison || w.type}</div></div>
+                  <div style={{ minWidth:0 }}><div style={{ fontSize:10, fontWeight:850, letterSpacing:.8, textTransform:"uppercase", color:T.textMuted }}>{w.origine}{w.chantier_id ? ` · ${nomsChantiers.get(w.chantier_id) || w.chantier_id}` : ""}{w.count > 1 ? ` · ×${w.count}` : ""}</div><div style={{ marginTop:2, fontSize:11.5, lineHeight:1.4, color:T.textSub }}>{w.explication || w.raison || w.type}</div></div>
                 </div>)}
                 {warnings.length > 30 && <div style={{ fontSize:11, color:T.textMuted, padding:"3px 2px" }}>+ {warnings.length - 30} autres points dans le résultat complet.</div>}
               </div>}

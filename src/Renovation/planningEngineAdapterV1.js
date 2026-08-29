@@ -12,6 +12,7 @@ import { normaliserEquipeLegacy, normaliserNomRessource, normaliserRessource } f
 import { CONSTRAINT_TYPES, normaliserContraintePlanning } from "./planningConstraintModelV1.js";
 import { calculerRangs, predecesseursEffectifs } from "./rang.js";
 import { regleGroupe } from "./planningRulesV1.js";
+import { CONFIANCE_GROUPE_V1, infererGroupeExecutionV1 } from "./planningGroupInferenceV1.js";
 
 export const PLANNING_ENGINE_ADAPTER_VERSION = 1;
 const EPS = 0.005;
@@ -254,6 +255,7 @@ export function preparerSimulationPlanningGlobalV1({
   let tachesLegacyDependances = 0;
   let tachesDependancesExplicites = 0;
   let groupesTypesResolus = 0;
+  let groupesTypesInferes = 0;
   let groupesTypesManquants = 0;
   let heuresMoRestantesBrutes = 0;
   let heuresMoReserveesVerrous = 0;
@@ -310,7 +312,25 @@ export function preparerSimulationPlanningGlobalV1({
       if (sourcePred.source === "explicite") tachesDependancesExplicites++;
       else if (sourcePred.source === "defaut") tachesLegacyDependances++;
 
-      const groupe = groupePourTache(tache, groupesParId, groupesTypesParId);
+      let groupe = groupePourTache(tache, groupesParId, groupesTypesParId);
+      if (!groupe.groupe_type_id) {
+        const inference = infererGroupeExecutionV1({
+          code: ouvrage?.code_ouvrage || ouvrage?.code || ouvrage?.identifiant || null,
+          nom: tache?.nom,
+          lotId: ouvrage?.lot_id || ouvrage?.lotId || null,
+          position: tacheIndex + 1,
+        });
+        if (inference?.groupe_type_id && inference.confiance === CONFIANCE_GROUPE_V1.CERTAIN) {
+          groupe = {
+            ...groupe,
+            groupe_type_id: inference.groupe_type_id,
+            groupe_type: groupesTypesParId.get(inference.groupe_type_id) || null,
+            provenance: "inference_certaine",
+            inference,
+          };
+          groupesTypesInferes++;
+        }
+      }
       if (groupe.groupe_type_id) groupesTypesResolus++;
       else groupesTypesManquants++;
 
@@ -384,9 +404,11 @@ export function preparerSimulationPlanningGlobalV1({
         tache_id: tacheId,
         explication: `Préférence groupe non mappée : ${prefGroupe.noms_non_mappes.join(", ")}`,
       });
-      const preferred = mappingTache.ids.length
-        ? mappingTache.ids
-        : uniq(prefGroupe?.preferred_resource_ids);
+      // Le référentiel métier courant prime sur les affectations historiques
+      // portées par le phasage. `tache.ouvriers` reste un fallback soft uniquement
+      // lorsqu'aucune équipe/priorité de groupe n'est disponible.
+      const preferredGroupe = uniq(prefGroupe?.preferred_resource_ids);
+      const preferred = preferredGroupe.length ? preferredGroupe : mappingTache.ids;
 
       const regle = regleGroupe(groupe.groupe_type_id);
       const ordreGroupe = num(groupe.groupe_chrono?.ordre, num(groupe.groupe_type?.ordre, regle?.ordre ?? 9999));
@@ -448,6 +470,7 @@ export function preparerSimulationPlanningGlobalV1({
     dependances_legacy_defaut: tachesLegacyDependances,
     dependances_explicites: tachesDependancesExplicites,
     groupes_types_resolus: groupesTypesResolus,
+    groupes_types_inferes: groupesTypesInferes,
     groupes_types_non_resolus: groupesTypesManquants,
     allocations_courantes: allocationsCourantes.length,
     allocations_fixes: allocationsFixes.length,

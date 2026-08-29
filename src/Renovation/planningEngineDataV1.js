@@ -122,6 +122,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
   const diff = diffForecastPropositionV1({
     forecast: prepared.preparation.forecastCourant.allocations_recalculables,
     proposition: proposition.allocations_proposees,
+    nonPlanifies: proposition.non_planifies,
   });
   return {
     schema_version: 1,

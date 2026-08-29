@@ -56,6 +56,8 @@ const prop = (uid, date, duree, resources = ["R1"], extra = {}) => ({
   const d = diffForecastPropositionV1({ forecast: [], proposition: [prop("P", "2026-09-01", 2)] });
   assert.equal(d.resume.nouvelles, 1);
   assert.equal(d.changements[0].statut, "nouveau");
+  assert.equal(d.resume.ressources_changees, 0);
+  assert.equal(d.resume.fractionnement_change, 0);
 }
 
 // 7. Tâche courante sans proposition = non replanifiée.
@@ -63,6 +65,7 @@ const prop = (uid, date, duree, resources = ["R1"], extra = {}) => ({
   const d = diffForecastPropositionV1({ forecast: [cur("A", "2026-09-01", 2)], proposition: [] });
   assert.equal(d.resume.non_replanifiees, 1);
   assert.equal(d.changements[0].statut, "non_replanifié");
+  assert.equal(d.resume.ressources_changees, 0);
 }
 
 // 8. Synthèse chantier : fin courante/proposée et impact.
@@ -82,4 +85,20 @@ const prop = (uid, date, duree, resources = ["R1"], extra = {}) => ({
   assert.equal(d.par_chantier[0].decalage_fin_jours, 2);
 }
 
-console.log("✓ Planning Engine Diff V1 — 8 scénarios métier validés");
+
+
+// 9. Une proposition chantier incomplète ne prétend jamais fournir une nouvelle date de fin.
+{
+  const forecast = [cur("A", "2026-09-05", 2, ["R1"], { tache_id:"T1" })];
+  const proposition = [prop("P", "2026-09-02", 2, ["R1"], { travail_id:"C1::T1", tache_id:"T1" })];
+  const d = diffForecastPropositionV1({ forecast, proposition, nonPlanifies:[{ chantier_id:"C1", tache_id:"T2" }] });
+  const c = d.par_chantier[0];
+  assert.equal(c.proposition_complete, false);
+  assert.equal(c.taches_non_planifiees, 1);
+  assert.equal(c.fin_proposee, null);
+  assert.equal(c.fin_proposee_partielle, "2026-09-02");
+  assert.equal(c.decalage_fin_jours, null);
+  assert.equal(d.resume.chantiers_incomplets, 1);
+}
+
+console.log("✓ Planning Engine Diff V1 — 9 scénarios métier validés");

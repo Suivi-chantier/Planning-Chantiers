@@ -226,4 +226,33 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(override.travaux_exclus.some(t => t.tache_id === "DEMO"), false);
 }
 
-console.log("✓ Planning Engine Adapter V1 — 17 scénarios métier validés");
+
+
+// 18. Un ancien phasage sans chrono_groupes récupère un groupe seulement si l'inférence V1 est certaine.
+{
+  const old = phasage({ taches: [task("LEG-INF", { nom:"Passage alimentation PER WC", chrono_groupe_id:null, ouvriers:[] })], groupes: [] });
+  old.ouvrages[0].code_ouvrage = null;
+  old.ouvrages[0].lot_id = "plomberie";
+  const out = base({ phasages:[old] });
+  const t = out.engineInput.travaux.find(x => x.tache_id === "LEG-INF");
+  assert.ok(t);
+  assert.equal(t.groupe_type_id, "gt_reseau_plomberie");
+  assert.equal(t.provenance.groupe_type, "inference_certaine");
+  assert.equal(out.audit.groupes_types_inferes, 1);
+}
+
+// 19. Le référentiel groupe courant prime sur des ouvriers historiques devenus obsolètes.
+{
+  const ressources = [res("L", "Loris"), res("S", "Selman"), res("V", "Venceslas"), res("ST", "Steven"), res("M", "Mohamed")];
+  const out = base({
+    ressources,
+    phasages:[phasage({ taches:[task("PLUMB", { ouvriers:["Loris","Selman"] })], groupes:[{ id:"G1", ordre:50, groupe_type_id:"gt_reseau_plomberie" }] })],
+    groupesTypes:[{ id:"gt_reseau_plomberie", ordre:50, equipe_id:"EQP", ouvriers_prio:[] }],
+    equipes:[{ id:"EQP", nom:"Plomberie", responsable:"Venceslas", membres:[{ouvrier:"Steven"},{ouvrier:"Mohamed"}], externe:false }],
+  });
+  const t = out.engineInput.travaux[0];
+  assert.deepEqual(t.preferred_resource_ids.sort(), ["M","ST","V"]);
+  assert.equal(t.crew_size, 2);
+}
+
+console.log("✓ Planning Engine Adapter V1 — 19 scénarios métier validés");

@@ -73,7 +73,7 @@ function memeListe(a = [], b = []) {
   return aa.length === bb.length && aa.every((x, i) => x === bb[i]);
 }
 
-export function diffForecastPropositionV1({ forecast = [], proposition = [] } = {}) {
+export function diffForecastPropositionV1({ forecast = [], proposition = [], nonPlanifies = [] } = {}) {
   const cur = indexerCourant(forecast);
   const prop = indexerProposition(proposition);
   const keys = [...new Set([...cur.keys(), ...prop.keys()])].sort();
@@ -120,22 +120,33 @@ export function diffForecastPropositionV1({ forecast = [], proposition = [] } = 
     });
   }
 
-  const chantierIds = uniq(changements.map(c => c.chantier_id)).sort();
+  const nonPlanifiesParChantier = new Map();
+  for (const np of Array.isArray(nonPlanifies) ? nonPlanifies : []) {
+    const cid = txt(np?.chantier_id);
+    if (!cid) continue;
+    nonPlanifiesParChantier.set(cid, (nonPlanifiesParChantier.get(cid) || 0) + 1);
+  }
+  const chantierIds = uniq([...changements.map(c => c.chantier_id), ...nonPlanifiesParChantier.keys()]).sort();
   const parChantier = chantierIds.map(chantierId => {
     const cc = changements.filter(c => c.chantier_id === chantierId);
     const currentEnds = cc.map(c => c.courant.fin).filter(Boolean).sort();
     const proposedEnds = cc.map(c => c.propose.fin).filter(Boolean).sort();
     const finCourante = currentEnds.at(-1) || null;
-    const finProposee = proposedEnds.at(-1) || null;
+    const finProposeePartielle = proposedEnds.at(-1) || null;
+    const tachesNonPlanifiees = nonPlanifiesParChantier.get(chantierId) || 0;
+    const propositionComplete = tachesNonPlanifiees === 0;
     return {
       chantier_id: chantierId,
       taches: cc.length,
       taches_modifiees: cc.filter(c => c.statut === "modifié").length,
       nouvelles: cc.filter(c => c.statut === "nouveau").length,
       non_replanifiees: cc.filter(c => c.statut === "non_replanifié").length,
+      taches_non_planifiees: tachesNonPlanifiees,
+      proposition_complete: propositionComplete,
       fin_courante: finCourante,
-      fin_proposee: finProposee,
-      decalage_fin_jours: dateDiffDays(finProposee, finCourante),
+      fin_proposee: propositionComplete ? finProposeePartielle : null,
+      fin_proposee_partielle: finProposeePartielle,
+      decalage_fin_jours: propositionComplete ? dateDiffDays(finProposeePartielle, finCourante) : null,
     };
   });
 
@@ -152,8 +163,9 @@ export function diffForecastPropositionV1({ forecast = [], proposition = [] } = 
       debut_retarde: changements.filter(c => (c.impact.decalage_debut_jours ?? 0) > 0).length,
       fin_avancee: changements.filter(c => (c.impact.decalage_fin_jours ?? 0) < 0).length,
       fin_retardee: changements.filter(c => (c.impact.decalage_fin_jours ?? 0) > 0).length,
-      ressources_changees: changements.filter(c => c.details.includes("ressources")).length,
-      fractionnement_change: changements.filter(c => c.details.includes("fractionnement")).length,
+      ressources_changees: changements.filter(c => c.statut === "modifié" && c.details.includes("ressources")).length,
+      fractionnement_change: changements.filter(c => c.statut === "modifié" && c.details.includes("fractionnement")).length,
+      chantiers_incomplets: parChantier.filter(c => !c.proposition_complete).length,
     },
     explication: {
       unite_comparaison: "tâche de chantier (chantier_id + tache_id)",
