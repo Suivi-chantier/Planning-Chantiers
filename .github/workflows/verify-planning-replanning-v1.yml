@@ -54,17 +54,18 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
-      - name: Real replanning audit
+      - name: Capture real planning snapshot
         env:
           AUDIT_URL: https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/planning-replanning-audit-temp?token=IxA0eIKYZvPBYM30F8y6NL0ABAcxLybB-vLu5uLGI98
         run: |
-          status=$(curl -sS -o /tmp/replanning-real-audit.json -w '%{http_code}' "$AUDIT_URL")
-          echo "Audit exporter status: $status"
+          status=$(curl -sS -o /tmp/replanning-real-snapshot.json -w '%{http_code}' "$AUDIT_URL")
+          echo "Snapshot exporter status: $status"
           if [ "$status" != "200" ]; then
-            cat /tmp/replanning-real-audit.json
+            cat /tmp/replanning-real-snapshot.json
             exit 1
           fi
-          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/replanning-real-audit.json","utf8")); if(x.error) throw new Error(x.error); console.log(`Audit real: baseline switches=${x.baseline.continuity.switches}, chantier05 switches=${x.chantier05.continuity.switches}, à vérifier=${x.chantier05.diff.changements_a_verifier}`)'
+      - name: Run real replanning audit
+        run: node scripts/audit-planning-replanning-real-temp.mjs /tmp/replanning-real-snapshot.json /tmp/replanning-real-audit.json
       - name: Upload real replanning audit
         uses: actions/upload-artifact@v4
         with:
