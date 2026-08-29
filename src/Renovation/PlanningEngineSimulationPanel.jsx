@@ -172,7 +172,7 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
 
             <SectionTitle T={T}>Écart avec le forecast courant</SectionTitle>
             <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-              <Stat T={T} icon={ArrowRight} label="Tâches modifiées" value={diff?.resume?.modifiees ?? 0} sub={`${diff?.resume?.inchangees ?? 0} inchangées · ${diff?.resume?.nouvelles ?? 0} nouvelles · ${diff?.resume?.non_replanifiees ?? 0} non replanifiées`} color="#f59e0b"/>
+              <Stat T={T} icon={ArrowRight} label="Tâches modifiées" value={diff?.resume?.modifiees ?? 0} sub={`${diff?.resume?.inchangees ?? 0} inchangées · ${diff?.resume?.nouvelles ?? 0} sans planification actuelle · ${diff?.resume?.non_replanifiees ?? 0} non replanifiées`} color="#f59e0b"/>
               <Stat T={T} icon={CalendarRange} label="Fins retardées" value={diff?.resume?.fin_retardee ?? 0} sub={`${diff?.resume?.fin_avancee ?? 0} avancées`} color={(diff?.resume?.fin_retardee || 0) ? "#ef4444" : "#22c55e"}/>
               <Stat T={T} icon={Users} label="Équipes modifiées" value={diff?.resume?.ressources_changees ?? 0} sub={`${diff?.resume?.fractionnement_change ?? 0} fractionnements modifiés`} color="#06b6d4"/>
             </div>
@@ -182,12 +182,13 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
               <div style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
                 {chantiersImpactes.map((c, i) => {
                   const delta = c.decalage_fin_jours;
+                  const forecastIncomplete = c.forecast_courant_complet === false;
                   const incomplete = c.proposition_complete === false;
-                  const col = incomplete ? "#f59e0b" : delta > 0 ? "#ef4444" : delta < 0 ? "#22c55e" : T.textMuted;
+                  const col = incomplete ? "#f59e0b" : forecastIncomplete ? "#5b8af5" : delta > 0 ? "#ef4444" : delta < 0 ? "#22c55e" : T.textMuted;
                   return <div key={c.chantier_id} style={{ display:"grid", gridTemplateColumns:"minmax(150px,1fr) 110px 24px 135px 105px", gap:8, alignItems:"center", padding:"9px 11px", borderTop:i ? `1px solid ${T.border}` : "none", fontSize:12 }}>
                     <strong style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nomsChantiers.get(c.chantier_id) || c.chantier_id}</strong>
-                    <span style={{ color:T.textSub, textAlign:"right" }}>{fmtDate(c.fin_courante)}</span><Icon as={ArrowRight} size={13} color={T.textMuted}/><span style={{ color:incomplete ? "#f59e0b" : T.textSub }}>{incomplete ? `incomplet (${c.taches_non_planifiees})` : fmtDate(c.fin_proposee)}</span>
-                    <span style={{ color:col, fontWeight:850, textAlign:"right" }}>{incomplete ? "à compléter" : delta == null ? "nouveau" : delta === 0 ? "stable" : `${delta > 0 ? "+" : ""}${delta} j`}</span>
+                    <span style={{ color:forecastIncomplete ? "#f59e0b" : T.textSub, textAlign:"right" }}>{forecastIncomplete ? `incomplet (${c.taches_sans_planification_courante})` : fmtDate(c.fin_courante)}</span><Icon as={ArrowRight} size={13} color={T.textMuted}/><span style={{ color:incomplete ? "#f59e0b" : T.textSub }}>{incomplete ? `incomplet (${c.taches_non_planifiees})` : fmtDate(c.fin_proposee)}</span>
+                    <span style={{ color:col, fontWeight:850, textAlign:"right" }}>{incomplete ? "à compléter" : forecastIncomplete ? "fin calculée" : delta == null ? "non comparable" : delta === 0 ? "stable" : `${delta > 0 ? "+" : ""}${delta} j`}</span>
                   </div>;
                 })}
               </div>
