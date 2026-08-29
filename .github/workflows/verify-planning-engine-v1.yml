@@ -22,46 +22,97 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - name: Integrate simulation UI
+      - name: Apply conservative legacy-context guard
         run: |
           python - <<'PY'
           from pathlib import Path
-          p = Path('src/Renovation/Planning.jsx')
+
+          p = Path('src/Renovation/planningEngineAdapterV1.js')
           s = p.read_text()
+          marker = '''      if (mappingTache.nonMappes.length) warnings.push({
+        type: "tache_ouvrier_non_mappe",
+        chantier_id: chantierId,
+        tache_id: tacheId,
+        explication: `Ouvrier(s) du phasage sans ressource stable : ${mappingTache.nonMappes.join(", ")}`,
+      });
 
-          imp = 'import PlanningEngineSimulationPanel from "./PlanningEngineSimulationPanel";\n'
-          anchor = 'import PlanningBaselinePanel from "./PlanningBaselinePanel";\n'
-          if imp not in s:
-              assert s.count(anchor) == 1, 'import baseline inattendu'
-              s = s.replace(anchor, anchor + imp)
+      const prefGroupe = prefsGroupes.get(groupe.groupe_type_id) || null;'''
+          replacement = '''      if (mappingTache.nonMappes.length) warnings.push({
+        type: "tache_ouvrier_non_mappe",
+        chantier_id: chantierId,
+        tache_id: tacheId,
+        explication: `Ouvrier(s) du phasage sans ressource stable : ${mappingTache.nonMappes.join(", ")}`,
+      });
 
-          state = '  const [simulationOpen, setSimulationOpen] = useState(false);\n'
-          anchor = '  const [baselineOpen, setBaselineOpen] = useState(false);\n'
-          if state not in s:
-              assert s.count(anchor) == 1, 'state baseline inattendu'
-              s = s.replace(anchor, anchor + state)
+      // Ancien phasage sans groupe d'exécution ET sans ressource identifiable :
+      // ne jamais inventer une affectation parmi tous les salariés. On préfère
+      // une exclusion visible à une proposition faussement précise.
+      if (!groupe.groupe_type_id && mappingTache.ids.length === 0) {
+        travauxExclus.push({
+          travail_id: travailId,
+          chantier_id: chantierId,
+          tache_id: tacheId,
+          type: "contexte_affectation_insuffisant",
+          explication: "Tâche legacy sans groupe métier résolu ni ouvrier mappé : affectation automatique volontairement désactivée.",
+        });
+        continue;
+      }
 
-          render = '      {simulationOpen && <PlanningEngineSimulationPanel T={T} acc={acc} onClose={()=>setSimulationOpen(false)}/>}\n'
-          anchor = '      {baselineOpen && <PlanningBaselinePanel chantiers={chantiers} T={T} acc={acc} onClose={()=>setBaselineOpen(false)}/>}\n'
-          if render not in s:
-              assert s.count(anchor) == 1, 'rendu baseline inattendu'
-              s = s.replace(anchor, anchor + render)
+      const prefGroupe = prefsGroupes.get(groupe.groupe_type_id) || null;'''
+          if 'type: "contexte_affectation_insuffisant"' not in s:
+              assert s.count(marker) == 1, 'zone mapping tâche inattendue'
+              s = s.replace(marker, replacement)
+              p.write_text(s)
 
-          button = '''          <button title="Simuler le planning global" onClick={()=>setSimulationOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}\n            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}\n            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>\n            <Icon as={CalendarCheck} size={14}/> Simulation\n          </button>\n'''
-          anchor = '          <button title="Planning de référence" onClick={()=>setBaselineOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}\n'
-          if 'title="Simuler le planning global"' not in s:
-              assert s.count(anchor) == 1, 'bouton référence inattendu'
-              s = s.replace(anchor, button + anchor)
+          p = Path('scripts/verif-planning-engine-adapter-v1.mjs')
+          s = p.read_text()
+          if '16. Sans groupe métier ni ouvrier mappé' not in s:
+              marker = '''// 15. Déterminisme de l'adaptateur.
+{
+  const input = {
+    phasages: [phasage({ taches: [task("A"), task("B", { chrono_ordre: 1 })] })],
+    chantiers: [{ id: "C1", statut: "en_cours" }],
+    cellules: [cell({ uid: "X1", tacheId: "A" })],
+    ressources: [res("R1")], groupesTypes: [{ id: "gt_reseau_elec", ordre: 70 }], equipes: [],
+    startDate: "2026-08-31", horizonDays: 10,
+  };
+  assert.deepEqual(preparerSimulationPlanningGlobalV1(structuredClone(input)), preparerSimulationPlanningGlobalV1(structuredClone(input)));
+}
 
-          p.write_text(s)
+console.log("✓ Planning Engine Adapter V1 — 15 scénarios métier validés");'''
+              replacement = '''// 15. Déterminisme de l'adaptateur.
+{
+  const input = {
+    phasages: [phasage({ taches: [task("A"), task("B", { chrono_ordre: 1 })] })],
+    chantiers: [{ id: "C1", statut: "en_cours" }],
+    cellules: [cell({ uid: "X1", tacheId: "A" })],
+    ressources: [res("R1")], groupesTypes: [{ id: "gt_reseau_elec", ordre: 70 }], equipes: [],
+    startDate: "2026-08-31", horizonDays: 10,
+  };
+  assert.deepEqual(preparerSimulationPlanningGlobalV1(structuredClone(input)), preparerSimulationPlanningGlobalV1(structuredClone(input)));
+}
+
+// 16. Sans groupe métier ni ouvrier mappé, une tâche legacy est exclue plutôt qu'affectée arbitrairement.
+{
+  const out = base({
+    phasages: [phasage({ taches: [task("LEGACY", { chrono_groupe_id: "G_INCONNU", ouvriers: [] })], groupes: [] })],
+  });
+  assert.equal(out.engineInput.travaux.some(t => t.tache_id === "LEGACY"), false);
+  assert.equal(out.travaux_exclus.some(t => t.tache_id === "LEGACY" && t.type === "contexte_affectation_insuffisant"), true);
+}
+
+console.log("✓ Planning Engine Adapter V1 — 16 scénarios métier validés");'''
+              assert s.count(marker) == 1, 'fin fixtures adaptateur inattendue'
+              s = s.replace(marker, replacement)
+              p.write_text(s)
           PY
-      - name: Commit UI patch if needed
+      - name: Commit safety guard if needed
         run: |
-          if ! git diff --quiet -- src/Renovation/Planning.jsx; then
+          if ! git diff --quiet -- src/Renovation/planningEngineAdapterV1.js scripts/verif-planning-engine-adapter-v1.mjs; then
             git config user.name 'Suivi-chantier'
             git config user.email 'suivi.chantier@groupe-profero.com'
-            git add src/Renovation/Planning.jsx
-            git commit -m 'Intègre le panneau de simulation globale V1'
+            git add src/Renovation/planningEngineAdapterV1.js scripts/verif-planning-engine-adapter-v1.mjs
+            git commit -m 'Exclut les tâches legacy sans contexte d’affectation'
             git push origin HEAD:feature/planning-engine-v1
           fi
       - name: Install dependencies
