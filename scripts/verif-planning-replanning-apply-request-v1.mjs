@@ -32,6 +32,8 @@ const safety = (extra = {}) => ({
   assert.equal(out.safety_version, 1);
   assert.equal(out.phasage_guard_version, 1);
   assert.equal(out.application_autorisable, true);
+  assert.equal(out.start_date, "2026-08-31");
+  assert.equal(out.horizon_end, "2026-10-11");
   assert.equal(out.operations.length, 1);
   assert.equal(out.phasage_guards.length, 1);
   assert.equal(out.phasage_updates.length, 1);
@@ -52,11 +54,19 @@ assert.throws(() => construireRequeteApplicationReplanningV1({
   securiteApplication:safety({ blockers:[{ code:"conflit" }] }),
 }), /blockers non vides/);
 
-// 4. Les horizons doivent provenir de la même simulation.
+// 4. Les horizons doivent provenir de la même simulation et être des bornes ISO cohérentes.
 assert.throws(() => construireRequeteApplicationReplanningV1({
   planApplication:plan(),
   securiteApplication:safety({ horizon_end:"2026-10-12" }),
 }), /Horizon/);
+assert.throws(() => construireRequeteApplicationReplanningV1({
+  planApplication:plan({ start_date:"31-08-2026" }),
+  securiteApplication:safety({ start_date:"31-08-2026" }),
+}), /Bornes d'horizon/);
+assert.throws(() => construireRequeteApplicationReplanningV1({
+  planApplication:plan({ start_date:"2026-10-12" }),
+  securiteApplication:safety({ start_date:"2026-10-12" }),
+}), /Bornes d'horizon/);
 
 // 5. Le compteur sécurité doit correspondre exactement aux opérations envoyées.
 assert.throws(() => construireRequeteApplicationReplanningV1({
@@ -113,4 +123,4 @@ assert.throws(() => construireRequeteApplicationReplanningV1({
   securiteApplication:safety({ phasage_guards:[guard(), guard()], resume:{ cellules_a_ecrire:1, travaux_touches:1, phasages_a_verrouiller:2 } }),
 }), /dupliquée/);
 
-console.log("OK — planning replanning apply request V1: 11 scénarios");
+console.log("OK — planning replanning apply request V1: 11 scénarios + bornes horizon");
