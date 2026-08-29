@@ -103,16 +103,26 @@ function construirePreferencesGroupes({ groupesTypes = [], equipes = [], ressour
     let preferred = [];
     let nonMappes = [];
     const eq = equipesNormalisees.get(txt(gt?.equipe_id)) || null;
+    let candidates = uniq(eq?.resource_ids);
     const prios = uniq(gt?.ouvriers_prio);
     if (prios.length) {
       const mapped = idsPourNoms(prios, parNom);
-      preferred = mapped.ids;
       nonMappes = mapped.nonMappes;
+      if (candidates.length) {
+        const allowed = new Set(candidates);
+        preferred = mapped.ids.filter(id => allowed.has(id));
+      } else if (!eq) {
+        // Groupe sans équipe explicite : des priorités mappées constituent le
+        // seul pool déterministe disponible, plutôt qu'un fallback global.
+        candidates = mapped.ids;
+        preferred = mapped.ids;
+      }
     } else {
-      preferred = uniq(eq?.resource_ids);
+      preferred = candidates;
     }
     result.set(id, {
       groupe_type: gt,
+      candidate_resource_ids: candidates,
       preferred_resource_ids: preferred,
       noms_non_mappes: nonMappes,
       equipe_externe: eq?.externe === true,
@@ -404,11 +414,28 @@ export function preparerSimulationPlanningGlobalV1({
         tache_id: tacheId,
         explication: `Préférence groupe non mappée : ${prefGroupe.noms_non_mappes.join(", ")}`,
       });
-      // Le référentiel métier courant prime sur les affectations historiques
-      // portées par le phasage. `tache.ouvriers` reste un fallback soft uniquement
-      // lorsqu'aucune équipe/priorité de groupe n'est disponible.
-      const preferredGroupe = uniq(prefGroupe?.preferred_resource_ids);
-      const preferred = preferredGroupe.length ? preferredGroupe : mappingTache.ids;
+      const candidatesGroupe = uniq(prefGroupe?.candidate_resource_ids);
+      if (groupe.groupe_type_id && !prefGroupe?.equipe_externe && candidatesGroupe.length === 0) {
+        travauxExclus.push({
+          travail_id: travailId,
+          chantier_id: chantierId,
+          tache_id: tacheId,
+          type: "groupe_sans_pool_ressources",
+          explication: "Le groupe métier est résolu mais aucun pool interne de ressources n'est configuré : le moteur refuse de choisir parmi tous les salariés.",
+        });
+        continue;
+      }
+
+      // Contrat V1 : le groupe métier définit un pool HARD. Les priorités du
+      // groupe ne font qu'ordonner les membres de ce pool. Les anciens noms
+      // `tache.ouvriers` ne peuvent jamais élargir un groupe actuel ; ils restent
+      // le seul pool prudent uniquement pour une tâche legacy sans groupe, ou
+      // l'override explicite d'un groupe externe.
+      const candidates = prefGroupe?.equipe_externe
+        ? mappingTache.ids
+        : (groupe.groupe_type_id ? candidatesGroupe : mappingTache.ids);
+      const preferredGroupe = uniq(prefGroupe?.preferred_resource_ids).filter(id => candidates.includes(id));
+      const preferred = preferredGroupe.length ? preferredGroupe : candidates;
 
       const regle = regleGroupe(groupe.groupe_type_id);
       const ordreGroupe = num(groupe.groupe_chrono?.ordre, num(groupe.groupe_type?.ordre, regle?.ordre ?? 9999));
@@ -423,7 +450,7 @@ export function preparerSimulationPlanningGlobalV1({
         texte: txt(tache?.nom) || "Tâche sans libellé",
         heures_mo_restantes: restant,
         crew_size: Math.max(1, nomsTache.length || 1),
-        candidate_resource_ids: [],
+        candidate_resource_ids: candidates,
         preferred_resource_ids: preferred,
         predecesseur_ids: predIds,
         priority: 0,

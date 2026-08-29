@@ -265,3 +265,12 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
 }
 
 console.log("✓ Planning Engine V1 — 20 scénarios métier validés");
+
+// 21. candidate_resource_ids est un pool hard : une ressource hors pool n'est jamais choisie, même préférée.
+{
+  const out = run({
+    travaux: [task("POOL", 2, { candidate_resource_ids:["R2"], preferred_resource_ids:["R1"] })],
+    ressources: [res("R1"), res("R2")],
+  });
+  assert.deepEqual(out.allocations_proposees[0].resource_ids, ["R2"]);
+}

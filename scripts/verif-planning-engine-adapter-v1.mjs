@@ -79,7 +79,7 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
 // 5. groupe_type_id direct gagne ; sinon résolution via le groupe chrono.
 {
   const out = base({ phasages: [phasage({ taches: [task("T1", { groupe_type_id: "gt_peinture" })] })], groupesTypes: [
-    { id: "gt_reseau_elec", ordre: 70 }, { id: "gt_peinture", ordre: 90 },
+    { id: "gt_reseau_elec", ordre: 70, equipe_id: "EQ1" }, { id: "gt_peinture", ordre: 90, equipe_id: "EQ1" },
   ] });
   const t = out.engineInput.travaux[0];
   assert.equal(t.groupe_type_id, "gt_peinture");
@@ -119,20 +119,23 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(out.forecastCourant.allocations_recalculables.length, 0);
 }
 
-// 9. Les ouvriers portés par la tâche sont des préférences, jamais une contrainte hard implicite.
+// 9. Legacy sans groupe : les ouvriers explicites deviennent le pool hard prudent.
 {
+  const old = phasage({ taches: [task("T1", { chrono_groupe_id: "G_INCONNU", ouvriers: ["R2"] })], groupes: [] });
+  old.ouvrages[0].code_ouvrage = null;
+  old.ouvrages[0].lot_id = null;
   const out = base({
     ressources: [res("RID1", "R1"), res("RID2", "R2")],
-    phasages: [phasage({ taches: [task("T1", { ouvriers: ["R2"] })] })],
-    equipes: [], groupesTypes: [{ id: "gt_reseau_elec", ordre: 70 }],
+    phasages: [old],
+    equipes: [], groupesTypes: [],
   });
   const t = out.engineInput.travaux[0];
   assert.deepEqual(t.preferred_resource_ids, ["RID2"]);
-  assert.deepEqual(t.candidate_resource_ids, []);
+  assert.deepEqual(t.candidate_resource_ids, ["RID2"]);
   assert.equal(t.crew_size, 1);
 }
 
-// 10. Sans affectation tâche, l'équipe du groupe n'est qu'une préférence ; la taille d'équipe n'est pas inventée.
+// 10. Avec un groupe actuel, l'équipe constitue le pool HARD ; la taille d'équipe n'est pas inventée.
 {
   const out = base({
     ressources: [res("RID1", "R1"), res("RID2", "R2")],
@@ -140,6 +143,7 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
     equipes: [{ id: "EQ1", nom: "Élec", responsable: "R1", membres: [{ ouvrier: "R2" }], externe: false }],
   });
   const t = out.engineInput.travaux[0];
+  assert.deepEqual(t.candidate_resource_ids.sort(), ["RID1", "RID2"]);
   assert.deepEqual(t.preferred_resource_ids.sort(), ["RID1", "RID2"]);
   assert.equal(t.crew_size, 1);
 }
@@ -222,6 +226,7 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   });
   const travail = override.engineInput.travaux.find(t => t.tache_id === "DEMO");
   assert.ok(travail);
+  assert.deepEqual(travail.candidate_resource_ids, ["RID1"]);
   assert.deepEqual(travail.preferred_resource_ids, ["RID1"]);
   assert.equal(override.travaux_exclus.some(t => t.tache_id === "DEMO"), false);
 }
@@ -233,7 +238,11 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   const old = phasage({ taches: [task("LEG-INF", { nom:"Passage alimentation PER WC", chrono_groupe_id:null, ouvriers:[] })], groupes: [] });
   old.ouvrages[0].code_ouvrage = null;
   old.ouvrages[0].lot_id = "plomberie";
-  const out = base({ phasages:[old] });
+  const out = base({
+    phasages:[old],
+    groupesTypes:[{ id:"gt_reseau_plomberie", ordre:50, equipe_id:"EQP", ouvriers_prio:[] }],
+    equipes:[{ id:"EQP", nom:"Plomberie", responsable:"R1", membres:[], externe:false }],
+  });
   const t = out.engineInput.travaux.find(x => x.tache_id === "LEG-INF");
   assert.ok(t);
   assert.equal(t.groupe_type_id, "gt_reseau_plomberie");
@@ -256,3 +265,28 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
 }
 
 console.log("✓ Planning Engine Adapter V1 — 19 scénarios métier validés");
+// 20. Un ancien ouvrier hors de l'équipe actuelle ne peut plus élargir le pool du groupe.
+{
+  const out = base({
+    ressources: [res("R1", "R1"), res("R2", "R2"), res("OLD", "Loris")],
+    phasages: [phasage({ taches: [task("STALE", { ouvriers:["Loris"] })] })],
+    groupesTypes: [{ id:"gt_reseau_elec", ordre:70, equipe_id:"EQ1", ouvriers_prio:[] }],
+    equipes: [{ id:"EQ1", nom:"Élec", responsable:"R1", membres:[{ ouvrier:"R2" }], externe:false }],
+  });
+  const t = out.engineInput.travaux.find(x => x.tache_id === "STALE");
+  assert.deepEqual(t.candidate_resource_ids.sort(), ["R1", "R2"]);
+  assert.equal(t.candidate_resource_ids.includes("OLD"), false);
+  assert.equal(t.crew_size, 1);
+}
+
+// 21. ouvriers_prio ordonne le pool mais ne le réduit pas.
+{
+  const out = base({
+    ressources: [res("R1", "R1"), res("R2", "R2")],
+    groupesTypes: [{ id:"gt_reseau_elec", ordre:70, equipe_id:"EQ1", ouvriers_prio:["R2"] }],
+    equipes: [{ id:"EQ1", nom:"Élec", responsable:"R1", membres:[{ ouvrier:"R2" }], externe:false }],
+  });
+  const t = out.engineInput.travaux[0];
+  assert.deepEqual(t.candidate_resource_ids.sort(), ["R1", "R2"]);
+  assert.deepEqual(t.preferred_resource_ids, ["R2"]);
+}
