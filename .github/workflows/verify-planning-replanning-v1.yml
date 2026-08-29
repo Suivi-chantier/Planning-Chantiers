@@ -57,7 +57,7 @@ jobs:
       - name: Audit REST smoke
         env:
           SUPABASE_URL: https://yooksnzhlffqgpzkcjhl.supabase.co
-          SUPABASE_KEY: sb_publishable_HmrUmukkCmC9LtAGoYg-XA_OBtiCNiM
+          SUPABASE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlvb2tzbnpobGZmcWdwemtjamhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxMDAzMzIsImV4cCI6MjA4NzY3NjMzMn0.rpr3PgIvHOBchoMYhm-yfnmkD5lcz__tnSvRptIUMQ8
         run: |
           status=$(curl -sS -o /tmp/replanning-rest-smoke.json -w '%{http_code}' \
             -H "apikey: $SUPABASE_KEY" \
