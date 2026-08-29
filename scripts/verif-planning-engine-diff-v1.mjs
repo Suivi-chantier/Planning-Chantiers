@@ -68,7 +68,7 @@ const prop = (uid, date, duree, resources = ["R1"], extra = {}) => ({
   assert.equal(d.resume.ressources_changees, 0);
 }
 
-// 8. Synthèse chantier : fin courante/proposée et impact.
+// 8. Synthèse chantier : fin courante/proposée et impact si les deux forecasts sont complets.
 {
   const forecast = [
     cur("A", "2026-09-01", 2, ["R1"], { tache_id: "T1" }),
@@ -80,12 +80,11 @@ const prop = (uid, date, duree, resources = ["R1"], extra = {}) => ({
   ];
   const d = diffForecastPropositionV1({ forecast, proposition });
   assert.equal(d.par_chantier.length, 1);
+  assert.equal(d.par_chantier[0].forecast_courant_complet, true);
   assert.equal(d.par_chantier[0].fin_courante, "2026-09-05");
   assert.equal(d.par_chantier[0].fin_proposee, "2026-09-07");
   assert.equal(d.par_chantier[0].decalage_fin_jours, 2);
 }
-
-
 
 // 9. Une proposition chantier incomplète ne prétend jamais fournir une nouvelle date de fin.
 {
@@ -101,4 +100,22 @@ const prop = (uid, date, duree, resources = ["R1"], extra = {}) => ({
   assert.equal(d.resume.chantiers_incomplets, 1);
 }
 
-console.log("✓ Planning Engine Diff V1 — 9 scénarios métier validés");
+// 10. Un forecast courant incomplet ne transforme pas sa dernière date connue en fausse date de fin.
+{
+  const forecast = [cur("A", "2026-09-05", 2, ["R1"], { tache_id:"T1" })];
+  const proposition = [
+    prop("P1", "2026-09-06", 2, ["R1"], { travail_id:"C1::T1", tache_id:"T1" }),
+    prop("P2", "2026-09-20", 4, ["R1"], { travail_id:"C1::T2", tache_id:"T2" }),
+  ];
+  const d = diffForecastPropositionV1({ forecast, proposition });
+  const c = d.par_chantier[0];
+  assert.equal(c.forecast_courant_complet, false);
+  assert.equal(c.taches_sans_planification_courante, 1);
+  assert.equal(c.fin_courante, null);
+  assert.equal(c.fin_courante_partielle, "2026-09-05");
+  assert.equal(c.fin_proposee, "2026-09-20");
+  assert.equal(c.decalage_fin_jours, null);
+  assert.equal(d.resume.chantiers_forecast_courant_incomplets, 1);
+}
+
+console.log("✓ Planning Engine Diff V1 — 10 scénarios métier validés");
