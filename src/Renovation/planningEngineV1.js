@@ -12,7 +12,7 @@
 // - MO produite par une allocation = duree × nombre de ressources.
 
 import { normaliserRessource, RESOURCE_KINDS } from "./planningResourceModelV1.js";
-import { calculerCapaciteRessourcePourDate } from "./planningResourceCapacityV1.js";
+import { calculerCapaciteRessourcePourDate, capaciteBasePlanningPourDate } from "./planningResourceCapacityV1.js";
 import {
   CONSTRAINT_TYPES,
   contrainteSapplique,
@@ -47,6 +47,15 @@ function dateDiffDays(a, b) {
   const da = new Date(`${a}T12:00:00`);
   const db = new Date(`${b}T12:00:00`);
   return Math.round((da - db) / 86400000);
+}
+
+function jourPlanifiablePrecedent(date) {
+  let d = dateAddDays(date, -1);
+  for (let i = 0; i < 7; i++) {
+    if (capaciteBasePlanningPourDate(d) > EPS) return d;
+    d = dateAddDays(d, -1);
+  }
+  return null;
 }
 
 export function normaliserTravailMoteurV1(value, index = 0) {
@@ -178,13 +187,15 @@ function chargePour(charge, resourceId, date) {
   return charge.get(keyCharge(resourceId, date)) || { heures: 0, chantiers: new Set(), sites: new Set() };
 }
 
-function choisirEquipe({ travail, date, ressources, evenements, contraintes, charge, requiredElapsed = null }) {
+function choisirEquipe({ travail, date, ressources, evenements, contraintes, charge, requiredElapsed = null, continuiteMultiJours = false }) {
   const candidatesSet = new Set(travail.candidate_resource_ids);
   const allCandidates = ressources.filter(r =>
     r.actif !== false
     && r.kind === RESOURCE_KINDS.PERSONNE
     && (candidatesSet.size === 0 || candidatesSet.has(r.id))
   );
+  const previousPlanningDate = continuiteMultiJours ? jourPlanifiablePrecedent(date) : null;
+  const preferenceSource = str(travail?.stability_forecast?.preference_source);
 
   const scored = [];
   for (const r of allCandidates) {
@@ -212,19 +223,57 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintes, cha
     });
     if (!cEval.eligible) continue;
 
-    let score = capacite.capacite_disponible;
-    if (travail.preferred_resource_ids.includes(r.id)) score += 1000;
-    if (load.chantiers.has(travail.chantier_id)) score += 350;
-    else if (load.sites.has(travail.site_id)) score += 220;
+    const preferred = travail.preferred_resource_ids.includes(r.id);
+    const sameChantierToday = load.chantiers.has(travail.chantier_id);
+    const sameSiteToday = !sameChantierToday && load.sites.has(travail.site_id);
+    const previousLoad = previousPlanningDate ? chargePour(charge, r.id, previousPlanningDate) : null;
+    const previousSameSite = Boolean(previousLoad?.sites?.has(travail.site_id));
+    const preferenceTache = preferred && preferenceSource === "forecast_tache";
+    const preferenceSite = preferred && preferenceSource === "forecast_site";
+    const preferenceGroupe = preferred && !preferenceTache && !preferenceSite;
 
-    scored.push({ resource: r, capacite, constraintEval: cEval, score });
+    let score = capacite.capacite_disponible;
+    if (preferred) score += 1000;
+    if (sameChantierToday) score += 350;
+    else if (sameSiteToday) score += 220;
+
+    scored.push({
+      resource: r,
+      capacite,
+      constraintEval: cEval,
+      score,
+      preferenceTache,
+      preferenceSite,
+      preferenceGroupe,
+      sameChantierToday,
+      sameSiteToday,
+      previousSameSite,
+      previousPlanningDate,
+    });
   }
 
-  scored.sort((a, b) =>
-    (b.score - a.score)
-    || (b.capacite.capacite_disponible - a.capacite.capacite_disponible)
-    || String(a.resource.id).localeCompare(String(b.resource.id))
-  );
+  if (continuiteMultiJours) {
+    // Hiérarchie SOFT explicite, sans coefficient arbitraire :
+    // affectation de tâche déjà communiquée > continuité aujourd'hui >
+    // continuité avec le jour ouvré précédent > affinité site forecast >
+    // préférence statique du groupe > capacité disponible.
+    scored.sort((a, b) =>
+      (Number(b.preferenceTache) - Number(a.preferenceTache))
+      || (Number(b.sameChantierToday) - Number(a.sameChantierToday))
+      || (Number(b.sameSiteToday) - Number(a.sameSiteToday))
+      || (Number(b.previousSameSite) - Number(a.previousSameSite))
+      || (Number(b.preferenceSite) - Number(a.preferenceSite))
+      || (Number(b.preferenceGroupe) - Number(a.preferenceGroupe))
+      || (b.capacite.capacite_disponible - a.capacite.capacite_disponible)
+      || String(a.resource.id).localeCompare(String(b.resource.id))
+    );
+  } else {
+    scored.sort((a, b) =>
+      (b.score - a.score)
+      || (b.capacite.capacite_disponible - a.capacite.capacite_disponible)
+      || String(a.resource.id).localeCompare(String(b.resource.id))
+    );
+  }
 
   const selected = scored.slice(0, travail.crew_size);
   if (selected.length < travail.crew_size) {
@@ -234,7 +283,7 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintes, cha
       candidates: scored,
     };
   }
-  return { ok: true, selected, candidates: scored };
+  return { ok: true, selected, candidates: scored, previousPlanningDate };
 }
 
 function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraintes, horizonEnd }) {
@@ -254,6 +303,9 @@ function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraint
  *
  * Le moteur ne modifie jamais les allocations existantes et ne persiste rien.
  * Il consomme leur charge pour ne pas sur-allouer les ressources.
+ *
+ * `continuiteMultiJours` est une extension optionnelle du chantier 05. Sa valeur
+ * par défaut reste false afin de figer le comportement historique du chantier 04.
  */
 export function planifierPropositionV1({
   travaux = [],
@@ -264,6 +316,7 @@ export function planifierPropositionV1({
   completedTaskIds = [],
   startDate,
   horizonDays = 42,
+  continuiteMultiJours = false,
 } = {}) {
   const debut = dateOnly(startDate);
   if (!debut) throw new Error("startDate ISO requis pour le moteur de planification");
@@ -347,6 +400,7 @@ export function planifierPropositionV1({
           contraintes: constraints,
           charge,
           requiredElapsed,
+          continuiteMultiJours,
         });
         if (!crew.ok) {
           attempts.get(t.id).dates_sans_equipe++;
@@ -364,6 +418,9 @@ export function planifierPropositionV1({
             const load = chargePour(charge, x.resource.id, date);
             return load.sites.size > 0 && !load.sites.has(t.site_id);
           })
+          .map(x => x.resource.id);
+        const continuedFromPreviousDay = crew.selected
+          .filter(x => x.previousSameSite)
           .map(x => x.resource.id);
 
         const allocation = {
@@ -390,6 +447,9 @@ export function planifierPropositionV1({
             violations: candidate.dateEval.violations,
             site_id: t.site_id,
             changement_chantier_ressources: switchedResources,
+            continuite_multi_jours_active: continuiteMultiJours === true,
+            jour_planifiable_precedent: crew.previousPlanningDate || null,
+            continuite_site_jour_precedent: continuedFromPreviousDay,
             fractionnable: t.fractionnable,
             formule: "MO produite = durée allocation × nombre de ressources ; durée plafonnée par la capacité disponible la plus faible de l'équipe",
           },
@@ -447,6 +507,7 @@ export function planifierPropositionV1({
       allocations_existantes: existing.length,
       contraintes: constraints.length,
       heures_mo_demandees: requestedMO,
+      continuite_multi_jours: continuiteMultiJours === true,
     },
     allocations_proposees: allocations,
     non_planifies: nonPlanifies,
@@ -465,6 +526,7 @@ export function planifierPropositionV1({
       allocations_existantes_preservees: true,
       moteur_deterministe_a_entrees_identiques: true,
       un_seul_site_par_ressource_et_par_jour: true,
+      continuite_multi_jours_optionnelle: true,
     },
   };
 }
