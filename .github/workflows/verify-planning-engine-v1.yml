@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -20,6 +20,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Apply daily-site continuity hardening once
+        run: python3 scripts/temp_harden_daily_site_continuity.py
       - name: Install dependencies
         run: npm ci
       - name: Planning model V1
@@ -48,3 +50,15 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
+      - name: Commit daily-site continuity hardening
+        if: success() && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/Renovation/planningEngineV1.js src/Renovation/planningEngineAdapterV1.js scripts/verif-planning-engine-v1.mjs scripts/verif-planning-engine-adapter-v1.mjs
+          if git diff --cached --quiet; then
+            echo "No hardening changes to commit"
+            exit 0
+          fi
+          git commit -m "Verrouille la continuité de site journalière"
+          git push origin HEAD:feature/planning-engine-v1
