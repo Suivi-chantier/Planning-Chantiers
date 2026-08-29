@@ -28,6 +28,8 @@ jobs:
         run: node scripts/verif-planning-replanning-adapter-v1.mjs
       - name: Replanning forecast stability V1
         run: node scripts/verif-planning-replanning-stability-v1.mjs
+      - name: Replanning site resolution V1
+        run: node scripts/verif-planning-replanning-site-resolution-v1.mjs
       - name: Replanning forecast date stability V1
         run: node scripts/verif-planning-replanning-date-stability-v1.mjs
       - name: Planning engine V1 regression
