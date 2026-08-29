@@ -9,112 +9,17 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-      - name: Apply conservative legacy-context guard
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          p = Path('src/Renovation/planningEngineAdapterV1.js')
-          s = p.read_text()
-          marker = '''      if (mappingTache.nonMappes.length) warnings.push({
-        type: "tache_ouvrier_non_mappe",
-        chantier_id: chantierId,
-        tache_id: tacheId,
-        explication: `Ouvrier(s) du phasage sans ressource stable : ${mappingTache.nonMappes.join(", ")}`,
-      });
-
-      const prefGroupe = prefsGroupes.get(groupe.groupe_type_id) || null;'''
-          replacement = '''      if (mappingTache.nonMappes.length) warnings.push({
-        type: "tache_ouvrier_non_mappe",
-        chantier_id: chantierId,
-        tache_id: tacheId,
-        explication: `Ouvrier(s) du phasage sans ressource stable : ${mappingTache.nonMappes.join(", ")}`,
-      });
-
-      // Ancien phasage sans groupe d'exécution ET sans ressource identifiable :
-      // ne jamais inventer une affectation parmi tous les salariés. On préfère
-      // une exclusion visible à une proposition faussement précise.
-      if (!groupe.groupe_type_id && mappingTache.ids.length === 0) {
-        travauxExclus.push({
-          travail_id: travailId,
-          chantier_id: chantierId,
-          tache_id: tacheId,
-          type: "contexte_affectation_insuffisant",
-          explication: "Tâche legacy sans groupe métier résolu ni ouvrier mappé : affectation automatique volontairement désactivée.",
-        });
-        continue;
-      }
-
-      const prefGroupe = prefsGroupes.get(groupe.groupe_type_id) || null;'''
-          if 'type: "contexte_affectation_insuffisant"' not in s:
-              assert s.count(marker) == 1, 'zone mapping tâche inattendue'
-              s = s.replace(marker, replacement)
-              p.write_text(s)
-
-          p = Path('scripts/verif-planning-engine-adapter-v1.mjs')
-          s = p.read_text()
-          if '16. Sans groupe métier ni ouvrier mappé' not in s:
-              marker = '''// 15. Déterminisme de l'adaptateur.
-{
-  const input = {
-    phasages: [phasage({ taches: [task("A"), task("B", { chrono_ordre: 1 })] })],
-    chantiers: [{ id: "C1", statut: "en_cours" }],
-    cellules: [cell({ uid: "X1", tacheId: "A" })],
-    ressources: [res("R1")], groupesTypes: [{ id: "gt_reseau_elec", ordre: 70 }], equipes: [],
-    startDate: "2026-08-31", horizonDays: 10,
-  };
-  assert.deepEqual(preparerSimulationPlanningGlobalV1(structuredClone(input)), preparerSimulationPlanningGlobalV1(structuredClone(input)));
-}
-
-console.log("✓ Planning Engine Adapter V1 — 15 scénarios métier validés");'''
-              replacement = '''// 15. Déterminisme de l'adaptateur.
-{
-  const input = {
-    phasages: [phasage({ taches: [task("A"), task("B", { chrono_ordre: 1 })] })],
-    chantiers: [{ id: "C1", statut: "en_cours" }],
-    cellules: [cell({ uid: "X1", tacheId: "A" })],
-    ressources: [res("R1")], groupesTypes: [{ id: "gt_reseau_elec", ordre: 70 }], equipes: [],
-    startDate: "2026-08-31", horizonDays: 10,
-  };
-  assert.deepEqual(preparerSimulationPlanningGlobalV1(structuredClone(input)), preparerSimulationPlanningGlobalV1(structuredClone(input)));
-}
-
-// 16. Sans groupe métier ni ouvrier mappé, une tâche legacy est exclue plutôt qu'affectée arbitrairement.
-{
-  const out = base({
-    phasages: [phasage({ taches: [task("LEGACY", { chrono_groupe_id: "G_INCONNU", ouvriers: [] })], groupes: [] })],
-  });
-  assert.equal(out.engineInput.travaux.some(t => t.tache_id === "LEGACY"), false);
-  assert.equal(out.travaux_exclus.some(t => t.tache_id === "LEGACY" && t.type === "contexte_affectation_insuffisant"), true);
-}
-
-console.log("✓ Planning Engine Adapter V1 — 16 scénarios métier validés");'''
-              assert s.count(marker) == 1, 'fin fixtures adaptateur inattendue'
-              s = s.replace(marker, replacement)
-              p.write_text(s)
-          PY
-      - name: Commit safety guard if needed
-        run: |
-          if ! git diff --quiet -- src/Renovation/planningEngineAdapterV1.js scripts/verif-planning-engine-adapter-v1.mjs; then
-            git config user.name 'Suivi-chantier'
-            git config user.email 'suivi.chantier@groupe-profero.com'
-            git add src/Renovation/planningEngineAdapterV1.js scripts/verif-planning-engine-adapter-v1.mjs
-            git commit -m 'Exclut les tâches legacy sans contexte d’affectation'
-            git push origin HEAD:feature/planning-engine-v1
-          fi
       - name: Install dependencies
         run: npm ci
       - name: Planning model V1
