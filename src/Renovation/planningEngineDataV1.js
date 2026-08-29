@@ -1,12 +1,12 @@
 // ─── DONNÉES RÉELLES → SIMULATION PLANNING GLOBAL V1 ────────────────────────
 // Couche de LECTURE uniquement. Elle charge une photographie cohérente de
-// l'horizon puis délègue la préparation au pont de replanification, qui conserve
-// le moteur du chantier 04 intact tout en raccordant l'état réel du phasage.
+// l'horizon puis délègue la préparation et la stabilité au chantier 05, tout en
+// conservant le moteur du chantier 04 comme noyau d'ordonnancement.
 // Aucune écriture de planning n'existe dans ce module.
 
 import { supabase } from "../supabase";
 import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
-import { planifierPropositionV1 } from "./planningEngineV1.js";
+import { planifierReplanningPropositionV1 } from "./planningReplanningEngineV1.js";
 import { diffForecastPropositionV1 } from "./planningEngineDiffV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
@@ -115,12 +115,12 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
 
 /**
  * Point d'entrée lecture seule de la simulation globale.
- * Le moteur du chantier 04 reste inchangé ; la provenance état réel est ajoutée
- * en amont pour préparer la replanification continue du chantier 05.
+ * Le chantier 05 ajoute stabilité ressources + dates, puis délègue le calcul au
+ * moteur du chantier 04. Aucune proposition n'est appliquée automatiquement.
  */
 export async function simulerPlanningGlobalV1(options = {}) {
   const prepared = await preparerDonneesReellesMoteurV1(options);
-  const proposition = planifierPropositionV1(prepared.preparation.engineInput);
+  const proposition = planifierReplanningPropositionV1(prepared.preparation.engineInput);
   const diff = diffForecastPropositionV1({
     forecast: prepared.preparation.forecastCourant.allocations_recalculables,
     proposition: proposition.allocations_proposees,
@@ -133,6 +133,8 @@ export async function simulerPlanningGlobalV1(options = {}) {
     audit_lecture: prepared.audit_lecture,
     audit_adaptateur: prepared.preparation.audit,
     audit_etat_reel: prepared.preparation.etatReel?.audit || null,
+    audit_stabilite_forecast: prepared.preparation.stabiliteForecast?.audit || null,
+    audit_stabilite_dates: proposition.replanning?.stabilite_dates || null,
     referentiel: prepared.referentiel,
     forecast_courant: prepared.preparation.forecastCourant,
     travaux_exclus: prepared.preparation.travaux_exclus,
@@ -148,6 +150,8 @@ export async function simulerPlanningGlobalV1(options = {}) {
       diff_par_tache: true,
       phasage_source_de_verite: true,
       reste_a_faire_verifie_par_etat_reel: true,
+      forecast_est_une_preference_soft: true,
+      contraintes_stabilite_non_persistantes: true,
     },
   };
 }
