@@ -12,6 +12,7 @@ export const PLANNING_REPLANNING_APPLY_REQUEST_VERSION = 1;
 
 const txt = v => String(v ?? "").trim();
 const clone = v => JSON.parse(JSON.stringify(v));
+const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(txt(v));
 
 export function construireRequeteApplicationReplanningV1({
   planApplication,
@@ -51,9 +52,15 @@ export function construireRequeteApplicationReplanningV1({
   if (Number(securiteApplication?.resume?.cellules_a_ecrire) !== operations.length) {
     throw new Error("Incohérence entre sécurité et nombre d'opérations du plan");
   }
-  if (txt(planApplication.start_date) !== txt(securiteApplication.start_date)
-      || txt(planApplication.horizon_end) !== txt(securiteApplication.horizon_end)) {
+
+  const startDate = txt(planApplication.start_date);
+  const horizonEnd = txt(planApplication.horizon_end);
+  if (startDate !== txt(securiteApplication.start_date)
+      || horizonEnd !== txt(securiteApplication.horizon_end)) {
     throw new Error("Horizon du plan et horizon de sécurité incohérents");
+  }
+  if (!isDate(startDate) || !isDate(horizonEnd) || horizonEnd < startDate) {
+    throw new Error("Bornes d'horizon invalides pour l'application");
   }
 
   const travauxTouches = Number(securiteApplication?.resume?.travaux_touches) || 0;
@@ -89,6 +96,8 @@ export function construireRequeteApplicationReplanningV1({
     safety_version: PLANNING_REPLANNING_APPLY_SAFETY_VERSION,
     phasage_guard_version: PLANNING_REPLANNING_PHASAGE_GUARDS_VERSION,
     application_autorisable: true,
+    start_date: startDate,
+    horizon_end: horizonEnd,
     operations: clone(operations),
     phasage_guards: clone(phasageGuards),
     phasage_updates: clone(phasageUpdates),
