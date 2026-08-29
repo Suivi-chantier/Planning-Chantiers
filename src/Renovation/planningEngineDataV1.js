@@ -6,7 +6,7 @@
 
 import { supabase } from "../supabase";
 import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
-import { planifierReplanningPropositionV1 } from "./planningReplanningEngineV1.js";
+import { planifierReplanningIncrementalV1 } from "./planningReplanningIncrementalV1.js";
 import { diffReplanningV1 } from "./planningReplanningDiffV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
@@ -115,13 +115,17 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
 
 /**
  * Point d'entrée lecture seule de la simulation globale.
- * Le chantier 05 ajoute stabilité ressources + dates, puis délègue le calcul au
- * moteur du chantier 04. Le diff final explique seulement les causes réellement
- * démontrables ; les autres changements sont explicitement marqués à vérifier.
+ * - sans `replanningTrigger` : recalcul global, comportement attendu du panneau ;
+ * - avec `replanningTrigger` : recalcul incrémental, le forecast compatible hors
+ *   périmètre d'impact est préservé sans être persisté ni verrouillé en base.
  */
 export async function simulerPlanningGlobalV1(options = {}) {
   const prepared = await preparerDonneesReellesMoteurV1(options);
-  const proposition = planifierReplanningPropositionV1(prepared.preparation.engineInput);
+  const proposition = planifierReplanningIncrementalV1({
+    engineInput: prepared.preparation.engineInput,
+    forecast: prepared.preparation.forecastCourant.allocations_recalculables,
+    trigger: options?.replanningTrigger || null,
+  });
   const diff = diffReplanningV1({
     forecast: prepared.preparation.forecastCourant.allocations_recalculables,
     proposition,
@@ -131,11 +135,14 @@ export async function simulerPlanningGlobalV1(options = {}) {
     schema_version: 1,
     generated_at: new Date().toISOString(),
     horizon: prepared.horizon,
+    replanning_trigger: options?.replanningTrigger || null,
+    replanning_mode: proposition?.replanning?.incremental?.mode || "full_recalc",
     audit_lecture: prepared.audit_lecture,
     audit_adaptateur: prepared.preparation.audit,
     audit_etat_reel: prepared.preparation.etatReel?.audit || null,
     audit_stabilite_forecast: prepared.preparation.stabiliteForecast?.audit || null,
     audit_stabilite_dates: proposition.replanning?.stabilite_dates || null,
+    audit_impact_incremental: proposition.replanning?.incremental?.impact_audit || null,
     referentiel: prepared.referentiel,
     forecast_courant: prepared.preparation.forecastCourant,
     travaux_exclus: prepared.preparation.travaux_exclus,
@@ -154,6 +161,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
       reste_a_faire_verifie_par_etat_reel: true,
       forecast_est_une_preference_soft: true,
       contraintes_stabilite_non_persistantes: true,
+      mode_incremental_optionnel_sans_ecriture: true,
     },
   };
 }
