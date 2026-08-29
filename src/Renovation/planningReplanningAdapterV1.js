@@ -3,10 +3,12 @@
 //
 // Le chantier 04 reste figé : on ne réécrit pas son adaptateur. Cette couche
 // construit l'état réel du phasage, vérifie que son reste à faire brut est
-// strictement cohérent avec l'adaptateur V1, puis enrichit le contrat moteur.
+// strictement cohérent avec l'adaptateur V1, puis ajoute les préférences SOFT
+// de stabilité issues du forecast courant.
 
 import { preparerSimulationPlanningGlobalV1 } from "./planningEngineAdapterV1.js";
 import { construireEtatReelPhasagesV1 } from "./planningReplanningStateV1.js";
+import { appliquerStabiliteForecastV1 } from "./planningReplanningStabilityV1.js";
 
 export const PLANNING_REPLANNING_ADAPTER_VERSION = 1;
 const EPS = 0.005;
@@ -21,7 +23,7 @@ export function preparerSimulationReplanningV1(options = {}) {
   let travauxEnrichis = 0;
   let heuresBrutesVerifiees = 0;
 
-  const travaux = preparation.engineInput.travaux.map(travail => {
+  const travauxEtatReel = preparation.engineInput.travaux.map(travail => {
     const etat = etatParId.get(travail.id) || null;
     if (!etat) {
       throw new Error(`État réel introuvable pour le travail moteur ${travail.id}`);
@@ -54,13 +56,19 @@ export function preparerSimulationReplanningV1(options = {}) {
     };
   });
 
+  const stabilite = appliquerStabiliteForecastV1({
+    travaux: travauxEtatReel,
+    allocationsForecast: preparation.forecastCourant.allocations_recalculables,
+  });
+
   return {
     ...preparation,
     engineInput: {
       ...preparation.engineInput,
-      travaux,
+      travaux: stabilite.travaux,
     },
     etatReel,
+    stabiliteForecast: stabilite,
     audit: {
       ...preparation.audit,
       replanning_adapter_version: PLANNING_REPLANNING_ADAPTER_VERSION,
@@ -69,6 +77,9 @@ export function preparerSimulationReplanningV1(options = {}) {
       etat_reel_taches_en_retard: etatReel.audit.taches_en_retard,
       etat_reel_travaux_moteur_enrichis: travauxEnrichis,
       etat_reel_heures_brutes_verifiees: round2(heuresBrutesVerifiees),
+      stabilite_travaux_avec_forecast: stabilite.audit.travaux_avec_forecast,
+      stabilite_preferences_forecast_conservees: stabilite.audit.travaux_avec_preference_forecast_conservee,
+      stabilite_ressources_hors_pool_ignorees: stabilite.audit.ressources_forecast_hors_pool,
     },
     invariants: {
       ...preparation.invariants,
@@ -76,6 +87,8 @@ export function preparerSimulationReplanningV1(options = {}) {
       reste_a_faire_verifie_par_etat_reel: true,
       date_passee_ne_termine_pas_tache: true,
       heures_reelles_ne_reduisent_pas_le_reste: true,
+      forecast_est_une_preference_soft: true,
+      pool_metier_hard_inchange_par_forecast: true,
     },
   };
 }
