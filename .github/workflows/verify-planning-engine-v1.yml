@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -20,12 +20,6 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - name: Apply resource-pool hardening once
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
-        run: |
-          python3 scripts/temp_harden_engine_resource_pools.py
-          python3 scripts/temp_fix_pool_fixture.py
-          python3 scripts/temp_fix_inference_pool_fixture.py
       - name: Install dependencies
         run: npm ci
       - name: Planning model V1
@@ -54,16 +48,3 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
-      - name: Commit resource-pool hardening
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "No hardening change to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/Renovation/planningEngineAdapterV1.js scripts/verif-planning-engine-adapter-v1.mjs scripts/verif-planning-engine-v1.mjs
-          git commit -m "Verrouille les pools ressources par groupe métier"
-          git push origin HEAD:feature/planning-engine-v1
