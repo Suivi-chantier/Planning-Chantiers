@@ -101,19 +101,21 @@ function construirePreferencesGroupes({ groupesTypes = [], equipes = [], ressour
     if (!id) continue;
     let preferred = [];
     let nonMappes = [];
+    const eq = equipesNormalisees.get(txt(gt?.equipe_id)) || null;
     const prios = uniq(gt?.ouvriers_prio);
     if (prios.length) {
       const mapped = idsPourNoms(prios, parNom);
       preferred = mapped.ids;
       nonMappes = mapped.nonMappes;
     } else {
-      const eq = equipesNormalisees.get(txt(gt?.equipe_id));
       preferred = uniq(eq?.resource_ids);
     }
     result.set(id, {
       groupe_type: gt,
       preferred_resource_ids: preferred,
       noms_non_mappes: nonMappes,
+      equipe_externe: eq?.externe === true,
+      equipe_id: eq?.id || null,
     });
   }
   return result;
@@ -363,6 +365,19 @@ export function preparerSimulationPlanningGlobalV1({
       }
 
       const prefGroupe = prefsGroupes.get(groupe.groupe_type_id) || null;
+      // Une équipe de groupe marquée externe ne doit jamais se dégrader en
+      // « n'importe quel salarié interne ». Une affectation explicite sur la
+      // tâche reste un override volontaire et autorise la planification interne.
+      if (prefGroupe?.equipe_externe && mappingTache.ids.length === 0) {
+        travauxExclus.push({
+          travail_id: travailId,
+          chantier_id: chantierId,
+          tache_id: tacheId,
+          type: "equipe_groupe_externe",
+          explication: "Le groupe d'exécution utilise une équipe externe par défaut et aucun salarié interne n'est explicitement affecté à cette tâche.",
+        });
+        continue;
+      }
       if (!nomsTache.length && prefGroupe?.noms_non_mappes?.length) warnings.push({
         type: "groupe_ouvrier_prio_non_mappe",
         chantier_id: chantierId,
@@ -468,6 +483,7 @@ export function preparerSimulationPlanningGlobalV1({
       aucune_ecriture_persistante: true,
       allocations_futures_deverrouillees_recalculables: true,
       allocations_manuelles_ou_verrouillees_fixes: true,
+      groupes_externes_sans_override_exclus: true,
       formule_restant_mo: "MO restante = (heures vendues si > 0, sinon heures estimées) × (1 - avancement/100) - MO déjà réservée par les allocations futures verrouillées",
     },
   };
