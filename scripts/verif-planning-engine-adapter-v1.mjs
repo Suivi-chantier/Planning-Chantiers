@@ -200,4 +200,30 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(out.travaux_exclus.some(t => t.tache_id === "LEGACY" && t.type === "contexte_affectation_insuffisant"), true);
 }
 
-console.log("✓ Planning Engine Adapter V1 — 16 scénarios métier validés");
+// 17. Équipe de groupe externe : pas de fallback vers un salarié, sauf override explicite sur la tâche.
+{
+  const groupesTypes = [{ id: "gt_demolition", ordre: 10, equipe_id: "EQ_EXT", ouvriers_prio: [] }];
+  const equipes = [{ id: "EQ_EXT", nom: "Externe", responsable: "", membres: [], externe: true }];
+  const groupes = [{ id: "G1", ordre: 10, groupe_type_id: "gt_demolition" }];
+
+  const bloque = base({
+    phasages: [phasage({ taches: [task("DEMO", { chrono_groupe_id: "G1", ouvriers: [] })], groupes })],
+    groupesTypes,
+    equipes,
+  });
+  assert.equal(bloque.engineInput.travaux.some(t => t.tache_id === "DEMO"), false);
+  assert.equal(bloque.travaux_exclus.some(t => t.tache_id === "DEMO" && t.type === "equipe_groupe_externe"), true);
+
+  const override = base({
+    ressources: [res("RID1", "R1")],
+    phasages: [phasage({ taches: [task("DEMO", { chrono_groupe_id: "G1", ouvriers: ["R1"] })], groupes })],
+    groupesTypes,
+    equipes,
+  });
+  const travail = override.engineInput.travaux.find(t => t.tache_id === "DEMO");
+  assert.ok(travail);
+  assert.deepEqual(travail.preferred_resource_ids, ["RID1"]);
+  assert.equal(override.travaux_exclus.some(t => t.tache_id === "DEMO"), false);
+}
+
+console.log("✓ Planning Engine Adapter V1 — 17 scénarios métier validés");
