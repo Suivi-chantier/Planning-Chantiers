@@ -1,10 +1,11 @@
 // ─── DONNÉES RÉELLES → SIMULATION PLANNING GLOBAL V1 ────────────────────────
 // Couche de LECTURE uniquement. Elle charge une photographie cohérente de
-// l'horizon puis délègue toute logique métier à planningEngineAdapterV1 et
-// planningEngineV1. Aucune écriture de planning n'existe dans ce module.
+// l'horizon puis délègue la préparation au pont de replanification, qui conserve
+// le moteur du chantier 04 intact tout en raccordant l'état réel du phasage.
+// Aucune écriture de planning n'existe dans ce module.
 
 import { supabase } from "../supabase";
-import { preparerSimulationPlanningGlobalV1 } from "./planningEngineAdapterV1.js";
+import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
 import { planifierPropositionV1 } from "./planningEngineV1.js";
 import { diffForecastPropositionV1 } from "./planningEngineDiffV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
@@ -29,7 +30,7 @@ export async function chargerDonneesSimulationPlanningGlobalV1({ startDate, hori
 
   const [phasagesRes, cellsRes, resourcesRes, eventsRes, constraintsRes, configRes] = await Promise.all([
     supabase.from("phasages")
-      .select("id,chantier_id,chantier_nom,ouvrages,plan_travaux"),
+      .select("id,chantier_id,chantier_nom,ouvrages,plan_travaux,updated_at"),
     supabase.from("planning_cells")
       .select("id,week_id,chantier_id,jour,taches,ouvriers")
       .in("week_id", horizon.week_ids),
@@ -84,11 +85,11 @@ export async function chargerDonneesSimulationPlanningGlobalV1({ startDate, hori
 
 /**
  * Prépare seulement le contrat moteur depuis les données réelles.
- * Utile pour afficher un audit avant même de lancer l'ordonnancement.
+ * Le pont chantier 05 vérifie la cohérence état réel ↔ reste à faire du moteur.
  */
 export async function preparerDonneesReellesMoteurV1(options = {}) {
   const data = await chargerDonneesSimulationPlanningGlobalV1(options);
-  const preparation = preparerSimulationPlanningGlobalV1({
+  const preparation = preparerSimulationReplanningV1({
     phasages: data.phasages,
     chantiers: data.config.chantiers,
     cellules: data.cellules,
@@ -113,8 +114,9 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
 }
 
 /**
- * Point d'entrée lecture seule du chantier 04.
- * Renvoie la proposition du moteur + l'audit/provenance nécessaires à l'UI.
+ * Point d'entrée lecture seule de la simulation globale.
+ * Le moteur du chantier 04 reste inchangé ; la provenance état réel est ajoutée
+ * en amont pour préparer la replanification continue du chantier 05.
  */
 export async function simulerPlanningGlobalV1(options = {}) {
   const prepared = await preparerDonneesReellesMoteurV1(options);
@@ -130,10 +132,12 @@ export async function simulerPlanningGlobalV1(options = {}) {
     horizon: prepared.horizon,
     audit_lecture: prepared.audit_lecture,
     audit_adaptateur: prepared.preparation.audit,
+    audit_etat_reel: prepared.preparation.etatReel?.audit || null,
     referentiel: prepared.referentiel,
     forecast_courant: prepared.preparation.forecastCourant,
     travaux_exclus: prepared.preparation.travaux_exclus,
     warnings_adaptateur: prepared.preparation.warnings,
+    warnings_etat_reel: prepared.preparation.etatReel?.warnings || [],
     proposition,
     diff_forecast: diff,
     invariants: {
@@ -142,6 +146,8 @@ export async function simulerPlanningGlobalV1(options = {}) {
       proposition_uniquement: true,
       application_automatique: false,
       diff_par_tache: true,
+      phasage_source_de_verite: true,
+      reste_a_faire_verifie_par_etat_reel: true,
     },
   };
 }
