@@ -54,6 +54,7 @@ const travail = (extra = {}) => ({
   assert.deepEqual(out.travaux[0].stability_forecast.dates, ["2026-08-31", "2026-09-01"]);
   assert.deepEqual(out.travaux[0].stability_forecast.allocation_uids, ["A1", "A2"]);
   assert.deepEqual(out.travaux[0].preferred_resource_ids, ["R1", "R2"]);
+  assert.equal(out.travaux[0].stability_forecast.crew_size_appliquee, null);
 }
 
 // 5. Sans forecast propre à la tâche, une ressource déjà annoncée sur la même opération devient préférence SOFT.
@@ -105,6 +106,45 @@ const travail = (extra = {}) => ({
   assert.equal(t.stability_forecast.preference_source, "forecast_tache");
 }
 
+// 8. Une taille d'équipe forecast stable et 100 % compatible remplace la taille de référence du phasage.
+{
+  const out = appliquerStabiliteForecastV1({
+    travaux: [travail({ candidate_resource_ids:["R1","R2","R3"], preferred_resource_ids:["R1"], crew_size:3 })],
+    allocationsForecast: [
+      { chantier_id:"C1", tache_id:"T1", date:"2026-08-31", resource_ids:["R1","R2"], allocation_uid:"A1" },
+      { chantier_id:"C1", tache_id:"T1", date:"2026-09-01", resource_ids:["R1","R2"], allocation_uid:"A2" },
+    ],
+  });
+  assert.equal(out.travaux[0].crew_size, 2);
+  assert.equal(out.travaux[0].stability_forecast.crew_size_appliquee, 2);
+  assert.equal(out.travaux[0].stability_forecast.crew_size_originale, 3);
+  assert.equal(out.audit.travaux_avec_crew_size_forecast_conservee, 1);
+}
+
+// 9. Une taille forecast variable ne modifie jamais crew_size.
+{
+  const out = appliquerStabiliteForecastV1({
+    travaux: [travail({ candidate_resource_ids:["R1","R2","R3"], crew_size:3 })],
+    allocationsForecast: [
+      { chantier_id:"C1", tache_id:"T1", date:"2026-08-31", resource_ids:["R1","R2"], allocation_uid:"A1" },
+      { chantier_id:"C1", tache_id:"T1", date:"2026-09-01", resource_ids:["R1"], allocation_uid:"A2" },
+    ],
+  });
+  assert.equal(out.travaux[0].crew_size, 3);
+  assert.equal(out.travaux[0].stability_forecast.crew_size_appliquee, null);
+}
+
+// 10. Si une ressource forecast est hors pool HARD, la taille forecast n'est pas appliquée.
+{
+  const out = appliquerStabiliteForecastV1({
+    travaux: [travail({ candidate_resource_ids:["R1","R2"], crew_size:2 })],
+    allocationsForecast: [{ chantier_id:"C1", tache_id:"T1", date:"2026-08-31", resource_ids:["R1","R3"], allocation_uid:"A1" }],
+  });
+  assert.equal(out.travaux[0].crew_size, 2);
+  assert.equal(out.travaux[0].stability_forecast.crew_size_appliquee, null);
+  assert.deepEqual(out.travaux[0].stability_forecast.resource_ids_hors_pool, ["R3"]);
+}
+
 const res = id => ({ id, nom: id, nom_planning: id, kind: "personne", actif: true, capacite_facteur: 1 });
 const task = () => ({
   id: "T1", nom: "T1", heures_vendues: 8, heures_estimees: 8, avancement: 0,
@@ -125,7 +165,7 @@ const base = cellules => ({
   startDate: "2026-08-31", horizonDays: 2,
 });
 
-// 8. Intégration : à compétences égales, le moteur conserve R2 si R2 était déjà communiqué sur la tâche.
+// 11. Intégration : à compétences égales, le moteur conserve R2 si R2 était déjà communiqué sur la tâche.
 {
   const cell = {
     id: "CELL1", week_id: "2026-W36", chantier_id: "C1", jour: "Lundi", ouvriers: ["R2"],
@@ -138,7 +178,7 @@ const base = cellules => ({
   assert.deepEqual(proposition.allocations_proposees[0].resource_ids, ["R2"]);
 }
 
-// 9. Si l'ancienne ressource sort du pool métier, elle n'est pas utilisée malgré le forecast.
+// 12. Si l'ancienne ressource sort du pool métier, elle n'est pas utilisée malgré le forecast.
 {
   const input = base([{
     id: "CELL1", week_id: "2026-W36", chantier_id: "C1", jour: "Lundi", ouvriers: ["R2"],
@@ -153,4 +193,4 @@ const base = cellules => ({
   assert.deepEqual(proposition.allocations_proposees[0].resource_ids, ["R1"]);
 }
 
-console.log("OK — planning replanning stability V1: 9 scénarios");
+console.log("OK — planning replanning stability V1: 12 scénarios");
