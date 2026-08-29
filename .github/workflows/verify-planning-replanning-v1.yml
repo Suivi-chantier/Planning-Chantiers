@@ -54,6 +54,16 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
+      - name: Audit REST smoke
+        env:
+          SUPABASE_URL: https://yooksnzhlffqgpzkcjhl.supabase.co
+          SUPABASE_KEY: sb_publishable_HmrUmukkCmC9LtAGoYg-XA_OBtiCNiM
+        run: |
+          status=$(curl -sS -o /tmp/replanning-rest-smoke.json -w '%{http_code}' \
+            -H "apikey: $SUPABASE_KEY" \
+            "$SUPABASE_URL/rest/v1/planning_resources?select=id&limit=1")
+          echo "Supabase REST status: $status"
+          test "$status" = "200"
       - name: Upload audit source
         uses: actions/upload-artifact@v4
         with:
