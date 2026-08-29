@@ -10,6 +10,7 @@
 // - seules les allocations classées `allocations_recalculables` sont retirées ;
 // - allocations manuelles / verrouillées / hors scope conservées octet-logique ;
 // - allocation_uid existant réutilisé autant que possible pour la même tâche ;
+// - une allocation réutilisée dans la même cellule conserve sa position ;
 // - les nouvelles allocations reçoivent un uid déterministe ;
 // - `reel` et `vehicules` ne sont jamais recalculés ;
 // - une ligne préservée sans `ouvriers` conserve le fallback `cell.ouvriers` ;
@@ -296,15 +297,58 @@ function planifieDepuisTaches(taches = []) {
     .join("\n");
 }
 
+function tachesIdentiques(beforeCell, afterLines) {
+  if (!beforeCell) return false;
+  return serialiserStableV1(Array.isArray(beforeCell?.taches) ? beforeCell.taches : []) === serialiserStableV1(afterLines);
+}
+
 function ouvriersCelluleApres({ beforeCell, preservedLines, afterLines }) {
+  // Zéro bruit : si les lignes n'ont pas changé, ne pas « nettoyer » l'ordre ou
+  // d'anciens ouvriers de cellule qui ne concernent pas la replanification.
+  if (tachesIdentiques(beforeCell, afterLines)) return uniq(beforeCell?.ouvriers);
+
   const explicit = uniq(afterLines.flatMap(ownWorkers));
-  // Une ligne préservée sans équipe propre signifie « tous les ouvriers de la
-  // cellule ». Son sens dépend donc du fallback courant : on ne le supprime pas.
   const preservedNeedsFallback = preservedLines.some(line => ownWorkers(line).length === 0);
-  return uniq([
+  const desired = uniq([
     ...(preservedNeedsFallback ? uniq(beforeCell?.ouvriers) : []),
     ...explicit,
   ]);
+  const desiredSet = new Set(desired);
+  const oldOrder = uniq(beforeCell?.ouvriers).filter(nom => desiredSet.has(nom));
+  const oldSet = new Set(oldOrder);
+  return [...oldOrder, ...desired.filter(nom => !oldSet.has(nom))];
+}
+
+function ordonnerLignesApres({ beforeCell, proposedEntries, recalcUids }) {
+  const proposed = [...(Array.isArray(proposedEntries) ? proposedEntries : [])]
+    .sort((a, b) => a.proposalIndex - b.proposalIndex);
+  if (!beforeCell) return proposed.map(x => x.line);
+
+  const proposedByUid = new Map(proposed.map(x => [txt(x?.line?.allocation_uid), x]));
+  const consumed = new Set();
+  const out = [];
+
+  for (const original of Array.isArray(beforeCell?.taches) ? beforeCell.taches : []) {
+    const uid = txt(original?.allocation_uid);
+    if (!recalcUids.has(uid)) {
+      out.push(deepClone(original));
+      continue;
+    }
+    const replacement = proposedByUid.get(uid);
+    if (replacement) {
+      out.push(replacement.line);
+      consumed.add(uid);
+    }
+  }
+
+  // Les créneaux réellement nouveaux ou déplacés depuis une autre cellule sont
+  // ajoutés après les lignes déjà présentes. Aucune ligne existante n'est
+  // réordonnée uniquement parce que le moteur a recalculé la même cellule.
+  for (const entry of proposed) {
+    const uid = txt(entry?.line?.allocation_uid);
+    if (!consumed.has(uid)) out.push(entry.line);
+  }
+  return out;
 }
 
 function validerHorizon(date, start, end) {
@@ -383,10 +427,9 @@ export function construirePlanApplicationReplanningV1({
     const before = work.beforeCell;
     const beforePayload = before ? payloadCellule(before) : null;
     const preservedLines = work.preservedLines;
-    const proposalLines = work.proposedLines
-      .sort((a, b) => a.proposalIndex - b.proposalIndex)
-      .map(x => x.line);
-    const afterLines = [...preservedLines, ...proposalLines];
+    const proposalEntries = [...work.proposedLines].sort((a, b) => a.proposalIndex - b.proposalIndex);
+    const proposalLines = proposalEntries.map(x => x.line);
+    const afterLines = ordonnerLignesApres({ beforeCell: before, proposedEntries: proposalEntries, recalcUids });
 
     for (const line of afterLines) {
       const uid = txt(line?.allocation_uid);
@@ -408,11 +451,12 @@ export function construirePlanApplicationReplanningV1({
       taches: [],
       vehicules: [],
     };
+    const sameTasks = tachesIdentiques(before, afterLines);
     const afterPayload = {
       week_id: txt(base.week_id),
       chantier_id: txt(base.chantier_id),
       jour: txt(base.jour),
-      planifie: planifieDepuisTaches(afterLines),
+      planifie: sameTasks ? String(base.planifie ?? "") : planifieDepuisTaches(afterLines),
       reel: String(base.reel ?? ""),
       ouvriers: ouvriersCelluleApres({ beforeCell: before, preservedLines, afterLines }),
       taches: deepClone(afterLines),
@@ -487,6 +531,7 @@ export function construirePlanApplicationReplanningV1({
       seules_allocations_recalculables_remplacees: true,
       allocations_manuelles_et_verrouillees_preservees: true,
       allocation_uid_reutilise_pour_meme_tache_si_possible: true,
+      ordre_lignes_existantes_preserve_si_allocation_reste_dans_cellule: true,
       nouvelles_identites_deterministes: true,
       reel_preserve: true,
       vehicules_preserves: true,
