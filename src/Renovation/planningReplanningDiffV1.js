@@ -42,11 +42,56 @@ function indexDecisionsDates(proposition = {}) {
     .map(d => [txt(d.travail_id), d]));
 }
 
+function indexExclusionsConnues(proposition = {}) {
+  return new Map((proposition?.replanning?.exclusions_connues || [])
+    .filter(x => txt(x?.travail_id))
+    .map(x => [txt(x.travail_id), x]));
+}
+
 function raison(code, label, details = null, niveau = "info") {
   return { code, label, details, niveau };
 }
 
-function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate }) {
+function raisonExclusionConnue(exclusion) {
+  const type = txt(exclusion?.type);
+  if (!type) return null;
+  if (type === "charge_reference_manquante") {
+    return raison(
+      "forecast_non_conservable_charge_manquante",
+      "La tâche reste physiquement ouverte dans le phasage, mais aucune charge vendue/estimée ne permet de quantifier son reste à faire sans inventer des heures.",
+      {
+        avancement: exclusion?.avancement ?? null,
+        source_verite: exclusion?.source_verite || "phasage",
+        forecast_existant: exclusion?.forecast_existant === true,
+      },
+      "important"
+    );
+  }
+  if (type === "contexte_affectation_insuffisant") {
+    return raison(
+      "forecast_non_conservable_groupe_non_resolu",
+      "Le forecast existe, mais le phasage ne fournit ni groupe métier résolu ni ouvrier mappé permettant de reconstruire un pool HARD fiable. L'ancienne affectation n'est donc pas promue artificiellement en règle métier.",
+      { type_exclusion: type },
+      "important"
+    );
+  }
+  if (type === "equipe_groupe_externe") {
+    return raison(
+      "forecast_non_conservable_equipe_externe",
+      "Le groupe d'exécution est externe et aucune affectation interne explicite conservable n'autorise une planification automatique Profero.",
+      { type_exclusion: type },
+      "important"
+    );
+  }
+  return raison(
+    "forecast_non_conservable_exclusion_connue",
+    exclusion?.explication || "La tâche est exclue par une règle explicite de préparation du moteur.",
+    { type_exclusion: type },
+    "important"
+  );
+}
+
+function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion }) {
   const raisons = [];
   const etat = travail?.provenance?.etat_reel || null;
   const stability = travail?.stability_forecast || null;
@@ -58,6 +103,11 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
       stability?.preference_source ? { preference_source: stability.preference_source } : null
     ));
     return raisons;
+  }
+
+  if (exclusion) {
+    const r = raisonExclusionConnue(exclusion);
+    if (r) raisons.push(r);
   }
 
   if (changement.statut === "nouveau") {
@@ -154,12 +204,24 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
   }
 
   if (changement.statut === "non_replanifié" && nonPlanifie) {
-    raisons.push(raison(
-      "non_planifiable_dans_horizon",
-      nonPlanifie.raison || "La tâche ne peut pas être planifiée dans l'horizon courant.",
-      { heures_mo_restantes: nonPlanifie.heures_mo_restantes, tentatives: nonPlanifie.tentatives || null },
-      "important"
-    ));
+    const blocages = Array.isArray(nonPlanifie?.blocages_predecesseurs_connus)
+      ? nonPlanifie.blocages_predecesseurs_connus
+      : [];
+    if (blocages.length) {
+      raisons.push(raison(
+        "attente_predecesseur_exclu",
+        nonPlanifie.raison || "Un prédécesseur encore ouvert est exclu de la planification automatique.",
+        { blocages_predecesseurs: blocages, raison_code: nonPlanifie?.raison_code || null },
+        "important"
+      ));
+    } else {
+      raisons.push(raison(
+        "non_planifiable_dans_horizon",
+        nonPlanifie.raison || "La tâche ne peut pas être planifiée dans l'horizon courant.",
+        { heures_mo_restantes: nonPlanifie.heures_mo_restantes, tentatives: nonPlanifie.tentatives || null },
+        "important"
+      ));
+    }
   }
 
   return raisons;
@@ -173,13 +235,15 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
   const allocationsParTravail = indexAllocationsProposees(allocations);
   const nonPlanifiesParTravail = indexNonPlanifies(nonPlanifies);
   const decisionsDates = indexDecisionsDates(proposition);
+  const exclusionsConnues = indexExclusionsConnues(proposition);
 
   const changements = base.changements.map(changement => {
     const travail = travauxParId.get(changement.travail_id) || null;
     const proposedRows = allocationsParTravail.get(changement.travail_id) || [];
     const nonPlanifie = nonPlanifiesParTravail.get(changement.travail_id) || null;
     const decisionDate = decisionsDates.get(changement.travail_id) || null;
-    const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate });
+    const exclusion = exclusionsConnues.get(changement.travail_id) || null;
+    const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion });
     const modifie = changement.statut !== "inchangé";
     const explique = !modifie || raisons.length > 0;
     return {
@@ -208,12 +272,13 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
     travaux_a_verifier: idsAVerifier,
     explication: {
       ...base.explication,
-      principe_replanning: "Une raison n'est affichée que si elle est démontrable depuis le phasage, le pool métier, les préférences de stabilité ou la trace du moteur. Sinon le changement reste à vérifier.",
+      principe_replanning: "Une raison n'est affichée que si elle est démontrable depuis le phasage, le pool métier, les préférences de stabilité, une exclusion explicite ou la trace du moteur. Sinon le changement reste à vérifier.",
     },
     invariants: {
       aucune_invention_de_cause: true,
       phasage_source_du_reste_a_faire: true,
       forecast_est_une_preference_pas_une_verite: true,
+      exclusion_connue_explique_sans_debloquer: true,
     },
   };
 }
