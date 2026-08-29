@@ -35,7 +35,7 @@ assert.equal(resteAFaireTacheV1(task("T1", { heures_vendues: 10, avancement: 60 
   assert.equal(out.planifiable, true);
 }
 
-// 4. Une tâche terminée ne revient jamais dans le besoin futur.
+// 4. Une tâche à 100 % ne revient jamais dans le besoin futur.
 {
   const out = etatReelTacheV1({ chantierId: "C1", today: "2026-08-31", tache: task("T1", { avancement: 100 }) });
   assert.equal(out.statut_reel, "terminee");
@@ -67,7 +67,35 @@ assert.equal(resteAFaireTacheV1(task("T1", { heures_vendues: 10, avancement: 60 
   assert.equal(out.planifiable, true);
 }
 
-// 7. Le même chantier::tâche conserve une identité unique : doublon signalé, pas recréé.
+// 7. Une tâche partiellement réalisée sans heures de référence reste physiquement ouverte.
+// Elle ne devient pas artificiellement « terminée » : sa charge est simplement non quantifiable.
+{
+  const out = etatReelTacheV1({
+    chantierId: "C1",
+    today: "2026-08-31",
+    tache: task("T1", { heures_vendues: null, heures_estimees: null, avancement: 80 }),
+  });
+  assert.equal(out.statut_reel, "en_cours");
+  assert.equal(out.charge_quantifiable, false);
+  assert.equal(out.reste_a_faire_heures, null);
+  assert.equal(out.bloqueur_planification, "charge_reference_manquante");
+  assert.equal(out.planifiable, false);
+  assert.equal(out.audit.absence_charge_utilisee_pour_statut_termine, false);
+}
+
+// 8. Même à 0 %, une tâche sans charge reste à faire et doit être signalée, pas considérée terminée.
+{
+  const out = etatReelTacheV1({
+    chantierId: "C1",
+    today: "2026-08-31",
+    tache: task("T1", { heures_vendues: 0, heures_estimees: null, avancement: 0 }),
+  });
+  assert.equal(out.statut_reel, "a_faire");
+  assert.equal(out.charge_quantifiable, false);
+  assert.equal(out.planifiable, false);
+}
+
+// 9. Le même chantier::tâche conserve une identité unique : doublon signalé, pas recréé.
 {
   const ph = {
     chantier_id: "C1",
@@ -84,7 +112,7 @@ assert.equal(resteAFaireTacheV1(task("T1", { heures_vendues: 10, avancement: 60 
   assert.equal(out.warnings[0].type, "tache_identite_dupliquee");
 }
 
-// 8. Les tâches sans identité stable sont exclues explicitement.
+// 10. Les tâches sans identité stable sont exclues explicitement.
 {
   const ph = { chantier_id: "C1", ouvrages: [{ id: "O1", taches: [task("")] }] };
   const out = construireEtatReelPhasagesV1([ph], { today: "2026-08-31" });
@@ -92,24 +120,26 @@ assert.equal(resteAFaireTacheV1(task("T1", { heures_vendues: 10, avancement: 60 
   assert.equal(out.warnings[0].type, "tache_sans_identite_stable");
 }
 
-// 9. Agrégation : tâche terminée exclue du reste, tâche partielle conservée.
+// 11. Agrégation : tâche 100 % exclue du reste, partielle conservée, charge manquante auditée.
 {
   const ph = {
     chantier_id: "C1",
     ouvrages: [{ id: "O1", taches: [
       task("A", { avancement: 100 }),
       task("B", { avancement: 50, date_prevue: "2026-08-29" }),
+      task("C", { avancement: 75, heures_vendues: 0, heures_estimees: null }),
     ] }],
   };
   const out = construireEtatReelPhasagesV1([ph], { today: "2026-08-31" });
-  assert.equal(out.audit.taches_total, 2);
+  assert.equal(out.audit.taches_total, 3);
   assert.equal(out.audit.taches_terminees, 1);
-  assert.equal(out.audit.taches_en_cours, 1);
+  assert.equal(out.audit.taches_en_cours, 2);
   assert.equal(out.audit.taches_en_retard, 1);
+  assert.equal(out.audit.taches_charge_non_quantifiable, 1);
   assert.equal(out.audit.reste_a_faire_heures, 5);
 }
 
-// 10. Déterminisme strict : mêmes entrées => même sortie.
+// 12. Déterminisme strict : mêmes entrées => même sortie.
 {
   const ph = {
     chantier_id: "C1",
@@ -122,4 +152,4 @@ assert.equal(resteAFaireTacheV1(task("T1", { heures_vendues: 10, avancement: 60 
   assert.deepEqual(a.travaux.map(t => t.id), ["C1::A", "C1::B"]);
 }
 
-console.log("OK — planning replanning state V1: 10 scénarios");
+console.log("OK — planning replanning state V1: 12 scénarios");
