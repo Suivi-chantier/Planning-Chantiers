@@ -30,6 +30,8 @@ jobs:
         run: node scripts/verif-planning-replanning-stability-v1.mjs
       - name: Replanning site resolution V1
         run: node scripts/verif-planning-replanning-site-resolution-v1.mjs
+      - name: Replanning multi-day continuity V1
+        run: node scripts/verif-planning-replanning-multi-day-continuity-v1.mjs
       - name: Replanning forecast date stability V1
         run: node scripts/verif-planning-replanning-date-stability-v1.mjs
       - name: Replanning explainable diff V1
