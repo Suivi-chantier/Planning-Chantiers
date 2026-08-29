@@ -131,22 +131,31 @@ export function diffForecastPropositionV1({ forecast = [], proposition = [], non
     const cc = changements.filter(c => c.chantier_id === chantierId);
     const currentEnds = cc.map(c => c.courant.fin).filter(Boolean).sort();
     const proposedEnds = cc.map(c => c.propose.fin).filter(Boolean).sort();
-    const finCourante = currentEnds.at(-1) || null;
+    const finCourantePartielle = currentEnds.at(-1) || null;
     const finProposeePartielle = proposedEnds.at(-1) || null;
+    const tachesSansPlanificationCourante = cc.filter(c => c.statut === "nouveau").length;
+    const forecastCourantComplet = tachesSansPlanificationCourante === 0;
     const tachesNonPlanifiees = nonPlanifiesParChantier.get(chantierId) || 0;
     const propositionComplete = tachesNonPlanifiees === 0;
+    const finCourante = forecastCourantComplet ? finCourantePartielle : null;
+    const finProposee = propositionComplete ? finProposeePartielle : null;
     return {
       chantier_id: chantierId,
       taches: cc.length,
       taches_modifiees: cc.filter(c => c.statut === "modifié").length,
-      nouvelles: cc.filter(c => c.statut === "nouveau").length,
+      nouvelles: tachesSansPlanificationCourante,
       non_replanifiees: cc.filter(c => c.statut === "non_replanifié").length,
+      taches_sans_planification_courante: tachesSansPlanificationCourante,
+      forecast_courant_complet: forecastCourantComplet,
       taches_non_planifiees: tachesNonPlanifiees,
       proposition_complete: propositionComplete,
       fin_courante: finCourante,
-      fin_proposee: propositionComplete ? finProposeePartielle : null,
+      fin_courante_partielle: finCourantePartielle,
+      fin_proposee: finProposee,
       fin_proposee_partielle: finProposeePartielle,
-      decalage_fin_jours: propositionComplete ? dateDiffDays(finProposeePartielle, finCourante) : null,
+      decalage_fin_jours: forecastCourantComplet && propositionComplete
+        ? dateDiffDays(finProposeePartielle, finCourantePartielle)
+        : null,
     };
   });
 
@@ -166,11 +175,13 @@ export function diffForecastPropositionV1({ forecast = [], proposition = [], non
       ressources_changees: changements.filter(c => c.statut === "modifié" && c.details.includes("ressources")).length,
       fractionnement_change: changements.filter(c => c.statut === "modifié" && c.details.includes("fractionnement")).length,
       chantiers_incomplets: parChantier.filter(c => !c.proposition_complete).length,
+      chantiers_forecast_courant_incomplets: parChantier.filter(c => !c.forecast_courant_complet).length,
     },
     explication: {
       unite_comparaison: "tâche de chantier (chantier_id + tache_id)",
       raison: "Les allocation_uid de proposition sont nouveaux par construction ; le diff compare donc le résultat métier, pas l'identité technique des créneaux.",
       convention_decalage: "valeur positive = proposition plus tardive ; valeur négative = proposition plus tôt",
+      convention_fin_chantier: "Une date de fin n'est comparable que si le forecast courant et la proposition couvrent toutes les tâches moteur du chantier.",
     },
   };
 }
