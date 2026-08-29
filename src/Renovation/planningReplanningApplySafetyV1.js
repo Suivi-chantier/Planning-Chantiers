@@ -8,6 +8,8 @@
 // - aucune tâche touchée ne doit avoir une allocation liée après l'horizon ;
 // - aucun changement inexpliqué ;
 // - toute tâche liée doit exister dans le phasage ;
+// - une ligne manuelle sans ouvriers ne doit jamais changer implicitement
+//   d'équipe par élargissement de cell.ouvriers ;
 // - les futures dates_prevue sont calculées selon l'invariant historique :
 //   premier jour planifié toutes semaines confondues, y compris le passé.
 
@@ -57,6 +59,17 @@ function cleTravail(chantierId, tacheId) {
 function lignesLiees(cell) {
   return (Array.isArray(cell?.taches) ? cell.taches : [])
     .filter(t => txt(t?.tache_id));
+}
+
+function lignesManuellesFallback(cell) {
+  return (Array.isArray(cell?.taches) ? cell.taches : [])
+    .filter(t => !txt(t?.tache_id) && uniq(t?.ouvriers).length === 0);
+}
+
+function memeListe(a = [], b = []) {
+  const aa = uniq(a).sort();
+  const bb = uniq(b).sort();
+  return aa.length === bb.length && aa.every((x, i) => x === bb[i]);
 }
 
 function indexPhasage(phasages = []) {
@@ -131,6 +144,20 @@ function blocker(code, label, details = null) {
   return { code, label, details };
 }
 
+function classerNonReplanifies(rows = []) {
+  const horizon = [];
+  const donnees = [];
+  for (const row of rows) {
+    const codes = (Array.isArray(row?.raisons) ? row.raisons : []).map(r => txt(r?.code));
+    if (codes.includes("non_planifiable_dans_horizon") && !codes.some(c => c.startsWith("forecast_non_conservable_") || c === "attente_predecesseur_exclu")) {
+      horizon.push(row);
+    } else {
+      donnees.push(row);
+    }
+  }
+  return { horizon, donnees };
+}
+
 export function evaluerSecuriteApplicationReplanningV1({
   planApplication = {},
   cellulesToutes = [],
@@ -149,11 +176,19 @@ export function evaluerSecuriteApplicationReplanningV1({
 
   const nonReplanifies = (Array.isArray(diff?.changements) ? diff.changements : [])
     .filter(c => c?.statut === "non_replanifié");
+  const nonReplanifiesClasses = classerNonReplanifies(nonReplanifies);
   if (nonReplanifies.length) {
     blockers.push(blocker(
       "forecast_courant_sans_remplacement",
       `${nonReplanifies.length} tâche(s) actuellement planifiée(s) n'ont aucun remplacement proposé.`,
-      { travaux: nonReplanifies.map(c => c.travail_id).filter(Boolean) }
+      {
+        travaux: nonReplanifies.map(c => c.travail_id).filter(Boolean),
+        horizon_ou_capacite: nonReplanifiesClasses.horizon.length,
+        donnee_ou_dependance: nonReplanifiesClasses.donnees.length,
+        recommandation: nonReplanifiesClasses.horizon.length
+          ? "Tester un horizon plus long ; les cas de donnée/dépendance restent à corriger à la source."
+          : "Corriger les données ou dépendances à la source avant application.",
+      }
     ));
   }
 
@@ -164,6 +199,34 @@ export function evaluerSecuriteApplicationReplanningV1({
       "changement_inexplique",
       `${aVerifier.length} changement(s) restent à vérifier avant application.`,
       { travaux: aVerifier.map(c => c.travail_id).filter(Boolean) }
+    ));
+  }
+
+  // Une ligne manuelle sans ouvriers propres hérite de cell.ouvriers. Modifier
+  // cette liste changerait donc silencieusement le sens de la ligne manuelle.
+  // V1 refuse ce cas plutôt que de normaliser des données legacy pendant un replan.
+  const fallbackConflicts = [];
+  for (const op of Array.isArray(planApplication?.operations) ? planApplication.operations : []) {
+    const before = op?.expected_before?.payload;
+    const after = op?.after;
+    if (!before || !after) continue;
+    const fallback = lignesManuellesFallback(before);
+    if (!fallback.length || memeListe(before?.ouvriers, after?.ouvriers)) continue;
+    fallbackConflicts.push({
+      cell_key: txt(op?.cell_key),
+      lignes_fallback: fallback.map(x => txt(x?.allocation_uid)).filter(Boolean),
+      ouvriers_avant: uniq(before?.ouvriers),
+      ouvriers_apres: uniq(after?.ouvriers),
+    });
+  }
+  if (fallbackConflicts.length) {
+    blockers.push(blocker(
+      "fallback_manuel_cellule_modifie",
+      `${fallbackConflicts.length} cellule(s) contiennent une tâche manuelle sans équipe propre et changeraient d'ouvriers implicites.`,
+      {
+        cellules: fallbackConflicts,
+        recommandation: "Figurer explicitement l'équipe historique de ces lignes manuelles via une migration dédiée avant de replanifier cette cellule.",
+      }
     ));
   }
 
@@ -260,7 +323,10 @@ export function evaluerSecuriteApplicationReplanningV1({
       travaux_touches: workKeys.size,
       blockers: blockers.length,
       changements_non_replanifies: nonReplanifies.length,
+      changements_non_replanifies_horizon_ou_capacite: nonReplanifiesClasses.horizon.length,
+      changements_non_replanifies_donnee_ou_dependance: nonReplanifiesClasses.donnees.length,
       changements_a_verifier: aVerifier.length,
+      cellules_fallback_manuel_bloquantes: fallbackConflicts.length,
       allocations_hors_horizon_bloquantes: allocationsHorsHorizon.length,
       phasages_a_mettre_a_jour: phasageUpdates.length,
       dates_prevue_a_modifier: phasageUpdates.reduce((s,p) => s + p.task_updates.length, 0),
@@ -277,6 +343,7 @@ export function evaluerSecuriteApplicationReplanningV1({
       forecast_sans_remplacement_bloque_application: true,
       allocation_liee_apres_horizon_bloque_application: true,
       changement_inexplique_bloque_application: true,
+      fallback_manuel_ne_change_jamais_implicitement_equipe: true,
       date_prevue_premier_jour_planifie_toutes_semaines: true,
       historique_passe_non_supprime: true,
     },
