@@ -11,6 +11,7 @@ import { planifierReplanningIncrementalV1 } from "./planningReplanningIncrementa
 import { diffReplanningAvecContinuiteV1 } from "./planningReplanningDiffContinuityV1.js";
 import { construirePlanApplicationReplanningV1 } from "./planningReplanningApplyPlanV1.js";
 import { evaluerSecuriteApplicationReplanningV1 } from "./planningReplanningApplySafetyV1.js";
+import { completerGardesPhasagesApplicationV1 } from "./planningReplanningPhasageGuardsV1.js";
 import { metaHorizonMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
 export const PLANNING_REPLANNING_HORIZON_SENSITIVITY_VERSION = 1;
@@ -105,13 +106,18 @@ function simulerHorizon(snapshot, startDate, horizonDays) {
     startDate: filtered.horizon.start_date,
     horizonDays: filtered.horizon.horizon_days,
   });
-  const securite = evaluerSecuriteApplicationReplanningV1({
+  const securiteBase = evaluerSecuriteApplicationReplanningV1({
     planApplication,
     cellulesToutes: snapshot?.cellulesToutes || snapshot?.cellules || [],
     diff,
     phasages: snapshot?.phasages || [],
     startDate: filtered.horizon.start_date,
     horizonDays: filtered.horizon.horizon_days,
+  });
+  const securite = completerGardesPhasagesApplicationV1({
+    securiteApplication: securiteBase,
+    planApplication,
+    phasages: snapshot?.phasages || [],
   });
   const nonReplanifies = classerNonReplanifies(diff);
   return {
@@ -179,6 +185,7 @@ export function simulerSensibiliteHorizonsReplanningDepuisSnapshotV1({
       aucune_ecriture_persistante: true,
       meme_snapshot_source_pour_tous_les_horizons: true,
       meme_moteur_chantier05: true,
+      securite_inclut_garde_updated_at_tous_phasages_touches: true,
       comparaison_base_limitee_aux_forecasts_visibles_dans_horizon_base: true,
       extension_horizon_peut_introduire_de_nouveaux_forecasts_a_comparer: true,
       donnee_ou_dependance_ne_devient_pas_horizon_par_allongement: true,
