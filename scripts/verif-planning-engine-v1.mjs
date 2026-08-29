@@ -37,7 +37,7 @@ const run = overrides => planifierPropositionV1({
 });
 
 // 1. Le moteur reste un pur moteur de proposition : aucun import de couche Supabase.
-assert.equal(/(?:import|from)[^\n]*supabase/i.test(engineSource), false, "planningEngineV1 ne doit pas importer Supabase");
+assert.equal(/(?:\bimport\b|\bfrom\b)[^\n]*supabase/i.test(engineSource), false, "planningEngineV1 ne doit pas importer Supabase");
 assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), false, "aucune primitive de persistance ne doit exister dans le noyau");
 
 // 2. Cas simple : 2 h MO, 1 personne -> 2 h de durée le jour même.
