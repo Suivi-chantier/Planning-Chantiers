@@ -48,6 +48,8 @@ jobs:
         run: node scripts/verif-planning-replanning-apply-plan-v1.mjs
       - name: Replanning apply safety V1
         run: node scripts/verif-planning-replanning-apply-safety-v1.mjs
+      - name: Replanning apply request V1
+        run: node scripts/verif-planning-replanning-apply-request-v1.mjs
       - name: Replanning apply RPC contract V1
         run: node scripts/verif-planning-replanning-apply-rpc-v1.mjs
       - name: Planning engine V1 regression
