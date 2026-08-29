@@ -34,12 +34,19 @@ const options = overrides => ({
   ...overrides,
 });
 
+function retirerEtatReel(travaux) {
+  return travaux.map(t => {
+    const { etat_reel: _etat, ...provenance } = t.provenance || {};
+    return { ...t, provenance };
+  });
+}
+
 // 1. Le raccordement chantier 05 ne change pas le contrat fonctionnel du chantier 04.
 {
   const input = options();
   const old = preparerSimulationPlanningGlobalV1(input);
   const next = preparerSimulationReplanningV1(input);
-  assert.deepEqual(next.engineInput.travaux.map(t => ({ ...t, provenance: { ...t.provenance, etat_reel: undefined } })), old.engineInput.travaux);
+  assert.deepEqual(retirerEtatReel(next.engineInput.travaux), old.engineInput.travaux);
   assert.deepEqual(next.engineInput.ressources, old.engineInput.ressources);
   assert.deepEqual(next.engineInput.allocationsExistantes, old.engineInput.allocationsExistantes);
   assert.deepEqual(next.forecastCourant, old.forecastCourant);
