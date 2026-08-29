@@ -6,6 +6,7 @@
 import { supabase } from "../supabase";
 import { preparerSimulationPlanningGlobalV1 } from "./planningEngineAdapterV1.js";
 import { planifierPropositionV1 } from "./planningEngineV1.js";
+import { diffForecastPropositionV1 } from "./planningEngineDiffV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
 const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
@@ -114,6 +115,10 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
 export async function simulerPlanningGlobalV1(options = {}) {
   const prepared = await preparerDonneesReellesMoteurV1(options);
   const proposition = planifierPropositionV1(prepared.preparation.engineInput);
+  const diff = diffForecastPropositionV1({
+    forecast: prepared.preparation.forecastCourant.allocations_recalculables,
+    proposition: proposition.allocations_proposees,
+  });
   return {
     schema_version: 1,
     generated_at: new Date().toISOString(),
@@ -124,11 +129,13 @@ export async function simulerPlanningGlobalV1(options = {}) {
     travaux_exclus: prepared.preparation.travaux_exclus,
     warnings_adaptateur: prepared.preparation.warnings,
     proposition,
+    diff_forecast: diff,
     invariants: {
       ...prepared.invariants,
       moteur_deterministe: true,
       proposition_uniquement: true,
       application_automatique: false,
+      diff_par_tache: true,
     },
   };
 }
