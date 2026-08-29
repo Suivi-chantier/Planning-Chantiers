@@ -7,7 +7,7 @@
 import { supabase } from "../supabase";
 import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
 import { planifierReplanningIncrementalV1 } from "./planningReplanningIncrementalV1.js";
-import { diffReplanningV1 } from "./planningReplanningDiffV1.js";
+import { diffReplanningAvecContinuiteV1 } from "./planningReplanningDiffContinuityV1.js";
 import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
 
 const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
@@ -105,7 +105,10 @@ export async function preparerDonneesReellesMoteurV1(options = {}) {
     horizon: data.horizon,
     audit_lecture: data.audit_lecture,
     referentiel: {
-      chantiers: data.config.chantiers.map(c => ({ id:c.id, nom:c.nom || c.id, couleur:c.couleur || null, statut:c.statut || null, operation_id:c.operation_id || null, site_id:c.site_id || null })),
+      chantiers: data.config.chantiers.map(c => ({
+        id:c.id, nom:c.nom || c.id, couleur:c.couleur || null,
+        statut:c.statut || null, operation_id:c.operation_id || null, site_id:c.site_id || null,
+      })),
       ressources: data.ressources.map(r => ({ id:r.id, nom:r.nom, nom_planning:r.nom_planning, kind:r.kind })),
     },
     preparation,
@@ -126,7 +129,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
     forecast: prepared.preparation.forecastCourant.allocations_recalculables,
     trigger: options?.replanningTrigger || null,
   });
-  const diff = diffReplanningV1({
+  const diff = diffReplanningAvecContinuiteV1({
     forecast: prepared.preparation.forecastCourant.allocations_recalculables,
     proposition,
     travaux: prepared.preparation.engineInput.travaux,
@@ -162,6 +165,7 @@ export async function simulerPlanningGlobalV1(options = {}) {
       forecast_est_une_preference_soft: true,
       contraintes_stabilite_non_persistantes: true,
       mode_incremental_optionnel_sans_ecriture: true,
+      continuite_multi_jours_expliquee_depuis_trace_moteur: true,
     },
   };
 }
