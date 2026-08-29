@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -20,9 +20,6 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - name: Apply audited refinements once
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
-        run: python3 scripts/temp_refine_engine_audit_v1.py
       - name: Install dependencies
         run: npm ci
       - name: Planning model V1
@@ -51,16 +48,3 @@ jobs:
         run: npm run build
       - name: Diff check
         run: git diff --check
-      - name: Commit audited refinements
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "No audited refinement to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/Renovation/planningEngineAdapterV1.js src/Renovation/planningEngineDiffV1.js src/Renovation/planningEngineDataV1.js src/Renovation/PlanningEngineSimulationPanel.jsx scripts/verif-planning-engine-adapter-v1.mjs scripts/verif-planning-engine-diff-v1.mjs
-          git commit -m "Affine la simulation après audit réel"
-          git push origin HEAD:feature/planning-engine-v1
