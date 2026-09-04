@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
+import { getISOWeek, profilSemaine } from "../rythmeSemaine";
 
 // ─── Helpers date ────────────────────────────────────────────────────────────
 
@@ -98,6 +99,19 @@ function fmtH(h) {
 }
 
 function genId() { return Math.random().toString(36).slice(2); }
+
+// Heures normalement attendues pour une date, d'après la source unique du rythme
+// 4j/5j. Les exceptions de date de planning_config sont appliquées au moment
+// exact de la validation (requête Supabase dans validerRapport).
+function heuresAttenduesPourDate(dateStr) {
+  const isoDate = frToISO(dateStr);
+  const d = new Date(`${isoDate}T12:00:00`);
+  if (isNaN(d.getTime())) return null;
+  const { year, week } = getISOWeek(d);
+  const jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const h = parseFloat(profilSemaine(year, week)?.[jours[d.getDay()]]);
+  return Number.isFinite(h) ? h : null;
+}
 
 // ─── Fuzzy match : nom écrit par l'ouvrier → tâche du plan ──────────────────
 // Score sur 1. Le seuil d'auto-affectation est défini plus bas (0.55).
@@ -544,6 +558,69 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       if (!window.confirm(msg)) return;
     }
 
+    // ── GARDE-FOU HEURES JOURNÉE ───────────────────────────────────────────
+    // Le CR mobile impose déjà la cible du jour. On refait le contrôle ici,
+    // après les éventuelles corrections du conducteur, AVANT toute écriture
+    // dans pointages. Le contrôle porte sur la journée entière de l'ouvrier :
+    // tous ses rapports/chantiers + un seul trajet journalier.
+    const rapportsMemeJourGuard = rapports.filter(r =>
+      r.ouvrier === rapport.ouvrier && r.date_rapport === rapport.date_rapport
+    );
+    const heuresEditeesRapportGuard = lignes.reduce((sum, l) => sum + (parseFloat(l.heures) || 0), 0)
+      + indirectes.reduce((sum, x) => sum + (parseFloat(x.heures) || 0), 0);
+    const heuresHorsTrajetJour = rapportsMemeJourGuard.reduce((sum, r) =>
+      sum + (r.id === rapport.id ? heuresEditeesRapportGuard : heuresDeclareesRapport(r)), 0
+    );
+    const trajetJourH = ((parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0)) / 60;
+    const totalJourValide = heuresHorsTrajetJour + trajetJourH;
+    const totalJourDeclare = rapportsMemeJourGuard.reduce((sum, r) => sum + heuresDeclareesRapport(r), 0) + trajetJourH;
+
+    let heuresAttendues = heuresAttenduesPourDate(rapport.date_rapport);
+    // Même priorité que le formulaire ouvrier : exception de date Admin > rythme 4j/5j.
+    try {
+      const { data: cfg } = await supabase.from("planning_config")
+        .select("value").eq("key", "heures_par_jour").maybeSingle();
+      const isoRapport = frToISO(rapport.date_rapport);
+      const exc = parseFloat(cfg?.value?.exceptions?.[isoRapport]);
+      if (Number.isFinite(exc)) heuresAttendues = exc;
+    } catch (e) {
+      console.warn("Garde-fou heures — lecture exception planning_config:", e);
+    }
+
+    let exceptionHeures = null;
+    const ecartHeures = heuresAttendues == null ? 0 : totalJourValide - heuresAttendues;
+    if (heuresAttendues != null && Math.abs(ecartHeures) > 0.01) {
+      const sens = ecartHeures > 0 ? `+${fmtH(ecartHeures)}h` : `-${fmtH(Math.abs(ecartHeures))}h`;
+      const deverrouiller = window.confirm(
+        `⚠️ Garde-fou heures — ${rapport.ouvrier}\n\n`
+        + `Déclaré par l'ouvrier : ${fmtH(totalJourDeclare)}h\n`
+        + `Après validation : ${fmtH(totalJourValide)}h\n`
+        + `Attendu : ${fmtH(heuresAttendues)}h\n`
+        + `Écart : ${sens}\n\n`
+        + `La validation est bloquée.\n\n`
+        + `S'agit-il réellement d'une journée exceptionnelle ?`
+      );
+      if (!deverrouiller) return;
+
+      const motif = window.prompt(
+        `Journée exceptionnelle — motif obligatoire\n\n`
+        + `Explique pourquoi ${rapport.ouvrier} doit être validé à ${fmtH(totalJourValide)}h au lieu de ${fmtH(heuresAttendues)}h :`
+      );
+      if (!motif?.trim()) {
+        alert("Validation annulée : un motif est obligatoire pour déverrouiller le garde-fou.");
+        return;
+      }
+      exceptionHeures = {
+        actif: true,
+        motif: motif.trim(),
+        heures_attendues: heuresAttendues,
+        heures_declarees: Math.round(totalJourDeclare * 100) / 100,
+        heures_validees: Math.round(totalJourValide * 100) / 100,
+        ecart: Math.round(ecartHeures * 100) / 100,
+        par: valideur,
+      };
+    }
+
     setValidating(true);
     const taux = parseFloat(tauxHoraires?.[rapport.ouvrier]) || 0;
     const phasage_id = phasageIdParChantier[rapport.chantier_id] || null;
@@ -713,9 +790,15 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       }
     }
 
-    // 3) Marque le rapport comme validé. Repli si colonnes absentes.
+    // 3) Marque le rapport comme validé + trace l'éventuel déverrouillage
+    // exceptionnel du garde-fou. Le déclaratif d'origine reste inchangé.
+    const valideLe = new Date().toISOString();
+    const exceptionHeuresTrace = exceptionHeures ? { ...exceptionHeures, le: valideLe } : null;
     let { error: upErr } = await supabase.from("rapports")
-      .update({ statut: "valide", valide_par: valideur, valide_le: new Date().toISOString() })
+      .update({
+        statut: "valide", valide_par: valideur, valide_le: valideLe,
+        exception_heures: exceptionHeuresTrace,
+      })
       .eq("id", rapport.id);
     if (upErr && /statut|valide_par|valide_le/.test(upErr.message || "")) {
       console.warn("Colonne statut/valide_* absente, repli sans marquage de statut.");
@@ -1104,6 +1187,7 @@ function ModaleRapport({
       phase_id: t.phase_id || null,
       planifie: t.planifie || "",
       heures: parseFloat(t.heures_reelles) || 0,
+      heures_origine: parseFloat(t.heures_reelles) || 0,
       statut: t.statut || null,
       avancement_declare: t.avancement != null ? parseInt(t.avancement) : null,
       avancement_arbitre: t.avancement != null ? parseInt(t.avancement) : "",  // pré-rempli avec déclaré
@@ -1614,9 +1698,15 @@ function LigneEditable({
           type="number" step="0.25" min="0"
           value={ligne.heures ?? ""}
           onChange={e => onChange({ heures: e.target.value === "" ? "" : parseFloat(e.target.value) })}
+          onWheel={e => e.currentTarget.blur()}
           disabled={valide}
           style={{ ...inputStyle(T), textAlign: "right" }}
         />
+        {Math.abs((parseFloat(ligne.heures) || 0) - (parseFloat(ligne.heures_origine) || 0)) > 0.001 && (
+          <div style={{ fontSize: 10, color: "#e05c5c", marginTop: 2, fontWeight: 700 }}>
+            Déclaré {fmtH(ligne.heures_origine)}h → retenu {fmtH(ligne.heures)}h
+          </div>
+        )}
       </div>
 
       {/* Avancement déclaré + arbitré */}
