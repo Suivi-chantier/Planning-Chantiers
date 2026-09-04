@@ -4,7 +4,7 @@ import { creerAllocationUid } from "./planningBaselineModelV1.js";
 import { estAllocationVerrouilleeV1 } from "./planningAllocationLockDataV1.js";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
+import { JOURS, emptyCell, parseTachesFromPlanifie, getCurrentWeek, getTodayJour, getWeekId, getBranchAccent, FONT, RADIUS, SHADOW } from "../constants";
 import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
@@ -61,7 +61,9 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const [saving, setSaving] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => getTodayJour() || "Lundi");
   // Menu "déplacer vers …" — ancré sur la position du bouton dans la viewport.
-  const [moveMenu, setMoveMenu] = useState(null); // { cId, jour, taskIdx, x, y }
+  // tYear/tWeek : semaine cible (par défaut la semaine affichée) ; all : true
+  // pour déplacer toutes les tâches du jour au lieu d'une seule.
+  const [moveMenu, setMoveMenu] = useState(null); // { cId, jour, taskIdx, x, y, all, tYear, tWeek }
 
   // Navigation : respecte les années à 53 semaines ISO (ex. 2026) — sauter la
   // W53 inverserait la parité perçue du rythme 4j/5j en début d'année suivante.
@@ -69,14 +71,17 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const nextWeek = () => { if (week >= semainesDansAnnee(year)) { setYear(y => y + 1); setWeek(1); } else setWeek(w => w + 1); };
   const goNow = () => { const { year:y, week:w } = getCurrentWeek(); setYear(y); setWeek(w); };
 
-  const getDateDuJour = (dayIndex) => {
-    const jan4 = new Date(year, 0, 4);
+  // Date d'un jour (index 0 = lundi) pour une semaine ISO quelconque —
+  // utilisé par la grille (semaine affichée) et par le menu "déplacer vers".
+  const getDateJourSemaine = (y, w, dayIndex) => {
+    const jan4 = new Date(y, 0, 4);
     const mon = new Date(jan4);
-    mon.setDate(jan4.getDate() - (((jan4.getDay() || 7) - 1)) + (week - 1) * 7);
+    mon.setDate(jan4.getDate() - (((jan4.getDay() || 7) - 1)) + (w - 1) * 7);
     const d = new Date(mon);
     d.setDate(mon.getDate() + dayIndex);
     return d;
   };
+  const getDateDuJour = (dayIndex) => getDateJourSemaine(year, week, dayIndex);
 
   // ── Total d'heures par ouvrier sur la semaine, calculé depuis les tâches
   //    structurées (taches[].duree, distribuées sur taches[].ouvriers).
@@ -207,64 +212,96 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     return [];
   };
 
-  // Déplace une tâche d'un jour à un autre sur le même chantier.
-  // Met à jour les deux cellules en local puis sur Supabase.
-  const moveTache = async (cId, fromJour, taskIdx, toJour) => {
+  // Déplace une tâche (taskIdx) ou toutes les tâches du jour (taskIdx = null)
+  // vers un autre jour, de la même semaine ou d'une autre (toYear/toWeek).
+  // Même semaine : les deux cellules sont dans le state local. Autre semaine :
+  // la cellule cible n'est pas chargée, on la RELIT depuis Supabase avant de
+  // fusionner (jamais d'écrasement aveugle) ; en cas d'erreur de lecture on
+  // annule le déplacement plutôt que de risquer d'écraser la cible.
+  const moveTache = async (cId, fromJour, taskIdx, toYear, toWeek, toJour) => {
     setMoveMenu(null);
-    if (fromJour === toJour) return;
+    const sameWeek = toYear === year && toWeek === week;
+    if (sameWeek && fromJour === toJour) return;
+    const moveAll = taskIdx == null;
     const fromKey = `${cId}_${fromJour}`;
-    const toKey   = `${cId}_${toJour}`;
     const fromCell = cells[fromKey] || emptyCell();
     // On reconstruit toujours des tâches avec id stable (pour les legacy).
-    const fromTaches = getDisplayTaches(fromCell).map(t => {
+    const withIds = (taches) => taches.map(t => {
       const base = String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t;
       return base.allocation_uid ? base : { ...base, allocation_uid: creerAllocationUid() };
     });
-    if (taskIdx < 0 || taskIdx >= fromTaches.length) return;
-    const moved = fromTaches[taskIdx];
-    if (moved?.allocation_uid) {
-      try {
-        if (await estAllocationVerrouilleeV1(moved.allocation_uid)) {
-          window.alert("Cette allocation est verrouillée. Déverrouille-la dans la cellule avant de la déplacer.");
-          return;
-        }
-      } catch (e) {
-        console.warn("Vérification verrou allocation :", e?.message || e);
-        window.alert("Impossible de vérifier le verrou de cette allocation. Le déplacement est annulé par sécurité.");
+    const fromTaches = withIds(getDisplayTaches(fromCell));
+    if (fromTaches.length === 0) return;
+    if (!moveAll && (taskIdx < 0 || taskIdx >= fromTaches.length)) return;
+    const movedTaches = moveAll ? fromTaches : [fromTaches[taskIdx]];
+    // Verrou baseline : si l'une des tâches déplacées est verrouillée (ou si
+    // la vérification échoue), on annule TOUT le déplacement.
+    try {
+      const verrous = await Promise.all(
+        movedTaches.map(t => t?.allocation_uid ? estAllocationVerrouilleeV1(t.allocation_uid) : false)
+      );
+      if (verrous.some(Boolean)) {
+        window.alert(moveAll
+          ? "Au moins une allocation de ce jour est verrouillée. Déverrouille-la dans la cellule avant de déplacer le jour."
+          : "Cette allocation est verrouillée. Déverrouille-la dans la cellule avant de la déplacer.");
         return;
       }
+    } catch (e) {
+      console.warn("Vérification verrou allocation :", e?.message || e);
+      window.alert("Impossible de vérifier le verrou de cette allocation. Le déplacement est annulé par sécurité.");
+      return;
     }
-    const newFromTaches = fromTaches.filter((_, i) => i !== taskIdx);
+    const newFromTaches = moveAll ? [] : fromTaches.filter((_, i) => i !== taskIdx);
     const newFromCell = {
       ...fromCell,
       taches: newFromTaches,
       planifie: newFromTaches.map(t => t.text).join("\n"),
+      // Tout le jour déménage : ses ouvriers/véhicules suivent.
+      ...(moveAll ? { ouvriers: [], vehicules: [] } : {}),
     };
-    const toCell = cells[toKey] || emptyCell();
-    const toTaches = getDisplayTaches(toCell).map(t => {
-      const base = String(t.id).startsWith("legacy-") ? { ...t, id: Math.random().toString(36).slice(2) } : t;
-      return base.allocation_uid ? base : { ...base, allocation_uid: creerAllocationUid() };
-    });
-    const newToTaches = [...toTaches, moved];
+
+    const toWeekId = getWeekId(toYear, toWeek);
+    let toCell;
+    if (sameWeek) {
+      toCell = cells[`${cId}_${toJour}`] || emptyCell();
+    } else {
+      const { data, error } = await supabase.from("planning_cells")
+        .select("planifie, reel, ouvriers, vehicules, taches")
+        .eq("week_id", toWeekId).eq("chantier_id", cId).eq("jour", toJour)
+        .maybeSingle();
+      if (error) { console.error("moveTache:", error.message); return; }
+      toCell = data
+        ? { planifie: data.planifie || "", reel: data.reel || "", ouvriers: data.ouvriers || [], vehicules: data.vehicules || [], taches: data.taches || [] }
+        : emptyCell();
+    }
+    const newToTaches = [...withIds(getDisplayTaches(toCell)), ...movedTaches];
     const newToCell = {
       ...toCell,
       taches: newToTaches,
       planifie: newToTaches.map(t => t.text).join("\n"),
     };
-    setCells(prev => ({ ...prev, [fromKey]: newFromCell, [toKey]: newToCell }));
+    if (moveAll) {
+      newToCell.ouvriers = [...new Set([...(toCell.ouvriers || []), ...(fromCell.ouvriers || [])])];
+      const idsVus = new Set((toCell.vehicules || []).map(v => v.id));
+      newToCell.vehicules = [...(toCell.vehicules || []), ...(fromCell.vehicules || []).filter(v => !idsVus.has(v.id))];
+    }
+
+    setCells(prev => sameWeek
+      ? { ...prev, [fromKey]: newFromCell, [`${cId}_${toJour}`]: newToCell }
+      : { ...prev, [fromKey]: newFromCell });
     await Promise.all([
       supabase.from("planning_cells").upsert(
         { week_id: weekId, chantier_id: cId, jour: fromJour, ...newFromCell },
         { onConflict: "week_id,chantier_id,jour" }
       ),
       supabase.from("planning_cells").upsert(
-        { week_id: weekId, chantier_id: cId, jour: toJour, ...newToCell },
+        { week_id: toWeekId, chantier_id: cId, jour: toJour, ...newToCell },
         { onConflict: "week_id,chantier_id,jour" }
       ),
     ]);
-    // Tâche liée au phasage : recalcule date_prevue = premier jour planifié
+    // Tâches liées au phasage : recalcule date_prevue = premier jour planifié
     // (les cellules viennent d'être sauvegardées, la DB est à jour).
-    if (moved?.tache_id) syncDatePrevueTache(cId, moved.tache_id);
+    movedTaches.forEach(t => { if (t?.tache_id) syncDatePrevueTache(cId, t.tache_id); });
   };
 
   const closeModal = async () => {
@@ -428,53 +465,121 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       `}</style>
 
       {/* ── Menu "déplacer vers …" (popup ancré sur le bouton) ── */}
-      {moveMenu && (
+      {moveMenu && (() => {
+        const memeSemaine = moveMenu.tYear === year && moveMenu.tWeek === week;
+        const nbTaches = getDisplayTaches(cells[`${moveMenu.cId}_${moveMenu.jour}`] || emptyCell()).length;
+        const menuPrevWeek = () => setMoveMenu(m => m.tWeek === 1
+          ? { ...m, tYear: m.tYear - 1, tWeek: semainesDansAnnee(m.tYear - 1) }
+          : { ...m, tWeek: m.tWeek - 1 });
+        const menuNextWeek = () => setMoveMenu(m => m.tWeek >= semainesDansAnnee(m.tYear)
+          ? { ...m, tYear: m.tYear + 1, tWeek: 1 }
+          : { ...m, tWeek: m.tWeek + 1 });
+        const chipBtn = (active) => ({
+          flex:"1 1 auto",
+          background: active ? acc.bg10 : "transparent",
+          border:`1px solid ${active ? acc.accent : T.border}`,
+          borderRadius:RADIUS.sm, padding:"5px 8px",
+          fontSize:10.5, fontWeight:700, letterSpacing:.4,
+          cursor:"pointer", color: active ? (acc.accentDark || acc.accent) : T.textSub,
+          fontFamily:"inherit", transition:"all .1s",
+        });
+        return (
         <>
           <div onClick={() => setMoveMenu(null)}
             style={{ position:"fixed", inset:0, zIndex:100, background:"transparent" }}/>
           <div onClick={(e) => e.stopPropagation()}
             style={{
               position:"fixed",
-              top: Math.min(moveMenu.y + 4, window.innerHeight - 60),
-              left: Math.max(8, Math.min(moveMenu.x - 220, window.innerWidth - 230)),
+              top: Math.min(moveMenu.y + 4, window.innerHeight - 190),
+              left: Math.max(8, Math.min(moveMenu.x - 240, window.innerWidth - 250)),
               zIndex:101, background:T.modal, border:`1px solid ${T.border}`,
               borderRadius:RADIUS.md, padding:6, boxShadow:SHADOW.lg,
-              display:"flex", flexDirection:"column", gap:4, minWidth:210,
+              display:"flex", flexDirection:"column", gap:5, minWidth:230,
             }}>
             <div style={{
               fontSize:10, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase",
-              color:T.textMuted, padding:"2px 4px 4px",
+              color:T.textMuted, padding:"2px 4px 0",
             }}>
               Déplacer vers
             </div>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
-              {JOURS.filter(j => j !== moveMenu.jour).map(targetJour => (
-                <button key={targetJour}
-                  onClick={() => moveTache(moveMenu.cId, moveMenu.jour, moveMenu.taskIdx, targetJour)}
-                  style={{
-                    flex:"1 1 auto",
-                    background:"transparent", border:`1px solid ${T.border}`,
-                    borderRadius:RADIUS.sm, padding:"6px 10px",
-                    fontSize:11, fontWeight:700, letterSpacing:.6, textTransform:"uppercase",
-                    cursor:"pointer", color:T.textSub, fontFamily:"inherit", transition:"all .1s",
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = acc.accent;
-                    e.currentTarget.style.color = acc.onAccent;
-                    e.currentTarget.style.borderColor = acc.accent;
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = T.textSub;
-                    e.currentTarget.style.borderColor = T.border;
-                  }}>
-                  {targetJour.slice(0,3)}
+
+            {/* Portée : la tâche cliquée ou toutes les tâches du jour */}
+            {nbTaches > 1 && (
+              <div style={{ display:"flex", gap:4 }}>
+                <button onClick={() => setMoveMenu(m => ({ ...m, all:false }))} style={chipBtn(!moveMenu.all)}>
+                  Cette tâche
                 </button>
-              ))}
+                <button onClick={() => setMoveMenu(m => ({ ...m, all:true }))} style={chipBtn(moveMenu.all)}>
+                  Tout le jour ({nbTaches})
+                </button>
+              </div>
+            )}
+
+            {/* Semaine cible */}
+            <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+              <button title="Semaine précédente" onClick={menuPrevWeek} style={{
+                width:26, height:26, borderRadius:RADIUS.sm, background:"transparent",
+                border:`1px solid ${T.border}`, color:T.textSub, cursor:"pointer",
+                display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+              }}>
+                <Icon as={ChevronLeft} size={13}/>
+              </button>
+              <div style={{
+                flex:1, textAlign:"center", fontSize:11, fontWeight:800, letterSpacing:.4,
+                color: memeSemaine ? T.textSub : (acc.accentDark || acc.accent),
+              }}>
+                {memeSemaine ? `Cette semaine · S${week}` : `Semaine ${moveMenu.tWeek} · ${moveMenu.tYear}`}
+              </div>
+              <button title="Semaine suivante" onClick={menuNextWeek} style={{
+                width:26, height:26, borderRadius:RADIUS.sm, background:"transparent",
+                border:`1px solid ${T.border}`, color:T.textSub, cursor:"pointer",
+                display:"inline-flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+              }}>
+                <Icon as={ChevronRight} size={13}/>
+              </button>
+            </div>
+
+            {/* Jours de la semaine cible */}
+            <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+              {JOURS.map((targetJour, di) => {
+                if (memeSemaine && targetJour === moveMenu.jour) return null;
+                const d = getDateJourSemaine(moveMenu.tYear, moveMenu.tWeek, di);
+                const off = estJourNonTravaille(targetJour, moveMenu.tYear, moveMenu.tWeek);
+                return (
+                  <button key={targetJour}
+                    onClick={() => moveTache(moveMenu.cId, moveMenu.jour, moveMenu.all ? null : moveMenu.taskIdx, moveMenu.tYear, moveMenu.tWeek, targetJour)}
+                    title={off ? `${targetJour} ${d.getDate()} ${MOIS_COURTS[d.getMonth()]} — jour non travaillé (rythme 4j)` : `${targetJour} ${d.getDate()} ${MOIS_COURTS[d.getMonth()]}`}
+                    style={{
+                      flex:"1 1 auto",
+                      background:"transparent", border:`1px solid ${T.border}`,
+                      borderRadius:RADIUS.sm, padding:"5px 8px",
+                      fontSize:11, fontWeight:700, letterSpacing:.4, textTransform:"uppercase",
+                      cursor:"pointer", color:T.textSub, fontFamily:"inherit", transition:"all .1s",
+                      display:"flex", flexDirection:"column", alignItems:"center", gap:1,
+                      opacity: off ? .45 : 1,
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = acc.accent;
+                      e.currentTarget.style.color = acc.onAccent;
+                      e.currentTarget.style.borderColor = acc.accent;
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = T.textSub;
+                      e.currentTarget.style.borderColor = T.border;
+                    }}>
+                    <span>{targetJour.slice(0,3)}</span>
+                    <span style={{ fontSize:9.5, fontWeight:600, opacity:.75, textTransform:"none" }}>
+                      {d.getDate()} {MOIS_COURTS[d.getMonth()]}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </>
-      )}
+        );
+      })()}
 
       {baselineOpen && <PlanningBaselinePanel chantiers={chantiers} T={T} acc={acc} onClose={()=>setBaselineOpen(false)}/>}
 
@@ -886,11 +991,11 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                                   <span style={{ flex:1, minWidth:0, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{tache.text}</span>
                                   <button
                                     className="tache-move-btn"
-                                    title="Déplacer vers un autre jour"
+                                    title="Déplacer vers un autre jour ou une autre semaine"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       const r = e.currentTarget.getBoundingClientRect();
-                                      setMoveMenu({ cId: c.id, jour, taskIdx: ti, x: r.right, y: r.bottom });
+                                      setMoveMenu({ cId: c.id, jour, taskIdx: ti, x: r.right, y: r.bottom, all: false, tYear: year, tWeek: week });
                                     }}
                                     style={{
                                       background:"transparent", border:"none", padding:2,
