@@ -346,10 +346,15 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       const prixVenduByCh = {};
       (phasagesQ.data || []).forEach(ph => {
         const plan = ph.plan_travaux || {};
-        prixVenduByCh[ph.chantier_id] = parseFloat(plan.meta?.prix_vendu) || 0;
+        const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+        // Prix vendu : montant du devis (meta.prix_vendu) sinon somme des prix
+        // HT des ouvrages — sans ce repli, un chantier chiffré uniquement par
+        // ses ouvrages n'aurait jamais de delta € et sortirait du total généré.
+        prixVenduByCh[ph.chantier_id] = parseFloat(plan.meta?.prix_vendu)
+          || ouvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0)
+          || 0;
         // V2 : avancement du module chantierFinance (formule Phasage V2 — la
         // source de vérité, y compris l'arrondi par ouvrage avant pondération).
-        const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
         if (ouvrages.length > 0) {
           actuelByCh[ph.chantier_id] = cfAvancementChantier(ouvrages);
           return;
@@ -370,18 +375,26 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
 
       const map = {};
       chantierIds.forEach(cid => {
-        const avant     = snapshotByCh[cid]?.avancement;
+        const snap = snapshotByCh[cid];
+        // Pas de snapshot antérieur au lundi : le cron hebdo snapshote TOUS
+        // les chantiers ayant un plan chaque vendredi — un chantier sans
+        // historique est donc né (ou a reçu son plan) cette semaine. Son
+        // avancement de départ est 0 : toute sa progression compte dans le
+        // généré de la semaine au lieu d'être exclue du total.
+        const nouveau    = snap == null;
+        const avant      = nouveau ? 0 : (snap.avancement ?? 0);
         const maintenant = actuelByCh[cid];
         if (maintenant == null) return;
-        const delta = avant != null ? (maintenant - avant) : null;
+        const delta = maintenant - avant;
         const prixVendu = prixVenduByCh[cid] || 0;
         map[cid] = {
-          avant:      avant ?? null,
+          avant,
           maintenant,
           delta,
-          deltaEuros: (delta != null && prixVendu > 0) ? Math.round(prixVendu * delta / 100) : null,
+          deltaEuros: prixVendu > 0 ? Math.round(prixVendu * delta / 100) : null,
           prixVendu,
-          dateAvant:  snapshotByCh[cid]?.date_snapshot || null,
+          nouveau,
+          dateAvant:  snap?.date_snapshot || null,
         };
       });
       setProgressions(map);
@@ -938,15 +951,14 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       let progLigne;
       if (!p || p.maintenant == null) {
         progLigne = `<span style="font-size:9.5pt;color:${GREY};">Avancement non calculé</span>`;
-      } else if (p.avant == null) {
-        progLigne = `<span style="font-size:9.5pt;color:${GREY};">Avancement </span><strong style="font-size:15pt;color:${INK};">${p.maintenant}%</strong>`;
       } else {
         const c = p.delta > 0 ? GREEN : p.delta < 0 ? RED : ORANGE;
         const sign = p.delta > 0 ? "+" : "";
         const euros = p.deltaEuros != null
           ? `<span style="display:inline-block;margin-left:8pt;padding-left:8pt;border-left:1pt solid ${LINE};color:${c};font-weight:700;font-size:11pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
           : "";
-        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
+        const nouveau = p.nouveau ? ` <span style="color:${GREY};font-style:italic;font-size:8.5pt;">· nouveau</span>` : "";
+        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${nouveau}`;
       }
 
       // Liste de tâches. `compact` = version discrète (utilisée pour "Réalisé",
@@ -1008,15 +1020,14 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       let droite;
       if (!p || p.maintenant == null) {
         droite = `<span style="color:${GREY};">n/c</span>`;
-      } else if (p.avant == null) {
-        droite = `<span style="color:${GREY};">Avancement <strong style="color:${INK};">${p.maintenant}%</strong></span>`;
       } else {
         const c = p.delta > 0 ? GREEN : p.delta < 0 ? RED : ORANGE;
         const sign = p.delta > 0 ? "+" : "";
         const euros = p.deltaEuros != null
           ? ` · <span style="color:${c};font-weight:700;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
           : "";
-        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}`;
+        const nouveau = p.nouveau ? ` <span style="color:${GREY};font-style:italic;">· nouveau</span>` : "";
+        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${nouveau}`;
       }
       return `<tr>
         <td class="presence-row" style="padding:5pt 0;vertical-align:middle;border-bottom:1pt solid #f0f1f3;"><span style="display:inline-block;width:9pt;height:9pt;border-radius:50%;background:${dot};vertical-align:middle;margin-right:9pt;"></span><span style="font-size:10pt;font-weight:700;color:${INK};vertical-align:middle;">${esc(grp.nom)}</span></td>
@@ -1895,19 +1906,6 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                 <div style={{ padding:"14px 20px", display:"flex", flexDirection:"column", gap:14, borderTop:`1px solid ${T.border}` }}>
                   {/* 1. Progression de la semaine */}
                   {p && (() => {
-                    if (p.avant == null) {
-                      return (
-                        <div style={{
-                          display:"inline-flex", alignItems:"center", gap:6, alignSelf:"flex-start",
-                          background: T.card, border:`1px solid ${T.border}`,
-                          borderRadius:8, padding:"4px 10px",
-                          fontSize:11, color:T.textMuted, fontWeight:600,
-                        }}>
-                          Avancement : <strong style={{ color:T.text }}>{p.maintenant}%</strong>
-                          <span style={{ fontStyle:"italic" }}> · pas encore d'historique (1er snapshot le prochain vendredi)</span>
-                        </div>
-                      );
-                    }
                     const deltaColor = p.delta > 0 ? "#22c55e" : p.delta < 0 ? "#e15a5a" : T.textMuted;
                     const deltaSign  = p.delta > 0 ? "+" : "";
                     return (
@@ -1927,6 +1925,9 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                           <span style={{ color: deltaColor, fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33` }}>
                             {p.deltaEuros > 0 ? "+" : ""}{p.deltaEuros.toLocaleString("fr-FR")} €
                           </span>
+                        )}
+                        {p.nouveau && (
+                          <span style={{ color:T.textMuted, fontStyle:"italic" }}>· nouveau cette semaine</span>
                         )}
                       </div>
                     );
