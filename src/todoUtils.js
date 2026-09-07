@@ -100,7 +100,7 @@ export function computeEcheanceDate(typeId, aujourdhuiDate = new Date()) {
 const DEFAULT_TEMPLATES = {
   todo_assign: {
     subject: "Nouvelle tâche : {texte}",
-    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
+    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n{note}\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
   },
   todo_done: {
     subject: "Tâche terminée : {texte}",
@@ -152,15 +152,26 @@ async function envoyer(to, subject, html) {
   }
 }
 
-export async function envoyerEmailAssignation({ to, nom, texte, priorite, assigneur }) {
+export async function envoyerEmailAssignation({ to, nom, texte, priorite, assigneur, note }) {
   if (!to) return { ok: false, reason: "no_email" };
   const prioLabel = priorite === "haute" ? "🔴 Haute" : priorite === "basse" ? "🟢 Basse" : "🟡 Normale";
   const tpl = await chargerTemplate("todo_assign");
-  const vars = { prenom: nom || "", texte: texte || "", priorite: prioLabel, assigneur: assigneur || "Quelqu'un" };
+  const vars = {
+    prenom: nom || "", texte: texte || "", priorite: prioLabel, assigneur: assigneur || "Quelqu'un",
+    // {note} = bloc complet (titre + contenu) pour que le template reste
+    // propre quand la tâche n'a pas de note.
+    note: note?.trim() ? `\nNote / détails :\n${note.trim()}\n` : "",
+  };
+  // Template personnalisé enregistré avant l'ajout de {note} : on insère la
+  // note après {texte} pour que le mail reste complet.
+  let body = tpl.body || "";
+  if (!body.includes("{note}")) {
+    body = body.includes("{texte}") ? body.replace("{texte}", "{texte}\n{note}") : body + "\n{note}";
+  }
   const html = wrapHtml({
     badge: "Profero Planning · Nouvelle tâche",
     titre: "📋 Une tâche vous a été assignée",
-    bodyHtml: escapeHtml(interpolate(tpl.body, vars)).replace(/\n/g, "<br/>"),
+    bodyHtml: escapeHtml(interpolate(body, vars)).replace(/\n/g, "<br/>"),
   });
   return envoyer(to, interpolate(tpl.subject, vars), html);
 }

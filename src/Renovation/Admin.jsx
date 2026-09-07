@@ -1749,8 +1749,8 @@ const EMAIL_TEMPLATES_DEFAUT = {
   todo_assign: {
     nom: "Assignation d'une tâche To-Do",
     subject: "Nouvelle tâche : {texte}",
-    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
-    variables: ["{prenom}", "{texte}", "{priorite}", "{assigneur}"],
+    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n{note}\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
+    variables: ["{prenom}", "{texte}", "{note}", "{priorite}", "{assigneur}"],
   },
   todo_done: {
     nom: "Tâche To-Do terminée (autres assignés)",

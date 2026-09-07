@@ -637,6 +637,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     for (const a of destinataires) {
       const r = await envoyerEmailAssignation({
         to: a.email, nom: a.nom, texte: todo.texte, priorite: todo.priorite, assigneur: monNom,
+        note: todo.note,
       });
       if (r.ok) ok += 1; else ko += 1;
     }
