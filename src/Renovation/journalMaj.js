@@ -28,7 +28,7 @@ export const JOURNAL_MAJ = [
     type: "nouveaute",
     titre: "Espace ouvrier : les chefs d'équipe voient le planning de toutes les équipes",
     pages: [], // espace ouvrier (mobile), hors pages bureau
-    quoi: "Un chef d'équipe (le responsable déclaré d'une équipe dans Réglages → Équipes) peut consulter le planning de son équipe et de toutes les autres depuis son espace ouvrier, en lecture seule. Rien ne change pour les autres ouvriers, et le chef n'a accès à aucune donnée financière.",
+    quoi: "Un chef d'équipe (responsable déclaré d'une équipe dans Réglages → Équipes) peut consulter le planning de son équipe et de toutes les autres depuis son espace ouvrier, en lecture seule. Une équipe peut désormais avoir plusieurs responsables (ex. Venceslas et Steven sur la même équipe) : chacun bénéficie de cette vue. Rien ne change pour les autres ouvriers, et le chef n'a accès à aucune donnée financière.",
     comment: "Dans l'onglet Planning de l'espace ouvrier, un sélecteur « Moi / Mon équipe / Tout » apparaît automatiquement pour les responsables d'équipe. « Mon équipe » montre les chantiers où au moins un membre de son équipe est planifié ; « Tout » montre, jour par jour, chaque chantier avec les personnes présentes, en pastilles aux couleurs de leur équipe, avec des puces pour filtrer par équipe. Sous chaque chantier, la liste des tâches du jour précise qui doit faire quoi (« — tous » quand la tâche concerne toute l'équipe du chantier). La navigation de semaine reste la même.",
   },
   {

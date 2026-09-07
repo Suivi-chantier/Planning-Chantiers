@@ -65,7 +65,7 @@ import {
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
-// Membres proposables d'une équipe : responsable + membres, par prénom
+// Membres proposables d'une équipe : responsables + membres, par prénom
 // (la clé de jointure de toute l'appli), sans doublon. Un membre avec une
 // date_dispo FUTURE (embauche à venir, ex : Keita en septembre) reste visible
 // dans l'Admin mais n'est ni proposé au pré-remplissage ni compté ici tant
@@ -74,7 +74,8 @@ const rid = () => Math.random().toString(36).slice(2, 10);
 const membresEquipe = (eq) => {
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const list = [
-    eq?.responsable,
+    // Multi-chefs : responsables[] avec repli sur l'ancien champ responsable.
+    ...(Array.isArray(eq?.responsables) && eq.responsables.length ? eq.responsables : [eq?.responsable]),
     ...(eq?.membres || [])
       .filter(m => !m.date_dispo || String(m.date_dispo).slice(0, 10) <= aujourdhui)
       .map(m => m.ouvrier),

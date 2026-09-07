@@ -91,7 +91,7 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
           const equipes = await loadEquipes();
           const cle = normaliserNomRessource(prenom);
           const mes = cle
-            ? equipes.filter(e => normaliserNomRessource(e.responsable) === cle)
+            ? equipes.filter(e => (e.responsables || [e.responsable]).some(r => normaliserNomRessource(r) === cle))
             : [];
           if (!cancelled) setProfilEspace({
             est_responsable: mes.length > 0,

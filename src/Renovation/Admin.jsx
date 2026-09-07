@@ -2562,12 +2562,18 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   };
 
   // ─── ÉQUIPES CRUD ────────────────────────────────────────────────────────
+  // Chefs d'une équipe : responsables[] (multi) avec repli sur l'ancien champ
+  // responsable (string, conservé en compat = premier de la liste).
+  const respsDe = (eq) =>
+    Array.isArray(eq?.responsables) && eq.responsables.filter(Boolean).length > 0
+      ? eq.responsables.filter(Boolean)
+      : (eq?.responsable ? [eq.responsable] : []);
   const saveEquipes = async (next) => {
     setEquipes(next);
     let items = next;
     try {
       const noms = [...new Set((next || []).flatMap(eq => [
-        eq?.responsable,
+        ...respsDe(eq),
         ...(eq?.membres || []).map(m => m?.ouvrier),
       ]).filter(Boolean))];
       if (noms.length) {
@@ -2600,6 +2606,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       id: `eq_${Date.now()}`,
       nom: "Nouvelle équipe",
       responsable: "",
+      responsables: [],
       membres: [],
       externe: false,
       couleur: COULEURS_PALETTE[equipes.length % COULEURS_PALETTE.length],
@@ -3453,7 +3460,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   {(() => {
                     const eq = equipes.find(x => x.id === g.equipe_id);
                     if (!eq || eq.externe) return null;
-                    const membres = [...new Set([eq.responsable, ...(eq.membres||[]).map(m=>m.ouvrier)].filter(Boolean))];
+                    const membres = [...new Set([...respsDe(eq), ...(eq.membres||[]).map(m=>m.ouvrier)].filter(Boolean))];
                     if (membres.length === 0) return null;
                     const prios = Array.isArray(g.ouvriers_prio) ? g.ouvriers_prio : [];
                     const toggle = (nom) => updGroupeType(i, {
@@ -3578,7 +3585,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <div>
               <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Équipes</div>
               <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
-                Équipes stables de l'entreprise : un <strong style={{color:T.text}}>responsable</strong> et des <strong style={{color:T.text}}>membres</strong> pris dans la liste des ouvriers du planning. Elles serviront à pré-remplir les ouvriers des groupes d'un chantier — toujours proposé, jamais imposé.
+                Équipes stables de l'entreprise : un ou plusieurs <strong style={{color:T.text}}>responsables</strong> et des <strong style={{color:T.text}}>membres</strong> pris dans la liste des ouvriers du planning. Elles serviront à pré-remplir les ouvriers des groupes d'un chantier — toujours proposé, jamais imposé.
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -3631,7 +3638,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   fontSize:FONT.xs.size+1,fontWeight:600,color:eq.externe?"#f5a623":T.textSub,userSelect:"none"}}
                   title="Prestataire externe : pas de membres internes, ne compte pas dans les heures internes">
                   <input type="checkbox" checked={!!eq.externe}
-                    onChange={e=>updEquipe(i, e.target.checked ? { externe:true, responsable:"", membres:[] } : { externe:false })}
+                    onChange={e=>updEquipe(i, e.target.checked ? { externe:true, responsable:"", responsables:[], membres:[] } : { externe:false })}
                     style={{accentColor:"#f5a623",width:15,height:15,cursor:"pointer"}}/>
                   Externe
                 </label>
@@ -3656,22 +3663,45 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 </div>
               ) : (
                 <>
-                  {/* Responsable */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                    <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92}}>Responsable</span>
-                    <select className="ti" value={eq.responsable||""} onChange={e=>updEquipe(i,{responsable:e.target.value})}
-                      style={{flex:"0 1 220px",minWidth:150,cursor:"pointer",
-                        ...(horsListe(eq.responsable)?{color:"#f5a623",fontWeight:700}:{})}}>
-                      <option value="">— Aucun —</option>
-                      {horsListe(eq.responsable) && <option value={eq.responsable}>{eq.responsable} (hors liste planning)</option>}
-                      {ouvriers.filter(Boolean).map(o=>(<option key={o} value={o}>{o}</option>))}
-                    </select>
-                    {horsListe(eq.responsable) && (
-                      <span style={{fontSize:FONT.xs.size,color:"#f5a623",display:"inline-flex",alignItems:"center",gap:4}}>
-                        <Icon as={AlertTriangle} size={11}/>
-                        à créer dans l'onglet Ouvriers
-                      </span>
-                    )}
+                  {/* Responsables — une équipe peut avoir plusieurs chefs.
+                      responsables[] est la source ; responsable (string) est
+                      maintenu = premier de la liste (compat semis/phasage). */}
+                  <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                    <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92,paddingTop:7}}>Responsables</span>
+                    <div style={{flex:"1 1 300px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      {respsDe(eq).map(r => (
+                        <span key={r} style={{
+                          display:"inline-flex",alignItems:"center",gap:6,
+                          padding:"4px 6px 4px 12px",borderRadius:999,
+                          border:`1px solid ${horsListe(r) ? "#f5a623" : T.border}`,background:T.bg,
+                          fontSize:FONT.xs.size+1,fontWeight:700,
+                          color:horsListe(r) ? "#f5a623" : T.text,
+                        }} title={horsListe(r) ? `${r} : hors liste planning — à créer dans l'onglet Ouvriers` : `${r} est responsable de « ${eq.nom} »`}>
+                          {r}
+                          <button className="ib" onClick={()=>{
+                            const next = respsDe(eq).filter(x => x !== r);
+                            updEquipe(i, { responsables: next, responsable: next[0] || "" });
+                          }} title={`Retirer ${r} des responsables`}>
+                            <Icon as={X} size={11}/>
+                          </button>
+                        </span>
+                      ))}
+                      <select className="ti" value="" onChange={e=>{
+                        const v = e.target.value;
+                        if (!v) return;
+                        const next = [...new Set([...respsDe(eq), v])];
+                        updEquipe(i, { responsables: next, responsable: next[0] || "" });
+                      }} style={{flex:"0 1 200px",minWidth:140,maxWidth:210,cursor:"pointer",color:T.textMuted}}>
+                        <option value="">+ Ajouter un responsable…</option>
+                        {ouvriers.filter(Boolean).filter(o=>!respsDe(eq).includes(o)).map(o=>(<option key={o} value={o}>{o}</option>))}
+                      </select>
+                      {respsDe(eq).some(horsListe) && (
+                        <span style={{fontSize:FONT.xs.size,color:"#f5a623",display:"inline-flex",alignItems:"center",gap:4}}>
+                          <Icon as={AlertTriangle} size={11}/>
+                          à créer dans l'onglet Ouvriers
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Membres */}
@@ -3712,7 +3742,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                       <select className="ti" value="" onChange={e=>addMembre(i, e.target.value)}
                         style={{flex:"0 1 200px",minWidth:140,maxWidth:200,cursor:"pointer",color:T.textMuted}}>
                         <option value="">+ Ajouter un membre…</option>
-                        {ouvriers.filter(Boolean).filter(o=>!membresPris.includes(o)&&o!==eq.responsable).map(o=>(<option key={o} value={o}>{o}</option>))}
+                        {ouvriers.filter(Boolean).filter(o=>!membresPris.includes(o)&&!respsDe(eq).includes(o)).map(o=>(<option key={o} value={o}>{o}</option>))}
                       </select>
                     </div>
                   </div>

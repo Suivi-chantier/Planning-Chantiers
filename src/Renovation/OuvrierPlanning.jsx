@@ -114,11 +114,11 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
   }, [weekId]);
 
   // ── Correspondances équipes (chef uniquement) ──────────────────────────────
-  // prénom normalisé → équipe (première équipe qui le porte, responsable inclus).
+  // prénom normalisé → équipe (première équipe qui le porte, responsables inclus).
   const equipeParPrenom = useMemo(() => {
     const map = new Map();
     equipes.forEach(eq => {
-      [eq.responsable, ...(eq.membres || []).map(m => m.ouvrier)].forEach(n => {
+      [...(eq.responsables || [eq.responsable]), ...(eq.membres || []).map(m => m.ouvrier)].forEach(n => {
         const cle = normaliserNomRessource(n);
         if (cle && !map.has(cle)) map.set(cle, eq);
       });
@@ -131,7 +131,7 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
     const ids = new Set((equipesResponsable || []).map(e => e.id));
     const s = new Set();
     equipes.filter(eq => ids.has(eq.id)).forEach(eq => {
-      [eq.responsable, ...(eq.membres || []).map(m => m.ouvrier)].forEach(n => {
+      [...(eq.responsables || [eq.responsable]), ...(eq.membres || []).map(m => m.ouvrier)].forEach(n => {
         const cle = normaliserNomRessource(n);
         if (cle) s.add(cle);
       });
@@ -143,7 +143,8 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
   // moins une personne (les équipes externes sans membres n'apparaissent pas).
   const equipesFiltrables = useMemo(
     () => equipes.filter(eq =>
-      normaliserNomRessource(eq.responsable) || (eq.membres || []).some(m => normaliserNomRessource(m.ouvrier))),
+      (eq.responsables || [eq.responsable]).some(r => normaliserNomRessource(r))
+      || (eq.membres || []).some(m => normaliserNomRessource(m.ouvrier))),
     [equipes]
   );
 
