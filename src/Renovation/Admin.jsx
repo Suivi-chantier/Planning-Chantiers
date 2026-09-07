@@ -1758,6 +1758,12 @@ const EMAIL_TEMPLATES_DEFAUT = {
     body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous était aussi assignée :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
     variables: ["{prenom}", "{texte}", "{acteur}"],
   },
+  todo_update: {
+    nom: "Mise à jour d'une tâche To-Do",
+    subject: "Mise à jour : {texte}",
+    body: "Bonjour {prenom},\n\n{acteur} a ajouté une mise à jour sur la tâche :\n{texte}\n\nMise à jour du {date} :\n{maj}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour voir la tâche complète.",
+    variables: ["{prenom}", "{texte}", "{acteur}", "{maj}", "{date}"],
+  },
 };
 
 // ─── HEURES ATTENDUES PAR JOUR (cible des comptes rendus ouvriers) ──────────

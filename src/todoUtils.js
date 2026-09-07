@@ -106,6 +106,10 @@ const DEFAULT_TEMPLATES = {
     subject: "Tâche terminée : {texte}",
     body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous était aussi assignée :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
   },
+  todo_update: {
+    subject: "Mise à jour : {texte}",
+    body: "Bonjour {prenom},\n\n{acteur} a ajouté une mise à jour sur la tâche :\n{texte}\n\nMise à jour du {date} :\n{maj}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour voir la tâche complète.",
+  },
 };
 
 const interpolate = (str, vars) =>
@@ -174,6 +178,44 @@ export async function envoyerEmailAssignation({ to, nom, texte, priorite, assign
     bodyHtml: escapeHtml(interpolate(body, vars)).replace(/\n/g, "<br/>"),
   });
   return envoyer(to, interpolate(tpl.subject, vars), html);
+}
+
+// Prévient les personnes concernées par la tâche (assignés + créateur, sauf
+// l'auteur de la mise à jour) qu'une mise à jour a été ajoutée.
+export async function envoyerEmailsMaj({ todo, texteMaj, acteurEmail, acteurNom }) {
+  const acteur = String(acteurEmail || "").toLowerCase();
+  const dejaVu = new Set([acteur]);
+  const destinataires = [];
+  for (const a of getAssignes(todo)) {
+    const em = String(a.email || "").toLowerCase();
+    if (!em || dejaVu.has(em)) continue;
+    dejaVu.add(em);
+    destinataires.push({ email: a.email, nom: a.nom || a.email });
+  }
+  const createur = String(todo.created_by_email || "").toLowerCase();
+  if (createur && !dejaVu.has(createur)) {
+    destinataires.push({ email: todo.created_by_email, nom: todo.created_by_nom || todo.created_by_email });
+  }
+  if (destinataires.length === 0) return { ok: true, envoyes: 0, echecs: 0 };
+
+  const tpl = await chargerTemplate("todo_update");
+  const dateFr = new Date().toLocaleDateString("fr-FR");
+  let envoyes = 0, echecs = 0;
+  for (const d of destinataires) {
+    const vars = {
+      prenom: d.nom || "", texte: todo.texte || "",
+      acteur: acteurNom || "Quelqu'un", maj: texteMaj || "", date: dateFr,
+    };
+    const html = wrapHtml({
+      badge: "Profero Planning · Mise à jour de tâche",
+      titre: "🔄 Une tâche qui vous concerne a été mise à jour",
+      bodyHtml: escapeHtml(interpolate(tpl.body, vars)).replace(/\n/g, "<br/>"),
+      accent: "#5B8AF5",
+    });
+    const r = await envoyer(d.email, interpolate(tpl.subject, vars), html);
+    if (r.ok) envoyes += 1; else echecs += 1;
+  }
+  return { ok: echecs === 0, envoyes, echecs };
 }
 
 // Prévient les AUTRES assignés (pas celui qui vient de cocher) qu'une tâche

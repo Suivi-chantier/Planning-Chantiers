@@ -5,12 +5,12 @@ import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import {
   getAssignes, estAssigne, ECHEANCE_TYPES, echeanceLabel, computeEcheanceDate,
-  envoyerEmailAssignation, envoyerEmailsTerminee,
+  envoyerEmailAssignation, envoyerEmailsTerminee, envoyerEmailsMaj,
 } from "../todoUtils";
 import {
   ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
   Calendar, AlarmClock, FileText, CircleCheck, ListChecks,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, History, Send,
 } from "lucide-react";
 
 // ─── PRIORITÉS ────────────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ function SelecteurEcheance({ type, date, onType, onDate, T }) {
 }
 
 // ─── COMPOSANT TODO ITEM ──────────────────────────────────────────────────────
-function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, utilisateurs, chantiers = [], acc }) {
+function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMaj, T, utilisateurs, chantiers = [], acc }) {
   const [editing, setEditing]   = useState(false);
   const [draft, setDraft]       = useState(todo.texte);
   const [draftPrio, setDraftPrio] = useState(todo.priorite || "normale");
@@ -128,10 +128,23 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
   const [draftSousTaches, setDraftSousTaches] = useState(todo.sous_taches || []);
   const [sousTachesExpanded, setSousTachesExpanded] = useState(true);
   const [noteExpanded, setNoteExpanded] = useState(true);
+  const [majExpanded, setMajExpanded] = useState(true);
+  const [majSaisie, setMajSaisie] = useState(false);
+  const [majDraft, setMajDraft] = useState("");
   const inputRef = useRef();
 
-  // Bloque l'auto-reload pendant l'édition d'une tâche (sauvegarde au clic).
-  useDirtyGuard("todo-edit-" + todo.id, editing);
+  // Bloque l'auto-reload pendant l'édition d'une tâche ou la saisie d'une MAJ.
+  useDirtyGuard("todo-edit-" + todo.id, editing || !!majDraft.trim());
+
+  const majs = Array.isArray(todo.maj) ? todo.maj : [];
+  const envoyerMaj = () => {
+    const txt = majDraft.trim();
+    if (!txt) return;
+    onAddMaj(todo.id, txt);
+    setMajDraft("");
+    setMajSaisie(false);
+    setMajExpanded(true);
+  };
 
   const chantier = todo.chantier_id ? chantiers.find(c => c.id === todo.chantier_id) : null;
 
@@ -542,6 +555,95 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
             </div>
           );
         })()}
+
+        {/* Mises à jour : journal horodaté (auteur + texte), envoyé par email
+            aux personnes concernées à chaque ajout. */}
+        {(majs.length > 0 || !todo.fait) && (
+          <div style={{ marginTop: 8 }}>
+            {majs.length > 0 && (
+              <button onClick={() => setMajExpanded(v => !v)} style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                background: "transparent", border: "none", padding: "2px 0",
+                color: T.textSub, fontSize: FONT.xs.size + 1,
+                fontWeight: 600, cursor: "pointer",
+              }}>
+                <Icon as={majExpanded ? ChevronDown : ChevronRight} size={12}/>
+                <Icon as={History} size={12}/>
+                {majs.length} mise{majs.length > 1 ? "s" : ""} à jour
+              </button>
+            )}
+            {majExpanded && majs.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 5 }}>
+                {majs.map(m => (
+                  <div key={m.id} style={{
+                    padding: "6px 10px", borderRadius: RADIUS.md,
+                    background: "rgba(91,138,245,0.06)", border: `1px solid rgba(91,138,245,0.20)`,
+                    fontSize: FONT.sm.size, lineHeight: 1.5, color: T.text,
+                    whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  }}>
+                    <span style={{ fontWeight: 700, color: "#5B8AF5" }}>
+                      {m.date ? new Date(m.date).toLocaleDateString("fr-FR") : ""} {m.auteur_nom || ""}
+                    </span>
+                    <span style={{ color: T.textSub }}> : </span>
+                    {m.texte}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!todo.fait && (
+              majSaisie ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                  <input
+                    autoFocus
+                    value={majDraft}
+                    onChange={e => setMajDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") envoyerMaj();
+                      if (e.key === "Escape") { setMajDraft(""); setMajSaisie(false); }
+                    }}
+                    placeholder="Mise à jour… (Entrée pour envoyer aux personnes concernées)"
+                    style={{
+                      flex: 1, padding: "6px 10px", borderRadius: RADIUS.md,
+                      border: `1px solid #5B8AF5`, background: T.card,
+                      color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
+                      outline: "none",
+                    }}
+                  />
+                  <button onClick={envoyerMaj} disabled={!majDraft.trim()} title="Envoyer la mise à jour" style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "6px 12px", borderRadius: RADIUS.md, border: "none",
+                    background: majDraft.trim() ? "#5B8AF5" : T.card,
+                    color: majDraft.trim() ? "#fff" : T.textMuted,
+                    fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
+                    cursor: majDraft.trim() ? "pointer" : "not-allowed",
+                  }}>
+                    <Icon as={Send} size={12}/>
+                    Envoyer
+                  </button>
+                  <button onClick={() => { setMajDraft(""); setMajSaisie(false); }} title="Annuler" style={{
+                    padding: 6, borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                    background: "transparent", color: T.textSub, cursor: "pointer",
+                    display: "inline-flex", alignItems: "center",
+                  }}>
+                    <Icon as={X} size={12}/>
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setMajSaisie(true)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  marginTop: majs.length > 0 ? 6 : 0,
+                  padding: "4px 10px", borderRadius: RADIUS.md,
+                  border: `1px dashed ${T.border}`, background: "transparent",
+                  color: T.textSub, fontFamily: "inherit",
+                  fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+                }}>
+                  <Icon as={History} size={11}/>
+                  Ajouter une mise à jour
+                </button>
+              )
+            )}
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -724,6 +826,32 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     const nouveaux = (patch.assignes || []).filter(a => !avant.has(String(a.email).toLowerCase()));
     if (nouveaux.length > 0) {
       await notifierAssignes(nouveaux, { ...ancien, ...patch });
+    }
+  };
+
+  // Ajoute une mise à jour horodatée au journal de la tâche et prévient par
+  // email les personnes concernées (assignés + créateur, sauf l'auteur).
+  const addMaj = async (id, texte) => {
+    const cible = todos.find(t => t.id === id);
+    if (!cible || !texte.trim()) return;
+    const entree = {
+      id: Math.random().toString(36).slice(2),
+      date: new Date().toISOString(),
+      auteur_email: monEmail,
+      auteur_nom: monNom,
+      texte: texte.trim(),
+    };
+    const updated = todos.map(t => t.id === id ? { ...t, maj: [...(Array.isArray(t.maj) ? t.maj : []), entree] } : t);
+    setTodos(updated);
+    saveTodos(updated);
+
+    const r = await envoyerEmailsMaj({ todo: cible, texteMaj: entree.texte, acteurEmail: monEmail, acteurNom: monNom });
+    if (r.envoyes > 0 || r.echecs > 0) {
+      flashNotif(r.ok
+        ? `✓ Mise à jour envoyée à ${r.envoyes} personne${r.envoyes > 1 ? "s" : ""}`
+        : `⚠️ ${r.echecs} email(s) de mise à jour non envoyé(s)`);
+    } else {
+      flashNotif("✓ Mise à jour enregistrée (personne d'autre à prévenir)");
     }
   };
 
@@ -1074,6 +1202,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
                   onDelete={deleteTodo}
                   onEdit={editTodo}
                   onToggleSousTache={toggleSousTache}
+                  onAddMaj={addMaj}
                   T={T}
                   utilisateurs={utilisateurs}
                   chantiers={chantiers}

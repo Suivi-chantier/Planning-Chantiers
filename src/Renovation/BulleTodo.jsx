@@ -21,7 +21,7 @@ import { Icon } from "../ui";
 import { estAssigne, envoyerEmailsTerminee } from "../todoUtils";
 import {
   ListTodo, X, Calendar, HardHat, ChevronDown, ChevronRight,
-  CircleCheck, Circle, RefreshCw, User,
+  CircleCheck, Circle, RefreshCw, User, History,
 } from "lucide-react";
 
 const KEY_TODOS = "bloc_todos";
@@ -70,11 +70,13 @@ const fmtDate = iso => {
 // ─── UNE TÂCHE DANS LE TIROIR ────────────────────────────────────────────────
 function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) {
   const [ouvert, setOuvert] = useState(false);
+  const [majOuvert, setMajOuvert] = useState(false);
   const prio = getPrio(todo.priorite);
   const retard = estEnRetard(todo);
   const aujourdhui = estPourAujourdhui(todo);
   const sousTaches = Array.isArray(todo.sous_taches) ? todo.sous_taches : [];
   const stFaites = sousTaches.filter(st => st.fait).length;
+  const majs = Array.isArray(todo.maj) ? todo.maj : [];
 
   const couleurDate = retard ? "#e05c5c" : aujourdhui ? "#ff9a4d" : T.textMuted;
 
@@ -154,8 +156,39 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
               {stFaites}/{sousTaches.length} sous-tâche{sousTaches.length > 1 ? "s" : ""}
             </button>
           )}
+
+          {majs.length > 0 && (
+            <button onClick={() => setMajOuvert(o => !o)} style={{
+              marginTop: 8, marginLeft: sousTaches.length > 0 ? 10 : 0,
+              background: "transparent", border: "none", padding: 0, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 4,
+              color: "#5B8AF5", fontFamily: "inherit", fontSize: 10, fontWeight: 800,
+            }}>
+              <Icon as={majOuvert ? ChevronDown : ChevronRight} size={12}/>
+              <Icon as={History} size={11}/>
+              {majs.length} mise{majs.length > 1 ? "s" : ""} à jour
+            </button>
+          )}
         </div>
       </div>
+
+      {majOuvert && majs.length > 0 && (
+        <div style={{ padding: "0 12px 10px 40px", display: "flex", flexDirection: "column", gap: 5 }}>
+          {majs.map(m => (
+            <div key={m.id} style={{
+              padding: "5px 9px", borderRadius: RADIUS.md,
+              background: "rgba(91,138,245,0.06)", border: `1px solid rgba(91,138,245,0.20)`,
+              fontSize: 11, lineHeight: 1.4, color: T.textSub,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              <span style={{ fontWeight: 800, color: "#5B8AF5" }}>
+                {m.date ? new Date(m.date).toLocaleDateString("fr-FR") : ""} {m.auteur_nom || ""}
+              </span>
+              {" : "}{m.texte}
+            </div>
+          ))}
+        </div>
+      )}
 
       {ouvert && sousTaches.length > 0 && (
         <div style={{
