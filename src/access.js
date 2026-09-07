@@ -44,6 +44,7 @@ export const PAGES_RENOVATION = [
   { id: "dashboard-analyse",  label: "Dashboard Analyse"           },
   { id: "etats-financiers",   label: "États financiers"            },
   { id: "guide-ouvrages",     label: "Guide ouvrages"              },
+  { id: "journal-maj",        label: "Journal des MAJ"             },
   { id: "admin",              label: "Réglages"                    },
 ];
 
@@ -109,6 +110,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "dashboard-analyse",
     "etats-financiers",
     "guide-ouvrages",
+    "journal-maj",
     "admin",
   ],
 
@@ -134,6 +136,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "biblio-materiaux",
     "visite",
     "info-client",
+    "journal-maj",
   ],
 
   commercial: [
@@ -143,6 +146,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "plans",
     "visite",
     "info-client",
+    "journal-maj",
   ],
 
   comptable: [
@@ -156,6 +160,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "phasage-v2",
     "heures-salaries",
     "etats-financiers",
+    "journal-maj",
   ],
 
   // Espace ouvrier : identifiants de pages DÉDIÉS, distincts des pages bureau

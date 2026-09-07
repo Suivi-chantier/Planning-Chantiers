@@ -5,7 +5,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
-  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, TrainFront,
+  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, TrainFront, Newspaper,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -20,18 +20,18 @@ const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","validation","heures-salaries","plans","phasage-v2","chemin-de-fer","bibliotheque","biblio-materiaux",
-    "visite","info-client","etats-financiers","guide-ouvrages","admin"
+    "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","validation","heures-salaries","plans","phasage-v2","chemin-de-fer","bibliotheque","biblio-materiaux",
-    "visite","info-client"
+    "visite","info-client","journal-maj"
   ],
   commercial: [
-    "dashboard","chantiers","planning","plans","visite","info-client"
+    "dashboard","chantiers","planning","plans","visite","info-client","journal-maj"
   ],
   comptable: [
-    "dashboard","chantiers","bilan-semaine","commandes","biblio-materiaux","phasage-v2","heures-salaries","etats-financiers"
+    "dashboard","chantiers","bilan-semaine","commandes","biblio-materiaux","phasage-v2","heures-salaries","etats-financiers","journal-maj"
   ],
 };
 
@@ -62,6 +62,7 @@ const ALL_NAV_ITEMS = [
   { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
   { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
   { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide",      longLabel:"Guide ouvrages"      },
+  { id:"journal-maj",      icon:Newspaper,       label:"MAJ",        longLabel:"Journal des MAJ"     },
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
 ];
 
@@ -261,6 +262,7 @@ function Sidebar({
     { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
     { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
     { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide ouvrages"   },
+    { id:"journal-maj",      icon:Newspaper,       label:"Journal des MAJ"  },
     { id:"admin",            icon:Settings,        label:"Réglages"         },
   ];
 

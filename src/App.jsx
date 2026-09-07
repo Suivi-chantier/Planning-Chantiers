@@ -120,6 +120,7 @@ const PageCheminDeFer        = lazy(() => import("./Renovation/CheminDeFer"));
 const PageBibliotheque       = lazy(() => import("./Renovation/Bibliotheque"));
 const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliothequeMateriaux"));
 const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages"));
+const PageJournalMaj         = lazy(() => import("./Renovation/PageJournalMaj"));
 const PageInvest             = lazyAvecReprise(() => import("./PageInvest"), "invest");
 const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
 const PageHeuresSalaries     = lazy(() => import("./Renovation/HeuresSalaries"));
@@ -811,6 +812,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
           {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {page==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
+          {page==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={setPage} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
           {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
           </Suspense>
         </div>
