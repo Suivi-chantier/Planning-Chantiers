@@ -207,6 +207,25 @@ module.exports = async function handler(req, res) {
       return echouer(403, "non_autorise", `Le rôle "${profil.role}" n'est pas autorisé pour cette tâche`);
     }
 
+    // 3bis) Autorisation propre à la tâche, quand le rôle seul ne suffit pas.
+    //
+    // Le champ `utilisateurs.role` est UNIQUE et partagé par les deux branches :
+    // « commercial » existe côté Rénovation et côté Invest, avec des droits
+    // différents. Une tâche qui ne concerne qu'une branche doit donc pouvoir
+    // vérifier autre chose que le rôle. Elle renvoie true, ou une chaîne
+    // expliquant le refus.
+    if (typeof tache.autoriser === "function") {
+      let verdict;
+      try {
+        verdict = await tache.autoriser(profil);
+      } catch (e) {
+        return echouer(500, "erreur_interne", `Contrôle d'autorisation de la tâche : ${e.message}`);
+      }
+      if (verdict !== true) {
+        return echouer(403, "non_autorise", typeof verdict === "string" ? verdict : "Accès refusé pour cette tâche");
+      }
+    }
+
     // 4) Coupe-circuit + quotas (§ 3.5). Les refus sont journalisés dans
     //    ia_jobs comme n'importe quel échec. En cas de panne du contrôle
     //    lui-même, on BLOQUE (fail-closed) : les quotas sont la protection
@@ -256,20 +275,137 @@ module.exports = async function handler(req, res) {
     };
     if (prompt.system) params.system = prompt.system;
 
-    let reponse;
-    try {
-      reponse = await anthropic.messages.create(params);
-    } catch (e) {
-      if (e instanceof Anthropic.APIConnectionError || e instanceof Anthropic.RateLimitError ||
-          e instanceof Anthropic.InternalServerError) {
-        return echouer(503, "modele_indisponible", `Modèle indisponible : ${e.message}`);
+    // 6bis) Outils, si la tâche en déclare.
+    //
+    // La liste est calculée à chaque appel depuis le profil du JWT : une tâche
+    // peut n'exposer qu'un sous-ensemble d'outils selon les droits de
+    // l'appelant. Un outil non exposé n'existe pas pour le modèle — il ne peut
+    // donc être ni appelé, ni halluciné.
+    //
+    // Les schémas sont déclarés dans un format neutre ({ nom, description,
+    // schema }) et traduits ici, au dernier moment, au dialecte du
+    // fournisseur. C'est ce qui permettra de changer de fournisseur sans
+    // toucher aux outils.
+    let outils = [];
+    if (typeof tache.construire_outils === "function") {
+      try {
+        outils = (await tache.construire_outils(profil)) || [];
+      } catch (e) {
+        return echouer(500, "erreur_interne", `Construction des outils : ${e.message}`);
       }
-      return echouer(500, "erreur_interne", `Erreur d'appel au modèle : ${e.message}`);
+    }
+    const parNomOutil = new Map(outils.map((o) => [o.nom, o]));
+    if (outils.length) {
+      params.tools = outils.map((o) => ({
+        name: o.nom,
+        description: o.description,
+        input_schema: o.schema || { type: "object", properties: {} },
+      }));
     }
 
-    job.tokens_entree = reponse.usage?.input_tokens ?? null;
-    job.tokens_sortie = reponse.usage?.output_tokens ?? null;
-    job.cout_eur = calculerCout(tache.modele, job.tokens_entree, job.tokens_sortie);
+    // Garde-fous de la boucle. Sans plafond d'itérations, un modèle qui
+    // s'entête appellerait le même outil indéfiniment ; sans plafond de
+    // résultats, dix appels successifs rempliraient le contexte et la facture.
+    const MAX_TOURS = 5;
+    const MAX_APPELS_OUTILS = 8;
+    const MAX_OCTETS_RESULTATS = 120000;
+
+    const traceOutils = [];   // {nom, params} — journalisé, sans les résultats
+    const blocsOutils = [];   // les sorties d'outils, jointes à la réponse
+    let appelsOutils = 0;
+    let octetsResultats = 0;
+
+    // Les usages se cumulent sur TOUS les tours : le coût d'un appel avec
+    // outils est la somme des allers-retours, pas celui du dernier.
+    function cumulerUsage(r) {
+      job.tokens_entree = (job.tokens_entree || 0) + (r.usage?.input_tokens || 0);
+      job.tokens_sortie = (job.tokens_sortie || 0) + (r.usage?.output_tokens || 0);
+      job.cout_eur = calculerCout(tache.modele, job.tokens_entree, job.tokens_sortie);
+    }
+
+    async function appeler(p) {
+      try {
+        return await anthropic.messages.create(p);
+      } catch (e) {
+        if (e instanceof Anthropic.APIConnectionError || e instanceof Anthropic.RateLimitError ||
+            e instanceof Anthropic.InternalServerError) {
+          throw { _code: 503, _erreur: "modele_indisponible", _message: `Modèle indisponible : ${e.message}` };
+        }
+        throw { _code: 500, _erreur: "erreur_interne", _message: `Erreur d'appel au modèle : ${e.message}` };
+      }
+    }
+
+    let reponse;
+    try {
+      reponse = await appeler(params);
+    } catch (e) {
+      if (e && e._erreur) return echouer(e._code, e._erreur, e._message);
+      return echouer(500, "erreur_interne", e?.message || "Erreur inconnue");
+    }
+    cumulerUsage(reponse);
+
+    // Boucle de tool use. Le modèle demande un ou plusieurs outils, on les
+    // exécute côté serveur, on lui renvoie les résultats, il recommence ou
+    // conclut. Une tâche sans outils ne franchit jamais ce `while`.
+    let tours = 0;
+    while (reponse.stop_reason === "tool_use" && outils.length) {
+      if (++tours > MAX_TOURS) {
+        return echouer(502, "sortie_invalide",
+          `Le modèle n'a pas conclu après ${MAX_TOURS} tours d'outils`);
+      }
+
+      const demandes = (reponse.content || []).filter((b) => b.type === "tool_use");
+      const resultats = [];
+
+      for (const d of demandes) {
+        if (++appelsOutils > MAX_APPELS_OUTILS) {
+          return echouer(502, "sortie_invalide",
+            `Plafond de ${MAX_APPELS_OUTILS} appels d'outils atteint pour une seule question`);
+        }
+
+        const outil = parNomOutil.get(d.name);
+        let contenu;
+        if (!outil) {
+          // Outil inconnu ou non autorisé pour ce rôle : on le dit au modèle
+          // plutôt que d'échouer, il peut se rabattre sur autre chose.
+          contenu = JSON.stringify({ erreur: `Outil indisponible : ${d.name}` });
+        } else {
+          traceOutils.push({ nom: d.name, params: d.input || {} });
+          try {
+            const sortie = await outil.executer(d.input || {});
+            const brut = JSON.stringify(sortie ?? null);
+            octetsResultats += brut.length;
+            if (octetsResultats > MAX_OCTETS_RESULTATS) {
+              return echouer(502, "sortie_invalide",
+                "Volume de résultats d'outils trop important pour une seule question");
+            }
+            blocsOutils.push({ outil: d.name, resultat: sortie });
+            contenu = brut;
+          } catch (e) {
+            // Une erreur d'outil est une donnée pour le modèle, pas une panne
+            // de la route : il doit pouvoir répondre « je n'ai pas trouvé ».
+            console.warn(`[ai] outil ${d.name} :`, e.message);
+            contenu = JSON.stringify({ erreur: String(e.message || e).slice(0, 300) });
+          }
+        }
+
+        resultats.push({ type: "tool_result", tool_use_id: d.id, content: contenu });
+      }
+
+      params.messages = [
+        ...params.messages,
+        { role: "assistant", content: reponse.content },
+        { role: "user", content: resultats },
+      ];
+
+      try {
+        reponse = await appeler(params);
+      } catch (e) {
+        if (e && e._erreur) return echouer(e._code, e._erreur, e._message);
+        return echouer(500, "erreur_interne", e?.message || "Erreur inconnue");
+      }
+      cumulerUsage(reponse);
+    }
 
     if (reponse.stop_reason === "refusal") {
       return echouer(502, "sortie_invalide", "Le modèle a refusé de traiter cette demande");
@@ -287,10 +423,19 @@ module.exports = async function handler(req, res) {
     if (!vSortie.ok) {
       let relance;
       try {
+        // On repart de `params.messages` et non de `prompt.messages` : après
+        // une boucle d'outils, le premier contient l'échange complet, y
+        // compris les résultats. Repartir du prompt initial ferait répondre
+        // le modèle sans les données qu'il vient de lire.
+        //
+        // Les outils sont retirés de la relance : on veut une réponse au bon
+        // format, pas un nouvel appel d'outil qui ne serait plus bouclé.
+        const paramsRelance = { ...params };
+        delete paramsRelance.tools;
         relance = await anthropic.messages.create({
-          ...params,
+          ...paramsRelance,
           messages: [
-            ...prompt.messages,
+            ...params.messages,
             { role: "assistant", content: texte || "(réponse vide)" },
             {
               role: "user",
@@ -324,6 +469,13 @@ module.exports = async function handler(req, res) {
     }
 
     // 8) Journaliser le succès — tâche sensible → validation humaine requise
+    //
+    // On journalise QUELS outils ont été appelés avec quels paramètres, mais
+    // JAMAIS les lignes qu'ils ont retournées. Le socle prévient déjà (§ 4.3) :
+    // « ne jamais stocker en clair dans entree des coordonnées client
+    // complètes si la tâche ne l'exige pas ». Une question du Copilote et la
+    // trace de ses outils suffisent à auditer ; les données, non.
+    if (traceOutils.length) job.entree = { ...(job.entree || {}), _outils: traceOutils };
     job.statut = tache.sensible ? "en_attente_validation" : "succes";
     const jobId = await journaliser();
 
@@ -336,6 +488,14 @@ module.exports = async function handler(req, res) {
       resultat,
       meta: { modele: tache.modele, duree_ms: job.duree_ms, cout_eur: job.cout_eur },
     };
+    // Les sorties d'outils sont jointes TELLES QUELLES, collectées côté
+    // serveur. Le modèle ne les réémet pas : c'est le seul mécanisme
+    // anti-hallucination qui ne dépende pas de sa bonne volonté — l'interface
+    // ne peut afficher que ce qui vient d'un outil.
+    if (blocsOutils.length) {
+      corps.blocs = blocsOutils;
+      corps.outils_utilises = traceOutils.map((t) => t.nom);
+    }
     if (confiance !== undefined) corps.confiance = confiance;
     return res.status(200).json(corps);
   } catch (e) {
