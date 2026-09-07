@@ -600,6 +600,30 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     (s, p) => s + (p?.deltaEuros && p.deltaEuros > 0 ? p.deltaEuros : 0), 0
   );
 
+  // Marge nette générée par chantier : la progression de la semaine appliquée à
+  // la marge à terminaison du module (delta % du chantier produit → delta % de
+  // la marge finale projetée). Formule documentée dans METHODE_CALCUL
+  // (« margeGeneree »). Peut être négative : un chantier qui avance à perte
+  // génère une marge négative — l'information est volontairement conservée.
+  const margesGenerees = useMemo(() => {
+    if (!finData) return {};
+    const out = {};
+    Object.entries(progressions).forEach(([cId, p]) => {
+      if (!p || p.delta == null) return;
+      const m = finData.finByCh?.[cId]?.brut?.margeATerminaison;
+      if (m == null || !Number.isFinite(m)) return;
+      out[cId] = Math.round(m * p.delta / 100);
+    });
+    return out;
+  }, [progressions, finData]);
+  // Total « dont marge » : mêmes chantiers que le total généré (delta € > 0),
+  // marges négatives incluses — un chantier déficitaire qui avance pèse sur le
+  // total, c'est précisément ce qu'on veut voir.
+  const totalMargeGeneree = Object.entries(margesGenerees).reduce(
+    (s, [cId, m]) => (progressions[cId]?.deltaEuros > 0 ? s + m : s), 0
+  );
+  const hasMargeGeneree = Object.keys(margesGenerees).some(cId => progressions[cId]?.deltaEuros > 0);
+
   // ── Compléments de bilan saisis par le conducteur (Supabase bilans_hebdo) ────
   // Deux listes libres, par semaine et par chantier : les blocages/arbitrages
   // et le point "semaine suivante". Stockés dans une ligne par week_id.
@@ -957,8 +981,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         const euros = p.deltaEuros != null
           ? `<span style="display:inline-block;margin-left:8pt;padding-left:8pt;border-left:1pt solid ${LINE};color:${c};font-weight:700;font-size:11pt;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
           : "";
+        const mg = includeFinances ? margesGenerees[cId] : null;
+        const margeHtml = mg != null
+          ? `<span style="display:inline-block;margin-left:8pt;padding-left:8pt;border-left:1pt solid ${LINE};color:${mg >= 0 ? GREEN : RED};font-weight:700;font-size:10pt;">marge ${mg > 0 ? "+" : ""}${mg.toLocaleString("fr-FR")} €</span>`
+          : "";
         const nouveau = p.nouveau ? ` <span style="color:${GREY};font-style:italic;font-size:8.5pt;">· nouveau</span>` : "";
-        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${nouveau}`;
+        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${margeHtml}${nouveau}`;
       }
 
       // Liste de tâches. `compact` = version discrète (utilisée pour "Réalisé",
@@ -1026,8 +1054,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         const euros = p.deltaEuros != null
           ? ` · <span style="color:${c};font-weight:700;">${p.deltaEuros > 0 ? "+" : ""}${p.deltaEuros.toLocaleString("fr-FR")} €</span>`
           : "";
+        const mg = includeFinances ? margesGenerees[cId] : null;
+        const margeTxt = mg != null
+          ? ` · <span style="color:${mg >= 0 ? GREEN : RED};font-weight:700;">marge ${mg > 0 ? "+" : ""}${mg.toLocaleString("fr-FR")} €</span>`
+          : "";
         const nouveau = p.nouveau ? ` <span style="color:${GREY};font-style:italic;">· nouveau</span>` : "";
-        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${nouveau}`;
+        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${margeTxt}${nouveau}`;
       }
       return `<tr>
         <td class="presence-row" style="padding:5pt 0;vertical-align:middle;border-bottom:1pt solid #f0f1f3;"><span style="display:inline-block;width:9pt;height:9pt;border-radius:50%;background:${dot};vertical-align:middle;margin-right:9pt;"></span><span style="font-size:10pt;font-weight:700;color:${INK};vertical-align:middle;">${esc(grp.nom)}</span></td>
@@ -1105,6 +1137,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       ${kpiCell(`${totalHeures.toFixed(1)} h`, hasPointages ? "Heures validées" : "Heures estimées", YELLOW)}
       ${kpiCell(`${totalFaites}`, "Tâches", "#5fbf85")}
       ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", YELLOW) : ""}
+      ${includeFinances && totalGenereEuros > 0 && hasMargeGeneree ? kpiCell(`${totalMargeGeneree >= 0 ? "+" : ""}${fmtEuros(totalMargeGeneree)}`, "Dont marge", totalMargeGeneree >= 0 ? "#5fbf85" : RED) : ""}
     </tr>
   </table>
   ${syntheseHTML}
@@ -1473,6 +1506,14 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               <div style={{ textAlign:"center" }} title="Somme des progressions hebdo × prix vendu de chaque chantier">
                 <div style={{ fontSize:28, fontWeight:800, color:"#f5c400" }}>+{totalGenereEuros.toLocaleString("fr-FR")} €</div>
                 <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Généré semaine</div>
+              </div>
+            )}
+            {includeFinances && totalGenereEuros > 0 && hasMargeGeneree && (
+              <div style={{ textAlign:"center" }} title="Part de la marge à terminaison produite cette semaine (progression hebdo × marge à terminaison de chaque chantier)">
+                <div style={{ fontSize:28, fontWeight:800, color: totalMargeGeneree >= 0 ? "#50c878" : "#e15a5a" }}>
+                  {totalMargeGeneree >= 0 ? "+" : ""}{totalMargeGeneree.toLocaleString("fr-FR")} €
+                </div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Dont marge</div>
               </div>
             )}
             <button onClick={()=>setShowNotes(true)} disabled={generatingDoc}
@@ -1924,6 +1965,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                         {p.deltaEuros != null && (
                           <span style={{ color: deltaColor, fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33` }}>
                             {p.deltaEuros > 0 ? "+" : ""}{p.deltaEuros.toLocaleString("fr-FR")} €
+                          </span>
+                        )}
+                        {includeFinances && margesGenerees[cId] != null && (
+                          <span title="Marge nette générée : progression de la semaine × marge à terminaison"
+                            style={{ color: margesGenerees[cId] >= 0 ? "#22c55e" : "#e15a5a", fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33` }}>
+                            marge {margesGenerees[cId] > 0 ? "+" : ""}{margesGenerees[cId].toLocaleString("fr-FR")} €
                           </span>
                         )}
                         {p.nouveau && (

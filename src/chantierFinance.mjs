@@ -447,6 +447,9 @@ export const METHODE_CALCUL = [
   { cle: "resteACommander", label: "Reste à commander", projection: true,
     formule: "Somme des matériaux prévus (bibliothèque) sans ligne de commande ni marquage « commandé » — même règle que la page Commandes à passer",
     source: "Matériaux liés des ouvrages vs lignes de commande" },
+  { cle: "margeGeneree", label: "Marge nette générée (bilan semaine)", projection: true,
+    formule: "Points d'avancement gagnés dans la semaine × marge à terminaison ÷ 100 — la part de la marge finale projetée que la production de la semaine a dégagée ; négative si le chantier avance à perte",
+    source: "Progression hebdo (snapshots d'avancement) × marge à terminaison" },
 ];
 const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
 
