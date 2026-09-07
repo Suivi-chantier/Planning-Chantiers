@@ -26,6 +26,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-07",
     type: "nouveaute",
+    titre: "Inventaire des équipes : qui détient quel matériel",
+    pages: [{ id: "inventaire-equipes", label: "Inventaire des équipes" }],
+    quoi: "Savoir à tout moment quel matériel est entre les mains de chaque ouvrier. Chaque outil est identifié par le code unique inscrit dessus (ex. P-012 sur une perceuse), et la recherche répond directement à « qui a cet outil ? ».",
+    comment: "La page liste tous les ouvriers du planning ; un clic sur un ouvrier affiche le matériel mis à sa disposition, avec le code de chaque outil bien en évidence, son état (bon, usé, hors service) et sa date de remise. Le matériel non affecté apparaît dans « Au dépôt ». On ajoute un outil avec « Nouvel outil », et la barre de recherche retrouve un outil par son code, son nom ou son détenteur.",
+  },
+  {
+    date: "2026-09-07",
+    type: "nouveaute",
     titre: "Journal des MAJ : cette page",
     pages: [{ id: "journal-maj", label: "Journal des MAJ" }],
     quoi: "Savoir ce qui a changé dans l'application sans avoir à le découvrir par hasard : chaque mise à jour est expliquée ici, avec son utilité et son fonctionnement.",
