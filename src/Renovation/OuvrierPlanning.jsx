@@ -188,7 +188,18 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
         }
         (byDay[cell.jour] ||= []).push({ ...base, taches, collegues: personnes.filter(n => n !== prenom) });
       } else {
-        (byDay[cell.jour] ||= []).push({ ...base, personnes });
+        // Vues chef : TOUTES les tâches de la cellule, avec leurs assignés
+        // (sans assignés = toute l'équipe présente sur le chantier).
+        const taches = [];
+        if (Array.isArray(cell.taches) && cell.taches.length) {
+          cell.taches.forEach(t => {
+            if (!t.text?.trim()) return;
+            taches.push({ text: t.text.trim(), ouvriers: (t.ouvriers || []).filter(Boolean) });
+          });
+        } else if (cell.planifie?.trim()) {
+          cell.planifie.split("\n").filter(l => l.trim()).forEach(l => taches.push({ text: l.trim(), ouvriers: [] }));
+        }
+        (byDay[cell.jour] ||= []).push({ ...base, personnes, taches });
       }
     });
     return byDay;
@@ -365,7 +376,7 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
                     <span style={{ fontSize:13, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
                   </div>
                 )}
-                <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6 }}>
+                <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom: c.taches.length ? 12 : 0 }}>
                   <Icon as={Users} size={14} color={T.textMuted} strokeWidth={2.2}/>
                   {c.personnes.length > 0 ? (
                     c.personnes.map(n => {
@@ -383,6 +394,24 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResp
                     <span style={{ fontSize:12.5, color:T.textMuted, fontStyle:"italic" }}>Personne d'affecté</span>
                   )}
                 </div>
+                {/* Tâches du jour sur ce chantier, avec qui doit les faire */}
+                {c.taches.length > 0 && (
+                  <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:6 }}>
+                    {c.taches.map((t, j) => (
+                      <li key={j} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:13.5, color:T.text, lineHeight:1.4 }}>
+                        <span style={{ width:6, height:6, borderRadius:"50%", background:c.couleur, marginTop:6, flexShrink:0 }}/>
+                        <span style={{ flex:1 }}>
+                          {t.text}
+                          {t.ouvriers.length > 0 ? (
+                            <span style={{ color:T.textSub, fontWeight:700 }}> — {t.ouvriers.join(", ")}</span>
+                          ) : (
+                            <span style={{ color:T.textMuted, fontStyle:"italic" }}> — tous</span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </MobileCard>
             ))
           )}
