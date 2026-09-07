@@ -24,7 +24,7 @@ const CATEGORIES = [
   "Autre",
 ];
 
-const UNITES = ["U", "m²", "ml", "kg", "L", "boîte", "rouleau", "sac", "palette"];
+const UNITES = ["U", "m²", "m³", "ml", "kg", "L", "boîte", "rouleau", "sac", "palette"];
 
 const emptyArticle = () => ({
   id: null,
