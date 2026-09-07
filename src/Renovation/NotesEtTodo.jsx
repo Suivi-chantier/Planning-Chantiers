@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { getBranchAccent, FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
+import { MobileHero, MobileStat, MobileCard, MobileTabs, MobileEmptyState, CARD_SHADOW } from "../mobileUI";
 import {
   getAssignes, estAssigne, ECHEANCE_TYPES, echeanceLabel, computeEcheanceDate,
   envoyerEmailAssignation, envoyerEmailsTerminee, envoyerEmailsMaj,
@@ -10,7 +11,7 @@ import {
 import {
   ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
   Calendar, AlarmClock, FileText, CircleCheck, ListChecks,
-  ChevronDown, ChevronRight, History, Send,
+  ChevronDown, ChevronRight, History, Send, RefreshCw,
 } from "lucide-react";
 
 // ─── PRIORITÉS ────────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ function SelecteurAssignes({ assignes, onChange, utilisateurs, T, acc }) {
             style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
               color: assignes.length > 0 ? acc.accent : T.textMuted, pointerEvents: "none" }}/>
           <select value="" onChange={e => ajouter(e.target.value)} style={{
-            width: "100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
+            width: "100%", padding: "7px 10px 7px 28px", borderRadius: 10,
             border: `1px solid ${assignes.length > 0 ? acc.border : T.border}`,
             background: T.card, color: T.textMuted,
             fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", fontWeight: 500,
@@ -90,7 +91,7 @@ function SelecteurEcheance({ type, date, onType, onDate, T }) {
   return (
     <>
       <select value={type} onChange={e => onType(e.target.value)} title="Échéance (optionnel)" style={{
-        padding: "6px 10px", borderRadius: RADIUS.md,
+        padding: "7px 10px", borderRadius: 10,
         border: `1px solid ${actif ? "#f5a623" : T.border}`, background: T.card,
         color: actif ? "#f5a623" : T.textMuted,
         fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
@@ -104,7 +105,7 @@ function SelecteurEcheance({ type, date, onType, onDate, T }) {
       {type === "date" && (
         <input type="date" value={date} onChange={e => onDate(e.target.value)}
           title="Date limite" style={{
-            padding: "6px 10px", borderRadius: RADIUS.md,
+            padding: "6px 10px", borderRadius: 10,
             border: `1px solid ${date ? "#f5a623" : T.border}`, background: T.card,
             color: date ? "#f5a623" : T.textMuted,
             fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
@@ -235,7 +236,9 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
     return (
       <div style={{
         background: T.surface, border: `1px solid ${acc.accent}`,
-        borderRadius: RADIUS.lg, padding: "12px 14px", marginBottom: 6,
+        borderLeft: `4px solid ${acc.accent}`,
+        borderRadius: 14, padding: "14px 16px", marginBottom: 10,
+        boxShadow: CARD_SHADOW,
       }}>
         <input
           ref={inputRef}
@@ -244,7 +247,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
           onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") cancelEdit(); }}
           style={{
             width: "100%", background: "transparent", border: "none",
-            color: T.text, fontFamily: "inherit", fontSize: FONT.base.size, outline: "none",
+            color: T.text, fontFamily: "inherit", fontSize: FONT.base.size, fontWeight: 600, outline: "none",
             marginBottom: 10,
           }}
         />
@@ -286,7 +289,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
             placeholder="Détails, contexte, contacts, références…"
             rows={3}
             style={{
-              width: "100%", padding: "8px 10px", borderRadius: RADIUS.md,
+              width: "100%", padding: "8px 10px", borderRadius: 10,
               border: `1px solid ${T.border}`, background: T.card,
               color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
               lineHeight: 1.6, resize: "vertical", outline: "none",
@@ -306,7 +309,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
                 pointerEvents:"none",
               }}/>
               <select value={draftChantier} onChange={e => setDraftChantier(e.target.value)} style={{
-                width:"100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
+                width:"100%", padding: "7px 10px 7px 28px", borderRadius: 10,
                 border: `1px solid ${draftChantier ? acc.border : T.border}`,
                 background: T.card, color: draftChantier ? T.text : T.textMuted,
                 fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
@@ -369,15 +372,16 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
         </div>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
           <button onClick={cancelEdit} style={{
-            padding: "6px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            padding: "7px 14px", borderRadius: 10, border: `1px solid ${T.border}`,
             background: "transparent", color: T.textSub, fontFamily: "inherit",
             fontSize: FONT.sm.size, fontWeight: 600, cursor: "pointer",
           }}>Annuler</button>
           <button onClick={saveEdit} style={{
             display:"inline-flex", alignItems:"center", gap:6,
-            padding: "6px 14px", borderRadius: RADIUS.md, border: "none",
+            padding: "7px 14px", borderRadius: 10, border: "none",
             background: acc.accent, color: acc.onAccent,
             fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            boxShadow: `0 5px 14px ${acc.accent}55`,
           }}>
             <Icon as={Check} size={14}/>
             Enregistrer
@@ -389,47 +393,48 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
 
   return (
     <div className="todo-row" style={{
-      display: "flex", alignItems: "flex-start", gap: 10,
-      padding: "10px 12px", borderRadius: RADIUS.md, marginBottom: 4,
-      background: todo.fait ? "rgba(255,255,255,0.02)" : T.card,
-      border: `1px solid ${todo.fait ? "transparent" : T.border}`,
-      borderLeft: todo.fait ? `1px solid transparent` : `3px solid ${prio.color}`,
-      transition: "all .15s", opacity: todo.fait ? 0.55 : 1,
+      display: "flex", alignItems: "flex-start", gap: 12,
+      padding: "13px 16px", borderRadius: 14, marginBottom: 10,
+      background: T.surface,
+      border: `1px solid ${T.border}`,
+      borderLeft: `4px solid ${todo.fait ? "#22c55e" : prio.color}`,
+      boxShadow: todo.fait ? "none" : CARD_SHADOW,
+      transition: "all .15s", opacity: todo.fait ? 0.6 : 1,
     }}>
       {/* Checkbox */}
       <button onClick={() => onToggle(todo.id)} title={todo.fait ? "Marquer comme à faire" : "Marquer comme terminé"}
         style={{
-          width: 20, height: 20, borderRadius: RADIUS.sm + 2, flexShrink: 0,
+          width: 22, height: 22, borderRadius: 7, flexShrink: 0,
           border: `2px solid ${todo.fait ? "#22c55e" : prio.color}`,
           background: todo.fait ? "#22c55e" : "transparent",
           cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
           marginTop: 2, padding: 0,
         }}>
-        {todo.fait && <Icon as={Check} size={12} color="#ffffff" strokeWidth={3}/>}
+        {todo.fait && <Icon as={Check} size={13} color="#ffffff" strokeWidth={3}/>}
       </button>
 
       {/* Texte + meta */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: FONT.base.size, color: T.text,
+          fontSize: FONT.base.size, fontWeight: 600, color: T.text,
           textDecoration: todo.fait ? "line-through" : "none",
           wordBreak: "break-word", lineHeight: 1.4,
         }}>
           {todo.texte}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 5, alignItems: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6, alignItems: "center" }}>
           {!todo.fait && (
             <span style={{
               display: "inline-flex", alignItems: "center",
-              padding: "1px 8px", borderRadius: RADIUS.pill,
+              padding: "2px 9px", borderRadius: RADIUS.pill,
               background: prio.bg, color: prio.color,
-              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .3,
+              fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .3,
             }}>{prio.label}</span>
           )}
           {assignes.map(a => (
             <span key={a.email} title={a.email} style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              padding: "1px 8px", borderRadius: RADIUS.pill,
+              padding: "2px 9px", borderRadius: RADIUS.pill,
               background: acc.bg10, color: acc.accent,
               fontSize: FONT.xs.size, fontWeight: 700,
             }}>
@@ -440,7 +445,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
           {chantier && (
             <span title="Chantier" style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              padding: "1px 8px", borderRadius: RADIUS.pill,
+              padding: "2px 9px", borderRadius: RADIUS.pill,
               background: chantier.couleur + "22",
               border: `1px solid ${chantier.couleur}55`,
               color: T.text, fontSize: FONT.xs.size, fontWeight: 700,
@@ -454,14 +459,14 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
             const enRetard = !todo.fait && todo.date_limite < todayIso;
             const aujourdhui = todo.date_limite === todayIso;
             const couleur = enRetard ? "#e15a5a" : aujourdhui ? "#f5a623" : T.textSub;
-            const bg = enRetard ? "rgba(225,90,90,0.12)" : aujourdhui ? "rgba(245,166,35,0.12)" : "rgba(255,255,255,0.04)";
+            const bg = enRetard ? "rgba(225,90,90,0.12)" : aujourdhui ? "rgba(245,166,35,0.12)" : T.card;
             const dateAffichee = new Date(todo.date_limite + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
             const labelType = todo.echeance_type && todo.echeance_type !== "date" ? echeanceLabel(todo.echeance_type) : "";
             return (
               <span title={enRetard ? "Tâche en retard" : aujourdhui ? "Date limite aujourd'hui" : "Date limite"}
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 4,
-                  padding: "1px 8px", borderRadius: RADIUS.pill,
+                  padding: "2px 9px", borderRadius: RADIUS.pill,
                   background: bg, color: couleur,
                   fontSize: FONT.xs.size, fontWeight: 700,
                 }}>
@@ -473,7 +478,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
           {todo.fait && todo.fait_par_nom && (
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 4,
-              padding: "1px 8px", borderRadius: RADIUS.pill,
+              padding: "2px 9px", borderRadius: RADIUS.pill,
               background: "rgba(34,197,94,0.10)", color: "#22c55e",
               fontSize: FONT.xs.size, fontWeight: 700,
             }}>
@@ -503,8 +508,8 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
             </button>
             {noteExpanded && (
               <div style={{
-                marginTop: 5, padding: "8px 12px", borderRadius: RADIUS.md,
-                background: "rgba(255,255,255,0.03)", border: `1px solid ${T.border}`,
+                marginTop: 5, padding: "9px 12px", borderRadius: 10,
+                background: T.card, border: `1px solid ${T.border}`,
                 color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.6,
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
               }}>
@@ -576,7 +581,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
               <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 5 }}>
                 {majs.map(m => (
                   <div key={m.id} style={{
-                    padding: "6px 10px", borderRadius: RADIUS.md,
+                    padding: "7px 11px", borderRadius: 10,
                     background: "rgba(91,138,245,0.06)", border: `1px solid rgba(91,138,245,0.20)`,
                     fontSize: FONT.sm.size, lineHeight: 1.5, color: T.text,
                     whiteSpace: "pre-wrap", wordBreak: "break-word",
@@ -603,7 +608,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
                     }}
                     placeholder="Mise à jour… (Entrée pour envoyer aux personnes concernées)"
                     style={{
-                      flex: 1, padding: "6px 10px", borderRadius: RADIUS.md,
+                      flex: 1, padding: "7px 11px", borderRadius: 10,
                       border: `1px solid #5B8AF5`, background: T.card,
                       color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
                       outline: "none",
@@ -611,17 +616,18 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
                   />
                   <button onClick={envoyerMaj} disabled={!majDraft.trim()} title="Envoyer la mise à jour" style={{
                     display: "inline-flex", alignItems: "center", gap: 5,
-                    padding: "6px 12px", borderRadius: RADIUS.md, border: "none",
+                    padding: "7px 12px", borderRadius: 10, border: "none",
                     background: majDraft.trim() ? "#5B8AF5" : T.card,
                     color: majDraft.trim() ? "#fff" : T.textMuted,
                     fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
                     cursor: majDraft.trim() ? "pointer" : "not-allowed",
+                    boxShadow: majDraft.trim() ? "0 4px 12px rgba(91,138,245,0.4)" : "none",
                   }}>
                     <Icon as={Send} size={12}/>
                     Envoyer
                   </button>
                   <button onClick={() => { setMajDraft(""); setMajSaisie(false); }} title="Annuler" style={{
-                    padding: 6, borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                    padding: 6, borderRadius: 10, border: `1px solid ${T.border}`,
                     background: "transparent", color: T.textSub, cursor: "pointer",
                     display: "inline-flex", alignItems: "center",
                   }}>
@@ -632,9 +638,9 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
                 <button onClick={() => setMajSaisie(true)} style={{
                   display: "inline-flex", alignItems: "center", gap: 5,
                   marginTop: majs.length > 0 ? 6 : 0,
-                  padding: "4px 10px", borderRadius: RADIUS.md,
+                  padding: "4px 10px", borderRadius: 10,
                   border: `1px dashed ${T.border}`, background: "transparent",
-                  color: T.textSub, fontFamily: "inherit",
+                  color: T.textMuted, fontFamily: "inherit",
                   fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
                 }}>
                   <Icon as={History} size={11}/>
@@ -655,7 +661,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, onAddMa
             opacity: 0.55, transition: "opacity .15s, background .15s",
             display:"inline-flex", alignItems:"center",
           }}
-          onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "rgba(16,24,40,0.05)"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "0.55"; e.currentTarget.style.background = "transparent"; }}>
             <Icon as={Pencil} size={13}/>
           </button>
@@ -890,9 +896,11 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
       return (PRIO_ORDER[a.priorite] ?? 1) - (PRIO_ORDER[b.priorite] ?? 1);
     });
 
+  const todayIso = new Date().toISOString().slice(0, 10);
   const nbActifs = todos.filter(t => !t.fait).length;
   const nbFaits  = todos.filter(t => t.fait).length;
   const nbMes    = monEmail ? todos.filter(t => !t.fait && estAssigne(t, monEmail)).length : 0;
+  const nbRetard = todos.filter(t => !t.fait && t.date_limite && t.date_limite < todayIso).length;
 
   if (loading) {
     return (
@@ -902,315 +910,286 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     );
   }
 
+  // Indicateur de synchro dans le hero (comme la météo du Tableau de bord)
+  const syncRight = (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 7, flexShrink: 0,
+      background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)",
+      borderRadius: 13, padding: "8px 12px",
+    }}>
+      <Icon as={saving ? RefreshCw : CircleCheck} size={15} style={{ color: saving ? "#fbbf24" : "#4ade80" }}/>
+      <span style={{ fontSize: 12.5, fontWeight: 700, color: "#fff" }}>
+        {saving ? "Sauvegarde…" : "Synchronisé"}
+      </span>
+    </div>
+  );
+
   return (
-    <div className="ntd-page" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+    <div className="page-padding ntd-page" style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
       <style>{`
-        @media(max-width:767px) {
-          .ntd-page .ntd-header{padding:10px 14px!important;font-size:14px}
-          .ntd-page .ntd-header > div:first-child{font-size:14px!important;letter-spacing:.5px!important}
-          .ntd-page .ntd-body{padding-left:0!important;padding-right:0!important}
+        @media (max-width: 767px) {
+          .ntd-page{padding:14px 12px!important}
+          .ntd-stats{grid-template-columns:repeat(2,1fr)!important}
         }
       `}</style>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="ntd-header" style={{
-        padding: "14px 28px", borderBottom: `1px solid ${T.headerBorder || T.border}`,
-        background: T.surface, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-        flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: RADIUS.md,
-            background: acc.bg10, color: acc.accent,
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>
-            <Icon as={ClipboardList} size={18} strokeWidth={2}/>
-          </div>
-          <div style={{ fontSize: FONT.xl.size, fontWeight: 800, letterSpacing: -0.3, color: T.text }}>
-            Notes & To-do
-          </div>
+        {/* Hero — kit partagé (mobileUI), même langage que le Tableau de bord */}
+        <MobileHero
+          accent={acc.accent}
+          eyebrow={new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          title="Notes & To-do"
+          right={syncRight}
+          chips={[
+            { icon: ListTodo, value: nbActifs, label: "à faire", color: acc.accent },
+            ...(monEmail ? [{ icon: User, value: nbMes, label: "pour moi", color: "#8ab0ff" }] : []),
+            ...(nbRetard > 0 ? [{ icon: AlarmClock, value: nbRetard, label: "en retard", color: "#f87171" }] : []),
+          ]}
+        />
+
+        {/* KPI */}
+        <div className="ntd-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          <MobileStat T={T} icon={ListTodo} label="À faire" value={nbActifs} color={acc.accent}
+            sub={nbActifs > 0 ? "tâches en cours" : "tout est fait !"}/>
+          <MobileStat T={T} icon={User} label="Mes tâches" value={monEmail ? nbMes : "—"} color="#5b8af5"
+            sub="assignées à vous"/>
+          <MobileStat T={T} icon={AlarmClock} label="En retard" value={nbRetard}
+            color={nbRetard > 0 ? "#ef4444" : "#94a3b8"}
+            sub={nbRetard > 0 ? "échéance dépassée" : "rien en retard"}/>
+          <MobileStat T={T} icon={CircleCheck} label="Terminées" value={nbFaits} color="#22c55e"
+            sub="à vider quand vous voulez"/>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", fontSize: FONT.xs.size + 1 }}>
-          {saving ? (
-            <span style={{ color: T.textMuted }}>Sauvegarde…</span>
-          ) : (
-            <span style={{ display:"inline-flex", alignItems:"center", gap:5, color: "#22c55e" }}>
-              <Icon as={CircleCheck} size={13}/>
-              Synchronisé
-            </span>
-          )}
-        </div>
-      </div>
 
-      {/* ── Corps : liste de tâches pleine largeur ─────────────────────────── */}
-      <div className="ntd-body" style={{
-        flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
-      }}>
-        <div style={{
-          flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
-          width: "100%", maxWidth: 980, margin: "0 auto",
-        }}>
-          {/* Sous-header todo */}
+        {/* Saisie nouvelle tâche */}
+        <MobileCard T={T} accent={acc.accent} style={{ padding: "16px 18px" }}>
           <div style={{
-            padding: "14px 20px 12px", borderBottom: `1px solid ${T.border}`,
-            background: T.surface, flexShrink: 0,
+            display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+            fontSize: FONT.md.size, fontWeight: 700, color: T.text,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-              <Icon as={ListTodo} size={16} color={T.textSub}/>
-              <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text }}>
-                Liste de tâches
-              </div>
-              <div style={{
-                background: nbActifs > 0 ? acc.bg10 : "rgba(34,197,94,0.10)",
-                color: nbActifs > 0 ? acc.accent : "#22c55e",
-                borderRadius: RADIUS.pill, padding: "2px 10px",
-                fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .3,
-              }}>
-                {nbActifs} à faire
-              </div>
-              {nbFaits > 0 && (
-                <button onClick={clearFaits} title={`Supprimer définitivement les ${nbFaits} tâches terminées`}
-                  style={{
-                    marginLeft: "auto",
-                    display:"inline-flex", alignItems:"center", gap:5,
-                    background: "transparent",
-                    border: `1px solid rgba(225,90,90,0.30)`, borderRadius: RADIUS.md,
-                    color: "#e15a5a", fontFamily: "inherit",
-                    fontSize: FONT.xs.size + 1, fontWeight: 600,
-                    cursor: "pointer", padding: "5px 10px",
-                  }}>
-                  <Icon as={Trash2} size={12}/>
-                  Vider terminées ({nbFaits})
-                </button>
-              )}
+            <div style={{
+              width: 30, height: 30, borderRadius: 9,
+              background: `linear-gradient(135deg, ${acc.accent}2e, ${acc.accent}14)`, color: acc.accent,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon as={Plus} size={16} strokeWidth={2.4}/>
             </div>
-
-            {/* Filtres */}
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-              {[
-                { id: "actif", label: `À faire`, count: nbActifs },
-                ...(monEmail ? [{ id: "mes", label: `Mes tâches`, count: nbMes, icon: User, highlight: nbMes > 0 }] : []),
-                { id: "fait",  label: `Terminées`, count: nbFaits },
-              ].map(f => {
-                const active = filtre === f.id;
-                return (
-                  <button key={f.id} onClick={() => setFiltre(f.id)} style={{
-                    display:"inline-flex", alignItems:"center", gap:5,
-                    padding: "5px 11px", borderRadius: RADIUS.md, fontFamily: "inherit",
-                    fontSize: FONT.xs.size + 1, fontWeight: active ? 700 : 600,
-                    cursor: "pointer",
-                    border: `1px solid ${active ? acc.accent : T.border}`,
-                    background: active ? acc.bg10 : "transparent",
-                    color: active ? acc.accent : T.textSub,
-                  }}>
-                    {f.icon && <Icon as={f.icon} size={11}/>}
-                    {f.label}
-                    <span style={{
-                      fontSize: FONT.xs.size, fontWeight: 700,
-                      opacity: active ? .8 : .55,
-                    }}>({f.count})</span>
-                  </button>
-                );
-              })}
-              {chantiers.length > 0 && (
-                <div style={{ position: "relative", marginLeft: "auto", minWidth: 140 }}>
-                  {filtreChantier && (
-                    <span style={{
-                      position:"absolute", left:10, top:"50%", transform:"translateY(-50%)",
-                      width: 9, height: 9, borderRadius: 2,
-                      background: chantiers.find(c => c.id === filtreChantier)?.couleur || T.textMuted,
-                      pointerEvents: "none",
-                    }}/>
-                  )}
-                  <select value={filtreChantier} onChange={e => setFiltreChantier(e.target.value)} style={{
-                    width: "100%",
-                    padding: filtreChantier ? "4px 22px 4px 26px" : "4px 10px",
-                    borderRadius: RADIUS.md,
-                    border: `1px solid ${filtreChantier ? acc.border : T.border}`,
-                    background: T.card, color: filtreChantier ? T.text : T.textSub,
-                    fontFamily: "inherit", fontSize: FONT.xs.size + 1,
-                    fontWeight: filtreChantier ? 700 : 600,
-                    outline: "none", cursor: "pointer",
-                  }}>
-                    <option value="">Tous les chantiers</option>
-                    {chantiers.map(c => (
-                      <option key={c.id} value={c.id}>{c.nom}</option>
-                    ))}
-                  </select>
-                  {filtreChantier && (
-                    <button onClick={() => setFiltreChantier("")} title="Retirer le filtre"
-                      style={{
-                        position:"absolute", right:4, top:"50%", transform:"translateY(-50%)",
-                        background:"transparent", border:"none", color:T.textMuted,
-                        cursor:"pointer", padding:2, borderRadius:3,
-                        display:"inline-flex", alignItems:"center",
-                      }}>
-                      <Icon as={X} size={11}/>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+            Nouvelle tâche
           </div>
-
-          {/* Saisie nouveau todo */}
-          <div style={{
-            padding: "12px 20px", borderBottom: `1px solid ${T.border}`,
-            background: T.surface, flexShrink: 0,
-          }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-              <input
-                ref={inputRef}
-                value={newTodo}
-                onChange={e => setNewTodo(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") addTodo(); }}
-                placeholder="Nouvelle tâche… (Entrée pour valider)"
-                style={{
-                  flex: 1, padding: "9px 12px", borderRadius: RADIUS.md,
-                  border: `1px solid ${T.border}`, background: T.card,
-                  color: T.text, fontFamily: "inherit", fontSize: FONT.base.size,
-                  outline: "none", transition: "border-color .12s",
-                }}
-                onFocus={e => e.target.style.borderColor = acc.accent}
-                onBlur={e => e.target.style.borderColor = T.border}
-              />
-              <button onClick={addTodo} disabled={!newTodo.trim()} style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                background: newTodo.trim() ? acc.accent : T.card,
-                border: newTodo.trim() ? "none" : `1px solid ${T.border}`,
-                borderRadius: RADIUS.md, padding: "9px 16px",
-                color: newTodo.trim() ? acc.onAccent : T.textMuted,
-                fontFamily: "inherit", fontSize: FONT.sm.size + 1,
-                fontWeight: 800, cursor: newTodo.trim() ? "pointer" : "not-allowed",
-                flexShrink: 0,
-              }}>
-                <Icon as={Plus} size={15}/>
-                Ajouter
-              </button>
-            </div>
-            {/* Sélecteur priorité + assignés + échéance */}
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 5 }}>
-                {PRIORITES.map(p => (
-                  <button key={p.id} onClick={() => setNewPrio(p.id)} style={{
-                    padding: "4px 11px", borderRadius: RADIUS.pill,
-                    border: `1.5px solid ${newPrio === p.id ? p.color : T.border}`,
-                    background: newPrio === p.id ? p.bg : "transparent",
-                    color: newPrio === p.id ? p.color : T.textSub,
-                    fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
-                  }}>{p.label}</button>
-                ))}
-              </div>
-              <SelecteurAssignes
-                assignes={newAssignes} onChange={setNewAssignes}
-                utilisateurs={utilisateurs} T={T} acc={acc}
-              />
-              <SelecteurEcheance
-                type={newEchType} date={newEchDate}
-                onType={setNewEchType} onDate={setNewEchDate} T={T}
-              />
-            </div>
-            <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              {chantiers.length > 0 && (
-                <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
-                  <span style={{
-                    position:"absolute", left:10, top:"50%", transform:"translateY(-50%)",
-                    width: 10, height: 10, borderRadius: 3,
-                    background: newChantier ? (chantiers.find(c => c.id === newChantier)?.couleur || T.textMuted) : T.textMuted,
-                    opacity: newChantier ? 1 : 0.4, pointerEvents:"none",
-                  }}/>
-                  <select value={newChantier} onChange={e => setNewChantier(e.target.value)} style={{
-                    width:"100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
-                    border: `1px solid ${newChantier ? acc.border : T.border}`,
-                    background: T.card, color: newChantier ? T.text : T.textMuted,
-                    fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
-                    fontWeight: newChantier ? 600 : 500,
-                  }}>
-                    <option value="">Aucun chantier (optionnel)</option>
-                    {chantiers.map(c => (
-                      <option key={c.id} value={c.id}>{c.nom}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <button onClick={() => setNewNoteVisible(v => !v)} style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                padding: "6px 12px", borderRadius: RADIUS.md,
-                border: `1px ${newNoteVisible || newNote.trim() ? "solid" : "dashed"} ${newNote.trim() ? acc.accent : T.border}`,
-                background: newNote.trim() ? acc.bg10 : "transparent",
-                color: newNote.trim() ? acc.accent : T.textSub,
-                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
-              }}>
-                <Icon as={FileText} size={12}/>
-                {newNoteVisible ? "Masquer la note" : newNote.trim() ? "Note ajoutée" : "Ajouter une note"}
-              </button>
-            </div>
-            {newNoteVisible && (
-              <textarea
-                value={newNote}
-                onChange={e => setNewNote(e.target.value)}
-                placeholder="Détails, contexte, contacts, références… (enregistrée avec la tâche)"
-                rows={3}
-                style={{
-                  width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: RADIUS.md,
-                  border: `1px solid ${T.border}`, background: T.card,
-                  color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
-                  lineHeight: 1.6, resize: "vertical", outline: "none",
-                }}
-              />
-            )}
-            {notifStatus && (
-              <div style={{
-                marginTop: 8, padding: "6px 12px", borderRadius: RADIUS.md,
-                background: notifStatus.startsWith("⚠") ? "rgba(245,166,35,0.10)"
-                          : notifStatus.startsWith("✓") ? "rgba(34,197,94,0.10)"
-                          : acc.bg10,
-                color:      notifStatus.startsWith("⚠") ? "#f5a623"
-                          : notifStatus.startsWith("✓") ? "#22c55e"
-                          : acc.accent,
-                fontSize: FONT.xs.size + 1, fontWeight: 600,
-              }}>{notifStatus}</div>
-            )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+            <input
+              ref={inputRef}
+              value={newTodo}
+              onChange={e => setNewTodo(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") addTodo(); }}
+              placeholder="Décrivez la tâche… (Entrée pour valider)"
+              style={{
+                flex: 1, padding: "10px 13px", borderRadius: 11,
+                border: `1px solid ${T.border}`, background: T.card,
+                color: T.text, fontFamily: "inherit", fontSize: FONT.base.size,
+                outline: "none", transition: "border-color .12s",
+              }}
+              onFocus={e => e.target.style.borderColor = acc.accent}
+              onBlur={e => e.target.style.borderColor = T.border}
+            />
+            <button onClick={addTodo} disabled={!newTodo.trim()} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: newTodo.trim() ? `linear-gradient(135deg, ${acc.accent}, ${acc.accent}cc)` : T.card,
+              border: newTodo.trim() ? "none" : `1px solid ${T.border}`,
+              borderRadius: 11, padding: "10px 18px",
+              color: newTodo.trim() ? acc.onAccent : T.textMuted,
+              fontFamily: "inherit", fontSize: FONT.sm.size + 1,
+              fontWeight: 800, cursor: newTodo.trim() ? "pointer" : "not-allowed",
+              boxShadow: newTodo.trim() ? `0 5px 14px ${acc.accent}55` : "none",
+              flexShrink: 0,
+            }}>
+              <Icon as={Plus} size={15}/>
+              Ajouter
+            </button>
           </div>
-
-          {/* Liste des todos */}
-          <div style={{ flex: 1, overflow: "auto", padding: "12px 20px" }}>
-            {todosFiltres.length === 0 ? (
-              <div style={{
-                display: "flex", flexDirection: "column", alignItems: "center",
-                justifyContent: "center", height: "100%", gap: 14,
-                color: T.textMuted, fontSize: FONT.sm.size,
-              }}>
-                <div style={{
-                  width: 56, height: 56, borderRadius: "50%",
-                  background: filtre === "fait" ? "rgba(34,197,94,0.10)" : acc.bg10,
-                  color: filtre === "fait" ? "#22c55e" : acc.accent,
-                  display: "flex", alignItems: "center", justifyContent: "center",
+          {/* Sélecteur priorité + assignés + échéance */}
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 5 }}>
+              {PRIORITES.map(p => (
+                <button key={p.id} onClick={() => setNewPrio(p.id)} style={{
+                  padding: "4px 11px", borderRadius: RADIUS.pill,
+                  border: `1.5px solid ${newPrio === p.id ? p.color : T.border}`,
+                  background: newPrio === p.id ? p.bg : "transparent",
+                  color: newPrio === p.id ? p.color : T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
+                }}>{p.label}</button>
+              ))}
+            </div>
+            <SelecteurAssignes
+              assignes={newAssignes} onChange={setNewAssignes}
+              utilisateurs={utilisateurs} T={T} acc={acc}
+            />
+            <SelecteurEcheance
+              type={newEchType} date={newEchDate}
+              onType={setNewEchType} onDate={setNewEchDate} T={T}
+            />
+          </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            {chantiers.length > 0 && (
+              <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+                <span style={{
+                  position:"absolute", left:10, top:"50%", transform:"translateY(-50%)",
+                  width: 10, height: 10, borderRadius: 3,
+                  background: newChantier ? (chantiers.find(c => c.id === newChantier)?.couleur || T.textMuted) : T.textMuted,
+                  opacity: newChantier ? 1 : 0.4, pointerEvents:"none",
+                }}/>
+                <select value={newChantier} onChange={e => setNewChantier(e.target.value)} style={{
+                  width:"100%", padding: "7px 10px 7px 28px", borderRadius: 10,
+                  border: `1px solid ${newChantier ? acc.border : T.border}`,
+                  background: T.card, color: newChantier ? T.text : T.textMuted,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+                  fontWeight: newChantier ? 600 : 500,
                 }}>
-                  <Icon as={filtre === "fait" ? CircleCheck : ListTodo} size={28} strokeWidth={1.75}/>
-                </div>
-                {filtre === "actif" && "Aucune tâche en cours — bien joué !"}
-                {filtre === "fait" && "Aucune tâche terminée"}
-                {filtre === "mes" && "Aucune tâche assignée à vous"}
+                  <option value="">Aucun chantier (optionnel)</option>
+                  {chantiers.map(c => (
+                    <option key={c.id} value={c.id}>{c.nom}</option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              todosFiltres.map(todo => (
-                <TodoItem
-                  key={todo.id}
-                  todo={todo}
-                  onToggle={toggleTodo}
-                  onDelete={deleteTodo}
-                  onEdit={editTodo}
-                  onToggleSousTache={toggleSousTache}
-                  onAddMaj={addMaj}
-                  T={T}
-                  utilisateurs={utilisateurs}
-                  chantiers={chantiers}
-                  acc={acc}
-                />
-              ))
+            )}
+            <button onClick={() => setNewNoteVisible(v => !v)} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              padding: "7px 12px", borderRadius: 10,
+              border: `1px ${newNoteVisible || newNote.trim() ? "solid" : "dashed"} ${newNote.trim() ? acc.accent : T.border}`,
+              background: newNote.trim() ? acc.bg10 : "transparent",
+              color: newNote.trim() ? acc.accent : T.textSub,
+              fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+            }}>
+              <Icon as={FileText} size={12}/>
+              {newNoteVisible ? "Masquer la note" : newNote.trim() ? "Note ajoutée" : "Ajouter une note"}
+            </button>
+          </div>
+          {newNoteVisible && (
+            <textarea
+              value={newNote}
+              onChange={e => setNewNote(e.target.value)}
+              placeholder="Détails, contexte, contacts, références… (enregistrée avec la tâche)"
+              rows={3}
+              style={{
+                width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: 10,
+                border: `1px solid ${T.border}`, background: T.card,
+                color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
+                lineHeight: 1.6, resize: "vertical", outline: "none",
+              }}
+            />
+          )}
+          {notifStatus && (
+            <div style={{
+              marginTop: 10, padding: "7px 12px", borderRadius: 10,
+              background: notifStatus.startsWith("⚠") ? "rgba(245,166,35,0.10)"
+                        : notifStatus.startsWith("✓") ? "rgba(34,197,94,0.10)"
+                        : acc.bg10,
+              color:      notifStatus.startsWith("⚠") ? "#f5a623"
+                        : notifStatus.startsWith("✓") ? "#22c55e"
+                        : acc.accent,
+              fontSize: FONT.xs.size + 1, fontWeight: 600,
+            }}>{notifStatus}</div>
+          )}
+        </MobileCard>
+
+        {/* Filtres : onglets segmentés + chantier + vider terminées */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <MobileTabs
+            T={T} accent={acc.accent} onAccent={acc.onAccent}
+            value={filtre} onChange={setFiltre}
+            tabs={[
+              { id: "actif", label: "À faire", icon: ListTodo, count: nbActifs },
+              ...(monEmail ? [{ id: "mes", label: "Mes tâches", icon: User, count: nbMes }] : []),
+              { id: "fait", label: "Terminées", icon: CircleCheck, count: nbFaits },
+            ]}
+          />
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {chantiers.length > 0 && (
+              <div style={{ position: "relative", minWidth: 170 }}>
+                {filtreChantier && (
+                  <span style={{
+                    position:"absolute", left:12, top:"50%", transform:"translateY(-50%)",
+                    width: 9, height: 9, borderRadius: 2,
+                    background: chantiers.find(c => c.id === filtreChantier)?.couleur || T.textMuted,
+                    pointerEvents: "none",
+                  }}/>
+                )}
+                <select value={filtreChantier} onChange={e => setFiltreChantier(e.target.value)} style={{
+                  width: "100%",
+                  padding: filtreChantier ? "9px 24px 9px 28px" : "9px 14px",
+                  borderRadius: 12,
+                  border: `1px solid ${filtreChantier ? acc.border : T.border}`,
+                  background: T.surface, color: filtreChantier ? T.text : T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.xs.size + 2,
+                  fontWeight: filtreChantier ? 700 : 600,
+                  outline: "none", cursor: "pointer", boxShadow: CARD_SHADOW,
+                }}>
+                  <option value="">Tous les chantiers</option>
+                  {chantiers.map(c => (
+                    <option key={c.id} value={c.id}>{c.nom}</option>
+                  ))}
+                </select>
+                {filtreChantier && (
+                  <button onClick={() => setFiltreChantier("")} title="Retirer le filtre"
+                    style={{
+                      position:"absolute", right:5, top:"50%", transform:"translateY(-50%)",
+                      background:"transparent", border:"none", color:T.textMuted,
+                      cursor:"pointer", padding:2, borderRadius:3,
+                      display:"inline-flex", alignItems:"center",
+                    }}>
+                    <Icon as={X} size={11}/>
+                  </button>
+                )}
+              </div>
+            )}
+            {nbFaits > 0 && (
+              <button onClick={clearFaits} title={`Supprimer définitivement les ${nbFaits} tâches terminées`}
+                style={{
+                  display:"inline-flex", alignItems:"center", gap:6,
+                  background: T.surface,
+                  border: `1px solid rgba(225,90,90,0.30)`, borderRadius: 12,
+                  color: "#e15a5a", fontFamily: "inherit",
+                  fontSize: FONT.xs.size + 2, fontWeight: 700,
+                  cursor: "pointer", padding: "9px 14px", boxShadow: CARD_SHADOW,
+                }}>
+                <Icon as={Trash2} size={13}/>
+                Vider terminées ({nbFaits})
+              </button>
             )}
           </div>
+        </div>
+
+        {/* Liste des tâches */}
+        <div>
+          {todosFiltres.length === 0 ? (
+            <MobileCard T={T}>
+              <MobileEmptyState
+                T={T}
+                icon={filtre === "fait" ? CircleCheck : ClipboardList}
+                title={
+                  filtre === "actif" ? "Aucune tâche en cours — bien joué !"
+                  : filtre === "fait" ? "Aucune tâche terminée"
+                  : "Aucune tâche assignée à vous"
+                }
+                hint={filtre === "actif" ? "Ajoutez une tâche ci-dessus pour démarrer." : null}
+              />
+            </MobileCard>
+          ) : (
+            todosFiltres.map(todo => (
+              <TodoItem
+                key={todo.id}
+                todo={todo}
+                onToggle={toggleTodo}
+                onDelete={deleteTodo}
+                onEdit={editTodo}
+                onToggleSousTache={toggleSousTache}
+                onAddMaj={addMaj}
+                T={T}
+                utilisateurs={utilisateurs}
+                chantiers={chantiers}
+                acc={acc}
+              />
+            ))
+          )}
         </div>
       </div>
     </div>
