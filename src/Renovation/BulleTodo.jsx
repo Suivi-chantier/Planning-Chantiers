@@ -18,10 +18,11 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { supabase } from "../supabase";
 import { getBranchAccent, RADIUS } from "../constants";
 import { Icon } from "../ui";
-import { estAssigne, envoyerEmailsTerminee } from "../todoUtils";
+import { useDirtyGuard } from "../hooks";
+import { getAssignes, estAssigne, echeanceLabel, envoyerEmailsTerminee, envoyerEmailsMaj } from "../todoUtils";
 import {
   ListTodo, X, Calendar, HardHat, ChevronDown, ChevronRight,
-  CircleCheck, Circle, RefreshCw, User, History,
+  CircleCheck, Circle, RefreshCw, User, History, FileText, Send,
 } from "lucide-react";
 
 const KEY_TODOS = "bloc_todos";
@@ -68,15 +69,35 @@ const fmtDate = iso => {
 };
 
 // ─── UNE TÂCHE DANS LE TIROIR ────────────────────────────────────────────────
-function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) {
+function LigneTache({ todo, T, acc, accentTexte, monEmail, onToggle, onToggleSousTache, onAddMaj }) {
   const [ouvert, setOuvert] = useState(false);
   const [majOuvert, setMajOuvert] = useState(false);
+  const [noteOuvert, setNoteOuvert] = useState(false);
+  const [majSaisie, setMajSaisie] = useState(false);
+  const [majDraft, setMajDraft] = useState("");
   const prio = getPrio(todo.priorite);
   const retard = estEnRetard(todo);
   const aujourdhui = estPourAujourdhui(todo);
   const sousTaches = Array.isArray(todo.sous_taches) ? todo.sous_taches : [];
   const stFaites = sousTaches.filter(st => st.fait).length;
   const majs = Array.isArray(todo.maj) ? todo.maj : [];
+  // Co-assignés : les autres personnes sur la même tâche que moi.
+  const coAssignes = getAssignes(todo).filter(
+    a => a.email && String(a.email).toLowerCase() !== String(monEmail || "").toLowerCase()
+  );
+  const echLabel = todo.echeance_type && todo.echeance_type !== "date" ? echeanceLabel(todo.echeance_type) : "";
+
+  // Bloque l'auto-reload PWA pendant la saisie d'une mise à jour.
+  useDirtyGuard("bulle-maj-" + todo.id, !!majDraft.trim());
+
+  const envoyerMaj = () => {
+    const txt = majDraft.trim();
+    if (!txt) return;
+    onAddMaj(todo, txt);
+    setMajDraft("");
+    setMajSaisie(false);
+    setMajOuvert(true);
+  };
 
   const couleurDate = retard ? "#e05c5c" : aujourdhui ? "#ff9a4d" : T.textMuted;
 
@@ -117,13 +138,23 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
               color: prio.color, background: prio.bg, padding: "2px 7px", borderRadius: RADIUS.pill,
             }}>{prio.label}</span>
 
+            {coAssignes.map(a => (
+              <span key={a.email} title={`Aussi assignée à ${a.nom}`} style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 10, fontWeight: 700, color: accentTexte,
+                background: acc.bg10, padding: "2px 7px", borderRadius: RADIUS.pill,
+              }}>
+                <Icon as={User} size={10}/>{a.nom}
+              </span>
+            ))}
+
             {todo.date_limite && (
               <span style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
                 fontSize: 10, fontWeight: 700, color: couleurDate,
               }}>
                 <Icon as={Calendar} size={11}/>
-                {fmtDate(todo.date_limite)}{retard ? " · en retard" : aujourdhui ? " · aujourd'hui" : ""}
+                {echLabel ? `${echLabel} · ` : ""}{fmtDate(todo.date_limite)}{retard ? " · en retard" : aujourdhui ? " · aujourd'hui" : ""}
               </span>
             )}
 
@@ -157,9 +188,22 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
             </button>
           )}
 
+          {todo.note && (
+            <button onClick={() => setNoteOuvert(o => !o)} style={{
+              marginTop: 8, marginLeft: sousTaches.length > 0 ? 10 : 0,
+              background: "transparent", border: "none", padding: 0, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 4,
+              color: T.textSub, fontFamily: "inherit", fontSize: 10, fontWeight: 800,
+            }}>
+              <Icon as={noteOuvert ? ChevronDown : ChevronRight} size={12}/>
+              <Icon as={FileText} size={11}/>
+              Note
+            </button>
+          )}
+
           {majs.length > 0 && (
             <button onClick={() => setMajOuvert(o => !o)} style={{
-              marginTop: 8, marginLeft: sousTaches.length > 0 ? 10 : 0,
+              marginTop: 8, marginLeft: (sousTaches.length > 0 || todo.note) ? 10 : 0,
               background: "transparent", border: "none", padding: 0, cursor: "pointer",
               display: "inline-flex", alignItems: "center", gap: 4,
               color: "#5B8AF5", fontFamily: "inherit", fontSize: 10, fontWeight: 800,
@@ -171,6 +215,19 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
           )}
         </div>
       </div>
+
+      {noteOuvert && todo.note && (
+        <div style={{ padding: "0 12px 10px 40px" }}>
+          <div style={{
+            padding: "6px 10px", borderRadius: 10,
+            background: T.card, border: `1px solid ${T.border}`,
+            fontSize: 11, lineHeight: 1.5, color: T.textSub,
+            whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}>
+            {todo.note}
+          </div>
+        </div>
+      )}
 
       {majOuvert && majs.length > 0 && (
         <div style={{ padding: "0 12px 10px 40px", display: "flex", flexDirection: "column", gap: 5 }}>
@@ -187,6 +244,60 @@ function LigneTache({ todo, T, acc, accentTexte, onToggle, onToggleSousTache }) 
               {" : "}{m.texte}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Ajout d'une mise à jour : même mécanique que la page Notes & To-do
+          (journal horodaté + email aux personnes concernées). */}
+      {!todo.fait && (
+        <div style={{ padding: "0 12px 10px 40px" }}>
+          {majSaisie ? (
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                autoFocus
+                value={majDraft}
+                onChange={e => setMajDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") envoyerMaj();
+                  if (e.key === "Escape") { setMajDraft(""); setMajSaisie(false); }
+                }}
+                placeholder="Mise à jour… (Entrée pour envoyer)"
+                style={{
+                  flex: 1, minWidth: 0, padding: "6px 10px", borderRadius: 10,
+                  border: `1px solid #5B8AF5`, background: T.card,
+                  color: T.text, fontFamily: "inherit", fontSize: 11.5,
+                  outline: "none",
+                }}
+              />
+              <button onClick={envoyerMaj} disabled={!majDraft.trim()} title="Envoyer la mise à jour" style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                padding: "6px 10px", borderRadius: 10, border: "none", flexShrink: 0,
+                background: majDraft.trim() ? "#5B8AF5" : T.card,
+                color: majDraft.trim() ? "#fff" : T.textMuted,
+                cursor: majDraft.trim() ? "pointer" : "not-allowed",
+              }}>
+                <Icon as={Send} size={13}/>
+              </button>
+              <button onClick={() => { setMajDraft(""); setMajSaisie(false); }} title="Annuler" style={{
+                padding: 6, borderRadius: 10, border: `1px solid ${T.border}`, flexShrink: 0,
+                background: "transparent", color: T.textSub, cursor: "pointer",
+                display: "inline-flex", alignItems: "center",
+              }}>
+                <Icon as={X} size={12}/>
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setMajSaisie(true)} style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "3px 9px", borderRadius: 10,
+              border: `1px dashed ${T.border}`, background: "transparent",
+              color: T.textMuted, fontFamily: "inherit",
+              fontSize: 10, fontWeight: 700, cursor: "pointer",
+            }}>
+              <Icon as={History} size={10}/>
+              Ajouter une mise à jour
+            </button>
+          )}
         </div>
       )}
 
@@ -308,6 +419,24 @@ export default function BulleTodo({
     if (t.id !== todo.id || !Array.isArray(t.sous_taches)) return t;
     return { ...t, sous_taches: t.sous_taches.map(st => st.id === sousTacheId ? { ...st, fait: !st.fait } : st) };
   });
+
+  // Ajoute une mise à jour horodatée au journal de la tâche et prévient par
+  // email toutes les personnes concernées (même règle que Notes & To-do).
+  const addMaj = async (todo, texte) => {
+    const monNom = profil?.nom || monEmail;
+    const entree = {
+      id: Math.random().toString(36).slice(2),
+      date: new Date().toISOString(),
+      auteur_email: monEmail,
+      auteur_nom: monNom,
+      texte,
+    };
+    await patchTodos(t => t.id === todo.id
+      ? { ...t, maj: [...(Array.isArray(t.maj) ? t.maj : []), entree] }
+      : t);
+    envoyerEmailsMaj({ todo, texteMaj: texte, acteurEmail: monEmail, acteurNom: monNom })
+      .catch(e => console.error("BulleTodo (email MAJ) :", e));
+  };
 
   // ── Mes tâches ────────────────────────────────────────────────────────────
   const mesTaches = useMemo(() => {
@@ -487,7 +616,8 @@ export default function BulleTodo({
                 </div>
               ) : liste.map(t => (
                 <LigneTache key={t.id} todo={t} T={T} acc={acc} accentTexte={accentTexte}
-                  onToggle={toggleTodo} onToggleSousTache={toggleSousTache}/>
+                  monEmail={monEmail}
+                  onToggle={toggleTodo} onToggleSousTache={toggleSousTache} onAddMaj={addMaj}/>
               ))}
             </div>
 
