@@ -190,7 +190,15 @@ module.exports = async function handler(req, res) {
 
     const { data: profil, error: profilErr } = await admin
       .from("utilisateurs")
-      .select("id, email, nom, role, actif")
+      // `branches` est indispensable : le champ `role` est UNIQUE et partagé
+      // par les deux branches — « commercial » existe côté Rénovation et côté
+      // Invest avec des droits différents — donc seule `branches` dit à
+      // quelle application un compte a accès. Son absence de ce select a
+      // refusé le Copilote à tous les comptes Invest en production : la
+      // colonne n'étant pas demandée à Postgres, `profil.branches` valait
+      // `undefined`, indistinguable d'un compte Rénovation seul.
+      // Le front, lui, fait select("*") puis normalizeBranches().
+      .select("id, email, nom, role, actif, branches")
       .eq("email", authData.user.email)
       .single();
     if (profilErr || !profil) return echouer(401, "non_authentifie", "Profil utilisateur introuvable");
