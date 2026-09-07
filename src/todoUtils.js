@@ -102,9 +102,13 @@ const DEFAULT_TEMPLATES = {
     subject: "Nouvelle tâche : {texte}",
     body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n{note}\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
   },
+  todo_assign_copie: {
+    subject: "Tâche assignée : {texte}",
+    body: "Bonjour {prenom},\n\n{assigneur} a assigné la tâche que vous suivez :\n{texte}\n{note}\nAssignée à : {assignes}\nPriorité : {priorite}\n\nVous recevez cet email en tant que créateur de la tâche.",
+  },
   todo_done: {
     subject: "Tâche terminée : {texte}",
-    body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous était aussi assignée :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
+    body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous concerne :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
   },
   todo_update: {
     subject: "Mise à jour : {texte}",
@@ -180,22 +184,39 @@ export async function envoyerEmailAssignation({ to, nom, texte, priorite, assign
   return envoyer(to, interpolate(tpl.subject, vars), html);
 }
 
-// Prévient les personnes concernées par la tâche (assignés + créateur, sauf
-// l'auteur de la mise à jour) qu'une mise à jour a été ajoutée.
+// Copie de l'email d'assignation pour le créateur de la tâche : il reçoit
+// tous les emails, même quand la tâche ne lui est pas attribuée.
+export async function envoyerEmailAssignationCopie({ to, nom, texte, priorite, assigneur, note, assignes }) {
+  if (!to) return { ok: false, reason: "no_email" };
+  const prioLabel = priorite === "haute" ? "🔴 Haute" : priorite === "basse" ? "🟢 Basse" : "🟡 Normale";
+  const tpl = await chargerTemplate("todo_assign_copie");
+  const vars = {
+    prenom: nom || "", texte: texte || "", priorite: prioLabel,
+    assigneur: assigneur || "Quelqu'un", assignes: assignes || "",
+    note: note?.trim() ? `\nNote / détails :\n${note.trim()}\n` : "",
+  };
+  const html = wrapHtml({
+    badge: "Profero Planning · Nouvelle tâche",
+    titre: "📋 Une tâche que vous suivez a été assignée",
+    bodyHtml: escapeHtml(interpolate(tpl.body, vars)).replace(/\n/g, "<br/>"),
+  });
+  return envoyer(to, interpolate(tpl.subject, vars), html);
+}
+
+// Prévient toutes les personnes concernées par la tâche (assignés + créateur
+// + auteur de la mise à jour, qui garde ainsi une trace dans sa boîte mail).
 export async function envoyerEmailsMaj({ todo, texteMaj, acteurEmail, acteurNom }) {
-  const acteur = String(acteurEmail || "").toLowerCase();
-  const dejaVu = new Set([acteur]);
+  const dejaVu = new Set();
   const destinataires = [];
-  for (const a of getAssignes(todo)) {
-    const em = String(a.email || "").toLowerCase();
-    if (!em || dejaVu.has(em)) continue;
+  const ajouter = (email, nom) => {
+    const em = String(email || "").toLowerCase();
+    if (!em || dejaVu.has(em)) return;
     dejaVu.add(em);
-    destinataires.push({ email: a.email, nom: a.nom || a.email });
-  }
-  const createur = String(todo.created_by_email || "").toLowerCase();
-  if (createur && !dejaVu.has(createur)) {
-    destinataires.push({ email: todo.created_by_email, nom: todo.created_by_nom || todo.created_by_email });
-  }
+    destinataires.push({ email, nom: nom || email });
+  };
+  for (const a of getAssignes(todo)) ajouter(a.email, a.nom);
+  ajouter(todo.created_by_email, todo.created_by_nom);
+  ajouter(acteurEmail, acteurNom);
   if (destinataires.length === 0) return { ok: true, envoyes: 0, echecs: 0 };
 
   const tpl = await chargerTemplate("todo_update");
@@ -218,13 +239,24 @@ export async function envoyerEmailsMaj({ todo, texteMaj, acteurEmail, acteurNom 
   return { ok: echecs === 0, envoyes, echecs };
 }
 
-// Prévient les AUTRES assignés (pas celui qui vient de cocher) qu'une tâche
-// partagée est close. Un mail par destinataire pour personnaliser {prenom}.
+// Prévient qu'une tâche partagée est close : les AUTRES assignés (pas celui
+// qui vient de cocher) + le créateur de la tâche, qui reçoit tous les emails
+// même s'il n'est pas assigné. Un mail par destinataire ({prenom} personnalisé).
 export async function envoyerEmailsTerminee({ todo, acteurEmail, acteurNom }) {
-  const autres = getAssignes(todo).filter(
-    a => a.email && String(a.email).toLowerCase() !== String(acteurEmail || "").toLowerCase()
-  );
-  if (autres.length === 0) return { ok: true, envoyes: 0 };
+  const acteur = String(acteurEmail || "").toLowerCase();
+  const dejaVu = new Set();
+  const autres = [];
+  for (const a of getAssignes(todo)) {
+    const em = String(a.email || "").toLowerCase();
+    if (!em || em === acteur || dejaVu.has(em)) continue;
+    dejaVu.add(em);
+    autres.push({ email: a.email, nom: a.nom || a.email });
+  }
+  const createur = String(todo.created_by_email || "").toLowerCase();
+  if (createur && !dejaVu.has(createur)) {
+    autres.push({ email: todo.created_by_email, nom: todo.created_by_nom || todo.created_by_email });
+  }
+  if (autres.length === 0) return { ok: true, envoyes: 0, echecs: 0 };
   const tpl = await chargerTemplate("todo_done");
   let envoyes = 0, echecs = 0;
   for (const a of autres) {

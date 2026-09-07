@@ -1752,10 +1752,16 @@ const EMAIL_TEMPLATES_DEFAUT = {
     body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n{note}\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
     variables: ["{prenom}", "{texte}", "{note}", "{priorite}", "{assigneur}"],
   },
+  todo_assign_copie: {
+    nom: "Assignation d'une tâche To-Do (copie au créateur)",
+    subject: "Tâche assignée : {texte}",
+    body: "Bonjour {prenom},\n\n{assigneur} a assigné la tâche que vous suivez :\n{texte}\n{note}\nAssignée à : {assignes}\nPriorité : {priorite}\n\nVous recevez cet email en tant que créateur de la tâche.",
+    variables: ["{prenom}", "{texte}", "{note}", "{assignes}", "{priorite}", "{assigneur}"],
+  },
   todo_done: {
-    nom: "Tâche To-Do terminée (autres assignés)",
+    nom: "Tâche To-Do terminée (assignés + créateur)",
     subject: "Tâche terminée : {texte}",
-    body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous était aussi assignée :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
+    body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous concerne :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
     variables: ["{prenom}", "{texte}", "{acteur}"],
   },
   todo_update: {

@@ -6,7 +6,7 @@ import { useDirtyGuard } from "../hooks";
 import { MobileHero, MobileStat, MobileCard, MobileTabs, MobileEmptyState, CARD_SHADOW } from "../mobileUI";
 import {
   getAssignes, estAssigne, ECHEANCE_TYPES, echeanceLabel, computeEcheanceDate,
-  envoyerEmailAssignation, envoyerEmailsTerminee, envoyerEmailsMaj,
+  envoyerEmailAssignation, envoyerEmailAssignationCopie, envoyerEmailsTerminee, envoyerEmailsMaj,
 } from "../todoUtils";
 import {
   ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
@@ -748,6 +748,17 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
         note: todo.note,
       });
       if (r.ok) ok += 1; else ko += 1;
+    }
+    // Copie au créateur de la tâche (il reçoit tous les emails), sauf s'il
+    // vient déjà d'être notifié comme assigné.
+    const createur = String(todo.created_by_email || "").toLowerCase();
+    if (createur && !destinataires.some(a => String(a.email).toLowerCase() === createur)) {
+      const r = await envoyerEmailAssignationCopie({
+        to: todo.created_by_email, nom: todo.created_by_nom,
+        texte: todo.texte, priorite: todo.priorite, assigneur: monNom, note: todo.note,
+        assignes: getAssignes(todo).map(a => a.nom).join(", "),
+      });
+      if (!r.ok) ko += 1;
     }
     flashNotif(ko === 0 ? `✓ Email envoyé à ${noms}` : `⚠️ ${ko} email(s) non envoyé(s) sur ${ok + ko}`);
   };
