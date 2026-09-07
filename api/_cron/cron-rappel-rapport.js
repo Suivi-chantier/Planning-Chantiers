@@ -226,19 +226,26 @@ async function checkTodosEnRetard(supabase, req, todayIso) {
     const todos = Array.isArray(row?.value) ? row.value : [];
     if (todos.length === 0) return result;
 
+    // Multi-assignés : `assignes` = [{ email, nom }] ; les anciennes tâches
+    // n'ont que `assigne_email` (un seul destinataire).
+    const assigneEmails = (t) =>
+      Array.isArray(t.assignes) && t.assignes.length > 0
+        ? t.assignes.map(a => a && a.email).filter(Boolean)
+        : (t.assigne_email ? [t.assigne_email] : []);
+
     const enRetard = todos.filter(t =>
       !t.fait &&
       t.date_limite &&
       t.date_limite < todayIso &&
       !t.relance_envoyee &&
-      (t.assigne_email || t.created_by_email)
+      (assigneEmails(t).length > 0 || t.created_by_email)
     );
     result.en_retard = enRetard.length;
     if (enRetard.length === 0) return result;
 
     const updated = [...todos];
     for (const todo of enRetard) {
-      const dests = Array.from(new Set([todo.assigne_email, todo.created_by_email].filter(Boolean)));
+      const dests = Array.from(new Set([...assigneEmails(todo), todo.created_by_email].filter(Boolean)));
       if (dests.length === 0) { result.skipped.push({ id: todo.id, raison: "no_email" }); continue; }
       const ms = (iso) => {
         const [y, m, d] = iso.split("-").map(Number);

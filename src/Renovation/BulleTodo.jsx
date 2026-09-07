@@ -18,6 +18,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { supabase } from "../supabase";
 import { getBranchAccent, RADIUS } from "../constants";
 import { Icon } from "../ui";
+import { estAssigne, envoyerEmailsTerminee } from "../todoUtils";
 import {
   ListTodo, X, Calendar, HardHat, ChevronDown, ChevronRight,
   CircleCheck, Circle, RefreshCw, User,
@@ -255,7 +256,20 @@ export default function BulleTodo({
     }
   };
 
-  const toggleTodo = (todo) => patchTodos(t => t.id === todo.id ? { ...t, fait: !t.fait } : t);
+  // Cocher une tâche partagée la termine pour TOUS les assignés : on trace qui
+  // l'a close et on prévient les autres par email (même règle que la page
+  // Notes & To-do).
+  const toggleTodo = async (todo) => {
+    const devientFait = !todo.fait;
+    const patch = devientFait
+      ? { fait: true, fait_le: new Date().toISOString(), fait_par_email: monEmail, fait_par_nom: profil?.nom || monEmail }
+      : { fait: false, fait_le: null, fait_par_email: null, fait_par_nom: null };
+    await patchTodos(t => t.id === todo.id ? { ...t, ...patch } : t);
+    if (devientFait) {
+      envoyerEmailsTerminee({ todo, acteurEmail: monEmail, acteurNom: profil?.nom || monEmail })
+        .catch(e => console.error("BulleTodo (email clôture) :", e));
+    }
+  };
 
   const toggleSousTache = (todo, sousTacheId) => patchTodos(t => {
     if (t.id !== todo.id || !Array.isArray(t.sous_taches)) return t;
@@ -265,8 +279,7 @@ export default function BulleTodo({
   // ── Mes tâches ────────────────────────────────────────────────────────────
   const mesTaches = useMemo(() => {
     if (!monEmail) return [];
-    const cible = monEmail.toLowerCase();
-    return todos.filter(t => (t.assigne_email || "").toLowerCase() === cible);
+    return todos.filter(t => estAssigne(t, monEmail));
   }, [todos, monEmail]);
 
   const actives  = mesTaches.filter(t => !t.fait);

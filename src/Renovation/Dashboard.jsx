@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { getTodayJour, getBranchAccent, FONT, RADIUS, SPACING, COULEURS_PALETTE } from "../constants";
 import { Icon } from "../ui";
 import { useIsMobile } from "./Navigation";
+import { estAssigne } from "../todoUtils";
 import { MobileHero, MobileStat, MobileSection, CARD_SHADOW } from "../mobileUI";
 import {
   HardHat, TriangleAlert, Users, Building2, Package, ClipboardCheck,
@@ -171,7 +172,7 @@ function PageDashboard({ chantiers, cells, commandes, notesData, weekId, T, prof
   // Filtre les todos assignées à l'utilisateur connecté (par email).
   // Catégories : en retard / aujourd'hui / autres (à venir ou sans date).
   const monEmail = profil?.email || null;
-  const mesTodos = todos.filter(t => !t.fait && monEmail && t.assigne_email === monEmail);
+  const mesTodos = todos.filter(t => !t.fait && monEmail && estAssigne(t, monEmail));
   const todosEnRetard   = mesTodos.filter(t => t.date_limite && t.date_limite < todayIso);
   const todosAujourdhui = mesTodos.filter(t => t.date_limite === todayIso);
   const todosAutres     = mesTodos.filter(t => !t.date_limite || t.date_limite > todayIso);

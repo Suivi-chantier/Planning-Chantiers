@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
-import { getBranchAccent, FONT, RADIUS, SPACING } from "../constants";
+import { getBranchAccent, FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import {
+  getAssignes, estAssigne, ECHEANCE_TYPES, echeanceLabel, computeEcheanceDate,
+  envoyerEmailAssignation, envoyerEmailsTerminee,
+} from "../todoUtils";
+import {
   ClipboardList, ListTodo, User, Trash2, Pencil, X, Plus, Check,
-  Calendar, AlarmClock, FileText, CircleCheck, Circle, HardHat, ListChecks,
+  Calendar, AlarmClock, FileText, CircleCheck, ListChecks,
   ChevronDown, ChevronRight,
 } from "lucide-react";
 
@@ -22,64 +26,93 @@ function getPriorite(id) {
 
 // ─── SAUVEGARDE SUPABASE (clé/valeur dans planning_config) ───────────────────
 const KEY_TODOS = "bloc_todos";
-const KEY_NOTES = "bloc_notes";
 
-// ─── EMAIL HELPER ────────────────────────────────────────────────────────────
-const DEFAULT_TODO_TEMPLATE = {
-  subject: "Nouvelle tâche : {texte}",
-  body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
-};
-
-const interpolate = (str, vars) => Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), str || "");
-
-async function envoyerEmailAssignation({ to, nom, texte, priorite, assigneur }) {
-  if (!to) return { ok: false, reason: "no_email" };
-  const prioLabel = priorite === "haute" ? "🔴 Haute" : priorite === "basse" ? "🟢 Basse" : "🟡 Normale";
-
-  // Charge le template personnalisé depuis Supabase (fallback : default)
-  let tpl = DEFAULT_TODO_TEMPLATE;
-  try {
-    const { data } = await supabase.from("planning_config").select("value").eq("key", "email_templates").maybeSingle();
-    if (data?.value?.todo_assign) tpl = { ...DEFAULT_TODO_TEMPLATE, ...data.value.todo_assign };
-  } catch (e) { /* fallback déjà en place */ }
-
-  const vars = {
-    prenom:    nom || "",
-    texte:     texte || "",
-    priorite:  prioLabel,
-    assigneur: assigneur || "Quelqu'un",
+// ─── SÉLECTEUR D'ASSIGNÉS (multi) ─────────────────────────────────────────────
+// Chips + select « ajouter une personne » : le select ajoute à la liste puis
+// revient sur le placeholder, chaque chip a sa croix pour retirer.
+function SelecteurAssignes({ assignes, onChange, utilisateurs, T, acc }) {
+  const restants = utilisateurs.filter(u => !assignes.some(a => a.email === u.email));
+  const ajouter = (email) => {
+    const u = utilisateurs.find(x => x.email === email);
+    if (u) onChange([...assignes, { email: u.email, nom: u.nom }]);
   };
-  const subject = interpolate(tpl.subject, vars);
-  const bodyTxt = interpolate(tpl.body, vars);
-  const bodyHtml = escapeHtml(bodyTxt).replace(/\n/g, "<br/>");
+  const retirer = (email) => onChange(assignes.filter(a => a.email !== email));
 
-  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
-    <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
-      <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Nouvelle tâche</div>
-      <div style="color:#fff;font-size:20px;font-weight:800">📋 Une tâche vous a été assignée</div>
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", flex: 1, minWidth: 180 }}>
+      {assignes.map(a => (
+        <span key={a.email} title={a.email} style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          padding: "3px 6px 3px 9px", borderRadius: RADIUS.pill,
+          background: acc.bg10, color: acc.accent,
+          fontSize: FONT.xs.size + 1, fontWeight: 700,
+        }}>
+          <Icon as={User} size={11}/>
+          {a.nom}
+          <button onClick={() => retirer(a.email)} title="Retirer" style={{
+            background: "transparent", border: "none", color: "inherit",
+            cursor: "pointer", padding: 1, display: "inline-flex", alignItems: "center",
+            opacity: 0.7,
+          }}>
+            <Icon as={X} size={11}/>
+          </button>
+        </span>
+      ))}
+      {restants.length > 0 && (
+        <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+          <Icon as={User} size={13}
+            style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+              color: assignes.length > 0 ? acc.accent : T.textMuted, pointerEvents: "none" }}/>
+          <select value="" onChange={e => ajouter(e.target.value)} style={{
+            width: "100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
+            border: `1px solid ${assignes.length > 0 ? acc.border : T.border}`,
+            background: T.card, color: T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", fontWeight: 500,
+          }}>
+            <option value="">
+              {assignes.length > 0 ? "+ Ajouter une personne" : "Personnes assignées (optionnel)"}
+            </option>
+            {restants.map(u => (
+              <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
-    <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px">
-      <div style="font-size:14px;color:#1a1f2e;line-height:1.7">${bodyHtml}</div>
-    </div>
-    <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
-  </div>`;
-
-  try {
-    const res = await fetch("/api/send-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to, subject, html }),
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, ...data };
-  } catch (e) {
-    console.error("Email assignation:", e);
-    return { ok: false, reason: e.message };
-  }
+  );
 }
 
-function escapeHtml(s) {
-  return String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+// ─── SÉLECTEUR D'ÉCHÉANCE ─────────────────────────────────────────────────────
+// Échéances rapides (aujourd'hui, fin de semaine, fin du mois…) ou date
+// précise. La date réelle est calculée à la sauvegarde (todoUtils).
+function SelecteurEcheance({ type, date, onType, onDate, T }) {
+  const actif = !!type;
+  return (
+    <>
+      <select value={type} onChange={e => onType(e.target.value)} title="Échéance (optionnel)" style={{
+        padding: "6px 10px", borderRadius: RADIUS.md,
+        border: `1px solid ${actif ? "#f5a623" : T.border}`, background: T.card,
+        color: actif ? "#f5a623" : T.textMuted,
+        fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+        fontWeight: actif ? 700 : 500, cursor: "pointer",
+      }}>
+        <option value="">Pas d'échéance</option>
+        {ECHEANCE_TYPES.map(e => (
+          <option key={e.id} value={e.id}>{e.label}</option>
+        ))}
+      </select>
+      {type === "date" && (
+        <input type="date" value={date} onChange={e => onDate(e.target.value)}
+          title="Date limite" style={{
+            padding: "6px 10px", borderRadius: RADIUS.md,
+            border: `1px solid ${date ? "#f5a623" : T.border}`, background: T.card,
+            color: date ? "#f5a623" : T.textMuted,
+            fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
+            fontWeight: date ? 700 : 500,
+          }}/>
+      )}
+    </>
+  );
 }
 
 // ─── COMPOSANT TODO ITEM ──────────────────────────────────────────────────────
@@ -87,11 +120,14 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
   const [editing, setEditing]   = useState(false);
   const [draft, setDraft]       = useState(todo.texte);
   const [draftPrio, setDraftPrio] = useState(todo.priorite || "normale");
-  const [draftAssigne, setDraftAssigne] = useState(todo.assigne_email || "");
-  const [draftDate, setDraftDate] = useState(todo.date_limite || "");
+  const [draftAssignes, setDraftAssignes] = useState(getAssignes(todo));
+  const [draftEchType, setDraftEchType] = useState("");
+  const [draftEchDate, setDraftEchDate] = useState("");
+  const [draftNote, setDraftNote] = useState(todo.note || "");
   const [draftChantier, setDraftChantier] = useState(todo.chantier_id || "");
   const [draftSousTaches, setDraftSousTaches] = useState(todo.sous_taches || []);
   const [sousTachesExpanded, setSousTachesExpanded] = useState(true);
+  const [noteExpanded, setNoteExpanded] = useState(true);
   const inputRef = useRef();
 
   // Bloque l'auto-reload pendant l'édition d'une tâche (sauvegarde au clic).
@@ -102,8 +138,19 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
   const startEdit = () => {
     setDraft(todo.texte);
     setDraftPrio(todo.priorite || "normale");
-    setDraftAssigne(todo.assigne_email || "");
-    setDraftDate(todo.date_limite || "");
+    setDraftAssignes(getAssignes(todo));
+    // Échéance existante : type mémorisé, sinon une date seule = date précise.
+    if (todo.echeance_type && todo.echeance_type !== "date") {
+      setDraftEchType(todo.echeance_type);
+      setDraftEchDate("");
+    } else if (todo.date_limite) {
+      setDraftEchType("date");
+      setDraftEchDate(todo.date_limite);
+    } else {
+      setDraftEchType("");
+      setDraftEchDate("");
+    }
+    setDraftNote(todo.note || "");
     setDraftChantier(todo.chantier_id || "");
     setDraftSousTaches(todo.sous_taches || []);
     setEditing(true);
@@ -111,20 +158,40 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
   const cancelEdit = () => setEditing(false);
   const saveEdit = () => {
     if (!draft.trim()) { setEditing(false); return; }
-    const u = utilisateurs.find(x => x.email === draftAssigne);
     const ch = chantiers.find(c => c.id === draftChantier);
-    const dateChanged = (draftDate || null) !== (todo.date_limite || null);
+
+    // Échéance : si le type rapide n'a pas changé, on garde la date d'origine
+    // (pas de recalcul silencieux des semaines plus tard).
+    let date_limite = null, echeance_type = null;
+    if (draftEchType === "date") {
+      date_limite = draftEchDate || null;
+      echeance_type = date_limite ? "date" : null;
+    } else if (draftEchType) {
+      if (draftEchType === todo.echeance_type && todo.date_limite) {
+        date_limite = todo.date_limite;
+      } else {
+        date_limite = computeEcheanceDate(draftEchType);
+      }
+      echeance_type = draftEchType;
+    }
+    const dateChanged = (date_limite || null) !== (todo.date_limite || null);
+
     const cleanSousTaches = draftSousTaches.filter(st => st.texte?.trim()).map(st => ({
       id: st.id,
       texte: st.texte.trim(),
       fait: !!st.fait,
     }));
+    const premier = draftAssignes[0] || null;
     onEdit(todo.id, {
       texte: draft.trim(),
       priorite: draftPrio,
-      assigne_email: u ? u.email : null,
-      assigne_nom:   u ? u.nom   : null,
-      date_limite:   draftDate || null,
+      assignes: draftAssignes.length > 0 ? draftAssignes : null,
+      // Champs historiques (1er assigné) : compat BulleTodo / clients PWA pas rechargés.
+      assigne_email: premier ? premier.email : null,
+      assigne_nom:   premier ? premier.nom   : null,
+      date_limite,
+      echeance_type,
+      note: draftNote.trim() || null,
       chantier_id:   ch ? ch.id : null,
       chantier_nom:  ch ? ch.nom : null,
       chantier_couleur: ch ? ch.couleur : null,
@@ -149,6 +216,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus(); }, [editing]);
 
   const prio = getPriorite(todo.priorite || "normale");
+  const assignes = getAssignes(todo);
 
   if (editing) {
     return (
@@ -179,39 +247,38 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
           ))}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-          <div style={{ position: "relative", flex: 1, minWidth: 140 }}>
-            <Icon as={User} size={13}
-              style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color: draftAssigne ? acc.accent : T.textMuted, pointerEvents:"none" }}/>
-            <select value={draftAssigne} onChange={e => setDraftAssigne(e.target.value)} style={{
-              width:"100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
-              border: `1px solid ${draftAssigne ? acc.border : T.border}`,
-              background: T.card, color: draftAssigne ? T.text : T.textMuted,
-              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
-              fontWeight: draftAssigne ? 600 : 500,
-            }}>
-              <option value="">Personne assignée</option>
-              {utilisateurs.map(u => (
-                <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
-              ))}
-            </select>
+          <SelecteurAssignes
+            assignes={draftAssignes} onChange={setDraftAssignes}
+            utilisateurs={utilisateurs} T={T} acc={acc}
+          />
+          <SelecteurEcheance
+            type={draftEchType} date={draftEchDate}
+            onType={setDraftEchType} onDate={setDraftEchDate} T={T}
+          />
+        </div>
+
+        {/* Note / détails */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{
+            fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .8,
+            textTransform: "uppercase", color: T.textMuted, marginBottom: 6,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <Icon as={FileText} size={12}/>
+            Note / détails
           </div>
-          <input type="date" value={draftDate} onChange={e => setDraftDate(e.target.value)}
-            title="Date limite (optionnel)" style={{
-              padding: "6px 10px", borderRadius: RADIUS.md,
-              border: `1px solid ${draftDate ? "#f5a623" : T.border}`, background: T.card,
-              color: draftDate ? "#f5a623" : T.textMuted,
-              fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", fontWeight: draftDate ? 700 : 500,
-            }}/>
-          {draftDate && (
-            <button onClick={() => setDraftDate("")} title="Retirer la date" style={{
-              padding: "5px 7px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
-              background: "transparent", color: T.textSub,
-              fontFamily: "inherit", cursor: "pointer",
-              display:"inline-flex", alignItems:"center", justifyContent:"center",
-            }}>
-              <Icon as={X} size={12}/>
-            </button>
-          )}
+          <textarea
+            value={draftNote}
+            onChange={e => setDraftNote(e.target.value)}
+            placeholder="Détails, contexte, contacts, références…"
+            rows={3}
+            style={{
+              width: "100%", padding: "8px 10px", borderRadius: RADIUS.md,
+              border: `1px solid ${T.border}`, background: T.card,
+              color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
+              lineHeight: 1.6, resize: "vertical", outline: "none",
+            }}
+          />
         </div>
 
         {/* Sélecteur de chantier */}
@@ -346,17 +413,17 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
               fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .3,
             }}>{prio.label}</span>
           )}
-          {todo.assigne_nom && (
-            <span title={todo.assigne_email || ""} style={{
+          {assignes.map(a => (
+            <span key={a.email} title={a.email} style={{
               display: "inline-flex", alignItems: "center", gap: 4,
               padding: "1px 8px", borderRadius: RADIUS.pill,
               background: acc.bg10, color: acc.accent,
               fontSize: FONT.xs.size, fontWeight: 700,
             }}>
               <Icon as={User} size={10}/>
-              {todo.assigne_nom}
+              {a.nom}
             </span>
-          )}
+          ))}
           {chantier && (
             <span title="Chantier" style={{
               display: "inline-flex", alignItems: "center", gap: 4,
@@ -376,6 +443,7 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
             const couleur = enRetard ? "#e15a5a" : aujourdhui ? "#f5a623" : T.textSub;
             const bg = enRetard ? "rgba(225,90,90,0.12)" : aujourdhui ? "rgba(245,166,35,0.12)" : "rgba(255,255,255,0.04)";
             const dateAffichee = new Date(todo.date_limite + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+            const labelType = todo.echeance_type && todo.echeance_type !== "date" ? echeanceLabel(todo.echeance_type) : "";
             return (
               <span title={enRetard ? "Tâche en retard" : aujourdhui ? "Date limite aujourd'hui" : "Date limite"}
                 style={{
@@ -385,16 +453,53 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
                   fontSize: FONT.xs.size, fontWeight: 700,
                 }}>
                 <Icon as={enRetard ? AlarmClock : Calendar} size={10}/>
-                {dateAffichee}
+                {labelType ? `${labelType} · ${dateAffichee}` : dateAffichee}
               </span>
             );
           })()}
+          {todo.fait && todo.fait_par_nom && (
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "1px 8px", borderRadius: RADIUS.pill,
+              background: "rgba(34,197,94,0.10)", color: "#22c55e",
+              fontSize: FONT.xs.size, fontWeight: 700,
+            }}>
+              <Icon as={Check} size={10}/>
+              par {todo.fait_par_nom}
+            </span>
+          )}
           {todo.created_at && (
             <span style={{ fontSize: FONT.xs.size, color: T.textMuted, marginLeft:"auto" }}>
               ajouté {new Date(todo.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
             </span>
           )}
         </div>
+
+        {/* Note / détails de la tâche */}
+        {todo.note && (
+          <div style={{ marginTop: 8 }}>
+            <button onClick={() => setNoteExpanded(v => !v)} style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              background: "transparent", border: "none", padding: "2px 0",
+              color: T.textSub, fontSize: FONT.xs.size + 1,
+              fontWeight: 600, cursor: "pointer",
+            }}>
+              <Icon as={noteExpanded ? ChevronDown : ChevronRight} size={12}/>
+              <Icon as={FileText} size={12}/>
+              Note
+            </button>
+            {noteExpanded && (
+              <div style={{
+                marginTop: 5, padding: "8px 12px", borderRadius: RADIUS.md,
+                background: "rgba(255,255,255,0.03)", border: `1px solid ${T.border}`,
+                color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.6,
+                whiteSpace: "pre-wrap", wordBreak: "break-word",
+              }}>
+                {todo.note}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Sous-tâches : affichage interactif si la tâche en a */}
         {todo.sous_taches?.length > 0 && (() => {
@@ -472,25 +577,23 @@ function TodoItem({ todo, onToggle, onDelete, onEdit, onToggleSousTache, T, util
 function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
   const acc = getBranchAccent(branch);
   const [todos, setTodos]         = useState([]);
-  const [notes, setNotes]         = useState("");
-  const [notesSaved, setNotesSaved] = useState("");
   const [newTodo, setNewTodo]     = useState("");
   const [newPrio, setNewPrio]     = useState("normale");
-  const [newAssigne, setNewAssigne] = useState(""); // email
-  const [newDate, setNewDate]       = useState(""); // date_limite ISO YYYY-MM-DD
+  const [newAssignes, setNewAssignes] = useState([]); // [{email, nom}]
+  const [newEchType, setNewEchType]   = useState(""); // "" | id échéance | "date"
+  const [newEchDate, setNewEchDate]   = useState(""); // ISO YYYY-MM-DD si "date"
+  const [newNote, setNewNote]         = useState("");
+  const [newNoteVisible, setNewNoteVisible] = useState(false);
   const [newChantier, setNewChantier] = useState(""); // chantier_id
   const [filtre, setFiltre]       = useState("actif"); // actif | fait | mes
   const [filtreChantier, setFiltreChantier] = useState("");
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
-  const [notesDirty, setNotesDirty] = useState(false);
-  const [notesSaveStatus, setNotesSaveStatus] = useState(""); // "" | "saving" | "saved"
 
   // Bloque l'auto-reload tant qu'une nouvelle tâche est en cours de saisie.
-  useDirtyGuard("todo-new", !!newTodo.trim());
+  useDirtyGuard("todo-new", !!newTodo.trim() || !!newNote.trim());
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [notifStatus, setNotifStatus]   = useState(""); // message éphémère
-  const notesTimer = useRef(null);
   const inputRef = useRef();
 
   const monEmail = profil?.email || null;
@@ -501,15 +604,10 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     setLoading(true);
     try {
       const [cfg, users] = await Promise.all([
-        supabase.from("planning_config").select("*").in("key", [KEY_TODOS, KEY_NOTES]),
+        supabase.from("planning_config").select("value").eq("key", KEY_TODOS).maybeSingle(),
         supabase.from("utilisateurs").select("id, email, nom, role, actif").eq("actif", true).order("nom"),
       ]);
-      if (cfg.data) {
-        cfg.data.forEach(r => {
-          if (r.key === KEY_TODOS) setTodos(Array.isArray(r.value) ? r.value : []);
-          if (r.key === KEY_NOTES) { setNotes(r.value || ""); setNotesSaved(r.value || ""); }
-        });
-      }
+      if (cfg.data) setTodos(Array.isArray(cfg.data.value) ? cfg.data.value : []);
       if (users.data) setUtilisateurs(users.data);
     } catch (e) {
       console.error(e);
@@ -530,30 +628,28 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     setSaving(false);
   };
 
-  // ── Sauvegarde notes (auto avec délai) ─────────────────────────────────────
-  const saveNotes = async (val) => {
-    setNotesSaveStatus("saving");
-    await supabase.from("planning_config")
-      .upsert({ key: KEY_NOTES, value: val, updated_at: new Date().toISOString() }, { onConflict: "key" });
-    setNotesSaved(val);
-    setNotesDirty(false);
-    setNotesSaveStatus("saved");
-    setTimeout(() => setNotesSaveStatus(""), 2000);
-  };
-
-  const handleNotesChange = (val) => {
-    setNotes(val);
-    setNotesDirty(val !== notesSaved);
-    setNotesSaveStatus("");
-    if (notesTimer.current) clearTimeout(notesTimer.current);
-    notesTimer.current = setTimeout(() => saveNotes(val), 1500);
+  // Envoie l'email d'assignation à chaque nouvel assigné et résume le résultat.
+  const notifierAssignes = async (destinataires, todo) => {
+    if (destinataires.length === 0) return;
+    const noms = destinataires.map(a => a.nom).join(", ");
+    flashNotif(`📧 Envoi de l'email à ${noms}…`);
+    let ok = 0, ko = 0;
+    for (const a of destinataires) {
+      const r = await envoyerEmailAssignation({
+        to: a.email, nom: a.nom, texte: todo.texte, priorite: todo.priorite, assigneur: monNom,
+      });
+      if (r.ok) ok += 1; else ko += 1;
+    }
+    flashNotif(ko === 0 ? `✓ Email envoyé à ${noms}` : `⚠️ ${ko} email(s) non envoyé(s) sur ${ok + ko}`);
   };
 
   // ── Ajouter un todo ─────────────────────────────────────────────────────────
   const addTodo = async () => {
     if (!newTodo.trim()) return;
-    const u = utilisateurs.find(x => x.email === newAssigne);
     const ch = chantiers.find(c => c.id === newChantier);
+    const date_limite = newEchType === "date" ? (newEchDate || null) : computeEcheanceDate(newEchType);
+    const echeance_type = date_limite ? (newEchType || null) : null;
+    const premier = newAssignes[0] || null;
     const todo = {
       id: Math.random().toString(36).slice(2),
       texte: newTodo.trim(),
@@ -562,9 +658,13 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
       created_at: new Date().toISOString(),
       created_by_email: monEmail,
       created_by_nom:   monNom,
-      assigne_email: u ? u.email : null,
-      assigne_nom:   u ? u.nom   : null,
-      date_limite:   newDate || null,
+      assignes: newAssignes.length > 0 ? newAssignes : null,
+      // Champs historiques (1er assigné) : compat BulleTodo / clients PWA pas rechargés.
+      assigne_email: premier ? premier.email : null,
+      assigne_nom:   premier ? premier.nom   : null,
+      date_limite,
+      echeance_type,
+      note: newNote.trim() || null,
       chantier_id:   ch ? ch.id : null,
       chantier_nom:  ch ? ch.nom : null,
       chantier_couleur: ch ? ch.couleur : null,
@@ -573,24 +673,38 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     setTodos(updated);
     saveTodos(updated);
     setNewTodo("");
-    setNewAssigne("");
-    setNewDate("");
+    setNewAssignes([]);
+    setNewEchType("");
+    setNewEchDate("");
+    setNewNote("");
+    setNewNoteVisible(false);
     setNewChantier("");
     inputRef.current?.focus();
 
-    if (u) {
-      flashNotif(`📧 Envoi de l'email à ${u.nom}…`);
-      const r = await envoyerEmailAssignation({
-        to: u.email, nom: u.nom, texte: todo.texte, priorite: todo.priorite, assigneur: monNom,
-      });
-      flashNotif(r.ok ? `✓ Email envoyé à ${u.nom}` : `⚠️ Email non envoyé : ${r.error || r.reason || "erreur"}`);
-    }
+    await notifierAssignes(newAssignes, todo);
   };
 
-  const toggleTodo = (id) => {
-    const updated = todos.map(t => t.id === id ? { ...t, fait: !t.fait } : t);
+  // Cocher / décocher : une tâche cochée par un assigné est terminée pour
+  // tous → on trace qui l'a close et on prévient les autres assignés par mail.
+  const toggleTodo = async (id) => {
+    const cible = todos.find(t => t.id === id);
+    if (!cible) return;
+    const devientFait = !cible.fait;
+    const patch = devientFait
+      ? { fait: true, fait_le: new Date().toISOString(), fait_par_email: monEmail, fait_par_nom: monNom }
+      : { fait: false, fait_le: null, fait_par_email: null, fait_par_nom: null };
+    const updated = todos.map(t => t.id === id ? { ...t, ...patch } : t);
     setTodos(updated);
     saveTodos(updated);
+
+    if (devientFait) {
+      const r = await envoyerEmailsTerminee({ todo: cible, acteurEmail: monEmail, acteurNom: monNom });
+      if (r.envoyes > 0 || r.echecs > 0) {
+        flashNotif(r.ok
+          ? `✓ ${r.envoyes} assigné${r.envoyes > 1 ? "s" : ""} prévenu${r.envoyes > 1 ? "s" : ""} par email`
+          : `⚠️ ${r.echecs} email(s) de clôture non envoyé(s)`);
+      }
+    }
   };
 
   const deleteTodo = (id) => {
@@ -604,15 +718,11 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
     const updated = todos.map(t => t.id === id ? { ...t, ...patch } : t);
     setTodos(updated);
     saveTodos(updated);
-    // Notification si nouvel assigné
-    const nouveauEmail = patch.assigne_email;
-    if (nouveauEmail && nouveauEmail !== ancien?.assigne_email) {
-      const final = { ...ancien, ...patch };
-      flashNotif(`📧 Envoi de l'email à ${final.assigne_nom}…`);
-      const r = await envoyerEmailAssignation({
-        to: final.assigne_email, nom: final.assigne_nom, texte: final.texte, priorite: final.priorite, assigneur: monNom,
-      });
-      flashNotif(r.ok ? `✓ Email envoyé à ${final.assigne_nom}` : `⚠️ Email non envoyé : ${r.error || r.reason || "erreur"}`);
+    // Notification aux personnes nouvellement assignées
+    const avant = new Set(getAssignes(ancien || {}).map(a => String(a.email).toLowerCase()));
+    const nouveaux = (patch.assignes || []).filter(a => !avant.has(String(a.email).toLowerCase()));
+    if (nouveaux.length > 0) {
+      await notifierAssignes(nouveaux, { ...ancien, ...patch });
     }
   };
 
@@ -641,7 +751,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
       // Filtre statut
       if (filtre === "actif" && t.fait) return false;
       if (filtre === "fait"  && !t.fait) return false;
-      if (filtre === "mes"   && (t.fait || !monEmail || t.assigne_email !== monEmail)) return false;
+      if (filtre === "mes"   && (t.fait || !estAssigne(t, monEmail))) return false;
       // Filtre chantier
       if (filtreChantier && t.chantier_id !== filtreChantier) return false;
       return true;
@@ -653,7 +763,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
 
   const nbActifs = todos.filter(t => !t.fait).length;
   const nbFaits  = todos.filter(t => t.fait).length;
-  const nbMes    = monEmail ? todos.filter(t => !t.fait && t.assigne_email === monEmail).length : 0;
+  const nbMes    = monEmail ? todos.filter(t => !t.fait && estAssigne(t, monEmail)).length : 0;
 
   if (loading) {
     return (
@@ -669,9 +779,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
         @media(max-width:767px) {
           .ntd-page .ntd-header{padding:10px 14px!important;font-size:14px}
           .ntd-page .ntd-header > div:first-child{font-size:14px!important;letter-spacing:.5px!important}
-          .ntd-page .notes-todo-grid{grid-template-columns:1fr!important;overflow-y:auto!important}
-          .ntd-page .notes-todo-grid > div{border-right:none!important;border-bottom:1px solid ${T.border};min-height:auto!important;overflow:visible!important}
-          .ntd-page .notes-todo-grid textarea{min-height:200px!important}
+          .ntd-page .ntd-body{padding-left:0!important;padding-right:0!important}
         }
       `}</style>
 
@@ -705,17 +813,13 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
         </div>
       </div>
 
-      {/* ── Corps : 2 colonnes ─────────────────────────────────────────────── */}
-      <div style={{
-        flex: 1, display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 0, minHeight: 0, overflow: "hidden",
-      }} className="notes-todo-grid">
-
-        {/* ── COLONNE GAUCHE : TO-DO ────────────────────────────────────────── */}
+      {/* ── Corps : liste de tâches pleine largeur ─────────────────────────── */}
+      <div className="ntd-body" style={{
+        flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
+      }}>
         <div style={{
-          display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
-          borderRight: `1px solid ${T.border}`,
+          flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
+          width: "100%", maxWidth: 980, margin: "0 auto",
         }}>
           {/* Sous-header todo */}
           <div style={{
@@ -855,7 +959,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
                 Ajouter
               </button>
             </div>
-            {/* Sélecteur priorité + assigné + date */}
+            {/* Sélecteur priorité + assignés + échéance */}
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 5 }}>
                 {PRIORITES.map(p => (
@@ -868,44 +972,17 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
                   }}>{p.label}</button>
                 ))}
               </div>
-              <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
-                <Icon as={User} size={13}
-                  style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)",
-                    color: newAssigne ? acc.accent : T.textMuted, pointerEvents:"none" }}/>
-                <select value={newAssigne} onChange={e => setNewAssigne(e.target.value)} style={{
-                  width:"100%", padding: "6px 10px 6px 28px", borderRadius: RADIUS.md,
-                  border: `1px solid ${newAssigne ? acc.border : T.border}`,
-                  background: T.card, color: newAssigne ? T.text : T.textMuted,
-                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
-                  fontWeight: newAssigne ? 600 : 500,
-                }}>
-                  <option value="">Personne assignée (optionnel)</option>
-                  {utilisateurs.map(u => (
-                    <option key={u.id} value={u.email}>{u.nom} ({u.role})</option>
-                  ))}
-                </select>
-              </div>
-              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
-                title="Date limite (optionnel)" style={{
-                  padding: "6px 10px", borderRadius: RADIUS.md,
-                  border: `1px solid ${newDate ? "#f5a623" : T.border}`,
-                  background: T.card, color: newDate ? "#f5a623" : T.textMuted,
-                  fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
-                  fontWeight: newDate ? 700 : 500,
-                }}/>
-              {newDate && (
-                <button onClick={() => setNewDate("")} title="Retirer la date" style={{
-                  padding: "5px 7px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
-                  background: "transparent", color: T.textSub, fontFamily: "inherit",
-                  cursor: "pointer",
-                  display: "inline-flex", alignItems: "center",
-                }}>
-                  <Icon as={X} size={12}/>
-                </button>
-              )}
+              <SelecteurAssignes
+                assignes={newAssignes} onChange={setNewAssignes}
+                utilisateurs={utilisateurs} T={T} acc={acc}
+              />
+              <SelecteurEcheance
+                type={newEchType} date={newEchDate}
+                onType={setNewEchType} onDate={setNewEchDate} T={T}
+              />
             </div>
-            {chantiers.length > 0 && (
-              <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {chantiers.length > 0 && (
                 <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
                   <span style={{
                     position:"absolute", left:10, top:"50%", transform:"translateY(-50%)",
@@ -926,7 +1003,32 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
                     ))}
                   </select>
                 </div>
-              </div>
+              )}
+              <button onClick={() => setNewNoteVisible(v => !v)} style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                padding: "6px 12px", borderRadius: RADIUS.md,
+                border: `1px ${newNoteVisible || newNote.trim() ? "solid" : "dashed"} ${newNote.trim() ? acc.accent : T.border}`,
+                background: newNote.trim() ? acc.bg10 : "transparent",
+                color: newNote.trim() ? acc.accent : T.textSub,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer",
+              }}>
+                <Icon as={FileText} size={12}/>
+                {newNoteVisible ? "Masquer la note" : newNote.trim() ? "Note ajoutée" : "Ajouter une note"}
+              </button>
+            </div>
+            {newNoteVisible && (
+              <textarea
+                value={newNote}
+                onChange={e => setNewNote(e.target.value)}
+                placeholder="Détails, contexte, contacts, références… (enregistrée avec la tâche)"
+                rows={3}
+                style={{
+                  width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: RADIUS.md,
+                  border: `1px solid ${T.border}`, background: T.card,
+                  color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size,
+                  lineHeight: 1.6, resize: "vertical", outline: "none",
+                }}
+              />
             )}
             {notifStatus && (
               <div style={{
@@ -961,7 +1063,6 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
                 {filtre === "actif" && "Aucune tâche en cours — bien joué !"}
                 {filtre === "fait" && "Aucune tâche terminée"}
                 {filtre === "mes" && "Aucune tâche assignée à vous"}
-                {filtre === "tout" && "Aucune tâche pour l'instant"}
               </div>
             ) : (
               todosFiltres.map(todo => (
@@ -981,88 +1082,7 @@ function PageNotesEtTodo({ T, profil, chantiers = [], branch = "renovation" }) {
             )}
           </div>
         </div>
-
-        {/* ── COLONNE DROITE : NOTES LIBRES ────────────────────────────────── */}
-        <div style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-          {/* Sous-header notes */}
-          <div style={{
-            padding: "14px 20px 12px", borderBottom: `1px solid ${T.border}`,
-            background: T.surface, flexShrink: 0,
-            display: "flex", alignItems: "center", gap: 10,
-          }}>
-            <Icon as={FileText} size={16} color={T.textSub}/>
-            <div style={{ fontSize: FONT.md.size, fontWeight: 700, color: T.text }}>
-              Notes libres
-            </div>
-            <div style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, display:"inline-flex", alignItems:"center", gap:6 }}>
-              {notesSaveStatus === "saving" && (
-                <span style={{ color: T.textMuted }}>Enregistrement…</span>
-              )}
-              {notesSaveStatus === "saved" && (
-                <span style={{ display:"inline-flex", alignItems:"center", gap:5, color: "#22c55e", fontWeight:600 }}>
-                  <Icon as={CircleCheck} size={13}/>
-                  Sauvegardé
-                </span>
-              )}
-              {notesSaveStatus === "" && notesDirty && (
-                <span style={{ display:"inline-flex", alignItems:"center", gap:5, color: "#f5a623", fontWeight:600 }}>
-                  <Icon as={Circle} size={9} fill="#f5a623"/>
-                  Non sauvegardé
-                </span>
-              )}
-            </div>
-            {notesDirty && notesSaveStatus === "" && (
-              <button onClick={() => saveNotes(notes)} style={{
-                display:"inline-flex", alignItems:"center", gap:5,
-                padding: "5px 12px", borderRadius: RADIUS.md, border: "none",
-                background: acc.accent, color: acc.onAccent,
-                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer",
-              }}>
-                <Icon as={Check} size={12}/>
-                Sauvegarder
-              </button>
-            )}
-          </div>
-
-          {/* Zone de texte */}
-          <div style={{ flex: 1, padding: "16px 20px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <textarea
-              value={notes}
-              onChange={e => handleNotesChange(e.target.value)}
-              placeholder={"Écrivez ici toutes vos notes importantes…\n\nExemples :\n• Chantier Lamartine : livraison placo semaine 22\n• Appeler le client Martin lundi\n• Vérifier devis isolation PHILIBERT\n• Contact fournisseur Leroy Merlin : 06 XX XX XX XX"}
-              style={{
-                flex: 1, width: "100%", padding: "14px 16px",
-                background: T.card, border: `1px solid ${T.border}`,
-                borderRadius: RADIUS.lg, color: T.text,
-                fontFamily: "inherit", fontSize: FONT.base.size, lineHeight: 1.7,
-                resize: "none", outline: "none",
-                transition: "border-color .15s",
-              }}
-              onFocus={e => e.target.style.borderColor = acc.accent}
-              onBlur={e => {
-                e.target.style.borderColor = T.border;
-                if (notesDirty) saveNotes(notes);
-              }}
-            />
-            <div style={{
-              display: "flex", justifyContent: "flex-end", alignItems: "center",
-              marginTop: 8, fontSize: FONT.xs.size + 1, color: T.textMuted,
-            }}>
-              <span>Sauvegarde auto après 1,5 s</span>
-            </div>
-          </div>
-        </div>
       </div>
-
-      {/* Responsive : stack en colonne sur mobile */}
-      <style>{`
-        @media (max-width: 767px) {
-          .notes-todo-grid {
-            grid-template-columns: 1fr !important;
-            overflow: auto !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
