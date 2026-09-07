@@ -855,9 +855,14 @@ function ModalMateriel({ T, acc, item, ouvriers, categories, onFermer, onEnregis
 }
 
 // ─── Import du Google Sheets (export .xlsx ou .csv) ──────────────────────────
-// Le classeur peut avoir un onglet par ouvrier (le nom de l'onglet sert alors
-// de détenteur) ou une colonne « Ouvrier ». Les colonnes sont auto-détectées
-// depuis les en-têtes ; les codes déjà connus sont mis à jour, les autres créés.
+// Deux stratégies de lecture, appliquées onglet par onglet :
+//   1. En-têtes de colonnes reconnus (code / désignation / ouvrier / état…) ;
+//   2. Sinon, détection par motif : toute cellule ressemblant à un code d'outil
+//      (VCD-000203, CUT-21, TW-1-1…) devient une ligne, la désignation étant la
+//      cellule non vide à sa gauche. Couvre le Google Sheets réel : pas
+//      d'en-têtes, plusieurs blocs côte à côte, un onglet par ouvrier.
+// Chaque onglet est ensuite rattaché à un détenteur (proposé depuis son nom,
+// modifiable) et peut être exclu de l'import.
 
 // Mots-clés d'en-têtes par champ. L'ordre du tableau est l'ordre de priorité
 // de détection (« nom » en dernier car trop générique : « nom ouvrier » doit
@@ -892,11 +897,49 @@ const mapDateImport = (val) => {
   return null;
 };
 
+// Un code d'outil : lettres/chiffres + au moins un tiret et un chiffre
+// (VCD-000203, CUT-21, BAT2-00091, TW-1-1…). Cellule entière, sans espace.
+const RE_CODE = /^[A-Za-z][A-Za-z0-9]{0,11}(?:-[A-Za-z0-9]{1,8}){1,3}$/;
+const estCode = (v) => {
+  const s = String(v ?? "").trim();
+  return RE_CODE.test(s) && /\d/.test(s);
+};
+
+// Désignation d'un code trouvé en colonne c : première cellule non vide à sa
+// gauche, en s'arrêtant si on retombe sur un code ou un marqueur de pointage
+// (« x », « o », « x Hamed »…) — signe qu'on a traversé le bloc précédent.
+const nomAGauche = (row, c) => {
+  for (let k = c - 1; k >= 0; k--) {
+    const v = String(row[k] ?? "").trim();
+    if (!v) continue;
+    if (estCode(v) || /^[xo](\b|$)/i.test(v)) return "";
+    return v;
+  }
+  return "";
+};
+
+// Proposition par défaut pour un onglet : à qui rattacher ses lignes, et
+// faut-il l'inclure d'office. « JP » → l'ouvrier JP ; « Selman (ancien
+// matériel Mady) » → Selman (hors planning) ; « Désignationnuméros » (le
+// catalogue récapitulatif) → exclu par défaut ; « Magaux » → au dépôt.
+const defautFeuille = (nomFeuille, nbLignes, ouvriersNorm) => {
+  const brut = String(nomFeuille).trim();
+  const premier = brut.split(/[\s(]+/)[0];
+  const n = normalize(brut);
+  const matchPlanning = ouvriersNorm.get(n) || ouvriersNorm.get(normalize(premier));
+  if (!nbLignes) return { inclus: false, detenteur: "__depot__", premier };
+  if (matchPlanning) return { inclus: true, detenteur: matchPlanning, premier };
+  if (/(design|invent|numero|liste|recap|catalog)/.test(n)) return { inclus: false, detenteur: "__depot__", premier };
+  if (/(maga|depot|stock|atelier)/.test(n)) return { inclus: true, detenteur: "__depot__", premier };
+  if (/^[a-z]{2,}$/.test(normalize(premier)) && !/^(sheet|feuil)/.test(n)) return { inclus: true, detenteur: premier, premier };
+  return { inclus: false, detenteur: "__depot__", premier };
+};
+
 function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTermine }) {
   const [nomFichier, setNomFichier] = useState("");
-  const [lignes, setLignes] = useState(null);      // lignes parsées
+  const [feuilles, setFeuilles] = useState(null);  // [{ nom, premier, lignes }]
+  const [config, setConfig] = useState({});        // { [nomFeuille]: { inclus, detenteur } }
   const [avertissements, setAvertissements] = useState([]);
-  const [mappingInconnus, setMappingInconnus] = useState({}); // { prenomSheet: valeur retenue }
   const [mode, setMode] = useState("upsert");      // upsert | nouveaux
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState("");
@@ -916,20 +959,21 @@ function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTer
 
   const parserFichier = async (file) => {
     setErreur("");
+    setResultat(null);
+    setFeuilles(null);
     setNomFichier(file.name);
     try {
       const XLSX = await import("xlsx");
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array", cellDates: true });
-      const toutes = [];
+      const resFeuilles = [];
       const warns = [];
 
       for (const sheetName of wb.SheetNames) {
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
-        if (!rows.length) continue;
 
-        // Détection de la ligne d'en-têtes : parmi les 5 premières lignes,
-        // celle qui matche le plus de colonnes connues (au moins code ou nom).
+        // Stratégie 1 : ligne d'en-têtes reconnue (colonnes nommées code /
+        // désignation / ouvrier / état…), cherchée dans les 5 premières lignes.
         let entete = null, colonnes = null, meilleurScore = 0;
         for (let r = 0; r < Math.min(5, rows.length); r++) {
           const cand = {};
@@ -942,88 +986,110 @@ function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTer
             }
           });
           const score = Object.keys(cand).length;
-          if (score > meilleurScore && (cand.code !== undefined || cand.nom !== undefined)) {
+          if (score > meilleurScore && cand.code !== undefined && cand.nom !== undefined) {
             meilleurScore = score; entete = r; colonnes = cand;
           }
         }
-        if (!colonnes) { warns.push(`Onglet « ${sheetName} » : aucune colonne reconnue, ignoré.`); continue; }
-
-        // Détenteur par défaut : le nom de l'onglet, s'il ne ressemble pas à
-        // un nom générique (« Feuille 1 », « Sheet1 »…).
-        const generique = /^(sheet|feuil)/i.test(sheetName.trim());
-        const ouvrierOnglet = generique ? "" : sheetName.trim();
-
-        for (let r = entete + 1; r < rows.length; r++) {
-          const row = rows[r];
-          const get = (champ) => (colonnes[champ] !== undefined ? row[colonnes[champ]] : "");
-          const code = normCode(get("code"));
-          const nom = String(get("nom") || "").trim();
-          if (!code && !nom) continue; // ligne vide
-          if (!code) { warns.push(`Onglet « ${sheetName} », ligne ${r + 1} : pas de code, ignorée (« ${nom} »).`); continue; }
-          toutes.push({
-            code,
-            nom: nom || code,
-            categorie: String(get("categorie") || "").trim(),
-            ouvrier: String(get("ouvrier") || "").trim() || ouvrierOnglet,
-            etat: mapEtatImport(get("etat")),
-            date_remise: mapDateImport(get("date_remise")),
-            notes: String(get("notes") || "").trim(),
-          });
+        const lignesEntetes = [];
+        if (colonnes) {
+          for (let r = entete + 1; r < rows.length; r++) {
+            const row = rows[r];
+            const get = (champ) => (colonnes[champ] !== undefined ? row[colonnes[champ]] : "");
+            const code = normCode(get("code"));
+            if (!code) continue;
+            const nom = String(get("nom") || "").trim();
+            lignesEntetes.push({
+              code,
+              nom: nom || code,
+              categorie: String(get("categorie") || "").trim(),
+              ouvrier: String(get("ouvrier") || "").trim(),
+              etat: mapEtatImport(get("etat")),
+              date_remise: mapDateImport(get("date_remise")),
+              notes: String(get("notes") || "").trim(),
+            });
+          }
         }
+
+        // Stratégie 2 : détection par motif de code, cellule par cellule —
+        // fonctionne sans en-têtes et avec plusieurs blocs côte à côte.
+        const lignesMotif = [];
+        rows.forEach((row) => {
+          row.forEach((cell, c) => {
+            if (!estCode(cell)) return;
+            const nom = nomAGauche(row, c);
+            lignesMotif.push({
+              code: normCode(cell),
+              nom: nom || normCode(cell),
+              categorie: "",
+              ouvrier: "",
+              etat: "bon",
+              date_remise: null,
+              notes: "",
+            });
+          });
+        });
+
+        // On garde la stratégie qui reconnaît le plus de lignes.
+        const lignesFeuille = lignesMotif.length > lignesEntetes.length ? lignesMotif : lignesEntetes;
+        if (!lignesFeuille.length) warns.push(`Onglet « ${sheetName} » : aucune ligne reconnue.`);
+        resFeuilles.push({ nom: sheetName, lignes: lignesFeuille });
       }
 
-      // Doublons de code dans le fichier : la dernière ligne gagne.
-      const parCode = new Map();
-      let nbDoublons = 0;
-      toutes.forEach((l) => { if (parCode.has(l.code)) nbDoublons++; parCode.set(l.code, l); });
-      if (nbDoublons > 0) warns.push(`${nbDoublons} doublon${nbDoublons > 1 ? "s" : ""} de code dans le fichier : seule la dernière ligne de chaque code est retenue.`);
-      const finales = [...parCode.values()];
-      if (!finales.length) { setErreur("Aucune ligne exploitable trouvée dans ce fichier."); setLignes(null); return; }
-
-      // Prénoms détectés absents du planning : proposer un rattachement.
-      const inconnus = [...new Set(
-        finales.map((l) => l.ouvrier).filter((o) => o && !ouvriersNorm.has(normalize(o)))
-      )];
-      const mapping = {};
-      inconnus.forEach((o) => { mapping[o] = o; }); // par défaut : garder tel quel
-      setMappingInconnus(mapping);
+      if (!resFeuilles.some((f) => f.lignes.length)) {
+        setErreur("Aucune ligne exploitable trouvée dans ce fichier.");
+        return;
+      }
+      const cfg = {};
+      resFeuilles.forEach((f) => {
+        const d = defautFeuille(f.nom, f.lignes.length, ouvriersNorm);
+        f.premier = d.premier;
+        cfg[f.nom] = { inclus: d.inclus, detenteur: d.detenteur };
+      });
+      setConfig(cfg);
       setAvertissements(warns);
-      setLignes(finales);
+      setFeuilles(resFeuilles);
     } catch (e) {
       setErreur(`Impossible de lire ce fichier : ${e.message}`);
-      setLignes(null);
     }
   };
 
-  const resoudreOuvrier = (brut) => {
-    if (!brut) return null;
-    const exact = ouvriersNorm.get(normalize(brut));
-    if (exact) return exact;
-    const choix = mappingInconnus[brut];
-    if (choix === "__depot__") return null;
-    return choix || brut;
-  };
-
-  const stats = useMemo(() => {
-    if (!lignes) return null;
+  // Lignes retenues : onglets cochés, détenteur résolu, dédoublonnées par code
+  // (la dernière occurrence gagne — les onglets ouvriers venant après un
+  // éventuel onglet catalogue, l'affectation la plus précise l'emporte).
+  const retenu = useMemo(() => {
+    if (!feuilles) return null;
+    const parCode = new Map();
+    let doublons = 0;
+    feuilles.forEach((f) => {
+      const cfg = config[f.nom];
+      if (!cfg || !cfg.inclus) return;
+      f.lignes.forEach((l) => {
+        const detenteur = l.ouvrier
+          ? (ouvriersNorm.get(normalize(l.ouvrier)) || l.ouvrier)
+          : (cfg.detenteur === "__depot__" ? null : cfg.detenteur);
+        if (parCode.has(l.code)) doublons++;
+        parCode.set(l.code, { ...l, detenteur });
+      });
+    });
+    const lignes = [...parCode.values()];
     let nouveaux = 0, maj = 0;
     lignes.forEach((l) => { parCodeExistant.has(l.code) ? maj++ : nouveaux++; });
-    return { nouveaux, maj };
-  }, [lignes, parCodeExistant]);
+    return { lignes, doublons, nouveaux, maj };
+  }, [feuilles, config, ouvriersNorm, parCodeExistant]);
 
   const importer = async () => {
-    if (!lignes || enCours) return;
+    if (!retenu || !retenu.lignes.length || enCours) return;
     setEnCours(true);
     setErreur("");
     const acteur = profil?.nom || profil?.email || null;
     const aInserer = [];
     const aMettreAJour = [];
-    lignes.forEach((l) => {
+    retenu.lignes.forEach((l) => {
       const ligne = {
         code: l.code,
         nom: l.nom,
         categorie: l.categorie || null,
-        ouvrier_prenom: resoudreOuvrier(l.ouvrier),
+        ouvrier_prenom: l.detenteur,
         date_remise: l.date_remise,
         etat: l.etat,
         notes: l.notes || null,
@@ -1051,7 +1117,6 @@ function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTer
   };
 
   const champ = { display: "block", fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.textSub, margin: "14px 0 4px" };
-  const inconnusListe = Object.keys(mappingInconnus);
 
   return (
     <div
@@ -1091,7 +1156,8 @@ function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTer
           <>
             <p style={{ margin: "6px 0 0", fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.5 }}>
               Depuis Google Sheets : Fichier → Télécharger → Microsoft Excel (.xlsx), puis choisissez le fichier ici.
-              Un onglet par ouvrier fonctionne (le nom de l'onglet sert de détenteur), tout comme une colonne « Ouvrier ».
+              Les codes d'outils sont détectés automatiquement, même sans ligne d'en-têtes ; chaque onglet est
+              rattaché à un ouvrier (proposé d'après son nom, modifiable avant l'import).
             </p>
 
             <label style={champ}>Fichier (.xlsx, .xls ou .csv)</label>
@@ -1106,55 +1172,79 @@ function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTer
               <div style={{ marginTop: 12, color: "#e05c5c", fontSize: FONT.sm.size, fontWeight: 600 }}>{erreur}</div>
             )}
 
-            {lignes && (
+            {feuilles && retenu && (
               <>
+                <label style={champ}>Onglets du fichier — cochez ceux à importer, et pour qui :</label>
+                {feuilles.map((f) => {
+                  const cfg = config[f.nom] || { inclus: false, detenteur: "__depot__" };
+                  const premierHorsPlanning = f.premier && !ouvriersNorm.has(normalize(f.premier));
+                  return (
+                    <div key={f.nom} style={{
+                      display: "flex", alignItems: "center", gap: 8, marginBottom: 6,
+                      opacity: f.lignes.length ? 1 : .45,
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={cfg.inclus}
+                        disabled={!f.lignes.length}
+                        onChange={(e) => setConfig((m) => ({ ...m, [f.nom]: { ...cfg, inclus: e.target.checked } }))}
+                        style={{ flexShrink: 0, width: 15, height: 15, accentColor: acc.accent }}
+                      />
+                      <span
+                        title={f.nom}
+                        style={{
+                          flex: "1 1 140px", minWidth: 0, fontSize: FONT.sm.size, fontWeight: 700, color: T.text,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>
+                        {f.nom}
+                      </span>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, flexShrink: 0 }}>
+                        {f.lignes.length} ligne{f.lignes.length > 1 ? "s" : ""}
+                      </span>
+                      <select
+                        className="ti"
+                        value={cfg.detenteur}
+                        disabled={!cfg.inclus}
+                        onChange={(e) => setConfig((m) => ({ ...m, [f.nom]: { ...cfg, detenteur: e.target.value } }))}
+                        style={{ flex: "1 1 180px", minWidth: 130, opacity: cfg.inclus ? 1 : .5 }}>
+                        <option value="__depot__">Au dépôt (non affecté)</option>
+                        {ouvriers.map((p) => <option key={p} value={p}>{p}</option>)}
+                        {premierHorsPlanning && <option value={f.premier}>Garder « {f.premier} » (hors planning)</option>}
+                      </select>
+                    </div>
+                  );
+                })}
+
                 <div style={{
                   display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14,
                   fontSize: FONT.sm.size, color: T.text, fontWeight: 600,
                 }}>
                   <span style={{ background: T.tagBg, color: T.tagColor, padding: "4px 10px", borderRadius: 99 }}>
-                    {lignes.length} ligne{lignes.length > 1 ? "s" : ""}
+                    {retenu.lignes.length} ligne{retenu.lignes.length > 1 ? "s" : ""} retenue{retenu.lignes.length > 1 ? "s" : ""}
                   </span>
                   <span style={{ background: "#22c55e1f", color: "#22c55e", padding: "4px 10px", borderRadius: 99 }}>
-                    {stats.nouveaux} nouveau{stats.nouveaux > 1 ? "x" : ""}
+                    {retenu.nouveaux} nouveau{retenu.nouveaux > 1 ? "x" : ""}
                   </span>
                   <span style={{ background: "#4db8ff1f", color: "#4db8ff", padding: "4px 10px", borderRadius: 99 }}>
-                    {stats.maj} déjà connu{stats.maj > 1 ? "s" : ""}
+                    {retenu.maj} déjà connu{retenu.maj > 1 ? "s" : ""}
                   </span>
                 </div>
 
-                {avertissements.length > 0 && (
+                {(avertissements.length > 0 || retenu.doublons > 0) && (
                   <div style={{
                     marginTop: 10, padding: "8px 12px", borderRadius: RADIUS.md,
                     background: "#f59e0b14", border: "1px solid #f59e0b44",
                     fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.5,
                   }}>
+                    {retenu.doublons > 0 && (
+                      <div>• {retenu.doublons} code{retenu.doublons > 1 ? "s" : ""} en double entre les onglets cochés : la dernière occurrence (l'onglet le plus à droite) l'emporte.</div>
+                    )}
                     {avertissements.slice(0, 6).map((w, i) => <div key={i}>• {w}</div>)}
                     {avertissements.length > 6 && <div>… et {avertissements.length - 6} autre{avertissements.length - 6 > 1 ? "s" : ""}.</div>}
                   </div>
                 )}
 
-                {inconnusListe.length > 0 && (
-                  <>
-                    <label style={champ}>Prénoms du fichier absents du planning — à rattacher :</label>
-                    {inconnusListe.map((o) => (
-                      <div key={o} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                        <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, flex: "0 0 130px" }}>{o}</span>
-                        <select
-                          className="ti"
-                          value={mappingInconnus[o]}
-                          onChange={(e) => setMappingInconnus((m) => ({ ...m, [o]: e.target.value }))}
-                          style={{ flex: 1 }}>
-                          <option value={o}>Garder « {o} » (hors planning)</option>
-                          {ouvriers.map((p) => <option key={p} value={p}>{p}</option>)}
-                          <option value="__depot__">Au dépôt (non affecté)</option>
-                        </select>
-                      </div>
-                    ))}
-                  </>
-                )}
-
-                {stats.maj > 0 && (
+                {retenu.maj > 0 && (
                   <>
                     <label style={champ}>Codes déjà présents dans l'inventaire</label>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -1182,38 +1272,39 @@ function ModalImport({ T, acc, ouvriers, itemsExistants, profil, onFermer, onTer
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT.xs.size + 1 }}>
                     <thead>
                       <tr style={{ color: T.textMuted, textAlign: "left" }}>
-                        {["Code", "Outil", "Ouvrier", "État"].map((h) => (
+                        {["Code", "Outil", "Détenteur", "État"].map((h) => (
                           <th key={h} style={{ padding: "6px 10px", borderBottom: `1px solid ${T.sectionDivider}`, fontWeight: 700 }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {lignes.slice(0, 8).map((l, i) => (
+                      {retenu.lignes.slice(0, 8).map((l, i) => (
                         <tr key={i} style={{ color: T.text }}>
                           <td style={{ padding: "5px 10px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontWeight: 700 }}>{l.code}</td>
                           <td style={{ padding: "5px 10px" }}>{l.nom}</td>
-                          <td style={{ padding: "5px 10px", color: T.textSub }}>{resoudreOuvrier(l.ouvrier) || "Au dépôt"}</td>
+                          <td style={{ padding: "5px 10px", color: T.textSub }}>{l.detenteur || "Au dépôt"}</td>
                           <td style={{ padding: "5px 10px", color: (ETATS[l.etat] || ETATS.bon).color, fontWeight: 700 }}>{(ETATS[l.etat] || ETATS.bon).label}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {lignes.length > 8 && (
+                  {retenu.lignes.length > 8 && (
                     <div style={{ padding: "5px 10px", fontSize: FONT.xs.size, color: T.textMuted }}>
-                      … et {lignes.length - 8} autres lignes.
+                      … et {retenu.lignes.length - 8} autres lignes.
                     </div>
                   )}
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
                   <button className="btn-g" onClick={onFermer}>Annuler</button>
-                  <button className="btn-p" onClick={importer} disabled={enCours}>
-                    {enCours ? "Import en cours…" : `Importer ${lignes.length} ligne${lignes.length > 1 ? "s" : ""}`}
+                  <button className="btn-p" onClick={importer} disabled={enCours || !retenu.lignes.length}
+                    style={{ opacity: retenu.lignes.length ? 1 : .5 }}>
+                    {enCours ? "Import en cours…" : `Importer ${retenu.lignes.length} ligne${retenu.lignes.length > 1 ? "s" : ""}`}
                   </button>
                 </div>
               </>
             )}
-            {nomFichier && !lignes && !erreur && (
+            {nomFichier && !feuilles && !erreur && (
               <div style={{ marginTop: 12, fontSize: FONT.sm.size, color: T.textMuted }}>Lecture de {nomFichier}…</div>
             )}
           </>
