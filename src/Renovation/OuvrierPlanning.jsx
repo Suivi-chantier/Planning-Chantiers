@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { JOURS, getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS } from "../constants";
+import { JOURS, getCurrentWeek, getWeekId, getTodayJour, DEFAULT_CHANTIERS, loadEquipes } from "../constants";
 import { getISOWeek, mondayOfWeek } from "../rythmeSemaine";
+import { normaliserNomRessource } from "./planningResourceModelV1";
 import { Icon } from "../ui";
 import { MapPin, CalendarX, Building2, CalendarDays, Users, ChevronLeft, ChevronRight, Undo2 } from "lucide-react";
 import { MobileCard, MobileEmptyState, MobileTabs } from "../mobileUI";
@@ -21,7 +22,10 @@ function semaineCible() {
   return { year, week, showNext };
 }
 
-export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
+// estResponsable / equipesResponsable : qualité de chef DÉRIVÉE côté SQL
+// (RPC mon_profil_espace, voir EspaceOuvrier). Pour un ouvrier non-chef,
+// le rendu est strictement celui d'avant : pas de sélecteur, vue « Moi ».
+export default function OuvrierPlanning({ prenom, T, accent = "#FFC200", estResponsable = false, equipesResponsable = [] }) {
   // Semaine affichée : par défaut la cible (courante, ou suivante dès vendredi),
   // navigable librement avec les flèches ‹ › (retour rapide via le bouton dédié).
   const cible = semaineCible();
@@ -31,11 +35,27 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
   const todayJour = getTodayJour();
   const cur       = getCurrentWeek();
 
-  const [loading, setLoading]     = useState(true);
-  const [cellsByDay, setCellsByDay] = useState({});
-  const [config, setConfig]       = useState({ chantiers: DEFAULT_CHANTIERS, adresses: {} });
+  const [loading, setLoading]   = useState(true);
+  const [rawCells, setRawCells] = useState([]);
+  const [config, setConfig]     = useState({ chantiers: DEFAULT_CHANTIERS, adresses: {} });
   // Jour sélectionné : aujourd'hui si semaine en cours, sinon lundi (semaine suivante).
   const [jour, setJour] = useState(cible.showNext ? "Lundi" : (todayJour || "Lundi"));
+
+  // Vue chef d'équipe : Moi (défaut) / Mon équipe / Tout. Le référentiel
+  // complet des équipes (couleurs, membres) n'est chargé que pour un chef —
+  // uniquement pour l'AFFICHAGE (puces, pastilles) : le droit de voir les
+  // cellules vient de la RLS (policy cells_responsable_sel).
+  const [vue, setVue]           = useState("moi");
+  const [equipes, setEquipes]   = useState([]);
+  const [filtreEq, setFiltreEq] = useState(null); // id d'équipe, null = toutes
+  const vueActive = estResponsable ? vue : "moi";
+
+  useEffect(() => {
+    if (!estResponsable) return;
+    let cancelled = false;
+    loadEquipes().then(eqs => { if (!cancelled) setEquipes(eqs); });
+    return () => { cancelled = true; };
+  }, [estResponsable]);
 
   // Navigation de semaine (ISO : gère les années à 52/53 semaines via les dates).
   const allerSemaine = (y, w) => {
@@ -79,14 +99,82 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
       });
   }, []);
 
+  // La RLS décide de ce qui revient : ses cellules pour un ouvrier, toutes
+  // pour un chef (cells_responsable_sel). Le filtrage par vue se fait ensuite
+  // en mémoire, sans nouvelle requête.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     supabase.from("planning_cells").select("*").eq("week_id", weekId).then(({ data }) => {
       if (cancelled) return;
-      const byDay = {};
-      (data || []).forEach(cell => {
-        const ch = config.chantiers.find(c => c.id === cell.chantier_id);
+      setRawCells(data || []);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [weekId]);
+
+  // ── Correspondances équipes (chef uniquement) ──────────────────────────────
+  // prénom normalisé → équipe (première équipe qui le porte, responsable inclus).
+  const equipeParPrenom = useMemo(() => {
+    const map = new Map();
+    equipes.forEach(eq => {
+      [eq.responsable, ...(eq.membres || []).map(m => m.ouvrier)].forEach(n => {
+        const cle = normaliserNomRessource(n);
+        if (cle && !map.has(cle)) map.set(cle, eq);
+      });
+    });
+    return map;
+  }, [equipes]);
+
+  // Prénoms (normalisés) des équipes dont je suis responsable, moi inclus.
+  const membresMesEquipes = useMemo(() => {
+    const ids = new Set((equipesResponsable || []).map(e => e.id));
+    const s = new Set();
+    equipes.filter(eq => ids.has(eq.id)).forEach(eq => {
+      [eq.responsable, ...(eq.membres || []).map(m => m.ouvrier)].forEach(n => {
+        const cle = normaliserNomRessource(n);
+        if (cle) s.add(cle);
+      });
+    });
+    return s;
+  }, [equipes, equipesResponsable]);
+
+  // Équipes proposées en puces de filtre (vue « Tout ») : celles qui ont au
+  // moins une personne (les équipes externes sans membres n'apparaissent pas).
+  const equipesFiltrables = useMemo(
+    () => equipes.filter(eq =>
+      normaliserNomRessource(eq.responsable) || (eq.membres || []).some(m => normaliserNomRessource(m.ouvrier))),
+    [equipes]
+  );
+
+  // ── Cellules du jour, par vue ──────────────────────────────────────────────
+  const cellsByDay = useMemo(() => {
+    const byDay = {};
+    rawCells.forEach(cell => {
+      // Personnes présentes sur ce chantier ce jour-là (cellule + tâches).
+      const presents = new Set(cell.ouvriers || []);
+      (Array.isArray(cell.taches) ? cell.taches : []).forEach(t => (t.ouvriers || []).forEach(o => presents.add(o)));
+      const personnes = [...presents].filter(Boolean);
+
+      if (vueActive === "moi") {
+        // Réplique exacte du filtre RLS cells_ouvrier_sel (colonne ouvriers) :
+        // indispensable pour un chef, dont la requête renvoie TOUTES les cellules.
+        if (!(cell.ouvriers || []).includes(prenom)) return;
+      } else if (vueActive === "equipe") {
+        if (!personnes.some(n => membresMesEquipes.has(normaliserNomRessource(n)))) return;
+      } else if (filtreEq) {
+        if (!personnes.some(n => equipeParPrenom.get(normaliserNomRessource(n))?.id === filtreEq)) return;
+      }
+
+      const ch = config.chantiers.find(c => c.id === cell.chantier_id);
+      const base = {
+        chantier_id: cell.chantier_id,
+        nom: ch?.nom || cell.chantier_id,
+        couleur: ch?.couleur || "#5b8af5",
+        geo: config.adresses[cell.chantier_id] || null,
+      };
+
+      if (vueActive === "moi") {
         const taches = [];
         if (Array.isArray(cell.taches) && cell.taches.length) {
           cell.taches.forEach(t => {
@@ -98,24 +186,13 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
         } else if (cell.planifie?.trim()) {
           cell.planifie.split("\n").filter(l => l.trim()).forEach(l => taches.push(l.trim()));
         }
-        // Collègues présents sur ce chantier ce jour-là (niveau cellule + tâches), sauf moi.
-        const equipe = new Set(cell.ouvriers || []);
-        (cell.taches || []).forEach(t => (t.ouvriers || []).forEach(o => equipe.add(o)));
-        const collegues = [...equipe].filter(n => n && n !== prenom);
-        (byDay[cell.jour] ||= []).push({
-          chantier_id: cell.chantier_id,
-          nom: ch?.nom || cell.chantier_id,
-          couleur: ch?.couleur || "#5b8af5",
-          geo: config.adresses[cell.chantier_id] || null,
-          taches,
-          collegues,
-        });
-      });
-      setCellsByDay(byDay);
-      setLoading(false);
+        (byDay[cell.jour] ||= []).push({ ...base, taches, collegues: personnes.filter(n => n !== prenom) });
+      } else {
+        (byDay[cell.jour] ||= []).push({ ...base, personnes });
+      }
     });
-    return () => { cancelled = true; };
-  }, [weekId, config, prenom]);
+    return byDay;
+  }, [rawCells, vueActive, filtreEq, config, prenom, membresMesEquipes, equipeParPrenom]);
 
   const dayCells = cellsByDay[jour] || [];
   const jourIdx  = JOURS.indexOf(jour);
@@ -123,6 +200,10 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
     const n = (cellsByDay[j] || []).length;
     return { id: j, label: ABBR[j], count: n > 0 ? n : null };
   });
+
+  const emptyHint = vueActive === "moi" ? "Aucun chantier ne t'est affecté ce jour-là."
+    : vueActive === "equipe" ? "Personne de ton équipe n'est planifié ce jour-là."
+    : "Aucun chantier planifié ce jour-là.";
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -172,6 +253,46 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
         </button>
       )}
 
+      {/* Sélecteur de vue — chefs d'équipe uniquement */}
+      {estResponsable && (
+        <MobileTabs T={T} accent={accent} onAccent="#1a1f2e" value={vue}
+          onChange={(v) => { setVue(v); setFiltreEq(null); }}
+          tabs={[
+            { id: "moi",    label: "Moi" },
+            { id: "equipe", label: "Mon équipe" },
+            { id: "tout",   label: "Tout" },
+          ]}/>
+      )}
+
+      {/* Puces de filtre par équipe — vue « Tout » */}
+      {vueActive === "tout" && equipesFiltrables.length > 0 && (
+        <div style={{ display:"flex", flexWrap:"wrap", gap:6, padding:"0 2px" }}>
+          <button onClick={() => setFiltreEq(null)} style={{
+            borderRadius:999, padding:"4px 12px", fontSize:12.5, fontWeight:700, cursor:"pointer",
+            fontFamily:"inherit",
+            background: filtreEq === null ? T.text : T.surface,
+            color:      filtreEq === null ? T.surface : T.textSub,
+            border:     `1px solid ${filtreEq === null ? T.text : T.border}`,
+          }}>Toutes</button>
+          {equipesFiltrables.map(eq => {
+            const actif = filtreEq === eq.id;
+            return (
+              <button key={eq.id} onClick={() => setFiltreEq(actif ? null : eq.id)} style={{
+                display:"inline-flex", alignItems:"center", gap:6,
+                borderRadius:999, padding:"4px 12px", fontSize:12.5, fontWeight:700, cursor:"pointer",
+                fontFamily:"inherit",
+                background: actif ? eq.couleur + "2e" : T.surface,
+                color:      actif ? T.text : T.textSub,
+                border:     `1px solid ${actif ? eq.couleur : T.border}`,
+              }}>
+                <span style={{ width:8, height:8, borderRadius:"50%", background:eq.couleur, flexShrink:0 }}/>
+                {eq.nom}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Sélecteur de jour */}
       <MobileTabs tabs={tabs} value={jour} onChange={setJour} accent={accent} onAccent="#1a1f2e" T={T}/>
 
@@ -182,52 +303,89 @@ export default function OuvrierPlanning({ prenom, T, accent = "#FFC200" }) {
         <MobileCard T={T}>
           <MobileEmptyState T={T} icon={CalendarX}
             title={`Rien de prévu le ${jour.toLowerCase()}`}
-            hint="Aucun chantier ne t'est affecté ce jour-là." />
+            hint={emptyHint} />
         </MobileCard>
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
           <div style={{ fontSize:13, fontWeight:700, color:T.textSub, padding:"0 4px" }}>
             {jour} {fmtJour(dateDuJour(jourIdx))} · {dayCells.length} chantier{dayCells.length > 1 ? "s" : ""}
           </div>
-          {dayCells.map((c, i) => (
-            <MobileCard key={`${c.chantier_id}_${i}`} T={T} accent={c.couleur} style={{ padding:"13px 15px" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:c.geo?.adresse ? 6 : 10 }}>
-                <Icon as={Building2} size={15} color={c.couleur} strokeWidth={2.3}/>
-                <span style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:-0.2 }}>{c.nom}</span>
-              </div>
-              {c.geo?.adresse && (
-                <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:10 }}>
-                  <Icon as={MapPin} size={13} color={T.textMuted} strokeWidth={2} style={{ marginTop:2, flexShrink:0 }}/>
-                  <span style={{ fontSize:13, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
+          {vueActive === "moi" ? (
+            dayCells.map((c, i) => (
+              <MobileCard key={`${c.chantier_id}_${i}`} T={T} accent={c.couleur} style={{ padding:"13px 15px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:c.geo?.adresse ? 6 : 10 }}>
+                  <Icon as={Building2} size={15} color={c.couleur} strokeWidth={2.3}/>
+                  <span style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:-0.2 }}>{c.nom}</span>
                 </div>
-              )}
-              {/* Collègues sur ce chantier */}
-              <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:10 }}>
-                <Icon as={Users} size={14} color={T.textMuted} strokeWidth={2.2}/>
-                {c.collegues.length > 0 ? (
-                  c.collegues.map(n => (
-                    <span key={n} style={{
-                      background:c.couleur+"22", color:T.text, border:`1px solid ${c.couleur}55`,
-                      borderRadius:999, padding:"2px 10px", fontSize:12.5, fontWeight:700,
-                    }}>{n}</span>
-                  ))
-                ) : (
-                  <span style={{ fontSize:12.5, color:T.textMuted, fontStyle:"italic" }}>Seul sur ce chantier</span>
+                {c.geo?.adresse && (
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:10 }}>
+                    <Icon as={MapPin} size={13} color={T.textMuted} strokeWidth={2} style={{ marginTop:2, flexShrink:0 }}/>
+                    <span style={{ fontSize:13, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
+                  </div>
                 )}
-              </div>
-              <div style={{ marginBottom: c.taches.length ? 12 : 0 }}><NavButtons geo={c.geo}/></div>
-              {c.taches.length > 0 && (
-                <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:6 }}>
-                  {c.taches.map((t, j) => (
-                    <li key={j} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:13.5, color:T.text, lineHeight:1.4 }}>
-                      <span style={{ width:6, height:6, borderRadius:"50%", background:c.couleur, marginTop:6, flexShrink:0 }}/>
-                      <span>{t}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </MobileCard>
-          ))}
+                {/* Collègues sur ce chantier */}
+                <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6, marginBottom:10 }}>
+                  <Icon as={Users} size={14} color={T.textMuted} strokeWidth={2.2}/>
+                  {c.collegues.length > 0 ? (
+                    c.collegues.map(n => (
+                      <span key={n} style={{
+                        background:c.couleur+"22", color:T.text, border:`1px solid ${c.couleur}55`,
+                        borderRadius:999, padding:"2px 10px", fontSize:12.5, fontWeight:700,
+                      }}>{n}</span>
+                    ))
+                  ) : (
+                    <span style={{ fontSize:12.5, color:T.textMuted, fontStyle:"italic" }}>Seul sur ce chantier</span>
+                  )}
+                </div>
+                <div style={{ marginBottom: c.taches.length ? 12 : 0 }}><NavButtons geo={c.geo}/></div>
+                {c.taches.length > 0 && (
+                  <ul style={{ margin:0, padding:0, listStyle:"none", display:"flex", flexDirection:"column", gap:6 }}>
+                    {c.taches.map((t, j) => (
+                      <li key={j} style={{ display:"flex", alignItems:"flex-start", gap:9, fontSize:13.5, color:T.text, lineHeight:1.4 }}>
+                        <span style={{ width:6, height:6, borderRadius:"50%", background:c.couleur, marginTop:6, flexShrink:0 }}/>
+                        <span>{t}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </MobileCard>
+            ))
+          ) : (
+            // Vues « Mon équipe » / « Tout » : par chantier, QUI est présent —
+            // chaque prénom en pastille aux couleurs de son équipe (gris sans équipe).
+            dayCells.map((c, i) => (
+              <MobileCard key={`${c.chantier_id}_${i}`} T={T} accent={c.couleur} style={{ padding:"13px 15px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:c.geo?.adresse ? 6 : 10 }}>
+                  <Icon as={Building2} size={15} color={c.couleur} strokeWidth={2.3}/>
+                  <span style={{ fontSize:16, fontWeight:800, color:T.text, letterSpacing:-0.2 }}>{c.nom}</span>
+                </div>
+                {c.geo?.adresse && (
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:6, marginBottom:10 }}>
+                    <Icon as={MapPin} size={13} color={T.textMuted} strokeWidth={2} style={{ marginTop:2, flexShrink:0 }}/>
+                    <span style={{ fontSize:13, color:T.textSub, lineHeight:1.4, flex:1 }}>{c.geo.adresse}</span>
+                  </div>
+                )}
+                <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:6 }}>
+                  <Icon as={Users} size={14} color={T.textMuted} strokeWidth={2.2}/>
+                  {c.personnes.length > 0 ? (
+                    c.personnes.map(n => {
+                      const eq = equipeParPrenom.get(normaliserNomRessource(n)) || null;
+                      return (
+                        <span key={n} style={{
+                          background: eq ? eq.couleur + "22" : T.card,
+                          color: T.text,
+                          border: `1px solid ${eq ? eq.couleur + "55" : T.border}`,
+                          borderRadius:999, padding:"2px 10px", fontSize:12.5, fontWeight:700,
+                        }}>{n}</span>
+                      );
+                    })
+                  ) : (
+                    <span style={{ fontSize:12.5, color:T.textMuted, fontStyle:"italic" }}>Personne d'affecté</span>
+                  )}
+                </div>
+              </MobileCard>
+            ))
+          )}
         </div>
       )}
     </div>

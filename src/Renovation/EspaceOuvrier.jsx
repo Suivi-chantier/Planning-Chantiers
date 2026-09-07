@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { PROFERO_YELLOW, LOGO_RENO_H } from "../constants";
+import { PROFERO_YELLOW, LOGO_RENO_H, loadEquipes } from "../constants";
+import { normaliserNomRessource } from "./planningResourceModelV1";
 import { Icon } from "../ui";
 import {
   LayoutDashboard, CalendarDays, Building2, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
@@ -74,6 +75,44 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
   const [weather, setWeather] = useState(null);
   const prenom = profil?.prenom_planning || profil?.nom || "";
   const current = TABS.find(t => t.id === tab) || TABS[0];
+
+  // Qualité de chef d'équipe : capacité DÉRIVÉE (jamais un rôle), calculée
+  // côté SQL par la RPC mon_profil_espace (planning_config/equipes, champ
+  // responsable). Le front ne la recalcule pas — sauf en mode aperçu Admin,
+  // où la RPC répondrait pour le compte bureau : on dérive alors l'AFFICHAGE
+  // du sélecteur depuis la config équipes pour le prénom simulé (le bureau
+  // voit déjà toutes les cellules via RLS, rien de plus n'est ouvert).
+  const [profilEspace, setProfilEspace] = useState({ est_responsable: false, equipes_responsable: [] });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (preview) {
+          const equipes = await loadEquipes();
+          const cle = normaliserNomRessource(prenom);
+          const mes = cle
+            ? equipes.filter(e => normaliserNomRessource(e.responsable) === cle)
+            : [];
+          if (!cancelled) setProfilEspace({
+            est_responsable: mes.length > 0,
+            equipes_responsable: mes.map(e => ({ id: e.id, nom: e.nom, couleur: e.couleur })),
+          });
+        } else {
+          const { data, error } = await supabase.rpc("mon_profil_espace");
+          if (!cancelled) setProfilEspace(
+            !error && data && typeof data === "object"
+              ? { est_responsable: data.est_responsable === true,
+                  equipes_responsable: Array.isArray(data.equipes_responsable) ? data.equipes_responsable : [] }
+              : { est_responsable: false, equipes_responsable: [] }
+          );
+        }
+      } catch {
+        // RPC absente (migration pas encore appliquée) ou réseau : espace inchangé.
+        if (!cancelled) setProfilEspace({ est_responsable: false, equipes_responsable: [] });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [preview, prenom]);
 
   // Météo du jour — ville partagée avec le Dashboard conducteur (config locale).
   useEffect(() => {
@@ -153,7 +192,11 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
           <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
 
           {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
-          {tab === "planning"         && <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}/>}
+          {tab === "planning"         && (
+            <OuvrierPlanning prenom={prenom} T={T} accent={ACCENT}
+              estResponsable={profilEspace.est_responsable}
+              equipesResponsable={profilEspace.equipes_responsable}/>
+          )}
           {tab === "chantiers"        && <OuvrierChantiers T={T} accent={ACCENT}/>}
           {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT} preview={preview}/>}
         </div>

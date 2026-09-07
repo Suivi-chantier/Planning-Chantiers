@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
     date: "2026-09-07",
+    type: "nouveaute",
+    titre: "Espace ouvrier : les chefs d'équipe voient le planning de toutes les équipes",
+    pages: [], // espace ouvrier (mobile), hors pages bureau
+    quoi: "Un chef d'équipe (le responsable déclaré d'une équipe dans Réglages → Équipes) peut consulter le planning de son équipe et de toutes les autres depuis son espace ouvrier, en lecture seule. Rien ne change pour les autres ouvriers, et le chef n'a accès à aucune donnée financière.",
+    comment: "Dans l'onglet Planning de l'espace ouvrier, un sélecteur « Moi / Mon équipe / Tout » apparaît automatiquement pour les responsables d'équipe. « Mon équipe » montre les chantiers où au moins un membre de son équipe est planifié ; « Tout » montre, jour par jour, chaque chantier avec les personnes présentes, en pastilles aux couleurs de leur équipe, avec des puces pour filtrer par équipe. La navigation de semaine reste la même.",
+  },
+  {
+    date: "2026-09-07",
     type: "amelioration",
     titre: "Inventaire des équipes : audit mensuel et import du Google Sheets",
     pages: [{ id: "inventaire-equipes", label: "Inventaire des équipes" }],
