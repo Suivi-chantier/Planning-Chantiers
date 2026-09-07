@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
     date: "2026-09-07",
+    type: "amelioration",
+    titre: "Inventaire des équipes : audit mensuel et import du Google Sheets",
+    pages: [{ id: "inventaire-equipes", label: "Inventaire des équipes" }],
+    quoi: "L'audit mensuel du matériel se fait directement dans l'application : chaque outil est pointé présent ou manquant et son état est constaté (neuf, bon état, mauvais état, hors service). L'inventaire existant sur Google Sheets s'importe en quelques clics, sans ressaisie.",
+    comment: "Sur la fiche d'un ouvrier, « Démarrer l'audit » liste tous ses outils : on pointe chacun Présent ou Manquant et on corrige l'état constaté ; la clôture n'est possible que quand tout est pointé, et met à jour les fiches outils. Les ouvriers non audités depuis plus d'un mois portent une pastille « à auditer », et l'historique des audits reste consultable. Le bouton « Importer » lit un export Excel du Google Sheets (un onglet par ouvrier ou une colonne Ouvrier), reconnaît les colonnes automatiquement et met à jour les codes déjà connus.",
+  },
+  {
+    date: "2026-09-07",
     type: "nouveaute",
     titre: "Inventaire des équipes : qui détient quel matériel",
     pages: [{ id: "inventaire-equipes", label: "Inventaire des équipes" }],
