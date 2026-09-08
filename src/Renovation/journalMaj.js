@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
+    date: "2026-09-08",
+    type: "amelioration",
+    titre: "Commandes du chantier : barre de recherche dans la liste des lignes",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Sur les gros chantiers, la fenêtre « Commandes du chantier » peut compter plus d'une centaine de lignes : la recherche permet de retrouver instantanément une ligne sans faire défiler toute la liste.",
+    comment: "Dans le Phasage, cliquer sur la carte Commandes ouvre la fenêtre : une barre de recherche reste visible en haut de la liste. Elle filtre au fil de la frappe sur le libellé, le fournisseur, le lot et l'ouvrage. Le compteur indique le nombre de lignes trouvées, et le total en bas s'ajuste aux résultats filtrés.",
+  },
+  {
     date: "2026-09-07",
     type: "nouveaute",
     titre: "Espace ouvrier : les chefs d'équipe voient le planning de toutes les équipes",

@@ -382,6 +382,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
   const [matKpiModal, setMatKpiModal] = useState(false); // modale "toutes les commandes du chantier"
+  const [matKpiSearch, setMatKpiSearch] = useState("");
   const [kpiDetail, setKpiDetail] = useState(null); // détail d'un KPI : "vendu" | "heures" | "mo" | "fg" | "marge"
   const [moisModal, setMoisModal] = useState(false); // modale « heures par mois / par ouvrier »
   const [moisOuvert, setMoisOuvert] = useState({});  // { "2026-07": true } — mois dépliés dans la modale
@@ -2478,7 +2479,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 donnee={fin.matReel} dateRef={todayRefISO}
                 value={fin.matReel.valeurTexte}
                 sub={fin.matReel.sousLabel}
-                onClick={() => setMatKpiModal(true)}/>
+                onClick={() => { setMatKpiSearch(""); setMatKpiModal(true); }}/>
               <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label={fin.fg.label}
                 donnee={fin.fg} dateRef={todayRefISO}
                 value={fin.fg.valeurTexte}
@@ -3146,11 +3147,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       {/* ── Modale édition ouvrage ── */}
       {matKpiModal && (() => {
         const lignes = commandeLignes;
-        const total = totalLignes(lignes);
         const sansPrix = (l) => l.prix_total == null && l.prix_unitaire == null;
         const sansPrixCount = lignes.filter(sansPrix).length;
         const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || (id || null);
         const ouvrageLabelOf = (id) => ouvrages.find(o => o.id === id)?.libelle || null;
+        const q = matKpiSearch.trim().toLowerCase();
+        const lignesAffichees = !q ? lignes : lignes.filter(l =>
+          (l.libelle || "").toLowerCase().includes(q) ||
+          (l.commande?.fournisseur_nom || "").toLowerCase().includes(q) ||
+          (lotLabelOf(l.lot_id) || "").toLowerCase().includes(q) ||
+          (ouvrageLabelOf(l.ouvrage_id) || "").toLowerCase().includes(q)
+        );
+        const total = totalLignes(lignesAffichees);
         return (
           <div onClick={() => setMatKpiModal(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
@@ -3169,10 +3177,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 </div>
                 <button onClick={() => setMatKpiModal(false)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
               </div>
+              {lignes.length > 0 && (
+                <div style={{ position: "sticky", top: 0, zIndex: 1, padding: "10px 20px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+                  <input autoFocus value={matKpiSearch} onChange={e => setMatKpiSearch(e.target.value)}
+                    placeholder="Rechercher une ligne, un fournisseur, un lot…"
+                    style={{
+                      width: "100%", padding: "7px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                      background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
+                    }}/>
+                  {q && (
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 5 }}>
+                      {lignesAffichees.length} ligne{lignesAffichees.length > 1 ? "s" : ""} sur {lignes.length}
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ padding: "12px 20px" }}>
                 {lignes.length === 0 ? (
                   <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>Aucune commande liée à ce chantier pour l'instant.</div>
-                ) : lignes.map(l => {
+                ) : lignesAffichees.length === 0 ? (
+                  <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>Aucune ligne ne correspond à « {matKpiSearch.trim()} ».</div>
+                ) : lignesAffichees.map(l => {
                   const st = statutLigne(l);
                   const lot = lotLabelOf(l.lot_id);
                   const ouv = ouvrageLabelOf(l.ouvrage_id);
@@ -3197,7 +3222,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 })}
               </div>
               <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
-                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total</span>
+                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>{q ? "Total (résultats filtrés)" : "Total"}</span>
                 <span style={{ fontSize: 16, fontWeight: 900, color: "#50c878" }}>{fmtEur(total)} € HT</span>
               </div>
             </div>
