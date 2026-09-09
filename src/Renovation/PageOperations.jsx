@@ -18,16 +18,17 @@
 // d'opération ne recharge rien.
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { supabase } from "../supabase";
-import { loadOperations, FONT, RADIUS, getBranchAccent } from "../constants";
+import { loadOperations, FONT, RADIUS, getBranchAccent, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import { computeChantierFinance, eur, fmtH, couleurMarge } from "../chantierFinance";
 import { seriesReellesChantier, consoliderSeries, fusionnerSeriesPourGraphe } from "./diagrammeFinancier";
 import { loadReferencesFinancieres } from "./referenceFinanciere";
 import { KpiCard } from "./chantierFinanceUI";
+import { buildOperationDocHTML } from "./operationDoc";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
-  TrendingUp, TrendingDown, Settings, ExternalLink, Banknote,
+  TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
 } from "lucide-react";
 
 // recharts reste dans son chunk dédié (même règle que la fiche Chantier).
@@ -74,7 +75,7 @@ function agregerOperation(chantiersOp, finParChantier) {
   const t = {
     nbChantiers: chantiersOp.length, nbAvecPhasage: 0,
     vendu: 0, moReel: 0, mat: 0, fg: 0, marge: 0,
-    moPrev: 0, matPrev: 0, margePrev: 0,
+    moPrev: 0, matPrev: 0, fgPrev: 0, margePrev: 0,
     hVendues: 0, hReelles: 0,
     avNum: 0, avDen: 0,
     statuts: {},
@@ -93,6 +94,7 @@ function agregerOperation(chantiersOp, finParChantier) {
     t.marge    += b.margeChantier || 0;
     t.moPrev   += b.moPrevChantier || 0;
     t.matPrev  += b.commandesPrevChantier || 0;
+    t.fgPrev   += b.fgPrevChantier || 0;
     t.margePrev += b.margePrevChantier || 0;
     t.hVendues += b.heuresVenduesChantier || 0;
     t.hReelles += b.heuresReellesTotalChantier || 0;
@@ -348,6 +350,39 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const { op, chantiersOp, agg } = selection;
   const margeColor = agg.vendu > 0 ? couleurMarge(agg.marge, agg.margePct ?? 0) : textMuted;
 
+  // Export PDF « Fiche opération » : gabarit Profero commun (operationDoc.js),
+  // même patron d'impression que le Chemin de fer (window.open synchrone dans
+  // le geste du clic, attente des polices Google avant print).
+  const exportFichePDF = () => {
+    try {
+      const lignes = chantiersOp.map((c) => {
+        const s = STATUTS[c.statut] || STATUTS.en_cours;
+        return {
+          nom: c.nom, couleur: c.couleur,
+          statutLabel: s.label, statutColor: s.color,
+          b: finParChantier[c.id]?.finance.brut || null,
+        };
+      });
+      const html = buildOperationDocHTML({
+        op, agg, lignes,
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }),
+      });
+      const w = window.open("", "_blank", "width=900,height=700");
+      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+      w.document.title = `FicheOperation-${op.nom}`;
+      w.document.write(html);
+      w.document.close();
+      // Attendre les polices (Barlow, Google Fonts) avant d'imprimer.
+      w.onload = () => {
+        const go = () => setTimeout(() => { w.focus(); w.print(); }, 150);
+        (w.document.fonts?.ready || Promise.resolve()).then(go, go);
+      };
+    } catch (e) {
+      alert("Erreur génération de la fiche opération : " + (e.message || e));
+    }
+  };
+
   // Barre de décomposition du vendu : MO / matériaux / FG / marge. Si les coûts
   // dépassent le vendu, la base devient les coûts (la marge négative se lit
   // alors dans les KPI, pas dans la barre).
@@ -409,6 +444,15 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         <select value={op.id} onChange={(e) => ouvrirOp(e.target.value)} style={selectStyle} title="Changer d'opération">
           {(operations || []).map((o) => <option key={o.id} value={o.id}>{o.nom}</option>)}
         </select>
+        {chantiersOp.length > 0 && (
+          <button onClick={exportFichePDF} title="Exporter la fiche opération en PDF (document interne, contient les marges)" style={{
+            display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+            borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10,
+            color: acc.accent, fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            <Icon as={FileDown} size={15}/> PDF
+          </button>
+        )}
       </div>
 
       {bandeauErreurs && <div style={{ marginBottom: 14 }}>{bandeauErreurs}</div>}

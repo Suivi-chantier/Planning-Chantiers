@@ -29,7 +29,7 @@ export const JOURNAL_MAJ = [
     titre: "Nouvelle page Opérations : la fiche consolidée d'un immeuble, avec sa marge",
     pages: [{ id: "operations", label: "Opérations" }],
     quoi: "Jusqu'ici les chiffres n'existaient que chantier par chantier. La page Opérations additionne tous les logements d'une même opération pour donner la vision d'ensemble : vendu HT, coûts réels (main-d'œuvre, matériaux, frais généraux), marge nette et prévisionnelle, avancement global et diagramme financier consolidé.",
-    comment: "Dans le menu, ouvrir « Opérations » : chaque carte résume une opération (logements, avancement, vendu, marge). Cliquer dessus ouvre sa fiche : cartes financières agrégées, barre de décomposition du vendu, tableau des logements (une ligne par chantier, cliquable pour ouvrir sa fiche) et diagramme financier cumulé de toute l'opération. Les chiffres sont calculés par le même module que la fiche Chantier — rien n'est recalculé différemment.",
+    comment: "Dans le menu, ouvrir « Opérations » : chaque carte résume une opération (logements, avancement, vendu, marge). Cliquer dessus ouvre sa fiche : cartes financières agrégées, barre de décomposition du vendu, tableau des logements (une ligne par chantier, cliquable pour ouvrir sa fiche) et diagramme financier cumulé de toute l'opération. Les chiffres sont calculés par le même module que la fiche Chantier — rien n'est recalculé différemment. Le bouton PDF en haut de la fiche génère la « Fiche opération » au design des documents Profero : chiffres clés, tableau prévisionnel vs réel, décomposition du vendu et détail par logement — document interne (il contient les marges), à ne pas envoyer au client.",
   },
   {
     date: "2026-09-08",
