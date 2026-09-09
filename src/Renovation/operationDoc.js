@@ -103,16 +103,18 @@ export function buildOperationDocHTML({ op, agg, lignes = [], logoUrl, dateGen }
   const rowsHTML = lignes.map(l => {
     const b = l.b;
     const mc = b && b.prixHTChantier > 0 ? margeCouleur(b.margeChantier, b.margePctChantier) : "#8a90a0";
+    const mcPrev = b && b.prixHTChantier > 0 ? margeCouleur(b.margePrevChantier, b.margePrevPctChantier) : "#8a90a0";
     return `
     <tr>
       <td class="op-log-nom"><span class="op-log-dot" style="background:${esc(l.couleur || "#888")};"></span>${esc(l.nom)}</td>
       <td><span class="op-statut" style="color:${esc(l.statutColor)};border-color:${esc(l.statutColor)};">${esc(l.statutLabel)}</span></td>
       ${!b
-        ? `<td colspan="7" class="op-log-vide">Sans phasage — hors chiffres</td>`
+        ? `<td colspan="8" class="op-log-vide">Sans phasage — hors chiffres</td>`
         : `<td class="num"><b>${b.avancementChantier}%</b></td>
            <td class="num">${b.prixHTChantier > 0 ? esc(eur(b.prixHTChantier)) : "—"}</td>
            <td class="num">${esc(eur(b.coutMOTotalChantier))}</td>
            <td class="num">${esc(eur(b.coutMatChantier))}</td>
+           <td class="num" style="color:${mcPrev};">${b.prixHTChantier > 0 ? esc(eur(b.margePrevChantier)) : "—"}</td>
            <td class="num" style="color:${mc};font-weight:700;">${b.prixHTChantier > 0 ? esc(eur(b.margeChantier)) : "—"}</td>
            <td class="num" style="color:${mc};">${b.prixHTChantier > 0 ? esc(pctTxt(b.margePctChantier)) : "—"}</td>
            <td class="num">${fmtH(b.heuresReellesTotalChantier)}h / ${fmtH(b.heuresVenduesChantier)}h</td>`}
@@ -123,7 +125,7 @@ export function buildOperationDocHTML({ op, agg, lignes = [], logoUrl, dateGen }
     <thead><tr>
       <th style="text-align:left;">Logement</th>
       <th style="text-align:left;">Statut</th>
-      <th>Avanc.</th><th>Vendu HT</th><th>Coût MO</th><th>Matériaux</th><th>Marge</th><th>Marge %</th><th>Heures</th>
+      <th>Avanc.</th><th>Vendu HT</th><th>Coût MO</th><th>Matériaux</th><th>Marge prév.</th><th>Marge</th><th>Marge %</th><th>Heures</th>
     </tr></thead>
     <tbody>
       ${rowsHTML}
@@ -134,6 +136,7 @@ export function buildOperationDocHTML({ op, agg, lignes = [], logoUrl, dateGen }
         <td class="num">${venduOK ? esc(eur(agg.vendu)) : "—"}</td>
         <td class="num">${esc(eur(agg.moReel))}</td>
         <td class="num">${esc(eur(agg.mat))}</td>
+        <td class="num" style="color:${mPrevCol};">${venduOK ? esc(eur(agg.margePrev)) : "—"}</td>
         <td class="num" style="color:${mCol};">${venduOK ? esc(eur(agg.marge)) : "—"}</td>
         <td class="num" style="color:${mCol};">${venduOK ? esc(pctTxt(agg.margePct)) : "—"}</td>
         <td class="num">${fmtH(agg.hReelles)}h / ${fmtH(agg.hVendues)}h</td>

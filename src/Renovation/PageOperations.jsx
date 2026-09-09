@@ -523,7 +523,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
           {/* ── Tableau des logements ── */}
           <div style={{ background: T.surface, border: `1px solid ${border}`, borderRadius: 14, boxShadow: CARD_SHADOW, padding: "6px 4px", marginBottom: 16, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 850 }}>
               <thead>
                 <tr>
                   <th style={{ ...th, textAlign: "left" }}>Logement</th>
@@ -532,6 +532,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <th style={th}>Vendu HT</th>
                   <th style={th}>Coût MO</th>
                   <th style={th}>Matériaux</th>
+                  <th style={th}>Marge prév.</th>
                   <th style={th}>Marge</th>
                   <th style={th}>Marge %</th>
                   <th style={th}>Heures (réel/vendu)</th>
@@ -543,6 +544,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   const b = f?.finance.brut;
                   const s = STATUTS[c.statut] || STATUTS.en_cours;
                   const mColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margeChantier, b.margePctChantier ?? 0) : textMuted;
+                  const mPrevColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margePrevChantier, b.margePrevPctChantier ?? 0) : textMuted;
                   return (
                     <tr key={c.id} className={onOpenChantier ? "pops-row-clic" : undefined}
                       onClick={onOpenChantier ? () => onOpenChantier(c.id) : undefined}
@@ -561,13 +563,14 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                         }}>{s.label}</span>
                       </td>
                       {!b ? (
-                        <td colSpan={7} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
+                        <td colSpan={8} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
                       ) : (
                         <>
                           <td style={{ ...td, fontWeight: 700, color: text }}>{b.avancementChantier}%</td>
                           <td style={td}>{b.prixHTChantier > 0 ? eur(b.prixHTChantier) : "—"}</td>
                           <td style={td}>{eur(b.coutMOTotalChantier)}</td>
                           <td style={td}>{eur(b.coutMatChantier)}</td>
+                          <td style={{ ...td, fontWeight: 700, color: mPrevColor }}>{b.prixHTChantier > 0 ? eur(b.margePrevChantier) : "—"}</td>
                           <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? eur(b.margeChantier) : "—"}</td>
                           <td style={{ ...td, fontWeight: 700, color: mColor }}>{b.prixHTChantier > 0 ? pctTxt(b.margePctChantier) : "—"}</td>
                           <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h</td>
@@ -584,6 +587,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <td style={{ ...td, fontWeight: 800, color: text }}>{agg.vendu > 0 ? eur(agg.vendu) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.moReel)}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.mat)}</td>
+                  <td style={{ ...td, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margePrev, agg.margePrevPct ?? 0) : textMuted }}>{agg.vendu > 0 ? eur(agg.margePrev) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.marge) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? pctTxt(agg.margePct) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h</td>
