@@ -28,6 +28,7 @@ export const AIDE_CONTENU = {
       "Lis les cartes financières en haut de la fiche : vendu HT, coût MO, matériaux, frais généraux, marge nette et marge prévisionnelle.",
       "Parcours le tableau des logements : chaque ligne montre ses propres chiffres ; clique sur une ligne pour ouvrir la fiche du chantier.",
       "En bas, le diagramme financier cumule mois par mois les dépenses, la facturation et la valeur générée de toute l'opération.",
+      "L'onglet « Chemin de fer » affiche la frise des logements dans le temps (l'ancienne page dédiée) : zoom semaines/jours, décalage des groupes et exports PDF (chemin de fer paysage, prévisionnel client, dossier de plans).",
     ],
     savoir: [
       "L'avancement de l'opération est pondéré par le vendu HT de chaque logement (un grand logement pèse plus qu'un studio).",

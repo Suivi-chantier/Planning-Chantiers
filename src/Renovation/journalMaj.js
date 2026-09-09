@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
     date: "2026-09-09",
+    type: "amelioration",
+    titre: "Le Chemin de fer déménage dans la page Opérations",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Tout ce qui concerne une opération est maintenant au même endroit : la page Chemin de fer disparaît du menu et devient un onglet de la fiche opération, à côté de la synthèse financière. Une entrée de menu en moins, zéro fonction en moins.",
+    comment: "Ouvrir Opérations → choisir une opération → onglet « Chemin de fer ». On y retrouve la frise complète à l'identique : zoom semaines/jours, détail et décalage des groupes, et les trois exports PDF (chemin de fer paysage, prévisionnel client, dossier de plans).",
+  },
+  {
+    date: "2026-09-09",
     type: "nouveaute",
     titre: "Nouvelle page Opérations : la fiche consolidée d'un immeuble, avec sa marge",
     pages: [{ id: "operations", label: "Opérations" }],
@@ -125,7 +133,7 @@ export const JOURNAL_MAJ = [
     date: "2026-08-28",
     type: "nouveaute",
     titre: "Prévisionnel client : document PDF généré depuis le planning",
-    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "chemin-de-fer", label: "Chemin de fer" }],
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "operations", label: "Opérations" }],
     quoi: "Remettre au client un calendrier prévisionnel propre et professionnel, sans le refaire à la main : il est généré depuis le planning réel, chantier par chantier ou pour toute l'opération.",
     comment: "Export PDF « Prévisionnel » avec une mise en page premium : frise horizontale « Vue d'ensemble », chips de synthèse, détail par groupe de tâches. Le Chemin de fer propose aussi un PDF « Dossier de plans » de l'opération, pensé comme document client.",
   },

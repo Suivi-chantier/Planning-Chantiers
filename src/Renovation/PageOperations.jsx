@@ -29,10 +29,14 @@ import { buildOperationDocHTML } from "./operationDoc";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
+  ChartBar, TrainFront,
 } from "lucide-react";
 
 // recharts reste dans son chunk dédié (même règle que la fiche Chantier).
 const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
+// Chemin de fer : l'ancienne page dédiée, embarquée ici comme onglet de la
+// fiche opération (chunk séparé — la frise n'est chargée que si on l'ouvre).
+const CheminDeFerVue = React.lazy(() => import("./CheminDeFer"));
 
 const STATUTS = {
   en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
@@ -117,6 +121,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const [opId, setOpId] = useState(() => localStorage.getItem("operations_selected") || null);
   const [periode, setPeriode] = useState("12");
   const [masques, setMasques] = useState({});
+  const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer"
   const grapheRef = useRef(null);
 
   // ── Chargement : une passe pour toutes les opérations ──
@@ -464,6 +469,32 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         </div>
       ) : (
         <>
+          {/* ── Onglets : Synthèse (finances) / Chemin de fer (planning) ── */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            {[["synthese", "Synthèse", ChartBar], ["chemin-de-fer", "Chemin de fer", TrainFront]].map(([id, label, Ic]) => {
+              const active = onglet === id;
+              return (
+                <button key={id} onClick={() => setOnglet(id)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "7px 16px", borderRadius: RADIUS.pill,
+                  border: `1px solid ${active ? acc.accent : border}`,
+                  background: active ? acc.bg10 : "transparent",
+                  color: active ? acc.accent : textSub,
+                  fontSize: FONT.sm.size, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit", transition: "all .15s",
+                }}>
+                  <Icon as={Ic} size={14}/> {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {onglet === "chemin-de-fer" ? (
+            <Suspense fallback={<div style={{ color: textMuted, fontSize: 13, padding: 20 }}>Chargement du chemin de fer…</div>}>
+              <CheminDeFerVue chantiers={chantiers} T={T} branch={branch} onOuvrirAdmin={onOuvrirAdmin} opIdForce={op.id} embedded/>
+            </Suspense>
+          ) : (
+          <>
           {/* ── KPI financiers agrégés ── */}
           <div className="pops-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
             <KpiCard T={T} icon={Wallet} iconColor="#5b8af5" label="Vendu HT" bold
@@ -638,6 +669,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               <div style={{ color: textMuted, fontSize: 13 }}>Aucune donnée mensuelle sur la période choisie.</div>
             )}
           </div>
+          </>
+          )}
         </>
       )}
     </div>

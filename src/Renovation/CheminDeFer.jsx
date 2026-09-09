@@ -45,7 +45,12 @@ const numSemaine = (d) => {
 const ROW_H = 46;
 const HEADER_H = 44;
 
-export default function PageCheminDeFer({ chantiers = [], T, branch = "renovation", onOuvrirAdmin }) {
+// Mode embarqué (onglet « Chemin de fer » de la fiche Opération) :
+//   opIdForce : l'opération est imposée par le parent (sélecteur masqué,
+//               localStorage non touché) ; embedded masque le titre de page et
+//               le padding externe — la barre d'outils (zoom, exports PDF)
+//               et toute la frise restent identiques.
+export default function PageCheminDeFer({ chantiers = [], T, branch = "renovation", onOuvrirAdmin, opIdForce = null, embedded = false }) {
   const acc = getBranchAccent(branch);
 
   // Mobile : colonne des logements resserrée, la vue reste secondaire mais ne
@@ -72,17 +77,20 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
     return () => { ok = false; };
   }, []);
 
-  // Opération courante (persistée, comme le chantier du Phasage)
-  const [opId, setOpId] = useState(() => {
+  // Opération courante (persistée, comme le chantier du Phasage) — sauf en
+  // mode embarqué où elle est imposée par la fiche Opération.
+  const [opIdLocal, setOpId] = useState(() => {
     try { return localStorage.getItem("chemin_fer_operation") || ""; } catch { return ""; }
   });
+  const opId = opIdForce || opIdLocal;
   useEffect(() => {
-    try { localStorage.setItem("chemin_fer_operation", opId); } catch {}
-  }, [opId]);
+    if (opIdForce) return;
+    try { localStorage.setItem("chemin_fer_operation", opIdLocal); } catch {}
+  }, [opIdLocal, opIdForce]);
   // Si l'opération mémorisée n'existe plus (ou premier passage) : la première.
   useEffect(() => {
-    if (!refsLoaded) return;
-    if (operations.length > 0 && !operations.some(o => o.id === opId)) setOpId(operations[0].id);
+    if (opIdForce || !refsLoaded) return;
+    if (operations.length > 0 && !operations.some(o => o.id === opIdLocal)) setOpId(operations[0].id);
   }, [refsLoaded, operations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const operation = operations.find(o => o.id === opId) || null;
@@ -533,25 +541,28 @@ export default function PageCheminDeFer({ chantiers = [], T, branch = "renovatio
   })();
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: "18px 22px", minWidth: 0 }}>
-      {/* ── En-tête ── */}
+    <div style={{ flex: 1, overflow: "auto", padding: embedded ? 0 : "18px 22px", minWidth: 0 }}>
+      {/* ── En-tête (masqué en mode embarqué : la fiche Opération porte déjà
+             le titre, l'adresse et le sélecteur d'opération) ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: RADIUS.md, background: acc.bg10, color: acc.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon as={TrainFront} size={19} />
+        {!embedded && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: RADIUS.md, background: acc.bg10, color: acc.accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon as={TrainFront} size={19} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: FONT.lg.size, color: T.text, lineHeight: 1.1 }}>Chemin de fer</div>
+              <div style={{ fontSize: FONT.xs.size, color: T.textSub }}>Les logements d'une opération dans le temps</div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: FONT.lg.size, color: T.text, lineHeight: 1.1 }}>Chemin de fer</div>
-            <div style={{ fontSize: FONT.xs.size, color: T.textSub }}>Les logements d'une opération dans le temps</div>
-          </div>
-        </div>
-        {operations.length > 0 && (
+        )}
+        {!embedded && operations.length > 0 && (
           <select className="ti" value={opId} onChange={e => setOpId(e.target.value)}
             style={{ minWidth: 200, fontWeight: 700 }} title="Opération affichée">
             {operations.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
           </select>
         )}
-        {operation?.adresse && (
+        {!embedded && operation?.adresse && (
           <span style={{ fontSize: FONT.xs.size + 1, color: T.textSub, display: "inline-flex", alignItems: "center", gap: 5 }}>
             <Icon as={Home} size={12} />{operation.adresse}
           </span>
