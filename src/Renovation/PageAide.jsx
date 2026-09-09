@@ -19,6 +19,23 @@ import { METHODE_CALCUL } from "../chantierFinance";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const AIDE_CONTENU = {
+  operations: {
+    titre: "Opérations",
+    sousTitre: "La fiche d'une opération : tous ses logements, ses finances et sa marge consolidées.",
+    intro: "Une opération regroupe plusieurs chantiers (les logements d'un même immeuble ou programme). Cette page additionne les chiffres de chaque logement — calculés exactement comme sur la fiche Chantier et le Phasage — pour donner la vision d'ensemble : vendu HT, coûts, marge nette, marge prévisionnelle, avancement pondéré et diagramme financier consolidé.",
+    etapes: [
+      "Choisis une opération dans la liste (chaque carte résume déjà l'avancement, le vendu et la marge).",
+      "Lis les cartes financières en haut de la fiche : vendu HT, coût MO, matériaux, frais généraux, marge nette et marge prévisionnelle.",
+      "Parcours le tableau des logements : chaque ligne montre ses propres chiffres ; clique sur une ligne pour ouvrir la fiche du chantier.",
+      "En bas, le diagramme financier cumule mois par mois les dépenses, la facturation et la valeur générée de toute l'opération.",
+    ],
+    savoir: [
+      "L'avancement de l'opération est pondéré par le vendu HT de chaque logement (un grand logement pèse plus qu'un studio).",
+      "Un logement sans phasage apparaît dans le tableau mais n'entre pas dans les chiffres — il est signalé.",
+      "Les opérations et le rattachement des chantiers se gèrent dans Réglages → Opérations.",
+      "Dans le diagramme, un logement sans référence figée n'entre pas dans les courbes de référence (pointillés) — prendre la référence depuis sa fiche chantier.",
+    ],
+  },
   "bilan-semaine": {
     titre: "Bilan de semaine",
     sousTitre: "Le point hebdomadaire multi-chantiers : opérationnel + financier.",

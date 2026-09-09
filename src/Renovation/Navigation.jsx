@@ -5,7 +5,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
-  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, TrainFront, Newspaper, Wrench,
+  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, TrainFront, Newspaper, Wrench, Building2,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -19,19 +19,19 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","chemin-de-fer","bibliotheque","biblio-materiaux",
+    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","chemin-de-fer","operations","bibliotheque","biblio-materiaux",
     "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","chemin-de-fer","bibliotheque","biblio-materiaux",
+    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","chemin-de-fer","operations","bibliotheque","biblio-materiaux",
     "visite","info-client","journal-maj"
   ],
   commercial: [
     "dashboard","chantiers","planning","plans","visite","info-client","journal-maj"
   ],
   comptable: [
-    "dashboard","chantiers","bilan-semaine","commandes","biblio-materiaux","phasage-v2","heures-salaries","etats-financiers","journal-maj"
+    "dashboard","chantiers","bilan-semaine","commandes","biblio-materiaux","phasage-v2","operations","heures-salaries","etats-financiers","journal-maj"
   ],
 };
 
@@ -56,6 +56,7 @@ const ALL_NAV_ITEMS = [
   { id:"plans",            icon:Ruler,           label:"Plans",      longLabel:"Plans"               },
   { id:"phasage-v2",       icon:ListChecks,      label:"Phasage",    longLabel:"Phasage" },
   { id:"chemin-de-fer",    icon:TrainFront,      label:"Ch. de fer", longLabel:"Chemin de fer" },
+  { id:"operations",       icon:Building2,       label:"Opérations", longLabel:"Opérations" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio.",    longLabel:"Biblio. ouvrages"    },
   { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
   { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
@@ -257,6 +258,7 @@ function Sidebar({
     { id:"plans",            icon:Ruler,           label:"Plans"            },
     { id:"phasage-v2",       icon:ListChecks,      label:"Phasage" },
     { id:"chemin-de-fer",    icon:TrainFront,      label:"Chemin de fer" },
+    { id:"operations",       icon:Building2,       label:"Opérations" },
     { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },
     { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
     { id:"visite",           icon:Search,          label:"Visites chantier" },
