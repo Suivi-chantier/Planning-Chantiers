@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
+    date: "2026-09-10",
+    type: "nouveaute",
+    titre: "Validation fin de journée : basculer des heures vers un autre chantier",
+    pages: [{ id: "validation", label: "Validation fin de journée" }],
+    quoi: "Quand un ouvrier déclare toute sa journée sur un chantier alors qu'il en a passé une partie ailleurs, le conducteur peut maintenant déplacer tout ou partie des heures d'une ligne vers le bon chantier, sans rien ressaisir ni perdre la trace de la déclaration d'origine.",
+    comment: "Ouvrir le rapport → sur la ligne concernée, cliquer sur la flèche ⇄ (à côté de « splitter ») → choisir le chantier de destination et le nombre d'heures à basculer. Les heures rejoignent le rapport du même ouvrier, même jour, sur ce chantier (créé s'il n'existe pas) ; il apparaît « En attente » dans la liste : l'ouvrir pour rattacher la tâche à son plan et le valider. Le reste des heures demeure sur la ligne d'origine. Le trajet du jour se répartit automatiquement au temps passé entre les chantiers. Si le rapport est déjà validé, cliquer d'abord sur « Corriger ». Les lignes concernées portent un badge « basculées ailleurs » / « reçue de … » pour garder l'historique.",
+  },
+  {
     date: "2026-09-09",
     type: "amelioration",
     titre: "Le Chemin de fer déménage dans la page Opérations",
