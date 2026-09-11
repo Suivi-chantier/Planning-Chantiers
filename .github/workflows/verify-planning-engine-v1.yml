@@ -1,0 +1,50 @@
+name: Verify Planning Engine V1
+
+on:
+  push:
+    branches:
+      - feature/planning-engine-v1
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Planning model V1
+        run: node scripts/verif-planning-model-v1.mjs
+      - name: Planning group inference V1
+        run: node scripts/verif-planning-group-inference-v1.mjs
+      - name: Planning dependency inference V1
+        run: node scripts/verif-planning-dependency-inference-v1.mjs
+      - name: Planning resource model V1
+        run: node scripts/verif-planning-resource-model-v1.mjs
+      - name: Planning resource capacity V1
+        run: node scripts/verif-planning-resource-capacity-v1.mjs
+      - name: Planning constraint model V1
+        run: node scripts/verif-planning-constraint-model-v1.mjs
+      - name: Planning baseline V1
+        run: node scripts/verif-planning-baseline-model-v1.mjs
+      - name: Planning engine V1
+        run: node scripts/verif-planning-engine-v1.mjs
+      - name: Planning engine adapter V1
+        run: node scripts/verif-planning-engine-adapter-v1.mjs
+      - name: Planning engine data V1
+        run: node scripts/verif-planning-engine-data-v1.mjs
+      - name: Planning engine diff V1
+        run: node scripts/verif-planning-engine-diff-v1.mjs
+      - name: Vite build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
