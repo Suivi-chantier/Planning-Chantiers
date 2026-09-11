@@ -889,6 +889,34 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     // rapport cette semaine sort quand même (bloc « aucune activité »).
     const idsInclus = chantiersBilan.filter(id => selPdf[id]);
 
+    // Les KPI du bandeau doivent porter sur exactement le même périmètre que
+    // les fiches exportées. Les totaux de la page (`totalHeures`,
+    // `totalFaites`, etc.) couvrent toute la semaine ; les réutiliser ici
+    // mélangeait les chantiers décochés avec ceux visibles dans le PDF.
+    const totalHeuresInclus = idsInclus.reduce(
+      (s, cId) => s + (heuresParChantier[cId] || 0), 0
+    );
+    const totalFaitesInclus = idsInclus.reduce((acc, cId) => {
+      const grp = parChantier[cId];
+      if (!grp) return acc;
+      const tachesRaw = grp.rapports.flatMap(r =>
+        (r.taches || []).map(t => ({ ...t, ouvrier: r.ouvrier }))
+      );
+      const taches = filtrerStatutDominant(tachesRaw);
+      return acc + fusionnerTachesBilan(taches.filter(t => t.statut === "faite")).length;
+    }, 0);
+    const totalGenereEurosInclus = idsInclus.reduce((s, cId) => {
+      const deltaEuros = progressions[cId]?.deltaEuros;
+      return s + (deltaEuros > 0 ? deltaEuros : 0);
+    }, 0);
+    const totalMargeGenereeIncluse = idsInclus.reduce((s, cId) => {
+      if (!(progressions[cId]?.deltaEuros > 0)) return s;
+      return s + (margesGenerees[cId] || 0);
+    }, 0);
+    const hasMargeGenereeIncluse = idsInclus.some(
+      cId => progressions[cId]?.deltaEuros > 0 && margesGenerees[cId] != null
+    );
+
     // Bloc financier d'un chantier — indicateurs du module, jamais recalculés
     // ici. Tableaux protégés contre la coupure entre deux pages (.fin-table).
     const financesHTML = (fin) => {
@@ -1134,10 +1162,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         <div style="color:${YELLOW};font-size:7pt;font-weight:700;letter-spacing:1.6pt;text-transform:uppercase;">Bilan semaine</div>
         <div style="color:#fff;font-size:17pt;font-weight:800;line-height:1.1;margin-top:3pt;letter-spacing:-.01em;">${esc(weekId)}</div>
       </td>
-      ${kpiCell(`${totalHeures.toFixed(1)} h`, hasPointages ? "Heures validées" : "Heures estimées", YELLOW)}
-      ${kpiCell(`${totalFaites}`, "Tâches", "#5fbf85")}
-      ${totalGenereEuros > 0 ? kpiCell(`+${fmtEuros(totalGenereEuros)}`, "Généré", YELLOW) : ""}
-      ${includeFinances && totalGenereEuros > 0 && hasMargeGeneree ? kpiCell(`${totalMargeGeneree >= 0 ? "+" : ""}${fmtEuros(totalMargeGeneree)}`, "Dont marge", totalMargeGeneree >= 0 ? "#5fbf85" : RED) : ""}
+      ${kpiCell(`${totalHeuresInclus.toFixed(1)} h`, hasPointages ? "Heures validées" : "Heures estimées", YELLOW)}
+      ${kpiCell(`${totalFaitesInclus}`, "Tâches", "#5fbf85")}
+      ${totalGenereEurosInclus > 0 ? kpiCell(`+${fmtEuros(totalGenereEurosInclus)}`, "Généré", YELLOW) : ""}
+      ${includeFinances && totalGenereEurosInclus > 0 && hasMargeGenereeIncluse ? kpiCell(`${totalMargeGenereeIncluse >= 0 ? "+" : ""}${fmtEuros(totalMargeGenereeIncluse)}`, "Dont marge", totalMargeGenereeIncluse >= 0 ? "#5fbf85" : RED) : ""}
     </tr>
   </table>
   ${syntheseHTML}
