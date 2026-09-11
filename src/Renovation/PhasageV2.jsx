@@ -359,7 +359,6 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
   // Comptes rendus (rapports) du chantier — pour le bouton "voir le dernier CR"
   const [rapports, setRapports] = useState([]);
-  const [rapportModal, setRapportModal] = useState(null); // { rapport, tacheNom }
   const [rapportsModal, setRapportsModal] = useState(null); // { tacheNom, rapports } — tous les CR d'une tâche
   // Repli du bandeau KPI (on ne garde que la barre d'avancement). Préférence
   // d'affichage locale, mémorisée entre les sessions.
@@ -643,19 +642,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
   }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots]);
 
-  // Dernier compte rendu contenant une tâche liée à `t` : on matche par tache_id
-  // (tâches créées/planifiées en V2) OU par nom (tâches migrées depuis la V1,
-  // dont l'id a été régénéré). `rapports` est déjà trié du plus récent au plus ancien.
-  const rapportPourTache = (t) => {
-    if (!t) return null;
-    const nom = (t.nom || "").trim().toLowerCase();
-    return rapports.find(r => (r.taches || []).some(x =>
-      (x.tache_id && String(x.tache_id) === String(t.id)) ||
-      (nom && (x.planifie || x.nom || "").trim().toLowerCase() === nom)
-    )) || null;
-  };
-  // TOUS les comptes rendus liés à la tâche `t` (même logique de matching que
-  // rapportPourTache, mais renvoie l'ensemble, du plus récent au plus ancien).
+  // TOUS les comptes rendus liés à la tâche `t`, du plus récent au plus ancien.
+  // On matche par tache_id (tâches créées/planifiées en V2) OU par nom (tâches
+  // migrées depuis la V1, dont l'id a été régénéré).
   const rapportsPourTache = (t) => {
     if (!t) return [];
     const nom = (t.nom || "").trim().toLowerCase();
@@ -2217,7 +2206,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           border-color: var(--c) !important;
           color: #000 !important;
         }
-        /* Bouton "voir le dernier compte rendu" : masqué, révélé au survol de la bulle. */
+        /* Bouton "comptes rendus" : masqué, révélé au survol de la bulle. */
         .p2-cr-btn { opacity: 0; transition: opacity .12s, background .12s, color .12s; }
         .p2-bubble:hover .p2-cr-btn { opacity: 1; }
         .p2-cr-btn:hover {
@@ -2962,21 +2951,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                             </div>
                           </div>
                           {(() => {
-                            const rapport = rapportPourTache(t);
-                            if (!rapport) return null;
+                            const crs = rapportsPourTache(t);
+                            if (!crs.length) return null;
+                            const n = crs.length;
                             return (
                               <button
                                 className="p2-cr-btn"
-                                onClick={e => { e.stopPropagation(); setRapportModal({ rapport, tacheNom: t.nom }); }}
-                                title="Voir le dernier compte rendu lié à cette tâche"
+                                onClick={e => { e.stopPropagation(); setRapportsModal({ tacheNom: t.nom, tacheId: t.id, rapports: crs }); }}
+                                title={`${n} compte${n > 1 ? "s" : ""} rendu${n > 1 ? "s" : ""} lié${n > 1 ? "s" : ""} à cette tâche`}
                                 style={{
                                   background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
                                   color: T.text, borderRadius: RADIUS.sm,
-                                  width: 26, height: 26, padding: 0, cursor: "pointer",
-                                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                  height: 26, padding: "0 7px", cursor: "pointer",
+                                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
+                                  fontFamily: "inherit", fontSize: 10, fontWeight: 800,
                                   flexShrink: 0,
                                 }}>
-                                <Icon as={FileText} size={12}/>
+                                <Icon as={FileText} size={12}/>{n > 1 && <span>{n}</span>}
                               </button>
                             );
                           })()}
@@ -3478,71 +3469,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         );
       })()}
 
-      {rapportModal && (() => {
-        const r = rapportModal.rapport;
-        const cibleNom = (rapportModal.tacheNom || "").trim().toLowerCase();
-        const taches = Array.isArray(r.taches) ? r.taches : [];
-        const statutColor = (s) => s === "faite" ? "#22c55e" : s === "en_cours" ? "#eab308" : s === "non_faite" ? "#e05c5c" : T.textMuted;
-        const statutLbl = (s) => s === "faite" ? "Faite" : s === "en_cours" ? "En cours" : s === "non_faite" ? "Non faite" : (s || "—");
-        return (
-          <div onClick={() => setRapportModal(null)}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
-                width: "min(560px, 100%)", maxHeight: "85vh", overflow: "auto",
-                boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
-              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-                <Icon as={FileText} size={18}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Dernier compte rendu</div>
-                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, display: "flex", gap: 12, marginTop: 2, flexWrap: "wrap" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={User} size={11}/> {r.ouvrier || "—"}</span>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={Calendar} size={11}/> {r.date_rapport || "—"}</span>
-                    {r.chantier_nom && <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={Building2} size={11}/> {r.chantier_nom}</span>}
-                  </div>
-                </div>
-                <button onClick={() => setRapportModal(null)}
-                  style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}>
-                  <Icon as={X} size={18}/>
-                </button>
-              </div>
-              <div style={{ padding: "12px 20px" }}>
-                {taches.length === 0 ? (
-                  <div style={{ color: T.textMuted, fontStyle: "italic", fontSize: FONT.sm.size }}>Aucune tâche dans ce compte rendu.</div>
-                ) : taches.map((x, i) => {
-                  const isCible = cibleNom && (x.planifie || x.nom || "").trim().toLowerCase() === cibleNom;
-                  return (
-                    <div key={i} style={{
-                      padding: "10px 12px", marginBottom: 8, borderRadius: 10,
-                      background: isCible ? "color-mix(in srgb, #5b8af5 16%, transparent)" : T.card,
-                      border: `1px solid ${isCible ? "rgba(91,138,245,0.5)" : T.border}`,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ flex: 1, fontWeight: 700, fontSize: FONT.sm.size, color: T.text }}>{x.planifie || x.nom || "(sans nom)"}</span>
-                        <span style={{ fontSize: 10, fontWeight: 800, color: statutColor(x.statut) }}>{statutLbl(x.statut)}</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
-                        {x.heures_reelles != null && x.heures_reelles !== "" && <span>{x.heures_reelles}h réelles</span>}
-                        {x.avancement != null && x.avancement !== "" && <span>{x.avancement}%</span>}
-                      </div>
-                      {x.remarque && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {x.remarque} »</div>}
-                    </div>
-                  );
-                })}
-                {r.remarque && (
-                  <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: T.card, border: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: .5, color: T.textMuted, marginBottom: 4 }}>Remarque générale</div>
-                    <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>{r.remarque}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── Modale : TOUS les comptes rendus liés à une tâche (vue Chronologique) ── */}
+      {/* ── Modale : TOUS les comptes rendus liés à une tâche (vues Liste et Chronologique) ── */}
       {rapportsModal && (() => {
         const cibleNom = (rapportsModal.tacheNom || "").trim().toLowerCase();
         const cibleId = rapportsModal.tacheId;

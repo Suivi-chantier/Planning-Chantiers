@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
+    date: "2026-09-11",
+    type: "amelioration",
+    titre: "Phasage : tous les comptes rendus d'une tâche, aussi en vue Liste",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "En vue Liste, le bouton « compte rendu » d'une tâche n'ouvrait que le dernier rapport la concernant. Il ouvre maintenant l'historique complet, comme en vue Chronologique : on voit d'un coup d'œil toutes les journées où la tâche a été déclarée, par qui, avec quel statut et quelles remarques.",
+    comment: "Phasage → vue Liste → survoler une tâche → cliquer sur l'icône document (le chiffre à côté indique le nombre de comptes rendus quand il y en a plusieurs). La fenêtre liste les rapports du plus récent au plus ancien, avec pour chacun la ligne de la tâche (statut, heures, avancement, remarque) et la remarque générale du rapport.",
+  },
+  {
     date: "2026-09-10",
     type: "nouveaute",
     titre: "Validation fin de journée : basculer des heures vers un autre chantier",
