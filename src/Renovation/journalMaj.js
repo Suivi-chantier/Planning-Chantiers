@@ -26,6 +26,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-14",
     type: "nouveaute",
+    titre: "Chiffrage : aperçu du futur devis ProGBat (aucun envoi)",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Avant de créer un jour des devis dans ProGBat depuis Profero, on peut voir exactement ce qui serait transmis pour un logement : client (ou client ProGBat existant), chantier, objet, validité, taux de TVA convertis en identifiants ProGBat, puis le devis organisé en LOT → ZONE → OUVRAGES avec les quantités, unités et prix de vente HT figés dans le chiffrage. Les contrôles bloquants (client, adresse, référence du logement, objet, validité, zone, quantité, prix, TVA, anciennes lignes sans snapshot, total différent) et les avertissements sont listés, et le total HT est comparé au centime avec celui du chiffrage. Aucun coût, coefficient ni marge ne figure dans ce qui serait envoyé.",
+    comment: "Chiffrage → onglet Ouvrages → bouton « Aperçu ProGBat » à côté de « Aperçu du devis ». La fenêtre lit uniquement les taux de TVA ProGBat (lecture seule, côté serveur) et affiche le payload JSON dans une section technique repliée. Rien n'est envoyé à ProGBat : il n'existe aucun bouton d'envoi dans cette version. Réservé au bureau.",
+  },
+  {
+    date: "2026-09-14",
+    type: "nouveaute",
     titre: "Réglages : inventaire de la bibliothèque ProGBat (simulation en lecture seule)",
     pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Bibliothèque" }],
     quoi: "Avant toute synchronisation réelle, on peut comparer la bibliothèque d'ouvrages Profero avec celle de ProGBat sans rien modifier. L'analyse classe chaque ouvrage Profero : déjà lié, code identique à confirmer, ambigu (plusieurs ouvrages ProGBat portent le même code), libellé identique à examiner, ou nouveau à créer. Elle signale aussi les ouvrages présents uniquement dans ProGBat et, pour chaque ouvrage Profero, ce qui manque pour qu'il soit prêt à synchroniser (code, unité, cadence, matériaux et prix, coefficient de vente, TVA).",

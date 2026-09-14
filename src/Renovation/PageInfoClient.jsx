@@ -7,6 +7,7 @@ import StylusCanvas, { renderStrokesDataURL } from "./StylusCanvas";
 import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
+import ProgbatApercuDevis from "./ProgbatApercuDevis.jsx";
 import {
   ZONE_DEFAUT, ZONES_SUGGEREES, TYPES_LOGEMENT, TVA_TAUX_USUELS,
   calculerOuvrage, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
@@ -126,6 +127,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [filtreStatut, setFiltreStatut] = useState("all");
   const [searchProjets, setSearchProjets] = useState("");
   const [showModal, setShowModal]     = useState(false);
+  const [showProgbat, setShowProgbat] = useState(false);   // aperçu du payload ProGBat (aucun envoi)
   const [newCat, setNewCat]           = useState("Électricité");
   const [newLib, setNewLib]           = useState("");
   const [catParam, setCatParam]       = useState("");
@@ -1818,6 +1820,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <button onClick={()=>setShowModal(true)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
                         <Icon as={FileText} size={11}/> Aperçu du devis
                       </button>
+                      <button onClick={()=>setShowProgbat(true)} title="Aperçu du futur devis ProGBat (payload, contrôles, totaux). Rien n'est envoyé." style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={Send} size={11}/> Aperçu ProGBat
+                      </button>
                       <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
                         style={{...btnDng, display:"inline-flex", alignItems:"center", gap:5, padding:"8px 14px"}}>
                         <Icon as={X} size={11}/> Tout retirer
@@ -2566,6 +2571,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── APERÇU PROGBAT : payload du futur devis, aucun appel d'écriture ── */}
+      {showProgbat && (
+        <ProgbatApercuDevis T={T} acc={acc} projet={infos} lignes={ouvrages} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)}/>
       )}
 
       {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}
