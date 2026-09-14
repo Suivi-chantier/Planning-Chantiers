@@ -15,7 +15,10 @@
 //   coût matériaux u.  = Σ (quantité matériau par unité × prix d'achat)
 //   coût MO u.         = cadence × coût horaire
 //   coût total u.      = matériaux + MO + coût direct complémentaire
-//   prix de vente HT   = coût total / (1 − taux / 100)      (JAMAIS coût × 1,30)
+//   prix de vente HT   = coût total × coefficient de vente   (coef_vente, ex. 1,5)
+//                        ou, à défaut (anciens ouvrages), coût / (1 − taux / 100)
+//   taux de marge      = (1 − 1 / coefficient) × 100  — en % du PRIX DE VENTE,
+//                        toujours dérivé et figé dans les snapshots (×1,5 ⇒ 33,33 %)
 //   marge €            = prix de vente − coût total
 //   taux de marge réel = (prix de vente − coût total) / prix de vente
 //   taux global devis  = (Σ vente HT − Σ coût) / Σ vente HT   (pondéré, pas une
@@ -95,6 +98,40 @@ export function prixVenteDepuisMarge(coutTotal, tauxPct) {
   const t = validerTauxMarge(tauxPct);
   if (c == null || c < 0 || !t.valide) return null;
   return arrondirMontant(c / (1 - t.valeur / 100));
+}
+
+// ─── Coefficient de vente (saisie métier : « × 1,5 ») ────────────────────────
+/** @returns {{ valide: boolean, valeur: number|null, erreur: string|null }} — coefficient ≥ 1. */
+export function validerCoefficient(coef) {
+  if (coef == null || (typeof coef === "string" && coef.trim() === "")) {
+    return { valide: false, valeur: null, erreur: "Coefficient de vente non renseigné" };
+  }
+  const c = num(coef);
+  if (c == null) return { valide: false, valeur: null, erreur: "Coefficient de vente invalide" };
+  if (c < 1) return { valide: false, valeur: null, erreur: "Coefficient de vente < 1 : le prix serait inférieur au coût" };
+  return { valide: true, valeur: c, erreur: null };
+}
+
+/** Prix de vente HT = coût total × coefficient (ex : 32,16 × 1,5 = 48,24). */
+export function prixVenteDepuisCoefficient(coutTotal, coef) {
+  const c = num(coutTotal);
+  const k = validerCoefficient(coef);
+  if (c == null || c < 0 || !k.valide) return null;
+  return arrondirMontant(c * k.valeur);
+}
+
+/** Taux de marge (% du prix de vente) équivalent à un coefficient : ×1,5 ⇒ 33,33 %, ×2 ⇒ 50 %. */
+export function tauxMargeDepuisCoefficient(coef) {
+  const k = validerCoefficient(coef);
+  if (!k.valide) return null;
+  return arrondirPct((1 - 1 / k.valeur) * 100);
+}
+
+/** Coefficient équivalent à un taux de marge sur prix de vente : 33,33 % ⇒ ×1,5, 50 % ⇒ ×2. */
+export function coefficientDepuisTauxMarge(tauxPct) {
+  const t = validerTauxMarge(tauxPct);
+  if (!t.valide) return null;
+  return Math.round((1 / (1 - t.valeur / 100)) * 10000) / 10000;
 }
 
 /** Marge en euros = prix de vente − coût total (null si l'un des deux manque). */
@@ -188,13 +225,38 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null } 
   if (coutDirect != null && coutDirect < 0) erreurs.push("Coût direct complémentaire négatif");
   const coutDirectU = coutDirect != null && coutDirect >= 0 ? arrondirMontant(coutDirect) : 0;
 
-  const marge = validerTauxMarge(ouvrage?.taux_marge_pct);
-  if (!marge.valide) erreurs.push(marge.erreur);
+  // Saisie métier = coefficient de vente (× coût). Repli : anciens ouvrages
+  // n'ayant qu'un taux de marge (% du prix de vente). Dans les deux cas, le
+  // taux de marge dérivé est calculé pour le snapshot et l'audit.
+  let coef = validerCoefficient(ouvrage?.coef_vente);
+  let marge;
+  let modePrix;
+  if (coef.valide) {
+    modePrix = "coefficient";
+    marge = { valide: true, valeur: tauxMargeDepuisCoefficient(coef.valeur), erreur: null };
+  } else if (ouvrage?.coef_vente != null && String(ouvrage.coef_vente).trim() !== "") {
+    modePrix = "coefficient";
+    marge = { valide: false, valeur: null, erreur: coef.erreur };
+    erreurs.push(coef.erreur);
+  } else {
+    marge = validerTauxMarge(ouvrage?.taux_marge_pct);
+    if (marge.valide) {
+      modePrix = "taux";
+      coef = { valide: true, valeur: coefficientDepuisTauxMarge(marge.valeur), erreur: null };
+    } else {
+      modePrix = null;
+      erreurs.push("Coefficient de vente non renseigné (ex : 1,5 = coût × 1,5)");
+    }
+  }
 
   const coutTotal = coutTotalUnitaire({ coutMateriaux: mat.montant, coutMainOeuvre: mo.montant, coutDirect: coutDirectU });
-  const prixVente = coutTotal != null && marge.valide ? prixVenteDepuisMarge(coutTotal, marge.valeur) : null;
+  let prixVente = null;
+  if (coutTotal != null && modePrix === "coefficient" && coef.valide) prixVente = prixVenteDepuisCoefficient(coutTotal, coef.valeur);
+  else if (coutTotal != null && modePrix === "taux" && marge.valide) prixVente = prixVenteDepuisMarge(coutTotal, marge.valeur);
 
   return {
+    modePrix,
+    coefVente: coef.valide ? coef.valeur : null,
     code: code?.code ?? null,
     libelle: str(ouvrage?.libelle),
     libelleCourt: code?.reste ?? str(ouvrage?.libelle),
@@ -239,12 +301,15 @@ export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaP
     cout_direct_unitaire: c.coutDirectUnitaire,
     cout_total_unitaire: c.coutTotalUnitaire,
     taux_marge_pct: c.tauxMargePct,
+    coef_vente: c.coefVente,
     prix_unitaire: c.prixVenteUnitaire,
     tva_pct: num(tvaPct),
     calcul_version: `${CALCUL_VERSION}@${iso}`,
     calcul_detail: {
       version: CALCUL_VERSION,
       date: iso,
+      mode_prix: c.modePrix,
+      coef_vente: c.coefVente,
       cout_horaire: c.mainOeuvre.coutHoraire,
       heures_unitaires: c.mainOeuvre.heures,
       main_oeuvre_seule: c.mainOeuvreSeule,
@@ -268,6 +333,7 @@ const CHAMPS_SNAPSHOT = [
   ["cout_main_oeuvre_unitaire", "Coût main-d'œuvre u."],
   ["cout_direct_unitaire", "Coût direct u."],
   ["cout_total_unitaire", "Coût total u."],
+  ["coef_vente", "Coefficient de vente"],
   ["taux_marge_pct", "Taux de marge (%)"],
   ["prix_unitaire", "Prix de vente HT u."],
 ];
@@ -281,6 +347,8 @@ export function differencesSnapshot(ligne, ouvrage, calcul) {
   const neuf = creerSnapshotOuvrage(ouvrage, calcul, { zone: ligne?.zone, tvaPct: ligne?.tva_pct, quantite: ligne?.quantite });
   const diffs = [];
   CHAMPS_SNAPSHOT.forEach(([champ, label]) => {
+    // Anciennes lignes sans colonne coef_vente : on n'affiche pas une fausse différence
+    if (champ === "coef_vente" && !("coef_vente" in (ligne || {}))) return;
     const avant = typeof neuf[champ] === "number" || neuf[champ] === null ? num(ligne?.[champ]) : str(ligne?.[champ]);
     const apres = typeof neuf[champ] === "number" || neuf[champ] === null ? num(neuf[champ]) : str(neuf[champ]);
     const egal = (avant == null && apres == null) || (avant != null && apres != null && (typeof avant === "number" ? Math.abs(avant - apres) < 0.005 : avant === apres));

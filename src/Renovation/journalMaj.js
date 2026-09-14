@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
     date: "2026-09-14",
+    type: "amelioration",
+    titre: "Bibliothèque : le prix se règle par coefficient (× coût), la marge est affichée à côté",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "info-client", label: "Chiffrage" }],
+    quoi: "Le champ « taux de marge (%) » prêtait à confusion : 50 % de marge sur le prix de vente donnait un prix × 2, alors qu'on raisonne naturellement en « coût × 1,5 ». La saisie devient un coefficient de vente : prix de vente HT = coût total × coefficient. La marge équivalente en % du prix de vente reste calculée et affichée (× 1,5 = 33,3 %, × 2 = 50 %), et c'est elle qui est figée dans les lignes de chiffrage pour l'audit et les futurs devis.",
+    comment: "Bibliothèque → ouvrir un ouvrage → carte « Prix de vente calculé » → « Coefficient de vente (× coût) » (ex. 1,5) → Sauvegarder. Les ouvrages déjà renseignés en taux sont convertis à l'équivalent exact par le SQL sql/202609_chiffrage_coef_vente.sql (à lancer après 202609_chiffrage_devis_logement.sql) : aucun prix ne change. Un coefficient inférieur à 1 est refusé (vente à perte).",
+  },
+  {
+    date: "2026-09-14",
     type: "nouveaute",
     titre: "Chiffrage : prix calculés depuis la bibliothèque, un devis par logement, zones et marge",
     pages: [{ id: "info-client", label: "Chiffrage" }, { id: "bibliotheque", label: "Bibliothèque" }, { id: "admin", label: "Réglages" }],

@@ -73,7 +73,8 @@ const CHAMPS_DEVIS_NUM  = ["tva_pct"];
 const CHAMPS_DEVIS_VIDES = Object.fromEntries(CHAMPS_DEVIS.map(f => [f, ""]));
 const erreurColonnesDevis = (error) => !!error && CHAMPS_DEVIS.some(c => (error?.message || "").includes(c));
 // Colonnes de snapshot d'une ligne (profero_ouvrages_selectionnes) de la même migration
-const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
 const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (error?.message || "").includes(c));
 const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
 const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -1980,8 +1981,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                                 <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
                                   <span>{normaliserUnite(o.unite)}{o.cadence ? ` · ${o.cadence} h / ${normaliserUnite(o.unite)}` : " · sans cadence"}</span>
                                   {calc.complet ? (
-                                    <span style={{ color:"#22c55e", fontWeight:800 }} title={`Coût ${fmtEur2(calc.coutTotalUnitaire)} (matériaux ${fmtEur2(calc.coutMateriauxUnitaire)} + MO ${fmtEur2(calc.coutMainOeuvreUnitaire)}) · marge ${calc.tauxMargePct} %`}>
-                                      {fmtEur2(calc.prixVenteUnitaire)} HT / {calc.unite} · marge {calc.tauxMargePct} %
+                                    <span style={{ color:"#22c55e", fontWeight:800 }} title={`Coût ${fmtEur2(calc.coutTotalUnitaire)} (matériaux ${fmtEur2(calc.coutMateriauxUnitaire)} + MO ${fmtEur2(calc.coutMainOeuvreUnitaire)}) ${fmtCoef(calc.coefVente)} · marge ${calc.tauxMargePct} % du prix de vente`}>
+                                      {fmtEur2(calc.prixVenteUnitaire)} HT / {calc.unite} · {fmtCoef(calc.coefVente)}
                                     </span>
                                   ) : (
                                     <span style={{ color:"#e15a5a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:4 }} title={calc.erreurs.join(" · ")}>
@@ -2638,7 +2639,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h)` : ""}`)}
                 {numOrNull(l.cout_direct_unitaire) > 0 && row(`Coût direct / ${l.unite || "u"}`, fmtEur2(l.cout_direct_unitaire))}
                 {row(`Coût total / ${l.unite || "u"}`, fmtEur2(l.cout_total_unitaire), true)}
-                {row("Taux de marge", fmtPct(l.taux_marge_pct))}
+                {(l.coef_vente != null || d.coef_vente != null) && row("Coefficient de vente", fmtCoef(l.coef_vente ?? d.coef_vente))}
+                {row("Marge sur prix de vente", fmtPct(l.taux_marge_pct))}
                 {row(`Prix de vente HT / ${l.unite || "u"}`, fmtEur2(l.prix_unitaire), true)}
                 {row("TVA de la ligne", numOrNull(l.tva_pct) != null ? fmtPct(l.tva_pct) : `TVA du projet${!tvaManquante ? ` (${infos.tva_pct} %)` : ""}`)}
                 {row("Calcul figé le", d.date ? new Date(d.date).toLocaleString("fr-FR") : (l.calcul_version || "—"))}

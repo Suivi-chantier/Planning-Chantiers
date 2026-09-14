@@ -7,7 +7,7 @@ import {
   DEPENDANCE_MODES, dupliquerSousTachesV2, estOuvrageV2, maturiteOuvrageV2,
   normaliserOuvrageV2, nouvelIdSousTache,
 } from "./planningModelV1";
-import { calculerOuvrage, validerTauxMarge } from "./chiffragePricing.mjs";
+import { calculerOuvrage, validerCoefficient, tauxMargeDepuisCoefficient } from "./chiffragePricing.mjs";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro,
@@ -20,7 +20,8 @@ loadLots().then(l => { LOTS = l; });
 // Format monétaire des prix calculés (2 décimales, fr-FR)
 const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 // Colonnes de prix ajoutées par sql/202609_chiffrage_devis_logement.sql
-const COLONNES_PRIX = ["taux_marge_pct", "main_oeuvre_seule", "cout_direct_unitaire"];
+const COLONNES_PRIX = ["taux_marge_pct", "main_oeuvre_seule", "cout_direct_unitaire", "coef_vente"];
+const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
 const erreurColonnesPrix = (error) => !!error && COLONNES_PRIX.some(c => (error.message || "").includes(c));
 
 // (exporté : le Chiffrage s'en sert pour classer les ouvrages repris de la bibliothèque)
@@ -458,11 +459,11 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
             : <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>Pas de cadence</span>
           }
           {prix.complet ? (
-            <span title={`Coût ${fmtEur2(prix.coutTotalUnitaire)} (matériaux ${fmtEur2(prix.coutMateriauxUnitaire)} + MO ${fmtEur2(prix.coutMainOeuvreUnitaire)}${prix.coutDirectUnitaire ? ` + direct ${fmtEur2(prix.coutDirectUnitaire)}` : ""}) · marge ${prix.tauxMargePct} % = ${fmtEur2(prix.margeUnitaire)}`}
+            <span title={`Coût ${fmtEur2(prix.coutTotalUnitaire)} (matériaux ${fmtEur2(prix.coutMateriauxUnitaire)} + MO ${fmtEur2(prix.coutMainOeuvreUnitaire)}${prix.coutDirectUnitaire ? ` + direct ${fmtEur2(prix.coutDirectUnitaire)}` : ""}) ${fmtCoef(prix.coefVente)} · marge ${fmtEur2(prix.margeUnitaire)} soit ${prix.tauxMargePct} % du prix de vente`}
               style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size + 1, fontWeight: 800, color: "#22c55e",
                 background: "rgba(34,197,94,.10)", border: "1px solid rgba(34,197,94,.28)", padding: "2px 9px", borderRadius: RADIUS.pill }}>
               <Icon as={Euro} size={10}/>
-              {fmtEur2(prix.prixVenteUnitaire)} HT / {prix.unite} · {prix.tauxMargePct} %
+              {fmtEur2(prix.prixVenteUnitaire)} HT / {prix.unite} · {fmtCoef(prix.coefVente)}
             </span>
           ) : (
             <span title={prix.erreurs.join(" · ")}
@@ -569,7 +570,9 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
             const cellLbl = { fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 };
             const cellVal = (ok = true) => ({ fontSize: FONT.sm.size + 1, fontWeight: 800, color: ok ? T.text : T.textMuted, marginTop: 4 });
             const inputS = { padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none", textAlign: "center", width: "100%" };
-            const marge = validerTauxMarge(editData.taux_marge_pct);
+            const coefSaisi = editData.coef_vente ?? "";
+            const coef = validerCoefficient(coefSaisi);
+            const margeEquiv = coef.valide ? tauxMargeDepuisCoefficient(coef.valeur) : null;
             return (
               <div style={{ marginBottom: 14, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${prix.complet ? "rgba(34,197,94,.35)" : T.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
@@ -577,7 +580,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                     <Icon as={Euro} size={12} color={acc.accent}/>
                     <div style={cellLbl}>Prix de vente calculé</div>
                     <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
-                      coût matériaux + main-d'œuvre ({prix.mainOeuvre.heures ?? "?"} h × {prix.mainOeuvre.coutHoraire ?? "?"} €/h) + coût direct, puis prix = coût ÷ (1 − marge)
+                      coût matériaux + main-d'œuvre ({prix.mainOeuvre.heures ?? "?"} h × {prix.mainOeuvre.coutHoraire ?? "?"} €/h) + coût direct, puis prix = coût × coefficient
                     </span>
                   </div>
                   <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
@@ -607,19 +610,22 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                     <div style={cellVal(prix.coutTotalUnitaire != null)}>{fmtEur2(prix.coutTotalUnitaire)}</div>
                   </div>
                   <div>
-                    <label style={cellLbl}>Taux de marge cible (%)</label>
+                    <label style={cellLbl}>Coefficient de vente (× coût)</label>
                     <div style={{ position: "relative", marginTop: 4 }}>
-                      <input type="number" min="0" max="99.99" step="0.5" value={editData.taux_marge_pct ?? ""} placeholder="ex : 30"
+                      <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted, fontSize: FONT.sm.size, fontWeight: 800, pointerEvents: "none" }}>×</span>
+                      <input type="number" min="1" step="0.05" value={coefSaisi} placeholder="ex : 1,5"
                         onClick={e => e.stopPropagation()}
-                        onChange={e => patchOuvrage({ taux_marge_pct: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                        style={{ ...inputS, border: `1px solid ${marge.valide ? T.accent + "55" : "rgba(225,90,90,.6)"}`, color: marge.valide ? T.accent : "#e15a5a", paddingRight: 22 }}/>
-                      <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: T.textMuted, fontSize: FONT.xs.size, pointerEvents: "none" }}>%</span>
+                        onChange={e => patchOuvrage({ coef_vente: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                        style={{ ...inputS, border: `1px solid ${coef.valide ? T.accent + "55" : "rgba(225,90,90,.6)"}`, color: coef.valide ? T.accent : "#e15a5a", paddingLeft: 24 }}/>
+                    </div>
+                    <div style={{ fontSize: FONT.xs.size, color: coef.valide ? T.textMuted : "#e15a5a", marginTop: 3 }}>
+                      {coef.valide ? `= ${margeEquiv} % de marge sur le prix de vente` : (coefSaisi === "" && editData.taux_marge_pct != null ? `repli : ancien taux ${editData.taux_marge_pct} %` : coef.erreur)}
                     </div>
                   </div>
                   <div>
                     <div style={cellLbl}>Prix de vente HT / {prix.unite}</div>
                     <div style={{ ...cellVal(prix.prixVenteUnitaire != null), color: prix.prixVenteUnitaire != null ? "#22c55e" : T.textMuted, fontSize: FONT.md.size }}>{fmtEur2(prix.prixVenteUnitaire)}</div>
-                    {prix.margeUnitaire != null && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>marge {fmtEur2(prix.margeUnitaire)} · réel {prix.tauxMargeReel} %</div>}
+                    {prix.margeUnitaire != null && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>marge {fmtEur2(prix.margeUnitaire)} · {prix.tauxMargeReel} % du prix</div>}
                   </div>
                 </div>
                 <label onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: FONT.xs.size + 1, color: T.textSub, cursor: "pointer" }}>
@@ -1068,6 +1074,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       materiaux_liens: JSON.parse(JSON.stringify(ouvrage.materiaux_liens || [])),
     };
     const prixClone = {
+      coef_vente: ouvrage.coef_vente ?? null,
       taux_marge_pct: ouvrage.taux_marge_pct ?? null,
       main_oeuvre_seule: ouvrage.main_oeuvre_seule === true,
       cout_direct_unitaire: ouvrage.cout_direct_unitaire ?? null,
@@ -1111,13 +1118,15 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         materiau_id: ml.materiau_id,
         quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
       }));
-    // Prix : le taux de marge est validé (0 ≤ taux < 100) avant écriture ; la
-    // contrainte SQL le garantit aussi. Le prix de vente n'est JAMAIS stocké
-    // dans la bibliothèque : il est recalculé, puis figé sur chaque ligne de
-    // chiffrage au moment de l'ajout.
-    const tauxSaisi = ouvrageClean.taux_marge_pct;
-    if (tauxSaisi != null && tauxSaisi !== "" && !validerTauxMarge(tauxSaisi).valide) {
-      flash("error", validerTauxMarge(tauxSaisi).erreur);
+    // Prix : saisie = coefficient de vente (≥ 1) ; le taux de marge équivalent
+    // (% du prix de vente) est dérivé et stocké avec lui (contrainte SQL
+    // 0 ≤ taux < 100 garantie par coef ≥ 1). Le prix de vente n'est JAMAIS
+    // stocké dans la bibliothèque : il est recalculé, puis figé sur chaque
+    // ligne de chiffrage au moment de l'ajout.
+    const coefSaisi = ouvrageClean.coef_vente;
+    const coefVide = coefSaisi == null || coefSaisi === "";
+    if (!coefVide && !validerCoefficient(coefSaisi).valide) {
+      flash("error", validerCoefficient(coefSaisi).erreur);
       setSaving(null);
       return;
     }
@@ -1129,7 +1138,9 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       updated_at: new Date().toISOString(),
     };
     const prixPatch = {
-      taux_marge_pct: tauxSaisi == null || tauxSaisi === "" ? null : parseFloat(tauxSaisi),
+      coef_vente: coefVide ? null : parseFloat(coefSaisi),
+      // Coefficient renseigné ⇒ taux dérivé ; vide ⇒ on garde l'ancien taux (repli)
+      taux_marge_pct: coefVide ? (ouvrageClean.taux_marge_pct ?? null) : tauxMargeDepuisCoefficient(coefSaisi),
       main_oeuvre_seule: ouvrageClean.main_oeuvre_seule === true,
       cout_direct_unitaire: ouvrageClean.cout_direct_unitaire == null || ouvrageClean.cout_direct_unitaire === "" ? null : parseFloat(ouvrageClean.cout_direct_unitaire),
     };
@@ -1265,7 +1276,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
             {schemaPrixManquant && (
               <div style={{ display: "flex", gap: 9, alignItems: "center", padding: "9px 14px", borderRadius: RADIUS.md, background: "rgba(245,166,35,.12)", border: "1px solid rgba(245,166,35,.4)", color: "#f5a623", fontSize: FONT.xs.size + 1, fontWeight: 600 }}>
                 <Icon as={AlertTriangle} size={13}/>
-                Base non à jour : lancer <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_devis_logement.sql</code> dans Supabase pour enregistrer le taux de marge et « main-d'œuvre seule ».
+                Base non à jour : lancer <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_devis_logement.sql</code> puis <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_coef_vente.sql</code> dans Supabase pour enregistrer le coefficient de vente et « main-d'œuvre seule ».
               </div>
             )}
           </div>
