@@ -1,12 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { chargerModuleSource } from "./_chargeur.mjs";
 
 async function loadPlanningModel() {
-  const url = new URL("../src/Renovation/planningModelV1.js", import.meta.url);
-  const source = await readFile(url, "utf8");
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-  return import(dataUrl);
+  return chargerModuleSource("../src/Renovation/planningModelV1.js", import.meta.url);
 }
 
 const m = await loadPlanningModel();

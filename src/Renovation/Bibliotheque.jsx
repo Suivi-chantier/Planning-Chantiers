@@ -7,14 +7,21 @@ import {
   DEPENDANCE_MODES, dupliquerSousTachesV2, estOuvrageV2, maturiteOuvrageV2,
   normaliserOuvrageV2, nouvelIdSousTache,
 } from "./planningModelV1";
+import { calculerOuvrage, validerTauxMarge } from "./chiffragePricing.mjs";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy,
+  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro,
 } from "lucide-react";
 
 // LOTS dynamiques (phasage v2) : init avec les défauts, remplacement async au mount
 let LOTS = [...LOTS_DEFAUT];
 loadLots().then(l => { LOTS = l; });
+
+// Format monétaire des prix calculés (2 décimales, fr-FR)
+const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+// Colonnes de prix ajoutées par sql/202609_chiffrage_devis_logement.sql
+const COLONNES_PRIX = ["taux_marge_pct", "main_oeuvre_seule", "cout_direct_unitaire"];
+const erreurColonnesPrix = (error) => !!error && COLONNES_PRIX.some(c => (error.message || "").includes(c));
 
 // (exporté : le Chiffrage s'en sert pour classer les ouvrages repris de la bibliothèque)
 export const CATEGORIES_BASE = [
@@ -393,12 +400,16 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
 }
 
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, T, acc }) {
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
   const isV2 = estOuvrageV2(editData);
   const maturite = isV2 ? maturiteOuvrageV2(editData) : null;
+  // Prix calculé (module pur chiffragePricing) : matériaux + MO (cadence × coût
+  // horaire) + coût direct, puis prix de vente = coût / (1 − marge/100).
+  const prix = calculerOuvrage(editData, { materiaux, coutHoraire });
+  const patchOuvrage = (patch) => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, ...patch }));
 
   // Bloque l'auto-reload pendant l'édition d'un ouvrage (sauvegarde au clic).
   useDirtyGuard("ouvrage-edit-" + ouvrage.id, isEdit);
@@ -446,6 +457,21 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               </span>
             : <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>Pas de cadence</span>
           }
+          {prix.complet ? (
+            <span title={`Coût ${fmtEur2(prix.coutTotalUnitaire)} (matériaux ${fmtEur2(prix.coutMateriauxUnitaire)} + MO ${fmtEur2(prix.coutMainOeuvreUnitaire)}${prix.coutDirectUnitaire ? ` + direct ${fmtEur2(prix.coutDirectUnitaire)}` : ""}) · marge ${prix.tauxMargePct} % = ${fmtEur2(prix.margeUnitaire)}`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size + 1, fontWeight: 800, color: "#22c55e",
+                background: "rgba(34,197,94,.10)", border: "1px solid rgba(34,197,94,.28)", padding: "2px 9px", borderRadius: RADIUS.pill }}>
+              <Icon as={Euro} size={10}/>
+              {fmtEur2(prix.prixVenteUnitaire)} HT / {prix.unite} · {prix.tauxMargePct} %
+            </span>
+          ) : (
+            <span title={prix.erreurs.join(" · ")}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size, fontWeight: 700, color: "#e15a5a",
+                background: "rgba(225,90,90,.10)", border: "1px solid rgba(225,90,90,.28)", padding: "2px 8px", borderRadius: RADIUS.pill }}>
+              <Icon as={AlertTriangle} size={10}/>
+              Prix incalculable ({prix.erreurs.length})
+            </span>
+          )}
           {maturite && (
             <span title={[...(maturite.erreurs || []), ...(maturite.warnings || [])].join(" · ")} style={{
               display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size, fontWeight: 700,
@@ -537,6 +563,87 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               />
             </div>
           </div>
+
+          {/* ── Prix de vente calculé (Profero = source de vérité du prix) ── */}
+          {(() => {
+            const cellLbl = { fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 };
+            const cellVal = (ok = true) => ({ fontSize: FONT.sm.size + 1, fontWeight: 800, color: ok ? T.text : T.textMuted, marginTop: 4 });
+            const inputS = { padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none", textAlign: "center", width: "100%" };
+            const marge = validerTauxMarge(editData.taux_marge_pct);
+            return (
+              <div style={{ marginBottom: 14, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${prix.complet ? "rgba(34,197,94,.35)" : T.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <Icon as={Euro} size={12} color={acc.accent}/>
+                    <div style={cellLbl}>Prix de vente calculé</div>
+                    <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+                      coût matériaux + main-d'œuvre ({prix.mainOeuvre.heures ?? "?"} h × {prix.mainOeuvre.coutHoraire ?? "?"} €/h) + coût direct, puis prix = coût ÷ (1 − marge)
+                    </span>
+                  </div>
+                  <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+                    color: prix.complet ? "#22c55e" : "#e15a5a", background: prix.complet ? "rgba(34,197,94,.10)" : "rgba(225,90,90,.10)",
+                    border: `1px solid ${prix.complet ? "rgba(34,197,94,.28)" : "rgba(225,90,90,.28)"}` }}>
+                    {prix.complet ? "Complet — prix figé à l'ajout dans un chiffrage" : "Incomplet — l'ouvrage ne peut pas être chiffré"}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12 }}>
+                  <div>
+                    <div style={cellLbl}>Coût matériaux / {prix.unite}</div>
+                    <div style={cellVal(prix.coutMateriauxUnitaire != null)}>{fmtEur2(prix.coutMateriauxUnitaire)}</div>
+                  </div>
+                  <div>
+                    <div style={cellLbl}>Coût main-d'œuvre / {prix.unite}</div>
+                    <div style={cellVal(prix.coutMainOeuvreUnitaire != null)}>{fmtEur2(prix.coutMainOeuvreUnitaire)}</div>
+                  </div>
+                  <div>
+                    <label style={cellLbl}>Coût direct compl. / {prix.unite}</label>
+                    <input type="number" min="0" step="0.01" value={editData.cout_direct_unitaire ?? ""} placeholder="0"
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => patchOuvrage({ cout_direct_unitaire: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      style={{ ...inputS, marginTop: 4 }}/>
+                  </div>
+                  <div>
+                    <div style={cellLbl}>Coût total / {prix.unite}</div>
+                    <div style={cellVal(prix.coutTotalUnitaire != null)}>{fmtEur2(prix.coutTotalUnitaire)}</div>
+                  </div>
+                  <div>
+                    <label style={cellLbl}>Taux de marge cible (%)</label>
+                    <div style={{ position: "relative", marginTop: 4 }}>
+                      <input type="number" min="0" max="99.99" step="0.5" value={editData.taux_marge_pct ?? ""} placeholder="ex : 30"
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => patchOuvrage({ taux_marge_pct: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                        style={{ ...inputS, border: `1px solid ${marge.valide ? T.accent + "55" : "rgba(225,90,90,.6)"}`, color: marge.valide ? T.accent : "#e15a5a", paddingRight: 22 }}/>
+                      <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: T.textMuted, fontSize: FONT.xs.size, pointerEvents: "none" }}>%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={cellLbl}>Prix de vente HT / {prix.unite}</div>
+                    <div style={{ ...cellVal(prix.prixVenteUnitaire != null), color: prix.prixVenteUnitaire != null ? "#22c55e" : T.textMuted, fontSize: FONT.md.size }}>{fmtEur2(prix.prixVenteUnitaire)}</div>
+                    {prix.margeUnitaire != null && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>marge {fmtEur2(prix.margeUnitaire)} · réel {prix.tauxMargeReel} %</div>}
+                  </div>
+                </div>
+                <label onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: FONT.xs.size + 1, color: T.textSub, cursor: "pointer" }}>
+                  <input type="checkbox" checked={editData.main_oeuvre_seule === true}
+                    onChange={e => patchOuvrage({ main_oeuvre_seule: e.target.checked })} style={{ accentColor: acc.accent, width: 15, height: 15 }}/>
+                  Ouvrage <strong style={{ color: T.text }}>main-d'œuvre seule</strong> (volontairement sans matériau — dépose, démolition, forfait de pose…)
+                </label>
+                {(prix.erreurs.length > 0 || prix.avertissements.length > 0) && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {prix.erreurs.map((e, i) => (
+                      <div key={`e${i}`} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: FONT.xs.size + 1, color: "#e15a5a" }}>
+                        <Icon as={AlertTriangle} size={11} style={{ marginTop: 2, flexShrink: 0 }}/>{e}
+                      </div>
+                    ))}
+                    {prix.avertissements.map((a, i) => (
+                      <div key={`a${i}`} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: FONT.xs.size + 1, color: "#f5a623" }}>
+                        <Icon as={AlertTriangle} size={11} style={{ marginTop: 2, flexShrink: 0 }}/>{a}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {maturite && isEdit && (
             <div style={{
@@ -789,6 +896,11 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   const [toDelete, setToDelete] = useState(null);       // ouvrage à supprimer
   const [catToDelete, setCatToDelete] = useState(null); // catégorie à supprimer
   const [deleting, setDeleting] = useState(false);
+  // Coût horaire chargé de référence (planning_config.taux_mo_previsionnel,
+  // Admin → Taux). null = non réglé ⇒ aucun prix calculable (état bloquant).
+  const [coutHoraire, setCoutHoraire] = useState(null);
+  // Colonnes de prix absentes en base (SQL 202609_chiffrage_devis_logement.sql pas lancé)
+  const [schemaPrixManquant, setSchemaPrixManquant] = useState(false);
 
   const categories = [...CATEGORIES_BASE, ...categoriesCustom];
 
@@ -796,7 +908,13 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     loadOuvrages();
     loadCategoriesCustom();
     loadMateriaux();
+    loadCoutHoraire();
     loadGroupesTypes().then(setGroupesTypes);
+    const chTaux = supabase.channel("biblio-taux-rt")
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "planning_config", filter: "key=eq.taux_mo_previsionnel" },
+          () => loadCoutHoraire())
+      .subscribe();
     // Realtime : tout changement de la bibliothèque ou des catégories custom
     // est propagé en direct chez tous les utilisateurs connectés.
     const chOuvr = supabase.channel("biblio-ouvrages-rt")
@@ -816,8 +934,15 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       supabase.removeChannel(chOuvr);
       supabase.removeChannel(chCat);
       supabase.removeChannel(chMat);
+      supabase.removeChannel(chTaux);
     };
   }, []);
+
+  async function loadCoutHoraire() {
+    const { data } = await supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle();
+    const v = parseFloat(data?.value);
+    setCoutHoraire(Number.isFinite(v) && v > 0 ? v : null);
+  }
 
   async function loadMateriaux() {
     const { data } = await supabase.from("materiaux_bibliotheque")
@@ -942,7 +1067,17 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         : JSON.parse(JSON.stringify(ouvrage.sous_taches || [])),
       materiaux_liens: JSON.parse(JSON.stringify(ouvrage.materiaux_liens || [])),
     };
-    const { data, error } = await supabase.from("bibliotheque_ratios").insert([clone]).select();
+    const prixClone = {
+      taux_marge_pct: ouvrage.taux_marge_pct ?? null,
+      main_oeuvre_seule: ouvrage.main_oeuvre_seule === true,
+      cout_direct_unitaire: ouvrage.cout_direct_unitaire ?? null,
+    };
+    let { data, error } = await supabase.from("bibliotheque_ratios").insert([{ ...clone, ...prixClone }]).select();
+    if (erreurColonnesPrix(error)) {
+      // Colonnes de prix absentes (SQL pas lancé) : on duplique sans elles
+      setSchemaPrixManquant(true);
+      ({ data, error } = await supabase.from("bibliotheque_ratios").insert([clone]).select());
+    }
     if (error || !data?.[0]) {
       flash("error", "Erreur lors de la duplication : " + (error?.message || "insertion vide"));
       return;
@@ -976,18 +1111,42 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         materiau_id: ml.materiau_id,
         quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
       }));
-    const { error } = await supabase.from("bibliotheque_ratios").update({
+    // Prix : le taux de marge est validé (0 ≤ taux < 100) avant écriture ; la
+    // contrainte SQL le garantit aussi. Le prix de vente n'est JAMAIS stocké
+    // dans la bibliothèque : il est recalculé, puis figé sur chaque ligne de
+    // chiffrage au moment de l'ajout.
+    const tauxSaisi = ouvrageClean.taux_marge_pct;
+    if (tauxSaisi != null && tauxSaisi !== "" && !validerTauxMarge(tauxSaisi).valide) {
+      flash("error", validerTauxMarge(tauxSaisi).erreur);
+      setSaving(null);
+      return;
+    }
+    const base = {
       libelle: ouvrageClean.libelle, unite: ouvrageClean.unite,
       cadence: ouvrageClean.cadence ?? null,
       sous_taches: ouvrageClean.sous_taches,
       materiaux_liens: liensClean,
       updated_at: new Date().toISOString(),
-    }).eq("id", ouvrage.id);
+    };
+    const prixPatch = {
+      taux_marge_pct: tauxSaisi == null || tauxSaisi === "" ? null : parseFloat(tauxSaisi),
+      main_oeuvre_seule: ouvrageClean.main_oeuvre_seule === true,
+      cout_direct_unitaire: ouvrageClean.cout_direct_unitaire == null || ouvrageClean.cout_direct_unitaire === "" ? null : parseFloat(ouvrageClean.cout_direct_unitaire),
+    };
+    let { error } = await supabase.from("bibliotheque_ratios").update({ ...base, ...prixPatch }).eq("id", ouvrage.id);
+    let prixIgnores = false;
+    if (erreurColonnesPrix(error)) {
+      setSchemaPrixManquant(true);
+      prixIgnores = true;
+      ({ error } = await supabase.from("bibliotheque_ratios").update(base).eq("id", ouvrage.id));
+    }
     if (error) {
       flash("error", "Erreur lors de la sauvegarde : " + error.message);
     } else {
-      setOuvrages(prev => prev.map(o => o.id === ouvrage.id ? { ...o, ...ouvrageClean, materiaux_liens: liensClean } : o));
-      flash("ok", "Ouvrage sauvegardé");
+      setOuvrages(prev => prev.map(o => o.id === ouvrage.id ? { ...o, ...ouvrageClean, ...(prixIgnores ? {} : prixPatch), materiaux_liens: liensClean } : o));
+      flash(prixIgnores ? "error" : "ok", prixIgnores
+        ? "Ouvrage sauvegardé SANS le prix : lancer sql/202609_chiffrage_devis_logement.sql dans Supabase"
+        : "Ouvrage sauvegardé");
     }
     setSaving(null);
     setEditId(null);
@@ -1019,6 +1178,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   // ── Stats globales ──────────────────────────────────────────────────────────
   const v2 = ouvrages.filter(estOuvrageV2);
   const v2Planifiables = v2.filter(o => maturiteOuvrageV2(o).planifiable).length;
+  const prixCalculables = ouvrages.filter(o => calculerOuvrage(o, { materiaux, coutHoraire }).complet).length;
   const stats = {
     total: ouvrages.length,
     categories: Object.keys(catCounts).length,
@@ -1026,6 +1186,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     sansCadence: ouvrages.filter(o => !o.cadence).length,
     v2Total: v2.length,
     v2Planifiables,
+    prixCalculables,
   };
 
   return (
@@ -1060,7 +1221,8 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                 Bibliothèque de ratios
               </div>
               <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
-                Ouvrages, sous-tâches, lots et cadences · utilisés à l'import du devis
+                Ouvrages, sous-tâches, cadences, matériaux et marge · prix de vente calculé, repris par le Chiffrage
+                {coutHoraire != null && <span> · coût horaire de référence <strong style={{ color: T.text }}>{coutHoraire} €/h</strong></span>}
               </div>
             </div>
           </div>
@@ -1086,6 +1248,29 @@ function PageBibliotheque({ T, branch = "renovation" }) {
           </div>
         </div>
 
+        {/* ── Coût horaire de référence (bloquant s'il manque) ── */}
+        {!loading && (coutHoraire == null || schemaPrixManquant) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+            {coutHoraire == null && (
+              <div style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "10px 14px", borderRadius: RADIUS.md, background: "rgba(225,90,90,.10)", border: "1px solid rgba(225,90,90,.35)", color: "#e15a5a", fontSize: FONT.sm.size, fontWeight: 600 }}>
+                <Icon as={AlertTriangle} size={14} style={{ marginTop: 2, flexShrink: 0 }}/>
+                <div>
+                  Coût horaire de référence non configuré : aucun prix de vente ne peut être calculé.
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, fontWeight: 500, marginTop: 3 }}>
+                    Réglages → onglet Taux → « Taux horaire moyen (prévisionnel) » (€/h chargé). Cette valeur sert au coût de main-d'œuvre de chaque ouvrage : cadence (h/unité) × coût horaire.
+                  </div>
+                </div>
+              </div>
+            )}
+            {schemaPrixManquant && (
+              <div style={{ display: "flex", gap: 9, alignItems: "center", padding: "9px 14px", borderRadius: RADIUS.md, background: "rgba(245,166,35,.12)", border: "1px solid rgba(245,166,35,.4)", color: "#f5a623", fontSize: FONT.xs.size + 1, fontWeight: 600 }}>
+                <Icon as={AlertTriangle} size={13}/>
+                Base non à jour : lancer <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_devis_logement.sql</code> dans Supabase pour enregistrer le taux de marge et « main-d'œuvre seule ».
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Stats ── */}
         {!loading && ouvrages.length > 0 && (
           <div style={{
@@ -1097,6 +1282,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
               { label: "Catégories",     value: stats.categories,  icon: FolderOpen, color: "#5b9cf6" },
               { label: "Avec cadence",   value: stats.avecCadence, icon: Clock,      color: "#22c55e" },
               { label: "Sans cadence",   value: stats.sansCadence, icon: Box,        color: stats.sansCadence > 0 ? "#f5a623" : T.textMuted },
+              { label: "Prix calculables", value: `${stats.prixCalculables}/${stats.total}`, icon: Euro, color: stats.prixCalculables === stats.total && stats.total > 0 ? "#22c55e" : "#e15a5a" },
               { label: "V2 prêts planning", value: `${stats.v2Planifiables}/${stats.v2Total}`, icon: Check, color: stats.v2Planifiables === stats.v2Total && stats.v2Total > 0 ? "#22c55e" : "#f5a623" },
             ].map((s, i) => (
               <div key={i} style={{
@@ -1425,6 +1611,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                       changerCategorie={changerCategorie}
                       materiaux={materiaux}
                       groupesTypes={groupesTypes}
+                      coutHoraire={coutHoraire}
                       T={T} acc={acc}
                     />
                   ))}

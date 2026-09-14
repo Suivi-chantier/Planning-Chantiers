@@ -1,23 +1,11 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { chargerModuleSource } from "./_chargeur.mjs";
 
-async function loadModule(rel) {
-  const url = new URL(rel, import.meta.url);
-  const source = await readFile(url, "utf8");
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-  return import(dataUrl);
-}
-
-// L'audit importe planningModelV1 via un import relatif ; on le charge donc via
-// un petit module miroir avec les deux sources concaténées pour garder ce test
-// exécutable sans changer la configuration ESM globale du projet.
-const modelSource = await readFile(new URL("../src/Renovation/planningModelV1.js", import.meta.url), "utf8");
-let auditSource = await readFile(new URL("../src/Renovation/planningModelAuditV1.js", import.meta.url), "utf8");
-const modelDataUrl = `data:text/javascript;base64,${Buffer.from(modelSource).toString("base64")}`;
-auditSource = auditSource.replace('"./planningModelV1.js"', JSON.stringify(modelDataUrl));
-const auditDataUrl = `data:text/javascript;base64,${Buffer.from(auditSource).toString("base64")}`;
-const { auditerBibliothequeV2 } = await import(auditDataUrl);
+// L'audit importe planningModelV1 (qui importe codeOuvrage.mjs) : le chargeur
+// partagé réécrit ces imports relatifs pour rester exécutable sans changer la
+// configuration ESM globale du projet.
+const { auditerBibliothequeV2 } = await chargerModuleSource("../src/Renovation/planningModelAuditV1.js", import.meta.url);
 
 const base = {
   identifiant: "ouvrages_v2_test",

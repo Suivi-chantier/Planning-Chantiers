@@ -13,13 +13,11 @@
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/enrich-planning-groups-v1.mjs
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/enrich-planning-groups-v1.mjs --apply
 
-import { readFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
+import { chargerModuleSource } from "./_chargeur.mjs";
 
 async function importSource(relative) {
-  const url = new URL(relative, import.meta.url);
-  const source = await readFile(url, "utf8");
-  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  return chargerModuleSource(relative, import.meta.url);
 }
 
 const APPLY = process.argv.includes("--apply");

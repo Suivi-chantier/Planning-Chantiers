@@ -6,6 +6,8 @@
 // `ouvrages_v2_`. Les ouvrages historiques restent lisibles par l'application
 // mais ne sont ni enrichis ni utilisés comme référence d'apprentissage.
 
+import { codeOuvrage } from "./codeOuvrage.mjs";
+
 export const PLANNING_MODEL_VERSION = 1;
 export const OUVRAGE_V2_PREFIX = "ouvrages_v2_";
 
@@ -35,10 +37,9 @@ export function estOuvrageV2(ouvrage) {
   return str(ouvrage?.identifiant).startsWith(OUVRAGE_V2_PREFIX);
 }
 
+// Détecteur unique (codeOuvrage.mjs) : préfixes jusqu'à 5 lettres (COUV-001).
 export function codeOuvrageDepuisLibelle(libelle) {
-  const s = str(libelle);
-  const m = s.match(/^([A-Z]{1,3})[\s\-._]?(\d{1,5}(?:\.\d+)?)\b/i);
-  return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+  return codeOuvrage(libelle);
 }
 
 export function nouvelIdSousTache() {

@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { chargerModuleSource } from "./_chargeur.mjs";
 
 async function loadModule(relative) {
-  const url = new URL(relative, import.meta.url);
-  const source = await readFile(url, "utf8");
-  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  return chargerModuleSource(relative, import.meta.url);
 }
 
 const m = await loadModule("../src/Renovation/planningGroupInferenceV1.js");

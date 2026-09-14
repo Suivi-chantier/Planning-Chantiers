@@ -6,6 +6,13 @@ import { Icon } from "../ui";
 import StylusCanvas, { renderStrokesDataURL } from "./StylusCanvas";
 import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
+import { parseCodeOuvrage } from "./codeOuvrage.mjs";
+import {
+  ZONE_DEFAUT, ZONES_SUGGEREES, TYPES_LOGEMENT, TVA_TAUX_USUELS,
+  calculerOuvrage, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
+  ligneEstSnapshot, totalLigneHT, totauxDevis, grouperParLotZone,
+  lireLogementProjet, verifierPreparationDevis, normaliserUnite, num as numOrNull,
+} from "./chiffragePricing.mjs";
 import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
@@ -13,6 +20,7 @@ import {
   Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
   ImagePlus, ArrowUp, ArrowDown, Send, StickyNote, Edit2, Image as ImageIcon,
   Video, Film, Library, Wallet, Clock, PenTool, Type as TypeIcon, Play,
+  RefreshCw, Home, Receipt, Info, Lock,
 } from "lucide-react";
 
 // Ordre des lots = chronologie d'un chantier (démolition → finitions).
@@ -27,7 +35,6 @@ const CATEGORIES_DEFAUT = {
   "Sols & Peinture": ["Parquet stratifié","Ragréage sol","Peinture finition C","Escalier 1/4 tournant"],
 };
 const UNITES = { "Électricité":"U","Plomberie":"U","Ventilation":"U","Plaquiste":"m²","Sols & Peinture":"m²","Menuiseries":"U","Maçonnerie":"U","Démolition":"m²" };
-const LOGEMENTS = ["T1 (1 pièce)","T2 (2 pièces)","T3 (3 pièces)","T4 (4 pièces)","T5 (5 pièces)"];
 
 // ─── STATUTS DE PROJET (flux commercial) ─────────────────────────────────────
 const STATUTS_PROJET = [
@@ -52,8 +59,29 @@ async function uploadInfoClientPhoto(file, projetId) {
   return data?.publicUrl || null;
 }
 
-// État vide d'un projet (formulaire + reset)
-const INFOS_VIDES = { client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"", budget_client:"", delai_souhaite:"" };
+// Champs ajoutés par sql/202609_chiffrage_devis_logement.sql (1 projet = 1
+// logement = 1 futur devis ProGBat). Servent au repli si la base n'est pas à
+// jour, au merge Realtime et à la duplication.
+const CHAMPS_DEVIS = [
+  "client_societe", "client_email", "client_telephone", "client_adresse", "client_adresse_complement", "client_code_postal", "client_ville", "client_pays",
+  "chantier_adresse", "chantier_adresse_complement", "chantier_code_postal", "chantier_ville", "chantier_pays",
+  "logement_reference", "type_logement",
+  "devis_objet", "devis_date", "devis_validite", "tva_pct", "devis_num_commande_client", "devis_conditions",
+];
+const CHAMPS_DEVIS_DATE = ["devis_date", "devis_validite"];
+const CHAMPS_DEVIS_NUM  = ["tva_pct"];
+const CHAMPS_DEVIS_VIDES = Object.fromEntries(CHAMPS_DEVIS.map(f => [f, ""]));
+const erreurColonnesDevis = (error) => !!error && CHAMPS_DEVIS.some(c => (error?.message || "").includes(c));
+// Colonnes de snapshot d'une ligne (profero_ouvrages_selectionnes) de la même migration
+const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (error?.message || "").includes(c));
+const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
+const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const fmtPct = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+
+// État vide d'un projet (formulaire + reset). `logements` (ancien tableau) est
+// conservé en lecture seule pour les anciens projets.
+const INFOS_VIDES = { client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"", budget_client:"", delai_souhaite:"", ...CHAMPS_DEVIS_VIDES };
 
 // Médias : photos ET vidéos dans le même bucket "photos" (max 50 Mo, limite
 // par défaut du stockage Supabase).
@@ -67,13 +95,11 @@ const CROQUIS_W = 1400, CROQUIS_H = 1000;
 const fmtEur = (n) => Number(n || 0).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " €";
 
 // Code en tête d'un libellé de la bibliothèque : « D-001 : Dépose… »,
-// « E-002.3 : Tableau… », « COUV-001 : Reprise… ». Lettres MAJUSCULES + tiret +
-// numéro (décimale possible). Renvoie null si le libellé n'est pas codé.
+// « E-002.3 : Tableau… », « COUV-001 : Reprise… ». Détecteur unique
+// (codeOuvrage.mjs) partagé avec l'import, le planning et les lots.
 function decoderLibelleCode(libelle) {
-  const s = (libelle || "").trim();
-  const m = s.match(/^([A-Z]{1,4})\s?[-–]\s?(\d{1,5}(?:\.\d+)?)\s*[:\-–—]?\s*([\s\S]*)$/);
-  if (!m) return null;
-  return { code: `${m[1]}-${m[2]}`, prefixe: m[1], num: parseFloat(m[2]), reste: (m[3] || "").trim() || s };
+  const c = parseCodeOuvrage(libelle);
+  return c ? { code: c.code, prefixe: c.prefixe, num: c.numeroValeur, reste: c.reste } : null;
 }
 
 export default function PageInfoClient({ T, branch = "renovation", chantiers = [] }) {
@@ -130,11 +156,22 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const vignetteCache = useRef(new Map());
   // Bibliothèque d'ouvrages (page Bibliothèque) : source principale de l'onglet
   // Ouvrages — seuls les libellés codés (« D-001 : … ») sont proposés.
-  const [biblio, setBiblio]           = useState(null);      // { ouvrages, lots } chargé au montage
+  const [biblio, setBiblio]           = useState(null);      // { ouvrages, lots, materiaux, coutHoraire, tvaDefaut } chargé au montage
   const [biblioBusy, setBiblioBusy]   = useState(null);
   const [showAnciens, setShowAnciens] = useState(false);     // anciens ouvrages du chiffrage (masqués par défaut)
   // Colonnes/table de la v2 absentes en base (SQL 202609_chiffrage_v2 pas encore lancé)
   const [schemaV2Manquant, setSchemaV2Manquant] = useState(false);
+  // Colonnes v3 (devis / logement / snapshot) absentes (SQL 202609_chiffrage_devis_logement pas lancé)
+  const [schemaDevisManquant, setSchemaDevisManquant] = useState(false);
+  // Zone dans laquelle le prochain « Ajouter » place l'ouvrage (libre, suggestions)
+  const [zoneAjout, setZoneAjout]     = useState(ZONE_DEFAUT);
+  // Actualisation d'une ligne depuis la bibliothèque : { ligne, ouvrage, calcul, diffs, patch }
+  const [actualisation, setActualisation] = useState(null);
+  // Duplication « pour un autre logement » : { reference, type }
+  const [dupliquerModal, setDupliquerModal] = useState(null);
+  const [dupliquant, setDupliquant]   = useState(false);
+  const [toDeleteLigne, setToDeleteLigne] = useState(null);
+  const [voirDetailLigne, setVoirDetailLigne] = useState(null); // ligne dont on affiche le détail du coût
   // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
   // partagé annulait les saves des autres opérations (ex : taper un nom client
   // puis modifier une quantité d'ouvrage avant 800ms écrasait la save du nom).
@@ -184,6 +221,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     else { await supabase.from("profero_categories_ouvrages").insert(Object.entries(CATEGORIES_DEFAUT).map(([nom,ouvrages],i)=>({nom,ouvrages,ordre:i}))); }
   }
 
+  // Ligne profero_projets → état `infos` du formulaire (chaînes vides plutôt que null)
+  function infosDepuisProjet(p) {
+    const base = { ...INFOS_VIDES, client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:Array.isArray(p.logements)?p.logements:[], statut:p.statut||"prospect", notes:p.notes||"", budget_client:p.budget_client ?? "", delai_souhaite:p.delai_souhaite||"" };
+    CHAMPS_DEVIS.forEach(f => { base[f] = p[f] == null ? "" : p[f]; });
+    return base;
+  }
+
   async function chargerProjet(id) {
     setLoading(true);
     // Reset dirty + status quand on change de projet (les modifs en attente sur
@@ -201,7 +245,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       supabase.from("plans").select("id,name,thumbnail,chantier_id,updated_at").eq("projet_id",id).order("updated_at",{ascending:false}),
       supabase.from("profero_dessins").select("*").eq("projet_id",id).order("ordre").order("created_at"),
     ]);
-    if (p) setInfos({ ...INFOS_VIDES, client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect", notes:p.notes||"", budget_client:p.budget_client ?? "", delai_souhaite:p.delai_souhaite||"" });
+    if (p) setInfos(infosDepuisProjet(p));
     setDessins(ds || []);
     setOuvrages(o||[]); setCotes(c||[]);
     setRichPlans(pl || []);
@@ -257,9 +301,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           const dirty = dirtyInfosRef.current;
           setInfos(prev => {
             const merged = { ...prev };
-            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut","budget_client","delai_souhaite"].forEach(f => {
+            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut","budget_client","delai_souhaite", ...CHAMPS_DEVIS].forEach(f => {
               if (!dirty.has(f) && remote[f] !== undefined && remote[f] !== null) merged[f] = remote[f];
-              else if (!dirty.has(f) && remote[f] === null && (f === "date_visite" || f === "budget_client")) merged[f] = "";
+              else if (!dirty.has(f) && remote[f] === null && (f === "date_visite" || f === "budget_client" || CHAMPS_DEVIS_DATE.includes(f) || CHAMPS_DEVIS_NUM.includes(f))) merged[f] = "";
             });
             return merged;
           });
@@ -394,12 +438,21 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       logements:           v.logements           ?? [],
       statut:              v.statut              ?? "prospect",
       last_client_id:      getClientId(),
+      ...payloadDevis(v),
     };
     let { error } = await supabase.from("profero_projets").update(payload).eq("id", pid);
+    if (erreurColonnesDevis(error)) {
+      // Colonnes v3 absentes (SQL 202609_chiffrage_devis_logement pas lancé) : on sauve le reste
+      setSchemaDevisManquant(true);
+      const reduit = { ...payload };
+      CHAMPS_DEVIS.forEach(f => { delete reduit[f]; });
+      ({ error } = await supabase.from("profero_projets").update(reduit).eq("id", pid));
+    }
     if (error && /budget_client|delai_souhaite/.test(error.message || "")) {
       // Colonnes v2 absentes (SQL 202609_chiffrage_v2 pas lancé) : on sauve le reste
       setSchemaV2Manquant(true);
       const { budget_client, delai_souhaite, ...ancien } = payload;
+      CHAMPS_DEVIS.forEach(f => { delete ancien[f]; });
       ({ error } = await supabase.from("profero_projets").update(ancien).eq("id", pid));
     }
     setSaving(false);
@@ -412,6 +465,17 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saved");
     setProjets(prev => prev.map(p => p.id===pid ? { ...p, ...v } : p));
   }
+  // Champs v3 du projet → payload Supabase (dates et TVA : null si vides)
+  function payloadDevis(v) {
+    const out = {};
+    CHAMPS_DEVIS.forEach(f => {
+      const val = v[f];
+      if (CHAMPS_DEVIS_DATE.includes(f)) out[f] = val || null;
+      else if (CHAMPS_DEVIS_NUM.includes(f)) out[f] = val === "" || val == null ? null : parseFloat(val);
+      else out[f] = val ?? "";
+    });
+    return out;
+  }
   function updInfo(f,v) {
     dirtyInfosRef.current.add(f);
     const u = { ...infos, [f]: v };
@@ -419,13 +483,26 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const pid = projetId;
     debounce("infos", () => saveInfos(u, pid));
   }
-  function togLog(v) {
-    dirtyInfosRef.current.add("logements");
-    const l = infos.logements.includes(v) ? infos.logements.filter(x => x!==v) : [...infos.logements, v];
-    const u = { ...infos, logements: l };
+  // Plusieurs champs d'un coup (ex : reprise de l'adresse de visite dans l'adresse chantier)
+  function updInfos(patch) {
+    Object.keys(patch).forEach(f => dirtyInfosRef.current.add(f));
+    const u = { ...infos, ...patch };
     setInfos(u);
     const pid = projetId;
     debounce("infos", () => saveInfos(u, pid));
+  }
+  // TVA du projet : répercutée sur les lignes qui « suivent le projet » (TVA
+  // nulle ou égale à l'ancienne valeur). Les lignes à TVA spécifique gardent la leur.
+  async function updTvaProjet(valeur) {
+    const ancienne = numOrNull(infos.tva_pct);
+    const nouvelle = valeur === "" ? null : parseFloat(valeur);
+    updInfo("tva_pct", valeur);
+    if (!projetId || nouvelle == null || Number.isNaN(nouvelle)) return;
+    const cibles = ouvrages.filter(o => numOrNull(o.tva_pct) == null || (ancienne != null && numOrNull(o.tva_pct) === ancienne));
+    if (cibles.length === 0) return;
+    setOuvrages(p => p.map(o => cibles.some(c => c.id === o.id) ? { ...o, tva_pct: nouvelle } : o));
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ tva_pct: nouvelle }).in("id", cibles.map(c => c.id));
+    if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
   }
 
   async function togOuvrage(cat,item) {
@@ -447,6 +524,33 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saving");
     const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ unite: u }).eq("id", id);
     setAutoSaveStatus(error ? "error" : "saved");
+  }
+  // Zone de l'occurrence (texte libre avec suggestions) — propre à la ligne
+  function updZone(id, zone) {
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, zone } : o));
+    debounce(`ouvrage-zone-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ zone: (zone || "").trim() || ZONE_DEFAUT }).eq("id", id);
+      if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
+      setAutoSaveStatus(error ? "error" : "saved");
+    });
+  }
+  // TVA spécifique d'une ligne ("" = suit la TVA du projet)
+  async function updTvaLigne(id, valeur) {
+    const v = valeur === "" ? null : parseFloat(valeur);
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, tva_pct: v } : o));
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ tva_pct: v }).eq("id", id);
+    if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
+    setAutoSaveStatus(error ? "error" : "saved");
+  }
+  // Suppression d'UNE occurrence : uniquement par son id de ligne. Les autres
+  // occurrences du même bibliotheque_id ne sont jamais touchées.
+  async function supprimerLigne(id) {
+    setToDeleteLigne(null);
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").delete().eq("id", id);
+    if (error) { alert("Suppression impossible : " + error.message); return; }
+    setOuvrages(p => p.filter(o => o.id !== id));
   }
   async function updPrix(id,prix) {
     setOuvrages(p => p.map(o => o.id===id ? { ...o, prix_unitaire: prix } : o));
@@ -470,49 +574,71 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   async function delCote(id) { await supabase.from("profero_cotes").delete().eq("id",id); setCotes(p=>p.filter(c=>c.id!==id)); }
 
   async function nouveauProjet() {
-    const{data}=await supabase.from("profero_projets").insert({
+    const today = new Date().toISOString().split("T")[0];
+    const base = {
       client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"",
-      date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[], statut:"prospect",
-    }).select().single();
+      date_visite:today, observations:"", logements:[], statut:"prospect",
+    };
+    // Pré-remplissages sûrs : pays, date de préparation du devis, TVA réglée dans Admin (sinon vide)
+    const v3 = { client_pays:"France", chantier_pays:"France", devis_date:today, tva_pct: biblio?.tvaDefaut ?? null };
+    let { data, error } = await supabase.from("profero_projets").insert({ ...base, ...v3 }).select().single();
+    if (erreurColonnesDevis(error)) {
+      setSchemaDevisManquant(true);
+      ({ data } = await supabase.from("profero_projets").insert(base).select().single());
+    }
     if(data){ setProjets(p=>[data,...p]); chargerProjet(data.id); }
   }
 
-  async function dupliquerProjet() {
-    if (!projetId) return;
+  // Duplication « pour un autre logement » : même client, même adresse de
+  // chantier, mêmes ouvrages/zones/quantités et SNAPSHOTS FIGÉS (aucun recalcul
+  // depuis la bibliothèque), plans, côtes, dessins et médias. La référence du
+  // nouveau logement est demandée (modale) ; le statut repart à « prospect ».
+  async function dupliquerProjet({ reference, type } = {}) {
+    if (!projetId || dupliquant) return;
     const src = projets.find(p => p.id === projetId);
     if (!src) return;
+    setDupliquant(true);
+    try {
+    const today = new Date().toISOString().split("T")[0];
     // 1) Création du nouveau projet (copie des infos + photos, statut reset à prospect)
-    const newNom = src.client_nom ? `Copie de ${src.client_nom}` : "Copie sans client";
     const baseDup = {
-      client_nom:      newNom,
+      client_nom:      src.client_nom || "",
       client_prenom:   src.client_prenom || "",
       adresse_bien:    src.adresse_bien || "",
       description_projet: src.description_projet || "",
-      date_visite:     new Date().toISOString().split("T")[0],
+      date_visite:     today,
       observations:    src.observations || "",
       notes:           src.notes || "",
-      logements:       src.logements || [],
+      logements:       [],                 // le nouveau projet = UN logement (champs ci-dessous)
       statut:          "prospect",
       photos:          src.photos || [],
     };
-    let { data: nouveau } = await supabase.from("profero_projets")
-      .insert({ ...baseDup, budget_client: src.budget_client ?? null, delai_souhaite: src.delai_souhaite || "" }).select().single();
+    const v2 = { budget_client: src.budget_client ?? null, delai_souhaite: src.delai_souhaite || "" };
+    const v3 = { ...payloadDevis({ ...infos, ...src }), logement_reference: (reference || "").trim(), type_logement: type || infos.type_logement || "", devis_date: today, devis_validite: null };
+    let { data: nouveau, error } = await supabase.from("profero_projets").insert({ ...baseDup, ...v2, ...v3 }).select().single();
+    if (erreurColonnesDevis(error)) {
+      setSchemaDevisManquant(true);
+      ({ data: nouveau, error } = await supabase.from("profero_projets").insert({ ...baseDup, ...v2 }).select().single());
+    }
     if (!nouveau) {
       // Colonnes v2 absentes (SQL pas lancé) : copie sans budget/délai
       setSchemaV2Manquant(true);
       ({ data: nouveau } = await supabase.from("profero_projets").insert(baseDup).select().single());
     }
     if (!nouveau) return;
-    // 2) Clone ouvrages
-    const ouvrSrc = ouvrages.map(o => ({
-      projet_id: nouveau.id,
-      category:  o.category,
-      item:      o.item,
-      quantite:  o.quantite,
-      unite:     o.unite,
-      prix_unitaire: o.prix_unitaire ?? null,
-    }));
-    if (ouvrSrc.length > 0) await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc);
+    // 2) Clone des lignes : tout est recopié (zone, quantité, snapshot financier,
+    //    TVA, ordre, lien bibliothèque) sauf l'identité de la ligne.
+    const ouvrSrc = ouvrages.map(o => {
+      const { id, projet_id, created_at, updated_at, progbat_ligne_id, ...reste } = o;
+      return { ...reste, projet_id: nouveau.id };
+    });
+    if (ouvrSrc.length > 0) {
+      const { error: errL } = await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc);
+      if (erreurColonnesLigne(errL)) {
+        setSchemaDevisManquant(true);
+        await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc.map(sansColonnesLigneV3));
+      }
+    }
     // 3) Clone côtes
     const cotesSrc = cotes.map(c => ({
       projet_id: nouveau.id,
@@ -534,7 +660,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     }
     // 5) Refresh
     setProjets(p => [nouveau, ...p]);
+    setDupliquerModal(null);
     chargerProjet(nouveau.id);
+    } finally {
+      setDupliquant(false);
+    }
   }
 
   async function confirmSuppProjet() {
@@ -696,38 +826,76 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // (code_prefixe, planning_config.lots_travaux). Les anciens ouvrages du
   // chiffrage (profero_categories_ouvrages) restent disponibles mais masqués.
   async function chargerBiblio() {
-    const [{ data: ouv }, lots] = await Promise.all([
-      supabase.from("bibliotheque_ratios").select("id,identifiant,libelle,unite,cadence").order("libelle"),
+    const [{ data: ouv }, lots, { data: mats }, { data: cfg }] = await Promise.all([
+      supabase.from("bibliotheque_ratios").select("*").order("libelle"),
       loadLots(),
+      supabase.from("materiaux_bibliotheque").select("id,nom,unite,prix_unitaire"),
+      supabase.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
     ]);
-    setBiblio({ ouvrages: ouv || [], lots: lots || [] });
+    const taux = parseFloat((cfg || []).find(r => r.key === "taux_mo_previsionnel")?.value);
+    const tva  = parseFloat((cfg || []).find(r => r.key === "chiffrage_tva_defaut")?.value);
+    setBiblio({
+      ouvrages: ouv || [], lots: lots || [], materiaux: mats || [],
+      coutHoraire: Number.isFinite(taux) && taux > 0 ? taux : null,   // null = bloquant
+      tvaDefaut: Number.isFinite(tva) ? tva : null,
+    });
   }
-  const selDeBiblio = (o) =>
-    ouvrages.find(x => x.bibliotheque_id === o.id)
-    || ouvrages.find(x => !x.bibliotheque_id && x.item === (o.libelle || "").trim())
-    || null;
-  async function togBiblio(o, lotLabel) {
+  // Calcul du prix d'un ouvrage de bibliothèque avec le contexte courant
+  const calculBiblio = (o) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null });
+  // Occurrences déjà présentes dans le devis pour un ouvrage de bibliothèque
+  const occurrencesDe = (o) => ouvrages.filter(x => x.bibliotheque_id === o.id);
+
+  // « Ajouter » : chaque clic crée UNE NOUVELLE occurrence (id propre, zone,
+  // quantité, snapshot financier figé au moment de l'ajout). Aucune bascule
+  // ajout/suppression : la suppression se fait depuis la ligne du devis.
+  async function ajouterDepuisBiblio(o, lotLabel) {
     if (!projetId || biblioBusy) return;
-    const sel = selDeBiblio(o);
     setBiblioBusy(o.id);
     try {
-      if (sel) {
-        await supabase.from("profero_ouvrages_selectionnes").delete().eq("id", sel.id);
-        setOuvrages(p => p.filter(x => x.id !== sel.id));
-        return;
+      const calcul = calculBiblio(o);
+      const zone = (zoneAjout || "").trim() || ZONE_DEFAUT;
+      const snapshot = creerSnapshotOuvrage(o, calcul, { zone, tvaPct: numOrNull(infos.tva_pct), quantite: "" });
+      const ordre = ouvrages.filter(x => (x.zone || ZONE_DEFAUT) === zone && x.category === lotLabel).length;
+      const complet = { projet_id: projetId, category: lotLabel, ...snapshot, ordre };
+      let { data, error } = await supabase.from("profero_ouvrages_selectionnes").insert(complet).select().single();
+      if (erreurColonnesLigne(error)) {
+        // Colonnes v3 absentes (SQL 202609_chiffrage_devis_logement pas lancé) : ligne minimale
+        setSchemaDevisManquant(true);
+        const base = sansColonnesLigneV3(complet);
+        ({ data, error } = await supabase.from("profero_ouvrages_selectionnes").insert(base).select().single());
+        if (error && /bibliotheque_id/.test(error.message || "")) {
+          setSchemaV2Manquant(true);
+          const { bibliotheque_id, ...sansLien } = base;
+          ({ data, error } = await supabase.from("profero_ouvrages_selectionnes").insert(sansLien).select().single());
+        }
       }
-      const unite = (o.unite || "U").trim().replace(/^m2$/i, "m²").replace(/^u$/i, "U");
-      const base = { projet_id: projetId, category: lotLabel, item: (o.libelle || "").trim(), quantite: "", unite };
-      let { data, error } = await supabase.from("profero_ouvrages_selectionnes").insert({ ...base, bibliotheque_id: o.id }).select().single();
-      if (error) {
-        // Colonne bibliotheque_id absente (SQL v2 pas lancé) : on garde l'ouvrage sans le lien
-        setSchemaV2Manquant(true);
-        ({ data } = await supabase.from("profero_ouvrages_selectionnes").insert(base).select().single());
-      }
+      if (error) { alert("Ajout impossible : " + error.message); return; }
       if (data) setOuvrages(p => p.some(x => x.id === data.id) ? p : [...p, data]);
     } finally {
       setBiblioBusy(null);
     }
+  }
+
+  // « Actualiser depuis la bibliothèque » : recharge l'ouvrage source, calcule
+  // les différences avec le snapshot de CETTE ligne et ouvre une confirmation.
+  // Rien n'est écrit ici.
+  async function preparerActualisation(ligne) {
+    if (!ligne?.bibliotheque_id) return;
+    const { data: o } = await supabase.from("bibliotheque_ratios").select("*").eq("id", ligne.bibliotheque_id).maybeSingle();
+    if (!o) { alert("L'ouvrage source n'existe plus dans la bibliothèque : la ligne garde son snapshot."); return; }
+    const calcul = calculBiblio(o);
+    const diffs = differencesSnapshot(ligne, o, calcul);
+    setActualisation({ ligne, ouvrage: o, calcul, diffs, patch: appliquerActualisation(ligne, o, calcul) });
+  }
+  async function confirmerActualisation() {
+    if (!actualisation) return;
+    const { ligne, patch } = actualisation;
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update(patch).eq("id", ligne.id);   // UNIQUEMENT cette ligne
+    if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
+    setAutoSaveStatus(error ? "error" : "saved");
+    if (!error) setOuvrages(p => p.map(o => o.id === ligne.id ? { ...o, ...patch } : o));
+    setActualisation(null);
   }
 
   // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
@@ -740,7 +908,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       const plansSnap = (richPlans || [])
         .filter(p => typeof p.thumbnail === "string" && p.thumbnail.startsWith("data:image"))
         .map(p => ({ nom: p.name, data: p.thumbnail }));
-      const payload = { infos, ouvrages, cotes, plans: plansSnap, photos };
+      // Document CLIENT : lignes groupées lot → zone, prix de vente et TVA
+      // uniquement (aucun coût interne ni marge n'est transmis).
+      const payload = { infos, ouvrages, cotes, plans: plansSnap, photos, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, lotsOrdre };
       const res = await fetch("/api/generate-info-client-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -768,11 +938,12 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // ─── EXPORT PDF (gabarit Profero commun, chiffrageDoc.js) ────────────────────
   // La fenêtre est ouverte SYNCHRONEMENT dans le geste du clic (sinon Safari la
   // bloque), puis remplie une fois les rendus (plans, dessins) prêts.
-  async function exporterPDF() {
+  // `interne` = synthèse interne avec coûts et marge (jamais pour le client).
+  async function exporterPDF(interne = false) {
     if (!projetId || exporting) return;
     const w = window.open("", "_blank", "width=900,height=700");
     if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
-    w.document.write("<!doctype html><html lang='fr'><body style='font-family:Arial,sans-serif;padding:40px;color:#666;'>Préparation du dossier de chiffrage…</body></html>");
+    w.document.write(`<!doctype html><html lang='fr'><body style='font-family:Arial,sans-serif;padding:40px;color:#666;'>Préparation ${interne ? "de la synthèse interne" : "du dossier de chiffrage"}…</body></html>`);
     w.document.close();
     setExporting(true);
     try {
@@ -794,16 +965,17 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       const st = statutMeta(infos.statut);
       const html = buildChiffrageDocHTML({
         infos, statut: { label: st.label, color: st.color },
-        ouvrages, lotsOrdre: [...(biblio?.lots || []).map(l => l.label), ...Object.keys(categories)], cotes,
-        notesPages: notesImgs, plans: plansImgs, croquis: croquisImgs,
-        medias: photos.map(p => ({ type: p.type === "video" ? "video" : "image", url: p.url, label: p.label, commentaire: p.commentaire })),
+        ouvrages, lotsOrdre, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, preparation, interne,
+        cotes,
+        notesPages: interne ? [] : notesImgs, plans: interne ? [] : plansImgs, croquis: interne ? [] : croquisImgs,
+        medias: interne ? [] : photos.map(p => ({ type: p.type === "video" ? "video" : "image", url: p.url, label: p.label, commentaire: p.commentaire })),
         logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
         dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }),
       });
       w.document.open();
       w.document.write(html);
       w.document.close();
-      w.document.title = `Chiffrage-${(infos.client_nom || "client").replace(/[^a-zA-Z0-9-_]/g, "_")}`;
+      w.document.title = `${interne ? "Synthese-interne" : "Chiffrage"}-${(infos.client_nom || "client").replace(/[^a-zA-Z0-9-_]/g, "_")}${logementInfo.reference ? "-" + logementInfo.reference.replace(/[^a-zA-Z0-9-_]/g, "_") : ""}`;
       // Attendre les photos distantes + les polices (8 s max) avant d'imprimer.
       await new Promise(res => {
         const debut = Date.now();
@@ -842,9 +1014,18 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     return acc;
   }, {});
 
-  // Estimation totale (qté × PU) — pour l'écart avec le budget client
-  const estimationTotale = ouvrages.reduce((s, o) => s + (parseFloat(o.quantite) || 0) * (parseFloat(o.prix_unitaire) || 0), 0);
+  // Totaux du devis (module pur chiffragePricing) : vente HT, coûts figés,
+  // marge pondérée, TVA/TTC, écart budget. `estimationTotale` = vente HT.
   const budgetClient = infos.budget_client === "" || infos.budget_client == null ? null : parseFloat(infos.budget_client);
+  const totauxProjet = totauxDevis(ouvrages, { tvaPctDefaut: numOrNull(infos.tva_pct), budgetClient });
+  const estimationTotale = totauxProjet.venteHT;
+  const lotsOrdre = [...(biblio?.lots || []).map(l => l.label), ...Object.keys(categories)];
+  const groupesDevis = grouperParLotZone(ouvrages, lotsOrdre);          // LOT → ZONE → OUVRAGES
+  const logementInfo = lireLogementProjet(infos);                        // repli sur l'ancien `logements`
+  const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet);
+  const couleurLot = (label) => (biblio?.lots || []).find(l => l.label === label)?.couleur || "#8a90a0";
+  const coutHoraireManquant = !!biblio && biblio.coutHoraire == null;
+  const tvaManquante = numOrNull(infos.tva_pct) == null;
 
   // Dessins au stylet
   const notesPages  = dessins.filter(d => d.type === "note");
@@ -881,14 +1062,22 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   );
 
   const projetActif = projets.find(p => p.id === projetId);
-  // Ligne d'édition d'un ouvrage sélectionné (quantité × unité × prix) — partagée
-  // entre la liste bibliothèque et les anciens ouvrages.
+  // Ligne d'édition d'une occurrence du devis : zone · quantité × unité × prix
+  // · TVA · total. Le prix de vente d'une ligne issue de la bibliothèque est
+  // FIGÉ (snapshot) et ne se saisit pas ; les anciennes lignes (sans snapshot)
+  // gardent leur prix saisi à la main.
   const ligneEdition = (sel) => {
-    const q  = parseFloat(sel.quantite) || 0;
-    const pu = parseFloat(sel.prix_unitaire) || 0;
-    const totalLigne = q * pu;
+    const snap = ligneEstSnapshot(sel);
+    const pu = numOrNull(sel.prix_unitaire);
+    const total = totalLigneHT(sel);
+    const erreursSnap = snap ? (sel.calcul_detail?.erreurs || []) : [];
+    const tvaLigne = numOrNull(sel.tva_pct);
+    const pill = (c) => ({ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size+1, fontWeight:800, color:c, background:c+"1a", border:`1px solid ${c}40`, borderRadius:RADIUS.sm, padding:"4px 8px", whiteSpace:"nowrap" });
     return (
       <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
+        <input list="pic-zones" placeholder="Zone" value={sel.zone ?? ZONE_DEFAUT} onChange={e=>updZone(sel.id,e.target.value)}
+          className="zone-input" title="Zone de cette occurrence (libre, suggestions proposées)"
+          style={{...inp,width:150,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
         <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
           className="qte-input"
           style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
@@ -898,21 +1087,55 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option><option value="m3">m³</option><option value="kg">kg</option><option value="forfait">Forfait</option>{!["U","m","m²","ml","m3","kg","forfait"].includes(sel.unite||"U") && <option value={sel.unite}>{sel.unite}</option>}
         </select>
         <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
-        <div className="prix-wrap" style={{position:"relative",width:100}}>
-          <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
-            style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
-          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
-        </div>
-        {totalLigne > 0 && (
-          <span className="total-badge" style={{
-            marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:4,
-            fontSize:FONT.xs.size+1, fontWeight:800, color:"#22c55e",
-            background:"rgba(34,197,94,0.10)", border:"1px solid rgba(34,197,94,0.25)",
-            borderRadius:RADIUS.sm, padding:"3px 8px",
-          }}>
-            = {totalLigne.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-          </span>
+        {snap ? (
+          pu != null ? (
+            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title="Prix de vente HT unitaire figé à l'ajout (coût matériaux + main-d'œuvre + marge). Cliquer pour le détail." style={{ ...pill("#22c55e"), cursor:"pointer", fontFamily:"inherit" }}>
+              <Icon as={Lock} size={10}/>{fmtEur2(pu)}
+            </button>
+          ) : (
+            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={erreursSnap.join(" · ") || "Prix non calculable"} style={{ ...pill("#e15a5a"), cursor:"pointer", fontFamily:"inherit" }}>
+              <Icon as={AlertTriangle} size={10}/>Prix incalculable
+            </button>
+          )
+        ) : (
+          <div className="prix-wrap" style={{position:"relative",width:100}} title="Ancienne ligne : prix de vente HT saisi à la main">
+            <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
+              style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
+            <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+          </div>
         )}
+        <select value={tvaLigne ?? ""} onChange={e=>updTvaLigne(sel.id,e.target.value)} title="TVA de la ligne (vide = TVA du projet)"
+          style={{...inp,width:"auto",padding:"5px 6px",fontSize:FONT.xs.size,cursor:"pointer",color:T.textSub}}>
+          <option value="">TVA projet{!tvaManquante ? ` ${infos.tva_pct} %` : " ?"}</option>
+          {TVA_TAUX_USUELS.map(t => <option key={t} value={t}>TVA {t} %</option>)}
+          {tvaLigne != null && !TVA_TAUX_USUELS.includes(tvaLigne) && <option value={tvaLigne}>TVA {tvaLigne} %</option>}
+        </select>
+        {total != null && total > 0 && (
+          <span className="total-badge" style={{ ...pill("#22c55e"), marginLeft:"auto" }}>= {fmtEur2(total)}</span>
+        )}
+        {sel.bibliotheque_id && (
+          <button title="Actualiser depuis la bibliothèque (affiche les différences, puis confirmation)" onClick={()=>preparerActualisation(sel)} style={iconBtnSec}><Icon as={RefreshCw} size={12}/></button>
+        )}
+        <button title="Retirer cette ligne du devis" onClick={()=>setToDeleteLigne(sel)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+      </div>
+    );
+  };
+  // Petit sélecteur de TVA (projet) : taux usuels + saisie libre
+  const selecteurTva = (value, onChange, { large = false } = {}) => {
+    const v = value === "" || value == null ? "" : String(value);
+    const usuel = v === "" || TVA_TAUX_USUELS.map(String).includes(v);
+    return (
+      <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
+        {TVA_TAUX_USUELS.map(t => {
+          const a = v !== "" && parseFloat(v) === t;
+          return <button key={t} type="button" onClick={()=>onChange(String(t))} style={{ ...(a?btn:btnSec), padding: large ? "8px 14px" : "6px 12px" }}>{t} %</button>;
+        })}
+        <div style={{ position:"relative", width:110 }}>
+          <input type="number" min="0" max="100" step="0.1" placeholder="Autre" value={usuel && v !== "" ? "" : v} onChange={e=>onChange(e.target.value)}
+            style={{...inp, padding:"7px 24px 7px 10px"}}/>
+          <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>%</span>
+        </div>
+        {v === "" && <span style={{ fontSize:FONT.xs.size+1, color:"#e15a5a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:4 }}><Icon as={AlertTriangle} size={11}/> À choisir</span>}
       </div>
     );
   };
@@ -1175,10 +1398,21 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     background:st.color+"22",color:st.color,whiteSpace:"nowrap",flexShrink:0,
                   }}>{st.label}</span>
                 </div>
-                {p.adresse_bien && (
+                {(() => {
+                  const lg = lireLogementProjet(p);
+                  const txt = [lg.reference, lg.type].filter(Boolean).join(" · ");
+                  if (!txt && !lg.aVerifier) return null;
+                  return (
+                    <div style={{fontSize:FONT.xs.size,color:lg.aVerifier?"#f5a623":T.textSub,marginTop:2,display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
+                      <Icon as={lg.aVerifier?AlertTriangle:Home} size={9}/>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lg.aVerifier ? `À vérifier : ${lg.legacy.join(" · ")}` : txt}</span>
+                    </div>
+                  );
+                })()}
+                {(p.chantier_adresse || p.adresse_bien) && (
                   <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2,display:"flex",alignItems:"center",gap:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     <Icon as={MapPin} size={9}/>
-                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.adresse_bien}</span>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.chantier_adresse ? [p.chantier_adresse, p.chantier_ville].filter(Boolean).join(", ") : p.adresse_bien}</span>
                   </div>
                 )}
                 {p.date_visite && (
@@ -1235,9 +1469,19 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   {infos.client_nom ? `${infos.client_nom} ${infos.client_prenom||""}` : "Nouveau projet"}
                 </div>
                 <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",flexWrap:"wrap",gap:10}}>
-                  {infos.adresse_bien && (
+                  {(logementInfo.reference || logementInfo.type) && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,color:acc.accent,fontWeight:700}}>
+                      <Icon as={Home} size={11}/>{[logementInfo.reference, logementInfo.type].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                  {logementInfo.aVerifier && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#f5a623",fontWeight:700}} title={logementInfo.message}>
+                      <Icon as={AlertTriangle} size={11}/>Ancien projet multi-logements : à vérifier
+                    </span>
+                  )}
+                  {(infos.chantier_adresse || infos.adresse_bien) && (
                     <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-                      <Icon as={MapPin} size={11}/>{infos.adresse_bien}
+                      <Icon as={MapPin} size={11}/>{infos.chantier_adresse ? [infos.chantier_adresse, infos.chantier_code_postal, infos.chantier_ville].filter(Boolean).join(" ") : infos.adresse_bien}
                     </span>
                   )}
                   {infos.date_visite && (
@@ -1267,7 +1511,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   }}>
                   {STATUTS_PROJET.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
-                <button onClick={dupliquerProjet} title="Dupliquer ce projet" style={{
+                <button onClick={()=>setDupliquerModal({ reference: "", type: logementInfo.type || "" })} title="Dupliquer pour un autre logement (mêmes client, adresse, ouvrages et prix figés)" style={{
                   display:"inline-flex",alignItems:"center",justifyContent:"center",
                   background:"transparent",border:`1px solid ${T.border}`,
                   borderRadius:RADIUS.md,padding:"7px 10px",color:T.textSub,cursor:"pointer",
@@ -1322,24 +1566,124 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 Base non à jour : lancer <code style={{fontFamily:"monospace"}}>sql/202609_chiffrage_v2.sql</code> dans Supabase pour activer budget/délai, notes manuscrites, croquis et le lien bibliothèque.
               </div>
             )}
+            {schemaDevisManquant && (
+              <div style={{ marginBottom:12, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.10)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <Icon as={AlertTriangle} size={13}/>
+                Base non à jour : lancer <code style={{fontFamily:"monospace"}}>sql/202609_chiffrage_devis_logement.sql</code> dans Supabase pour enregistrer client/chantier/logement/devis, les zones et les prix figés des lignes. En attendant, ces champs ne sont PAS sauvegardés.
+              </div>
+            )}
 
-            {tab==="client" && (
-              <div className="pic-section-narrow">
-                {/* ── Carte : fiche chantier ── */}
-                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
-                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:14, display:"inline-flex", alignItems:"center", gap:6 }}>
-                    <Icon as={FileText} size={12}/>
-                    Fiche chantier
+            {tab==="client" && (() => {
+              const carte = (titre, icon, children, { warn = false } = {}) => (
+                <div style={{ background:T.surface, border:`1px solid ${warn ? "rgba(245,166,35,0.5)" : T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:warn ? "#f5a623" : acc.accent, marginBottom:14, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={icon} size={12}/>{titre}
                   </div>
-                  <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"start" }}>
-                    <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
-                    <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
-                    <div style={{gridColumn:"1 / -1"}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
-                    <div><label style={lbl}>Description du projet</label><textarea style={{...ta,minHeight:90}} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
-                    <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:90}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
-                    <div><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
-                  </div>
+                  {children}
                 </div>
+              );
+              const grille = (children, cols = "1fr 1fr") => <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"start" }}>{children}</div>;
+              const champ = (label, f, props = {}) => (
+                <div style={props.span ? { gridColumn:"1 / -1" } : undefined}>
+                  <label style={lbl}>{label}</label>
+                  <input style={inp} type={props.type || "text"} inputMode={props.inputMode} value={infos[f] ?? ""} onChange={e=>updInfo(f,e.target.value)} placeholder={props.placeholder || ""} />
+                </div>
+              );
+              const typeCourant = infos.type_logement || (logementInfo.repli ? logementInfo.type : "");
+              return (
+              <div className="pic-section-narrow">
+                {/* ── Carte : ancien projet multi-logements (lecture seule) ── */}
+                {logementInfo.aVerifier && carte("Ancien projet à vérifier", AlertTriangle, (
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6 }}>
+                    Ce projet a été créé avec l'ancienne « composition » : <strong style={{color:T.text}}>{logementInfo.legacy.join(" · ")}</strong>.
+                    Désormais <strong style={{color:T.text}}>un projet = un logement = un devis</strong>. Rien n'a été découpé automatiquement : renseigne ci-dessous le logement que CE projet représente, puis utilise <strong style={{color:T.text}}>Dupliquer</strong> pour créer les autres logements (ouvrages, zones et prix figés recopiés).
+                  </div>
+                ), { warn:true })}
+
+                {/* ── Carte : client ── */}
+                {carte("Client", UserCircle, grille(<>
+                  {champ("Nom", "client_nom", { placeholder:"Dupont" })}
+                  {champ("Prénom", "client_prenom", { placeholder:"Jean" })}
+                  {champ("Société (si applicable)", "client_societe", { placeholder:"SCI Les Tilleuls" })}
+                  {champ("E-mail", "client_email", { type:"email", placeholder:"jean.dupont@mail.fr" })}
+                  {champ("Téléphone", "client_telephone", { type:"tel", placeholder:"06 12 34 56 78" })}
+                  <div style={{ gridColumn:"1 / -1", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginTop:4 }}>
+                    <span style={{ ...lbl, marginBottom:0 }}>Adresse de facturation</span>
+                    {infos.chantier_adresse && (
+                      <button type="button" onClick={()=>updInfos({ client_adresse:infos.chantier_adresse, client_adresse_complement:infos.chantier_adresse_complement, client_code_postal:infos.chantier_code_postal, client_ville:infos.chantier_ville, client_pays:infos.chantier_pays || "France" })}
+                        style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, padding:"5px 10px"}}><Icon as={Copy} size={11}/> Même adresse que le chantier</button>
+                    )}
+                  </div>
+                  {champ("Adresse", "client_adresse", { span:true, placeholder:"12 rue des Lilas" })}
+                  {champ("Complément", "client_adresse_complement", { placeholder:"Bâtiment B, 3e étage" })}
+                  {champ("Code postal", "client_code_postal", { inputMode:"numeric", placeholder:"49000" })}
+                  {champ("Ville", "client_ville", { placeholder:"Angers" })}
+                  {champ("Pays", "client_pays", { placeholder:"France" })}
+                </>))}
+
+                {/* ── Carte : chantier & logement ── */}
+                {carte("Chantier & logement", Home, <>
+                  {grille(<>
+                    <div style={{ gridColumn:"1 / -1", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+                      <span style={{ ...lbl, marginBottom:0 }}>Adresse du chantier</span>
+                      {infos.adresse_bien && !infos.chantier_adresse && (
+                        <button type="button" onClick={()=>updInfos({ chantier_adresse:(infos.adresse_bien || "").split("\n")[0].trim(), chantier_pays: infos.chantier_pays || "France" })}
+                          title="Recopie la première ligne de l'adresse saisie à la visite ; code postal et ville restent à compléter."
+                          style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, padding:"5px 10px"}}><Icon as={Copy} size={11}/> Reprendre l'adresse de visite</button>
+                      )}
+                    </div>
+                    {champ("Adresse", "chantier_adresse", { span:true, placeholder:"12 rue des Lilas" })}
+                    {champ("Complément", "chantier_adresse_complement", { placeholder:"Escalier A, porte gauche" })}
+                    {champ("Code postal", "chantier_code_postal", { inputMode:"numeric", placeholder:"49000" })}
+                    {champ("Ville", "chantier_ville", { placeholder:"Angers" })}
+                    {champ("Pays", "chantier_pays", { placeholder:"France" })}
+                    <div style={{gridColumn:"1 / -1"}}>
+                      <label style={lbl}>Adresse saisie à la visite (historique / repli)</label>
+                      <textarea style={{...ta, minHeight:48}} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" />
+                    </div>
+                  </>)}
+                  <div style={{ ...h2s, marginTop:16 }}>Logement de ce devis</div>
+                  {grille(<>
+                    {champ("Référence du logement", "logement_reference", { placeholder:"Appartement 101, Logement 3, Studio RDC…" })}
+                    <div>
+                      <label style={lbl}>Type de logement{logementInfo.repli && !infos.type_logement ? <span style={{ color:"#f5a623", marginLeft:6 }}>· repris de l'ancienne composition, à confirmer</span> : null}</label>
+                      <select style={{...inp, cursor:"pointer"}} value={typeCourant} onChange={e=>updInfo("type_logement",e.target.value)}>
+                        <option value="">— Choisir —</option>
+                        {TYPES_LOGEMENT.map(t => <option key={t} value={t}>{t}</option>)}
+                        {typeCourant && !TYPES_LOGEMENT.includes(typeCourant) && <option value={typeCourant}>{typeCourant}</option>}
+                      </select>
+                    </div>
+                  </>)}
+                  <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:8, lineHeight:1.5 }}>
+                    Un projet = un logement = un devis. Pour un immeuble, crée un projet par logement (bouton <Icon as={Copy} size={10}/> Dupliquer dans l'en-tête).
+                  </div>
+                </>)}
+
+                {/* ── Carte : devis ── */}
+                {carte("Devis", Receipt, <>
+                  {grille(<>
+                    {champ("Objet du devis", "devis_objet", { span:true, placeholder:"Rénovation complète de l'appartement 101" })}
+                    {champ("Date du devis / de préparation", "devis_date", { type:"date" })}
+                    {champ("Date de validité", "devis_validite", { type:"date" })}
+                    <div style={{ gridColumn:"1 / -1" }}>
+                      <label style={lbl}>Taux de TVA par défaut du devis</label>
+                      {selecteurTva(infos.tva_pct, updTvaProjet, { large:true })}
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:6 }}>Répercuté sur les lignes qui suivent le projet ; une ligne peut porter sa propre TVA.</div>
+                    </div>
+                    {champ("N° de commande client (optionnel)", "devis_num_commande_client", { placeholder:"BC-2026-014" })}
+                    <div style={{gridColumn:"1 / -1"}}>
+                      <label style={lbl}>Observations / conditions particulières</label>
+                      <textarea style={{...ta, minHeight:70}} value={infos.devis_conditions || ""} onChange={e=>updInfo("devis_conditions",e.target.value)} placeholder="Acompte, accès, délais, exclusions…" />
+                    </div>
+                  </>)}
+                </>)}
+
+                {/* ── Carte : visite ── */}
+                {carte("Visite & projet", FileText, grille(<>
+                  <div><label style={lbl}>Description du projet</label><textarea style={{...ta,minHeight:90}} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : rénovation complète du T2 du 1er étage" /></div>
+                  <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:90}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
+                  <div><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
+                </>))}
 
                 {/* ── Carte : budget & délai ── */}
                 <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
@@ -1366,31 +1710,16 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     return (
                       <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"9px 12px", borderRadius:RADIUS.md, background:c+"12", border:`1px solid ${c}40`, fontSize:FONT.xs.size+1, color:T.textSub }}>
                         <Icon as={Euro} size={12} color={c}/>
-                        <span>Estimation ouvrages <strong style={{color:T.text}}>{fmtEur(estimationTotale)}</strong></span>
+                        <span>Vente HT du devis <strong style={{color:T.text}}>{fmtEur(estimationTotale)}</strong></span>
                         <span>·</span>
                         <span>Écart budget <strong style={{color:c}}>{ecart > 0 ? "+" : "−"}{fmtEur(Math.abs(ecart))}</strong></span>
                       </div>
                     );
                   })()}
                 </div>
-
-                {/* ── Carte : composition du projet ── */}
-                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
-                  <div style={{ ...h2s, marginTop:0 }}>Composition du projet</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:8 }}>
-                    {LOGEMENTS.map(log => {
-                      const val=log.split(" ")[0], chk=infos.logements.includes(val);
-                      return (
-                        <div key={val} className="pic-card" onClick={()=>togLog(val)} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 13px", background:chk?`linear-gradient(135deg, ${acc.bg10}, ${acc.bg20})`:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.lg, cursor:"pointer", boxShadow:chk?SHADOW.sm:"none" }}>
-                          <input type="checkbox" checked={chk} onChange={()=>togLog(val)} style={{ accentColor:acc.accent, width:16, height:16, flexShrink:0 }} />
-                          <span style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{log}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
               </div>
-            )}
+              );
+            })()}
 
             {tab==="notes" && (
               <div className="pic-section-narrow">
@@ -1459,12 +1788,138 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
             {tab==="ouvrages" && (
               <>
+                <datalist id="pic-zones">{ZONES_SUGGEREES.map(z => <option key={z} value={z}/>)}</datalist>
+
+                {/* ── Bandeaux bloquants ── */}
+                {coutHoraireManquant && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.10)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <Icon as={AlertTriangle} size={13}/>
+                    Coût horaire de référence non configuré (Réglages → Taux → taux horaire moyen) : les ouvrages ajoutés n'auront pas de prix de vente.
+                  </div>
+                )}
+                {tvaManquante && ouvrages.length > 0 && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                    <Icon as={AlertTriangle} size={13}/>
+                    <span>Taux de TVA du devis non choisi : pas de total TTC.</span>
+                    {selecteurTva(infos.tva_pct, updTvaProjet)}
+                  </div>
+                )}
+
+                {/* ══ DEVIS : LOT → ZONE → OUVRAGES ══ */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Receipt} size={11}/>
+                    Devis — ouvrages retenus
+                    <span style={{color:T.textMuted}}>· {ouvrages.length} ligne{ouvrages.length>1?"s":""}{logementInfo.reference ? ` · ${logementInfo.reference}` : ""}</span>
+                  </div>
+                  {ouvrages.length > 0 && (
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      <button onClick={()=>setShowModal(true)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={FileText} size={11}/> Aperçu du devis
+                      </button>
+                      <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
+                        style={{...btnDng, display:"inline-flex", alignItems:"center", gap:5, padding:"8px 14px"}}>
+                        <Icon as={X} size={11}/> Tout retirer
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {ouvrages.length === 0 ? (
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"22px 20px", textAlign:"center", color:T.textSub, marginBottom:14 }}>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:3}}>Aucun ouvrage dans ce devis</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Choisis la zone puis clique sur « Ajouter » dans la bibliothèque ci-dessous. Le même ouvrage peut être ajouté plusieurs fois (une ligne par zone).</div>
+                  </div>
+                ) : groupesDevis.map(g => (
+                  <div key={g.lot} style={{ marginBottom:14 }}>
+                    <div style={{ ...h2s, marginTop:6, display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ width:9, height:9, borderRadius:"50%", background:couleurLot(g.lot), flexShrink:0 }}/>
+                      <span style={{flex:1}}>{g.lot}</span>
+                      <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:g.total > 0 ? "#22c55e" : T.textMuted, textTransform:"none", letterSpacing:0 }}>{fmtEur2(g.total)}</span>
+                    </div>
+                    {g.zones.map(z => (
+                      <div key={z.zone} style={{ marginLeft:12, marginBottom:8, paddingLeft:10, borderLeft:`2px solid ${couleurLot(g.lot)}55` }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                          <Icon as={Home} size={11} color={T.textSub}/>
+                          <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:T.textSub, textTransform:"uppercase", letterSpacing:.6, flex:1 }}>{z.zone} <span style={{ color:T.textMuted, fontWeight:600 }}>({z.lignes.length})</span></span>
+                          {g.zones.length > 1 && <span style={{ fontSize:FONT.xs.size, fontWeight:700, color:T.textMuted }}>{fmtEur2(z.total)}</span>}
+                        </div>
+                        {z.lignes.map(sel => {
+                          const c = decoderLibelleCode(sel.code_ouvrage ? `${sel.code_ouvrage} : ${sel.item}` : sel.item) || (sel.code_ouvrage ? { code: sel.code_ouvrage, reste: sel.item } : null);
+                          const snap = ligneEstSnapshot(sel);
+                          const libelleCourt = c ? (decoderLibelleCode(sel.item)?.reste || sel.item) : sel.item;
+                          return (
+                            <div key={sel.id} style={{ padding:"9px 12px", background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
+                              <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                                {c && <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:couleurLot(g.lot), background:couleurLot(g.lot)+"1f", border:`1px solid ${couleurLot(g.lot)}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{c.code}</span>}
+                                <div style={{ flex:1, minWidth:0, fontSize:FONT.sm.size, color:T.text, fontWeight:600, lineHeight:1.45 }}>{libelleCourt}</div>
+                                {!snap && <span title="Ligne ancienne ou hors bibliothèque : prix saisi à la main, pas de coût figé" style={{ fontSize:FONT.xs.size-1, fontWeight:700, color:T.textMuted, border:`1px solid ${T.border}`, borderRadius:RADIUS.pill, padding:"1px 7px", whiteSpace:"nowrap" }}>prix saisi</span>}
+                              </div>
+                              {ligneEdition(sel)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                {/* ── Totaux & préparation du devis ── */}
+                {(() => {
+                  const t = totauxProjet;
+                  const carteKpi = (label, valeur, { color = T.text, sub = null, flex = 1 } = {}) => (
+                    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex, minWidth:150 }}>
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:700, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div>
+                      <div style={{ fontSize:FONT.lg.size, fontWeight:800, color, lineHeight:1.15, marginTop:3, letterSpacing:-.3 }}>{valeur}</div>
+                      {sub && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2 }}>{sub}</div>}
+                    </div>
+                  );
+                  return (
+                    <div style={{ marginTop:8, marginBottom:20 }}>
+                      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                        {carteKpi("Total vente HT", fmtEur2(t.venteHT), { color: t.venteHT > 0 ? "#22c55e" : T.textMuted, sub: t.nbLignesSansPrix > 0 ? `${t.nbLignesSansPrix} ligne${t.nbLignesSansPrix>1?"s":""} sans prix` : `${t.nbLignes} ligne${t.nbLignes>1?"s":""}`, flex:"2 1 200px" })}
+                        {carteKpi("Coût total", t.coutsIncomplets && t.nbLignesAvecCout === 0 ? "—" : fmtEur2(t.coutTotal), { sub: `matériaux ${fmtEur2(t.coutMateriaux)} · MO ${fmtEur2(t.coutMainOeuvre)}${t.coutDirect > 0 ? ` · direct ${fmtEur2(t.coutDirect)}` : ""}${t.coutsIncomplets ? " · partiel" : ""}` })}
+                        {carteKpi("Marge", t.marge == null ? "—" : fmtEur2(t.marge), { color: t.marge == null ? T.textMuted : t.marge >= 0 ? "#22c55e" : "#e15a5a", sub: t.tauxMargeReel == null ? (t.coutsIncomplets ? "non fiable : lignes sans coût figé" : "—") : `taux réel global ${fmtPct(t.tauxMargeReel)} (pondéré)` })}
+                        {carteKpi("TVA", t.tva == null ? "à choisir" : fmtEur2(t.tva), { color: t.tva == null ? "#f5a623" : T.text, sub: Object.entries(t.tvaDetail || {}).map(([k, v]) => `${k} % → ${fmtEur2(v)}`).join(" · ") || null })}
+                        {carteKpi("Total TTC", t.ttc == null ? "—" : fmtEur2(t.ttc), { color: t.ttc == null ? T.textMuted : T.text })}
+                        {budgetClient != null && !isNaN(budgetClient) && carteKpi("Budget client", fmtEur2(budgetClient), { sub: t.ecartBudget == null ? "écart : —" : `écart ${t.ecartBudget > 0 ? "+" : "−"}${fmtEur2(Math.abs(t.ecartBudget))}`, color: t.ecartBudget == null ? T.text : t.ecartBudget > 0 ? "#e15a5a" : "#22c55e" })}
+                      </div>
+                      {/* Préparation du devis (futur brouillon ProGBat) */}
+                      <div style={{ marginTop:10, padding:"10px 14px", borderRadius:RADIUS.lg, background:preparation.pret ? "rgba(34,197,94,0.08)" : T.surface, border:`1px solid ${preparation.pret ? "rgba(34,197,94,0.35)" : T.border}` }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:FONT.sm.size, fontWeight:800, color:preparation.pret ? "#22c55e" : T.text }}>
+                          <Icon as={preparation.pret ? Check : Info} size={14}/>
+                          {preparation.pret ? "Devis complet : prêt à être préparé" : `Devis à compléter (${preparation.bloquants.length} point${preparation.bloquants.length>1?"s":""} bloquant${preparation.bloquants.length>1?"s":""})`}
+                        </div>
+                        {preparation.bloquants.length > 0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:6 }}>
+                            {preparation.bloquants.map((b, i) => <div key={i} style={{ fontSize:FONT.xs.size+1, color:"#e15a5a", display:"flex", gap:6, alignItems:"flex-start" }}><Icon as={X} size={11} style={{marginTop:2,flexShrink:0}}/>{b}</div>)}
+                          </div>
+                        )}
+                        {preparation.avertissements.length > 0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:6 }}>
+                            {preparation.avertissements.map((a, i) => <div key={i} style={{ fontSize:FONT.xs.size+1, color:"#f5a623", display:"flex", gap:6, alignItems:"flex-start" }}><Icon as={AlertTriangle} size={11} style={{marginTop:2,flexShrink:0}}/>{a}</div>)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ══ BIBLIOTHÈQUE : catalogue avec bouton Ajouter ══ */}
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
                   <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
                     <Icon as={manageMode ? Settings : Library} size={11}/>
-                    {manageMode ? "Gérer les anciens lots & ouvrages" : "Ouvrages de la bibliothèque"}
+                    {manageMode ? "Gérer les anciens lots & ouvrages" : "Ajouter depuis la bibliothèque"}
                     {!manageMode && biblio && <span style={{color:acc.accent}}>· {nbBiblio}</span>}
                   </div>
+                  {!manageMode && (
+                    <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:T.surface, border:`1px solid ${acc.accent}55`, borderRadius:RADIUS.md, padding:"5px 10px" }}>
+                      <Icon as={Home} size={12} color={acc.accent}/>
+                      <span style={{ fontSize:FONT.xs.size+1, fontWeight:700, color:T.textSub }}>Ajouter dans la zone</span>
+                      <input list="pic-zones" value={zoneAjout} onChange={e=>setZoneAjout(e.target.value)} placeholder={ZONE_DEFAUT}
+                        style={{...inp, width:170, padding:"5px 8px", fontSize:FONT.xs.size+1, fontWeight:700, color:acc.accent}}/>
+                    </div>
+                  )}
                   <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                     <button onClick={()=>{ setShowAnciens(v=>!v); if (showAnciens) { setManageMode(false); setEditLib(null); setEditLot(null); setAddLibCat(null); } }}
                       style={{ ...btnSec, display:"inline-flex", alignItems:"center", gap:5, ...(showAnciens ? { borderColor:acc.accent, color:acc.accent } : {}) }}>
@@ -1513,20 +1968,34 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                           <span style={{ fontSize:FONT.xs.size-1, fontWeight:800, letterSpacing:.5, color:T.textSub, background:T.card, border:`1px solid ${T.border}`, padding:"1px 7px", borderRadius:RADIUS.sm }}>{g.prefixe}</span>
                         </div>
                         {vis.map(o => {
-                          const sel = selDeBiblio(o), chk = !!sel, busy = biblioBusy === o.id;
+                          const occ = occurrencesDe(o), busy = biblioBusy === o.id;
+                          const calc = calculBiblio(o);
                           return (
-                            <div key={o.id} style={{ padding:"9px 12px", background:chk?acc.bg10:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s", opacity:busy?.6:1 }}>
-                              <input type="checkbox" checked={chk} disabled={busy} onChange={()=>togBiblio(o, g.label)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:3, flexShrink:0, cursor:"pointer" }} />
+                            <div key={o.id} style={{ padding:"9px 12px", background:occ.length?acc.bg10:T.card, border:`1px solid ${occ.length?acc.accent+"88":T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s", opacity:busy?.6:1 }}>
                               <div style={{flex:1,minWidth:0}}>
                                 <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
                                   <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:g.couleur, background:g.couleur+"1f", border:`1px solid ${g.couleur}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{o._code.code}</span>
-                                  <div onClick={()=>!chk&&togBiblio(o, g.label)} style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500, lineHeight:1.45, cursor:chk?"default":"pointer", ...(chk ? {} : { display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }) }}>{o._code.reste}</div>
+                                  <div style={{ fontSize:FONT.sm.size, color:T.text, fontWeight:500, lineHeight:1.45, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{o._code.reste}</div>
                                 </div>
-                                <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2 }}>
-                                  {o.unite || "U"}{o.cadence ? ` · ${o.cadence} h / ${o.unite || "U"}` : ""}
+                                <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                                  <span>{normaliserUnite(o.unite)}{o.cadence ? ` · ${o.cadence} h / ${normaliserUnite(o.unite)}` : " · sans cadence"}</span>
+                                  {calc.complet ? (
+                                    <span style={{ color:"#22c55e", fontWeight:800 }} title={`Coût ${fmtEur2(calc.coutTotalUnitaire)} (matériaux ${fmtEur2(calc.coutMateriauxUnitaire)} + MO ${fmtEur2(calc.coutMainOeuvreUnitaire)}) · marge ${calc.tauxMargePct} %`}>
+                                      {fmtEur2(calc.prixVenteUnitaire)} HT / {calc.unite} · marge {calc.tauxMargePct} %
+                                    </span>
+                                  ) : (
+                                    <span style={{ color:"#e15a5a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:4 }} title={calc.erreurs.join(" · ")}>
+                                      <Icon as={AlertTriangle} size={10}/> prix incalculable ({calc.erreurs.length})
+                                    </span>
+                                  )}
+                                  {occ.length > 0 && <span style={{ color:acc.accent, fontWeight:800 }}>· {occ.length} dans le devis ({occ.map(x => x.zone || ZONE_DEFAUT).join(", ")})</span>}
                                 </div>
-                                {chk && ligneEdition(sel)}
                               </div>
+                              <button disabled={busy} onClick={()=>ajouterDepuisBiblio(o, g.label)}
+                                title={calc.complet ? `Ajouter dans « ${(zoneAjout||"").trim() || ZONE_DEFAUT} » au prix figé de ${fmtEur2(calc.prixVenteUnitaire)} HT / ${calc.unite}` : `Ajouter sans prix (à compléter dans la Bibliothèque : ${calc.erreurs.join(" · ")})`}
+                                style={{ ...(calc.complet ? btn : btnSec), display:"inline-flex", alignItems:"center", gap:5, padding:"7px 12px", flexShrink:0, cursor:busy?"wait":"pointer" }}>
+                                <Icon as={Plus} size={12}/> Ajouter
+                              </button>
                             </div>
                           );
                         })}
@@ -1627,92 +2096,6 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   </>
                 )}
 
-                {(() => {
-                  // Estimation par catégorie + total
-                  const totauxParCat = {};
-                  ouvrages.forEach(o => {
-                    const q  = parseFloat(o.quantite) || 0;
-                    const pu = parseFloat(o.prix_unitaire) || 0;
-                    if (q > 0 && pu > 0) {
-                      totauxParCat[o.category] = (totauxParCat[o.category] || 0) + q * pu;
-                    }
-                  });
-                  const totalGlobal = Object.values(totauxParCat).reduce((s, v) => s + v, 0);
-                  const fmt = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                  return (
-                    <>
-                      <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap" }}>
-                        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
-                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center" }}>
-                            <Icon as={Check} size={15}/>
-                          </div>
-                          <div>
-                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{ouvrages.length}</div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Sélectionnés</div>
-                          </div>
-                        </div>
-                        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
-                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(91,156,246,0.16)",color:"#5b9cf6",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                            <Icon as={Layers} size={15}/>
-                          </div>
-                          <div>
-                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{nbBiblio}</div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Dans la bibliothèque</div>
-                          </div>
-                        </div>
-                        <div style={{ background:T.surface, border:`1px solid ${totalGlobal > 0 ? "rgba(34,197,94,0.40)" : T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:"2 1 240px", display:"flex", alignItems:"center", gap:10 }}>
-                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(34,197,94,0.16)",color:"#22c55e",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                            <Icon as={Euro} size={15}/>
-                          </div>
-                          <div style={{flex:1}}>
-                            <div style={{ fontSize:FONT.xl.size, fontWeight:800, color: totalGlobal > 0 ? "#22c55e" : T.textMuted, lineHeight:1, letterSpacing:-.5 }}>
-                              {fmt(totalGlobal)} €
-                            </div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Estimation totale</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Détail par catégorie */}
-                      {Object.keys(totauxParCat).length > 0 && (
-                        <div style={{
-                          marginTop: 10, background: T.surface, border: `1px solid ${T.border}`,
-                          borderRadius: RADIUS.lg, padding: "10px 14px",
-                        }}>
-                          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
-                            Détail par catégorie
-                          </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                            {Object.entries(totauxParCat).sort(([,a],[,b])=>b-a).map(([cat, total]) => (
-                              <div key={cat} style={{
-                                display: "inline-flex", alignItems: "baseline", gap: 6,
-                                padding: "6px 12px", background: T.card,
-                                border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
-                              }}>
-                                <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.textSub }}>{cat}</span>
-                                <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: "#22c55e" }}>
-                                  {fmt(total)} €
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-                <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
-                  <button onClick={async()=>{ if(!window.confirm("Désélectionner tous les ouvrages ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
-                    style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
-                    <Icon as={X} size={11}/>
-                    Tout désélectionner
-                  </button>
-                  <button onClick={()=>setShowModal(true)}
-                    style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
-                    <Icon as={FileText} size={11}/>
-                    Voir la sélection
-                  </button>
-                </div>
               </>
             )}
 
@@ -2017,9 +2400,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     Contenu du dossier
                   </div>
                   {[
-                    "Client & projet : adresse, statut, composition, budget et délai",
+                    `Client (${infos.client_societe ? "société, " : ""}contact, adresse de facturation), chantier${logementInfo.reference || logementInfo.type ? ` et logement ${[logementInfo.reference, logementInfo.type].filter(Boolean).join(" · ")}` : ""}, statut, budget et délai`,
+                    `Devis : objet, dates, TVA ${tvaManquante ? "(à choisir)" : `${infos.tva_pct} %`}, conditions`,
                     `Notes${notesPages.some(d => (d.strokes||[]).length) ? " + pages manuscrites" : ""}`,
-                    `Ouvrages retenus${estimationTotale > 0 ? " avec estimation par lot et écart budget" : ""}`,
+                    `Ouvrages par LOT puis ZONE : quantité, unité, PU HT, total HT${totauxProjet.ttc != null ? ", TVA et TTC" : ""}${budgetClient != null ? " et écart budget" : ""} — sans coûts ni marge`,
                     "Côtes menuiseries / huisseries",
                     `Plans (${richPlans.length}) et croquis à main levée (${croquisList.filter(d => (d.strokes||[]).length).length})`,
                     `Photos & vidéos (${photos.length}) avec titres et commentaires`,
@@ -2031,14 +2415,23 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   ))}
                 </div>
                 <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <button onClick={exporterPDF} disabled={exporting} style={{
+                  <button onClick={()=>exporterPDF(false)} disabled={exporting} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:acc.accent,color:acc.onAccent,border:"none",
                     borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
                     fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,opacity:exporting?.6:1,
                   }}>
                     <Icon as={Download} size={13}/>
-                    {exporting ? "Génération…" : "Exporter le dossier PDF"}
+                    {exporting ? "Génération…" : "Dossier PDF (client)"}
+                  </button>
+                  <button onClick={()=>exporterPDF(true)} disabled={exporting} title="Document INTERNE : coûts matériaux / main-d'œuvre, marge par ligne et globale. Ne pas envoyer au client." style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"transparent",color:"#e15a5a",border:"1px solid rgba(225,90,90,0.45)",
+                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,opacity:exporting?.6:1,
+                  }}>
+                    <Icon as={Lock} size={13}/>
+                    Synthèse interne PDF (coûts & marge)
                   </button>
                   <button onClick={handleExportWord} disabled={exporting} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
@@ -2122,8 +2515,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 <Icon as={Check} size={16}/>
               </div>
               <div style={{flex:1}}>
-                <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Ouvrages sélectionnés</div>
-                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ouvrage{ouvrages.length>1?"s":""} retenus</div>
+                <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Aperçu du devis{logementInfo.reference ? ` — ${logementInfo.reference}` : ""}</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ligne{ouvrages.length>1?"s":""} · LOT → ZONE → OUVRAGES · {fmtEur2(totauxProjet.venteHT)} HT{totauxProjet.ttc != null ? ` · ${fmtEur2(totauxProjet.ttc)} TTC` : ""}</div>
               </div>
               <button onClick={()=>setShowModal(false)} title="Fermer" style={{
                 display:"inline-flex",alignItems:"center",justifyContent:"center",
@@ -2134,16 +2527,29 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
               </button>
             </div>
             <div style={{flex:1,overflowY:"auto",padding:"16px 22px"}}>
-              {ouvrages.length===0 ? <div style={{color:T.textMuted,textAlign:"center",padding:20,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage sélectionné</div> : (
-                Object.entries(ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{})).map(([cat,items])=>(
-                  <div key={cat} style={{marginBottom:14}}>
-                    <div style={{display:"inline-flex",alignItems:"center",gap:5,background:acc.bg10,color:acc.accent,padding:"4px 10px",borderRadius:RADIUS.sm,fontWeight:700,fontSize:FONT.xs.size+1,marginBottom:6,border:`1px solid ${acc.accent}33`}}>
-                      <Icon as={Layers} size={11}/>
-                      {cat}
+              {ouvrages.length===0 ? <div style={{color:T.textMuted,textAlign:"center",padding:20,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage dans le devis</div> : (
+                groupesDevis.map(g=>(
+                  <div key={g.lot} style={{marginBottom:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:5,background:acc.bg10,color:acc.accent,padding:"4px 10px",borderRadius:RADIUS.sm,fontWeight:700,fontSize:FONT.xs.size+1,border:`1px solid ${acc.accent}33`,textTransform:"uppercase"}}>
+                        <Icon as={Layers} size={11}/>{g.lot}
+                      </span>
+                      <span style={{flex:1}}/>
+                      <span style={{fontSize:FONT.xs.size+1,fontWeight:800,color:T.textSub}}>{fmtEur2(g.total)}</span>
                     </div>
-                    {items.map((it,i)=>(
-                      <div key={i} style={{padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${T.border}`,marginBottom:4}}>
-                        {it.item}{it.quantite?` — ${it.quantite} ${it.unite}`:""}
+                    {g.zones.map(z=>(
+                      <div key={z.zone} style={{marginLeft:8,marginBottom:6}}>
+                        <div style={{fontSize:FONT.xs.size+1,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:.5,padding:"2px 0 4px"}}>{z.zone}</div>
+                        {z.lignes.map(it=>{
+                          const tot = totalLigneHT(it);
+                          return (
+                            <div key={it.id} style={{display:"flex",gap:8,padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${T.border}`,marginBottom:4}}>
+                              <span style={{flex:1,minWidth:0}}>{it.code_ouvrage ? <strong style={{fontFamily:"ui-monospace, Menlo, Consolas, monospace",marginRight:6}}>{it.code_ouvrage}</strong> : null}{decoderLibelleCode(it.item)?.reste || it.item}</span>
+                              <span style={{color:T.textMuted,whiteSpace:"nowrap"}}>{it.quantite ? `${it.quantite} ${it.unite || "U"}` : "—"}{numOrNull(it.prix_unitaire) != null ? ` × ${fmtEur2(it.prix_unitaire)}` : ""}</span>
+                              <span style={{fontWeight:800,color:tot != null ? "#22c55e" : T.textMuted,whiteSpace:"nowrap",minWidth:80,textAlign:"right"}}>{tot != null ? fmtEur2(tot) : "sans prix"}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     ))}
                   </div>
@@ -2156,6 +2562,159 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",
                 fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
               }}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}
+      {actualisation && (() => {
+        const { ligne, calcul, diffs } = actualisation;
+        const fmtVal = (champ, v) => v == null ? "—" : /taux/.test(champ) ? fmtPct(v) : /cout|prix/.test(champ) ? fmtEur2(v) : String(v);
+        return (
+          <div onClick={()=>setActualisation(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:560,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={RefreshCw} size={18}/></div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Actualiser depuis la bibliothèque</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ligne.code_ouvrage ? `${ligne.code_ouvrage} · ` : ""}{ligne.item} · zone {ligne.zone || ZONE_DEFAUT}</div>
+                </div>
+              </div>
+              {diffs.length === 0 ? (
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>Cette ligne est déjà identique au calcul actuel de la bibliothèque. Rien à actualiser.</div>
+              ) : (
+                <>
+                  <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:12}}>
+                    Seule <strong style={{color:T.text}}>cette ligne</strong> sera mise à jour (zone, quantité et TVA conservées). Les autres lignes et les autres devis ne bougent pas.
+                    {!calcul.complet && <div style={{color:"#e15a5a",fontWeight:700,marginTop:6}}>Le calcul actuel est incomplet : {calcul.erreurs.join(" · ")}</div>}
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:FONT.sm.size,marginBottom:18}}>
+                    <thead><tr>{["Champ","Ligne actuelle","Bibliothèque"].map((h,i)=><th key={h} style={{textAlign:i===0?"left":"right",fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:.6,padding:"4px 8px",borderBottom:`1px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                    <tbody>{diffs.map(d=>(
+                      <tr key={d.champ}>
+                        <td style={{padding:"6px 8px",color:T.textSub,borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>{d.label}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",color:T.textMuted,textDecoration:"line-through",borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>{fmtVal(d.champ,d.avant)}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:T.text,borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>{fmtVal(d.champ,d.apres)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </>
+              )}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setActualisation(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer"}}>{diffs.length === 0 ? "Fermer" : "Annuler"}</button>
+                {diffs.length > 0 && (
+                  <button onClick={confirmerActualisation} style={{display:"inline-flex",alignItems:"center",gap:6,background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+                    <Icon as={Check} size={13}/> Actualiser cette ligne
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MODAL DÉTAIL DU PRIX D'UNE LIGNE (snapshot) ── */}
+      {voirDetailLigne && (() => {
+        const l = voirDetailLigne, d = l.calcul_detail || {};
+        const row = (label, val, strong = false) => (
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"5px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`,fontSize:FONT.sm.size}}>
+            <span style={{color:T.textSub}}>{label}</span><span style={{fontWeight:strong?800:600,color:T.text}}>{val}</span>
+          </div>
+        );
+        return (
+          <div onClick={()=>setVoirDetailLigne(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:520,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Lock} size={18}/></div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Prix figé de la ligne</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.code_ouvrage ? `${l.code_ouvrage} · ` : ""}{l.item}</div>
+                </div>
+              </div>
+              <div style={{marginBottom:14}}>
+                {row("Zone", l.zone || ZONE_DEFAUT)}
+                {row(`Coût matériaux / ${l.unite || "u"}`, fmtEur2(l.cout_materiaux_unitaire))}
+                {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h)` : ""}`)}
+                {numOrNull(l.cout_direct_unitaire) > 0 && row(`Coût direct / ${l.unite || "u"}`, fmtEur2(l.cout_direct_unitaire))}
+                {row(`Coût total / ${l.unite || "u"}`, fmtEur2(l.cout_total_unitaire), true)}
+                {row("Taux de marge", fmtPct(l.taux_marge_pct))}
+                {row(`Prix de vente HT / ${l.unite || "u"}`, fmtEur2(l.prix_unitaire), true)}
+                {row("TVA de la ligne", numOrNull(l.tva_pct) != null ? fmtPct(l.tva_pct) : `TVA du projet${!tvaManquante ? ` (${infos.tva_pct} %)` : ""}`)}
+                {row("Calcul figé le", d.date ? new Date(d.date).toLocaleString("fr-FR") : (l.calcul_version || "—"))}
+              </div>
+              {Array.isArray(d.materiaux) && d.materiaux.length > 0 && (
+                <div style={{marginBottom:14}}>
+                  <div style={{...lbl}}>Matériaux (pour 1 {l.unite || "u"})</div>
+                  {d.materiaux.map((m,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:FONT.xs.size+1,color:T.textSub,padding:"3px 0"}}>
+                      <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nom}</span>
+                      <span style={{whiteSpace:"nowrap"}}>{m.quantite ?? "?"} {m.unite || ""} × {fmtEur2(m.prix_unitaire)} = <strong style={{color:T.text}}>{fmtEur2(m.total)}</strong></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(d.erreurs || []).length > 0 && (
+                <div style={{marginBottom:14,padding:"8px 10px",borderRadius:RADIUS.md,background:"rgba(225,90,90,0.10)",border:"1px solid rgba(225,90,90,0.35)"}}>
+                  {(d.erreurs || []).map((e,i)=><div key={i} style={{fontSize:FONT.xs.size+1,color:"#e15a5a",fontWeight:600}}>• {e}</div>)}
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:4}}>Corrige l'ouvrage dans la page Bibliothèque puis utilise « Actualiser » sur cette ligne.</div>
+                </div>
+              )}
+              <div style={{display:"flex",justifyContent:"flex-end"}}>
+                <button onClick={()=>setVoirDetailLigne(null)} style={{background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800}}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MODAL RETIRER UNE LIGNE DU DEVIS ── */}
+      {toDeleteLigne && (
+        <div onClick={()=>setToDeleteLigne(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:440,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Trash2} size={20}/></div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Retirer cette ligne ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              <strong style={{color:T.text}}>{toDeleteLigne.code_ouvrage ? `${toDeleteLigne.code_ouvrage} · ` : ""}{decoderLibelleCode(toDeleteLigne.item)?.reste || toDeleteLigne.item}</strong> — zone <strong style={{color:T.text}}>{toDeleteLigne.zone || ZONE_DEFAUT}</strong>.
+              {ouvrages.filter(o => o.bibliotheque_id && o.bibliotheque_id === toDeleteLigne.bibliotheque_id).length > 1 && <><br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les autres occurrences de cet ouvrage dans le devis sont conservées.</span></>}
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeleteLigne(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer"}}>Annuler</button>
+              <button onClick={()=>supprimerLigne(toDeleteLigne.id)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e15a5a",color:"#fff",border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+                <Icon as={Trash2} size={13}/> Retirer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL DUPLIQUER POUR UN AUTRE LOGEMENT ── */}
+      {dupliquerModal && (
+        <div onClick={()=>!dupliquant&&setDupliquerModal(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:480,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Copy} size={18}/></div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Dupliquer pour un autre logement</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:14}}>
+              Le nouveau projet reprend le client, l'adresse du chantier, les ouvrages avec leurs zones, quantités et <strong style={{color:T.text}}>prix figés</strong> (aucun recalcul depuis la bibliothèque), les plans, côtes, dessins et médias. Statut remis à « Prospect ».
+            </div>
+            <label style={lbl}>Référence du nouveau logement</label>
+            <input autoFocus style={{...inp, marginBottom:10}} value={dupliquerModal.reference} onChange={e=>setDupliquerModal(m=>({...m, reference:e.target.value}))} placeholder="Appartement 102, Logement 4, Studio 1er…"
+              onKeyDown={e=>{ if(e.key==="Enter") dupliquerProjet(dupliquerModal); if(e.key==="Escape") setDupliquerModal(null); }}/>
+            <label style={lbl}>Type de logement</label>
+            <select style={{...inp, marginBottom:20, cursor:"pointer"}} value={dupliquerModal.type} onChange={e=>setDupliquerModal(m=>({...m, type:e.target.value}))}>
+              <option value="">— Choisir —</option>
+              {TYPES_LOGEMENT.map(t => <option key={t} value={t}>{t}</option>)}
+              {dupliquerModal.type && !TYPES_LOGEMENT.includes(dupliquerModal.type) && <option value={dupliquerModal.type}>{dupliquerModal.type}</option>}
+            </select>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setDupliquerModal(null)} disabled={dupliquant} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",opacity:dupliquant?.5:1}}>Annuler</button>
+              <button onClick={()=>dupliquerProjet(dupliquerModal)} disabled={dupliquant} style={{display:"inline-flex",alignItems:"center",gap:6,background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",opacity:dupliquant?.6:1}}>
+                <Icon as={Copy} size={13}/> {dupliquant ? "Duplication…" : "Créer le logement"}
+              </button>
             </div>
           </div>
         </div>

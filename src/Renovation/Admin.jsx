@@ -2314,11 +2314,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // % d'acompte par défaut (Point 5) : utilisé par les recettes prévues du
   // diagramme financier quand ni les États financiers ni le chantier n'en ont.
   const [acomptePctDefaut, setAcomptePctDefaut] = useState("");
+  // TVA proposée aux nouveaux projets de chiffrage (planning_config/chiffrage_tva_defaut).
+  // Volontairement vide tant que rien n'est réglé : aucun taux n'est inventé.
+  const [chiffrageTvaDefaut, setChiffrageTvaDefaut] = useState("");
 
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils", "acompte_pct_defaut"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils", "acompte_pct_defaut", "chiffrage_tva_defaut"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2350,6 +2353,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           }
           if (r.key === "acompte_pct_defaut" && r.value != null && r.value !== "") {
             setAcomptePctDefaut(String(r.value));
+          }
+          if (r.key === "chiffrage_tva_defaut" && r.value != null && r.value !== "") {
+            setChiffrageTvaDefaut(String(r.value));
           }
         });
       }
@@ -4278,6 +4284,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux MO prévisionnel</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
             Taux horaire moyen utilisé pour estimer le <strong>coût MO prévisionnel</strong> (heures vendues × ce taux) dans le phasage et les fiches chantier. Défaut : {TAUX_MO_PREV_DEFAUT} €/h.
+            <br/>C'est aussi le <strong>coût horaire chargé de référence</strong> de la Bibliothèque et du Chiffrage : coût main-d'œuvre d'un ouvrage = cadence (h/unité) × ce taux. Là, <strong>pas de valeur par défaut</strong> : tant qu'il n'est pas réglé, aucun prix de vente n'est calculé.
           </div>
           <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
             <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>Taux horaire moyen (prévisionnel)</div>
@@ -4300,6 +4307,37 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             {!(tauxMOPrev>0)&&(
               <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
                 non réglé → {TAUX_MO_PREV_DEFAUT} €/h
+              </span>
+            )}
+          </div>
+
+          {/* TVA proposée aux NOUVEAUX projets de chiffrage. Chaque projet garde
+              son propre taux (modifiable) ; un devis sans TVA n'est pas « prêt ». */}
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>TVA par défaut du chiffrage</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
+            Taux de TVA pré-rempli sur les <strong>nouveaux projets de chiffrage</strong> (10 % rénovation, 20 % neuf, 5,5 % énergétique). Chaque projet peut le changer ; un devis sans TVA reste « à compléter ».
+          </div>
+          <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+            <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>TVA proposée aux nouveaux devis</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input
+                type="number" min="0" max="100" step="0.1"
+                value={chiffrageTvaDefaut}
+                onChange={e=>{
+                  const v=e.target.value;
+                  setChiffrageTvaDefaut(v);
+                  saveConfig("chiffrage_tva_defaut",v===""?"":parseFloat(v)||0);
+                }}
+                placeholder="—"
+                style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                  border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                  fontFamily:"inherit",fontSize:15,fontWeight:700,outline:"none"}}
+              />
+              <span style={{fontSize:13,color:T.textMuted}}>%</span>
+            </div>
+            {(chiffrageTvaDefaut===""||chiffrageTvaDefaut==null)&&(
+              <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
+                non réglé → la TVA se choisit sur chaque projet
               </span>
             )}
           </div>
