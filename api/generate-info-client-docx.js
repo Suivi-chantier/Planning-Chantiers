@@ -42,7 +42,9 @@ async function fetchImage(url) {
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  const { infos = {}, ouvrages = [], cotes = [], plans = [], photos = [] } = req.body || {};
+  const { infos = {}, ouvrages = [], cotes = [], plans = [], photos: medias = [] } = req.body || {};
+  // Les vidéos ne s'intègrent pas dans un .docx : on ne garde que les images.
+  const photos = (Array.isArray(medias) ? medias : []).filter(p => p && p.type !== "video");
 
   // Groupage ouvrages par catégorie
   const parCat = ouvrages.reduce((a, o) => {
@@ -93,6 +95,10 @@ module.exports = async function handler(req, res) {
   if (Array.isArray(infos.logements) && infos.logements.length > 0) {
     line("Composition", infos.logements.join(", "));
   }
+  if (infos.budget_client != null && infos.budget_client !== "" && !isNaN(parseFloat(infos.budget_client))) {
+    line("Budget client (HT)", `${parseFloat(infos.budget_client).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} €`);
+  }
+  if (infos.delai_souhaite) line("Délai souhaité", infos.delai_souhaite);
   children.push(sp(200));
 
   // ─── OBSERVATIONS ────────────────────────────────────────────────────────────

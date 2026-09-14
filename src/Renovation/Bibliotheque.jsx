@@ -16,7 +16,8 @@ import {
 let LOTS = [...LOTS_DEFAUT];
 loadLots().then(l => { LOTS = l; });
 
-const CATEGORIES_BASE = [
+// (exporté : le Chiffrage s'en sert pour classer les ouvrages repris de la bibliothèque)
+export const CATEGORIES_BASE = [
   { label: "Plâtrerie",                   ids: ["cloison", "doublage", "plafond", "lainage", "faux_plafond", "double"] },
   { label: "Électricité",                 ids: ["install_elec", "tableau", "radiateur", "vmc", "prise", "mise_a_terre"] },
   { label: "Plomberie / Sanitaire",       ids: ["chauffe_eau", "wc", "meuble_vasque", "receveur"] },

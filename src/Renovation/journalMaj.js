@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
+    date: "2026-09-14",
+    type: "nouveaute",
+    titre: "Chiffrage : stylet sur tablette, budget & délai, bibliothèque, vidéos et nouveau PDF",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "La page Chiffrage devient un vrai carnet de visite pour tablette. Le client & projet porte maintenant le budget annoncé et le délai souhaité (avec l'écart budget/estimation calculé automatiquement). Les notes s'écrivent au stylet sur des pages manuscrites, et l'onglet Plan & côtes accueille des croquis à main levée. Les ouvrages de la page Bibliothèque se reprennent directement, sans les ressaisir. Les photos acceptent aussi les vidéos, chacune avec un titre et un commentaire. Enfin, l'export PDF est entièrement refait au design des autres documents Profero (même en-tête que le prévisionnel et la fiche opération).",
+    comment: "Chiffrage → Client & projet : carte « Budget & délai ». Notes → bouton « Stylet » : une page se crée, on écrit directement ; le mode « Stylet seul » laisse le doigt faire défiler (paume posée sans risque), « Doigt + stylet » dessine aussi au doigt ; stylo, marqueur, gomme, couleurs, annuler/rétablir. Plan & côtes → « Nouveau croquis » (fond grille, lignes ou blanc). Ouvrages → bouton « Bibliothèque » : recherche, filtre par catégorie, « Ajouter » ou « Tout ajouter » — l'ouvrage arrive coché dans son lot, les quantités et prix se saisissent ensuite. Photos & vidéos → « Filmer » ou « Importer » (50 Mo max par vidéo), titre et commentaire sous chaque média, lecture dans la visionneuse. Export → « Exporter le dossier PDF » : client & projet, notes + pages manuscrites, ouvrages par lot avec estimation et écart budget, côtes, plans, croquis, photos (les vidéos figurent par titre et lien). Nécessite d'avoir lancé le SQL sql/202609_chiffrage_v2.sql dans Supabase (un bandeau l'indique sinon).",
+  },
+  {
     date: "2026-09-11",
     type: "amelioration",
     titre: "Phasage : tous les comptes rendus d'une tâche, aussi en vue Liste",

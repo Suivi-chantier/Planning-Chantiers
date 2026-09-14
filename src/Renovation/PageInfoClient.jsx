@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, getClientId } from "../supabase";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
-import { FONT, RADIUS, SHADOW, getBranchAccent } from "../constants";
+import { FONT, RADIUS, SHADOW, getBranchAccent, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
+import StylusCanvas, { renderStrokesDataURL } from "./StylusCanvas";
+import { buildChiffrageDocHTML } from "./chiffrageDoc";
+import { renderPlanDataURL } from "./planRendu";
+import { CATEGORIES_BASE } from "./Bibliotheque";
 import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
-  Pencil, Eraser, Download, ChevronRight, Building2, Layers,
+  Pencil, Download, ChevronRight, Building2, Layers,
   Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
   ImagePlus, ArrowUp, ArrowDown, Send, StickyNote, Edit2, Image as ImageIcon,
+  Video, Film, Library, Wallet, Clock, PenTool, Type as TypeIcon, Play,
 } from "lucide-react";
 
 // Ordre des lots = chronologie d'un chantier (démolition → finitions).
@@ -48,13 +53,27 @@ async function uploadInfoClientPhoto(file, projetId) {
   return data?.publicUrl || null;
 }
 
+// État vide d'un projet (formulaire + reset)
+const INFOS_VIDES = { client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"", budget_client:"", delai_souhaite:"" };
+
+// Médias : photos ET vidéos dans le même bucket "photos" (max 50 Mo, limite
+// par défaut du stockage Supabase).
+const MAX_MEDIA_OCTETS = 50 * 1024 * 1024;
+const estFichierVideo = (f) => (f?.type || "").startsWith("video/") || /\.(mp4|mov|m4v|webm|3gp|mkv)$/i.test(f?.name || "");
+
+// Dessins au stylet : repère logique d'une page de notes (portrait) et d'un
+// croquis (paysage). Le rendu s'adapte à la largeur de l'écran.
+const NOTE_W = 1000, NOTE_H = 1400;
+const CROQUIS_W = 1400, CROQUIS_H = 1000;
+const fmtEur = (n) => Number(n || 0).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " €";
+
 export default function PageInfoClient({ T, branch = "renovation", chantiers = [] }) {
   const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
   const [projetId, setProjetId]       = useState(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
-  const [infos, setInfos]             = useState({ client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"" });
+  const [infos, setInfos]             = useState(INFOS_VIDES);
   const [ouvrages, setOuvrages]       = useState([]);
   const [cotes, setCotes]             = useState([]);
   // Plans riches (table `plans` partagée avec la page Plans) liés au projet
@@ -92,6 +111,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
   const [exporting, setExporting]     = useState(false);
   const photoInputRef = useRef(null);
+  // Dessins au stylet (table profero_dessins) : pages de notes manuscrites + croquis
+  const [dessins, setDessins]         = useState([]);
+  const [notesMode, setNotesMode]     = useState("texte");   // "texte" | "manuscrit"
+  const [notePageId, setNotePageId]   = useState(null);
+  const [croquisOuvert, setCroquisOuvert] = useState(null);  // id du croquis en édition
+  const [toDeleteDessin, setToDeleteDessin] = useState(null);
+  const dessinOuvertRef = useRef(null);
+  const vignetteCache = useRef(new Map());
+  // Reprise d'ouvrages depuis la bibliothèque (page Bibliothèque)
+  const [showBiblio, setShowBiblio]   = useState(false);
+  const [biblio, setBiblio]           = useState(null);      // { ouvrages, categories } chargé à l'ouverture
+  const [biblioSearch, setBiblioSearch] = useState("");
+  const [biblioCat, setBiblioCat]     = useState("Toutes");
+  const [biblioBusy, setBiblioBusy]   = useState(null);
+  const categoriesRef = useRef(categories);
+  useEffect(() => { categoriesRef.current = categories; }, [categories]);
+  // Colonnes/table de la v2 absentes en base (SQL 202609_chiffrage_v2 pas encore lancé)
+  const [schemaV2Manquant, setSchemaV2Manquant] = useState(false);
   // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
   // partagé annulait les saves des autres opérations (ex : taper un nom client
   // puis modifier une quantité d'ouvrage avant 800ms écrasait la save du nom).
@@ -150,13 +187,16 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saved");
     setProjetId(id);
     setEditingPlan(null);
-    const [{ data:p },{ data:o },{ data:c },{ data:pl }] = await Promise.all([
+    setCroquisOuvert(null); setNotePageId(null);
+    const [{ data:p },{ data:o },{ data:c },{ data:pl },{ data:ds }] = await Promise.all([
       supabase.from("profero_projets").select("*").eq("id",id).single(),
       supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id",id),
       supabase.from("profero_cotes").select("*").eq("projet_id",id),
       supabase.from("plans").select("id,name,thumbnail,chantier_id,updated_at").eq("projet_id",id).order("updated_at",{ascending:false}),
+      supabase.from("profero_dessins").select("*").eq("projet_id",id).order("ordre").order("created_at"),
     ]);
-    if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect", notes:p.notes||"" });
+    if (p) setInfos({ ...INFOS_VIDES, client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect", notes:p.notes||"", budget_client:p.budget_client ?? "", delai_souhaite:p.delai_souhaite||"" });
+    setDessins(ds || []);
     setOuvrages(o||[]); setCotes(c||[]);
     setRichPlans(pl || []);
     setPhotos(Array.isArray(p?.photos) ? p.photos : []);
@@ -211,9 +251,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           const dirty = dirtyInfosRef.current;
           setInfos(prev => {
             const merged = { ...prev };
-            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut"].forEach(f => {
+            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut","budget_client","delai_souhaite"].forEach(f => {
               if (!dirty.has(f) && remote[f] !== undefined && remote[f] !== null) merged[f] = remote[f];
-              else if (!dirty.has(f) && remote[f] === null && f === "date_visite") merged[f] = "";
+              else if (!dirty.has(f) && remote[f] === null && (f === "date_visite" || f === "budget_client")) merged[f] = "";
             });
             return merged;
           });
@@ -252,10 +292,29 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         }
       )
       .subscribe();
+    // Dessins (notes manuscrites / croquis) : on ignore les UPDATE du dessin
+    // qu'on est en train d'éditer (sinon le tracé distant écraserait le nôtre).
+    const dessinChan = supabase
+      .channel(`info-client-dessins-${projetId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "profero_dessins", filter: `projet_id=eq.${projetId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setDessins(prev => prev.some(d => d.id === payload.new.id) ? prev : [...prev, payload.new]);
+          } else if (payload.eventType === "UPDATE") {
+            if (dessinOuvertRef.current === payload.new.id) return;
+            setDessins(prev => prev.map(d => d.id === payload.new.id ? { ...d, ...payload.new } : d));
+          } else if (payload.eventType === "DELETE") {
+            setDessins(prev => prev.filter(d => d.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
     return () => {
       supabase.removeChannel(projChan);
       supabase.removeChannel(ouvChan);
       supabase.removeChannel(coteChan);
+      supabase.removeChannel(dessinChan);
     };
   }, [projetId]);
 
@@ -268,26 +327,33 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saved");
   }
 
+  // Photos ET vidéos : même flux d'upload, un champ `type` distingue les deux.
+  // Chaque média porte un titre (`label`) et un commentaire libre.
   async function onPhotoFiles(files) {
     if (!projetId) return;
     const arr = Array.from(files || []);
     if (arr.length === 0) return;
-    setUploadingCount(arr.length);
+    const tropGros = arr.filter(f => f.size > MAX_MEDIA_OCTETS);
+    if (tropGros.length > 0) alert(`Fichier${tropGros.length > 1 ? "s" : ""} trop volumineux (max ${Math.round(MAX_MEDIA_OCTETS / 1048576)} Mo) : ${tropGros.map(f => f.name).join(", ")}`);
+    const ok = arr.filter(f => f.size <= MAX_MEDIA_OCTETS);
+    if (ok.length === 0) { if (photoInputRef.current) photoInputRef.current.value = ""; return; }
+    setUploadingCount(ok.length);
     const news = [];
-    for (const f of arr) {
+    for (const f of ok) {
       const url = await uploadInfoClientPhoto(f, projetId);
-      if (url) news.push({ id: Math.random().toString(36).slice(2), url, label: "", created_at: new Date().toISOString() });
+      if (url) news.push({ id: Math.random().toString(36).slice(2), url, type: estFichierVideo(f) ? "video" : "image", label: "", commentaire: "", created_at: new Date().toISOString() });
       setUploadingCount(n => n - 1);
     }
     if (news.length > 0) await savePhotos([...photos, ...news]);
     if (photoInputRef.current) photoInputRef.current.value = "";
   }
   const removePhoto = (i) => savePhotos(photos.filter((_, idx) => idx !== i));
-  const updatePhotoLabel = (i, label) => {
-    const next = photos.map((p, idx) => idx === i ? { ...p, label } : p);
+  const updatePhotoField = (i, field, value) => {
+    dirtyInfosRef.current.add("photos");
+    const next = photos.map((p, idx) => idx === i ? { ...p, [field]: value } : p);
     setPhotos(next);
     const pid = projetId;
-    debounce("photos", () => savePhotos(next, pid));
+    debounce("photos", async () => { await savePhotos(next, pid); dirtyInfosRef.current.delete("photos"); });
   };
 
   // Debounce avec timer dédié par clé : évite que des opérations indépendantes
@@ -317,11 +383,19 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       date_visite:         v.date_visite || null,
       observations:        v.observations        ?? "",
       notes:               v.notes               ?? "",
+      budget_client:       v.budget_client === "" || v.budget_client == null ? null : parseFloat(v.budget_client),
+      delai_souhaite:      v.delai_souhaite      ?? "",
       logements:           v.logements           ?? [],
       statut:              v.statut              ?? "prospect",
       last_client_id:      getClientId(),
     };
-    const { error } = await supabase.from("profero_projets").update(payload).eq("id", pid);
+    let { error } = await supabase.from("profero_projets").update(payload).eq("id", pid);
+    if (error && /budget_client|delai_souhaite/.test(error.message || "")) {
+      // Colonnes v2 absentes (SQL 202609_chiffrage_v2 pas lancé) : on sauve le reste
+      setSchemaV2Manquant(true);
+      const { budget_client, delai_souhaite, ...ancien } = payload;
+      ({ error } = await supabase.from("profero_projets").update(ancien).eq("id", pid));
+    }
     setSaving(false);
     if (error) {
       console.error("saveInfos projet error:", error);
@@ -403,17 +477,25 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     if (!src) return;
     // 1) Création du nouveau projet (copie des infos + photos, statut reset à prospect)
     const newNom = src.client_nom ? `Copie de ${src.client_nom}` : "Copie sans client";
-    const { data: nouveau } = await supabase.from("profero_projets").insert({
+    const baseDup = {
       client_nom:      newNom,
       client_prenom:   src.client_prenom || "",
       adresse_bien:    src.adresse_bien || "",
       description_projet: src.description_projet || "",
       date_visite:     new Date().toISOString().split("T")[0],
       observations:    src.observations || "",
+      notes:           src.notes || "",
       logements:       src.logements || [],
       statut:          "prospect",
       photos:          src.photos || [],
-    }).select().single();
+    };
+    let { data: nouveau } = await supabase.from("profero_projets")
+      .insert({ ...baseDup, budget_client: src.budget_client ?? null, delai_souhaite: src.delai_souhaite || "" }).select().single();
+    if (!nouveau) {
+      // Colonnes v2 absentes (SQL pas lancé) : copie sans budget/délai
+      setSchemaV2Manquant(true);
+      ({ data: nouveau } = await supabase.from("profero_projets").insert(baseDup).select().single());
+    }
     if (!nouveau) return;
     // 2) Clone ouvrages
     const ouvrSrc = ouvrages.map(o => ({
@@ -439,6 +521,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         projet_id: nouveau.id, chantier_id: "",
       })));
     }
+    // 4b) Clone dessins au stylet (pages manuscrites + croquis)
+    const { data: dessinsSrc } = await supabase.from("profero_dessins").select("type,nom,ordre,largeur,hauteur,fond,strokes").eq("projet_id", projetId);
+    if (dessinsSrc && dessinsSrc.length > 0) {
+      await supabase.from("profero_dessins").insert(dessinsSrc.map(d => ({ ...d, projet_id: nouveau.id })));
+    }
     // 5) Refresh
     setProjets(p => [nouveau, ...p]);
     chargerProjet(nouveau.id);
@@ -454,8 +541,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       if (r.length > 0) chargerProjet(r[0].id);
       else {
         setProjetId(null);
-        setInfos({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:"",observations:"",logements:[],statut:"prospect",notes:""});
-        setOuvrages([]); setCotes([]); setRichPlans([]); setEditingPlan(null);
+        setInfos(INFOS_VIDES);
+        setOuvrages([]); setCotes([]); setRichPlans([]); setEditingPlan(null); setDessins([]);
       }
     }
     setDeleting(false);
@@ -546,6 +633,112 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setReordering(false);
   }
 
+  // ─── DESSINS AU STYLET (profero_dessins) ─────────────────────────────────────
+  async function creerDessin(type) {
+    if (!projetId) return null;
+    const liste = dessins.filter(d => d.type === type);
+    const payload = type === "note"
+      ? { projet_id: projetId, type, nom: `Page ${liste.length + 1}`,    ordre: liste.length, largeur: NOTE_W,    hauteur: NOTE_H,    fond: "lignes", strokes: [] }
+      : { projet_id: projetId, type, nom: `Croquis ${liste.length + 1}`, ordre: liste.length, largeur: CROQUIS_W, hauteur: CROQUIS_H, fond: "grille", strokes: [] };
+    const { data, error } = await supabase.from("profero_dessins").insert(payload).select().single();
+    if (error) {
+      setSchemaV2Manquant(true);
+      alert("Impossible de créer le dessin : " + error.message + "\n\nLa table profero_dessins n'existe pas encore : lancer sql/202609_chiffrage_v2.sql dans Supabase.");
+      return null;
+    }
+    setDessins(p => [...p, data]);
+    if (type === "note") setNotePageId(data.id); else setCroquisOuvert(data.id);
+    return data;
+  }
+  function updDessinStrokes(id, strokes) {
+    setDessins(p => p.map(d => d.id === id ? { ...d, strokes } : d));
+    debounce(`dessin-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_dessins").update({ strokes, updated_at: new Date().toISOString() }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+    }, 1000);
+  }
+  function updDessinChamp(id, champ, valeur) {
+    setDessins(p => p.map(d => d.id === id ? { ...d, [champ]: valeur } : d));
+    debounce(`dessin-${champ}-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_dessins").update({ [champ]: valeur }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+    }, champ === "nom" ? 800 : 0);
+  }
+  async function supprimerDessin(id) {
+    await supabase.from("profero_dessins").delete().eq("id", id);
+    setDessins(p => p.filter(d => d.id !== id));
+    if (notePageId === id) setNotePageId(null);
+    if (croquisOuvert === id) setCroquisOuvert(null);
+    setToDeleteDessin(null);
+  }
+  // Vignette PNG d'un dessin (cache par id + nombre de tracés + fond)
+  function vignetteDessin(d) {
+    const key = `${d.id}:${(d.strokes || []).length}:${d.fond}`;
+    const cache = vignetteCache.current;
+    if (!cache.has(key)) {
+      cache.set(key, renderStrokesDataURL(d.strokes || [], { largeur: d.largeur || CROQUIS_W, hauteur: d.hauteur || CROQUIS_H, fond: d.fond || "grille", pixelWidth: 480 }));
+      if (cache.size > 60) cache.delete(cache.keys().next().value);
+    }
+    return cache.get(key);
+  }
+
+  // ─── REPRISE DEPUIS LA BIBLIOTHÈQUE D'OUVRAGES ───────────────────────────────
+  // Les ouvrages de la page Bibliothèque (bibliotheque_ratios) sont classés par
+  // préfixe d'identifiant (CATEGORIES_BASE + catégories custom de planning_config),
+  // exactement comme là-bas. Un ouvrage repris rejoint le lot du même nom dans
+  // le chiffrage (créé au besoin) pour rester cochable dans la liste.
+  async function ouvrirBibliotheque() {
+    setShowBiblio(true);
+    if (biblio) return;
+    const [{ data: ouv }, { data: cfg }] = await Promise.all([
+      supabase.from("bibliotheque_ratios").select("id,identifiant,libelle,unite,cadence").order("libelle"),
+      supabase.from("planning_config").select("value").eq("key", "bibliotheque_categories_custom").maybeSingle(),
+    ]);
+    const custom = Array.isArray(cfg?.value?.items) ? cfg.value.items : [];
+    setBiblio({ ouvrages: ouv || [], categories: [...CATEGORIES_BASE, ...custom] });
+  }
+  const categorieBiblio = (o) => (biblio?.categories || []).find(c => (c.ids || []).some(k => (o.identifiant || "").startsWith(k)))?.label || "Autres";
+  const dejaRepris = (o) => ouvrages.some(x => x.bibliotheque_id === o.id || (x.item === (o.libelle || "").trim() && x.category === categorieBiblio(o)));
+  async function ajouterDepuisBiblio(o) {
+    if (!projetId || dejaRepris(o)) return;
+    const lot = categorieBiblio(o);
+    const lib = (o.libelle || "").trim();
+    if (!lib) return;
+    setBiblioBusy(o.id);
+    try {
+      // 1) Lot + libellé dans les lots du chiffrage (bibliothèque locale)
+      let cats = categoriesRef.current;
+      if (!cats[lot]) {
+        const { data: rows } = await supabase.from("profero_categories_ouvrages").select("ordre");
+        const maxOrdre = (rows || []).reduce((m, r) => Math.max(m, r.ordre ?? 0), -1);
+        await supabase.from("profero_categories_ouvrages").insert({ nom: lot, ouvrages: [lib], ordre: maxOrdre + 1 });
+        cats = { ...cats, [lot]: [lib] };
+      } else if (!cats[lot].includes(lib)) {
+        const l = [...cats[lot], lib];
+        await supabase.from("profero_categories_ouvrages").update({ ouvrages: l }).eq("nom", lot);
+        cats = { ...cats, [lot]: l };
+      }
+      categoriesRef.current = cats;
+      setCategories(cats);
+      // 2) Sélection sur le projet, avec le lien vers la bibliothèque
+      const base = { projet_id: projetId, category: lot, item: lib, quantite: "", unite: o.unite || "U" };
+      let { data, error } = await supabase.from("profero_ouvrages_selectionnes").insert({ ...base, bibliotheque_id: o.id }).select().single();
+      if (error) {
+        // Colonne bibliotheque_id absente (SQL v2 pas lancé) : on garde l'ouvrage sans le lien
+        setSchemaV2Manquant(true);
+        ({ data } = await supabase.from("profero_ouvrages_selectionnes").insert(base).select().single());
+      }
+      if (data) setOuvrages(p => p.some(x => x.id === data.id) ? p : [...p, data]);
+    } finally {
+      setBiblioBusy(null);
+    }
+  }
+  async function ajouterToutBiblio(liste) {
+    for (const o of liste) await ajouterDepuisBiblio(o);
+  }
+
   // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
   async function handleExportWord() {
     if (!projetId || exporting) return;
@@ -581,6 +774,65 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setExporting(false);
   }
 
+  // ─── EXPORT PDF (gabarit Profero commun, chiffrageDoc.js) ────────────────────
+  // La fenêtre est ouverte SYNCHRONEMENT dans le geste du clic (sinon Safari la
+  // bloque), puis remplie une fois les rendus (plans, dessins) prêts.
+  async function exporterPDF() {
+    if (!projetId || exporting) return;
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    w.document.write("<!doctype html><html lang='fr'><body style='font-family:Arial,sans-serif;padding:40px;color:#666;'>Préparation du dossier de chiffrage…</body></html>");
+    w.document.close();
+    setExporting(true);
+    try {
+      // Plans : rendu haute résolution depuis les données complètes (repli : vignette)
+      let plansImgs = [];
+      if (richPlans.length > 0) {
+        const { data: full } = await supabase.from("plans").select("id,data").in("id", richPlans.map(p => p.id));
+        plansImgs = richPlans.map(p => {
+          const f = (full || []).find(x => x.id === p.id);
+          let image = "";
+          try { image = f?.data ? renderPlanDataURL(f.data, { largeur: 1000, hauteur: 700, dpi: 2 }) : ""; } catch { image = ""; }
+          if (!image && typeof p.thumbnail === "string" && p.thumbnail.startsWith("data:image")) image = p.thumbnail;
+          return { nom: p.name, image };
+        }).filter(p => p.image);
+      }
+      const rendu = (d, pixelWidth) => renderStrokesDataURL(d.strokes || [], { largeur: d.largeur || NOTE_W, hauteur: d.hauteur || NOTE_H, fond: d.fond || "lignes", pixelWidth });
+      const notesImgs   = dessins.filter(d => d.type === "note"    && (d.strokes || []).length > 0).map(d => ({ nom: d.nom, image: rendu(d, 1400) }));
+      const croquisImgs = dessins.filter(d => d.type === "croquis" && (d.strokes || []).length > 0).map(d => ({ nom: d.nom, image: rendu(d, 1600) }));
+      const st = statutMeta(infos.statut);
+      const html = buildChiffrageDocHTML({
+        infos, statut: { label: st.label, color: st.color },
+        ouvrages, lotsOrdre: Object.keys(categories), cotes,
+        notesPages: notesImgs, plans: plansImgs, croquis: croquisImgs,
+        medias: photos.map(p => ({ type: p.type === "video" ? "video" : "image", url: p.url, label: p.label, commentaire: p.commentaire })),
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }),
+      });
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.document.title = `Chiffrage-${(infos.client_nom || "client").replace(/[^a-zA-Z0-9-_]/g, "_")}`;
+      // Attendre les photos distantes + les polices (8 s max) avant d'imprimer.
+      await new Promise(res => {
+        const debut = Date.now();
+        const tick = () => {
+          const imgs = Array.from(w.document.images || []);
+          const ok = w.document.readyState === "complete" && imgs.every(i => i.complete);
+          if (ok || Date.now() - debut > 8000) res(); else setTimeout(tick, 150);
+        };
+        tick();
+      });
+      try { await (w.document.fonts?.ready || Promise.resolve()); } catch {}
+      setTimeout(() => { w.focus(); w.print(); }, 200);
+    } catch (e) {
+      console.error("Export PDF chiffrage:", e);
+      alert("Erreur lors de la génération du PDF : " + (e.message || e));
+      try { w.close(); } catch {}
+    }
+    setExporting(false);
+  }
+
   // ─── COMPUTED ────────────────────────────────────────────────────────────────
   // Filtrage projets (recherche + statut)
   const projetsFiltres = projets.filter(p => {
@@ -598,6 +850,17 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     acc[s.id] = projets.filter(p => (p.statut || "prospect") === s.id).length;
     return acc;
   }, {});
+
+  // Estimation totale (qté × PU) — pour l'écart avec le budget client
+  const estimationTotale = ouvrages.reduce((s, o) => s + (parseFloat(o.quantite) || 0) * (parseFloat(o.prix_unitaire) || 0), 0);
+  const budgetClient = infos.budget_client === "" || infos.budget_client == null ? null : parseFloat(infos.budget_client);
+
+  // Dessins au stylet
+  const notesPages  = dessins.filter(d => d.type === "note");
+  const croquisList = dessins.filter(d => d.type === "croquis");
+  const pageActive  = notesPages.find(d => d.id === notePageId) || notesPages[0] || null;
+  const croquisActif = croquisList.find(d => d.id === croquisOuvert) || null;
+  dessinOuvertRef.current = croquisActif?.id || (tab === "notes" && notesMode === "manuscrit" ? pageActive?.id : null) || null;
 
   // ─── RENDU ───────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -935,6 +1198,16 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <Icon as={Calendar} size={11}/>{new Date(infos.date_visite).toLocaleDateString("fr-FR")}
                     </span>
                   )}
+                  {budgetClient != null && !isNaN(budgetClient) && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#22c55e",fontWeight:700}}>
+                      <Icon as={Wallet} size={11}/>{fmtEur(budgetClient)}
+                    </span>
+                  )}
+                  {infos.delai_souhaite && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                      <Icon as={Clock} size={11}/>{infos.delai_souhaite}
+                    </span>
+                  )}
                 </div>
               </div>
               {/* Statut + actions : sur mobile passent en row dédiée pleine largeur */}
@@ -971,7 +1244,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 { id:"notes",    label:"Notes",           icon:StickyNote },
                 { id:"ouvrages", label:"Ouvrages",        icon:Hammer },
                 { id:"plan",     label:"Plan & côtes",    icon:Ruler },
-                { id:"photos",   label:"Photos",          icon:Camera },
+                { id:"photos",   label:"Photos & vidéos", icon:Camera },
                 { id:"params",   label:"Paramètres",      icon:Settings },
                 { id:"export",   label:"Export",          icon:FileDown },
               ].map(t => {
@@ -996,6 +1269,12 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
           {/* Corps onglet */}
           <div className="pic-body" style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg,minWidth:0}}>
+            {schemaV2Manquant && (
+              <div style={{ marginBottom:12, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <Icon as={AlertTriangle} size={13}/>
+                Base non à jour : lancer <code style={{fontFamily:"monospace"}}>sql/202609_chiffrage_v2.sql</code> dans Supabase pour activer budget/délai, notes manuscrites, croquis et le lien bibliothèque.
+              </div>
+            )}
 
             {tab==="client" && (
               <div className="pic-section-narrow">
@@ -1013,6 +1292,39 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:90}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
                     <div><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
                   </div>
+                </div>
+
+                {/* ── Carte : budget & délai ── */}
+                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:14, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Wallet} size={12}/>
+                    Budget & délai
+                  </div>
+                  <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"start" }}>
+                    <div>
+                      <label style={lbl}>Budget client (€ HT)</label>
+                      <div style={{position:"relative"}}>
+                        <input type="number" step="100" min="0" inputMode="decimal" style={{...inp, paddingRight:30, fontWeight:700, color:"#22c55e"}} value={infos.budget_client ?? ""} onChange={e=>updInfo("budget_client",e.target.value)} placeholder="Ex : 45000" />
+                        <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>Délai souhaité</label>
+                      <input style={inp} value={infos.delai_souhaite || ""} onChange={e=>updInfo("delai_souhaite",e.target.value)} placeholder="Ex : livraison avant juin 2027, 3 mois de travaux…" />
+                    </div>
+                  </div>
+                  {budgetClient != null && !isNaN(budgetClient) && estimationTotale > 0 && (() => {
+                    const ecart = estimationTotale - budgetClient;
+                    const c = ecart > 0 ? "#e15a5a" : "#22c55e";
+                    return (
+                      <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"9px 12px", borderRadius:RADIUS.md, background:c+"12", border:`1px solid ${c}40`, fontSize:FONT.xs.size+1, color:T.textSub }}>
+                        <Icon as={Euro} size={12} color={c}/>
+                        <span>Estimation ouvrages <strong style={{color:T.text}}>{fmtEur(estimationTotale)}</strong></span>
+                        <span>·</span>
+                        <span>Écart budget <strong style={{color:c}}>{ecart > 0 ? "+" : "−"}{fmtEur(Math.abs(ecart))}</strong></span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* ── Carte : composition du projet ── */}
@@ -1035,16 +1347,66 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
             {tab==="notes" && (
               <div className="pic-section-narrow">
-                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-                  <Icon as={StickyNote} size={12}/>
-                  Notes libres
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={StickyNote} size={12}/>
+                    {notesMode === "manuscrit" ? "Notes manuscrites" : "Notes libres"}
+                  </div>
+                  <div style={{ display:"inline-flex", gap:3, background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:3 }}>
+                    {[{ id:"texte", label:"Clavier", icon:TypeIcon }, { id:"manuscrit", label:`Stylet${notesPages.length ? ` (${notesPages.length})` : ""}`, icon:PenTool }].map(m => {
+                      const a = notesMode === m.id;
+                      return (
+                        <button key={m.id} onClick={()=>setNotesMode(m.id)} style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"6px 12px", borderRadius:RADIUS.sm, border:"none", background:a?acc.accent:"transparent", color:a?acc.onAccent:T.textSub, fontFamily:"inherit", fontSize:FONT.xs.size+1, fontWeight:700, cursor:"pointer" }}>
+                          <Icon as={m.icon} size={12}/>{m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <textarea
-                  value={infos.notes || ""}
-                  onChange={e=>updInfo("notes", e.target.value)}
-                  placeholder="Prends des notes librement : contraintes, échanges client, idées de chiffrage, points à vérifier…"
-                  style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.base.size, padding:16, borderRadius:RADIUS.xl, boxShadow:SHADOW.sm }}
-                />
+
+                {notesMode === "texte" ? (
+                  <textarea
+                    value={infos.notes || ""}
+                    onChange={e=>updInfo("notes", e.target.value)}
+                    placeholder="Prends des notes librement : contraintes, échanges client, idées de chiffrage, points à vérifier…"
+                    style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.base.size, padding:16, borderRadius:RADIUS.xl, boxShadow:SHADOW.sm }}
+                  />
+                ) : (
+                  <>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+                      {notesPages.map((d, i) => (
+                        <button key={d.id} onClick={()=>setNotePageId(d.id)} style={tabS(pageActive?.id === d.id)}>{d.nom || `Page ${i+1}`}</button>
+                      ))}
+                      <button onClick={()=>creerDessin("note")} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={Plus} size={11}/> Page
+                      </button>
+                    </div>
+                    {pageActive ? (
+                      <>
+                        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+                          <input value={pageActive.nom || ""} onChange={e=>updDessinChamp(pageActive.id, "nom", e.target.value)} placeholder="Nom de la page" style={{...inp, flex:"1 1 180px", maxWidth:320}}/>
+                          <select value={pageActive.fond || "lignes"} onChange={e=>updDessinChamp(pageActive.id, "fond", e.target.value)} style={{...inp, width:"auto", cursor:"pointer"}}>
+                            <option value="lignes">Lignes</option><option value="grille">Grille</option><option value="blanc">Blanc</option>
+                          </select>
+                          <button title="Supprimer cette page" onClick={()=>setToDeleteDessin(pageActive)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                        </div>
+                        <StylusCanvas key={pageActive.id} strokes={pageActive.strokes || []} onChange={s=>updDessinStrokes(pageActive.id, s)}
+                          largeur={pageActive.largeur || NOTE_W} hauteur={pageActive.hauteur || NOTE_H} fond={pageActive.fond || "lignes"} T={T} acc={acc}/>
+                      </>
+                    ) : (
+                      <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"36px 24px", textAlign:"center", color:T.textSub }}>
+                        <div style={{ width:48,height:48,borderRadius:RADIUS.lg, background:acc.bg10,color:acc.accent, display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
+                          <Icon as={PenTool} size={24} strokeWidth={1.5}/>
+                        </div>
+                        <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucune page manuscrite</div>
+                        <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6,marginBottom:14}}>Écris directement au stylet sur la tablette : la page se sauvegarde toute seule et se retrouve dans le PDF.</div>
+                        <button onClick={()=>creerDessin("note")} style={{...btn, display:"inline-flex", alignItems:"center", gap:6}}>
+                          <Icon as={Plus} size={12}/> Nouvelle page manuscrite
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -1055,11 +1417,19 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     <Icon as={Hammer} size={11}/>
                     {manageMode ? "Gérer lots & ouvrages" : "Sélection d'ouvrages"}
                   </div>
-                  <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
-                    style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
-                    <Icon as={manageMode?Check:Settings} size={11}/>
-                    {manageMode ? "Terminer" : "Gérer"}
-                  </button>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    {!manageMode && (
+                      <button onClick={ouvrirBibliotheque} style={{ ...btnSec, display:"inline-flex", alignItems:"center", gap:5, borderColor:acc.accent, color:acc.accent }}>
+                        <Icon as={Library} size={11}/>
+                        Bibliothèque
+                      </button>
+                    )}
+                    <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
+                      style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
+                      <Icon as={manageMode?Check:Settings} size={11}/>
+                      {manageMode ? "Terminer" : "Gérer"}
+                    </button>
+                  </div>
                 </div>
                 <div style={{position:"relative",marginBottom:10}}>
                   <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
@@ -1121,7 +1491,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                               ) : (
                                 <div style={{ fontSize:FONT.sm.size, color:chk&&!manageMode?acc.accent:T.text, fontWeight:chk&&!manageMode?700:500 }}>{item}</div>
                               )}
-                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}</div>
+                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}{chk && sel?.bibliotheque_id ? " · repris de la bibliothèque" : ""}</div>
                               {chk && !manageMode && (() => {
                                 const q  = parseFloat(sel.quantite) || 0;
                                 const pu = parseFloat(sel.prix_unitaire) || 0;
@@ -1134,7 +1504,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                                     <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
                                       className="unit-select"
                                       style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
-                                      <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option>
+                                      <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option>{!["U","m","m²","ml"].includes(sel.unite||"U") && <option value={sel.unite}>{sel.unite}</option>}
                                     </select>
                                     <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
                                     <div className="prix-wrap" style={{position:"relative",width:100}}>
@@ -1343,6 +1713,58 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   </div>
                 )}
 
+                {/* ── Croquis à main levée (stylet) ── */}
+                <div style={{...h2s, marginTop:20, display:"flex", alignItems:"center", gap:8}}>
+                  <span style={{flex:1}}>Croquis à main levée {croquisList.length > 0 && `(${croquisList.length})`}</span>
+                  {!croquisActif && (
+                    <button onClick={()=>creerDessin("croquis")} style={{...btn, display:"inline-flex", alignItems:"center", gap:5, padding:"6px 12px", textTransform:"none", letterSpacing:0}}>
+                      <Icon as={Plus} size={11}/> Nouveau croquis
+                    </button>
+                  )}
+                </div>
+                {croquisActif ? (
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+                      <button onClick={()=>setCroquisOuvert(null)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={ChevronLeftIcon} size={12}/> Retour
+                      </button>
+                      <input value={croquisActif.nom || ""} onChange={e=>updDessinChamp(croquisActif.id, "nom", e.target.value)} placeholder="Nom du croquis (ex : Implantation cuisine)" style={{...inp, flex:"1 1 200px", maxWidth:360}}/>
+                      <select value={croquisActif.fond || "grille"} onChange={e=>updDessinChamp(croquisActif.id, "fond", e.target.value)} style={{...inp, width:"auto", cursor:"pointer"}}>
+                        <option value="grille">Grille</option><option value="lignes">Lignes</option><option value="blanc">Blanc</option>
+                      </select>
+                      <button title="Supprimer ce croquis" onClick={()=>setToDeleteDessin(croquisActif)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                    </div>
+                    <StylusCanvas key={croquisActif.id} strokes={croquisActif.strokes || []} onChange={s=>updDessinStrokes(croquisActif.id, s)}
+                      largeur={croquisActif.largeur || CROQUIS_W} hauteur={croquisActif.hauteur || CROQUIS_H} fond={croquisActif.fond || "grille"} T={T} acc={acc}/>
+                  </div>
+                ) : croquisList.length === 0 ? (
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"22px 20px", textAlign:"center", color:T.textSub, marginBottom:8 }}>
+                    <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:3}}>Aucun croquis</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Dessine librement au stylet : implantation, détail, cotes rapides. Les croquis rejoignent le PDF du dossier.</div>
+                  </div>
+                ) : (
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12, marginBottom:8 }}>
+                    {croquisList.map(d => (
+                      <div key={d.id} className="pic-card" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:SHADOW.sm }}>
+                        <div style={{ position:"relative", aspectRatio:"7/5", background:"#fff", cursor:"pointer" }} onClick={()=>setCroquisOuvert(d.id)}>
+                          <img src={vignetteDessin(d)} alt={d.nom||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain" }}/>
+                        </div>
+                        <div style={{ padding:"8px 10px", display:"flex", flexDirection:"column", gap:6 }}>
+                          <div style={{ fontSize:FONT.sm.size, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.nom||"Croquis"}</div>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <button onClick={()=>setCroquisOuvert(d.id)} style={{...btnSec, flex:1, display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"6px 8px"}}>
+                              <Icon as={Pencil} size={11}/> Ouvrir
+                            </button>
+                            <button title="Supprimer le croquis" onClick={()=>setToDeleteDessin(d)} style={iconBtnDng}>
+                              <Icon as={Trash2} size={12}/>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div style={{...h2s, marginTop:20}}>Côtes menuiseries / huisseries</div>
                 <button onClick={ajoutCote} style={{
                   display:"inline-flex",alignItems:"center",gap:5,marginBottom:10,
@@ -1377,31 +1799,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:10, flexWrap:"wrap" }}>
                   <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
                     <Icon as={Camera} size={11}/>
-                    Photos du projet
+                    Photos & vidéos du projet
                     {photos.length > 0 && <span style={{color:acc.accent}}>· {photos.length}</span>}
                   </div>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                    <label style={{
-                      display:"inline-flex", alignItems:"center", gap:6,
-                      background:acc.accent, color:acc.onAccent, border:"none",
-                      borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
-                      fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
-                    }}>
+                    <label style={{ display:"inline-flex", alignItems:"center", gap:6, background:acc.accent, color:acc.onAccent, border:"none", borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800 }}>
                       <Icon as={Camera} size={13}/>
-                      Prendre une photo
-                      <input ref={photoInputRef} type="file" accept="image/*" capture="environment"
-                        onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                      Photo
+                      <input ref={photoInputRef} type="file" accept="image/*" capture="environment" onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
                     </label>
-                    <label style={{
-                      display:"inline-flex", alignItems:"center", gap:6,
-                      background:"transparent", color:T.text, border:`1px solid ${T.border}`,
-                      borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
-                      fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700,
-                    }}>
+                    <label style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#5b9cf6", color:"#fff", border:"none", borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800 }}>
+                      <Icon as={Video} size={13}/>
+                      Filmer
+                      <input type="file" accept="video/*" capture="environment" onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                    </label>
+                    <label style={{ display:"inline-flex", alignItems:"center", gap:6, background:"transparent", color:T.text, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700 }}>
                       <Icon as={ImagePlus} size={13}/>
                       Importer
-                      <input type="file" accept="image/*" multiple
-                        onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                      <input type="file" accept="image/*,video/*" multiple onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
                     </label>
                   </div>
                 </div>
@@ -1410,60 +1825,62 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     <svg width="13" height="13" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}>
                       <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
                     </svg>
-                    Upload en cours… {uploadingCount} restante{uploadingCount > 1 ? "s" : ""}
+                    Upload en cours… {uploadingCount} restant{uploadingCount > 1 ? "s" : ""} (les vidéos peuvent prendre un moment)
                   </div>
                 )}
                 {photos.length === 0 ? (
-                  <div style={{
-                    background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl,
-                    padding:"40px 24px", textAlign:"center", color:T.textSub,
-                  }}>
-                    <div style={{
-                      width:48,height:48,borderRadius:RADIUS.lg,
-                      background:acc.bg10,color:acc.accent,
-                      display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
-                    }}>
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"40px 24px", textAlign:"center", color:T.textSub }}>
+                    <div style={{ width:48,height:48,borderRadius:RADIUS.lg, background:acc.bg10,color:acc.accent, display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
                       <Icon as={Camera} size={24} strokeWidth={1.5}/>
                     </div>
-                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucune photo</div>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun média</div>
                     <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>
-                      Prends des photos sur place (état de l'existant, points d'attention) — l'appareil photo s'ouvrira directement sur mobile.
+                      Prends des photos ou filme sur place (état de l'existant, points d'attention) — l'appareil s'ouvre directement sur mobile. Max 50 Mo par vidéo.
                     </div>
                   </div>
                 ) : (
-                  <div style={{
-                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12,
-                  }}>
-                    {photos.map((ph, i) => (
-                      <div key={ph.id || i} className="pic-card" style={{
-                        background:T.surface, border:`1px solid ${T.border}`,
-                        borderRadius:RADIUS.lg, overflow:"hidden", boxShadow:SHADOW.sm,
-                      }}>
-                        <div style={{ position:"relative", aspectRatio:"4/3", background:T.card, cursor:"pointer" }}
-                          onClick={()=>setLightbox({urls:photos.map(p=>p.url),idx:i})}>
-                          <img src={ph.url} alt={ph.label||""} loading="lazy"
-                            style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
-                          <button onClick={(e)=>{e.stopPropagation();removePhoto(i);}} title="Supprimer cette photo"
-                            style={{
-                              position:"absolute", top:6, right:6,
-                              display:"inline-flex", alignItems:"center", justifyContent:"center",
-                              background:"rgba(0,0,0,0.65)", color:"#fff", border:"none",
-                              borderRadius:"50%", width:26, height:26, cursor:"pointer", padding:0,
-                            }}>
-                            <Icon as={Trash2} size={11}/>
-                          </button>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12 }}>
+                    {photos.map((ph, i) => {
+                      const isVideo = ph.type === "video";
+                      return (
+                        <div key={ph.id || i} className="pic-card" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", boxShadow:SHADOW.sm }}>
+                          <div style={{ position:"relative", aspectRatio:"4/3", background:isVideo?"#0b0d12":T.card, cursor:"pointer" }} onClick={()=>setLightbox({ idx:i })}>
+                            {isVideo ? (
+                              <video src={ph.url} preload="metadata" muted playsInline style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+                            ) : (
+                              <img src={ph.url} alt={ph.label||""} loading="lazy" style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+                            )}
+                            {isVideo && (
+                              <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
+                                <span style={{ width:40, height:40, borderRadius:"50%", background:"rgba(0,0,0,0.55)", color:"#fff", display:"inline-flex", alignItems:"center", justifyContent:"center", border:"2px solid rgba(255,255,255,0.7)" }}>
+                                  <Icon as={Play} size={16}/>
+                                </span>
+                              </div>
+                            )}
+                            <span style={{ position:"absolute", top:6, left:6, display:"inline-flex", alignItems:"center", gap:4, background:"rgba(0,0,0,0.6)", color:"#fff", borderRadius:RADIUS.sm, padding:"2px 7px", fontSize:FONT.xs.size-1, fontWeight:700, letterSpacing:.5, textTransform:"uppercase" }}>
+                              <Icon as={isVideo?Film:Camera} size={10}/>{isVideo?"Vidéo":"Photo"}
+                            </span>
+                            <button onClick={(e)=>{e.stopPropagation();removePhoto(i);}} title={isVideo?"Supprimer cette vidéo":"Supprimer cette photo"}
+                              style={{ position:"absolute", top:6, right:6, display:"inline-flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,0.65)", color:"#fff", border:"none", borderRadius:"50%", width:26, height:26, cursor:"pointer", padding:0 }}>
+                              <Icon as={Trash2} size={11}/>
+                            </button>
+                            {ph.label && (
+                              <div style={{ position:"absolute", left:0, right:0, bottom:0, padding:"18px 10px 8px", background:"linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.7))", color:"#fff", fontSize:FONT.sm.size, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", pointerEvents:"none" }}>
+                                {ph.label}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ padding:"8px 10px", display:"flex", flexDirection:"column", gap:2 }}>
+                            <input value={ph.label || ""} onChange={e=>updatePhotoField(i, "label", e.target.value)}
+                              placeholder={isVideo ? "Titre de la vidéo" : "Titre de la photo"}
+                              style={{ width:"100%", background:"transparent", border:"none", color:T.text, fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700, outline:"none", padding:"3px 0" }}/>
+                            <input value={ph.commentaire || ""} onChange={e=>updatePhotoField(i, "commentaire", e.target.value)}
+                              placeholder="Commentaire (ex : Salon — mur sud, fissure)"
+                              style={{ width:"100%", background:"transparent", border:"none", borderTop:`1px dashed ${T.border}`, color:T.textSub, fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none", padding:"5px 0 2px" }}/>
+                          </div>
                         </div>
-                        <div style={{ padding:"8px 10px" }}>
-                          <input value={ph.label || ""} onChange={e=>updatePhotoLabel(i, e.target.value)}
-                            placeholder="Libellé (ex : Salon — mur sud)"
-                            style={{
-                              width:"100%", background:"transparent", border:"none",
-                              color:T.text, fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none",
-                              padding:"3px 0",
-                            }}/>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -1520,14 +1937,21 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   Export du dossier
                 </div>
                 <p style={{color:T.textSub,fontSize:FONT.sm.size,marginBottom:14,lineHeight:1.7}}>
-                  Génère une fiche complète avec infos client, ouvrages sélectionnés, côtes, plan et photos.
+                  Le dossier de chiffrage reprend le design des documents Profero (même en-tête que le prévisionnel et la fiche opération) : tout ce qui a été saisi pendant la visite, prêt à imprimer ou à enregistrer en PDF.
                 </p>
                 <div style={{ background:acc.bg10, border:`1px solid ${acc.accent}33`, borderRadius:RADIUS.md, padding:"12px 14px", marginBottom:18 }}>
                   <div style={{display:"inline-flex",alignItems:"center",gap:5,color:acc.accent,fontWeight:700,marginBottom:8,fontSize:FONT.sm.size}}>
                     <Icon as={FileText} size={12}/>
-                    Contenu de la fiche
+                    Contenu du dossier
                   </div>
-                  {["Infos client et projet","Composition (logements)","Ouvrages avec estimation budgétaire","Côtes menuiseries / huisseries","Plan du chantier","Photos sur place","Observations"].map(i=>(
+                  {[
+                    "Client & projet : adresse, statut, composition, budget et délai",
+                    `Notes${notesPages.some(d => (d.strokes||[]).length) ? " + pages manuscrites" : ""}`,
+                    `Ouvrages retenus${estimationTotale > 0 ? " avec estimation par lot et écart budget" : ""}`,
+                    "Côtes menuiseries / huisseries",
+                    `Plans (${richPlans.length}) et croquis à main levée (${croquisList.filter(d => (d.strokes||[]).length).length})`,
+                    `Photos & vidéos (${photos.length}) avec titres et commentaires`,
+                  ].map(i=>(
                     <div key={i} style={{fontSize:FONT.xs.size+1,color:T.textSub,marginBottom:4,display:"inline-flex",alignItems:"center",gap:5,width:"100%"}}>
                       <Icon as={Check} size={10} color={acc.accent}/>
                       {i}
@@ -1535,27 +1959,27 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   ))}
                 </div>
                 <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <button onClick={handleExportWord} disabled={exporting} style={{
+                  <button onClick={exporterPDF} disabled={exporting} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:acc.accent,color:acc.onAccent,border:"none",
                     borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
                     fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,opacity:exporting?.6:1,
                   }}>
-                    <Icon as={FileDown} size={13}/>
-                    {exporting ? "Génération…" : "Exporter en Word (.docx)"}
+                    <Icon as={Download} size={13}/>
+                    {exporting ? "Génération…" : "Exporter le dossier PDF"}
                   </button>
-                  <button onClick={()=>genPDF({infos,ouvrages,cotes,plans:(richPlans||[]).filter(p=>typeof p.thumbnail==="string"&&p.thumbnail.startsWith("data:image")).map(p=>({nom:p.name,data:p.thumbnail}))})} style={{
+                  <button onClick={handleExportWord} disabled={exporting} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:"transparent",color:T.textSub,border:`1px solid ${T.border}`,
-                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:"pointer",
-                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,
+                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,opacity:exporting?.6:1,
                   }}>
-                    <Icon as={Download} size={13}/>
-                    PDF (impression navigateur)
+                    <Icon as={FileDown} size={13}/>
+                    Word (.docx)
                   </button>
                 </div>
                 <p style={{color:T.textMuted,fontSize:FONT.xs.size+1,marginTop:14,lineHeight:1.6,fontStyle:"italic"}}>
-                  Le Word inclut les photos directement dans le document. Le PDF reste accessible via l'impression du navigateur.
+                  Le PDF s'ouvre dans la fenêtre d'impression du navigateur : choisir « Enregistrer au format PDF » comme destination. Les vidéos y figurent par leur titre et leur lien (une vidéo ne s'imprime pas).
                 </p>
               </>
             )}
@@ -1563,53 +1987,55 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         </div>
       )}
 
-      {/* ── LIGHTBOX PHOTOS ── */}
-      {lightbox && (
-        <div onClick={()=>setLightbox(null)} style={{
-          position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:1200,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          padding:20, flexDirection:"column", gap:14,
-        }}>
-          <img src={lightbox.urls[lightbox.idx]} alt=""
-            onClick={e=>e.stopPropagation()}
-            style={{ maxWidth:"100%", maxHeight:"calc(100vh - 120px)", objectFit:"contain", borderRadius:8 }}/>
-          <div onClick={e=>e.stopPropagation()} style={{ display:"flex", gap:12, alignItems:"center" }}>
-            {lightbox.urls.length > 1 && (
-              <>
-                <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx-1+l.urls.length)%l.urls.length}))}
-                  style={{
-                    display:"inline-flex", alignItems:"center", justifyContent:"center",
-                    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
-                    color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit",
-                  }}>
-                  <Icon as={ChevronLeftIcon} size={16}/>
-                </button>
-                <span style={{ color:"#fff", fontSize:13, fontWeight:600 }}>
-                  {lightbox.idx + 1} / {lightbox.urls.length}
-                </span>
-                <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx+1)%l.urls.length}))}
-                  style={{
-                    display:"inline-flex", alignItems:"center", justifyContent:"center",
-                    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
-                    color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit",
-                  }}>
-                  <Icon as={ChevronRight} size={16}/>
-                </button>
-              </>
-            )}
-            <button onClick={()=>setLightbox(null)}
-              style={{
-                background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
-                color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer",
-                fontFamily:"inherit", fontSize:13, fontWeight:600,
-              }}>
-              Fermer
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* ── MODAL SÉLECTION OUVRAGES ── */}
+{/* ── LIGHTBOX PHOTOS & VIDÉOS ── */}
+      {lightbox && photos[lightbox.idx] && (() => {
+        const m = photos[lightbox.idx];
+        const isVideo = m.type === "video";
+        return (
+          <div onClick={()=>setLightbox(null)} style={{
+            position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:1200,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            padding:20, flexDirection:"column", gap:14,
+          }}>
+            {isVideo ? (
+              <video key={m.url} src={m.url} controls autoPlay playsInline onClick={e=>e.stopPropagation()}
+                style={{ maxWidth:"100%", maxHeight:"calc(100vh - 160px)", borderRadius:8, background:"#000" }}/>
+            ) : (
+              <img src={m.url} alt={m.label||""} onClick={e=>e.stopPropagation()}
+                style={{ maxWidth:"100%", maxHeight:"calc(100vh - 160px)", objectFit:"contain", borderRadius:8 }}/>
+            )}
+            {(m.label || m.commentaire) && (
+              <div onClick={e=>e.stopPropagation()} style={{ color:"#fff", textAlign:"center", maxWidth:720 }}>
+                {m.label && <div style={{ fontSize:15, fontWeight:800 }}>{m.label}</div>}
+                {m.commentaire && <div style={{ fontSize:13, opacity:.75, marginTop:3 }}>{m.commentaire}</div>}
+              </div>
+            )}
+            <div onClick={e=>e.stopPropagation()} style={{ display:"flex", gap:12, alignItems:"center" }}>
+              {photos.length > 1 && (
+                <>
+                  <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx-1+photos.length)%photos.length}))}
+                    style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit" }}>
+                    <Icon as={ChevronLeftIcon} size={16}/>
+                  </button>
+                  <span style={{ color:"#fff", fontSize:13, fontWeight:600 }}>{lightbox.idx + 1} / {photos.length}</span>
+                  <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx+1)%photos.length}))}
+                    style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit" }}>
+                    <Icon as={ChevronRight} size={16}/>
+                  </button>
+                </>
+              )}
+              <button onClick={()=>setLightbox(null)}
+                style={{ background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:600 }}>
+                Fermer
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+
+{/* ── MODAL SÉLECTION OUVRAGES ── */}
       {showModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
           onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
@@ -1873,41 +2299,127 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           </div>
         </div>
       )}
+      {/* ── MODAL BIBLIOTHÈQUE D'OUVRAGES ── */}
+      {showBiblio && (() => {
+        const liste = (biblio?.ouvrages || []).filter(o => {
+          if (biblioCat !== "Toutes" && categorieBiblio(o) !== biblioCat) return false;
+          if (biblioSearch.trim() && !(o.libelle || "").toLowerCase().includes(biblioSearch.toLowerCase())) return false;
+          return true;
+        });
+        const parCat = liste.reduce((a, o) => { const k = categorieBiblio(o); (a[k] = a[k] || []).push(o); return a; }, {});
+        const catsDispo = ["Toutes", ...Array.from(new Set((biblio?.ouvrages || []).map(categorieBiblio)))];
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
+            onClick={e=>e.target===e.currentTarget&&setShowBiblio(false)}>
+            <div style={{ background:T.modal||T.surface, borderRadius:RADIUS.xl, maxWidth:760, width:"100%", maxHeight:"88vh", border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+              <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.sectionDivider||T.border}`,display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:34,height:34,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <Icon as={Library} size={17}/>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Bibliothèque d'ouvrages</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>
+                    {biblio ? `${biblio.ouvrages.length} ouvrage${biblio.ouvrages.length>1?"s":""} — reprends-les tels quels dans le chiffrage` : "Chargement…"}
+                  </div>
+                </div>
+                <button onClick={()=>setShowBiblio(false)} title="Fermer" style={{display:"inline-flex",alignItems:"center",justifyContent:"center",background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,width:30,height:30,cursor:"pointer",color:T.textSub}}>
+                  <Icon as={X} size={13}/>
+                </button>
+              </div>
+              <div style={{padding:"12px 20px 0",display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{position:"relative"}}>
+                  <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+                  <input autoFocus style={{...inp,padding:"9px 12px 9px 30px"}} value={biblioSearch} onChange={e=>setBiblioSearch(e.target.value)} placeholder="Rechercher un ouvrage de la bibliothèque…" />
+                </div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                  {catsDispo.map(c => {
+                    const a = biblioCat === c;
+                    return <div key={c} onClick={()=>setBiblioCat(c)} style={{ padding:"3px 10px", borderRadius:RADIUS.pill, border:`1px solid ${a?acc.accent:T.border}`, background:a?acc.bg10:"transparent", color:a?acc.accent:T.textSub, fontSize:FONT.xs.size, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.4 }}>{c}</div>;
+                  })}
+                </div>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:"12px 20px 16px"}}>
+                {!biblio ? (
+                  <div style={{color:T.textMuted,textAlign:"center",padding:24,fontSize:FONT.sm.size}}>Chargement de la bibliothèque…</div>
+                ) : liste.length === 0 ? (
+                  <div style={{color:T.textMuted,textAlign:"center",padding:24,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage pour cette recherche.</div>
+                ) : Object.entries(parCat).map(([cat, items]) => {
+                  const restants = items.filter(o => !dejaRepris(o));
+                  return (
+                    <div key={cat} style={{marginBottom:14}}>
+                      <div style={{ ...h2s, marginTop:6, display:"flex", alignItems:"center", gap:8 }}>
+                        <span style={{flex:1}}>{cat} ({items.length})</span>
+                        {restants.length > 0 && (
+                          <button onClick={()=>ajouterToutBiblio(restants)} disabled={!!biblioBusy} style={{...btnSec, padding:"4px 10px", fontSize:FONT.xs.size, textTransform:"none", letterSpacing:0, opacity:biblioBusy?.5:1}}>
+                            + Tout ajouter ({restants.length})
+                          </button>
+                        )}
+                      </div>
+                      {items.map(o => {
+                        const pris = dejaRepris(o);
+                        const busy = biblioBusy === o.id;
+                        return (
+                          <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", background:pris?acc.bg10:T.card, border:`1px solid ${pris?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{ fontSize:FONT.sm.size, fontWeight:pris?700:500, color:pris?acc.accent:T.text }}>{o.libelle}</div>
+                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, display:"flex", gap:8 }}>
+                                <span>{o.unite || "U"}</span>
+                                {o.cadence ? <span>· {o.cadence} h / {o.unite || "U"}</span> : null}
+                              </div>
+                            </div>
+                            {pris ? (
+                              <span style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size, fontWeight:700, color:acc.accent }}><Icon as={Check} size={12}/> Ajouté</span>
+                            ) : (
+                              <button onClick={()=>ajouterDepuisBiblio(o)} disabled={!!biblioBusy} style={{...btn, padding:"6px 12px", display:"inline-flex", alignItems:"center", gap:4, opacity:biblioBusy&&!busy?.5:1}}>
+                                <Icon as={Plus} size={11}/> {busy ? "Ajout…" : "Ajouter"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{padding:"12px 20px",borderTop:`1px solid ${T.sectionDivider||T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>Les ouvrages repris apparaissent cochés dans leur lot ; les quantités et prix se saisissent ensuite dans la liste.</span>
+                <button onClick={()=>setShowBiblio(false)} style={{background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,flexShrink:0}}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MODAL SUPPRESSION DESSIN (page manuscrite / croquis) ── */}
+      {toDeleteDessin && (
+        <div onClick={()=>setToDeleteDessin(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer {toDeleteDessin.type === "note" ? "cette page" : "ce croquis"} ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              <strong style={{color:T.text}}>« {toDeleteDessin.nom || (toDeleteDessin.type === "note" ? "Page" : "Croquis")} »</strong> et ses {(toDeleteDessin.strokes||[]).length} trait{(toDeleteDessin.strokes||[]).length>1?"s":""} seront définitivement supprimés.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeleteDessin(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer"}}>Annuler</button>
+              <button onClick={()=>supprimerDessin(toDeleteDessin.id)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e15a5a",color:"#fff",border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-// ─── PDF ─────────────────────────────────────────────────────────────────────
-function genPDF({ infos, ouvrages, cotes, plans = [] }) {
-  const g=ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{});
-  const plansImgs=(plans||[]).filter(p=>typeof p.data==="string"&&p.data.startsWith("data:image"));
-  const d=new Date().toLocaleDateString("fr-FR");
-  const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><style>
-    body{font-family:Arial,sans-serif;margin:20px;color:#333}
-    .hd{text-align:center;border-bottom:3px solid #FFC300;padding-bottom:15px;margin-bottom:20px}
-    .hd h1{color:#FFC300;margin:0;font-size:22px}
-    .sec{margin-bottom:24px;page-break-inside:avoid}
-    h2{border-bottom:2px solid #FFC300;padding-bottom:8px;margin-bottom:12px;font-size:15px}
-    .row{margin:6px 0;font-size:14px}.lbl{font-weight:bold;color:#FFC300}
-    .cat{background:#fff9e6;padding:10px 14px;border-left:4px solid #FFC300;margin-bottom:10px;border-radius:4px}
-    .cat-t{font-weight:bold;margin-bottom:6px}ul{margin-left:20px;line-height:2}
-    .cote{background:#f9f9f9;padding:10px;border-radius:4px;margin-bottom:8px;font-size:13px}
-    img{max-width:100%;border:2px solid #FFC300;margin:10px 0;border-radius:4px}
-    .ft{margin-top:30px;text-align:center;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
-  </style></head><body>
-  <div class="hd"><div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px;"><img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCABkAGQDASIAAhEBAxEB/8QAGwABAAIDAQEAAAAAAAAAAAAAAAUGAgMEAQf/xAA4EAABAwMCBAMGBAQHAAAAAAABAAIDBAUREjEGIUFhFFFxEyIygZGhFTVS0UJTcrIWI5OxwcLw/8QAGgEBAAMBAQEAAAAAAAAAAAAAAAECAwQFBv/EACQRAAICAQQCAwADAAAAAAAAAAABAhEDBCExQRJhE1FxIqHB/9oADAMBAAIRAxEAPwCloiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAtdisNBXWqKoqGSGRxdkh5A5HCkP8LWv+XL/AKpWfCv5DB/U/wDuKl183qNTmjlklJ8s7oY4uKtFXq+F6SEF/tZRCd35BMfcjq36EKAutqqLVMGTAOY74JG7O/Y9l9Gcxr2ljxlrhgjsVFVFKLjw2I383+xDmOP6gOR+33W2n12RNebtcFZ4V0UBE6IveOMIiIAiIgCIiAIiIC/cK/kMH9T/AO4qWJA3IHzVNpb823cPw09Ph1U4v9IxqPM9+y47PdY6epcK+JlRFI7LnvaHOafPv6LwsmhyZJTye3Xs7I5lFJFznqPb6qekcHSO918jeYiHUk+fkFlWyR0Nslf8McURDR8sAf7LU+7WymhB8XA1gGQ1hB+gCqd/vzrmRDC0spmnODu8+Z/ZY4NNPLJKqii08iirvchRsiIvozhCIiAIiID0AnYE+iEEbgj1Vh4K/Mp8/wAn/sFMVIqJrPX/AIzDDG1ocYi3fbkfXOFxZdX8eTwr67339GscdxuyjaXfpP0Xivz5LjHbrd+HQxyksb7QP2A0juuSuttHWcTwR6W8ojJOxv8AEQeWfXP0VI65N/yW2/d8EvF9FN0u06sHT545IATsCfRWyTib2dyNGKSPwjX+yI674zjb5KRoKCOgvda2naGskhY8NGzTkggdshTPWSxq5xra1uFiTezKFpI/hI+SaXfpP0Vnu1ddxDFBX0sEUc0rQCw5OQQfNT1wddGzAUEdK6PHvGZxBznsolrXFK0t772290FiTvf+j51pPkfovCCN+SufD9VUVVPdKlrGeIfJlrRtq08gsrjDLWWJv4rHFDWOkDIy3GQS4AfbOQpesqfg12lz9+h8Vq0UsNc74Wk48hleK43O6M4efFQ0FNGQGBznOzz+m55bri4ihp6u1Ut3hjET5SA9o65z9wRurw1Tk43GlLhkPGldPgraIi7DImOGrhT22tllqi4MdHpGlueeQVHVVVNUPfrmkezUS0PcSB8loUpFS2xzHh9W5rw1m+MEnBOPTZYOMITeSt2XTbVElU8RRxw23wkkhdBgTMIIDhpAx36rRW3elivkdytxc4uGJo3N056fcfcLk8Ha8F3jXgcsDlkdPLn58tsLNtJamsc41bn41ADUG5OHdMZ3A9crnWLDHdJ9r9su5SZJm48OvqfHugl8RnUWaT8XnjZYUHEcJuVZVVmqNsjGsia0asAE/uo59JatRd4w6cn3WEfQZ26czvnsvIoKM22pZ4iAStkdpe8e85o+EDrz8xy8+ir8OJxadvrfr8J8pX0cRrJ5pYjUTyytY8OGtxdjmrLcLlw/cZmy1LqkuaNI0hzeWcqEgp7aYiZKlzZBC12DjGo7gen/AD2W40dpdM9zawiPJIaXjkMnrjnnA781pkjCTT3VfRWLaR10d1t9BT3KGmfMxsp/yDpOfhxv05rXU3enr7HFHUve2vpzqY/TnJHXPcfcLWKW0Nc8Goa4asty/OO2Rv8A+8liKS0F5eap2gHAZ7QZ29Pnn5Knhivyp3z/AITcqo73Xaz3WKN11heyojGC5gOHfMdOxUffbxHXMipaSIxUkPwgjBJ2HLoAsHUlsIL/ABZA30NIz8Owz367c8KOqGRx1EjIn+0ja4hrvMea0xYcalavbhPhfhEpSo1oiLsMgiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiA/9k=" style="height:48px;width:48px;object-fit:contain;background:#0a0a0a;border-radius:8px;padding:4px;" /><h1 style="margin:0;">Information Client — Rapport de Visite</h1></div><p><strong>Client :</strong> ${infos.client_nom} ${infos.client_prenom}</p><p><strong>Date :</strong> ${d}</p></div>
-  <div class="sec"><h2>Informations Client</h2>
-    <div class="row"><span class="lbl">Nom :</span> ${infos.client_nom} ${infos.client_prenom}</div>
-    <div class="row"><span class="lbl">Adresse :</span> ${infos.adresse_bien||"—"}</div>
-    <div class="row"><span class="lbl">Date de visite :</span> ${infos.date_visite?new Date(infos.date_visite).toLocaleDateString("fr-FR"):"—"}</div>
-    <div class="row"><span class="lbl">Description :</span> ${infos.description_projet||"—"}</div>
-    ${infos.logements?.length?`<div class="row"><span class="lbl">Composition :</span> ${infos.logements.join(", ")}</div>`:""}
-    ${infos.observations?`<div class="row"><span class="lbl">Observations :</span> ${infos.observations}</div>`:""}
-    ${infos.notes?`<div class="row"><span class="lbl">Notes :</span> ${String(infos.notes).replace(/\n/g,"<br>")}</div>`:""}
-  </div>
-  ${ouvrages.length>0?`<div class="sec"><h2>Ouvrages Sélectionnés</h2>${Object.entries(g).map(([cat,its])=>`<div class="cat"><div class="cat-t">${cat}</div><ul>${its.map(i=>`<li>${i.item}${i.quantite?` — ${i.quantite} ${i.unite}`:""}</li>`).join("")}</ul></div>`).join("")}</div>`:""}
-  ${cotes.length>0?`<div class="sec"><h2>Côtes</h2>${cotes.map(c=>`<div class="cote"><strong>${c.nom||"(Sans nom)"}</strong><br>L : ${c.largeur||"—"} cm | H : ${c.hauteur||"—"} cm | ${c.localisation||"—"}</div>`).join("")}</div>`:""}
-  ${plansImgs.length>0?`<div class="sec"><h2>Plans du Chantier</h2>${plansImgs.map(p=>`<div style="margin-bottom:12px;"><div style="font-weight:bold;margin-bottom:4px;">${p.nom||"Plan"}</div><img src="${p.data}" /></div>`).join("")}</div>`:""}
-  <div class="ft">Rapport généré — ${d}</div></body></html>`;
-  const w=window.open("","_blank"); w.document.write(html); w.document.close(); setTimeout(()=>{w.focus();w.print();},500);
 }
