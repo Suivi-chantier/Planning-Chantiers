@@ -26,6 +26,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-14",
     type: "nouveaute",
+    titre: "Réglages : inventaire de la bibliothèque ProGBat (simulation en lecture seule)",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Bibliothèque" }],
+    quoi: "Avant toute synchronisation réelle, on peut comparer la bibliothèque d'ouvrages Profero avec celle de ProGBat sans rien modifier. L'analyse classe chaque ouvrage Profero : déjà lié, code identique à confirmer, ambigu (plusieurs ouvrages ProGBat portent le même code), libellé identique à examiner, ou nouveau à créer. Elle signale aussi les ouvrages présents uniquement dans ProGBat et, pour chaque ouvrage Profero, ce qui manque pour qu'il soit prêt à synchroniser (code, unité, cadence, matériaux et prix, coefficient de vente, TVA).",
+    comment: "Réglages → Outils → Maintenance → carte « Inventaire de la bibliothèque » → « Analyser la bibliothèque ». Compteurs par statut cliquables pour filtrer, filtre « Bloqués », tableau code / libellé / id ProGBat / correspondance proposée / statut / prêt / blocages, puis liste des ouvrages ProGBat non liés. Aucune correspondance n'est enregistrée et aucun bouton de synchronisation n'existe encore : c'est une simulation, le bandeau bleu le rappelle. Réservé au bureau.",
+  },
+  {
+    date: "2026-09-14",
+    type: "nouveaute",
     titre: "Réglages : test de la connexion ProGBat (lecture seule)",
     pages: [{ id: "admin", label: "Réglages" }],
     quoi: "Premier pas vers la liaison avec ProGBat (logiciel de devis). Avant toute synchronisation de la bibliothèque ou création de devis, un bouton permet de vérifier que le jeton ProGBat enregistré côté serveur est valide et qu'il correspond bien au compte Profero Rénovation. Rien n'est créé ni modifié, ni dans ProGBat ni dans l'application : c'est une simple lecture du profil.",

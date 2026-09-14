@@ -19,6 +19,7 @@ import {
 } from "../access";
 import EspaceOuvrier from "./EspaceOuvrier";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
+import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 // Seuils des factures de situation (frise du cycle de vie, phase Travaux).
 import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
 
@@ -4355,6 +4356,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               )}
             </div>
           </div>
+
+          {/* Inventaire de la bibliothèque — simulation lecture seule (aucun bouton d'écriture) */}
+          <ProgbatInventaire T={T} acc={acc} />
         </div>
       )}
 
