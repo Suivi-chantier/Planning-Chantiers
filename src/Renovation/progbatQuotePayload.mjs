@@ -493,7 +493,11 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
   }
 
   const payload = { ...entete.champs, content: contenu.content };
-  const audit = auditerPayload(payload);
+  // Audit structurel : filet indépendant. Les défauts déjà signalés ligne par
+  // ligne (prix, quantité, unité, TVA, libellé) ne sont pas répétés.
+  const CODES_LIGNE_AUDIT = ["quantity_invalide", "unit_absente", "net_unit_price_invalide", "tax_rate_id_absent", "label_vide"];
+  const dejaSignalesParLigne = contenu.erreurs.length > 0;
+  const audit = auditerPayload(payload).filter(e => !(dejaSignalesParLigne && CODES_LIGNE_AUDIT.includes(e.code)));
   erreurs.push(...audit);
 
   const erreursFinales = dedoublonner(erreurs);
