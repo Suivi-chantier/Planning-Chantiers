@@ -10,7 +10,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, Clock, Wrench,
   Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye, ListOrdered, Receipt, Home,
+  Boxes, Car, Eye, ListOrdered, Receipt, Home, Plug,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -2809,6 +2809,36 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // cherche un chantier dont le nom apparait dans l'adresse du CR.
   const [syncingCR, setSyncingCR] = useState(false);
   const [syncCRMsg, setSyncCRMsg] = useState("");
+
+  // Test de connexion ProGBat : appelle l'Edge Function `progbat-test-connection`
+  // (lecture seule, GET /v2/me puis /v2/clients/me côté serveur). La session
+  // Supabase est transmise automatiquement par functions.invoke ; aucun jeton
+  // ni en-tête n'est manipulé ni affiché ici. Aucune écriture ProGBat.
+  const [progbatTesting, setProgbatTesting] = useState(false);
+  const [progbatResult, setProgbatResult]   = useState(null);
+  const testerConnexionProgbat = async () => {
+    setProgbatTesting(true); setProgbatResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-test-connection");
+      if (error && !data) {
+        // Erreur de transport ou refus avant ProGBat (401/403 Supabase) : le corps
+        // JSON de la fonction est parfois joint à l'erreur, on l'exploite si présent.
+        let body = null;
+        try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
+        setProgbatResult({
+          ok: false,
+          progbat_status: body?.progbat_status ?? null,
+          error: body?.error || error.message || "Appel de la fonction impossible.",
+        });
+      } else {
+        setProgbatResult(data || { ok: false, error: "Réponse vide de la fonction." });
+      }
+    } catch (e) {
+      setProgbatResult({ ok: false, progbat_status: null, error: e?.message || "Erreur inattendue." });
+    }
+    setProgbatTesting(false);
+  };
+
   const synchroniserCRs = async () => {
     setSyncingCR(true); setSyncCRMsg("");
     try {
@@ -4270,6 +4300,58 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               </button>
               {syncCRMsg && (
                 <div style={{flex:"1 1 100%",fontSize:FONT.xs.size+1,color:syncCRMsg.startsWith("⚠")?"#e15a5a":"#22c55e",fontWeight:600}}>{syncCRMsg}</div>
+              )}
+            </div>
+          </div>
+
+          {/* Connexion ProGBat — test en lecture seule du jeton privé (aucune synchro) */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14,marginTop:14}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+              <Icon as={Plug} size={11}/>
+              Connexion ProGBat
+            </div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",background:T.card,borderRadius:RADIUS.md}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:2}}>Tester la connexion</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.55}}>
+                  Vérifie que le jeton ProGBat enregistré dans Supabase est valide et correspond au compte Profero. Lecture seule : rien n'est créé ni modifié.
+                </div>
+              </div>
+              <button onClick={testerConnexionProgbat} disabled={progbatTesting} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:progbatTesting?T.border:acc.accent,color:progbatTesting?T.textMuted:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:progbatTesting?"not-allowed":"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11} style={progbatTesting?{animation:"spin 1s linear infinite"}:undefined}/>
+                {progbatTesting?"Test en cours…":"Tester la connexion"}
+              </button>
+              {progbatResult && (
+                <div style={{flex:"1 1 100%",fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text}}>
+                  <div style={{fontWeight:700,color:progbatResult.ok?"#22c55e":"#e15a5a"}}>
+                    {progbatResult.ok ? "✓ Connexion réussie" : "⚠ Échec de la connexion"}
+                  </div>
+                  {progbatResult.ok && (
+                    <>
+                      <div>
+                        Compte ProGBat : <strong>{[progbatResult.utilisateur?.prenom, progbatResult.utilisateur?.nom].filter(Boolean).join(" ") || "—"}</strong>
+                        {progbatResult.utilisateur?.email ? <span style={{color:T.textSub}}> ({progbatResult.utilisateur.email})</span> : null}
+                      </div>
+                      <div>
+                        Entreprise : {progbatResult.entreprise?.nom
+                          ? <strong>{progbatResult.entreprise.nom}{progbatResult.entreprise.id != null ? <span style={{color:T.textSub,fontWeight:500}}> (id {progbatResult.entreprise.id})</span> : null}</strong>
+                          : <span style={{color:T.textSub}}>non disponible{progbatResult.entreprise_status ? ` (HTTP ${progbatResult.entreprise_status} sur /clients/me — scope company-accounts.read absent, sans incidence sur le test)` : ""}</span>}
+                      </div>
+                      <div style={{color:T.textSub}}>Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}</div>
+                    </>
+                  )}
+                  {!progbatResult.ok && (
+                    <>
+                      <div>{progbatResult.error || "Erreur inconnue."}</div>
+                      <div style={{color:T.textSub}}>Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}</div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>

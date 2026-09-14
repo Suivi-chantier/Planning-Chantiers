@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
     date: "2026-09-14",
+    type: "nouveaute",
+    titre: "Réglages : test de la connexion ProGBat (lecture seule)",
+    pages: [{ id: "admin", label: "Réglages" }],
+    quoi: "Premier pas vers la liaison avec ProGBat (logiciel de devis). Avant toute synchronisation de la bibliothèque ou création de devis, un bouton permet de vérifier que le jeton ProGBat enregistré côté serveur est valide et qu'il correspond bien au compte Profero Rénovation. Rien n'est créé ni modifié, ni dans ProGBat ni dans l'application : c'est une simple lecture du profil.",
+    comment: "Réglages → Outils → Maintenance → carte « Connexion ProGBat » → « Tester la connexion ». Le résultat affiche le compte ProGBat reconnu, le nom de l'entreprise quand il est disponible et le code HTTP. Le nom de l'entreprise peut rester « non disponible » tant que l'accès ProGBat n'inclut pas le droit de lecture des comptes : cela n'empêche pas le test de réussir. Réservé au bureau (page Réglages), jamais visible dans l'espace ouvrier.",
+  },
+  {
+    date: "2026-09-14",
     type: "amelioration",
     titre: "Bibliothèque : le prix se règle par coefficient (× coût), la marge est affichée à côté",
     pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "info-client", label: "Chiffrage" }],
