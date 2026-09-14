@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, getClientId } from "../supabase";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
-import { FONT, RADIUS, SHADOW, getBranchAccent, LOGO_RENO_H } from "../constants";
+import { FONT, RADIUS, SHADOW, getBranchAccent, LOGO_RENO_H, loadLots } from "../constants";
 import { Icon } from "../ui";
 import StylusCanvas, { renderStrokesDataURL } from "./StylusCanvas";
 import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
-import { CATEGORIES_BASE } from "./Bibliotheque";
 import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
@@ -67,6 +66,16 @@ const NOTE_W = 1000, NOTE_H = 1400;
 const CROQUIS_W = 1400, CROQUIS_H = 1000;
 const fmtEur = (n) => Number(n || 0).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " €";
 
+// Code en tête d'un libellé de la bibliothèque : « D-001 : Dépose… »,
+// « E-002.3 : Tableau… », « COUV-001 : Reprise… ». Lettres MAJUSCULES + tiret +
+// numéro (décimale possible). Renvoie null si le libellé n'est pas codé.
+function decoderLibelleCode(libelle) {
+  const s = (libelle || "").trim();
+  const m = s.match(/^([A-Z]{1,4})\s?[-–]\s?(\d{1,5}(?:\.\d+)?)\s*[:\-–—]?\s*([\s\S]*)$/);
+  if (!m) return null;
+  return { code: `${m[1]}-${m[2]}`, prefixe: m[1], num: parseFloat(m[2]), reste: (m[3] || "").trim() || s };
+}
+
 export default function PageInfoClient({ T, branch = "renovation", chantiers = [] }) {
   const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
@@ -119,14 +128,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [toDeleteDessin, setToDeleteDessin] = useState(null);
   const dessinOuvertRef = useRef(null);
   const vignetteCache = useRef(new Map());
-  // Reprise d'ouvrages depuis la bibliothèque (page Bibliothèque)
-  const [showBiblio, setShowBiblio]   = useState(false);
-  const [biblio, setBiblio]           = useState(null);      // { ouvrages, categories } chargé à l'ouverture
-  const [biblioSearch, setBiblioSearch] = useState("");
-  const [biblioCat, setBiblioCat]     = useState("Toutes");
+  // Bibliothèque d'ouvrages (page Bibliothèque) : source principale de l'onglet
+  // Ouvrages — seuls les libellés codés (« D-001 : … ») sont proposés.
+  const [biblio, setBiblio]           = useState(null);      // { ouvrages, lots } chargé au montage
   const [biblioBusy, setBiblioBusy]   = useState(null);
-  const categoriesRef = useRef(categories);
-  useEffect(() => { categoriesRef.current = categories; }, [categories]);
+  const [showAnciens, setShowAnciens] = useState(false);     // anciens ouvrages du chiffrage (masqués par défaut)
   // Colonnes/table de la v2 absentes en base (SQL 202609_chiffrage_v2 pas encore lancé)
   const [schemaV2Manquant, setSchemaV2Manquant] = useState(false);
   // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
@@ -162,7 +168,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const tabS = (a) => ({ padding:"7px 16px", border:a?"none":`1px solid ${border}`, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, background:a?accent:card, color:a?"#000":textSub, letterSpacing:.4, textTransform:"uppercase", transition:"all .12s" });
 
   // ─── INIT ────────────────────────────────────────────────────────────────────
-  useEffect(() => { chargerProjets(); chargerCategories(); }, []);
+  useEffect(() => { chargerProjets(); chargerCategories(); chargerBiblio(); }, []);
 
   // ─── DATA ────────────────────────────────────────────────────────────────────
   async function chargerProjets() {
@@ -684,46 +690,34 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     return cache.get(key);
   }
 
-  // ─── REPRISE DEPUIS LA BIBLIOTHÈQUE D'OUVRAGES ───────────────────────────────
-  // Les ouvrages de la page Bibliothèque (bibliotheque_ratios) sont classés par
-  // préfixe d'identifiant (CATEGORIES_BASE + catégories custom de planning_config),
-  // exactement comme là-bas. Un ouvrage repris rejoint le lot du même nom dans
-  // le chiffrage (créé au besoin) pour rester cochable dans la liste.
-  async function ouvrirBibliotheque() {
-    setShowBiblio(true);
-    if (biblio) return;
-    const [{ data: ouv }, { data: cfg }] = await Promise.all([
+  // ─── BIBLIOTHÈQUE D'OUVRAGES (source principale de l'onglet Ouvrages) ────────
+  // Seuls les ouvrages dont le libellé commence par un code (« D-001 : … »)
+  // sont proposés ; le préfixe du code renvoie au lot de travaux
+  // (code_prefixe, planning_config.lots_travaux). Les anciens ouvrages du
+  // chiffrage (profero_categories_ouvrages) restent disponibles mais masqués.
+  async function chargerBiblio() {
+    const [{ data: ouv }, lots] = await Promise.all([
       supabase.from("bibliotheque_ratios").select("id,identifiant,libelle,unite,cadence").order("libelle"),
-      supabase.from("planning_config").select("value").eq("key", "bibliotheque_categories_custom").maybeSingle(),
+      loadLots(),
     ]);
-    const custom = Array.isArray(cfg?.value?.items) ? cfg.value.items : [];
-    setBiblio({ ouvrages: ouv || [], categories: [...CATEGORIES_BASE, ...custom] });
+    setBiblio({ ouvrages: ouv || [], lots: lots || [] });
   }
-  const categorieBiblio = (o) => (biblio?.categories || []).find(c => (c.ids || []).some(k => (o.identifiant || "").startsWith(k)))?.label || "Autres";
-  const dejaRepris = (o) => ouvrages.some(x => x.bibliotheque_id === o.id || (x.item === (o.libelle || "").trim() && x.category === categorieBiblio(o)));
-  async function ajouterDepuisBiblio(o) {
-    if (!projetId || dejaRepris(o)) return;
-    const lot = categorieBiblio(o);
-    const lib = (o.libelle || "").trim();
-    if (!lib) return;
+  const selDeBiblio = (o) =>
+    ouvrages.find(x => x.bibliotheque_id === o.id)
+    || ouvrages.find(x => !x.bibliotheque_id && x.item === (o.libelle || "").trim())
+    || null;
+  async function togBiblio(o, lotLabel) {
+    if (!projetId || biblioBusy) return;
+    const sel = selDeBiblio(o);
     setBiblioBusy(o.id);
     try {
-      // 1) Lot + libellé dans les lots du chiffrage (bibliothèque locale)
-      let cats = categoriesRef.current;
-      if (!cats[lot]) {
-        const { data: rows } = await supabase.from("profero_categories_ouvrages").select("ordre");
-        const maxOrdre = (rows || []).reduce((m, r) => Math.max(m, r.ordre ?? 0), -1);
-        await supabase.from("profero_categories_ouvrages").insert({ nom: lot, ouvrages: [lib], ordre: maxOrdre + 1 });
-        cats = { ...cats, [lot]: [lib] };
-      } else if (!cats[lot].includes(lib)) {
-        const l = [...cats[lot], lib];
-        await supabase.from("profero_categories_ouvrages").update({ ouvrages: l }).eq("nom", lot);
-        cats = { ...cats, [lot]: l };
+      if (sel) {
+        await supabase.from("profero_ouvrages_selectionnes").delete().eq("id", sel.id);
+        setOuvrages(p => p.filter(x => x.id !== sel.id));
+        return;
       }
-      categoriesRef.current = cats;
-      setCategories(cats);
-      // 2) Sélection sur le projet, avec le lien vers la bibliothèque
-      const base = { projet_id: projetId, category: lot, item: lib, quantite: "", unite: o.unite || "U" };
+      const unite = (o.unite || "U").trim().replace(/^m2$/i, "m²").replace(/^u$/i, "U");
+      const base = { projet_id: projetId, category: lotLabel, item: (o.libelle || "").trim(), quantite: "", unite };
       let { data, error } = await supabase.from("profero_ouvrages_selectionnes").insert({ ...base, bibliotheque_id: o.id }).select().single();
       if (error) {
         // Colonne bibliotheque_id absente (SQL v2 pas lancé) : on garde l'ouvrage sans le lien
@@ -734,9 +728,6 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     } finally {
       setBiblioBusy(null);
     }
-  }
-  async function ajouterToutBiblio(liste) {
-    for (const o of liste) await ajouterDepuisBiblio(o);
   }
 
   // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
@@ -803,7 +794,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       const st = statutMeta(infos.statut);
       const html = buildChiffrageDocHTML({
         infos, statut: { label: st.label, color: st.color },
-        ouvrages, lotsOrdre: Object.keys(categories), cotes,
+        ouvrages, lotsOrdre: [...(biblio?.lots || []).map(l => l.label), ...Object.keys(categories)], cotes,
         notesPages: notesImgs, plans: plansImgs, croquis: croquisImgs,
         medias: photos.map(p => ({ type: p.type === "video" ? "video" : "image", url: p.url, label: p.label, commentaire: p.commentaire })),
         logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
@@ -862,6 +853,26 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const croquisActif = croquisList.find(d => d.id === croquisOuvert) || null;
   dessinOuvertRef.current = croquisActif?.id || (tab === "notes" && notesMode === "manuscrit" ? pageActive?.id : null) || null;
 
+  // Bibliothèque : ouvrages codés, groupés par lot (préfixe du code → code_prefixe)
+  const groupesBiblio = (() => {
+    const lots = biblio?.lots || [];
+    const map = new Map();
+    (biblio?.ouvrages || []).forEach(o => {
+      const c = decoderLibelleCode(o.libelle);
+      if (!c) return;
+      const lot = lots.find(l => (l.code_prefixe || "").toUpperCase() === c.prefixe);
+      const key = lot ? lot.label : c.prefixe;
+      if (!map.has(key)) map.set(key, { label: key, couleur: lot?.couleur || "#8a90a0", prefixe: c.prefixe, ordre: lot ? lots.indexOf(lot) : 999, items: [] });
+      map.get(key).items.push({ ...o, _code: c });
+    });
+    return [...map.values()]
+      .sort((a, b) => a.ordre - b.ordre || a.label.localeCompare(b.label))
+      .map(g => ({ ...g, items: g.items.sort((a, b) => a._code.num - b._code.num || a._code.code.localeCompare(b._code.code)) }));
+  })();
+  const nbBiblio = groupesBiblio.reduce((s, g) => s + g.items.length, 0);
+  const nbAnciens = Object.values(categories).flat().length;
+  const nbAnciensSel = ouvrages.filter(o => !o.bibliotheque_id && (categories[o.category] || []).includes(o.item)).length;
+
   // ─── RENDU ───────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontSize:FONT.sm.size}}>
@@ -870,6 +881,42 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   );
 
   const projetActif = projets.find(p => p.id === projetId);
+  // Ligne d'édition d'un ouvrage sélectionné (quantité × unité × prix) — partagée
+  // entre la liste bibliothèque et les anciens ouvrages.
+  const ligneEdition = (sel) => {
+    const q  = parseFloat(sel.quantite) || 0;
+    const pu = parseFloat(sel.prix_unitaire) || 0;
+    const totalLigne = q * pu;
+    return (
+      <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
+        <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
+          className="qte-input"
+          style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
+        <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
+          className="unit-select"
+          style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
+          <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option><option value="m3">m³</option><option value="kg">kg</option><option value="forfait">Forfait</option>{!["U","m","m²","ml","m3","kg","forfait"].includes(sel.unite||"U") && <option value={sel.unite}>{sel.unite}</option>}
+        </select>
+        <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
+        <div className="prix-wrap" style={{position:"relative",width:100}}>
+          <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
+            style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
+          <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+        </div>
+        {totalLigne > 0 && (
+          <span className="total-badge" style={{
+            marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:4,
+            fontSize:FONT.xs.size+1, fontWeight:800, color:"#22c55e",
+            background:"rgba(34,197,94,0.10)", border:"1px solid rgba(34,197,94,0.25)",
+            borderRadius:RADIUS.sm, padding:"3px 8px",
+          }}>
+            = {totalLigne.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+          </span>
+        )}
+      </div>
+    );
+  };
+
 
   return (
     <div className="pic-page" style={{ flex:1, minWidth:0, width:"100%", display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
@@ -1414,146 +1461,171 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
               <>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
                   <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
-                    <Icon as={Hammer} size={11}/>
-                    {manageMode ? "Gérer lots & ouvrages" : "Sélection d'ouvrages"}
+                    <Icon as={manageMode ? Settings : Library} size={11}/>
+                    {manageMode ? "Gérer les anciens lots & ouvrages" : "Ouvrages de la bibliothèque"}
+                    {!manageMode && biblio && <span style={{color:acc.accent}}>· {nbBiblio}</span>}
                   </div>
                   <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                    {!manageMode && (
-                      <button onClick={ouvrirBibliotheque} style={{ ...btnSec, display:"inline-flex", alignItems:"center", gap:5, borderColor:acc.accent, color:acc.accent }}>
-                        <Icon as={Library} size={11}/>
-                        Bibliothèque
+                    <button onClick={()=>{ setShowAnciens(v=>!v); if (showAnciens) { setManageMode(false); setEditLib(null); setEditLot(null); setAddLibCat(null); } }}
+                      style={{ ...btnSec, display:"inline-flex", alignItems:"center", gap:5, ...(showAnciens ? { borderColor:acc.accent, color:acc.accent } : {}) }}>
+                      <Icon as={Layers} size={11}/>
+                      {showAnciens ? "Masquer les anciens ouvrages" : `Anciens ouvrages (${nbAnciens})`}
+                      {!showAnciens && nbAnciensSel > 0 && <span style={{ background:acc.accent, color:acc.onAccent, borderRadius:RADIUS.pill, padding:"0 6px", fontSize:FONT.xs.size-1 }}>{nbAnciensSel} coché{nbAnciensSel>1?"s":""}</span>}
+                    </button>
+                    {showAnciens && (
+                      <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
+                        style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
+                        <Icon as={manageMode?Check:Settings} size={11}/>
+                        {manageMode ? "Terminer" : "Gérer"}
                       </button>
                     )}
-                    <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
-                      style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
-                      <Icon as={manageMode?Check:Settings} size={11}/>
-                      {manageMode ? "Terminer" : "Gérer"}
-                    </button>
                   </div>
                 </div>
                 <div style={{position:"relative",marginBottom:10}}>
                   <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
-                  <input style={{...inp,padding:"9px 12px 9px 30px"}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un ouvrage…" />
+                  <input style={{...inp,padding:"9px 12px 9px 30px"}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un ouvrage (code ou libellé)…" />
                 </div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:14 }}>
-                  {Object.keys(categories).map(cat => {
+                  {[...groupesBiblio.map(g => g.label), ...(showAnciens ? Object.keys(categories).filter(c => !groupesBiblio.some(g => g.label === c)) : [])].map(cat => {
                     const a=filtresCat.includes(cat);
                     return <div key={cat} onClick={()=>setFiltresCat(p=>p.includes(cat)?p.filter(c=>c!==cat):[...p,cat])} style={{ padding:"3px 10px", borderRadius:RADIUS.pill, border:`1px solid ${a?acc.accent:T.border}`, background:a?acc.bg10:"transparent", color:a?acc.accent:T.textSub, fontSize:FONT.xs.size, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.4 }}>{cat}</div>;
                   })}
                 </div>
 
-                {manageMode && (
-                  <div style={{ display:"flex", gap:6, marginBottom:14, alignItems:"center", flexWrap:"wrap" }}>
-                    <input style={{...inp, flex:"1 1 200px"}} value={newLotName} onChange={e=>setNewLotName(e.target.value)}
-                      placeholder="Nouveau lot (ex : Carrelage, Isolation…)" onKeyDown={e=>e.key==="Enter"&&createLot(newLotName)} />
-                    <button onClick={()=>createLot(newLotName)} style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
-                      <Icon as={Plus} size={12}/> Créer un lot
-                    </button>
-                  </div>
+                {/* ── Ouvrages codés de la bibliothèque, par lot ── */}
+                {!manageMode && (
+                  !biblio ? (
+                    <div style={{color:T.textMuted,fontSize:FONT.sm.size,textAlign:"center",padding:20}}>Chargement de la bibliothèque…</div>
+                  ) : nbBiblio === 0 ? (
+                    <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"28px 22px", textAlign:"center", color:T.textSub, marginBottom:14 }}>
+                      <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun ouvrage codé dans la bibliothèque</div>
+                      <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Seuls les ouvrages dont le libellé commence par un code (ex : « D-001 : Dépose… ») sont proposés ici. Complète les codes dans la page Bibliothèque.</div>
+                    </div>
+                  ) : groupesBiblio.map(g => {
+                    const q = search.trim().toLowerCase();
+                    const vis = g.items.filter(o => (filtresCat.length===0 || filtresCat.includes(g.label)) && (!q || o._code.code.toLowerCase().includes(q) || (o.libelle||"").toLowerCase().includes(q)));
+                    if (vis.length === 0) return null;
+                    return (
+                      <div key={g.label}>
+                        <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ width:9, height:9, borderRadius:"50%", background:g.couleur, flexShrink:0 }}/>
+                          <span style={{flex:1}}>{g.label} ({g.items.length})</span>
+                          <span style={{ fontSize:FONT.xs.size-1, fontWeight:800, letterSpacing:.5, color:T.textSub, background:T.card, border:`1px solid ${T.border}`, padding:"1px 7px", borderRadius:RADIUS.sm }}>{g.prefixe}</span>
+                        </div>
+                        {vis.map(o => {
+                          const sel = selDeBiblio(o), chk = !!sel, busy = biblioBusy === o.id;
+                          return (
+                            <div key={o.id} style={{ padding:"9px 12px", background:chk?acc.bg10:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s", opacity:busy?.6:1 }}>
+                              <input type="checkbox" checked={chk} disabled={busy} onChange={()=>togBiblio(o, g.label)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:3, flexShrink:0, cursor:"pointer" }} />
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                                  <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:g.couleur, background:g.couleur+"1f", border:`1px solid ${g.couleur}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{o._code.code}</span>
+                                  <div onClick={()=>!chk&&togBiblio(o, g.label)} style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500, lineHeight:1.45, cursor:chk?"default":"pointer", ...(chk ? {} : { display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }) }}>{o._code.reste}</div>
+                                </div>
+                                <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2 }}>
+                                  {o.unite || "U"}{o.cadence ? ` · ${o.cadence} h / ${o.unite || "U"}` : ""}
+                                </div>
+                                {chk && ligneEdition(sel)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
                 )}
 
-                {Object.entries(categories).map(([cat,items],catIndex,arr) => {
-                  const vis=items.filter(item=>(!search||item.toLowerCase().includes(search.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
-                  if(vis.length===0 && !manageMode) return null;
-                  return (
-                    <div key={cat}>
-                      {manageMode ? (
-                        <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
-                          {editLot && editLot.nom===cat ? (
-                            <input autoFocus style={{...inp, flex:1, padding:"5px 8px", fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:0}}
-                              value={editLot.value} onChange={e=>setEditLot({nom:cat, value:e.target.value})}
-                              onKeyDown={e=>{ if(e.key==="Enter") renameLot(cat, editLot.value); if(e.key==="Escape") setEditLot(null); }}
-                              onBlur={()=>renameLot(cat, editLot.value)} />
-                          ) : (
-                            <span style={{flex:1}}>{cat} ({items.length})</span>
-                          )}
-                          <button title="Monter" disabled={catIndex===0||reordering} onClick={()=>reorderLot(cat,-1)} style={{...iconBtnSec, opacity:(catIndex===0||reordering)?.4:1}}><Icon as={ArrowUp} size={12}/></button>
-                          <button title="Descendre" disabled={catIndex===arr.length-1||reordering} onClick={()=>reorderLot(cat,1)} style={{...iconBtnSec, opacity:(catIndex===arr.length-1||reordering)?.4:1}}><Icon as={ArrowDown} size={12}/></button>
-                          <button title="Renommer le lot" onClick={()=>setEditLot({nom:cat, value:cat})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
-                          <button title="Supprimer le lot" onClick={()=>setToDeleteLot(cat)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
-                        </div>
-                      ) : (
-                        <div style={h2s}>{cat} ({items.length})</div>
-                      )}
-                      {vis.map((item) => {
-                        const idx=items.indexOf(item);
-                        const sel=ouvrages.find(o=>o.category===cat&&o.item===item), chk=!!sel;
-                        const isEditing=editLib&&editLib.cat===cat&&editLib.idx===idx;
-                        return (
-                          <div key={idx} style={{ padding:"9px 12px", background:chk&&!manageMode?acc.bg10:T.card, border:`1px solid ${chk&&!manageMode?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
-                            {!manageMode && <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />}
-                            <div style={{flex:1,minWidth:0}}>
-                              {isEditing ? (
-                                <input autoFocus style={{...inp, padding:"5px 8px", fontSize:FONT.sm.size}}
-                                  value={editLib.value} onChange={e=>setEditLib({cat,idx,value:e.target.value})}
-                                  onKeyDown={e=>{ if(e.key==="Enter") renameOuvrageLib(cat,idx,editLib.value); if(e.key==="Escape") setEditLib(null); }}
-                                  onBlur={()=>renameOuvrageLib(cat,idx,editLib.value)} />
+                {/* ── Anciens ouvrages du chiffrage (masqués par défaut) ── */}
+                {showAnciens && (
+                  <>
+                    {!manageMode && (
+                      <div style={{ ...h2s, marginTop:24, color:T.textMuted, display:"flex", alignItems:"center", gap:8 }}>
+                        <Icon as={Layers} size={11}/> Anciens ouvrages du chiffrage ({nbAnciens})
+                      </div>
+                    )}
+                    {manageMode && (
+                      <div style={{ display:"flex", gap:6, marginBottom:14, alignItems:"center", flexWrap:"wrap" }}>
+                        <input style={{...inp, flex:"1 1 200px"}} value={newLotName} onChange={e=>setNewLotName(e.target.value)}
+                          placeholder="Nouveau lot (ex : Carrelage, Isolation…)" onKeyDown={e=>e.key==="Enter"&&createLot(newLotName)} />
+                        <button onClick={()=>createLot(newLotName)} style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
+                          <Icon as={Plus} size={12}/> Créer un lot
+                        </button>
+                      </div>
+                    )}
+
+                    {Object.entries(categories).map(([cat,items],catIndex,arr) => {
+                      const vis=items.filter(item=>(!search||item.toLowerCase().includes(search.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
+                      if(vis.length===0 && !manageMode) return null;
+                      return (
+                        <div key={cat}>
+                          {manageMode ? (
+                            <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
+                              {editLot && editLot.nom===cat ? (
+                                <input autoFocus style={{...inp, flex:1, padding:"5px 8px", fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:0}}
+                                  value={editLot.value} onChange={e=>setEditLot({nom:cat, value:e.target.value})}
+                                  onKeyDown={e=>{ if(e.key==="Enter") renameLot(cat, editLot.value); if(e.key==="Escape") setEditLot(null); }}
+                                  onBlur={()=>renameLot(cat, editLot.value)} />
                               ) : (
-                                <div style={{ fontSize:FONT.sm.size, color:chk&&!manageMode?acc.accent:T.text, fontWeight:chk&&!manageMode?700:500 }}>{item}</div>
+                                <span style={{flex:1}}>{cat} ({items.length})</span>
                               )}
-                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}{chk && sel?.bibliotheque_id ? " · repris de la bibliothèque" : ""}</div>
-                              {chk && !manageMode && (() => {
-                                const q  = parseFloat(sel.quantite) || 0;
-                                const pu = parseFloat(sel.prix_unitaire) || 0;
-                                const totalLigne = q * pu;
-                                return (
-                                  <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
-                                    <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
-                                      className="qte-input"
-                                      style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
-                                    <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
-                                      className="unit-select"
-                                      style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
-                                      <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option>{!["U","m","m²","ml"].includes(sel.unite||"U") && <option value={sel.unite}>{sel.unite}</option>}
-                                    </select>
-                                    <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
-                                    <div className="prix-wrap" style={{position:"relative",width:100}}>
-                                      <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
-                                        style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
-                                      <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
-                                    </div>
-                                    {totalLigne > 0 && (
-                                      <span className="total-badge" style={{
-                                        marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:4,
-                                        fontSize:FONT.xs.size+1, fontWeight:800, color:"#22c55e",
-                                        background:"rgba(34,197,94,0.10)", border:"1px solid rgba(34,197,94,0.25)",
-                                        borderRadius:RADIUS.sm, padding:"3px 8px",
-                                      }}>
-                                        = {totalLigne.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })()}
+                              <button title="Monter" disabled={catIndex===0||reordering} onClick={()=>reorderLot(cat,-1)} style={{...iconBtnSec, opacity:(catIndex===0||reordering)?.4:1}}><Icon as={ArrowUp} size={12}/></button>
+                              <button title="Descendre" disabled={catIndex===arr.length-1||reordering} onClick={()=>reorderLot(cat,1)} style={{...iconBtnSec, opacity:(catIndex===arr.length-1||reordering)?.4:1}}><Icon as={ArrowDown} size={12}/></button>
+                              <button title="Renommer le lot" onClick={()=>setEditLot({nom:cat, value:cat})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
+                              <button title="Supprimer le lot" onClick={()=>setToDeleteLot(cat)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
                             </div>
-                            {manageMode && !isEditing && (
-                              <div style={{display:"flex", gap:4, flexShrink:0}}>
-                                <button title="Renommer l'ouvrage" onClick={()=>setEditLib({cat,idx,value:item})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
-                                <button title="Supprimer l'ouvrage" onClick={()=>setToDeleteOuvrage({cat,idx,label:item})} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                          ) : (
+                            <div style={h2s}>{cat} ({items.length})</div>
+                          )}
+                          {vis.map((item) => {
+                            const idx=items.indexOf(item);
+                            const sel=ouvrages.find(o=>o.category===cat&&o.item===item), chk=!!sel;
+                            const isEditing=editLib&&editLib.cat===cat&&editLib.idx===idx;
+                            return (
+                              <div key={idx} style={{ padding:"9px 12px", background:chk&&!manageMode?acc.bg10:T.card, border:`1px solid ${chk&&!manageMode?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
+                                {!manageMode && <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />}
+                                <div style={{flex:1,minWidth:0}}>
+                                  {isEditing ? (
+                                    <input autoFocus style={{...inp, padding:"5px 8px", fontSize:FONT.sm.size}}
+                                      value={editLib.value} onChange={e=>setEditLib({cat,idx,value:e.target.value})}
+                                      onKeyDown={e=>{ if(e.key==="Enter") renameOuvrageLib(cat,idx,editLib.value); if(e.key==="Escape") setEditLib(null); }}
+                                      onBlur={()=>renameOuvrageLib(cat,idx,editLib.value)} />
+                                  ) : (
+                                    <div style={{ fontSize:FONT.sm.size, color:chk&&!manageMode?acc.accent:T.text, fontWeight:chk&&!manageMode?700:500 }}>{item}</div>
+                                  )}
+                                  <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}{chk && sel?.bibliotheque_id ? " · repris de la bibliothèque" : ""}</div>
+                                  {chk && !manageMode && ligneEdition(sel)}
+                                </div>
+                                {manageMode && !isEditing && (
+                                  <div style={{display:"flex", gap:4, flexShrink:0}}>
+                                    <button title="Renommer l'ouvrage" onClick={()=>setEditLib({cat,idx,value:item})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
+                                    <button title="Supprimer l'ouvrage" onClick={()=>setToDeleteOuvrage({cat,idx,label:item})} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {manageMode && (
-                        addLibCat===cat ? (
-                          <div style={{display:"flex", gap:6, marginBottom:10, alignItems:"center"}}>
-                            <input autoFocus style={{...inp, flex:1, padding:"7px 10px", fontSize:FONT.sm.size}}
-                              value={addLibVal} onChange={e=>setAddLibVal(e.target.value)}
-                              placeholder={`Nouvel ouvrage dans « ${cat} »`}
-                              onKeyDown={e=>{ if(e.key==="Enter") addOuvrageToCat(cat, addLibVal); if(e.key==="Escape"){setAddLibCat(null);setAddLibVal("");} }} />
-                            <button onClick={()=>addOuvrageToCat(cat, addLibVal)} style={{...btn, padding:"7px 12px"}}><Icon as={Check} size={12}/></button>
-                            <button onClick={()=>{setAddLibCat(null);setAddLibVal("");}} style={{...btnSec, padding:"7px 12px"}}><Icon as={X} size={12}/></button>
-                          </div>
-                        ) : (
-                          <button onClick={()=>{setAddLibCat(cat);setAddLibVal("");}} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, marginBottom:10}}>
-                            <Icon as={Plus} size={11}/> Ajouter un ouvrage
-                          </button>
-                        )
-                      )}
-                    </div>
-                  );
-                })}
+                            );
+                          })}
+                          {manageMode && (
+                            addLibCat===cat ? (
+                              <div style={{display:"flex", gap:6, marginBottom:10, alignItems:"center"}}>
+                                <input autoFocus style={{...inp, flex:1, padding:"7px 10px", fontSize:FONT.sm.size}}
+                                  value={addLibVal} onChange={e=>setAddLibVal(e.target.value)}
+                                  placeholder={`Nouvel ouvrage dans « ${cat} »`}
+                                  onKeyDown={e=>{ if(e.key==="Enter") addOuvrageToCat(cat, addLibVal); if(e.key==="Escape"){setAddLibCat(null);setAddLibVal("");} }} />
+                                <button onClick={()=>addOuvrageToCat(cat, addLibVal)} style={{...btn, padding:"7px 12px"}}><Icon as={Check} size={12}/></button>
+                                <button onClick={()=>{setAddLibCat(null);setAddLibVal("");}} style={{...btnSec, padding:"7px 12px"}}><Icon as={X} size={12}/></button>
+                              </div>
+                            ) : (
+                              <button onClick={()=>{setAddLibCat(cat);setAddLibVal("");}} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, marginBottom:10}}>
+                                <Icon as={Plus} size={11}/> Ajouter un ouvrage
+                              </button>
+                            )
+                          )}
+                        </div>
+                      );
+                    })}
+
+                  </>
+                )}
 
                 {(() => {
                   // Estimation par catégorie + total
@@ -1584,8 +1656,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                             <Icon as={Layers} size={15}/>
                           </div>
                           <div>
-                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{Object.values(categories).flat().length}</div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Disponibles</div>
+                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{nbBiblio}</div>
+                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Dans la bibliothèque</div>
                           </div>
                         </div>
                         <div style={{ background:T.surface, border:`1px solid ${totalGlobal > 0 ? "rgba(34,197,94,0.40)" : T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:"2 1 240px", display:"flex", alignItems:"center", gap:10 }}>
@@ -2299,97 +2371,6 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           </div>
         </div>
       )}
-      {/* ── MODAL BIBLIOTHÈQUE D'OUVRAGES ── */}
-      {showBiblio && (() => {
-        const liste = (biblio?.ouvrages || []).filter(o => {
-          if (biblioCat !== "Toutes" && categorieBiblio(o) !== biblioCat) return false;
-          if (biblioSearch.trim() && !(o.libelle || "").toLowerCase().includes(biblioSearch.toLowerCase())) return false;
-          return true;
-        });
-        const parCat = liste.reduce((a, o) => { const k = categorieBiblio(o); (a[k] = a[k] || []).push(o); return a; }, {});
-        const catsDispo = ["Toutes", ...Array.from(new Set((biblio?.ouvrages || []).map(categorieBiblio)))];
-        return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
-            onClick={e=>e.target===e.currentTarget&&setShowBiblio(false)}>
-            <div style={{ background:T.modal||T.surface, borderRadius:RADIUS.xl, maxWidth:760, width:"100%", maxHeight:"88vh", border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
-              <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.sectionDivider||T.border}`,display:"flex",alignItems:"center",gap:12}}>
-                <div style={{width:34,height:34,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  <Icon as={Library} size={17}/>
-                </div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Bibliothèque d'ouvrages</div>
-                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>
-                    {biblio ? `${biblio.ouvrages.length} ouvrage${biblio.ouvrages.length>1?"s":""} — reprends-les tels quels dans le chiffrage` : "Chargement…"}
-                  </div>
-                </div>
-                <button onClick={()=>setShowBiblio(false)} title="Fermer" style={{display:"inline-flex",alignItems:"center",justifyContent:"center",background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,width:30,height:30,cursor:"pointer",color:T.textSub}}>
-                  <Icon as={X} size={13}/>
-                </button>
-              </div>
-              <div style={{padding:"12px 20px 0",display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{position:"relative"}}>
-                  <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
-                  <input autoFocus style={{...inp,padding:"9px 12px 9px 30px"}} value={biblioSearch} onChange={e=>setBiblioSearch(e.target.value)} placeholder="Rechercher un ouvrage de la bibliothèque…" />
-                </div>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-                  {catsDispo.map(c => {
-                    const a = biblioCat === c;
-                    return <div key={c} onClick={()=>setBiblioCat(c)} style={{ padding:"3px 10px", borderRadius:RADIUS.pill, border:`1px solid ${a?acc.accent:T.border}`, background:a?acc.bg10:"transparent", color:a?acc.accent:T.textSub, fontSize:FONT.xs.size, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.4 }}>{c}</div>;
-                  })}
-                </div>
-              </div>
-              <div style={{flex:1,overflowY:"auto",padding:"12px 20px 16px"}}>
-                {!biblio ? (
-                  <div style={{color:T.textMuted,textAlign:"center",padding:24,fontSize:FONT.sm.size}}>Chargement de la bibliothèque…</div>
-                ) : liste.length === 0 ? (
-                  <div style={{color:T.textMuted,textAlign:"center",padding:24,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage pour cette recherche.</div>
-                ) : Object.entries(parCat).map(([cat, items]) => {
-                  const restants = items.filter(o => !dejaRepris(o));
-                  return (
-                    <div key={cat} style={{marginBottom:14}}>
-                      <div style={{ ...h2s, marginTop:6, display:"flex", alignItems:"center", gap:8 }}>
-                        <span style={{flex:1}}>{cat} ({items.length})</span>
-                        {restants.length > 0 && (
-                          <button onClick={()=>ajouterToutBiblio(restants)} disabled={!!biblioBusy} style={{...btnSec, padding:"4px 10px", fontSize:FONT.xs.size, textTransform:"none", letterSpacing:0, opacity:biblioBusy?.5:1}}>
-                            + Tout ajouter ({restants.length})
-                          </button>
-                        )}
-                      </div>
-                      {items.map(o => {
-                        const pris = dejaRepris(o);
-                        const busy = biblioBusy === o.id;
-                        return (
-                          <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", background:pris?acc.bg10:T.card, border:`1px solid ${pris?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{ fontSize:FONT.sm.size, fontWeight:pris?700:500, color:pris?acc.accent:T.text }}>{o.libelle}</div>
-                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted, display:"flex", gap:8 }}>
-                                <span>{o.unite || "U"}</span>
-                                {o.cadence ? <span>· {o.cadence} h / {o.unite || "U"}</span> : null}
-                              </div>
-                            </div>
-                            {pris ? (
-                              <span style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size, fontWeight:700, color:acc.accent }}><Icon as={Check} size={12}/> Ajouté</span>
-                            ) : (
-                              <button onClick={()=>ajouterDepuisBiblio(o)} disabled={!!biblioBusy} style={{...btn, padding:"6px 12px", display:"inline-flex", alignItems:"center", gap:4, opacity:biblioBusy&&!busy?.5:1}}>
-                                <Icon as={Plus} size={11}/> {busy ? "Ajout…" : "Ajouter"}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{padding:"12px 20px",borderTop:`1px solid ${T.sectionDivider||T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-                <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>Les ouvrages repris apparaissent cochés dans leur lot ; les quantités et prix se saisissent ensuite dans la liste.</span>
-                <button onClick={()=>setShowBiblio(false)} style={{background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,flexShrink:0}}>Fermer</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* ── MODAL SUPPRESSION DESSIN (page manuscrite / croquis) ── */}
       {toDeleteDessin && (
         <div onClick={()=>setToDeleteDessin(null)} style={{
