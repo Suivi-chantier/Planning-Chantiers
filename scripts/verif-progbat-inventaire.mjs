@@ -16,7 +16,55 @@ assert.notEqual(inv.normaliserCode("D-001"), inv.normaliserCode("D001"), "la str
 assert.equal(inv.normaliserLibelle("  Démolition   de cloisons. "), "demolition de cloisons");
 assert.equal(inv.normaliserLibelle("DÉPOSE : "), "depose");
 
-// ── Jeu de données ──────────────────────────────────────────────────────────
+// ── Nettoyage HTML des descriptifs ProGBat ──────────────────────────────────
+assert.equal(inv.nettoyerHtml("E-008&nbsp;: <div>Fourniture et pose</div>"), "E-008 : Fourniture et pose");
+assert.equal(inv.nettoyerHtml("<p>Ligne 1</p><p>Ligne&nbsp;2</p>"), "Ligne 1 Ligne 2");
+assert.equal(inv.nettoyerHtml("A &amp; B &lt;C&gt; &quot;D&quot; &#233;t&eacute; &#x20AC;"), "A & B <C> \"D\" été €");
+assert.equal(inv.nettoyerHtml("  plusieurs \n\t espaces  "), "plusieurs espaces");
+assert.equal(inv.nettoyerHtml(null), "");
+assert.equal(inv.nettoyerHtml("<br/>E-021 :<br>Tableau"), "E-021 : Tableau");
+assert.equal(inv.texteDescriptif({ description: "<p>x</p>", longDescription: "y" }), "<p>x</p>", "champ descriptif le plus court d'abord");
+assert.equal(inv.texteDescriptif({ descriptif: "z" }), "z");
+assert.equal(inv.texteDescriptif({ label: "pas de descriptif" }), "");
+
+// ── Détection du code MÉTIER : descriptif → libellé → champ API (si vrai code) ─
+const det = inv.detecterCodeProgbat;
+const TECH = "DISJONCTEURBRANCHEMENT-1PN-60AFIXE-500MA-DIFFINST";
+const disj = det({ id: 9001, code: TECH, label: "Disjoncteur de branchement 1P+N 60A", description: "E-008&nbsp;: <div>Fourniture et pose d'un disjoncteur de branchement</div>" });
+assert.equal(disj.code, "E-008", "cas signalé : code métier lu en tête du descriptif");
+assert.equal(disj.source, "descriptif");
+assert.equal(disj.code_api, TECH, "le champ technique est conservé séparément");
+assert.equal(disj.descriptif, "E-008 : Fourniture et pose d'un disjoncteur de branchement", "descriptif nettoyé (entités, balises)");
+assert.equal(disj.label, "Disjoncteur de branchement 1P+N 60A");
+assert.ok(!/[<>]|&nbsp;/.test(disj.descriptif + disj.label), "aucun HTML ne sort du module");
+
+for (const c of ["E-008", "E-021", "EG-001", "EG-002", "E-0010", "E-004.2"]) {
+  const r = det({ id: 1, code: "TECHNIQUE-GENERE-DEPUIS-LE-LIBELLE-123", label: "Libellé humain", description: `${c}&nbsp;: <div>Descriptif ${c}</div>` });
+  assert.equal(r.code, c, `code métier ${c} reconnu dans le descriptif`);
+  assert.equal(r.source, "descriptif");
+  const r2 = det({ id: 2, code: "", label: `<div>${c} : Libellé</div>` });
+  assert.equal(r2.code, c, `code métier ${c} reconnu dans un libellé HTML`);
+  assert.equal(r2.source, "libelle");
+}
+
+// Le champ technique concaténé n'est JAMAIS un code métier
+assert.deepEqual(det({ id: 3, code: TECH, label: "Disjoncteur de branchement" }).code, null);
+assert.equal(det({ id: 3, code: TECH, label: "Disjoncteur de branchement" }).source, null);
+assert.equal(det({ id: 4, code: "TECHNIQUE-XYZ-123", label: "Libellé", description: "Sans code" }).code, null);
+// Champ API accepté seulement s'il est à lui seul un code au format central, et après descriptif/libellé
+assert.deepEqual([det({ id: 5, code: "D 001", label: "Décollage" }).code, det({ id: 5, code: "D 001", label: "Décollage" }).source], ["D-001", "champ"]);
+assert.deepEqual([det({ id: 6, code: "d-002", label: "Démolition cloisons" }).code, det({ id: 6, code: "d-002", label: "Démolition cloisons" }).source], ["D-002", "champ"]);
+assert.equal(det({ id: 7, code: "d 001", label: "Décollage" }).code, null, "« d 001 » n'est pas un code (règle du parseur central)");
+assert.equal(det({ id: 8, code: "STR12", label: "D-002 : Démolition" }).code, "D-002", "le libellé prime sur le champ API");
+assert.equal(det({ id: 8, code: "STR12", label: "D-002 : Démolition" }).source, "libelle");
+assert.equal(det({ id: 9, code: "E-009", label: "Libellé", description: "E-008 : Descriptif" }).code, "E-008", "le descriptif prime sur le champ API");
+// Repli : segment délimité, et faux positifs refusés
+assert.equal(det({ id: 10, code: "", label: "Reprise de couverture [COUV-001]" }).code, "COUV-001");
+assert.equal(det({ id: 11, code: "", label: "Peinture - P-021.2 - deux couches" }).code, "P-021.2");
+assert.equal(det({ id: 12, code: "", label: "Pose 3 prises" }).code, null, "« Pose 3 » n'est pas un code");
+assert.equal(det({ id: 13, code: "", label: "Bac 3" }).code, null);
+
+// ── Jeu de données de rapprochement ─────────────────────────────────────────
 const MATERIAUX = [
   { id: "m1", nom: "Plaque BA13", unite: "U", prix_unitaire: 6.5 },
   { id: "m2", nom: "Sans prix", unite: "U", prix_unitaire: null },
@@ -27,39 +75,25 @@ const base = (extra) => ({
 });
 const OUVRAGES = [
   base({ id: "p1", libelle: "D-001 : Dépose de tapisserie", progbat_id: "501" }),          // 1. déjà lié
-  base({ id: "p2", libelle: "D-002 : Démolition de cloisons" }),                             // 2. code unique
-  base({ id: "p3", libelle: "D-003 : Carottage de dalle" }),                                 // 3. ambigu (2 structures D-003)
-  base({ id: "p4", libelle: "P-010 : Peinture plafond deux couches" }),                       // 4. libellé identique, code différent
+  base({ id: "p2", libelle: "D-002 : Démolition de cloisons" }),                             // 2. code unique (champ API valide)
+  base({ id: "p3", libelle: "D-003 : Carottage de dalle" }),                                 // 3. ambigu (champ + descriptif)
+  base({ id: "p4", libelle: "P-010 : Peinture plafond deux couches" }),                       // 4. libellé identique via descriptif
   base({ id: "p5", libelle: "E-001 : Prise de courant" }),                                    // 5. nouveau, complet
   base({ id: "p6", libelle: "E-002 : Interrupteur", cadence: null, coef_vente: null, unite: "" }), // 5. nouveau, bloqué
   base({ id: "p7", libelle: "Pose de plinthes", progbat_id: "999" }),                         // sans code, progbat_id perdu
   base({ id: "p8", libelle: "M-001 : Main-d'œuvre seule", materiaux_liens: [], main_oeuvre_seule: true }),
   base({ id: "p9", libelle: "M-002 : Matériau sans prix", materiaux_liens: [{ materiau_id: "m2", quantite: 1 }] }),
+  base({ id: "p10", libelle: "E-008 : Fourniture et pose d'un disjoncteur de branchement" }), // 2. code lu dans le descriptif HTML
 ];
 const STRUCTURES = [
   { id: 501, code: "X-999", label: "Ancien libellé", unitCode: "m2", saleNetUnitPrice: 10, active: true },
   { id: 502, code: "d-002", label: "Démolition cloisons", unitCode: "m2", saleNetUnitPrice: 20 },
   { id: 503, code: "D-003", label: "Carottage A", unitCode: "U" },
-  { id: 504, code: "", label: "D-003 : Carottage B", unitCode: "U" },                        // code lu dans le libellé
-  { id: 505, code: "PEI-4", label: "Peinture plafond deux couches", unitCode: "m2" },
+  { id: 504, code: "CAROTTAGE-B", label: "Carottage B", description: "<p>D-003 : Carottage B</p>", unitCode: "U" },
+  { id: 505, code: "PEINTURE-PLAFOND", label: "Peinture", description: "<div>Peinture plafond deux couches</div>", unitCode: "m2" },
   { id: 506, code: "Z-001", label: "Structure ProGBat orpheline", unitCode: "U" },
+  { id: 507, code: TECH, label: "Disjoncteur de branchement 1P+N 60A", description: "E-008&nbsp;: <div>Fourniture et pose d'un disjoncteur de branchement</div>", unitCode: "U", saleNetUnitPrice: 250 },
 ];
-
-// ── Détection du code ProGBat : champ, début de libellé, segment délimité ───
-const det = inv.detecterCodeProgbat;
-assert.deepEqual(det({ code: "", label: "D-001 : Décollage et enlèvement d'un revêtement" }), { code: "D-001", source: "libelle", codes: ["D-001"], code_api: null });
-assert.deepEqual(det({ code: null, label: "D-003.1 : Carottage de la dalle" }).code, "D-003.1");
-assert.deepEqual(det({ code: "", label: "COUV-001 Reprise de couverture" }).code, "COUV-001");
-assert.deepEqual(det({ code: "", label: "P-021.2 : Peinture" }).code, "P-021.2");
-assert.deepEqual(det({ code: "D 001", label: "Décollage" }), { code: "D-001", source: "champ", codes: ["D-001", "D001"], code_api: "D 001" }, "champ API reconnu par le parseur central → forme normalisée");
-assert.deepEqual(det({ code: "d 001", label: "Décollage" }), { code: "D001", source: "champ", codes: ["D001"], code_api: "d 001" }, "champ non reconnu comme code d'ouvrage : référence brute normalisée");
-const interne = det({ code: "STR12", label: "D-002 : Démolition" });
-assert.equal(interne.source, "champ", "le champ API prime pour la source affichée");
-assert.ok(interne.codes.includes("D-002"), "mais le code du libellé sert aussi au rapprochement");
-assert.equal(det({ code: "", label: "Reprise de couverture [COUV-001]" }).code, "COUV-001", "segment délimité par crochets");
-assert.equal(det({ code: "", label: "Peinture - P-021.2 - deux couches" }).code, "P-021.2", "segment délimité par tirets");
-assert.equal(det({ code: "", label: "Pose 3 prises" }).code, null, "« Pose 3 » n'est pas un code (règle du parseur central)");
-assert.deepEqual(det({ code: "", label: "Bac 3" }), { code: null, source: null, codes: [], code_api: null });
 const TAXES = [{ id: 1, rate: 20, label: "20 %", saleDefault: true }, { id: 2, rate: 10, label: "10 %" }];
 const UNITES = [{ id: 1, code: "m2" }, { id: 2, code: "U" }, { id: 3, code: "ml" }];
 
@@ -73,31 +107,12 @@ assert.equal(par.p2.statut, "correspondance_code_a_confirmer");
 assert.equal(par.p2.correspondance.id, 502, "code comparé après normalisation (d-002 = D-002)");
 assert.equal(par.p2.correspondance.source_code, "champ");
 assert.equal(par.p2.correspondance.code_commun, "D-002");
-assert.equal(par.p2.correspondance.label, "Démolition cloisons", "libellé ProGBat original conservé");
+assert.equal(par.p2.correspondance.label, "Démolition cloisons", "libellé ProGBat conservé");
 assert.equal(par.p3.statut, "ambigu");
-assert.deepEqual(par.p3.candidats.map((c) => c.id).sort(), [503, 504], "tous les candidats sont renvoyés (champ + libellé)");
-assert.equal(par.p3.candidats.find((c) => c.id === 504).source_code, "libelle");
-
-// ── Cas signalé : code Profero D-001, structure ProGBat sans champ code mais
-//    libellé « D-001 : … » → correspondance de CODE, pas de libellé ────────────
-const cas = inv.rapprocherBibliotheque({
-  ouvrages: [base({ id: "q1", libelle: "D-001 : Décollage et enlèvement d'un revêtement mural type tapisserie." })],
-  structures: [{ id: 601, code: "", label: "D-001 : Décollage et enlèvement d'un revêtement mural type tapisserie.", unitCode: "m2" }],
-  materiaux: MATERIAUX, coutHoraire: 40, tvaDefaut: 20,
-});
-assert.equal(cas.rapprochements[0].statut, "correspondance_code_a_confirmer");
-assert.equal(cas.rapprochements[0].correspondance.code, "D-001");
-assert.equal(cas.rapprochements[0].correspondance.source_code, "libelle");
-assert.deepEqual(cas.sources_codes, { champ: 0, libelle: 1, aucun: 0 });
-// Même code dans le champ ET le libellé d'une seule structure : pas d'ambiguïté artificielle
-const doublon = inv.rapprocherBibliotheque({
-  ouvrages: [base({ id: "q2", libelle: "D-001 : Décollage" })],
-  structures: [{ id: 602, code: "D-001", label: "D-001 : Décollage", unitCode: "m2" }],
-  materiaux: MATERIAUX, coutHoraire: 40, tvaDefaut: 20,
-});
-assert.equal(doublon.rapprochements[0].statut, "correspondance_code_a_confirmer");
-assert.deepEqual(doublon.sources_codes, { champ: 1, libelle: 0, aucun: 0 });
-assert.equal(par.p4.statut, "correspondance_libelle_a_examiner");
+assert.deepEqual(par.p3.candidats.map((c) => c.id).sort(), [503, 504], "tous les candidats sont renvoyés (champ + descriptif)");
+assert.equal(par.p3.candidats.find((c) => c.id === 504).source_code, "descriptif");
+assert.equal(par.p3.candidats.find((c) => c.id === 504).code_api, "CAROTTAGE-B", "code technique conservé en secondaire");
+assert.equal(par.p4.statut, "correspondance_libelle_a_examiner", "libellé identique lu dans le descriptif nettoyé");
 assert.equal(par.p4.correspondance, null, "un libellé identique n'est jamais une correspondance certaine");
 assert.equal(par.p4.candidats[0].id, 505);
 assert.equal(par.p5.statut, "nouveau_a_creer");
@@ -116,26 +131,56 @@ assert.equal(par.p8.synchronisable, true, "main-d'œuvre seule sans matériau es
 assert.equal(par.p9.synchronisable, false);
 assert.ok(par.p9.blocages.some((b) => /sans prix/.test(b)));
 
+// Cas signalé : E-008 face au champ technique DISJONCTEURBRANCHEMENT-… → correspondance de CODE
+assert.equal(par.p10.statut, "correspondance_code_a_confirmer");
+assert.equal(par.p10.correspondance.id, 507, "identifiant numérique ProGBat");
+assert.equal(par.p10.correspondance.code, "E-008", "code métier détecté, pas le code technique");
+assert.equal(par.p10.correspondance.source_code, "descriptif");
+assert.equal(par.p10.correspondance.code_api, TECH);
+assert.equal(par.p10.correspondance.label, "Disjoncteur de branchement 1P+N 60A");
+assert.equal(par.p10.correspondance.descriptif, "E-008 : Fourniture et pose d'un disjoncteur de branchement");
+assert.ok(!/<|&nbsp;/.test(JSON.stringify(res)), "aucun HTML brut dans la réponse");
+
 // ── Prix repris de la source unique (coût 2×6,5 + 1×40 = 53 ; ×1,5 = 79,5) ─
 assert.equal(par.p5.prix.cout_total_ht, 53);
 assert.equal(par.p5.prix.prix_vente_ht, 79.5);
 assert.equal(par.p5.prix.taux_marge_pct, 33.33);
 
-// ── ProGBat non liés & compteurs ───────────────────────────────────────────
+// ── ProGBat non liés, compteurs, sources ───────────────────────────────────
 assert.deepEqual(res.progbat_non_lies.map((s) => s.id), [506], "seule la structure orpheline est signalée");
 assert.equal(res.progbat_non_lies[0].statut, "progbat_non_lie");
 assert.equal(res.compteurs.deja_lie, 1);
-assert.equal(res.compteurs.correspondance_code_a_confirmer, 1);
+assert.equal(res.compteurs.correspondance_code_a_confirmer, 2);
 assert.equal(res.compteurs.ambigu, 1);
 assert.equal(res.compteurs.correspondance_libelle_a_examiner, 1);
 assert.equal(res.compteurs.nouveau_a_creer, 5);
 assert.equal(res.compteurs.progbat_non_lie, 1);
-assert.equal(res.nb_ouvrages_profero, 9);
-assert.equal(res.nb_structures_progbat, 6);
+assert.equal(res.nb_ouvrages_profero, 10);
+assert.equal(res.nb_structures_progbat, 7);
 assert.equal(res.ambiguites.length, 1);
 assert.equal(res.bloques.length, 3);
-assert.equal(res.nb_synchronisables, 6);
-assert.deepEqual(res.sources_codes, { champ: 5, libelle: 1, aucun: 0 });
+assert.equal(res.nb_synchronisables, 7);
+assert.deepEqual(res.sources_codes, { descriptif: 2, libelle: 0, champ: 4, aucun: 1 });
+
+// Même code dans le champ ET le libellé d'une seule structure : pas d'ambiguïté artificielle
+const doublon = inv.rapprocherBibliotheque({
+  ouvrages: [base({ id: "q2", libelle: "D-001 : Décollage" })],
+  structures: [{ id: 602, code: "D-001", label: "D-001 : Décollage", unitCode: "m2" }],
+  materiaux: MATERIAUX, coutHoraire: 40, tvaDefaut: 20,
+});
+assert.equal(doublon.rapprochements[0].statut, "correspondance_code_a_confirmer");
+assert.deepEqual(doublon.sources_codes, { descriptif: 0, libelle: 1, champ: 0, aucun: 0 });
+// Deux structures portant E-021 dans leur descriptif → ambigu
+const amb = inv.rapprocherBibliotheque({
+  ouvrages: [base({ id: "q3", libelle: "E-021 : Tableau électrique" })],
+  structures: [
+    { id: 701, code: "TABLEAU-A", label: "Tableau A", description: "<p>E-021 : Tableau</p>" },
+    { id: 702, code: "TABLEAU-B", label: "Tableau B", description: "E-021&nbsp;: Tableau bis" },
+  ],
+  materiaux: MATERIAUX, coutHoraire: 40, tvaDefaut: 20,
+});
+assert.equal(amb.rapprochements[0].statut, "ambigu");
+assert.deepEqual(amb.rapprochements[0].candidats.map((c) => c.id), [701, 702]);
 
 // ── TVA et unité : règles de complétude ────────────────────────────────────
 const sansTva = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tvaDefaut: null });
@@ -157,4 +202,4 @@ assert.ok(motifs.length >= 3 && motifs[0].nb >= motifs[motifs.length - 1].nb);
 const divergents = sync.verifierCopies();
 assert.deepEqual(divergents, [], "copies lib/ de l'Edge Function à régénérer : node scripts/sync-progbat-edge-lib.mjs");
 
-console.log("verif-progbat-inventaire : OK (6 statuts, détection code champ/libellé/segment, complétude, TVA/unités, copies Edge à jour)");
+console.log("verif-progbat-inventaire : OK (6 statuts, code métier descriptif/libellé/champ, HTML nettoyé, complétude, copies Edge à jour)");

@@ -283,6 +283,9 @@ serve(async (req) => {
         cout_horaire: coutHoraire,
         tva_defaut: tvaDefaut,
       },
+      // Diagnostic : noms des champs réellement renvoyés par l'API pour les structures
+      // (le schéma OpenAPI des listes ne documente pas le descriptif). Noms seulement, jamais les valeurs.
+      champs_structure: [...new Set((structures.items as Record<string, unknown>[]).slice(0, 200).flatMap((s) => Object.keys(s || {})))].sort(),
       nb_ouvrages_profero: resultat.nb_ouvrages_profero,
       nb_structures_progbat: resultat.nb_structures_progbat,
       nb_elements_progbat: elements.items.length,

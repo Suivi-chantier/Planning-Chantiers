@@ -152,18 +152,60 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
 }
 
 // ─── Rapprochement ───────────────────────────────────────────────────────────
-// ─── Détection du code d'une structure ProGBat ───────────────────────────────
-// Ordre de recherche (toujours via le parseur central parseCodeOuvrage, jamais
-// une regex parallèle) :
-//   1. champ `code` de l'API (référence explicite) ;
-//   2. début du libellé (« D-001 : Décollage… ») ;
-//   3. segment clairement délimité dans le libellé : « [D-001] », « (COUV-001) »,
-//      « Pose … - P-021.2 - … », uniquement si le segment est le code seul.
-// Tous les codes trouvés servent au rapprochement (ensemble `codes`) ; le
-// premier trouvé est le « code détecté » affiché, avec sa source.
+// ─── Nettoyage HTML (descriptifs ProGBat) ────────────────────────────────────
+// Le descriptif ProGBat est du HTML (« E-008&nbsp;: <div>Fourniture…</div> »).
+// Avant toute analyse : entités décodées, balises retirées, espaces normalisés.
+// Le HTML brut ne sort jamais du module : l'interface ne reçoit que du texte.
+const ENTITES_HTML = {
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'",
+  eacute: "é", egrave: "è", ecirc: "ê", agrave: "à", acirc: "â", ccedil: "ç",
+  ugrave: "ù", ucirc: "û", ocirc: "ô", icirc: "î", euro: "€", deg: "°",
+  laquo: "«", raquo: "»", hellip: "…", ndash: "–", mdash: "—", rsquo: "’", lsquo: "‘",
+};
+const pointCode = (n) => { try { return String.fromCodePoint(n); } catch { return ""; } };
+export function nettoyerHtml(html) {
+  let s = String(html ?? "");
+  if (!s) return "";
+  s = s.replace(/<\s*(br|hr|\/p|\/div|\/li|\/tr|\/td|\/th|\/h[1-6])\b[^>]*>/gi, " "); // fins de bloc → espace
+  s = s.replace(/<[^>]*>/g, " ");                                                    // autres balises
+  s = s.replace(/&#x([0-9a-f]+);/gi, (_, h) => pointCode(parseInt(h, 16)));
+  s = s.replace(/&#(\d+);/g, (_, d) => pointCode(Number(d)));
+  s = s.replace(/&([a-z]+);/gi, (m, n) => ENTITES_HTML[n.toLowerCase()] ?? m);
+  return s.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Le schéma OpenAPI des listes ne documente pas de descriptif, mais l'API réelle
+// en renvoie un. On accepte tout champ texte dont le nom contient « desc »
+// (description, descriptif, longDescription…), le plus court d'abord.
+export function texteDescriptif(structure) {
+  if (!structure || typeof structure !== "object") return "";
+  const cles = Object.keys(structure)
+    .filter((k) => /desc/i.test(k) && typeof structure[k] === "string" && structure[k].trim())
+    .sort((a, b) => a.length - b.length);
+  return cles.length ? structure[cles[0]] : "";
+}
+
+// ─── Détection du code MÉTIER d'une structure ProGBat ────────────────────────
+// Trois identités distinctes sont conservées : l'identifiant numérique ProGBat
+// (`id`), le champ `code` technique de l'API (souvent généré depuis le libellé :
+// « DISJONCTEURBRANCHEMENT-1PN-60AFIXE-500MA-DIFFINST ») et le code métier
+// Profero (« E-008 »). Le code métier est cherché, toujours avec le parseur
+// central parseCodeOuvrage, dans cet ordre :
+//   1. début du descriptif nettoyé ;
+//   2. début du libellé nettoyé ;
+//   3. champ `code` de l'API, UNIQUEMENT s'il est à lui seul un code au format
+//      central (un long texte concaténé n'est jamais un code métier) ;
+//   4. repli : segment clairement délimité (« [COUV-001] », « … - P-021.2 - … »).
 const SEPARATEURS_SEGMENTS = /[\[\]()|;]|\s[-–—:]\s/;
 
-/** Code seul ? (le parseur rend `reste` = chaîne entière quand rien ne suit le code) */
+/** Code au DÉBUT d'un texte (« E-008 : … », « EG-001 Descriptif »), null sinon. */
+function codeEnTete(texte) {
+  const s = str(texte);
+  if (!s) return null;
+  return parseCodeOuvrage(s)?.code ?? null;
+}
+
+/** Code SEUL ? (le parseur rend `reste` = chaîne entière quand rien ne suit le code) */
 function codeSeul(segment) {
   const s = str(segment);
   if (!s) return null;
@@ -172,60 +214,56 @@ function codeSeul(segment) {
 }
 
 /**
- * @returns {{ code: string|null, source: "champ"|"libelle"|null, codes: string[], code_api: string|null }}
- *   code   : code détecté prioritaire, forme normalisée du parseur (« D-001 »)
- *   source : où il a été lu ; codes : tous les codes normalisés comparables
+ * @returns {{ code: string|null, source: "descriptif"|"libelle"|"champ"|null,
+ *             code_api: string|null, label: string, descriptif: string }}
+ *   code / source : code métier normalisé (« E-008 ») et où il a été lu ;
+ *   code_api      : champ `code` technique brut ; label / descriptif : textes NETTOYÉS.
  */
 export function detecterCodeProgbat(structure) {
   const codeApi = str(structure?.code);
-  const label = str(structure?.label);
-  const codes = [];
+  const descriptif = nettoyerHtml(texteDescriptif(structure));
+  const label = nettoyerHtml(structure?.label);
   let code = null;
   let source = null;
 
-  if (codeApi) {
-    // Référence explicite : forme du parseur si elle est reconnue (« d 001 » → « D-001 »),
-    // sinon la référence brute normalisée (référence interne ProGBat, quand même comparable).
-    const p = parseCodeOuvrage(codeApi);
-    const c = p && p.reste === codeApi ? p.code : null;
-    code = c || normaliserCode(codeApi);
-    source = "champ";
-    codes.push(normaliserCode(code), normaliserCode(codeApi));
+  code = codeEnTete(descriptif);
+  if (code) source = "descriptif";
+  if (!code) { code = codeEnTete(label); if (code) source = "libelle"; }
+  if (!code) { code = codeSeul(codeApi); if (code) source = "champ"; }
+  if (!code) {
+    for (const [texte, src] of [[descriptif, "descriptif"], [label, "libelle"]]) {
+      for (const seg of texte.split(SEPARATEURS_SEGMENTS)) {
+        const c = codeSeul(seg);
+        if (c) { code = c; source = src; break; }
+      }
+      if (code) break;
+    }
   }
-
-  const debut = parseCodeOuvrage(label);
-  if (debut && debut.reste !== label) {
-    if (!code) { code = debut.code; source = "libelle"; }
-    codes.push(normaliserCode(debut.code));
-  }
-
-  label.split(SEPARATEURS_SEGMENTS).forEach((seg) => {
-    const c = codeSeul(seg);
-    if (!c) return;
-    if (!code) { code = c; source = "libelle"; }
-    codes.push(normaliserCode(c));
-  });
-
-  return { code, source, codes: uniq(codes), code_api: codeApi || null };
+  return { code, source, code_api: codeApi || null, label, descriptif };
 }
 
 function indexerStructures(structures) {
   return (Array.isArray(structures) ? structures : [])
     .filter((s) => s && s.id != null)
     .map((s) => {
-      const label = str(s.label);
-      const parse = parseCodeOuvrage(label);
       const det = detecterCodeProgbat(s);
+      const pLabel = parseCodeOuvrage(det.label);
+      const pDesc = parseCodeOuvrage(det.descriptif);
       return {
         id: s.id,
         idStr: String(s.id),
         codeApi: det.code_api,
-        codeDetecte: det.code,
+        codeMetier: det.code,
         sourceCode: det.source,
-        codes: det.codes,
-        label,
-        labelNorm: normaliserLibelle(label),
-        labelSansCodeNorm: parse ? normaliserLibelle(parse.reste) : null,
+        label: det.label,
+        descriptif: det.descriptif,
+        // clés de rapprochement par libellé (textes nettoyés, avec et sans code de tête)
+        clesLibelle: uniq([
+          normaliserLibelle(det.label),
+          pLabel ? normaliserLibelle(pLabel.reste) : null,
+          normaliserLibelle(det.descriptif),
+          pDesc ? normaliserLibelle(pDesc.reste) : null,
+        ]),
         unitCode: str(s.unitCode),
         prixVente: num(s.saleNetUnitPrice),
         actif: s.active !== false,
@@ -235,12 +273,13 @@ function indexerStructures(structures) {
 }
 
 const resumeStructure = (s, codeCommun = null) => ({
-  id: s.id,
-  code: s.codeDetecte,                 // code ProGBat détecté (forme normalisée) ou null
-  source_code: s.sourceCode,           // "champ" | "libelle" | null
-  code_api: s.codeApi,                 // valeur brute du champ `code` de l'API
+  id: s.id,                            // identifiant numérique ProGBat
+  code: s.codeMetier,                  // code MÉTIER détecté (« E-008 ») ou null
+  source_code: s.sourceCode,           // "descriptif" | "libelle" | "champ" | null
+  code_api: s.codeApi,                 // champ `code` technique brut de l'API (colonne secondaire)
   code_commun: codeCommun,             // code normalisé qui a servi au rapprochement
-  label: s.label,                      // libellé ProGBat original
+  label: s.label,                      // libellé ProGBat nettoyé (jamais de HTML)
+  descriptif: s.descriptif.length > 200 ? s.descriptif.slice(0, 199) + "…" : s.descriptif,
   unitCode: s.unitCode || null,
   prix_vente_ht: s.prixVente,
   actif: s.actif,
@@ -264,13 +303,13 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
   const push = (map, k, s) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(s); };
   structs.forEach((s) => {
     parId.set(s.idStr, s);
-    s.codes.forEach((c) => push(parCode, c, s));   // une structure peut porter plusieurs codes (champ + libellé)
-    push(parLabel, s.labelNorm, s);
-    if (s.labelSansCodeNorm && s.labelSansCodeNorm !== s.labelNorm) push(parLabel, s.labelSansCodeNorm, s);
+    push(parCode, normaliserCode(s.codeMetier), s);   // un seul code MÉTIER par structure
+    s.clesLibelle.forEach((k) => push(parLabel, k, s));
   });
   const sources_codes = {
-    champ: structs.filter((s) => s.sourceCode === "champ").length,
+    descriptif: structs.filter((s) => s.sourceCode === "descriptif").length,
     libelle: structs.filter((s) => s.sourceCode === "libelle").length,
+    champ: structs.filter((s) => s.sourceCode === "champ").length,
     aucun: structs.filter((s) => !s.sourceCode).length,
   };
 

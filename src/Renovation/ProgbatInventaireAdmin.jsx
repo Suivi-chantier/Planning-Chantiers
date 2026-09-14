@@ -75,17 +75,23 @@ export default function ProgbatInventaire({ T, acc }) {
       color: actif ? (color || acc.accent) : T.textSub,
     }}>{label}</button>
   );
-  const SOURCE_LABEL = { champ: "champ API", libelle: "libellé" };
-  // Correspondance ProGBat : code détecté + sa source, puis libellé original.
+  const SOURCE_LABEL = { descriptif: "descriptif", libelle: "libellé", champ: "champ API" };
+  // Correspondance ProGBat : code MÉTIER détecté + source exacte, identifiant
+  // numérique, libellé nettoyé ; le code technique API en ligne secondaire.
+  // Tous les textes arrivent déjà nettoyés du HTML par la fonction (jamais de innerHTML ici).
   const Candidat = ({ c }) => (
     <div>
       <div style={{ fontWeight: 600 }}>
         {c.code
-          ? <>{c.code}<span style={{ color: T.textMuted, fontWeight: 500 }}> ({SOURCE_LABEL[c.source_code] || "?"}{c.code_api && c.code_api !== c.code ? `, champ brut « ${c.code_api} »` : ""})</span></>
-          : <span style={{ color: T.textMuted }}>sans code détectable</span>}
-        <span style={{ color: T.textMuted, fontWeight: 500 }}> · id {c.id}{c.unitCode ? ` · ${c.unitCode}` : ""}</span>
+          ? <>{c.code}<span style={{ color: T.textMuted, fontWeight: 500 }}> (source : {SOURCE_LABEL[c.source_code] || "?"})</span></>
+          : <span style={{ color: T.textMuted }}>sans code métier détectable</span>}
+        <span style={{ color: T.textMuted, fontWeight: 500 }}> · id ProGBat {c.id}{c.unitCode ? ` · ${c.unitCode}` : ""}</span>
       </div>
-      <div style={{ color: T.textSub }} title={c.label}>{c.label}</div>
+      <div style={{ color: T.textSub }} title={c.descriptif || c.label}>{c.label || <em>sans libellé</em>}</div>
+      {c.descriptif && c.descriptif !== c.label && (
+        <div style={{ color: T.textMuted, fontSize: FONT.xs.size, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }} title={c.descriptif}>{c.descriptif}</div>
+      )}
+      {c.code_api && <div style={{ color: T.textMuted, fontSize: FONT.xs.size }}>code technique API : {c.code_api}</div>}
       {c.prix_vente_ht != null && <div style={{ color: T.textMuted, fontSize: FONT.xs.size }}>PV HT ProGBat {fmtPrix(c.prix_vente_ht)}</div>}
     </div>
   );
@@ -143,7 +149,7 @@ export default function ProgbatInventaire({ T, acc }) {
               <span>TVA ProGBat : <strong style={{ color: T.text }}>{result.progbat?.taxes?.ok ? ((result.taux_tva || []).map(t => `${t.rate}${t.saleDefault ? " (défaut)" : ""}`).join(" · ") || "aucune") : `HTTP ${result.progbat?.taxes?.status ?? "—"}`}</strong></span>
               <span>Prêts à synchroniser : <strong style={{ color: T.text }}>{result.nb_synchronisables} / {result.nb_ouvrages_profero}</strong></span>
               {result.sources_codes && (
-                <span>Codes ProGBat : <strong style={{ color: T.text }}>{result.sources_codes.champ}</strong> dans le champ API · <strong style={{ color: T.text }}>{result.sources_codes.libelle}</strong> extraits du libellé · <strong style={{ color: T.text }}>{result.sources_codes.aucun}</strong> sans code détectable</span>
+                <span>Codes métier ProGBat : <strong style={{ color: T.text }}>{result.sources_codes.descriptif ?? 0}</strong> lus dans le descriptif · <strong style={{ color: T.text }}>{result.sources_codes.libelle}</strong> dans le libellé · <strong style={{ color: T.text }}>{result.sources_codes.champ}</strong> dans le champ API · <strong style={{ color: T.text }}>{result.sources_codes.aucun}</strong> sans code détectable</span>
               )}
               {result.profero?.tva_defaut == null && <span style={{ color: "#f59e0b" }}>TVA par défaut du chiffrage non réglée</span>}
               {result.profero?.cout_horaire == null && <span style={{ color: "#f59e0b" }}>Coût horaire de référence non réglé</span>}
@@ -242,13 +248,14 @@ export default function ProgbatInventaire({ T, acc }) {
               <div style={{ color: T.textSub, marginBottom: 6 }}>Signalés pour information : ils ne seront jamais supprimés automatiquement.</div>
               {(result.progbat_non_lies || []).length > 0 && (
                 <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
-                  <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 600 }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
                     <thead>
                       <tr>
                         <th style={th}>Id ProGBat</th>
-                        <th style={th}>Code détecté</th>
+                        <th style={th}>Code métier</th>
                         <th style={th}>Source</th>
                         <th style={th}>Libellé</th>
+                        <th style={th}>Code technique API</th>
                         <th style={th}>Unité</th>
                         <th style={th}>PV HT</th>
                         <th style={th}>Actif</th>
@@ -258,9 +265,13 @@ export default function ProgbatInventaire({ T, acc }) {
                       {result.progbat_non_lies.map(s => (
                         <tr key={s.id}>
                           <td style={td}>{s.id}</td>
-                          <td style={{ ...td, fontWeight: 700 }}>{s.code || "—"}{s.code_api && s.code_api !== s.code ? <div style={{ color: T.textMuted, fontWeight: 500, fontSize: FONT.xs.size }}>champ brut « {s.code_api} »</div> : null}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{s.code || "—"}</td>
                           <td style={{ ...td, color: T.textSub }}>{SOURCE_LABEL[s.source_code] || "—"}</td>
-                          <td style={{ ...td, maxWidth: 480 }}>{s.label}</td>
+                          <td style={{ ...td, maxWidth: 420 }} title={s.descriptif || s.label}>
+                            {s.label || <em style={{ color: T.textMuted }}>sans libellé</em>}
+                            {s.descriptif && s.descriptif !== s.label && <div style={{ color: T.textMuted, fontSize: FONT.xs.size, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{s.descriptif}</div>}
+                          </td>
+                          <td style={{ ...td, color: T.textMuted, fontSize: FONT.xs.size, maxWidth: 220, wordBreak: "break-all" }}>{s.code_api || "—"}</td>
                           <td style={td}>{s.unitCode || "—"}</td>
                           <td style={td}>{fmtPrix(s.prix_vente_ht)}</td>
                           <td style={td}>{s.actif ? "oui" : "non"}</td>
