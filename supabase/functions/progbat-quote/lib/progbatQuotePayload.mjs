@@ -1,3 +1,4 @@
+// COPIE GÉNÉRÉE — ne pas éditer ici. Source : src/Renovation/progbatQuotePayload.mjs (node scripts/sync-progbat-edge-lib.mjs)
 // ─── PROGBAT — PAYLOAD DE CRÉATION D'UN DEVIS (APERÇU, AUCUN APPEL) ─────────
 // Module PUR : reçoit un projet Profero (profero_projets), ses lignes
 // (profero_ouvrages_selectionnes) et la liste des taux de TVA ProGBat, et rend

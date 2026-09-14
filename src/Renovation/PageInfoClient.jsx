@@ -1820,8 +1820,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <button onClick={()=>setShowModal(true)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
                         <Icon as={FileText} size={11}/> Aperçu du devis
                       </button>
-                      <button onClick={()=>setShowProgbat(true)} title="Aperçu du futur devis ProGBat (payload, contrôles, totaux). Rien n'est envoyé." style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
-                        <Icon as={Send} size={11}/> Aperçu ProGBat
+                      <button onClick={()=>setShowProgbat(true)} title="Aperçu du devis ProGBat reconstruit par le serveur, puis création d'un brouillon après confirmation." style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={Send} size={11}/> {projets.find(p=>p.id===projetId)?.progbat_devis_id ? "Devis ProGBat (brouillon créé)" : "Aperçu ProGBat"}
                       </button>
                       <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
                         style={{...btnDng, display:"inline-flex", alignItems:"center", gap:5, padding:"8px 14px"}}>
@@ -2573,9 +2573,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         </div>
       )}
 
-      {/* ── APERÇU PROGBAT : payload du futur devis, aucun appel d'écriture ── */}
+      {/* ── DEVIS PROGBAT : aperçu reconstruit par le serveur + création d'un brouillon après confirmation ── */}
       {showProgbat && (
-        <ProgbatApercuDevis T={T} acc={acc} projet={infos} lignes={ouvrages} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)}/>
+        <ProgbatApercuDevis T={T} acc={acc} projetId={projetId} projet={infos} lignes={ouvrages} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)} onDevisCree={()=>chargerProjets()}/>
       )}
 
       {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}

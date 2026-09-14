@@ -26,6 +26,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-14",
     type: "nouveaute",
+    titre: "Chiffrage : création d'un devis brouillon dans ProGBat",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Un logement Profero entièrement valide peut désormais devenir un devis BROUILLON dans ProGBat, en un clic confirmé. Le serveur recharge le projet et ses lignes, reconstruit lui-même le devis (client ou client ProGBat existant, chantier, objet, validité, TVA convertie en identifiants ProGBat, LOT → ZONE → OUVRAGES avec les prix figés), refait tous les contrôles et compare l'empreinte du devis à celle de l'aperçu confirmé avant d'appeler ProGBat. Un même logement ne peut jamais créer deux devis : double clic, rafraîchissement ou second onglet sont refusés. Le devis créé n'est ni finalisé ni envoyé au client.",
+    comment: "Chiffrage → onglet Ouvrages → « Aperçu ProGBat » : l'aperçu est reconstruit par le serveur (bandeau bleu). Quand il est valide, le bouton « Créer le brouillon ProGBat » ouvre une confirmation (client, logement, objet, lots, zones, ouvrages, HT, TVA, TTC). Après réussite, l'identifiant ProGBat s'affiche et le bouton devient « Brouillon créé ». Si le chiffrage change ensuite, un message l'indique (la mise à jour d'un brouillon existant viendra dans une phase séparée). En cas d'état incertain (délai dépassé, réponse incomplète), un avertissement rouge demande une vérification manuelle dans ProGBat et interdit toute nouvelle tentative. Réservé au bureau.",
+  },
+  {
+    date: "2026-09-14",
+    type: "nouveaute",
     titre: "Chiffrage : aperçu du futur devis ProGBat (aucun envoi)",
     pages: [{ id: "info-client", label: "Chiffrage" }],
     quoi: "Avant de créer un jour des devis dans ProGBat depuis Profero, on peut voir exactement ce qui serait transmis pour un logement : client (ou client ProGBat existant), chantier, objet, validité, taux de TVA convertis en identifiants ProGBat, puis le devis organisé en LOT → ZONE → OUVRAGES avec les quantités, unités et prix de vente HT figés dans le chiffrage. Les contrôles bloquants (client, adresse, référence du logement, objet, validité, zone, quantité, prix, TVA, anciennes lignes sans snapshot, total différent) et les avertissements sont listés, et le total HT est comparé au centime avec celui du chiffrage. Aucun coût, coefficient ni marge ne figure dans ce qui serait envoyé.",
