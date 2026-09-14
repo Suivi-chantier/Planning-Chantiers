@@ -151,17 +151,77 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
 }
 
 // ─── Rapprochement ───────────────────────────────────────────────────────────
+// ─── Détection du code d'une structure ProGBat ───────────────────────────────
+// Ordre de recherche (toujours via le parseur central parseCodeOuvrage, jamais
+// une regex parallèle) :
+//   1. champ `code` de l'API (référence explicite) ;
+//   2. début du libellé (« D-001 : Décollage… ») ;
+//   3. segment clairement délimité dans le libellé : « [D-001] », « (COUV-001) »,
+//      « Pose … - P-021.2 - … », uniquement si le segment est le code seul.
+// Tous les codes trouvés servent au rapprochement (ensemble `codes`) ; le
+// premier trouvé est le « code détecté » affiché, avec sa source.
+const SEPARATEURS_SEGMENTS = /[\[\]()|;]|\s[-–—:]\s/;
+
+/** Code seul ? (le parseur rend `reste` = chaîne entière quand rien ne suit le code) */
+function codeSeul(segment) {
+  const s = str(segment);
+  if (!s) return null;
+  const p = parseCodeOuvrage(s);
+  return p && p.reste === s ? p.code : null;
+}
+
+/**
+ * @returns {{ code: string|null, source: "champ"|"libelle"|null, codes: string[], code_api: string|null }}
+ *   code   : code détecté prioritaire, forme normalisée du parseur (« D-001 »)
+ *   source : où il a été lu ; codes : tous les codes normalisés comparables
+ */
+export function detecterCodeProgbat(structure) {
+  const codeApi = str(structure?.code);
+  const label = str(structure?.label);
+  const codes = [];
+  let code = null;
+  let source = null;
+
+  if (codeApi) {
+    // Référence explicite : forme du parseur si elle est reconnue (« d 001 » → « D-001 »),
+    // sinon la référence brute normalisée (référence interne ProGBat, quand même comparable).
+    const p = parseCodeOuvrage(codeApi);
+    const c = p && p.reste === codeApi ? p.code : null;
+    code = c || normaliserCode(codeApi);
+    source = "champ";
+    codes.push(normaliserCode(code), normaliserCode(codeApi));
+  }
+
+  const debut = parseCodeOuvrage(label);
+  if (debut && debut.reste !== label) {
+    if (!code) { code = debut.code; source = "libelle"; }
+    codes.push(normaliserCode(debut.code));
+  }
+
+  label.split(SEPARATEURS_SEGMENTS).forEach((seg) => {
+    const c = codeSeul(seg);
+    if (!c) return;
+    if (!code) { code = c; source = "libelle"; }
+    codes.push(normaliserCode(c));
+  });
+
+  return { code, source, codes: uniq(codes), code_api: codeApi || null };
+}
+
 function indexerStructures(structures) {
   return (Array.isArray(structures) ? structures : [])
     .filter((s) => s && s.id != null)
     .map((s) => {
       const label = str(s.label);
       const parse = parseCodeOuvrage(label);
+      const det = detecterCodeProgbat(s);
       return {
         id: s.id,
         idStr: String(s.id),
-        code: str(s.code),
-        codeNorm: normaliserCode(s.code),
+        codeApi: det.code_api,
+        codeDetecte: det.code,
+        sourceCode: det.source,
+        codes: det.codes,
         label,
         labelNorm: normaliserLibelle(label),
         labelSansCodeNorm: parse ? normaliserLibelle(parse.reste) : null,
@@ -173,10 +233,13 @@ function indexerStructures(structures) {
     });
 }
 
-const resumeStructure = (s) => ({
+const resumeStructure = (s, codeCommun = null) => ({
   id: s.id,
-  code: s.code || null,
-  label: s.label,
+  code: s.codeDetecte,                 // code ProGBat détecté (forme normalisée) ou null
+  source_code: s.sourceCode,           // "champ" | "libelle" | null
+  code_api: s.codeApi,                 // valeur brute du champ `code` de l'API
+  code_commun: codeCommun,             // code normalisé qui a servi au rapprochement
+  label: s.label,                      // libellé ProGBat original
   unitCode: s.unitCode || null,
   prix_vente_ht: s.prixVente,
   actif: s.actif,
@@ -200,10 +263,15 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
   const push = (map, k, s) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(s); };
   structs.forEach((s) => {
     parId.set(s.idStr, s);
-    push(parCode, s.codeNorm, s);
+    s.codes.forEach((c) => push(parCode, c, s));   // une structure peut porter plusieurs codes (champ + libellé)
     push(parLabel, s.labelNorm, s);
     if (s.labelSansCodeNorm && s.labelSansCodeNorm !== s.labelNorm) push(parLabel, s.labelSansCodeNorm, s);
   });
+  const sources_codes = {
+    champ: structs.filter((s) => s.sourceCode === "champ").length,
+    libelle: structs.filter((s) => s.sourceCode === "libelle").length,
+    aucun: structs.filter((s) => !s.sourceCode).length,
+  };
 
   const utilises = new Set();
   const ctx = { materiaux, coutHoraire, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
@@ -228,14 +296,15 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
       // 2 & 3. code strictement identique (unique → à confirmer ; plusieurs → ambigu)
       const codeNorm = normaliserCode(compl.code);
       if (!statut && codeNorm) {
-        const memes = parCode.get(codeNorm) || [];
+        // Dédoublonné : une même structure peut porter le code dans son champ ET son libellé.
+        const memes = [...new Map((parCode.get(codeNorm) || []).map((s) => [s.idStr, s])).values()];
         if (memes.length === 1) {
           statut = STATUTS.correspondance_code_a_confirmer;
-          correspondance = resumeStructure(memes[0]);
+          correspondance = resumeStructure(memes[0], codeNorm);
           utilises.add(memes[0].idStr);
         } else if (memes.length > 1) {
           statut = STATUTS.ambigu;
-          candidats = memes.map(resumeStructure);
+          candidats = memes.map((s) => resumeStructure(s, codeNorm));
           memes.forEach((s) => utilises.add(s.idStr));
         }
       }
@@ -295,6 +364,7 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
       .map((r) => ({ id: r.profero.id, code: r.profero.code, libelle_court: r.profero.libelle_court, statut: r.statut, blocages: r.blocages })),
     progbat_non_lies,
     compteurs,
+    sources_codes,
     nb_ouvrages_profero: rapprochements.length,
     nb_structures_progbat: structs.length,
     nb_synchronisables: rapprochements.filter((r) => r.synchronisable).length,

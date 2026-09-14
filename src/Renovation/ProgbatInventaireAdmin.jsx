@@ -75,7 +75,20 @@ export default function ProgbatInventaire({ T, acc }) {
       color: actif ? (color || acc.accent) : T.textSub,
     }}>{label}</button>
   );
-  const candidatTexte = (c) => `${c.code ? c.code + " · " : ""}${c.label}${c.unitCode ? ` (${c.unitCode})` : ""} — id ${c.id}`;
+  const SOURCE_LABEL = { champ: "champ API", libelle: "libellé" };
+  // Correspondance ProGBat : code détecté + sa source, puis libellé original.
+  const Candidat = ({ c }) => (
+    <div>
+      <div style={{ fontWeight: 600 }}>
+        {c.code
+          ? <>{c.code}<span style={{ color: T.textMuted, fontWeight: 500 }}> ({SOURCE_LABEL[c.source_code] || "?"}{c.code_api && c.code_api !== c.code ? `, champ brut « ${c.code_api} »` : ""})</span></>
+          : <span style={{ color: T.textMuted }}>sans code détectable</span>}
+        <span style={{ color: T.textMuted, fontWeight: 500 }}> · id {c.id}{c.unitCode ? ` · ${c.unitCode}` : ""}</span>
+      </div>
+      <div style={{ color: T.textSub }} title={c.label}>{c.label}</div>
+      {c.prix_vente_ht != null && <div style={{ color: T.textMuted, fontSize: FONT.xs.size }}>PV HT ProGBat {fmtPrix(c.prix_vente_ht)}</div>}
+    </div>
+  );
 
   return (
     <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: 14, marginTop: 14 }}>
@@ -129,6 +142,9 @@ export default function ProgbatInventaire({ T, acc }) {
               <span>Éléments ProGBat : <strong style={{ color: T.text }}>{result.progbat?.elements?.ok ? result.nb_elements_progbat : `HTTP ${result.progbat?.elements?.status ?? "—"}`}</strong></span>
               <span>TVA ProGBat : <strong style={{ color: T.text }}>{result.progbat?.taxes?.ok ? ((result.taux_tva || []).map(t => `${t.rate}${t.saleDefault ? " (défaut)" : ""}`).join(" · ") || "aucune") : `HTTP ${result.progbat?.taxes?.status ?? "—"}`}</strong></span>
               <span>Prêts à synchroniser : <strong style={{ color: T.text }}>{result.nb_synchronisables} / {result.nb_ouvrages_profero}</strong></span>
+              {result.sources_codes && (
+                <span>Codes ProGBat : <strong style={{ color: T.text }}>{result.sources_codes.champ}</strong> dans le champ API · <strong style={{ color: T.text }}>{result.sources_codes.libelle}</strong> extraits du libellé · <strong style={{ color: T.text }}>{result.sources_codes.aucun}</strong> sans code détectable</span>
+              )}
               {result.profero?.tva_defaut == null && <span style={{ color: "#f59e0b" }}>TVA par défaut du chiffrage non réglée</span>}
               {result.profero?.cout_horaire == null && <span style={{ color: "#f59e0b" }}>Coût horaire de référence non réglé</span>}
             </div>
@@ -179,16 +195,11 @@ export default function ProgbatInventaire({ T, acc }) {
                       <td style={td}>{r.profero.unite || "—"}</td>
                       <td style={{ ...td, whiteSpace: "nowrap" }}>{r.profero.progbat_id || <span style={{ color: T.textMuted }}>—</span>}</td>
                       <td style={{ ...td, maxWidth: 320 }}>
-                        {r.correspondance && (
-                          <div>
-                            <div style={{ fontWeight: 600 }}>{candidatTexte(r.correspondance)}</div>
-                            {r.correspondance.prix_vente_ht != null && <div style={{ color: T.textMuted, fontSize: FONT.xs.size }}>PV HT ProGBat {fmtPrix(r.correspondance.prix_vente_ht)}</div>}
-                          </div>
-                        )}
+                        {r.correspondance && <Candidat c={r.correspondance} />}
                         {!r.correspondance && r.candidats?.length > 0 && (
-                          <ul style={{ margin: 0, paddingLeft: 14 }}>
-                            {r.candidats.map(c => <li key={c.id}>{candidatTexte(c)}</li>)}
-                          </ul>
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {r.candidats.map(c => <Candidat key={c.id} c={c} />)}
+                          </div>
                         )}
                         {!r.correspondance && !(r.candidats?.length) && <span style={{ color: T.textMuted }}>—</span>}
                         {r.notes?.length > 0 && <div style={{ color: "#f59e0b", fontSize: FONT.xs.size }}>{r.notes.join(" · ")}</div>}
@@ -235,7 +246,8 @@ export default function ProgbatInventaire({ T, acc }) {
                     <thead>
                       <tr>
                         <th style={th}>Id ProGBat</th>
-                        <th style={th}>Code</th>
+                        <th style={th}>Code détecté</th>
+                        <th style={th}>Source</th>
                         <th style={th}>Libellé</th>
                         <th style={th}>Unité</th>
                         <th style={th}>PV HT</th>
@@ -246,7 +258,8 @@ export default function ProgbatInventaire({ T, acc }) {
                       {result.progbat_non_lies.map(s => (
                         <tr key={s.id}>
                           <td style={td}>{s.id}</td>
-                          <td style={{ ...td, fontWeight: 700 }}>{s.code || "—"}</td>
+                          <td style={{ ...td, fontWeight: 700 }}>{s.code || "—"}{s.code_api && s.code_api !== s.code ? <div style={{ color: T.textMuted, fontWeight: 500, fontSize: FONT.xs.size }}>champ brut « {s.code_api} »</div> : null}</td>
+                          <td style={{ ...td, color: T.textSub }}>{SOURCE_LABEL[s.source_code] || "—"}</td>
                           <td style={{ ...td, maxWidth: 480 }}>{s.label}</td>
                           <td style={td}>{s.unitCode || "—"}</td>
                           <td style={td}>{fmtPrix(s.prix_vente_ht)}</td>

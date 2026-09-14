@@ -287,6 +287,7 @@ serve(async (req) => {
       nb_structures_progbat: resultat.nb_structures_progbat,
       nb_elements_progbat: elements.items.length,
       compteurs: resultat.compteurs,
+      sources_codes: resultat.sources_codes,   // structures ProGBat : code lu dans le champ API / le libellé / aucun
       nb_synchronisables: resultat.nb_synchronisables,
       nb_prets_a_creer: resultat.nb_prets_a_creer,
       motifs_blocage: motifsBlocage(resultat.rapprochements),
