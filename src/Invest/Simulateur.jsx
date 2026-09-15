@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, u
 import { supabase } from "../supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -1072,10 +1073,10 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                     <div>
                       <label style={{fontSize:10,fontWeight:700,color:T.textMuted,textTransform:"uppercase",letterSpacing:1.2,display:"block",marginBottom:5}}>Adresse du bien</label>
                       <div style={{display:"flex",gap:6}}>
-                        <input className="inv-inp" value={adresse}
-                          onChange={e=>setAdresse(e.target.value)}
+                        <AdresseInput className="inv-inp" value={adresse}
+                          onChange={setAdresse}
                           placeholder="123 rue de la Paix, 49000 Angers"
-                          style={{flex:1, textAlign:"left"}}/>
+                          wrapperStyle={{flex:1, minWidth:0}}/>
                         <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={()=>setShowLierBien(true)} title="Importer depuis un bien du stock">
                           <Icon as={Building2} size={12} strokeWidth={2.2}/> Lier
                         </button>

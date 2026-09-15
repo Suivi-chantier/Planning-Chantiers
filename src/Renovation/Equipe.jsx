@@ -4,6 +4,7 @@ import { fetchPointages } from "../pointages";
 import { avancementChantier as cfAvancementChantier } from "../chantierFinance";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
   Check, X, RefreshCw, MessageSquare, Pencil, Camera, FileDown, Trash2,
@@ -331,7 +332,7 @@ function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defau
             </div>
             <div>
               <div style={fieldLbl}>Adresse</div>
-              <input value={adresse} onChange={e => setAdresse(e.target.value)} placeholder="Adresse du chantier" style={inp}/>
+              <AdresseInput value={adresse} onChange={setAdresse} placeholder="Adresse du chantier" style={inp}/>
             </div>
           </div>
 

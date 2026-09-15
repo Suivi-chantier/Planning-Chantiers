@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, getISOWeek, libelleRythme } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
@@ -4737,8 +4738,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     :<>
                         <input className="ti" value={o.nom} onChange={e=>updOperation(i,{nom:e.target.value})}
                           placeholder="Nom de l'opération…" style={{fontWeight:700,flex:1,minWidth:140}}/>
-                        <input className="ti" value={o.adresse||""} onChange={e=>updOperation(i,{adresse:e.target.value})}
-                          placeholder="Adresse…" style={{flex:2,minWidth:180}}/>
+                        <AdresseInput className="ti" value={o.adresse||""} onChange={v=>updOperation(i,{adresse:v})}
+                          placeholder="Adresse…" wrapperStyle={{flex:2,minWidth:180}}/>
                       </>
                   }
                   {editOpIdx===i

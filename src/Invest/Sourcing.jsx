@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import AdresseInput from "../AdresseAutocomplete";
 import { supabase } from "../supabase";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 
@@ -2307,8 +2308,8 @@ function AnnoncesTab({
               <Field T={T} label="URL source"><input value={editingAnnonceForm.source_url || ""} onChange={(e) => updateEditingAnnonceField("source_url", e.target.value)} style={S.inputStyle} /></Field>
               <Field T={T} label="Prix"><input type="number" value={editingAnnonceForm.prix || ""} onChange={(e) => updateEditingAnnonceField("prix", e.target.value)} style={S.inputStyle} /></Field>
               <Field T={T} label="Surface m²"><input type="number" value={editingAnnonceForm.surface_m2 || ""} onChange={(e) => updateEditingAnnonceField("surface_m2", e.target.value)} style={S.inputStyle} /></Field>
-              <Field T={T} label="Ville"><input value={editingAnnonceForm.ville || ""} onChange={(e) => updateEditingAnnonceField("ville", e.target.value)} style={S.inputStyle} /></Field>
-              <Field T={T} label="Code postal"><input value={editingAnnonceForm.code_postal || ""} onChange={(e) => updateEditingAnnonceField("code_postal", e.target.value)} style={S.inputStyle} /></Field>
+              <Field T={T} label="Ville"><AdresseInput type="commune" champ="ville" value={editingAnnonceForm.ville || ""} onChange={(v) => updateEditingAnnonceField("ville", v)} onSelect={(s) => { updateEditingAnnonceField("ville", s.ville); if (s.codePostal) updateEditingAnnonceField("code_postal", s.codePostal); }} style={S.inputStyle} /></Field>
+              <Field T={T} label="Code postal"><AdresseInput type="commune" champ="cp" value={editingAnnonceForm.code_postal || ""} onChange={(v) => updateEditingAnnonceField("code_postal", v)} onSelect={(s) => { updateEditingAnnonceField("code_postal", s.codePostal); if (s.ville) updateEditingAnnonceField("ville", s.ville); }} style={S.inputStyle} /></Field>
               <Field T={T} label="Type de bien"><input value={editingAnnonceForm.type_bien || ""} onChange={(e) => updateEditingAnnonceField("type_bien", e.target.value)} style={S.inputStyle} /></Field>
               <Field T={T} label="Pièces"><input type="number" value={editingAnnonceForm.nb_pieces || ""} onChange={(e) => updateEditingAnnonceField("nb_pieces", e.target.value)} style={S.inputStyle} /></Field>
               <Field T={T} label="Chambres"><input type="number" value={editingAnnonceForm.nb_chambres || ""} onChange={(e) => updateEditingAnnonceField("nb_chambres", e.target.value)} style={S.inputStyle} /></Field>
@@ -2800,8 +2801,8 @@ function AnalyseTab({ T, newAnnonce, updateAnnonceField, preview, saving, onSubm
           <Field label="Lien source" T={T}><input value={newAnnonce.source_url} onChange={(e) => updateAnnonceField("source_url", e.target.value)} style={S.inputStyle} placeholder="https://www.leboncoin.fr/... ou https://www.seloger.com/..." /></Field>
           <Field label="Prix" T={T}><input type="number" value={newAnnonce.prix} onChange={(e) => updateAnnonceField("prix", e.target.value)} style={S.inputStyle} placeholder="180000" /></Field>
           <Field label="Surface m²" T={T}><input type="number" value={newAnnonce.surface_m2} onChange={(e) => updateAnnonceField("surface_m2", e.target.value)} style={S.inputStyle} placeholder="150" /></Field>
-          <Field label="Ville" T={T}><input value={newAnnonce.ville} onChange={(e) => updateAnnonceField("ville", e.target.value)} style={S.inputStyle} placeholder="Angers" /></Field>
-          <Field label="Code postal" T={T}><input value={newAnnonce.code_postal} onChange={(e) => updateAnnonceField("code_postal", e.target.value)} style={S.inputStyle} placeholder="49000" /></Field>
+          <Field label="Ville" T={T}><AdresseInput type="commune" champ="ville" value={newAnnonce.ville} onChange={(v) => updateAnnonceField("ville", v)} onSelect={(s) => { updateAnnonceField("ville", s.ville); if (s.codePostal) updateAnnonceField("code_postal", s.codePostal); }} style={S.inputStyle} placeholder="Angers" /></Field>
+          <Field label="Code postal" T={T}><AdresseInput type="commune" champ="cp" value={newAnnonce.code_postal} onChange={(v) => updateAnnonceField("code_postal", v)} onSelect={(s) => { updateAnnonceField("code_postal", s.codePostal); if (s.ville) updateAnnonceField("ville", s.ville); }} style={S.inputStyle} placeholder="49000" /></Field>
           <Field label="Type de bien" T={T}><input value={newAnnonce.type_bien} onChange={(e) => updateAnnonceField("type_bien", e.target.value)} style={S.inputStyle} placeholder="Maison / Immeuble / Appartement" /></Field>
           <Field label="Nombre de pièces" T={T}><input type="number" value={newAnnonce.nb_pieces} onChange={(e) => updateAnnonceField("nb_pieces", e.target.value)} style={S.inputStyle} placeholder="6" /></Field>
         </div>

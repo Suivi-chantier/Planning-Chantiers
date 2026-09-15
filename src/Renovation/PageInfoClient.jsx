@@ -3,6 +3,7 @@ import { supabase, getClientId } from "../supabase";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
 import { FONT, RADIUS, SHADOW, getBranchAccent, LOGO_RENO_H, loadLots } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import StylusCanvas, { renderStrokesDataURL } from "./StylusCanvas";
 import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
@@ -1586,10 +1587,20 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 </div>
               );
               const grille = (children, cols = "1fr 1fr") => <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"start" }}>{children}</div>;
+              // Champs d'adresse : suggestions Base Adresse Nationale. Le choix d'une
+              // suggestion remplit rue + code postal + ville (+ pays) du même préfixe d'un coup.
+              const patchAdresse = (prefixe, s, complet) => complet
+                ? { [`${prefixe}_adresse`]: s.adresse || s.label, [`${prefixe}_code_postal`]: s.codePostal, [`${prefixe}_ville`]: s.ville, [`${prefixe}_pays`]: infos[`${prefixe}_pays`] || "France" }
+                : { [`${prefixe}_code_postal`]: s.codePostal || infos[`${prefixe}_code_postal`] || "", [`${prefixe}_ville`]: s.ville || infos[`${prefixe}_ville`] || "" };
               const champ = (label, f, props = {}) => (
                 <div style={props.span ? { gridColumn:"1 / -1" } : undefined}>
                   <label style={lbl}>{label}</label>
-                  <input style={inp} type={props.type || "text"} inputMode={props.inputMode} value={infos[f] ?? ""} onChange={e=>updInfo(f,e.target.value)} placeholder={props.placeholder || ""} />
+                  {props.adresse
+                    ? <AdresseInput style={inp} inputMode={props.inputMode} value={infos[f] ?? ""} placeholder={props.placeholder || ""}
+                        type={props.adresse.type} champ={props.adresse.champ}
+                        onChange={v=>updInfo(f,v)}
+                        onSelect={s=>updInfos(patchAdresse(props.adresse.prefixe, s, props.adresse.champ === "rue"))} />
+                    : <input style={inp} type={props.type || "text"} inputMode={props.inputMode} value={infos[f] ?? ""} onChange={e=>updInfo(f,e.target.value)} placeholder={props.placeholder || ""} />}
                 </div>
               );
               const typeCourant = infos.type_logement || (logementInfo.repli ? logementInfo.type : "");
@@ -1617,10 +1628,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                         style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, padding:"5px 10px"}}><Icon as={Copy} size={11}/> Même adresse que le chantier</button>
                     )}
                   </div>
-                  {champ("Adresse", "client_adresse", { span:true, placeholder:"12 rue des Lilas" })}
+                  {champ("Adresse", "client_adresse", { span:true, placeholder:"12 rue des Lilas", adresse:{ prefixe:"client", champ:"rue" } })}
                   {champ("Complément", "client_adresse_complement", { placeholder:"Bâtiment B, 3e étage" })}
-                  {champ("Code postal", "client_code_postal", { inputMode:"numeric", placeholder:"49000" })}
-                  {champ("Ville", "client_ville", { placeholder:"Angers" })}
+                  {champ("Code postal", "client_code_postal", { inputMode:"numeric", placeholder:"49000", adresse:{ prefixe:"client", type:"commune", champ:"cp" } })}
+                  {champ("Ville", "client_ville", { placeholder:"Angers", adresse:{ prefixe:"client", type:"commune", champ:"ville" } })}
                   {champ("Pays", "client_pays", { placeholder:"France" })}
                 </>))}
 
@@ -1635,14 +1646,14 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                           style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, padding:"5px 10px"}}><Icon as={Copy} size={11}/> Reprendre l'adresse de visite</button>
                       )}
                     </div>
-                    {champ("Adresse", "chantier_adresse", { span:true, placeholder:"12 rue des Lilas" })}
+                    {champ("Adresse", "chantier_adresse", { span:true, placeholder:"12 rue des Lilas", adresse:{ prefixe:"chantier", champ:"rue" } })}
                     {champ("Complément", "chantier_adresse_complement", { placeholder:"Escalier A, porte gauche" })}
-                    {champ("Code postal", "chantier_code_postal", { inputMode:"numeric", placeholder:"49000" })}
-                    {champ("Ville", "chantier_ville", { placeholder:"Angers" })}
+                    {champ("Code postal", "chantier_code_postal", { inputMode:"numeric", placeholder:"49000", adresse:{ prefixe:"chantier", type:"commune", champ:"cp" } })}
+                    {champ("Ville", "chantier_ville", { placeholder:"Angers", adresse:{ prefixe:"chantier", type:"commune", champ:"ville" } })}
                     {champ("Pays", "chantier_pays", { placeholder:"France" })}
                     <div style={{gridColumn:"1 / -1"}}>
                       <label style={lbl}>Adresse saisie à la visite (historique / repli)</label>
-                      <textarea style={{...ta, minHeight:48}} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" />
+                      <AdresseInput multiline style={{...ta, minHeight:48}} value={infos.adresse_bien} onChange={v=>updInfo("adresse_bien",v)} placeholder="Rue, code postal, ville" />
                     </div>
                   </>)}
                   <div style={{ ...h2s, marginTop:16 }}>Logement de ce devis</div>

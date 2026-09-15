@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-15",
+    type: "nouveaute",
+    titre: "Adresses : suggestions automatiques dans tous les champs d'adresse",
+    pages: [],
+    quoi: "Plus besoin de taper une adresse en entier ni de chercher le code postal : dès trois caractères, l'appli propose les adresses correspondantes (Base Adresse Nationale, service gratuit de l'État). Un clic sur la suggestion remplit d'un coup la rue, le code postal et la ville (et les coordonnées GPS pour les biens Invest).",
+    comment: "Dans n'importe quel champ d'adresse (chantier et facturation du chiffrage, opérations, compte-rendu d'équipe, biens, visites, annonces, structuration, urbanisme, état des lieux) : taper par exemple « 12 rue Paul » puis choisir « 12 Rue Paul Langevin 49240 Avrillé » à la souris ou avec les flèches + Entrée. Les champs Ville et Code postal proposent aussi les communes (taper « Avril » ou « 49240 »). La saisie libre reste possible, y compris pour une adresse hors de France.",
+  },
+  {
     date: "15/09/2026",
     titre: "Classement sécurisé des ouvrages ProGBat",
     quoi: "L’inventaire ProGBat peut maintenant préparer puis exécuter le classement des ouvrages déjà liés dans les familles métier correspondant aux préfixes de code configurés dans les lots Profero.",

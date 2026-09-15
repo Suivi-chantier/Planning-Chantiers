@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import { THEMES_INV, SU, WA, DA, IN, KPICard, CompletionBar, readNavTarget } from "./_shared";
 import {
   FileText, Plus, Trash2, ArrowLeft, RefreshCw, Search, AlertTriangle, Check,
@@ -74,12 +75,17 @@ const styleSaisie = (manque, T) => ({
   borderColor: manque ? DA : undefined,
 });
 
-function Txt({ label, value, onChange, placeholder, requis, aide, T = T_DEFAUT, span, type = "text" }) {
+function Txt({ label, value, onChange, placeholder, requis, aide, T = T_DEFAUT, span, type = "text", adresse }) {
   const manque = requis && !txt(value);
   return (
     <Champ label={label} aide={aide} requis={requis} manque={manque} T={T} span={span}>
-      <input className="inv-inp" type={type} value={value || ""} placeholder={placeholder || ""}
-        onChange={e => onChange(e.target.value)} style={styleSaisie(manque, T)}/>
+      {adresse ? (
+        <AdresseInput className="inv-inp" value={value || ""} placeholder={placeholder || ""} onChange={onChange}
+          type={adresse.type} champ={adresse.champ} onSelect={adresse.onSelect} style={styleSaisie(manque, T)}/>
+      ) : (
+        <input className="inv-inp" type={type} value={value || ""} placeholder={placeholder || ""}
+          onChange={e => onChange(e.target.value)} style={styleSaisie(manque, T)}/>
+      )}
     </Champ>
   );
 }
@@ -344,9 +350,11 @@ function ListeUrbanisme({ profil, T = T_DEFAUT, onOuvrir }) {
               <Txt label="Commercial demandeur" value={form.commercial} T={T}
                 onChange={v => setForm(f => ({ ...f, commercial:v }))} placeholder={profil?.nom || "Nom du commercial"}/>
               <Txt label="Adresse du bien" value={form.adresse} T={T}
-                onChange={v => setForm(f => ({ ...f, adresse:v }))} placeholder="12 rue des Lilas"/>
+                onChange={v => setForm(f => ({ ...f, adresse:v }))} placeholder="12 rue des Lilas"
+                adresse={{ champ:"rue", onSelect:s => setForm(f => ({ ...f, adresse:s.adresse || s.label, commune:s.ville || f.commune })) }}/>
               <Txt label="Commune" value={form.commune} T={T}
-                onChange={v => setForm(f => ({ ...f, commune:v }))}/>
+                onChange={v => setForm(f => ({ ...f, commune:v }))}
+                adresse={{ type:"commune", champ:"ville" }}/>
               <Dte label="Date maximum de dépôt" value={form.date_max_depot} T={T}
                 onChange={v => setForm(f => ({ ...f, date_max_depot:v }))}
                 aide="Se complète ensuite avec l'origine de la contrainte"/>
@@ -959,7 +967,7 @@ function OngletDemande({ d, set, setSous, setD, T, arch, biensStock = [], rattac
             <Txt label="Forme juridique" value={dem.societe?.forme} requis T={T} placeholder="SCI, SAS, SARL…" onChange={v => setSous("demandeur", "societe", "forme", v)}/>
             <Txt label="SIRET (14 chiffres)" value={dem.societe?.siret} requis T={T} onChange={v => setSous("demandeur", "societe", "siret", v)}
               aide={siret && siret.length !== 14 ? `${siret.length}/14 chiffres — incomplet` : "Oubli n°3 des relances"}/>
-            <Txt label="Adresse du siège social" value={dem.societe?.adresse_siege} requis T={T} span onChange={v => setSous("demandeur", "societe", "adresse_siege", v)}/>
+            <Txt label="Adresse du siège social" value={dem.societe?.adresse_siege} requis T={T} span adresse onChange={v => setSous("demandeur", "societe", "adresse_siege", v)}/>
             <Txt label="Nom / prénom du représentant légal" value={dem.societe?.representant} requis T={T} onChange={v => setSous("demandeur", "societe", "representant", v)}/>
             <Txt label="Qualité" value={dem.societe?.qualite} requis T={T} placeholder="gérant, président…" onChange={v => setSous("demandeur", "societe", "qualite", v)}/>
             <Txt label="Téléphone du représentant" value={dem.societe?.telephone} T={T} onChange={v => setSous("demandeur", "societe", "telephone", v)}/>
@@ -970,7 +978,7 @@ function OngletDemande({ d, set, setSous, setD, T, arch, biensStock = [], rattac
             <Txt label="Nom / prénom du futur dirigeant" value={dem.futur?.nom} requis T={T} onChange={v => setSous("demandeur", "futur", "nom", v)}/>
             <Dte label="Date de naissance" value={dem.futur?.naissance_date} requis T={T} onChange={v => setSous("demandeur", "futur", "naissance_date", v)}/>
             <Txt label="Lieu de naissance" value={dem.futur?.naissance_lieu} requis T={T} onChange={v => setSous("demandeur", "futur", "naissance_lieu", v)}/>
-            <Txt label="Adresse personnelle complète" value={dem.futur?.adresse} requis T={T} span onChange={v => setSous("demandeur", "futur", "adresse", v)}/>
+            <Txt label="Adresse personnelle complète" value={dem.futur?.adresse} requis T={T} span adresse onChange={v => setSous("demandeur", "futur", "adresse", v)}/>
             <Txt label="Téléphone" value={dem.futur?.telephone} requis T={T} onChange={v => setSous("demandeur", "futur", "telephone", v)}/>
             <Txt label="Email" value={dem.futur?.email} T={T} onChange={v => setSous("demandeur", "futur", "email", v)}/>
             <Dte label="Date prévisionnelle d'immatriculation" value={dem.futur?.date_immatriculation} T={T} onChange={v => setSous("demandeur", "futur", "date_immatriculation", v)}/>
@@ -994,9 +1002,12 @@ function OngletDemande({ d, set, setSous, setD, T, arch, biensStock = [], rattac
 
       <Carte titre="Bloc 3 — Le bien" icone={MapPin} ton="blue" T={T}>
         <div style={GRILLE_CHAMPS}>
-          <Txt label="Adresse (n°, rue)" value={b.adresse} requis T={T} onChange={v => set("bien", "adresse", v)}/>
-          <Txt label="Code postal" value={b.code_postal} T={T} onChange={v => set("bien", "code_postal", v)}/>
-          <Txt label="Commune" value={b.commune} requis T={T} onChange={v => set("bien", "commune", v)}/>
+          <Txt label="Adresse (n°, rue)" value={b.adresse} requis T={T} onChange={v => set("bien", "adresse", v)}
+            adresse={{ champ:"rue", onSelect:s => { set("bien", "adresse", s.adresse || s.label); set("bien", "code_postal", s.codePostal); set("bien", "commune", s.ville); } }}/>
+          <Txt label="Code postal" value={b.code_postal} T={T} onChange={v => set("bien", "code_postal", v)}
+            adresse={{ type:"commune", champ:"cp", onSelect:s => { set("bien", "code_postal", s.codePostal); if (s.ville) set("bien", "commune", s.ville); } }}/>
+          <Txt label="Commune" value={b.commune} requis T={T} onChange={v => set("bien", "commune", v)}
+            adresse={{ type:"commune", champ:"ville", onSelect:s => { set("bien", "commune", s.ville); if (s.codePostal) set("bien", "code_postal", s.codePostal); } }}/>
           <Txt label="Zone PLU (si connue)" value={b.zone_plu} T={T} onChange={v => set("bien", "zone_plu", v)}/>
           <Sel label="Périmètre ABF / site patrimonial remarquable" value={b.abf} options={["Oui", "Non", "À vérifier"]} requis T={T}
             vide="À vérifier" onChange={v => set("bien", "abf", v)}
