@@ -1,5 +1,6 @@
 import CellModal from "./CellModal";
 import PlanningBaselinePanel from "./PlanningBaselinePanel";
+import PlanningEngineSimulationPanel from "./PlanningEngineSimulationPanel";
 import { creerAllocationUid } from "./planningBaselineModelV1.js";
 import { estAllocationVerrouilleeV1 } from "./planningAllocationLockDataV1.js";
 import React, { useState, useEffect, useMemo } from "react";
@@ -55,6 +56,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const [showEmptyWeek, setShowEmptyWeek] = useState(false); // grille PC : afficher les chantiers sans tâche de la semaine
   const [modal, setModal] = useState(null);
   const [baselineOpen, setBaselineOpen] = useState(false);
+  const [simulationOpen, setSimulationOpen] = useState(false);
   const [cellDraft, setCellDraft] = useState(null);
   const [cmdDraft, setCmdDraft] = useState("");
   const [noteDraft, setNoteDraft] = useState("");
@@ -582,6 +584,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       })()}
 
       {baselineOpen && <PlanningBaselinePanel chantiers={chantiers} T={T} acc={acc} onClose={()=>setBaselineOpen(false)}/>}
+      {simulationOpen && <PlanningEngineSimulationPanel T={T} acc={acc} onClose={()=>setSimulationOpen(false)}/>}
 
       {modal && cellDraft && <CellModal
         chantier={modalChantier}
@@ -645,6 +648,11 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         </div>
 
         <div style={{ marginLeft:"auto", display:"flex", gap:6, alignItems:"center" }}>
+          <button title="Simuler le planning global" onClick={()=>setSimulationOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>
+            <Icon as={CalendarCheck} size={14}/> Simulation
+          </button>
           <button title="Planning de référence" onClick={()=>setBaselineOpen(true)} style={{...navBtn,width:"auto",padding:"0 10px",gap:6,fontWeight:800,fontSize:11}}
             onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSub; }}>
