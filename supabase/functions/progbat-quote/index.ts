@@ -22,6 +22,7 @@ import { traiterRequeteDevis, composerLotsOrdre, nettoyerMessage } from "./lib/p
 //   GET  /company/taxes              scope tax-rates.read   taux de TVA → taxRateId
 //   POST /company/quotes             scope quotes           création d'un brouillon (201 → QuoteResponse { id, code, … })
 //   GET  /company/quotes/{quoteId}   scope quotes.read      relecture de vérification après un POST réussi (jamais de second POST)
+//   GET  /company/library/structures/{structureId}  scope structures.read  existence de chaque ouvrage lié (elementId)
 // La fonction ne finalise, n'envoie, n'accepte ni ne supprime jamais un devis.
 //
 // Secret : PROGBAT_PRIVATE_ACCESS_TOKEN (Authorization: Bearer) — jamais renvoyé,
@@ -184,6 +185,12 @@ serve(async (req) => {
         const { error } = await admin.from("profero_projets").update(patch).eq("id", projectId)
         return error ? { ok: false, erreur: error.message } : { ok: true }
       },
+      async chargerLiaisons(bibliothequeIds: string[]) {
+        // Liaison ACTUELLE de chaque ouvrage Profero : c'est elle qui donne l'elementId.
+        const { data, error } = await admin.from("bibliotheque_ratios").select("id, progbat_id").in("id", bibliothequeIds)
+        if (error) throw new Error("Lecture des liaisons ProGBat impossible : " + nettoyerMessage(error.message))
+        return data || []
+      },
     }
 
     const progbat = {
@@ -209,6 +216,26 @@ serve(async (req) => {
       async lireDevis(quoteId: number) {
         // Lecture de confirmation (GET officiel) ; son échec n'entraîne aucun nouveau POST.
         return await progbatFetch("GET", `/company/quotes/${encodeURIComponent(String(quoteId))}`, token)
+      },
+      async verifierStructures(ids: number[]) {
+        // Existence de chaque structure liée : 200 = existe, 404 = introuvable ; toute autre
+        // réponse rend la vérification impossible (aucune création). Lecture seule, 4 appels en parallèle au plus.
+        const existants: number[] = []
+        const introuvables: number[] = []
+        const file = [...new Set(ids)]
+        let echec: { status: number; message: string } | null = null
+        const worker = async () => {
+          while (file.length && !echec) {
+            const id = file.shift() as number
+            const r = await progbatFetch("GET", `/company/library/structures/${encodeURIComponent(String(id))}`, token)
+            if (r.ok) existants.push(id)
+            else if (r.status === 404) introuvables.push(id)
+            else echec = { status: r.status, message: r.message }
+          }
+        }
+        await Promise.all([worker(), worker(), worker(), worker()])
+        if (echec) return { ok: false, status: echec.status, message: echec.message }
+        return { ok: true, existants, introuvables }
       },
     }
 

@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 
 const m = await import(new URL("../src/Renovation/progbatQuotePayload.mjs", import.meta.url).href);
 const pricing = await import(new URL("../src/Renovation/chiffragePricing.mjs", import.meta.url).href);
-const { construirePayloadDevisProGBat, auditerPayload, trouverTaxRateId, indexerTauxTva, arrondirQuantite, formaterDateISO, CLES_INTERDITES } = m;
+const { construirePayloadDevisProGBat, auditerPayload, trouverTaxRateId, indexerTauxTva, arrondirQuantite, formaterDateISO, CLES_INTERDITES, resoudreElementId } = m;
+// Liaisons ACTUELLES Profero → ProGBat (bibliotheque_ratios.progbat_id vérifié par l'API) : identifiants fictifs
+const LIAISONS = { 42: { progbat_id: 777, existe: true }, 43: { progbat_id: 778, existe: true } };
 
 // ── Jeu de données ──────────────────────────────────────────────────────────
 // Identifiants ProGBat FICTIFS (les vrais viennent de GET /company/taxes à l'exécution)
@@ -40,7 +42,7 @@ const ligne = (o = {}) => ({
   coef_vente: 1.55, taux_marge_pct: 35.48, calcul_version: "1@2026-09-14T12:44:32.841Z",
   calcul_detail: { version: 1, complet: true }, ordre: 0, created_at: "2026-09-14T12:44:33Z", ...o,
 });
-const construire = (projet, lignes, extra = {}) => construirePayloadDevisProGBat({ projet, lignes, lotsOrdre: ["Démolition", "Murs cloison doublages", "Sol"], taxes: TAXES, aujourdHui: AUJOURDHUI, ...extra });
+const construire = (projet, lignes, extra = {}) => construirePayloadDevisProGBat({ projet, lignes, lotsOrdre: ["Démolition", "Murs cloison doublages", "Sol"], taxes: TAXES, liaisons: LIAISONS, aujourdHui: AUJOURDHUI, ...extra });
 const codes = (r) => r.erreurs.map(e => e.code);
 const elements = (payload) => payload.content.flatMap(l => l.content.flatMap(z => z.content));
 
@@ -101,8 +103,11 @@ assert.equal(trouverTaxRateId(10, [{ id: "705", rate: "10" }]).id, 705, "id et t
   assert.equal(p.content[0].content[0].lineType, "title");
   assert.equal(p.content[0].content[0].label, "ZONE Séjour");
   const el = p.content[0].content[0].content[0];
-  assert.deepEqual(el, { lineType: "element", label: "S-001 — Sol lame PVC à clipser", quantity: 25, unit: "m²", netUnitPrice: 49.85, taxRateId: 705 });
-  assert.deepEqual(r.compteurs, { lots: 1, zones: 1, lignes: 1, lignes_sans_snapshot: 0 });
+  assert.deepEqual(el, { lineType: "element", elementId: 777, label: "S-001 — Sol lame PVC à clipser", quantity: 25, unit: "m²", netUnitPrice: 49.85, taxRateId: 705 }, "elementId + label + quantity + unit + netUnitPrice + taxRateId transmis ensemble");
+  assert.deepEqual(r.compteurs, { lots: 1, zones: 1, lignes: 1, lignes_sans_snapshot: 0, lies: 1 });
+  assert.equal(r.apercu[0].zones[0].lignes[0].progbat_id, 777);
+  assert.equal(r.apercu[0].zones[0].lignes[0].lie, true);
+  assert.deepEqual(r.liaisons, { 42: { progbat_id: 777, existe: true }, 43: { progbat_id: 778, existe: true } });
   assert.equal(r.totaux.ht, 1246.25);
   assert.equal(r.totaux.ht_profero, 1246.25);
   assert.equal(r.totaux.ecart_ht, 0);
@@ -160,7 +165,8 @@ assert.equal(trouverTaxRateId(10, [{ id: "705", rate: "10" }]).id, 705, "id et t
   const sol = r.payload.content[2];
   assert.deepEqual(sol.content.map(z => z.label), ["ZONE Séjour", "ZONE Cuisine"], "zones dans l'ordre des zones suggérées");
   assert.deepEqual(sol.content[0].content.map(e => e.label), ["S-001 — Sol lame PVC à clipser", "S-002 — Plinthes"], "ordre enregistré (champ ordre) respecté");
-  assert.deepEqual(r.compteurs, { lots: 3, zones: 4, lignes: 5, lignes_sans_snapshot: 0 });
+  assert.deepEqual(r.compteurs, { lots: 3, zones: 4, lignes: 5, lignes_sans_snapshot: 0, lies: 5 });
+  assert.ok(elements(r.payload).every(e => e.elementId === 777), "elementId présent sur chaque ligne");
   const attendu = pricing.totauxDevis(lignes, { tvaPctDefaut: 10 }).venteHT;
   assert.equal(r.totaux.ht, attendu, "total payload = total Profero");
   assert.equal(r.totaux.ht, 1246.25 + 80 + 720 + 350 + 3416.88);
@@ -263,6 +269,7 @@ assert.equal(trouverTaxRateId(10, [{ id: "705", rate: "10" }]).id, 705, "id et t
   const r = construire(projetParticulier(), [ligne(), ancienne]);
   assert.ok(codes(r).includes("snapshot_absent"));
   assert.ok(codes(r).includes("code_absent"), "ancien ouvrage sans code");
+  assert.ok(codes(r).includes("ouvrage_sans_identifiant"), "ancienne ligne sans bibliotheque_id : impossible à lier");
   assert.equal(r.compteurs.lignes_sans_snapshot, 1);
   assert.equal(r.valide, false);
   const el = elements(r.payload).find(e => /WC suspendu/.test(e.label));
@@ -310,13 +317,13 @@ assert.equal(trouverTaxRateId(10, [{ id: "705", rate: "10" }]).id, 705, "id et t
   assert.ok(codes(r).includes("aucune_ligne"));
 }
 
-// ── Aucun elementId, profondeur 2, aucune donnée interne ────────────────────
+// ── elementId sur chaque élément, profondeur 2, aucune donnée interne ───────
 {
   const lignes = [ligne(), ligne({ zone: "Cuisine", category: "Démolition", code_ouvrage: "D-001", item: "D-001 : Dépose", quantite: 1, unite: "U", prix_unitaire: 100 })];
   const r = construire(projetParticulier(), lignes);
   const json = JSON.stringify(r.payload);
-  assert.ok(!json.includes("elementId"), "aucun elementId");
-  assert.ok(!json.includes("elementType"));
+  assert.equal(elements(r.payload).filter(e => e.elementId === 777).length, 2, "elementId sur chaque élément");
+  assert.ok(!json.includes("elementType"), "elementType jamais envoyé");
   CLES_INTERDITES.forEach(k => assert.ok(!json.includes(`"${k}"`), `clé interdite absente : ${k}`));
   assert.ok(!/cout|marge|coef|bibliotheque|progbat_/i.test(json), "aucun coût, marge, coefficient ni liaison dans le JSON");
   assert.ok(!json.includes("32.16"), "coût total unitaire absent du payload");
@@ -334,9 +341,28 @@ assert.equal(trouverTaxRateId(10, [{ id: "705", rate: "10" }]).id, 705, "id et t
 // ── L'audit détecte ce que la construction interdit ─────────────────────────
 {
   const bon = construire(projetParticulier(), [ligne()]).payload;
-  const avecElementId = JSON.parse(JSON.stringify(bon));
-  avecElementId.content[0].content[0].content[0].elementId = 12;
-  assert.ok(auditerPayload(avecElementId).some(e => e.code === "cle_interdite"));
+  const surTitre = JSON.parse(JSON.stringify(bon));
+  surTitre.content[0].elementId = 777;
+  assert.ok(auditerPayload(surTitre).some(e => e.code === "element_id_hors_element"), "elementId interdit sur un titre");
+  const surZone = JSON.parse(JSON.stringify(bon));
+  surZone.content[0].content[0].elementId = 777;
+  assert.ok(auditerPayload(surZone).some(e => e.code === "element_id_hors_element"), "elementId interdit sur une zone");
+  const sansId = JSON.parse(JSON.stringify(bon));
+  delete sansId.content[0].content[0].content[0].elementId;
+  assert.ok(auditerPayload(sansId).some(e => e.code === "element_id_absent"), "élément sans elementId refusé");
+  const idTexte = JSON.parse(JSON.stringify(bon));
+  idTexte.content[0].content[0].content[0].elementId = "777";
+  assert.ok(auditerPayload(idTexte).some(e => e.code === "element_id_absent"), "elementId doit être un entier");
+  const idNegatif = JSON.parse(JSON.stringify(bon));
+  idNegatif.content[0].content[0].content[0].elementId = -3;
+  assert.ok(auditerPayload(idNegatif).some(e => e.code === "element_id_absent"), "elementId doit être positif");
+  const idInconnu = JSON.parse(JSON.stringify(bon));
+  idInconnu.content[0].content[0].content[0].elementId = 12;
+  assert.ok(auditerPayload(idInconnu, { elementIdsAutorises: [777] }).some(e => e.code === "element_id_inconnu"), "elementId ≠ progbat_id actuel refusé");
+  assert.deepEqual(auditerPayload(bon, { elementIdsAutorises: new Set([777]) }), []);
+  const avecType = JSON.parse(JSON.stringify(bon));
+  avecType.content[0].content[0].content[0].elementType = 3;
+  assert.ok(auditerPayload(avecType).some(e => e.code === "cle_interdite"), "elementType interdit");
   const tropProfond = JSON.parse(JSON.stringify(bon));
   tropProfond.content[0].content[0].content = [{ lineType: "title", label: "Sous-zone", content: tropProfond.content[0].content[0].content }];
   assert.ok(auditerPayload(tropProfond).some(e => e.code === "profondeur_titres"), "3 niveaux de titres refusés");
@@ -361,7 +387,82 @@ assert.equal(trouverTaxRateId(10, [{ id: "705", rate: "10" }]).id, 705, "id et t
   assert.equal(codes(r).filter(c => c === "prix_invalide").length, 3);
   assert.equal(r.totaux.ht, 1246.25, "seule la ligne chiffrée compte, comme dans Profero");
   assert.equal(r.totaux.ht_profero, 1246.25);
-  assert.deepEqual(r.compteurs, { lots: 3, zones: 3, lignes: 4, lignes_sans_snapshot: 0 });
+  assert.deepEqual(r.compteurs, { lots: 3, zones: 3, lignes: 4, lignes_sans_snapshot: 0, lies: 4 });
 }
 
-console.log("verif-progbat-quote-payload : OK");
+// ── Liaison ProGBat : résolution de l'elementId ─────────────────────────────
+{
+  assert.deepEqual(resoudreElementId(ligne(), LIAISONS), { elementId: 777, code: null, message: null });
+  assert.equal(resoudreElementId(ligne({ bibliotheque_id: null }), LIAISONS).code, "ouvrage_sans_identifiant");
+  assert.equal(resoudreElementId(ligne({ bibliotheque_id: 99 }), LIAISONS).code, "ouvrage_non_lie", "ouvrage Profero sans progbat_id");
+  assert.equal(resoudreElementId(ligne(), { 42: { progbat_id: null } }).code, "ouvrage_non_lie");
+  assert.equal(resoudreElementId(ligne(), { 42: { progbat_id: "abc" } }).code, "progbat_id_invalide");
+  assert.equal(resoudreElementId(ligne(), { 42: { progbat_id: 0 } }).code, "progbat_id_invalide");
+  assert.equal(resoudreElementId(ligne(), { 42: { progbat_id: -5 } }).code, "progbat_id_invalide");
+  assert.equal(resoudreElementId(ligne(), { 42: { progbat_id: 777, existe: false } }).code, "structure_introuvable", "structure supprimée dans ProGBat");
+  assert.equal(resoudreElementId(ligne(), { 42: { progbat_id: "777", existe: true } }).elementId, 777, "progbat_id textuel (colonne text) accepté");
+  assert.equal(resoudreElementId(ligne(), new Map([["42", { progbat_id: 777 }]])).elementId, 777, "Map acceptée ; existe non vérifié = accepté par le générateur (le serveur vérifie)");
+}
+// ── Règle bloquante : tous liés, sinon invalide, jamais de devis hybride ─────
+{
+  const r = construire(projetParticulier(), [ligne({ code_ouvrage: "MU-022", item: "MU-022 : Peinture", bibliotheque_id: 99 })]);
+  assert.equal(r.valide, false);
+  assert.ok(codes(r).includes("ouvrage_non_lie"));
+  assert.ok(r.erreurs.some(e => e.message === "MU-022 — ouvrage non lié à la bibliothèque ProGBat"), "message clair par ligne");
+  assert.equal(r.compteurs.lies, 0);
+  assert.equal("elementId" in elements(r.payload)[0], false, "aucun elementId inventé");
+  assert.equal(r.apercu[0].zones[0].lignes[0].lie, false);
+}
+{
+  // hybride : un ouvrage lié + un non lié ⇒ invalide, avec le compteur explicite
+  const r = construire(projetParticulier(), [ligne(), ligne({ zone: "Cuisine", bibliotheque_id: 99, code_ouvrage: "S-002", item: "S-002 : Plinthes" })]);
+  assert.equal(r.valide, false);
+  assert.ok(codes(r).includes("ouvrages_non_lies"));
+  assert.ok(r.erreurs.some(e => /Ouvrages liés à la bibliothèque ProGBat : 1 \/ 2/.test(e.message)));
+  assert.equal(r.compteurs.lies, 1);
+}
+{
+  const r = construire(projetParticulier(), [ligne()], { liaisons: { 42: { progbat_id: "x1" } } });
+  assert.ok(codes(r).includes("progbat_id_invalide")); assert.equal(r.valide, false);
+  const r2 = construire(projetParticulier(), [ligne()], { liaisons: { 42: { progbat_id: 777, existe: false } } });
+  assert.ok(codes(r2).includes("structure_introuvable")); assert.equal(r2.valide, false);
+  assert.ok(r2.erreurs.some(e => /#777 introuvable/.test(e.message)));
+  const r3 = construire(projetParticulier(), [ligne()], { liaisons: null });
+  assert.ok(codes(r3).includes("liaisons_non_chargees")); assert.equal(r3.valide, false);
+}
+// ── Ancien identifiant dans le snapshot / injection : la liaison ACTUELLE seule compte ─
+{
+  // la ligne porte un vieux progbat_ligne_id et même un elementId : ignorés
+  const r = construire(projetParticulier(), [ligne({ progbat_ligne_id: "999", elementId: 999, progbat_id: 999 })]);
+  assert.equal(elements(r.payload)[0].elementId, 777, "elementId issu de la liaison actuelle, pas du snapshot");
+  assert.ok(!JSON.stringify(r.payload).includes("999"));
+  // liaison actuelle absente alors que le snapshot en porte une ⇒ bloqué
+  const r2 = construire(projetParticulier(), [ligne({ progbat_ligne_id: "999", elementId: 999 })], { liaisons: { 42: { progbat_id: null } } });
+  assert.equal(r2.valide, false); assert.ok(codes(r2).includes("ouvrage_non_lie"));
+  assert.equal("elementId" in elements(r2.payload)[0], false);
+}
+// ── Prix, unité, TVA et libellé du snapshot conservés malgré la bibliothèque ─
+{
+  // la liaison peut porter le prix COURANT de la bibliothèque ProGBat : il n'est jamais utilisé
+  const r = construire(projetParticulier(), [ligne({ prix_unitaire: 49.85, unite: "m²", tva_pct: 20, item: "S-001 : Libellé figé Profero" })], { liaisons: { 42: { progbat_id: 777, existe: true, prix_courant: 99.99, unite_courante: "ml", libelle_courant: "Libellé ProGBat" } } });
+  const el = elements(r.payload)[0];
+  assert.equal(el.netUnitPrice, 49.85, "prix du snapshot Profero transmis, pas le prix courant");
+  assert.equal(el.unit, "m²", "unité du snapshot");
+  assert.equal(el.taxRateId, 706, "TVA du snapshot (20 %) convertie");
+  assert.equal(el.label, "S-001 — Libellé figé Profero", "libellé figé");
+  assert.equal(el.elementId, 777);
+  assert.deepEqual(Object.keys(el).sort(), ["elementId", "label", "lineType", "netUnitPrice", "quantity", "taxRateId", "unit"], "les six champs accompagnent toujours elementId");
+  assert.ok(!JSON.stringify(r.payload).includes("99.99"));
+}
+// ── Le hash change quand un elementId change ────────────────────────────────
+{
+  const a = construire(projetParticulier(), [ligne()]);
+  const b = construire(projetParticulier(), [ligne()], { liaisons: { 42: { progbat_id: 778, existe: true } } });
+  assert.notDeepEqual(a.payload, b.payload);
+  const [ha, hb] = await Promise.all([m.hacherPayload(a.payload), m.hacherPayload(b.payload)]);
+  assert.notEqual(ha, hb, "un elementId différent ⇒ hash différent");
+  const c = construire(projetParticulier(), [ligne()]);
+  assert.equal(await m.hacherPayload(c.payload), ha, "même liaison ⇒ même hash");
+}
+
+console.log("verif-progbat-quote-payload : OK (elementId lié, règle tous-liés, prix figés prioritaires, hash)");

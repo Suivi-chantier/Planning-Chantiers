@@ -20,7 +20,19 @@
 // Lignes (CreateQuoteLine / SubLine / LeafLine) : lineType (title | element |
 // comment), label, quantity, unit, netUnitPrice, taxRateId, elementId,
 // elementType, content. Les titres s'imbriquent sur DEUX niveaux au maximum
-// (lot → zone) ; les feuilles sont des `element`. Aucun elementId n'est envoyé.
+// (lot → zone) ; les feuilles sont des `element`.
+//
+// Liaison à la bibliothèque ProGBat (elementId) : chaque ligne d'ouvrage porte
+// l'`elementId` de la structure ProGBat liée à l'ouvrage Profero d'origine
+// (bibliotheque_ratios.progbat_id, RECHARGÉ côté serveur et vérifié par l'API :
+// la source de vérité est la liaison actuelle, jamais le snapshot ni le
+// navigateur). Conformément à l'OpenAPI, label, quantity, unit, netUnitPrice et
+// taxRateId sont TOUJOURS transmis avec l'elementId : les valeurs figées par
+// Profero prennent le dessus sur celles de la bibliothèque ProGBat, tandis que
+// la composition de l'ouvrage ProGBat est chargée dans le devis. Un devis
+// hybride (lignes liées + lignes libres) est interdit : toute ligne non liée,
+// sans progbat_id valide ou dont la structure est introuvable rend le payload
+// invalide. `elementType` n'est jamais envoyé (le type de la structure suffit).
 //
 // Règles d'arrondi (explicites, testées) :
 //   • netUnitPrice : prix de vente HT unitaire figé, arrondi à 2 décimales par
@@ -33,8 +45,8 @@
 //     avec le total est signalé en avertissement (ProGBat peut arrondir par ligne).
 //
 // Ce qui n'est JAMAIS transmis : coûts d'achat, coût de main-d'œuvre, coût
-// direct, coût total, coefficient de vente, taux de marge, marge (voir
-// CLES_INTERDITES + auditerPayload).
+// direct, coût total, coefficient de vente, taux de marge, marge, elementType
+// (voir CLES_INTERDITES + auditerPayload).
 
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import {
@@ -61,9 +73,9 @@ export const CLES_PAYLOAD_AUTORISEES = Object.freeze([
 export const CLES_LIGNE_AUTORISEES = Object.freeze([
   "lineType", "label", "quantity", "unit", "netUnitPrice", "taxRateId", "elementId", "elementType", "content",
 ]);
-/** Clés qui ne doivent apparaître NULLE PART dans le payload (liaisons et données internes). */
+/** Clés qui ne doivent apparaître NULLE PART dans le payload (données internes ; elementType non justifié). */
 export const CLES_INTERDITES = Object.freeze([
-  "elementId", "elementType",
+  "elementType",
   "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire",
   "coutMateriaux", "coutMainOeuvre", "coutDirect", "coutTotal", "coutHoraire",
   "coef_vente", "coefVente", "taux_marge_pct", "tauxMarge", "tauxMargePct", "marge", "margeUnitaire",
@@ -73,6 +85,41 @@ export const CLES_INTERDITES = Object.freeze([
 const str = (v) => String(v ?? "").trim();
 const estEntier = (v) => Number.isInteger(v) || (typeof v === "string" && /^-?\d+$/.test(v.trim()));
 const versEntier = (v) => estEntier(v) ? Number(v) : null;
+
+// ─── Liaisons Profero → ProGBat ──────────────────────────────────────────────
+/**
+ * Normalise les liaisons { bibliotheque_id → { progbat_id, existe } } en Map
+ * indexée par identifiant Profero (chaîne). `existe` : true si la structure a
+ * été confirmée par l'API ProGBat, false si elle est introuvable, null si non vérifiée.
+ */
+export function indexerLiaisons(liaisons) {
+  const map = new Map();
+  if (!liaisons) return map;
+  const entrees = liaisons instanceof Map ? [...liaisons.entries()]
+    : Array.isArray(liaisons) ? liaisons.map((l) => [l?.bibliotheque_id ?? l?.id, l])
+    : Object.entries(liaisons);
+  entrees.forEach(([k, v]) => {
+    if (k == null || v == null) return;
+    map.set(String(k), { progbat_id: v.progbat_id ?? null, existe: v.existe === undefined ? null : v.existe });
+  });
+  return map;
+}
+
+/**
+ * Résout l'elementId d'une ligne depuis la liaison ACTUELLE de son ouvrage
+ * Profero (jamais depuis le snapshot ni le navigateur).
+ * @returns {{ elementId: number|null, code: string|null, message: string|null }}
+ */
+export function resoudreElementId(ligne, liaisons) {
+  const bibId = ligne?.bibliotheque_id != null && str(ligne.bibliotheque_id) ? str(ligne.bibliotheque_id) : "";
+  if (!bibId) return { elementId: null, code: "ouvrage_sans_identifiant", message: "ouvrage sans identifiant de bibliothèque Profero : impossible de le lier à ProGBat" };
+  const l = (liaisons instanceof Map ? liaisons : indexerLiaisons(liaisons)).get(bibId);
+  if (!l || l.progbat_id == null || str(l.progbat_id) === "") return { elementId: null, code: "ouvrage_non_lie", message: "ouvrage non lié à la bibliothèque ProGBat" };
+  const pid = versEntier(l.progbat_id);
+  if (pid == null || pid <= 0) return { elementId: null, code: "progbat_id_invalide", message: `identifiant ProGBat invalide (${str(l.progbat_id)})` };
+  if (l.existe === false) return { elementId: null, code: "structure_introuvable", message: `ouvrage ProGBat #${pid} introuvable dans la bibliothèque ProGBat (supprimé ?)` };
+  return { elementId: pid, code: null, message: null };
+}
 
 /** Arrondi d'une quantité : 4 décimales au plus (nettoyage des flottants), null si invalide. */
 export function arrondirQuantite(q) {
@@ -160,11 +207,17 @@ export function libelleElement(ligne = {}) {
  * une ligne sans snapshot est déclarée incompatible.
  * @returns {{ element: object|null, apercu: object, erreurs: Array<{code,message}>, avertissements: string[] }}
  */
-export function convertirLigne(ligne = {}, { taxes, tvaPctDefaut = null } = {}) {
+export function convertirLigne(ligne = {}, { taxes, tvaPctDefaut = null, liaisons = null } = {}) {
   const erreurs = [];
   const avertissements = [];
   const ref = str(ligne.code_ouvrage) || str(ligne.item) || `ligne ${ligne.id ?? "?"}`;
-  const err = (code, message) => erreurs.push({ code, message: `${ref} : ${message}`, ligne_id: ligne.id ?? null });
+  const err = (code, message) => erreurs.push({ code, message: `${ref} — ${message}`, ligne_id: ligne.id ?? null });
+
+  // Liaison ProGBat : source de vérité = liaison actuelle de l'ouvrage Profero.
+  // Toute valeur `elementId` / `progbat_id` portée par la ligne elle-même est ignorée.
+  const liaison = resoudreElementId(ligne, liaisons);
+  if (liaison.code) err(liaison.code, liaison.message);
+  const elementId = liaison.elementId;
 
   if (!ligneEstSnapshot(ligne)) err("snapshot_absent", "ancienne ligne sans snapshot de prix (incompatible : ajouter l'ouvrage depuis la bibliothèque, il n'est pas recalculé automatiquement)");
   if (!str(ligne.category)) err("lot_absent", "lot absent");
@@ -199,7 +252,11 @@ export function convertirLigne(ligne = {}, { taxes, tvaPctDefaut = null } = {}) 
   else if (tax.id == null) err("tva_sans_correspondance", tax.erreur);
 
   const totalHT = quantity != null && quantity > 0 && netUnitPrice != null ? arrondirMontant(quantity * netUnitPrice) : null;
-  const element = { lineType: "element", label };
+  // elementId + label + quantity + unit + netUnitPrice + taxRateId, toujours ensemble :
+  // les valeurs figées Profero priment, la composition ProGBat est chargée.
+  const element = { lineType: "element" };
+  if (elementId != null) element.elementId = elementId;
+  element.label = label;
   if (quantity != null && quantity > 0) element.quantity = quantity;
   if (unit) element.unit = unit;
   if (netUnitPrice != null) element.netUnitPrice = netUnitPrice;
@@ -210,6 +267,7 @@ export function convertirLigne(ligne = {}, { taxes, tvaPctDefaut = null } = {}) 
     apercu: {
       ligne_id: ligne.id ?? null, code, libelle, label, quantite: quantity, unite: unit,
       prix_unitaire_ht: netUnitPrice, total_ht: totalHT, tva_pct: tvaPct, taxRateId: tax.id,
+      bibliotheque_id: ligne.bibliotheque_id ?? null, progbat_id: elementId, lie: elementId != null,
       snapshot: ligneEstSnapshot(ligne), erreurs: erreurs.map(e => e.code),
     },
     // valeurs BRUTES pour la comparaison des totaux (même méthode que totauxDevis)
@@ -224,9 +282,10 @@ export function convertirLigne(ligne = {}, { taxes, tvaPctDefaut = null } = {}) 
  * Chiffrage) et rend le `content` du devis. Deux occurrences d'un même ouvrage
  * dans deux zones restent deux lignes ; dans la même zone aussi (jamais fusionnées).
  */
-export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = null, tvaPctDefaut = null } = {}) {
+export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = null, tvaPctDefaut = null, liaisons = null } = {}) {
   const erreurs = [];
   const avertissements = [];
+  const indexLiaisons = liaisons instanceof Map ? liaisons : indexerLiaisons(liaisons);
   // Zones / lots vides : marqués par un libellé d'aperçu, jamais remplacés par un défaut silencieux
   const marquees = (lignes || []).map((l) => ({
     ...l,
@@ -240,7 +299,7 @@ export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = nu
   const groupes = grouperParLotZone(marquees, lotsOrdre);
 
   let sommeBrute = 0, sommeArrondie = 0, sommeTva = 0;
-  let nbZones = 0, nbLignes = 0, nbSansSnapshot = 0;
+  let nbZones = 0, nbLignes = 0, nbSansSnapshot = 0, nbLies = 0;
   const tvaDetail = {};
   const content = [];
   const apercu = [];
@@ -258,8 +317,9 @@ export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = nu
       let totalZone = 0;
       z.lignes.forEach((l) => {
         nbLignes++;
-        const conv = convertirLigne(l.__orig ?? l, { taxes: index, tvaPctDefaut });
+        const conv = convertirLigne(l.__orig ?? l, { taxes: index, tvaPctDefaut, liaisons: indexLiaisons });
         if (!conv.apercu.snapshot) nbSansSnapshot++;
+        if (conv.apercu.lie) nbLies++;
         erreurs.push(...conv.erreurs);
         avertissements.push(...conv.avertissements);
         elements.push(conv.element);
@@ -289,7 +349,7 @@ export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = nu
   const tva = arrondirMontant(sommeTva);
   return {
     content, apercu, erreurs, avertissements,
-    compteurs: { lots: groupes.length, zones: nbZones, lignes: nbLignes, lignes_sans_snapshot: nbSansSnapshot },
+    compteurs: { lots: groupes.length, zones: nbZones, lignes: nbLignes, lignes_sans_snapshot: nbSansSnapshot, lies: nbLies },
     totaux: {
       ht: totalHT ?? 0,
       ht_lignes_arrondies: totalLignesArrondies ?? 0,
@@ -402,7 +462,7 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
 }
 
 // ─── Audit structurel du payload (indépendant de la construction) ────────────
-function auditerLigne(ligne, profondeurTitres, chemin, erreurs) {
+function auditerLigne(ligne, profondeurTitres, chemin, erreurs, elementIdsAutorises) {
   if (!ligne || typeof ligne !== "object") { erreurs.push({ code: "ligne_invalide", message: `${chemin} : ligne non objet` }); return; }
   Object.keys(ligne).forEach((k) => {
     if (CLES_INTERDITES.includes(k)) erreurs.push({ code: "cle_interdite", message: `${chemin} : clé interdite « ${k} »` });
@@ -410,13 +470,17 @@ function auditerLigne(ligne, profondeurTitres, chemin, erreurs) {
   });
   if (!["title", "element", "comment"].includes(ligne.lineType)) erreurs.push({ code: "line_type_invalide", message: `${chemin} : lineType « ${ligne.lineType} »` });
   if (!str(ligne.label)) erreurs.push({ code: "label_vide", message: `${chemin} : label vide` });
+  if (ligne.lineType !== "element" && "elementId" in ligne) erreurs.push({ code: "element_id_hors_element", message: `${chemin} : elementId interdit sur un ${ligne.lineType}` });
   if (ligne.lineType === "title") {
     if (profondeurTitres + 1 > PROFONDEUR_TITRES_MAX) erreurs.push({ code: "profondeur_titres", message: `${chemin} : ${profondeurTitres + 1} niveaux de titres (max ${PROFONDEUR_TITRES_MAX})` });
     if (!Array.isArray(ligne.content)) erreurs.push({ code: "titre_sans_contenu", message: `${chemin} : titre sans content` });
-    else ligne.content.forEach((s, i) => auditerLigne(s, profondeurTitres + 1, `${chemin}.content[${i}]`, erreurs));
+    else ligne.content.forEach((s, i) => auditerLigne(s, profondeurTitres + 1, `${chemin}.content[${i}]`, erreurs, elementIdsAutorises));
   } else {
     if ("content" in ligne) erreurs.push({ code: "element_avec_contenu", message: `${chemin} : un element ne porte pas de content` });
     if (ligne.lineType === "element") {
+      // elementId obligatoire : entier positif, et présent parmi les progbat_id actuels des ouvrages Profero du devis
+      if (!(Number.isInteger(ligne.elementId) && ligne.elementId > 0)) erreurs.push({ code: "element_id_absent", message: `${chemin} : elementId manquant ou non entier positif (ouvrage non lié à la bibliothèque ProGBat)` });
+      else if (elementIdsAutorises && !elementIdsAutorises.has(ligne.elementId)) erreurs.push({ code: "element_id_inconnu", message: `${chemin} : elementId ${ligne.elementId} ne correspond à aucun progbat_id actuel d'ouvrage Profero` });
       if (!(typeof ligne.quantity === "number" && ligne.quantity > 0)) erreurs.push({ code: "quantity_invalide", message: `${chemin} : quantity manquante ou ≤ 0` });
       if (!str(ligne.unit)) erreurs.push({ code: "unit_absente", message: `${chemin} : unit manquante` });
       if (!(typeof ligne.netUnitPrice === "number" && Number.isFinite(ligne.netUnitPrice) && ligne.netUnitPrice >= 0)) erreurs.push({ code: "net_unit_price_invalide", message: `${chemin} : netUnitPrice manquant ou invalide` });
@@ -427,12 +491,15 @@ function auditerLigne(ligne, profondeurTitres, chemin, erreurs) {
 }
 
 /**
- * Vérifie un payload déjà construit : clés conformes à l'OpenAPI, aucun
- * elementId ni donnée interne, deux niveaux de titres au plus, éléments complets.
+ * Vérifie un payload déjà construit : clés conformes à l'OpenAPI, aucune donnée
+ * interne ni elementType, deux niveaux de titres au plus, éléments complets et
+ * TOUS liés (elementId entier positif, uniquement sur les lignes `element`,
+ * et — si `elementIdsAutorises` est fourni — égal au progbat_id actuel d'un ouvrage Profero).
  * @returns {Array<{code, message}>} vide si conforme
  */
-export function auditerPayload(payload) {
+export function auditerPayload(payload, { elementIdsAutorises = null } = {}) {
   const erreurs = [];
+  const autorises = elementIdsAutorises == null ? null : (elementIdsAutorises instanceof Set ? elementIdsAutorises : new Set(elementIdsAutorises));
   if (!payload || typeof payload !== "object") return [{ code: "payload_invalide", message: "Payload absent" }];
   Object.keys(payload).forEach((k) => {
     if (CLES_INTERDITES.includes(k)) erreurs.push({ code: "cle_interdite", message: `payload : clé interdite « ${k} »` });
@@ -443,7 +510,7 @@ export function auditerPayload(payload) {
   });
   if ("validityDate" in payload && !formaterDateISO(payload.validityDate)) erreurs.push({ code: "validity_date_invalide", message: "payload.validityDate n'est pas une date AAAA-MM-JJ" });
   if (!Array.isArray(payload.content)) erreurs.push({ code: "content_absent", message: "payload.content absent" });
-  else payload.content.forEach((l, i) => auditerLigne(l, 0, `content[${i}]`, erreurs));
+  else payload.content.forEach((l, i) => auditerLigne(l, 0, `content[${i}]`, erreurs, autorises));
   // Filet : le JSON sérialisé ne doit contenir aucune clé interdite, à quelque profondeur que ce soit
   const json = JSON.stringify(payload);
   CLES_INTERDITES.forEach((k) => { if (json.includes(`"${k}"`)) erreurs.push({ code: "cle_interdite_profonde", message: `« ${k} » présent dans le JSON` }); });
@@ -467,9 +534,11 @@ function dedoublonner(liste) {
  *   Le payload est TOUJOURS rendu (pour inspection) mais `valide` = false dès
  *   qu'un contrôle bloquant échoue : aucun envoi ne doit alors avoir lieu.
  */
-export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOrdre = [], taxes = null, aujourdHui = new Date() } = {}) {
+export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOrdre = [], taxes = null, liaisons = null, aujourdHui = new Date() } = {}) {
   const erreurs = [];
   const avertissements = [];
+  const indexLiaisons = indexerLiaisons(liaisons);
+  if (liaisons == null) erreurs.push({ code: "liaisons_non_chargees", message: "Liaisons à la bibliothèque ProGBat non chargées : aucun elementId ne peut être déterminé" });
   const { parTaux, doublons, invalides } = indexerTauxTva(taxes);
   if (!Array.isArray(taxes)) erreurs.push({ code: "taux_tva_non_charges", message: "Taux de TVA ProGBat non chargés : aucun taxRateId ne peut être déterminé" });
   else if (parTaux.size === 0) erreurs.push({ code: "taux_tva_vides", message: "ProGBat n'a renvoyé aucun taux de TVA exploitable" });
@@ -482,9 +551,13 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
 
   const tvaPctDefaut = num(projet.tva_pct);
   if (!(lignes || []).length) erreurs.push({ code: "aucune_ligne", message: "Aucun ouvrage dans le devis" });
-  const contenu = construireContenuDevis(lignes, { lotsOrdre, taxes: parTaux, tvaPctDefaut });
+  const contenu = construireContenuDevis(lignes, { lotsOrdre, taxes: parTaux, tvaPctDefaut, liaisons: indexLiaisons });
   erreurs.push(...contenu.erreurs);
   avertissements.push(...contenu.avertissements);
+  // Règle bloquante : tous les ouvrages liés, jamais de devis hybride
+  if (contenu.compteurs.lignes > 0 && contenu.compteurs.lies < contenu.compteurs.lignes) {
+    erreurs.push({ code: "ouvrages_non_lies", message: `Ouvrages liés à la bibliothèque ProGBat : ${contenu.compteurs.lies} / ${contenu.compteurs.lignes} — tous les ouvrages doivent être liés (aucun devis hybride)` });
+  }
 
   // Comparaison au centime avec le total HT affiché dans Profero (totauxDevis)
   const profero = totauxDevis(lignes, { tvaPctDefaut, budgetClient: projet.budget_client });
@@ -495,10 +568,11 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
 
   const payload = { ...entete.champs, content: contenu.content };
   // Audit structurel : filet indépendant. Les défauts déjà signalés ligne par
-  // ligne (prix, quantité, unité, TVA, libellé) ne sont pas répétés.
-  const CODES_LIGNE_AUDIT = ["quantity_invalide", "unit_absente", "net_unit_price_invalide", "tax_rate_id_absent", "label_vide"];
+  // ligne (prix, quantité, unité, TVA, libellé, liaison) ne sont pas répétés.
+  const CODES_LIGNE_AUDIT = ["quantity_invalide", "unit_absente", "net_unit_price_invalide", "tax_rate_id_absent", "label_vide", "element_id_absent"];
   const dejaSignalesParLigne = contenu.erreurs.length > 0;
-  const audit = auditerPayload(payload).filter(e => !(dejaSignalesParLigne && CODES_LIGNE_AUDIT.includes(e.code)));
+  const elementIdsAutorises = new Set([...indexLiaisons.values()].map((l) => versEntier(l.progbat_id)).filter((n) => n != null && n > 0));
+  const audit = auditerPayload(payload, { elementIdsAutorises }).filter(e => !(dejaSignalesParLigne && CODES_LIGNE_AUDIT.includes(e.code)));
   erreurs.push(...audit);
 
   const erreursFinales = dedoublonner(erreurs);
@@ -520,6 +594,7 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
     },
     compteurs: contenu.compteurs,
     apercu: contenu.apercu,
+    liaisons: Object.fromEntries([...indexLiaisons.entries()].map(([k, v]) => [k, { progbat_id: versEntier(v.progbat_id), existe: v.existe }])),
     entete: {
       logement: entete.logement,
       client: entete.client,

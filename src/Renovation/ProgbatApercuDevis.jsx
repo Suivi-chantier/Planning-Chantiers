@@ -6,9 +6,12 @@
 // Le navigateur n'envoie jamais de payload : seulement { action, projectId,
 // expectedPayloadHash, confirmed }. Le serveur recharge le projet, reconstruit
 // le payload, relit les taux ProGBat, refait les contrôles et compare le hash.
-// Le JSON affiché ici est une reconstitution LOCALE (même générateur partagé)
-// dont le hash est comparé à celui du serveur : toute divergence bloque la
-// création. Jamais de secret, de jeton ni d'en-tête d'authentification.
+// Le JSON affiché ici est une reconstitution LOCALE (même générateur partagé,
+// mêmes taux et mêmes liaisons elementId renvoyés par le serveur) dont le hash
+// est comparé à celui du serveur : toute divergence bloque la création.
+// Les liaisons à la bibliothèque ProGBat (elementId) viennent exclusivement du
+// serveur (bibliotheque_ratios.progbat_id vérifié par l'API) : le navigateur
+// n'en transmet jamais. Jamais de secret, de jeton ni d'en-tête d'authentification.
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
@@ -63,7 +66,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
 
   // Reconstitution locale (même générateur, mêmes taux) : JSON technique + contrôle de parité
   const local = useMemo(
-    () => prep ? construirePayloadDevisProGBat({ projet, lignes, lotsOrdre, taxes: prep.taux }) : null,
+    () => prep ? construirePayloadDevisProGBat({ projet, lignes, lotsOrdre, taxes: prep.taux, liaisons: prep.liaisons ?? null }) : null,
     [prep, projet, lignes, lotsOrdre],
   );
   const jsonPayload = useMemo(() => local ? JSON.stringify(local.payload, null, 2) : "", [local]);
@@ -128,7 +131,10 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   const devisExistant = prep?.devis_existant || null;
   const exportPrec = prep?.export_precedent || null;
   const incertain = exportPrec?.statut === "uncertain" || resultat?.statut === "uncertain";
-  const peutCreer = !!prep?.peut_creer && pariteOk && !resultat?.ok && !incertain && !devisExistant;
+  const nbLies = compteurs?.lies ?? 0;
+  const nbLignes = compteurs?.lignes ?? 0;
+  const tousLies = nbLignes > 0 && nbLies === nbLignes;
+  const peutCreer = !!prep?.peut_creer && pariteOk && tousLies && !resultat?.ok && !incertain && !devisExistant;
 
   return (
     <div onClick={(e) => e.target === e.currentTarget && !creation && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }}>
@@ -205,6 +211,16 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
               )}
               {prep.motif_blocage && !devisExistant && <div style={{ marginTop: 6, fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 700 }}>{prep.motif_blocage.message}</div>}
               <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textMuted, fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}>hash serveur {prep.payloadHash?.slice(0, 16)}…</div>
+            </div>
+          )}
+
+          {/* Contrôle de liaison à la bibliothèque ProGBat (elementId) */}
+          {prep && compteurs && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: RADIUS.md, background: tousLies ? "rgba(34,197,94,0.08)" : "rgba(225,90,90,0.07)", border: `1px solid ${tousLies ? "rgba(34,197,94,0.35)" : "rgba(225,90,90,0.35)"}`, fontSize: FONT.xs.size + 1, fontWeight: 700, color: tousLies ? "#22c55e" : "#e15a5a" }}>
+              <Icon as={tousLies ? Check : AlertTriangle} size={13} />
+              Ouvrages liés à la bibliothèque ProGBat : {nbLies} / {nbLignes}
+              <span style={{ flex: 1 }} />
+              <span style={{ fontWeight: 500, color: T.textMuted }}>{tousLies ? "chaque ligne portera son elementId ; prix, unité, TVA et libellé Profero restent prioritaires" : "tous les ouvrages doivent être liés (aucun devis hybride)"}</span>
             </div>
           )}
 
@@ -291,6 +307,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
                             {l.code ? <strong style={{ fontFamily: "ui-monospace, Menlo, Consolas, monospace", marginRight: 6 }}>{l.code}</strong> : <span style={{ color: "#e15a5a", fontWeight: 700, marginRight: 6 }}>sans code</span>}
                             {l.libelle || <span style={{ color: "#e15a5a" }}>sans libellé</span>}
                             {!l.snapshot && <span style={{ marginLeft: 6, color: "#e15a5a", fontSize: FONT.xs.size, fontWeight: 700 }}>· sans snapshot</span>}
+                            <span style={{ marginLeft: 6, fontSize: FONT.xs.size, fontWeight: 600, color: l.lie ? T.textMuted : "#e15a5a" }}>{l.lie ? `Ouvrage ProGBat #${l.progbat_id}` : "Non lié à ProGBat"}</span>
                           </span>
                           <span style={{ color: T.textMuted, whiteSpace: "nowrap" }}>{fmtQte(l.quantite)} {l.unite || "?"} × {fmtEur(l.prix_unitaire_ht)}</span>
                           <span style={{ color: T.textMuted, whiteSpace: "nowrap", fontSize: FONT.xs.size }}>{l.tva_pct != null ? formaterPct(l.tva_pct) : "TVA ?"}{l.taxRateId != null ? ` · id ${l.taxRateId}` : ""}</span>
@@ -313,7 +330,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
               {jsonOuvert && (
                 <div style={{ padding: "10px 12px", background: T.surface }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: FONT.xs.size, color: T.textMuted, flexWrap: "wrap" }}>
-                    Body métier seul : aucun secret, aucun jeton, aucun en-tête. Aucun elementId, coût ni marge. Ce qui part réellement est reconstruit par le serveur{pariteOk ? " (hash identique)" : ""}.
+                    Body métier seul : aucun secret, aucun jeton, aucun en-tête. Chaque ligne porte l'elementId de l'ouvrage ProGBat lié (liaison actuelle vérifiée par le serveur) avec le prix, l'unité, la TVA et le libellé figés par Profero ; aucun coût ni marge. Ce qui part réellement est reconstruit par le serveur{pariteOk ? " (hash identique)" : ""}.
                     <span style={{ flex: 1 }} />
                     <button onClick={copierJson} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer" }}>
                       <Icon as={copie ? Check : Copy} size={10} />{copie ? "Copié" : "Copier"}
@@ -333,6 +350,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
               ? "Brouillon déjà créé : la mise à jour d'un brouillon existant n'est pas encore disponible."
               : incertain ? "Création verrouillée : contrôler ProGBat manuellement."
               : peutCreer ? "La création ouvre une confirmation. Le devis restera un brouillon."
+              : prep && !tousLies ? `Ouvrages liés à la bibliothèque ProGBat : ${nbLies} / ${nbLignes} — lier tous les ouvrages avant de créer.`
               : prep && !prep.valide ? "Corriger les points bloquants pour activer la création."
               : prep && !pariteOk && pariteConnue ? "Aperçu local différent du serveur : recharger l'aperçu."
               : ""}

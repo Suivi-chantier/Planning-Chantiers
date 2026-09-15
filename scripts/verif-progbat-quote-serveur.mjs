@@ -31,11 +31,15 @@ const ligneValide = (o = {}) => ({
 const BUREAU = { id: "u-bureau", email: "bureau@profero.local", role: "bureau", actif: true };
 const OUVRIER = { id: "u-ouvrier", email: "ouvrier@profero.local", role: "ouvrier", actif: true };
 
+// Liaisons ACTUELLES bibliotheque_ratios { id → progbat_id (colonne text) }
+const LIAISONS_BASE = { 42: "777", 43: "778" };
+const LIAISONS_GEN = { 42: { progbat_id: 777, existe: true } };
 // Dépôt en mémoire reproduisant l'index unique partiel (project_id, statut ∈ creating/created/uncertain)
-function creerDepot({ projet = projetValide(), lignes = [ligneValide()], exports = [], pannes = {} } = {}) {
-  const etat = { projet: { ...projet }, lignes: [...lignes], exports: [...exports], appels: [] };
+function creerDepot({ projet = projetValide(), lignes = [ligneValide()], exports = [], pannes = {}, liaisons = LIAISONS_BASE } = {}) {
+  const etat = { projet: { ...projet }, lignes: [...lignes], exports: [...exports], appels: [], liaisons: { ...liaisons } };
   const depot = {
     etat,
+    async chargerLiaisons(ids) { etat.appels.push("chargerLiaisons"); return ids.filter(id => id in etat.liaisons).map(id => ({ id, progbat_id: etat.liaisons[id] })); },
     async chargerProjet(id) { etat.appels.push("chargerProjet"); return id === etat.projet.id ? { ...etat.projet } : null; },
     async chargerLignes() { etat.appels.push("chargerLignes"); return etat.lignes.map(l => ({ ...l })); },
     async chargerLotsOrdre() { return composerLotsOrdre(null, ["Autre"]); },
@@ -66,11 +70,18 @@ function creerDepot({ projet = projetValide(), lignes = [ligneValide()], exports
   return depot;
 }
 // Doublure ProGBat : le POST est un MOCK, jamais un appel réel.
-function creerProgbat({ taux = TAXES, tauxErreur = null, reponse = { ok: true, status: 201, data: { id: 987654, code: "DEV-2026-0042" } }, delaiRappel = null, lecture = undefined, jetonPresent = true } = {}) {
+function creerProgbat({ taux = TAXES, tauxErreur = null, reponse = { ok: true, status: 201, data: { id: 987654, code: "DEV-2026-0042" } }, delaiRappel = null, lecture = undefined, jetonPresent = true, structures = undefined } = {}) {
   const journal = [];
   return {
     journal,
     jetonPresent,
+    async verifierStructures(ids) {
+      journal.push("GET /company/library/structures × " + ids.length);
+      if (typeof structures === "function") return structures(ids);
+      if (structures && structures.ok === false) return structures;
+      const introuvables = (structures?.introuvables || []).map(Number);
+      return { ok: true, existants: ids.filter(i => !introuvables.includes(i)), introuvables: ids.filter(i => introuvables.includes(i)) };
+    },
     ...(lecture === null ? {} : {
       async lireDevis(id) {
         journal.push("GET /company/quotes/" + id);
@@ -109,7 +120,7 @@ async function creer(depot, progbat, hash, { confirmed = true, appelant = BUREAU
 
 // ── Parité exacte frontend (src) ↔ serveur (copie lib) ──────────────────────
 {
-  const args = { projet: projetValide(), lignes: [ligneValide(), ligneValide({ id: "2", zone: "Cuisine", quantite: "2.5" })], lotsOrdre: composerLotsOrdre(null, []), taxes: TAXES, aujourdHui: MAINTENANT };
+  const args = { projet: projetValide(), lignes: [ligneValide(), ligneValide({ id: "2", zone: "Cuisine", quantite: "2.5" })], lotsOrdre: composerLotsOrdre(null, []), taxes: TAXES, liaisons: LIAISONS_GEN, aujourdHui: MAINTENANT };
   const a = gen.construirePayloadDevisProGBat(args);
   const b = genLib.construirePayloadDevisProGBat(args);
   assert.deepEqual(a.payload, b.payload, "même payload");
@@ -171,8 +182,11 @@ let HASH_VALIDE;
   assert.ok(!depot.etat.appels.includes("reserverExport"), "prepare : aucune réservation");
   HASH_VALIDE = r.body.payloadHash;
   // Le hash serveur est celui du générateur partagé sur les mêmes données
-  const local = gen.construirePayloadDevisProGBat({ projet: projetValide(), lignes: [ligneValide()], lotsOrdre: composerLotsOrdre(null, ["Autre"]), taxes: TAXES, aujourdHui: MAINTENANT });
-  assert.equal(await gen.hacherPayload(local.payload), HASH_VALIDE, "parité aperçu local / serveur");
+  const local = gen.construirePayloadDevisProGBat({ projet: projetValide(), lignes: [ligneValide()], lotsOrdre: composerLotsOrdre(null, ["Autre"]), taxes: TAXES, liaisons: r.body.liaisons, aujourdHui: MAINTENANT });
+  assert.equal(await gen.hacherPayload(local.payload), HASH_VALIDE, "parité aperçu local / serveur (liaisons renvoyées par prepare)");
+  assert.deepEqual(r.body.liaisons, { 42: { progbat_id: 777, existe: true } }, "prepare renvoie les liaisons vérifiées");
+  assert.equal(r.body.compteurs.lies, 1);
+  assert.ok(p.journal.includes("GET /company/library/structures × 1"), "structure vérifiée par l'API");
 }
 {
   const depot = creerDepot({ projet: { ...projetValide(), devis_validite: null } });
@@ -279,8 +293,9 @@ let HASH_VALIDE;
   assert.ok(iRes >= 0);
   const envoye = p.journal.find(j => typeof j === "object").payload;
   const json = JSON.stringify(envoye);
-  assert.ok(!json.includes("elementId") && !/cout|marge|coef|bibliotheque|progbat_/i.test(json), "aucune donnée interne dans le payload envoyé");
-  assert.deepEqual(gen.auditerPayload(envoye), []);
+  assert.equal(envoye.content[0].content[0].content[0].elementId, 777, "elementId de la liaison actuelle dans le payload envoyé");
+  assert.ok(!/cout|marge|coef|bibliotheque|progbat_|elementType/i.test(json), "aucune donnée interne dans le payload envoyé");
+  assert.deepEqual(gen.auditerPayload(envoye, { elementIdsAutorises: [777] }), []);
   assert.equal(r.body.journal, undefined);
   assert.deepEqual(Object.keys(r.journal).sort(), ["action", "duree_ms", "endpoint", "http_status", "progbat_quote_id", "projectId", "statut", "verification"], "journal : champs autorisés seulement");
   // second clic après succès ⇒ refus, aucun nouveau POST
@@ -462,4 +477,93 @@ for (const status of [500, 502, 503]) {
   assert.ok(!fuite(r5));
 }
 
-console.log("verif-progbat-quote-serveur : OK (accès, jeton absent, prepare, refus, logement, 201 + GET de vérification, 400/401/403/409/422/429 → failed, 5xx/délai/réseau → incertain, id absent, sauvegarde locale, concurrence, aucune fuite de secret, parité src/lib)");
+// ── Liaison ProGBat côté serveur ────────────────────────────────────────────
+{
+  // ouvrage Profero sans progbat_id ⇒ aperçu invalide, création refusée, aucun POST
+  const depot = creerDepot({ liaisons: { 42: null } }), p = creerProgbat();
+  const prep = await preparer(depot, p);
+  assert.equal(prep.body.valide, false);
+  assert.ok(prep.body.erreurs.some(e => e.code === "ouvrage_non_lie" && e.message === "S-001 — ouvrage non lié à la bibliothèque ProGBat"));
+  assert.equal(prep.body.compteurs.lies, 0);
+  assert.equal(prep.body.peut_creer, false);
+  const r = await creer(depot, p, prep.body.payloadHash);
+  assert.equal(r.body.code, "payload_invalide"); assert.equal(nbPost(p), 0);
+}
+{
+  const depot = creerDepot({ liaisons: { 42: "abc" } });
+  const prep = await preparer(depot, creerProgbat());
+  assert.ok(prep.body.erreurs.some(e => e.code === "progbat_id_invalide"), "progbat_id invalide");
+}
+{
+  // structure supprimée dans ProGBat (404) ⇒ bloqué
+  const depot = creerDepot(), p = creerProgbat({ structures: { introuvables: [777] } });
+  const prep = await preparer(depot, p);
+  assert.ok(prep.body.erreurs.some(e => e.code === "structure_introuvable"));
+  assert.deepEqual(prep.body.liaisons, { 42: { progbat_id: 777, existe: false } });
+  const r = await creer(depot, p, prep.body.payloadHash);
+  assert.equal(r.body.code, "payload_invalide"); assert.equal(nbPost(p), 0);
+}
+{
+  // vérification impossible (ProGBat 500 sur le GET) ⇒ aucune création
+  const depot = creerDepot(), p = creerProgbat({ structures: { ok: false, status: 500, message: "indisponible" } });
+  const prep = await preparer(depot, p);
+  assert.equal(prep.body.ok, false); assert.equal(prep.body.code, "structures_non_verifiables");
+  const r = await creer(depot, p, "x");
+  assert.equal(r.body.code, "structures_non_verifiables"); assert.equal(nbPost(p), 0);
+}
+{
+  // ancien identifiant dans le snapshot mais liaison actuelle absente ⇒ bloqué
+  const depot = creerDepot({ lignes: [ligneValide({ progbat_ligne_id: "999" })], liaisons: {} });
+  const prep = await preparer(depot, creerProgbat());
+  assert.equal(prep.body.valide, false); assert.ok(prep.body.erreurs.some(e => e.code === "ouvrage_non_lie"));
+}
+{
+  // injection depuis le navigateur : elementId / content / prix ignorés, reconstruction serveur seule
+  const depot = creerDepot(), p = creerProgbat();
+  const r = await traiterRequeteDevis({ action: "create", projectId: PID, expectedPayloadHash: HASH_VALIDE, confirmed: true, elementId: 999, content: [{ lineType: "element", elementId: 999, netUnitPrice: 1 }], payload: { content: [] }, netUnitPrice: 1 }, { appelant: BUREAU, depot, progbat: p, maintenant: MAINTENANT });
+  assert.equal(r.body.statut, "created");
+  const envoye = p.journal.find(j => typeof j === "object").payload;
+  assert.equal(envoye.content[0].content[0].content[0].elementId, 777, "elementId du navigateur ignoré");
+  assert.equal(envoye.content[0].content[0].content[0].netUnitPrice, 49.85, "prix du navigateur ignoré");
+  assert.ok(!JSON.stringify(envoye).includes("999"));
+}
+{
+  // devis hybride interdit : deux ouvrages, un seul lié
+  const depot = creerDepot({ lignes: [ligneValide(), ligneValide({ id: "22222222-2222-2222-2222-222222222222", zone: "Cuisine", bibliotheque_id: 43, code_ouvrage: "S-002", item: "S-002 : Plinthes" })], liaisons: { 42: "777", 43: null } }), p = creerProgbat();
+  const prep = await preparer(depot, p);
+  assert.equal(prep.body.valide, false);
+  assert.equal(prep.body.compteurs.lies, 1); assert.equal(prep.body.compteurs.lignes, 2);
+  assert.ok(prep.body.erreurs.some(e => e.code === "ouvrages_non_lies" && /1 \/ 2/.test(e.message)));
+  const r = await creer(depot, p, prep.body.payloadHash);
+  assert.equal(r.body.code, "payload_invalide"); assert.equal(nbPost(p), 0);
+  // les deux liés ⇒ valide, deux elementId distincts
+  const depot2 = creerDepot({ lignes: depot.etat.lignes, liaisons: { 42: "777", 43: "778" } }), p2 = creerProgbat();
+  const prep2 = await preparer(depot2, p2);
+  assert.equal(prep2.body.valide, true); assert.equal(prep2.body.compteurs.lies, 2);
+  const r2 = await creer(depot2, p2, prep2.body.payloadHash);
+  assert.equal(r2.body.statut, "created");
+  const ids = p2.journal.find(j => typeof j === "object").payload.content.flatMap(l => l.content.flatMap(z => z.content)).map(e => e.elementId).sort();
+  assert.deepEqual(ids, [777, 778]);
+}
+{
+  // le plan change (liaison modifiée entre l'aperçu et la confirmation) ⇒ hash différent, aucun POST
+  const depot = creerDepot(), p = creerProgbat();
+  const prep = await preparer(depot, p);
+  depot.etat.liaisons[42] = "778";
+  const r = await creer(depot, p, prep.body.payloadHash);
+  assert.equal(r.body.code, "hash_different", "elementId intégré au hash"); assert.equal(nbPost(p), 0);
+  const prep2 = await preparer(depot, p);
+  assert.notEqual(prep2.body.payloadHash, prep.body.payloadHash);
+  const ok = await creer(depot, p, prep2.body.payloadHash);
+  assert.equal(ok.body.statut, "created");
+}
+{
+  // incertain après POST : toujours aucun second POST, même avec liaisons valides
+  const depot = creerDepot(), p = creerProgbat({ reponse: { ok: false, status: 0, message: "délai", timeout: true } });
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.statut, "uncertain");
+  const r2 = await creer(depot, creerProgbat(), HASH_VALIDE);
+  assert.equal(r2.body.code, "etat_incertain"); assert.equal(nbPost(p), 1);
+}
+
+console.log("verif-progbat-quote-serveur : OK (accès, jeton absent, prepare, refus, logement, liaisons elementId vérifiées, hybride interdit, injection ignorée, 201 + GET de vérification, 400/401/403/409/422/429 → failed, 5xx/délai/réseau → incertain, id absent, sauvegarde locale, concurrence, aucune fuite de secret, parité src/lib)");

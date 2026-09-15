@@ -30,7 +30,11 @@
 //   reserverExport(ligne)    → { ok: true, id } | { ok: false, conflit: true } | { ok: false, erreur }
 //   majExport(id, patch)     → { ok: true } | { ok: false, erreur }
 //   majProjetDevis(projectId, { progbat_devis_id, progbat_sync_at }) → { ok } | { ok: false, erreur }
+//   chargerLiaisons(bibliothequeIds) → [{ id, progbat_id }] lignes ACTUELLES de bibliotheque_ratios
+//                              (source de vérité de l'elementId : jamais le snapshot, jamais le navigateur)
 // Interface `progbat` :
+//   verifierStructures(ids)   → { ok: true, existants: number[], introuvables: number[] } | { ok: false, status, message }
+//                              (GET /company/library/structures/{id} par identifiant : 200 = existe, 404 = supprimée)
 //   jetonPresent        → false si PROGBAT_PRIVATE_ACCESS_TOKEN manque (aucune opération n'est alors tentée)
 //   lireTaux()          → { ok: true, taux: [{ id, rate, label, saleDefault }] } | { ok: false, status, message }
 //   creerDevis(payload) → { ok: true, status, data } | { ok: false, status, message, timeout?, reseau? }
@@ -135,10 +139,44 @@ export function evaluerBlocageCreation(projet, exportResume) {
   return { bloque: false, code: null, message: null };
 }
 
+// ─── Liaisons Profero → ProGBat (côté serveur) ───────────────────────────────
+const entierPositif = (v) => {
+  const n = Number.isInteger(v) ? v : (typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : null);
+  return n != null && n > 0 ? n : null;
+};
+
+/**
+ * Recharge les liaisons ACTUELLES des ouvrages Profero du devis et vérifie par
+ * l'API ProGBat que chaque structure existe encore. Rien n'est écrit.
+ * @returns {{ ok: true, liaisons: object, ids: number[] } | { ok: false, body }}
+ */
+export async function resoudreLiaisons(lignes, { depot, progbat }) {
+  const bibIds = [...new Set((lignes || []).map((l) => (l?.bibliotheque_id != null ? String(l.bibliotheque_id) : "")).filter(Boolean))];
+  const rows = bibIds.length ? await depot.chargerLiaisons(bibIds) : [];
+  const liaisons = {};
+  bibIds.forEach((id) => { liaisons[id] = { progbat_id: null, existe: null }; });
+  (rows || []).forEach((r) => {
+    if (r?.id == null) return;
+    const pid = entierPositif(r.progbat_id);
+    liaisons[String(r.id)] = { progbat_id: pid ?? (str(r.progbat_id) || null), existe: null };
+  });
+  const ids = [...new Set(Object.values(liaisons).map((l) => entierPositif(l.progbat_id)).filter((n) => n != null))];
+  if (ids.length && typeof progbat.verifierStructures === "function") {
+    const v = await progbat.verifierStructures(ids);
+    if (!v.ok) {
+      return { ok: false, body: { ok: false, code: "structures_non_verifiables", etape: "structures", progbat_status: v.status ?? null, error: (nettoyerMessage(v.message) || "Vérification des ouvrages ProGBat impossible.") + " Aucune création tant que les liaisons ne sont pas confirmées.", aucune_ecriture: true } };
+    }
+    const existants = new Set((v.existants || []).map(Number));
+    Object.values(liaisons).forEach((l) => { const n = entierPositif(l.progbat_id); if (n != null) l.existe = existants.has(n); });
+  }
+  return { ok: true, liaisons, ids };
+}
+
 // ─── Reconstruction serveur ──────────────────────────────────────────────────
 /**
- * Recharge tout depuis le dépôt, relit les taux ProGBat et reconstruit le
- * payload + hash avec le générateur partagé. Aucune écriture.
+ * Recharge tout depuis le dépôt, relit les taux ProGBat, résout et vérifie les
+ * liaisons (elementId) et reconstruit le payload + hash avec le générateur
+ * partagé. Aucune écriture.
  */
 export async function reconstruireDevis({ projectId, depot, progbat, maintenant = new Date() }) {
   const projet = await depot.chargerProjet(projectId);
@@ -152,7 +190,9 @@ export async function reconstruireDevis({ projectId, depot, progbat, maintenant 
   if (!taux.ok) {
     return { http: 200, body: { ok: false, code: "taux_tva_indisponibles", etape: "taux", progbat_status: taux.status ?? null, error: nettoyerMessage(taux.message) || "Lecture des taux de TVA ProGBat impossible.", aucune_ecriture: true } };
   }
-  const resultat = construirePayloadDevisProGBat({ projet, lignes: lignes || [], lotsOrdre, taxes: taux.taux, aujourdHui: maintenant });
+  const liaisonsRes = await resoudreLiaisons(lignes, { depot, progbat });
+  if (!liaisonsRes.ok) return { http: 200, body: liaisonsRes.body };
+  const resultat = construirePayloadDevisProGBat({ projet, lignes: lignes || [], lotsOrdre, taxes: taux.taux, liaisons: liaisonsRes.liaisons, aujourdHui: maintenant });
   const payloadHash = await hacherPayload(resultat.payload);
   const exportResume = resumerExport(dernier, maintenant);
   const blocage = evaluerBlocageCreation(projet, exportResume);
@@ -170,6 +210,7 @@ export async function reconstruireDevis({ projectId, depot, progbat, maintenant 
       totaux: resultat.totaux,
       compteurs: resultat.compteurs,
       entete: resultat.entete,
+      liaisons: resultat.liaisons,
       payloadHash,
       taux: taux.taux.map((t) => ({ id: t.id, rate: t.rate, label: t.label ?? "", saleDefault: t.saleDefault === true })),
       export_precedent: exportResume,
