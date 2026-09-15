@@ -66,10 +66,18 @@ function creerDepot({ projet = projetValide(), lignes = [ligneValide()], exports
   return depot;
 }
 // Doublure ProGBat : le POST est un MOCK, jamais un appel réel.
-function creerProgbat({ taux = TAXES, tauxErreur = null, reponse = { ok: true, status: 201, data: { id: 987654, code: "DEV-2026-0042" } }, delaiRappel = null } = {}) {
+function creerProgbat({ taux = TAXES, tauxErreur = null, reponse = { ok: true, status: 201, data: { id: 987654, code: "DEV-2026-0042" } }, delaiRappel = null, lecture = undefined, jetonPresent = true } = {}) {
   const journal = [];
   return {
     journal,
+    jetonPresent,
+    ...(lecture === null ? {} : {
+      async lireDevis(id) {
+        journal.push("GET /company/quotes/" + id);
+        if (typeof lecture === "function") return lecture(id);
+        return lecture ?? { ok: true, status: 200, data: { id, code: "DEV-2026-0042" } };
+      },
+    }),
     async lireTaux() { journal.push("GET /company/taxes"); return tauxErreur ? { ok: false, ...tauxErreur } : { ok: true, taux }; },
     async creerDevis(payload) {
       journal.push("POST /company/quotes");
@@ -274,7 +282,7 @@ let HASH_VALIDE;
   assert.ok(!json.includes("elementId") && !/cout|marge|coef|bibliotheque|progbat_/i.test(json), "aucune donnée interne dans le payload envoyé");
   assert.deepEqual(gen.auditerPayload(envoye), []);
   assert.equal(r.body.journal, undefined);
-  assert.deepEqual(Object.keys(r.journal).sort(), ["action", "duree_ms", "endpoint", "http_status", "progbat_quote_id", "projectId", "statut"], "journal : champs autorisés seulement");
+  assert.deepEqual(Object.keys(r.journal).sort(), ["action", "duree_ms", "endpoint", "http_status", "progbat_quote_id", "projectId", "statut", "verification"], "journal : champs autorisés seulement");
   // second clic après succès ⇒ refus, aucun nouveau POST
   const r2 = await creer(depot, p, HASH_VALIDE);
   assert.equal(r2.body.code, "devis_deja_cree"); assert.equal(nbPost(p), 1, "double clic après succès");
@@ -305,12 +313,12 @@ let HASH_VALIDE;
 }
 
 // ── Erreurs ProGBat simulées ────────────────────────────────────────────────
-for (const [status, attendu] of [[401, /401/], [403, /403/], [429, /429/], [500, /500/]]) {
+for (const [status, attendu] of [[400, /400/], [401, /401/], [403, /403/], [409, /409/], [422, /422/], [429, /429/]]) {
   const depot = creerDepot(), p = creerProgbat({ reponse: { ok: false, status, message: `HTTP ${status} simulé` } });
   const r = await creer(depot, p, HASH_VALIDE);
   assert.equal(r.http, 200);
   assert.equal(r.body.ok, false);
-  assert.equal(r.body.statut, "failed", `HTTP ${status} ⇒ failed`);
+  assert.equal(r.body.statut, "failed", `HTTP ${status} ⇒ failed (refus certain avant création)`);
   assert.equal(r.body.progbat_status, status);
   assert.match(r.body.error, attendu);
   assert.equal(depot.etat.exports[0].statut, "failed");
@@ -320,6 +328,24 @@ for (const [status, attendu] of [[401, /401/], [403, /403/], [429, /429/], [500,
   const p2 = creerProgbat();
   const r2 = await creer(depot, p2, HASH_VALIDE);
   assert.equal(r2.body.statut, "created", `après un ${status}, une nouvelle tentative est possible`);
+}
+for (const status of [500, 502, 503]) {
+  const depot = creerDepot(), p = creerProgbat({ reponse: { ok: false, status, message: `HTTP ${status} simulé` } });
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.statut, "uncertain", `HTTP ${status} après envoi du POST ⇒ incertain`);
+  assert.equal(r.body.verification_manuelle, true);
+  assert.equal(depot.etat.exports[0].statut, "uncertain");
+  assert.equal(depot.etat.exports[0].http_status, status);
+  const r2 = await creer(depot, creerProgbat(), HASH_VALIDE);
+  assert.equal(r2.body.code, "etat_incertain", `après un ${status}, aucune relance`);
+  assert.equal(nbPost(p), 1, "aucun second POST");
+}
+{
+  const depot = creerDepot(), p = creerProgbat({ reponse: { ok: false, status: 0, message: "socket fermée", reseau: true } });
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.statut, "uncertain", "erreur réseau ⇒ incertain");
+  const r2 = await creer(depot, creerProgbat(), HASH_VALIDE);
+  assert.equal(r2.body.code, "etat_incertain"); assert.equal(nbPost(p), 1);
 }
 {
   const depot = creerDepot(), p = creerProgbat({ reponse: { ok: false, status: 0, message: "délai dépassé", timeout: true } });
@@ -361,4 +387,79 @@ for (const [status, attendu] of [[401, /401/], [403, /403/], [429, /429/], [500,
   assert.equal(r.http, 500); assert.equal(r.body.code, "reservation_impossible"); assert.equal(nbPost(p), 0, "réservation impossible ⇒ aucun POST");
 }
 
-console.log("verif-progbat-quote-serveur : OK (accès, prepare, refus, 201, 401/403/429/500, délai, id absent, sauvegarde locale, concurrence, parité src/lib)");
+// ── Vérification GET après succès : jamais de second POST ───────────────────
+{
+  const depot = creerDepot(), p = creerProgbat();
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.statut, "created");
+  assert.deepEqual(r.body.verification, { ok: true, status: 200, id_confirme: true });
+  assert.ok(p.journal.includes("GET /company/quotes/987654"), "relecture GET officielle");
+  assert.ok(depot.etat.exports[0].verified_at, "verified_at enregistré");
+  assert.equal(depot.etat.exports[0].verification_http_status, 200);
+  assert.equal(r.body.created_by_email, "bureau@profero.local");
+  assert.ok(r.body.finished_at);
+  assert.equal(nbPost(p), 1);
+}
+{
+  const depot = creerDepot(), p = creerProgbat({ lecture: { ok: false, status: 500, message: "indisponible" } });
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.statut, "created", "échec de la relecture : le devis reste créé");
+  assert.equal(r.body.verification.ok, false);
+  assert.equal(depot.etat.exports[0].statut, "created");
+  assert.equal(depot.etat.exports[0].verified_at, null);
+  assert.equal(nbPost(p), 1, "aucun second POST après un GET en échec");
+}
+{
+  const depot = creerDepot(), p = creerProgbat({ lecture: () => { throw new Error("réseau"); } });
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.statut, "created"); assert.equal(r.body.verification.ok, false); assert.equal(nbPost(p), 1);
+}
+{
+  const depot = creerDepot(), p = creerProgbat({ lecture: null });   // adaptateur sans lireDevis
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.body.statut, "created"); assert.equal(r.body.verification, null);
+}
+
+// ── Clé du logement : référence confirmée ≠ projet rechargé ⇒ refus ─────────
+{
+  const depot = creerDepot(), p = creerProgbat();
+  const r = await traiterRequeteDevis({ action: "create", projectId: PID, logementReference: "Appartement 102", expectedPayloadHash: HASH_VALIDE, confirmed: true }, { appelant: BUREAU, depot, progbat: p, maintenant: MAINTENANT });
+  assert.equal(r.http, 409); assert.equal(r.body.code, "logement_different"); assert.equal(nbPost(p), 0);
+  const ok = await traiterRequeteDevis({ action: "create", projectId: PID, logementReference: "Appartement 101", expectedPayloadHash: HASH_VALIDE, confirmed: true }, { appelant: BUREAU, depot, progbat: p, maintenant: MAINTENANT });
+  assert.equal(ok.body.statut, "created");
+  assert.equal(depot.etat.exports[0].logement_reference, "Appartement 101", "référence du logement figée dans la réservation");
+  const prep = await preparer(creerDepot(), creerProgbat());
+  assert.equal(prep.body.logement_reference, "Appartement 101");
+}
+
+// ── Absence du jeton : aucune opération, aucun POST, aucune réservation ─────
+{
+  const depot = creerDepot(), p = creerProgbat({ jetonPresent: false });
+  const r = await creer(depot, p, HASH_VALIDE);
+  assert.equal(r.http, 500); assert.equal(r.body.code, "secret_absent");
+  assert.equal(nbPost(p), 0); assert.equal(p.journal.length, 0, "aucun appel ProGBat"); assert.equal(depot.etat.exports.length, 0);
+  const r2 = await preparer(depot, p);
+  assert.equal(r2.body.code, "secret_absent");
+  assert.ok(!JSON.stringify(r.body).includes("PROGBAT_PRIVATE"), "le nom du secret n'est pas exposé au navigateur");
+}
+
+// ── Aucune fuite de secret ni de corps brut ─────────────────────────────────
+{
+  const SECRET = "FAUXJETON_TEST_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";   // faux jeton, sans format reel
+  const fuite = (r) => { const j = JSON.stringify(r.body) + JSON.stringify(r.journal ?? {}); return j.includes(SECRET) || j.includes("Bearer "); };
+  const r1 = await creer(creerDepot(), creerProgbat({ reponse: { ok: false, status: 401, message: `Unauthorized Bearer ${SECRET} rejected` } }), HASH_VALIDE);
+  assert.equal(r1.body.statut, "failed"); assert.ok(!fuite(r1), "message d'erreur ProGBat nettoyé");
+  assert.ok(r1.body.error.includes("[masqué]"), "la séquence longue est masquée");
+  const r2 = await creer(creerDepot(), creerProgbat({ reponse: { ok: false, status: 503, message: `upstream ${SECRET}` } }), HASH_VALIDE);
+  assert.equal(r2.body.statut, "uncertain"); assert.ok(!fuite(r2));
+  const r3 = await creer(creerDepot(), creerProgbat({ reponse: { ok: true, status: 201, data: { id: 42, code: "DEV-1", token: SECRET, content: [{ secret: SECRET }] } }, lecture: { ok: true, status: 200, data: { id: 42, token: SECRET } } }), HASH_VALIDE);
+  assert.equal(r3.body.statut, "created"); assert.ok(!fuite(r3), "la réponse brute ProGBat n'est jamais renvoyée");
+  assert.ok(!("data" in r3.body) && !("content" in r3.body), "seuls id et code sont extraits");
+  const r4 = await creer(creerDepot({ pannes: { reservation: true } }), creerProgbat(), HASH_VALIDE);
+  assert.ok(!fuite(r4));
+  const r5 = await creer(creerDepot(), creerProgbat({ tauxErreur: { status: 403, message: `forbidden ${SECRET}` } }), HASH_VALIDE);
+  assert.ok(!fuite(r5));
+}
+
+console.log("verif-progbat-quote-serveur : OK (accès, jeton absent, prepare, refus, logement, 201 + GET de vérification, 400/401/403/409/422/429 → failed, 5xx/délai/réseau → incertain, id absent, sauvegarde locale, concurrence, aucune fuite de secret, parité src/lib)");

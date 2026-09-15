@@ -19,8 +19,9 @@ import { traiterRequeteDevis, composerLotsOrdre, nettoyerMessage } from "./lib/p
 // Node avec des doublures) ; ce fichier n'est que l'adaptateur Deno/Supabase/fetch.
 //
 // Endpoints ProGBat (OpenAPI officielle https://progbat.readme.io, serveur https://api.progbat.com/v2) :
-//   GET  /company/taxes    scope tax-rates.read   taux de TVA → taxRateId
-//   POST /company/quotes   scope quotes           création d'un brouillon (201 → QuoteResponse { id, code, … })
+//   GET  /company/taxes              scope tax-rates.read   taux de TVA → taxRateId
+//   POST /company/quotes             scope quotes           création d'un brouillon (201 → QuoteResponse { id, code, … })
+//   GET  /company/quotes/{quoteId}   scope quotes.read      relecture de vérification après un POST réussi (jamais de second POST)
 // La fonction ne finalise, n'envoie, n'accepte ni ne supprime jamais un devis.
 //
 // Secret : PROGBAT_PRIVATE_ACCESS_TOKEN (Authorization: Bearer) — jamais renvoyé,
@@ -186,6 +187,7 @@ serve(async (req) => {
     }
 
     const progbat = {
+      jetonPresent: true,
       async lireTaux() {
         const r = await progbatFetch("GET", "/company/taxes", token)
         if (!r.ok) return { ok: false, status: r.status, message: r.message }
@@ -201,8 +203,12 @@ serve(async (req) => {
         }
       },
       async creerDevis(payload: unknown) {
-        // Le SEUL appel d'écriture de toute l'intégration ProGBat.
+        // Le SEUL appel d'écriture de cette fonction : un POST, jamais rejoué.
         return await progbatFetch("POST", "/company/quotes", token, payload, TIMEOUT_POST_MS)
+      },
+      async lireDevis(quoteId: number) {
+        // Lecture de confirmation (GET officiel) ; son échec n'entraîne aucun nouveau POST.
+        return await progbatFetch("GET", `/company/quotes/${encodeURIComponent(String(quoteId))}`, token)
       },
     }
 

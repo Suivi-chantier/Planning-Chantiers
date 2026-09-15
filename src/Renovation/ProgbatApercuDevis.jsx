@@ -51,7 +51,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   const preparer = async () => {
     setChargement(true); setErreurServeur(null);
     try {
-      const rep = await appelerProgbatQuote({ action: "prepare", projectId: projetId });
+      const rep = await appelerProgbatQuote({ action: "prepare", projectId: projetId, logementReference: projet?.logement_reference || undefined });
       if (rep?.ok) setPrep(rep);
       else { setPrep(null); setErreurServeur(rep?.error || "Réponse inattendue du serveur."); }
     } catch (e) {
@@ -84,7 +84,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
     if (creation || !prep?.peut_creer || !pariteOk) return;     // garde contre le double déclenchement
     setCreation(true);
     try {
-      const rep = await appelerProgbatQuote({ action: "create", projectId: projetId, expectedPayloadHash: prep.payloadHash, confirmed: true });
+      const rep = await appelerProgbatQuote({ action: "create", projectId: projetId, logementReference: prep.logement_reference || projet?.logement_reference || undefined, expectedPayloadHash: prep.payloadHash, confirmed: true });
       setResultat(rep || { ok: false, code: "transport", error: "Réponse vide." });
       if (rep?.statut === "created" && typeof onDevisCree === "function") onDevisCree(rep);
     } catch (e) {
@@ -149,7 +149,12 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
 
         <div style={{ flex: 1, overflowY: "auto", padding: "14px 22px", display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Résultat d'une création dans cette session */}
-          {resultat?.statut === "created" && bandeau("#22c55e", Check, <>Brouillon créé dans ProGBat · identifiant <strong>{resultat.progbat_quote_id}</strong>{resultat.progbat_quote_code ? <> · code <strong>{resultat.progbat_quote_code}</strong></> : null}. Le devis n'est ni finalisé ni envoyé au client.</>)}
+          {resultat?.ok === true && resultat.statut === "created" && bandeau("#22c55e", Check, <>
+            <div style={{ fontSize: FONT.sm.size }}>Devis brouillon ProGBat créé</div>
+            <div style={{ fontWeight: 500, marginTop: 3 }}>Identifiant ProGBat : <strong>{resultat.progbat_quote_id}</strong>{resultat.progbat_quote_code ? <> · code <strong>{resultat.progbat_quote_code}</strong></> : null}</div>
+            <div style={{ fontWeight: 500 }}>Créé le {fmtDate(resultat.finished_at)}{resultat.created_by_email ? ` par ${resultat.created_by_email}` : ""}. Le devis n'est ni finalisé ni envoyé au client.</div>
+            {resultat.verification && <div style={{ fontWeight: 500, color: resultat.verification.id_confirme ? "#22c55e" : "#f5a623" }}>{resultat.verification.id_confirme ? "Présence confirmée par relecture ProGBat." : "Relecture de confirmation non concluante : le devis est créé, vérifier son affichage dans ProGBat."}</div>}
+          </>)}
           {resultat && resultat.statut === "uncertain" && bandeau("#e15a5a", ShieldAlert, <>
             <div style={{ fontSize: FONT.sm.size }}>ÉTAT INCERTAIN — vérification manuelle requise</div>
             <div style={{ fontWeight: 500, marginTop: 3 }}>{resultat.error}</div>
@@ -161,7 +166,8 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
 
           {/* Statut connu côté serveur */}
           {!resultat && devisExistant && bandeau("#22c55e", Check, <>
-            Brouillon créé · identifiant ProGBat <strong>{devisExistant.progbat_quote_id}</strong>{devisExistant.progbat_quote_code ? <> · code <strong>{devisExistant.progbat_quote_code}</strong></> : null}{devisExistant.cree_le ? ` · le ${fmtDate(devisExistant.cree_le)}` : ""}.
+            <div style={{ fontSize: FONT.sm.size }}>Devis brouillon ProGBat créé</div>
+            <div style={{ fontWeight: 500, marginTop: 3 }}>Identifiant ProGBat <strong>{devisExistant.progbat_quote_id}</strong>{devisExistant.progbat_quote_code ? <> · code <strong>{devisExistant.progbat_quote_code}</strong></> : null}{devisExistant.cree_le ? ` · le ${fmtDate(devisExistant.cree_le)}` : ""}{exportPrec?.created_by_email ? ` par ${exportPrec.created_by_email}` : ""}. Aucune nouvelle création possible pour ce logement.</div>
             {prep?.chiffrage_modifie_depuis && <div style={{ color: "#f5a623", marginTop: 4 }}>Le devis Profero a été modifié depuis la création du brouillon ProGBat. La mise à jour via l'API fera l'objet d'une phase séparée.</div>}
           </>)}
           {!resultat && exportPrec?.statut === "uncertain" && bandeau("#e15a5a", ShieldAlert, <>
@@ -172,7 +178,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
           {!resultat && exportPrec?.statut === "failed" && !devisExistant && bandeau("#f5a623", AlertTriangle, <>Dernière tentative échouée ({fmtDate(exportPrec.finished_at || exportPrec.started_at)}{exportPrec.http_status ? `, HTTP ${exportPrec.http_status}` : ""}){exportPrec.message ? ` : ${exportPrec.message}` : ""}. Une nouvelle tentative est possible.</>)}
 
           {/* Bandeau périmètre */}
-          {!devisExistant && !incertain && bandeau("#4db8ff", AlertTriangle, "Aperçu reconstruit par le serveur — rien n'est envoyé à ProGBat tant que vous ne confirmez pas la création du brouillon.")}
+          {!devisExistant && !incertain && bandeau("#4db8ff", AlertTriangle, "Aperçu uniquement — rien n'est envoyé à ProGBat. Seule la confirmation explicite du bouton « Créer le brouillon dans ProGBat » déclenche une création.")}
 
           {erreurServeur && bandeau("#e15a5a", X, <>{erreurServeur}</>)}
 
@@ -332,11 +338,11 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
               : ""}
           </span>
           <button onClick={onClose} disabled={creation} style={{ background: "transparent", color: T.textSub, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "9px 18px", cursor: creation ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700 }}>Fermer</button>
-          <button onClick={() => peutCreer && !creation && setConfirmation(true)} disabled={!peutCreer || creation || chargement} title={peutCreer ? "Créer un devis brouillon dans ProGBat (confirmation demandée)" : "Création indisponible"} style={{
+          <button onClick={() => peutCreer && !creation && setConfirmation(true)} disabled={!peutCreer || creation || chargement} title={peutCreer ? "Créer un devis brouillon dans ProGBat (confirmation demandée)" : "Création indisponible : corriger les points bloquants ou devis déjà créé"} style={{
             display: "inline-flex", alignItems: "center", gap: 6, background: peutCreer && !creation ? acc.accent : T.border, color: peutCreer && !creation ? acc.onAccent : T.textMuted,
             border: "none", borderRadius: RADIUS.md, padding: "9px 20px", cursor: peutCreer && !creation ? "pointer" : "not-allowed", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
           }}>
-            <Icon as={devisExistant || resultat?.ok ? Lock : Send} size={12} />{devisExistant || resultat?.ok ? "Brouillon créé" : creation ? "Création en cours…" : "Créer le brouillon ProGBat"}
+            <Icon as={devisExistant || resultat?.ok ? Lock : Send} size={12} />{devisExistant || resultat?.ok ? "Devis brouillon créé" : creation ? "Création en cours…" : "Créer le brouillon dans ProGBat"}
           </button>
         </div>
 
@@ -347,16 +353,16 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
                 <div style={{ width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0, background: acc.bg10, color: acc.accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon as={Send} size={18} /></div>
                 <div>
-                  <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Créer le brouillon ProGBat ?</div>
-                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Cette action va créer un véritable devis en brouillon dans ProGBat.</div>
+                  <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Créer le brouillon dans ProGBat ?</div>
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Confirmation explicite requise.</div>
                 </div>
               </div>
-              <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 12 }}>Le devis ne sera ni finalisé ni envoyé au client.</div>
+              <div style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 700, lineHeight: 1.6, marginBottom: 12 }}>Cette action créera un devis brouillon dans ProGBat. Il ne sera ni finalisé ni envoyé.</div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT.sm.size, marginBottom: 16 }}>
                 <tbody>
                   {[
-                    ["Client", entete?.client?.affichage || "—"],
                     ["Logement", [entete?.logement?.reference, entete?.logement?.type].filter(Boolean).join(" · ") || "—"],
+                    ["Client", entete?.client?.affichage || "—"],
                     ["Objet", entete?.objet || "—"],
                     ["Lots", compteurs?.lots],
                     ["Zones", compteurs?.zones],
@@ -375,7 +381,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => !creation && setConfirmation(false)} disabled={creation} style={{ background: "transparent", color: T.textSub, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "9px 18px", cursor: creation ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700 }}>Annuler</button>
                 <button onClick={creer} disabled={creation} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: creation ? T.border : acc.accent, color: creation ? T.textMuted : acc.onAccent, border: "none", borderRadius: RADIUS.md, padding: "9px 20px", cursor: creation ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800 }}>
-                  <Icon as={creation ? RefreshCw : Send} size={12} style={creation ? { animation: "spin 1s linear infinite" } : undefined} />{creation ? "Création en cours…" : "Créer le brouillon"}
+                  <Icon as={creation ? RefreshCw : Send} size={12} style={creation ? { animation: "spin 1s linear infinite" } : undefined} />{creation ? "Création en cours…" : "Créer le brouillon dans ProGBat"}
                 </button>
               </div>
             </div>

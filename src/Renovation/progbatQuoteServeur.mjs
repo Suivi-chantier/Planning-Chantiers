@@ -15,10 +15,10 @@
 // Anti-doublon : une ligne progbat_quote_exports est RÉSERVÉE (statut creating)
 // avant le POST ; l'index unique partiel (project_id, statut ∈ creating/created/
 // uncertain) refuse toute seconde réservation concurrente. Après le POST :
-//   • 2xx avec `id`      → created (+ profero_projets.progbat_devis_id)
+//   • 2xx avec `id`      → created (+ profero_projets.progbat_devis_id), puis GET de vérification facultatif
 //   • 2xx sans `id`      → uncertain (le devis existe peut-être)
-//   • délai / réseau     → uncertain (on ne sait pas si ProGBat a créé le devis)
-//   • 4xx / 5xx          → failed (la réservation n'est plus bloquante)
+//   • délai / réseau / 5xx → uncertain (le POST est parti : on ne sait pas si ProGBat a créé le devis)
+//   • 400 / 401 / 403 / 404 / 409 / 422 / 429 → failed (refus certain, la réservation n'est plus bloquante)
 //   • 2xx mais enregistrement local en échec → uncertain, jamais de relance auto.
 //
 // Interface `depot` (toutes les fonctions sont async) :
@@ -30,8 +30,17 @@
 //   majExport(id, patch)     → { ok: true } | { ok: false, erreur }
 //   majProjetDevis(projectId, { progbat_devis_id, progbat_sync_at }) → { ok } | { ok: false, erreur }
 // Interface `progbat` :
+//   jetonPresent        → false si PROGBAT_PRIVATE_ACCESS_TOKEN manque (aucune opération n'est alors tentée)
 //   lireTaux()          → { ok: true, taux: [{ id, rate, label, saleDefault }] } | { ok: false, status, message }
 //   creerDevis(payload) → { ok: true, status, data } | { ok: false, status, message, timeout?, reseau? }
+//   lireDevis(quoteId)  → (facultatif) GET /company/quotes/{quoteId} après un POST réussi : { ok, status, data } —
+//                         un échec de cette lecture ne provoque JAMAIS un second POST.
+//
+// Clé du logement : dans Profero un projet (profero_projets) = un logement
+// (logement_reference / type_logement ; un ancien projet multi-logements est
+// refusé par le générateur). La clé d'unicité est donc project_id ; la référence
+// du logement reçue du navigateur (`logementReference`) est comparée à celle du
+// projet rechargé et figée dans la réservation pour l'audit.
 
 import { construirePayloadDevisProGBat, hacherPayload } from "./progbatQuotePayload.mjs";
 
@@ -56,7 +65,7 @@ const str = (v) => String(v ?? "").trim();
 /** Nettoyage des messages renvoyés : court, sans séquence ressemblant à un jeton. */
 export function nettoyerMessage(raw) {
   let s = typeof raw === "string" ? raw : "";
-  s = s.replace(/[A-Za-z0-9_\-.]{24,}/g, "[masqué]").replace(/\s+/g, " ").trim();
+  s = s.replace(/bearer\s+\S+/gi, "[masqué]").replace(/[A-Za-z0-9_\-.]{24,}/g, "[masqué]").replace(/\s+/g, " ").trim();
   return s.slice(0, 200);
 }
 
@@ -152,6 +161,7 @@ export async function reconstruireDevis({ projectId, depot, progbat, maintenant 
     projet, lignes, lotsOrdre, resultat, payloadHash, exportResume, blocage,
     base: {
       projectId,
+      logement_reference: str(projet.logement_reference) || null,
       valide: resultat.valide,
       apercu: resultat.apercu,
       erreurs: resultat.erreurs,
@@ -181,8 +191,12 @@ export async function reconstruireDevis({ projectId, depot, progbat, maintenant 
 export async function traiterRequeteDevis(requete = {}, { appelant, depot, progbat, maintenant = new Date() } = {}) {
   const refus = controlerAppelant(appelant);
   if (refus) return refus;
+  if (progbat?.jetonPresent === false) {
+    return { http: 500, body: { ok: false, code: "secret_absent", error: "Secret ProGBat non configuré côté serveur : aucune opération n'est possible." }, journal: { action: str(requete.action), refus: "secret_absent" } };
+  }
 
   const action = str(requete.action);
+  const logementReference = str(requete.logementReference);
   if (!ACTIONS.includes(action)) return { http: 400, body: { ok: false, code: "action_invalide", error: "Action inconnue (prepare, create ou status attendu)." } };
   const projectId = str(requete.projectId);
   if (!RE_UUID.test(projectId)) return { http: 400, body: { ok: false, code: "project_id_invalide", error: "projectId manquant ou invalide." } };
@@ -223,6 +237,9 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
   if (requete.confirmed !== true) return refuser(400, "confirmation_requise", "Confirmation explicite requise (confirmed: true).");
   if (rec.blocage.bloque) return refuser(409, rec.blocage.code, rec.blocage.message, { export_precedent: rec.exportResume, devis_existant: rec.base.devis_existant });
   if (!rec.resultat.valide) return refuser(409, "payload_invalide", `Payload invalide : ${rec.resultat.erreurs.length} point(s) bloquant(s).`, { erreurs: rec.resultat.erreurs, avertissements: rec.resultat.avertissements });
+  if (logementReference && logementReference !== str(rec.projet.logement_reference)) {
+    return refuser(409, "logement_different", `Le logement confirmé (${logementReference}) ne correspond pas à celui du projet (${str(rec.projet.logement_reference) || "sans référence"}) : relancer l'aperçu.`);
+  }
   if (str(requete.expectedPayloadHash) !== rec.payloadHash) {
     return refuser(409, "hash_different", "Le projet ou ses lignes ont changé depuis l'aperçu : relancer l'aperçu puis confirmer à nouveau.");
   }
@@ -231,6 +248,7 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
   const reservation = await depot.reserverExport({
     project_id: projectId,
     payload_hash: rec.payloadHash,
+    logement_reference: str(rec.projet.logement_reference) || null,
     statut: "creating",
     created_by: appelant.id ?? null,
     created_by_email: str(appelant.email) || null,
@@ -252,8 +270,10 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
   const duree_ms = Date.now() - t0;
 
   if (!rep.ok) {
-    if (rep.timeout || rep.reseau) {
-      const message = nettoyerMessage(rep.message) || "Réponse ProGBat inconnue (délai dépassé ou réseau).";
+    const cinqCents = Number.isInteger(rep.status) && rep.status >= 500;
+    if (rep.timeout || rep.reseau || cinqCents) {
+      // Le POST est parti : un délai, une coupure ou une erreur serveur ProGBat ne disent pas si le devis a été créé.
+      const message = nettoyerMessage(rep.message) || (cinqCents ? `ProGBat indisponible (${rep.status}) après envoi du POST.` : "Réponse ProGBat inconnue (délai dépassé ou réseau).");
       await finir({ statut: "uncertain", http_status: rep.status ?? 0, error_message: message });
       return {
         http: 200,
@@ -295,13 +315,32 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
     };
   }
 
+  // Vérification facultative par le GET officiel : confirme la présence du brouillon.
+  // Quel que soit son résultat, le statut reste `created` et AUCUN second POST n'est émis.
+  let verification = null;
+  if (typeof progbat.lireDevis === "function") {
+    try {
+      const v = await progbat.lireDevis(quoteId);
+      const idLu = v?.ok ? (Number.isInteger(v.data?.id) ? v.data.id : Number(v.data?.id)) : null;
+      verification = { ok: v?.ok === true, status: v?.status ?? null, id_confirme: v?.ok === true && idLu === quoteId };
+    } catch {
+      verification = { ok: false, status: null, id_confirme: false };
+    }
+    try {
+      await depot.majExport(exportId, { verified_at: verification.id_confirme ? new Date().toISOString() : null, verification_http_status: verification.status });
+    } catch { /* la vérification est informative : le devis est créé */ }
+  }
+  const finished_at = new Date().toISOString();
+
   return {
     http: 200,
     body: {
-      ok: true, action, statut: "created", message: "Brouillon créé dans ProGBat.",
+      ok: true, action, statut: "created", message: "Devis brouillon ProGBat créé.",
       progbat_quote_id: quoteId, progbat_quote_code: quoteCode, progbat_status: rep.status,
+      created_by_email: str(appelant.email) || null, finished_at,
+      verification,
       payloadHash: rec.payloadHash, export_id: exportId, compteurs: rec.resultat.compteurs, totaux: rec.resultat.totaux,
     },
-    journal: { action, projectId, endpoint: ENDPOINT_POST_DEVIS, http_status: rep.status, progbat_quote_id: quoteId, statut: "created", duree_ms },
+    journal: { action, projectId, endpoint: ENDPOINT_POST_DEVIS, http_status: rep.status, progbat_quote_id: quoteId, statut: "created", verification: verification ? (verification.id_confirme ? "confirmee" : `non_confirmee_${verification.status ?? "erreur"}`) : "non_tentee", duree_ms },
   };
 }
