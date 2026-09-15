@@ -1,0 +1,420 @@
+// COPIE GÉNÉRÉE — ne pas éditer ici. Source : src/Renovation/progbatInventaire.mjs (node scripts/sync-progbat-edge-lib.mjs)
+// ─── INVENTAIRE PROGBAT — RAPPROCHEMENT PUR (LECTURE SEULE) ──────────────────
+// Compare la bibliothèque d'ouvrages Profero (bibliotheque_ratios) avec les
+// « structures » de la bibliothèque ProGBat. Module PUR : aucun accès réseau ni
+// Supabase, aucune écriture. Il est utilisé :
+//   • par l'Edge Function supabase/functions/progbat-library-inventory (copie
+//     synchronisée par scripts/sync-progbat-edge-lib.mjs — ne pas éditer la copie) ;
+//   • par le script de vérification scripts/verif-progbat-inventaire.mjs.
+//
+// Règles de rapprochement, appliquées DANS CET ORDRE pour chaque ouvrage Profero :
+//   1. progbat_id enregistré ET présent dans ProGBat        → deja_lie
+//   2. un seul ouvrage ProGBat avec le même code normalisé  → correspondance_code_a_confirmer
+//   3. plusieurs ouvrages ProGBat avec ce code              → ambigu (tous les candidats)
+//   4. libellé strictement identique après normalisation   → correspondance_libelle_a_examiner
+//   5. rien de fiable ni probable                           → nouveau_a_creer
+//   Les structures ProGBat qu'aucune règle n'a touchées     → progbat_non_lie
+// Aucune de ces correspondances n'est enregistrée : c'est une simulation.
+//
+// Normalisation des codes (volontairement limitée) : espaces retirés, majuscules,
+// seuls lettres, chiffres, tirets et points sont conservés. La structure du code
+// n'est jamais réécrite (« D-001 » et « D001 » restent différents).
+
+import { parseCodeOuvrage, comparerCodes } from "./codeOuvrage.mjs";
+import { calculerOuvrage, num, normaliserUnite } from "./chiffragePricing.mjs";
+
+export const STATUTS = Object.freeze({
+  deja_lie: "deja_lie",
+  correspondance_code_a_confirmer: "correspondance_code_a_confirmer",
+  ambigu: "ambigu",
+  correspondance_libelle_a_examiner: "correspondance_libelle_a_examiner",
+  nouveau_a_creer: "nouveau_a_creer",
+  progbat_non_lie: "progbat_non_lie",
+});
+
+/** Ordre d'affichage des statuts et libellés lisibles. */
+export const STATUTS_ORDRE = Object.freeze([
+  "deja_lie",
+  "correspondance_code_a_confirmer",
+  "ambigu",
+  "correspondance_libelle_a_examiner",
+  "nouveau_a_creer",
+  "progbat_non_lie",
+]);
+
+export const STATUTS_LABELS = Object.freeze({
+  deja_lie: "Déjà lié",
+  correspondance_code_a_confirmer: "Code identique (à confirmer)",
+  ambigu: "Ambigu",
+  correspondance_libelle_a_examiner: "Libellé identique (à examiner)",
+  nouveau_a_creer: "Nouveau à créer",
+  progbat_non_lie: "ProGBat seul (non lié)",
+});
+
+const str = (v) => String(v ?? "").trim();
+const uniq = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
+
+// ─── Normalisations ──────────────────────────────────────────────────────────
+/** « d-001 » → « D-001 » ; « D 001 » → « D001 » (espaces retirés, structure conservée). */
+export function normaliserCode(code) {
+  return str(code).toUpperCase().replace(/[^A-Z0-9\-.]/g, "");
+}
+
+/** Libellé comparable : sans accents, minuscules, espaces réduits, ponctuation finale retirée. */
+export function normaliserLibelle(libelle) {
+  return str(libelle)
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")   // marques diacritiques (après décomposition NFD)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[\s:.\-–—;,]+$/g, "")
+    .trim();
+}
+
+/** Code Profero normalisé (« COUV-001 ») lu en tête de libellé, ou null. */
+export function codeProfero(ouvrage) {
+  return parseCodeOuvrage(ouvrage?.libelle)?.code ?? null;
+}
+
+/** Libellé Profero sans son code de tête. */
+export function libelleCourtProfero(ouvrage) {
+  return parseCodeOuvrage(ouvrage?.libelle)?.reste ?? str(ouvrage?.libelle);
+}
+
+// ─── Complétude d'un ouvrage Profero ─────────────────────────────────────────
+/**
+ * Contrôle qu'un ouvrage Profero est suffisamment renseigné pour être créé un
+ * jour dans ProGBat. Réutilise calculerOuvrage (source unique des règles de
+ * prix) et ajoute les contrôles propres à la synchronisation.
+ * @param ouvrage  ligne bibliotheque_ratios
+ * @param ctx      { materiaux, coutHoraire, tvaDefaut, tauxTvaProgbat?, unitesProgbat? }
+ * @returns {{ code, libelleCourt, unite, blocages: string[], avertissements: string[], synchronisable: boolean, prix }}
+ */
+export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null, tvaDefaut = null, tauxTvaProgbat = null, unitesProgbat = null } = {}) {
+  const blocages = [];
+  const avertissements = [];
+  const libelle = str(ouvrage?.libelle);
+  const code = parseCodeOuvrage(libelle);
+
+  if (!libelle) blocages.push("Libellé vide");
+  if (!code) blocages.push("Code d'ouvrage absent en tête de libellé (ex. « D-001 : … »)");
+  else if (!str(code.reste) || normaliserLibelle(code.reste) === normaliserLibelle(libelle)) {
+    blocages.push("Libellé réduit au code : aucun descriptif après le code");
+  }
+  if (!str(ouvrage?.unite)) blocages.push("Unité absente");
+
+  const calc = calculerOuvrage(ouvrage, { materiaux, coutHoraire });
+  // calc.erreurs couvre : cadence absente, coût horaire non configuré, matériau
+  // introuvable / sans prix / sans quantité, aucun matériau (hors MO seule),
+  // coût direct négatif, coefficient de vente absent ou < 1.
+  blocages.push(...calc.erreurs);
+  avertissements.push(...calc.avertissements);
+  if (calc.coutMateriauxUnitaire == null && !calc.erreurs.some((e) => /mat[ée]riau/i.test(e))) blocages.push("Coût matériaux non calculable");
+  if (calc.coutMainOeuvreUnitaire == null && !calc.erreurs.some((e) => /cadence|horaire/i.test(e))) blocages.push("Coût de main-d'œuvre non calculable");
+  if (calc.prixVenteUnitaire == null && blocages.length === 0) blocages.push("Prix de vente HT non calculable");
+
+  // TVA : la bibliothèque n'a pas de TVA par ouvrage ; la règle applicable est
+  // la TVA par défaut du chiffrage (planning_config.chiffrage_tva_defaut).
+  const tva = num(tvaDefaut);
+  if (tva == null) {
+    blocages.push("Aucune règle de TVA : TVA par défaut du chiffrage non réglée (Réglages → Taux)");
+  } else if (Array.isArray(tauxTvaProgbat) && tauxTvaProgbat.length > 0) {
+    const connue = tauxTvaProgbat.some((t) => {
+      const r = num(t?.rate);
+      return r != null && (Math.abs(r - tva) < 0.001 || Math.abs(r * 100 - tva) < 0.001);
+    });
+    if (!connue) avertissements.push(`TVA ${tva} % absente des taux actifs ProGBat`);
+  }
+
+  // Unité : signalée (pas bloquante) si ProGBat ne la connaît pas.
+  const unite = normaliserUnite(ouvrage?.unite);
+  if (str(ouvrage?.unite) && Array.isArray(unitesProgbat) && unitesProgbat.length > 0) {
+    const codes = new Set(unitesProgbat.map((u) => normaliserCode(u?.code)));
+    if (!codes.has(normaliserCode(unite)) && !codes.has(normaliserCode(ouvrage.unite))) {
+      avertissements.push(`Unité « ${unite} » inconnue dans ProGBat`);
+    }
+  }
+
+  return {
+    code: code?.code ?? null,
+    libelleCourt: code?.reste ?? libelle,
+    unite,
+    blocages: uniq(blocages),
+    avertissements: uniq(avertissements),
+    synchronisable: blocages.length === 0,
+    prix: {
+      cout_total_ht: calc.coutTotalUnitaire,
+      prix_vente_ht: calc.prixVenteUnitaire,
+      coef_vente: calc.coefVente,
+      taux_marge_pct: calc.tauxMargePct,
+    },
+  };
+}
+
+// ─── Rapprochement ───────────────────────────────────────────────────────────
+// ─── Nettoyage HTML (descriptifs ProGBat) ────────────────────────────────────
+// Le descriptif ProGBat est du HTML (« E-008&nbsp;: <div>Fourniture…</div> »).
+// Avant toute analyse : entités décodées, balises retirées, espaces normalisés.
+// Le HTML brut ne sort jamais du module : l'interface ne reçoit que du texte.
+const ENTITES_HTML = {
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'",
+  eacute: "é", egrave: "è", ecirc: "ê", agrave: "à", acirc: "â", ccedil: "ç",
+  ugrave: "ù", ucirc: "û", ocirc: "ô", icirc: "î", euro: "€", deg: "°",
+  laquo: "«", raquo: "»", hellip: "…", ndash: "–", mdash: "—", rsquo: "’", lsquo: "‘",
+};
+const pointCode = (n) => { try { return String.fromCodePoint(n); } catch { return ""; } };
+export function nettoyerHtml(html) {
+  let s = String(html ?? "");
+  if (!s) return "";
+  s = s.replace(/<\s*(br|hr|\/p|\/div|\/li|\/tr|\/td|\/th|\/h[1-6])\b[^>]*>/gi, " "); // fins de bloc → espace
+  s = s.replace(/<[^>]*>/g, " ");                                                    // autres balises
+  s = s.replace(/&#x([0-9a-f]+);/gi, (_, h) => pointCode(parseInt(h, 16)));
+  s = s.replace(/&#(\d+);/g, (_, d) => pointCode(Number(d)));
+  s = s.replace(/&([a-z]+);/gi, (m, n) => ENTITES_HTML[n.toLowerCase()] ?? m);
+  return s.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Le schéma OpenAPI des listes ne documente pas de descriptif, mais l'API réelle
+// en renvoie un. On accepte tout champ texte dont le nom contient « desc »
+// (description, descriptif, longDescription…), le plus court d'abord.
+export function texteDescriptif(structure) {
+  if (!structure || typeof structure !== "object") return "";
+  const cles = Object.keys(structure)
+    .filter((k) => /desc/i.test(k) && typeof structure[k] === "string" && structure[k].trim())
+    .sort((a, b) => a.length - b.length);
+  return cles.length ? structure[cles[0]] : "";
+}
+
+// ─── Détection du code MÉTIER d'une structure ProGBat ────────────────────────
+// Trois identités distinctes sont conservées : l'identifiant numérique ProGBat
+// (`id`), le champ `code` technique de l'API (souvent généré depuis le libellé :
+// « DISJONCTEURBRANCHEMENT-1PN-60AFIXE-500MA-DIFFINST ») et le code métier
+// Profero (« E-008 »). Le code métier est cherché, toujours avec le parseur
+// central parseCodeOuvrage, dans cet ordre :
+//   1. début du descriptif nettoyé ;
+//   2. début du libellé nettoyé ;
+//   3. champ `code` de l'API, UNIQUEMENT s'il est à lui seul un code au format
+//      central (un long texte concaténé n'est jamais un code métier) ;
+//   4. repli : segment clairement délimité (« [COUV-001] », « … - P-021.2 - … »).
+const SEPARATEURS_SEGMENTS = /[\[\]()|;]|\s[-–—:]\s/;
+
+/** Code au DÉBUT d'un texte (« E-008 : … », « EG-001 Descriptif »), null sinon. */
+function codeEnTete(texte) {
+  const s = str(texte);
+  if (!s) return null;
+  return parseCodeOuvrage(s)?.code ?? null;
+}
+
+/** Code SEUL ? (le parseur rend `reste` = chaîne entière quand rien ne suit le code) */
+function codeSeul(segment) {
+  const s = str(segment);
+  if (!s) return null;
+  const p = parseCodeOuvrage(s);
+  return p && p.reste === s ? p.code : null;
+}
+
+/**
+ * @returns {{ code: string|null, source: "descriptif"|"libelle"|"champ"|null,
+ *             code_api: string|null, label: string, descriptif: string }}
+ *   code / source : code métier normalisé (« E-008 ») et où il a été lu ;
+ *   code_api      : champ `code` technique brut ; label / descriptif : textes NETTOYÉS.
+ */
+export function detecterCodeProgbat(structure) {
+  const codeApi = str(structure?.code);
+  const descriptif = nettoyerHtml(texteDescriptif(structure));
+  const label = nettoyerHtml(structure?.label);
+  let code = null;
+  let source = null;
+
+  code = codeEnTete(descriptif);
+  if (code) source = "descriptif";
+  if (!code) { code = codeEnTete(label); if (code) source = "libelle"; }
+  if (!code) { code = codeSeul(codeApi); if (code) source = "champ"; }
+  if (!code) {
+    for (const [texte, src] of [[descriptif, "descriptif"], [label, "libelle"]]) {
+      for (const seg of texte.split(SEPARATEURS_SEGMENTS)) {
+        const c = codeSeul(seg);
+        if (c) { code = c; source = src; break; }
+      }
+      if (code) break;
+    }
+  }
+  return { code, source, code_api: codeApi || null, label, descriptif };
+}
+
+function indexerStructures(structures) {
+  return (Array.isArray(structures) ? structures : [])
+    .filter((s) => s && s.id != null)
+    .map((s) => {
+      const det = detecterCodeProgbat(s);
+      const pLabel = parseCodeOuvrage(det.label);
+      const pDesc = parseCodeOuvrage(det.descriptif);
+      return {
+        id: s.id,
+        idStr: String(s.id),
+        codeApi: det.code_api,
+        codeMetier: det.code,
+        sourceCode: det.source,
+        label: det.label,
+        descriptif: det.descriptif,
+        // clés de rapprochement par libellé (textes nettoyés, avec et sans code de tête)
+        clesLibelle: uniq([
+          normaliserLibelle(det.label),
+          pLabel ? normaliserLibelle(pLabel.reste) : null,
+          normaliserLibelle(det.descriptif),
+          pDesc ? normaliserLibelle(pDesc.reste) : null,
+        ]),
+        unitCode: str(s.unitCode),
+        prixVente: num(s.saleNetUnitPrice),
+        actif: s.active !== false,
+        type: s.type ?? null,
+      };
+    });
+}
+
+const resumeStructure = (s, codeCommun = null) => ({
+  id: s.id,                            // identifiant numérique ProGBat
+  code: s.codeMetier,                  // code MÉTIER détecté (« E-008 ») ou null
+  source_code: s.sourceCode,           // "descriptif" | "libelle" | "champ" | null
+  code_api: s.codeApi,                 // champ `code` technique brut de l'API (colonne secondaire)
+  code_commun: codeCommun,             // code normalisé qui a servi au rapprochement
+  label: s.label,                      // libellé ProGBat nettoyé (jamais de HTML)
+  descriptif: s.descriptif.length > 200 ? s.descriptif.slice(0, 199) + "…" : s.descriptif,
+  unitCode: s.unitCode || null,
+  prix_vente_ht: s.prixVente,
+  actif: s.actif,
+});
+
+/**
+ * Rapproche la bibliothèque Profero des structures ProGBat.
+ * @param params.ouvrages     lignes bibliotheque_ratios
+ * @param params.structures   structures ProGBat (id, code, label, unitCode, saleNetUnitPrice, active…)
+ * @param params.materiaux    materiaux_bibliotheque (id, nom, unite, prix_unitaire)
+ * @param params.coutHoraire  planning_config.taux_mo_previsionnel
+ * @param params.tvaDefaut    planning_config.chiffrage_tva_defaut
+ * @param params.taxes        taux de TVA ProGBat (id, rate, label, saleDefault)
+ * @param params.unites       unités ProGBat (id, code)
+ */
+export function rapprocherBibliotheque({ ouvrages = [], structures = [], materiaux = [], coutHoraire = null, tvaDefaut = null, taxes = null, unites = null } = {}) {
+  const structs = indexerStructures(structures);
+  const parId = new Map();
+  const parCode = new Map();
+  const parLabel = new Map();
+  const push = (map, k, s) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(s); };
+  structs.forEach((s) => {
+    parId.set(s.idStr, s);
+    push(parCode, normaliserCode(s.codeMetier), s);   // un seul code MÉTIER par structure
+    s.clesLibelle.forEach((k) => push(parLabel, k, s));
+  });
+  const sources_codes = {
+    descriptif: structs.filter((s) => s.sourceCode === "descriptif").length,
+    libelle: structs.filter((s) => s.sourceCode === "libelle").length,
+    champ: structs.filter((s) => s.sourceCode === "champ").length,
+    aucun: structs.filter((s) => !s.sourceCode).length,
+  };
+
+  const utilises = new Set();
+  const ctx = { materiaux, coutHoraire, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
+
+  const rapprochements = (Array.isArray(ouvrages) ? ouvrages : [])
+    .filter(Boolean)
+    .map((o) => {
+      const compl = verifierCompletude(o, ctx);
+      const notes = [];
+      let statut = null;
+      let correspondance = null;
+      let candidats = [];
+
+      // 1. progbat_id déjà enregistré
+      const pid = str(o.progbat_id);
+      if (pid) {
+        const s = parId.get(pid);
+        if (s) { statut = STATUTS.deja_lie; correspondance = resumeStructure(s); utilises.add(s.idStr); }
+        else notes.push(`progbat_id « ${pid} » enregistré mais introuvable dans ProGBat : lien à revoir`);
+      }
+
+      // 2 & 3. code strictement identique (unique → à confirmer ; plusieurs → ambigu)
+      const codeNorm = normaliserCode(compl.code);
+      if (!statut && codeNorm) {
+        // Dédoublonné : une même structure peut porter le code dans son champ ET son libellé.
+        const memes = [...new Map((parCode.get(codeNorm) || []).map((s) => [s.idStr, s])).values()];
+        if (memes.length === 1) {
+          statut = STATUTS.correspondance_code_a_confirmer;
+          correspondance = resumeStructure(memes[0], codeNorm);
+          utilises.add(memes[0].idStr);
+        } else if (memes.length > 1) {
+          statut = STATUTS.ambigu;
+          candidats = memes.map((s) => resumeStructure(s, codeNorm));
+          memes.forEach((s) => utilises.add(s.idStr));
+        }
+      }
+
+      // 4. libellé identique (suggestion seulement)
+      if (!statut) {
+        const cles = uniq([normaliserLibelle(compl.libelleCourt), normaliserLibelle(o.libelle)]);
+        const trouves = new Map();
+        cles.forEach((k) => (parLabel.get(k) || []).forEach((s) => trouves.set(s.idStr, s)));
+        if (trouves.size > 0) {
+          statut = STATUTS.correspondance_libelle_a_examiner;
+          candidats = [...trouves.values()].map(resumeStructure);
+          trouves.forEach((s) => utilises.add(s.idStr));
+        }
+      }
+
+      // 5. nouveau
+      if (!statut) statut = STATUTS.nouveau_a_creer;
+
+      return {
+        profero: {
+          id: o.id ?? null,
+          code: compl.code,
+          libelle: str(o.libelle),
+          libelle_court: compl.libelleCourt,
+          unite: compl.unite,
+          progbat_id: pid || null,
+        },
+        statut,
+        correspondance,
+        candidats,
+        synchronisable: compl.synchronisable,
+        pret_a_creer: statut === STATUTS.nouveau_a_creer && compl.synchronisable,
+        blocages: compl.blocages,
+        avertissements: compl.avertissements,
+        notes,
+        prix: compl.prix,
+      };
+    })
+    .sort((a, b) => comparerCodes(a.profero.code || a.profero.libelle, b.profero.code || b.profero.libelle));
+
+  // 6. structures ProGBat sans équivalent Profero (signalées, jamais supprimées)
+  const progbat_non_lies = structs
+    .filter((s) => !utilises.has(s.idStr))
+    .map((s) => ({ ...resumeStructure(s), statut: STATUTS.progbat_non_lie }))
+    .sort((a, b) => comparerCodes(a.code || a.label, b.code || b.label));
+
+  const compteurs = Object.fromEntries(STATUTS_ORDRE.map((k) => [k, 0]));
+  rapprochements.forEach((r) => { compteurs[r.statut] = (compteurs[r.statut] || 0) + 1; });
+  compteurs.progbat_non_lie = progbat_non_lies.length;
+
+  return {
+    rapprochements,
+    ambiguites: rapprochements.filter((r) => r.statut === STATUTS.ambigu),
+    bloques: rapprochements
+      .filter((r) => !r.synchronisable)
+      .map((r) => ({ id: r.profero.id, code: r.profero.code, libelle_court: r.profero.libelle_court, statut: r.statut, blocages: r.blocages })),
+    progbat_non_lies,
+    compteurs,
+    sources_codes,
+    nb_ouvrages_profero: rapprochements.length,
+    nb_structures_progbat: structs.length,
+    nb_synchronisables: rapprochements.filter((r) => r.synchronisable).length,
+    nb_prets_a_creer: rapprochements.filter((r) => r.pret_a_creer).length,
+  };
+}
+
+/** Motifs de blocage agrégés : [{ motif, nb }] triés par fréquence. */
+export function motifsBlocage(rapprochements = []) {
+  const m = new Map();
+  (rapprochements || []).forEach((r) => (r.blocages || []).forEach((b) => m.set(b, (m.get(b) || 0) + 1)));
+  return [...m.entries()].map(([motif, nb]) => ({ motif, nb })).sort((a, b) => b.nb - a.nb || a.motif.localeCompare(b.motif));
+}
