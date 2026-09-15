@@ -1,14 +1,12 @@
 // src/Renovation/ProgbatInventaireAdmin.jsx — Réglages → Outils → Maintenance
-// Carte « Inventaire de la bibliothèque » : simulation EN LECTURE SEULE du
-// rapprochement bibliothèque Profero ↔ structures ProGBat, via l'Edge Function
-// progbat-library-inventory (supabase.functions.invoke : la session est
-// transmise automatiquement ; aucun jeton ni en-tête n'est manipulé ici).
-// Aucun bouton d'écriture (synchroniser / créer / lier / modifier / supprimer).
+// Inventaire en lecture seule, puis synchronisation conservatrice explicitement
+// confirmée : lier les codes uniques et créer les absents sous « Ouvrages V2 ».
+// Jamais de modification/suppression d'une structure ProGBat existante.
 import React, { useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
-import { RefreshCw, Boxes, AlertTriangle, Check, X } from "lucide-react";
+import { RefreshCw, Boxes, AlertTriangle, Check, X, Link2, UploadCloud, ShieldCheck } from "lucide-react";
 import { STATUTS_ORDRE, STATUTS_LABELS } from "./progbatInventaire.mjs";
 
 const COULEURS_STATUT = {
@@ -34,6 +32,11 @@ export default function ProgbatInventaire({ T, acc }) {
   const [erreur, setErreur] = useState(null);
   const [filtre, setFiltre] = useState("tous");
   const [seulementBloques, setSeulementBloques] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncPlan, setSyncPlan] = useState(null);
+  const [syncErreur, setSyncErreur] = useState(null);
+  const [syncResultat, setSyncResultat] = useState(null);
+  const [confirmation, setConfirmation] = useState(false);
 
   const analyser = async () => {
     setLoading(true); setErreur(null);
@@ -52,6 +55,33 @@ export default function ProgbatInventaire({ T, acc }) {
       setErreur({ message: e?.message || "Erreur inattendue.", status: null });
     }
     setLoading(false);
+  };
+
+  const preparerSynchronisation = async () => {
+    setSyncLoading(true); setSyncErreur(null); setSyncResultat(null); setConfirmation(false);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare" } });
+      if (error && !data) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Préparation de la synchronisation impossible.");
+      setSyncPlan(data);
+    } catch (e) { setSyncErreur(e?.message || "Erreur inattendue."); }
+    setSyncLoading(false);
+  };
+
+  const executerSynchronisation = async () => {
+    if (!syncPlan?.planHash) return;
+    setSyncLoading(true); setSyncErreur(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-library-sync", {
+        body: { action: "sync", expectedPlanHash: syncPlan.planHash, confirmed: true },
+      });
+      if (error && !data) throw error;
+      if (!data) throw new Error("Réponse vide de la synchronisation.");
+      setSyncResultat(data); setConfirmation(false); setSyncPlan(null);
+      await analyser();
+      if (!data.ok && !data.resultats) setSyncErreur(data.error || "Synchronisation interrompue.");
+    } catch (e) { setSyncErreur(e?.message || "Connexion interrompue : vérifier ProGBat avant de recommencer."); }
+    setSyncLoading(false);
   };
 
   const lignes = useMemo(() => {
@@ -105,7 +135,7 @@ export default function ProgbatInventaire({ T, acc }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", marginBottom: 12, borderRadius: RADIUS.md, background: "rgba(77,184,255,0.10)", border: "1px solid rgba(77,184,255,0.35)", color: T.text, fontSize: FONT.xs.size + 1, fontWeight: 700 }}>
         <Icon as={AlertTriangle} size={13} style={{ color: "#4db8ff" }} />
-        Simulation en lecture seule — aucune donnée ProGBat ou Profero n’est modifiée.
+        L’analyse et la préparation sont en lecture seule. Une écriture n’a lieu qu’après l’aperçu et une confirmation explicite.
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", padding: "10px 12px", background: T.card, borderRadius: RADIUS.md }}>
@@ -126,6 +156,14 @@ export default function ProgbatInventaire({ T, acc }) {
           <Icon as={RefreshCw} size={11} style={loading ? { animation: "spin 1s linear infinite" } : undefined} />
           {loading ? "Analyse en cours…" : "Analyser la bibliothèque"}
         </button>
+        {result && <button onClick={preparerSynchronisation} disabled={syncLoading || loading} style={{
+          display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 14px", borderRadius: RADIUS.md,
+          border: `1px solid ${acc.accent}`, background: "transparent", color: acc.accent,
+          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
+          cursor: syncLoading || loading ? "not-allowed" : "pointer", opacity: syncLoading || loading ? .55 : 1,
+        }}>
+          <Icon as={ShieldCheck} size={12}/>{syncLoading ? "Préparation…" : "Préparer la synchronisation"}
+        </button>}
 
         {erreur && (
           <div style={{ flex: "1 1 100%", fontSize: FONT.xs.size + 1, lineHeight: 1.6, color: "#e15a5a", fontWeight: 600 }}>
@@ -135,6 +173,46 @@ export default function ProgbatInventaire({ T, acc }) {
                 {Object.entries(erreur.progbat).map(([k, v]) => `${k} : HTTP ${v?.status ?? "—"}${v?.erreur ? ` (${v.erreur})` : ""}`).join(" · ")}
               </div>
             )}
+          </div>
+        )}
+
+        {syncErreur && <div style={{ flex: "1 1 100%", color: "#e15a5a", fontSize: FONT.xs.size + 1, fontWeight: 700 }}>⚠ {syncErreur}</div>}
+        {syncResultat && <div style={{ flex: "1 1 100%", padding: "9px 12px", borderRadius: RADIUS.md,
+          color: syncResultat.ok ? "#22c55e" : "#f59e0b", background: syncResultat.ok ? "rgba(34,197,94,.08)" : "rgba(245,158,11,.08)",
+          border: `1px solid ${syncResultat.ok ? "rgba(34,197,94,.28)" : "rgba(245,158,11,.28)"}`, fontWeight: 700 }}>
+          Synchronisation terminée : {syncResultat.compteurs?.linked || 0} liaison(s), {syncResultat.compteurs?.created || 0} création(s)
+          {(syncResultat.compteurs?.failed || syncResultat.compteurs?.uncertain || syncResultat.compteurs?.conflit) ? ` · ${syncResultat.compteurs?.failed || 0} échec(s), ${syncResultat.compteurs?.uncertain || 0} état(s) incertain(s), ${syncResultat.compteurs?.conflit || 0} conflit(s)` : ""}.
+          {(syncResultat.compteurs?.uncertain || 0) > 0 && <div>Vérifier manuellement dans ProGBat avant toute nouvelle tentative.</div>}
+        </div>}
+
+        {syncPlan?.plan && (
+          <div style={{ flex: "1 1 100%", padding: 12, borderRadius: RADIUS.md, background: T.surface, border: `1px solid ${T.border}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 800, color: T.text }}>Plan de synchronisation contrôlé par le serveur</div>
+                <div style={{ color: T.textSub }}>
+                  <strong>{syncPlan.plan.compteurs.a_lier}</strong> code(s) unique(s) à lier · <strong>{syncPlan.plan.compteurs.a_creer}</strong> ouvrage(s) à créer · <strong>{syncPlan.plan.compteurs.exclus}</strong> exclu(s)
+                </div>
+                <div style={{ color: syncPlan.plan.dossier?.ok ? "#22c55e" : "#f59e0b" }}>
+                  Famille cible : {syncPlan.plan.famille?.ok ? `Ouvrages V2 (id ${syncPlan.plan.famille.id})` : syncPlan.plan.famille?.erreur}
+                  {syncPlan.plan.taxe ? ` · TVA ${syncPlan.plan.taxe.rate} %` : " · TVA par défaut non configurée"}
+                </div>
+              </div>
+              <button onClick={() => setConfirmation(true)} disabled={!syncPlan.plan.compteurs.total || syncLoading} style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: RADIUS.md, border: "none",
+                background: syncPlan.plan.compteurs.total ? acc.accent : T.border, color: syncPlan.plan.compteurs.total ? acc.onAccent : T.textMuted,
+                fontFamily: "inherit", fontWeight: 800, cursor: syncPlan.plan.compteurs.total ? "pointer" : "not-allowed",
+              }}><Icon as={UploadCloud} size={13}/>Synchroniser</button>
+            </div>
+            <div style={{ marginTop: 8, color: T.textMuted }}>
+              Garanties : aucun ouvrage ProGBat existant modifié, aucune suppression, aucun matériau créé. Les créations reprennent le coût et le prix de vente calculés dans Profero.
+            </div>
+            {syncPlan.plan.actions?.length > 0 && <div style={{ marginTop: 8, maxHeight: 180, overflowY: "auto", borderTop: `1px solid ${T.border}` }}>
+              {syncPlan.plan.actions.map(a => <div key={`${a.type}-${a.ouvrageId}`} style={{ display: "flex", gap: 8, padding: "5px 2px", borderBottom: `1px solid ${T.border}` }}>
+                <Icon as={a.type === "link" ? Link2 : UploadCloud} size={12} style={{ marginTop: 3, color: a.type === "link" ? "#4db8ff" : "#22c55e" }}/>
+                <span><strong>{a.code}</strong> — {a.libelle} · {a.type === "link" ? `lier à l’id ProGBat ${a.progbatId}` : `créer à ${fmtPrix(a.payload?.saleNetUnitPrice)} HT`}</span>
+              </div>)}
+            </div>}
           </div>
         )}
 
@@ -289,6 +367,21 @@ export default function ProgbatInventaire({ T, acc }) {
           </div>
         )}
       </div>
+      {confirmation && syncPlan?.plan && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,.62)", display: "grid", placeItems: "center", padding: 20 }} onMouseDown={() => !syncLoading && setConfirmation(false)}>
+        <div onMouseDown={e => e.stopPropagation()} style={{ width: "min(580px,96vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: 20, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}><Icon as={ShieldCheck} size={20} color={acc.accent}/><div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Confirmer la synchronisation</div></div>
+          <div style={{ color: T.textSub, lineHeight: 1.6 }}>
+            Profero va enregistrer <strong>{syncPlan.plan.compteurs.a_lier} liaison(s)</strong> par code unique et créer <strong>{syncPlan.plan.compteurs.a_creer} nouvel(aux) ouvrage(s)</strong> dans « Ouvrages V2 ».
+          </div>
+          <div style={{ marginTop: 10, padding: 10, borderRadius: RADIUS.md, background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.25)", color: T.text }}>
+            Aucun ouvrage existant ne sera modifié ou supprimé dans ProGBat.
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+            <button onClick={() => setConfirmation(false)} disabled={syncLoading} style={{ padding: "8px 14px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontFamily: "inherit", cursor: "pointer" }}>Annuler</button>
+            <button onClick={executerSynchronisation} disabled={syncLoading} style={{ padding: "8px 14px", borderRadius: RADIUS.md, border: "none", background: acc.accent, color: acc.onAccent, fontFamily: "inherit", fontWeight: 800, cursor: syncLoading ? "wait" : "pointer" }}>{syncLoading ? "Synchronisation…" : "Confirmer"}</button>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copie les modules purs partagés dans le dossier `lib/` des Edge Functions
-// ProGBat (progbat-library-inventory, progbat-quote). Les Edge Functions ne
+// ProGBat (inventaire, synchronisation, devis). Les Edge Functions ne
 // peuvent pas importer hors de leur dossier : la copie est la seule façon de
 // réutiliser la source unique des règles de prix (chiffragePricing.mjs), de
 // code (codeOuvrage.mjs) et du générateur de devis (progbatQuotePayload.mjs).
@@ -16,6 +16,7 @@ const FONCTIONS = join(racine, "supabase", "functions");
 // Une entrée par Edge Function : fichiers purs à copier dans son dossier lib/.
 export const CIBLES = Object.freeze({
   "progbat-library-inventory": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs"],
+  "progbat-library-sync": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs", "progbatLibrarySync.mjs"],
   "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
 });
 // Compatibilité : liste plate des fichiers de la première cible (anciens scripts).

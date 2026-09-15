@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {
+    date: "2026-09-15",
+    type: "nouveaute",
+    titre: "Bibliothèque : première synchronisation sécurisée vers ProGBat",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Bibliothèque" }],
+    quoi: "La bibliothèque Profero peut maintenant enregistrer les correspondances dont le code métier est unique dans ProGBat et créer les ouvrages réellement absents dans le dossier « Ouvrages V2 ». Cette première version est volontairement conservatrice : elle ne modifie ni ne supprime aucun ouvrage ProGBat existant et ne crée pas encore les matériaux/compositions détaillés.",
+    comment: "Réglages → Outils → Maintenance → Inventaire de la bibliothèque : lancer « Analyser », puis « Préparer la synchronisation ». Le serveur recharge les deux bibliothèques, contrôle le dossier cible, les unités, la TVA et les prix, puis affiche la liste exacte des liaisons et créations. « Synchroniser » ouvre une dernière confirmation. Une réservation en base empêche les doubles créations ; un délai, une coupure réseau ou une erreur ProGBat 5xx bloque l’ouvrage en état incertain jusqu’à vérification manuelle.",
+  },
+  {
     date: "2026-09-14",
     type: "nouveaute",
     titre: "Chiffrage : création d'un devis brouillon dans ProGBat",
