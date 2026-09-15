@@ -26,7 +26,7 @@ export const JOURNAL_MAJ = [
     date: "15/09/2026",
     titre: "Classement sécurisé des ouvrages ProGBat",
     quoi: "L’inventaire ProGBat peut maintenant préparer puis exécuter le classement des ouvrages déjà liés dans les familles métier correspondant aux préfixes de code configurés dans les lots Profero.",
-    comment: "Réglages → Inventaire de la bibliothèque → Préparer le classement. Une simulation affiche les familles à créer, les ouvrages à déplacer et les préfixes non configurés laissés dans Ouvrages V2. Après confirmation, seul le champ families est modifié dans ProGBat : aucun prix, libellé, code, composant ou ouvrage n’est créé ou supprimé.",
+    comment: "Réglages → Inventaire de la bibliothèque → Préparer le classement. Une simulation affiche les familles existantes à activer, celles à créer, les ouvrages à déplacer et les préfixes non configurés laissés dans Ouvrages V2. Après confirmation, seuls l’activation de la famille pour les ouvrages puis le champ families des ouvrages sont modifiés dans ProGBat : aucun prix, libellé, code, composant ou ouvrage n’est créé ou supprimé.",
   },
   // ── SEPTEMBRE 2026 ─────────────────────────────────────────────────────────
   {

@@ -22,12 +22,13 @@ assert.equal(trouverFamilleMetier(familles, "demolition").id, 20);
 assert.equal(trouverFamilleMetier(familles, "Électricité").absente, true);
 
 const plan = construirePlanClassement({ ouvrages, structures, familles, lots });
-assert.deepEqual(plan.compteurs, { a_classer: 2, familles_a_creer: 1, deja_classes: 0, exclus: 1 });
+assert.deepEqual(plan.compteurs, { a_classer: 2, familles_a_activer: 0, familles_a_creer: 1, deja_classes: 0, exclus: 1 });
 assert.equal(plan.actions.find((x) => x.structureId === 501).familleId, 20);
 assert.equal(plan.actions.find((x) => x.structureId === 502).familleLabel, "Électricité");
 assert.equal(plan.exclus[0].code, "COUV-001");
 assert.match(plan.exclus[0].raison, /sans lot configuré/);
 assert.deepEqual(plan.famillesACreer[0].payload, { label: "Électricité", elementFamily: false, structureFamily: true, craftFamily: false });
+assert.deepEqual(plan.famillesAActiver, []);
 assert.deepEqual(plan.garanties.champs_modifies, ["families"]);
 assert.equal(donneesClassementPourHash(plan).actions.length, 2);
 
@@ -52,6 +53,15 @@ assert.equal(conflit.compteurs.exclus, 2);
 const ambigu = construirePlanClassement({ ouvrages: [ouvrages[0]], structures, familles: [...familles, { id: 22, label: "demolition", structureFamily: true }], lots });
 assert.equal(ambigu.compteurs.a_classer, 0);
 assert.match(ambigu.exclus[0].raison, /Plusieurs familles/);
+
+const familleElementsExistante = construirePlanClassement({
+  ouvrages: [ouvrages[0]], structures, lots,
+  familles: [{ id: 10, label: "Ouvrages V2", structureFamily: true }, { id: 20, label: "Démolition", elementFamily: true, structureFamily: false }],
+});
+assert.equal(familleElementsExistante.compteurs.a_classer, 1);
+assert.equal(familleElementsExistante.compteurs.familles_a_creer, 0, "une famille existante ne doit jamais être recréée");
+assert.equal(familleElementsExistante.compteurs.familles_a_activer, 1);
+assert.deepEqual(familleElementsExistante.famillesAActiver[0], { id: 20, label: "Démolition", payload: { structureFamily: true } });
 
 const familleIncertaine = construirePlanClassement({
   ouvrages: [ouvrages[1]], structures, familles, lots,

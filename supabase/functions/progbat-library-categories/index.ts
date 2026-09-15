@@ -3,7 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
 import { construirePlanClassement, donneesClassementPourHash, trouverFamilleMetier } from "./lib/progbatCategoryDispatch.mjs"
 
 // Classement confirmé des ouvrages déjà liés. Les seules écritures ProGBat sont :
-//   POST /company/library/families (famille métier absente)
+//   PATCH /company/library/families/{id} avec { structureFamily: true } (famille existante)
+//   POST /company/library/families (famille métier réellement absente)
 //   PATCH /company/library/structures/{id} avec { families: [id] }
 // Aucun prix, libellé, code, composant ou ouvrage n'est créé/supprimé ici.
 
@@ -110,7 +111,7 @@ serve(async (req) => {
     })
     const planHash = await hashSha256(donneesClassementPourHash(plan))
     if (action === "prepare") {
-      console.log(`[progbat-library-categories] appelant=${user.id} action=prepare classement=${plan.compteurs.a_classer} familles=${plan.compteurs.familles_a_creer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
+      console.log(`[progbat-library-categories] appelant=${user.id} action=prepare classement=${plan.compteurs.a_classer} activation=${plan.compteurs.familles_a_activer} creation=${plan.compteurs.familles_a_creer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
       return json({ ok: true, action, planHash, plan, aucune_ecriture: true })
     }
     if (body.confirmed !== true) return json({ ok: false, error: "Confirmation explicite requise.", code: "confirmation_requise" }, 400)
@@ -124,6 +125,22 @@ serve(async (req) => {
     }
     const resultatsFamilles: Record<string, unknown>[] = []
     let interrompu = false
+    for (const cible of plan.famillesAActiver) {
+      if (interrompu) break
+      const { data: reservation, error: reserveError } = await admin.from("progbat_library_family_sync_items").insert({
+        family_label: cible.label, progbat_family_id: cible.id, plan_hash: planHash, statut: "creating", created_by: user.id, created_by_email: user.email,
+      }).select("id").single()
+      if (reserveError) { resultatsFamilles.push({ label: cible.label, statut: "conflit", error: "Une opération existe déjà pour cette famille." }); interrompu = true; break }
+      const finir = (patch: Record<string, unknown>) => admin.from("progbat_library_family_sync_items").update({ ...patch, finished_at: new Date().toISOString() }).eq("id", reservation.id)
+      const rep = await progbatFetch("PATCH", `/company/library/families/${cible.id}`, token, cible.payload)
+      if (!rep.ok) {
+        const statut = rep.incertain ? "uncertain" : "failed"
+        await finir({ statut, http_status: rep.status || null, error_message: rep.message })
+        resultatsFamilles.push({ label: cible.label, statut, error: rep.message }); interrompu = true; break
+      }
+      await finir({ statut: "created", progbat_family_id: cible.id, http_status: rep.status })
+      resultatsFamilles.push({ label: cible.label, statut: "activated", familyId: cible.id })
+    }
     for (const cible of plan.famillesACreer) {
       if (interrompu) break
       const { data: reservation, error: reserveError } = await admin.from("progbat_library_family_sync_items").insert({
@@ -178,9 +195,10 @@ serve(async (req) => {
 
     const compteurs = Object.fromEntries(["categorized", "failed", "uncertain", "conflit", "non_execute"].map((s) => [s, resultats.filter((r) => r.statut === s).length]))
     const famillesCreees = resultatsFamilles.filter((r) => r.statut === "created").length
+    const famillesActivees = resultatsFamilles.filter((r) => r.statut === "activated").length
     const ok = !interrompu && compteurs.failed === 0 && compteurs.uncertain === 0 && compteurs.conflit === 0
     console.log(`[progbat-library-categories] appelant=${user.id} action=sync familles=${famillesCreees} ${JSON.stringify(compteurs)} (${Date.now() - started} ms)`)
-    return json({ ok, action, planHash, familles_creees: famillesCreees, compteurs, resultats, resultats_familles: resultatsFamilles, verification_manuelle: compteurs.uncertain > 0 || resultatsFamilles.some((r) => r.statut === "uncertain") })
+    return json({ ok, action, planHash, familles_creees: famillesCreees, familles_activees: famillesActivees, compteurs, resultats, resultats_familles: resultatsFamilles, error: ok ? null : resultatsFamilles.find((r) => r.error)?.error || "Classement interrompu.", verification_manuelle: compteurs.uncertain > 0 || resultatsFamilles.some((r) => r.statut === "uncertain") })
   } catch (e) {
     console.error(`[progbat-library-categories] erreur=${nettoyer((e as Error)?.message)}`)
     return json({ ok: false, error: "Erreur interne de classement." }, 500)

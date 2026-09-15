@@ -41,7 +41,7 @@ export default function ProgbatClassementFamilles({ T, acc }) {
       if (error && !data) throw error;
       if (!data) throw new Error("Réponse vide du classement.");
       setResultat(data); setPlan(null); setConfirmer(false);
-      if (!data.ok && !data.resultats) setErreur(data.error || "Classement interrompu.");
+      if (!data.ok) setErreur(data.error || data.resultats_familles?.find((x) => x.error)?.error || "Classement interrompu.");
     } catch (e) { setErreur(e?.message || "Connexion interrompue : vérifier ProGBat avant de recommencer."); }
     setLoading(false);
   }
@@ -69,7 +69,8 @@ export default function ProgbatClassementFamilles({ T, acc }) {
       {resultat && <div style={{ marginTop: 9, padding: "8px 10px", borderRadius: RADIUS.md,
         color: resultat.ok ? "#22c55e" : "#f59e0b", background: resultat.ok ? "rgba(34,197,94,.08)" : "rgba(245,158,11,.08)",
         border: `1px solid ${resultat.ok ? "rgba(34,197,94,.28)" : "rgba(245,158,11,.28)"}`, fontWeight: 700 }}>
-        Classement terminé : {resultat.compteurs?.categorized || 0} ouvrage(s) classé(s), {resultat.familles_creees || 0} famille(s) créée(s).
+        {resultat.ok ? "Classement terminé" : "Classement interrompu"} : {resultat.compteurs?.categorized || 0} ouvrage(s) classé(s), {resultat.familles_creees || 0} famille(s) créée(s), {resultat.familles_activees || 0} famille(s) activée(s) pour les ouvrages.
+        {!resultat.ok && resultat.resultats_familles?.find((x) => x.error)?.error && <div>{resultat.resultats_familles.find((x) => x.error).label} : {resultat.resultats_familles.find((x) => x.error).error}</div>}
         {resultat.verification_manuelle && <div>Une réponse est incertaine : vérifier ProGBat avant toute nouvelle tentative.</div>}
       </div>}
 
@@ -78,7 +79,7 @@ export default function ProgbatClassementFamilles({ T, acc }) {
           <div>
             <div style={{ color: T.text, fontWeight: 800 }}>Simulation contrôlée par le serveur</div>
             <div style={{ color: T.textSub, fontSize: FONT.xs.size + 1 }}>
-              <strong>{c?.a_classer || 0}</strong> ouvrage(s) à classer · <strong>{c?.familles_a_creer || 0}</strong> famille(s) à créer · <strong>{c?.deja_classes || 0}</strong> déjà classé(s) · <strong>{c?.exclus || 0}</strong> exclu(s)
+              <strong>{c?.a_classer || 0}</strong> ouvrage(s) à classer · <strong>{c?.familles_a_activer || 0}</strong> famille(s) existante(s) à activer · <strong>{c?.familles_a_creer || 0}</strong> à créer · <strong>{c?.deja_classes || 0}</strong> déjà classé(s) · <strong>{c?.exclus || 0}</strong> exclu(s)
             </div>
           </div>
           <button onClick={() => setConfirmer(true)} disabled={!c?.a_classer || loading} style={{
@@ -89,6 +90,9 @@ export default function ProgbatClassementFamilles({ T, acc }) {
         </div>
         {(plan.plan.famillesACreer || []).length > 0 && <div style={{ marginTop: 8, color: T.textSub }}>
           Familles à créer : {plan.plan.famillesACreer.map((f) => f.label).join(" · ")}
+        </div>}
+        {(plan.plan.famillesAActiver || []).length > 0 && <div style={{ marginTop: 8, color: T.textSub }}>
+          Familles existantes à activer pour les ouvrages : {plan.plan.famillesAActiver.map((f) => f.label).join(" · ")}
         </div>}
         {groupes.length > 0 && <div style={{ marginTop: 8, display: "grid", gap: 5 }}>
           {groupes.map(([label, actions]) => <div key={label} style={{ padding: "6px 8px", borderRadius: RADIUS.md, background: T.card, color: T.text }}>
@@ -110,7 +114,7 @@ export default function ProgbatClassementFamilles({ T, acc }) {
         <div onMouseDown={(e) => e.stopPropagation()} style={{ width: "min(600px,96vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: 20, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
           <div style={{ display: "flex", gap: 9, alignItems: "center", color: T.text, fontSize: FONT.lg.size, fontWeight: 800 }}><Icon as={ShieldCheck} size={20} color={acc.accent}/>Confirmer le classement ProGBat</div>
           <div style={{ marginTop: 10, color: T.textSub, lineHeight: 1.6 }}>
-            Profero va créer <strong>{c.familles_a_creer} famille(s)</strong> si nécessaire et déplacer <strong>{c.a_classer} ouvrage(s)</strong> hors d’« Ouvrages V2 » vers leur famille métier.
+            Profero va activer <strong>{c.familles_a_activer || 0} famille(s) existante(s)</strong>, créer <strong>{c.familles_a_creer} famille(s)</strong> si nécessaire et déplacer <strong>{c.a_classer} ouvrage(s)</strong> hors d’« Ouvrages V2 » vers leur famille métier.
           </div>
           <div style={{ marginTop: 10, padding: 10, borderRadius: RADIUS.md, background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.25)", color: T.text }}>
             Seule l’affectation de famille change. Aucun ouvrage n’est créé ou supprimé et aucun prix n’est modifié.

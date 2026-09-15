@@ -30,15 +30,17 @@ export function normaliserLots(lots = []) {
 export function trouverFamilleMetier(familles = [], label) {
   const cle = normaliserLibelle(label);
   const candidats = (Array.isArray(familles) ? familles : []).filter((f) =>
-    entier(f?.id) && f?.structureFamily === true && normaliserLibelle(f?.label) === cle
+    entier(f?.id) && normaliserLibelle(f?.label) === cle
   );
+  const unique = candidats.length === 1 ? candidats[0] : null;
   return {
-    ok: candidats.length === 1,
+    ok: candidats.length === 1 && unique?.structureFamily === true,
     absente: candidats.length === 0,
     ambigue: candidats.length > 1,
-    id: candidats.length === 1 ? entier(candidats[0].id) : null,
+    aActiver: candidats.length === 1 && unique?.structureFamily !== true,
+    id: candidats.length === 1 ? entier(unique.id) : null,
     label: str(label),
-    candidats: candidats.map((f) => ({ id: entier(f.id), label: str(f.label) })),
+    candidats: candidats.map((f) => ({ id: entier(f.id), label: str(f.label), structureFamily: f?.structureFamily === true })),
   };
 }
 
@@ -99,14 +101,14 @@ export function construirePlanClassement({ ouvrages = [], structures = [], famil
       exclus.push({ ouvrageId, structureId, code: code.code, libelle: code.reste, raison: `Plusieurs familles ProGBat portent le nom « ${lot.label} »` });
       continue;
     }
-    if (familleIncertaine.has(normaliserLibelle(lot.label)) && famille.absente) {
+    if (familleIncertaine.has(normaliserLibelle(lot.label)) && !famille.ok) {
       exclus.push({ ouvrageId, structureId, code: code.code, libelle: code.reste, raison: `Création de la famille « ${lot.label} » incertaine : vérification manuelle requise` });
       continue;
     }
     const entree = {
       ouvrageId, structureId, code: code.code, libelle: code.reste,
       prefixe: code.prefixe, lotId: lot.id, familleLabel: lot.label,
-      familleId: famille.id, familleActuelleIds: extraireIdsFamilles(structure),
+      familleId: famille.id, familleAActiver: famille.aActiver, familleActuelleIds: extraireIdsFamilles(structure),
     };
     if (!candidatsParStructure.has(String(structureId))) candidatsParStructure.set(String(structureId), []);
     candidatsParStructure.get(String(structureId)).push(entree);
@@ -127,10 +129,10 @@ export function construirePlanClassement({ ouvrages = [], structures = [], famil
       for (const g of groupes) exclus.push({ ...g, raison: `Classement ${ancien.statut} : vérification manuelle requise` });
       continue;
     }
-    const suiviIdentique = ancien?.statut === "categorized"
+    const suiviIdentique = !x.familleAActiver && ancien?.statut === "categorized"
       && normaliserLibelle(ancien?.family_label) === normaliserLibelle(x.familleLabel)
       && (!x.familleId || entier(ancien?.progbat_family_id) === x.familleId);
-    const apiIdentique = x.familleId && x.familleActuelleIds.connu && memeEnsemble(x.familleActuelleIds.ids, [x.familleId]);
+    const apiIdentique = !x.familleAActiver && x.familleId && x.familleActuelleIds.connu && memeEnsemble(x.familleActuelleIds.ids, [x.familleId]);
     if (suiviIdentique || apiIdentique) {
       dejaClasses.push({ structureId: x.structureId, ouvrageIds, codes, familleLabel: x.familleLabel, familleId: x.familleId ?? entier(ancien?.progbat_family_id) });
       continue;
@@ -138,10 +140,14 @@ export function construirePlanClassement({ ouvrages = [], structures = [], famil
     actions.push({
       type: "categorize", structureId: x.structureId, ouvrageId: x.ouvrageId,
       ouvrageIds, codes, libelle: x.libelle, familleLabel: x.familleLabel,
-      familleId: x.familleId, anciennesFamilles: x.familleActuelleIds,
+      familleId: x.familleId, familleAActiver: x.familleAActiver, anciennesFamilles: x.familleActuelleIds,
     });
   }
 
+  const famillesAActiver = [...new Map(actions.filter((a) => a.familleId && a.familleAActiver)
+    .map((a) => [String(a.familleId), {
+      id: a.familleId, label: a.familleLabel, payload: { structureFamily: true },
+    }])).values()].sort((a, b) => a.label.localeCompare(b.label, "fr"));
   const famillesACreer = [...new Map(actions.filter((a) => !a.familleId)
     .map((a) => [normaliserLibelle(a.familleLabel), {
       label: a.familleLabel,
@@ -151,14 +157,15 @@ export function construirePlanClassement({ ouvrages = [], structures = [], famil
   exclus.sort((a, b) => String(a.code || "").localeCompare(String(b.code || ""), "fr", { numeric: true }));
 
   return {
-    actions, famillesACreer, exclus, dejaClasses, lots: lotsPropres,
-    compteurs: { a_classer: actions.length, familles_a_creer: famillesACreer.length, deja_classes: dejaClasses.length, exclus: exclus.length },
+    actions, famillesAActiver, famillesACreer, exclus, dejaClasses, lots: lotsPropres,
+    compteurs: { a_classer: actions.length, familles_a_activer: famillesAActiver.length, familles_a_creer: famillesACreer.length, deja_classes: dejaClasses.length, exclus: exclus.length },
     garanties: { champs_modifies: ["families"], supprime_ouvrage: false, modifie_prix: false, modifie_libelle: false, modifie_composition: false },
   };
 }
 
 export function donneesClassementPourHash(plan) {
   return {
+    famillesAActiver: (plan?.famillesAActiver || []).map((f) => ({ id: f.id, payload: f.payload })),
     famillesACreer: (plan?.famillesACreer || []).map((f) => f.payload),
     actions: (plan?.actions || []).map((a) => ({
       structureId: a.structureId, ouvrageIds: a.ouvrageIds,
