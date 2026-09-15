@@ -17,7 +17,17 @@
 //
 // La liste est rendue dans un portail (document.body) : elle n'est jamais rognée
 // par un conteneur overflow:hidden (modales, tableaux, cartes). Son style est lu
-// sur le champ lui-même (fond, couleur, bordure, police) pour suivre le thème.
+// sur le champ lui-même (couleur, bordure, police) et son fond est le premier fond
+// OPAQUE trouvé en remontant (les champs de l'appli sont souvent translucides).
+//
+// Réactivité : les serveurs de l'État sont parfois lents (0,15 s à 10 s). Pour que
+// la liste réagisse quand même à chaque frappe :
+//   - les deux serveurs (api-adresse.data.gouv.fr et data.geopf.fr) sont interrogés
+//     en parallèle, le premier qui répond gagne ;
+//   - les résultats déjà reçus pour une saisie plus courte sont filtrés localement
+//     et affichés tout de suite (grisés) en attendant la vraie réponse ;
+//   - les réponses sont mises en cache pour la session ;
+//   - une priorité géographique (Angers par défaut) fait remonter les adresses proches.
 //
 // API gratuite, sans clé, France uniquement ; hors de France (ex. Maroc) la saisie
 // libre continue de fonctionner, simplement sans suggestion.
@@ -33,6 +43,51 @@ const SERVEURS_BAN = [
 
 const cacheRecherches = new Map(); // clé → tableau de suggestions
 const CACHE_MAX = 300;
+const DELAI_MAX_MS = 8000;         // au-delà, on abandonne la requête
+
+// Priorité géographique par défaut : Angers (siège Profero). Les adresses proches
+// remontent en tête (« 12 rue Paul Lan… » → Avrillé avant Hirsingue). Passer
+// `priorite={null}` au composant pour désactiver.
+export const PRIORITE_GEO = { lat: 47.4784, lon: -0.5632 };
+
+export function normaliserSaisie(texte) {
+  return String(texte || "").replace(/\s+/g, " ").trim();
+}
+function cleCache(q, type, limit, priorite) {
+  const geo = priorite && Number.isFinite(priorite.lat) ? `${priorite.lat.toFixed(2)},${priorite.lon.toFixed(2)}` : "-";
+  return `${type}|${limit}|${geo}|${q.toLowerCase()}`;
+}
+
+/** Minuscules, sans accents, découpé en mots (pour le filtrage local). */
+function motsDe(texte) {
+  return String(texte || "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** Vrai si chaque mot tapé est le début d'un mot du libellé (« 12 rue paul lan » ↔ « 12 Rue Paul Langevin 49240 Avrillé »). */
+export function correspondLocalement(suggestion, saisie) {
+  const cibles = motsDe(`${suggestion.label} ${suggestion.contexte || ""}`);
+  return motsDe(saisie).every(m => cibles.some(c => c.startsWith(m)));
+}
+
+/**
+ * Aperçu instantané pendant que le serveur répond : on repart des résultats déjà
+ * reçus pour une saisie plus courte (préfixe de la saisie actuelle) et on les
+ * filtre localement. Retourne [] si rien d'exploitable.
+ */
+export function apercuDepuisCache(saisie, { type = "adresse", limit = 6, priorite = PRIORITE_GEO } = {}) {
+  const q = normaliserSaisie(saisie).toLowerCase();
+  if (q.length < 3) return [];
+  const prefixe = cleCache("", type, limit, priorite); // "type|limit|geo|"
+  let meilleur = null;
+  for (const [cle, resultats] of cacheRecherches) {
+    if (!cle.startsWith(prefixe)) continue;
+    const qCache = cle.slice(prefixe.length);
+    if (!q.startsWith(qCache) || !resultats.length) continue;
+    if (!meilleur || qCache.length > meilleur.q.length) meilleur = { q: qCache, resultats };
+  }
+  if (!meilleur) return [];
+  return meilleur.resultats.filter(s => correspondLocalement(s, q));
+}
 
 function memoriser(cle, valeur) {
   if (cacheRecherches.size >= CACHE_MAX) {
@@ -80,31 +135,52 @@ export function formaterSuggestion(feature) {
  * Retourne un tableau de suggestions (voir formaterSuggestion). Lève une erreur
  * si les deux serveurs sont indisponibles.
  */
-export async function rechercherAdresses(saisie, { type = "adresse", limit = 6, signal } = {}) {
-  const q = String(saisie || "").replace(/\s+/g, " ").trim();
+export async function rechercherAdresses(saisie, { type = "adresse", limit = 6, signal, priorite = PRIORITE_GEO } = {}) {
+  const q = normaliserSaisie(saisie);
   if (q.length < 3) return [];
-  const cle = `${type}|${limit}|${q.toLowerCase()}`;
+  const cle = cleCache(q, type, limit, priorite);
   if (cacheRecherches.has(cle)) return cacheRecherches.get(cle);
 
   const params = new URLSearchParams({ q: q.slice(0, 200), limit: String(limit), autocomplete: "1" });
   if (type === "commune") params.set("type", "municipality");
-
-  let derniereErreur = null;
-  for (const base of SERVEURS_BAN) {
-    try {
-      const rep = await fetch(`${base}?${params.toString()}`, { signal });
-      if (!rep.ok) { derniereErreur = new Error(`API Adresse ${rep.status}`); continue; }
-      const json = await rep.json();
-      const features = Array.isArray(json?.features) ? json.features : [];
-      const resultats = features.map(formaterSuggestion).filter(s => s.label);
-      memoriser(cle, resultats);
-      return resultats;
-    } catch (e) {
-      if (e?.name === "AbortError") throw e;
-      derniereErreur = e;
-    }
+  // Priorité géographique : bonus de classement côté serveur autour du point donné
+  // (pas un filtre : une ville tapée explicitement reste trouvée et bien classée).
+  if (priorite && Number.isFinite(priorite.lat) && Number.isFinite(priorite.lon)) {
+    params.set("lat", String(priorite.lat));
+    params.set("lon", String(priorite.lon));
   }
-  throw derniereErreur || new Error("API Adresse indisponible");
+
+  // Les deux serveurs sont interrogés en parallèle : le premier qui répond gagne,
+  // l'autre est annulé (api-adresse.data.gouv.fr est parfois lent à plusieurs secondes).
+  const controleurs = SERVEURS_BAN.map(() => new AbortController());
+  const annulerTout = () => controleurs.forEach(c => { try { c.abort(); } catch {} });
+  if (signal) {
+    if (signal.aborted) throw Object.assign(new Error("Annulé"), { name: "AbortError" });
+    signal.addEventListener("abort", annulerTout, { once: true });
+  }
+  const garde = setTimeout(annulerTout, DELAI_MAX_MS);
+
+  const tentatives = SERVEURS_BAN.map(async (base, i) => {
+    const rep = await fetch(`${base}?${params.toString()}`, { signal: controleurs[i].signal });
+    if (!rep.ok) throw new Error(`API Adresse ${rep.status}`);
+    const json = await rep.json();
+    const features = Array.isArray(json?.features) ? json.features : [];
+    return features.map(formaterSuggestion).filter(s => s.label);
+  });
+
+  try {
+    const resultats = await Promise.any(tentatives);
+    memoriser(cle, resultats);
+    return resultats;
+  } catch (e) {
+    if (signal?.aborted) throw Object.assign(new Error("Annulé"), { name: "AbortError" });
+    const causes = e?.errors || [e];
+    throw causes.find(c => c?.name !== "AbortError") || new Error("API Adresse indisponible");
+  } finally {
+    clearTimeout(garde);
+    annulerTout();
+    if (signal) signal.removeEventListener("abort", annulerTout);
+  }
 }
 
 /** Texte à écrire dans le champ selon le mode. */
@@ -116,10 +192,27 @@ export function texteSelection(s, champ) {
   return s.label;
 }
 
-function estTransparent(couleur) {
-  if (!couleur) return true;
-  const c = couleur.replace(/\s+/g, "").toLowerCase();
-  return c === "transparent" || /^rgba\(\d+,\d+,\d+,0\)$/.test(c) || c === "rgba(0,0,0,0)";
+/** Décompose une couleur CSS calculée (rgb / rgba) ; null si illisible. */
+function lireCouleur(couleur) {
+  const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i.exec(String(couleur || "").trim())
+    || /^rgba?\(\s*(\d+)\s+(\d+)\s+(\d+)\s*(?:\/\s*([\d.]+%?)\s*)?\)$/i.exec(String(couleur || "").trim());
+  if (!m) return null;
+  let a = m[4] === undefined ? 1 : parseFloat(m[4]);
+  if (String(m[4] || "").endsWith("%")) a = a / 100;
+  return { r: +m[1], g: +m[2], b: +m[3], a: Number.isFinite(a) ? a : 1 };
+}
+
+// Les champs de l'appli ont souvent un fond translucide (rgba(0,0,0,0.03)…) :
+// il faut un fond réellement opaque pour la liste, sinon le formulaire se voit au travers.
+function estOpaque(couleur) {
+  const c = lireCouleur(couleur);
+  return !!c && c.a >= 0.98;
+}
+
+function estClair(couleur) {
+  const c = lireCouleur(couleur);
+  if (!c) return true;
+  return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) > 140;
 }
 
 /** Lit le style du champ pour que la liste suive le thème (clair / sombre, mono, etc.). */
@@ -128,24 +221,29 @@ function styleDepuisChamp(el) {
   if (!el || typeof window === "undefined") return defaut;
   try {
     const cs = window.getComputedStyle(el);
-    let fond = cs.backgroundColor;
-    if (estTransparent(fond)) {
-      // Remonte jusqu'à trouver un fond opaque (carte, modale, page).
-      let parent = el.parentElement;
-      while (parent && estTransparent(fond)) { fond = window.getComputedStyle(parent).backgroundColor; parent = parent.parentElement; }
-      if (estTransparent(fond)) fond = defaut.fond;
+    const texte = cs.color || defaut.texte;
+    // Remonte jusqu'au premier fond opaque (carte, modale, page).
+    let fond = null;
+    let noeud = el;
+    while (noeud && noeud !== document.documentElement) {
+      const bg = window.getComputedStyle(noeud).backgroundColor;
+      if (estOpaque(bg)) { fond = bg; break; }
+      noeud = noeud.parentElement;
     }
+    // Aucun fond opaque trouvé : on déduit du contraste du texte (texte clair → fond sombre).
+    if (!fond) fond = estClair(texte) ? "#1f232b" : defaut.fond;
+    const bordure = lireCouleur(cs.borderColor);
     return {
       fond,
-      texte: cs.color || defaut.texte,
-      bordure: !estTransparent(cs.borderColor) && cs.borderColor ? cs.borderColor : defaut.bordure,
+      texte,
+      bordure: bordure && bordure.a > 0.05 ? cs.borderColor : (estClair(texte) ? "rgba(255,255,255,0.18)" : defaut.bordure),
       police: cs.fontFamily || defaut.police,
       taille: cs.fontSize || defaut.taille,
     };
   } catch { return defaut; }
 }
 
-const DELAI_SAISIE_MS = 220;
+const DELAI_SAISIE_MS = 150;
 
 export default function AdresseInput({
   value,
@@ -160,6 +258,7 @@ export default function AdresseInput({
   placeholder,
   minChars = 3,
   limit = 6,
+  priorite = PRIORITE_GEO, // { lat, lon } pour classer les adresses proches en tête ; null pour désactiver
   disabled,
   readOnly,
   onKeyDown: onKeyDownExt,
@@ -170,7 +269,6 @@ export default function AdresseInput({
   const inputRef = useRef(null);
   const listeRef = useRef(null);
   const timerRef = useRef(null);
-  const abortRef = useRef(null);
   const fermetureRef = useRef(null);
   const derniereRequeteRef = useRef("");
 
@@ -181,17 +279,26 @@ export default function AdresseInput({
   const [position, setPosition] = useState(null);
   const [theme, setTheme] = useState(null);
 
-  const annulerRecherche = useCallback(() => {
+  // Requêtes en vol : on ne les annule PAS quand la saisie continue. Une réponse
+  // pour « 12 rue paul » sert d'aperçu filtré pour « 12 rue paul lan » et
+  // alimente le cache ; seule la fermeture du composant les abandonne.
+  const enVolRef = useRef(new Set());
+
+  const annulerTimer = useCallback(() => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
   }, []);
 
+  const annulerRecherche = useCallback(() => {
+    annulerTimer();
+    enVolRef.current.forEach(c => { try { c.abort(); } catch {} });
+    enVolRef.current.clear();
+  }, [annulerTimer]);
+
   const fermer = useCallback(() => {
-    annulerRecherche();
+    annulerTimer();
     setOuvert(false);
     setActif(-1);
-    setChargement(false);
-  }, [annulerRecherche]);
+  }, [annulerTimer]);
 
   const calculerPosition = useCallback(() => {
     const el = inputRef.current;
@@ -208,35 +315,62 @@ export default function AdresseInput({
     });
   }, [suggestions.length]);
 
-  // Lance la recherche après une courte pause de frappe.
+  const aLeFocus = () => typeof document !== "undefined" && document.activeElement === inputRef.current;
+
+  // Applique des résultats reçus pour la saisie `q` (réponse serveur ou aperçu local).
+  const appliquerResultats = useCallback((q, res, { definitif }) => {
+    const courant = derniereRequeteRef.current;
+    if (definitif && q === courant) {
+      setSuggestions(res);
+      setActif(-1);
+      setOuvert(res.length > 0 && aLeFocus());
+      setChargement(false);
+      return;
+    }
+    // Réponse d'une saisie plus courte (préfixe de la saisie actuelle) : aperçu filtré
+    // en attendant la vraie réponse, sauf si celle-ci est déjà arrivée.
+    if (courant.toLowerCase().startsWith(q.toLowerCase()) && !cacheRecherches.has(cleCache(courant, type, limit, priorite))) {
+      const filtres = res.filter(s => correspondLocalement(s, courant));
+      if (filtres.length) { setSuggestions(filtres); setActif(-1); if (aLeFocus()) setOuvert(true); }
+    }
+  }, [type, limit, priorite]);
+
+  const lancerRequete = useCallback(async (q) => {
+    const controleur = new AbortController();
+    enVolRef.current.add(controleur);
+    try {
+      const res = await rechercherAdresses(q, { type, limit, priorite, signal: controleur.signal });
+      if (controleur.signal.aborted) return;
+      appliquerResultats(q, res, { definitif: true });
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+      console.warn("[AdresseInput] API Adresse indisponible :", e?.message || e);
+      if (derniereRequeteRef.current === q) { setChargement(false); if (!suggestions.length) setOuvert(false); }
+    } finally {
+      enVolRef.current.delete(controleur);
+    }
+  }, [type, limit, priorite, appliquerResultats, suggestions.length]);
+
+  // À chaque frappe : aperçu instantané depuis le cache, puis requête après une courte pause.
   const programmerRecherche = useCallback((texte) => {
-    annulerRecherche();
-    const q = String(texte || "").trim();
+    annulerTimer();
+    const q = normaliserSaisie(texte);
+    derniereRequeteRef.current = q;
     if (q.length < minChars) { setSuggestions([]); setOuvert(false); setChargement(false); return; }
-    timerRef.current = setTimeout(async () => {
+
+    const cle = cleCache(q, type, limit, priorite);
+    if (cacheRecherches.has(cle)) { appliquerResultats(q, cacheRecherches.get(cle), { definitif: true }); return; }
+
+    const apercu = apercuDepuisCache(q, { type, limit, priorite });
+    if (apercu.length) { setSuggestions(apercu); setActif(-1); if (aLeFocus()) setOuvert(true); }
+    setChargement(true);
+    if (aLeFocus()) setOuvert(true); // ligne « Recherche… » : on voit que ça travaille
+
+    timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      const controleur = new AbortController();
-      abortRef.current = controleur;
-      derniereRequeteRef.current = q;
-      setChargement(true);
-      try {
-        const res = await rechercherAdresses(q, { type, limit, signal: controleur.signal });
-        if (controleur.signal.aborted || derniereRequeteRef.current !== q) return;
-        setSuggestions(res);
-        setActif(-1);
-        setOuvert(res.length > 0 && document.activeElement === inputRef.current);
-      } catch (e) {
-        if (e?.name !== "AbortError") {
-          console.warn("[AdresseInput] API Adresse indisponible :", e?.message || e);
-          setSuggestions([]);
-          setOuvert(false);
-        }
-      } finally {
-        if (abortRef.current === controleur) abortRef.current = null;
-        if (derniereRequeteRef.current === q) setChargement(false);
-      }
+      if (derniereRequeteRef.current === q) lancerRequete(q);
     }, DELAI_SAISIE_MS);
-  }, [annulerRecherche, minChars, type, limit]);
+  }, [annulerTimer, minChars, type, limit, priorite, appliquerResultats, lancerRequete]);
 
   useEffect(() => () => annulerRecherche(), [annulerRecherche]);
 
@@ -306,7 +440,7 @@ export default function AdresseInput({
   const Balise = multiline ? "textarea" : "input";
   const styleChamp = { width: "100%", boxSizing: "border-box", textAlign: "left", ...(style || {}) };
 
-  const liste = ouvert && position && suggestions.length > 0 && typeof document !== "undefined" ? createPortal(
+  const liste = ouvert && position && (suggestions.length > 0 || chargement) && typeof document !== "undefined" ? createPortal(
     <div
       ref={listeRef}
       role="listbox"
@@ -348,6 +482,8 @@ export default function AdresseInput({
               flexDirection: "column",
               gap: 1,
               lineHeight: 1.3,
+              opacity: chargement ? 0.55 : 1, // anciens résultats grisés pendant la nouvelle recherche
+              transition: "opacity .12s",
             }}
           >
             <span style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
@@ -359,6 +495,17 @@ export default function AdresseInput({
           </div>
         );
       })}
+      {chargement && (
+        <div aria-live="polite" style={{ padding: "6px 10px", fontSize: "0.85em", opacity: 0.6, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{
+            width: 10, height: 10, borderRadius: "50%", flex: "0 0 auto",
+            border: "2px solid currentColor", borderRightColor: "transparent",
+            animation: "adresse-rotation .8s linear infinite",
+          }}/>
+          Recherche…
+          <style>{"@keyframes adresse-rotation{to{transform:rotate(360deg)}}"}</style>
+        </div>
+      )}
     </div>,
     document.body
   ) : null;
