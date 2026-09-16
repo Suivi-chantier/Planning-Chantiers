@@ -29,8 +29,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 //         et toBePaid (exigible après déduction des acomptes)
 //   GET /company/yards?limit&offset (10 pages max)     scope `business` ou `business.read`
 //       → chantiers ProGBat, pour vérifier si facture.yardId est un meilleur
-//         rattachement que facture.quoteId. Jeton d'IDENTITÉ, pas celui de
-//         facturation : ces scopes ne relèvent pas de la facturation.
+//         rattachement que facture.quoteId. Jeton de FACTURATION : rattacher
+//         une facture à son chantier fait partie du travail de facturation.
 //         (À ne pas confondre avec /company/business/{businessId}/yards, qui
 //         ne liste que les chantiers d'UNE société.)
 //   GET /company/bills/{billId}/pdf                    scope `bills` ou `bills.read`
@@ -53,11 +53,15 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // établir sur des données réelles.
 //
 // DEUX SECRETS, DEUX USAGES — c'est ce qui permet au jeton de facturation de
-// n'avoir QUE bills.read + transactions.read, sans profile.read :
+// n'avoir QUE ses trois scopes de lecture, sans profile.read :
 //   identityToken = PROGBAT_PRIVATE_ACCESS_TOKEN, à défaut PROGBAT_BILLING_…
-//       → /me et /clients/me (profile.read)
+//       → /me et /clients/me (profile.read). Ce jeton reste par ailleurs celui
+//         de l'identité et des devis (progbat-quote).
 //   billingToken  = PROGBAT_BILLING_ACCESS_TOKEN, à défaut PROGBAT_PRIVATE_…
-//       → /company/bills, /company/transactions, /company/bills/{id}/pdf
+//       → /company/bills, /company/transactions, /company/bills/{id}/pdf et
+//         /company/yards — soit bills.read + transactions.read + business.read.
+//         Les chantiers en font partie : c'est par son `yardId` qu'une facture
+//         se rattache à un chantier.
 // Chacun retombe sur l'autre s'il manque : un seul secret configuré suffit
 // pour que le test entier fonctionne. `token_source` décrit UNIQUEMENT le
 // jeton utilisé pour le diagnostic de facturation ("billing" | "legacy").
@@ -443,8 +447,9 @@ serve(async (req) => {
     // ── 2. Secrets ProGBat (jamais renvoyés ni journalisés) ─────────────────
     // DEUX JETONS DISTINCTS, parce qu'ils n'ont pas les mêmes besoins :
     //  - identityToken sert à /me et /clients/me, qui exigent profile.read ;
-    //  - billingToken sert au diagnostic de facturation, qui n'a besoin que de
-    //    bills.read et transactions.read.
+    //  - billingToken sert à tout le diagnostic de facturation : bills.read,
+    //    transactions.read et business.read (les chantiers, puisqu'une facture
+    //    se rattache par son yardId).
     // Les faire porter par la même variable obligerait le futur jeton dédié à
     // la facturation à détenir profile.read pour que le test passe — exactement
     // le privilège dont on veut se débarrasser. Chacun retombe sur l'autre
@@ -626,12 +631,15 @@ serve(async (req) => {
 
     // 5f. Chantiers ProGBat (« yards ») et rapprochement avec les factures.
     //
-    // JETON : identityToken, c'est-à-dire PROGBAT_PRIVATE_ACCESS_TOKEN en
-    // priorité et le jeton de facturation seulement en repli. Les scopes
-    // `business`/`business.read` n'ont rien à voir avec la facturation : un
-    // futur jeton dédié limité à bills.read + transactions.read ne doit pas
-    // avoir à les porter. Un 403 ici n'est PAS retenté avec l'autre jeton :
-    // un refus de scope est une information, pas un incident à contourner.
+    // JETON : billingToken, comme les factures, les transactions et le PDF.
+    // Le test réel a tranché : le rattachement d'une facture passe par son
+    // `yardId`, donc lire les chantiers fait partie du travail de facturation.
+    // Le jeton dédié porte désormais bills.read, transactions.read ET
+    // business.read ; PROGBAT_PRIVATE_ACCESS_TOKEN reste réservé à l'identité
+    // et aux devis. Le repli sur le jeton historique reste celui de
+    // billingToken : il ne joue que si le secret dédié est absent.
+    // Un 403 ici n'est PAS retenté avec l'autre jeton : un refus de scope est
+    // une information, pas un incident à contourner.
     const yardsCherches = new Set<string>()
     let facturesSansYard = 0
     for (const f of echantillonFactures) {
@@ -640,7 +648,7 @@ serve(async (req) => {
       else facturesSansYard++
     }
 
-    const yards = await listerYards(identityToken, yardsCherches)
+    const yards = await listerYards(billingToken, yardsCherches)
     const yr = yards.r
     const reconnus: Record<string, unknown>[] = []
     const inconnus: string[] = []
