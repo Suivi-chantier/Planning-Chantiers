@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-16",
+    type: "nouveaute",
+    titre: "Taux horaires de main-d'œuvre configurables : le prix MO d'un ouvrage = cadence × taux choisi",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "info-client", label: "Chiffrage" }],
+    quoi: "L'unique taux global de main-d'œuvre est remplacé par une liste de taux de vente (Taux standard — 80,00 € HT/h créé et affecté à tous les ouvrages existants). Chaque fiche ouvrage choisit son taux dans une liste déroulante ; le prix de vente devient : matériaux × coefficient + cadence × taux horaire. Le coefficient ne s'applique donc plus à la main-d'œuvre. Les devis et lignes déjà figés gardent leur prix et leur taux historique.",
+    comment: "Réglages → Taux horaires → « Taux horaires de main-d'œuvre » (administrateurs) : ajouter un taux, modifier son libellé ou sa valeur (un avertissement rappelle que seuls les futurs chiffrages changent), choisir le taux par défaut des nouveaux ouvrages, désactiver ou réactiver un taux (jamais supprimé ; un taux désactivé reste sur les ouvrages qui l'utilisent, affiché « désactivé »). Bibliothèque : champ obligatoire « Taux horaire de main-d'œuvre » dans chaque fiche, présélectionné sur le taux par défaut à la création, avec le détail « 2,50 h × 80,00 €/h = 200,00 € HT ». Le coût horaire chargé (Taux MO prévisionnel) ne sert plus qu'à la marge.",
+  },
+  {
     date: "2026-09-15",
     type: "nouveaute",
     titre: "Adresses : suggestions automatiques dans tous les champs d'adresse",

@@ -21,6 +21,7 @@ import {
 import EspaceOuvrier from "./EspaceOuvrier";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
+import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 // Seuils des factures de situation (frise du cycle de vie, phase Travaux).
 import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
 
@@ -4365,13 +4366,17 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
       {adminTab==="taux"&&(
         <div className="ac">
+          {/* Taux horaires de VENTE de main-d'œuvre (table taux_horaires_vente) :
+              liste proposée dans chaque fiche ouvrage, prix MO = cadence × taux. */}
+          <TauxHorairesVenteAdmin T={T} acc={acc} profil={profil}/>
+
           {/* Taux MO prévisionnel global — base du coût MO PRÉVU (heures vendues ×
               ce taux) dans le phasage v2 et la page Chantiers. Distinct des taux
               par ouvrier ci-dessous, qui servent au coût MO RÉEL (pointages). */}
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux MO prévisionnel</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
             Taux horaire moyen utilisé pour estimer le <strong>coût MO prévisionnel</strong> (heures vendues × ce taux) dans le phasage et les fiches chantier. Défaut : {TAUX_MO_PREV_DEFAUT} €/h.
-            <br/>C'est aussi le <strong>coût horaire chargé de référence</strong> de la Bibliothèque et du Chiffrage : coût main-d'œuvre d'un ouvrage = cadence (h/unité) × ce taux. Là, <strong>pas de valeur par défaut</strong> : tant qu'il n'est pas réglé, aucun prix de vente n'est calculé.
+            <br/>C'est aussi le <strong>coût horaire chargé de référence</strong> de la Bibliothèque et du Chiffrage : coût main-d'œuvre d'un ouvrage = cadence (h/unité) × ce taux, d'où la <strong>marge</strong>. Le prix de vente, lui, vient des taux horaires de vente ci-dessus ; s'il n'est pas réglé, les prix restent calculés mais la marge ne l'est pas.
           </div>
           <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
             <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>Taux horaire moyen (prévisionnel)</div>

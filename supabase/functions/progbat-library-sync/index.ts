@@ -107,16 +107,18 @@ serve(async (req) => {
       return json({ ok: true, action, items: data || [] })
     }
 
-    const [ouv, mats, cfg, structures, familles, unites, taxes] = await Promise.all([
+    const [ouv, mats, cfg, tauxH, structures, familles, unites, taxes] = await Promise.all([
       admin.from("bibliotheque_ratios").select("*"),
       admin.from("materiaux_bibliotheque").select("id,nom,reference,unite,prix_unitaire,fournisseur,categorie"),
       admin.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
+      // Taux horaires de VENTE : le prix synchronisé = matériaux × coef + cadence × taux de l'ouvrage
+      admin.from("taux_horaires_vente").select("id,libelle,taux_ht,actif,est_defaut"),
       getAll("/company/library/structures", token),
       getAll("/company/library/families", token),
       getAll("/company/library/units", token),
       progbatFetch("GET", "/company/taxes", token),
     ])
-    if (ouv.error || mats.error || cfg.error) return json({ ok: false, error: "Lecture de la bibliothèque Profero impossible." }, 500)
+    if (ouv.error || mats.error || cfg.error || tauxH.error) return json({ ok: false, error: "Lecture de la bibliothèque Profero impossible." }, 500)
     if (!structures.ok) return json({ ok: false, error: structures.message, etape: "structures", progbat_status: structures.status }, 200)
     if (!familles.ok) return json({ ok: false, error: familles.message, etape: "familles", progbat_status: familles.status }, 200)
     if (!unites.ok) return json({ ok: false, error: unites.message, etape: "unites", progbat_status: unites.status }, 200)
@@ -125,7 +127,7 @@ serve(async (req) => {
     const taxesData = Array.isArray(taxes.data) ? taxes.data as Record<string, unknown>[] : []
     const inventaire = rapprocherBibliotheque({
       ouvrages: ouv.data || [], structures: structures.items, materiaux: mats.data || [],
-      coutHoraire: num(cfgMap.taux_mo_previsionnel), tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
+      coutHoraire: num(cfgMap.taux_mo_previsionnel), tauxHoraires: tauxH.data || [], tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
       taxes: taxesData, unites: unites.items,
     })
     let plan = construirePlanSynchronisation({

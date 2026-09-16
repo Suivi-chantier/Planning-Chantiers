@@ -87,10 +87,12 @@ export function libelleCourtProfero(ouvrage) {
  * jour dans ProGBat. Réutilise calculerOuvrage (source unique des règles de
  * prix) et ajoute les contrôles propres à la synchronisation.
  * @param ouvrage  ligne bibliotheque_ratios
- * @param ctx      { materiaux, coutHoraire, tvaDefaut, tauxTvaProgbat?, unitesProgbat? }
+ * @param ctx      { materiaux, coutHoraire, tauxHoraires, tvaDefaut, tauxTvaProgbat?, unitesProgbat? }
+ *                 tauxHoraires = lignes taux_horaires_vente (prix MO = cadence × taux sélectionné) ;
+ *                 coutHoraire  = coût horaire chargé (marge seulement, non bloquant).
  * @returns {{ code, libelleCourt, unite, blocages: string[], avertissements: string[], synchronisable: boolean, prix }}
  */
-export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null, tvaDefaut = null, tauxTvaProgbat = null, unitesProgbat = null } = {}) {
+export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tvaDefaut = null, tauxTvaProgbat = null, unitesProgbat = null } = {}) {
   const blocages = [];
   const avertissements = [];
   const libelle = str(ouvrage?.libelle);
@@ -103,14 +105,16 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
   }
   if (!str(ouvrage?.unite)) blocages.push("Unité absente");
 
-  const calc = calculerOuvrage(ouvrage, { materiaux, coutHoraire });
-  // calc.erreurs couvre : cadence absente, coût horaire non configuré, matériau
-  // introuvable / sans prix / sans quantité, aucun matériau (hors MO seule),
-  // coût direct négatif, coefficient de vente absent ou < 1.
+  const calc = calculerOuvrage(ouvrage, { materiaux, coutHoraire, tauxHoraires });
+  // calc.erreurs couvre : cadence absente, taux horaire de vente absent /
+  // introuvable / invalide, matériau introuvable / sans prix / sans quantité,
+  // aucun matériau (hors MO seule), coût direct négatif, coefficient matériaux
+  // absent ou < 1. Le coût horaire chargé manquant n'est qu'un avertissement
+  // (marge non calculable) : le prix de vente synchronisé n'en dépend pas.
   blocages.push(...calc.erreurs);
   avertissements.push(...calc.avertissements);
   if (calc.coutMateriauxUnitaire == null && !calc.erreurs.some((e) => /mat[ée]riau/i.test(e))) blocages.push("Coût matériaux non calculable");
-  if (calc.coutMainOeuvreUnitaire == null && !calc.erreurs.some((e) => /cadence|horaire/i.test(e))) blocages.push("Coût de main-d'œuvre non calculable");
+  if (calc.prixMainOeuvreUnitaire == null && !calc.erreurs.some((e) => /cadence|horaire/i.test(e))) blocages.push("Prix de main-d'œuvre non calculable");
   if (calc.prixVenteUnitaire == null && blocages.length === 0) blocages.push("Prix de vente HT non calculable");
 
   // TVA : la bibliothèque n'a pas de TVA par ouvrage ; la règle applicable est
@@ -145,6 +149,10 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
     prix: {
       cout_total_ht: calc.coutTotalUnitaire,
       prix_vente_ht: calc.prixVenteUnitaire,
+      prix_materiaux_ht: calc.prixMateriauxUnitaire,
+      prix_main_oeuvre_ht: calc.prixMainOeuvreUnitaire,
+      taux_horaire_vente: calc.tauxHoraire?.valeur ?? null,
+      taux_horaire_vente_id: calc.tauxHoraire?.id ?? null,
       coef_vente: calc.coefVente,
       taux_marge_pct: calc.tauxMargePct,
     },
@@ -290,12 +298,13 @@ const resumeStructure = (s, codeCommun = null) => ({
  * @param params.ouvrages     lignes bibliotheque_ratios
  * @param params.structures   structures ProGBat (id, code, label, unitCode, saleNetUnitPrice, active…)
  * @param params.materiaux    materiaux_bibliotheque (id, nom, unite, prix_unitaire)
- * @param params.coutHoraire  planning_config.taux_mo_previsionnel
+ * @param params.coutHoraire  planning_config.taux_mo_previsionnel (coût chargé, marge seulement)
+ * @param params.tauxHoraires lignes taux_horaires_vente (prix MO = cadence × taux de l'ouvrage)
  * @param params.tvaDefaut    planning_config.chiffrage_tva_defaut
  * @param params.taxes        taux de TVA ProGBat (id, rate, label, saleDefault)
  * @param params.unites       unités ProGBat (id, code)
  */
-export function rapprocherBibliotheque({ ouvrages = [], structures = [], materiaux = [], coutHoraire = null, tvaDefaut = null, taxes = null, unites = null } = {}) {
+export function rapprocherBibliotheque({ ouvrages = [], structures = [], materiaux = [], coutHoraire = null, tauxHoraires = null, tvaDefaut = null, taxes = null, unites = null } = {}) {
   const structs = indexerStructures(structures);
   const parId = new Map();
   const parCode = new Map();
@@ -314,7 +323,7 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
   };
 
   const utilises = new Set();
-  const ctx = { materiaux, coutHoraire, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
+  const ctx = { materiaux, coutHoraire, tauxHoraires, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
 
   const rapprochements = (Array.isArray(ouvrages) ? ouvrages : [])
     .filter(Boolean)

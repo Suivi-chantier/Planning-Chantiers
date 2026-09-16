@@ -6,23 +6,34 @@
 //
 // Vocabulaire
 //   • cadence (bibliotheque_ratios.cadence) : HEURES PAR UNITÉ d'ouvrage.
-//   • coût horaire : planning_config.taux_mo_previsionnel (€/h chargé, réglé
-//     dans Admin → Taux). Absent ou nul ⇒ calcul MO impossible (bloquant).
-//   • taux de marge (bibliotheque_ratios.taux_marge_pct) : en POURCENTAGE du
-//     prix de vente HT. 30 = 30 %.
+//   • taux horaire de VENTE (taux_horaires_vente.taux_ht, € HT/h) : choisi dans
+//     chaque fiche ouvrage (bibliotheque_ratios.taux_horaire_vente_id). C'est
+//     lui qui fixe le PRIX de la main-d'œuvre. Absent ⇒ prix incalculable.
+//   • coût horaire (planning_config.taux_mo_previsionnel, €/h chargé) : sert au
+//     COÛT de la main-d'œuvre, donc à la marge. Absent ⇒ marge non calculable
+//     (avertissement), le prix reste calculable.
+//   • coefficient de vente (bibliotheque_ratios.coef_vente, ex. 1,35) : appliqué
+//     aux MATÉRIAUX (et au coût direct complémentaire, traitement historique
+//     conservé) — plus à la main-d'œuvre.
+//   • taux de marge (taux_marge_pct) : en POURCENTAGE du prix de vente HT,
+//     désormais toujours DÉRIVÉ du prix et du coût (jamais saisi).
 //
-// Formules
+// Formules (CALCUL_VERSION 2)
 //   coût matériaux u.  = Σ (quantité matériau par unité × prix d'achat)
-//   coût MO u.         = cadence × coût horaire
+//   coût MO u.         = cadence × coût horaire chargé
 //   coût total u.      = matériaux + MO + coût direct complémentaire
-//   prix de vente HT   = coût total × coefficient de vente   (coef_vente, ex. 1,5)
-//                        ou, à défaut (anciens ouvrages), coût / (1 − taux / 100)
-//   taux de marge      = (1 − 1 / coefficient) × 100  — en % du PRIX DE VENTE,
-//                        toujours dérivé et figé dans les snapshots (×1,5 ⇒ 33,33 %)
+//   prix matériaux u.  = coût matériaux × coefficient
+//   prix coût direct u.= coût direct complémentaire × coefficient   (inchangé : il
+//                        recevait déjà le coefficient dans l'ancienne formule)
+//   prix MO u.         = cadence × taux horaire de vente sélectionné
+//   prix de vente HT   = prix matériaux + prix coût direct + prix MO
 //   marge €            = prix de vente − coût total
-//   taux de marge réel = (prix de vente − coût total) / prix de vente
+//   taux de marge      = (prix de vente − coût total) / prix de vente × 100
 //   taux global devis  = (Σ vente HT − Σ coût) / Σ vente HT   (pondéré, pas une
 //                        moyenne des taux)
+//   Anciens ouvrages sans coef_vente : coefficient dérivé de taux_marge_pct
+//   (repli, équivalent : 1 / (1 − taux/100)). Un ouvrage sans matériau ni coût
+//   direct n'a pas besoin de coefficient.
 //
 // Arrondi : arrondirMontant (2 décimales, demi-centime vers le haut) est
 // l'unique politique d'arrondi monétaire ; les pourcentages sont rendus à
@@ -31,7 +42,9 @@
 
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 
-export const CALCUL_VERSION = 1;
+export const CALCUL_VERSION = 2;
+/** Libellé de la formule figé dans calcul_detail (audit des snapshots). */
+export const FORMULE_PRIX = "prix = matériaux × coef + coût direct × coef + cadence × taux horaire de vente";
 export const ZONE_DEFAUT = "Logement entier";
 export const ZONES_SUGGEREES = Object.freeze([
   "Logement entier", "Entrée", "Séjour", "Cuisine", "Chambre 1", "Chambre 2",
@@ -198,13 +211,86 @@ export function coutTotalUnitaire({ coutMateriaux, coutMainOeuvre, coutDirect = 
   return arrondirMontant(m + mo + d);
 }
 
+// ─── Taux horaire de vente ───────────────────────────────────────────────────
+function indexerTauxHoraires(tauxHoraires) {
+  if (tauxHoraires instanceof Map) return tauxHoraires;
+  const map = new Map();
+  if (Array.isArray(tauxHoraires)) tauxHoraires.forEach(t => { if (t && t.id != null) map.set(String(t.id), t); });
+  else if (tauxHoraires && typeof tauxHoraires === "object") Object.entries(tauxHoraires).forEach(([k, t]) => map.set(String(k), t));
+  return map;
+}
+
+/** Une valeur de taux (€ HT/h) est-elle valide ? Strictement positive, finie, 2 décimales max tolérées (arrondie). */
+export function validerTauxHoraire(taux) {
+  if (taux == null || (typeof taux === "string" && taux.trim() === "")) {
+    return { valide: false, valeur: null, erreur: "Taux horaire non renseigné" };
+  }
+  const t = num(taux);
+  if (t == null) return { valide: false, valeur: null, erreur: "Taux horaire invalide" };
+  if (t <= 0) return { valide: false, valeur: null, erreur: "Taux horaire nul ou négatif" };
+  return { valide: true, valeur: arrondirMontant(t), erreur: null };
+}
+
+/**
+ * Résout le taux horaire de vente d'un ouvrage.
+ *   • ouvrage.taux_horaire_vente_id cherché dans ctx.tauxHoraires (lignes taux_horaires_vente) ;
+ *   • repli : ouvrage.taux_horaire_vente (objet joint) ou ctx.tauxHoraire (objet ou nombre, tests).
+ * Un taux DÉSACTIVÉ reste utilisable (l'ouvrage garde son taux) : avertissement, pas erreur.
+ * @returns {{ valide, id, libelle, valeur, actif, erreur, avertissement }}
+ */
+export function resoudreTauxHoraire(ouvrage, { tauxHoraires = null, tauxHoraire = null } = {}) {
+  const id = ouvrage?.taux_horaire_vente_id != null ? String(ouvrage.taux_horaire_vente_id) : null;
+  const index = indexerTauxHoraires(tauxHoraires);
+  let ligne = id ? index.get(id) ?? null : null;
+  if (!ligne && ouvrage?.taux_horaire_vente && typeof ouvrage.taux_horaire_vente === "object") ligne = ouvrage.taux_horaire_vente;
+  if (!ligne && tauxHoraire != null) ligne = typeof tauxHoraire === "object" ? tauxHoraire : { id: id ?? null, libelle: "Taux horaire", taux_ht: tauxHoraire, actif: true };
+  if (!ligne) {
+    return {
+      valide: false, id, libelle: null, valeur: null, actif: null, avertissement: null,
+      erreur: id
+        ? "Taux horaire de main-d'œuvre introuvable dans la liste des taux (Réglages → Taux horaires)"
+        : "Taux horaire de main-d'œuvre non sélectionné",
+    };
+  }
+  const v = validerTauxHoraire(ligne.taux_ht);
+  if (!v.valide) return { valide: false, id: ligne.id != null ? String(ligne.id) : id, libelle: str(ligne.libelle) || null, valeur: null, actif: ligne.actif !== false, erreur: `Taux horaire « ${str(ligne.libelle)} » invalide : ${v.erreur}`, avertissement: null };
+  const actif = ligne.actif !== false;
+  return {
+    valide: true,
+    id: ligne.id != null ? String(ligne.id) : id,
+    libelle: str(ligne.libelle) || null,
+    valeur: v.valeur,
+    actif,
+    erreur: null,
+    avertissement: actif ? null : `Taux horaire « ${str(ligne.libelle)} » désactivé : l'ouvrage le conserve, en choisir un autre pour les futurs chiffrages`,
+  };
+}
+
+/** Prix de vente de la main-d'œuvre pour 1 unité = cadence (h/u) × taux horaire de vente (€ HT/h). */
+export function prixMainOeuvreUnitaire(cadence, tauxHoraire) {
+  const h = num(cadence), t = num(tauxHoraire);
+  if (h == null || h <= 0 || t == null || t <= 0) return null;
+  return arrondirMontant(h * t);
+}
+
+/** Prix de vente des matériaux pour 1 unité = coût matériaux × coefficient (≥ 1). */
+export function prixMateriauxUnitaire(coutMateriaux, coef) {
+  const c = num(coutMateriaux);
+  const k = validerCoefficient(coef);
+  if (c == null || c < 0 || !k.valide) return null;
+  return arrondirMontant(c * k.valeur);
+}
+
 /**
  * Calcul complet d'un ouvrage de bibliothèque.
  * @param ouvrage  ligne bibliotheque_ratios (libelle, unite, cadence, materiaux_liens,
- *                 taux_marge_pct, main_oeuvre_seule, cout_direct_unitaire)
- * @param ctx      { materiaux, coutHoraire }
+ *                 coef_vente, taux_marge_pct, main_oeuvre_seule, cout_direct_unitaire,
+ *                 taux_horaire_vente_id)
+ * @param ctx      { materiaux, coutHoraire, tauxHoraires, tauxHoraire? }
+ *                 tauxHoraires = lignes taux_horaires_vente (tableau ou Map) ;
+ *                 coutHoraire  = coût horaire chargé (marge uniquement, non bloquant).
  */
-export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null } = {}) {
+export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tauxHoraire = null } = {}) {
   const erreurs = [];
   const avertissements = [];
   const code = parseCodeOuvrage(ouvrage?.libelle);
@@ -212,7 +298,13 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null } 
 
   const mat = coutMateriauxUnitaire(ouvrage, materiaux);
   const mo = coutMainOeuvreUnitaire(ouvrage, coutHoraire);
-  erreurs.push(...mo.erreurs, ...mat.erreurs);
+  erreurs.push(...mat.erreurs);
+  // Cadence absente : bloquant (prix MO impossible). Coût horaire chargé
+  // absent : la MARGE seule est indisponible ⇒ avertissement.
+  mo.erreurs.forEach(e => {
+    if (/cadence/i.test(e)) erreurs.push(e);
+    else avertissements.push("Coût horaire chargé de référence non configuré (Réglages → Taux) : coût et marge non calculables");
+  });
 
   if (mat.nbLiens === 0 && !mainOeuvreSeule) {
     erreurs.push("Aucun matériau lié — cocher « main-d'œuvre seule » si l'ouvrage n'en comporte pas");
@@ -225,34 +317,42 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null } 
   if (coutDirect != null && coutDirect < 0) erreurs.push("Coût direct complémentaire négatif");
   const coutDirectU = coutDirect != null && coutDirect >= 0 ? arrondirMontant(coutDirect) : 0;
 
-  // Saisie métier = coefficient de vente (× coût). Repli : anciens ouvrages
-  // n'ayant qu'un taux de marge (% du prix de vente). Dans les deux cas, le
-  // taux de marge dérivé est calculé pour le snapshot et l'audit.
+  // Taux horaire de VENTE : fixe le prix de la main-d'œuvre.
+  const taux = resoudreTauxHoraire(ouvrage, { tauxHoraires, tauxHoraire });
+  if (!taux.valide) erreurs.push(taux.erreur);
+  else if (taux.avertissement) avertissements.push(taux.avertissement);
+
+  // Coefficient de vente : appliqué aux matériaux (+ coût direct, traitement
+  // historique conservé). Repli : anciens ouvrages n'ayant qu'un taux de
+  // marge (% du prix de vente) ⇒ coefficient équivalent. Inutile si l'ouvrage
+  // n'a ni matériau ni coût direct.
+  const coefRequis = mat.nbLiens > 0 || coutDirectU > 0;
   let coef = validerCoefficient(ouvrage?.coef_vente);
-  let marge;
   let modePrix;
   if (coef.valide) {
     modePrix = "coefficient";
-    marge = { valide: true, valeur: tauxMargeDepuisCoefficient(coef.valeur), erreur: null };
   } else if (ouvrage?.coef_vente != null && String(ouvrage.coef_vente).trim() !== "") {
     modePrix = "coefficient";
-    marge = { valide: false, valeur: null, erreur: coef.erreur };
     erreurs.push(coef.erreur);
   } else {
-    marge = validerTauxMarge(ouvrage?.taux_marge_pct);
+    const marge = validerTauxMarge(ouvrage?.taux_marge_pct);
     if (marge.valide) {
       modePrix = "taux";
       coef = { valide: true, valeur: coefficientDepuisTauxMarge(marge.valeur), erreur: null };
-    } else {
+    } else if (coefRequis) {
       modePrix = null;
-      erreurs.push("Coefficient de vente non renseigné (ex : 1,5 = coût × 1,5)");
+      erreurs.push("Coefficient matériaux non renseigné (ex : 1,35 = coût matériaux × 1,35)");
+    } else {
+      modePrix = "sans_materiaux";
+      coef = { valide: true, valeur: 1, erreur: null };   // rien à multiplier
     }
   }
 
+  const prixMO = taux.valide ? prixMainOeuvreUnitaire(ouvrage?.cadence, taux.valeur) : null;
+  const prixMat = mat.montant != null && coef.valide ? prixMateriauxUnitaire(mat.montant, coef.valeur) : null;
+  const prixDirect = coef.valide ? arrondirMontant(coutDirectU * coef.valeur) : null;
   const coutTotal = coutTotalUnitaire({ coutMateriaux: mat.montant, coutMainOeuvre: mo.montant, coutDirect: coutDirectU });
-  let prixVente = null;
-  if (coutTotal != null && modePrix === "coefficient" && coef.valide) prixVente = prixVenteDepuisCoefficient(coutTotal, coef.valeur);
-  else if (coutTotal != null && modePrix === "taux" && marge.valide) prixVente = prixVenteDepuisMarge(coutTotal, marge.valeur);
+  const prixVente = prixMO != null && prixMat != null && prixDirect != null ? arrondirMontant(prixMat + prixDirect + prixMO) : null;
 
   return {
     modePrix,
@@ -263,12 +363,17 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null } 
     unite: normaliserUnite(ouvrage?.unite),
     mainOeuvreSeule,
     materiaux: mat,
-    mainOeuvre: mo,
+    mainOeuvre: { ...mo, tauxVente: taux.valeur, tauxId: taux.id, tauxLibelle: taux.libelle, tauxActif: taux.actif },
+    tauxHoraire: taux,
     coutMateriauxUnitaire: mat.montant,
     coutMainOeuvreUnitaire: mo.montant,
     coutDirectUnitaire: coutDirectU,
     coutTotalUnitaire: coutTotal,
-    tauxMargePct: marge.valeur,
+    prixMateriauxUnitaire: prixMat,
+    prixDirectUnitaire: prixDirect,
+    prixMainOeuvreUnitaire: prixMO,
+    // Marge dérivée du prix et du coût (null si le coût horaire chargé manque)
+    tauxMargePct: tauxMargeReel(prixVente, coutTotal),
     prixVenteUnitaire: prixVente,
     margeUnitaire: margeEuros(prixVente, coutTotal),
     tauxMargeReel: tauxMargeReel(prixVente, coutTotal),
@@ -302,16 +407,27 @@ export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaP
     cout_total_unitaire: c.coutTotalUnitaire,
     taux_marge_pct: c.tauxMargePct,
     coef_vente: c.coefVente,
+    // Taux horaire de vente FIGÉ : identifiant (traçabilité) + valeur (le prix ne
+    // bouge plus si le taux est modifié ensuite dans Réglages)
+    taux_horaire_vente_id: c.tauxHoraire?.id ?? null,
+    taux_horaire_vente: c.tauxHoraire?.valeur ?? null,
     prix_unitaire: c.prixVenteUnitaire,
     tva_pct: num(tvaPct),
     calcul_version: `${CALCUL_VERSION}@${iso}`,
     calcul_detail: {
       version: CALCUL_VERSION,
+      formule: FORMULE_PRIX,
       date: iso,
       mode_prix: c.modePrix,
       coef_vente: c.coefVente,
       cout_horaire: c.mainOeuvre.coutHoraire,
       heures_unitaires: c.mainOeuvre.heures,
+      taux_horaire_vente_id: c.tauxHoraire?.id ?? null,
+      taux_horaire_vente_libelle: c.tauxHoraire?.libelle ?? null,
+      taux_horaire_vente: c.tauxHoraire?.valeur ?? null,
+      prix_materiaux_unitaire: c.prixMateriauxUnitaire,
+      prix_direct_unitaire: c.prixDirectUnitaire,
+      prix_main_oeuvre_unitaire: c.prixMainOeuvreUnitaire,
       main_oeuvre_seule: c.mainOeuvreSeule,
       materiaux: c.materiaux.lignes,
       erreurs: c.erreurs,
@@ -333,10 +449,13 @@ const CHAMPS_SNAPSHOT = [
   ["cout_main_oeuvre_unitaire", "Coût main-d'œuvre u."],
   ["cout_direct_unitaire", "Coût direct u."],
   ["cout_total_unitaire", "Coût total u."],
-  ["coef_vente", "Coefficient de vente"],
+  ["coef_vente", "Coefficient matériaux"],
+  ["taux_horaire_vente", "Taux horaire de vente (€/h)"],
   ["taux_marge_pct", "Taux de marge (%)"],
   ["prix_unitaire", "Prix de vente HT u."],
 ];
+/** Colonnes de snapshot absentes des anciennes lignes : pas de fausse différence si la ligne ne les porte pas. */
+const CHAMPS_SNAPSHOT_OPTIONNELS = ["coef_vente", "taux_horaire_vente"];
 
 /**
  * Différences entre le snapshot d'une ligne et le calcul actuel de la
@@ -347,8 +466,8 @@ export function differencesSnapshot(ligne, ouvrage, calcul) {
   const neuf = creerSnapshotOuvrage(ouvrage, calcul, { zone: ligne?.zone, tvaPct: ligne?.tva_pct, quantite: ligne?.quantite });
   const diffs = [];
   CHAMPS_SNAPSHOT.forEach(([champ, label]) => {
-    // Anciennes lignes sans colonne coef_vente : on n'affiche pas une fausse différence
-    if (champ === "coef_vente" && !("coef_vente" in (ligne || {}))) return;
+    // Anciennes lignes sans la colonne : on n'affiche pas une fausse différence
+    if (CHAMPS_SNAPSHOT_OPTIONNELS.includes(champ) && !(champ in (ligne || {}))) return;
     const avant = typeof neuf[champ] === "number" || neuf[champ] === null ? num(ligne?.[champ]) : str(ligne?.[champ]);
     const apres = typeof neuf[champ] === "number" || neuf[champ] === null ? num(neuf[champ]) : str(neuf[champ]);
     const egal = (avant == null && apres == null) || (avant != null && apres != null && (typeof avant === "number" ? Math.abs(avant - apres) < 0.005 : avant === apres));

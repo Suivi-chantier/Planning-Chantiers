@@ -9,6 +9,7 @@ import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import ProgbatApercuDevis from "./ProgbatApercuDevis.jsx";
+import { expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe } from "./tauxHorairesVente.mjs";
 import {
   ZONE_DEFAUT, ZONES_SUGGEREES, TYPES_LOGEMENT, TVA_TAUX_USUELS,
   calculerOuvrage, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
@@ -75,7 +76,7 @@ const CHAMPS_DEVIS_NUM  = ["tva_pct"];
 const CHAMPS_DEVIS_VIDES = Object.fromEntries(CHAMPS_DEVIS.map(f => [f, ""]));
 const erreurColonnesDevis = (error) => !!error && CHAMPS_DEVIS.some(c => (error?.message || "").includes(c));
 // Colonnes de snapshot d'une ligne (profero_ouvrages_selectionnes) de la même migration
-const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "taux_horaire_vente_id", "taux_horaire_vente", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
 const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
 const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (error?.message || "").includes(c));
 const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
@@ -830,22 +831,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // (code_prefixe, planning_config.lots_travaux). Les anciens ouvrages du
   // chiffrage (profero_categories_ouvrages) restent disponibles mais masqués.
   async function chargerBiblio() {
-    const [{ data: ouv }, lots, { data: mats }, { data: cfg }] = await Promise.all([
+    const [{ data: ouv }, lots, { data: mats }, { data: cfg }, { data: tauxH }] = await Promise.all([
       supabase.from("bibliotheque_ratios").select("*").order("libelle"),
       loadLots(),
       supabase.from("materiaux_bibliotheque").select("id,nom,unite,prix_unitaire"),
       supabase.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
+      supabase.from("taux_horaires_vente").select("*"),   // prix MO = cadence × taux de l'ouvrage
     ]);
     const taux = parseFloat((cfg || []).find(r => r.key === "taux_mo_previsionnel")?.value);
     const tva  = parseFloat((cfg || []).find(r => r.key === "chiffrage_tva_defaut")?.value);
     setBiblio({
       ouvrages: ouv || [], lots: lots || [], materiaux: mats || [],
-      coutHoraire: Number.isFinite(taux) && taux > 0 ? taux : null,   // null = bloquant
+      coutHoraire: Number.isFinite(taux) && taux > 0 ? taux : null,   // null = marge non calculable (le prix reste calculable)
+      tauxHoraires: tauxH || [],                                        // vide = bloquant (aucun prix MO)
       tvaDefaut: Number.isFinite(tva) ? tva : null,
     });
   }
   // Calcul du prix d'un ouvrage de bibliothèque avec le contexte courant
-  const calculBiblio = (o) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null });
+  const calculBiblio = (o) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [] });
   // Occurrences déjà présentes dans le devis pour un ouvrage de bibliothèque
   const occurrencesDe = (o) => ouvrages.filter(x => x.bibliotheque_id === o.id);
 
@@ -1029,6 +1032,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet);
   const couleurLot = (label) => (biblio?.lots || []).find(l => l.label === label)?.couleur || "#8a90a0";
   const coutHoraireManquant = !!biblio && biblio.coutHoraire == null;
+  const diagTaux = biblio ? diagnostiquerListe(biblio.tauxHoraires || []) : null;
   const tvaManquante = numOrNull(infos.tva_pct) == null;
 
   // Dessins au stylet
@@ -1805,10 +1809,16 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 <datalist id="pic-zones">{ZONES_SUGGEREES.map(z => <option key={z} value={z}/>)}</datalist>
 
                 {/* ── Bandeaux bloquants ── */}
-                {coutHoraireManquant && (
+                {diagTaux && !diagTaux.ok && (
                   <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.10)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                     <Icon as={AlertTriangle} size={13}/>
-                    Coût horaire de référence non configuré (Réglages → Taux → taux horaire moyen) : les ouvrages ajoutés n'auront pas de prix de vente.
+                    {diagTaux.problemes.join(" · ")} (Réglages → Taux horaires → Taux horaires de main-d'œuvre) : les ouvrages ajoutés n'auront pas de prix de main-d'œuvre.
+                  </div>
+                )}
+                {coutHoraireManquant && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <Icon as={AlertTriangle} size={13}/>
+                    Coût horaire chargé non configuré (Réglages → Taux → taux horaire moyen) : les prix sont calculés, mais la marge des lignes ajoutées ne le sera pas.
                   </div>
                 )}
                 {tvaManquante && ouvrages.length > 0 && (
@@ -1997,8 +2007,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                                 <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
                                   <span>{normaliserUnite(o.unite)}{o.cadence ? ` · ${o.cadence} h / ${normaliserUnite(o.unite)}` : " · sans cadence"}</span>
                                   {calc.complet ? (
-                                    <span style={{ color:"#22c55e", fontWeight:800 }} title={`Coût ${fmtEur2(calc.coutTotalUnitaire)} (matériaux ${fmtEur2(calc.coutMateriauxUnitaire)} + MO ${fmtEur2(calc.coutMainOeuvreUnitaire)}) ${fmtCoef(calc.coefVente)} · marge ${calc.tauxMargePct} % du prix de vente`}>
-                                      {fmtEur2(calc.prixVenteUnitaire)} HT / {calc.unite} · {fmtCoef(calc.coefVente)}
+                                    <span style={{ color:"#22c55e", fontWeight:800 }} title={`Matériaux ${fmtEur2(calc.coutMateriauxUnitaire)} ${fmtCoef(calc.coefVente)} = ${fmtEur2(calc.prixMateriauxUnitaire)} + main-d'œuvre ${expliquerPrixMainOeuvre(calc.mainOeuvre.heures, calc.mainOeuvre.tauxVente) || "—"} (${calc.tauxHoraire.libelle || "taux"})${calc.tauxMargePct != null ? ` · marge ${calc.tauxMargePct} % du prix de vente` : " · marge non calculable"}`}>
+                                      {fmtEur2(calc.prixVenteUnitaire)} HT / {calc.unite} · MO {calc.mainOeuvre.tauxVente} €/h
                                     </span>
                                   ) : (
                                     <span style={{ color:"#e15a5a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:4 }} title={calc.erreurs.join(" · ")}>
@@ -2592,7 +2602,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}
       {actualisation && (() => {
         const { ligne, calcul, diffs } = actualisation;
-        const fmtVal = (champ, v) => v == null ? "—" : /taux/.test(champ) ? fmtPct(v) : /cout|prix/.test(champ) ? fmtEur2(v) : String(v);
+        const fmtVal = (champ, v) => v == null ? "—" : /taux_horaire/.test(champ) ? `${fmtEur2(v)}/h` : /taux/.test(champ) ? fmtPct(v) : /coef/.test(champ) ? fmtCoef(v) : /cout|prix/.test(champ) ? fmtEur2(v) : String(v);
         return (
           <div onClick={()=>setActualisation(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
             <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:560,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
@@ -2657,10 +2667,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
               <div style={{marginBottom:14}}>
                 {row("Zone", l.zone || ZONE_DEFAUT)}
                 {row(`Coût matériaux / ${l.unite || "u"}`, fmtEur2(l.cout_materiaux_unitaire))}
-                {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h)` : ""}`)}
+                {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h chargé)` : ""}`)}
                 {numOrNull(l.cout_direct_unitaire) > 0 && row(`Coût direct / ${l.unite || "u"}`, fmtEur2(l.cout_direct_unitaire))}
                 {row(`Coût total / ${l.unite || "u"}`, fmtEur2(l.cout_total_unitaire), true)}
-                {(l.coef_vente != null || d.coef_vente != null) && row("Coefficient de vente", fmtCoef(l.coef_vente ?? d.coef_vente))}
+                {(l.coef_vente != null || d.coef_vente != null) && row(d.version >= 2 ? "Coefficient matériaux" : "Coefficient de vente (coût total)", fmtCoef(l.coef_vente ?? d.coef_vente))}
+                {d.prix_materiaux_unitaire != null && row(`Prix matériaux HT / ${l.unite || "u"}`, `${fmtEur2(d.prix_materiaux_unitaire)}${d.prix_direct_unitaire ? ` + coût direct ${fmtEur2(d.prix_direct_unitaire)}` : ""}`)}
+                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row("Taux horaire de vente figé", `${d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : ""}${formaterTauxHT(l.taux_horaire_vente ?? d.taux_horaire_vente)}`)}
+                {d.prix_main_oeuvre_unitaire != null && row(`Prix main-d'œuvre HT / ${l.unite || "u"}`, expliquerPrixMainOeuvre(d.heures_unitaires, l.taux_horaire_vente ?? d.taux_horaire_vente) || fmtEur2(d.prix_main_oeuvre_unitaire))}
                 {row("Marge sur prix de vente", fmtPct(l.taux_marge_pct))}
                 {row(`Prix de vente HT / ${l.unite || "u"}`, fmtEur2(l.prix_unitaire), true)}
                 {row("TVA de la ligne", numOrNull(l.tva_pct) != null ? fmtPct(l.tva_pct) : `TVA du projet${!tvaManquante ? ` (${infos.tva_pct} %)` : ""}`)}

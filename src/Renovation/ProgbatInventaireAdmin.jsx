@@ -231,7 +231,8 @@ export default function ProgbatInventaire({ T, acc }) {
                 <span>Codes métier ProGBat : <strong style={{ color: T.text }}>{result.sources_codes.descriptif ?? 0}</strong> lus dans le descriptif · <strong style={{ color: T.text }}>{result.sources_codes.libelle}</strong> dans le libellé · <strong style={{ color: T.text }}>{result.sources_codes.champ}</strong> dans le champ API · <strong style={{ color: T.text }}>{result.sources_codes.aucun}</strong> sans code détectable</span>
               )}
               {result.profero?.tva_defaut == null && <span style={{ color: "#f59e0b" }}>TVA par défaut du chiffrage non réglée</span>}
-              {result.profero?.cout_horaire == null && <span style={{ color: "#f59e0b" }}>Coût horaire de référence non réglé</span>}
+              {result.profero?.cout_horaire == null && <span style={{ color: "#f59e0b" }}>Coût horaire chargé non réglé (marge non calculable)</span>}
+              {result.profero?.nb_taux_horaires_actifs === 0 && <span style={{ color: "#e15a5a" }}>Aucun taux horaire de vente actif</span>}
             </div>
             {(result.progbat?.structures?.tronque || result.progbat?.elements?.tronque) && (
               <div style={{ color: "#f59e0b", fontWeight: 600 }}>⚠ Liste ProGBat tronquée (plafond de pages atteint) : le comptage est partiel.</div>
