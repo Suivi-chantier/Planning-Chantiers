@@ -21,10 +21,13 @@ const test = (nom, fn) => cas.push([nom, fn]);
 const {
   MAX_EXEMPLES, MAX_PAGES, PAGE_SIZE, TRI_FACTURES, TRI_TRANSACTIONS,
   CHAMPS_EXEMPLE_FACTURE, CHAMPS_EXEMPLE_REGLEMENT, CHAMPS_COMPARES_FACTURE,
-  CHAMPS_VOLATILS_FACTURE, CATEGORIES_FACTURE, CATEGORIES_REGLEMENT,
+  CHAMPS_VOLATILS_FACTURE, CHAMPS_COMPARES_REGLEMENT, CATEGORIES_FACTURE, CATEGORIES_REGLEMENT,
+  LECTURES, STATUT_EXPORT_RETENU, QUOTE_ID_MINIMUM, creerDepotLecture,
   analyserFactures, analyserReglements, executerDryRun, entierStrict,
   lireRessourceProgbat, memeValeur, transactionActive,
 } = await import(new URL("../src/Renovation/progbatBillingDryRun.mjs", import.meta.url).href);
+
+const MODULE_SRC = lire("src/Renovation/progbatBillingDryRun.mjs");
 
 const { choisirJeton } = await import(new URL("../src/Renovation/progbatYards.mjs", import.meta.url).href);
 const { normaliserFactureProgbat, fusionnerFactureProgbat } =
@@ -126,6 +129,40 @@ function faireDepot({ factures = [], reglements = [], contexte = CONTEXTE } = {}
     },
   });
   return { depot, appels };
+}
+
+/**
+ * Client Supabase DOUBLÉ : il enregistre la table, les colonnes et les filtres
+ * réellement demandés, puis applique ces filtres aux lignes de la fixture.
+ * Il n'expose AUCUN verbe d'écriture — un .insert / .update / .delete lèverait.
+ */
+function faireClientSupabase(tables = {}) {
+  const requetes = [];
+  const appliquer = (lignes, filtres) => lignes.filter((l) => filtres.every(([op, col, a, b]) => {
+    if (op === "eq") return l[col] === a;
+    if (op === "gte") return typeof l[col] === "number" && l[col] >= a;
+    if (op === "not") return a === "is" && b === null ? l[col] !== null && l[col] !== undefined : true;
+    throw new Error(`filtre inattendu : ${op}`);
+  }));
+  return {
+    requetes,
+    from(table) {
+      const trace = { table, colonnes: null, filtres: [] };
+      requetes.push(trace);
+      const q = {
+        select(colonnes) { trace.colonnes = colonnes; return q; },
+        eq(col, val) { trace.filtres.push(["eq", col, val]); return q; },
+        gte(col, val) { trace.filtres.push(["gte", col, val]); return q; },
+        not(col, op, val) { trace.filtres.push(["not", col, op, val]); return q; },
+        // Awaitable : c'est ce que fait PostgREST.
+        then(resoudre, rejeter) {
+          return Promise.resolve({ data: appliquer(tables[table] ?? [], trace.filtres), error: null })
+            .then(resoudre, rejeter);
+        },
+      };
+      return q;
+    },
+  };
 }
 
 function faireProgbat({ bills = FACTURES, transactions = TRANSACTIONS, pageSize = PAGE_SIZE, erreurs = {} } = {}) {
@@ -232,20 +269,137 @@ test("edge : ProGBat en GET uniquement, aucun PDF", () => {
 });
 
 test("edge : aucune écriture Supabase, uniquement des SELECT", () => {
-  for (const interdit of [".insert(", ".update(", ".upsert(", ".delete(", ".rpc("]) {
-    assert.ok(!INDEX_CODE.includes(interdit), `${interdit} ne doit pas apparaître`);
+  const MODULE_CODE = MODULE_SRC.split("\n")
+    .filter((l) => !l.trimStart().startsWith("//") && !l.trimStart().startsWith("*"))
+    .join("\n");
+  for (const fichier of [["index.ts", INDEX_CODE], ["progbatBillingDryRun.mjs", MODULE_CODE]]) {
+    for (const interdit of [".insert(", ".update(", ".upsert(", ".delete(", ".rpc("]) {
+      assert.ok(!fichier[1].includes(interdit), `${interdit} ne doit pas apparaître dans ${fichier[0]}`);
+    }
   }
-  assert.match(INDEX_CODE, /\.select\(/);
+  assert.match(MODULE_CODE, /\.select\(colonnes\)/);
   // Les colonnes sont NOMMÉES : pas de select("*") qui ramènerait extraction,
   // document_path ou commentaire.
+  assert.doesNotMatch(MODULE_CODE, /\.select\("\*"\)/);
   assert.doesNotMatch(INDEX_CODE, /\.select\("\*"\)/);
 });
 
 test("edge : progbat_quote_exports lu sans hash, sans auteur, sans message d'erreur", () => {
-  assert.match(INDEX_CODE, /"progbat_quote_exports", "project_id,progbat_quote_id"/);
+  assert.equal(LECTURES.exports.table, "progbat_quote_exports");
+  assert.equal(LECTURES.exports.colonnes, "project_id,progbat_quote_id");
   for (const interdit of ["payload_hash", "created_by", "created_by_email", "error_message", "http_status"]) {
-    assert.ok(!INDEX_CODE.includes(interdit), `${interdit} ne doit pas être sélectionné`);
+    assert.ok(!INDEX_CODE.includes(interdit), `${interdit} ne doit pas être sélectionné (index.ts)`);
+    assert.ok(!LECTURES.exports.colonnes.includes(interdit), `${interdit} ne doit pas être sélectionné`);
   }
+  // Le statut sert à FILTRER, il n'est jamais sélectionné ni rendu.
+  assert.ok(!LECTURES.exports.colonnes.includes("statut"));
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 1 bis. LECTURES SUPABASE — cinq SELECT, et le filtre des exports de devis
+// ═══════════════════════════════════════════════════════════════════════════
+test("lectures : cinq SELECT, colonnes nommées, aucun verbe d'écriture", async () => {
+  const client = faireClientSupabase({});
+  const depot = creerDepotLecture(client);
+  await Promise.all([
+    depot.chargerYards(), depot.chargerExports(), depot.chargerLiaisons(),
+    depot.chargerFactures(), depot.chargerReglements(),
+  ]);
+  assert.deepEqual(client.requetes.map((r) => r.table).sort(), [
+    "chantier_factures_client", "chantier_factures_reglements",
+    "chantier_progbat_yards", "chantier_projets", "progbat_quote_exports",
+  ]);
+  for (const r of client.requetes) {
+    assert.ok(r.colonnes && r.colonnes !== "*", `${r.table} : colonnes nommées attendues`);
+  }
+  // Le client doublé n'expose que select/eq/gte/not : toute écriture lèverait.
+  const q = client.from("chantier_factures_client").select("id");
+  for (const verbe of ["insert", "update", "upsert", "delete", "rpc"]) {
+    assert.equal(typeof q[verbe], "undefined", `${verbe} ne doit pas être appelé`);
+  }
+  // Les factures et les règlements sont filtrés sur la source ProGBat.
+  for (const table of ["chantier_factures_client", "chantier_factures_reglements"]) {
+    const t = client.requetes.find((r) => r.table === table);
+    assert.deepEqual(t.filtres, [["eq", "source", "progbat"]]);
+  }
+});
+
+test("exports de devis : filtre identique à public.progbat_devis_exportables()", async () => {
+  const client = faireClientSupabase({ progbat_quote_exports: [] });
+  await creerDepotLecture(client).chargerExports();
+  const t = client.requetes.find((r) => r.table === "progbat_quote_exports");
+  assert.deepEqual(t.filtres, [
+    ["eq", "statut", "created"],
+    ["not", "progbat_quote_id", "is", null],
+    ["gte", "progbat_quote_id", 1],
+  ]);
+  assert.equal(STATUT_EXPORT_RETENU, "created");
+  assert.equal(QUOTE_ID_MINIMUM, 1);
+  // Et c'est bien la règle du SQL, relue dans le fichier de migration.
+  const SQL = lire("sql/202609_chantier_projets.sql")
+    .split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  assert.match(SQL, /e\.statut = 'created'/);
+  assert.match(SQL, /e\.progbat_quote_id is not null/);
+  assert.match(SQL, /e\.progbat_quote_id > 0/);
+});
+
+test("exports de devis : une ligne failed ou uncertain ne résout JAMAIS par devis", async () => {
+  // La facture 1003 n'a pas de yardId : sans export « created », elle ne peut
+  // se résoudre par rien. Les trois lignes ci-dessous portent pourtant toutes
+  // un progbat_quote_id 500 exploitable.
+  const residus = [
+    { project_id: P2, progbat_quote_id: 500, statut: "failed" },
+    { project_id: P2, progbat_quote_id: 500, statut: "uncertain" },
+    { project_id: P2, progbat_quote_id: 500, statut: "creating" },
+    { project_id: P2, progbat_quote_id: 500, statut: "preparing" },
+  ];
+  const client = faireClientSupabase({
+    progbat_quote_exports: residus,
+    chantier_progbat_yards: CONTEXTE.yards,
+    chantier_projets: CONTEXTE.liaisons,
+    chantier_factures_client: [],
+    chantier_factures_reglements: [],
+  });
+  const depot = creerDepotLecture(client);
+  assert.deepEqual(await depot.chargerExports(), [], "aucun résidu ne franchit le filtre");
+
+  const r = await executerDryRun({
+    depot, progbat: faireProgbat({}), maintenant: MAINTENANT, pageSize: 100, maxPages: MAX_PAGES,
+  });
+  const f = r.rapport.factures;
+  assert.equal(f.resolution.resolution_devis_secours, 0, "aucun repli par un devis non créé");
+  assert.ok(!f.exemples.creation.some((e) => e.progbat_bill_id === 1003));
+  const ex = f.exemples.non_resolue.find((e) => e.progbat_bill_id === 1003);
+  assert.equal(ex.resolution, "devis_non_rattache");
+  assert.equal(ex.chantier_id, null);
+
+  // La même ligne en statut 'created' résout, elle : c'est bien le STATUT qui
+  // fait la différence, pas l'identifiant.
+  const client2 = faireClientSupabase({
+    progbat_quote_exports: [...residus, { project_id: P2, progbat_quote_id: 500, statut: "created" }],
+    chantier_progbat_yards: CONTEXTE.yards,
+    chantier_projets: CONTEXTE.liaisons,
+    chantier_factures_client: [],
+    chantier_factures_reglements: [],
+  });
+  const r2 = await executerDryRun({
+    depot: creerDepotLecture(client2), progbat: faireProgbat({}),
+    maintenant: MAINTENANT, pageSize: 100, maxPages: MAX_PAGES,
+  });
+  assert.equal(r2.rapport.factures.resolution.resolution_devis_secours, 1);
+  assert.equal(r2.rapport.factures.exemples.creation.find((e) => e.progbat_bill_id === 1003).chantier_id, "acacias");
+});
+
+test("exports de devis : un identifiant nul ou nul-équivalent est écarté", async () => {
+  const client = faireClientSupabase({
+    progbat_quote_exports: [
+      { project_id: P2, progbat_quote_id: null, statut: "created" },
+      { project_id: P2, progbat_quote_id: 0, statut: "created" },
+      { project_id: P1, progbat_quote_id: 451, statut: "created" },
+    ],
+  });
+  const lus = await creerDepotLecture(client).chargerExports();
+  assert.deepEqual(lus, [{ project_id: P1, progbat_quote_id: 451, statut: "created" }]);
 });
 
 test("edge : aucun cron, aucun déclenchement automatique", () => {
@@ -693,17 +847,65 @@ test("règlements : création sur une facture existante, puis inchangé, puis mi
   assert.match(c.r.rapport.reglements.exemples.mise_a_jour[0].motif, /montant/);
 });
 
-test("règlements : `annule` posé à la main n'est pas « remis à false » par le diagnostic", async () => {
+test("règlements : une transaction redevenue active RÉACTIVE la ligne annulée", async () => {
+  // chantier_factures_reglements est en lecture seule pour `authenticated` :
+  // personne ne pose `annule` depuis le navigateur, c'est un état de
+  // réconciliation SERVEUR. Une ligne éteinte dont la transaction est de
+  // nouveau active (canceled = 0, checked = 1) doit donc ressortir en mise à
+  // jour pour revenir à annule = false.
+  assert.ok(CHAMPS_COMPARES_REGLEMENT.includes("annule"), "`annule` doit être comparé");
   const existanteF = ligneEnBase(FACTURES[0], "tilleuls", "f-1001");
   const reglement = {
     id: "r-1", facture_id: "f-1001", source: "progbat",
     progbat_transaction_id: 5001, progbat_doc_type: "bill", progbat_canceled: 0,
     date_reglement: "2026-09-05", montant: "925.15", mode: "transfer",
-    annule: true,   // décision humaine
+    annule: true,
   };
   const { r } = await lancer({ factures: [existanteF], reglements: [reglement] });
-  assert.equal(r.rapport.reglements.categories.inchange, 1, "le drapeau `annule` ne déclenche pas de mise à jour");
-  assert.equal(r.rapport.reglements.categories.mise_a_jour, 0);
+  assert.equal(r.rapport.reglements.categories.mise_a_jour, 1);
+  assert.equal(r.rapport.reglements.categories.inchange, 0);
+  const ex = r.rapport.reglements.exemples.mise_a_jour[0];
+  assert.equal(ex.progbat_transaction_id, 5001);
+  assert.match(ex.motif, /\bannule\b/);
+
+  // La même ligne non annulée reste inchangée : rien d'autre n'a bougé.
+  const b = await lancer({ factures: [existanteF], reglements: [{ ...reglement, annule: false }] });
+  assert.equal(b.r.rapport.reglements.categories.inchange, 1);
+  assert.equal(b.r.rapport.reglements.categories.mise_a_jour, 0);
+});
+
+test("règlements : les quatre issues de `annule`, côte à côte", async () => {
+  const existanteF = ligneEnBase(FACTURES[0], "tilleuls", "f-1001");
+  const ligne = (annule) => ({
+    id: "r-1", facture_id: "f-1001", source: "progbat",
+    progbat_transaction_id: 5001, progbat_doc_type: "bill", progbat_canceled: 0,
+    date_reglement: "2026-09-05", montant: "925.15", mode: "transfer", annule,
+  });
+  const active = TRANSACTIONS[0];                                   // 5001, canceled 0, checked 1
+  const inactive = { ...TRANSACTIONS[0], canceled: 1 };             // même id, devenue inactive
+
+  // a. locale vivante + transaction active identique → inchangé
+  const a = await lancer({ factures: [existanteF], reglements: [ligne(false)], transactions: [active] });
+  assert.equal(a.r.rapport.reglements.categories.inchange, 1);
+
+  // b. locale éteinte + transaction active identique → mise à jour (réactivation)
+  const b = await lancer({ factures: [existanteF], reglements: [ligne(true)], transactions: [active] });
+  assert.equal(b.r.rapport.reglements.categories.mise_a_jour, 1);
+  assert.match(b.r.rapport.reglements.exemples.mise_a_jour[0].motif, /\bannule\b/);
+
+  // c. transaction devenue inactive + pagination complète → annulation proposée
+  const c = await lancer({ factures: [existanteF], reglements: [ligne(false)], transactions: [inactive] });
+  assert.equal(c.r.rapport.reconciliation_absence_autorisee, true);
+  assert.equal(c.r.rapport.reglements.categories.annulation_proposee, 1);
+  assert.equal(c.r.rapport.reglements.categories.mise_a_jour, 0);
+  assert.equal(c.r.rapport.reglements.categories.inchange, 0);
+
+  // d. même situation, pagination incomplète → aucune annulation proposée
+  const { depot } = faireDepot({ factures: [existanteF], reglements: [ligne(false)] });
+  const progbatKo = faireProgbat({ erreurs: { transactions: { ok: false, status: 500, message: "500" } } });
+  const d = await executerDryRun({ depot, progbat: progbatKo, maintenant: MAINTENANT, pageSize: 100, maxPages: MAX_PAGES });
+  assert.equal(d.rapport.reconciliation_absence_autorisee, false);
+  assert.equal(d.rapport.reglements.categories.annulation_proposee, 0);
 });
 
 test("règlements : absence locale → annulation PROPOSÉE seulement si la lecture est complète", async () => {

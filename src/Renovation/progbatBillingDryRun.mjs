@@ -131,14 +131,98 @@ export const CHAMPS_COMPARES_FACTURE = Object.freeze([
   "ligne_id", "ligne_nom", "rapprochement", "raison", "ligne_id_verrouille",
 ]);
 
-// `annule` est EXCLU : c'est une décision de réconciliation (humaine ou future),
-// pas une donnée ProGBat. Le comparer ferait apparaître en « mise à jour » toute
-// ligne annulée à la main, et laisserait croire que la synchronisation la
-// ressusciterait.
+// `annule` EST comparé, et c'est important. Personne ne peut le poser à la
+// main : chantier_factures_reglements est en LECTURE SEULE pour le rôle
+// `authenticated` (aucune policy d'écriture, cf. sql/202609_facturation_progbat.sql),
+// donc `annule` est un état de réconciliation posé par le serveur, jamais une
+// décision saisie dans le navigateur. Conséquence directe : si une transaction
+// ProGBat redevient active (canceled = 0, checked = 1), une ligne locale restée
+// annule = true doit ressortir en MISE À JOUR pour revenir à annule = false —
+// l'exclure de la comparaison laisserait un règlement réel éteint en base.
 export const CHAMPS_COMPARES_REGLEMENT = Object.freeze([
   "source", "progbat_transaction_id", "progbat_doc_type",
-  "date_reglement", "montant", "mode", "progbat_canceled",
+  "date_reglement", "montant", "mode", "progbat_canceled", "annule",
 ]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LECTURES SUPABASE — cinq SELECT, colonnes nommées, et rien d'autre
+// ─────────────────────────────────────────────────────────────────────────────
+// Les colonnes de chantier_factures_client sont celles que la fusion compare :
+// ni extraction (sortie brute du modèle), ni document_path, ni commentaire.
+export const COLONNES_FACTURE = [
+  "id", "chantier_id", "source", "statut", "numero", "date_facture",
+  "montant_ht", "montant_tva", "montant_ttc",
+  "ligne_id", "ligne_nom", "rapprochement", "raison", "ligne_id_verrouille",
+  "ligne_id_modifie_par", "ligne_id_modifie_le",
+  "progbat_bill_id", "progbat_bill_code", "progbat_quote_id", "progbat_yard_id",
+  "progbat_business_id", "progbat_type", "progbat_situation_number", "progbat_status",
+  "progbat_validated", "progbat_revision_number", "progbat_document_date", "progbat_due_date",
+  "progbat_deal_net_total", "progbat_deal_taxes", "progbat_deal_ati_total",
+  "progbat_achievement", "progbat_previous_achievement", "progbat_net_total",
+  "progbat_taxes", "progbat_ati_total", "progbat_holdback", "progbat_deducted_advance",
+  "progbat_to_be_paid", "progbat_ati_deductions", "progbat_tax_details",
+  "progbat_deductions", "progbat_dgd", "progbat_synced_at",
+].join(",");
+
+export const COLONNES_REGLEMENT =
+  "id,facture_id,source,progbat_transaction_id,progbat_doc_type,progbat_canceled,date_reglement,montant,mode,annule";
+
+// QUELS EXPORTS DE DEVIS SERVENT AU REPLI — exactement la règle de
+// public.progbat_devis_exportables() (sql/202609_chantier_projets.sql) :
+//     statut = 'created' AND progbat_quote_id is not null AND progbat_quote_id > 0
+// « created » est le SEUL statut qui atteste qu'un devis existe vraiment dans
+// ProGBat. 'uncertain' veut dire « on ne sait pas » (2xx sans id, délai, 5xx),
+// 'failed' que rien n'a été créé, 'preparing' et 'creating' qu'on n'en est pas
+// là. Une ligne de ces statuts peut malgré tout porter un progbat_quote_id
+// résiduel : la retenir ferait rattacher une facture au logement d'un devis qui
+// n'existe pas. Le filtre est posé dans la REQUÊTE, ce qui garde la sélection
+// minimale (project_id, progbat_quote_id) : le statut sert à filtrer, il ne
+// remonte jamais — ni dans le module, ni dans la réponse.
+export const STATUT_EXPORT_RETENU = "created";
+export const QUOTE_ID_MINIMUM = 1;
+
+/** Table et colonnes de chacune des cinq lectures. Aucune écriture n'existe. */
+export const LECTURES = Object.freeze({
+  yards: Object.freeze({ table: "chantier_progbat_yards", colonnes: "progbat_yard_id,chantier_id" }),
+  exports: Object.freeze({ table: "progbat_quote_exports", colonnes: "project_id,progbat_quote_id" }),
+  liaisons: Object.freeze({ table: "chantier_projets", colonnes: "projet_id,chantier_id" }),
+  factures: Object.freeze({ table: "chantier_factures_client", colonnes: COLONNES_FACTURE }),
+  reglements: Object.freeze({ table: "chantier_factures_reglements", colonnes: COLONNES_REGLEMENT }),
+});
+
+/**
+ * Le dépôt de LECTURE, construit sur un client de type Supabase.
+ *
+ * Il vit ici plutôt que dans l'Edge Function pour deux raisons : les colonnes
+ * et les filtres sont des RÈGLES (surtout celui des exports de devis), et une
+ * fonction pure se teste avec un client doublé — ce que le harnais fait, en
+ * observant table, colonnes et filtres réellement demandés.
+ *
+ * @param client  objet exposant from(table).select(colonnes) puis .eq / .gt /
+ *                .not, awaitable en { data, error }. AUCUN verbe d'écriture
+ *                n'est appelé : pas d'insert, d'update, d'upsert, de delete ni
+ *                de rpc.
+ */
+export function creerDepotLecture(client) {
+  const lire = async (table, colonnes, filtrer = null) => {
+    const base = client.from(table).select(colonnes);
+    const { data, error } = await (filtrer ? filtrer(base) : base);
+    if (error) throw new Error(`${table} : ${error.message}`);
+    return data ?? [];
+  };
+  return {
+    chargerYards: () => lire(LECTURES.yards.table, LECTURES.yards.colonnes),
+    chargerExports: () => lire(LECTURES.exports.table, LECTURES.exports.colonnes, (q) =>
+      q.eq("statut", STATUT_EXPORT_RETENU)
+        .not("progbat_quote_id", "is", null)
+        .gte("progbat_quote_id", QUOTE_ID_MINIMUM)),
+    chargerLiaisons: () => lire(LECTURES.liaisons.table, LECTURES.liaisons.colonnes),
+    chargerFactures: () => lire(LECTURES.factures.table, LECTURES.factures.colonnes, (q) =>
+      q.eq("source", "progbat")),
+    chargerReglements: () => lire(LECTURES.reglements.table, LECTURES.reglements.colonnes, (q) =>
+      q.eq("source", "progbat")),
+  };
+}
 
 // ── Petits formateurs d'AFFICHAGE (aucune règle métier ici) ─────────────────
 const texteCourt = (v, max = 80) => {
@@ -605,9 +689,11 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
  *   lirePage({ ressource, limit, offset, tri })
  *     → { ok: true, data: [...] } | { ok: false, status, message }
  *
- * Interface `depot` (toutes async, toutes en SELECT — AUCUNE écriture) :
+ * Interface `depot` (toutes async, toutes en SELECT — AUCUNE écriture), telle
+ * que creerDepotLecture() la construit :
  *   chargerYards()      → [{ progbat_yard_id, chantier_id }]
- *   chargerExports()    → [{ project_id, progbat_quote_id }]
+ *   chargerExports()    → [{ project_id, progbat_quote_id }] — devis RÉELLEMENT
+ *                         créés uniquement (statut 'created', identifiant > 0)
  *   chargerLiaisons()   → [{ projet_id, chantier_id }]
  *   chargerFactures()   → lignes chantier_factures_client source='progbat'
  *   chargerReglements() → lignes chantier_factures_reglements source='progbat'

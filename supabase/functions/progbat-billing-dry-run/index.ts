@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
 import { choisirJeton } from "./lib/progbatYards.mjs"
-import { MAX_PAGES, PAGE_SIZE, executerDryRun, nettoyerMotif } from "./lib/progbatBillingDryRun.mjs"
+import { MAX_PAGES, PAGE_SIZE, creerDepotLecture, executerDryRun, nettoyerMotif } from "./lib/progbatBillingDryRun.mjs"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // progbat-billing-dry-run
@@ -105,30 +105,6 @@ async function lirePage(
   }
 }
 
-// ── Lectures Supabase : SELECT, colonnes nommées, rien de plus ─────────────
-// progbat_quote_exports est lisible par le service_role, mais payload_hash,
-// created_by, created_by_email et error_message NE SONT PAS SÉLECTIONNÉS : ils
-// ne servent pas à résoudre un chantier et n'ont rien à faire dans la réponse.
-// Les colonnes de chantier_factures_client sont celles que la fusion compare —
-// ni extraction (sortie brute du modèle), ni document_path, ni commentaire.
-const COLONNES_FACTURE = [
-  "id", "chantier_id", "source", "statut", "numero", "date_facture",
-  "montant_ht", "montant_tva", "montant_ttc",
-  "ligne_id", "ligne_nom", "rapprochement", "raison", "ligne_id_verrouille",
-  "ligne_id_modifie_par", "ligne_id_modifie_le",
-  "progbat_bill_id", "progbat_bill_code", "progbat_quote_id", "progbat_yard_id",
-  "progbat_business_id", "progbat_type", "progbat_situation_number", "progbat_status",
-  "progbat_validated", "progbat_revision_number", "progbat_document_date", "progbat_due_date",
-  "progbat_deal_net_total", "progbat_deal_taxes", "progbat_deal_ati_total",
-  "progbat_achievement", "progbat_previous_achievement", "progbat_net_total",
-  "progbat_taxes", "progbat_ati_total", "progbat_holdback", "progbat_deducted_advance",
-  "progbat_to_be_paid", "progbat_ati_deductions", "progbat_tax_details",
-  "progbat_deductions", "progbat_dgd", "progbat_synced_at",
-].join(",")
-
-const COLONNES_REGLEMENT =
-  "id,facture_id,source,progbat_transaction_id,progbat_doc_type,progbat_canceled,date_reglement,montant,mode,annule"
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405)
@@ -168,21 +144,13 @@ serve(async (req) => {
       lirePage: (args: { ressource: string; limit: number; offset: number; tri: string | null }) =>
         lirePage(token, args),
     }
-    const lire = async (table: string, colonnes: string, filtre?: (q: any) => any) => {
-      let q = admin.from(table).select(colonnes)
-      if (filtre) q = filtre(q)
-      const { data, error } = await q
-      if (error) throw new Error(`${table} : ${error.message}`)
-      return data ?? []
-    }
-    const depot = {
-      chargerYards: () => lire("chantier_progbat_yards", "progbat_yard_id,chantier_id"),
-      chargerExports: () =>
-        lire("progbat_quote_exports", "project_id,progbat_quote_id", (q) => q.not("progbat_quote_id", "is", null)),
-      chargerLiaisons: () => lire("chantier_projets", "projet_id,chantier_id"),
-      chargerFactures: () => lire("chantier_factures_client", COLONNES_FACTURE, (q) => q.eq("source", "progbat")),
-      chargerReglements: () => lire("chantier_factures_reglements", COLONNES_REGLEMENT, (q) => q.eq("source", "progbat")),
-    }
+    // Les cinq lectures — tables, colonnes et filtres — vivent dans le module
+    // pur : ce sont des règles (dont « seuls les devis réellement créés
+    // servent au repli »), et elles y sont vérifiées avec un client doublé.
+    // progbat_quote_exports n'expose que project_id et progbat_quote_id :
+    // payload_hash, created_by, created_by_email et error_message ne sont
+    // jamais sélectionnés.
+    const depot = creerDepotLecture(admin)
 
     const maintenant = new Date().toISOString()
     const r = await executerDryRun({
