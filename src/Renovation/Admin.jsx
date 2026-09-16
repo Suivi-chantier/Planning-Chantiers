@@ -2258,6 +2258,119 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
   );
 }
 
+// ─── Diagnostic « capacités de facturation » ProGBat (lecture seule) ─────────
+// Affiche le bloc `billing` renvoyé par l'Edge Function progbat-test-connection.
+// Purement descriptif : les valeurs de `status`, `validated` et `docType` sont
+// montrées TELLES QUELLES, sans traduction — leur signification n'est pas
+// documentée par ProGBat, et c'est justement ce que ce diagnostic sert à
+// établir sur des données réelles. Aucune donnée client ni bancaire n'est
+// transmise par la fonction : il n'y a donc rien à masquer ici.
+function CapacitesFacturationProgbat({ billing, T }) {
+  const [details, setDetails] = useState(false);
+  if (!billing) return null;
+
+  const { factures, transactions, croisement, pdf } = billing;
+
+  // accessible / scope manquant / erreur — jamais d'interprétation au-delà.
+  const etat = (bloc) => {
+    if (!bloc) return { libelle: "non testé", couleur: T.textMuted };
+    if (bloc.ok) return { libelle: "accessible", couleur: "#22c55e" };
+    if (bloc.scope_accessible === false) return { libelle: "scope manquant", couleur: "#f59e0b" };
+    return { libelle: "erreur", couleur: "#e15a5a" };
+  };
+  const etatPdf = !pdf || pdf.teste === false
+    ? { libelle: "non testé", couleur: T.textMuted }
+    : pdf.ok ? { libelle: "accessible", couleur: "#22c55e" }
+    : { libelle: "erreur", couleur: "#e15a5a" };
+
+  const ligne = (label, e, complement) => (
+    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+      <span style={{minWidth:86,color:T.textSub}}>{label}</span>
+      <span style={{fontWeight:800,color:e.couleur}}>{e.libelle}</span>
+      {complement && <span style={{color:T.textMuted}}>{complement}</span>}
+    </div>
+  );
+
+  // Valeurs observées : « valeur ×n », séparées par des points médians.
+  const listeValeurs = (arr) => (Array.isArray(arr) && arr.length)
+    ? arr.map(v => `${v.valeur === null ? "(absent)" : v.valeur} ×${v.occurrences}`).join(" · ")
+    : "—";
+
+  const bloc = (titre, contenu) => (
+    <div style={{marginTop:8}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,color:T.textMuted,letterSpacing:.5,textTransform:"uppercase",marginBottom:3}}>{titre}</div>
+      <div style={{fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace",fontSize:FONT.xs.size,color:T.text,wordBreak:"break-word"}}>{contenu}</div>
+    </div>
+  );
+
+  return (
+    <div style={{flex:"1 1 100%",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:8}}>
+        Capacités de facturation
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:4,fontSize:FONT.xs.size+1,lineHeight:1.6}}>
+        {ligne("Factures", etat(factures),
+          factures ? `${factures.nombre_recu} examinée(s) · HTTP ${factures.http_status}${factures.content_range ? " · Content-Range présent" : " · Content-Range absent"}${factures.tri_refuse ? " · tri refusé, relance sans tri" : ""}` : null)}
+        {!factures?.ok && factures?.message && (
+          <div style={{color:T.textSub,paddingLeft:94}}>{factures.message}</div>
+        )}
+
+        {ligne("Règlements", etat(transactions),
+          transactions ? `${transactions.nombre_recu} examinée(s) · HTTP ${transactions.http_status}${transactions.content_range ? " · Content-Range présent" : " · Content-Range absent"}${transactions.tri_refuse ? " · tri refusé, relance sans tri" : ""}` : null)}
+        {!transactions?.ok && transactions?.message && (
+          <div style={{color:T.textSub,paddingLeft:94}}>{transactions.message}</div>
+        )}
+
+        {ligne("PDF", etatPdf,
+          pdf?.teste
+            ? `HTTP ${pdf.http_status}${pdf.content_type ? ` · ${pdf.content_type}` : ""}${pdf.taille_octets != null ? ` · ${pdf.taille_octets.toLocaleString("fr-FR")} octets` : ""}`
+            : (pdf?.message || null))}
+        {pdf?.teste && pdf.critere && (
+          <div style={{color:T.textMuted,paddingLeft:94}}>{pdf.critere}</div>
+        )}
+
+        {ligne("Rapprochements", { libelle: String(croisement?.allocations_trouvees ?? 0), couleur: (croisement?.allocations_trouvees > 0) ? "#22c55e" : T.textMuted },
+          croisement ? `allocation(s) sur ${croisement.factures_referencees ?? 0} facture(s) de l'échantillon` : null)}
+      </div>
+
+      {/* Valeurs brutes observées — aucune traduction : la sémantique de ces
+          entiers n'est pas documentée par ProGBat. */}
+      <div style={{marginTop:10,padding:"9px 11px",background:T.card,borderRadius:RADIUS.md}}>
+        <div style={{fontSize:FONT.xs.size,color:T.textSub,marginBottom:6,lineHeight:1.5}}>
+          Valeurs observées, reproduites telles quelles (leur signification n'est pas documentée par ProGBat) :
+        </div>
+        {bloc("status", listeValeurs(factures?.valeurs_distinctes?.status))}
+        {bloc("validated", listeValeurs(factures?.valeurs_distinctes?.validated))}
+        {bloc("type", listeValeurs(factures?.valeurs_distinctes?.type))}
+        {bloc("einvoiceStatus", listeValeurs(factures?.valeurs_distinctes?.einvoiceStatus))}
+        {bloc("checking.docType", listeValeurs(transactions?.valeurs_distinctes?.checking_docType))}
+        {bloc("canceled / checked", `${listeValeurs(transactions?.valeurs_distinctes?.canceled)}  |  ${listeValeurs(transactions?.valeurs_distinctes?.checked)}`)}
+        {bloc("docType correspondant à un id de facture",
+          (croisement?.doc_types_correspondants?.length ? croisement.doc_types_correspondants.join(" · ") : "aucune correspondance observée"))}
+      </div>
+
+      <button onClick={()=>setDetails(d=>!d)} style={{
+        marginTop:10,display:"inline-flex",alignItems:"center",gap:5,
+        background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+        padding:"5px 11px",color:T.textSub,fontFamily:"inherit",
+        fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+      }}>
+        <Icon as={details?ChevronUp:ChevronDown} size={11}/>
+        {details ? "Masquer le détail technique" : "Détail technique (échantillons)"}
+      </button>
+
+      {details && (
+        <pre style={{
+          marginTop:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,
+          border:`1px solid ${T.border}`,maxHeight:340,overflow:"auto",
+          fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
+        }}>{JSON.stringify(billing, null, 2)}</pre>
+      )}
+    </div>
+  );
+}
+
 function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
@@ -4387,7 +4500,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                           ? <strong>{progbatResult.entreprise.nom}{progbatResult.entreprise.id != null ? <span style={{color:T.textSub,fontWeight:500}}> (id {progbatResult.entreprise.id})</span> : null}</strong>
                           : <span style={{color:T.textSub}}>non disponible{progbatResult.entreprise_status ? ` (HTTP ${progbatResult.entreprise_status} sur /clients/me — scope company-accounts.read absent, sans incidence sur le test)` : ""}</span>}
                       </div>
-                      <div style={{color:T.textSub}}>Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}</div>
+                      <div style={{color:T.textSub}}>
+                        Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}
+                        {progbatResult.token_source ? ` · jeton ${progbatResult.token_source === "billing" ? "dédié facturation" : "historique"}` : ""}
+                      </div>
                     </>
                   )}
                   {!progbatResult.ok && (
@@ -4398,6 +4514,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   )}
                 </div>
               )}
+              {/* Diagnostic facturation (lecture seule) — factures, règlements, PDF */}
+              {progbatResult?.ok && <CapacitesFacturationProgbat billing={progbatResult.billing} T={T}/>}
             </div>
           </div>
 

@@ -16,9 +16,35 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 //   GET https://api.progbat.com/v2/clients/me  scope `profile` ou `company-accounts.read`
 //       → tableau des sociétés du compte (id, legalName, businessName, siren…)
 //
-// Secret Supabase utilisé : PROGBAT_PRIVATE_ACCESS_TOKEN (jeton privé, envoyé
-// en `Authorization: Bearer`). PROGBAT_CLIENT_ID / PROGBAT_CLIENT_SECRET ne sont
-// volontairement PAS utilisés ici (réservés au futur flux OAuth).
+// DIAGNOSTIC DE FACTURATION (lot diagnostique, lecture seule) — s'ajoute au
+// test ci-dessus sans le remplacer :
+//   GET /company/bills?limit=20&offset=0[&sort]        scope `bills` ou `bills.read`
+//   GET /company/transactions?limit=50&offset=0[&sort] scope `transactions` (variante
+//       `.read` non confirmée par la documentation)
+//   GET /company/bills/{billId}/pdf                    scope `bills` ou `bills.read`
+//       → uniquement le code HTTP, le Content-Type et la TAILLE reçue. Le PDF
+//         n'est ni renvoyé, ni enregistré, ni journalisé.
+// Aucun autre verbe que GET n'est employé : cette fonction ne peut rien écrire
+// dans ProGBat, par construction.
+//
+// POURQUOI UNE LISTE BLANCHE DE CHAMPS : les réponses /company/bills portent le
+// nom, l'adresse et les coordonnées du client ; /company/transactions porte des
+// libellés bancaires et le compte d'origine. Les échantillons renvoyés sont donc
+// RECONSTRUITS champ par champ (CHAMPS_FACTURE / projeterTransaction) : tout ce
+// qui n'est pas explicitement listé ne peut pas sortir, même si ProGBat ajoute
+// des champs demain.
+//
+// SÉMANTIQUE NON DOCUMENTÉE : `status` et `validated` (entiers) n'ont aucune
+// signification documentée côté ProGBat, et `checking[].docType` n'a pas de
+// valeurs énumérées. Ce diagnostic les REMONTE TELS QUELS, avec leur nombre
+// d'occurrences, sans les interpréter — c'est précisément ce qu'il sert à
+// établir sur des données réelles.
+//
+// Secret Supabase utilisé : PROGBAT_BILLING_ACCESS_TOKEN s'il existe, sinon
+// PROGBAT_PRIVATE_ACCESS_TOKEN (jeton privé, envoyé en `Authorization: Bearer`).
+// La réponse indique seulement lequel a servi (`token_source`), jamais sa valeur.
+// PROGBAT_CLIENT_ID / PROGBAT_CLIENT_SECRET ne sont volontairement PAS utilisés
+// ici (réservés au futur flux OAuth).
 // Le jeton n'est jamais renvoyé, ni journalisé, ni inclus dans un message.
 //
 // Accès : utilisateur Supabase authentifié, profil `utilisateurs` actif et
@@ -70,8 +96,8 @@ const messagePourStatus = (status: number, detail: string): string => {
 }
 
 type ProgbatResult =
-  | { ok: true; status: number; data: unknown }
-  | { ok: false; status: number; message: string }
+  | { ok: true; status: number; data: unknown; contentRange: string | null }
+  | { ok: false; status: number; message: string; contentRange: string | null }
 
 // GET en lecture seule sur l'API ProGBat, avec délai maximal.
 // Ne journalise jamais les en-têtes ni le corps ; ne renvoie jamais le corps brut en erreur.
@@ -84,21 +110,143 @@ async function progbatGet(path: string, token: string): Promise<ProgbatResult> {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       signal: ctrl.signal,
     })
+    // En-tête de pagination : présent sur les listes de la bibliothèque, à
+    // confirmer sur /bills et /transactions — d'où sa remontée telle quelle.
+    const contentRange = res.headers.get("content-range")
     if (!res.ok) {
       let detail = ""
       try {
         const body = await res.json()
         detail = nettoyerMessage(body?.message ?? body?.error_description ?? body?.error ?? "")
       } catch { /* corps non JSON : ignoré */ }
-      return { ok: false, status: res.status, message: messagePourStatus(res.status, detail) }
+      return { ok: false, status: res.status, message: messagePourStatus(res.status, detail), contentRange }
     }
     const data = await res.json().catch(() => null)
-    return { ok: true, status: res.status, data }
+    return { ok: true, status: res.status, data, contentRange }
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
-      return { ok: false, status: 0, message: `ProGBat n'a pas répondu en ${TIMEOUT_MS / 1000} s (délai dépassé).` }
+      return { ok: false, status: 0, message: `ProGBat n'a pas répondu en ${TIMEOUT_MS / 1000} s (délai dépassé).`, contentRange: null }
     }
-    return { ok: false, status: 0, message: "Connexion à ProGBat impossible (réseau ou DNS)." }
+    return { ok: false, status: 0, message: "Connexion à ProGBat impossible (réseau ou DNS).", contentRange: null }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DIAGNOSTIC DE FACTURATION — helpers (lecture seule, aucune interprétation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Liste paginée avec tri, et UNE seule reprise sans tri si la requête est
+// refusée comme invalide (400/422). Jamais de boucle. Un 401/403/429 n'est pas
+// un problème de tri : on ne réessaie pas, le code d'erreur est ce qui compte.
+async function listerProgbat(
+  chemin: string, tri: string, limit: number, token: string,
+): Promise<{ r: ProgbatResult; tri_applique: boolean; tri_refuse: boolean }> {
+  const base = `${chemin}?limit=${limit}&offset=0`
+  const r1 = await progbatGet(`${base}&sort=${encodeURIComponent(tri)}`, token)
+  if (r1.ok || (r1.status !== 400 && r1.status !== 422)) {
+    return { r: r1, tri_applique: r1.ok, tri_refuse: false }
+  }
+  const r2 = await progbatGet(base, token)
+  return { r: r2, tri_applique: false, tri_refuse: true }
+}
+
+// Valeurs distinctes observées, avec leur nombre d'occurrences. Sert à établir
+// EMPIRIQUEMENT ce que valent `status`, `validated` et `docType` : aucune de ces
+// valeurs n'est interprétée ici.
+const valeursDistinctes = (valeurs: unknown[]) => {
+  const map = new Map<string, { valeur: unknown; occurrences: number }>()
+  for (const v of valeurs) {
+    const cle = v === null || v === undefined ? "(absent)" : String(v)
+    const e = map.get(cle)
+    if (e) e.occurrences++
+    else map.set(cle, { valeur: v ?? null, occurrences: 1 })
+  }
+  return [...map.values()].sort((a, b) => b.occurrences - a.occurrences)
+}
+
+// LISTE BLANCHE des champs de facture renvoyés. Tout le reste (clientName,
+// clientAddress, clientPostcode, clientCity, businessAddress…) est écarté par
+// construction : on RECONSTRUIT l'objet, on ne le filtre pas.
+const CHAMPS_FACTURE = [
+  "id", "code", "type", "documentDate", "dueDate", "quoteId", "businessId",
+  "yardId", "situationNumber", "status", "validated", "einvoiceStatus",
+  "netTotal", "taxes", "atiTotal", "toBePaid", "holdback", "revisionNumber",
+] as const
+
+const projeterFacture = (b: Record<string, unknown>) => {
+  const out: Record<string, unknown> = {}
+  for (const c of CHAMPS_FACTURE) out[c] = b?.[c] ?? null
+  return out
+}
+
+// Idem pour les transactions : bankAccountId, label, paymentNumber,
+// paymentMode, ctime et checking[].thirdId ne sortent JAMAIS (données
+// bancaires ou identifiant de tiers).
+const MAX_CHECKING = 20 // borne de charge utile, signalée si atteinte
+
+const projeterTransaction = (t: Record<string, unknown>) => {
+  const checking = Array.isArray(t?.checking) ? t.checking as Record<string, unknown>[] : []
+  return {
+    id: t?.id ?? null,
+    date: t?.date ?? null,
+    amount: typeof t?.amount === "number" ? t.amount : null,
+    canceled: t?.canceled ?? null,
+    checked: t?.checked ?? null,
+    checking_total: checking.length,
+    checking: checking.slice(0, MAX_CHECKING).map((c) => ({
+      docType: c?.docType ?? null,
+      docId: c?.docId ?? null,
+      amount: typeof c?.amount === "number" ? c.amount : null,
+    })),
+  }
+}
+
+// Clé de comparaison d'identifiant : correspondance EXACTE sur la valeur
+// numérique (ProGBat type `docId` et `bill.id` en entiers).
+const cleId = (v: unknown): string | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN
+  return Number.isFinite(n) ? String(n) : null
+}
+
+// scope_accessible : false SEULEMENT sur un 403 (scope manquant). Une panne
+// réseau ou un 500 ne dit rien du scope → null, et le message explique.
+const scopeAccessible = (r: ProgbatResult) => r.ok ? true : (r.status === 403 ? false : null)
+
+// Test du PDF d'une facture : GET seul. Le corps est lu UNIQUEMENT pour en
+// mesurer la taille, puis abandonné — rien n'est renvoyé ni enregistré.
+async function testerPdfFacture(billId: unknown, token: string) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+  try {
+    const res = await fetch(`${PROGBAT_API}/company/bills/${encodeURIComponent(String(billId))}/pdf`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/pdf" },
+      signal: ctrl.signal,
+    })
+    const contentType = res.headers.get("content-type")
+    let taille: number | null = null
+    if (res.ok) {
+      const buf = await res.arrayBuffer()   // mesuré puis oublié : jamais stocké
+      taille = buf.byteLength
+    } else {
+      await res.body?.cancel().catch(() => {})
+    }
+    return {
+      teste: true, bill_id: billId, http_status: res.status,
+      content_type: contentType, taille_octets: taille, ok: res.ok,
+      ...(res.ok ? {} : { message: messagePourStatus(res.status, "") }),
+    }
+  } catch (err) {
+    const delai = (err as Error)?.name === "AbortError"
+    return {
+      teste: true, bill_id: billId, http_status: 0, content_type: null,
+      taille_octets: null, ok: false,
+      message: delai
+        ? `ProGBat n'a pas répondu en ${TIMEOUT_MS / 1000} s (délai dépassé).`
+        : "Connexion à ProGBat impossible (réseau ou DNS).",
+    }
   } finally {
     clearTimeout(timer)
   }
@@ -132,17 +280,23 @@ serve(async (req) => {
     }
 
     // ── 2. Secret ProGBat (jamais renvoyé ni journalisé) ─────────────────────
-    const token = Deno.env.get("PROGBAT_PRIVATE_ACCESS_TOKEN") || ""
+    // Jeton de facturation dédié s'il existe (idéalement en lecture seule :
+    // bills.read + transactions.read), sinon le jeton historique. Seule la
+    // PROVENANCE est renvoyée, jamais la valeur.
+    const tokenBilling = Deno.env.get("PROGBAT_BILLING_ACCESS_TOKEN") || ""
+    const tokenLegacy = Deno.env.get("PROGBAT_PRIVATE_ACCESS_TOKEN") || ""
+    const token = tokenBilling || tokenLegacy
+    const tokenSource: "billing" | "legacy" = tokenBilling ? "billing" : "legacy"
     if (!token) {
-      console.warn("[progbat-test-connection] secret PROGBAT_PRIVATE_ACCESS_TOKEN absent")
-      return json({ ok: false, progbat_status: null, error: "Secret PROGBAT_PRIVATE_ACCESS_TOKEN non configuré dans Supabase." }, 500)
+      console.warn("[progbat-test-connection] aucun secret ProGBat configuré")
+      return json({ ok: false, progbat_status: null, error: "Aucun secret ProGBat configuré dans Supabase (PROGBAT_BILLING_ACCESS_TOKEN ou PROGBAT_PRIVATE_ACCESS_TOKEN)." }, 500)
     }
 
     // ── 3. GET /me : valide le jeton et le scope profile.read ────────────────
     const me = await progbatGet("/me", token)
     if (!me.ok) {
       console.warn(`[progbat-test-connection] appelant=${caller.id} /me → HTTP ${me.status} (${Date.now() - t0} ms)`)
-      return json({ ok: false, progbat_status: me.status, error: me.message }, 200)
+      return json({ ok: false, progbat_status: me.status, token_source: tokenSource, error: me.message }, 200)
     }
     const m = (me.data ?? {}) as Record<string, unknown>
     const utilisateur = {
@@ -167,17 +321,137 @@ serve(async (req) => {
       entrepriseMessage = co.message
     }
 
-    console.log(`[progbat-test-connection] appelant=${caller.id} /me → ${me.status}, /clients/me → ${co.status} (${Date.now() - t0} ms)`)
+    // ── 5. Diagnostic « facturation » — factures, règlements, PDF ───────────
+    // Purement diagnostique : trois GET au plus (+ une reprise sans tri), aucune
+    // écriture nulle part. Un échec ici n'invalide JAMAIS le résultat de /me :
+    // chaque bloc porte son propre statut et son propre message.
+
+    // 5a. Factures
+    const fact = await listerProgbat("/company/bills", '{"documentDate":-1}', 20, token)
+    const facturesBrutes = fact.r.ok && Array.isArray(fact.r.data) ? fact.r.data as Record<string, unknown>[] : []
+    const echantillonFactures = facturesBrutes.map(projeterFacture)
+    const blocFactures = {
+      ok: fact.r.ok,
+      http_status: fact.r.status,
+      scope_accessible: scopeAccessible(fact.r),
+      content_range: fact.r.contentRange,          // null = en-tête absent
+      tri_applique: fact.tri_applique,
+      tri_refuse: fact.tri_refuse,
+      nombre_recu: echantillonFactures.length,
+      valeurs_distinctes: {
+        type: valeursDistinctes(echantillonFactures.map(f => f.type)),
+        status: valeursDistinctes(echantillonFactures.map(f => f.status)),
+        validated: valeursDistinctes(echantillonFactures.map(f => f.validated)),
+        einvoiceStatus: valeursDistinctes(echantillonFactures.map(f => f.einvoiceStatus)),
+      },
+      echantillon: echantillonFactures,
+      ...(fact.r.ok ? {} : { message: fact.r.message }),
+    }
+
+    // 5b. Règlements (transactions bancaires + leur lettrage)
+    const tr = await listerProgbat("/company/transactions", '{"date":-1}', 50, token)
+    const transactionsBrutes = tr.r.ok && Array.isArray(tr.r.data) ? tr.r.data as Record<string, unknown>[] : []
+    const echantillonTransactions = transactionsBrutes.map(projeterTransaction)
+    const toutLeChecking = echantillonTransactions.flatMap(t => t.checking)
+    const blocTransactions = {
+      ok: tr.r.ok,
+      http_status: tr.r.status,
+      scope_accessible: scopeAccessible(tr.r),
+      content_range: tr.r.contentRange,
+      tri_applique: tr.tri_applique,
+      tri_refuse: tr.tri_refuse,
+      nombre_recu: echantillonTransactions.length,
+      valeurs_distinctes: {
+        canceled: valeursDistinctes(echantillonTransactions.map(t => t.canceled)),
+        checked: valeursDistinctes(echantillonTransactions.map(t => t.checked)),
+        checking_docType: valeursDistinctes(toutLeChecking.map(c => c.docType)),
+      },
+      echantillon: echantillonTransactions,
+      ...(tr.r.ok ? {} : { message: tr.r.message }),
+    }
+
+    // 5c. Croisement facture ↔ règlement — CONSTAT, pas déduction.
+    // Un lettrage n'est retenu que si son docId correspond EXACTEMENT à l'id
+    // d'une facture de l'échantillon. Le docType correspondant est rapporté tel
+    // quel : rien ici ne présume qu'un libellé de docType signifie « facture ».
+    const parIdFacture = new Map<string, Record<string, unknown>>()
+    for (const f of echantillonFactures) {
+      const k = cleId(f.id)
+      if (k) parIdFacture.set(k, f)
+    }
+    const facturesVues = new Set<string>()
+    const docTypesCorrespondants = new Set<string>()
+    const exemples: Record<string, unknown>[] = []
+    let allocations = 0
+    for (const t of echantillonTransactions) {
+      for (const c of t.checking) {
+        const k = cleId(c.docId)
+        if (!k || !parIdFacture.has(k)) continue
+        const f = parIdFacture.get(k)!
+        allocations++
+        facturesVues.add(k)
+        if (c.docType != null) docTypesCorrespondants.add(String(c.docType))
+        if (exemples.length < 10) {
+          exemples.push({
+            bill_id: f.id, bill_code: f.code,
+            transaction_id: t.id, transaction_date: t.date,
+            allocation_amount: c.amount, doc_type: c.docType,
+          })
+        }
+      }
+    }
+    const blocCroisement = {
+      factures_referencees: facturesVues.size,
+      allocations_trouvees: allocations,
+      doc_types_correspondants: [...docTypesCorrespondants],
+      exemples,
+    }
+
+    // 5d. PDF — seulement si une facture SEMBLE validée, au sens littéral du
+    // champ `validated` (entier non nul). La signification de cet entier reste
+    // inconnue : le critère retenu est donc renvoyé avec le résultat, pour que
+    // le lecteur juge lui-même.
+    const candidate = echantillonFactures.find(f => {
+      const v = typeof f.validated === "number" ? f.validated : Number(f.validated)
+      return Number.isFinite(v) && v !== 0
+    }) ?? null
+    const blocPdf = candidate
+      ? { ...(await testerPdfFacture(candidate.id, token)), critere: "première facture de l'échantillon dont validated ≠ 0" }
+      : {
+          teste: false, bill_id: null, http_status: null, content_type: null,
+          taille_octets: null, ok: null,
+          message: blocFactures.ok
+            ? "Aucune facture de l'échantillon n'a validated ≠ 0 : test PDF non effectué."
+            : "Liste des factures inaccessible : test PDF non effectué.",
+        }
+
+    // Journal : comptages et codes HTTP uniquement — aucun identifiant ProGBat,
+    // aucun montant, aucun jeton, aucun corps de réponse.
+    console.log(
+      `[progbat-test-connection] appelant=${caller.id} jeton=${tokenSource} ` +
+      `/me → ${me.status}, /clients/me → ${co.status}, ` +
+      `/company/bills → ${fact.r.status} (${blocFactures.nombre_recu}), ` +
+      `/company/transactions → ${tr.r.status} (${blocTransactions.nombre_recu}), ` +
+      `croisements=${allocations}, pdf=${blocPdf.teste ? blocPdf.http_status : "non testé"} ` +
+      `(${Date.now() - t0} ms)`,
+    )
 
     return json({
       ok: true,
       progbat_status: me.status,
       message: "Connexion ProGBat réussie : le jeton privé est valide.",
+      token_source: tokenSource,
       utilisateur,
       entreprise: entreprises[0] ?? null,
       entreprises,
       entreprise_status: co.status,
       ...(entrepriseMessage ? { entreprise_message: entrepriseMessage } : {}),
+      billing: {
+        factures: blocFactures,
+        transactions: blocTransactions,
+        croisement: blocCroisement,
+        pdf: blocPdf,
+      },
     })
   } catch (err) {
     console.error(`[progbat-test-connection] erreur interne : ${nettoyerMessage((err as Error)?.message)}`)
