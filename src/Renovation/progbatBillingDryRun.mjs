@@ -100,7 +100,8 @@ export const CATEGORIES_REGLEMENT = Object.freeze([
   "creation",
   "mise_a_jour",
   "inchange",
-  "annulation_proposee",              // présent localement, absent de l'ensemble actif distant
+  "annulation_proposee",              // absent de l'ensemble actif distant, et pas encore annulé
+  "deja_annule",                      // absent lui aussi, mais DÉJÀ annule = true : aucune écriture
 ]);
 
 // ── Listes blanches de SORTIE ───────────────────────────────────────────────
@@ -651,17 +652,30 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
   }
 
   // ── Absences : uniquement sur une lecture COMPLÈTE ─────────────────────
+  // Une ligne locale que plus aucune transaction active ne porte relève de deux
+  // cas, et les SÉPARER est ce qui fait converger le diagnostic :
+  //   • pas encore annulée  → annulation_proposee, une vraie écriture à venir ;
+  //   • déjà annule = true  → deja_annule, RIEN à écrire : la ligne est dans
+  //     l'état attendu. Les confondre ferait reproposer indéfiniment une
+  //     annulation déjà faite, et le diagnostic n'atteindrait jamais « rien à
+  //     faire » — exactement le travers évité côté factures en ignorant
+  //     progbat_synced_at.
+  // Une pagination incomplète ne produit NI l'une NI l'autre : « absent » n'y
+  // veut rien dire.
   if (paginationComplete) {
     for (const [cle, local] of locauxParPaire) {
       if (pairesVues.has(cle)) continue;
-      journal.ajouter("annulation_proposee", exempleReglement({
+      const dejaAnnule = local.annule === true;
+      journal.ajouter(dejaAnnule ? "deja_annule" : "annulation_proposee", exempleReglement({
         transaction: { id: local.progbat_transaction_id },
         progbat_bill_id: null,
         facture_id: local.facture_id ?? null,
         montant: montantOuNull(local.montant),
         date: local.date_reglement ?? null,
-        categorie: "annulation_proposee",
-        motif: "Règlement présent en base mais absent des transactions actives de ProGBat : annulation à confirmer (rien n'est modifié ici).",
+        categorie: dejaAnnule ? "deja_annule" : "annulation_proposee",
+        motif: dejaAnnule
+          ? "Règlement déjà annulé en base et toujours absent des transactions actives de ProGBat : rien à faire."
+          : "Règlement présent en base mais absent des transactions actives de ProGBat : annulation à confirmer (rien n'est modifié ici).",
       }));
     }
   }

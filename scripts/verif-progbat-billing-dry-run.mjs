@@ -897,6 +897,7 @@ test("règlements : les quatre issues de `annule`, côte à côte", async () => 
   const c = await lancer({ factures: [existanteF], reglements: [ligne(false)], transactions: [inactive] });
   assert.equal(c.r.rapport.reconciliation_absence_autorisee, true);
   assert.equal(c.r.rapport.reglements.categories.annulation_proposee, 1);
+  assert.equal(c.r.rapport.reglements.categories.deja_annule, 0, "la ligne locale est encore vivante");
   assert.equal(c.r.rapport.reglements.categories.mise_a_jour, 0);
   assert.equal(c.r.rapport.reglements.categories.inchange, 0);
 
@@ -932,6 +933,7 @@ test("règlements : absence locale → annulation PROPOSÉE seulement si la lect
   assert.equal(b.ok, true, "les factures restent diagnosticables");
   assert.equal(b.rapport.reconciliation_absence_autorisee, false);
   assert.equal(b.rapport.reglements.categories.annulation_proposee, 0);
+  assert.equal(b.rapport.reglements.categories.deja_annule, 0);
   assert.equal(b.rapport.pagination.transactions.ok, false);
   assert.equal(b.rapport.pagination.transactions.complet, false);
   assert.match(b.rapport.pagination.transactions.erreur, /429/);
@@ -946,6 +948,100 @@ test("règlements : absence locale → annulation PROPOSÉE seulement si la lect
   assert.equal(c.rapport.pagination.transactions.complet, false);
   assert.equal(c.rapport.reconciliation_absence_autorisee, false);
   assert.equal(c.rapport.reglements.categories.annulation_proposee, 0);
+  assert.equal(c.rapport.reglements.categories.deja_annule, 0);
+});
+
+test("règlements : le cycle de vie d'une absence CONVERGE vers « rien à faire »", async () => {
+  const existanteF = ligneEnBase(FACTURES[0], "tilleuls", "f-1001");
+  // Une ligne locale portant une transaction 7777 qu'aucune transaction active
+  // distante ne porte plus.
+  const local = (annule) => ({
+    id: "r-9", facture_id: "f-1001", source: "progbat",
+    progbat_transaction_id: 7777, progbat_doc_type: "bill", progbat_canceled: 0,
+    date_reglement: "2026-08-01", montant: "300.00", mode: "check", annule,
+  });
+  // Les fixtures de transactions ne contiennent jamais la 7777.
+  const sansLa7777 = [TRANSACTIONS[0]];
+
+  // 1. Première absence, lecture complète → annulation PROPOSÉE.
+  const un = await lancer({ factures: [existanteF], reglements: [local(false)], transactions: sansLa7777 });
+  assert.equal(un.r.rapport.reconciliation_absence_autorisee, true);
+  assert.equal(un.r.rapport.reglements.categories.annulation_proposee, 1);
+  assert.equal(un.r.rapport.reglements.categories.deja_annule, 0);
+  const propose = un.r.rapport.reglements.exemples.annulation_proposee[0];
+  assert.equal(propose.progbat_transaction_id, 7777);
+  assert.equal(propose.facture_id, "f-1001");
+  assert.match(propose.motif, /annulation à confirmer/i);
+
+  // 2 et 3. La synchronisation l'a annulée : la MÊME ligne, toujours absente,
+  // devient deja_annule — et surtout ne repasse PAS en annulation_proposee.
+  const deux = await lancer({ factures: [existanteF], reglements: [local(true)], transactions: sansLa7777 });
+  assert.equal(deux.r.rapport.reglements.categories.deja_annule, 1);
+  assert.equal(deux.r.rapport.reglements.categories.annulation_proposee, 0, "aucune annulation reproposée");
+  const deja = deux.r.rapport.reglements.exemples.deja_annule[0];
+  assert.equal(deja.progbat_transaction_id, 7777);
+  assert.match(deja.motif, /rien à faire/i);
+  // Convergence : plus AUCUNE écriture n'est proposée sur les règlements.
+  const g = deux.r.rapport.reglements.categories;
+  assert.equal(g.annulation_proposee + g.mise_a_jour, 0);
+
+  // 4. La transaction 7777 réapparaît active → la ligne éteinte est rallumée.
+  const revenue = transaction({ id: 7777, canceled: 0, checked: 1, date: "2026-08-01", paymentMode: "check",
+    checking: [{ docType: "bill", docId: 1001, amount: 300 }] });
+  const quatre = await lancer({ factures: [existanteF], reglements: [local(true)], transactions: [revenue] });
+  assert.equal(quatre.r.rapport.reglements.categories.mise_a_jour, 1);
+  assert.equal(quatre.r.rapport.reglements.categories.deja_annule, 0);
+  assert.equal(quatre.r.rapport.reglements.categories.annulation_proposee, 0);
+  assert.match(quatre.r.rapport.reglements.exemples.mise_a_jour[0].motif, /\bannule\b/);
+
+  // 5. Pagination incomplète → aucune décision par absence, dans un sens comme
+  //    dans l'autre. Vérifié pour les deux états de la ligne locale.
+  for (const annule of [false, true]) {
+    const { depot } = faireDepot({ factures: [existanteF], reglements: [local(annule)] });
+    const ko = faireProgbat({ erreurs: { transactions: { ok: false, status: 500, message: "500" } } });
+    const cinq = await executerDryRun({ depot, progbat: ko, maintenant: MAINTENANT, pageSize: 100, maxPages: MAX_PAGES });
+    assert.equal(cinq.rapport.reconciliation_absence_autorisee, false);
+    assert.equal(cinq.rapport.reglements.categories.annulation_proposee, 0);
+    assert.equal(cinq.rapport.reglements.categories.deja_annule, 0);
+  }
+});
+
+test("règlements : les comptages restent cohérents, absences comprises", async () => {
+  const existanteF = ligneEnBase(FACTURES[0], "tilleuls", "f-1001");
+  const commun = {
+    facture_id: "f-1001", source: "progbat", progbat_doc_type: "bill",
+    progbat_canceled: 0, date_reglement: "2026-09-05", mode: "transfer",
+  };
+  const reglements = [
+    // Vue et identique → inchange.
+    { ...commun, id: "r-1", progbat_transaction_id: 5001, montant: "925.15", annule: false },
+    // Absente et vivante → annulation_proposee.
+    { ...commun, id: "r-2", progbat_transaction_id: 7777, montant: "300.00", annule: false },
+    // Absente et déjà éteinte → deja_annule.
+    { ...commun, id: "r-3", progbat_transaction_id: 8888, montant: "100.00", annule: true },
+  ];
+  const { r } = await lancer({ factures: [existanteF], reglements });
+  const g = r.rapport.reglements;
+
+  // a. Chaque transaction reçue est soit active, soit écartée.
+  assert.equal(g.categories.transaction_inactive_ou_inconnue + g.transactions_actives, g.transactions_recues);
+  // b. Chaque lettrage d'une transaction active est soit ignoré, soit retenu…
+  assert.equal(
+    g.categories.facture_introuvable + g.categories.creation + g.categories.mise_a_jour + g.categories.inchange,
+    g.lettrages_retenus,
+    "tout lettrage retenu tombe dans exactement une catégorie",
+  );
+  // c. …et chaque ligne locale est soit retrouvée (inchange / mise_a_jour),
+  //    soit absente (annulation_proposee / deja_annule). Aucune ne se perd.
+  assert.equal(
+    g.categories.inchange + g.categories.mise_a_jour
+      + g.categories.annulation_proposee + g.categories.deja_annule,
+    g.reglements_locaux,
+  );
+  assert.equal(g.reglements_locaux, 3);
+  assert.equal(g.categories.inchange, 1);
+  assert.equal(g.categories.annulation_proposee, 1);
+  assert.equal(g.categories.deja_annule, 1);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
