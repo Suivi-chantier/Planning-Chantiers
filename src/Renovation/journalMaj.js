@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
     type: "nouveaute",
+    titre: "Coefficients de vente configurables : le coefficient d'un ouvrage se choisit dans une liste, comme le taux horaire",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "info-client", label: "Chiffrage" }],
+    quoi: "La saisie libre du coefficient dans chaque fiche ouvrage est remplacée par une liste de coefficients partagés (Coefficient standard — 1,50 créé et affecté aux 105 ouvrages existants, y compris ceux qui portaient un autre coefficient). Prix matériaux = coût matériaux × coefficient choisi ; la main-d'œuvre garde son taux horaire. Modifier un coefficient recalcule le prix des ouvrages qui l'utilisent pour les futurs chiffrages ; les lignes et devis déjà figés gardent leur coefficient et leur prix.",
+    comment: "Réglages → Taux horaires → « Coefficients de vente » (administrateurs) : créer un coefficient, modifier son libellé ou sa valeur (un avertissement indique le nombre réel d'ouvrages concernés), choisir le coefficient par défaut des nouveaux ouvrages, désactiver ou réactiver (jamais supprimé ; un coefficient désactivé reste sur les ouvrages qui l'utilisent, affiché « désactivé »). Bibliothèque : liste déroulante obligatoire « Coefficient de vente », présélectionnée sur le défaut à la création et reprise à la duplication, avec le détail « Matériaux : 100,00 € × 1,50 = 150,00 € HT ».",
+  },
+  {
+    date: "2026-09-16",
+    type: "nouveaute",
     titre: "Taux horaires de main-d'œuvre configurables : le prix MO d'un ouvrage = cadence × taux choisi",
     pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "info-client", label: "Chiffrage" }],
     quoi: "L'unique taux global de main-d'œuvre est remplacé par une liste de taux de vente (Taux standard — 80,00 € HT/h créé et affecté à tous les ouvrages existants). Chaque fiche ouvrage choisit son taux dans une liste déroulante ; le prix de vente devient : matériaux × coefficient + cadence × taux horaire. Le coefficient ne s'applique donc plus à la main-d'œuvre. Les devis et lignes déjà figés gardent leur prix et leur taux historique.",

@@ -19,7 +19,8 @@ import { rapprocherBibliotheque, motifsBlocage } from "./lib/progbatInventaire.m
 // `Range: {start} - {end} / {count}` (voir reference/list-pagination).
 //
 // Données Supabase lues : bibliotheque_ratios, materiaux_bibliotheque,
-// planning_config (taux_mo_previsionnel, chiffrage_tva_defaut).
+// taux_horaires_vente, coefficients_vente, planning_config (taux_mo_previsionnel,
+// chiffrage_tva_defaut).
 //
 // Règles de rapprochement et de complétude : lib/progbatInventaire.mjs (copie
 // de src/Renovation/progbatInventaire.mjs, régénérée par
@@ -195,22 +196,26 @@ serve(async (req) => {
     }
 
     // ── 3. Données Profero (SELECT uniquement) ───────────────────────────────
-    const [ouvRes, matRes, cfgRes, tauxRes] = await Promise.all([
+    const [ouvRes, matRes, cfgRes, tauxRes, coefRes] = await Promise.all([
       admin.from("bibliotheque_ratios")
-        .select("id, libelle, unite, cadence, materiaux_liens, taux_marge_pct, coef_vente, main_oeuvre_seule, cout_direct_unitaire, progbat_id, taux_horaire_vente_id")
+        .select("id, libelle, unite, cadence, materiaux_liens, main_oeuvre_seule, cout_direct_unitaire, progbat_id, taux_horaire_vente_id, coefficient_vente_id")
         .order("libelle"),
       admin.from("materiaux_bibliotheque").select("id, nom, unite, prix_unitaire"),
       admin.from("planning_config").select("key, value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
       // Taux horaires de VENTE : prix MO d'un ouvrage = cadence × taux sélectionné (bibliotheque_ratios.taux_horaire_vente_id)
       admin.from("taux_horaires_vente").select("id, libelle, taux_ht, actif, est_defaut"),
+      // Coefficients de VENTE : prix matériaux = coût × coefficient sélectionné (bibliotheque_ratios.coefficient_vente_id)
+      admin.from("coefficients_vente").select("id, libelle, valeur, actif, est_defaut"),
     ])
     if (ouvRes.error) return json({ ok: false, error: "Lecture de la bibliothèque impossible : " + nettoyerMessage(ouvRes.error.message) }, 500)
     if (matRes.error) return json({ ok: false, error: "Lecture des matériaux impossible : " + nettoyerMessage(matRes.error.message) }, 500)
     if (tauxRes.error) return json({ ok: false, error: "Lecture des taux horaires impossible : " + nettoyerMessage(tauxRes.error.message) }, 500)
+    if (coefRes.error) return json({ ok: false, error: "Lecture des coefficients de vente impossible : " + nettoyerMessage(coefRes.error.message) }, 500)
     const cfg = (cfgRes.data || []) as { key: string; value: unknown }[]
     const coutHoraire = num(cfg.find((r) => r.key === "taux_mo_previsionnel")?.value)   // coût chargé : marge seulement
     const tvaDefaut = num(cfg.find((r) => r.key === "chiffrage_tva_defaut")?.value)
     const tauxHoraires = (tauxRes.data || []) as Record<string, unknown>[]
+    const coefficientsVente = (coefRes.data || []) as Record<string, unknown>[]
 
     // ── 4. ProGBat : compte, structures, éléments, unités, TVA (GET) ─────────
     const me = await progbatGet("/me", token)
@@ -259,6 +264,7 @@ serve(async (req) => {
       materiaux: matRes.data || [],
       coutHoraire,
       tauxHoraires,
+      coefficientsVente,
       tvaDefaut,
       taxes: taxesRes.ok ? taxes : null,
       unites: unites.ok ? unites.items : null,
@@ -287,6 +293,7 @@ serve(async (req) => {
         nb_materiaux: (matRes.data || []).length,
         cout_horaire: coutHoraire,
         nb_taux_horaires_actifs: tauxHoraires.filter((t) => t.actif !== false).length,
+        nb_coefficients_actifs: coefficientsVente.filter((c) => c.actif !== false).length,
         tva_defaut: tvaDefaut,
       },
       // Diagnostic : noms des champs réellement renvoyés par l'API pour les structures

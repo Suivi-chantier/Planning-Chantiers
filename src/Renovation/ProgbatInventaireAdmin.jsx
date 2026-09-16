@@ -233,6 +233,7 @@ export default function ProgbatInventaire({ T, acc }) {
               {result.profero?.tva_defaut == null && <span style={{ color: "#f59e0b" }}>TVA par défaut du chiffrage non réglée</span>}
               {result.profero?.cout_horaire == null && <span style={{ color: "#f59e0b" }}>Coût horaire chargé non réglé (marge non calculable)</span>}
               {result.profero?.nb_taux_horaires_actifs === 0 && <span style={{ color: "#e15a5a" }}>Aucun taux horaire de vente actif</span>}
+              {result.profero?.nb_coefficients_actifs === 0 && <span style={{ color: "#e15a5a" }}>Aucun coefficient de vente actif</span>}
             </div>
             {(result.progbat?.structures?.tronque || result.progbat?.elements?.tronque) && (
               <div style={{ color: "#f59e0b", fontWeight: 600 }}>⚠ Liste ProGBat tronquée (plafond de pages atteint) : le comptage est partiel.</div>

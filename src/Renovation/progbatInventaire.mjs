@@ -86,12 +86,13 @@ export function libelleCourtProfero(ouvrage) {
  * jour dans ProGBat. Réutilise calculerOuvrage (source unique des règles de
  * prix) et ajoute les contrôles propres à la synchronisation.
  * @param ouvrage  ligne bibliotheque_ratios
- * @param ctx      { materiaux, coutHoraire, tauxHoraires, tvaDefaut, tauxTvaProgbat?, unitesProgbat? }
- *                 tauxHoraires = lignes taux_horaires_vente (prix MO = cadence × taux sélectionné) ;
+ * @param ctx      { materiaux, coutHoraire, tauxHoraires, coefficientsVente, tvaDefaut, tauxTvaProgbat?, unitesProgbat? }
+ *                 tauxHoraires      = lignes taux_horaires_vente (prix MO = cadence × taux sélectionné) ;
+ *                 coefficientsVente = lignes coefficients_vente (prix matériaux = coût × coefficient sélectionné) ;
  *                 coutHoraire  = coût horaire chargé (marge seulement, non bloquant).
  * @returns {{ code, libelleCourt, unite, blocages: string[], avertissements: string[], synchronisable: boolean, prix }}
  */
-export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tvaDefaut = null, tauxTvaProgbat = null, unitesProgbat = null } = {}) {
+export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, coefficientsVente = null, tvaDefaut = null, tauxTvaProgbat = null, unitesProgbat = null } = {}) {
   const blocages = [];
   const avertissements = [];
   const libelle = str(ouvrage?.libelle);
@@ -104,11 +105,11 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
   }
   if (!str(ouvrage?.unite)) blocages.push("Unité absente");
 
-  const calc = calculerOuvrage(ouvrage, { materiaux, coutHoraire, tauxHoraires });
+  const calc = calculerOuvrage(ouvrage, { materiaux, coutHoraire, tauxHoraires, coefficientsVente });
   // calc.erreurs couvre : cadence absente, taux horaire de vente absent /
   // introuvable / invalide, matériau introuvable / sans prix / sans quantité,
-  // aucun matériau (hors MO seule), coût direct négatif, coefficient matériaux
-  // absent ou < 1. Le coût horaire chargé manquant n'est qu'un avertissement
+  // aucun matériau (hors MO seule), coût direct négatif, coefficient de vente
+  // absent / introuvable / invalide. Le coût horaire chargé manquant n'est qu'un avertissement
   // (marge non calculable) : le prix de vente synchronisé n'en dépend pas.
   blocages.push(...calc.erreurs);
   avertissements.push(...calc.avertissements);
@@ -153,6 +154,7 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
       taux_horaire_vente: calc.tauxHoraire?.valeur ?? null,
       taux_horaire_vente_id: calc.tauxHoraire?.id ?? null,
       coef_vente: calc.coefVente,
+      coefficient_vente_id: calc.coefficient?.id ?? null,
       taux_marge_pct: calc.tauxMargePct,
     },
   };
@@ -299,11 +301,12 @@ const resumeStructure = (s, codeCommun = null) => ({
  * @param params.materiaux    materiaux_bibliotheque (id, nom, unite, prix_unitaire)
  * @param params.coutHoraire  planning_config.taux_mo_previsionnel (coût chargé, marge seulement)
  * @param params.tauxHoraires lignes taux_horaires_vente (prix MO = cadence × taux de l'ouvrage)
+ * @param params.coefficientsVente lignes coefficients_vente (prix matériaux = coût × coefficient de l'ouvrage)
  * @param params.tvaDefaut    planning_config.chiffrage_tva_defaut
  * @param params.taxes        taux de TVA ProGBat (id, rate, label, saleDefault)
  * @param params.unites       unités ProGBat (id, code)
  */
-export function rapprocherBibliotheque({ ouvrages = [], structures = [], materiaux = [], coutHoraire = null, tauxHoraires = null, tvaDefaut = null, taxes = null, unites = null } = {}) {
+export function rapprocherBibliotheque({ ouvrages = [], structures = [], materiaux = [], coutHoraire = null, tauxHoraires = null, coefficientsVente = null, tvaDefaut = null, taxes = null, unites = null } = {}) {
   const structs = indexerStructures(structures);
   const parId = new Map();
   const parCode = new Map();
@@ -322,7 +325,7 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
   };
 
   const utilises = new Set();
-  const ctx = { materiaux, coutHoraire, tauxHoraires, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
+  const ctx = { materiaux, coutHoraire, tauxHoraires, coefficientsVente, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
 
   const rapprochements = (Array.isArray(ouvrages) ? ouvrages : [])
     .filter(Boolean)

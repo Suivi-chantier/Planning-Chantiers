@@ -22,6 +22,7 @@ import EspaceOuvrier from "./EspaceOuvrier";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
+import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 // Seuils des factures de situation (frise du cycle de vie, phase Travaux).
 import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
 
@@ -4369,6 +4370,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           {/* Taux horaires de VENTE de main-d'œuvre (table taux_horaires_vente) :
               liste proposée dans chaque fiche ouvrage, prix MO = cadence × taux. */}
           <TauxHorairesVenteAdmin T={T} acc={acc} profil={profil}/>
+
+          {/* Coefficients de VENTE (table coefficients_vente) : liste proposée dans
+              chaque fiche ouvrage, prix matériaux = coût matériaux × coefficient. */}
+          <CoefficientsVenteAdmin T={T} acc={acc} profil={profil}/>
 
           {/* Taux MO prévisionnel global — base du coût MO PRÉVU (heures vendues ×
               ce taux) dans le phasage v2 et la page Chantiers. Distinct des taux

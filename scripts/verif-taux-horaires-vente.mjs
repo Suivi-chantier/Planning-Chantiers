@@ -39,8 +39,8 @@ const diag = t.diagnostiquerListe(LISTE);
 assert.equal(diag.ok, true);
 assert.equal(diag.nbActifs, 2);
 assert.equal(t.diagnostiquerListe([]).ok, false);
-assert.ok(t.diagnostiquerListe([CHEF]).problemes.some(m => /Aucun taux par défaut/.test(m)));
-assert.ok(t.diagnostiquerListe([STANDARD, { ...CHEF, est_defaut: true }]).problemes.some(m => /Plusieurs taux par défaut/.test(m)));
+assert.ok(t.diagnostiquerListe([CHEF]).problemes.some(m => /Aucun taux horaire par défaut/.test(m)));
+assert.ok(t.diagnostiquerListe([STANDARD, { ...CHEF, est_defaut: true }]).problemes.some(m => /Plusieurs taux horaires par défaut/.test(m)));
 
 // ── 3. Liste déroulante de la fiche ouvrage ─────────────────────────────────
 // Création : présélection du taux actif par défaut
@@ -82,7 +82,7 @@ assert.equal(t.peutDesactiver(CHEF, LISTE).ok, true);
 assert.equal(t.peutDesactiver(STANDARD, LISTE).ok, false, "le taux par défaut ne se désactive pas");
 assert.match(t.peutDesactiver(STANDARD, LISTE).raison, /par défaut/);
 assert.equal(t.peutDesactiver(CHEF, [CHEF]).ok, false, "dernier taux actif");
-assert.match(t.peutDesactiver(CHEF, [CHEF, SOUS_T]).raison, /au moins un taux actif/);
+assert.match(t.peutDesactiver(CHEF, [CHEF, SOUS_T]).raison, /au moins un taux horaire actif/);
 assert.equal(t.peutDesactiver(SOUS_T, LISTE).ok, false, "déjà désactivé");
 assert.equal(t.peutReactiver(SOUS_T).ok, true);
 assert.equal(t.peutReactiver(CHEF).ok, false);
@@ -97,12 +97,13 @@ assert.equal(t.avertissementModificationTaux(STANDARD, 80), null, "valeur inchan
 assert.equal(t.avertissementModificationTaux(STANDARD, "80,00"), null);
 const av = t.avertissementModificationTaux(STANDARD, 85, { nbOuvrages: 105 });
 assert.match(av, /80,00 € HT\/h → 85,00 € HT\/h/);
-assert.match(av, /105 ouvrages utilisant ce taux pour les futurs chiffrages/);
+assert.match(av, /^Ce taux horaire est utilisé par 105 ouvrages\.\n\n/);
+assert.match(av, /recalculera leur prix de vente pour les futurs chiffrages/);
 assert.match(av, /devis déjà figés ne seront pas modifiés/);
 
 // ── Erreurs Supabase : jamais silencieuses ─────────────────────────────────
 assert.match(t.messageErreurSupabase({ code: "42501", message: "new row violates row-level security policy" }), /réservée aux administrateurs/);
-assert.match(t.messageErreurSupabase({ code: "23505", message: 'duplicate key value violates unique constraint "taux_horaires_vente_un_seul_defaut_uidx"' }), /déjà un taux par défaut/);
+assert.match(t.messageErreurSupabase({ code: "23505", message: 'duplicate key value violates unique constraint "taux_horaires_vente_un_seul_defaut_uidx"' }), /déjà un taux horaire par défaut/);
 assert.match(t.messageErreurSupabase({ code: "23505", message: 'duplicate key value violates unique constraint "taux_horaires_vente_libelle_uidx"' }), /déjà ce libellé/);
 assert.match(t.messageErreurSupabase({ code: "23514", message: 'violates check constraint "taux_horaires_vente_taux_ht_check"' }), /supérieur à zéro/);
 assert.match(t.messageErreurSupabase({ code: "23514", message: 'violates check constraint "taux_horaires_vente_libelle_check"' }), /vide/);
@@ -114,8 +115,9 @@ assert.equal(t.messageErreurSupabase(null), null);
 
 // ── Chiffrage : présélection, modification, conservation, calcul ───────────
 const MAT = [{ id: "m1", nom: "Kit", unite: "U", prix_unitaire: 100 }];
-const CTX = { materiaux: MAT, coutHoraire: 40.62, tauxHoraires: LISTE };
-const nouvelOuvrage = { id: "o1", libelle: "T-001 : Nouveau", unite: "U", cadence: 2.5, coef_vente: 1.35, materiaux_liens: [{ materiau_id: "m1", quantite: 1 }], taux_horaire_vente_id: t.tauxSelectionne(LISTE, null) };
+const COEFS = [{ id: "c1", libelle: "Coefficient test", valeur: 1.35, est_defaut: true, actif: true }];
+const CTX = { materiaux: MAT, coutHoraire: 40.62, tauxHoraires: LISTE, coefficientsVente: COEFS };
+const nouvelOuvrage = { id: "o1", libelle: "T-001 : Nouveau", unite: "U", cadence: 2.5, coefficient_vente_id: "c1", materiaux_liens: [{ materiau_id: "m1", quantite: 1 }], taux_horaire_vente_id: t.tauxSelectionne(LISTE, null) };
 assert.equal(nouvelOuvrage.taux_horaire_vente_id, "t1", "création : taux par défaut présélectionné");
 const c1 = p.calculerOuvrage(nouvelOuvrage, CTX);
 assert.equal(c1.prixVenteUnitaire, 335, "100 × 1,35 + 2,5 × 80 = 335");
@@ -136,7 +138,7 @@ assert.equal(p.calculerOuvrage({ ...nouvelOuvrage, taux_horaire_vente_id: "nope"
 assert.equal(p.calculerOuvrage(nouvelOuvrage, { ...CTX, tauxHoraires: [{ ...STANDARD, taux_ht: 0 }] }).complet, false);
 assert.equal(p.calculerOuvrage(nouvelOuvrage, { ...CTX, tauxHoraires: [{ ...STANDARD, taux_ht: -80 }] }).complet, false);
 // Arrondis monétaires : 0,33 h × 80 = 26,40 ; 1,005 h × 80 = 80,40 ; 3 × 33,33 = 99,99 ; matériaux 10,9 × 1,35 = 14,72
-assert.equal(p.calculerOuvrage({ ...nouvelOuvrage, cadence: 0.33, materiaux_liens: [], main_oeuvre_seule: true, coef_vente: null }, CTX).prixVenteUnitaire, 26.4);
+assert.equal(p.calculerOuvrage({ ...nouvelOuvrage, cadence: 0.33, materiaux_liens: [], main_oeuvre_seule: true }, CTX).prixVenteUnitaire, 26.4);
 assert.equal(p.calculerOuvrage({ ...nouvelOuvrage, cadence: 3 }, { ...CTX, tauxHoraires: [{ ...STANDARD, taux_ht: 33.33 }] }).prixMainOeuvreUnitaire, 99.99);
 assert.equal(p.calculerOuvrage({ ...nouvelOuvrage, cadence: 0.1 }, { ...CTX, tauxHoraires: [{ ...STANDARD, taux_ht: 0.7 }] }).prixMainOeuvreUnitaire, 0.07, "0,1 × 0,7 = 0,07 sans résidu binaire");
 assert.equal(p.calculerOuvrage({ ...nouvelOuvrage, cadence: 3 }, { ...CTX, tauxHoraires: [{ ...STANDARD, taux_ht: 1.1 }] }).prixMainOeuvreUnitaire, 3.3);

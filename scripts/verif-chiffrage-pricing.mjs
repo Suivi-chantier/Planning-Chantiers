@@ -25,7 +25,14 @@ const TAUX = [
   { id: "t2", libelle: "Chef d'équipe", taux_ht: 95, est_defaut: false, actif: true },
   { id: "t3", libelle: "Ancien taux", taux_ht: 65, est_defaut: false, actif: false },
 ];
-const CTX = { materiaux: MATERIAUX, coutHoraire: COUT_H, tauxHoraires: TAUX };
+// Coefficients de VENTE (table coefficients_vente) : prix matériaux = coût × coefficient de l'ouvrage
+const COEFS = [
+  { id: "c150", libelle: "Coefficient standard", valeur: 1.5, est_defaut: true, actif: true },
+  { id: "c135", libelle: "Coefficient réduit", valeur: 1.35, est_defaut: false, actif: true },
+  { id: "c2", libelle: "Coefficient renforcé", valeur: 2, est_defaut: false, actif: true },
+  { id: "c0", libelle: "Ancien coefficient", valeur: 1.2, est_defaut: false, actif: false },
+];
+const CTX = { materiaux: MATERIAUX, coutHoraire: COUT_H, tauxHoraires: TAUX, coefficientsVente: COEFS };
 
 assert.equal(p.CALCUL_VERSION, 2, "la nouvelle formule porte la version 2");
 
@@ -90,7 +97,7 @@ assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_id: "t9" }, { tauxHorair
 
 // ── Exemple de référence de la spécification ────────────────────────────────
 // Coût matériaux 100 €, coefficient 1,35, cadence 2,5 h, taux 80 €/h ⇒ 135 + 200 = 335 €
-const REF = { id: "b-ref", libelle: "T-001 : Référence", unite: "U", cadence: 2.5, coef_vente: 1.35, taux_horaire_vente_id: "t1", materiaux_liens: [{ materiau_id: "m100", quantite: 1 }] };
+const REF = { id: "b-ref", libelle: "T-001 : Référence", unite: "U", cadence: 2.5, coefficient_vente_id: "c135", taux_horaire_vente_id: "t1", materiaux_liens: [{ materiau_id: "m100", quantite: 1 }] };
 const calcRef = p.calculerOuvrage(REF, { ...CTX, materiaux: [{ id: "m100", nom: "Kit", unite: "U", prix_unitaire: 100 }] });
 assert.equal(calcRef.prixMateriauxUnitaire, 135);
 assert.equal(calcRef.prixMainOeuvreUnitaire, 200);
@@ -102,7 +109,8 @@ assert.equal(calcRef.complet, true);
 const MU001 = {
   id: "b-mu001", libelle: "MU-001 Fourniture et pose d'un doublage", unite: "m2", cadence: 0.5,
   materiaux_liens: [{ materiau_id: "m1", quantite: 1 }, { materiau_id: "m2", quantite: 2 }],
-  coef_vente: 1.35, taux_horaire_vente_id: "t1",
+  coefficient_vente_id: "c135", taux_horaire_vente_id: "t1",
+  coef_vente: 9.99, taux_marge_pct: 60,   // colonnes OBSOLÈTES : doivent être ignorées
 };
 const calc = p.calculerOuvrage(MU001, CTX);
 assert.equal(calc.code, "MU-001");
@@ -117,14 +125,15 @@ assert.equal(calc.margeUnitaire, 23.82);
 assert.equal(calc.tauxMargePct, 43.53, "marge dérivée (prix − coût) / prix");
 assert.equal(calc.tauxMargeReel, 43.53);
 assert.equal(calc.modePrix, "coefficient");
-assert.equal(calc.coefVente, 1.35);
+assert.equal(calc.coefVente, 1.35, "coefficient lu par la référence, jamais depuis coef_vente (obsolète)");
+assert.equal(calc.coefficient.libelle, "Coefficient réduit");
 assert.equal(calc.tauxHoraire.libelle, "Taux standard");
 assert.equal(calc.mainOeuvre.tauxVente, 80);
 assert.equal(calc.complet, true);
 assert.deepEqual(calc.erreurs, []);
 
 // Le coefficient ne touche PAS la main-d'œuvre : coef ×2 ⇒ seuls les matériaux doublent
-const coef2 = p.calculerOuvrage({ ...MU001, coef_vente: 2 }, CTX);
+const coef2 = p.calculerOuvrage({ ...MU001, coefficient_vente_id: "c2" }, CTX);
 assert.equal(coef2.prixMateriauxUnitaire, 21.8);
 assert.equal(coef2.prixMainOeuvreUnitaire, 40, "MO inchangée quand le coefficient change");
 assert.equal(coef2.prixVenteUnitaire, 61.8);
@@ -139,21 +148,31 @@ const calc85 = p.calculerOuvrage(MU001, { ...CTX, tauxHoraires: TAUX85 });
 assert.equal(calc85.prixMainOeuvreUnitaire, 42.5);
 assert.equal(calc85.prixVenteUnitaire, 57.22);
 
-// Ancien ouvrage sans coefficient : repli sur le taux de marge (coefficient équivalent)
-const legacy = p.calculerOuvrage({ ...MU001, coef_vente: null, taux_marge_pct: 30 }, CTX);
-assert.equal(legacy.modePrix, "taux");
-assert.equal(legacy.coefVente, 1.4286);
-assert.equal(legacy.prixMateriauxUnitaire, 15.57);   // 10,9 × 1,4286
-assert.equal(legacy.prixVenteUnitaire, 55.57);
-assert.equal(legacy.complet, true);
-// Coefficient invalide saisi ⇒ bloquant, pas de repli silencieux sur le taux
-const coefKO = p.calculerOuvrage({ ...MU001, coef_vente: 0.5, taux_marge_pct: 30 }, CTX);
-assert.equal(coefKO.complet, false);
-assert.ok(coefKO.erreurs.some(e => /coefficient/i.test(e)));
-// Ni coefficient ni taux, avec des matériaux ⇒ bloquant
-const rien = p.calculerOuvrage({ ...MU001, coef_vente: null, taux_marge_pct: null }, CTX);
-assert.equal(rien.complet, false);
-assert.ok(rien.erreurs.some(e => /coefficient matériaux non renseigné/i.test(e)));
+// Coefficient introuvable / non sélectionné / liste vide ⇒ bloquant quand des matériaux existent
+const coefInconnu = p.calculerOuvrage({ ...MU001, coefficient_vente_id: "zz" }, CTX);
+assert.equal(coefInconnu.complet, false);
+assert.ok(coefInconnu.erreurs.some(e => /introuvable/i.test(e)), coefInconnu.erreurs.join(" | "));
+const sansCoef = p.calculerOuvrage({ ...MU001, coefficient_vente_id: null }, CTX);
+assert.equal(sansCoef.complet, false);
+assert.ok(sansCoef.erreurs.some(e => /coefficient de vente non sélectionné/i.test(e)));
+assert.equal(p.calculerOuvrage(MU001, { ...CTX, coefficientsVente: [] }).complet, false);
+// Les colonnes obsolètes ne sont JAMAIS un repli : coef_vente / taux_marge_pct seuls ⇒ bloquant
+const obsolete = p.calculerOuvrage({ ...MU001, coefficient_vente_id: null, coef_vente: 1.5, taux_marge_pct: 30 }, CTX);
+assert.equal(obsolete.complet, false, "coef_vente n'est plus une source de vérité");
+// Coefficient désactivé déjà affecté ⇒ calculable, avec avertissement
+const coefInactif = p.calculerOuvrage({ ...MU001, coefficient_vente_id: "c0" }, CTX);
+assert.equal(coefInactif.complet, true, coefInactif.erreurs.join(" | "));
+assert.equal(coefInactif.prixMateriauxUnitaire, 13.08);   // 10,9 × 1,2
+assert.ok(coefInactif.avertissements.some(a => /désactivé/i.test(a)));
+// Valeur de coefficient invalide dans la liste ⇒ bloquant
+assert.equal(p.calculerOuvrage(MU001, { ...CTX, coefficientsVente: [{ id: "c135", libelle: "Nul", valeur: 0, actif: true }] }).complet, false);
+assert.equal(p.calculerOuvrage(MU001, { ...CTX, coefficientsVente: [{ id: "c135", libelle: "Négatif", valeur: -1.5, actif: true }] }).complet, false);
+// Résolution directe
+assert.equal(p.resoudreCoefficientVente({ coefficient_vente_id: "c150" }, { coefficientsVente: COEFS }).valeur, 1.5);
+assert.equal(p.resoudreCoefficientVente({ coefficient_vente_id: "c0" }, { coefficientsVente: COEFS }).actif, false);
+assert.match(p.resoudreCoefficientVente({ coefficient_vente_id: null }, { coefficientsVente: COEFS }).erreur, /non sélectionné/);
+for (const v of [null, "", "abc", 0, -1]) assert.equal(p.validerValeurCoefficient(v).valide, false, `coefficient ${String(v)} refusé`);
+assert.equal(p.validerValeurCoefficient("1,675").valeur, 1.675, "4 décimales conservées");
 
 // ── 5 : matériau sans prix ──────────────────────────────────────────────────
 const sansPrix = p.calculerOuvrage({ ...MU001, materiaux_liens: [{ materiau_id: "m3", quantite: 1 }] }, CTX);
@@ -204,11 +223,11 @@ assert.equal(confirme.prixMateriauxUnitaire, 0);
 assert.equal(confirme.prixVenteUnitaire, 16);         // 0,2 h × 80 €/h — aucun coefficient requis
 assert.equal(confirme.modePrix, "sans_materiaux");
 // Coût direct complémentaire : traitement CONSERVÉ (il reçoit le coefficient, comme avant)
-const avecDirect = p.calculerOuvrage({ ...depose, main_oeuvre_seule: true, cout_direct_unitaire: 2, coef_vente: 1.5 }, CTX);
+const avecDirect = p.calculerOuvrage({ ...depose, main_oeuvre_seule: true, cout_direct_unitaire: 2, coefficient_vente_id: "c150" }, CTX);
 assert.equal(avecDirect.coutTotalUnitaire, 10);
 assert.equal(avecDirect.prixDirectUnitaire, 3);       // 2 × 1,5
 assert.equal(avecDirect.prixVenteUnitaire, 19);       // 0 + 3 + 16
-const directSansCoef = p.calculerOuvrage({ ...depose, main_oeuvre_seule: true, cout_direct_unitaire: 2 }, CTX);
+const directSansCoef = p.calculerOuvrage({ ...depose, main_oeuvre_seule: true, cout_direct_unitaire: 2, coefficient_vente_id: null }, CTX);
 assert.equal(directSansCoef.complet, false, "coût direct sans coefficient ⇒ bloquant (comme avant)");
 
 // ── 8 & 9 : plusieurs occurrences du même bibliotheque_id, zones différentes ─
@@ -224,7 +243,10 @@ assert.equal(snapDefaut.zone, p.ZONE_DEFAUT, "zone par défaut = Logement entier
 assert.equal(snapCuisine.code_ouvrage, "MU-001");
 assert.equal(snapCuisine.prix_unitaire, 54.72);
 assert.equal(snapCuisine.taux_marge_pct, 43.53);
-assert.equal(snapCuisine.coef_vente, 1.35);
+assert.equal(snapCuisine.coef_vente, 1.35, "VALEUR du coefficient figée");
+assert.equal(snapCuisine.coefficient_vente_id, "c135", "identifiant du coefficient figé");
+assert.equal(snapCuisine.calcul_detail.coefficient_vente_libelle, "Coefficient réduit");
+assert.equal(snapCuisine.calcul_detail.coefficient_vente, 1.35);
 assert.equal(snapCuisine.taux_horaire_vente_id, "t1", "identifiant du taux figé");
 assert.equal(snapCuisine.taux_horaire_vente, 80, "VALEUR du taux figée");
 assert.equal(snapCuisine.calcul_version, "2@2026-09-15T10:00:00.000Z");
@@ -253,13 +275,26 @@ assert.equal(apresSuppr.length, 2);
 assert.ok(apresSuppr.every(l => l.bibliotheque_id === "b-mu001"));
 
 // ── 10 : la bibliothèque ou le TAUX change, le snapshot ne bouge pas ────────
-const MU001v2 = { ...MU001, coef_vente: 1.5 };
+const MU001v2 = { ...MU001, coefficient_vente_id: "c150" };
 const calcV2 = p.calculerOuvrage(MU001v2, CTX);
 assert.equal(calcV2.prixVenteUnitaire, 56.35);   // 16,35 + 40
 assert.equal(snapCuisine.coef_vente, 1.35, "l'ancienne ligne reste à ×1,35");
 assert.equal(snapCuisine.prix_unitaire, 54.72);
 const nouvelleLigne = p.creerSnapshotOuvrage(MU001v2, calcV2, { zone: "WC", quantite: "1" });
 assert.equal(nouvelleLigne.coef_vente, 1.5, "les nouvelles lignes utilisent ×1,5");
+assert.equal(nouvelleLigne.coefficient_vente_id, "c150");
+// La VALEUR du coefficient partagé change dans Réglages (1,35 → 1,40) : snapshot intact, actualisation explicite possible
+const COEFS140 = COEFS.map(c => c.id === "c135" ? { ...c, valeur: 1.4 } : c);
+const calc140 = p.calculerOuvrage(MU001, { ...CTX, coefficientsVente: COEFS140 });
+assert.equal(calc140.prixMateriauxUnitaire, 15.26);   // 10,9 × 1,4
+assert.equal(snapCuisine.coef_vente, 1.35, "snapshot intact après modification du coefficient partagé");
+assert.equal(snapCuisine.prix_unitaire, 54.72);
+const diffsCoef = p.differencesSnapshot(snapCuisine, MU001, calc140);
+assert.deepEqual(diffsCoef.map(d => d.champ).sort(), ["coef_vente", "prix_unitaire", "taux_marge_pct"]);
+assert.equal(diffsCoef.find(d => d.champ === "coef_vente").apres, 1.4);
+const actualiseeCoef = p.appliquerActualisation({ ...snapCuisine, id: "l1" }, MU001, calc140);
+assert.equal(actualiseeCoef.coef_vente, 1.4);
+assert.equal(actualiseeCoef.prix_unitaire, 55.26);   // 15,26 + 40
 const diffs = p.differencesSnapshot(snapCuisine, MU001v2, calcV2);
 assert.deepEqual(diffs.map(d => d.champ).sort(), ["coef_vente", "prix_unitaire", "taux_marge_pct"]);
 assert.deepEqual(p.differencesSnapshot(snapCuisine, MU001, calc), [], "aucune différence si rien n'a changé");
@@ -307,7 +342,7 @@ assert.equal(totLegacy.venteHT, 100);
 assert.equal(totLegacy.ttc, 120);
 
 // ── 12 : COUV-001 reconnu ───────────────────────────────────────────────────
-const couv = p.calculerOuvrage({ id: "b-couv", libelle: "COUV-001 :  Reprise de couverture", unite: "m2", cadence: 2, materiaux_liens: [{ materiau_id: "m1", quantite: 1 }], coef_vente: 2, taux_horaire_vente_id: "t1" }, CTX);
+const couv = p.calculerOuvrage({ id: "b-couv", libelle: "COUV-001 :  Reprise de couverture", unite: "m2", cadence: 2, materiaux_liens: [{ materiau_id: "m1", quantite: 1 }], coefficient_vente_id: "c2", taux_horaire_vente_id: "t1" }, CTX);
 assert.equal(couv.code, "COUV-001");
 assert.equal(couv.prixVenteUnitaire, 173);   // 6,5 × 2 + 2 × 80
 assert.equal(p.creerSnapshotOuvrage({ id: "b-couv", libelle: "COUV-001 : Reprise" }, couv).code_ouvrage, "COUV-001");
@@ -351,4 +386,4 @@ assert.equal(struct[0].enfants[0].lignes[0].code, "MU-001");
 assert.equal(struct[0].enfants[0].lignes[0].tva_pct, 10);
 assert.equal(struct[0].enfants[0].lignes[0].prix_unitaire_ht, 54.72, "prix FIGÉ transmis, pas recalculé");
 
-console.log("verif-chiffrage-pricing : OK (formule v2 matériaux × coef + cadence × taux, 14 cas + arrondis + snapshots + structure ProGBat)");
+console.log("verif-chiffrage-pricing : OK (formule v2 matériaux × coefficient référencé + cadence × taux, 14 cas + arrondis + snapshots + structure ProGBat)");

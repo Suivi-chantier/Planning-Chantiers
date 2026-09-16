@@ -7,7 +7,11 @@ import {
   DEPENDANCE_MODES, dupliquerSousTachesV2, estOuvrageV2, maturiteOuvrageV2,
   normaliserOuvrageV2, nouvelIdSousTache,
 } from "./planningModelV1";
-import { calculerOuvrage, validerCoefficient } from "./chiffragePricing.mjs";
+import { calculerOuvrage } from "./chiffragePricing.mjs";
+import {
+  optionsSelectCoefficients, coefficientSelectionne, validerCoefficientOuvrage, expliquerPrixMateriaux,
+  formaterCoefficient, diagnostiquerCoefficients, coefficientParDefaut,
+} from "./coefficientsVente.mjs";
 import {
   optionsSelectTaux, tauxSelectionne, validerTauxOuvrage, expliquerPrixMainOeuvre,
   formaterTauxHT, diagnostiquerListe, tauxParDefaut,
@@ -24,7 +28,9 @@ loadLots().then(l => { LOTS = l; });
 // Format monétaire des prix calculés (2 décimales, fr-FR)
 const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 // Colonnes de prix ajoutées par sql/202609_chiffrage_devis_logement.sql
-const COLONNES_PRIX = ["taux_marge_pct", "main_oeuvre_seule", "cout_direct_unitaire", "coef_vente", "taux_horaire_vente_id"];
+// Colonnes de prix écrites par la page. bibliotheque_ratios.coef_vente et taux_marge_pct
+// sont OBSOLÈTES (figées en base par trigger) : elles ne sont plus jamais envoyées.
+const COLONNES_PRIX = ["main_oeuvre_seule", "cout_direct_unitaire", "taux_horaire_vente_id", "coefficient_vente_id"];
 const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
 const erreurColonnesPrix = (error) => !!error && COLONNES_PRIX.some(c => (error.message || "").includes(c));
 
@@ -405,7 +411,7 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
 }
 
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], tauxOrigineId = null, T, acc }) {
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], tauxOrigineId = null, coefficients = [], coefOrigineId = null, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
@@ -414,10 +420,12 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
   // Prix calculé (module pur chiffragePricing) : matériaux × coefficient
   // (+ coût direct × coefficient) + cadence × taux horaire de VENTE sélectionné.
   // Le coût horaire chargé ne sert plus qu'à la marge.
-  const prix = calculerOuvrage(editData, { materiaux, coutHoraire, tauxHoraires });
-  // Liste déroulante : taux actifs + le taux (désactivé) déjà enregistré sur l'ouvrage
+  const prix = calculerOuvrage(editData, { materiaux, coutHoraire, tauxHoraires, coefficientsVente: coefficients });
+  // Listes déroulantes : éléments actifs + celui (désactivé) déjà enregistré sur l'ouvrage
   const optionsTaux = optionsSelectTaux(tauxHoraires, tauxOrigineId ?? editData.taux_horaire_vente_id);
   const tauxChoisi = editData.taux_horaire_vente_id != null ? String(editData.taux_horaire_vente_id) : "";
+  const optionsCoef = optionsSelectCoefficients(coefficients, coefOrigineId ?? editData.coefficient_vente_id);
+  const coefChoisi = editData.coefficient_vente_id != null ? String(editData.coefficient_vente_id) : "";
   const patchOuvrage = (patch) => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, ...patch }));
 
   // Bloque l'auto-reload pendant l'édition d'un ouvrage (sauvegarde au clic).
@@ -580,11 +588,11 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
             const cellLbl = { fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 };
             const cellVal = (ok = true) => ({ fontSize: FONT.sm.size + 1, fontWeight: 800, color: ok ? T.text : T.textMuted, marginTop: 4 });
             const inputS = { padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none", textAlign: "center", width: "100%" };
-            const coefSaisi = editData.coef_vente ?? "";
-            const coef = validerCoefficient(coefSaisi);
             const coefRequis = (editData.materiaux_liens || []).some(l => l && l.materiau_id != null) || (parseFloat(editData.cout_direct_unitaire) || 0) > 0;
+            const coefOk = prix.coefficient.valide;
             const tauxOk = prix.tauxHoraire.valide;
             const explicationMO = expliquerPrixMainOeuvre(prix.mainOeuvre.heures, prix.mainOeuvre.tauxVente);
+            const explicationMat = expliquerPrixMateriaux(prix.coutMateriauxUnitaire, prix.coefVente);
             return (
               <div style={{ marginBottom: 14, padding: "14px 16px", background: T.card, borderRadius: 10, border: `1px solid ${prix.complet ? "rgba(34,197,94,.35)" : T.border}` }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
@@ -608,23 +616,24 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                     <div style={cellLbl}>Coût matériaux HT / {prix.unite}</div>
                     <div style={cellVal(prix.coutMateriauxUnitaire != null)}>{fmtEur2(prix.coutMateriauxUnitaire)}</div>
                   </div>
-                  <div>
-                    <label style={cellLbl}>Coefficient matériaux (×)</label>
-                    <div style={{ position: "relative", marginTop: 4 }}>
-                      <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.textMuted, fontSize: FONT.sm.size, fontWeight: 800, pointerEvents: "none" }}>×</span>
-                      <input type="number" min="1" step="0.05" value={coefSaisi} placeholder={coefRequis ? "ex : 1,35" : "sans objet"}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => patchOuvrage({ coef_vente: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                        style={{ ...inputS, border: `1px solid ${coef.valide || !coefRequis ? T.accent + "55" : "rgba(225,90,90,.6)"}`, color: coef.valide ? T.accent : coefRequis ? "#e15a5a" : T.textMuted, paddingLeft: 24 }}/>
-                    </div>
-                    <div style={{ fontSize: FONT.xs.size, color: coef.valide || !coefRequis ? T.textMuted : "#e15a5a", marginTop: 3 }}>
-                      {coef.valide ? "appliqué aux matériaux seulement" : (coefSaisi === "" && editData.taux_marge_pct != null && coefRequis ? `repli : ancien taux ${editData.taux_marge_pct} % ⇒ ${fmtCoef(prix.coefVente)}` : coefRequis ? coef.erreur : "aucun matériau : inutile")}
+                  <div style={{ gridColumn: "span 2" }}>
+                    <label style={cellLbl}>Coefficient de vente *</label>
+                    <select value={coefChoisi} required
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => patchOuvrage({ coefficient_vente_id: e.target.value || null })}
+                      style={{ ...inputS, marginTop: 4, textAlign: "left", cursor: "pointer", border: `1px solid ${coefOk || !coefRequis ? T.accent + "55" : "rgba(225,90,90,.6)"}`, color: coefOk ? T.accent : coefRequis ? "#e15a5a" : T.textMuted }}>
+                      {!coefChoisi && <option value="">— Sélectionner un coefficient —</option>}
+                      {coefChoisi && !optionsCoef.some(o => o.id === coefChoisi) && <option value={coefChoisi}>Coefficient introuvable (à remplacer)</option>}
+                      {optionsCoef.map(o => <option key={o.id} value={o.id}>{o.texte}</option>)}
+                    </select>
+                    <div style={{ fontSize: FONT.xs.size, color: prix.coefficient.actif === false ? "#f5a623" : T.textMuted, marginTop: 3 }}>
+                      {prix.coefficient.actif === false ? "Coefficient désactivé : conservé sur cet ouvrage, choisir un autre coefficient pour les futurs chiffrages" : optionsCoef.length === 0 ? "Aucun coefficient actif : Réglages → Taux horaires → Coefficients de vente" : coefRequis ? "appliqué aux matériaux (et au coût direct) seulement" : "aucun matériau : sans effet sur le prix"}
                     </div>
                   </div>
                   <div>
                     <div style={cellLbl}>Prix matériaux HT / {prix.unite}</div>
                     <div style={cellVal(prix.prixMateriauxUnitaire != null)}>{fmtEur2(prix.prixMateriauxUnitaire)}</div>
-                    {prix.prixMateriauxUnitaire != null && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>{fmtEur2(prix.coutMateriauxUnitaire)} {fmtCoef(prix.coefVente)}</div>}
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>{explicationMat ? `Matériaux : ${explicationMat}` : "coût matériaux × coefficient"}</div>
                   </div>
                   <div>
                     <label style={cellLbl}>Coût direct compl. / {prix.unite}</label>
@@ -660,7 +669,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                   <div>
                     <div style={cellLbl}>Prix de vente HT / {prix.unite}</div>
                     <div style={{ ...cellVal(prix.prixVenteUnitaire != null), color: prix.prixVenteUnitaire != null ? "#22c55e" : T.textMuted, fontSize: FONT.md.size }}>{fmtEur2(prix.prixVenteUnitaire)}</div>
-                    {prix.prixVenteUnitaire != null && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>{fmtEur2(prix.prixMateriauxUnitaire)}{prix.prixDirectUnitaire ? ` + ${fmtEur2(prix.prixDirectUnitaire)}` : ""} + {fmtEur2(prix.prixMainOeuvreUnitaire)}</div>}
+                    {prix.prixVenteUnitaire != null && <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 2 }}>Prix de vente calculé : {fmtEur2(prix.prixMateriauxUnitaire)}{prix.prixDirectUnitaire ? ` + ${fmtEur2(prix.prixDirectUnitaire)}` : ""} + {fmtEur2(prix.prixMainOeuvreUnitaire)} = {fmtEur2(prix.prixVenteUnitaire)} HT/{prix.unite}</div>}
                   </div>
                 </div>
 
@@ -954,6 +963,11 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   // sélectionné sur l'ouvrage. Liste vide = aucun prix calculable (bloquant).
   const [tauxHoraires, setTauxHoraires] = useState([]);
   const [newTauxId, setNewTauxId] = useState("");
+  // Coefficients de VENTE (table coefficients_vente) : prix matériaux = coût × coefficient
+  // sélectionné sur l'ouvrage. bibliotheque_ratios.coef_vente est obsolète (jamais lu ni écrit).
+  const [coefficients, setCoefficients] = useState([]);
+  const [newCoefId, setNewCoefId] = useState("");
+  const coefOrigine = useRef(new Map());
   // Taux enregistré en base par ouvrage (avant édition) : un taux désactivé est
   // conservé tant qu'on n'en choisit pas un autre.
   const tauxOrigine = useRef(new Map());
@@ -968,6 +982,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     loadMateriaux();
     loadCoutHoraire();
     loadTauxHoraires();
+    loadCoefficients();
     loadGroupesTypes().then(setGroupesTypes);
     const chTaux = supabase.channel("biblio-taux-rt")
       .on("postgres_changes",
@@ -975,6 +990,8 @@ function PageBibliotheque({ T, branch = "renovation" }) {
           () => loadCoutHoraire())
       .on("postgres_changes", { event: "*", schema: "public", table: "taux_horaires_vente" },
           () => loadTauxHoraires())
+      .on("postgres_changes", { event: "*", schema: "public", table: "coefficients_vente" },
+          () => loadCoefficients())
       .subscribe();
     // Realtime : tout changement de la bibliothèque ou des catégories custom
     // est propagé en direct chez tous les utilisateurs connectés.
@@ -1012,6 +1029,19 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     const d = tauxParDefaut(tauxHoraires);
     if (d && (!newTauxId || !tauxHoraires.some(t => String(t.id) === newTauxId && t.actif !== false))) setNewTauxId(String(d.id));
   }, [tauxHoraires]);
+  async function loadCoefficients() {
+    const { data, error } = await supabase.from("coefficients_vente").select("*").order("libelle");
+    if (error) {
+      if (/coefficients_vente/.test(error.message || "")) setSchemaPrixManquant(true);
+      return;
+    }
+    setCoefficients(data || []);
+  }
+  // Présélection du coefficient actif par défaut dans le formulaire « Nouvel ouvrage »
+  useEffect(() => {
+    const d = coefficientParDefaut(coefficients);
+    if (d && (!newCoefId || !coefficients.some(c => String(c.id) === newCoefId && c.actif !== false))) setNewCoefId(String(d.id));
+  }, [coefficients]);
 
   async function loadCoutHoraire() {
     const { data } = await supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle();
@@ -1031,6 +1061,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     const { data } = await supabase.from("bibliotheque_ratios").select("*").order("libelle");
     if (data && data.length > 0) {
       tauxOrigine.current = new Map(data.map(o => [o.id, o.taux_horaire_vente_id ?? null]));
+      coefOrigine.current = new Map(data.map(o => [o.id, o.coefficient_vente_id ?? null]));
       setOuvrages(data.map(o => estOuvrageV2(o) ? normaliserOuvrageV2(o, { assignIds: true }) : o));
     } else {
       const inserts = BIBLIOTHEQUE_INITIALE.map(o => ({
@@ -1119,10 +1150,15 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     const tauxId = newTauxId || tauxSelectionne(tauxHoraires, null);
     const ctrl = validerTauxOuvrage(tauxHoraires, tauxId);
     if (!ctrl.valide) { flash("error", ctrl.erreur); return; }
-    const newO = { identifiant: `${newCatPrefix}_${Date.now()}`, libelle: newLibelle.trim(), unite: newUnite, cadence: null, sous_taches: [], taux_horaire_vente_id: tauxId };
+    // Coefficient de vente obligatoire : référence stable vers coefficients_vente (jamais la valeur)
+    const coefId = newCoefId || coefficientSelectionne(coefficients, null);
+    const ctrlCoef = validerCoefficientOuvrage(coefficients, coefId);
+    if (!ctrlCoef.valide) { flash("error", ctrlCoef.erreur); return; }
+    const newO = { identifiant: `${newCatPrefix}_${Date.now()}`, libelle: newLibelle.trim(), unite: newUnite, cadence: null, sous_taches: [], taux_horaire_vente_id: tauxId, coefficient_vente_id: coefId };
     const { data, error } = await supabase.from("bibliotheque_ratios").insert([newO]).select();
     if (error || !data?.[0]) { flash("error", "Création impossible : " + (error?.message || "insertion vide")); return; }
     tauxOrigine.current.set(data[0].id, data[0].taux_horaire_vente_id ?? null);
+    coefOrigine.current.set(data[0].id, data[0].coefficient_vente_id ?? null);
     setOuvrages(prev => [...prev, data[0]]);
     setShowNew(false); setNewLibelle(""); setNewUnite("U");
     setEditId(data[0].id);
@@ -1147,14 +1183,15 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         : JSON.parse(JSON.stringify(ouvrage.sous_taches || [])),
       materiaux_liens: JSON.parse(JSON.stringify(ouvrage.materiaux_liens || [])),
     };
-    // Le taux de la source est repris s'il est encore actif ; sinon le taux par défaut.
+    // Le taux et le coefficient de la source sont repris s'ils sont encore actifs ;
+    // sinon la valeur par défaut. coef_vente / taux_marge_pct (obsolètes) ne sont pas copiés.
     const tauxSource = tauxHoraires.find(t => String(t.id) === String(ouvrage.taux_horaire_vente_id ?? ""));
+    const coefSource = coefficients.find(c => String(c.id) === String(ouvrage.coefficient_vente_id ?? ""));
     const prixClone = {
-      coef_vente: ouvrage.coef_vente ?? null,
-      taux_marge_pct: ouvrage.taux_marge_pct ?? null,
       main_oeuvre_seule: ouvrage.main_oeuvre_seule === true,
       cout_direct_unitaire: ouvrage.cout_direct_unitaire ?? null,
       taux_horaire_vente_id: tauxSource && tauxSource.actif !== false ? tauxSource.id : tauxSelectionne(tauxHoraires, null),
+      coefficient_vente_id: coefSource && coefSource.actif !== false ? coefSource.id : coefficientSelectionne(coefficients, null),
     };
     let { data, error } = await supabase.from("bibliotheque_ratios").insert([{ ...clone, ...prixClone }]).select();
     if (erreurColonnesPrix(error)) {
@@ -1167,6 +1204,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       return;
     }
     tauxOrigine.current.set(data[0].id, data[0].taux_horaire_vente_id ?? null);
+    coefOrigine.current.set(data[0].id, data[0].coefficient_vente_id ?? null);
     setOuvrages(prev => [...prev, data[0]]);
     setEditId(data[0].id);
     flash("ok", `Copie créée : « ${clone.libelle} » — renommez-la et ajustez les différences`);
@@ -1196,15 +1234,14 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         materiau_id: ml.materiau_id,
         quantite: ml.quantite == null ? null : parseFloat(ml.quantite),
       }));
-    // Prix : saisie = coefficient de vente (≥ 1) ; le taux de marge équivalent
-    // (% du prix de vente) est dérivé et stocké avec lui (contrainte SQL
-    // 0 ≤ taux < 100 garantie par coef ≥ 1). Le prix de vente n'est JAMAIS
-    // stocké dans la bibliothèque : il est recalculé, puis figé sur chaque
-    // ligne de chiffrage au moment de l'ajout.
-    const coefSaisi = ouvrageClean.coef_vente;
-    const coefVide = coefSaisi == null || coefSaisi === "";
-    if (!coefVide && !validerCoefficient(coefSaisi).valide) {
-      flash("error", validerCoefficient(coefSaisi).erreur);
+    // Prix : le coefficient et le taux horaire sont des RÉFÉRENCES (coefficients_vente,
+    // taux_horaires_vente) ; le prix de vente n'est JAMAIS stocké dans la
+    // bibliothèque : il est recalculé, puis figé sur chaque ligne de chiffrage.
+    // Coefficient : référence obligatoire, existante et active (un coefficient désactivé
+    // n'est accepté que s'il est déjà celui enregistré sur l'ouvrage).
+    const ctrlCoef = validerCoefficientOuvrage(coefficients, ouvrageClean.coefficient_vente_id, coefOrigine.current.get(ouvrage.id));
+    if (!ctrlCoef.valide) {
+      flash("error", ctrlCoef.erreur);
       setSaving(null);
       return;
     }
@@ -1223,10 +1260,9 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       materiaux_liens: liensClean,
       updated_at: new Date().toISOString(),
     };
+    // coef_vente et taux_marge_pct (obsolètes, figés en base) ne sont volontairement pas envoyés.
     const prixPatch = {
-      coef_vente: coefVide ? null : parseFloat(coefSaisi),
-      // taux_marge_pct n'est plus une saisie (marge dérivée du prix) : conservé tel quel pour le repli des anciens ouvrages
-      taux_marge_pct: ouvrageClean.taux_marge_pct ?? null,
+      coefficient_vente_id: ouvrageClean.coefficient_vente_id,
       main_oeuvre_seule: ouvrageClean.main_oeuvre_seule === true,
       cout_direct_unitaire: ouvrageClean.cout_direct_unitaire == null || ouvrageClean.cout_direct_unitaire === "" ? null : parseFloat(ouvrageClean.cout_direct_unitaire),
       taux_horaire_vente_id: ouvrageClean.taux_horaire_vente_id,
@@ -1241,7 +1277,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     if (error) {
       flash("error", "Erreur lors de la sauvegarde : " + error.message);
     } else {
-      if (!prixIgnores) tauxOrigine.current.set(ouvrage.id, prixPatch.taux_horaire_vente_id);
+      if (!prixIgnores) { tauxOrigine.current.set(ouvrage.id, prixPatch.taux_horaire_vente_id); coefOrigine.current.set(ouvrage.id, prixPatch.coefficient_vente_id); }
       setOuvrages(prev => prev.map(o => o.id === ouvrage.id ? { ...o, ...ouvrageClean, ...(prixIgnores ? {} : prixPatch), materiaux_liens: liensClean } : o));
       flash(prixIgnores ? "error" : "ok", prixIgnores
         ? "Ouvrage sauvegardé SANS le prix : lancer sql/202609_chiffrage_devis_logement.sql dans Supabase"
@@ -1277,8 +1313,9 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   // ── Stats globales ──────────────────────────────────────────────────────────
   const v2 = ouvrages.filter(estOuvrageV2);
   const v2Planifiables = v2.filter(o => maturiteOuvrageV2(o).planifiable).length;
-  const prixCalculables = ouvrages.filter(o => calculerOuvrage(o, { materiaux, coutHoraire, tauxHoraires }).complet).length;
+  const prixCalculables = ouvrages.filter(o => calculerOuvrage(o, { materiaux, coutHoraire, tauxHoraires, coefficientsVente: coefficients }).complet).length;
   const diagTaux = diagnostiquerListe(tauxHoraires);
+  const diagCoef = diagnostiquerCoefficients(coefficients);
   const stats = {
     total: ouvrages.length,
     categories: Object.keys(catCounts).length,
@@ -1323,6 +1360,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
               <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
                 Ouvrages, sous-tâches, cadences, matériaux et taux horaire · prix = matériaux × coefficient + cadence × taux horaire de vente, repris par le Chiffrage
                 {diagTaux.defaut && <span> · taux par défaut <strong style={{ color: T.text }}>{diagTaux.defaut.libelle} {formaterTauxHT(diagTaux.defaut.taux_ht)}</strong></span>}
+                {diagCoef.defaut && <span> · coefficient par défaut <strong style={{ color: T.text }}>{diagCoef.defaut.libelle} × {formaterCoefficient(diagCoef.defaut.valeur)}</strong></span>}
                 {coutHoraire != null && <span> · coût horaire chargé (marge) <strong style={{ color: T.text }}>{coutHoraire} €/h</strong></span>}
               </div>
             </div>
@@ -1350,8 +1388,19 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         </div>
 
         {/* ── Taux horaires de vente (bloquant s'il n'y en a aucun) / coût horaire chargé (marge) ── */}
-        {!loading && (!diagTaux.ok || coutHoraire == null || schemaPrixManquant) && (
+        {!loading && (!diagTaux.ok || !diagCoef.ok || coutHoraire == null || schemaPrixManquant) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+            {!diagCoef.ok && !schemaPrixManquant && (
+              <div style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "10px 14px", borderRadius: RADIUS.md, background: "rgba(225,90,90,.10)", border: "1px solid rgba(225,90,90,.35)", color: "#e15a5a", fontSize: FONT.sm.size, fontWeight: 600 }}>
+                <Icon as={AlertTriangle} size={14} style={{ marginTop: 2, flexShrink: 0 }}/>
+                <div>
+                  {diagCoef.problemes.map((m, i) => <div key={i}>{m}</div>)}
+                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, fontWeight: 500, marginTop: 3 }}>
+                    Réglages → Taux horaires → « Coefficients de vente ». Le prix des matériaux d'un ouvrage = coût matériaux × coefficient sélectionné.
+                  </div>
+                </div>
+              </div>
+            )}
             {!diagTaux.ok && !schemaPrixManquant && (
               <div style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "10px 14px", borderRadius: RADIUS.md, background: "rgba(225,90,90,.10)", border: "1px solid rgba(225,90,90,.35)", color: "#e15a5a", fontSize: FONT.sm.size, fontWeight: 600 }}>
                 <Icon as={AlertTriangle} size={14} style={{ marginTop: 2, flexShrink: 0 }}/>
@@ -1377,7 +1426,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
             {schemaPrixManquant && (
               <div style={{ display: "flex", gap: 9, alignItems: "center", padding: "9px 14px", borderRadius: RADIUS.md, background: "rgba(245,166,35,.12)", border: "1px solid rgba(245,166,35,.4)", color: "#f5a623", fontSize: FONT.xs.size + 1, fontWeight: 600 }}>
                 <Icon as={AlertTriangle} size={13}/>
-                Base non à jour : lancer <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_devis_logement.sql</code>, <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_coef_vente.sql</code> puis la migration <code style={{ fontFamily: "monospace" }}>20260915140000_taux_horaires_vente.sql</code> dans Supabase pour enregistrer le coefficient, « main-d'œuvre seule » et le taux horaire.
+                Base non à jour : lancer <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_devis_logement.sql</code>, <code style={{ fontFamily: "monospace" }}>sql/202609_chiffrage_coef_vente.sql</code> puis les migrations <code style={{ fontFamily: "monospace" }}>20260915140000_taux_horaires_vente.sql</code> et <code style={{ fontFamily: "monospace" }}>20260916080000_coefficients_vente.sql</code> dans Supabase pour enregistrer « main-d'œuvre seule », le taux horaire et le coefficient.
               </div>
             )}
           </div>
@@ -1565,12 +1614,19 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                 {!newTauxId && <option value="">— Taux horaire de main-d'œuvre —</option>}
                 {optionsSelectTaux(tauxHoraires, null).map(o => <option key={o.id} value={o.id}>{o.texte}</option>)}
               </select>
-              <button onClick={creerOuvrage} disabled={!newLibelle.trim() || !newTauxId} style={{
+              <select value={newCoefId} onChange={e => setNewCoefId(e.target.value)} required title="Coefficient de vente (obligatoire) — présélection : coefficient par défaut"
+                style={{ flex: 1, minWidth: 200, padding: "9px 12px", borderRadius: RADIUS.md,
+                  border: `1px solid ${newCoefId ? (T.fieldBorder || T.border) : "rgba(225,90,90,.6)"}`, background: T.fieldBg || T.card,
+                  color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer" }}>
+                {!newCoefId && <option value="">— Coefficient de vente —</option>}
+                {optionsSelectCoefficients(coefficients, null).map(o => <option key={o.id} value={o.id}>{o.texte}</option>)}
+              </select>
+              <button onClick={creerOuvrage} disabled={!newLibelle.trim() || !newTauxId || !newCoefId} style={{
                 display: "inline-flex", alignItems: "center", gap: 5,
                 padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
-                background: newLibelle.trim() && newTauxId ? acc.accent : T.border, color: acc.onAccent,
+                background: newLibelle.trim() && newTauxId && newCoefId ? acc.accent : T.border, color: acc.onAccent,
                 fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
-                cursor: newLibelle.trim() && newTauxId ? "pointer" : "default", opacity: newLibelle.trim() && newTauxId ? 1 : .6,
+                cursor: newLibelle.trim() && newTauxId && newCoefId ? "pointer" : "default", opacity: newLibelle.trim() && newTauxId && newCoefId ? 1 : .6,
               }}>
                 <Icon as={Check} size={13}/>
                 Créer
@@ -1733,6 +1789,8 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                       coutHoraire={coutHoraire}
                       tauxHoraires={tauxHoraires}
                       tauxOrigineId={tauxOrigine.current.get(ouvrage.id) ?? null}
+                      coefficients={coefficients}
+                      coefOrigineId={coefOrigine.current.get(ouvrage.id) ?? null}
                       T={T} acc={acc}
                     />
                   ))}

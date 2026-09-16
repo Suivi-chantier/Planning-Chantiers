@@ -74,8 +74,13 @@ const TAUX_H = [
   { id: "t1", libelle: "Taux standard", taux_ht: 80, est_defaut: true, actif: true },
   { id: "t2", libelle: "Chef d'équipe", taux_ht: 95, est_defaut: false, actif: true },
 ];
+// Coefficients de VENTE (coefficients_vente) : prix matériaux = coût × coefficient de l'ouvrage
+const COEFS = [
+  { id: "c1", libelle: "Coefficient standard", valeur: 1.5, est_defaut: true, actif: true },
+  { id: "c2", libelle: "Coefficient renforcé", valeur: 1.8, est_defaut: false, actif: true },
+];
 const base = (extra) => ({
-  unite: "m2", cadence: 1, coef_vente: 1.5, main_oeuvre_seule: false, taux_horaire_vente_id: "t1",
+  unite: "m2", cadence: 1, coefficient_vente_id: "c1", main_oeuvre_seule: false, taux_horaire_vente_id: "t1",
   materiaux_liens: [{ materiau_id: "m1", quantite: 2 }], progbat_id: null, ...extra,
 });
 const OUVRAGES = [
@@ -84,7 +89,7 @@ const OUVRAGES = [
   base({ id: "p3", libelle: "D-003 : Carottage de dalle" }),                                 // 3. ambigu (champ + descriptif)
   base({ id: "p4", libelle: "P-010 : Peinture plafond deux couches" }),                       // 4. libellé identique via descriptif
   base({ id: "p5", libelle: "E-001 : Prise de courant" }),                                    // 5. nouveau, complet
-  base({ id: "p6", libelle: "E-002 : Interrupteur", cadence: null, coef_vente: null, unite: "" }), // 5. nouveau, bloqué
+  base({ id: "p6", libelle: "E-002 : Interrupteur", cadence: null, coefficient_vente_id: null, unite: "" }), // 5. nouveau, bloqué
   base({ id: "p7", libelle: "Pose de plinthes", progbat_id: "999" }),                         // sans code, progbat_id perdu
   base({ id: "p8", libelle: "M-001 : Main-d'œuvre seule", materiaux_liens: [], main_oeuvre_seule: true }),
   base({ id: "p9", libelle: "M-002 : Matériau sans prix", materiaux_liens: [{ materiau_id: "m2", quantite: 1 }] }),
@@ -102,7 +107,7 @@ const STRUCTURES = [
 const TAXES = [{ id: 1, rate: 20, label: "20 %", saleDefault: true }, { id: 2, rate: 10, label: "10 %" }];
 const UNITES = [{ id: 1, code: "m2" }, { id: 2, code: "U" }, { id: 3, code: "ml" }];
 
-const res = inv.rapprocherBibliotheque({ ouvrages: OUVRAGES, structures: STRUCTURES, materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20, taxes: TAXES, unites: UNITES });
+const res = inv.rapprocherBibliotheque({ ouvrages: OUVRAGES, structures: STRUCTURES, materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20, taxes: TAXES, unites: UNITES });
 const par = Object.fromEntries(res.rapprochements.map((r) => [r.profero.id, r]));
 
 // ── Statuts, dans l'ordre des règles ────────────────────────────────────────
@@ -175,7 +180,7 @@ assert.deepEqual(res.sources_codes, { descriptif: 2, libelle: 0, champ: 4, aucun
 const doublon = inv.rapprocherBibliotheque({
   ouvrages: [base({ id: "q2", libelle: "D-001 : Décollage" })],
   structures: [{ id: 602, code: "D-001", label: "D-001 : Décollage", unitCode: "m2" }],
-  materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20,
+  materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20,
 });
 assert.equal(doublon.rapprochements[0].statut, "correspondance_code_a_confirmer");
 assert.deepEqual(doublon.sources_codes, { descriptif: 0, libelle: 1, champ: 0, aucun: 0 });
@@ -186,22 +191,22 @@ const amb = inv.rapprocherBibliotheque({
     { id: 701, code: "TABLEAU-A", label: "Tableau A", description: "<p>E-021 : Tableau</p>" },
     { id: 702, code: "TABLEAU-B", label: "Tableau B", description: "E-021&nbsp;: Tableau bis" },
   ],
-  materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20,
+  materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20,
 });
 assert.equal(amb.rapprochements[0].statut, "ambigu");
 assert.deepEqual(amb.rapprochements[0].candidats.map((c) => c.id), [701, 702]);
 
 // ── TVA et unité : règles de complétude ────────────────────────────────────
-const sansTva = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: null });
+const sansTva = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: null });
 assert.ok(sansTva.blocages.some((b) => /TVA/.test(b)), "sans TVA par défaut ⇒ bloqué");
-const tvaInconnue = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 5.5, tauxTvaProgbat: TAXES });
+const tvaInconnue = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 5.5, tauxTvaProgbat: TAXES });
 assert.ok(tvaInconnue.synchronisable && tvaInconnue.avertissements.some((a) => /TVA 5.5/.test(a)), "TVA absente de ProGBat = avertissement, pas blocage");
-const tvaFraction = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20, tauxTvaProgbat: [{ rate: 0.2 }] });
+const tvaFraction = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20, tauxTvaProgbat: [{ rate: 0.2 }] });
 assert.equal(tvaFraction.avertissements.length, 0, "taux exprimé en fraction (0,2) reconnu");
-const uniteInconnue = inv.verifierCompletude(base({ id: "x", libelle: "T-001 : Test", unite: "forfait" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20, unitesProgbat: UNITES });
+const uniteInconnue = inv.verifierCompletude(base({ id: "x", libelle: "T-001 : Test", unite: "forfait" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20, unitesProgbat: UNITES });
 assert.ok(uniteInconnue.avertissements.some((a) => /Unité « forfait » inconnue/.test(a)));
 // Coût horaire CHARGÉ absent : le prix de vente ne dépend plus de lui ⇒ avertissement (marge), pas blocage
-const sansCoutH = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: null, tauxHoraires: TAUX_H, tvaDefaut: 20 });
+const sansCoutH = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: null, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
 assert.equal(sansCoutH.synchronisable, true, sansCoutH.blocages.join(" | "));
 assert.equal(sansCoutH.prix.prix_vente_ht, 99.5);
 assert.equal(sansCoutH.prix.cout_total_ht, null);
@@ -210,13 +215,26 @@ assert.ok(sansCoutH.avertissements.some((a) => /Coût horaire/.test(a)));
 const sansTauxListe = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: [], tvaDefaut: 20 });
 assert.equal(sansTauxListe.synchronisable, false);
 assert.ok(sansTauxListe.blocages.some((b) => /Taux horaire/.test(b)), sansTauxListe.blocages.join(" | "));
-const tauxInconnu = inv.verifierCompletude(base({ id: "x2", libelle: "T-002 : Test", taux_horaire_vente_id: "zz" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20 });
+const tauxInconnu = inv.verifierCompletude(base({ id: "x2", libelle: "T-002 : Test", taux_horaire_vente_id: "zz" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
 assert.ok(tauxInconnu.blocages.some((b) => /introuvable/.test(b)));
-const sansTauxOuvrage = inv.verifierCompletude(base({ id: "x3", libelle: "T-003 : Test", taux_horaire_vente_id: null }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20 });
+const sansTauxOuvrage = inv.verifierCompletude(base({ id: "x3", libelle: "T-003 : Test", taux_horaire_vente_id: null }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
 assert.ok(sansTauxOuvrage.blocages.some((b) => /non sélectionné/.test(b)));
 // Taux différent ⇒ prix différent, même ouvrage
-const chef = inv.verifierCompletude(base({ id: "x4", libelle: "T-004 : Test", taux_horaire_vente_id: "t2" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, tvaDefaut: 20 });
+const chef = inv.verifierCompletude(base({ id: "x4", libelle: "T-004 : Test", taux_horaire_vente_id: "t2" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
 assert.equal(chef.prix.prix_vente_ht, 114.5);   // 19,5 + 1 × 95
+// Coefficient différent ⇒ prix synchronisé différent (matériaux seulement)
+const renforce = inv.verifierCompletude(base({ id: "x5", libelle: "T-005 : Test", coefficient_vente_id: "c2" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
+assert.equal(renforce.prix.prix_materiaux_ht, 23.4);   // 13 × 1,8
+assert.equal(renforce.prix.prix_main_oeuvre_ht, 80, "le coefficient ne touche pas la MO");
+assert.equal(renforce.prix.prix_vente_ht, 103.4);
+assert.equal(renforce.prix.coefficient_vente_id, "c2");
+// La VALEUR du coefficient standard change dans Réglages (1,5 → 1,6) : la synchro utilise le prix COURANT de la bibliothèque
+const COEFS160 = COEFS.map(c => c.id === "c1" ? { ...c, valeur: 1.6 } : c);
+const courant = inv.verifierCompletude(OUVRAGES[4], { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS160, tvaDefaut: 20 });
+assert.equal(courant.prix.prix_vente_ht, 100.8);   // 13 × 1,6 + 80
+// Coefficient inexistant ⇒ bloqué
+const coefInconnu = inv.verifierCompletude(base({ id: "x6", libelle: "T-006 : Test", coefficient_vente_id: "zz" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
+assert.ok(coefInconnu.blocages.some((b) => /Coefficient de vente introuvable/.test(b)));
 
 // ── Motifs de blocage agrégés ──────────────────────────────────────────────
 const motifs = inv.motifsBlocage(res.rapprochements);

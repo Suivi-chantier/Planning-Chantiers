@@ -78,7 +78,8 @@ export const CLES_INTERDITES = Object.freeze([
   "elementType",
   "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire",
   "coutMateriaux", "coutMainOeuvre", "coutDirect", "coutTotal", "coutHoraire",
-  "coef_vente", "coefVente", "taux_marge_pct", "tauxMarge", "tauxMargePct", "marge", "margeUnitaire",
+  "coef_vente", "coefVente", "coefficient_vente_id", "coefficient_vente", "taux_horaire_vente_id", "taux_horaire_vente",
+  "taux_marge_pct", "tauxMarge", "tauxMargePct", "marge", "margeUnitaire",
   "calcul_detail", "calcul_version", "bibliotheque_id", "progbat_id", "progbat_ligne_id",
 ]);
 
