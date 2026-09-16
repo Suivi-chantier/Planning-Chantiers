@@ -5,7 +5,7 @@ import {
   emailPourResponsable, responsablesInvest, estUtilisateurCourant,
 } from "./annuaire.mjs";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -585,8 +585,8 @@ input:checked+.inv-toggle-sl:before{transform:translateX(18px);background:white;
 const CSS = getCSS(THEMES_INV.dark);
 function NumInput({value,onChange,style,min,step}) {
   return (
-    <input type="number" className="inv-inp" value={value} min={min||0} step={step||1}
-      onChange={e=>{onChange(parseFloat(e.target.value)||0);}}
+    <InputNombre className="inv-inp" valeur={value} vide={0}
+      onValeur={n=>{onChange(n||0);}}
       style={{width:120,...style}}/>
   );
 }

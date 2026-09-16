@@ -7,7 +7,7 @@ import {
 } from "../chantierFinance";
 import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierFinanceUI";
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import { profilSemaine } from "../rythmeSemaine";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
@@ -1382,8 +1382,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                             </div>
                           </div>
                           <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                            <input type="number" min={0} max={c.heuresJour} step={0.5} value={val}
-                              onChange={e => setH(c.jour, c.ouvrier, cid, parseFloat(e.target.value)||0)}
+                            <InputNombre min={0} max={c.heuresJour} valeur={val}
+                              onValeur={n => setH(c.jour, c.ouvrier, cid, n || 0)} vide={0}
                               style={{ width:68, background:T.fieldBg||"#1a1d28",
                                 border:`1.5px solid ${ok ? T.border : "rgba(224,92,92,0.5)"}`,
                                 borderRadius:8, padding:"7px 10px", color:"#e8eaf0",

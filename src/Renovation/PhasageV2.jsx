@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
@@ -3016,11 +3016,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, minWidth: 70 }}>
                                 Heures réelles
                               </span>
-                              <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
+                              <InputNombre min="0" valeur={tacheHeuresReelles(t) || ""}
                                 onClick={e => e.stopPropagation()}
                                 readOnly={tachePointages(t).length > 0}
                                 title={tachePointages(t).length > 0 ? "Heures issues du registre de pointage (validation de fin de journée) — non modifiable ici" : undefined}
-                                onChange={e => { if (tachePointages(t).length > 0) return; updateTache(selectedOuvrage.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) }); }}
+                                onValeur={n => { if (tachePointages(t).length > 0) return; updateTache(selectedOuvrage.id, t.id, { heures_reelles: n }); }}
                                 placeholder="0"
                                 style={{
                                   width: 70, padding: "4px 8px", borderRadius: RADIUS.sm,
@@ -3033,9 +3033,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginLeft: 8 }}>
                                 Avanc.
                               </span>
-                              <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
+                              <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
                                 onClick={e => e.stopPropagation()}
-                                onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                                entier onValeur={n => updateTache(selectedOuvrage.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
                                 placeholder="0"
                                 style={{
                                   width: 60, padding: "4px 8px", borderRadius: RADIUS.sm,
@@ -3593,14 +3593,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures vendues">
-                <input type="number" step="0.5" min="0" value={o.heures_devis ?? ""}
-                  onChange={e => setOuvrageHeuresDevis(o.id, e.target.value === "" ? null : parseFloat(e.target.value))}
+                <InputNombre min="0" valeur={o.heures_devis ?? ""}
+                  onValeur={n => setOuvrageHeuresDevis(o.id, n)}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
               <ModalField label="Quantité">
                 <div style={{ display: "flex", gap: 4 }}>
-                  <input type="number" step="0.01" min="0" value={o.quantite ?? ""}
-                    onChange={e => updateOuvrage(o.id, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  <InputNombre min="0" valeur={o.quantite ?? ""}
+                    onValeur={n => updateOuvrage(o.id, { quantite: n })}
                     placeholder="0" style={{ ...modalInp(T), flex: 1 }}/>
                   <input value={o.unite || ""}
                     onChange={e => updateOuvrage(o.id, { unite: e.target.value })}
@@ -3608,14 +3608,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 </div>
               </ModalField>
               <ModalField label="Prix HT (€)">
-                <input type="number" step="0.01" min="0" value={o.prix_ht ?? ""}
-                  onChange={e => updateOuvrage(o.id, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                <InputNombre min="0" valeur={o.prix_ht ?? ""}
+                  onValeur={n => updateOuvrage(o.id, { prix_ht: n })}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
             <ModalField label="Coût matériaux (€)">
-              <input type="number" step="0.01" min="0" value={o.cout_materiaux ?? ""}
-                onChange={e => updateOuvrage(o.id, { cout_materiaux: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <InputNombre min="0" valeur={o.cout_materiaux ?? ""}
+                onValeur={n => updateOuvrage(o.id, { cout_materiaux: n })}
                 placeholder="0" style={modalInp(T)}/>
             </ModalField>
 
@@ -3760,15 +3760,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures estimées">
-                <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
-                  onChange={e => updateTache(o.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                <InputNombre min="0" valeur={t.heures_estimees ?? ""}
+                  onValeur={n => updateTache(o.id, t.id, { heures_estimees: n })}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
               <ModalField label="Heures réelles">
-                <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
+                <InputNombre min="0" valeur={tacheHeuresReelles(t) || ""}
                   readOnly={tachePointages(t).length > 0}
                   title={tachePointages(t).length > 0 ? "Heures issues du registre de pointage (validation de fin de journée) — non modifiable ici" : undefined}
-                  onChange={e => { if (tachePointages(t).length > 0) return; updateTache(o.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) }); }}
+                  onValeur={n => { if (tachePointages(t).length > 0) return; updateTache(o.id, t.id, { heures_reelles: n }); }}
                   placeholder="0"
                   style={{ ...modalInp(T), opacity: tachePointages(t).length > 0 ? 0.65 : 1, cursor: tachePointages(t).length > 0 ? "not-allowed" : "text" }}/>
                 {tachePointages(t).length > 0 && (
@@ -3778,8 +3778,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 )}
               </ModalField>
               <ModalField label="Avancement (%)">
-                <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
-                  onChange={e => updateTache(o.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
+                  entier onValeur={n => updateTache(o.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
@@ -6308,14 +6308,14 @@ function ImportDevisModal({ state, lots, bibliotheque = [], T, accent, accentBor
                           </span>
                         </div>
                       </div>
-                      <input type="number" step="0.5" value={it.heures ?? ""}
-                        onChange={e => onUpdateItem(it._key, { heures: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      <InputNombre valeur={it.heures ?? ""}
+                        onValeur={n => onUpdateItem(it._key, { heures: n })}
                         placeholder="h" style={{ ...inp, textAlign: "right" }}/>
-                      <input type="number" step="0.01" value={it.quantite ?? ""}
-                        onChange={e => onUpdateItem(it._key, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      <InputNombre valeur={it.quantite ?? ""}
+                        onValeur={n => onUpdateItem(it._key, { quantite: n })}
                         placeholder="qté" style={{ ...inp, textAlign: "right" }}/>
-                      <input type="number" step="0.01" value={it.prix_ht ?? ""}
-                        onChange={e => onUpdateItem(it._key, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      <InputNombre valeur={it.prix_ht ?? ""}
+                        onValeur={n => onUpdateItem(it._key, { prix_ht: n })}
                         placeholder="€ HT" style={{ ...inp, textAlign: "right" }}/>
                       <select value={it.lot_id || ""}
                         onChange={e => onUpdateItem(it._key, { lot_id: e.target.value || null })}

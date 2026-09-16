@@ -29,7 +29,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import {
   CheckCircle2, AlertTriangle, Clock, User as UserIcon, X,
   Plus, Trash2, Split, PlusCircle, Lock, LockOpen, ArrowRightLeft,
@@ -1882,10 +1882,10 @@ function LigneEditable({
       {/* Heures */}
       <div>
         <label style={miniLabel(T)}>Heures</label>
-        <input
-          type="number" step="0.25" min="0"
-          value={ligne.heures ?? ""}
-          onChange={e => onChange({ heures: e.target.value === "" ? "" : parseFloat(e.target.value) })}
+        <InputNombre
+          min="0"
+          valeur={ligne.heures ?? ""}
+          onValeur={n => onChange({ heures: n === null ? "" : n })} vide={""}
           onWheel={e => e.currentTarget.blur()}
           disabled={valide}
           style={{ ...inputStyle(T), textAlign: "right" }}
@@ -1908,10 +1908,10 @@ function LigneEditable({
           )}
         </label>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <input
-            type="number" min="0" max="100" step="1"
-            value={ligne.avancement_arbitre ?? ""}
-            onChange={e => onChange({ avancement_arbitre: e.target.value === "" ? "" : parseInt(e.target.value) })}
+          <InputNombre
+            min="0" max="100"
+            valeur={ligne.avancement_arbitre ?? ""}
+            entier onValeur={n => onChange({ avancement_arbitre: n === null ? "" : Math.max(0, Math.min(100, n)) })} vide={""}
             disabled={valide || !ligne.tache_id}
             style={{
               ...inputStyle(T), textAlign: "right",
@@ -2104,10 +2104,10 @@ function BasculerChantierModale({ state, setState, ligne, rapport, chantiers, bu
           </div>
           <div>
             <label style={miniLabel(T)}>Heures à basculer</label>
-            <input
-              type="number" step="0.25" min="0"
-              value={state.heures ?? ""}
-              onChange={e => setState({ ...state, heures: e.target.value === "" ? "" : parseFloat(e.target.value) })}
+            <InputNombre
+              min="0"
+              valeur={state.heures ?? ""}
+              onValeur={n => setState({ ...state, heures: n === null ? "" : n })} vide={""}
               onWheel={e => e.currentTarget.blur()}
               style={{ ...inputStyle(T), textAlign: "right" }}
             />

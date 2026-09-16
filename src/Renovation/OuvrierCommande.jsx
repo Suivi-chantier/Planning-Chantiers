@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { DEFAULT_CHANTIERS } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import { ShoppingCart, Search, X, Plus, Minus, AlertTriangle, Clock, CheckCircle2, Ban, Building2, Send, Package, ListChecks } from "lucide-react";
 import { MobileCard, MobileEmptyState, Pill, MobileTabs } from "../mobileUI";
 
@@ -223,7 +223,7 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
                         ) : (
                           <div style={{ display:"flex", alignItems:"center", gap:4 }}>
                             <button onClick={()=>setQty(article, -1)} style={{ flex:1, padding:"7px 0", background:"rgba(224,92,92,0.12)", border:"1.5px solid rgba(224,92,92,0.3)", borderRadius:8, cursor:"pointer", color:"#e05c5c", display:"flex", justifyContent:"center" }}><Icon as={Minus} size={15} strokeWidth={2.6}/></button>
-                            <input type="number" min="1" value={qty} onChange={e=>setQty(article, Math.max(0, parseInt(e.target.value)||0), true)}
+                            <InputNombre min="1" valeur={qty} entier onValeur={n => setQty(article, Math.max(0, n || 0), true)} vide={0}
                               style={{ width:38, textAlign:"center", border:`1.5px solid ${accent}`, borderRadius:8, padding:"6px 2px", fontSize:15, fontWeight:800, fontFamily:"inherit", color:T.text, outline:"none" }}/>
                             <button onClick={()=>setQty(article, 1)} style={{ flex:1, padding:"7px 0", background:"rgba(80,200,120,0.12)", border:"1.5px solid rgba(80,200,120,0.3)", borderRadius:8, cursor:"pointer", color:"#50c878", display:"flex", justifyContent:"center" }}><Icon as={Plus} size={15} strokeWidth={2.6}/></button>
                           </div>

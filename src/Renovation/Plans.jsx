@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { COULEURS_PALETTE, THEMES, DEFAULT_CHANTIERS, FONT, RADIUS, SPACING, getBranchAccent } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import {
   Ruler, Plus, Copy, Trash2, FolderOpen, Building2, ImageOff, Search,
   Layers, AlertTriangle,
@@ -2274,8 +2274,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {showThreshold&&(
           <div style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.06)',borderRadius:8,padding:'5px 10px'}}>
             <span style={{fontSize:11,color:'#9aa5c0'}}>Seuil:</span>
-            <input type='number' value={threshold} min='0.01' max='10' step='0.05'
-              onChange={e=>setThreshold(parseFloat(e.target.value)||0.5)}
+            <InputNombre valeur={threshold} min='0.01' max='10'
+              onValeur={n => setThreshold(n || 0.5)} vide={0.5}
               style={{width:55,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
                 borderRadius:5,padding:'3px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:13}}/>
             <span style={{fontSize:11,color:'#5b6a8a'}}>m</span>
@@ -2552,23 +2552,15 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             <div style={{display:'flex',gap:6}}>
               <div style={{flex:1}}>
                 <div style={{fontSize:9,color:'#5b6a8a',marginBottom:2}}>X</div>
-                <input type='number' step={0.1} value={parseFloat(symProps.x.toFixed(2))}
-                  onChange={e=>{
-                    const v=parseFloat(e.target.value)||0;
-                    setSymProps(p=>({...p,x:v}));
-                    setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,x:v}:x));
-                  }}
+                <InputNombre valeur={parseFloat(symProps.x.toFixed(2))}
+                  onValeur={v=>{ const n = v || 0; setSymProps(p=>({...p,x:n})); setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,x:n}:x)); }} vide={0}
                   style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
                     borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:11,boxSizing:'border-box'}}/>
               </div>
               <div style={{flex:1}}>
                 <div style={{fontSize:9,color:'#5b6a8a',marginBottom:2}}>Y</div>
-                <input type='number' step={0.1} value={parseFloat(symProps.y.toFixed(2))}
-                  onChange={e=>{
-                    const v=parseFloat(e.target.value)||0;
-                    setSymProps(p=>({...p,y:v}));
-                    setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,y:v}:x));
-                  }}
+                <InputNombre valeur={parseFloat(symProps.y.toFixed(2))}
+                  onValeur={v=>{ const n = v || 0; setSymProps(p=>({...p,y:n})); setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,y:n}:x)); }} vide={0}
                   style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
                     borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:11,boxSizing:'border-box'}}/>
               </div>

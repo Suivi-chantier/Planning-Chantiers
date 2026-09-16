@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase";
 import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import {
   DEPENDANCE_MODES, dupliquerSousTachesV2, estOuvrageV2, maturiteOuvrageV2,
@@ -165,10 +165,10 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
         )}
 
         <div style={{ position: "relative" }}>
-          <input
-            type="number" min="0" max="100" step="1"
-            value={st.ratio ?? ""}
-            onChange={e => update("ratio", e.target.value === "" ? null : parseFloat(e.target.value))}
+          <InputNombre
+            min="0" max="100"
+            valeur={st.ratio ?? ""}
+            onValeur={n => update("ratio", n)}
             placeholder="—"
             style={{ ...fieldStyle, width: "100%", padding: "6px 20px 6px 8px", fontSize: FONT.sm.size, textAlign: "center", fontWeight: 700 }}
           />
@@ -226,9 +226,9 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
             <div style={{ minWidth: 170 }}>
               <div style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: .7, marginBottom: 4 }}>Attente technique mini.</div>
               <div style={{ display: "flex", gap: 5 }}>
-                <input
-                  type="number" min="0" step="1" value={st.delai_min_calendaire ?? 0}
-                  onChange={e => update("delai_min_calendaire", Math.max(0, parseFloat(e.target.value) || 0))}
+                <InputNombre
+                  min="0" valeur={st.delai_min_calendaire ?? 0}
+                  onValeur={n => update("delai_min_calendaire", Math.max(0, n || 0))} vide={0}
                   style={{ ...fieldStyle, width: 75, textAlign: "center" }}
                 />
                 <select value={st.unite_delai || "heures"} onChange={e => update("unite_delai", e.target.value)} style={{ ...fieldStyle, cursor: "pointer" }}>
@@ -371,10 +371,10 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
       )}
 
       {/* Quantité par unité d'ouvrage */}
-      <input
-        type="number" min="0" step="0.01"
-        value={ml.quantite ?? ""}
-        onChange={e => update("quantite", e.target.value === "" ? null : parseFloat(e.target.value))}
+      <InputNombre
+        min="0"
+        valeur={ml.quantite ?? ""}
+        onValeur={n => update("quantite", n)}
         placeholder="Qté / u"
         style={{
           padding: "6px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
@@ -574,10 +574,10 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Cadence (h/{editData.unite || "u"})</label>
-              <input
-                type="number" min="0.01" step="0.05"
-                value={editData.cadence ?? ""}
-                onChange={e => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, cadence: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+              <InputNombre
+                min="0.01"
+                valeur={editData.cadence ?? ""}
+                onValeur={n => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, cadence: n }))}
                 onClick={e => e.stopPropagation()}
                 placeholder="ex: 0.5"
                 style={{ padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.accent}55`, color: T.accent, fontFamily: "inherit", fontSize: 15, fontWeight: 800, outline: "none", textAlign: "center" }}
@@ -641,9 +641,9 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                   </div>
                   <div>
                     <label style={cellLbl}>Coût direct compl. / {prix.unite}</label>
-                    <input type="number" min="0" step="0.01" value={editData.cout_direct_unitaire ?? ""} placeholder="0"
+                    <InputNombre min="0" valeur={editData.cout_direct_unitaire ?? ""} placeholder="0"
                       onClick={e => e.stopPropagation()}
-                      onChange={e => patchOuvrage({ cout_direct_unitaire: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      onValeur={n => patchOuvrage({ cout_direct_unitaire: n })}
                       style={{ ...inputS, marginTop: 4 }}/>
                     <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>{prix.coutDirectUnitaire ? `vendu ${fmtEur2(prix.prixDirectUnitaire)} (× coefficient)` : "location, évacuation… (× coefficient)"}</div>
                   </div>

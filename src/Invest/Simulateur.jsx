@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "../supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import AdresseInput from "../AdresseAutocomplete";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
@@ -1029,14 +1029,14 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                               onChange={e=>updateLot(i,"type",e.target.value)}>
                               {LOT_TYPES.map(t=><option key={t}>{t}</option>)}
                             </select>
-                            <input type="number" className="inv-inp" value={lot.m2} style={{fontSize:12,padding:"4px 6px"}}
-                              onChange={e=>updateLot(i,"m2",parseFloat(e.target.value)||0)}/>
+                            <InputNombre className="inv-inp" valeur={lot.m2} style={{fontSize:12,padding:"4px 6px"}}
+                              onValeur={n=>updateLot(i,"m2",n||0)} vide={0}/>
                             <select className="inv-sel" value={lot.niveau||"RDC"} style={{fontSize:11,padding:"4px 5px"}}
                               onChange={e=>updateLot(i,"niveau",e.target.value)}>
                               {NIVEAUX.map(n=><option key={n}>{n}</option>)}
                             </select>
-                            <input type="number" className="inv-inp" value={lot.loyer} style={{fontSize:12,padding:"4px 6px"}}
-                              onChange={e=>updateLot(i,"loyer",parseFloat(e.target.value)||0)}/>
+                            <InputNombre className="inv-inp" valeur={lot.loyer} style={{fontSize:12,padding:"4px 6px"}}
+                              onValeur={n=>updateLot(i,"loyer",n||0)} vide={0}/>
                             <div className="inv-lot-val">{fmt(lot.loyer*12)}</div>
                             <div className="inv-lot-val">{lot.m2>0?(lot.loyer/lot.m2).toFixed(2):"—"}</div>
                             <div className="inv-lot-val" style={{color:gestionActive?"#d4610a":"#9aa0b0"}}>{gestionActive?fmt(gP):"—"}</div>
@@ -1166,19 +1166,19 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                   <div className="inv-scen-row"><div className="inv-lbl">Montant opération</div><div className="inv-s">{fmt(coutTotal)}</div><div className="inv-s">{fmt(coutTotal)}</div></div>
                   <div className="inv-scen-row">
                     <div className="inv-lbl">Apport (€)</div>
-                    <div><input type="number" className="inv-inp" value={apport1} style={{width:95,fontSize:12,padding:"4px 6px"}} onChange={e=>{setApport1(parseFloat(e.target.value)||0);scheduleAutoSave();}}/></div>
-                    <div><input type="number" className="inv-inp" value={apport2} style={{width:95,fontSize:12,padding:"4px 6px"}} onChange={e=>{setApport2(parseFloat(e.target.value)||0);scheduleAutoSave();}}/></div>
+                    <div><InputNombre className="inv-inp" valeur={apport1} style={{width:95,fontSize:12,padding:"4px 6px"}} onValeur={n=>{setApport1(n||0);scheduleAutoSave();}} vide={0}/></div>
+                    <div><InputNombre className="inv-inp" valeur={apport2} style={{width:95,fontSize:12,padding:"4px 6px"}} onValeur={n=>{setApport2(n||0);scheduleAutoSave();}} vide={0}/></div>
                   </div>
                   <div className="inv-scen-row"><div className="inv-lbl">À financer</div><div className="inv-s">{fmt(af1)}</div><div className="inv-s">{fmt(af2)}</div></div>
                   <div className="inv-scen-row">
                     <div className="inv-lbl">Taux TAEG (%)</div>
-                    <div><input type="number" className="inv-inp" value={taux1} step="0.01" style={{width:75,fontSize:12,padding:"4px 6px"}} onChange={e=>{setTaux1(parseFloat(e.target.value)||0);scheduleAutoSave();}}/></div>
-                    <div><input type="number" className="inv-inp" value={taux2} step="0.01" style={{width:75,fontSize:12,padding:"4px 6px"}} onChange={e=>{setTaux2(parseFloat(e.target.value)||0);scheduleAutoSave();}}/></div>
+                    <div><InputNombre className="inv-inp" valeur={taux1} style={{width:75,fontSize:12,padding:"4px 6px"}} onValeur={n=>{setTaux1(n||0);scheduleAutoSave();}} vide={0}/></div>
+                    <div><InputNombre className="inv-inp" valeur={taux2} style={{width:75,fontSize:12,padding:"4px 6px"}} onValeur={n=>{setTaux2(n||0);scheduleAutoSave();}} vide={0}/></div>
                   </div>
                   <div className="inv-scen-row">
                     <div className="inv-lbl">Durée (années)</div>
-                    <div><input type="number" className="inv-inp" value={duree1} style={{width:75,fontSize:12,padding:"4px 6px"}} onChange={e=>{setDuree1(parseFloat(e.target.value)||0);scheduleAutoSave();}}/></div>
-                    <div><input type="number" className="inv-inp" value={duree2} style={{width:75,fontSize:12,padding:"4px 6px"}} onChange={e=>{setDuree2(parseFloat(e.target.value)||0);scheduleAutoSave();}}/></div>
+                    <div><InputNombre className="inv-inp" valeur={duree1} style={{width:75,fontSize:12,padding:"4px 6px"}} onValeur={n=>{setDuree1(n||0);scheduleAutoSave();}} vide={0}/></div>
+                    <div><InputNombre className="inv-inp" valeur={duree2} style={{width:75,fontSize:12,padding:"4px 6px"}} onValeur={n=>{setDuree2(n||0);scheduleAutoSave();}} vide={0}/></div>
                   </div>
                   <div className="inv-scen-row hl"><div className="inv-lbl bold">Mensualité</div><div className="inv-s green">{fmt(m1)}</div><div className="inv-s green">{fmt(m2)}</div></div>
                   <div className="inv-scen-row"><div className="inv-lbl">Annuité</div><div className="inv-s">{fmt(ann1)}</div><div className="inv-s">{fmt(ann2)}</div></div>
@@ -1259,8 +1259,8 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                   ))}
                   <div className="inv-row total">
                     <span className="inv-lbl bold">▶ Coefficient retenu</span>
-                    <input type="number" className="inv-inp" value={coefEtat} step="0.05" min="0.5" max="2" style={{width:80}}
-                      onChange={e=>{setCoefEtat(parseFloat(e.target.value)||1);scheduleAutoSave();}}/>
+                    <InputNombre className="inv-inp" valeur={coefEtat} min="0.5" max="2" style={{width:80}}
+                      onValeur={n=>{setCoefEtat(n||1);scheduleAutoSave();}} vide={1}/>
                   </div>
                 </div>
               </div>
@@ -1282,12 +1282,12 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                         <div key={item.id} className="inv-brow">
                           <div className="bl">{item.label}</div>
                           <div style={{textAlign:"center",fontSize:11,color:"#9aa0b0"}}>{item.base}</div>
-                          <div><input type="number" className="inv-inp" value={budgetQty[item.id]||0} min="0"
+                          <div><InputNombre className="inv-inp" valeur={budgetQty[item.id]||0} min="0"
                             style={{width:"100%",fontSize:12,padding:"3px 6px"}}
-                            onChange={e=>{setBudgetQty(q=>({...q,[item.id]:parseFloat(e.target.value)||0}));scheduleAutoSave();}}/></div>
-                          <div><input type="number" className="inv-inp" value={budgetPrice[item.id]||0} min="0"
+                            onValeur={n=>{setBudgetQty(q=>({...q,[item.id]:n||0}));scheduleAutoSave();}} vide={0}/></div>
+                          <div><InputNombre className="inv-inp" valeur={budgetPrice[item.id]||0} min="0"
                             style={{width:"100%",fontSize:12,padding:"3px 6px"}}
-                            onChange={e=>{setBudgetPrice(p=>({...p,[item.id]:parseFloat(e.target.value)||0}));scheduleAutoSave();}}/></div>
+                            onValeur={n=>{setBudgetPrice(p=>({...p,[item.id]:n||0}));scheduleAutoSave();}} vide={0}/></div>
                           <div className="bn" style={{textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12}}>{fmt(tot)}</div>
                         </div>
                       );
@@ -1301,12 +1301,12 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                       style={{width:"100%",fontSize:12,padding:"3px 6px",textAlign:"left"}}
                       onChange={e=>{const n=[...customDivers];n[ci]={...n[ci],label:e.target.value};setCustomDivers(n);scheduleAutoSave();}}/></div>
                     <div style={{textAlign:"center",fontSize:11,color:"#9aa0b0"}}>unité</div>
-                    <div><input type="number" className="inv-inp" value={cd.qty||0} min="0"
+                    <div><InputNombre className="inv-inp" valeur={cd.qty||0} min="0"
                       style={{width:"100%",fontSize:12,padding:"3px 6px"}}
-                      onChange={e=>{const n=[...customDivers];n[ci]={...n[ci],qty:parseFloat(e.target.value)||0};setCustomDivers(n);scheduleAutoSave();}}/></div>
-                    <div><input type="number" className="inv-inp" value={cd.price||0} min="0"
+                      onValeur={v=>{const n=[...customDivers];n[ci]={...n[ci],qty:v||0};setCustomDivers(n);scheduleAutoSave();}} vide={0}/></div>
+                    <div><InputNombre className="inv-inp" valeur={cd.price||0} min="0"
                       style={{width:"100%",fontSize:12,padding:"3px 6px"}}
-                      onChange={e=>{const n=[...customDivers];n[ci]={...n[ci],price:parseFloat(e.target.value)||0};setCustomDivers(n);scheduleAutoSave();}}/></div>
+                      onValeur={v=>{const n=[...customDivers];n[ci]={...n[ci],price:v||0};setCustomDivers(n);scheduleAutoSave();}} vide={0}/></div>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>
                       <span style={{fontFamily:"'DM Mono',monospace",fontSize:12}}>{fmt((cd.qty||0)*(cd.price||0))}</span>
                       <button className="inv-rm" onClick={()=>{setCustomDivers(customDivers.filter((_,j)=>j!==ci));scheduleAutoSave();}}>×</button>
@@ -1322,8 +1322,8 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0 4px",borderTop:"1px solid #d8dce6",marginTop:8,gap:8}}>
                   <span style={{fontSize:12,fontWeight:600,color:"#d4610a"}}>Provision imprévus</span>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <input type="number" className="inv-inp" value={imprevusPct} min="0" max="50" style={{width:60,borderColor:"#d4610a"}}
-                      onChange={e=>{setImprevusPct(parseFloat(e.target.value)||0);scheduleAutoSave();}}/>
+                    <InputNombre className="inv-inp" valeur={imprevusPct} min="0" max="50" style={{width:60,borderColor:"#d4610a"}}
+                      onValeur={n=>{setImprevusPct(n||0);scheduleAutoSave();}} vide={0}/>
                     <span style={{fontSize:12,color:"#d4610a",fontWeight:600}}>%</span>
                     <span style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:"#d4610a",minWidth:90,textAlign:"right"}}>{fmt(budgetImp)}</span>
                   </div>

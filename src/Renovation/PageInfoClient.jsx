@@ -328,7 +328,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           if (payload.eventType === "INSERT") {
             setOuvrages(prev => prev.some(o => o.id === payload.new.id) ? prev : [...prev, payload.new]);
           } else if (payload.eventType === "UPDATE") {
-            setOuvrages(prev => prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o));
+            setOuvrages(prev => prev.map(o => o.id === payload.new.id ? fusionnerLigneDistante("ouvrages", o, payload.new) : o));
           } else if (payload.eventType === "DELETE") {
             setOuvrages(prev => prev.filter(o => o.id !== payload.old.id));
           }
@@ -343,7 +343,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           if (payload.eventType === "INSERT") {
             setCotes(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new]);
           } else if (payload.eventType === "UPDATE") {
-            setCotes(prev => prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
+            setCotes(prev => prev.map(c => c.id === payload.new.id ? fusionnerLigneDistante("cotes", c, payload.new) : c));
           } else if (payload.eventType === "DELETE") {
             setCotes(prev => prev.filter(c => c.id !== payload.old.id));
           }
@@ -361,7 +361,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
             setDessins(prev => prev.some(d => d.id === payload.new.id) ? prev : [...prev, payload.new]);
           } else if (payload.eventType === "UPDATE") {
             if (dessinOuvertRef.current === payload.new.id) return;
-            setDessins(prev => prev.map(d => d.id === payload.new.id ? { ...d, ...payload.new } : d));
+            setDessins(prev => prev.map(d => d.id === payload.new.id ? fusionnerLigneDistante("dessins", d, payload.new) : d));
           } else if (payload.eventType === "DELETE") {
             setDessins(prev => prev.filter(d => d.id !== payload.old.id));
           }
@@ -413,6 +413,47 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const pid = projetId;
     debounce("photos", async () => { await savePhotos(next, pid); dirtyInfosRef.current.delete("photos"); });
   };
+
+  // Champs de LIGNE en cours de saisie (ouvrage, cote, dessin).
+  //
+  // Le temps reel applique chaque UPDATE recu sur la ligne correspondante --
+  // y compris l'echo de NOTRE propre enregistrement, qui part 800 ms apres la
+  // derniere frappe et revient encore plus tard. Si l'utilisateur a repris sa
+  // saisie entre-temps, cet echo reecrit la valeur telle qu'elle etait a
+  // l'envoi : le champ "revient en arriere" en pleine frappe.
+  //
+  // On note donc, par ligne et par champ, un numero de frappe. Tant que le
+  // champ est note, le temps reel garde la valeur locale pour CE champ (les
+  // autres champs de la ligne, eux, sont bien mis a jour). Le champ est libere
+  // un court instant apres son enregistrement, et seulement si aucune frappe
+  // n'est arrivee depuis. Meme principe que dirtyInfosRef pour les champs du
+  // projet.
+  const saisieLignesRef = useRef({ ouvrages: new Map(), cotes: new Map(), dessins: new Map() });
+
+  function marquerSaisieLigne(table, id, champ) {
+    const lignes = saisieLignesRef.current[table];
+    if (!lignes.has(id)) lignes.set(id, new Map());
+    const champs = lignes.get(id);
+    const n = (champs.get(champ) || 0) + 1;
+    champs.set(champ, n);
+    return n;
+  }
+
+  function libererSaisieLigne(table, id, champ, n, delai = 1500) {
+    setTimeout(() => {
+      const champs = saisieLignesRef.current[table].get(id);
+      if (!champs || champs.get(champ) !== n) return;   // l'utilisateur a retape
+      champs.delete(champ);
+      if (champs.size === 0) saisieLignesRef.current[table].delete(id);
+    }, delai);
+  }
+
+  function fusionnerLigneDistante(table, local, distant) {
+    const fusion = { ...local, ...distant };
+    const champs = saisieLignesRef.current[table].get(distant.id);
+    if (champs) champs.forEach((_n, champ) => { fusion[champ] = local[champ]; });
+    return fusion;
+  }
 
   // Debounce avec timer dédié par clé : évite que des opérations indépendantes
   // (saveInfos, update ouvrage, update cote…) s'écrasent mutuellement.
@@ -520,37 +561,45 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     else { const{data}=await supabase.from("profero_ouvrages_selectionnes").insert({projet_id:projetId,category:cat,item,quantite:"",unite:UNITES[cat]||"U"}).select().single(); if(data) setOuvrages(p=>[...p,data]); }
   }
   async function updQte(id,q) {
+    const n = marquerSaisieLigne("ouvrages", id, "quantite");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, quantite: q } : o));
     debounce(`ouvrage-qte-${id}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ quantite: q }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("ouvrages", id, "quantite", n);
     });
   }
   async function updUnite(id,u) {
+    const n = marquerSaisieLigne("ouvrages", id, "unite");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, unite: u } : o));
     setAutoSaveStatus("saving");
     const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ unite: u }).eq("id", id);
     setAutoSaveStatus(error ? "error" : "saved");
+    libererSaisieLigne("ouvrages", id, "unite", n);
   }
   // Zone de l'occurrence (texte libre avec suggestions) — propre à la ligne
   function updZone(id, zone) {
+    const n = marquerSaisieLigne("ouvrages", id, "zone");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, zone } : o));
     debounce(`ouvrage-zone-${id}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ zone: (zone || "").trim() || ZONE_DEFAUT }).eq("id", id);
       if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("ouvrages", id, "zone", n);
     });
   }
   // TVA spécifique d'une ligne ("" = suit la TVA du projet)
   async function updTvaLigne(id, valeur) {
     const v = valeur === "" ? null : parseFloat(valeur);
+    const n = marquerSaisieLigne("ouvrages", id, "tva_pct");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, tva_pct: v } : o));
     setAutoSaveStatus("saving");
     const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ tva_pct: v }).eq("id", id);
     if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
     setAutoSaveStatus(error ? "error" : "saved");
+    libererSaisieLigne("ouvrages", id, "tva_pct", n);
   }
   // Suppression d'UNE occurrence : uniquement par son id de ligne. Les autres
   // occurrences du même bibliotheque_id ne sont jamais touchées.
@@ -561,22 +610,26 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setOuvrages(p => p.filter(o => o.id !== id));
   }
   async function updPrix(id,prix) {
+    const n = marquerSaisieLigne("ouvrages", id, "prix_unitaire");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, prix_unitaire: prix } : o));
     debounce(`ouvrage-prix-${id}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_ouvrages_selectionnes")
         .update({ prix_unitaire: prix==="" ? null : parseFloat(prix) }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("ouvrages", id, "prix_unitaire", n);
     });
   }
 
   async function ajoutCote() { if(!projetId) return; const{data}=await supabase.from("profero_cotes").insert({projet_id:projetId,nom:"",largeur:"",hauteur:"",localisation:""}).select().single(); if(data) setCotes(p=>[...p,data]); }
   async function updCote(id,f,v) {
+    const n = marquerSaisieLigne("cotes", id, f);
     setCotes(p => p.map(c => c.id===id ? { ...c, [f]: v } : c));
     debounce(`cote-${id}-${f}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_cotes").update({ [f]: v }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("cotes", id, f, n);
     });
   }
   async function delCote(id) { await supabase.from("profero_cotes").delete().eq("id",id); setCotes(p=>p.filter(c=>c.id!==id)); }
@@ -803,11 +856,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     }, 1000);
   }
   function updDessinChamp(id, champ, valeur) {
+    const n = marquerSaisieLigne("dessins", id, champ);
     setDessins(p => p.map(d => d.id === id ? { ...d, [champ]: valeur } : d));
     debounce(`dessin-${champ}-${id}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_dessins").update({ [champ]: valeur }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("dessins", id, champ, n);
     }, champ === "nom" ? 800 : 0);
   }
   async function supprimerDessin(id) {

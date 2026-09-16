@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
     type: "correctif",
+    titre: "Chiffrage : la saisie d'une ligne ne revient plus en arrière, et les nombres se tapent normalement partout",
+    pages: [{ id: "info-client", label: "Chiffrage" }, { id: "phasage", label: "Phasage" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "dashboard-analyse", label: "Dashboard Analyse" }],
+    quoi: "Deux gênes de saisie sont corrigées. 1) Sur le Chiffrage, la zone, la quantité, le prix d'une ligne et les champs d'une cote pouvaient revenir à une version précédente en pleine frappe : l'enregistrement automatique partait pendant une pause, et sa confirmation revenait écraser les caractères tapés entre-temps. 2) Partout dans l'application, les champs de nombres refusaient les saisies intermédiaires : impossible de taper une virgule, un chiffre après la virgule ou de commencer par un zéro sans que le champ se remette à zéro ou efface la frappe.",
+    comment: "Chiffrage : chaque champ d'une ligne en cours de saisie est protégé le temps de son enregistrement ; les modifications faites au même moment par un collègue sur les AUTRES champs de la ligne continuent d'arriver normalement. Nombres : un champ de saisie unique est désormais utilisé pour tous les nombres (heures, quantités, prix, cadences, pourcentages, budgets Invest…). Il affiche exactement ce qui est tapé tant qu'on est dedans, accepte la virgule comme le point, propose le pavé numérique sur téléphone, et remet la valeur au propre en sortant du champ (« 05 » devient « 5 »). Il ne corrige jamais la valeur en douce : les bornes (0 à 100 %, quantité minimale…) restent celles de chaque écran.",
+  },
+  {
+    date: "2026-09-16",
+    type: "correctif",
     titre: "Saisie qui « revenait en arrière » : texte et nombres restent désormais tels qu'on les tape",
     pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "phasage", label: "Phasage" }, { id: "commandes", label: "Commandes" }],
     quoi: "À plusieurs endroits, un champ pouvait revenir tout seul à une version précédente pendant la frappe : quelques caractères disparaissaient, ou le champ perdait le curseur au milieu d'un mot. En cause, l'enregistrement à chaque caractère : la valeur partie une demi-seconde plus tôt revenait par le temps réel et écrasait ce qui venait d'être tapé. Une modification en attente pouvait aussi être perdue en passant d'un réglage à un autre.",
