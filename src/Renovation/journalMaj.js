@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-18",
+    type: "nouveaute",
+    titre: "Facturation client : importez la facture, l'échéance est reconnue et le cycle de vie se coche",
+    pages: [{ id: "chantiers", label: "Chantiers" }, { id: "admin", label: "Réglages" }],
+    quoi: "La fiche d'un chantier a désormais un bloc « Facturation client ». La personne en charge de la facturation y dépose les factures au fur et à mesure : le montant, le numéro et la date sont lus automatiquement sur le PDF, et l'application reconnaît de quelle échéance il s'agit en rapportant le montant au marché — facture d'acompte à 50 %, de démarrage à 20 %, de situation n° 1 à 15 %, n° 2 à 10 %, solde à 5 %. Elle affiche à tout moment ce qui est facturé, ce qui est encaissé et ce qu'il reste à facturer, et signale l'échéance qui devient exigible (à la signature, à un seuil d'avancement, à la réception) avec un email aux rôles choisis.",
+    comment: "Bouton « Importer une facture » (ou « Importer la facture » sur une échéance précise) : le document part dans l'espace documents du chantier, il est lu, puis une fenêtre montre ce qui a été relevé et l'échéance proposée AVEC la raison du rapprochement — tout est modifiable avant d'enregistrer, et un doublon de numéro est signalé. Rien n'est jamais coché sur la seule foi de la lecture automatique. Une facture a deux états distincts : émise à l'import, puis encaissée quand l'argent est arrivé (bouton « Marquer encaissée », date et montant reçus) — et c'est l'encaissement de l'acompte, pas son émission, qui coche « Acompte encaissé » dans la frise du cycle de vie. Les autres échéances apparaissent dans la phase Travaux de la frise et s'y cochent toutes seules dès que leur facture est importée : elles remplacent les anciennes « factures de situation 25/50/75/100 % », qui se cochaient à la main sans pièce jointe. L'échéancier par défaut se règle dans Réglages → Facturation (libellés, pourcentages, déclencheurs, destinataires des alertes) et reste ajustable chantier par chantier ; un échéancier enregistré sur un chantier y est figé et ne bouge plus si le réglage général change. Si le montant du marché n'est pas connu, le bloc le dit et laisse choisir l'échéance à la main.",
+  },
+  {
     date: "2026-09-17",
     type: "amelioration",
     titre: "Coefficient et taux horaire de vente : champs libres au lieu des listes",

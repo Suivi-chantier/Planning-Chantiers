@@ -23,8 +23,9 @@ import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
-// Seuils des factures de situation (frise du cycle de vie, phase Travaux).
-import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
+// Échéancier de facturation client (bloc Facturation de la fiche chantier +
+// étapes de facturation de la frise du cycle de vie, phase Travaux).
+import { ECHEANCIER_DEFAUT, normaliserEcheancier, controleEcheancier } from "./facturationClient";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
 const callEdgeFunction = async (fnName, payload) => {
@@ -2310,11 +2311,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
   const [excDate, setExcDate]     = useState("");
   const [excHeures, setExcHeures] = useState("0");
-  // Factures de situation : seuils d'avancement (%) qui les déclenchent, et
-  // rôles destinataires de l'email « facture de situation prête ».
-  const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
+  // Échéancier de facturation par défaut (acompte 50 %, démarrage 20 %,
+  // situations, solde) et rôles destinataires de l'email « facture à émettre ».
+  const [echeancier, setEcheancier] = useState(() => ECHEANCIER_DEFAUT.map(l => ({ ...l })));
   const [rolesSituations, setRolesSituations] = useState(["admin", "conducteur"]);
-  const [nouveauSeuil, setNouveauSeuil] = useState("");
   // % d'acompte par défaut (Point 5) : utilisé par les recettes prévues du
   // diagramme financier quand ni les États financiers ni le chantier n'en ont.
   const [acomptePctDefaut, setAcomptePctDefaut] = useState("");
@@ -2325,7 +2325,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils", "acompte_pct_defaut", "chiffrage_tva_defaut"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "echeancier_facturation", "acompte_pct_defaut", "chiffrage_tva_defaut"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2349,9 +2349,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           if (r.key === "heures_par_jour" && r.value) {
             setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
           }
-          if (r.key === "situations_seuils" && r.value) {
-            if (Array.isArray(r.value.seuils) && r.value.seuils.length > 0) {
-              setSeuilsSituations(normaliserSeuilsSituations(r.value.seuils));
+          if (r.key === "echeancier_facturation" && r.value) {
+            if (Array.isArray(r.value.lignes) && r.value.lignes.length > 0) {
+              setEcheancier(normaliserEcheancier(r.value.lignes));
             }
             if (Array.isArray(r.value.roles)) setRolesSituations(r.value.roles);
           }
@@ -2445,32 +2445,40 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     saveConfig("heures_par_jour", next);
   };
 
-  // ─── FACTURES DE SITUATION : seuils + rôles destinataires ────────────────
-  // Une seule clé planning_config ("situations_seuils") porte les deux :
-  // { seuils: [25, 50…], roles: ["admin", …] } — toujours écrite ENTIÈRE.
-  const saveSituationsCfg = (seuils, roles) =>
-    saveConfig("situations_seuils", { seuils, roles });
-  const majSeuilsSituations = (arr) => {
-    const clean = normaliserSeuilsSituations(arr);
-    setSeuilsSituations(clean);
-    saveSituationsCfg(clean, rolesSituations);
+  // ─── ÉCHÉANCIER DE FACTURATION : lignes + rôles destinataires ────────────
+  // Une seule clé planning_config ("echeancier_facturation") porte les deux :
+  // { lignes: [{ id, nom, pct, declencheur, etape_cycle_vie }], roles: [...] }
+  // — toujours écrite ENTIÈRE. C'est le DÉFAUT : un chantier peut avoir son
+  // propre échéancier (meta.facturation_echeancier), figé le jour où il est
+  // enregistré ; modifier ce réglage-ci n'y touche pas.
+  const saveEcheancierCfg = (lignes, roles) =>
+    saveConfig("echeancier_facturation", { lignes, roles });
+  // Écriture DIFFÉRÉE : on tape un libellé ou un pourcentage caractère par
+  // caractère, et un pourcentage momentanément vide vaut 0 — écrire à chaque
+  // frappe enregistrerait des états intermédiaires incohérents.
+  const majEcheancier = (lignes) => {
+    setEcheancier(lignes);
+    saveConfigDiffere("echeancier_facturation", {
+      lignes: normaliserEcheancier(lignes), roles: rolesSituations,
+    });
   };
-  const addSeuilSituation = () => {
-    const v = Math.round(parseFloat(nouveauSeuil) || 0);
-    if (v < 1 || v > 100) return;
-    majSeuilsSituations([...seuilsSituations, v]);
-    setNouveauSeuil("");
+  const majLigneEcheancier = (i, patch) =>
+    majEcheancier(echeancier.map((l, j) => j === i ? { ...l, ...patch } : l));
+  const addLigneEcheancier = () => majEcheancier([
+    ...echeancier,
+    { id: `echeance_${echeancier.length + 1}`, nom: "Nouvelle échéance", pct: 0, declencheur: { type: "manuel" } },
+  ]);
+  const removeLigneEcheancier = (i) => {
+    if (echeancier.length <= 1) return; // toujours au moins une échéance
+    majEcheancier(echeancier.filter((_, j) => j !== i));
   };
-  const removeSeuilSituation = (s) => {
-    if (seuilsSituations.length <= 1) return; // toujours au moins un seuil
-    majSeuilsSituations(seuilsSituations.filter(x => x !== s));
-  };
+  const resetEcheancier = () => majEcheancier(ECHEANCIER_DEFAUT.map(l => ({ ...l })));
   const toggleRoleSituation = (roleId) => {
     const next = rolesSituations.includes(roleId)
       ? rolesSituations.filter(r => r !== roleId)
       : [...rolesSituations, roleId];
     setRolesSituations(next);
-    saveSituationsCfg(seuilsSituations, next);
+    saveEcheancierCfg(normaliserEcheancier(echeancier), next);
   };
 
   // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
@@ -3033,7 +3041,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["fournisseurs", "Fournisseurs", Truck],
       ["vehicules",    "Véhicules",    Car],
       ["emails",       "Emails",       Mail],
-      ["situations",   "Fact. de situation", Receipt],
+      ["situations",   "Facturation",   Receipt],
       ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
     ]},
     { id:"outils", label:"Outils", icon:Wrench, tabs:[
@@ -4542,59 +4550,100 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         </div>
       )}
 
-      {/* ── FACTURES DE SITUATION : seuils d'avancement + rôles notifiés ── */}
+      {/* ── ÉCHÉANCIER DE FACTURATION : lignes du contrat + rôles notifiés ── */}
       {adminTab==="situations"&&(
         <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Factures de situation</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:18,maxWidth:640,lineHeight:1.6}}>
-            À chaque seuil d'<strong>avancement du chantier</strong> franchi, une facture de situation passe
-            « à émettre » dans la frise du cycle de vie (phase Travaux) et un email de notification part
-            automatiquement — une seule fois par seuil et par chantier (les chantiers au statut Terminé sont exclus).
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Échéancier de facturation</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:18,maxWidth:700,lineHeight:1.6}}>
+            Le découpage par défaut d'un marché en factures : acompte, démarrage, situations, solde.
+            Il est repris automatiquement par chaque chantier, où il reste ajustable
+            (fiche chantier → <strong>Facturation client</strong> → « Modifier l'échéancier »).
+            Quand une échéance atteint son déclencheur, elle passe « à émettre » dans la frise du cycle de vie
+            et un email part une seule fois par échéance et par chantier (chantiers Terminés exclus).
+            À l'import d'une facture, c'est le <strong>montant</strong> rapporté à ces pourcentages
+            qui permet de reconnaître l'échéance concernée.
           </div>
 
-          {/* Seuils */}
-          <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:T.text}}>Seuils de déclenchement</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:10}}>Défaut : {SEUILS_SITUATIONS.join(" · ")} %.</div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
-            {seuilsSituations.map(s => (
-              <span key={s} style={{
-                display:"inline-flex",alignItems:"center",gap:6,
-                padding:"6px 6px 6px 12px",borderRadius:RADIUS.pill,
-                border:`1px solid ${T.border}`,background:T.surface,
-                fontSize:14,fontWeight:800,color:T.accent,
-              }}>
-                {s} %
-                <button onClick={()=>removeSeuilSituation(s)}
-                  title={seuilsSituations.length<=1?"Au moins un seuil requis":"Retirer ce seuil"}
-                  disabled={seuilsSituations.length<=1}
-                  style={{
-                    width:20,height:20,borderRadius:"50%",border:"none",
-                    background:T.card,color:T.textMuted,cursor:seuilsSituations.length<=1?"default":"pointer",
+          {/* Lignes de l'échéancier */}
+          <div style={{fontWeight:700,fontSize:15,marginBottom:10,color:T.text}}>Échéances</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+            {echeancier.map((l,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <input value={l.nom} onChange={e=>majLigneEcheancier(i,{nom:e.target.value})}
+                  placeholder="Libellé de l'échéance"
+                  style={{flex:"1 1 220px",minWidth:160,padding:"7px 10px",borderRadius:8,
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                    fontFamily:"inherit",fontSize:14,outline:"none"}}/>
+                <input type="number" min="0" max="100" step="1" value={l.pct}
+                  onChange={e=>majLigneEcheancier(i,{pct:parseFloat(e.target.value)||0})}
+                  style={{width:72,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                    fontFamily:"inherit",fontSize:14,fontWeight:800,outline:"none"}}/>
+                <span style={{fontSize:13,color:T.textMuted,width:14}}>%</span>
+                <select value={l.declencheur?.type||"manuel"}
+                  onChange={e=>majLigneEcheancier(i,{declencheur:{type:e.target.value,seuil:l.declencheur?.seuil??50}})}
+                  style={{flex:"0 1 230px",padding:"7px 10px",borderRadius:8,
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                    fontFamily:"inherit",fontSize:13,outline:"none"}}>
+                  <option value="signature">À la signature du devis</option>
+                  <option value="avancement">À un % d'avancement</option>
+                  <option value="reception">À la réception des travaux</option>
+                  <option value="manuel">À la main (aucun signalement)</option>
+                </select>
+                {l.declencheur?.type==="avancement"&&(
+                  <input type="number" min="0" max="100" value={l.declencheur?.seuil??0}
+                    onChange={e=>majLigneEcheancier(i,{declencheur:{type:"avancement",seuil:parseFloat(e.target.value)||0}})}
+                    title="Seuil d'avancement (%)"
+                    style={{width:64,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                      border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                      fontFamily:"inherit",fontSize:13,outline:"none"}}/>
+                )}
+                {l.etape_cycle_vie&&(
+                  <span title={`L'encaissement de cette échéance coche l'étape « ${l.etape_cycle_vie} » du cycle de vie`}
+                    style={{fontSize:11,fontWeight:700,color:T.textMuted,
+                      border:`1px dashed ${T.border}`,borderRadius:RADIUS.pill,padding:"2px 9px"}}>
+                    coche le cycle de vie
+                  </span>
+                )}
+                <button onClick={()=>removeLigneEcheancier(i)}
+                  title={echeancier.length<=1?"Au moins une échéance requise":"Retirer cette échéance"}
+                  disabled={echeancier.length<=1}
+                  style={{width:28,height:28,borderRadius:8,border:`1px solid ${T.border}`,
+                    background:T.surface,color:T.textMuted,
+                    cursor:echeancier.length<=1?"default":"pointer",
                     display:"inline-flex",alignItems:"center",justifyContent:"center",
-                    fontFamily:"inherit",fontSize:12,fontWeight:800,opacity:seuilsSituations.length<=1?0.4:1,
-                  }}>×</button>
-              </span>
+                    fontFamily:"inherit",fontSize:13,fontWeight:800,opacity:echeancier.length<=1?0.4:1}}>×</button>
+              </div>
             ))}
-            <input type="number" min="1" max="100" step="5" value={nouveauSeuil}
-              onChange={e=>setNouveauSeuil(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter")addSeuilSituation();}}
-              placeholder="%"
-              style={{width:64,padding:"7px 10px",borderRadius:8,textAlign:"center",
-                border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
-                fontFamily:"inherit",fontSize:14,fontWeight:700,outline:"none"}}/>
-            <button onClick={addSeuilSituation}
-              disabled={!(parseFloat(nouveauSeuil)>=1&&parseFloat(nouveauSeuil)<=100)}
-              style={{
-                padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
-                background:T.surface,color:T.textSub,fontFamily:"inherit",
-                fontSize:13,fontWeight:700,cursor:"pointer",
-              }}>+ Ajouter un seuil</button>
           </div>
+
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+            <button onClick={addLigneEcheancier} style={{
+              padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+              background:T.surface,color:T.textSub,fontFamily:"inherit",
+              fontSize:13,fontWeight:700,cursor:"pointer",
+            }}>+ Ajouter une échéance</button>
+            <button onClick={resetEcheancier} style={{
+              padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+              background:"transparent",color:T.textMuted,fontFamily:"inherit",
+              fontSize:13,fontWeight:700,cursor:"pointer",
+            }}>Revenir au défaut ({ECHEANCIER_DEFAUT.map(l=>`${l.pct}`).join(" / ")} %)</button>
+          </div>
+
+          {(()=>{ const ctrl=controleEcheancier(echeancier); return (
+            <div style={{
+              fontSize:13,fontWeight:700,marginBottom:24,paddingBottom:20,
+              borderBottom:`1px solid ${T.border}`,
+              color:ctrl.somme===100?"#22c55e":"#f59e0b",
+            }}>
+              Total : {ctrl.somme} %{ctrl.alertes.length?` — ${ctrl.alertes[0]}`:" du marché."}
+            </div>
+          ); })()}
 
           {/* Rôles destinataires */}
           <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:T.text}}>Destinataires de la notification</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:10,maxWidth:640,lineHeight:1.6}}>
-            L'email « facture de situation prête » est envoyé aux utilisateurs <strong>actifs</strong> des rôles cochés
+            L'email « facture à émettre » est envoyé aux utilisateurs <strong>actifs</strong> des rôles cochés
             (seuls les comptes avec une vraie adresse email la reçoivent — les comptes locaux sont ignorés).
           </div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
@@ -4617,7 +4666,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           {rolesSituations.length===0&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.4)",borderRadius:RADIUS.md,fontSize:13,color:"#f59e0b",fontWeight:600}}>
               <Icon as={AlertTriangle} size={14}/>
-              Aucun rôle coché : aucune notification ne sera envoyée (les situations restent signalées dans la frise).
+              Aucun rôle coché : aucune notification ne sera envoyée (les échéances restent signalées « à émettre » dans la fiche chantier).
             </div>
           )}
         </div>

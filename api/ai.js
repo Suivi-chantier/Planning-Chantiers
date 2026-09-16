@@ -274,7 +274,14 @@ module.exports = async function handler(req, res) {
     }
 
     // 6) Construire le prompt puis appeler le modèle
-    const prompt = tache.construire_prompt(entree, contexte || {});
+    //
+    // `await` : une tâche peut avoir besoin d'aller CHERCHER ce qu'elle donne
+    // à lire au modèle — facture_client télécharge le document depuis le
+    // stockage privé plutôt que de le faire transiter par l'entrée (qui est
+    // journalisée telle quelle dans ia_jobs). Sur un prompt construit de
+    // façon synchrone, `await` est sans effet : la modification est générique
+    // et n'oblige aucune tâche existante à changer.
+    const prompt = await tache.construire_prompt(entree, contexte || {});
     const anthropic = new Anthropic();
     const params = {
       model: tache.modele,

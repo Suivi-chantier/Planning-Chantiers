@@ -24,8 +24,17 @@ import {
   CYCLE_VIE_PHASES, getPhase, etapesTravauxDepuisGroupes,
   computeCycleVie, evaluerEtape, lireEtatsEtapes, lirePhaseDeclaree,
   CV_META_PHASE_DECLAREE, CV_META_ETAPES,
-  etapesSituationsTravaux, normaliserSeuilsSituations, SEUILS_SITUATIONS,
 } from "./cycleVie";
+// Facturation client : échéancier contractuel (acompte 50 %, démarrage 20 %,
+// situations, solde), registre des factures émises/encaissées et pont vers la
+// frise du cycle de vie. Remplace les anciennes « factures de situation »
+// indexées sur le seul avancement.
+import {
+  ECHEANCIER_DEFAUT, normaliserEcheancier, lireEcheancierChantier, lireMontantReference,
+  etatFacturation, etapesFacturationTravaux, facturationParLigne,
+  etapesAValiderDepuisFacturation,
+} from "./facturationClient";
+import FacturationChantier from "./FacturationChantier";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
 import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, ACCEPT_DOCS } from "./storageChantier";
 // Diagramme financier (Point 5) : séries prévues + récapitulatif (calcul pur)
@@ -784,7 +793,7 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, avancementChantier, seuilsSituations, peutModifier, onDeclarer, actionsEtape, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier, onDeclarer, actionsEtape, T }) {
   const [saving, setSaving] = useState(false);
   const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
@@ -901,10 +910,11 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, avancementChant
             const phaseVueId = phaseVue || cv.phaseId;
             const phaseVueObj = getPhase(phaseVueId) || cv.phase;
             const etapes = (phaseVueId === "cv_travaux"
-              // Travaux : les groupes d'exécution, puis les factures de
-              // situation indexées sur l'avancement (seuils réglés en Admin).
+              // Travaux : les groupes d'exécution, puis les échéances de
+              // facturation du chantier (bloc Facturation client — leur état
+              // vient des factures réellement importées, jamais d'une coche).
               ? [...etapesTravauxDepuisGroupes(chronoGroupes, statsGroupes),
-                 ...etapesSituationsTravaux(avancementChantier, seuilsSituations)]
+                 ...(etapesFacturation || [])]
               : (phaseVueObj?.etapes || [])
             ).map(e => ({ ...e, ...evaluerEtape(e, cvCtx), etat: (cvCtx?.etatsEtapes || {})[e.id] || null }));
             const estPhaseCourante = phaseVueId === cv.phaseId;
@@ -2038,36 +2048,47 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const cvChantierId = selectedPhasage?.chantier_id || null;
   const [controlesGroupesSel, setControlesGroupesSel] = useState([]);
   const [reservesGroupesSel, setReservesGroupesSel] = useState([]);
-  // Factures de situation (réglage Admin → Fact. de situation) : seuils
-  // d'avancement + rôles destinataires de la notification.
-  const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
+  // Facturation client : registre des factures du chantier (table
+  // chantier_factures_client) + échéancier par défaut et rôles notifiés
+  // (réglage Admin → Facturation, clé planning_config "echeancier_facturation").
+  // Table absente (SQL pas lancé) → liste vide : le bloc affiche l'échéancier
+  // prévu, sans facture, comme avant la mise en service.
+  const [facturesClient, setFacturesClient] = useState([]);
+  const [echeancierDefaut, setEcheancierDefaut] = useState(ECHEANCIER_DEFAUT);
   const [rolesSituations, setRolesSituations] = useState(["admin", "conducteur"]);
+  const [rechargeFactures, setRechargeFactures] = useState(0);
   useEffect(() => {
-    if (!cvChantierId) { setControlesGroupesSel([]); setReservesGroupesSel([]); return; }
+    if (!cvChantierId) { setControlesGroupesSel([]); setReservesGroupesSel([]); setFacturesClient([]); return; }
     let actif = true;
     (async () => {
-      const [rc, rr, rs] = await Promise.all([
+      const [rc, rr, rf, rs] = await Promise.all([
         supabase.from("controles_groupe")
           .select("id, groupe_id, date_controle, nb_taches, nb_conformes")
           .eq("chantier_id", cvChantierId),
         supabase.from("reserves")
           .select("id, groupe_id, controle_id, statut, created_at, levee_le")
           .eq("chantier_id", cvChantierId),
+        supabase.from("chantier_factures_client")
+          .select("*").eq("chantier_id", cvChantierId).order("date_facture", { ascending: true }),
         supabase.from("planning_config")
-          .select("value").eq("key", "situations_seuils").maybeSingle(),
+          .select("value").eq("key", "echeancier_facturation").maybeSingle(),
       ]);
       if (!actif) return;
       setControlesGroupesSel(rc.error ? [] : (rc.data || []));
       setReservesGroupesSel(rr.error ? [] : (rr.data || []));
+      setFacturesClient(rf.error ? [] : (rf.data || []));
       if (!rs.error && rs.data?.value) {
-        if (Array.isArray(rs.data.value.seuils) && rs.data.value.seuils.length > 0) {
-          setSeuilsSituations(normaliserSeuilsSituations(rs.data.value.seuils));
+        if (Array.isArray(rs.data.value.lignes) && rs.data.value.lignes.length > 0) {
+          setEcheancierDefaut(normaliserEcheancier(rs.data.value.lignes));
         }
         if (Array.isArray(rs.data.value.roles)) setRolesSituations(rs.data.value.roles);
       }
     })();
     return () => { actif = false; };
-  }, [cvChantierId]);
+  }, [cvChantierId, rechargeFactures]);
+  // Rechargement après une écriture du bloc Facturation (insert, encaissement,
+  // suppression) : une seule source, la base — on ne recopie pas l'état local.
+  const rechargerFactures = async () => setRechargeFactures(n => n + 1);
   const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
@@ -2207,11 +2228,25 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       return tg.length > 0 && tg.every(t => (Array.isArray(t.ouvriers) && t.ouvriers.length > 0) || t.externe);
     });
   })();
+  // ── Facturation client : échéancier retenu pour CE chantier (surcharge du
+  // phasage, sinon réglage Admin, sinon défaut Profero), montant du marché et
+  // état de chaque échéance. Alimente le bloc Facturation ET les étapes de
+  // facturation de la phase Travaux dans la frise.
+  const echeancierChantier = lireEcheancierChantier(metaSelected, echeancierDefaut);
+  const montantRefFact = lireMontantReference(metaSelected, finances?.prixVendu || 0);
+  const etatFact = etatFacturation({
+    echeancier: echeancierChantier.lignes,
+    factures: facturesClient,
+    montantReference: montantRefFact.montant,
+    avancement,
+    etatsEtapes: cvEtats,
+  });
   const cvCtx = {
     etatsEtapes: cvEtats,
     chiffrage: totalHeures.vendues > 0 || (finances?.prixVendu || 0) > 0,
     equipesAffectees: cvEquipesAffectees,
     controles: controlesGroupesSel, // témoins « contrôlé » (Point 2 b)
+    facturation: facturationParLigne(etatFact), // signal "facture_client"
     todayISO: new Date().toISOString().slice(0, 10),
   };
   const cv = selectedPhasage ? computeCycleVie({
@@ -2312,25 +2347,56 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Envoi d'une pièce jointe par email (modale de choix des destinataires).
   const [envoiPJ, setEnvoiPJ] = useState(null); // { pj, etapeNom } | null
 
-  // ── Notification « facture de situation prête » (best-effort, côté client).
-  // Quand l'avancement franchit un seuil (réglage Admin) et que la situation
-  // n'est ni émise ni déjà notifiée : email aux admin + conducteurs via
-  // /api/send-email (pas de nouvelle fonction Vercel : plafond des 12
-  // atteint — la détection se fait à l'ouverture de la fiche). Drapeau PLAT
-  // par seuil dans meta (situation_mail_<seuil>), posé seulement si l'envoi
-  // a réussi ; garde de session anti-doublon pendant l'aller-retour réseau.
+  // ── Report de la facturation sur le cycle de vie ──
+  // Une échéance rattachée à une étape existante (l'acompte → « Acompte
+  // encaissé ») coche cette étape dès qu'elle est ENCAISSÉE, et la décoche si
+  // l'encaissement est annulé — mais seulement si c'est elle qui l'avait
+  // cochée (une coche posée à la main avant la mise en service du bloc n'est
+  // jamais retirée : etapesAValiderDepuisFacturation s'en assure).
+  // Le calcul est pur ; ici on ne fait qu'écrire ce qui diffère, ce qui rend
+  // l'effet idempotent : après écriture, cvEtats change, le calcul suivant ne
+  // renvoie plus rien.
+  const syncFactRef = useRef("");
+  useEffect(() => {
+    if (!selectedPhasage?.id) return;
+    const aEcrire = etapesAValiderDepuisFacturation(etatFact, cvEtats);
+    if (!aEcrire.length) return;
+    const cle = `${selectedPhasage.id}:${aEcrire.map(e => `${e.etapeId}=${e.fait}`).join(",")}`;
+    if (syncFactRef.current === cle) return; // garde anti-doublon pendant l'aller-retour réseau
+    syncFactRef.current = cle;
+    (async () => {
+      for (const e of aEcrire) {
+        if (e.fait) {
+          await saveEtatEtapeCV(e.etapeId, (courant) => ({
+            ...courant, fait: true, date: new Date().toISOString(), auteur: "Facturation",
+            donnees: { ...(courant.donnees || {}), ...e.donnees },
+          }));
+        } else {
+          await saveEtatEtapeCV(e.etapeId, (courant) => ({
+            ...courant, fait: false, date: null, auteur: null,
+          }));
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhasage?.id, facturesClient, cvEtats]);
+
+  // ── Notification « facture à émettre » (best-effort, côté client).
+  // Quand une échéance de l'échéancier atteint son déclencheur (avancement,
+  // signature, réception) sans avoir été facturée ni déjà notifiée : email aux
+  // rôles cochés en Admin via /api/send-email (pas de nouvelle fonction
+  // Vercel : plafond des 12 atteint — la détection se fait à l'ouverture de la
+  // fiche). Drapeau PLAT par échéance dans meta (facture_mail_<ligneId>), posé
+  // seulement si l'envoi a réussi ; garde de session anti-doublon pendant
+  // l'aller-retour réseau.
   const notifSituationRef = useRef(null);
   useEffect(() => {
     if (!selectedPhasage?.id || !selectedChantier) return;
     if (getStatut(selectedChantier, selectedPhasage) === "termine") return; // chantier soldé : pas de relance
     if (!rolesSituations.length) return; // aucun rôle coché en Admin : pas de notification
-    const aPrevenir = seuilsSituations.filter(s =>
-      (avancement || 0) >= s
-      && !cvEtats[`situation_${s}`]?.fait
-      && !metaSelected[`situation_mail_${s}`]
-    );
+    const aPrevenir = etatFact.lignes.filter(l => l.prete && !metaSelected[`facture_mail_${l.id}`]);
     if (!aPrevenir.length) return;
-    const cle = `${selectedPhasage.id}:${aPrevenir.join(",")}`;
+    const cle = `${selectedPhasage.id}:${aPrevenir.map(l => l.id).join(",")}`;
     if (notifSituationRef.current === cle) return;
     notifSituationRef.current = cle;
     (async () => {
@@ -2340,18 +2406,21 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         .filter(u => u.actif !== false && u.email && !String(u.email).toLowerCase().endsWith("@profero.local"))
         .map(u => u.email);
       if (!dests.length) return;
-      for (const seuil of aPrevenir) {
+      for (const ligne of aPrevenir) {
+        const montant = Math.round(ligne.montantAttendu || 0).toLocaleString("fr-FR");
         const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1a1f2e">
           <div style="background:#080a0d;padding:24px;border-radius:10px 10px 0 0;border-bottom:3px solid #FFC200">
             <div style="color:#FFC200;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Profero Planning · Facturation</div>
-            <div style="color:#fff;font-size:20px;font-weight:800">💶 Facture de situation à émettre</div>
+            <div style="color:#fff;font-size:20px;font-weight:800">💶 Facture à émettre</div>
           </div>
           <div style="background:#fff;border:1px solid #e0e4ef;border-top:none;border-radius:0 0 10px 10px;padding:24px;font-size:14px;line-height:1.7">
-            <p style="margin:0 0 10px">Le chantier <strong>${escHtml(selectedChantier.nom)}</strong> a atteint
-            <strong>${Math.round(avancement || 0)} %</strong> d'avancement : la facture de situation du seuil
-            <strong>${seuil} %</strong> est prête à être émise.</p>
-            <p style="margin:0;color:#666">Une fois émise, validez l'étape « Facture de situation — ${seuil} % »
-            dans la frise du chantier (phase Travaux), avec le montant et la date — la facture peut y être jointe.</p>
+            <p style="margin:0 0 10px">Chantier <strong>${escHtml(selectedChantier.nom)}</strong> —
+            l'échéance <strong>${escHtml(ligne.nom)}</strong> (${ligne.pct} % du marché,
+            <strong>${montant} € HT</strong>) est à émettre : elle se déclenche ${escHtml(ligne.declencheurLibelle)}
+            et l'avancement du chantier est de <strong>${Math.round(avancement || 0)} %</strong>.</p>
+            <p style="margin:0;color:#666">Une fois la facture envoyée au client, importez-la dans le bloc
+            « Facturation client » de la fiche chantier : le montant sera lu automatiquement, l'échéance
+            reconnue, et la frise du cycle de vie mise à jour.</p>
           </div>
           <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
         </div>`;
@@ -2361,16 +2430,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               to: dests,
-              subject: `Facture de situation à émettre — ${selectedChantier.nom} (${seuil} %)`,
+              subject: `Facture à émettre — ${selectedChantier.nom} (${ligne.nom}, ${ligne.pct} %)`,
               html,
             }),
           });
-          if (res.ok) await saveMetaPhasage({ [`situation_mail_${seuil}`]: new Date().toISOString() });
+          if (res.ok) await saveMetaPhasage({ [`facture_mail_${ligne.id}`]: new Date().toISOString() });
         } catch { /* réessaiera à une prochaine ouverture de la fiche */ }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPhasage?.id, avancement, seuilsSituations, rolesSituations]);
+  }, [selectedPhasage?.id, avancement, facturesClient, rolesSituations]);
   // Ouverture d'un document (URL signée) — fenêtre ouverte AVANT l'await pour
   // ne pas être bloqué par l'anti-popup.
   const ouvrirPieceJointeCV = async (pj) => {
@@ -2727,7 +2796,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
 
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
         <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected} statsGroupes={statsGroupesSelected}
-          avancementChantier={avancement} seuilsSituations={seuilsSituations}
+          etapesFacturation={etapesFacturationTravaux(etatFact)}
           peutModifier={!!selectedPhasage} onDeclarer={declarerPhaseCV}
           actionsEtape={{
             onValider: validerEtapeCV,
@@ -2738,6 +2807,17 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             onOuvrirPJ: ouvrirPieceJointeCV,
             onEnvoyerPJ: (etape, pj) => setEnvoiPJ({ pj, etapeNom: etape.nom }),
           }} T={T}/>
+
+        {/* ── Facturation client : échéancier du contrat, import des factures
+            (lecture automatique du montant) et encaissements. Les échéances
+            cochent elles-mêmes la frise ci-dessus. ── */}
+        {selectedPhasage && (
+          <FacturationChantier T={T} chantierId={cvChantierId} phasageId={selectedPhasage.id}
+            etat={etatFact} echeancier={echeancierChantier.lignes} echeancierSurcharge={echeancierChantier.surcharge}
+            montantRef={montantRefFact} factures={facturesClient}
+            peutModifier auteur={auteurCV}
+            onRefresh={rechargerFactures} onSaveMeta={saveMetaPhasage}/>
+        )}
 
         {/* ── Référence financière figée (Point 5) : sous la frise cycle de vie ── */}
         <BlocReferenceFinanciere T={T} chantierId={selected} chantierNom={selectedChantier?.nom || ""}

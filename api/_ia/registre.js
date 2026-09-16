@@ -16,6 +16,11 @@
 //   schema_entree(e)   validation du payload reçu → true | "erreur" | [erreurs]
 //   schema_sortie(s)   validation du résultat parsé → true | "erreur" | [erreurs]
 //   construire_prompt(entree, contexte) → { system, messages }
+//                      peut être ASYNC : la route l'attend. Une tâche qui doit
+//                      aller chercher ce qu'elle donne à lire au modèle (un
+//                      document dans le stockage privé, cf. facture_client)
+//                      le fait là, plutôt que de le faire transiter par
+//                      `entree`, qui est journalisée telle quelle dans ia_jobs.
 //   parser_sortie(texte)   optionnel — défaut : JSON.parse, sinon { texte }
 //   calculer_confiance(resultat)   optionnel → nombre 0..1
 
@@ -32,6 +37,7 @@
 const TACHES = [
   require("./taches/ping"),
   require("./taches/invest_copilot"),
+  require("./taches/facture_client"),
 ];
 
 module.exports = Object.fromEntries(TACHES.map((t) => [t.id, t]));
