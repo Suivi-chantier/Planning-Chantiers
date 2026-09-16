@@ -21,6 +21,11 @@ export const CIBLES = Object.freeze({
   "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
   "progbat-library-cadences": ["codeOuvrage.mjs", "progbatCadences.mjs", "progbatCadencesServeur.mjs"],
   "progbat-yards-list": ["progbatYards.mjs"],
+  // Diagnostic de pré-synchronisation (lecture seule) : il réutilise les règles
+  // de facturation et de résolution telles quelles, et la pagination des yards.
+  "progbat-billing-dry-run": [
+    "progbatFacturation.mjs", "progbatLiaison.mjs", "progbatYards.mjs", "progbatBillingDryRun.mjs",
+  ],
 });
 // Compatibilité : liste plate des fichiers de la première cible (anciens scripts).
 export const FICHIERS = CIBLES["progbat-library-inventory"];
