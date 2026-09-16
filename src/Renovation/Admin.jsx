@@ -2339,6 +2339,25 @@ function CapacitesFacturationProgbat({ billing, T }) {
           { libelle: `${billing.details_factures?.nombre ?? 0} facture(s) examinée(s)`,
             couleur: (billing.details_factures?.nombre > 0) ? T.text : T.textMuted },
           billing.details_factures?.message || null)}
+
+        {/* Chantiers ProGBat : combien de yardId des factures se retrouvent
+            réellement dans /company/yards. Le détail est dans le JSON technique. */}
+        {(() => {
+          const cy = billing.chantiers_progbat;
+          const c = cy?.croisement;
+          const reconnus = c?.yards_reconnus ?? 0;
+          const cherches = c?.yards_distincts ?? 0;
+          return ligne("Chantiers ProGBat",
+            cy?.ok
+              ? { libelle: `${reconnus}/${cherches} identifiant(s) reconnu(s)`,
+                  couleur: cherches > 0 && reconnus === cherches ? "#22c55e" : reconnus > 0 ? "#f59e0b" : T.textMuted }
+              : etat(cy),
+            cy?.ok
+              ? `${cy.nombre_recu} chantier(s) lu(s) · ${cy.pages_lues} page(s)`
+                + (c?.factures_sans_yard ? ` · ${c.factures_sans_yard} facture(s) sans yardId` : "")
+                + (cy.garde_pages_atteinte ? " · garde de pages atteinte" : "")
+              : (cy?.message || null));
+        })()}
       </div>
 
       {/* Valeurs brutes observées — aucune traduction : la sémantique de ces

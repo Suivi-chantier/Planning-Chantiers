@@ -27,6 +27,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 //       → montants détaillés d'un échantillon représentatif de factures, pour
 //         comprendre l'articulation entre atiTotal (cumulatif sur une situation)
 //         et toBePaid (exigible après déduction des acomptes)
+//   GET /company/yards?limit&offset (10 pages max)     scope `business` ou `business.read`
+//       → chantiers ProGBat, pour vérifier si facture.yardId est un meilleur
+//         rattachement que facture.quoteId. Jeton d'IDENTITÉ, pas celui de
+//         facturation : ces scopes ne relèvent pas de la facturation.
+//         (À ne pas confondre avec /company/business/{businessId}/yards, qui
+//         ne liste que les chantiers d'UNE société.)
 //   GET /company/bills/{billId}/pdf                    scope `bills` ou `bills.read`
 //       → uniquement le code HTTP, le Content-Type et la TAILLE reçue. Le PDF
 //         n'est ni renvoyé, ni enregistré, ni journalisé.
@@ -289,6 +295,75 @@ function choisirFacturesADetailler(factures: Record<string, unknown>[]) {
   return retenues.slice(0, 4) // garde-fou : jamais plus de 4 appels de détail
 }
 
+// ── Chantiers ProGBat (« yards ») ───────────────────────────────────────────
+// Pourquoi : une facture porte `yardId` ET `quoteId`. Sur les données réelles,
+// 19 factures sur 20 ont un yardId > 0, une facture sans devis (quoteId = 0)
+// porte quand même yardId = 77, et un avenant change de quoteId sans changer de
+// chantier. Le yardId est donc un candidat plus solide que le quoteId pour
+// rattacher une facture à un chantier — ce bloc sert à le VÉRIFIER, pas à
+// décider : il dit seulement combien de yardId des factures se retrouvent
+// réellement dans la liste des chantiers ProGBat.
+//
+// Endpoint : GET /company/yards (« Get the list of all company yards »),
+// scopes `business` ou `business.read`. À ne pas confondre avec
+// /company/business/{businessId}/yards, qui est propre à UNE société.
+//
+// Le schéma documenté d'un yard ne contient NI adresse, NI e-mail, NI
+// téléphone, NI bloc client : id, businessId, label, startDate, endDate,
+// meetingDay, meetingTime, managerId, holdbackDuration, publicYardNumber,
+// viewingDate, color. On n'en garde que de quoi reconnaître un chantier.
+const CHAMPS_YARD = ["id", "label", "publicYardNumber"] as const
+
+const projeterYard = (y: Record<string, unknown>) => {
+  const out: Record<string, unknown> = {}
+  for (const c of CHAMPS_YARD) out[c] = y?.[c] ?? null
+  return out
+}
+
+const PAGE_YARDS = 100   // taille de page demandée
+const MAX_PAGES_YARDS = 10 // garde-fou : 1 000 chantiers au plus, jamais de boucle infinie
+
+// Parcourt /company/yards jusqu'à avoir trouvé TOUS les yardId recherchés, ou
+// la fin de la liste, ou la garde de pages. L'arrêt ne dépend PAS de
+// Content-Range (en-tête non garanti sur cette ressource) : il repose sur la
+// taille des pages reçues, Content-Range n'étant que rapporté.
+async function listerYards(token: string, yardsCherches: Set<string>) {
+  const trouves = new Map<string, Record<string, unknown>>()
+  let offset = 0
+  let pages = 0
+  let dernier: ProgbatResult | null = null
+  let finDeListe = false
+
+  while (pages < MAX_PAGES_YARDS) {
+    const r = await progbatGet(`/company/yards?limit=${PAGE_YARDS}&offset=${offset}`, token, "business.read")
+    dernier = r
+    pages++
+    if (!r.ok) break
+    const lot = Array.isArray(r.data) ? r.data as Record<string, unknown>[] : []
+    for (const y of lot) {
+      const k = cleId(y?.id)
+      if (k) trouves.set(k, projeterYard(y))
+    }
+    // Tous les chantiers cherchés sont là : inutile de continuer à paginer.
+    // `complet` reste FAUX — on a trouvé ce qu'on cherchait, pas lu toute la
+    // liste des chantiers ProGBat ; `nombre_recu` ne vaut donc pas total.
+    if (yardsCherches.size > 0 && [...yardsCherches].every(k => trouves.has(k))) {
+      return { r, pages, trouves, finDeListe: false, complet: false, garde_atteinte: false }
+    }
+    if (lot.length < PAGE_YARDS) { finDeListe = true; break }
+    offset += PAGE_YARDS
+  }
+
+  return {
+    r: dernier as ProgbatResult,
+    pages,
+    trouves,
+    finDeListe,
+    complet: finDeListe,
+    garde_atteinte: pages >= MAX_PAGES_YARDS && !finDeListe,
+  }
+}
+
 // Clé de comparaison d'identifiant : correspondance EXACTE sur la valeur
 // numérique (ProGBat type `docId` et `bill.id` en entiers).
 const cleId = (v: unknown): string | null => {
@@ -549,6 +624,64 @@ serve(async (req) => {
         : {}),
     }
 
+    // 5f. Chantiers ProGBat (« yards ») et rapprochement avec les factures.
+    //
+    // JETON : identityToken, c'est-à-dire PROGBAT_PRIVATE_ACCESS_TOKEN en
+    // priorité et le jeton de facturation seulement en repli. Les scopes
+    // `business`/`business.read` n'ont rien à voir avec la facturation : un
+    // futur jeton dédié limité à bills.read + transactions.read ne doit pas
+    // avoir à les porter. Un 403 ici n'est PAS retenté avec l'autre jeton :
+    // un refus de scope est une information, pas un incident à contourner.
+    const yardsCherches = new Set<string>()
+    let facturesSansYard = 0
+    for (const f of echantillonFactures) {
+      const k = cleId(f.yardId)
+      if (k && Number(k) > 0) yardsCherches.add(k)
+      else facturesSansYard++
+    }
+
+    const yards = await listerYards(identityToken, yardsCherches)
+    const yr = yards.r
+    const reconnus: Record<string, unknown>[] = []
+    const inconnus: string[] = []
+    for (const k of yardsCherches) {
+      const y = yards.trouves.get(k)
+      const facturesDuYard = echantillonFactures.filter(f => cleId(f.yardId) === k)
+      if (!y) { inconnus.push(k); continue }
+      reconnus.push({
+        yard_id: y.id,
+        label: y.label,
+        publicYardNumber: y.publicYardNumber,
+        nb_factures: facturesDuYard.length,
+        // Les quoteId distincts rattachés à ce chantier : c'est ce qui montre
+        // qu'un même chantier porte plusieurs devis (avenants, situations).
+        quote_ids: [...new Set(
+          facturesDuYard.map(f => cleId(f.quoteId)).filter(k2 => k2 && Number(k2) > 0),
+        )].slice(0, 10),
+      })
+    }
+
+    const blocYards = {
+      ok: !!yr?.ok,
+      http_status: yr?.status ?? null,
+      scope_accessible: yr ? scopeAccessible(yr) : null,
+      content_range: yr?.contentRange ?? null,   // rapporté, jamais utilisé comme condition d'arrêt
+      pages_lues: yards.pages,
+      liste_complete: yards.complet,             // false = arrêt anticipé (tous trouvés, ou garde)
+      garde_pages_atteinte: yards.garde_atteinte,
+      nombre_recu: yards.trouves.size,
+      croisement: {
+        factures_examinees: echantillonFactures.length,
+        yards_distincts: yardsCherches.size,
+        factures_sans_yard: facturesSansYard,     // yardId absent, nul ou 0
+        yards_reconnus: reconnus.length,
+        yards_inconnus: inconnus.length,
+        yards_inconnus_liste: inconnus.slice(0, 10),
+        details: reconnus,
+      },
+      ...(yr?.ok === false ? { message: yr.message } : {}),
+    }
+
     // Journal : comptages et codes HTTP uniquement — aucun identifiant ProGBat,
     // aucun montant, aucun jeton, aucun corps de réponse.
     console.log(
@@ -557,7 +690,8 @@ serve(async (req) => {
       `/company/bills → ${fact.r.status} (${blocFactures.nombre_recu}), ` +
       `/company/transactions → ${tr.r.status} (${blocTransactions.nombre_recu}), ` +
       `croisements=${allocations}, pdf=${blocPdf.teste ? blocPdf.http_status : "non testé"}, ` +
-      `details=${blocDetails.nombre} ` +
+      `details=${blocDetails.nombre}, ` +
+      `yards=${blocYards.http_status}/${blocYards.croisement.yards_reconnus}-sur-${blocYards.croisement.yards_distincts} ` +
       `(${Date.now() - t0} ms)`,
     )
 
@@ -577,6 +711,7 @@ serve(async (req) => {
         croisement: blocCroisement,
         pdf: blocPdf,
         details_factures: blocDetails,
+        chantiers_progbat: blocYards,
       },
     })
   } catch (err) {
