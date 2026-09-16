@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
     type: "nouveaute",
+    titre: "Conditions de vente d'un chiffrage : coefficient et/ou taux horaire global, figés sur le chiffrage",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Chaque chiffrage peut imposer, indépendamment, un coefficient de vente global et/ou un taux horaire global à toutes ses lignes, à la place des paramètres de chaque ouvrage (client négocié, remise commerciale…). Les valeurs sont figées sur le chiffrage : modifier un coefficient ou un taux dans les Réglages ne change rien tant qu'on ne l'applique pas volontairement. Chaque ligne garde ses paramètres d'origine (ceux de l'ouvrage) à côté des paramètres réellement appliqués, ce qui permet de revenir aux paramètres de chaque ouvrage sans rien inventer. La bibliothèque, les coûts, quantités et cadences ne sont jamais modifiés.",
+    comment: "Chiffrage → onglet Ouvrages → bloc « Conditions de vente du chiffrage » → Modifier : choisir « Utiliser le coefficient de chaque ouvrage » ou « Appliquer un coefficient global » (liste des coefficients actifs), idem pour le taux horaire, puis « Simuler ». Une fenêtre montre l'ancien et le nouveau paramétrage, le nombre de lignes recalculées, le total HT et la marge avant / après, l'écart et les lignes non recalculables (anciennes lignes à prix saisi ou de l'ancienne formule, laissées telles quelles). Rien n'est enregistré avant « Appliquer les conditions » ; l'application est refusée si le chiffrage a changé entre-temps (double clic, autre onglet, autre utilisateur). Les lignes concernées affichent le coefficient et le taux appliqués (badge bleu « global ») et, dans le détail du prix figé, la valeur d'origine de l'ouvrage. Un chiffrage signé n'est plus modifiable ; un brouillon ProGBat déjà créé n'est jamais actualisé (avertissement). L'historique des changements (qui, quand, ancien/nouveau, totaux, marges) est consultable dans le bloc.",
+  },
+  {
+    date: "2026-09-16",
+    type: "nouveaute",
     titre: "Coefficients de vente configurables : le coefficient d'un ouvrage se choisit dans une liste, comme le taux horaire",
     pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "info-client", label: "Chiffrage" }],
     quoi: "La saisie libre du coefficient dans chaque fiche ouvrage est remplacée par une liste de coefficients partagés (Coefficient standard — 1,50 créé et affecté aux 105 ouvrages existants, y compris ceux qui portaient un autre coefficient). Prix matériaux = coût matériaux × coefficient choisi ; la main-d'œuvre garde son taux horaire. Modifier un coefficient recalcule le prix des ouvrages qui l'utilisent pour les futurs chiffrages ; les lignes et devis déjà figés gardent leur coefficient et leur prix.",

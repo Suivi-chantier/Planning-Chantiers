@@ -79,6 +79,9 @@ export const CLES_INTERDITES = Object.freeze([
   "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire",
   "coutMateriaux", "coutMainOeuvre", "coutDirect", "coutTotal", "coutHoraire",
   "coef_vente", "coefVente", "coefficient_vente_id", "coefficient_vente", "taux_horaire_vente_id", "taux_horaire_vente",
+  "coefficient_source", "coefficient_origine_valeur", "coefficient_origine_libelle", "coefficient_global_id",
+  "taux_horaire_source", "taux_horaire_origine_valeur", "taux_horaire_origine_libelle", "taux_horaire_global_id",
+  "mode_coefficient", "mode_taux_horaire", "coefficient_global_valeur", "coefficient_global_libelle", "taux_horaire_global_valeur", "taux_horaire_global_libelle", "conditions_version",
   "taux_marge_pct", "tauxMarge", "tauxMargePct", "marge", "margeUnitaire",
   "calcul_detail", "calcul_version", "bibliotheque_id", "progbat_id", "progbat_ligne_id",
 ]);

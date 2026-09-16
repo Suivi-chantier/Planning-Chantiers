@@ -341,8 +341,23 @@ export function prixMateriauxUnitaire(coutMateriaux, coef) {
  *                 coefficientsVente = lignes coefficients_vente (tableau ou Map) ;
  *                 coutHoraire       = coût horaire chargé (marge uniquement, non bloquant).
  */
-export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tauxHoraire = null, coefficientsVente = null, coefficientVente = null } = {}) {
+/**
+ * Conditions de vente d'un CHIFFRAGE (voir conditionsChiffrage.mjs) : un
+ * coefficient et/ou un taux horaire GLOBAL, figés sur le projet, remplacent la
+ * valeur de l'ouvrage pour le PRIX. L'origine (valeur de l'ouvrage) reste figée
+ * sur la ligne pour permettre le retour aux paramètres de chaque ouvrage.
+ */
+function conditionGlobale(cond) {
+  if (!cond || cond.mode !== "global") return null;
+  const valeur = num(cond.valeur);
+  if (valeur == null || valeur <= 0) return null;
+  return { id: cond.id != null ? String(cond.id) : null, valeur, libelle: str(cond.libelle) || null };
+}
+
+export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tauxHoraire = null, coefficientsVente = null, coefficientVente = null, conditions = null } = {}) {
   const erreurs = [];
+  const condCoef = conditionGlobale(conditions?.coefficient);
+  const condTaux = conditionGlobale(conditions?.tauxHoraire);
   const avertissements = [];
   const code = parseCodeOuvrage(ouvrage?.libelle);
   const mainOeuvreSeule = ouvrage?.main_oeuvre_seule === true;
@@ -369,16 +384,29 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, t
   const coutDirectU = coutDirect != null && coutDirect >= 0 ? arrondirMontant(coutDirect) : 0;
 
   // Taux horaire de VENTE : fixe le prix de la main-d'œuvre.
-  const taux = resoudreTauxHoraire(ouvrage, { tauxHoraires, tauxHoraire });
-  if (!taux.valide) erreurs.push(taux.erreur);
-  else if (taux.avertissement) avertissements.push(taux.avertissement);
+  // Origine = taux de l'ouvrage (figé pour traçabilité / retour arrière) ;
+  // appliqué = taux global du chiffrage s'il est actif, sinon l'origine.
+  const tauxOrigine = resoudreTauxHoraire(ouvrage, { tauxHoraires, tauxHoraire });
+  const taux = condTaux
+    ? { valide: true, id: condTaux.id, libelle: condTaux.libelle, valeur: condTaux.valeur, actif: true, erreur: null, avertissement: null, source: "global_chiffrage" }
+    : { ...tauxOrigine, source: "ouvrage" };
+  if (!tauxOrigine.valide) {
+    if (condTaux) avertissements.push(`${tauxOrigine.erreur} — taux d'origine non figé : retour aux paramètres de l'ouvrage impossible pour cette ligne`);
+    else erreurs.push(tauxOrigine.erreur);
+  } else if (tauxOrigine.avertissement && !condTaux) avertissements.push(tauxOrigine.avertissement);
 
   // Coefficient de vente : référence coefficient_vente_id résolue dans la liste
   // coefficients_vente. Appliqué aux matériaux (+ coût direct, traitement
   // historique conservé). Inutile si l'ouvrage n'a ni matériau ni coût direct.
   // Les colonnes obsolètes coef_vente / taux_marge_pct ne sont jamais lues.
   const coefRequis = mat.nbLiens > 0 || coutDirectU > 0;
-  const coefRes = resoudreCoefficientVente(ouvrage, { coefficientsVente, coefficientVente });
+  const coefOrigine = resoudreCoefficientVente(ouvrage, { coefficientsVente, coefficientVente });
+  const coefRes = condCoef
+    ? { valide: true, id: condCoef.id, libelle: condCoef.libelle, valeur: condCoef.valeur, actif: true, erreur: null, avertissement: null, source: "global_chiffrage" }
+    : { ...coefOrigine, source: "ouvrage" };
+  if (condCoef && !coefOrigine.valide && coefRequis) {
+    avertissements.push(`${coefOrigine.erreur} — coefficient d'origine non figé : retour aux paramètres de l'ouvrage impossible pour cette ligne`);
+  }
   let coef;
   let modePrix;
   if (coefRes.valide) {
@@ -412,6 +440,23 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, t
     materiaux: mat,
     mainOeuvre: { ...mo, tauxVente: taux.valeur, tauxId: taux.id, tauxLibelle: taux.libelle, tauxActif: taux.actif },
     tauxHoraire: taux,
+    // Origine (ouvrage) et application (ouvrage | global_chiffrage), figées sur la ligne
+    conditions: {
+      coefficient: {
+        valeur: coef.valide ? coef.valeur : null,
+        source: condCoef ? "global_chiffrage" : "ouvrage",
+        globalId: condCoef ? condCoef.id : null,
+        libelle: condCoef ? condCoef.libelle : (coefOrigine.libelle ?? null),
+        origine: { id: coefOrigine.id ?? null, valeur: coefOrigine.valide ? coefOrigine.valeur : null, libelle: coefOrigine.libelle ?? null },
+      },
+      tauxHoraire: {
+        valeur: taux.valide ? taux.valeur : null,
+        source: condTaux ? "global_chiffrage" : "ouvrage",
+        globalId: condTaux ? condTaux.id : null,
+        libelle: condTaux ? condTaux.libelle : (tauxOrigine.libelle ?? null),
+        origine: { id: tauxOrigine.id ?? null, valeur: tauxOrigine.valide ? tauxOrigine.valeur : null, libelle: tauxOrigine.libelle ?? null },
+      },
+    },
     coutMateriauxUnitaire: mat.montant,
     coutMainOeuvreUnitaire: mo.montant,
     coutDirectUnitaire: coutDirectU,
@@ -441,6 +486,7 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, t
 export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaPct = null, quantite = "", date = new Date() } = {}) {
   const c = calcul || calculerOuvrage(ouvrage);
   const iso = date instanceof Date ? date.toISOString() : String(date);
+  const cc = c.conditions?.coefficient || {}, ct = c.conditions?.tauxHoraire || {};
   return {
     bibliotheque_id: ouvrage?.id ?? null,
     code_ouvrage: c.code,
@@ -453,13 +499,23 @@ export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaP
     cout_direct_unitaire: c.coutDirectUnitaire,
     cout_total_unitaire: c.coutTotalUnitaire,
     taux_marge_pct: c.tauxMargePct,
-    // Coefficient FIGÉ : valeur réellement utilisée (coef_vente) + identifiant (traçabilité)
+    // Coefficient FIGÉ : coef_vente = valeur réellement APPLIQUÉE ;
+    // coefficient_vente_id + coefficient_origine_* = coefficient de l'OUVRAGE
+    // (origine) ; coefficient_source / coefficient_global_id = provenance.
     coef_vente: c.coefVente,
-    coefficient_vente_id: c.coefficient?.id ?? null,
-    // Taux horaire de vente FIGÉ : identifiant (traçabilité) + valeur (le prix ne
+    coefficient_vente_id: cc.origine?.id ?? null,
+    coefficient_source: cc.source ?? "ouvrage",
+    coefficient_origine_valeur: cc.origine?.valeur ?? null,
+    coefficient_origine_libelle: cc.origine?.libelle ?? null,
+    coefficient_global_id: cc.globalId ?? null,
+    // Taux horaire de vente FIGÉ : même découpage origine / appliqué (le prix ne
     // bouge plus si le taux est modifié ensuite dans Réglages)
-    taux_horaire_vente_id: c.tauxHoraire?.id ?? null,
+    taux_horaire_vente_id: ct.origine?.id ?? null,
     taux_horaire_vente: c.tauxHoraire?.valeur ?? null,
+    taux_horaire_source: ct.source ?? "ouvrage",
+    taux_horaire_origine_valeur: ct.origine?.valeur ?? null,
+    taux_horaire_origine_libelle: ct.origine?.libelle ?? null,
+    taux_horaire_global_id: ct.globalId ?? null,
     prix_unitaire: c.prixVenteUnitaire,
     tva_pct: num(tvaPct),
     calcul_version: `${CALCUL_VERSION}@${iso}`,
@@ -469,14 +525,18 @@ export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaP
       date: iso,
       mode_prix: c.modePrix,
       coef_vente: c.coefVente,
-      coefficient_vente_id: c.coefficient?.id ?? null,
-      coefficient_vente_libelle: c.coefficient?.libelle ?? null,
-      coefficient_vente: c.coefficient?.valeur ?? null,
+      coefficient_vente_id: cc.origine?.id ?? null,
+      coefficient_vente_libelle: cc.origine?.libelle ?? null,
+      coefficient_vente: cc.origine?.valeur ?? null,
+      coefficient_origine: { id: cc.origine?.id ?? null, valeur: cc.origine?.valeur ?? null, libelle: cc.origine?.libelle ?? null },
+      coefficient_applique: { valeur: c.coefVente, source: cc.source ?? "ouvrage", global_id: cc.globalId ?? null, libelle: cc.libelle ?? null },
       cout_horaire: c.mainOeuvre.coutHoraire,
       heures_unitaires: c.mainOeuvre.heures,
-      taux_horaire_vente_id: c.tauxHoraire?.id ?? null,
-      taux_horaire_vente_libelle: c.tauxHoraire?.libelle ?? null,
+      taux_horaire_vente_id: ct.origine?.id ?? null,
+      taux_horaire_vente_libelle: ct.origine?.libelle ?? null,
       taux_horaire_vente: c.tauxHoraire?.valeur ?? null,
+      taux_origine: { id: ct.origine?.id ?? null, valeur: ct.origine?.valeur ?? null, libelle: ct.origine?.libelle ?? null },
+      taux_applique: { valeur: c.tauxHoraire?.valeur ?? null, source: ct.source ?? "ouvrage", global_id: ct.globalId ?? null, libelle: ct.libelle ?? null },
       prix_materiaux_unitaire: c.prixMateriauxUnitaire,
       prix_direct_unitaire: c.prixDirectUnitaire,
       prix_main_oeuvre_unitaire: c.prixMainOeuvreUnitaire,

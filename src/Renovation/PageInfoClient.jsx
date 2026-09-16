@@ -9,6 +9,8 @@ import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import ProgbatApercuDevis from "./ProgbatApercuDevis.jsx";
+import ConditionsVenteChiffrage from "./ConditionsVenteChiffrage.jsx";
+import { lireConditionsProjet, decrireConditionsLigne } from "./conditionsChiffrage.mjs";
 import { expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe } from "./tauxHorairesVente.mjs";
 import { expliquerPrixMateriaux, formaterCoefficient, diagnostiquerCoefficients } from "./coefficientsVente.mjs";
 import {
@@ -77,7 +79,7 @@ const CHAMPS_DEVIS_NUM  = ["tva_pct"];
 const CHAMPS_DEVIS_VIDES = Object.fromEntries(CHAMPS_DEVIS.map(f => [f, ""]));
 const erreurColonnesDevis = (error) => !!error && CHAMPS_DEVIS.some(c => (error?.message || "").includes(c));
 // Colonnes de snapshot d'une ligne (profero_ouvrages_selectionnes) de la même migration
-const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "coefficient_vente_id", "taux_horaire_vente_id", "taux_horaire_vente", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "coefficient_vente_id", "taux_horaire_vente_id", "taux_horaire_vente", "coefficient_source", "coefficient_origine_valeur", "coefficient_origine_libelle", "coefficient_global_id", "taux_horaire_source", "taux_horaire_origine_valeur", "taux_horaire_origine_libelle", "taux_horaire_global_id", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
 const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
 const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (error?.message || "").includes(c));
 const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
@@ -850,8 +852,23 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       tvaDefaut: Number.isFinite(tva) ? tva : null,
     });
   }
-  // Calcul du prix d'un ouvrage de bibliothèque avec le contexte courant
-  const calculBiblio = (o) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [] });
+  // Calcul du prix d'un ouvrage de bibliothèque avec le contexte courant ET les
+  // conditions de vente FIGÉES du chiffrage (coefficient / taux global éventuels) :
+  // l'origine (paramètres de l'ouvrage) est figée sur la ligne, l'appliqué aussi.
+  const conditionsProjet = lireConditionsProjet(projets.find(p => p.id === projetId));
+  const calculBiblio = (o) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [], conditions: conditionsProjet });
+
+  // Après application des conditions (RPC) : recharger CE projet et SES lignes,
+  // sans changer de projet ni toucher aux autres chiffrages.
+  async function rechargerApresConditions() {
+    if (!projetId) return;
+    const [{ data: p }, { data: o }] = await Promise.all([
+      supabase.from("profero_projets").select("*").eq("id", projetId).maybeSingle(),
+      supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id", projetId),
+    ]);
+    if (p) setProjets(prev => prev.map(x => x.id === p.id ? { ...x, ...p } : x));
+    if (o) setOuvrages(o);
+  }
   // Occurrences déjà présentes dans le devis pour un ouvrage de bibliothèque
   const occurrencesDe = (o) => ouvrages.filter(x => x.bibliotheque_id === o.id);
 
@@ -1083,6 +1100,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const pu = numOrNull(sel.prix_unitaire);
     const total = totalLigneHT(sel);
     const erreursSnap = snap ? (sel.calcul_detail?.erreurs || []) : [];
+    const condLigne = snap ? decrireConditionsLigne(sel) : { global: false, court: "", lignes: [] };
     const tvaLigne = numOrNull(sel.tva_pct);
     const pill = (c) => ({ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size+1, fontWeight:800, color:c, background:c+"1a", border:`1px solid ${c}40`, borderRadius:RADIUS.sm, padding:"4px 8px", whiteSpace:"nowrap" });
     return (
@@ -1101,8 +1119,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
         {snap ? (
           pu != null ? (
-            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title="Prix de vente HT unitaire figé à l'ajout (coût matériaux + main-d'œuvre + marge). Cliquer pour le détail." style={{ ...pill("#22c55e"), cursor:"pointer", fontFamily:"inherit" }}>
-              <Icon as={Lock} size={10}/>{fmtEur2(pu)}
+            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={`Prix de vente HT unitaire figé (coût matériaux + main-d'œuvre + marge). Cliquer pour le détail.${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`} style={{ ...pill(condLigne.global ? "#4db8ff" : "#22c55e"), cursor:"pointer", fontFamily:"inherit" }}>
+              <Icon as={Lock} size={10}/>{fmtEur2(pu)}{condLigne.global && <span style={{fontWeight:600,opacity:.85}}>· {condLigne.court}</span>}
             </button>
           ) : (
             <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={erreursSnap.join(" · ") || "Prix non calculable"} style={{ ...pill("#e15a5a"), cursor:"pointer", fontFamily:"inherit" }}>
@@ -1837,6 +1855,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     <span>Taux de TVA du devis non choisi : pas de total TTC.</span>
                     {selecteurTva(infos.tva_pct, updTvaProjet)}
                   </div>
+                )}
+
+                {/* ══ CONDITIONS DE VENTE DU CHIFFRAGE (coefficient / taux global figés, RPC atomique) ══ */}
+                {projetActif && (
+                  <ConditionsVenteChiffrage T={T} acc={acc} projet={projetActif} projetId={projetId} coefficients={biblio?.coefficients || []} tauxHoraires={biblio?.tauxHoraires || []} nbLignes={ouvrages.length} onApplique={rechargerApresConditions}/>
                 )}
 
                 {/* ══ DEVIS : LOT → ZONE → OUVRAGES ══ */}
@@ -2659,6 +2682,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       {/* ── MODAL DÉTAIL DU PRIX D'UNE LIGNE (snapshot) ── */}
       {voirDetailLigne && (() => {
         const l = voirDetailLigne, d = l.calcul_detail || {};
+        const cond = decrireConditionsLigne(l);
         const row = (label, val, strong = false) => (
           <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"5px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`,fontSize:FONT.sm.size}}>
             <span style={{color:T.textSub}}>{label}</span><span style={{fontWeight:strong?800:600,color:T.text}}>{val}</span>
@@ -2680,9 +2704,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h chargé)` : ""}`)}
                 {numOrNull(l.cout_direct_unitaire) > 0 && row(`Coût direct / ${l.unite || "u"}`, fmtEur2(l.cout_direct_unitaire))}
                 {row(`Coût total / ${l.unite || "u"}`, fmtEur2(l.cout_total_unitaire), true)}
-                {(l.coef_vente != null || d.coef_vente != null) && row(d.version >= 2 ? "Coefficient de vente figé" : "Coefficient de vente (coût total)", `${d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : ""}${formaterCoefficient(l.coef_vente ?? d.coef_vente)}`)}
+                {(l.coef_vente != null || d.coef_vente != null) && row(d.version >= 2 ? (cond.coefficient.source === "global_chiffrage" ? "Coefficient appliqué (condition globale du chiffrage)" : "Coefficient de vente figé (ouvrage)") : "Coefficient de vente (coût total)", `${cond.coefficient.source === "global_chiffrage" ? (d.coefficient_applique?.libelle ? `${d.coefficient_applique.libelle} — ` : "") : (d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : "")}${formaterCoefficient(l.coef_vente ?? d.coef_vente)}`)}
+                {cond.coefficient.source === "global_chiffrage" && row("Coefficient d'origine de l'ouvrage", cond.coefficient.origine != null ? `${d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : ""}${formaterCoefficient(cond.coefficient.origine)}` : "non figé sur cette ligne")}
                 {d.prix_materiaux_unitaire != null && row(`Prix matériaux HT / ${l.unite || "u"}`, `${expliquerPrixMateriaux(l.cout_materiaux_unitaire, l.coef_vente ?? d.coef_vente) || fmtEur2(d.prix_materiaux_unitaire)}${d.prix_direct_unitaire ? ` + coût direct ${fmtEur2(d.prix_direct_unitaire)}` : ""}`)}
-                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row("Taux horaire de vente figé", `${d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : ""}${formaterTauxHT(l.taux_horaire_vente ?? d.taux_horaire_vente)}`)}
+                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row(cond.tauxHoraire.source === "global_chiffrage" ? "Taux horaire appliqué (condition globale du chiffrage)" : "Taux horaire de vente figé (ouvrage)", `${cond.tauxHoraire.source === "global_chiffrage" ? (d.taux_applique?.libelle ? `${d.taux_applique.libelle} — ` : "") : (d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : "")}${formaterTauxHT(l.taux_horaire_vente ?? d.taux_horaire_vente)}`)}
+                {cond.tauxHoraire.source === "global_chiffrage" && row("Taux horaire d'origine de l'ouvrage", cond.tauxHoraire.origine != null ? `${d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : ""}${formaterTauxHT(cond.tauxHoraire.origine)}` : "non figé sur cette ligne")}
                 {d.prix_main_oeuvre_unitaire != null && row(`Prix main-d'œuvre HT / ${l.unite || "u"}`, expliquerPrixMainOeuvre(d.heures_unitaires, l.taux_horaire_vente ?? d.taux_horaire_vente) || fmtEur2(d.prix_main_oeuvre_unitaire))}
                 {row("Marge sur prix de vente", fmtPct(l.taux_marge_pct))}
                 {row(`Prix de vente HT / ${l.unite || "u"}`, fmtEur2(l.prix_unitaire), true)}
