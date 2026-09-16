@@ -107,7 +107,10 @@ test("migration : rejouable, et sans écriture des données existantes", () => {
 // 2. EDGE FUNCTION progbat-yards-list
 // ═══════════════════════════════════════════════════════════════════════════
 const yardsMod = await import(new URL("../src/Renovation/progbatYards.mjs", import.meta.url).href);
-const { PAGE_SIZE, MAX_PAGES, CHAMPS_YARD, projeterYard, trierYards, parcourirYards, choisirJeton } = yardsMod;
+const {
+  PAGE_SIZE, MAX_PAGES, CHAMPS_YARD, CHAMPS_AFFAIRE, projeterYard, projeterAffaire,
+  composerYards, trierYards, parcourirYards, parcourirAffaires, choisirJeton,
+} = yardsMod;
 
 const INDEX_TS = lire("supabase/functions/progbat-yards-list/index.ts");
 // Version sans les commentaires : une règle expliquée en commentaire n'est pas
@@ -146,12 +149,16 @@ test("edge : repli sur le jeton historique SEULEMENT si le secret dédié est ab
   assert.equal((INDEX_CODE.match(/PROGBAT_PRIVATE_ACCESS_TOKEN/g) || []).length, 1);
 });
 
-test("edge : GET uniquement, et un seul endpoint", () => {
+test("edge : GET uniquement, deux ressources de liste et rien d'autre", () => {
   const methodes = [...INDEX_CODE.matchAll(/method:\s*"(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(methodes)], ["GET"], "seule la méthode GET est utilisée vers ProGBat");
+  // Une seule construction d'URL, paramétrée par la ressource — donc aucune
+  // route de détail (…/yards/{id}) ne peut s'y glisser.
   const chemins = [...INDEX_CODE.matchAll(/\$\{PROGBAT_API\}([^`]*)/g)].map((m) => m[1]);
   assert.equal(chemins.length, 1);
-  assert.match(chemins[0], /^\/company\/yards\?limit=/);
+  assert.equal(chemins[0], "/company/${ressource}?limit=${limit}&offset=${offset}");
+  const ressources = [...INDEX_CODE.matchAll(/lireUnePage\(token, "(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(ressources)].sort(), ["business", "yards"]);
   // Aucune écriture ProGBat ni Supabase.
   assert.doesNotMatch(INDEX_CODE, /\.(insert|update|upsert|delete)\(/);
 });
@@ -239,15 +246,25 @@ test("edge : garde MAX_PAGES, largement au-dessus des 110 chantiers actuels", as
 });
 
 test("edge : liste blanche stricte — rien d'autre ne sort", () => {
-  assert.deepEqual([...CHAMPS_YARD], ["id", "businessId", "label", "publicYardNumber"]);
-  const projete = projeterYard({
+  assert.deepEqual([...CHAMPS_YARD], ["id", "code", "label", "publicYardNumber"]);
+  assert.deepEqual([...CHAMPS_AFFAIRE], ["id", "code"]);
+  const interne = projeterYard({
     id: 77, businessId: 5, label: "Résidence Les Tilleuls", publicYardNumber: "C-77",
     managerId: 12, address: "12 rue des Lilas", postcode: "49000", city: "Angers",
     clientName: "Dupont", clientEmail: "dupont@example.com", phone: "0600000000",
     startDate: "2026-01-01", color: "#ff0000", holdbackDuration: 12,
   });
-  assert.deepEqual(Object.keys(projete).sort(), ["businessId", "id", "label", "publicYardNumber"]);
-  assert.deepEqual(projete, { id: 77, businessId: 5, label: "Résidence Les Tilleuls", publicYardNumber: "C-77" });
+  // Forme interne : businessId sert la jointure et ne sort pas de la fonction.
+  assert.deepEqual(Object.keys(interne).sort(), ["businessId", "id", "label", "publicYardNumber"]);
+  // Forme RENVOYÉE : exactement CHAMPS_YARD, businessId compris n'y est plus.
+  const [sortie] = composerYards([interne], [{ id: 5, code: "#5 TILLEULS", label: "TILLEULS", address: "secret" }]);
+  assert.deepEqual(Object.keys(sortie).sort(), ["code", "id", "label", "publicYardNumber"]);
+  assert.deepEqual(sortie, { id: 77, code: "#5 TILLEULS", label: "Résidence Les Tilleuls", publicYardNumber: "C-77" });
+  // L'affaire ne livre QUE son code : ni client, ni adresse, ni libellé.
+  assert.deepEqual(projeterAffaire({
+    id: 5, code: "#5 TILLEULS", label: "TILLEULS", thirdId: 9,
+    address: "12 rue des Lilas", city: "Angers", object: "secret",
+  }), { id: 5, code: "#5 TILLEULS" });
   // publicYardNumber réellement observé : null.
   assert.equal(projeterYard({ id: 3, label: "X", publicYardNumber: null }).publicYardNumber, null);
   // Un yard sans identifiant exploitable n'est pas rattachable : écarté.
@@ -256,20 +273,75 @@ test("edge : liste blanche stricte — rien d'autre ne sort", () => {
   }
 });
 
-test("edge : businessId (code affiché par ProGBat) sort, sans jamais remplacer id", () => {
-  // Cas réel : ProGBat affiche « #80 TROTIER - T3 - RDC », l'API renvoie
-  // businessId 80 et id 83. Les deux doivent survivre à la projection, chacun
-  // à sa place — c'est id, et lui seul, que portent les factures.
-  const y = projeterYard({ id: 83, businessId: 80, label: "T3 - RDC", publicYardNumber: null });
-  assert.deepEqual(y, { id: 83, businessId: 80, label: "T3 - RDC", publicYardNumber: null });
-  // businessId en texte : ProGBat renvoie parfois des nombres en chaîne.
-  assert.equal(projeterYard({ id: 83, businessId: "80" }).businessId, 80);
-  // businessId inexploitable → null, mais le yard reste rattachable.
-  for (const mauvais of [0, -1, 1.5, "abc", "", null, undefined, {}, []]) {
-    const p = projeterYard({ id: 83, businessId: mauvais, label: "T3 - RDC" });
-    assert.equal(p.businessId, null, `businessId ${JSON.stringify(mauvais)} doit devenir null`);
-    assert.equal(p.id, 83, "l'id technique n'est jamais remplacé par businessId");
+test("edge : le code affiché est celui de l'affaire, repris TEL QUEL", () => {
+  // Cas réels de l'écran ProGBat (colonne « Code ») : le yard 86 s'y appelle
+  // « #83 TROTTIER - T2 - R+2 », et son affaire porte l'id 83.
+  const yards = [
+    projeterYard({ id: 83, businessId: 80, label: "T3 - RDC" }),
+    projeterYard({ id: 86, businessId: 83, label: "T2 - R+2" }),
+    projeterYard({ id: 120, businessId: 103, label: "ENEDIS" }),
+  ];
+  const affaires = [
+    { id: 80, code: "#80 TROTTIER - T3 - RDC" },
+    { id: 83, code: "#83 TROTTIER - T2 - R+2" },
+    { id: 103, code: "#103 TROTTIER ENEDIS" },
+  ];
+  const sortie = composerYards(yards, affaires);
+  const parId = new Map(sortie.map((y) => [y.id, y]));
+  assert.equal(parId.get(86).code, "#83 TROTTIER - T2 - R+2");
+  assert.equal(parId.get(86).id, 86, "l'identifiant technique reste le yardId");
+  assert.equal(parId.get(86).label, "T2 - R+2", "le libellé API reste, en secondaire");
+  // « #103 TROTTIER ENEDIS » n'a pas la même forme que les autres : c'est
+  // précisément pourquoi le code ne doit jamais être recomposé.
+  assert.equal(parId.get(120).code, "#103 TROTTIER ENEDIS");
+  assert.equal(parId.get(83).code, "#80 TROTTIER - T3 - RDC");
+  // Tri sur le code affiché, ordre naturel des numéros.
+  assert.deepEqual(sortie.map((y) => y.id), [83, 86, 120]);
+});
+
+test("edge : code absent → null, jamais un code fabriqué", () => {
+  const yard = projeterYard({ id: 86, businessId: 83, label: "T2 - R+2" });
+  // Affaire inconnue, code vide, code blanc, affaire sans id : dans tous les
+  // cas le code manque et RIEN ne le remplace — surtout pas « #83 ».
+  for (const affaires of [[], [{ id: 83, code: "" }], [{ id: 83, code: "   " }], [{ id: 83 }], [{ code: "#83 X" }]]) {
+    const [y] = composerYards([yard], affaires);
+    assert.equal(y.code, null, `code attendu null pour ${JSON.stringify(affaires)}`);
+    assert.equal(y.label, "T2 - R+2");
+    assert.equal(y.id, 86);
   }
+  // Yard sans businessId : aucune jointure possible, aucun code inventé.
+  const [sansAffaire] = composerYards([projeterYard({ id: 90, label: "Lot 3" })], [{ id: 83, code: "#83 X" }]);
+  assert.equal(sansAffaire.code, null);
+  // Les codes sans yard correspondant ne créent aucune ligne.
+  assert.equal(composerYards([], [{ id: 83, code: "#83 X" }]).length, 0);
+});
+
+test("edge : les affaires sont lues en une liste paginée, pas une par chantier", () => {
+  // 110 appels individuels pour un écran, c'est le mauvais compromis : ProGBat
+  // limite les appels (429). Une seule pagination, comme pour les yards.
+  assert.match(INDEX_CODE, /parcourirAffaires/);
+  assert.match(INDEX_CODE, /lireUnePage\(token, "business", limit, offset\)/);
+  assert.doesNotMatch(INDEX_CODE, /company\/business\/\$\{/);
+  assert.doesNotMatch(INDEX_CODE, /for\s*\([^)]*\)\s*\{[^}]*lireUnePage/);
+  // Et l'échec des affaires ne doit pas emporter l'écran de rattachement.
+  assert.match(INDEX_CODE, /avertissement/);
+});
+
+test("edge : parcours des affaires — pagination et arrêt identiques aux yards", async () => {
+  const affaires = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, code: `#${i + 1} AFFAIRE` }));
+  const appels = [];
+  const r = await parcourirAffaires(async ({ limit, offset }) => {
+    appels.push({ limit, offset });
+    return { ok: true, data: affaires.slice(offset, offset + limit) };
+  }, { pageSize: 3 });
+  assert.equal(r.ok, true);
+  assert.equal(r.affaires.length, 7);
+  assert.deepEqual(appels.map((a) => a.offset), [0, 3, 6]);
+  assert.equal(r.complet, true);
+  // Une erreur de page remonte, sans liste partielle présentée comme complète.
+  const ko = await parcourirAffaires(async () => ({ ok: false, status: 403, message: "scope manquant" }));
+  assert.equal(ko.ok, false);
+  assert.equal(ko.status, 403);
 });
 
 test("edge : businessId ne sert JAMAIS à résoudre une facture", () => {

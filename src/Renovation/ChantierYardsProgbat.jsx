@@ -8,11 +8,11 @@
 // personne ne sait, c'est à quel chantier PROFERO ce chantier ProGBat
 // correspond : ce lien est posé ici, à la main, une fois pour toutes.
 //
-// DEUX NUMÉROS : ProGBat AFFICHE « #80 TROTIER - T3 - RDC » et son API renvoie
-// businessId 80, id 83, label « T3 - RDC ». L'écran montre donc « Code ProGBat
-// #80 · T3 - RDC » (ce que l'utilisateur reconnaît) et « yard n°83 » en
-// secondaire (ce que portent les factures, et ce qui est enregistré dans
-// progbat_yard_id). La recherche accepte les deux. Voir progbatYardsEcran.mjs.
+// CE QUI EST AFFICHÉ : le CODE de ProGBat, tel quel — « #83 TROTTIER - T2 -
+// R+2 ». C'est la colonne « Code » de son écran Chantiers, donc le seul nom que
+// l'utilisateur reconnaît. L'identifiant technique (86 pour ce chantier) reste
+// en gris, en secondaire : les factures le portent, mais il n'apparaît nulle
+// part dans ProGBat. Rien n'est recomposé ici — voir progbatYardsEcran.mjs.
 //
 // Rien n'est jamais rapproché automatiquement — ni par libellé, ni par nom, ni
 // par ressemblance. Deux chantiers ProGBat d'un même immeuble portent des
@@ -60,7 +60,13 @@ async function appelerYards() {
     throw new Error(body?.error || error.message || "Lecture des chantiers ProGBat impossible.");
   }
   if (!data?.ok) throw new Error(data?.error || "Réponse inattendue de la liste des chantiers ProGBat.");
-  return Array.isArray(data.yards) ? data.yards : [];
+  // `avertissement` = la liste des chantiers est bonne, mais leurs codes n'ont
+  // pas pu être lus. L'écran le dit au lieu d'afficher des replis sans
+  // expliquer pourquoi les noms habituels ont disparu.
+  return {
+    yards: Array.isArray(data.yards) ? data.yards : [],
+    avertissement: data.avertissement || "",
+  };
 }
 
 /** Liste des yards ProGBat. `force` ignore le cache (bouton « Réessayer »). */
@@ -81,6 +87,7 @@ export function listerYardsProgbat({ force = false } = {}) {
 export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, peutModifier = true }) {
   const [yards, setYards] = useState([]);          // liste ProGBat (Edge Function)
   const [erreurYards, setErreurYards] = useState("");
+  const [avertissement, setAvertissement] = useState("");   // codes non lus
   const [liens, setLiens] = useState([]);          // chantier_progbat_yards (TOUS les chantiers)
   const [erreurLiens, setErreurLiens] = useState("");
   const [charge, setCharge] = useState(false);
@@ -113,9 +120,12 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
   const chargerYards = useCallback(async (force = false) => {
     setErreurYards("");
     try {
-      setYards(await listerYardsProgbat({ force }));
+      const lu = await listerYardsProgbat({ force });
+      setYards(lu.yards);
+      setAvertissement(lu.avertissement);
     } catch (e) {
       setYards([]);
+      setAvertissement("");
       setErreurYards(e?.message || "Liste des chantiers ProGBat indisponible.");
     }
   }, []);
@@ -164,9 +174,9 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
     const { error } = await supabase.from("chantier_progbat_yards").insert({
       chantier_id: chantierId,
       progbat_yard_id: yard.id,
-      // Le libellé enregistré porte le CODE VISIBLE (« Code ProGBat #80 · T3 -
-      // RDC ») et non le seul sous-libellé : c'est ce qui reste affiché quand
-      // ProGBat est injoignable, et « T3 - RDC » seul ne désigne rien.
+      // Le libellé enregistré, c'est le CODE EXACT (« #83 TROTTIER - T2 - R+2 ») :
+      // c'est ce qui reste affiché quand ProGBat est injoignable, là où
+      // « T2 - R+2 » seul ne désignerait rien.
       progbat_yard_label: libelleYard(yard),
       progbat_public_yard_number: yard.publicYardNumber || null,
     });
@@ -247,6 +257,26 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
         </div>
       )}
 
+      {!erreurYards && avertissement && (
+        <div style={erreurBloc}>
+          <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0, marginTop: 1 }}/>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {avertissement}
+            <div style={{ fontWeight: 500, opacity: .9, marginTop: 2 }}>
+              Les chantiers sont listés par leur libellé ProGBat, sans leur code.
+            </div>
+          </div>
+          <button onClick={() => charger(true)} disabled={!charge} style={{
+            display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
+            padding: "3px 9px", borderRadius: RADIUS.md, border: "1px solid rgba(245,158,11,0.45)",
+            background: "transparent", color: "#f59e0b", fontFamily: "inherit",
+            fontSize: FONT.xs.size, fontWeight: 700, cursor: charge ? "pointer" : "default",
+          }}>
+            <Icon as={charge ? RotateCcw : Loader2} size={11}/> Réessayer
+          </button>
+        </div>
+      )}
+
       {!charge ? (
         <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, display: "inline-flex", alignItems: "center", gap: 6 }}>
           <Icon as={Loader2} size={12}/> Chargement des chantiers ProGBat…
@@ -282,11 +312,14 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
                       <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: text }}>
                         {libelleLien(l, connu)}
                       </div>
-                      {/* En secondaire : l'identifiant TECHNIQUE, nommé « yard »
-                          pour ne pas le confondre avec le code affiché par
-                          ProGBat. C'est lui que portent les factures. */}
+                      {/* En secondaire et en gris : l'identifiant TECHNIQUE.
+                          C'est lui que portent les factures, mais il
+                          n'apparaît nulle part dans ProGBat — il ne peut donc
+                          pas servir de nom. Le sous-libellé du chantier
+                          l'accompagne quand le code le résume déjà. */}
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 3, fontSize: FONT.xs.size + 1, color: textSub }}>
-                        <span>yard n°{l.progbat_yard_id}</span>
+                        <span style={{ color: textMuted }}>identifiant technique : {l.progbat_yard_id}</span>
+                        {connu?.label && <span>{connu.label}</span>}
                         {numero && <span>n° public {numero}</span>}
                         {introuvable && (
                           <span style={{ color: textMuted, fontStyle: "italic" }}>
@@ -315,7 +348,7 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
               <div style={{ position: "relative", flex: "0 1 220px", minWidth: 160 }}>
                 <Icon as={Search} size={12} color={textMuted}
                   style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }}/>
-                <input value={recherche} placeholder="Rechercher (code, nom, n° de yard)…"
+                <input value={recherche} placeholder="Rechercher (code, libellé, identifiant)…"
                   onChange={e => { setRecherche(e.target.value); setChoix(""); setMessage(""); }}
                   style={{ ...champStyle, width: "100%", paddingLeft: 26, boxSizing: "border-box" }}/>
               </div>
@@ -329,10 +362,12 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
                       ? (recherche ? "Aucun résultat pour cette recherche" : "Tous les chantiers ProGBat sont déjà rattachés")
                       : `Choisir un chantier ProGBat… (${proposables.length})`}
                 </option>
+                {/* Le code de ProGBat, tel quel. Seul l'état « déjà rattaché »
+                    s'y ajoute : c'est une information sur le rattachement, pas
+                    une retouche du code. */}
                 {proposables.map(y => (
                   <option key={y.id} value={y.id} disabled={!!y.pris}>
                     {optionYard(y)}
-                    {y.publicYardNumber ? ` · n° public ${y.publicYardNumber}` : ""}
                     {y.pris ? ` — déjà rattaché à ${nomChantier(y.pris)}` : ""}
                   </option>
                 ))}

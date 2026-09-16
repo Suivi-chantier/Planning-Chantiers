@@ -3,7 +3,7 @@
 //
 // Ce module ne parle à personne : ni Supabase, ni React, ni réseau. Il répond à
 // trois questions, et à rien d'autre :
-//   1. comment nommer un chantier ProGBat qui n'a pas de libellé ;
+//   1. comment nommer un chantier ProGBat à l'écran ;
 //   2. quels rattachements appartiennent au chantier affiché ;
 //   3. lesquels des ~110 chantiers ProGBat proposer, dans quel état.
 //
@@ -11,59 +11,62 @@
 // elles se trompent, rattachent de l'argent au mauvais chantier. Elles doivent
 // être vérifiables sans navigateur — scripts/verif-progbat-yards-ecran.mjs.
 //
+// LE NOM D'UN CHANTIER ProGBat, C'EST SON CODE — TEL QUEL
+// ──────────────────────────────────────────────────────
+// L'écran ProGBat affiche « #83 TROTTIER - T2 - R+2 » ; l'API donne à ce même
+// chantier l'id 86 et le libellé « T2 - R+2 ». Le code vient du champ `code` de
+// l'affaire (voir progbatYards.mjs) et il est repris ICI SANS RIEN Y AJOUTER :
+// pas de préfixe, pas de numéro accolé, pas de recomposition. « #103 TROTTIER
+// ENEDIS » ne suit pas le même motif que « #83 TROTTIER - T2 - R+2 » : toute
+// règle de composition serait fausse quelque part.
+//
+// L'identifiant technique (86) n'est PAS un nom : les factures le portent, mais
+// il n'apparaît nulle part dans ProGBat. Il reste en information secondaire, et
+// ne sert de repli que lorsque le code manque.
+//
 // Ce module ne rapproche JAMAIS un chantier ProGBat d'un chantier Profero par
-// ressemblance de libellé : il ne lit les libellés que pour filtrer une
-// recherche tapée à la main et pour trier.
+// ressemblance : il ne lit ces textes que pour filtrer une recherche tapée à la
+// main et pour trier.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// DEUX NUMÉROS, À NE JAMAIS CONFONDRE :
-//   businessId → le « Code » que ProGBat AFFICHE (#80). C'est par lui que
-//                l'utilisateur reconnaît son chantier ; il n'a aucune valeur
-//                technique ici.
-//   id         → le yardId, porté par les factures et enregistré dans
-//                chantier_progbat_yards.progbat_yard_id. Invisible dans
-//                l'interface ProGBat.
-// Sur un chantier réel : ProGBat montre « #80 TROTIER - T3 - RDC », l'API
-// renvoie businessId 80, id 83, label « T3 - RDC ». Afficher « ProGBat n°83 »
-// laissait croire que 83 était le code visible : d'où « Code ProGBat #80 » d'un
-// côté et « yard n°83 » de l'autre, toujours nommés.
-
-/** « Code ProGBat #80 » — ou null si le yard n'a pas de code affichable. */
-export function codeAffiche(businessId) {
-  const n = Number(businessId);
-  return Number.isInteger(n) && n > 0 ? `Code ProGBat #${n}` : null;
-}
+const texte = (v) => String(v ?? "").trim();
 
 /**
- * Libellé lisible d'un chantier ProGBat : le code visible puis le sous-libellé.
- * C'est aussi ce qui est ENREGISTRÉ dans progbat_yard_label, pour que le code
- * reste lisible même quand l'API ne répond plus.
+ * Nom affiché d'un chantier ProGBat : son code EXACT.
+ * Sans code (affaire inconnue, code vide, API des affaires en échec), repli
+ * lisible : « T2 - R+2 — chantier ProGBat n°86 ».
  */
 export function libelleYard(yard) {
-  const morceaux = [codeAffiche(yard?.businessId), String(yard?.label ?? "").trim()].filter(Boolean);
-  return morceaux.join(" · ") || "Chantier ProGBat sans libellé";
+  const code = texte(yard?.code);
+  if (code) return code;
+  const label = texte(yard?.label);
+  return label
+    ? `${label} — chantier ProGBat n°${yard?.id}`
+    : `Chantier ProGBat n°${yard?.id}`;
 }
 
-/** Option du select : « Code ProGBat #80 · T3 - RDC — yard n°83 ». */
+/** Option du select : le code exact, sans rien y accoler. */
 export function optionYard(yard) {
-  return `${libelleYard(yard)} — yard n°${yard?.id}`;
+  return libelleYard(yard);
 }
 
 /**
- * Libellé d'un rattachement enregistré. Si le yard est retrouvé dans la liste
- * ProGBat, on montre son état ACTUEL (le code a pu changer chez ProGBat) ;
- * sinon on retombe sur le libellé figé au moment du rattachement.
+ * Nom d'un rattachement enregistré. Si le chantier est retrouvé dans la liste
+ * ProGBat, on montre son état ACTUEL (le code a pu être corrigé chez ProGBat) ;
+ * sinon on retombe sur le libellé figé au moment du rattachement — c'est pour
+ * cela qu'on y enregistre le code, et non le seul sous-libellé.
  */
 export function libelleLien(lien, yardConnu) {
   if (yardConnu) return libelleYard(yardConnu);
-  return String(lien?.progbat_yard_label ?? "").trim() || "Chantier ProGBat sans libellé";
+  const fige = texte(lien?.progbat_yard_label);
+  return fige || `Chantier ProGBat n°${lien?.progbat_yard_id}`;
 }
 
 /**
  * Normalisation de recherche : sans casse, sans accents, et les séparateurs
- * ramenés à une espace. « T3 - RDC » se cherche alors aussi bien en tapant
- * « T3 RDC » ou « t3-rdc », et « #80 » en tapant « 80 » — personne ne retape
- * la ponctuation exacte d'un libellé ProGBat.
+ * ramenés à une espace. « T2 - R+2 » se cherche alors en tapant « T2 R+2 »,
+ * « t2-r2 » ou « R+2 », et « #83 » en tapant « 83 » — personne ne retape la
+ * ponctuation exacte d'un code ProGBat.
  */
 export function normaliserRecherche(v) {
   return String(v ?? "")
@@ -72,6 +75,19 @@ export function normaliserRecherche(v) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+// Forme compacte : la m\u00eame, s\u00e9parateurs supprim\u00e9s. \u00ab T2 R2 \u00bb tap\u00e9 d'une traite
+// doit retrouver \u00ab T2 - R+2 \u00bb, alors que l'espace tap\u00e9e ne correspond \u00e0 aucune
+// espace du code. Chercher dans les deux formes co\u00fbte deux comparaisons et
+// \u00e9vite \u00ab aucun r\u00e9sultat \u00bb sur une frappe parfaitement raisonnable.
+const compacter = (s) => s.replace(/ /g, "");
+
+/** Le texte `valeur` r\u00e9pond-il \u00e0 la recherche d\u00e9j\u00e0 normalis\u00e9e `q` ? */
+export function correspond(valeur, q) {
+  if (!q) return true;
+  const n = normaliserRecherche(valeur);
+  return n.includes(q) || compacter(n).includes(compacter(q));
 }
 
 // Les identifiants viennent de deux mondes (bigint en base, number dans le
@@ -108,10 +124,9 @@ export function yardsPrisAilleurs(liens, chantierId) {
  * - déjà rattaché AILLEURS           → conservé, marqué `pris` (donc affiché
  *   désactivé) : c'est plus utile que de le faire disparaître, on comprend
  *   pourquoi il manque au lieu de le chercher ;
- * - recherche → filtre sur le CODE VISIBLE (businessId), le libellé, le yardId
- *   et le numéro public. Le code visible est celui que l'utilisateur a sous les
- *   yeux dans ProGBat : c'est par lui qu'il cherche, bien plus que par le
- *   yardId qu'il ne voit nulle part.
+ * - recherche → filtre sur le CODE affiché, le libellé, l'identifiant technique
+ *   et le numéro public. Le code d'abord : c'est ce que l'utilisateur a sous
+ *   les yeux dans ProGBat.
  */
 export function yardsProposables({ yards = [], liens = [], chantierId, recherche = "" } = {}) {
   const dejaIci = new Set(rattachementsDuChantier(liens, chantierId).map((l) => cle(l?.progbat_yard_id)));
@@ -119,8 +134,8 @@ export function yardsProposables({ yards = [], liens = [], chantierId, recherche
   const q = normaliserRecherche(recherche);
   return yards
     .filter((y) => !dejaIci.has(cle(y?.id)))
-    .filter((y) => !q || [y?.businessId, y?.label, y?.id, y?.publicYardNumber]
-      .some((v) => normaliserRecherche(v).includes(q)))
+    .filter((y) => !q || [y?.code, y?.label, y?.id, y?.publicYardNumber]
+      .some((v) => correspond(v, q)))
     .map((y) => ({ ...y, pris: ailleurs.get(cle(y?.id)) || null }));
 }
 

@@ -8,11 +8,13 @@
 //   3. le branchement dans FacturationChantier.jsx et la conservation du
 //      repli par devis.
 //
-// LE PIÈGE DE CET ÉCRAN : ProGBat affiche « #80 TROTIER - T3 - RDC » là où son
-// API renvoie businessId 80, id 83 et label « T3 - RDC ». Le 80 est le seul
-// numéro que l'utilisateur voit ; le 83 est le seul que portent les factures.
-// Confondre les deux, c'est soit un écran introuvable, soit un rattachement
-// faux. Une bonne partie des contrôles ci-dessous ne vérifie que ça.
+// LE PIÈGE DE CET ÉCRAN : ProGBat affiche « #83 TROTTIER - T2 - R+2 » là où son
+// API donne à ce chantier l'id 86 et le libellé « T2 - R+2 ». Ce code est le
+// seul nom que l'utilisateur reconnaît ; le 86 est le seul numéro que portent
+// les factures. Confondre les deux, c'est soit un écran introuvable, soit un
+// rattachement faux — et recomposer le code, c'est se tromper dès la première
+// exception de format (« #103 TROTTIER ENEDIS »). Une bonne partie des
+// contrôles ci-dessous ne vérifie que ça.
 //
 // Aucun appel réseau, aucune base, aucune Edge Function : tout est local.
 //   node scripts/verif-progbat-yards-ecran.mjs
@@ -20,7 +22,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  codeAffiche, libelleYard, libelleLien, optionYard, normaliserRecherche,
+  libelleYard, libelleLien, optionYard, normaliserRecherche,
   rattachementsDuChantier, yardsPrisAilleurs, yardsProposables, yardIntrouvable,
 } from "../src/Renovation/progbatYardsEcran.mjs";
 
@@ -29,13 +31,16 @@ const lire = (rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.met
 const cas = [];
 const test = (nom, fn) => cas.push([nom, fn]);
 
-// Jeu d'essai. TROTIER est le cas réel rapporté par l'utilisateur ; les deux
-// autres couvrent un yard sans code visible et un yard sans rien du tout.
-const TROTIER = { id: 83, businessId: 80, label: "T3 - RDC", publicYardNumber: null };
+// Jeu d'essai : les chantiers RÉELS de l'écran ProGBat, tels que
+// progbat-yards-list les renvoie (code = champ `code` de l'affaire, repris tel
+// quel ; id = yardId technique ; label = sous-libellé du chantier).
+const TROTTIER_T2 = { id: 86, code: "#83 TROTTIER - T2 - R+2", label: "T2 - R+2", publicYardNumber: null };
 const YARDS = [
-  { id: 12, businessId: 11, label: "Résidence Les Tilleuls — bât. A", publicYardNumber: null },
-  { id: 34, businessId: null, label: "Villa Marceau", publicYardNumber: "Y-2026-034" },
-  TROTIER,
+  { id: 83, code: "#80 TROTTIER - T3 - RDC", label: "T3 - RDC", publicYardNumber: null },
+  TROTTIER_T2,
+  { id: 120, code: "#103 TROTTIER ENEDIS", label: "ENEDIS", publicYardNumber: null },
+  // Chantier dont l'affaire n'a pas de code : repli attendu.
+  { id: 44, code: null, label: "Villa Marceau", publicYardNumber: "Y-2026-034" },
 ];
 const lien = (chantier, yardId, label = null, numero = null) => ({
   id: `lien-${chantier}-${yardId}`,
@@ -49,138 +54,148 @@ const lien = (chantier, yardId, label = null, numero = null) => ({
 // 1. RÈGLES PURES
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("identification : le code visible et le sous-libellé, jamais un nom inventé", () => {
-  assert.equal(codeAffiche(80), "Code ProGBat #80");
-  assert.equal(libelleYard(TROTIER), "Code ProGBat #80 · T3 - RDC");
-  assert.equal(libelleYard({ id: 34, businessId: null, label: "Villa Marceau" }), "Villa Marceau");
-  assert.equal(libelleYard({ id: 56, businessId: 12, label: null }), "Code ProGBat #12");
-  assert.equal(libelleYard({ id: 56, businessId: null, label: "   " }), "Chantier ProGBat sans libellé");
+test("affichage : le code de ProGBat, exactement — rien avant, rien après", () => {
+  assert.equal(libelleYard(TROTTIER_T2), "#83 TROTTIER - T2 - R+2");
+  assert.equal(optionYard(TROTTIER_T2), "#83 TROTTIER - T2 - R+2");
+  assert.equal(optionYard(YARDS[2]), "#103 TROTTIER ENEDIS");
+  // Aucune trace de l'identifiant technique ni d'un préfixe fabriqué.
+  assert.doesNotMatch(optionYard(TROTTIER_T2), /86|yard n°|Code ProGBat|·/);
 });
 
-test("code visible : entier strictement positif, sinon aucun code affiché", () => {
-  for (const mauvais of [0, -1, 1.5, "abc", "", null, undefined, {}, NaN]) {
-    assert.equal(codeAffiche(mauvais), null, `businessId ${JSON.stringify(mauvais)} ne doit pas s'afficher`);
-  }
-  assert.equal(codeAffiche("80"), "Code ProGBat #80");   // texte numérique accepté
+test("affichage : le code n'est jamais recomposé à partir des autres champs", () => {
+  // Même entrées, codes stockés différents : la sortie SUIT le code, elle ne le
+  // déduit pas. « #103 TROTTIER ENEDIS » ne suit pas le motif des autres.
+  assert.equal(libelleYard({ id: 120, code: "#103 TROTTIER ENEDIS", label: "ENEDIS" }), "#103 TROTTIER ENEDIS");
+  assert.equal(libelleYard({ id: 120, code: "AFFAIRE 2026-07 (avenant)", label: "ENEDIS" }), "AFFAIRE 2026-07 (avenant)");
+  // Un code qui ne contient ni le libellé ni aucun numéro reste intact.
+  assert.equal(libelleYard({ id: 9, code: "ZZ", label: "Lot 3" }), "ZZ");
 });
 
-test("option du select : « Code ProGBat #80 · T3 - RDC — yard n°83 »", () => {
-  assert.equal(optionYard(TROTIER), "Code ProGBat #80 · T3 - RDC — yard n°83");
-  // Sans code visible, le libellé seul — mais le yardId reste NOMMÉ « yard ».
-  assert.equal(optionYard({ id: 34, businessId: null, label: "Villa Marceau" }), "Villa Marceau — yard n°34");
-  // Le yardId n'est jamais présenté comme « le » numéro ProGBat : c'est
-  // exactement la confusion qui rendait l'écran illisible.
-  assert.doesNotMatch(optionYard(TROTIER), /ProGBat n°83/);
+test("affichage : sans code, repli lisible avec le libellé et l'identifiant", () => {
+  assert.equal(libelleYard({ id: 44, code: null, label: "Villa Marceau" }), "Villa Marceau — chantier ProGBat n°44");
+  assert.equal(libelleYard({ id: 86, code: "   ", label: "T2 - R+2" }), "T2 - R+2 — chantier ProGBat n°86");
+  assert.equal(libelleYard({ id: 44, code: null, label: null }), "Chantier ProGBat n°44");
 });
 
-test("recherche « 80 » : retrouve le chantier par son code visible", () => {
-  const p = yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: "80" });
-  assert.deepEqual(p.map((y) => y.id), [83]);
-  assert.equal(p[0].businessId, 80);
-  // Et « #80 » tel qu'affiché par ProGBat marche aussi.
+test("recherche « 83 » : retrouve le chantier par le numéro de son code", () => {
+  const p = yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: "83" });
+  // Le chantier cherché est bien là, trouvé par son code « #83 … ».
+  const cible = p.find((y) => y.id === 86);
+  assert.ok(cible, "le chantier #83 TROTTIER - T2 - R+2 doit être proposé");
+  assert.equal(cible.code, "#83 TROTTIER - T2 - R+2");
+  // Le chantier dont l'identifiant TECHNIQUE vaut 83 sort aussi : la recherche
+  // porte sur les deux, et rien ne permet de deviner lequel est voulu. Les
+  // codes étant affichés en clair, l'utilisateur tranche d'un coup d'œil.
+  assert.deepEqual(p.map((y) => y.id), [83, 86]);
+  // « #83 » tel qu'affiché par ProGBat donne le même résultat : le croisillon
+  // n'est pas un caractère significatif pour la recherche.
   assert.deepEqual(
-    yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: "#80" }).map((y) => y.id),
-    [83],
+    yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: "#83" }).map((y) => y.id),
+    [83, 86],
   );
 });
 
-test("recherche « T3 RDC » : retrouve le libellé malgré la ponctuation", () => {
-  const cherche = (q) => yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: q })
-    .map((y) => y.id);
-  assert.deepEqual(cherche("T3 RDC"), [83]);     // le libellé réel est « T3 - RDC »
-  assert.deepEqual(cherche("t3-rdc"), [83]);
-  assert.deepEqual(cherche("T3 - RDC"), [83]);
-  assert.equal(normaliserRecherche("T3 - RDC"), "t3 rdc");
+test("recherche « TROTTIER » : retrouve les trois chantiers de l'affaire", () => {
+  const p = yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: "TROTTIER" });
+  assert.deepEqual(p.map((y) => y.id), [83, 86, 120]);
+  assert.deepEqual(
+    yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: "trottier" }).map((y) => y.id),
+    [83, 86, 120],
+  );
 });
 
-test("recherche : libellé sans casse ni accents, yardId et numéro public", () => {
+test("recherche « R+2 » : retrouve le chantier malgré la ponctuation", () => {
   const cherche = (q) => yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: q })
     .map((y) => y.id);
-  assert.deepEqual(cherche("tilleuls"), [12]);
-  assert.deepEqual(cherche("RESIDENCE"), [12]);
-  assert.deepEqual(cherche("  marceau  "), [34]);
-  assert.deepEqual(cherche("83"), [83]);          // yardId, pour qui le connaît
-  assert.deepEqual(cherche("y-2026"), [34]);      // numéro public
+  assert.deepEqual(cherche("R+2"), [86]);
+  assert.deepEqual(cherche("T2 R2"), [86]);
+  assert.deepEqual(cherche("t2 - r+2"), [86]);
+  assert.equal(normaliserRecherche("#83 TROTTIER - T2 - R+2"), "83 trottier t2 r 2");
+});
+
+test("recherche : libellé, identifiant technique et numéro public", () => {
+  const cherche = (q) => yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont", recherche: q })
+    .map((y) => y.id);
+  assert.deepEqual(cherche("marceau"), [44]);       // libellé, chantier sans code
+  assert.deepEqual(cherche("120"), [120]);          // identifiant technique
+  assert.deepEqual(cherche("y-2026"), [44]);        // numéro public
   assert.deepEqual(cherche("zzz"), []);
-  assert.deepEqual(cherche(""), [12, 34, 83]);
+  assert.deepEqual(cherche(""), [83, 86, 120, 44]);
 });
 
 test("chantier sans aucun rattachement : rien d'affiché, tout proposé", () => {
   assert.deepEqual(rattachementsDuChantier([], "dupont"), []);
   const p = yardsProposables({ yards: YARDS, liens: [], chantierId: "dupont" });
-  assert.equal(p.length, 3);
+  assert.equal(p.length, 4);
   assert.ok(p.every((y) => y.pris === null));
 });
 
 test("plusieurs chantiers ProGBat sur le même chantier Profero", () => {
   const liens = [
-    lien("dupont", 12, "Code ProGBat #11 · Résidence Les Tilleuls — bât. A"),
-    lien("dupont", 83, "Code ProGBat #80 · T3 - RDC"),
+    lien("dupont", 83, "#80 TROTTIER - T3 - RDC"),
+    lien("dupont", 86, "#83 TROTTIER - T2 - R+2"),
   ];
   const r = rattachementsDuChantier(liens, "dupont");
   assert.equal(r.length, 2);
-  assert.deepEqual(r.map((l) => l.progbat_yard_id), [12, 83]);  // tri par libellé (#11 avant #80)
-  // Et ces deux-là ne sont plus proposés.
-  assert.deepEqual(yardsProposables({ yards: YARDS, liens, chantierId: "dupont" }).map((y) => y.id), [34]);
+  assert.deepEqual(r.map((l) => l.progbat_yard_id), [83, 86]);   // tri sur le code enregistré
+  assert.deepEqual(yardsProposables({ yards: YARDS, liens, chantierId: "dupont" }).map((y) => y.id), [120, 44]);
 });
 
 test("chantier ProGBat pris ailleurs : visible, marqué, jamais masqué", () => {
-  const liens = [lien("martin", 83, "Code ProGBat #80 · T3 - RDC")];
+  const liens = [lien("martin", 86, "#83 TROTTIER - T2 - R+2")];
   const p = yardsProposables({ yards: YARDS, liens, chantierId: "dupont" });
-  assert.deepEqual(p.map((y) => y.id), [12, 34, 83]);
-  assert.equal(p.find((y) => y.id === 83).pris, "martin");
-  assert.equal(p.find((y) => y.id === 12).pris, null);
-  // La map sert au refus AVANT écriture, côté composant. Elle est indexée par
-  // le yardId technique, jamais par le code visible.
-  assert.equal(yardsPrisAilleurs(liens, "dupont").get("83"), "martin");
-  assert.equal(yardsPrisAilleurs(liens, "dupont").get("80"), undefined);
+  assert.deepEqual(p.map((y) => y.id), [83, 86, 120, 44]);
+  assert.equal(p.find((y) => y.id === 86).pris, "martin");
+  assert.equal(p.find((y) => y.id === 83).pris, null);
+  // La map est indexée par le yardId technique, jamais par le numéro du code :
+  // le « 83 » de « #83 TROTTIER » est aussi l'id d'un AUTRE chantier.
+  assert.equal(yardsPrisAilleurs(liens, "dupont").get("86"), "martin");
+  assert.equal(yardsPrisAilleurs(liens, "dupont").get("83"), undefined);
   assert.equal(yardsPrisAilleurs(liens, "martin").size, 0);
 });
 
 test("identifiants : bigint texte en base, number côté ProGBat — même chantier", () => {
-  // La base renvoie volontiers "83" là où ProGBat renvoie 83 : sans
-  // normalisation, le yard serait proposé ET déjà rattaché.
-  const liens = [lien("dupont", "83", "Code ProGBat #80 · T3 - RDC")];
-  assert.deepEqual(yardsProposables({ yards: YARDS, liens, chantierId: "dupont" }).map((y) => y.id), [12, 34]);
+  const liens = [lien("dupont", "86", "#83 TROTTIER - T2 - R+2")];
+  assert.deepEqual(yardsProposables({ yards: YARDS, liens, chantierId: "dupont" }).map((y) => y.id), [83, 120, 44]);
 });
 
-test("rattachement affiché : état ACTUEL si connu, libellé figé sinon", () => {
-  const l = lien("dupont", 83, "Code ProGBat #80 · T3 - RDC");
-  // Le code a changé chez ProGBat : c'est la valeur actuelle qui s'affiche.
-  assert.equal(libelleLien(l, { id: 83, businessId: 81, label: "T3 - RDC" }), "Code ProGBat #81 · T3 - RDC");
-  // API muette : le libellé enregistré prend le relais, code compris.
-  assert.equal(libelleLien(l, null), "Code ProGBat #80 · T3 - RDC");
-  // Lien ancien, enregistré avant que le code soit connu : rien n'est inventé.
-  assert.equal(libelleLien(lien("dupont", 83, null), null), "Chantier ProGBat sans libellé");
+test("rattachement affiché : code ACTUEL si connu, code figé sinon", () => {
+  const l = lien("dupont", 86, "#83 TROTTIER - T2 - R+2");
+  // Le code a été corrigé chez ProGBat : c'est la valeur actuelle qui s'affiche.
+  assert.equal(libelleLien(l, { id: 86, code: "#83 TROTTIER - T2 - R+2 (tranche 2)", label: "T2 - R+2" }),
+    "#83 TROTTIER - T2 - R+2 (tranche 2)");
+  // API muette : le code enregistré prend le relais — d'où l'intérêt de
+  // l'enregistrer plutôt que le seul sous-libellé « T2 - R+2 ».
+  assert.equal(libelleLien(l, null), "#83 TROTTIER - T2 - R+2");
+  // Lien enregistré sans libellé : l'identifiant technique, faute de mieux.
+  assert.equal(libelleLien(lien("dupont", 86, null), null), "Chantier ProGBat n°86");
 });
 
 test("ProGBat indisponible : les rattachements enregistrés restent affichés", () => {
-  const liens = [lien("dupont", 83, "Code ProGBat #80 · T3 - RDC"), lien("dupont", 99, "Code ProGBat #4 · Ancien")];
-  // yards vide = liste non lue : on affiche tout, et on ne prétend PAS savoir
-  // ce qui existe encore chez ProGBat.
+  const liens = [lien("dupont", 86, "#83 TROTTIER - T2 - R+2"), lien("dupont", 99, "#4 ANCIEN")];
   assert.equal(rattachementsDuChantier(liens, "dupont").length, 2);
   assert.equal(yardIntrouvable(liens[1], [], false), false);
   assert.equal(yardIntrouvable(liens[1], [], true), false);
 });
 
 test("« Non retrouvé actuellement dans ProGBat » : seulement si la liste a été lue", () => {
-  const l = lien("dupont", 99, "Code ProGBat #4 · Ancien");
+  const l = lien("dupont", 99, "#4 ANCIEN");
   assert.equal(yardIntrouvable(l, YARDS, true), true);
-  assert.equal(yardIntrouvable(l, YARDS, false), false);              // erreur de lecture
-  assert.equal(yardIntrouvable(lien("dupont", 83), YARDS, true), false);
-  assert.equal(yardIntrouvable(lien("dupont", "83"), YARDS, true), false); // id texte
-  // Le code visible ne vaut PAS identifiant : un lien vers le yard 80 (qui
-  // n'existe pas) reste introuvable, même si 80 est le code du yard 83.
-  assert.equal(yardIntrouvable(lien("dupont", 80), YARDS, true), true);
+  assert.equal(yardIntrouvable(l, YARDS, false), false);                  // erreur de lecture
+  assert.equal(yardIntrouvable(lien("dupont", 86), YARDS, true), false);
+  assert.equal(yardIntrouvable(lien("dupont", "86"), YARDS, true), false); // id texte
+  // Le numéro lu dans un code ne vaut PAS identifiant : un lien vers le yard 103
+  // (qui n'existe pas) reste introuvable, même si « #103 » figure dans un code.
+  assert.equal(yardIntrouvable(lien("dupont", 103), YARDS, true), true);
 });
 
-test("aucun rapprochement automatique par ressemblance de libellé", () => {
-  // Un chantier Profero nommé exactement comme un yard ProGBat ne crée RIEN.
+test("aucun rapprochement automatique par ressemblance", () => {
+  // Un chantier Profero nommé comme un chantier ProGBat ne crée RIEN.
   const liens = [];
-  const p = yardsProposables({ yards: YARDS, liens, chantierId: "trotier-t3-rdc" });
-  assert.equal(p.length, 3);
+  const p = yardsProposables({ yards: YARDS, liens, chantierId: "trottier-t2-r2" });
+  assert.equal(p.length, 4);
   assert.ok(p.every((y) => y.pris === null));
-  assert.deepEqual(rattachementsDuChantier(liens, "trotier-t3-rdc"), []);
+  assert.deepEqual(rattachementsDuChantier(liens, "trottier-t2-r2"), []);
   // Aucune de ces fonctions ne fabrique de lien : elles lisent, elles ne posent
   // rien. Le seul rattachement possible est l'insert explicite du composant.
 });
@@ -199,14 +214,16 @@ test("composant : la liste ProGBat vient de l'Edge Function, les liens de la tab
   assert.doesNotMatch(JSX, /chantier_factures_client/);
 });
 
-test("composant : c'est yard.id qui est enregistré, jamais businessId", () => {
-  const insert = JSX.slice(JSX.indexOf(".insert({"), JSX.indexOf(".insert({") + 600);
+test("composant : c'est yard.id qui est enregistré, et le code qui est figé", () => {
+  // L'objet inséré, et lui seul : ce qui suit (gestion du 23505) parle aussi de
+  // `code`, mais ce n'est pas ce qui est écrit en base.
+  const debut = JSX.indexOf(".insert({");
+  const insert = JSX.slice(debut, JSX.indexOf("});", debut));
   assert.match(insert, /progbat_yard_id: yard\.id/);
-  assert.doesNotMatch(insert, /businessId/);
-  // Le libellé enregistré, lui, PORTE le code visible : c'est ce qui reste
-  // lisible quand l'API ne répond plus.
+  assert.doesNotMatch(insert, /businessId|yard\.code/);
+  // Le libellé enregistré, c'est le code EXACT (libelleYard renvoie yard.code
+  // tel quel) : c'est ce qui reste lisible quand l'API ne répond plus.
   assert.match(insert, /progbat_yard_label: libelleYard\(yard\)/);
-  assert.match(JSX, /Code ProGBat/);
 });
 
 test("composant : insert sans cree_par (la base applique default auth.uid())", () => {
@@ -227,11 +244,13 @@ test("composant : écritures uniquement sur clic — jamais dans un effet", () =
   assert.match(JSX, /\.delete\(\)\.eq\("id", lien\.id\)/);          // une seule ligne, par son id
 });
 
-test("composant : le yardId affiché est nommé « yard », pas « ProGBat n° »", () => {
-  assert.match(JSX, /yard n°\{l\.progbat_yard_id\}/);
-  // Plus aucun « ProGBat n°<id technique> » : c'est ce libellé qui laissait
-  // croire que 83 était le code affiché par ProGBat.
-  assert.doesNotMatch(JSX, /ProGBat n°/);
+test("composant : l'identifiant technique est secondaire, jamais le titre", () => {
+  // Le titre d'un rattachement est libelleLien (donc le code) ; l'identifiant
+  // technique est une mention grise, nommée comme telle.
+  assert.match(JSX, /identifiant technique : \{l\.progbat_yard_id\}/);
+  assert.doesNotMatch(JSX, /yard n°/);
+  // Et rien n'est accolé au code dans les options du select.
+  assert.doesNotMatch(JSX, /\{optionYard\(y\)\}\s*\n\s*\{y\.publicYardNumber/);
 });
 
 test("composant : 23505 expliqué, détachement confirmé, erreur rattrapable", () => {

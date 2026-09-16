@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
-import { MAX_PAGES, PAGE_SIZE, choisirJeton, parcourirYards } from "./lib/progbatYards.mjs"
+import { MAX_PAGES, PAGE_SIZE, choisirJeton, composerYards, parcourirAffaires, parcourirYards } from "./lib/progbatYards.mjs"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // progbat-yards-list
@@ -11,10 +11,22 @@ import { MAX_PAGES, PAGE_SIZE, choisirJeton, parcourirYards } from "./lib/progba
 // rattachement stable, là où `quoteId` change à chaque avenant. L'écran de
 // rattachement a donc besoin de la liste des yards — et de rien d'autre.
 //
-// UN SEUL endpoint, une seule méthode :
-//   GET https://api.progbat.com/v2/company/yards?limit&offset   scope `business.read`
+// DEUX endpoints en LECTURE, une seule méthode :
+//   GET https://api.progbat.com/v2/company/yards?limit&offset      scope `business.read`
+//   GET https://api.progbat.com/v2/company/business?limit&offset   scope `business.read`
 // Aucun POST, PATCH ou DELETE vers ProGBat. Aucune écriture en base non plus :
 // cette fonction ne fait que lire et projeter.
+//
+// POURQUOI LA SECONDE LISTE : l'écran ProGBat affiche « #83 TROTTIER - T2 -
+// R+2 » dans sa colonne « Code » ; le yard correspondant, lui, a l'id 86 et le
+// libellé « T2 - R+2 ». Cette chaîne est le champ `code` de l'AFFAIRE, rejoint
+// par yard.businessId. Deux listes paginées suffisent — jamais un appel par
+// chantier : 110 requêtes pour un écran serait le mauvais compromis, et ProGBat
+// limite les appels (429).
+//
+// Si la liste des affaires échoue, les chantiers sont renvoyés QUAND MÊME, sans
+// code, avec un avertissement : perdre le code affiché est gênant, perdre
+// l'écran de rattachement le serait bien plus.
 //
 // Différence assumée avec progbat-test-connection : le diagnostic s'arrêtait
 // dès qu'il avait retrouvé les quelques yardId cherchés. Ici la liste doit être
@@ -67,13 +79,14 @@ const messagePourStatus = (status: number, detail: string): string => {
 
 type Page = { ok: true; data: unknown } | { ok: false; status: number; message: string }
 
-// GET unique sur /company/yards, avec délai maximal. Ne journalise ni les
-// en-têtes, ni le corps ; ne renvoie jamais le corps brut en erreur.
-async function lireUnePage(token: string, limit: number, offset: number): Promise<Page> {
+// GET unique sur une ressource de liste, avec délai maximal. Ne journalise ni
+// les en-têtes, ni le corps ; ne renvoie jamais le corps brut en erreur.
+// `ressource` vaut "yards" ou "business" : deux listes, une seule mécanique.
+async function lireUnePage(token: string, ressource: string, limit: number, offset: number): Promise<Page> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(`${PROGBAT_API}/company/yards?limit=${limit}&offset=${offset}`, {
+    const res = await fetch(`${PROGBAT_API}/company/${ressource}?limit=${limit}&offset=${offset}`, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       signal: ctrl.signal,
@@ -133,7 +146,7 @@ serve(async (req) => {
 
     // ── 3. GET /company/yards, paginé jusqu'à la fin réelle ─────────────────
     const lu = await parcourirYards(
-      ({ limit, offset }: { limit: number; offset: number }) => lireUnePage(token, limit, offset),
+      ({ limit, offset }: { limit: number; offset: number }) => lireUnePage(token, "yards", limit, offset),
       { pageSize: PAGE_SIZE, maxPages: MAX_PAGES },
     )
 
@@ -151,11 +164,30 @@ serve(async (req) => {
       return json({ ok: false, error: `Liste des chantiers ProGBat trop longue (garde de ${MAX_PAGES} pages atteinte) : lecture interrompue.` }, 502)
     }
 
-    console.log(`[progbat-yards-list] appelant=${caller.id} jeton=${source} pages=${lu.pages} yards=${lu.yards.length} (${Date.now() - t0} ms)`)
-    // Réponse minimale. Les yards sortent déjà projetés sur CHAMPS_YARD
-    // (id, label, publicYardNumber) par le module pur : ni adresse, ni client,
-    // ni e-mail, ni téléphone, ni managerId, ni businessId, ni payload brut.
-    return json({ ok: true, nombre: lu.yards.length, yards: lu.yards })
+    // ── 4. GET /company/business : le CODE affiché, et rien d'autre ─────────
+    // Une seconde liste paginée, jamais un appel par chantier. Son échec ne
+    // doit pas emporter l'écran : on le signale et on continue sans code.
+    const affaires = await parcourirAffaires(
+      ({ limit, offset }: { limit: number; offset: number }) => lireUnePage(token, "business", limit, offset),
+      { pageSize: PAGE_SIZE, maxPages: MAX_PAGES },
+    )
+    let avertissement: string | null = null
+    if (!affaires.ok) {
+      console.warn(`[progbat-yards-list] affaires → HTTP ${affaires.status} (${affaires.message})`)
+      avertissement = `Codes des chantiers indisponibles : ${affaires.message}`
+    } else if (affaires.garde_atteinte) {
+      console.warn(`[progbat-yards-list] affaires : garde de ${MAX_PAGES} pages atteinte`)
+      avertissement = `Codes des chantiers partiellement lus (garde de ${MAX_PAGES} pages atteinte).`
+    }
+
+    // Réponse minimale. Les chantiers sortent projetés sur CHAMPS_YARD
+    // (id, code, label, publicYardNumber) par le module pur : ni adresse, ni
+    // client, ni e-mail, ni téléphone, ni managerId, ni businessId, ni payload
+    // brut — ni du yard, ni de l'affaire dont seul le `code` est lu.
+    const yards = composerYards(lu.yards, affaires.ok ? affaires.affaires : [])
+    const avecCode = yards.filter((y: { code: string | null }) => y.code).length
+    console.log(`[progbat-yards-list] appelant=${caller.id} jeton=${source} pages=${lu.pages}+${affaires.pages} yards=${yards.length} codes=${avecCode} (${Date.now() - t0} ms)`)
+    return json({ ok: true, nombre: yards.length, yards, avertissement })
   } catch (e) {
     console.error(`[progbat-yards-list] erreur=${nettoyerMessage((e as Error)?.message)}`)
     return json({ ok: false, error: "Erreur interne lors de la lecture des chantiers ProGBat." }, 500)
