@@ -34,6 +34,7 @@ import {
   uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier,
   derniereErreurDocument,
 } from "./storageChantier";
+import ChantierProjetsProgbat from "./ChantierProjetsProgbat";
 import {
   normaliserEcheancier, rapprocherFacture, factureDoublon,
   montantAttenduLigne, FACT_META_ECHEANCIER, FACT_META_MONTANT_REF,
@@ -418,7 +419,7 @@ function EditeurEcheancier({ lignes, surcharge, montantReference, T, onAnnuler, 
 // ─── BLOC PRINCIPAL ──────────────────────────────────────────────────────────
 export default function FacturationChantier({
   T, chantierId, phasageId, etat, echeancier, echeancierSurcharge, montantRef, factures,
-  peutModifier, auteur, onRefresh, onSaveMeta,
+  chantiers, peutModifier, auteur, onRefresh, onSaveMeta,
 }) {
   const [busy, setBusy] = useState("");          // libellé de l'opération en cours
   const [erreur, setErreur] = useState("");
@@ -815,6 +816,11 @@ export default function FacturationChantier({
           onEnregistrer={enregistrerEcheancier}
           onReinitialiser={reinitialiserEcheancier}/>
       )}
+
+      {/* Logements / devis ProGBat : le rattachement explicite qui permettra de
+          reconnaître à quel chantier appartient une facture ProGBat. Rien n'y
+          est automatique — voir ChantierProjetsProgbat.jsx. */}
+      <ChantierProjetsProgbat chantierId={chantierId} chantiers={chantiers} T={T} peutModifier={peutModifier}/>
 
       {brouillon && (
         <ModaleImport brouillon={brouillon} lignes={echeancier} montantReference={ref}

@@ -2814,7 +2814,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         {selectedPhasage && (
           <FacturationChantier T={T} chantierId={cvChantierId} phasageId={selectedPhasage.id}
             etat={etatFact} echeancier={echeancierChantier.lignes} echeancierSurcharge={echeancierChantier.surcharge}
-            montantRef={montantRefFact} factures={facturesClient}
+            montantRef={montantRefFact} factures={facturesClient} chantiers={chantiers}
             peutModifier auteur={auteurCV}
             onRefresh={rechargerFactures} onSaveMeta={saveMetaPhasage}/>
         )}
