@@ -12,20 +12,14 @@ import { SlidersHorizontal, Check, X, AlertTriangle, History, RefreshCw, Lock, I
 import { formaterCoefficient, optionsSelectCoefficients } from "./coefficientsVente.mjs";
 import { formaterTauxHT, optionsSelectTaux } from "./tauxHorairesVente.mjs";
 import {
-  MODE_OUVRAGE, MODE_GLOBAL, lireConditionsProjet, chiffrageModifiable, valeurPlusRecente, resumerSimulation, libelleCondition,
+  MODE_OUVRAGE, MODE_GLOBAL, lireConditionsProjet, chiffrageModifiable, valeurPlusRecente, resumerSimulation, libelleCondition, messageErreurRpc,
 } from "./conditionsChiffrage.mjs";
+
+export { messageErreurRpc };
 
 const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const fmtPct = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
 const fmtDate = (d) => d ? new Date(d).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
-
-/** Message lisible d'une erreur de RPC (les exceptions plpgsql arrivent en `message`). */
-export function messageErreurRpc(error) {
-  const m = String(error?.message || error || "").trim();
-  if (!m) return "Erreur inconnue.";
-  if (/permission denied|row-level security|violates row-level/i.test(m)) return "Droits insuffisants : vous ne pouvez pas modifier ce chiffrage.";
-  return m.replace(/^.*?(?=Chiffrage|Le |Les |Coefficient|Taux|Mode|Modification)/, "");
-}
 
 export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coefficients = [], tauxHoraires = [], nbLignes = 0, onApplique }) {
   const courantes = lireConditionsProjet(projet);
@@ -246,6 +240,16 @@ export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coe
               <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 12 }}>
                 <strong style={{ color: T.text }}>{r.nbRecalculees}</strong> ligne{r.nbRecalculees > 1 ? "s" : ""} recalculée{r.nbRecalculees > 1 ? "s" : ""} (coefficient et taux appliqués, prix matériaux, prix main-d'œuvre, prix unitaire, total et marge).
                 {r.nbSansSnapshot > 0 && <> <strong style={{ color: T.text }}>{r.nbSansSnapshot}</strong> ligne{r.nbSansSnapshot > 1 ? "s" : ""} à prix saisi (sans calcul figé) inchangée{r.nbSansSnapshot > 1 ? "s" : ""}.</>}
+                {/* Les dérogations de ligne ne suivent PAS le changement global : elles ne sont
+                    donc jamais comptées comme recalculées. */}
+                {(r.nbCoefSpecifiques > 0 || r.nbTauxSpecifiques > 0 || r.nbModeOuvrage > 0 || r.nbInchangees > 0) && (
+                  <div style={{ marginTop: 6 }}>
+                    {r.nbCoefSpecifiques > 0 && <div><strong style={{ color: T.text }}>{r.nbCoefSpecifiques}</strong> coefficient{r.nbCoefSpecifiques > 1 ? "s" : ""} spécifique{r.nbCoefSpecifiques > 1 ? "s" : ""} conservé{r.nbCoefSpecifiques > 1 ? "s" : ""}</div>}
+                    {r.nbTauxSpecifiques > 0 && <div><strong style={{ color: T.text }}>{r.nbTauxSpecifiques}</strong> taux horaire{r.nbTauxSpecifiques > 1 ? "s" : ""} spécifique{r.nbTauxSpecifiques > 1 ? "s" : ""} conservé{r.nbTauxSpecifiques > 1 ? "s" : ""}</div>}
+                    {r.nbModeOuvrage > 0 && <div><strong style={{ color: T.text }}>{r.nbModeOuvrage}</strong> ligne{r.nbModeOuvrage > 1 ? "s" : ""} forcée{r.nbModeOuvrage > 1 ? "s" : ""} sur les paramètres de l'ouvrage</div>}
+                    {r.nbInchangees > 0 && <div><strong style={{ color: T.text }}>{r.nbInchangees}</strong> ligne{r.nbInchangees > 1 ? "s" : ""} déjà à ces conditions (aucun changement)</div>}
+                  </div>
+                )}
                 <div style={{ marginTop: 4, color: T.textMuted, fontSize: FONT.xs.size + 1 }}>Inchangés : coûts matériaux, main-d'œuvre et direct figés · quantités et unités · cadences · zones · ouvrages de la bibliothèque · autres chiffrages.</div>
               </div>
               {r.ignorees.length > 0 && (

@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
+    type: "nouveaute",
+    titre: "Chiffrage : coefficient et taux horaire modifiables sur un seul ouvrage",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Jusqu'ici, le coefficient et le taux horaire de vente se choisissaient soit ouvrage par ouvrage dans la bibliothèque, soit globalement pour tout le chiffrage. Il est désormais possible de déroger sur UNE SEULE ligne du devis : tout le chiffrage peut rester à 1,30 et 70 €/h pendant qu'un ouvrage particulier passe à 1,50 et 80 €/h. Les autres lignes, les autres chiffrages et la fiche de l'ouvrage dans la bibliothèque ne bougent pas, et la valeur choisie est figée sur la ligne — un changement ultérieur dans les Réglages ne la modifiera pas.",
+    comment: "Sur chaque ligne du devis, un bouton « réglages » (curseurs) ouvre « Conditions de vente de cette ligne ». Deux listes indépendantes : « Coefficient de vente appliqué » et « Taux horaire de vente appliqué ». Pour chacune, trois possibilités : hériter du chiffrage, forcer le paramètre de l'ouvrage (même si le chiffrage impose un coefficient global), ou choisir une valeur précise parmi celles des Réglages. La valeur réellement appliquée et son origine sont affichées en clair, et un aperçu montre l'ancien et le nouveau coefficient, taux, prix unitaire et marge AVANT toute validation — rien n'est enregistré tant qu'on n'a pas cliqué sur « Appliquer à cet ouvrage ». Les lignes dérogatoires portent un badge « Conditions spécifiques ». Une ligne à prix saisi à la main, ou calculée avec l'ancienne formule, demande une confirmation explicite supplémentaire (l'ancien prix est conservé dans l'historique) ; si les données de calcul figées manquent, l'opération est bloquée avec l'explication de ce qui manque. Enfin, quand on change les conditions globales du chiffrage, les lignes dérogatoires ne sont plus touchées : le récapitulatif indique combien de coefficients et de taux spécifiques ont été conservés.",
+  },
+  {
+    date: "2026-09-16",
     type: "correctif",
     titre: "Chiffrage : la saisie d'une ligne ne revient plus en arrière, et les nombres se tapent normalement partout",
     pages: [{ id: "info-client", label: "Chiffrage" }, { id: "phasage", label: "Phasage" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "dashboard-analyse", label: "Dashboard Analyse" }],

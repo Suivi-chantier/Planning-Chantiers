@@ -199,9 +199,10 @@ delete ligneV2.coefficient_source; delete ligneV2.taux_horaire_source; delete li
   assert.equal(sim2.margeConnue, true);
   assert.equal(sim2.margeAvant, 3 * (175 - 90)); assert.equal(sim2.margeApres, 3 * (153 - 90));
   assert.equal(sim2.margeAvantPct, Math.round(255 / 525 * 10000) / 100);
-  // Simulation neutre (mêmes conditions) ⇒ aucun écart
+  // Simulation neutre (mêmes conditions) ⇒ aucun écart ET aucune ligne présentée
+  // comme modifiée (le comptage ne retient que les lignes qui changent vraiment)
   const neutre = simulerConditions([l1, l2], CONDITIONS_DEFAUT, { date: DATE });
-  assert.equal(neutre.ecartHT, 0); assert.equal(neutre.nbLignesRecalculees, 2);
+  assert.equal(neutre.ecartHT, 0); assert.equal(neutre.nbLignesRecalculees, 0); assert.equal(neutre.nbLignesInchangees, 2);
   // La simulation ne modifie pas les lignes d'entrée
   assert.equal(l1.prix_unitaire, 175); assert.equal(l1.coef_vente, 1.5);
   // totauxDevis lit prix_unitaire figé : cohérent avec la simulation
@@ -223,12 +224,16 @@ delete ligneV2.coefficient_source; delete ligneV2.taux_horaire_source; delete li
 
   const desc = decrireConditionsLigne({ ...ligneV2, ...recalculerLigneConditions(ligneV2, condGlobal).patch });
   assert.equal(desc.global, true); assert.equal(desc.coefficient.source, SOURCE_GLOBAL); assert.equal(desc.coefficient.origine, 1.5);
-  assert.ok(desc.lignes.some(x => x === "Coefficient appliqué : 1,30 — condition globale du chiffrage"));
-  assert.ok(desc.lignes.some(x => x === "Coefficient d'origine : 1,50"));
-  assert.ok(desc.lignes.some(x => /Taux horaire appliqué : 70,00 € HT\/h — condition globale/.test(x)));
+  assert.ok(desc.lignes.some(x => x === "Coefficient appliqué : 1,30"));
+  assert.ok(desc.lignes.some(x => x === "Origine : condition globale du chiffrage"));
+  assert.ok(desc.lignes.some(x => x === "Coefficient de l'ouvrage : 1,50"));
+  assert.ok(desc.lignes.some(x => /Taux horaire appliqué : 70,00 € HT\/h/.test(x)));
   assert.match(desc.court, /× 1,30 · 70,00 €\/h · global/);
+  assert.equal(desc.derogation, false, "une condition globale n'est pas une dérogation de ligne");
   const descO = decrireConditionsLigne(ligneV2);
-  assert.equal(descO.global, false); assert.ok(descO.lignes.some(x => x === "Coefficient ouvrage : 1,50"));
+  assert.equal(descO.global, false);
+  assert.ok(descO.lignes.some(x => x === "Coefficient appliqué : 1,50"));
+  assert.ok(descO.lignes.some(x => x === "Origine : paramètre de l'ouvrage"));
   assert.equal(decrireConditionsLigne({ id: "x", prix_unitaire: 100 }).lignes.length, 0);
 
   // Valeur plus récente dans les Réglages : signalée, jamais appliquée automatiquement

@@ -10,7 +10,8 @@ import { renderPlanDataURL } from "./planRendu";
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import ProgbatApercuDevis from "./ProgbatApercuDevis.jsx";
 import ConditionsVenteChiffrage from "./ConditionsVenteChiffrage.jsx";
-import { lireConditionsProjet, decrireConditionsLigne } from "./conditionsChiffrage.mjs";
+import ConditionsVenteLigne from "./ConditionsVenteLigne.jsx";
+import { lireConditionsProjet, decrireConditionsLigne, lireModesLigne, libelleSource } from "./conditionsChiffrage.mjs";
 import { expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe } from "./tauxHorairesVente.mjs";
 import { expliquerPrixMateriaux, formaterCoefficient, diagnostiquerCoefficients } from "./coefficientsVente.mjs";
 import {
@@ -26,7 +27,7 @@ import {
   Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
   ImagePlus, ArrowUp, ArrowDown, Send, StickyNote, Edit2, Image as ImageIcon,
   Video, Film, Library, Wallet, Clock, PenTool, Type as TypeIcon, Play,
-  RefreshCw, Home, Receipt, Info, Lock,
+  RefreshCw, Home, Receipt, Info, Lock, SlidersHorizontal,
 } from "lucide-react";
 
 // Ordre des lots = chronologie d'un chantier (démolition → finitions).
@@ -79,7 +80,7 @@ const CHAMPS_DEVIS_NUM  = ["tva_pct"];
 const CHAMPS_DEVIS_VIDES = Object.fromEntries(CHAMPS_DEVIS.map(f => [f, ""]));
 const erreurColonnesDevis = (error) => !!error && CHAMPS_DEVIS.some(c => (error?.message || "").includes(c));
 // Colonnes de snapshot d'une ligne (profero_ouvrages_selectionnes) de la même migration
-const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "coefficient_vente_id", "taux_horaire_vente_id", "taux_horaire_vente", "coefficient_source", "coefficient_origine_valeur", "coefficient_origine_libelle", "coefficient_global_id", "taux_horaire_source", "taux_horaire_origine_valeur", "taux_horaire_origine_libelle", "taux_horaire_global_id", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "coefficient_vente_id", "taux_horaire_vente_id", "taux_horaire_vente", "coefficient_source", "coefficient_origine_valeur", "coefficient_origine_libelle", "coefficient_global_id", "taux_horaire_source", "taux_horaire_origine_valeur", "taux_horaire_origine_libelle", "taux_horaire_global_id", "mode_coefficient_ligne", "coefficient_ligne_id", "coefficient_ligne_valeur", "coefficient_ligne_libelle", "mode_taux_horaire_ligne", "taux_horaire_ligne_id", "taux_horaire_ligne_valeur", "taux_horaire_ligne_libelle", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
 const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
 const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (error?.message || "").includes(c));
 const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
@@ -180,6 +181,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [dupliquant, setDupliquant]   = useState(false);
   const [toDeleteLigne, setToDeleteLigne] = useState(null);
   const [voirDetailLigne, setVoirDetailLigne] = useState(null); // ligne dont on affiche le détail du coût
+  const [conditionsLigne, setConditionsLigne] = useState(null); // ligne dont on modifie coefficient / taux horaire
   // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
   // partagé annulait les saves des autres opérations (ex : taper un nom client
   // puis modifier une quantité d'ouvrage avant 800ms écrasait la save du nom).
@@ -911,7 +913,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // conditions de vente FIGÉES du chiffrage (coefficient / taux global éventuels) :
   // l'origine (paramètres de l'ouvrage) est figée sur la ligne, l'appliqué aussi.
   const conditionsProjet = lireConditionsProjet(projets.find(p => p.id === projetId));
-  const calculBiblio = (o) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [], conditions: conditionsProjet });
+  // `modesLigne` : pour une ligne existante (actualisation), ses dérogations sont
+  // reprises telles quelles — actualiser ne remet jamais une ligne en héritage.
+  const calculBiblio = (o, modesLigne = null) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [], conditions: conditionsProjet, modesLigne });
 
   // Après application des conditions (RPC) : recharger CE projet et SES lignes,
   // sans changer de projet ni toucher aux autres chiffrages.
@@ -924,6 +928,18 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     if (p) setProjets(prev => prev.map(x => x.id === p.id ? { ...x, ...p } : x));
     if (o) setOuvrages(o);
   }
+  // Après application des conditions d'UNE ligne (RPC) : recharger cette seule
+  // ligne et le projet (version de concurrence). Aucun autre chiffrage touché.
+  async function rechargerApresConditionsLigne(res) {
+    const id = res?.ligne_id;
+    const [{ data: p }, { data: o }] = await Promise.all([
+      supabase.from("profero_projets").select("*").eq("id", projetId).maybeSingle(),
+      id ? supabase.from("profero_ouvrages_selectionnes").select("*").eq("id", id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    if (p) setProjets(prev => prev.map(x => x.id === p.id ? { ...x, ...p } : x));
+    if (o) setOuvrages(prev => prev.map(x => x.id === o.id ? o : x));
+  }
+
   // Occurrences déjà présentes dans le devis pour un ouvrage de bibliothèque
   const occurrencesDe = (o) => ouvrages.filter(x => x.bibliotheque_id === o.id);
 
@@ -965,7 +981,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     if (!ligne?.bibliotheque_id) return;
     const { data: o } = await supabase.from("bibliotheque_ratios").select("*").eq("id", ligne.bibliotheque_id).maybeSingle();
     if (!o) { alert("L'ouvrage source n'existe plus dans la bibliothèque : la ligne garde son snapshot."); return; }
-    const calcul = calculBiblio(o);
+    const calcul = calculBiblio(o, lireModesLigne(ligne));
     const diffs = differencesSnapshot(ligne, o, calcul);
     setActualisation({ ligne, ouvrage: o, calcul, diffs, patch: appliquerActualisation(ligne, o, calcul) });
   }
@@ -1155,7 +1171,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const pu = numOrNull(sel.prix_unitaire);
     const total = totalLigneHT(sel);
     const erreursSnap = snap ? (sel.calcul_detail?.erreurs || []) : [];
-    const condLigne = snap ? decrireConditionsLigne(sel) : { global: false, court: "", lignes: [] };
+    const condLigne = decrireConditionsLigne(sel);
     const tvaLigne = numOrNull(sel.tva_pct);
     const pill = (c) => ({ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size+1, fontWeight:800, color:c, background:c+"1a", border:`1px solid ${c}40`, borderRadius:RADIUS.sm, padding:"4px 8px", whiteSpace:"nowrap" });
     return (
@@ -1174,8 +1190,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
         {snap ? (
           pu != null ? (
-            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={`Prix de vente HT unitaire figé (coût matériaux + main-d'œuvre + marge). Cliquer pour le détail.${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`} style={{ ...pill(condLigne.global ? "#4db8ff" : "#22c55e"), cursor:"pointer", fontFamily:"inherit" }}>
-              <Icon as={Lock} size={10}/>{fmtEur2(pu)}{condLigne.global && <span style={{fontWeight:600,opacity:.85}}>· {condLigne.court}</span>}
+            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={`Prix de vente HT unitaire figé (coût matériaux + main-d'œuvre + marge). Cliquer pour le détail.${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`} style={{ ...pill(condLigne.derogation ? "#a78bfa" : condLigne.global ? "#4db8ff" : "#22c55e"), cursor:"pointer", fontFamily:"inherit" }}>
+              <Icon as={Lock} size={10}/>{fmtEur2(pu)}{(condLigne.global || condLigne.derogation) && <span style={{fontWeight:600,opacity:.85}}>· {condLigne.court}</span>}
             </button>
           ) : (
             <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={erreursSnap.join(" · ") || "Prix non calculable"} style={{ ...pill("#e15a5a"), cursor:"pointer", fontFamily:"inherit" }}>
@@ -1198,6 +1214,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         {total != null && total > 0 && (
           <span className="total-badge" style={{ ...pill("#22c55e"), marginLeft:"auto" }}>= {fmtEur2(total)}</span>
         )}
+        {condLigne.badge && (
+          <span title={condLigne.lignes.join("\n")} style={{ ...pill("#a78bfa"), fontWeight:700 }}>{condLigne.badge}</span>
+        )}
+        <button title={`Coefficient et taux horaire de vente de CETTE ligne (aucun autre ouvrage, aucun autre chiffrage, ni la bibliothèque).${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`}
+          onClick={()=>setConditionsLigne(sel)} style={iconBtnSec}><Icon as={SlidersHorizontal} size={12}/></button>
         {sel.bibliotheque_id && (
           <button title="Actualiser depuis la bibliothèque (affiche les différences, puis confirmation)" onClick={()=>preparerActualisation(sel)} style={iconBtnSec}><Icon as={RefreshCw} size={12}/></button>
         )}
@@ -2759,11 +2780,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h chargé)` : ""}`)}
                 {numOrNull(l.cout_direct_unitaire) > 0 && row(`Coût direct / ${l.unite || "u"}`, fmtEur2(l.cout_direct_unitaire))}
                 {row(`Coût total / ${l.unite || "u"}`, fmtEur2(l.cout_total_unitaire), true)}
-                {(l.coef_vente != null || d.coef_vente != null) && row(d.version >= 2 ? (cond.coefficient.source === "global_chiffrage" ? "Coefficient appliqué (condition globale du chiffrage)" : "Coefficient de vente figé (ouvrage)") : "Coefficient de vente (coût total)", `${cond.coefficient.source === "global_chiffrage" ? (d.coefficient_applique?.libelle ? `${d.coefficient_applique.libelle} — ` : "") : (d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : "")}${formaterCoefficient(l.coef_vente ?? d.coef_vente)}`)}
-                {cond.coefficient.source === "global_chiffrage" && row("Coefficient d'origine de l'ouvrage", cond.coefficient.origine != null ? `${d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : ""}${formaterCoefficient(cond.coefficient.origine)}` : "non figé sur cette ligne")}
+                {(l.coef_vente != null || d.coef_vente != null) && row(d.version >= 2 ? "Coefficient appliqué" : "Coefficient de vente (coût total)", `${d.coefficient_applique?.libelle ? `${d.coefficient_applique.libelle} — ` : (d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : "")}${formaterCoefficient(l.coef_vente ?? d.coef_vente)}`)}
+                {(l.coef_vente != null || d.coef_vente != null) && row("Origine du coefficient", libelleSource(cond.coefficient.source))}
+                {cond.coefficient.source !== "ouvrage" && row("Coefficient d'origine de l'ouvrage", cond.coefficient.origine != null ? `${d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : ""}${formaterCoefficient(cond.coefficient.origine)}` : "non figé sur cette ligne")}
                 {d.prix_materiaux_unitaire != null && row(`Prix matériaux HT / ${l.unite || "u"}`, `${expliquerPrixMateriaux(l.cout_materiaux_unitaire, l.coef_vente ?? d.coef_vente) || fmtEur2(d.prix_materiaux_unitaire)}${d.prix_direct_unitaire ? ` + coût direct ${fmtEur2(d.prix_direct_unitaire)}` : ""}`)}
-                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row(cond.tauxHoraire.source === "global_chiffrage" ? "Taux horaire appliqué (condition globale du chiffrage)" : "Taux horaire de vente figé (ouvrage)", `${cond.tauxHoraire.source === "global_chiffrage" ? (d.taux_applique?.libelle ? `${d.taux_applique.libelle} — ` : "") : (d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : "")}${formaterTauxHT(l.taux_horaire_vente ?? d.taux_horaire_vente)}`)}
-                {cond.tauxHoraire.source === "global_chiffrage" && row("Taux horaire d'origine de l'ouvrage", cond.tauxHoraire.origine != null ? `${d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : ""}${formaterTauxHT(cond.tauxHoraire.origine)}` : "non figé sur cette ligne")}
+                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row("Taux horaire appliqué", `${d.taux_applique?.libelle ? `${d.taux_applique.libelle} — ` : (d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : "")}${formaterTauxHT(l.taux_horaire_vente ?? d.taux_horaire_vente)}`)}
+                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row("Origine du taux horaire", libelleSource(cond.tauxHoraire.source))}
+                {cond.tauxHoraire.source !== "ouvrage" && row("Taux horaire d'origine de l'ouvrage", cond.tauxHoraire.origine != null ? `${d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : ""}${formaterTauxHT(cond.tauxHoraire.origine)}` : "non figé sur cette ligne")}
                 {d.prix_main_oeuvre_unitaire != null && row(`Prix main-d'œuvre HT / ${l.unite || "u"}`, expliquerPrixMainOeuvre(d.heures_unitaires, l.taux_horaire_vente ?? d.taux_horaire_vente) || fmtEur2(d.prix_main_oeuvre_unitaire))}
                 {row("Marge sur prix de vente", fmtPct(l.taux_marge_pct))}
                 {row(`Prix de vente HT / ${l.unite || "u"}`, fmtEur2(l.prix_unitaire), true)}
@@ -2787,13 +2810,25 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:4}}>Corrige l'ouvrage dans la page Bibliothèque puis utilise « Actualiser » sur cette ligne.</div>
                 </div>
               )}
-              <div style={{display:"flex",justifyContent:"flex-end"}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                <button onClick={()=>{ setConditionsLigne(l); setVoirDetailLigne(null); }} title="Choisir le coefficient et le taux horaire de vente de CETTE ligne uniquement"
+                  style={{display:"inline-flex",alignItems:"center",gap:6,background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 14px",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700}}>
+                  <Icon as={SlidersHorizontal} size={13}/> Conditions de vente de cette ligne
+                </button>
                 <button onClick={()=>setVoirDetailLigne(null)} style={{background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800}}>Fermer</button>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* ── MODAL CONDITIONS DE VENTE D'UNE LIGNE (dérogation coefficient / taux) ── */}
+      {conditionsLigne && (
+        <ConditionsVenteLigne T={T} acc={acc} projet={projetActif} projetId={projetId}
+          ligne={ouvrages.find(o => o.id === conditionsLigne.id) || conditionsLigne}
+          coefficients={biblio?.coefficients || []} tauxHoraires={biblio?.tauxHoraires || []}
+          onApplique={rechargerApresConditionsLigne} onClose={()=>setConditionsLigne(null)}/>
+      )}
 
       {/* ── MODAL RETIRER UNE LIGNE DU DEVIS ── */}
       {toDeleteLigne && (

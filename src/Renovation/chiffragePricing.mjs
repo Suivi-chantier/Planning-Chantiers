@@ -340,11 +340,73 @@ export function prixMateriauxUnitaire(coutMateriaux, coef) {
  *                 coefficientsVente = lignes coefficients_vente (tableau ou Map) ;
  *                 coutHoraire       = coût horaire chargé (marge uniquement, non bloquant).
  */
+// ─── Résolution d'un paramètre de vente : trois niveaux ──────────────────────
+// Un paramètre de vente (coefficient OU taux horaire) appliqué à UNE ligne de
+// chiffrage peut venir de trois endroits, dans cet ordre de priorité :
+//   1. dérogation propre à la ligne   (mode « specifique », valeur figée sur la ligne)
+//   2. condition globale du chiffrage (mode « heritage » + coefficient/taux global figé sur le projet)
+//   3. paramètre d'origine de l'ouvrage (mode « ouvrage », ou « heritage » sans condition globale)
+// Le mode « ouvrage » force volontairement le paramètre de l'ouvrage MÊME si une
+// condition globale existe. Les deux paramètres (coefficient, taux) sont
+// totalement indépendants : chaque ligne a son propre mode pour chacun.
+// Cette fonction est la SOURCE UNIQUE de la règle : interface, simulation, RPC
+// SQL (conditions_ligne_resoudre) et tests en sont le miroir exact.
+export const MODE_LIGNE_HERITAGE = "heritage";
+export const MODE_LIGNE_OUVRAGE = "ouvrage";
+export const MODE_LIGNE_SPECIFIQUE = "specifique";
+export const MODES_LIGNE = Object.freeze([MODE_LIGNE_HERITAGE, MODE_LIGNE_OUVRAGE, MODE_LIGNE_SPECIFIQUE]);
+
+/** Provenance de la valeur réellement appliquée (colonnes coefficient_source / taux_horaire_source). */
+export const SOURCE_OUVRAGE = "ouvrage";
+export const SOURCE_GLOBAL = "global_chiffrage";
+export const SOURCE_LIGNE = "ligne";
+
+/** Mode de ligne valide, sinon « heritage ». */
+export function normaliserModeLigne(mode) {
+  const m = str(mode);
+  return MODES_LIGNE.includes(m) ? m : MODE_LIGNE_HERITAGE;
+}
+
+/** { id, valeur, libelle } si la valeur est strictement positive, sinon null (jamais inventée). */
+function valeurVente(source) {
+  if (!source) return null;
+  const valeur = num(source.valeur);
+  if (valeur == null || valeur <= 0) return null;
+  return { id: source.id != null ? String(source.id) : null, valeur, libelle: str(source.libelle) || null };
+}
+
 /**
- * Conditions de vente d'un CHIFFRAGE (voir conditionsChiffrage.mjs) : un
- * coefficient et/ou un taux horaire GLOBAL, figés sur le projet, remplacent la
- * valeur de l'ouvrage pour le PRIX. L'origine (valeur de l'ouvrage) reste figée
- * sur la ligne pour permettre le retour aux paramètres de chaque ouvrage.
+ * Valeur réellement appliquée à une ligne pour UN paramètre de vente.
+ * @param mode       'heritage' | 'ouvrage' | 'specifique' (mode de la ligne)
+ * @param specifique dérogation figée sur la ligne  { id, valeur, libelle }
+ * @param globale    condition globale figée sur le chiffrage { id, valeur, libelle }
+ * @param origine    paramètre figé de l'ouvrage    { id, valeur, libelle }
+ * @returns {{ mode, valeur, source, id, libelle, valide, specifique, globale, origine }}
+ */
+export function resoudreParametreVente({ mode = MODE_LIGNE_HERITAGE, specifique = null, globale = null, origine = null } = {}) {
+  const m = normaliserModeLigne(mode);
+  const spec = valeurVente(specifique), glob = valeurVente(globale), orig = valeurVente(origine);
+  let choix = null, source = SOURCE_OUVRAGE;
+  if (m === MODE_LIGNE_SPECIFIQUE) { choix = spec; source = SOURCE_LIGNE; }
+  else if (m === MODE_LIGNE_OUVRAGE) { choix = orig; source = SOURCE_OUVRAGE; }
+  else if (glob) { choix = glob; source = SOURCE_GLOBAL; }
+  else { choix = orig; source = SOURCE_OUVRAGE; }
+  return {
+    mode: m,
+    valeur: choix ? choix.valeur : null,
+    source,
+    id: choix ? choix.id : null,
+    libelle: choix ? choix.libelle : null,
+    valide: choix != null,
+    specifique: spec, globale: glob, origine: orig,
+  };
+}
+
+/**
+ * Conditions GLOBALES d'un chiffrage (voir conditionsChiffrage.mjs) : un
+ * coefficient et/ou un taux horaire global, figés sur le projet. Ils ne
+ * s'appliquent qu'aux lignes en mode « heritage ». L'origine (valeur de
+ * l'ouvrage) reste figée sur la ligne pour permettre le retour en arrière.
  */
 function conditionGlobale(cond) {
   if (!cond || cond.mode !== "global") return null;
@@ -353,10 +415,41 @@ function conditionGlobale(cond) {
   return { id: cond.id != null ? String(cond.id) : null, valeur, libelle: str(cond.libelle) || null };
 }
 
-export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tauxHoraire = null, coefficientsVente = null, coefficientVente = null, conditions = null } = {}) {
+/**
+ * Modes et dérogations d'une ligne (colonnes mode_*_ligne / *_ligne_valeur),
+ * avec repli sur calcul_detail pour les lignes figées avant la migration.
+ * Une ligne sans mode enregistré est en « heritage » : comportement d'avant.
+ */
+export function lireModesLigne(ligne) {
+  const l = ligne || {}, d = l.calcul_detail || {};
+  const dc = d.coefficient_applique || {}, dt = d.taux_applique || {};
+  const lire = (mode, id, valeur, libelle, modeDetail, detail) => {
+    const m = normaliserModeLigne(mode ?? modeDetail);
+    if (m !== MODE_LIGNE_SPECIFIQUE) return { mode: m, id: null, valeur: null, libelle: null };
+    const v = num(valeur) ?? num(detail?.valeur);
+    if (v == null || v <= 0) return { mode: MODE_LIGNE_HERITAGE, id: null, valeur: null, libelle: null };
+    return { mode: m, id: (id ?? detail?.ligne_id ?? null) != null ? String(id ?? detail?.ligne_id) : null, valeur: v, libelle: str(libelle) || str(detail?.libelle) || null };
+  };
+  return {
+    coefficient: lire(l.mode_coefficient_ligne, l.coefficient_ligne_id, l.coefficient_ligne_valeur, l.coefficient_ligne_libelle, dc.mode, dc.specifique),
+    tauxHoraire: lire(l.mode_taux_horaire_ligne, l.taux_horaire_ligne_id, l.taux_horaire_ligne_valeur, l.taux_horaire_ligne_libelle, dt.mode, dt.specifique),
+  };
+}
+
+/** Modes par défaut d'une NOUVELLE ligne : héritage des deux paramètres, aucune dérogation. */
+export const MODES_LIGNE_DEFAUT = Object.freeze({
+  coefficient: Object.freeze({ mode: MODE_LIGNE_HERITAGE, id: null, valeur: null, libelle: null }),
+  tauxHoraire: Object.freeze({ mode: MODE_LIGNE_HERITAGE, id: null, valeur: null, libelle: null }),
+});
+
+export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, tauxHoraires = null, tauxHoraire = null, coefficientsVente = null, coefficientVente = null, conditions = null, modesLigne = null } = {}) {
   const erreurs = [];
   const condCoef = conditionGlobale(conditions?.coefficient);
   const condTaux = conditionGlobale(conditions?.tauxHoraire);
+  // Modes de la LIGNE (derogations). Absents = heritage : comportement d'avant.
+  const modes = modesLigne && (modesLigne.coefficient || modesLigne.tauxHoraire) ? modesLigne : MODES_LIGNE_DEFAUT;
+  const modeCoef = modes.coefficient || MODES_LIGNE_DEFAUT.coefficient;
+  const modeTaux = modes.tauxHoraire || MODES_LIGNE_DEFAUT.tauxHoraire;
   const avertissements = [];
   const code = parseCodeOuvrage(ouvrage?.libelle);
   const mainOeuvreSeule = ouvrage?.main_oeuvre_seule === true;
@@ -384,15 +477,21 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, t
 
   // Taux horaire de VENTE : fixe le prix de la main-d'œuvre.
   // Origine = taux de l'ouvrage (figé pour traçabilité / retour arrière) ;
-  // appliqué = taux global du chiffrage s'il est actif, sinon l'origine.
+  // appliqué = dérogation de ligne > taux global du chiffrage > origine.
   const tauxOrigine = resoudreTauxHoraire(ouvrage, { tauxHoraires, tauxHoraire });
-  const taux = condTaux
-    ? { valide: true, id: condTaux.id, libelle: condTaux.libelle, valeur: condTaux.valeur, actif: true, erreur: null, avertissement: null, source: "global_chiffrage" }
-    : { ...tauxOrigine, source: "ouvrage" };
+  const tauxRes = resoudreParametreVente({
+    mode: modeTaux.mode, specifique: modeTaux, globale: condTaux,
+    origine: tauxOrigine.valide ? { id: tauxOrigine.id, valeur: tauxOrigine.valeur, libelle: tauxOrigine.libelle } : null,
+  });
+  const taux = tauxRes.source === SOURCE_OUVRAGE
+    ? { ...tauxOrigine, source: SOURCE_OUVRAGE }
+    : { valide: tauxRes.valide, id: tauxRes.id, libelle: tauxRes.libelle, valeur: tauxRes.valeur, actif: true, erreur: null, avertissement: null, source: tauxRes.source };
   if (!tauxOrigine.valide) {
-    if (condTaux) avertissements.push(`${tauxOrigine.erreur} — taux d'origine non figé : retour aux paramètres de l'ouvrage impossible pour cette ligne`);
-    else erreurs.push(tauxOrigine.erreur);
-  } else if (tauxOrigine.avertissement && !condTaux) avertissements.push(tauxOrigine.avertissement);
+    // Le taux d'origine n'est bloquant que si c'est lui qui est appliqué.
+    if (tauxRes.source === SOURCE_OUVRAGE) erreurs.push(tauxOrigine.erreur);
+    else avertissements.push(`${tauxOrigine.erreur} — taux d'origine non figé : retour aux paramètres de l'ouvrage impossible pour cette ligne`);
+  } else if (tauxOrigine.avertissement && tauxRes.source === SOURCE_OUVRAGE) avertissements.push(tauxOrigine.avertissement);
+  if (modeTaux.mode === MODE_LIGNE_SPECIFIQUE && !tauxRes.valide) erreurs.push("Taux horaire spécifique à cette ligne absent ou invalide");
 
   // Coefficient de vente : référence coefficient_vente_id résolue dans la liste
   // coefficients_vente. Appliqué aux matériaux (+ coût direct, traitement
@@ -400,12 +499,17 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, t
   // Les colonnes obsolètes coef_vente / taux_marge_pct ne sont jamais lues.
   const coefRequis = mat.nbLiens > 0 || coutDirectU > 0;
   const coefOrigine = resoudreCoefficientVente(ouvrage, { coefficientsVente, coefficientVente });
-  const coefRes = condCoef
-    ? { valide: true, id: condCoef.id, libelle: condCoef.libelle, valeur: condCoef.valeur, actif: true, erreur: null, avertissement: null, source: "global_chiffrage" }
-    : { ...coefOrigine, source: "ouvrage" };
-  if (condCoef && !coefOrigine.valide && coefRequis) {
+  const coefResolu = resoudreParametreVente({
+    mode: modeCoef.mode, specifique: modeCoef, globale: condCoef,
+    origine: coefOrigine.valide ? { id: coefOrigine.id, valeur: coefOrigine.valeur, libelle: coefOrigine.libelle } : null,
+  });
+  const coefRes = coefResolu.source === SOURCE_OUVRAGE
+    ? { ...coefOrigine, source: SOURCE_OUVRAGE }
+    : { valide: coefResolu.valide, id: coefResolu.id, libelle: coefResolu.libelle, valeur: coefResolu.valeur, actif: true, erreur: null, avertissement: null, source: coefResolu.source };
+  if (coefResolu.source !== SOURCE_OUVRAGE && !coefOrigine.valide && coefRequis) {
     avertissements.push(`${coefOrigine.erreur} — coefficient d'origine non figé : retour aux paramètres de l'ouvrage impossible pour cette ligne`);
   }
+  if (modeCoef.mode === MODE_LIGNE_SPECIFIQUE && !coefResolu.valide && coefRequis) erreurs.push("Coefficient spécifique à cette ligne absent ou invalide");
   let coef;
   let modePrix;
   if (coefRes.valide) {
@@ -443,16 +547,20 @@ export function calculerOuvrage(ouvrage, { materiaux = [], coutHoraire = null, t
     conditions: {
       coefficient: {
         valeur: coef.valide ? coef.valeur : null,
-        source: condCoef ? "global_chiffrage" : "ouvrage",
-        globalId: condCoef ? condCoef.id : null,
-        libelle: condCoef ? condCoef.libelle : (coefOrigine.libelle ?? null),
+        mode: coefResolu.mode,
+        source: coefResolu.source,
+        globalId: coefResolu.source === SOURCE_GLOBAL ? coefResolu.id : null,
+        libelle: coefResolu.libelle ?? (coefOrigine.libelle ?? null),
+        specifique: coefResolu.specifique,
         origine: { id: coefOrigine.id ?? null, valeur: coefOrigine.valide ? coefOrigine.valeur : null, libelle: coefOrigine.libelle ?? null },
       },
       tauxHoraire: {
         valeur: taux.valide ? taux.valeur : null,
-        source: condTaux ? "global_chiffrage" : "ouvrage",
-        globalId: condTaux ? condTaux.id : null,
-        libelle: condTaux ? condTaux.libelle : (tauxOrigine.libelle ?? null),
+        mode: tauxRes.mode,
+        source: tauxRes.source,
+        globalId: tauxRes.source === SOURCE_GLOBAL ? tauxRes.id : null,
+        libelle: tauxRes.libelle ?? (tauxOrigine.libelle ?? null),
+        specifique: tauxRes.specifique,
         origine: { id: tauxOrigine.id ?? null, valeur: tauxOrigine.valide ? tauxOrigine.valeur : null, libelle: tauxOrigine.libelle ?? null },
       },
     },
@@ -503,18 +611,27 @@ export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaP
     // (origine) ; coefficient_source / coefficient_global_id = provenance.
     coef_vente: c.coefVente,
     coefficient_vente_id: cc.origine?.id ?? null,
-    coefficient_source: cc.source ?? "ouvrage",
+    coefficient_source: cc.source ?? SOURCE_OUVRAGE,
     coefficient_origine_valeur: cc.origine?.valeur ?? null,
     coefficient_origine_libelle: cc.origine?.libelle ?? null,
     coefficient_global_id: cc.globalId ?? null,
+    // Mode de la LIGNE (heritage par défaut) et dérogation figée le cas échéant
+    mode_coefficient_ligne: cc.mode ?? MODE_LIGNE_HERITAGE,
+    coefficient_ligne_id: cc.mode === MODE_LIGNE_SPECIFIQUE ? (cc.specifique?.id ?? null) : null,
+    coefficient_ligne_valeur: cc.mode === MODE_LIGNE_SPECIFIQUE ? (cc.specifique?.valeur ?? null) : null,
+    coefficient_ligne_libelle: cc.mode === MODE_LIGNE_SPECIFIQUE ? (cc.specifique?.libelle ?? null) : null,
     // Taux horaire de vente FIGÉ : même découpage origine / appliqué (le prix ne
     // bouge plus si le taux est modifié ensuite dans Réglages)
     taux_horaire_vente_id: ct.origine?.id ?? null,
     taux_horaire_vente: c.tauxHoraire?.valeur ?? null,
-    taux_horaire_source: ct.source ?? "ouvrage",
+    taux_horaire_source: ct.source ?? SOURCE_OUVRAGE,
     taux_horaire_origine_valeur: ct.origine?.valeur ?? null,
     taux_horaire_origine_libelle: ct.origine?.libelle ?? null,
     taux_horaire_global_id: ct.globalId ?? null,
+    mode_taux_horaire_ligne: ct.mode ?? MODE_LIGNE_HERITAGE,
+    taux_horaire_ligne_id: ct.mode === MODE_LIGNE_SPECIFIQUE ? (ct.specifique?.id ?? null) : null,
+    taux_horaire_ligne_valeur: ct.mode === MODE_LIGNE_SPECIFIQUE ? (ct.specifique?.valeur ?? null) : null,
+    taux_horaire_ligne_libelle: ct.mode === MODE_LIGNE_SPECIFIQUE ? (ct.specifique?.libelle ?? null) : null,
     prix_unitaire: c.prixVenteUnitaire,
     tva_pct: num(tvaPct),
     calcul_version: `${CALCUL_VERSION}@${iso}`,
@@ -528,14 +645,14 @@ export function creerSnapshotOuvrage(ouvrage, calcul, { zone = ZONE_DEFAUT, tvaP
       coefficient_vente_libelle: cc.origine?.libelle ?? null,
       coefficient_vente: cc.origine?.valeur ?? null,
       coefficient_origine: { id: cc.origine?.id ?? null, valeur: cc.origine?.valeur ?? null, libelle: cc.origine?.libelle ?? null },
-      coefficient_applique: { valeur: c.coefVente, source: cc.source ?? "ouvrage", global_id: cc.globalId ?? null, libelle: cc.libelle ?? null },
+      coefficient_applique: { valeur: c.coefVente, source: cc.source ?? SOURCE_OUVRAGE, global_id: cc.globalId ?? null, libelle: cc.libelle ?? null, mode: cc.mode ?? MODE_LIGNE_HERITAGE, specifique: cc.mode === MODE_LIGNE_SPECIFIQUE ? (cc.specifique ?? null) : null },
       cout_horaire: c.mainOeuvre.coutHoraire,
       heures_unitaires: c.mainOeuvre.heures,
       taux_horaire_vente_id: ct.origine?.id ?? null,
       taux_horaire_vente_libelle: ct.origine?.libelle ?? null,
       taux_horaire_vente: c.tauxHoraire?.valeur ?? null,
       taux_origine: { id: ct.origine?.id ?? null, valeur: ct.origine?.valeur ?? null, libelle: ct.origine?.libelle ?? null },
-      taux_applique: { valeur: c.tauxHoraire?.valeur ?? null, source: ct.source ?? "ouvrage", global_id: ct.globalId ?? null, libelle: ct.libelle ?? null },
+      taux_applique: { valeur: c.tauxHoraire?.valeur ?? null, source: ct.source ?? SOURCE_OUVRAGE, global_id: ct.globalId ?? null, libelle: ct.libelle ?? null, mode: ct.mode ?? MODE_LIGNE_HERITAGE, specifique: ct.mode === MODE_LIGNE_SPECIFIQUE ? (ct.specifique ?? null) : null },
       prix_materiaux_unitaire: c.prixMateriauxUnitaire,
       prix_direct_unitaire: c.prixDirectUnitaire,
       prix_main_oeuvre_unitaire: c.prixMainOeuvreUnitaire,
