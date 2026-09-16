@@ -12,7 +12,7 @@ import {
 import {
   CONDITIONS_DEFAUT, MODE_GLOBAL, MODE_OUVRAGE, SOURCE_GLOBAL, SOURCE_OUVRAGE,
   lireConditionsProjet, conditionsActives, chiffrageModifiable, recalculerLigneConditions, simulerConditions,
-  origineLigne, decrireConditionsLigne, valeurPlusRecente, libelleCondition, resumerSimulation,
+  origineLigne, decrireConditionsLigne, libelleCondition, resumerSimulation,
 } from "../src/Renovation/conditionsChiffrage.mjs";
 import { construirePayloadDevisProGBat, auditerPayload, hacherPayload, CLES_INTERDITES } from "../src/Renovation/progbatQuotePayload.mjs";
 
@@ -236,14 +236,13 @@ delete ligneV2.coefficient_source; delete ligneV2.taux_horaire_source; delete li
   assert.ok(descO.lignes.some(x => x === "Origine : paramètre de l'ouvrage"));
   assert.equal(decrireConditionsLigne({ id: "x", prix_unitaire: 100 }).lignes.length, 0);
 
-  // Valeur plus récente dans les Réglages : signalée, jamais appliquée automatiquement
-  assert.equal(valeurPlusRecente(condGlobal.coefficient, COEFS, "valeur"), null);
-  const plusRecent = valeurPlusRecente(condGlobal.coefficient, COEFS.map(c => c.id === "c-13" ? { ...c, valeur: 1.35 } : c), "valeur");
-  assert.equal(plusRecent.type, "valeur"); assert.equal(plusRecent.actuelle, 1.35); assert.equal(plusRecent.figee, 1.3); assert.match(plusRecent.message, /1,35.*figé : 1,30/);
-  const desactive = valeurPlusRecente(condGlobal.tauxHoraire, TAUX.map(t => t.id === "t-70" ? { ...t, actif: false } : t), "taux_ht");
-  assert.equal(desactive.type, "desactive"); assert.match(desactive.message, /désactivée/);
-  assert.equal(valeurPlusRecente(condGlobal.tauxHoraire, [], "taux_ht").type, "introuvable");
-  assert.equal(valeurPlusRecente(CONDITIONS_DEFAUT.coefficient, COEFS, "valeur"), null);
+  // Valeur globale SAISIE : plus aucun lien avec les Réglages, donc aucun libellé
+  const condSaisie = lireConditionsProjet({ mode_coefficient: "global", coefficient_global_valeur: 1.35, mode_taux_horaire: "global", taux_horaire_global_valeur: 92 });
+  assert.equal(condSaisie.coefficient.valeur, 1.35);
+  assert.equal(condSaisie.coefficient.id, null, "aucun identifiant de référentiel");
+  assert.equal(libelleCondition(condSaisie.coefficient, "coefficient"), "Coefficient global 1,35");
+  assert.equal(libelleCondition(condSaisie.tauxHoraire, "taux"), "Taux horaire global 92,00 € HT/h");
+  assert.equal(libelleCondition(CONDITIONS_DEFAUT.coefficient, "coefficient"), "Coefficient de chaque ouvrage");
 }
 
 // ─── 7. ProGBat : prix figé uniquement, hash sensible aux conditions, clés interdites ──

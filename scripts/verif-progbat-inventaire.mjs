@@ -218,7 +218,7 @@ assert.ok(sansTauxListe.blocages.some((b) => /Taux horaire/.test(b)), sansTauxLi
 const tauxInconnu = inv.verifierCompletude(base({ id: "x2", libelle: "T-002 : Test", taux_horaire_vente_id: "zz" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
 assert.ok(tauxInconnu.blocages.some((b) => /introuvable/.test(b)));
 const sansTauxOuvrage = inv.verifierCompletude(base({ id: "x3", libelle: "T-003 : Test", taux_horaire_vente_id: null }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
-assert.ok(sansTauxOuvrage.blocages.some((b) => /non sélectionné/.test(b)));
+assert.ok(sansTauxOuvrage.blocages.some((b) => /non renseigné/.test(b)));
 // Taux différent ⇒ prix différent, même ouvrage
 const chef = inv.verifierCompletude(base({ id: "x4", libelle: "T-004 : Test", taux_horaire_vente_id: "t2" }), { materiaux: MATERIAUX, coutHoraire: 40, tauxHoraires: TAUX_H, coefficientsVente: COEFS, tvaDefaut: 20 });
 assert.equal(chef.prix.prix_vente_ht, 114.5);   // 19,5 + 1 × 95

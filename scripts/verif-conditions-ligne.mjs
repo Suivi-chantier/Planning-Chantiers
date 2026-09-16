@@ -15,9 +15,9 @@ import {
 } from "../src/Renovation/chiffragePricing.mjs";
 import {
   CONDITIONS_DEFAUT, lireConditionsProjet, recalculerLigneConditions, simulerConditions,
-  resoudreValeursLigne, decrireConditionsLigne, optionsConditionLigne,
-  valeurSelecteur, lireValeurSelecteur, libelleSource, ligneAPrixManuel, ligneEstV1,
-  resumerSimulationLigne, messageErreurRpc, VALEUR_HERITAGE, VALEUR_OUVRAGE, PREFIXE_SPECIFIQUE,
+  resoudreValeursLigne, decrireConditionsLigne, champConditionLigne, valeurParDefautReferentiel,
+  libelleSource, ligneAPrixManuel, ligneEstV1,
+  resumerSimulationLigne, messageErreurRpc, VALEUR_HERITAGE, VALEUR_OUVRAGE,
 } from "../src/Renovation/conditionsChiffrage.mjs";
 import { construirePayloadDevisProGBat, auditerPayload, hacherPayload, CLES_INTERDITES, CLES_PAYLOAD_AUTORISEES } from "../src/Renovation/progbatQuotePayload.mjs";
 
@@ -154,51 +154,57 @@ const ligneV2 = { id: "l1", projet_id: "p1", category: "Plaquiste", ...snapOuvra
   assert.equal(arr.patch.prix_unitaire, 4.33 + 140);
 }
 
-// ─── 3. Sélecteurs, provenance et badge (interface) ──────────────────────────
+// ─── 3. Champs libres, provenance et badge (interface) ───────────────────────
 {
-  // 16 · sélecteur présent pour chaque paramètre, avec héritage + ouvrage + référentiel
-  const sel = optionsConditionLigne({ type: "coefficient", referentiel: COEFS, ligne: ligneV2, conditions: condGlobal });
-  const textes = sel.options.map(o => o.texte);
-  assert.equal(textes[0], "Hériter du chiffrage — 1,30");
-  assert.equal(textes[1], "Utiliser le coefficient de l'ouvrage — 1,50");
-  assert.ok(textes.includes("Coefficient standard — 1,50"));
-  assert.ok(textes.includes("Coefficient client privilégié — 1,30"));
-  assert.ok(textes.includes("Coefficient renforcé — 1,80"));
-  // 20 · une option désactivée n'est jamais proposable en nouvelle sélection
-  assert.equal(textes.some(t => /Coefficient ancien/.test(t)), false);
-  assert.equal(sel.valeurCourante, VALEUR_HERITAGE);
+  // 16 · un champ par paramètre : mode courant, valeur appliquée, provenance
+  const sel = champConditionLigne({ type: "coefficient", referentiel: COEFS, ligne: ligneV2, conditions: condGlobal });
+  assert.equal(sel.mode, VALEUR_HERITAGE);
+  assert.equal(sel.texteHeritage, "Hériter du chiffrage — 1,30");
+  assert.equal(sel.texteOuvrage, "Coefficient de l'ouvrage — 1,50");
+  assert.equal(sel.ouvrageDisponible, true);
   // 17 · valeur effective et provenance affichées
   assert.equal(sel.applique.valeur, 1.3); assert.equal(sel.applique.source, SOURCE_GLOBAL);
   assert.equal(sel.texteApplique, "Coefficient appliqué : 1,30");
   assert.equal(sel.texteOrigine, "Origine : condition globale du chiffrage");
+  // Le champ libre s'ouvre pré-rempli avec ce qui s'applique déjà
+  assert.equal(sel.suggestion, 1.3, "champ pré-rempli sur la valeur appliquée");
+
   // Sans condition globale : l'héritage annonce le paramètre de l'ouvrage
-  const selSansGlobal = optionsConditionLigne({ type: "coefficient", referentiel: COEFS, ligne: ligneV2, conditions: condAucune });
-  assert.equal(selSansGlobal.options[0].texte, "Hériter du chiffrage — coefficient ouvrage 1,50");
+  const selSansGlobal = champConditionLigne({ type: "coefficient", referentiel: COEFS, ligne: ligneV2, conditions: condAucune });
+  assert.equal(selSansGlobal.texteHeritage, "Hériter du chiffrage — coefficient de l'ouvrage 1,50");
   assert.equal(selSansGlobal.texteOrigine, "Origine : paramètre de l'ouvrage");
+  assert.equal(selSansGlobal.suggestion, 1.5);
+
   // Taux : mêmes règles, valeurs en € HT/h
-  const selT = optionsConditionLigne({ type: "taux", referentiel: TAUX, ligne: ligneV2, conditions: condGlobal });
-  assert.equal(selT.options[0].texte, "Hériter du chiffrage — 70,00 € HT/h");
-  assert.equal(selT.options[1].texte, "Utiliser le taux horaire de l'ouvrage — 80,00 € HT/h");
-  assert.ok(selT.options.map(o => o.texte).includes("Taux spécifique — 90,00 € HT/h"));
+  const selT = champConditionLigne({ type: "taux", referentiel: TAUX, ligne: ligneV2, conditions: condGlobal });
+  assert.equal(selT.texteHeritage, "Hériter du chiffrage — 70,00 € HT/h");
+  assert.equal(selT.texteOuvrage, "Taux horaire de l'ouvrage — 80,00 € HT/h");
+  assert.equal(selT.suggestion, 70);
 
-  // 19 · une valeur désactivée DÉJÀ utilisée par la ligne reste visible, avec mention
-  const ligneOff = { ...ligneV2, mode_coefficient_ligne: MODE_LIGNE_SPECIFIQUE, coefficient_ligne_id: "c-off", coefficient_ligne_valeur: 1.9, coefficient_ligne_libelle: "Coefficient ancien" };
-  const selOff = optionsConditionLigne({ type: "coefficient", referentiel: COEFS, ligne: ligneOff, conditions: condGlobal });
-  const opOff = selOff.options.find(o => o.id === "c-off");
-  assert.ok(opOff, "l'option désactivée utilisée reste visible");
-  assert.match(opOff.texte, /Coefficient ancien — 1,90 \(Désactivé\)/);
-  assert.equal(opOff.selectionnable, false, "mais impossible à choisir de nouveau");
-  assert.equal(selOff.valeurCourante, `${PREFIXE_SPECIFIQUE}c-off`);
-  assert.equal(selOff.applique.valeur, 1.9, "la valeur FIGÉE sur la ligne reste utilisée");
-  // Option supprimée des Réglages : signalée comme telle, valeur figée conservée
-  const selSupp = optionsConditionLigne({ type: "coefficient", referentiel: COEFS.filter(c => c.id !== "c-off"), ligne: ligneOff, conditions: condGlobal });
-  assert.match(selSupp.options.find(o => o.id === "c-off").texte, /Supprimé des Réglages/);
+  // 19 · une valeur SAISIE sur la ligne est reprise telle quelle, sans référentiel
+  const ligneSaisie = { ...ligneV2, mode_coefficient_ligne: MODE_LIGNE_SPECIFIQUE, coefficient_ligne_valeur: 1.9, coefficient_ligne_libelle: null };
+  const selSaisie = champConditionLigne({ type: "coefficient", referentiel: [], ligne: ligneSaisie, conditions: condGlobal });
+  assert.equal(selSaisie.mode, MODE_LIGNE_SPECIFIQUE);
+  assert.equal(selSaisie.valeur, 1.9);
+  assert.equal(selSaisie.applique.valeur, 1.9, "la valeur FIGÉE sur la ligne reste utilisée");
+  assert.equal(selSaisie.applique.source, SOURCE_LIGNE);
+  assert.equal(selSaisie.erreurValeur, null);
+  assert.equal(selSaisie.suggestion, 1.9);
 
-  // Aller-retour valeur de <select>
-  assert.equal(valeurSelecteur(MODE_LIGNE_SPECIFIQUE, "c-18"), `${PREFIXE_SPECIFIQUE}c-18`);
-  assert.deepEqual(lireValeurSelecteur(`${PREFIXE_SPECIFIQUE}c-18`), { mode: MODE_LIGNE_SPECIFIQUE, id: "c-18" });
-  assert.deepEqual(lireValeurSelecteur(VALEUR_OUVRAGE), { mode: MODE_LIGNE_OUVRAGE, id: null });
-  assert.deepEqual(lireValeurSelecteur("n'importe quoi"), { mode: MODE_LIGNE_HERITAGE, id: null });
+  // 20 · saisie en cours vide ou nulle : signalée, jamais inventée
+  // (une ligne ENREGISTRÉE ne peut pas être dans cet état : lireModesLigne la
+  //  ramène en héritage. C'est la saisie de l'interface qui passe ici.)
+  const selVide = champConditionLigne({ type: "coefficient", referentiel: COEFS, ligne: ligneV2, conditions: condGlobal,
+    modes: { coefficient: { mode: MODE_LIGNE_SPECIFIQUE, id: null, valeur: null, libelle: null }, tauxHoraire: { mode: VALEUR_HERITAGE, id: null, valeur: null, libelle: null } } });
+  assert.equal(selVide.valeur, null);
+  assert.ok(selVide.erreurValeur, "valeur manquante signalée");
+  assert.equal(selVide.applique.valide, false, "aucune valeur inventée");
+  assert.equal(selVide.suggestion, 1.3, "le champ propose quand même une valeur de départ");
+
+  // 21 · valeur par défaut d'un référentiel (seul usage restant des Réglages)
+  assert.equal(valeurParDefautReferentiel(COEFS, "valeur"), COEFS.find(c => c.est_defaut && c.actif !== false).valeur);
+  assert.equal(valeurParDefautReferentiel([], "valeur"), null);
+  assert.equal(valeurParDefautReferentiel([{ id: "z", valeur: 0, est_defaut: true }], "valeur"), null, "une valeur nulle n'est pas une suggestion");
 
   // 18 · badge de dérogation + provenance sur la ligne
   const ligneSpec = { ...ligneV2, ...recalculerLigneConditions(ligneV2, condGlobal, { date: DATE, modes: modes(specCoef18, heritage) }).patch };

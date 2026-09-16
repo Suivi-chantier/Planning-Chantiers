@@ -2023,16 +2023,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 })()}
 
                 {/* ── Bandeaux bloquants ── */}
-                {diagCoef && !diagCoef.ok && (
-                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.10)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                    <Icon as={AlertTriangle} size={13}/>
-                    {diagCoef.problemes.join(" · ")} (Réglages → Taux horaires → Coefficients de vente) : les ouvrages ajoutés n'auront pas de prix matériaux.
-                  </div>
-                )}
-                {diagTaux && !diagTaux.ok && (
-                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.10)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                    <Icon as={AlertTriangle} size={13}/>
-                    {diagTaux.problemes.join(" · ")} (Réglages → Taux horaires → Taux horaires de main-d'œuvre) : les ouvrages ajoutés n'auront pas de prix de main-d'œuvre.
+                {/* Les prix viennent des valeurs SAISIES sur chaque ouvrage : un
+                    référentiel vide n'empêche plus de chiffrer, il prive seulement
+                    les champs libres d'une valeur proposée par défaut. */}
+                {((diagCoef && !diagCoef.ok) || (diagTaux && !diagTaux.ok)) && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <Icon as={Info} size={13}/>
+                    Aucune valeur par défaut dans les Réglages → Taux horaires{diagCoef && !diagCoef.ok && diagTaux && !diagTaux.ok ? "" : diagCoef && !diagCoef.ok ? " (coefficients de vente)" : " (taux horaires)"} : les coefficients et taux horaires restent à saisir sur chaque fiche d'ouvrage.
                   </div>
                 )}
                 {coutHoraireManquant && (

@@ -35,7 +35,7 @@
 // Testé par scripts/verif-conditions-chiffrage.mjs.
 
 import {
-  arrondirMontant, num, tauxMargeReel,
+  arrondirMontant, num, tauxMargeReel, validerValeurCoefficient, validerTauxHoraire,
   MODE_LIGNE_HERITAGE, MODE_LIGNE_OUVRAGE, MODE_LIGNE_SPECIFIQUE, MODES_LIGNE,
   SOURCE_OUVRAGE, SOURCE_GLOBAL, SOURCE_LIGNE,
   MODES_LIGNE_DEFAUT, normaliserModeLigne, resoudreParametreVente, lireModesLigne,
@@ -355,11 +355,12 @@ export function messageErreurRpc(error) {
 }
 
 // ─── Affichage ───────────────────────────────────────────────────────────────
-/** Libellé d'une condition globale : « Par ouvrage » ou « Coefficient client — 1,30 ». */
+/** Libellé d'une condition globale : « Par ouvrage » ou « Coefficient global 1,30 ». */
 export function libelleCondition(cond, type) {
   if (!cond || cond.mode !== MODE_GLOBAL) return type === "coefficient" ? "Coefficient de chaque ouvrage" : "Taux horaire de chaque ouvrage";
   const val = type === "coefficient" ? formaterCoefficient(cond.valeur) : formaterTauxHT(cond.valeur);
-  return `${cond.libelle || (type === "coefficient" ? "Coefficient" : "Taux")} — ${val}`;
+  // Valeur saisie : aucun libellé de référentiel à afficher, la valeur suffit.
+  return cond.libelle ? `${cond.libelle} — ${val}` : `${type === "coefficient" ? "Coefficient global" : "Taux horaire global"} ${val}`;
 }
 
 /** Phrase d'origine d'une valeur appliquée (provenance lisible). */
@@ -408,116 +409,84 @@ export function decrireConditionsLigne(ligne) {
   };
 }
 
-// ─── Sélecteurs par ligne (coefficient / taux horaire) ───────────────────────
+// ─── Champ « conditions » d'une ligne (coefficient / taux horaire) ──────────
+// Il n'y a plus de liste : un paramètre de ligne se règle par un MODE
+// (hériter du chiffrage / forcer l'ouvrage / valeur saisie) et, en mode
+// « specifique », par une valeur TAPÉE À LA MAIN, figée sur la ligne.
+// Les référentiels (Réglages) ne servent plus qu'à proposer une valeur de
+// départ dans le champ libre — ils n'imposent plus rien.
 export const VALEUR_HERITAGE = MODE_LIGNE_HERITAGE;
 export const VALEUR_OUVRAGE = MODE_LIGNE_OUVRAGE;
-export const PREFIXE_SPECIFIQUE = "specifique:";
 
-/** Valeur de <select> correspondant à un mode + un identifiant. */
-export function valeurSelecteur(mode, id) {
-  const m = normaliserModeLigne(mode);
-  return m === MODE_LIGNE_SPECIFIQUE && id != null ? `${PREFIXE_SPECIFIQUE}${id}` : m;
-}
-
-/** Inverse de valeurSelecteur : « specifique:abc » → { mode, id }. */
-export function lireValeurSelecteur(valeur) {
-  const v = str(valeur);
-  if (v.startsWith(PREFIXE_SPECIFIQUE)) {
-    const id = v.slice(PREFIXE_SPECIFIQUE.length);
-    return { mode: MODE_LIGNE_SPECIFIQUE, id: id || null };
-  }
-  return { mode: normaliserModeLigne(v), id: null };
+/** Valeur par défaut d'un référentiel (le défaut actif, sinon le premier actif). */
+export function valeurParDefautReferentiel(referentiel, champValeur) {
+  const liste = Array.isArray(referentiel) ? referentiel : [];
+  const actifs = liste.filter(r => r && r.actif !== false);
+  const choisi = actifs.find(r => r.est_defaut) || actifs[0] || null;
+  const v = num(choisi?.[champValeur]);
+  return v != null && v > 0 ? v : null;
 }
 
 /**
- * Options du sélecteur d'un paramètre de vente pour UNE ligne.
- * Toujours présentes : « Hériter du chiffrage » et « Utiliser le … de l'ouvrage ».
- * Puis les valeurs ACTIVES du référentiel (Réglages). Une valeur désactivée
- * déjà utilisée par la ligne reste VISIBLE avec la mention « Désactivé » mais
- * n'est pas proposable pour une nouvelle sélection (selectionnable = false).
+ * Tout ce qu'il faut pour afficher et régler UN paramètre de vente d'une ligne
+ * avec un champ libre : mode courant, valeur saisie, valeur réellement
+ * appliquée et sa provenance, et la valeur à pré-remplir dans le champ.
  *
  * @param type        "coefficient" | "taux"
- * @param referentiel lignes coefficients_vente ou taux_horaires_vente
  * @param ligne       ligne profero_ouvrages_selectionnes (données figées)
  * @param conditions  conditions globales du chiffrage
  * @param modes       modes à refléter (défaut : ceux de la ligne)
+ * @param referentiel lignes coefficients_vente / taux_horaires_vente — UNIQUEMENT
+ *                    pour proposer une valeur de départ (jamais imposée)
  */
-export function optionsConditionLigne({ type, referentiel = [], ligne = null, conditions = null, modes = null } = {}) {
+export function champConditionLigne({ type, ligne = null, conditions = null, modes = null, referentiel = [] } = {}) {
   const estCoef = type === "coefficient";
-  const champ = estCoef ? "valeur" : "taux_ht";
   const nom = estCoef ? "coefficient" : "taux horaire";
   const c = conditions || CONDITIONS_DEFAUT;
   const m = modes || lireModesLigne(ligne);
   const cond = estCoef ? m.coefficient : m.tauxHoraire;
   const globale = globaleDe(estCoef ? c.coefficient : c.tauxHoraire);
   const orig = origineLigne(ligne)[estCoef ? "coefficient" : "tauxHoraire"];
-  const options = [];
-
-  const texteHeritage = globale
-    ? `Hériter du chiffrage — ${fmtValeur(type, globale.valeur)}`
-    : orig.valeur != null
-      ? `Hériter du chiffrage — ${nom} ouvrage ${fmtValeur(type, orig.valeur)}`
-      : `Hériter du chiffrage — aucun ${nom} disponible`;
-  options.push({ valeur: VALEUR_HERITAGE, mode: MODE_LIGNE_HERITAGE, id: null, texte: texteHeritage, selectionnable: true, desactive: false, effective: globale ? globale.valeur : orig.valeur });
-
-  options.push({
-    valeur: VALEUR_OUVRAGE, mode: MODE_LIGNE_OUVRAGE, id: orig.id ?? null,
-    texte: orig.valeur != null
-      ? `Utiliser le ${nom} de l'ouvrage — ${fmtValeur(type, orig.valeur)}`
-      : `Utiliser le ${nom} de l'ouvrage — non figé sur cette ligne`,
-    selectionnable: orig.valeur != null, desactive: orig.valeur == null, effective: orig.valeur,
-  });
-
-  const vus = new Set();
-  (referentiel || []).forEach(r => {
-    if (!r || r.id == null || r.actif === false) return;
-    const v = num(r[champ]);
-    if (v == null || v <= 0) return;
-    vus.add(String(r.id));
-    options.push({ valeur: `${PREFIXE_SPECIFIQUE}${r.id}`, mode: MODE_LIGNE_SPECIFIQUE, id: String(r.id), texte: `${str(r.libelle) || "Sans libellé"} — ${fmtValeur(type, v)}`, selectionnable: true, desactive: false, effective: v });
-  });
-
-  // Valeur figée sur la ligne mais désactivée (ou supprimée) dans les Réglages :
-  // visible, jamais proposable pour une NOUVELLE sélection.
-  if (cond.mode === MODE_LIGNE_SPECIFIQUE && cond.id != null && !vus.has(String(cond.id))) {
-    const source = (referentiel || []).find(r => r && String(r.id) === String(cond.id));
-    const valeur = cond.valeur ?? num(source?.[champ]);
-    const libelle = str(cond.libelle) || str(source?.libelle) || `${estCoef ? "Coefficient" : "Taux"} figé sur la ligne`;
-    options.push({
-      valeur: `${PREFIXE_SPECIFIQUE}${cond.id}`, mode: MODE_LIGNE_SPECIFIQUE, id: String(cond.id),
-      texte: `${libelle} — ${fmtValeur(type, valeur)} (${source ? "Désactivé" : "Supprimé des Réglages"})`,
-      selectionnable: false, desactive: true, effective: valeur,
-    });
-  }
+  const saisie = (estCoef ? validerValeurCoefficient : validerTauxHoraire)(cond.valeur);
 
   const resolution = resoudreParametreVente({
-    mode: cond.mode, specifique: cond, globale,
+    mode: cond.mode,
+    specifique: { id: null, valeur: saisie.valide ? saisie.valeur : null, libelle: null },
+    globale,
     origine: orig.valeur != null && orig.valeur > 0 ? { id: orig.id, valeur: orig.valeur, libelle: orig.libelle } : null,
   });
+
+  // Champ pré-rempli : la valeur déjà figée sur la ligne, sinon celle qui
+  // s'applique aujourd'hui (global puis ouvrage), sinon le défaut des Réglages.
+  const suggestion = [
+    saisie.valide ? saisie.valeur : null,
+    resolution.valide ? resolution.valeur : null,
+    globale ? globale.valeur : null,
+    orig.valeur,
+    valeurParDefautReferentiel(referentiel, estCoef ? "valeur" : "taux_ht"),
+  ].find(v => num(v) != null && num(v) > 0) ?? null;
+
   return {
-    options,
-    valeurCourante: valeurSelecteur(cond.mode, cond.id),
+    mode: cond.mode,
+    valeur: saisie.valide ? saisie.valeur : null,
+    erreurValeur: cond.mode === MODE_LIGNE_SPECIFIQUE && !saisie.valide ? saisie.erreur : null,
     globale, origine: orig,
+    ouvrageDisponible: orig.valeur != null && orig.valeur > 0,
+    suggestion: num(suggestion),
     applique: resolution,
-    texteApplique: resolution.valide ? `${estCoef ? "Coefficient" : "Taux horaire"} appliqué : ${fmtValeur(type, resolution.valeur)}` : `${estCoef ? "Coefficient" : "Taux horaire"} non déterminable`,
+    texteHeritage: globale
+      ? `Hériter du chiffrage — ${fmtValeur(type, globale.valeur)}`
+      : orig.valeur != null
+        ? `Hériter du chiffrage — ${nom} de l'ouvrage ${fmtValeur(type, orig.valeur)}`
+        : `Hériter du chiffrage — aucun ${nom} disponible`,
+    texteOuvrage: orig.valeur != null
+      ? `${nom.charAt(0).toUpperCase()}${nom.slice(1)} de l'ouvrage — ${fmtValeur(type, orig.valeur)}`
+      : `${nom.charAt(0).toUpperCase()}${nom.slice(1)} de l'ouvrage — non figé sur cette ligne`,
+    texteApplique: resolution.valide
+      ? `${estCoef ? "Coefficient" : "Taux horaire"} appliqué : ${fmtValeur(type, resolution.valeur)}`
+      : `${estCoef ? "Coefficient" : "Taux horaire"} non déterminable`,
     texteOrigine: `Origine : ${libelleSource(resolution.source)}`,
   };
-}
-
-/**
- * Une valeur plus récente existe-t-elle dans les Réglages pour une condition
- * globale figée ? Rend null si rien à signaler.
- */
-export function valeurPlusRecente(cond, liste, champValeur) {
-  if (!cond || cond.mode !== MODE_GLOBAL || cond.id == null) return null;
-  const actuel = (liste || []).find(x => String(x?.id) === String(cond.id));
-  if (!actuel) return { type: "introuvable", message: "Cette option n'existe plus dans les Réglages : la valeur figée reste utilisée." };
-  const v = num(actuel[champValeur]);
-  const notes = [];
-  if (actuel.actif === false) notes.push("désactivée dans les Réglages");
-  if (v != null && Math.abs(v - num(cond.valeur)) >= 0.00005) return { type: "valeur", actuelle: v, figee: num(cond.valeur), libelle: actuel.libelle, desactive: actuel.actif === false, message: `Valeur plus récente dans les Réglages : ${champValeur === "taux_ht" ? formaterTauxHT(v) : formaterCoefficient(v)} (figé : ${champValeur === "taux_ht" ? formaterTauxHT(cond.valeur) : formaterCoefficient(cond.valeur)}).` };
-  if (notes.length) return { type: "desactive", message: `Option ${notes.join(", ")} : la valeur figée reste utilisée.` };
-  return null;
 }
 
 /** Résumé d'un résultat de RPC (simulation des conditions GLOBALES) pour la confirmation. */

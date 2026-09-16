@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-17",
+    type: "amelioration",
+    titre: "Coefficient et taux horaire de vente : champs libres au lieu des listes",
+    pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "info-client", label: "Chiffrage" }],
+    quoi: "Il fallait jusqu'ici choisir le coefficient de vente et le taux horaire dans une liste déroulante, et donc créer une entrée dans les Réglages avant de pouvoir l'utiliser. Aux trois endroits où ces deux valeurs se règlent — la fiche d'un ouvrage, les conditions globales d'un chiffrage et la dérogation d'une ligne de devis — la liste est remplacée par un champ dans lequel on tape la valeur voulue (1,42 ou 87 €/h, sans rien créer au préalable).",
+    comment: "Chaque champ s'ouvre pré-rempli avec la valeur par défaut des Réglages (ou celle déjà en place) et reste entièrement modifiable ; un bouton « Défaut » permet d'y revenir. Les Réglages → Taux horaires restent utiles : ils ne servent plus qu'à fixer ces valeurs proposées, ils n'imposent plus de choix. Tout le reste est inchangé : la valeur reste FIGÉE là où elle est enregistrée (une modification ultérieure des Réglages n'a aucun effet rétroactif), la modale d'une ligne montre toujours l'aperçu avant/après avant d'appliquer, et les prix comme les marges restent calculés par le serveur depuis les seules données figées de la ligne. Les ouvrages existants ont récupéré la valeur du coefficient et du taux qu'ils utilisaient : aucun prix n'a bougé.",
+  },
+  {
     date: "2026-09-16",
     type: "nouveaute",
     titre: "Chiffrage : « Modifier matériaux » ouvre l'ouvrage dans la bibliothèque et réactualise le devis",

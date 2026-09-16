@@ -7,12 +7,14 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
-import { Icon } from "../ui";
-import { SlidersHorizontal, Check, X, AlertTriangle, History, RefreshCw, Lock, Info } from "lucide-react";
-import { formaterCoefficient, optionsSelectCoefficients } from "./coefficientsVente.mjs";
-import { formaterTauxHT, optionsSelectTaux } from "./tauxHorairesVente.mjs";
+import { Icon, InputNombre } from "../ui";
+import { SlidersHorizontal, Check, X, AlertTriangle, History, Lock } from "lucide-react";
+import { formaterCoefficient } from "./coefficientsVente.mjs";
+import { formaterTauxHT } from "./tauxHorairesVente.mjs";
+import { num, validerValeurCoefficient, validerTauxHoraire } from "./chiffragePricing.mjs";
 import {
-  MODE_OUVRAGE, MODE_GLOBAL, lireConditionsProjet, chiffrageModifiable, valeurPlusRecente, resumerSimulation, libelleCondition, messageErreurRpc,
+  MODE_OUVRAGE, MODE_GLOBAL, lireConditionsProjet, chiffrageModifiable, resumerSimulation,
+  libelleCondition, messageErreurRpc, valeurParDefautReferentiel,
 } from "./conditionsChiffrage.mjs";
 
 export { messageErreurRpc };
@@ -36,32 +38,38 @@ export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coe
   const cle = `${projetId}|${projet?.conditions_version}|${projet?.mode_coefficient}|${projet?.coefficient_global_id}|${projet?.mode_taux_horaire}|${projet?.taux_horaire_global_id}`;
   useEffect(() => { setBrouillon(lireConditionsProjet(projet)); setErreur(null); setHistorique(null); }, [cle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const optionsCoef = optionsSelectCoefficients(coefficients, courantes.coefficient.id);
-  const optionsTaux = optionsSelectTaux(tauxHoraires, courantes.tauxHoraire.id);
-  const recentCoef = valeurPlusRecente(courantes.coefficient, coefficients, "valeur");
-  const recentTaux = valeurPlusRecente(courantes.tauxHoraire, tauxHoraires, "taux_ht");
+  // Valeurs proposees par defaut dans les champs libres (Reglages) : elles ne
+  // servent QU'A pre-remplir, elles n'imposent plus rien.
+  const defautCoef = valeurParDefautReferentiel(coefficients, "valeur");
+  const defautTaux = valeurParDefautReferentiel(tauxHoraires, "taux_ht");
 
-  const idCoefBrouillon = brouillon.coefficient.mode === MODE_GLOBAL ? (brouillon.coefficient.id || optionsCoef.find(o => !o.desactive)?.id || "") : "";
-  const idTauxBrouillon = brouillon.tauxHoraire.mode === MODE_GLOBAL ? (brouillon.tauxHoraire.id || optionsTaux.find(o => !o.desactive)?.id || "") : "";
+  // Valeur tapee pour chaque parametre (utilisee par le mode global).
+  const valCoefBrouillon = brouillon.coefficient.mode === MODE_GLOBAL ? (num(brouillon.coefficient.valeur) ?? null) : null;
+  const valTauxBrouillon = brouillon.tauxHoraire.mode === MODE_GLOBAL ? (num(brouillon.tauxHoraire.valeur) ?? null) : null;
+  const ctrlCoef = validerValeurCoefficient(valCoefBrouillon);
+  const ctrlTaux = validerTauxHoraire(valTauxBrouillon);
+  const memeValeur = (a, b) => num(a) != null && num(b) != null && Math.abs(num(a) - num(b)) < 0.00005;
   const modifie = brouillon.coefficient.mode !== courantes.coefficient.mode || brouillon.tauxHoraire.mode !== courantes.tauxHoraire.mode
-    || (brouillon.coefficient.mode === MODE_GLOBAL && String(idCoefBrouillon) !== String(courantes.coefficient.id))
-    || (brouillon.tauxHoraire.mode === MODE_GLOBAL && String(idTauxBrouillon) !== String(courantes.tauxHoraire.id));
-  const incomplet = (brouillon.coefficient.mode === MODE_GLOBAL && !idCoefBrouillon) || (brouillon.tauxHoraire.mode === MODE_GLOBAL && !idTauxBrouillon);
+    || (brouillon.coefficient.mode === MODE_GLOBAL && !memeValeur(valCoefBrouillon, courantes.coefficient.valeur))
+    || (brouillon.tauxHoraire.mode === MODE_GLOBAL && !memeValeur(valTauxBrouillon, courantes.tauxHoraire.valeur));
+  const incomplet = (brouillon.coefficient.mode === MODE_GLOBAL && !ctrlCoef.valide) || (brouillon.tauxHoraire.mode === MODE_GLOBAL && !ctrlTaux.valide);
 
-  const setModeCoef = (mode) => setBrouillon(b => ({ ...b, coefficient: { ...b.coefficient, mode, id: mode === MODE_GLOBAL ? (b.coefficient.id || courantes.coefficient.id) : null } }));
-  const setModeTaux = (mode) => setBrouillon(b => ({ ...b, tauxHoraire: { ...b.tauxHoraire, mode, id: mode === MODE_GLOBAL ? (b.tauxHoraire.id || courantes.tauxHoraire.id) : null } }));
+  // Passage en mode global : le champ s'ouvre pre-rempli (valeur deja figee sur
+  // le chiffrage, sinon valeur par defaut des Reglages).
+  const setModeCoef = (mode) => setBrouillon(b => ({ ...b, coefficient: { ...b.coefficient, mode, valeur: mode === MODE_GLOBAL ? (num(b.coefficient.valeur) ?? num(courantes.coefficient.valeur) ?? defautCoef) : null } }));
+  const setModeTaux = (mode) => setBrouillon(b => ({ ...b, tauxHoraire: { ...b.tauxHoraire, mode, valeur: mode === MODE_GLOBAL ? (num(b.tauxHoraire.valeur) ?? num(courantes.tauxHoraire.valeur) ?? defautTaux) : null } }));
 
   /** Simulation serveur : aucune écriture. Ouvre la confirmation. */
-  async function simuler({ coefId = idCoefBrouillon, tauxId = idTauxBrouillon, modeCoef = brouillon.coefficient.mode, modeTaux = brouillon.tauxHoraire.mode, motif = null } = {}) {
+  async function simuler({ coefValeur = valCoefBrouillon, tauxValeur = valTauxBrouillon, modeCoef = brouillon.coefficient.mode, modeTaux = brouillon.tauxHoraire.mode, motif = null } = {}) {
     if (!projetId || busy) return;
     setBusy(true); setErreur(null); setSucces(null);
     const { data, error } = await supabase.rpc("simuler_conditions_chiffrage", {
-      p_projet_id: projetId, p_mode_coefficient: modeCoef, p_coefficient_id: modeCoef === MODE_GLOBAL ? coefId || null : null,
-      p_mode_taux: modeTaux, p_taux_id: modeTaux === MODE_GLOBAL ? tauxId || null : null,
+      p_projet_id: projetId, p_mode_coefficient: modeCoef, p_coefficient_valeur: modeCoef === MODE_GLOBAL ? coefValeur : null,
+      p_mode_taux: modeTaux, p_taux_valeur: modeTaux === MODE_GLOBAL ? tauxValeur : null,
     });
     setBusy(false);
     if (error) { setErreur(messageErreurRpc(error)); return; }
-    setSimulation({ brut: data, resume: resumerSimulation(data), params: { modeCoef, coefId, modeTaux, tauxId }, motif });
+    setSimulation({ brut: data, resume: resumerSimulation(data), params: { modeCoef, coefValeur, modeTaux, tauxValeur }, motif });
   }
 
   /** Application atomique : version + hash de la simulation transmis, refusée si le chiffrage a bougé. */
@@ -70,8 +78,8 @@ export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coe
     const { params, resume } = simulation;
     setBusy(true); setErreur(null);
     const { data, error } = await supabase.rpc("appliquer_conditions_chiffrage", {
-      p_projet_id: projetId, p_mode_coefficient: params.modeCoef, p_coefficient_id: params.modeCoef === MODE_GLOBAL ? params.coefId || null : null,
-      p_mode_taux: params.modeTaux, p_taux_id: params.modeTaux === MODE_GLOBAL ? params.tauxId || null : null,
+      p_projet_id: projetId, p_mode_coefficient: params.modeCoef, p_coefficient_valeur: params.modeCoef === MODE_GLOBAL ? params.coefValeur : null,
+      p_mode_taux: params.modeTaux, p_taux_valeur: params.modeTaux === MODE_GLOBAL ? params.tauxValeur : null,
       p_version_attendue: resume.version, p_hash_attendu: resume.hash,
     });
     setBusy(false);
@@ -92,22 +100,29 @@ export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coe
   const carte = { marginBottom: 12, padding: "12px 14px", borderRadius: RADIUS.lg, background: T.card, border: `1px solid ${T.border}` };
   const titre = { fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: acc.accent, display: "inline-flex", alignItems: "center", gap: 6 };
   const radio = (checked, disabled) => ({ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.sm.size, color: disabled ? T.textMuted : T.text, cursor: disabled ? "not-allowed" : "pointer", fontWeight: checked ? 700 : 500 });
-  const select = { padding: "6px 10px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", minWidth: 220 };
+  const champ = { padding: "7px 10px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", fontWeight: 700, width: 130, textAlign: "center", outline: "none" };
   const btnP = { display: "inline-flex", alignItems: "center", gap: 6, background: acc.accent, color: acc.onAccent, border: "none", borderRadius: RADIUS.md, padding: "8px 16px", fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer" };
   const btnS = { display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", color: T.textSub, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "7px 12px", fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600, cursor: "pointer" };
   const note = (couleur) => ({ marginTop: 8, padding: "7px 10px", borderRadius: RADIUS.md, background: `${couleur}1a`, border: `1px solid ${couleur}55`, color: couleur, fontSize: FONT.xs.size + 1, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" });
   const desactive = !verrou.ok || busy;
 
+  // Un paramètre global = un mode (par ouvrage / global) + une VALEUR LIBRE.
+  // Aucune liste : le champ s'ouvre pré-rempli avec la valeur par défaut des
+  // Réglages (ou celle déjà figée sur ce chiffrage) et reste modifiable.
   const selecteur = (type) => {
     const estCoef = type === "coefficient";
     const cond = estCoef ? brouillon.coefficient : brouillon.tauxHoraire;
     const courante = estCoef ? courantes.coefficient : courantes.tauxHoraire;
-    const options = estCoef ? optionsCoef : optionsTaux;
-    const idSel = estCoef ? idCoefBrouillon : idTauxBrouillon;
+    const valeur = estCoef ? valCoefBrouillon : valTauxBrouillon;
+    const ctrl = estCoef ? ctrlCoef : ctrlTaux;
     const setMode = estCoef ? setModeCoef : setModeTaux;
-    const setId = (id) => setBrouillon(b => estCoef ? { ...b, coefficient: { ...b.coefficient, id } } : { ...b, tauxHoraire: { ...b.tauxHoraire, id } });
-    const recent = estCoef ? recentCoef : recentTaux;
+    const setValeur = (v) => setBrouillon(b => estCoef
+      ? { ...b, coefficient: { ...b.coefficient, valeur: v } }
+      : { ...b, tauxHoraire: { ...b.tauxHoraire, valeur: v } });
+    const defaut = estCoef ? defautCoef : defautTaux;
     const nom = estCoef ? "coefficient" : "taux horaire";
+    const fmt = estCoef ? formaterCoefficient : formaterTauxHT;
+    const fige = courante.mode === MODE_GLOBAL && memeValeur(valeur, courante.valeur);
     return (
       <div style={{ flex: 1, minWidth: 260 }}>
         <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textSub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 6 }}>{estCoef ? "Coefficient de vente" : "Taux horaire de vente"}</div>
@@ -121,24 +136,30 @@ export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coe
         </label>
         {cond.mode === MODE_GLOBAL && (
           <div style={{ marginTop: 6, marginLeft: 24, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <select value={idSel} disabled={desactive} onChange={e => setId(e.target.value)} style={select}>
-              {options.length === 0 && <option value="">Aucune option active</option>}
-              {options.map(o => <option key={o.id} value={o.id} disabled={o.desactive && o.id !== String(courante.id)}>{o.texte}</option>)}
-            </select>
-            {courante.mode === MODE_GLOBAL && String(idSel) === String(courante.id) && (
-              <span title="Valeur figée sur ce chiffrage" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
-                <Icon as={Lock} size={10} /> figé : {estCoef ? formaterCoefficient(courante.valeur) : formaterTauxHT(courante.valeur)}
+            <InputNombre
+              valeur={cond.valeur ?? ""}
+              onValeur={setValeur}
+              disabled={desactive}
+              min={estCoef ? "0.0001" : "0.01"}
+              step={estCoef ? "0.01" : "0.5"}
+              placeholder={defaut != null ? String(defaut) : (estCoef ? "1,50" : "80")}
+              title={`Valeur libre : saisis le ${nom} à appliquer à tout ce chiffrage. Elle sera figée sur le chiffrage.`}
+              style={{ ...champ, borderColor: ctrl.valide ? T.border : "rgba(225,90,90,.6)", color: ctrl.valide ? T.text : "#e15a5a" }}
+            />
+            <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>{estCoef ? "× sur les matériaux" : "€ HT / h"}</span>
+            {defaut != null && !memeValeur(valeur, defaut) && (
+              <button type="button" disabled={desactive} onClick={() => setValeur(defaut)}
+                style={{ ...btnS, padding: "4px 9px" }} title={`Reprend la valeur par défaut des Réglages (${fmt(defaut)}).`}>
+                Défaut {fmt(defaut)}
+              </button>
+            )}
+            {fige && (
+              <span title="Valeur déjà figée sur ce chiffrage" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
+                <Icon as={Lock} size={10} /> figée
               </span>
             )}
-          </div>
-        )}
-        {recent && cond.mode === MODE_GLOBAL && String(idSel) === String(courante.id) && (
-          <div style={note("#f5a623")}>
-            <Icon as={Info} size={12} /> <span>{recent.message}</span>
-            {recent.type === "valeur" && !recent.desactive && (
-              <button type="button" disabled={desactive} onClick={() => simuler({ motif: `Mise à jour volontaire de la valeur figée du ${nom}` })} style={{ ...btnS, padding: "4px 10px", color: "#f5a623", borderColor: "#f5a62388" }}>
-                <Icon as={RefreshCw} size={11} /> Utiliser la nouvelle valeur
-              </button>
+            {!ctrl.valide && (
+              <span style={{ fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 700 }}>{ctrl.erreur}</span>
             )}
           </div>
         )}
@@ -214,8 +235,8 @@ export default function ConditionsVenteChiffrage({ T, acc, projet, projetId, coe
             <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 800, color: T.text, borderBottom: `1px solid ${T.sectionDivider || T.border}` }}>{b}</td>
           </tr>
         );
-        const coefTxt = (mode, lib, val) => mode === MODE_GLOBAL ? `${lib || "global"} — ${formaterCoefficient(val)}` : "Coefficient de chaque ouvrage";
-        const tauxTxt = (mode, lib, val) => mode === MODE_GLOBAL ? `${lib || "global"} — ${formaterTauxHT(val)}` : "Taux horaire de chaque ouvrage";
+        const coefTxt = (mode, lib, val) => mode === MODE_GLOBAL ? (lib ? `${lib} — ${formaterCoefficient(val)}` : `Coefficient global ${formaterCoefficient(val)}`) : "Coefficient de chaque ouvrage";
+        const tauxTxt = (mode, lib, val) => mode === MODE_GLOBAL ? (lib ? `${lib} — ${formaterTauxHT(val)}` : `Taux horaire global ${formaterTauxHT(val)}`) : "Taux horaire de chaque ouvrage";
         const ecart = r.ecart ?? 0;
         return (
           <div onClick={() => !busy && setSimulation(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }}>

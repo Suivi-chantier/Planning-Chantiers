@@ -91,7 +91,22 @@ assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_id: "t3" }, { tauxHorair
 assert.match(p.resoudreTauxHoraire({ taux_horaire_vente_id: "t3" }, { tauxHoraires: TAUX }).avertissement, /désactivé/);
 assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_id: "zz" }, { tauxHoraires: TAUX }).valide, false);
 assert.match(p.resoudreTauxHoraire({ taux_horaire_vente_id: "zz" }, { tauxHoraires: TAUX }).erreur, /introuvable/);
-assert.match(p.resoudreTauxHoraire({ taux_horaire_vente_id: null }, { tauxHoraires: TAUX }).erreur, /non sélectionné/);
+assert.match(p.resoudreTauxHoraire({ taux_horaire_vente_id: null }, { tauxHoraires: TAUX }).erreur, /non renseigné/);
+// Valeur SAISIE sur la fiche de l'ouvrage : elle prime sur tout référentiel
+assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_valeur: 92 }, { tauxHoraires: TAUX }).valeur, 92, "taux saisi utilisé tel quel");
+assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_valeur: 92, taux_horaire_vente_id: "t1" }, { tauxHoraires: TAUX }).valeur, 92, "la valeur saisie l'emporte sur l'identifiant");
+assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_valeur: 92 }, {}).saisie, true);
+assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_valeur: 0 }, { tauxHoraires: TAUX }).valide, false, "taux saisi nul refusé");
+assert.equal(p.resoudreCoefficientVente({ coefficient_vente_valeur: 1.42 }, { coefficientsVente: [] }).valeur, 1.42, "coefficient saisi utilisé tel quel");
+assert.equal(p.resoudreCoefficientVente({ coefficient_vente_valeur: -1 }, {}).valide, false, "coefficient saisi négatif refusé");
+assert.match(p.resoudreCoefficientVente({}, { coefficientsVente: [] }).erreur, /non renseigné/);
+// Un ouvrage entièrement en valeurs saisies se calcule sans aucun référentiel
+{
+  const libre = { id: "b-libre", libelle: "T-009 : Libre", unite: "U", cadence: 2, coefficient_vente_valeur: 1.5, taux_horaire_vente_valeur: 90, materiaux_liens: [{ materiau_id: "m100", quantite: 1 }] };
+  const cal = p.calculerOuvrage(libre, { materiaux: [{ id: "m100", nom: "M", unite: "U", prix_unitaire: 100 }] });
+  assert.equal(cal.complet, true, "aucun référentiel nécessaire");
+  assert.equal(cal.prixVenteUnitaire, 150 + 180);
+}
 assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_id: "t1", taux_horaire_vente: { id: "t1", libelle: "Joint", taux_ht: 80 } }, {}).valeur, 80, "objet joint accepté");
 assert.equal(p.resoudreTauxHoraire({ taux_horaire_vente_id: "t9" }, { tauxHoraires: [{ id: "t9", libelle: "Nul", taux_ht: 0, actif: true }] }).valide, false, "taux 0 invalide");
 
@@ -148,13 +163,13 @@ const calc85 = p.calculerOuvrage(MU001, { ...CTX, tauxHoraires: TAUX85 });
 assert.equal(calc85.prixMainOeuvreUnitaire, 42.5);
 assert.equal(calc85.prixVenteUnitaire, 57.22);
 
-// Coefficient introuvable / non sélectionné / liste vide ⇒ bloquant quand des matériaux existent
+// Coefficient introuvable / non renseigné / liste vide ⇒ bloquant quand des matériaux existent
 const coefInconnu = p.calculerOuvrage({ ...MU001, coefficient_vente_id: "zz" }, CTX);
 assert.equal(coefInconnu.complet, false);
 assert.ok(coefInconnu.erreurs.some(e => /introuvable/i.test(e)), coefInconnu.erreurs.join(" | "));
 const sansCoef = p.calculerOuvrage({ ...MU001, coefficient_vente_id: null }, CTX);
 assert.equal(sansCoef.complet, false);
-assert.ok(sansCoef.erreurs.some(e => /coefficient de vente non sélectionné/i.test(e)));
+assert.ok(sansCoef.erreurs.some(e => /coefficient de vente non renseigné/i.test(e)));
 assert.equal(p.calculerOuvrage(MU001, { ...CTX, coefficientsVente: [] }).complet, false);
 // Les colonnes obsolètes ne sont JAMAIS un repli : coef_vente / taux_marge_pct seuls ⇒ bloquant
 const obsolete = p.calculerOuvrage({ ...MU001, coefficient_vente_id: null, coef_vente: 1.5, taux_marge_pct: 30 }, CTX);
@@ -170,7 +185,7 @@ assert.equal(p.calculerOuvrage(MU001, { ...CTX, coefficientsVente: [{ id: "c135"
 // Résolution directe
 assert.equal(p.resoudreCoefficientVente({ coefficient_vente_id: "c150" }, { coefficientsVente: COEFS }).valeur, 1.5);
 assert.equal(p.resoudreCoefficientVente({ coefficient_vente_id: "c0" }, { coefficientsVente: COEFS }).actif, false);
-assert.match(p.resoudreCoefficientVente({ coefficient_vente_id: null }, { coefficientsVente: COEFS }).erreur, /non sélectionné/);
+assert.match(p.resoudreCoefficientVente({ coefficient_vente_id: null }, { coefficientsVente: COEFS }).erreur, /non renseigné/);
 for (const v of [null, "", "abc", 0, -1]) assert.equal(p.validerValeurCoefficient(v).valide, false, `coefficient ${String(v)} refusé`);
 assert.equal(p.validerValeurCoefficient("1,675").valeur, 1.675, "4 décimales conservées");
 

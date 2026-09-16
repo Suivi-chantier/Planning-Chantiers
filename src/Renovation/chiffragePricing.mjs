@@ -235,13 +235,20 @@ export function validerValeurCoefficient(v) {
 
 /**
  * Résout le coefficient de vente d'un ouvrage.
- *   • ouvrage.coefficient_vente_id cherché dans ctx.coefficientsVente (lignes coefficients_vente) ;
- *   • repli : ouvrage.coefficient_vente (objet joint) ou ctx.coefficientVente (objet ou nombre, tests).
+ *   • ouvrage.coefficient_vente_valeur : VALEUR SAISIE sur la fiche (source principale) ;
+ *   • repli historique : ouvrage.coefficient_vente_id cherché dans ctx.coefficientsVente,
+ *     ouvrage.coefficient_vente (objet joint) ou ctx.coefficientVente (objet ou nombre, tests).
  * Un coefficient DÉSACTIVÉ reste utilisable (l'ouvrage le conserve) : avertissement, pas erreur.
  * bibliotheque_ratios.coef_vente (obsolète) n'est JAMAIS lu.
- * @returns {{ valide, id, libelle, valeur, actif, erreur, avertissement }}
+ * @returns {{ valide, id, libelle, valeur, actif, saisie, erreur, avertissement }}
  */
 export function resoudreCoefficientVente(ouvrage, { coefficientsVente = null, coefficientVente = null } = {}) {
+  // Valeur tapée sur la fiche de l'ouvrage : elle prime sur tout référentiel.
+  if (ouvrage?.coefficient_vente_valeur != null && String(ouvrage.coefficient_vente_valeur).trim() !== "") {
+    const vs = validerValeurCoefficient(ouvrage.coefficient_vente_valeur);
+    if (vs.valide) return { valide: true, id: null, libelle: null, valeur: vs.valeur, actif: true, saisie: true, erreur: null, avertissement: null };
+    return { valide: false, id: null, libelle: null, valeur: null, actif: null, saisie: true, erreur: `Coefficient de vente de l'ouvrage invalide : ${vs.erreur}`, avertissement: null };
+  }
   const id = ouvrage?.coefficient_vente_id != null ? String(ouvrage.coefficient_vente_id) : null;
   const index = indexerParId(coefficientsVente);
   let ligne = id ? index.get(id) ?? null : null;
@@ -250,9 +257,10 @@ export function resoudreCoefficientVente(ouvrage, { coefficientsVente = null, co
   if (!ligne) {
     return {
       valide: false, id, libelle: null, valeur: null, actif: null, avertissement: null,
+      saisie: false,
       erreur: id
         ? "Coefficient de vente introuvable dans la liste des coefficients (Réglages → Taux horaires)"
-        : "Coefficient de vente non sélectionné",
+        : "Coefficient de vente non renseigné sur la fiche de l'ouvrage (Bibliothèque)",
     };
   }
   const v = validerValeurCoefficient(ligne.valeur);
@@ -282,12 +290,19 @@ export function validerTauxHoraire(taux) {
 
 /**
  * Résout le taux horaire de vente d'un ouvrage.
- *   • ouvrage.taux_horaire_vente_id cherché dans ctx.tauxHoraires (lignes taux_horaires_vente) ;
- *   • repli : ouvrage.taux_horaire_vente (objet joint) ou ctx.tauxHoraire (objet ou nombre, tests).
+ *   • ouvrage.taux_horaire_vente_valeur : VALEUR SAISIE sur la fiche (source principale) ;
+ *   • repli historique : ouvrage.taux_horaire_vente_id cherché dans ctx.tauxHoraires,
+ *     ouvrage.taux_horaire_vente (objet joint) ou ctx.tauxHoraire (objet ou nombre, tests).
  * Un taux DÉSACTIVÉ reste utilisable (l'ouvrage garde son taux) : avertissement, pas erreur.
- * @returns {{ valide, id, libelle, valeur, actif, erreur, avertissement }}
+ * @returns {{ valide, id, libelle, valeur, actif, saisie, erreur, avertissement }}
  */
 export function resoudreTauxHoraire(ouvrage, { tauxHoraires = null, tauxHoraire = null } = {}) {
+  // Valeur tapée sur la fiche de l'ouvrage : elle prime sur tout référentiel.
+  if (ouvrage?.taux_horaire_vente_valeur != null && String(ouvrage.taux_horaire_vente_valeur).trim() !== "") {
+    const vs = validerTauxHoraire(ouvrage.taux_horaire_vente_valeur);
+    if (vs.valide) return { valide: true, id: null, libelle: null, valeur: vs.valeur, actif: true, saisie: true, erreur: null, avertissement: null };
+    return { valide: false, id: null, libelle: null, valeur: null, actif: null, saisie: true, erreur: `Taux horaire de vente de l'ouvrage invalide : ${vs.erreur}`, avertissement: null };
+  }
   const id = ouvrage?.taux_horaire_vente_id != null ? String(ouvrage.taux_horaire_vente_id) : null;
   const index = indexerTauxHoraires(tauxHoraires);
   let ligne = id ? index.get(id) ?? null : null;
@@ -296,9 +311,10 @@ export function resoudreTauxHoraire(ouvrage, { tauxHoraires = null, tauxHoraire 
   if (!ligne) {
     return {
       valide: false, id, libelle: null, valeur: null, actif: null, avertissement: null,
+      saisie: false,
       erreur: id
         ? "Taux horaire de main-d'œuvre introuvable dans la liste des taux (Réglages → Taux horaires)"
-        : "Taux horaire de main-d'œuvre non sélectionné",
+        : "Taux horaire de main-d'œuvre non renseigné sur la fiche de l'ouvrage (Bibliothèque)",
     };
   }
   const v = validerTauxHoraire(ligne.taux_ht);

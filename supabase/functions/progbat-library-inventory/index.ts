@@ -198,13 +198,13 @@ serve(async (req) => {
     // ── 3. Données Profero (SELECT uniquement) ───────────────────────────────
     const [ouvRes, matRes, cfgRes, tauxRes, coefRes] = await Promise.all([
       admin.from("bibliotheque_ratios")
-        .select("id, libelle, unite, cadence, materiaux_liens, main_oeuvre_seule, cout_direct_unitaire, progbat_id, taux_horaire_vente_id, coefficient_vente_id")
+        .select("id, libelle, unite, cadence, materiaux_liens, main_oeuvre_seule, cout_direct_unitaire, progbat_id, taux_horaire_vente_valeur, coefficient_vente_valeur, taux_horaire_vente_id, coefficient_vente_id")
         .order("libelle"),
       admin.from("materiaux_bibliotheque").select("id, nom, unite, prix_unitaire"),
       admin.from("planning_config").select("key, value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
-      // Taux horaires de VENTE : prix MO d'un ouvrage = cadence × taux sélectionné (bibliotheque_ratios.taux_horaire_vente_id)
+      // Référentiels de vente : ils ne servent plus que de repli pour les ouvrages
+      // antérieurs aux valeurs saisies (bibliotheque_ratios.*_vente_valeur).
       admin.from("taux_horaires_vente").select("id, libelle, taux_ht, actif, est_defaut"),
-      // Coefficients de VENTE : prix matériaux = coût × coefficient sélectionné (bibliotheque_ratios.coefficient_vente_id)
       admin.from("coefficients_vente").select("id, libelle, valeur, actif, est_defaut"),
     ])
     if (ouvRes.error) return json({ ok: false, error: "Lecture de la bibliothèque impossible : " + nettoyerMessage(ouvRes.error.message) }, 500)
