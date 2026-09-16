@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
+import { marquerEcritureConfig, estEchoConfigLocal } from "./configSync";
 import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant, normalizeBranches } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
@@ -566,6 +567,10 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       })
       .on("postgres_changes",{event:"*",schema:"public",table:"planning_config"},p=>{
         const r=p.new;if(!r)return;
+        // Écho de notre propre écriture : l'ignorer. Sinon une valeur partie il
+        // y a quelques centaines de ms revient écraser ce que l'utilisateur est
+        // en train de taper (champ qui « revient en arrière »).
+        if(estEchoConfigLocal(r.key))return;
         if(r.key==="ouvriers")setOuvriers(r.value);
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
@@ -578,11 +583,19 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   },[weekId]);
 
   const saveConfig=async(key,value)=>{
+    // On borne la fenêtre d'écho AVANT l'envoi (l'événement peut arriver très
+    // vite) et APRÈS la réponse (il arrive le plus souvent à ce moment-là).
+    marquerEcritureConfig(key);
     const{error}=await supabase.from("planning_config")
       .upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"});
+    marquerEcritureConfig(key);
     if(error){
       console.error("saveConfig:",error.message);
-      setTimeout(()=>supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"}),1000);
+      setTimeout(()=>{
+        marquerEcritureConfig(key);
+        supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"})
+          .then(()=>marquerEcritureConfig(key));
+      },1000);
     }
   };
 

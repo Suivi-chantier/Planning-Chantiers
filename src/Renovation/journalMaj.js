@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
+    type: "correctif",
+    titre: "Saisie qui « revenait en arrière » : texte et nombres restent désormais tels qu'on les tape",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "phasage", label: "Phasage" }, { id: "commandes", label: "Commandes" }],
+    quoi: "À plusieurs endroits, un champ pouvait revenir tout seul à une version précédente pendant la frappe : quelques caractères disparaissaient, ou le champ perdait le curseur au milieu d'un mot. En cause, l'enregistrement à chaque caractère : la valeur partie une demi-seconde plus tôt revenait par le temps réel et écrasait ce qui venait d'être tapé. Une modification en attente pouvait aussi être perdue en passant d'un réglage à un autre.",
+    comment: "Réglages : le nom d'un chantier, les taux horaires, le taux MO prévisionnel, la TVA et l'acompte par défaut ne sont enregistrés qu'une fois la saisie retombée, et l'écho de notre propre enregistrement ne revient plus écraser le champ. Chaque bloc de réglages (modèles d'email, phases, lots, groupes types, équipes, opérations, exceptions d'heures) a désormais sa propre sauvegarde différée : éditer l'un n'annule plus la sauvegarde de l'autre, et quitter la page écrit ce qui restait en attente. Bibliothèque : une fiche ouvrage ouverte n'est plus remplacée par un rafraîchissement temps réel — la mise à jour est appliquée à la fermeture de la fiche. Phasage → Suivi direction : marge cible, taux FG, seuil de prime et prime se saisissent normalement (décimales comprises) et ne s'enregistrent qu'à la fin de la saisie. Commandes, Référentiels de vente et Équipe : les rafraîchissements en arrière-plan ne relancent plus l'écran de chargement, qui faisait disparaître la ligne en cours d'édition.",
+  },
+  {
+    date: "2026-09-16",
     type: "nouveaute",
     titre: "Import ponctuel des cadences ProGBat vers la bibliothèque : analyse, aperçu, confirmation, puis Profero source de vérité",
     pages: [{ id: "admin", label: "Réglages" }, { id: "bibliotheque", label: "Biblio. ouvrages" }],

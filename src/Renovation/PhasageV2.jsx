@@ -966,6 +966,31 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (error) console.warn("saveMeta:", error.message);
   };
 
+  // Saisie des champs « Suivi direction » : chaque frappe déclenchait un
+  // saveMeta (aller-retour réseau qui relit puis réécrit tout plan_travaux).
+  // Les réponses revenaient dans le désordre et remettaient dans le champ la
+  // valeur d'une frappe précédente — le nombre « revenait en arrière ».
+  // On garde donc la frappe en local (texte brut, pour pouvoir taper « 12.5 »)
+  // et on n'écrit qu'une fois la saisie retombée.
+  const [metaDraft, setMetaDraft] = useState({});     // champ -> texte en cours
+  const metaSaveTimers = useRef({});
+
+  const champMeta = (champ) => metaDraft[champ] ?? (meta[champ] ?? "");
+
+  const majChampMeta = (champ, texte) => {
+    setMetaDraft(d => ({ ...d, [champ]: texte }));
+    if (metaSaveTimers.current[champ]) clearTimeout(metaSaveTimers.current[champ]);
+    metaSaveTimers.current[champ] = setTimeout(async () => {
+      delete metaSaveTimers.current[champ];
+      await saveMeta({ [champ]: texte === "" ? null : parseFloat(texte) });
+      setMetaDraft(d => {
+        // Une frappe est repartie entre-temps : on laisse la main au brouillon.
+        if (metaSaveTimers.current[champ]) return d;
+        const n = { ...d }; delete n[champ]; return n;
+      });
+    }, 600);
+  };
+
   // Reprise : on écrit TOUJOURS les deux champs ensemble (une seule écriture),
   // pour qu'aucun ne puisse effacer l'autre en cas de saisie rapide.
   const saveReprise = () => saveMeta({
@@ -3062,25 +3087,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <ModalField label="Marge vendue cible (%)">
-              <input type="number" step="1" min="0" max="100" value={meta.marge_vendue_cible ?? ""}
-                onChange={e => saveMeta({ marge_vendue_cible: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="1" min="0" max="100" value={champMeta("marge_vendue_cible")}
+                onChange={e => majChampMeta("marge_vendue_cible", e.target.value)}
                 placeholder="30" style={modalInp(T)}/>
             </ModalField>
             <ModalField label="FG — Taux horaire (€/h)">
-              <input type="number" step="0.5" min="0" value={meta.fg_taux_horaire ?? ""}
-                onChange={e => saveMeta({ fg_taux_horaire: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="0.5" min="0" value={champMeta("fg_taux_horaire")}
+                onChange={e => majChampMeta("fg_taux_horaire", e.target.value)}
                 placeholder="5" style={modalInp(T)}/>
             </ModalField>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <ModalField label="Seuil prime (%)">
-              <input type="number" step="1" min="0" max="100" value={meta.seuil_prime ?? ""}
-                onChange={e => saveMeta({ seuil_prime: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="1" min="0" max="100" value={champMeta("seuil_prime")}
+                onChange={e => majChampMeta("seuil_prime", e.target.value)}
                 placeholder="25" style={modalInp(T)}/>
             </ModalField>
             <ModalField label="Prime chantier (€)">
-              <input type="number" step="50" min="0" value={meta.prime ?? ""}
-                onChange={e => saveMeta({ prime: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="50" min="0" value={champMeta("prime")}
+                onChange={e => majChampMeta("prime", e.target.value)}
                 placeholder="300" style={modalInp(T)}/>
             </ModalField>
           </div>

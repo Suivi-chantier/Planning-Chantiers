@@ -2391,7 +2391,34 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   }, [adminTab, chantiers.length, ouvriers.length]);
 
   // ─── SAUVEGARDE CONFIGS ──────────────────────────────────────────────────
-  const saveDebounce = React.useRef(null);
+  // Sauvegardes différées pendant la frappe, avec UNE minuterie PAR CLÉ.
+  // (Auparavant une seule minuterie était partagée par toutes les configs :
+  // modifier un modèle d'email puis aussitôt une phase annulait la sauvegarde
+  // en attente de l'email — la saisie était perdue au rechargement suivant.)
+  const saveTimers   = React.useRef({});   // clé -> timeout
+  const savePendings = React.useRef({});   // clé -> valeur pas encore écrite
+
+  const saveConfigDiffere = (key, value, delai = 600) => {
+    savePendings.current[key] = value;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      delete saveTimers.current[key];
+      delete savePendings.current[key];
+      saveConfig(key, value);
+    }, delai);
+  };
+
+  // Quitter la page (ou changer d'onglet) ne doit jamais perdre une saisie
+  // encore en attente : on écrit tout de suite ce qui restait en file.
+  useEffect(() => () => {
+    Object.keys(saveTimers.current).forEach(key => {
+      clearTimeout(saveTimers.current[key]);
+      if (key in savePendings.current) saveConfig(key, savePendings.current[key]);
+    });
+    saveTimers.current = {};
+    savePendings.current = {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── HEURES PAR JOUR CRUD ────────────────────────────────────────────────
   // Depuis le rythme 4j/5j (24/08/2026), le barème hebdomadaire est porté par
@@ -2408,8 +2435,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updExceptionJour = (d, val) => {
     const next = { ...heuresParJour, exceptions: { ...(heuresParJour.exceptions || {}), [d]: parseFloat(val) || 0 } };
     setHeuresParJour(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
+    saveConfigDiffere("heures_par_jour", next);
   };
   const removeExceptionJour = (d) => {
     const exceptions = { ...(heuresParJour.exceptions || {}) };
@@ -2451,8 +2477,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updEmailTemplate = (key, field, val) => {
     const next = { ...emailTemplates, [key]: { ...emailTemplates[key], [field]: val } };
     setEmailTemplates(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("email_templates", next), 600);
+    saveConfigDiffere("email_templates", next);
   };
   const resetEmailTemplate = (key) => {
     const next = { ...emailTemplates, [key]: EMAIL_TEMPLATES_DEFAUT[key] };
@@ -2473,8 +2498,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     const next = phases.map((p, idx) => idx === i ? { ...p, ...patch } : p);
     setPhases(next);
     // Debounce save
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("phases_travaux", { items: next }), 600);
+    saveConfigDiffere("phases_travaux", { items: next });
   };
   const removePhase = () => {
     if (phaseToDelete === null) return;
@@ -2505,8 +2529,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updLot = (i, patch) => {
     const next = lots.map((l, idx) => idx === i ? { ...l, ...patch } : l);
     setLots(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("lots_travaux", { items: next }), 600);
+    saveConfigDiffere("lots_travaux", { items: next });
   };
   const removeLot = () => {
     if (lotToDelete === null) return;
@@ -2548,8 +2571,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updGroupeType = (i, patch) => {
     const next = groupesTypes.map((g, idx) => idx === i ? { ...g, ...patch } : g);
     setGroupesTypes(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("groupes_types", { items: next }), 600);
+    saveConfigDiffere("groupes_types", { items: next });
   };
   const removeGroupeType = () => {
     if (gtToDelete === null) return;
@@ -2625,8 +2647,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updEquipe = (i, patch) => {
     const next = equipes.map((eq, idx) => idx === i ? { ...eq, ...patch } : eq);
     setEquipes(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("equipes", { items: next }), 600);
+    saveConfigDiffere("equipes", { items: next });
   };
   const removeEquipe = () => {
     if (eqToDelete === null) return;
@@ -2675,8 +2696,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updOperation = (i, patch) => {
     const next = operations.map((o, idx) => idx === i ? { ...o, ...patch } : o);
     setOperations(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("operations", { items: next }), 600);
+    saveConfigDiffere("operations", { items: next });
   };
   const removeOperation = () => {
     if (opToDelete === null) return;
@@ -2779,20 +2799,33 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     setChantierToDelete(null);
   };
 
-  const updateChantier = async (i, ch) => {
+  // Sync différée du nom de phasage (une minuterie par chantier).
+  const syncPhasageTimers = React.useRef({});
+
+  // `differe` = la valeur vient d'une frappe au clavier : on n'écrit qu'une
+  // fois la saisie retombée. Écrire à chaque caractère faisait revenir en
+  // temps réel une version plus ancienne du nom par-dessus la frappe en cours.
+  const updateChantier = async (i, ch, differe = false) => {
     const ancien = chantiers[i];
     const u = chantiers.map((c, idx) => idx === i ? { ...c, ...ch } : c);
     setChantiers(u);
-    saveConfig("chantiers", u);
+    if (differe) saveConfigDiffere("chantiers", u);
+    else saveConfig("chantiers", u);
     // Synchronise le nom du phasage si le chantier a été renommé.
     if (ch.nom && ancien?.id && ch.nom !== ancien.nom) {
-      try {
-        await supabase.from("phasages")
-          .update({ chantier_nom: ch.nom })
-          .eq("chantier_id", ancien.id);
-      } catch (e) {
-        console.warn("Sync nom phasage échouée :", e?.message || e);
-      }
+      const chantierId = ancien.id, nom = ch.nom;
+      const sync = async () => {
+        try {
+          await supabase.from("phasages")
+            .update({ chantier_nom: nom })
+            .eq("chantier_id", chantierId);
+        } catch (e) {
+          console.warn("Sync nom phasage échouée :", e?.message || e);
+        }
+      };
+      if (!differe) return sync();
+      if (syncPhasageTimers.current[chantierId]) clearTimeout(syncPhasageTimers.current[chantierId]);
+      syncPhasageTimers.current[chantierId] = setTimeout(sync, 800);
     }
   };
 
@@ -4392,7 +4425,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 onChange={e=>{
                   const v=parseFloat(e.target.value)||0;
                   setTauxMOPrev&&setTauxMOPrev(v);
-                  saveConfig("taux_mo_previsionnel",v);
+                  saveConfigDiffere("taux_mo_previsionnel",v);
                 }}
                 placeholder={String(TAUX_MO_PREV_DEFAUT)}
                 style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4423,7 +4456,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 onChange={e=>{
                   const v=e.target.value;
                   setChiffrageTvaDefaut(v);
-                  saveConfig("chiffrage_tva_defaut",v===""?"":parseFloat(v)||0);
+                  saveConfigDiffere("chiffrage_tva_defaut",v===""?"":parseFloat(v)||0);
                 }}
                 placeholder="—"
                 style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4455,7 +4488,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 onChange={e=>{
                   const v=e.target.value;
                   setAcomptePctDefaut(v);
-                  saveConfig("acompte_pct_defaut",v===""?"":parseFloat(v)||0);
+                  saveConfigDiffere("acompte_pct_defaut",v===""?"":parseFloat(v)||0);
                 }}
                 placeholder="30"
                 style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4485,7 +4518,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   onChange={e=>{
                     const t={...tauxHoraires,[o]:parseFloat(e.target.value)||0};
                     setTauxHoraires(t);
-                    saveConfig("taux_horaires",t);
+                    saveConfigDiffere("taux_horaires",t);
                   }}
                   placeholder="0"
                   style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4679,7 +4712,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                         style={{background:col}} onClick={()=>{updateChantier(i,{couleur:col});setEditChIdx(null);}}/>
                     ))}
                   </div>
-                :<input className="ti" value={c.nom} onChange={e=>updateChantier(i,{nom:e.target.value.toUpperCase()})} style={{fontWeight:700}}/>
+                :<input className="ti" value={c.nom} onChange={e=>updateChantier(i,{nom:e.target.value.toUpperCase()},true)} style={{fontWeight:700}}/>
               }
               {editChIdx!==i&&operations.length>0&&(
                 <select className="ti" value={c.operation_id||""}

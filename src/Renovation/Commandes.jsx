@@ -938,8 +938,11 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   // Cette page ne montre plus que les commandes issues de commande_lignes.
   const commandes = rows;
 
-  const load = async () => {
-    setLoading(true);
+  // silencieux : rafraîchissement de fond (temps réel). Sans lui, chaque
+  // changement en base rallumait l'écran de chargement et démontait la ligne en
+  // cours d'édition — le champ perdait le curseur en pleine saisie.
+  const load = async ({ silencieux = false } = {}) => {
+    if (!silencieux) setLoading(true);
     // Nouveau modèle : une "ligne" d'affichage = une commande_ligne, enrichie
     // de l'en-tête commande (fournisseur, statuts, notes…).
     const { data } = await supabase
@@ -975,7 +978,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         };
       }));
     } else setRows([]);
-    setLoading(false);
+    if (!silencieux) setLoading(false);
   };
 
   const loadMateriaux = async () => {
@@ -992,8 +995,8 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
 
   useEffect(() => {
     const ch = supabase.channel("commande-lignes-rt")
-      .on("postgres_changes", { event: "*", schema: "public", table: "commande_lignes" }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "commande_lignes" }, () => load({ silencieux: true }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "commandes" }, () => load({ silencieux: true }))
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);

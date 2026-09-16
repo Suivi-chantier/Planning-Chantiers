@@ -980,6 +980,27 @@ function PageBibliotheque({ T, branch = "renovation" }) {
 
   const categories = [...CATEGORIES_BASE, ...categoriesCustom];
 
+  // Une fiche ouvrage ouverte en édition contient la saisie en cours (libellé,
+  // unité, sous-tâches, matériaux…) : elle vit dans `ouvrages`. Un rechargement
+  // temps réel remplacerait tout le tableau et ferait disparaître la frappe.
+  // Tant qu'une fiche est ouverte, on diffère donc le rechargement ; il part
+  // dès la fermeture de la fiche.
+  const editIdRef = useRef(null);
+  const rechargementEnAttente = useRef(false);
+  useEffect(() => {
+    editIdRef.current = editId;
+    if (!editId && rechargementEnAttente.current) {
+      rechargementEnAttente.current = false;
+      loadOuvrages({ silencieux: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
+
+  const rechargerOuvragesTempsReel = () => {
+    if (editIdRef.current) { rechargementEnAttente.current = true; return; }
+    loadOuvrages({ silencieux: true });
+  };
+
   useEffect(() => {
     loadOuvrages();
     loadCategoriesCustom();
@@ -1001,7 +1022,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     // est propagé en direct chez tous les utilisateurs connectés.
     const chOuvr = supabase.channel("biblio-ouvrages-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "bibliotheque_ratios" },
-          () => loadOuvrages())
+          () => rechargerOuvragesTempsReel())
       .subscribe();
     const chCat = supabase.channel("biblio-cats-rt")
       .on("postgres_changes",
@@ -1060,8 +1081,10 @@ function PageBibliotheque({ T, branch = "renovation" }) {
     setMateriaux(data || []);
   }
 
-  async function loadOuvrages() {
-    setLoading(true);
+  // silencieux : rechargement de fond (temps réel) — pas d'écran de chargement,
+  // qui démonterait la fiche en cours et ferait perdre le curseur.
+  async function loadOuvrages({ silencieux = false } = {}) {
+    if (!silencieux) setLoading(true);
     const { data } = await supabase.from("bibliotheque_ratios").select("*").order("libelle");
     if (data && data.length > 0) {
       tauxOrigine.current = new Map(data.map(o => [o.id, o.taux_horaire_vente_id ?? null]));
@@ -1074,7 +1097,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
       const { data: inserted } = await supabase.from("bibliotheque_ratios").insert(inserts).select();
       setOuvrages(inserted || []);
     }
-    setLoading(false);
+    if (!silencieux) setLoading(false);
   }
 
   // Catégories custom : stockées dans planning_config (partagées entre tous les

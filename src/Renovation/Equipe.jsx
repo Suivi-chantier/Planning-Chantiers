@@ -478,22 +478,24 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
   const appUrl = window.location.origin + "/rapport#rapport";
   const [copied, setCopied] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  // silencieux : rafraîchissement de fond (temps réel), sans écran de
+  // chargement — il démonterait un formulaire ouvert au-dessus de la liste.
+  const load = async ({ silencieux = false } = {}) => {
+    if (!silencieux) setLoading(true);
     let q = supabase.from("rapports").select("*").order("date_rapport",{ascending:false}).order("submitted_at",{ascending:false});
     if (filterOuvrier !== "all") q = q.eq("ouvrier", filterOuvrier);
     if (filterChantier !== "all") q = q.eq("chantier_id", filterChantier);
     if (filterSemaine) q = q.eq("semaine", filterSemaine);
     const { data } = await q;
     setRapports(data||[]);
-    setLoading(false);
+    if (!silencieux) setLoading(false);
   };
 
   useEffect(() => { load(); }, [filterOuvrier, filterChantier, filterSemaine]);
 
   useEffect(() => {
     const ch = supabase.channel("rapports-live")
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"rapports"},()=>load())
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"rapports"},()=>load({ silencieux: true }))
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [filterOuvrier, filterChantier, filterSemaine]);

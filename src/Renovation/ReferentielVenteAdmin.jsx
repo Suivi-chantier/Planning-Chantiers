@@ -46,7 +46,7 @@ export default function ReferentielVenteAdmin({
   useEffect(() => {
     charger();
     const ch = supabase.channel(`${table}-admin-rt`)
-      .on("postgres_changes", { event: "*", schema: "public", table }, () => charger())
+      .on("postgres_changes", { event: "*", schema: "public", table }, () => charger({ silencieux: true }))
       .on("postgres_changes", { event: "*", schema: "public", table: "bibliotheque_ratios" }, () => chargerUsages())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -60,8 +60,10 @@ export default function ReferentielVenteAdmin({
     setUsages(u);
   }
 
-  async function charger() {
-    setLoading(true);
+  // silencieux : rafraîchissement de fond (temps réel) — pas d'écran de
+  // chargement, qui démonterait la ligne en cours d'édition.
+  async function charger({ silencieux = false } = {}) {
+    if (!silencieux) setLoading(true);
     const { data, error } = await supabase.from(table).select("*").order("libelle");
     if (error) {
       if (new RegExp(table).test(error.message || "") && /does not exist|schema cache/i.test(error.message || "")) setSchemaManquant(true);
@@ -71,7 +73,7 @@ export default function ReferentielVenteAdmin({
       setItems([...(data || [])].sort(referentiel.comparer));
     }
     await chargerUsages();
-    setLoading(false);
+    if (!silencieux) setLoading(false);
   }
 
   const diag = useMemo(() => referentiel.diagnostiquer(items), [items, referentiel]);
