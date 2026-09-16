@@ -2332,6 +2332,13 @@ function CapacitesFacturationProgbat({ billing, T }) {
 
         {ligne("Rapprochements", { libelle: String(croisement?.allocations_trouvees ?? 0), couleur: (croisement?.allocations_trouvees > 0) ? "#22c55e" : T.textMuted },
           croisement ? `allocation(s) sur ${croisement.factures_referencees ?? 0} facture(s) de l'échantillon` : null)}
+
+        {/* Montants détaillés (4 factures au plus) : le détail complet est dans
+            le panneau technique, ici on ne dit que combien ont été examinées. */}
+        {ligne("Détails financiers",
+          { libelle: `${billing.details_factures?.nombre ?? 0} facture(s) examinée(s)`,
+            couleur: (billing.details_factures?.nombre > 0) ? T.text : T.textMuted },
+          billing.details_factures?.message || null)}
       </div>
 
       {/* Valeurs brutes observées — aucune traduction : la sémantique de ces

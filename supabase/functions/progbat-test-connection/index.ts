@@ -23,6 +23,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 //       `transactions.read` (les deux sont documentés ; la synchronisation à
 //       venir restera strictement en lecture et n'utilisera que la variante
 //       `.read`)
+//   GET /company/bills/{billId}       (4 au maximum)    scope `bills` ou `bills.read`
+//       → montants détaillés d'un échantillon représentatif de factures, pour
+//         comprendre l'articulation entre atiTotal (cumulatif sur une situation)
+//         et toBePaid (exigible après déduction des acomptes)
 //   GET /company/bills/{billId}/pdf                    scope `bills` ou `bills.read`
 //       → uniquement le code HTTP, le Content-Type et la TAILLE reçue. Le PDF
 //         n'est ni renvoyé, ni enregistré, ni journalisé.
@@ -212,6 +216,77 @@ const projeterTransaction = (t: Record<string, unknown>) => {
       amount: typeof c?.amount === "number" ? c.amount : null,
     })),
   }
+}
+
+// ── Détail financier de quelques factures (GET /company/bills/{id}) ─────────
+// Pourquoi : sur une facture de situation, `atiTotal` est CUMULATIF tandis que
+// `toBePaid` semble être l'exigible après déduction des acomptes. Le détail
+// unitaire porte les champs qui permettent de trancher (dealTotal vs total,
+// achievement / previousAchievement, deductedAdvance, atiDeductions, holdback).
+// Ce lot les remonte TELS QUELS : aucune formule n'est calculée ici.
+//
+// Seconde liste blanche, distincte de CHAMPS_FACTURE : le détail d'une facture
+// porte en plus `content[]` (les LIGNES de la facture) et tout le bloc client —
+// rien de tout cela ne doit sortir.
+const CHAMPS_DETAIL_FACTURE = [
+  "id", "code", "type", "documentDate", "quoteId", "situationNumber",
+  "status", "validated",
+  "dealTotal", "dealReduction", "dealNetTotal", "dealTaxes", "dealAtiTotal",
+  "achievement", "previousAchievement",
+  "total", "reduction", "netDeductions", "netTotal",
+  "taxRate", "taxes", "atiTotal",
+  "holdback", "deductedAdvance", "toBePaid", "atiDeductions",
+  "dgd", "taxDetails", "deductions",
+] as const
+
+const MAX_SOUS_LIGNES = 20 // borne de charge utile sur taxDetails / deductions
+
+const projeterDetailFacture = (b: Record<string, unknown>) => {
+  const out: Record<string, unknown> = {}
+  for (const c of CHAMPS_DETAIL_FACTURE) {
+    const v = b?.[c] ?? null
+    out[c] = Array.isArray(v) ? v.slice(0, MAX_SOUS_LIGNES) : v
+  }
+  return out
+}
+
+const estValidee = (f: Record<string, unknown>) => {
+  const v = typeof f.validated === "number" ? f.validated : Number(f.validated)
+  return Number.isFinite(v) && v !== 0
+}
+const nombreOuNull = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null)
+
+// Choisit au plus QUATRE factures représentatives dans l'échantillon déjà
+// récupéré (aucun appel supplémentaire pour choisir). Un brouillon
+// (validated = 0) n'est JAMAIS retenu. Une facture qui répond à deux critères
+// n'est prise qu'une fois, et le critère qui l'a fait retenir est conservé.
+function choisirFacturesADetailler(factures: Record<string, unknown>[]) {
+  const ecartTotal = (f: Record<string, unknown>) => {
+    const a = nombreOuNull(f.atiTotal), t = nombreOuNull(f.toBePaid)
+    return a !== null && t !== null && a !== t
+  }
+  const criteres: { critere: string; test: (f: Record<string, unknown>) => boolean }[] = [
+    { critere: "bill validée et réglée (status=1) avec toBePaid ≠ atiTotal",
+      test: (f) => f.type === "bill" && estValidee(f) && Number(f.status) === 1 && ecartTotal(f) },
+    { critere: "bill validée non réglée (status=0) avec toBePaid ≠ atiTotal",
+      test: (f) => f.type === "bill" && estValidee(f) && Number(f.status) === 0 && ecartTotal(f) },
+    { critere: "facture d'acompte (type=advance) validée",
+      test: (f) => f.type === "advance" && estValidee(f) },
+    { critere: "facture validée à montant négatif (avoir)",
+      test: (f) => estValidee(f) && ((nombreOuNull(f.atiTotal) ?? 0) < 0 || (nombreOuNull(f.toBePaid) ?? 0) < 0) },
+  ]
+  const retenues: { id: unknown; critere: string }[] = []
+  const vus = new Set<string>()
+  for (const c of criteres) {
+    const f = factures.find((x) => {
+      const k = String(x.id)
+      return !vus.has(k) && estValidee(x) && c.test(x)
+    })
+    if (!f) continue
+    vus.add(String(f.id))
+    retenues.push({ id: f.id, critere: c.critere })
+  }
+  return retenues.slice(0, 4) // garde-fou : jamais plus de 4 appels de détail
 }
 
 // Clé de comparaison d'identifiant : correspondance EXACTE sur la valeur
@@ -444,6 +519,36 @@ serve(async (req) => {
             : "Liste des factures inaccessible : test PDF non effectué.",
         }
 
+    // 5e. Détail financier de 4 factures représentatives au maximum.
+    // Un GET par facture retenue, jamais plus de quatre, chacun isolé : une
+    // facture illisible n'empêche ni les autres, ni le reste du diagnostic.
+    const aDetailler = choisirFacturesADetailler(echantillonFactures)
+    const detailsFactures: Record<string, unknown>[] = []
+    for (const { id, critere } of aDetailler) {
+      const d = await progbatGet(`/company/bills/${encodeURIComponent(String(id))}`, billingToken, "bills.read")
+      if (d.ok && d.data && typeof d.data === "object") {
+        detailsFactures.push({
+          critere, ok: true, http_status: d.status,
+          ...projeterDetailFacture(d.data as Record<string, unknown>),
+        })
+      } else {
+        detailsFactures.push({
+          critere, ok: false, http_status: d.status, id,
+          message: d.ok ? "Réponse ProGBat vide ou inattendue." : d.message,
+        })
+      }
+    }
+    const blocDetails = {
+      ok: detailsFactures.every((d) => d.ok === true),
+      nombre: detailsFactures.length,
+      echantillon: detailsFactures,
+      ...(aDetailler.length === 0
+        ? { message: blocFactures.ok
+            ? "Aucune facture de l'échantillon ne correspond aux critères (aucun brouillon n'est retenu)."
+            : "Liste des factures inaccessible : aucun détail demandé." }
+        : {}),
+    }
+
     // Journal : comptages et codes HTTP uniquement — aucun identifiant ProGBat,
     // aucun montant, aucun jeton, aucun corps de réponse.
     console.log(
@@ -451,7 +556,8 @@ serve(async (req) => {
       `/me → ${me.status}, /clients/me → ${co.status}, ` +
       `/company/bills → ${fact.r.status} (${blocFactures.nombre_recu}), ` +
       `/company/transactions → ${tr.r.status} (${blocTransactions.nombre_recu}), ` +
-      `croisements=${allocations}, pdf=${blocPdf.teste ? blocPdf.http_status : "non testé"} ` +
+      `croisements=${allocations}, pdf=${blocPdf.teste ? blocPdf.http_status : "non testé"}, ` +
+      `details=${blocDetails.nombre} ` +
       `(${Date.now() - t0} ms)`,
     )
 
@@ -470,6 +576,7 @@ serve(async (req) => {
         transactions: blocTransactions,
         croisement: blocCroisement,
         pdf: blocPdf,
+        details_factures: blocDetails,
       },
     })
   } catch (err) {
