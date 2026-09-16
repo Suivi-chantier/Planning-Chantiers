@@ -27,7 +27,7 @@ import {
   etapesSituationsTravaux, normaliserSeuilsSituations, SEUILS_SITUATIONS,
 } from "./cycleVie";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
-import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, ACCEPT_DOCS } from "./storageChantier";
+import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, ACCEPT_DOCS } from "./storageChantier";
 // Diagramme financier (Point 5) : séries prévues + récapitulatif (calcul pur)
 // et référence figée (table INSERT-only chantier_reference_financiere).
 import {
@@ -421,7 +421,7 @@ function ModaleEnvoiDocument({ envoi, chantierNom, auteur, T, onClose }) {
     try {
       const pj = envoi.pj;
       const lien = await urlDocumentChantier(pj.path, 7 * 24 * 3600);
-      if (!lien) throw new Error("lien du document introuvable (bucket « chantier-documents »)");
+      if (!lien) throw new Error(derniereErreurDocument() || "lien du document introuvable");
       // Fichier joint si ≤ 3 Mo ; sinon le lien signé suffit.
       let attachments = null;
       if ((pj.taille || 0) > 0 && pj.taille <= 3 * 1024 * 1024) {
@@ -2280,7 +2280,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     if (!selectedPhasage?.id || !file) return false;
     const doc = await uploadDocumentChantier(file, `cycle-vie/${selectedPhasage.id}/${etapeId}`);
     if (!doc) {
-      alert("Échec de l'envoi du fichier. Vérifiez que le bucket « chantier-documents » existe (sql/202607_bucket_chantier_documents.sql).");
+      alert(`Échec de l'envoi du fichier. ${derniereErreurDocument() || "Réessayez dans un instant."}`);
       return false;
     }
     const nowIso = new Date().toISOString();
@@ -2379,7 +2379,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     if (url) { if (fenetre) fenetre.location = url; else window.open(url, "_blank"); }
     else {
       if (fenetre) fenetre.close();
-      alert("Impossible d'ouvrir le fichier (bucket « chantier-documents » manquant ou fichier supprimé).");
+      alert(`Impossible d'ouvrir le fichier. ${derniereErreurDocument() || "Le document a peut-être été supprimé."}`);
     }
   };
 

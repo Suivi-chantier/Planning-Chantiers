@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
+    type: "correctif",
+    titre: "Chantiers : les documents du cycle de vie s'envoient et s'ouvrent à nouveau",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "L'import d'un document sur une étape du cycle de vie (devis signé, plans, PV de réception, DOE, pièce jointe) pouvait échouer avec un message affirmant que l'espace de stockage n'existait pas. Le stockage était bien en place : la demande partait sans la preuve que vous étiez connecté, et le serveur la refusait. Le fichier semblait alors impossible à joindre alors que tout le reste de la page fonctionnait normalement.",
+    comment: "L'envoi et l'ouverture d'un document emportent maintenant explicitement votre session, avec une seconde tentative automatique après renouvellement si le serveur refuse la première. Et si la session est réellement expirée, le message le dit clairement (« Session expirée : reconnectez-vous puis réessayez ») au lieu d'accuser le stockage.",
+  },
+  {
+    date: "2026-09-16",
     type: "nouveaute",
     titre: "Chiffrage : coefficient et taux horaire modifiables sur un seul ouvrage",
     pages: [{ id: "info-client", label: "Chiffrage" }],

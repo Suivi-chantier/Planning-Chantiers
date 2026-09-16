@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { MobileCard, MobileSection, MobileEmptyState, Pill, SummaryBar } from "../mobileUI";
 import { indexPointagesParTache, tacheHeuresReelles } from "../chantierFinance";
-import { urlDocumentChantier } from "./storageChantier";
+import { urlDocumentChantier, derniereErreurDocument } from "./storageChantier";
 import { getEtape } from "./cycleVie";
 import { NavButtons } from "./ouvrierNav";
 import PlanViewerOuvrier from "./PlanViewerOuvrier";
@@ -86,7 +86,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
     const fenetre = window.open("", "_blank"); // ouvrir AVANT l'await (anti-popup)
     const url = await urlDocumentChantier(pj.path);
     if (url) { if (fenetre) fenetre.location = url; else window.open(url, "_blank"); }
-    else { if (fenetre) fenetre.close(); alert("Impossible d'ouvrir le fichier — réessaie plus tard."); }
+    else { if (fenetre) fenetre.close(); alert(`Impossible d'ouvrir le fichier. ${derniereErreurDocument() || "Réessaie plus tard."}`); }
   };
 
   // ── Vue LISTE ───────────────────────────────────────────────────────────────
