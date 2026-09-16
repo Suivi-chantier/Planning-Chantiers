@@ -239,15 +239,15 @@ test("edge : garde MAX_PAGES, largement au-dessus des 110 chantiers actuels", as
 });
 
 test("edge : liste blanche stricte — rien d'autre ne sort", () => {
-  assert.deepEqual([...CHAMPS_YARD], ["id", "label", "publicYardNumber"]);
+  assert.deepEqual([...CHAMPS_YARD], ["id", "businessId", "label", "publicYardNumber"]);
   const projete = projeterYard({
-    id: 77, label: "Résidence Les Tilleuls", publicYardNumber: "C-77",
-    businessId: 5, managerId: 12, address: "12 rue des Lilas", postcode: "49000", city: "Angers",
+    id: 77, businessId: 5, label: "Résidence Les Tilleuls", publicYardNumber: "C-77",
+    managerId: 12, address: "12 rue des Lilas", postcode: "49000", city: "Angers",
     clientName: "Dupont", clientEmail: "dupont@example.com", phone: "0600000000",
     startDate: "2026-01-01", color: "#ff0000", holdbackDuration: 12,
   });
-  assert.deepEqual(Object.keys(projete).sort(), ["id", "label", "publicYardNumber"]);
-  assert.deepEqual(projete, { id: 77, label: "Résidence Les Tilleuls", publicYardNumber: "C-77" });
+  assert.deepEqual(Object.keys(projete).sort(), ["businessId", "id", "label", "publicYardNumber"]);
+  assert.deepEqual(projete, { id: 77, businessId: 5, label: "Résidence Les Tilleuls", publicYardNumber: "C-77" });
   // publicYardNumber réellement observé : null.
   assert.equal(projeterYard({ id: 3, label: "X", publicYardNumber: null }).publicYardNumber, null);
   // Un yard sans identifiant exploitable n'est pas rattachable : écarté.
@@ -256,13 +256,41 @@ test("edge : liste blanche stricte — rien d'autre ne sort", () => {
   }
 });
 
+test("edge : businessId (code affiché par ProGBat) sort, sans jamais remplacer id", () => {
+  // Cas réel : ProGBat affiche « #80 TROTIER - T3 - RDC », l'API renvoie
+  // businessId 80 et id 83. Les deux doivent survivre à la projection, chacun
+  // à sa place — c'est id, et lui seul, que portent les factures.
+  const y = projeterYard({ id: 83, businessId: 80, label: "T3 - RDC", publicYardNumber: null });
+  assert.deepEqual(y, { id: 83, businessId: 80, label: "T3 - RDC", publicYardNumber: null });
+  // businessId en texte : ProGBat renvoie parfois des nombres en chaîne.
+  assert.equal(projeterYard({ id: 83, businessId: "80" }).businessId, 80);
+  // businessId inexploitable → null, mais le yard reste rattachable.
+  for (const mauvais of [0, -1, 1.5, "abc", "", null, undefined, {}, []]) {
+    const p = projeterYard({ id: 83, businessId: mauvais, label: "T3 - RDC" });
+    assert.equal(p.businessId, null, `businessId ${JSON.stringify(mauvais)} doit devenir null`);
+    assert.equal(p.id, 83, "l'id technique n'est jamais remplacé par businessId");
+  }
+});
+
+test("edge : businessId ne sert JAMAIS à résoudre une facture", () => {
+  // La résolution facture → chantier ne connaît que yardId et quoteId. Si
+  // businessId y entrait, deux chantiers pourraient se disputer une facture.
+  const LIAISON = lire("src/Renovation/progbatLiaison.mjs");
+  assert.doesNotMatch(LIAISON, /businessId/);
+  // Et rien ne l'écrit dans la table de rattachement.
+  assert.doesNotMatch(lire("sql/202609_chantier_progbat_yards.sql"), /business_id/);
+});
+
 test("edge : aucune fuite de jeton ni de données interdites dans la réponse", async () => {
   const r = await parcourirYards(async ({ offset }) => ({
     ok: true,
     data: offset === 0 ? [{ id: 1, label: "A", clientEmail: "x@y.z", address: "secret", managerId: 9 }] : [],
   }), { pageSize: 5 });
   const rendu = JSON.stringify({ ok: true, nombre: r.yards.length, yards: r.yards });
-  for (const interdit of ["clientEmail", "address", "managerId", "businessId", "secret", "x@y.z"]) {
+  // businessId n'est PAS dans cette liste : c'est le code que ProGBat affiche
+  // lui-même à l'écran, volontairement exposé depuis le 16/09/2026. Tout le
+  // reste — client, adresse, téléphone, responsable — reste interdit.
+  for (const interdit of ["clientEmail", "address", "managerId", "secret", "x@y.z"]) {
     assert.ok(!rendu.includes(interdit), `${interdit} ne doit pas sortir`);
   }
   // Le code lui-même ne renvoie ni jeton ni corps brut.

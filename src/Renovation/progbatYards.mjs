@@ -26,12 +26,23 @@ export const PAGE_SIZE = 100;
 // renverrait éternellement des pages pleines finisse par s'arrêter.
 export const MAX_PAGES = 40;
 
-// LISTE BLANCHE. Le schéma ProGBat d'un yard contient aussi businessId,
-// managerId, startDate, endDate, meetingDay, meetingTime, holdbackDuration,
-// viewingDate, color — et le payload réel peut contenir davantage. On
-// RECONSTRUIT l'objet à partir de ces trois champs, on ne filtre pas : un champ
-// ajouté demain par ProGBat ne peut pas fuiter par omission.
-export const CHAMPS_YARD = Object.freeze(["id", "label", "publicYardNumber"]);
+// LISTE BLANCHE. Le schéma ProGBat d'un yard contient aussi managerId,
+// startDate, endDate, meetingDay, meetingTime, holdbackDuration, viewingDate,
+// color — et le payload réel peut contenir davantage. On RECONSTRUIT l'objet à
+// partir de ces quatre champs, on ne filtre pas : un champ ajouté demain par
+// ProGBat ne peut pas fuiter par omission.
+//
+// businessId en fait partie depuis le 16/09/2026, et ce n'est pas un détail :
+// c'est le numéro que ProGBat AFFICHE dans sa colonne « Code ». Sur un chantier
+// réel, l'écran ProGBat montre « #80 TROTIER - T3 - RDC » alors que l'API
+// renvoie businessId = 80, id = 83, label = "T3 - RDC". Sans businessId, un
+// utilisateur qui cherche « TROTIER » ou « 80 » ne trouve rien — il ne peut pas
+// deviner le 83.
+//
+// businessId sert UNIQUEMENT à reconnaître et retrouver un chantier à l'écran.
+// L'identifiant technique reste `id` : c'est lui, et lui seul, que portent les
+// factures (bill.yardId) et que stocke chantier_progbat_yards.
+export const CHAMPS_YARD = Object.freeze(["id", "businessId", "label", "publicYardNumber"]);
 
 // Identifiant ProGBat exploitable : entier strictement positif.
 // Même règle que progbatLiaison.mjs — 0, null, "" et "abc" ne sont pas des
@@ -52,7 +63,11 @@ export function projeterYard(brut) {
   const id = idProgbat(brut?.id);
   if (id === null) return null;
   return {
+    // businessId suit la même règle que id — entier strictement positif, sinon
+    // null. Un yard sans code affichable reste parfaitement rattachable : seul
+    // `id` est indispensable.
     id,
+    businessId: idProgbat(brut?.businessId),
     label: texteOuNull(brut?.label),
     publicYardNumber: texteOuNull(brut?.publicYardNumber),
   };

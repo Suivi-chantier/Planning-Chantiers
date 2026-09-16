@@ -8,6 +8,12 @@
 // personne ne sait, c'est à quel chantier PROFERO ce chantier ProGBat
 // correspond : ce lien est posé ici, à la main, une fois pour toutes.
 //
+// DEUX NUMÉROS : ProGBat AFFICHE « #80 TROTIER - T3 - RDC » et son API renvoie
+// businessId 80, id 83, label « T3 - RDC ». L'écran montre donc « Code ProGBat
+// #80 · T3 - RDC » (ce que l'utilisateur reconnaît) et « yard n°83 » en
+// secondaire (ce que portent les factures, et ce qui est enregistré dans
+// progbat_yard_id). La recherche accepte les deux. Voir progbatYardsEcran.mjs.
+//
 // Rien n'est jamais rapproché automatiquement — ni par libellé, ni par nom, ni
 // par ressemblance. Deux chantiers ProGBat d'un même immeuble portent des
 // libellés très proches ; un rapprochement « intelligent » se tromperait en
@@ -34,7 +40,8 @@ import {
   Building2, Plus, X, Loader2, AlertTriangle, Link2, Check, Search, RotateCcw,
 } from "lucide-react";
 import {
-  libelleYard, rattachementsDuChantier, yardsPrisAilleurs, yardsProposables, yardIntrouvable,
+  libelleYard, libelleLien, optionYard, rattachementsDuChantier,
+  yardsPrisAilleurs, yardsProposables, yardIntrouvable,
 } from "./progbatYardsEcran";
 
 // ── Cache mémoire de la liste ProGBat ───────────────────────────────────────
@@ -157,7 +164,10 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
     const { error } = await supabase.from("chantier_progbat_yards").insert({
       chantier_id: chantierId,
       progbat_yard_id: yard.id,
-      progbat_yard_label: yard.label || null,
+      // Le libellé enregistré porte le CODE VISIBLE (« Code ProGBat #80 · T3 -
+      // RDC ») et non le seul sous-libellé : c'est ce qui reste affiché quand
+      // ProGBat est injoignable, et « T3 - RDC » seul ne désigne rien.
+      progbat_yard_label: libelleYard(yard),
       progbat_public_yard_number: yard.publicYardNumber || null,
     });
     setBusy(false);
@@ -171,12 +181,12 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
       return;
     }
     setChoix(""); setRecherche("");
-    setMessage(`« ${libelleYard(yard.label, yard.id)} » rattaché à ce chantier.`);
+    setMessage(`« ${libelleYard(yard)} » rattaché à ce chantier.`);
     await chargerLiens();
   };
 
   const detacher = async (lien) => {
-    const nom = libelleYard(lien.progbat_yard_label, lien.progbat_yard_id);
+    const nom = libelleLien(lien, parId.get(String(lien.progbat_yard_id)));
     if (!window.confirm(`Détacher le chantier ProGBat « ${nom} » ?\n\nSes futures factures ne seront plus reconnues automatiquement sur ce chantier.`)) return;
     setBusy(true); setMessage("");
     const { error } = await supabase.from("chantier_progbat_yards").delete().eq("id", lien.id);
@@ -270,10 +280,13 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
                       style={{ flexShrink: 0, marginTop: 2 }}/>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: text }}>
-                        {libelleYard(l.progbat_yard_label, l.progbat_yard_id)}
+                        {libelleLien(l, connu)}
                       </div>
+                      {/* En secondaire : l'identifiant TECHNIQUE, nommé « yard »
+                          pour ne pas le confondre avec le code affiché par
+                          ProGBat. C'est lui que portent les factures. */}
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 3, fontSize: FONT.xs.size + 1, color: textSub }}>
-                        <span>ProGBat n°{l.progbat_yard_id}</span>
+                        <span>yard n°{l.progbat_yard_id}</span>
                         {numero && <span>n° public {numero}</span>}
                         {introuvable && (
                           <span style={{ color: textMuted, fontStyle: "italic" }}>
@@ -302,7 +315,7 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
               <div style={{ position: "relative", flex: "0 1 220px", minWidth: 160 }}>
                 <Icon as={Search} size={12} color={textMuted}
                   style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }}/>
-                <input value={recherche} placeholder="Rechercher un chantier ProGBat…"
+                <input value={recherche} placeholder="Rechercher (code, nom, n° de yard)…"
                   onChange={e => { setRecherche(e.target.value); setChoix(""); setMessage(""); }}
                   style={{ ...champStyle, width: "100%", paddingLeft: 26, boxSizing: "border-box" }}/>
               </div>
@@ -318,7 +331,7 @@ export default function ChantierYardsProgbat({ chantierId, chantiers = [], T, pe
                 </option>
                 {proposables.map(y => (
                   <option key={y.id} value={y.id} disabled={!!y.pris}>
-                    {libelleYard(y.label, y.id)} — ProGBat n°{y.id}
+                    {optionYard(y)}
                     {y.publicYardNumber ? ` · n° public ${y.publicYardNumber}` : ""}
                     {y.pris ? ` — déjà rattaché à ${nomChantier(y.pris)}` : ""}
                   </option>
