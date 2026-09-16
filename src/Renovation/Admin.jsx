@@ -2397,6 +2397,268 @@ function CapacitesFacturationProgbat({ billing, T }) {
   );
 }
 
+// ─── Prévisualisation de la synchronisation ProGBat (dry-run, lecture seule) ──
+// Appelle l'Edge Function `progbat-billing-dry-run`, qui calcule ce que la
+// future synchronisation des factures et des règlements CRÉERAIT ou MODIFIERAIT
+// sans rien écrire — ni dans Supabase, ni dans ProGBat.
+//
+// DÉCLENCHEMENT STRICTEMENT MANUEL : aucun useEffect ici, aucun appel au
+// montage, aucun enchaînement après le test de connexion. L'analyse parcourt
+// toutes les pages de /company/bills et /company/transactions : elle ne doit
+// partir que sur un clic explicite.
+//
+// La fonction ne renvoie ni client, ni adresse, ni e-mail, ni téléphone, ni
+// donnée bancaire, ni jeton (listes blanches côté serveur) : il n'y a donc rien
+// à masquer ici, et aucun champ n'est reconstitué.
+function PrevisualisationSyncProgbat({ T, acc }) {
+  const [enCours, setEnCours] = useState(false);
+  const [rapport, setRapport] = useState(null);
+  const [erreur, setErreur]   = useState(null);
+
+  // Le dernier résultat reste affiché tant qu'une nouvelle analyse n'est pas
+  // lancée ; c'est ce lancement, et lui seul, qui le remplace.
+  const analyser = async () => {
+    setEnCours(true); setRapport(null); setErreur(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-billing-dry-run");
+      if (error && !data) {
+        // Refus avant ProGBat (401/403 Supabase) ou erreur de transport : le
+        // corps JSON de la fonction est parfois joint à l'erreur.
+        let body = null;
+        try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
+        setErreur(body?.error || error.message || "Appel de la fonction impossible.");
+      } else if (data?.ok) {
+        setRapport(data);
+      } else {
+        setErreur(data?.error || "Réponse vide de la fonction.");
+      }
+    } catch (e) {
+      setErreur(e?.message || "Erreur inattendue.");
+    }
+    setEnCours(false);
+  };
+
+  // Tout ce qui suit lit le rapport DÉFENSIVEMENT : un rapport partiel (champ
+  // absent, catégorie inconnue) doit s'afficher en creux, jamais casser l'écran.
+  const nb = (v) => (Number.isFinite(v) ? v : 0);
+  const pagination  = rapport?.pagination ?? {};
+  const pagFactures = pagination.bills ?? {};
+  const pagTrans    = pagination.transactions ?? {};
+  const factures    = rapport?.factures ?? {};
+  const catF        = factures.categories ?? {};
+  const resF        = factures.resolution ?? {};
+  const exF         = factures.exemples ?? {};
+  const reglements  = rapport?.reglements ?? {};
+  const catR        = reglements.categories ?? {};
+  const exR         = reglements.exemples ?? {};
+  const ecritures   = rapport?.ecritures ?? {};
+  const absencesBloquees = rapport ? rapport.reconciliation_absence_autorisee === false : false;
+
+  const ligneSource = (label, bloc) => {
+    const complet = bloc?.complet === true;
+    return (
+      <div key={label} style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+        <span style={{minWidth:92,color:T.textSub}}>{label}</span>
+        <span style={{fontWeight:800,color:complet?"#22c55e":"#f59e0b"}}>
+          {complet ? "lecture complète" : "lecture incomplète"}
+        </span>
+        <span style={{color:T.textMuted}}>
+          {nb(bloc?.pages)} page(s) · {nb(bloc?.nombre_distinct)} élément(s) distinct(s)
+          {bloc?.garde_atteinte ? " · garde de pages atteinte" : ""}
+          {bloc?.tri_refuse ? " · tri refusé, relance sans tri" : ""}
+        </span>
+        {!complet && bloc?.erreur ? <span style={{flex:"1 1 100%",color:T.textSub,paddingLeft:100}}>{bloc.erreur}</span> : null}
+      </div>
+    );
+  };
+
+  const compteurs = (titre, items) => (
+    <div style={{marginTop:12}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>{titre}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {items.map(([label, valeur, couleur]) => (
+          <div key={label} style={{
+            display:"inline-flex",alignItems:"baseline",gap:6,
+            padding:"5px 9px",background:T.card,border:`1px solid ${T.border}`,
+            borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,
+          }}>
+            <span style={{color:T.textSub}}>{label}</span>
+            <strong style={{fontWeight:800,color:(valeur > 0 && couleur) ? couleur : T.text}}>{valeur}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Liste bornée (le serveur en renvoie 20 au plus par catégorie).
+  const liste = (titre, lignes, colonnes) => (lignes.length ? (
+    <div style={{marginTop:12}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+        {titre} ({lignes.length})
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {lignes.map((l, i) => (
+          <div key={i} style={{
+            padding:"6px 10px",background:T.card,border:`1px solid ${T.border}`,
+            borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,lineHeight:1.6,
+          }}>
+            <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"baseline"}}>
+              {colonnes(l).map(([label, valeur]) => (
+                <span key={label}>
+                  <span style={{color:T.textSub}}>{label} </span>
+                  <strong style={{fontWeight:700}}>{valeur}</strong>
+                </span>
+              ))}
+            </div>
+            {l?.motif ? <div style={{color:T.textSub,marginTop:2}}>{l.motif}</div> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null);
+
+  const val = (v) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  const montant = (v) => (Number.isFinite(v)
+    ? `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+    : "—");
+
+  // Factures à traiter à la main. Les conflits yard/devis sortent aujourd'hui
+  // dans la catégorie `non_resolue` (avec resolution = "conflit") ; la clé
+  // `conflit` est lue au cas où le serveur viendrait à l'isoler.
+  const facturesAVerifier = [
+    ...(Array.isArray(exF.non_resolue) ? exF.non_resolue : []),
+    ...(Array.isArray(exF.fusion_refusee) ? exF.fusion_refusee : []),
+    ...(Array.isArray(exF.conflit) ? exF.conflit : []),
+  ];
+  const reglementsAVerifier = [
+    ...(Array.isArray(exR.facture_introuvable) ? exR.facture_introuvable : []),
+    ...(Array.isArray(exR.transaction_inactive_ou_inconnue) ? exR.transaction_inactive_ou_inconnue : []),
+    ...(Array.isArray(exR.annulation_proposee) ? exR.annulation_proposee : []),
+  ];
+
+  return (
+    <div style={{flex:"1 1 100%",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:2}}>Prévisualisation de la synchronisation</div>
+          <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.55}}>
+            Analyse les factures et règlements ProGBat et indique ce qui serait importé. Aucune donnée n'est créée ou modifiée.
+          </div>
+        </div>
+        <button onClick={analyser} disabled={enCours} style={{
+          display:"inline-flex",alignItems:"center",gap:5,
+          padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+          background:enCours?T.border:acc.accent,color:enCours?T.textMuted:acc.onAccent,
+          fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:enCours?"not-allowed":"pointer",
+        }}>
+          <Icon as={RefreshCw} size={11} style={enCours?{animation:"spin 1s linear infinite"}:undefined}/>
+          {enCours ? "Analyse en cours…" : "Analyser la synchronisation"}
+        </button>
+      </div>
+
+      {erreur && (
+        <div style={{marginTop:10,fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text}}>
+          <div style={{fontWeight:700,color:"#e15a5a"}}>⚠ Analyse impossible</div>
+          <div style={{color:T.textSub}}>{erreur}</div>
+          <button onClick={analyser} disabled={enCours} style={{
+            marginTop:8,display:"inline-flex",alignItems:"center",gap:5,
+            background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+            padding:"5px 11px",color:T.textSub,fontFamily:"inherit",
+            fontSize:FONT.xs.size+1,fontWeight:700,cursor:enCours?"not-allowed":"pointer",
+          }}>
+            <Icon as={RefreshCw} size={11}/>
+            Réessayer
+          </button>
+        </div>
+      )}
+
+      {rapport && (
+        <div style={{marginTop:10,fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text}}>
+          <div style={{fontWeight:700,color:"#22c55e"}}>
+            ✓ Analyse terminée
+            {Number.isFinite(rapport.duree_ms) ? <span style={{color:T.textMuted,fontWeight:500}}> · {(rapport.duree_ms / 1000).toFixed(1)} s</span> : null}
+          </div>
+          {/* Ce que la fonction a réellement écrit : zéro, des deux côtés. */}
+          <div style={{color:T.textSub,fontWeight:700}}>
+            Lecture seule : {nb(ecritures.supabase)} écriture Supabase, {nb(ecritures.progbat)} écriture ProGBat.
+          </div>
+
+          <div style={{marginTop:12}}>
+            <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Pagination</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {ligneSource("Factures", pagFactures)}
+              {ligneSource("Transactions", pagTrans)}
+            </div>
+            {(pagFactures.complet !== true || pagTrans.complet !== true) && (
+              <div style={{marginTop:6,padding:"6px 10px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                ⚠ Une ressource ProGBat n'a pas été lue entièrement : les comptages ci-dessous sont partiels.
+              </div>
+            )}
+            {absencesBloquees && (
+              <div style={{marginTop:6,padding:"6px 10px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                ⚠ Réconciliation par absence désactivée : la lecture des transactions étant incomplète, aucune annulation de règlement n'est proposée.
+              </div>
+            )}
+          </div>
+
+          {compteurs("Factures", [
+            ["Reçues", nb(factures.recues)],
+            ["Créations proposées", nb(catF.creation), "#22c55e"],
+            ["Mises à jour", nb(catF.mise_a_jour), "#22c55e"],
+            ["Inchangées", nb(catF.inchangee)],
+            ["Brouillons ignorés", nb(catF.brouillon_ignore)],
+            ["Non résolues", nb(catF.non_resolue), "#f59e0b"],
+            ["Conflits", nb(resF.conflit), "#e15a5a"],
+            ["Résolues par chantier ProGBat", nb(resF.resolution_yard)],
+            ["Résolues par devis de secours", nb(resF.resolution_devis_secours)],
+            ["Chantiers ProGBat non rattachés", nb(resF.yard_non_rattache), "#f59e0b"],
+            ["Devis non rattachés", nb(resF.devis_non_rattache), "#f59e0b"],
+          ])}
+
+          {compteurs("Règlements", [
+            ["Transactions actives", nb(reglements.transactions_actives)],
+            ["Lettrages retenus", nb(reglements.lettrages_retenus)],
+            ["Créations", nb(catR.creation), "#22c55e"],
+            ["Mises à jour", nb(catR.mise_a_jour), "#22c55e"],
+            ["Inchangés", nb(catR.inchange)],
+            ["Factures introuvables", nb(catR.facture_introuvable), "#f59e0b"],
+            ["Annulations proposées", nb(catR.annulation_proposee), "#f59e0b"],
+            ["Déjà annulés", nb(catR.deja_annule)],
+            ["Transactions inactives ou inconnues", nb(catR.transaction_inactive_ou_inconnue)],
+          ])}
+
+          {liste("Factures à rattacher ou à vérifier", facturesAVerifier, (l) => [
+            ["Facture", val(l?.code)],
+            ["Chantier ProGBat", val(l?.yard_id)],
+            ["Devis", val(l?.quote_id)],
+            ["Cas", val(l?.resolution || l?.categorie)],
+          ])}
+
+          {liste("Règlements à vérifier", reglementsAVerifier, (l) => [
+            ["Transaction", val(l?.progbat_transaction_id)],
+            ["Facture ProGBat", val(l?.progbat_bill_id)],
+            ["Montant", montant(l?.montant)],
+            ["Cas", val(l?.categorie)],
+          ])}
+
+          {/* Rapport brut, replié par défaut — même esprit que le panneau
+              technique du test de connexion. */}
+          <details style={{marginTop:12}}>
+            <summary style={{cursor:"pointer",fontSize:FONT.xs.size+1,fontWeight:700,color:T.textMuted}}>
+              Rapport technique du dry-run
+            </summary>
+            <pre style={{
+              marginTop:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,
+              border:`1px solid ${T.border}`,maxHeight:340,overflow:"auto",
+              fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
+            }}>{JSON.stringify(rapport, null, 2)}</pre>
+          </details>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
@@ -4544,6 +4806,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               )}
               {/* Diagnostic facturation (lecture seule) — factures, règlements, PDF */}
               {progbatResult?.ok && <CapacitesFacturationProgbat billing={progbatResult.billing} T={T}/>}
+
+              {/* Prévisualisation de la synchronisation (dry-run). Toujours
+                  disponible : elle ne dépend pas du test de connexion et ne
+                  part JAMAIS toute seule — uniquement sur clic. */}
+              <PrevisualisationSyncProgbat T={T} acc={acc}/>
             </div>
           </div>
 
