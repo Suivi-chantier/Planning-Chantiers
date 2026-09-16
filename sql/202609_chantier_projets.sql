@@ -54,6 +54,19 @@ begin
   end if;
 end $$;
 
+-- `not null` ne suffit pas : une chaîne vide passerait, et créerait un
+-- rattachement vers aucun chantier — invisible dans l'écran, mais bien présent
+-- en base et capable de faire « résoudre » une facture vers le vide.
+-- Posé en `alter` guardé plutôt qu'en ligne dans le create : la contrainte
+-- s'ajoute aussi à une table déjà créée par une exécution précédente.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'chantier_projets_chantier_non_vide') then
+    alter table public.chantier_projets
+      add constraint chantier_projets_chantier_non_vide check (btrim(chantier_id) <> '');
+  end if;
+end $$;
+
 -- Sens de lecture le plus fréquent : « quels logements pour ce chantier ? ».
 -- (chantier_id n'est couvert par aucune contrainte, donc par aucun index.)
 create index if not exists chantier_projets_chantier_idx
@@ -68,6 +81,18 @@ drop policy if exists "chantier_projets bureau" on public.chantier_projets;
 create policy "chantier_projets bureau" on public.chantier_projets
   for all to authenticated
   using (not public.est_ouvrier()) with check (not public.est_ouvrier());
+
+-- Privilèges SQL, explicites — la RLS ne filtre que ce que les privilèges
+-- autorisent déjà. Supabase accorde par défaut TOUS les droits à `anon` et
+-- `authenticated` sur les tables de `public` : la RLS suffit à bloquer `anon`
+-- (aucune policy ne le vise), mais on retire quand même ses droits, comme sur
+-- materiel et materiel_audits — une policy ajoutée par erreur plus tard ne
+-- pourrait pas ouvrir la table à un visiteur non authentifié.
+revoke all on table public.chantier_projets from anon;
+-- Ce dont le navigateur a réellement besoin : lire, rattacher, détacher.
+-- (update n'est pas utilisé par l'écran, mais reste accordé pour que le
+-- trigger set_updated_at et une correction ponctuelle restent possibles.)
+grant select, insert, update, delete on table public.chantier_projets to authenticated;
 
 -- ─── Filet de sécurité data_history : tout update/delete garde l'état
 -- précédent. Nécessite sql/202606_data_history_filet_securite.sql. ─────────
@@ -84,11 +109,19 @@ begin
 end $$;
 
 -- ─── updated_at ────────────────────────────────────────────────────────────
+-- Double garde : la fonction commune doit exister ET la table doit porter la
+-- colonne updated_at. Sans la colonne, le trigger lèverait « record "new" has
+-- no field "updated_at" » à la première écriture — pas à la migration, ce qui
+-- est bien pire. Le cas se présente si une table chantier_projets antérieure,
+-- sans cette colonne, existe déjà (create table if not exists ne l'ajoute pas).
 do $$
 begin
   if exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'set_updated_at'
+  ) and exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'chantier_projets' and column_name = 'updated_at'
   ) then
     execute 'drop trigger if exists chantier_projets_set_updated_at on public.chantier_projets';
     execute 'create trigger chantier_projets_set_updated_at
@@ -131,17 +164,27 @@ set search_path = public
 as $$
   select e.project_id, e.progbat_quote_id, e.progbat_quote_code, e.statut, e.finished_at
   from public.progbat_quote_exports e
-  where public.est_ouvrier() = false
-    and auth.email() is not null
-    and e.progbat_quote_id is not null   -- un devis sans identifiant n'est pas exploitable
-    and e.statut in ('created', 'uncertain');
+  -- Garde d'appelant. SECURITY DEFINER veut dire que le corps s'exécute avec
+  -- les droits du propriétaire : sans ces deux lignes, n'importe quel appelant
+  -- parvenant à exécuter la fonction lirait la table. auth.uid() is not null
+  -- écarte l'anonyme (est_ouvrier() renvoie false pour lui, donc ne le filtre
+  -- PAS : c'est bien auth.uid() qui fait ce travail).
+  where auth.uid() is not null
+    and public.est_ouvrier() = false
+    -- Seuls les devis réellement créés dans ProGBat. 'uncertain' est exclu :
+    -- ce statut signifie « on ne sait pas si le devis existe » (2xx sans id,
+    -- délai, 5xx) et ne porte donc jamais d'identifiant exploitable — l'exclure
+    -- rend l'intention explicite plutôt que de la laisser dépendre d'un
+    -- identifiant nul. 'preparing', 'creating' et 'failed' n'ont rien créé.
+    and e.statut = 'created'
+    and e.progbat_quote_id is not null;  -- ceinture : pas d'identifiant, pas de référence
 $$;
 
 revoke all on function public.progbat_devis_exportables() from public, anon;
 grant execute on function public.progbat_devis_exportables() to authenticated;
 
 comment on function public.progbat_devis_exportables() is
-  'Devis ProGBat réellement créés (ou à l''état incertain), pour l''écran de rattachement chantier ↔ logement. Lecture seule, bureau uniquement, expose le strict minimum de progbat_quote_exports.';
+  'Devis ProGBat réellement créés (statut created, identifiant connu), pour l''écran de rattachement chantier ↔ logement. Lecture seule, bureau authentifié uniquement, expose le strict minimum de progbat_quote_exports.';
 
 -- ─── Contrôle ──────────────────────────────────────────────────────────────
 -- select * from public.progbat_devis_exportables();
