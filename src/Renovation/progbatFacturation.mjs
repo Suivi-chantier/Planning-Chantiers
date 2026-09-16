@@ -322,13 +322,17 @@ export function fusionnerFactureProgbat(existante, entrante) {
 /**
  * @param transaction ligne de GET /company/transactions
  * @param checking    une entrée de transaction.checking[]
- * @returns { ok: true, ligne } | { ok: false, motif, raison }
+ * @returns { ok: true, progbat_bill_id, ligne } | { ok: false, motif, raison }
  *
- * `ligne.progbat_bill_id` désigne la facture à retrouver (checking.docId) :
- * l'appelant y substituera le facture_id local. Rien de bancaire ne sort ici —
- * ni bankAccountId, ni label, ni paymentNumber, ni IBAN.
+ * `ligne` ne contient QUE de vraies colonnes de chantier_factures_reglements :
+ * elle part telle quelle dans un insert. Le bill.id, lui, reste DEHORS —
+ * c'est une clé de résolution (bill.id → facture_id local), pas une donnée de
+ * la ligne, et l'y laisser ferait échouer l'écriture sur une colonne absente.
+ *
+ * Rien de bancaire ne sort ici : ni bankAccountId, ni label, ni paymentNumber,
+ * ni IBAN.
  */
-export function normaliserReglementProgbat(transaction, checking, { synchroniseLe = null } = {}) {
+export function normaliserReglementProgbat(transaction, checking) {
   // docType est comparé à "bill" EXACTEMENT : ProGBat n'énumère pas ses
   // valeurs, et un lettrage de facture fournisseur ou d'avoir d'achat ne doit
   // pas atterrir sur une facture client.
@@ -354,11 +358,13 @@ export function normaliserReglementProgbat(transaction, checking, { synchroniseL
 
   return {
     ok: true,
+    // Clé de résolution, HORS de la ligne SQL : l'appelant remplace ce bill.id
+    // par le facture_id local avant d'écrire.
+    progbat_bill_id: billId,
     ligne: {
       source: "progbat",
       progbat_transaction_id: transactionId,
       progbat_doc_type: "bill",
-      progbat_bill_id: billId,          // → facture_id, résolu par l'appelant
       date_reglement: dateOuNull(transaction?.date),
       montant,                          // signé
       mode: texteOuNull(transaction?.paymentMode, 40),
@@ -369,19 +375,21 @@ export function normaliserReglementProgbat(transaction, checking, { synchroniseL
       // disparaître un règlement réel de tous les soldes.
       progbat_canceled: entierOuNull(transaction?.canceled),
       annule: false,
-      progbat_synced_at: synchroniseLe,
     },
   };
 }
 
-/** Tous les règlements d'une transaction, lettrages non-facture écartés. */
-export function reglementsDeTransaction(transaction, options = {}) {
+/**
+ * Tous les règlements d'une transaction, lettrages non-facture écartés.
+ * Chaque élément retenu garde les deux parts séparées : { progbat_bill_id, ligne }.
+ */
+export function reglementsDeTransaction(transaction) {
   const lignes = Array.isArray(transaction?.checking) ? transaction.checking : [];
   const retenus = [];
   const ignores = [];
   for (const c of lignes) {
-    const r = normaliserReglementProgbat(transaction, c, options);
-    if (r.ok) retenus.push(r.ligne);
+    const r = normaliserReglementProgbat(transaction, c);
+    if (r.ok) retenus.push({ progbat_bill_id: r.progbat_bill_id, ligne: r.ligne });
     else ignores.push({ motif: r.motif, raison: r.raison });
   }
   return { retenus, ignores };

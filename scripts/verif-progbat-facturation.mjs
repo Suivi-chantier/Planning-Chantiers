@@ -286,10 +286,14 @@ test("règlement : docType « bill » exactement, rien d'autre", () => {
 });
 
 test("règlement : identifiants exigés, montant signé, date reprise", () => {
-  const { ligne } = normaliserReglementProgbat(TRANSACTION, { docType: "bill", docId: 4711, amount: -925.15 });
+  const r = normaliserReglementProgbat(TRANSACTION, { docType: "bill", docId: 4711, amount: -925.15 });
+  const ligne = r.ligne;
   assert.equal(ligne.progbat_transaction_id, 9001);
   assert.equal(ligne.progbat_doc_type, "bill");
-  assert.equal(ligne.progbat_bill_id, 4711);
+  // Le bill.id est une clé de RÉSOLUTION : il est rendu à côté de la ligne,
+  // jamais dedans — chantier_factures_reglements n'a pas cette colonne.
+  assert.equal(r.progbat_bill_id, 4711);
+  assert.equal(ligne.progbat_bill_id, undefined);
   assert.equal(ligne.montant, -925.15, "le signe du lettrage est conservé");
   assert.equal(ligne.date_reglement, "2026-09-20");
   assert.equal(ligne.mode, "VIR");
@@ -309,10 +313,36 @@ test("règlement : aucune donnée bancaire ne sort", () => {
   for (const interdit of ["bankAccountId", "label", "VIR SEPA", "paymentNumber", "VIR-77", "iban", "FR7630006000", "thirdId"]) {
     assert.ok(!rendu.includes(interdit), `${interdit} ne doit pas être stocké`);
   }
-  assert.deepEqual(Object.keys(retenus[0]).sort(), [
-    "annule", "date_reglement", "mode", "montant", "progbat_bill_id", "progbat_canceled",
-    "progbat_doc_type", "progbat_synced_at", "progbat_transaction_id", "source",
+  assert.deepEqual(Object.keys(retenus[0].ligne).sort(), [
+    "annule", "date_reglement", "mode", "montant", "progbat_canceled",
+    "progbat_doc_type", "progbat_transaction_id", "source",
   ]);
+});
+
+test("règlement : la ligne ne porte QUE de vraies colonnes de la table", () => {
+  // Une clé de trop (progbat_bill_id, progbat_synced_at…) ferait échouer
+  // l'insert en production sur « column does not exist ». Les colonnes sont
+  // lues dans la migration elle-même, pas recopiées à la main ici.
+  const creation = SQL_CODE.slice(
+    SQL_CODE.indexOf("create table if not exists public.chantier_factures_reglements"),
+  );
+  const corps = creation.slice(creation.indexOf("(") + 1, creation.indexOf("\n);"));
+  const colonnes = new Set(
+    corps.split("\n").map((l) => (/^\s{2}([a-z_]+)\s+\S/.exec(l) || [])[1]).filter(Boolean),
+  );
+  assert.ok(colonnes.has("progbat_transaction_id") && colonnes.has("montant") && colonnes.size >= 10,
+    `colonnes mal relues : ${[...colonnes].join(", ")}`);
+  const { retenus } = reglementsDeTransaction(TRANSACTION);
+  for (const k of Object.keys(retenus[0].ligne)) {
+    assert.ok(colonnes.has(k), `${k} n'est pas une colonne de chantier_factures_reglements`);
+  }
+  // Les deux clés qui n'en sont pas, nommément.
+  assert.equal(colonnes.has("progbat_bill_id"), false);
+  assert.equal(colonnes.has("progbat_synced_at"), false);
+  assert.equal(retenus[0].ligne.progbat_synced_at, undefined);
+  assert.equal(retenus[0].ligne.progbat_bill_id, undefined);
+  // …et le bill.id reste disponible pour l'appelant, à côté de la ligne.
+  assert.equal(retenus[0].progbat_bill_id, 4711);
 });
 
 test("règlement : canceled est conservé brut, jamais interprété", () => {
@@ -471,8 +501,13 @@ test("migration : additive, rejouable, sans perte", () => {
   assert.equal((SQL_CODE.match(/add column if not exists/g) || []).length, 33);
   const contraintes = [...SQL_CODE.matchAll(/add constraint (\w+)/g)].map((m) => m[1]);
   assert.equal(contraintes.length, 8);
+  // Rejouable : chaque contrainte est soit posée sous garde pg_constraint,
+  // soit retirée juste avant (drop if exists). Les deux formes coexistent : la
+  // table des règlements est neuve, celle des factures est réécrite.
   for (const c of contraintes) {
-    assert.ok(new RegExp(`conname = '${c}'`).test(SQL_CODE), `${c} doit être posée sous garde`);
+    const sousGarde = new RegExp(`conname = '${c}'`).test(SQL_CODE);
+    const retiree = new RegExp(`drop constraint if exists ${c}`).test(SQL_CODE);
+    assert.ok(sousGarde || retiree, `${c} doit être posée sous garde ou retirée d'abord`);
   }
 });
 
@@ -502,9 +537,6 @@ test("migration : contraintes d'intégrité ProGBat", () => {
   assert.match(SQL_CODE, /progbat_bill_id\s+is null or progbat_bill_id\s+> 0/);
   assert.match(SQL_CODE, /progbat_yard_id\s+is null or progbat_yard_id\s+> 0/);
   assert.match(SQL_CODE, /progbat_quote_id\s+is null or progbat_quote_id\s+> 0/);
-  // Montants : TTC exigé côté ProGBat, HT et TVA libres.
-  assert.match(SQL_CODE, /check \(source <> 'progbat' or montant_ttc is not null\)/);
-  assert.doesNotMatch(SQL_CODE, /montant_ht\s+set not null|alter column montant_ht/);
   // Détails JSON : des tableaux, ou rien.
   assert.match(SQL_CODE, /jsonb_typeof\(progbat_tax_details\) = 'array'/);
   assert.match(SQL_CODE, /jsonb_typeof\(progbat_deductions\)\s+= 'array'/);
@@ -513,6 +545,41 @@ test("migration : contraintes d'intégrité ProGBat", () => {
   // Les statuts ne changent pas.
   assert.doesNotMatch(SQL_CODE, /statut in \(/);
   assert.doesNotMatch(SQL_CODE, /'partielle'/);
+});
+
+test("migration : invariants d'une facture ProGBat garantis par la base", () => {
+  // Ce que le module écrit, la base doit l'exiger : sans ces invariants, une
+  // ligne « à moitié ProGBat » (brouillon, TTC divergent du toBePaid, HT
+  // reconstitué) pourrait s'installer sans que rien ne la signale.
+  const inv = SQL_CODE.slice(
+    SQL_CODE.indexOf('add constraint chantier_factures_client_progbat_invariants'),
+    SQL_CODE.indexOf('add constraint chantier_factures_client_progbat_ids_positifs'),
+  );
+  assert.ok(inv.length > 0, 'contrainte d\'invariants absente');
+  assert.match(inv, /source <> 'progbat' or \(/);
+  assert.match(inv, /progbat_bill_id is not null and progbat_bill_id > 0/);
+  assert.match(inv, /progbat_validated = 1/);
+  assert.match(inv, /progbat_to_be_paid is not null/);
+  assert.match(inv, /montant_ttc is not null/);
+  assert.match(inv, /montant_ttc = progbat_to_be_paid/);
+  assert.match(inv, /montant_ht is null/);
+  assert.match(inv, /montant_tva is null/);
+  // Les factures manuelles ne gagnent aucune exigence : rien ne devient
+  // not null, et aucune contrainte ne les vise.
+  assert.doesNotMatch(SQL_CODE, /montant_ht\s+set not null|alter column montant_ht|alter column montant_tva|alter column montant_ttc/);
+  assert.doesNotMatch(SQL_CODE, /source = 'manuel' and/);
+  // Rejouable : chaque contrainte est retirée avant d'être reposée.
+  for (const c of ['source_check', 'progbat_identite', 'progbat_invariants',
+                   'progbat_ids_positifs', 'progbat_json_tableaux']) {
+    assert.match(SQL_CODE, new RegExp(`drop constraint if exists chantier_factures_client_${c}`),
+      `${c} doit être retirée avant d'être reposée`);
+    assert.ok(SQL_CODE.indexOf(`drop constraint if exists chantier_factures_client_${c}`)
+      < SQL_CODE.indexOf(`add constraint chantier_factures_client_${c}`), `${c} : drop avant add`);
+  }
+  // L'ancienne contrainte de montant, remplacée par les invariants, est
+  // explicitement retirée (le fichier a pu être lu avant correction).
+  assert.match(SQL_CODE, /drop constraint if exists chantier_factures_client_progbat_montant/);
+  assert.doesNotMatch(SQL_CODE, /add constraint chantier_factures_client_progbat_montant/);
 });
 
 test("migration : unicité — bill.id pour ProGBat, numéro pour le manuel", () => {
@@ -525,20 +592,51 @@ test("migration : unicité — bill.id pour ProGBat, numéro pour le manuel", ()
   assert.ok(posNouveau > 0 && posDrop > posNouveau, "le nouvel index doit être créé avant le drop de l'ancien");
 });
 
-test("migration : garde-fou sur les champs ProGBat depuis le navigateur", () => {
-  assert.match(SQL_CODE, /create or replace function public\.protege_champs_progbat_facture\(\)/);
-  assert.match(SQL_CODE, /before update on public\.chantier_factures_client/);
-  // Seul `authenticated` est bloqué : service_role (synchronisation) et
-  // l'éditeur SQL (aucune revendication) doivent pouvoir écrire.
-  assert.match(SQL_CODE, /role_appelant <> 'authenticated'/);
-  assert.match(SQL_CODE, /request\.jwt\.claims/);
-  // La comparaison couvre TOUTES les colonnes progbat_*, présentes et futures.
-  assert.match(SQL_CODE, /k like 'progbat\\_%'/);
-  assert.match(SQL_CODE, /new\.source is distinct from old\.source/);
-  // Et ce qui reste modifiable par un humain n'est pas touché par le trigger.
-  for (const libre of ["ligne_id", "rapprochement", "statut"]) {
-    assert.doesNotMatch(SQL_CODE, new RegExp(`raise exception[^;]*${libre}`), `${libre} doit rester modifiable`);
+test("migration : garde-fou — INSERT et UPDATE, sur le rôle SQL réel", () => {
+  assert.match(SQL_CODE, /create or replace function public\.protege_factures_progbat\(\)/);
+  // BEFORE INSERT OR UPDATE : un INSERT direct de facture ProGBat depuis le
+  // navigateur était la faille du premier jet.
+  assert.match(SQL_CODE, /before insert or update on public\.chantier_factures_client/);
+  // Le rôle SQL réel, pas une revendication du client.
+  assert.match(SQL_CODE, /current_user not in \('authenticated', 'anon'\)/);
+  assert.doesNotMatch(SQL_CODE, /request\.jwt\.claims/);
+  // L'ancien garde-fou est retiré nommément, trigger ET fonction.
+  assert.match(SQL_CODE, /drop trigger if exists trg_protege_champs_progbat_facture/);
+  assert.match(SQL_CODE, /drop function if exists public\.protege_champs_progbat_facture\(\)/);
+});
+
+test("migration : garde-fou — OLD n'est jamais lu pendant un INSERT", () => {
+  // Lire OLD sur INSERT lève « record \"old\" is not assigned yet » et casserait
+  // TOUTE création de facture, y compris manuelle.
+  const fn = SQL_CODE.slice(
+    SQL_CODE.indexOf('create or replace function public.protege_factures_progbat'),
+    SQL_CODE.indexOf('drop trigger if exists trg_protege_champs_progbat_facture'),
+  );
+  const branche = fn.slice(fn.indexOf("if tg_op = 'INSERT' then"));
+  const avantRetour = branche.slice(0, branche.indexOf('return new;'));
+  assert.doesNotMatch(avantRetour, /\bold\b/, 'la branche INSERT ne doit pas lire OLD');
+  // Et rien ne lit OLD avant que la branche INSERT n'ait rendu la main.
+  const avantBranche = fn.slice(fn.indexOf('begin'), fn.indexOf("if tg_op = 'INSERT' then"));
+  assert.doesNotMatch(avantBranche, /\bold\b/);
+});
+
+test("migration : garde-fou — ce qui est gelé et ce qui reste libre", () => {
+  const fn = SQL_CODE.slice(SQL_CODE.indexOf('create or replace function public.protege_factures_progbat'));
+  const geles = fn.slice(fn.indexOf('champs_geles constant text[]'), fn.indexOf('];'));
+  for (const c of ['numero', 'date_facture', 'montant_ht', 'montant_tva', 'montant_ttc',
+                   'pct_du_marche', 'statut', 'date_encaissement', 'montant_encaisse',
+                   'document_path', 'document_nom']) {
+    assert.match(geles, new RegExp(`'${c}'`), `${c} doit être gelé`);
   }
+  // Les champs du travail humain ne sont jamais gelés.
+  for (const libre of ['chantier_id', 'ligne_id', 'ligne_nom', 'ligne_id_verrouille',
+                       'ligne_id_modifie_par', 'ligne_id_modifie_le', 'rapprochement',
+                       'raison', 'commentaire']) {
+    assert.doesNotMatch(geles, new RegExp(`'${libre}'`), `${libre} doit rester modifiable`);
+  }
+  // Tous les progbat_* sont couverts d'un coup, présents et futurs.
+  assert.match(fn, /k like 'progbat\\_%'/);
+  assert.match(fn, /new\.source is distinct from old\.source/);
 });
 
 test("migration : table des règlements, colonnes et contraintes", () => {
@@ -585,10 +683,265 @@ test("migration : la facturation manuelle existante n'est pas touchée", () => {
   // Ni la table d'origine, ni son trigger updated_at, ni ses statuts.
   assert.doesNotMatch(SQL_CODE, /drop trigger if exists trg_touch_factures_client/);
   assert.doesNotMatch(SQL_CODE, /drop policy if exists "factures client bureau"/);
-  assert.doesNotMatch(SQL_CODE, /alter table public\.chantier_factures_client\s+drop/);
+  // Les seuls `drop` visant la table sont des drop constraint de CE fichier :
+  // aucune colonne, aucune contrainte de la migration d'origine.
+  const drops = [...SQL_CODE.matchAll(/drop (\w+) if exists ([\w."]+)/g)].map((m) => `${m[1]} ${m[2]}`);
+  for (const d of drops) {
+    assert.ok(/^(constraint chantier_factures_(client|reglements)_|index public\.uq_factures_client_numero$|trigger trg_|function public\.protege_|policy)/.test(d)
+      || d.startsWith("trigger chantier_factures_reglements"),
+      `drop inattendu : ${d}`);
+  }
   // montant_encaisse reste en place pour l'historique manuel.
   assert.ok(!SQL_CODE.includes("drop column") && !/montant_encaisse[^;]*drop/i.test(SQL_CODE));
 });
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. POSTGRESQL RÉEL — le trigger et les contraintes, exécutés
+// ═══════════════════════════════════════════════════════════════════════════
+// Une analyse de texte ne prouve pas qu'un trigger PL/pgSQL fait ce qu'il dit :
+// « OLD lu pendant un INSERT » ou « current_user mal comparé » ne se voient
+// qu'à l'exécution. Ce volet joue donc les DEUX migrations telles quelles dans
+// un PostgreSQL jetable, avec les rôles de Supabase, et vérifie les refus et
+// les autorisations une par une.
+//
+// Opt-in, parce qu'il exige Docker :   node scripts/verif-progbat-facturation.mjs --pg
+// Sans lui, le reste du harnais tourne hors ligne et les contrôles sur le
+// trigger restent STATIQUES — ce que la sortie annonce explicitement.
+const AVEC_PG = process.argv.includes("--pg") || process.env.VERIF_PG === "1";
+const IMAGE_PG = process.env.VERIF_PG_IMAGE || "postgres:16-alpine";
+const CONTENEUR = "pg-verif-progbat-facturation";
+
+if (AVEC_PG) {
+  const { execFileSync } = await import("node:child_process");
+  const docker = (args, options = {}) =>
+    execFileSync("docker", args, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], ...options });
+  // ON_ERROR_STOP : la moindre erreur inattendue fait échouer le contrôle.
+  const psql = (sql, role = null) =>
+    docker(["exec", "-i", CONTENEUR, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1",
+            "-X", "-q", "-t", "-A", "-f", "-"],
+           { input: (role ? "set role " + role + ";\n" : "") + sql });
+
+  // Un ordre censé être REFUSÉ. On exige le refus ET son code SQL : un échec
+  // pour une autre raison (colonne absente, privilège manquant) serait un faux
+  // positif rassurant.
+  const refuse = (sql, role, codes, libelle) => {
+    let sortie = "";
+    try {
+      sortie = psql(sql, role);
+    } catch (e) {
+      const msg = String(e?.stderr || e?.message || "");
+      assert.ok(codes.some((c) => msg.includes(c)),
+        libelle + " : refusé, mais pas pour la bonne raison →\n        " + msg.trim().split("\n").slice(0, 3).join(" | "));
+      return;
+    }
+    assert.fail(libelle + " : l'ordre a été ACCEPTÉ alors qu'il devait être refusé. " + sortie);
+  };
+
+  test("pg : préparation d'un PostgreSQL jetable et application des migrations", () => {
+    try { docker(["rm", "-f", CONTENEUR]); } catch { /* pas de conteneur résiduel */ }
+    docker(["run", "-d", "--name", CONTENEUR, "-e", "POSTGRES_PASSWORD=verif", IMAGE_PG]);
+    let pret = false;
+    for (let i = 0; i < 60 && !pret; i++) {
+      try { docker(["exec", CONTENEUR, "pg_isready", "-U", "postgres"]); pret = true; }
+      catch { execFileSync("docker", ["exec", CONTENEUR, "sleep", "1"]); }
+    }
+    assert.ok(pret, "PostgreSQL n'a pas démarré");
+
+    // Les rôles de Supabase, et rien d'autre. service_role porte BYPASSRLS,
+    // comme chez Supabase : c'est lui que la synchronisation utilisera.
+    psql(
+      "do $$ begin\n" +
+      "  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;\n" +
+      "  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;\n" +
+      "  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;\n" +
+      "end $$;\n" +
+      "grant usage on schema public to anon, authenticated, service_role;\n" +
+      "alter default privileges in schema public grant all on tables to anon, authenticated, service_role;\n" +
+      // est_ouvrier() est la règle d'accès de l'application : ici, un utilisateur
+      // du bureau (donc false), sinon aucune policy ne laisserait rien passer.
+      "create or replace function public.est_ouvrier() returns boolean language sql stable as $f$ select false $f$;\n",
+    );
+    // Les deux migrations, telles qu'elles seront collées dans l'éditeur SQL.
+    psql(lire("sql/202609_facturation_client.sql"));
+    psql(lire("sql/202609_facturation_progbat.sql"));
+    // Rejouable : on les applique une seconde fois, ce que fera tôt ou tard un
+    // copier-coller de contrôle.
+    psql(lire("sql/202609_facturation_client.sql"));
+    psql(lire("sql/202609_facturation_progbat.sql"));
+
+    const colonnes = psql("select count(*) from information_schema.columns where table_name = 'chantier_factures_client' and column_name like 'progbat_%';").trim();
+    assert.equal(colonnes, "29");
+    const trigger = psql("select tgname from pg_trigger where tgrelid = 'public.chantier_factures_client'::regclass and not tgisinternal order by 1;").trim();
+    assert.match(trigger, /trg_protege_factures_progbat/);
+    assert.doesNotMatch(trigger, /trg_protege_champs_progbat_facture/, "l'ancien trigger doit avoir disparu");
+  });
+
+  test("pg : authenticated ne peut pas CRÉER de facture ProGBat", () => {
+    refuse(
+      "insert into public.chantier_factures_client (chantier_id, source, progbat_bill_id, progbat_validated, progbat_to_be_paid, montant_ttc) " +
+      "values ('trottier', 'progbat', 4711, 1, 925.15, 925.15);",
+      "authenticated", ["ne se crée pas depuis l'application"],
+      "INSERT source='progbat' par authenticated",
+    );
+  });
+
+  test("pg : authenticated crée toujours une facture manuelle (OLD n'est pas lu)", () => {
+    // Si le trigger lisait OLD pendant l'INSERT, PostgreSQL lèverait
+    // « record "old" is not assigned yet » et TOUTE création échouerait.
+    psql("insert into public.chantier_factures_client (chantier_id, source, numero, montant_ht, montant_tva, montant_ttc, statut) " +
+         "values ('trottier', 'manuel', 'FA-MANUELLE-1', 100, 20, 120, 'emise');", "authenticated");
+    const n = psql("select count(*) from public.chantier_factures_client where numero = 'FA-MANUELLE-1';").trim();
+    assert.equal(n, "1");
+    // Et il peut la modifier librement : rien n'est gelé sur une facture manuelle.
+    psql("update public.chantier_factures_client set montant_ttc = 150, statut = 'encaissee' where numero = 'FA-MANUELLE-1';", "authenticated");
+  });
+
+  test("pg : service_role crée et synchronise une facture ProGBat", () => {
+    psql(
+      "insert into public.chantier_factures_client (id, chantier_id, source, numero, date_facture, montant_ttc, " +
+      "progbat_bill_id, progbat_bill_code, progbat_validated, progbat_to_be_paid, progbat_ati_total, progbat_status) " +
+      "values ('11111111-1111-1111-1111-111111111111', 'trottier', 'progbat', 'FA2026-0042', '2026-09-10', 925.15, " +
+      "4711, 'FA2026-0042', 1, 925.15, 1850.31, 0);",
+      "service_role",
+    );
+    // Et il peut la mettre à jour : c'est la synchronisation.
+    psql("update public.chantier_factures_client set progbat_status = 1, montant_ttc = 900, progbat_to_be_paid = 900 " +
+         "where progbat_bill_id = 4711;", "service_role");
+    const m = psql("select montant_ttc from public.chantier_factures_client where progbat_bill_id = 4711;").trim();
+    assert.equal(m, "900.00");
+    psql("update public.chantier_factures_client set montant_ttc = 925.15, progbat_to_be_paid = 925.15 where progbat_bill_id = 4711;", "service_role");
+  });
+
+  test("pg : authenticated ne peut modifier NI les montants, NI le statut, NI le document", () => {
+    const cible = " where progbat_bill_id = 4711;";
+    const gele = "ne se modifient pas depuis l'application";
+    for (const [libelle, set] of [
+      ["montant_ttc", "montant_ttc = 1"],
+      ["montant_ht", "montant_ht = 700"],
+      ["montant_tva", "montant_tva = 140"],
+      ["statut", "statut = 'encaissee'"],
+      ["date_encaissement", "date_encaissement = '2026-09-30'"],
+      ["montant_encaisse", "montant_encaisse = 925.15"],
+      ["document_path", "document_path = 'chantiers/faux.pdf'"],
+      ["document_nom", "document_nom = 'faux.pdf'"],
+      ["numero", "numero = 'FA-BIDON'"],
+      ["date_facture", "date_facture = '2020-01-01'"],
+      ["pct_du_marche", "pct_du_marche = 12"],
+      ["progbat_bill_code", "progbat_bill_code = 'AUTRE'"],
+      ["progbat_to_be_paid", "progbat_to_be_paid = 1"],
+      ["progbat_yard_id", "progbat_yard_id = 999"],
+    ]) {
+      refuse("update public.chantier_factures_client set " + set + cible, "authenticated", [gele],
+        "UPDATE " + libelle + " par authenticated");
+    }
+  });
+
+  test("pg : authenticated ne peut pas changer la source, dans aucun sens", () => {
+    refuse("update public.chantier_factures_client set source = 'manuel', progbat_bill_id = null where progbat_bill_id = 4711;",
+      "authenticated", ["La source d'une facture ne se change pas"], "progbat → manuel");
+    refuse("update public.chantier_factures_client set source = 'progbat', progbat_bill_id = 5000, progbat_validated = 1, " +
+      "progbat_to_be_paid = 120, montant_ht = null, montant_tva = null where numero = 'FA-MANUELLE-1';",
+      "authenticated", ["La source d'une facture ne se change pas"], "manuel → progbat");
+  });
+
+  test("pg : authenticated garde la main sur le chantier, l'échéance et le verrou", () => {
+    psql(
+      "update public.chantier_factures_client set " +
+      "chantier_id = 'trottier-bis', ligne_id = 'situation_1', ligne_nom = 'Situation n° 1', " +
+      "ligne_id_verrouille = true, ligne_id_modifie_par = '22222222-2222-2222-2222-222222222222', " +
+      "ligne_id_modifie_le = now(), rapprochement = 'corrige', raison = 'Corrigée à la main.', " +
+      "commentaire = 'Vu avec la cliente.' where progbat_bill_id = 4711;",
+      "authenticated",
+    );
+    const r = psql("select ligne_id || '|' || rapprochement || '|' || ligne_id_verrouille || '|' || chantier_id " +
+                   "from public.chantier_factures_client where progbat_bill_id = 4711;").trim();
+    assert.equal(r, "situation_1|corrige|true|trottier-bis");
+  });
+
+  test("pg : les invariants ProGBat sont refusés par la base, pas seulement par le code", () => {
+    const base = "insert into public.chantier_factures_client (chantier_id, source, progbat_bill_id, progbat_validated, progbat_to_be_paid, montant_ttc";
+    const inv = "chantier_factures_client_progbat_invariants";
+    // Brouillon.
+    refuse(base + ") values ('t', 'progbat', 5001, 0, 10, 10);", "service_role", [inv], "validated = 0");
+    // toBePaid absent.
+    refuse(base + ") values ('t', 'progbat', 5002, 1, null, 10);", "service_role", [inv], "toBePaid null");
+    // TTC divergent du toBePaid.
+    refuse(base + ") values ('t', 'progbat', 5003, 1, 10, 11);", "service_role", [inv], "montant_ttc ≠ toBePaid");
+    // TTC absent.
+    refuse(base + ") values ('t', 'progbat', 5004, 1, 10, null);", "service_role", [inv], "montant_ttc null");
+    // HT ou TVA reconstitués.
+    refuse(base + ", montant_ht) values ('t', 'progbat', 5005, 1, 10, 10, 8.33);", "service_role", [inv], "montant_ht non null");
+    refuse(base + ", montant_tva) values ('t', 'progbat', 5006, 1, 10, 10, 1.67);", "service_role", [inv], "montant_tva non null");
+    // Identité : pas de bill.id sans source progbat, ni l'inverse.
+    refuse("insert into public.chantier_factures_client (chantier_id, source, progbat_bill_id) values ('t', 'manuel', 5007);",
+      "service_role", ["chantier_factures_client_progbat_identite"], "bill.id sur une facture manuelle");
+    refuse("insert into public.chantier_factures_client (chantier_id, source, montant_ttc) values ('t', 'progbat', 10);",
+      "service_role", ["chantier_factures_client_progbat_identite"], "facture ProGBat sans bill.id");
+    // Une facture ProGBat conforme passe, elle.
+    psql(base + ") values ('t', 'progbat', 5100, 1, -925.15, -925.15);", "service_role");
+  });
+
+  test("pg : unicité — bill.id global, numéro seulement pour le manuel", () => {
+    refuse("insert into public.chantier_factures_client (chantier_id, source, progbat_bill_id, progbat_validated, progbat_to_be_paid, montant_ttc) " +
+      "values ('autre', 'progbat', 4711, 1, 925.15, 925.15);", "service_role",
+      ["uq_factures_client_progbat_bill"], "même bill.id sur deux chantiers");
+    // Deux factures ProGBat au même NUMÉRO ne se gênent pas (bill.id distincts).
+    psql("insert into public.chantier_factures_client (chantier_id, source, numero, progbat_bill_id, progbat_validated, progbat_to_be_paid, montant_ttc) " +
+      "values ('trottier', 'progbat', 'FA2026-0042', 5200, 1, 10, 10);", "service_role");
+    // Alors qu'un doublon de numéro reste interdit entre factures manuelles.
+    refuse("insert into public.chantier_factures_client (chantier_id, source, numero, montant_ttc) " +
+      "values ('trottier', 'manuel', 'FA-MANUELLE-1', 50);", "authenticated",
+      ["uq_factures_client_numero_manuel"], "doublon de numéro manuel");
+  });
+
+  test("pg : règlements — lecture bureau, écriture serveur seulement", () => {
+    psql("insert into public.chantier_factures_reglements (facture_id, source, progbat_transaction_id, progbat_doc_type, date_reglement, montant, mode) " +
+      "values ('11111111-1111-1111-1111-111111111111', 'progbat', 9001, 'bill', '2026-09-20', 400, 'VIR');", "service_role");
+    // Le bureau lit…
+    const vus = psql("select count(*) from public.chantier_factures_reglements;", "authenticated").trim();
+    assert.equal(vus, "1");
+    // …mais n'écrit pas : aucun privilège d'écriture ne lui a été accordé.
+    refuse("insert into public.chantier_factures_reglements (facture_id, source, montant) " +
+      "values ('11111111-1111-1111-1111-111111111111', 'manuel', 10);", "authenticated",
+      ["permission denied", "droit refusé", "42501"], "INSERT règlement par authenticated");
+    refuse("update public.chantier_factures_reglements set montant = 999;", "authenticated",
+      ["permission denied", "droit refusé", "42501"], "UPDATE règlement par authenticated");
+    refuse("delete from public.chantier_factures_reglements;", "authenticated",
+      ["permission denied", "droit refusé", "42501"], "DELETE règlement par authenticated");
+    // Un règlement ProGBat sans docType 'bill' est refusé par la base.
+    refuse("insert into public.chantier_factures_reglements (facture_id, source, progbat_transaction_id, progbat_doc_type, montant) " +
+      "values ('11111111-1111-1111-1111-111111111111', 'progbat', 9002, 'supplierbill', 10);", "service_role",
+      ["chantier_factures_reglements_progbat_identite"], "docType supplierbill");
+    // Deux fois la même transaction sur la même facture : refusé (idempotence).
+    refuse("insert into public.chantier_factures_reglements (facture_id, source, progbat_transaction_id, progbat_doc_type, montant) " +
+      "values ('11111111-1111-1111-1111-111111111111', 'progbat', 9001, 'bill', 400);", "service_role",
+      ["uq_factures_reglements_progbat"], "doublon (transaction, facture)");
+  });
+
+  test("pg : la ligne produite par le module s'insère telle quelle", () => {
+    // Le test qui fait le lien entre les deux moitiés du lot : la forme rendue
+    // par normaliserReglementProgbat est-elle VRAIMENT insérable ?
+    const { retenus } = reglementsDeTransaction({ ...TRANSACTION, id: 9500 });
+    const ligne = retenus[0].ligne;
+    const cles = Object.keys(ligne);
+    const valeurs = cles.map((k) => {
+      const v = ligne[k];
+      if (v === null) return "null";
+      if (typeof v === "number") return String(v);
+      if (typeof v === "boolean") return v ? "true" : "false";
+      return "'" + String(v).replace(/'/g, "''") + "'";
+    });
+    psql("insert into public.chantier_factures_reglements (facture_id, " + cles.join(", ") + ") values " +
+      "('11111111-1111-1111-1111-111111111111', " + valeurs.join(", ") + ");", "service_role");
+    const lu = psql("select montant || '|' || progbat_doc_type || '|' || annule from public.chantier_factures_reglements where progbat_transaction_id = 9500;").trim();
+    assert.equal(lu, "500.00|bill|false");
+  });
+
+  test("pg : nettoyage du conteneur jetable", () => {
+    docker(["rm", "-f", CONTENEUR]);
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 let echecs = 0;
@@ -602,4 +955,7 @@ for (const [nom, fn] of cas) {
   }
 }
 console.log(`\nverif-progbat-facturation : ${cas.length - echecs}/${cas.length} contrôles passés`);
+console.log(AVEC_PG
+  ? "  (trigger et contraintes EXÉCUTÉS dans un PostgreSQL jetable)"
+  : "  (trigger et contraintes vérifiés STATIQUEMENT — relancer avec --pg pour les exécuter)");
 process.exit(echecs ? 1 : 0);

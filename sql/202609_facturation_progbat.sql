@@ -108,66 +108,74 @@ comment on column public.chantier_factures_client.ligne_id_verrouille is
   'true = l''échéance a été corrigée à la main : la synchronisation ne reprend plus ligne_id, rapprochement ni raison.';
 
 -- ── Contraintes ────────────────────────────────────────────────────────────
--- Toutes posées sous garde (rejouable) et toutes vérifiées par les lignes
--- existantes, qui sont toutes manuelles avec des colonnes ProGBat nulles.
-do $$
-begin
-  if not exists (select 1 from pg_constraint
-                 where conname = 'chantier_factures_client_source_check'
-                   and conrelid = 'public.chantier_factures_client'::regclass) then
-    alter table public.chantier_factures_client
-      add constraint chantier_factures_client_source_check
-      check (source in ('manuel', 'progbat'));
-  end if;
+-- Chaque contrainte est RETIRÉE puis reposée : la migration reste rejouable, et
+-- une version antérieure de ce fichier ne laisse pas une règle périmée en base.
+-- Toutes sont vérifiées par les lignes existantes, qui sont toutes manuelles
+-- avec des colonnes ProGBat nulles.
+alter table public.chantier_factures_client
+  drop constraint if exists chantier_factures_client_source_check,
+  drop constraint if exists chantier_factures_client_progbat_identite,
+  drop constraint if exists chantier_factures_client_progbat_ids_positifs,
+  drop constraint if exists chantier_factures_client_progbat_montant,
+  drop constraint if exists chantier_factures_client_progbat_invariants,
+  drop constraint if exists chantier_factures_client_progbat_json_tableaux;
 
-  -- Une facture ProGBat A un bill.id, une facture manuelle n'en a JAMAIS :
-  -- l'équivalence rend la déduplication non ambiguë dans les deux sens.
-  if not exists (select 1 from pg_constraint
-                 where conname = 'chantier_factures_client_progbat_identite'
-                   and conrelid = 'public.chantier_factures_client'::regclass) then
-    alter table public.chantier_factures_client
-      add constraint chantier_factures_client_progbat_identite
-      check ((source = 'progbat') = (progbat_bill_id is not null));
-  end if;
+alter table public.chantier_factures_client
+  add constraint chantier_factures_client_source_check
+  check (source in ('manuel', 'progbat'));
 
-  -- ProGBat numérote à partir de 1 : un 0 est un champ vide, pas un document.
-  if not exists (select 1 from pg_constraint
-                 where conname = 'chantier_factures_client_progbat_ids_positifs'
-                   and conrelid = 'public.chantier_factures_client'::regclass) then
-    alter table public.chantier_factures_client
-      add constraint chantier_factures_client_progbat_ids_positifs
-      check (
-        (progbat_bill_id     is null or progbat_bill_id     > 0) and
-        (progbat_yard_id     is null or progbat_yard_id     > 0) and
-        (progbat_quote_id    is null or progbat_quote_id    > 0) and
-        (progbat_business_id is null or progbat_business_id > 0)
-      );
-  end if;
+-- Une facture ProGBat A un bill.id, une facture manuelle n'en a JAMAIS :
+-- l'équivalence rend la déduplication non ambiguë dans les deux sens.
+alter table public.chantier_factures_client
+  add constraint chantier_factures_client_progbat_identite
+  check ((source = 'progbat') = (progbat_bill_id is not null));
 
-  -- Montants : une facture ProGBat exige son TTC (toBePaid) ; elle n'exige ni
-  -- HT ni TVA, qui doivent justement rester vides. Les factures manuelles
-  -- gardent exactement leurs exigences actuelles (aucune).
-  if not exists (select 1 from pg_constraint
-                 where conname = 'chantier_factures_client_progbat_montant'
-                   and conrelid = 'public.chantier_factures_client'::regclass) then
-    alter table public.chantier_factures_client
-      add constraint chantier_factures_client_progbat_montant
-      check (source <> 'progbat' or montant_ttc is not null);
-  end if;
+-- INVARIANTS D'UNE FACTURE ProGBat — la base les garantit, pas seulement le
+-- module qui écrit. C'est ce qui empêche une ligne « à moitié ProGBat » de
+-- s'installer : un brouillon importé par erreur, un TTC qui aurait cessé de
+-- valoir toBePaid après une retouche, ou un HT/TVA reconstitué à la main dont
+-- personne ne saurait plus d'où il sort.
+--   validated = 1      → un brouillon (validated = 0) n'entre pas ;
+--   toBePaid présent   → le seul montant réellement dû ;
+--   montant_ttc = toBePaid, au centime près et SANS conversion : les deux
+--                        colonnes ne peuvent pas diverger en silence ;
+--   montant_ht / montant_tva NULL → aucune ventilation inventée (netTotal et
+--                        taxes suivent atiTotal cumulatif ; ils restent lisibles
+--                        dans leurs colonnes progbat_*).
+-- Les factures manuelles ne sont PAS concernées : leurs exigences (aucune)
+-- sont inchangées.
+alter table public.chantier_factures_client
+  add constraint chantier_factures_client_progbat_invariants
+  check (
+    source <> 'progbat' or (
+      progbat_bill_id is not null and progbat_bill_id > 0
+      and progbat_validated = 1
+      and progbat_to_be_paid is not null
+      and montant_ttc is not null
+      and montant_ttc = progbat_to_be_paid
+      and montant_ht is null
+      and montant_tva is null
+    )
+  );
 
-  -- Détails : des TABLEAUX JSON, ou rien. Un objet ou un scalaire signalerait
-  -- un payload recopié tel quel.
-  if not exists (select 1 from pg_constraint
-                 where conname = 'chantier_factures_client_progbat_json_tableaux'
-                   and conrelid = 'public.chantier_factures_client'::regclass) then
-    alter table public.chantier_factures_client
-      add constraint chantier_factures_client_progbat_json_tableaux
-      check (
-        (progbat_tax_details is null or jsonb_typeof(progbat_tax_details) = 'array') and
-        (progbat_deductions  is null or jsonb_typeof(progbat_deductions)  = 'array')
-      );
-  end if;
-end $$;
+-- ProGBat numérote à partir de 1 : un 0 est un champ vide, pas un document.
+alter table public.chantier_factures_client
+  add constraint chantier_factures_client_progbat_ids_positifs
+  check (
+    (progbat_bill_id     is null or progbat_bill_id     > 0) and
+    (progbat_yard_id     is null or progbat_yard_id     > 0) and
+    (progbat_quote_id    is null or progbat_quote_id    > 0) and
+    (progbat_business_id is null or progbat_business_id > 0)
+  );
+
+-- Détails : des TABLEAUX JSON, ou rien. Un objet ou un scalaire signalerait
+-- un payload recopié tel quel.
+alter table public.chantier_factures_client
+  add constraint chantier_factures_client_progbat_json_tableaux
+  check (
+    (progbat_tax_details is null or jsonb_typeof(progbat_tax_details) = 'array') and
+    (progbat_deductions  is null or jsonb_typeof(progbat_deductions)  = 'array')
+  );
 
 -- ── Unicité : deux régimes distincts ───────────────────────────────────────
 -- ProGBat : le bill.id, et lui seul. Portée GLOBALE (un bill.id ne peut pas
@@ -196,56 +204,95 @@ create index if not exists idx_factures_client_progbat_yard
 create index if not exists idx_factures_client_source
   on public.chantier_factures_client (source, chantier_id);
 
--- ── Garde-fou : les champs ProGBat n'appartiennent pas au navigateur ───────
--- La RLS laisse le bureau écrire dans cette table (import manuel, correction
--- d'une échéance). Ce trigger ajoute la seule interdiction nécessaire : un
--- utilisateur `authenticated` ne peut pas RÉÉCRIRE les champs progbat_* ni la
--- source d'une facture ProGBat — ces valeurs viennent de ProGBat, et une
--- retouche depuis l'écran serait effacée à la synchronisation suivante sans
--- que personne ne comprenne pourquoi.
+-- ── Garde-fou : une facture ProGBat n'appartient pas au navigateur ────────
+-- La RLS laisse le bureau écrire dans cette table (import manuel d'un PDF,
+-- correction d'une échéance). Ce trigger ajoute la seule frontière qui manque :
+-- ce qui vient de ProGBat ne se saisit ni ne se retouche depuis l'application.
 --
--- Ce qui reste permis à l'utilisateur sur une facture ProGBat : ligne_id,
--- ligne_nom, les trois champs de verrouillage, rapprochement, raison,
--- commentaire, statut, encaissement, document — tout le travail humain.
+-- INTERDIT au rôle SQL « authenticated » :
+--   • créer une facture source='progbat' — la synchronisation seule les crée ;
+--   • changer la source dans un sens ou dans l'autre ;
+--   • sur une facture ProGBat, toucher aux champs progbat_*, au numéro, à la
+--     date, aux trois montants, au pct_du_marche, au statut, à l'encaissement
+--     et au document : tous viennent de ProGBat ou en dépendent, et une
+--     retouche serait écrasée à la synchronisation suivante sans que personne
+--     ne comprenne pourquoi.
 --
--- La comparaison passe par jsonb plutôt que par 25 tests de colonnes : une
+-- RESTE PERMIS au bureau sur une facture ProGBat — tout le travail humain :
+--   chantier_id, ligne_id, ligne_nom, ligne_id_verrouille, ligne_id_modifie_par,
+--   ligne_id_modifie_le, rapprochement, raison, commentaire.
+--
+-- QUI EST RECONNU COMMENT : current_user est le rôle SQL réel. PostgREST
+-- exécute les requêtes du navigateur sous « authenticated » (ou « anon ») ; une
+-- Edge Function avec la clé de service est sous « service_role » ; l'éditeur SQL
+-- est sous « postgres ». Seuls les deux premiers sont bridés — sinon la
+-- synchronisation ne pourrait plus rien écrire. On ne lit PAS
+-- request.jwt.claims : c'est une revendication du client, là où le rôle SQL est
+-- ce que la base a réellement endossé.
+--
+-- Les champs gelés sont comparés via jsonb plutôt que colonne par colonne : une
 -- colonne progbat_* ajoutée demain est protégée sans retoucher le trigger.
---
--- Qui est bloqué : uniquement le rôle `authenticated`. Le service_role (Edge
--- Function de synchronisation) et l'éditeur SQL (aucune revendication JWT)
--- passent — sinon la synchronisation ne pourrait plus rien écrire.
-create or replace function public.protege_champs_progbat_facture()
+create or replace function public.protege_factures_progbat()
 returns trigger language plpgsql as $$
 declare
-  role_appelant text := coalesce(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
+  -- Champs non-progbat_ gelés sur une facture ProGBat.
+  champs_geles constant text[] := array[
+    'numero', 'date_facture', 'montant_ht', 'montant_tva', 'montant_ttc',
+    'pct_du_marche', 'statut', 'date_encaissement', 'montant_encaisse',
+    'document_path', 'document_nom'
+  ];
   avant jsonb;
   apres jsonb;
 begin
-  if role_appelant <> 'authenticated' then
+  -- Tout rôle autre que ceux du navigateur passe sans contrôle.
+  if current_user not in ('authenticated', 'anon') then
     return new;
   end if;
-  if old.source is distinct from 'progbat' and new.source is distinct from 'progbat' then
-    return new;   -- facture manuelle : rien à protéger ici
+
+  -- INSERT : OLD n'existe pas, et n'est JAMAIS lu ici.
+  if tg_op = 'INSERT' then
+    if new.source is not distinct from 'progbat' then
+      raise exception 'Une facture ProGBat ne se crée pas depuis l''application : elle vient de la synchronisation.'
+        using errcode = 'check_violation';
+    end if;
+    return new;
   end if;
+
+  -- UPDATE — à partir d'ici seulement, OLD est disponible.
   if new.source is distinct from old.source then
     raise exception 'La source d''une facture ne se change pas depuis l''application (facture %).', old.id
       using errcode = 'check_violation';
   end if;
+
+  if old.source is distinct from 'progbat' then
+    return new;   -- facture manuelle : rien à geler ici
+  end if;
+
   select coalesce(jsonb_object_agg(k, v), '{}'::jsonb) into avant
-    from jsonb_each(to_jsonb(old)) as e(k, v) where k like 'progbat\_%';
+    from jsonb_each(to_jsonb(old)) as e(k, v)
+    where k like 'progbat\_%' or k = any(champs_geles);
   select coalesce(jsonb_object_agg(k, v), '{}'::jsonb) into apres
-    from jsonb_each(to_jsonb(new)) as e(k, v) where k like 'progbat\_%';
+    from jsonb_each(to_jsonb(new)) as e(k, v)
+    where k like 'progbat\_%' or k = any(champs_geles);
+
   if avant is distinct from apres then
-    raise exception 'Les données ProGBat d''une facture synchronisée ne se modifient pas depuis l''application (facture %).', old.id
+    raise exception 'Les données d''une facture ProGBat (montants, numéro, statut, document) ne se modifient pas depuis l''application (facture %). Seuls le chantier, l''échéance et les commentaires sont modifiables.', old.id
       using errcode = 'check_violation';
   end if;
+
   return new;
 end $$;
 
+-- L'ancien garde-fou (BEFORE UPDATE seul, fondé sur request.jwt.claims) est
+-- retiré nommément : sur une base qui aurait déjà reçu une version antérieure
+-- de ce fichier, il ne doit pas survivre à côté du nouveau.
 drop trigger if exists trg_protege_champs_progbat_facture on public.chantier_factures_client;
-create trigger trg_protege_champs_progbat_facture
-  before update on public.chantier_factures_client
-  for each row execute function public.protege_champs_progbat_facture();
+drop function if exists public.protege_champs_progbat_facture();
+
+drop trigger if exists trg_protege_factures_progbat on public.chantier_factures_client;
+create trigger trg_protege_factures_progbat
+  before insert or update on public.chantier_factures_client
+  for each row execute function public.protege_factures_progbat();
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- 2. RÈGLEMENTS
