@@ -471,6 +471,10 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                 borderRadius: RADIUS.pill, border: `1px solid ${acc.accent}33` }}>
                 <Icon as={Clock} size={10}/>
                 {cadence}h / {ouvrage.unite}
+                {ouvrage.cadence_source === "progbat_import" && (
+                  <span title={`Cadence initialisée par l'import ponctuel ProGBat${ouvrage.cadence_imported_at ? ` du ${new Date(ouvrage.cadence_imported_at).toLocaleDateString("fr-FR")}` : ""}. Profero est la source de vérité : toute modification ici fait foi.`}
+                    style={{ fontSize: FONT.xs.size - 1, fontWeight: 600, color: T.textMuted, marginLeft: 2 }}>· import ProGBat</span>
+                )}
               </span>
             : <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic" }}>Pas de cadence</span>
           }

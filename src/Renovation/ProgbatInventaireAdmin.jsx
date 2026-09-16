@@ -9,6 +9,7 @@ import { Icon } from "../ui";
 import { RefreshCw, Boxes, AlertTriangle, Check, X, Link2, UploadCloud, ShieldCheck } from "lucide-react";
 import { STATUTS_ORDRE, STATUTS_LABELS } from "./progbatInventaire.mjs";
 import ProgbatClassementFamilles from "./ProgbatClassementFamilles";
+import ProgbatCadencesImport from "./ProgbatCadencesImport";
 
 const COULEURS_STATUT = {
   deja_lie: "#22c55e",
@@ -371,6 +372,7 @@ export default function ProgbatInventaire({ T, acc }) {
         )}
       </div>
       <ProgbatClassementFamilles T={T} acc={acc} />
+      <ProgbatCadencesImport T={T} acc={acc} />
       {confirmation && syncPlan?.plan && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,.62)", display: "grid", placeItems: "center", padding: 20 }} onMouseDown={() => !syncLoading && setConfirmation(false)}>
         <div onMouseDown={e => e.stopPropagation()} style={{ width: "min(580px,96vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: 20, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}><Icon as={ShieldCheck} size={20} color={acc.accent}/><div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Confirmer la synchronisation</div></div>
