@@ -27,7 +27,7 @@ import {
   Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
   ImagePlus, ArrowUp, ArrowDown, Send, StickyNote, Edit2, Image as ImageIcon,
   Video, Film, Library, Wallet, Clock, PenTool, Type as TypeIcon, Play,
-  RefreshCw, Home, Receipt, Info, Lock, SlidersHorizontal,
+  RefreshCw, Home, Receipt, Info, Lock, SlidersHorizontal, Package,
 } from "lucide-react";
 
 // Ordre des lots = chronologie d'un chantier (démolition → finitions).
@@ -54,6 +54,11 @@ const STATUTS_PROJET = [
   { id: "abandonne",      label: "Abandonné",        color: "#e15a5a" },
 ];
 const statutMeta = (id) => STATUTS_PROJET.find(s => s.id === id) || STATUTS_PROJET[0];
+// Un chiffrage « terminé » (devis parti chez le client, signé ou abandonné) ne
+// se réactualise plus tout seul : ses prix ont été communiqués. On signale
+// l'écart, et l'actualisation reste possible ligne par ligne (bouton ↻).
+const STATUTS_CHIFFRAGE_FIGE = ["devis_envoye", "signe", "abandonne"];
+const chiffrageEstTermine = (statut) => STATUTS_CHIFFRAGE_FIGE.includes(statut || "prospect");
 
 // ─── UPLOAD PHOTO (bucket "photos") ──────────────────────────────────────────
 async function uploadInfoClientPhoto(file, projetId) {
@@ -110,7 +115,11 @@ function decoderLibelleCode(libelle) {
   return c ? { code: c.code, prefixe: c.prefixe, num: c.numeroValeur, reste: c.reste } : null;
 }
 
-export default function PageInfoClient({ T, branch = "renovation", chantiers = [] }) {
+// `onModifierMateriaux` / `retourBiblio` : aller-retour avec la page Bibliothèque
+// (bouton « Modifier matériaux » d'une ligne d'ouvrage). Au retour, les lignes
+// de CE chiffrage issues de l'ouvrage modifié sont réactualisées automatiquement
+// tant que le chiffrage n'est pas terminé.
+export default function PageInfoClient({ T, branch = "renovation", chantiers = [], onModifierMateriaux = null, retourBiblio = null, onRetourBiblioConsomme = null }) {
   const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
   const [projetId, setProjetId]       = useState(null);
@@ -176,6 +185,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [zoneAjout, setZoneAjout]     = useState(ZONE_DEFAUT);
   // Actualisation d'une ligne depuis la bibliothèque : { ligne, ouvrage, calcul, diffs, patch }
   const [actualisation, setActualisation] = useState(null);
+  // Résultat du retour de la Bibliothèque (« Modifier matériaux ») :
+  // { libelle, nb, aucun?, fige?, supprime?, erreur? } — bandeau informatif.
+  const [majBiblio, setMajBiblio]     = useState(null);
+  const retourTraiteRef = useRef(null);
   // Duplication « pour un autre logement » : { reference, type }
   const [dupliquerModal, setDupliquerModal] = useState(null);
   const [dupliquant, setDupliquant]   = useState(false);
@@ -215,13 +228,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const tabS = (a) => ({ padding:"7px 16px", border:a?"none":`1px solid ${border}`, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, background:a?accent:card, color:a?"#000":textSub, letterSpacing:.4, textTransform:"uppercase", transition:"all .12s" });
 
   // ─── INIT ────────────────────────────────────────────────────────────────────
-  useEffect(() => { chargerProjets(); chargerCategories(); chargerBiblio(); }, []);
+  useEffect(() => {
+    chargerProjets(retourBiblio?.projetId || null);
+    chargerCategories();
+    chargerBiblio();
+    if (retourBiblio?.projetId) setTab("ouvrages");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── DATA ────────────────────────────────────────────────────────────────────
-  async function chargerProjets() {
+  // `preferId` : projet à rouvrir en priorité (retour de la Bibliothèque).
+  async function chargerProjets(preferId = null) {
     setLoading(true);
     const { data } = await supabase.from("profero_projets").select("*").order("created_at", { ascending:false });
-    if (data) { setProjets(data); if (data.length > 0) chargerProjet(data[0].id); else setLoading(false); }
+    if (data) {
+      setProjets(data);
+      const cible = (preferId && data.some(p => p.id === preferId)) ? preferId : data[0]?.id;
+      if (cible) chargerProjet(cible); else setLoading(false);
+    }
     else setLoading(false);
   }
 
@@ -901,13 +925,15 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     ]);
     const taux = parseFloat((cfg || []).find(r => r.key === "taux_mo_previsionnel")?.value);
     const tva  = parseFloat((cfg || []).find(r => r.key === "chiffrage_tva_defaut")?.value);
-    setBiblio({
+    const b = {
       ouvrages: ouv || [], lots: lots || [], materiaux: mats || [],
       coutHoraire: Number.isFinite(taux) && taux > 0 ? taux : null,   // null = marge non calculable (le prix reste calculable)
       tauxHoraires: tauxH || [],                                        // vide = bloquant (aucun prix MO)
       coefficients: coefV || [],                                        // vide = bloquant (aucun prix matériaux)
       tvaDefaut: Number.isFinite(tva) ? tva : null,
-    });
+    };
+    setBiblio(b);
+    return b;   // l'appelant peut calculer tout de suite, sans attendre le state
   }
   // Calcul du prix d'un ouvrage de bibliothèque avec le contexte courant ET les
   // conditions de vente FIGÉES du chiffrage (coefficient / taux global éventuels) :
@@ -995,6 +1021,66 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     if (!error) setOuvrages(p => p.map(o => o.id === ligne.id ? { ...o, ...patch } : o));
     setActualisation(null);
   }
+
+  // ─── « MODIFIER MATÉRIAUX » : ALLER-RETOUR AVEC LA BIBLIOTHÈQUE ──────────────
+  // Aller : on ouvre la fiche de l'ouvrage source dans la page Bibliothèque
+  // (c'est là que les matériaux se modifient). Rien n'est écrit ici.
+  function ouvrirMateriauxBiblio(ligne) {
+    if (!onModifierMateriaux || !ligne?.bibliotheque_id) return;
+    onModifierMateriaux({ ouvrageId: ligne.bibliotheque_id, projetId });
+  }
+
+  // Retour : TOUTES les lignes de CE chiffrage issues de l'ouvrage modifié sont
+  // recalculées et réécrites (les autres chiffrages ne sont jamais touchés).
+  // Un chiffrage terminé (devis envoyé / signé / abandonné) garde ses prix figés :
+  // on signale seulement l'écart, l'actualisation reste possible ligne par ligne.
+  async function actualiserApresBiblio(ouvrageId, lignesProjet, statut) {
+    const lignes = lignesProjet.filter(o => o.bibliotheque_id === ouvrageId);
+    if (lignes.length === 0) return;
+    // La bibliothèque est rechargée : les matériaux (prix, nouveaux liens) et
+    // l'ouvrage viennent d'être modifiés, le state local serait périmé.
+    const [{ data: o }, b] = await Promise.all([
+      supabase.from("bibliotheque_ratios").select("*").eq("id", ouvrageId).maybeSingle(),
+      chargerBiblio(),
+    ]);
+    if (!o) { setMajBiblio({ libelle: lignes[0].item, nb: lignes.length, supprime: true }); return; }
+    const majs = lignes.map(l => {
+      const calcul = calculerOuvrage(o, {
+        materiaux: b.materiaux, coutHoraire: b.coutHoraire, tauxHoraires: b.tauxHoraires,
+        coefficientsVente: b.coefficients, conditions: conditionsProjet, modesLigne: lireModesLigne(l),
+      });
+      return { ligne: l, diffs: differencesSnapshot(l, o, calcul), patch: appliquerActualisation(l, o, calcul) };
+    }).filter(m => m.diffs.length > 0);
+    if (majs.length === 0) { setMajBiblio({ libelle: o.libelle, nb: lignes.length, aucun: true }); return; }
+    if (chiffrageEstTermine(statut)) { setMajBiblio({ libelle: o.libelle, nb: majs.length, fige: true, statut }); return; }
+    setAutoSaveStatus("saving");
+    let erreur = null;
+    for (const m of majs) {
+      const { error } = await supabase.from("profero_ouvrages_selectionnes").update(m.patch).eq("id", m.ligne.id);
+      if (error) { erreur = error; if (erreurColonnesLigne(error)) setSchemaDevisManquant(true); break; }
+    }
+    setAutoSaveStatus(erreur ? "error" : "saved");
+    if (!erreur) setOuvrages(prev => prev.map(x => {
+      const m = majs.find(y => y.ligne.id === x.id);
+      return m ? { ...x, ...m.patch } : x;
+    }));
+    setMajBiblio({ libelle: o.libelle, nb: majs.length, diffs: majs[0].diffs, erreur: erreur?.message || null });
+  }
+
+  // Déclenchement du retour : une seule fois par couple (projet, ouvrage), une
+  // fois le projet visé chargé avec ses lignes.
+  useEffect(() => {
+    if (!retourBiblio?.ouvrageBiblioId || loading || !projetId) return;
+    // Le chiffrage d'origine n'existe plus : on abandonne sans rien écrire.
+    if (projetId !== retourBiblio.projetId) { onRetourBiblioConsomme?.(); return; }
+    const cle = `${retourBiblio.projetId}:${retourBiblio.ouvrageBiblioId}`;
+    if (retourTraiteRef.current === cle) return;
+    retourTraiteRef.current = cle;
+    setTab("ouvrages");
+    actualiserApresBiblio(retourBiblio.ouvrageBiblioId, ouvrages, infos.statut);
+    onRetourBiblioConsomme?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retourBiblio, loading, projetId, ouvrages]);
 
   // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
   async function handleExportWord() {
@@ -1219,6 +1305,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         )}
         <button title={`Coefficient et taux horaire de vente de CETTE ligne (aucun autre ouvrage, aucun autre chiffrage, ni la bibliothèque).${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`}
           onClick={()=>setConditionsLigne(sel)} style={iconBtnSec}><Icon as={SlidersHorizontal} size={12}/></button>
+        {sel.bibliotheque_id && onModifierMateriaux && (
+          <button title={`Ouvrir « ${sel.item} » dans la bibliothèque pour en modifier les matériaux. Au retour, les lignes de ce chiffrage issues de cet ouvrage sont réactualisées (sauf chiffrage terminé).`}
+            onClick={()=>ouvrirMateriauxBiblio(sel)}
+            style={{ ...iconBtnSec, width:"auto", gap:5, padding:"0 9px", fontFamily:"inherit", fontSize:FONT.xs.size, fontWeight:700, whiteSpace:"nowrap" }}>
+            <Icon as={Package} size={12}/> Modifier matériaux
+          </button>
+        )}
         {sel.bibliotheque_id && (
           <button title="Actualiser depuis la bibliothèque (affiche les différences, puis confirmation)" onClick={()=>preparerActualisation(sel)} style={iconBtnSec}><Icon as={RefreshCw} size={12}/></button>
         )}
@@ -1905,6 +1998,29 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
             {tab==="ouvrages" && (
               <>
                 <datalist id="pic-zones">{ZONES_SUGGEREES.map(z => <option key={z} value={z}/>)}</datalist>
+
+                {/* ── Retour de la bibliothèque après « Modifier matériaux » ── */}
+                {majBiblio && (() => {
+                  const ko  = majBiblio.supprime || majBiblio.erreur;
+                  const att = majBiblio.fige || majBiblio.aucun;
+                  const col = ko ? "#e15a5a" : att ? "#f5a623" : "#22c55e";
+                  const texte = majBiblio.supprime
+                    ? `L'ouvrage « ${majBiblio.libelle} » n'existe plus dans la bibliothèque : les ${majBiblio.nb} ligne${majBiblio.nb>1?"s":""} gardent leur prix figé.`
+                    : majBiblio.erreur
+                      ? `Actualisation impossible : ${majBiblio.erreur}`
+                      : majBiblio.aucun
+                        ? `« ${majBiblio.libelle} » : rien n'a changé, les ${majBiblio.nb} ligne${majBiblio.nb>1?"s":""} de ce devis sont déjà à jour.`
+                        : majBiblio.fige
+                          ? `« ${majBiblio.libelle} » a changé dans la bibliothèque, mais ce chiffrage est ${statutMeta(majBiblio.statut).label.toLowerCase()} : les prix restent figés. Utilise ↻ sur une ligne pour l'actualiser quand même.`
+                          : `« ${majBiblio.libelle} » : ${majBiblio.nb} ligne${majBiblio.nb>1?"s":""} de ce devis actualisée${majBiblio.nb>1?"s":""} depuis la bibliothèque${majBiblio.diffs?.length ? " (" + majBiblio.diffs.map(d=>d.label.toLowerCase()).join(", ") + ")" : ""}.`;
+                  return (
+                    <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:col+"1a", border:`1px solid ${col}66`, color:col, fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                      <Icon as={ko ? AlertTriangle : att ? Info : Check} size={13}/>
+                      <span style={{ flex:1, minWidth:200 }}>{texte}</span>
+                      <button onClick={()=>setMajBiblio(null)} title="Masquer" style={{ ...iconBtnSec, width:22, height:22, color:col, border:`1px solid ${col}66` }}><Icon as={X} size={11}/></button>
+                    </div>
+                  );
+                })()}
 
                 {/* ── Bandeaux bloquants ── */}
                 {diagCoef && !diagCoef.ok && (

@@ -502,6 +502,32 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     setPage("validation");
   };
 
+  // Aller-retour Chiffrage ↔ Bibliothèque (« Modifier matériaux » sur une ligne
+  // d'ouvrage) : on ouvre la fiche de l'ouvrage dans la Bibliothèque en gardant
+  // de quoi revenir sur LE chiffrage d'origine. Au retour, les lignes de ce
+  // chiffrage issues de cet ouvrage sont réactualisées (voir PageInfoClient).
+  const [biblioOuvrageToOpen, setBiblioOuvrageToOpen] = useState(null);  // ouvrage à ouvrir dans la Bibliothèque
+  const [allerBiblio, setAllerBiblio] = useState(null);                  // { projetId, ouvrageBiblioId } en cours
+  const [retourChiffrage, setRetourChiffrage] = useState(null);          // idem, consommé par le Chiffrage
+  const ouvrirOuvrageBiblio = ({ ouvrageId, projetId }) => {
+    if (!ouvrageId) return;
+    setBiblioOuvrageToOpen(ouvrageId);
+    setAllerBiblio({ projetId, ouvrageBiblioId: ouvrageId });
+    setRetourChiffrage(null);
+    setPage("bibliotheque");
+  };
+  const revenirAuChiffrage = () => {
+    setRetourChiffrage(allerBiblio);
+    setAllerBiblio(null);
+    setBiblioOuvrageToOpen(null);
+    setPage("info-client");
+  };
+  // Sortie de la Bibliothèque par le menu (sans « Revenir au chiffrage ») :
+  // l'aller-retour est abandonné, aucune actualisation automatique.
+  useEffect(() => {
+    if (allerBiblio && page !== "bibliotheque") { setAllerBiblio(null); setBiblioOuvrageToOpen(null); }
+  }, [page]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // Config d'accès dynamique (rôles ↔ pages), chargée depuis planning_config.
   const [rolePages, setRolePages] = useState(ROLE_PAGES_DEFAULT_RENOVATION);
   useEffect(() => {
@@ -820,10 +846,10 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
           {page==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")}/> : <AccesRefuse T={T} page="operations"/>)}
-          {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
+          {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={biblioOuvrageToOpen} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
-          {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers}/> : <AccesRefuse T={T} page="info-client"/>)}
+          {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={retourChiffrage} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
           {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
           {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {page==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}

@@ -18,7 +18,7 @@ import {
 } from "./tauxHorairesVente.mjs";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro,
+  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft,
 } from "lucide-react";
 
 // LOTS dynamiques (phasage v2) : init avec les défauts, remplacement async au mount
@@ -935,7 +935,10 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
 }
 
 // ─── PAGE BIBLIOTHÈQUE (refonte) ─────────────────────────────────────────────
-function PageBibliotheque({ T, branch = "renovation" }) {
+// `initialOuvrageId` / `onRetourChiffrage` : arrivée depuis « Modifier matériaux »
+// d'une ligne du Chiffrage. La fiche de l'ouvrage s'ouvre directement et un
+// bandeau propose de revenir sur le chiffrage d'origine.
+function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, onOuvrageConsumed = null, onRetourChiffrage = null }) {
   const acc = getBranchAccent(branch);
   const [ouvrages, setOuvrages] = useState([]);
   const [materiaux, setMateriaux] = useState([]);
@@ -979,6 +982,25 @@ function PageBibliotheque({ T, branch = "renovation" }) {
   const [schemaPrixManquant, setSchemaPrixManquant] = useState(false);
 
   const categories = [...CATEGORIES_BASE, ...categoriesCustom];
+
+  // ── Arrivée depuis le Chiffrage (« Modifier matériaux ») ────────────────────
+  // On lève les filtres (l'ouvrage visé peut être hors recherche/catégorie),
+  // on ouvre sa fiche en édition et on la fait défiler à l'écran.
+  const ouvrageOuvertRef = useRef(null);
+  useEffect(() => {
+    if (!initialOuvrageId || loading) return;
+    if (ouvrageOuvertRef.current === initialOuvrageId) return;
+    if (!ouvrages.some(o => o.id === initialOuvrageId)) return;
+    ouvrageOuvertRef.current = initialOuvrageId;
+    setSearch("");
+    setFilterCat("Toutes");
+    setEditId(initialOuvrageId);
+    onOuvrageConsumed?.();
+    setTimeout(() => {
+      document.getElementById(`biblio-ouvrage-${initialOuvrageId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOuvrageId, loading, ouvrages]);
 
   // Une fiche ouvrage ouverte en édition contient la saisie en cours (libellé,
   // unité, sous-tâches, matériaux…) : elle vit dans `ouvrages`. Un rechargement
@@ -1366,6 +1388,29 @@ function PageBibliotheque({ T, branch = "renovation" }) {
         }
       `}</style>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+
+        {/* ── Retour au chiffrage (arrivée via « Modifier matériaux ») ── */}
+        {onRetourChiffrage && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+            marginBottom: 16, padding: "10px 14px", borderRadius: RADIUS.lg,
+            background: acc.bg10, border: `1px solid ${acc.border || acc.accent + "55"}`,
+          }}>
+            <Icon as={Library} size={14} color={acc.accent}/>
+            <div style={{ flex: 1, minWidth: 180, fontSize: FONT.xs.size + 1, color: T.textSub, fontWeight: 600 }}>
+              Modification des matériaux depuis un chiffrage. <strong style={{ color: T.text }}>Enregistre la fiche</strong>, puis reviens :
+              les lignes du chiffrage issues de cet ouvrage seront réactualisées (sauf si le chiffrage est terminé).
+            </div>
+            <button onClick={onRetourChiffrage} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: acc.accent, color: acc.onAccent, border: "none",
+              borderRadius: RADIUS.md, padding: "9px 16px",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800, cursor: "pointer",
+            }}>
+              <Icon as={ArrowLeft} size={13}/> Revenir au chiffrage
+            </button>
+          </div>
+        )}
 
         {/* ── Header ── */}
         <div className="biblio-header" style={{
@@ -1797,8 +1842,8 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {items.map(ouvrage => (
+                    <div key={ouvrage.id} id={`biblio-ouvrage-${ouvrage.id}`} style={{ scrollMarginTop: 16 }}>
                     <OuvrageCard
-                      key={ouvrage.id}
                       ouvrage={ouvrage}
                       isEdit={editId === ouvrage.id}
                       onToggleEdit={id => setEditId(editId === id ? null : id)}
@@ -1820,6 +1865,7 @@ function PageBibliotheque({ T, branch = "renovation" }) {
                       coefOrigineId={coefOrigine.current.get(ouvrage.id) ?? null}
                       T={T} acc={acc}
                     />
+                    </div>
                   ))}
                 </div>
               </div>

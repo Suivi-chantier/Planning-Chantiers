@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-16",
+    type: "nouveaute",
+    titre: "Chiffrage : « Modifier matériaux » ouvre l'ouvrage dans la bibliothèque et réactualise le devis",
+    pages: [{ id: "info-client", label: "Chiffrage" }, { id: "bibliotheque", label: "Biblio. ouvrages" }],
+    quoi: "Quand les matériaux d'un ouvrage doivent être corrigés (une quantité qui n'est pas la bonne, un matériau oublié), il fallait quitter le chiffrage, retrouver l'ouvrage dans la bibliothèque à la main, le modifier, revenir au chiffrage, resélectionner le bon client puis actualiser chaque ligne une par une. Ce chemin est maintenant fait pour vous : un bouton sur la ligne, la correction, un bouton pour revenir — et le devis est à jour.",
+    comment: "Onglet Ouvrages du Chiffrage : chaque ligne issue de la bibliothèque porte un bouton « Modifier matériaux » qui ouvre directement la fiche de cet ouvrage dans la page Bibliothèque (filtres levés, fiche dépliée). Un bandeau y rappelle d'enregistrer la fiche et propose « Revenir au chiffrage ». Au retour, on retombe sur le bon client, onglet Ouvrages, et TOUTES les lignes de ce devis issues de cet ouvrage sont recalculées et réenregistrées automatiquement ; un bandeau indique ce qui a changé. Les autres chiffrages ne sont jamais touchés. Un chiffrage terminé (devis envoyé, signé ou abandonné) garde ses prix figés : le bandeau signale l'écart sans rien modifier, et le bouton ↻ de la ligne permet d'actualiser quand même, après confirmation.",
+  },
+  {
+    date: "2026-09-16",
     type: "correctif",
     titre: "Chantiers : les documents du cycle de vie s'envoient et s'ouvrent à nouveau",
     pages: [{ id: "chantiers", label: "Chantiers" }],
