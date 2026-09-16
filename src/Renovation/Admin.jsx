@@ -4502,7 +4502,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                       </div>
                       <div style={{color:T.textSub}}>
                         Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}
-                        {progbatResult.token_source ? ` · jeton ${progbatResult.token_source === "billing" ? "dédié facturation" : "historique"}` : ""}
+                        {/* token_source ne décrit QUE le jeton du diagnostic de facturation :
+                            /me et /clients/me utilisent le jeton d'identité, qui peut être l'autre. */}
+                        {progbatResult.token_source ? ` · diagnostic facturation via le jeton ${progbatResult.token_source === "billing" ? "dédié" : "historique"}` : ""}
                       </div>
                     </>
                   )}

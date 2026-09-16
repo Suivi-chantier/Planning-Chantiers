@@ -19,8 +19,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // DIAGNOSTIC DE FACTURATION (lot diagnostique, lecture seule) — s'ajoute au
 // test ci-dessus sans le remplacer :
 //   GET /company/bills?limit=20&offset=0[&sort]        scope `bills` ou `bills.read`
-//   GET /company/transactions?limit=50&offset=0[&sort] scope `transactions` (variante
-//       `.read` non confirmée par la documentation)
+//   GET /company/transactions?limit=50&offset=0[&sort] scope `transactions` ou
+//       `transactions.read` (les deux sont documentés ; la synchronisation à
+//       venir restera strictement en lecture et n'utilisera que la variante
+//       `.read`)
 //   GET /company/bills/{billId}/pdf                    scope `bills` ou `bills.read`
 //       → uniquement le code HTTP, le Content-Type et la TAILLE reçue. Le PDF
 //         n'est ni renvoyé, ni enregistré, ni journalisé.
@@ -40,12 +42,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // d'occurrences, sans les interpréter — c'est précisément ce qu'il sert à
 // établir sur des données réelles.
 //
-// Secret Supabase utilisé : PROGBAT_BILLING_ACCESS_TOKEN s'il existe, sinon
-// PROGBAT_PRIVATE_ACCESS_TOKEN (jeton privé, envoyé en `Authorization: Bearer`).
-// La réponse indique seulement lequel a servi (`token_source`), jamais sa valeur.
+// DEUX SECRETS, DEUX USAGES — c'est ce qui permet au jeton de facturation de
+// n'avoir QUE bills.read + transactions.read, sans profile.read :
+//   identityToken = PROGBAT_PRIVATE_ACCESS_TOKEN, à défaut PROGBAT_BILLING_…
+//       → /me et /clients/me (profile.read)
+//   billingToken  = PROGBAT_BILLING_ACCESS_TOKEN, à défaut PROGBAT_PRIVATE_…
+//       → /company/bills, /company/transactions, /company/bills/{id}/pdf
+// Chacun retombe sur l'autre s'il manque : un seul secret configuré suffit
+// pour que le test entier fonctionne. `token_source` décrit UNIQUEMENT le
+// jeton utilisé pour le diagnostic de facturation ("billing" | "legacy").
 // PROGBAT_CLIENT_ID / PROGBAT_CLIENT_SECRET ne sont volontairement PAS utilisés
 // ici (réservés au futur flux OAuth).
-// Le jeton n'est jamais renvoyé, ni journalisé, ni inclus dans un message.
+// Aucun jeton n'est jamais renvoyé, ni journalisé, ni inclus dans un message.
 //
 // Accès : utilisateur Supabase authentifié, profil `utilisateurs` actif et
 // rôle « bureau » (tout rôle sauf `ouvrier`) — même règle que le routeur de
@@ -85,10 +93,13 @@ const nettoyerMessage = (raw: unknown): string => {
 }
 
 // Message lisible selon le code HTTP ProGBat.
-const messagePourStatus = (status: number, detail: string): string => {
+// `scopeAttendu` = le scope requis PAR L'APPEL en cours (chaque endpoint a le
+// sien) : un 403 sur /company/bills ne se diagnostique pas avec le scope de
+// /me. Seul un 403 permet de conclure à un scope manquant.
+const messagePourStatus = (status: number, detail: string, scopeAttendu = "profile.read"): string => {
   const suffix = detail ? ` (${detail})` : ""
   if (status === 401) return "Jeton ProGBat refusé (401) : jeton invalide, expiré ou révoqué." + suffix
-  if (status === 403) return "Accès refusé par ProGBat (403) : le jeton n'a pas le scope requis (profile.read)." + suffix
+  if (status === 403) return `Accès refusé par ProGBat (403) : le jeton n'a pas le scope requis (${scopeAttendu}).` + suffix
   if (status === 404) return "Endpoint ProGBat introuvable (404) : l'API a peut-être changé." + suffix
   if (status === 429) return "ProGBat limite les appels (429) : réessayer dans quelques minutes." + suffix
   if (status >= 500) return `ProGBat indisponible (${status}) : erreur côté serveur ProGBat, réessayer plus tard.` + suffix
@@ -101,7 +112,7 @@ type ProgbatResult =
 
 // GET en lecture seule sur l'API ProGBat, avec délai maximal.
 // Ne journalise jamais les en-têtes ni le corps ; ne renvoie jamais le corps brut en erreur.
-async function progbatGet(path: string, token: string): Promise<ProgbatResult> {
+async function progbatGet(path: string, token: string, scopeAttendu = "profile.read"): Promise<ProgbatResult> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
@@ -119,7 +130,7 @@ async function progbatGet(path: string, token: string): Promise<ProgbatResult> {
         const body = await res.json()
         detail = nettoyerMessage(body?.message ?? body?.error_description ?? body?.error ?? "")
       } catch { /* corps non JSON : ignoré */ }
-      return { ok: false, status: res.status, message: messagePourStatus(res.status, detail), contentRange }
+      return { ok: false, status: res.status, message: messagePourStatus(res.status, detail, scopeAttendu), contentRange }
     }
     const data = await res.json().catch(() => null)
     return { ok: true, status: res.status, data, contentRange }
@@ -141,14 +152,14 @@ async function progbatGet(path: string, token: string): Promise<ProgbatResult> {
 // refusée comme invalide (400/422). Jamais de boucle. Un 401/403/429 n'est pas
 // un problème de tri : on ne réessaie pas, le code d'erreur est ce qui compte.
 async function listerProgbat(
-  chemin: string, tri: string, limit: number, token: string,
+  chemin: string, tri: string, limit: number, token: string, scopeAttendu: string,
 ): Promise<{ r: ProgbatResult; tri_applique: boolean; tri_refuse: boolean }> {
   const base = `${chemin}?limit=${limit}&offset=0`
-  const r1 = await progbatGet(`${base}&sort=${encodeURIComponent(tri)}`, token)
+  const r1 = await progbatGet(`${base}&sort=${encodeURIComponent(tri)}`, token, scopeAttendu)
   if (r1.ok || (r1.status !== 400 && r1.status !== 422)) {
     return { r: r1, tri_applique: r1.ok, tri_refuse: false }
   }
-  const r2 = await progbatGet(base, token)
+  const r2 = await progbatGet(base, token, scopeAttendu)
   return { r: r2, tri_applique: false, tri_refuse: true }
 }
 
@@ -236,7 +247,7 @@ async function testerPdfFacture(billId: unknown, token: string) {
     return {
       teste: true, bill_id: billId, http_status: res.status,
       content_type: contentType, taille_octets: taille, ok: res.ok,
-      ...(res.ok ? {} : { message: messagePourStatus(res.status, "") }),
+      ...(res.ok ? {} : { message: messagePourStatus(res.status, "", "bills.read") }),
     }
   } catch (err) {
     const delai = (err as Error)?.name === "AbortError"
@@ -279,21 +290,29 @@ serve(async (req) => {
       return json({ ok: false, error: "Test réservé aux utilisateurs du bureau." }, 403)
     }
 
-    // ── 2. Secret ProGBat (jamais renvoyé ni journalisé) ─────────────────────
-    // Jeton de facturation dédié s'il existe (idéalement en lecture seule :
-    // bills.read + transactions.read), sinon le jeton historique. Seule la
-    // PROVENANCE est renvoyée, jamais la valeur.
+    // ── 2. Secrets ProGBat (jamais renvoyés ni journalisés) ─────────────────
+    // DEUX JETONS DISTINCTS, parce qu'ils n'ont pas les mêmes besoins :
+    //  - identityToken sert à /me et /clients/me, qui exigent profile.read ;
+    //  - billingToken sert au diagnostic de facturation, qui n'a besoin que de
+    //    bills.read et transactions.read.
+    // Les faire porter par la même variable obligerait le futur jeton dédié à
+    // la facturation à détenir profile.read pour que le test passe — exactement
+    // le privilège dont on veut se débarrasser. Chacun retombe sur l'autre
+    // quand il manque, pour que l'installation reste possible en une étape.
+    // Seule la PROVENANCE du jeton de facturation est renvoyée, jamais aucune
+    // valeur.
     const tokenBilling = Deno.env.get("PROGBAT_BILLING_ACCESS_TOKEN") || ""
     const tokenLegacy = Deno.env.get("PROGBAT_PRIVATE_ACCESS_TOKEN") || ""
-    const token = tokenBilling || tokenLegacy
+    const identityToken = tokenLegacy || tokenBilling
+    const billingToken = tokenBilling || tokenLegacy
     const tokenSource: "billing" | "legacy" = tokenBilling ? "billing" : "legacy"
-    if (!token) {
+    if (!identityToken && !billingToken) {
       console.warn("[progbat-test-connection] aucun secret ProGBat configuré")
       return json({ ok: false, progbat_status: null, error: "Aucun secret ProGBat configuré dans Supabase (PROGBAT_BILLING_ACCESS_TOKEN ou PROGBAT_PRIVATE_ACCESS_TOKEN)." }, 500)
     }
 
     // ── 3. GET /me : valide le jeton et le scope profile.read ────────────────
-    const me = await progbatGet("/me", token)
+    const me = await progbatGet("/me", identityToken, "profile.read")
     if (!me.ok) {
       console.warn(`[progbat-test-connection] appelant=${caller.id} /me → HTTP ${me.status} (${Date.now() - t0} ms)`)
       return json({ ok: false, progbat_status: me.status, token_source: tokenSource, error: me.message }, 200)
@@ -308,7 +327,7 @@ serve(async (req) => {
     // ── 4. GET /clients/me : nom de l'entreprise (scope profile) ─────────────
     // Facultatif : si le jeton n'a que profile.read, ProGBat peut répondre 403 ;
     // le test du jeton reste alors réussi, l'entreprise est simplement inconnue.
-    const co = await progbatGet("/clients/me", token)
+    const co = await progbatGet("/clients/me", identityToken, "profile ou company-accounts.read")
     let entreprises: { id: number | string | null; nom: string }[] = []
     let entrepriseMessage = ""
     if (co.ok) {
@@ -327,7 +346,7 @@ serve(async (req) => {
     // chaque bloc porte son propre statut et son propre message.
 
     // 5a. Factures
-    const fact = await listerProgbat("/company/bills", '{"documentDate":-1}', 20, token)
+    const fact = await listerProgbat("/company/bills", '{"documentDate":-1}', 20, billingToken, "bills.read")
     const facturesBrutes = fact.r.ok && Array.isArray(fact.r.data) ? fact.r.data as Record<string, unknown>[] : []
     const echantillonFactures = facturesBrutes.map(projeterFacture)
     const blocFactures = {
@@ -349,7 +368,7 @@ serve(async (req) => {
     }
 
     // 5b. Règlements (transactions bancaires + leur lettrage)
-    const tr = await listerProgbat("/company/transactions", '{"date":-1}', 50, token)
+    const tr = await listerProgbat("/company/transactions", '{"date":-1}', 50, billingToken, "transactions.read")
     const transactionsBrutes = tr.r.ok && Array.isArray(tr.r.data) ? tr.r.data as Record<string, unknown>[] : []
     const echantillonTransactions = transactionsBrutes.map(projeterTransaction)
     const toutLeChecking = echantillonTransactions.flatMap(t => t.checking)
@@ -416,7 +435,7 @@ serve(async (req) => {
       return Number.isFinite(v) && v !== 0
     }) ?? null
     const blocPdf = candidate
-      ? { ...(await testerPdfFacture(candidate.id, token)), critere: "première facture de l'échantillon dont validated ≠ 0" }
+      ? { ...(await testerPdfFacture(candidate.id, billingToken)), critere: "première facture de l'échantillon dont validated ≠ 0" }
       : {
           teste: false, bill_id: null, http_status: null, content_type: null,
           taille_octets: null, ok: null,
