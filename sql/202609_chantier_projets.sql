@@ -36,7 +36,7 @@ create table if not exists public.chantier_projets (
   chantier_id    text not null,                    -- slug de planning_config."chantiers" (voir ci-dessus)
   projet_id      uuid not null
                  references public.profero_projets(id) on delete cascade,
-  cree_par       uuid,                             -- auth.users.id de qui a rattaché
+  cree_par       uuid not null default auth.uid(), -- auth.users.id de qui a rattaché
   cree_par_email text,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
@@ -48,7 +48,12 @@ create table if not exists public.chantier_projets (
 -- (L'index unique est créé par la contrainte : ne pas en ajouter un second.)
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'chantier_projets_projet_unique') then
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'chantier_projets_projet_unique'
+      and conrelid = 'public.chantier_projets'::regclass
+  ) then
     alter table public.chantier_projets
       add constraint chantier_projets_projet_unique unique (projet_id);
   end if;
@@ -61,7 +66,12 @@ end $$;
 -- s'ajoute aussi à une table déjà créée par une exécution précédente.
 do $$
 begin
-  if not exists (select 1 from pg_constraint where conname = 'chantier_projets_chantier_non_vide') then
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'chantier_projets_chantier_non_vide'
+      and conrelid = 'public.chantier_projets'::regclass
+  ) then
     alter table public.chantier_projets
       add constraint chantier_projets_chantier_non_vide check (btrim(chantier_id) <> '');
   end if;
@@ -88,7 +98,7 @@ create policy "chantier_projets bureau" on public.chantier_projets
 -- (aucune policy ne le vise), mais on retire quand même ses droits, comme sur
 -- materiel et materiel_audits — une policy ajoutée par erreur plus tard ne
 -- pourrait pas ouvrir la table à un visiteur non authentifié.
-revoke all on table public.chantier_projets from anon;
+revoke all on table public.chantier_projets from public, anon;
 -- Ce dont le navigateur a réellement besoin : lire, rattacher, détacher.
 -- (update n'est pas utilisé par l'écran, mais reste accordé pour que le
 -- trigger set_updated_at et une correction ponctuelle restent possibles.)
@@ -160,7 +170,7 @@ returns table (
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select e.project_id, e.progbat_quote_id, e.progbat_quote_code, e.statut, e.finished_at
   from public.progbat_quote_exports e
@@ -177,7 +187,8 @@ as $$
     -- rend l'intention explicite plutôt que de la laisser dépendre d'un
     -- identifiant nul. 'preparing', 'creating' et 'failed' n'ont rien créé.
     and e.statut = 'created'
-    and e.progbat_quote_id is not null;  -- ceinture : pas d'identifiant, pas de référence
+    and e.progbat_quote_id is not null
+    and e.progbat_quote_id > 0;          -- ceinture : pas d'identifiant exploitable, pas de référence
 $$;
 
 revoke all on function public.progbat_devis_exportables() from public, anon;
