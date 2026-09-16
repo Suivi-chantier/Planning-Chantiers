@@ -1,6 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// « LOGEMENTS / DEVIS ProGBat » — rattachement explicite d'un ou plusieurs
-// logements (profero_projets) au chantier affiché.
+// « RATTACHEMENT DE SECOURS PAR DEVIS » — rattachement explicite d'un ou
+// plusieurs logements (profero_projets) au chantier affiché.
+//
+// ⚠️ CE N'EST PLUS LE CHEMIN PRINCIPAL. Une facture ProGBat se rattache
+// d'abord par son chantier ProGBat (`yardId`, stable d'un avenant à l'autre) —
+// voir ChantierYardsProgbat.jsx. Ce bloc reste le REPLI, utile uniquement
+// quand la facture ne porte pas de chantier (yardId absent ou nul). Son
+// fonctionnement est inchangé.
 //
 // POURQUOI CE BLOC EXISTE : une facture ProGBat porte un `quoteId`, et
 // progbat_quote_exports sait à quel logement ce devis appartient. Ce qu'aucune
@@ -158,9 +164,9 @@ export default function ChantierProjetsProgbat({ chantierId, chantiers = [], T, 
         fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
         textTransform: "uppercase", color: textMuted,
       }}>
-        <Icon as={Home} size={11}/> Logements / devis ProGBat
+        <Icon as={Home} size={11}/> Rattachement de secours par devis
         <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .75 }}>
-          — ce qui permet de reconnaître à quel chantier appartient une facture ProGBat
+          — repli pour une facture ProGBat sans chantier (yardId absent)
         </span>
       </div>
 
@@ -186,9 +192,9 @@ export default function ChantierProjetsProgbat({ chantierId, chantiers = [], T, 
               padding: "11px 13px", borderRadius: RADIUS.lg, border: `1px dashed ${border}`,
               fontSize: FONT.xs.size + 1, color: textMuted, lineHeight: 1.6,
             }}>
-              Aucun logement rattaché à ce chantier. Tant qu'aucun rattachement n'est fait, les factures
-              ProGBat de ces logements ne peuvent pas être reconnues automatiquement — elles devront être
-              rattachées à la main.
+              Aucun logement rattaché à ce chantier. Ce n'est pas le rattachement habituel : une facture
+              ProGBat se reconnaît d'abord par son chantier ProGBat, ci-dessus. Ce repli ne sert qu'aux
+              factures qui n'en portent pas.
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>

@@ -34,6 +34,7 @@ import {
   uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier,
   derniereErreurDocument,
 } from "./storageChantier";
+import ChantierYardsProgbat from "./ChantierYardsProgbat";
 import ChantierProjetsProgbat from "./ChantierProjetsProgbat";
 import {
   normaliserEcheancier, rapprocherFacture, factureDoublon,
@@ -817,10 +818,27 @@ export default function FacturationChantier({
           onReinitialiser={reinitialiserEcheancier}/>
       )}
 
-      {/* Logements / devis ProGBat : le rattachement explicite qui permettra de
-          reconnaître à quel chantier appartient une facture ProGBat. Rien n'y
-          est automatique — voir ChantierProjetsProgbat.jsx. */}
-      <ChantierProjetsProgbat chantierId={chantierId} chantiers={chantiers} T={T} peutModifier={peutModifier}/>
+      {/* Chantiers ProGBat associés : le rattachement PRINCIPAL. Une facture
+          ProGBat porte yardId, stable d'un avenant à l'autre — c'est par lui
+          qu'elle se reconnaîtra. Rien n'y est automatique, voir
+          ChantierYardsProgbat.jsx. */}
+      <ChantierYardsProgbat chantierId={chantierId} chantiers={chantiers} T={T} peutModifier={peutModifier}/>
+
+      {/* Repli par devis, replié par défaut : il ne sert qu'aux factures sans
+          yardId. Toujours branché, rien n'y change — voir
+          ChantierProjetsProgbat.jsx. */}
+      <details style={{ marginTop: 12 }}>
+        <summary style={{
+          cursor: "pointer", fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+          textTransform: "uppercase", color: T?.textMuted || "#5b6a8a",
+        }}>
+          Rattachement de secours par devis
+        </summary>
+        <div style={{ fontSize: FONT.xs.size + 1, color: T?.textMuted || "#5b6a8a", marginTop: 6, lineHeight: 1.5 }}>
+          À utiliser uniquement pour une facture ProGBat ne possédant pas de chantier (yardId absent).
+        </div>
+        <ChantierProjetsProgbat chantierId={chantierId} chantiers={chantiers} T={T} peutModifier={peutModifier}/>
+      </details>
 
       {brouillon && (
         <ModaleImport brouillon={brouillon} lignes={echeancier} montantReference={ref}

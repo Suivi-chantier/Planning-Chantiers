@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-16",
+    type: "nouveaute",
+    titre: "Rattachement des chantiers ProGBat pour préparer la synchronisation automatique des factures",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Le bloc « Facturation client » d'une fiche chantier permet maintenant d'indiquer quels chantiers ProGBat correspondent à ce chantier Profero. C'est ce lien qui permettra aux factures et avenants ProGBat d'être rattachés automatiquement au bon chantier.",
+    comment: "Dans « Chantiers ProGBat associés » : on recherche un chantier ProGBat (par son nom ou son numéro), on le choisit dans la liste, puis « Rattacher ». Un chantier Profero peut recevoir plusieurs chantiers ProGBat ; un chantier ProGBat ne peut appartenir qu'à un seul chantier Profero (la liste indique clairement ceux déjà pris ailleurs). Rien n'est jamais rapproché tout seul par ressemblance de nom. L'ancien rattachement par devis reste disponible, replié sous « Rattachement de secours par devis », pour les rares factures ProGBat sans chantier.",
+  },
+  {
     date: "2026-09-18",
     type: "nouveaute",
     titre: "Facturation client : importez la facture, l'échéance est reconnue et le cycle de vie se coche",
