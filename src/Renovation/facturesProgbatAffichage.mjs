@@ -86,6 +86,55 @@ export function sommeReglements(reglements) {
   return arrondi(reglementsActifs(reglements).reduce((s, r) => s + (montantOuNull(r.montant) ?? 0), 0));
 }
 
+// ── DOCUMENTS D'ANNULATION ──────────────────────────────────────────────────
+// Établi sur les 482 documents réels (section annulations_documents du
+// diagnostic) : 50 documents portent un situationNumber entier strictement
+// négatif ; les 50 références abs(situationNumber) existent ; les 50 documents
+// référencés portent validated = 2 ; les 50 couples ont des toBePaid ET des
+// atiTotal exactement inverses ; aucune référence ne manque.
+//
+//     situationNumber < 0  ⇒  document d'ANNULATION,
+//                             qui neutralise le document d'identifiant
+//                             abs(situationNumber).
+//
+// CE QUE CETTE RÈGLE N'EST PAS. Elle ne dépend NI du signe du montant — un
+// document d'annulation peut être positif, F-260072 en est un —, NI du type
+// (on observe bill-credit et advance-credit), NI du yard ou du devis, parfois
+// absents. Se fier au montant négatif ou au mot « avoir » manquerait la moitié
+// des cas et en inventerait d'autres.
+//
+// Le document annulé, lui, n'est PAS en base : validated = 2 l'écarte de la
+// synchronisation. On ne le cherche donc pas — on se contente de nommer son
+// identifiant.
+
+/** Entier STRICT : -469 et "-469" oui ; 0, 3.5, "", "abc", true, null non. */
+const entierStrict = (v) => {
+  if (typeof v === "boolean") return null;
+  if (typeof v === "number") return Number.isSafeInteger(v) ? v : null;
+  if (typeof v === "string" && /^-?\d+$/.test(v.trim())) {
+    const n = Number(v.trim());
+    return Number.isSafeInteger(n) ? n : null;
+  }
+  return null;
+};
+
+/**
+ * @returns { est_document_annulation, progbat_bill_id_reference }
+ * La référence n'est renvoyée que si elle est exploitable : un entier
+ * strictement négatif, dont la valeur absolue est un identifiant sûr.
+ */
+export function referenceAnnulationProgbat(facture) {
+  const situation = entierStrict(facture?.progbat_situation_number);
+  if (situation === null || situation >= 0) {
+    return { est_document_annulation: false, progbat_bill_id_reference: null };
+  }
+  const reference = Math.abs(situation);
+  if (!Number.isSafeInteger(reference) || reference <= 0) {
+    return { est_document_annulation: false, progbat_bill_id_reference: null };
+  }
+  return { est_document_annulation: true, progbat_bill_id_reference: reference };
+}
+
 /**
  * Nature lisible d'un document ProGBat.
  * L'ordre est celui de la lecture métier : un acompte reste un acompte, même
@@ -219,22 +268,62 @@ export function totauxFacturesProgbat(factures, parFacture = new Map()) {
   };
 }
 
+const parDatePuisId = (a, b) =>
+  String(a.facture?.date_facture ?? "").localeCompare(String(b.facture?.date_facture ?? ""))
+  || (Number(a.facture?.progbat_bill_id ?? 0) - Number(b.facture?.progbat_bill_id ?? 0));
+
 /**
- * Tout ce dont l'écran a besoin, en une passe : chaque facture avec ses
- * règlements actifs et son état, plus les totaux. Trié par date puis par
- * identifiant ProGBat, pour un ordre stable d'un chargement à l'autre.
+ * Tout ce dont l'écran a besoin, en une passe, en DEUX groupes.
+ *
+ *   factures_actives    → ce qui est réellement dû et encaissé : montants,
+ *                         états, totaux. Un vrai avoir (montant négatif, sans
+ *                         situationNumber négatif) en fait partie et garde sa
+ *                         logique de remboursement.
+ *   documents_annulation → conservés pour l'historique, et EXCLUS de tout :
+ *                         du nombre, du facturé, du réglé, du reste, des
+ *                         états. Leurs règlements éventuels le sont aussi.
+ *
+ * Rien n'est supprimé : les deux groupes sortent d'ici, l'écran montre le
+ * second dans un repli. Trié par date puis par identifiant ProGBat, pour un
+ * ordre stable d'un chargement à l'autre.
  */
 export function composerFacturesProgbat(factures, reglements) {
   const parFacture = grouperReglements(reglements);
-  const liste = (Array.isArray(factures) ? factures : []).map((f) => ({
-    facture: f,
-    reglements: parFacture.get(String(f?.id)) ?? [],
-    etat: etatFactureProgbat(f, parFacture.get(String(f?.id)) ?? []),
-    nature: natureFactureProgbat(f),
-    libelle: libelleFactureProgbat(f),
-  }));
-  liste.sort((a, b) =>
-    String(a.facture?.date_facture ?? "").localeCompare(String(b.facture?.date_facture ?? ""))
-    || (Number(a.facture?.progbat_bill_id ?? 0) - Number(b.facture?.progbat_bill_id ?? 0)));
-  return { lignes: liste, totaux: totauxFacturesProgbat(factures, parFacture) };
+  const reglementsDe = (f) => parFacture.get(String(f?.id)) ?? [];
+
+  const actives = [];
+  const annulations = [];
+  const facturesActives = [];
+
+  for (const f of Array.isArray(factures) ? factures : []) {
+    const reference = referenceAnnulationProgbat(f);
+    if (reference.est_document_annulation) {
+      annulations.push({
+        facture: f,
+        reglements: reglementsDe(f),
+        libelle: libelleFactureProgbat(f),
+        reference,
+      });
+      continue;
+    }
+    facturesActives.push(f);
+    actives.push({
+      facture: f,
+      reglements: reglementsDe(f),
+      etat: etatFactureProgbat(f, reglementsDe(f)),
+      nature: natureFactureProgbat(f),
+      libelle: libelleFactureProgbat(f),
+    });
+  }
+
+  actives.sort(parDatePuisId);
+  annulations.sort(parDatePuisId);
+
+  return {
+    factures_actives: actives,
+    documents_annulation: annulations,
+    // Les totaux ne voient QUE les actives : c'est là que se joue la
+    // correction. Un document d'annulation n'a ni dû, ni reste.
+    totaux: totauxFacturesProgbat(facturesActives, parFacture),
+  };
 }

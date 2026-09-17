@@ -489,7 +489,10 @@ function FacturesProgbat({ chantierId, T }) {
 
   React.useEffect(() => { charger(); }, [charger]);
 
-  const { lignes, totaux } = React.useMemo(
+  // Deux groupes : ce qui est réellement dû, et les documents d'annulation
+  // ProGBat (situationNumber négatif), conservés pour l'historique mais hors
+  // de tous les totaux.
+  const { factures_actives: lignes, documents_annulation: annulations, totaux } = React.useMemo(
     () => composerFacturesProgbat(donnees.factures, donnees.reglements),
     [donnees],
   );
@@ -548,7 +551,7 @@ function FacturesProgbat({ chantierId, T }) {
     );
   }
 
-  if (!lignes.length) {
+  if (!lignes.length && !annulations.length) {
     return cadre(
       <div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
         Aucune facture ProGBat synchronisée pour ce chantier.
@@ -568,7 +571,7 @@ function FacturesProgbat({ chantierId, T }) {
   return cadre(
     <>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
-        {kpiProgbat("Factures", String(totaux.nombre))}
+        {kpiProgbat("Factures actives", String(totaux.nombre))}
         {kpiProgbat("Facturé TTC", eurSigne(totaux.total_facture))}
         {kpiProgbat("Réglé", eurSigne(totaux.total_regle), "#22c55e")}
         {kpiProgbat("Reste à régler", eurSigne(totaux.reste), Math.abs(totaux.reste) > 0.01 ? "#f59e0b" : "#22c55e")}
@@ -641,7 +644,68 @@ function FacturesProgbat({ chantierId, T }) {
             )}
           </div>
         ))}
+        {!lignes.length && (
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+            Aucune facture active : tous les documents synchronisés sont des annulations.
+          </div>
+        )}
       </div>
+
+      {/* ── Documents d'annulation ProGBat ────────────────────────────────
+          Un situationNumber négatif désigne un document qui NEUTRALISE celui
+          dont l'identifiant vaut sa valeur absolue. Le document annulé n'est
+          pas en base (validated = 2 l'écarte de la synchronisation) : on ne le
+          cherche pas, on nomme son identifiant.
+          Ces documents ne sont ni des avoirs à rembourser, ni des factures à
+          régler : aucun état, aucun reste, aucune dette ne leur est attribué. */}
+      {annulations.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary style={{
+            cursor: "pointer", fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+            textTransform: "uppercase", color: textMuted,
+          }}>
+            Documents d'annulation ProGBat ({annulations.length})
+          </summary>
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, margin: "6px 0 8px", lineHeight: 1.5 }}>
+            Conservés pour l'historique. Ils neutralisent un document annulé et n'entrent dans aucun total.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {annulations.map(({ facture, reglements, libelle, reference }) => (
+              <div key={facture.id} style={{
+                padding: "8px 11px", borderRadius: RADIUS.md,
+                background: "rgba(255,255,255,0.02)", border: `1px solid ${border}`, opacity: .85,
+              }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+                  <strong style={{ fontSize: FONT.sm.size, fontWeight: 800, color: text }}>{libelle}</strong>
+                  <span style={{
+                    fontSize: FONT.xs.size, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+                    border: `1px solid ${border}`, color: textSub,
+                  }}>
+                    Annulation
+                  </span>
+                  {facture.date_facture && <span style={{ fontSize: FONT.xs.size + 1, color: textSub }}>{jj(facture.date_facture)}</span>}
+                  <span style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, fontWeight: 800, color: text }}>
+                    {eurSigne(facture.montant_ttc)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 4, fontSize: FONT.xs.size + 1, color: textSub }}>
+                  <span>Neutralise le document ProGBat n°{reference.progbat_bill_id_reference}</span>
+                  {facture.progbat_bill_id != null && (
+                    <span style={{ marginLeft: "auto", color: textMuted, opacity: .8 }}>ProGBat n°{facture.progbat_bill_id}</span>
+                  )}
+                </div>
+                {/* Cas exceptionnel : un règlement rattaché à une annulation.
+                    On le signale, sans montant — il n'entre dans aucun total. */}
+                {reglements.length > 0 && (
+                  <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: textMuted }}>
+                    {reglements.length} règlement(s) associé(s), exclus des totaux actifs.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </>,
   );
 }
