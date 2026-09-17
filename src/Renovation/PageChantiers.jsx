@@ -50,6 +50,7 @@ import { exporterDiagrammePDF } from "./diagrammeFinancierPdf";
 // commun, alimenté par la MÊME RPC que l'espace ouvrier. Aucune donnée
 // financière n'y entre — c'est un document de terrain, pas de pilotage.
 import { buildPreparationDocHTML } from "./preparationChantierDoc";
+import { sauvegarderPhasage, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
 // Le rendu recharts du diagramme est chargé à la demande (React.lazy) pour
 // que le chunk "charts" ne pèse pas sur l'ouverture de la page Chantiers.
 const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
@@ -2276,20 +2277,41 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // chargé une fois au montage, sans realtime : écrire à partir de lui
   // écraserait le travail V1/chrono fait entre-temps dans PhasageV2
   // (incident du 2026-06-03).
-  const saveMetaPhasage = async (patch) => {
+  // Socle commun : relit plan_travaux ET sa révision dans le MÊME select, puis
+  // écrit par la RPC versionnée. Si le phasage bouge entre la relecture et
+  // l'écriture (auto-save PhasageV2, acceptation d'un matériau suggéré), le
+  // serveur refuse : on recalcule le patch sur la version fraîche au lieu de
+  // l'écraser. Rien n'est jamais forcé — après 3 tentatives, on renonce.
+  const ecrireMetaPhasage = async (construirePlan) => {
     if (!selectedPhasage?.id) return false;
-    const { data: fresh, error: fetchErr } = await supabase.from("phasages")
-      .select("plan_travaux").eq("id", selectedPhasage.id).maybeSingle();
-    if (fetchErr) { alert(`Sauvegarde impossible : ${fetchErr.message}`); return false; }
-    const currentPlan = fresh?.plan_travaux || {};
-    const newPlan = { ...currentPlan, meta: { ...(currentPlan.meta || {}), ...patch } };
-    const { error } = await supabase.from("phasages")
-      .update({ plan_travaux: newPlan, updated_at: new Date().toISOString() })
-      .eq("id", selectedPhasage.id);
-    if (error) { alert(`Sauvegarde impossible : ${error.message}`); return false; }
-    setPhasages(prev => prev.map(p => p.id === selectedPhasage.id ? { ...p, plan_travaux: newPlan } : p));
-    return true;
+    for (let essai = 0; essai < 3; essai++) {
+      const { data: fresh, error: fetchErr } = await supabase.from("phasages")
+        .select("revision, plan_travaux").eq("id", selectedPhasage.id).maybeSingle();
+      if (fetchErr || !fresh) {
+        console.error("ecrireMetaPhasage (relecture) :", fetchErr);
+        alert(MESSAGE_ERREUR_ECRITURE); return false;
+      }
+      const newPlan = construirePlan(fresh.plan_travaux || {});
+      const res = await sauvegarderPhasage({
+        phasageId: selectedPhasage.id,
+        revision: fresh.revision ?? 0,
+        plan_travaux: newPlan,
+      });
+      if (res.ok) {
+        setPhasages(prev => prev.map(p => p.id === selectedPhasage.id
+          ? { ...p, plan_travaux: newPlan, revision: res.revision } : p));
+        return true;
+      }
+      if (res.code !== "conflit") { alert(MESSAGE_ERREUR_ECRITURE); return false; }
+      // Conflit : la boucle relit et rejoue le calcul sur la version récente.
+    }
+    alert("Ce phasage est en cours de modification par quelqu'un d'autre. Votre action n'a pas été enregistrée : réessayez dans un instant.");
+    return false;
   };
+
+  const saveMetaPhasage = (patch) => ecrireMetaPhasage((currentPlan) => ({
+    ...currentPlan, meta: { ...(currentPlan.meta || {}), ...patch },
+  }));
 
   // Force un sommet (commentaire obligatoire, auteur + date tracés) / retour auto.
   const forcerSommetQCD = async (axeId, statut, commentaire) => {
@@ -2370,24 +2392,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Même read-before-write que saveMetaPhasage, mais le merge se fait au
   // niveau de l'étape : l'updater reçoit l'état FRAIS relu en base (jamais le
   // state local), pour ne pas écraser les autres étapes modifiées entre-temps.
-  const saveEtatEtapeCV = async (etapeId, updater) => {
-    if (!selectedPhasage?.id) return false;
-    const { data: fresh, error: fetchErr } = await supabase.from("phasages")
-      .select("plan_travaux").eq("id", selectedPhasage.id).maybeSingle();
-    if (fetchErr) { alert(`Sauvegarde impossible : ${fetchErr.message}`); return false; }
-    const currentPlan = fresh?.plan_travaux || {};
+  const saveEtatEtapeCV = (etapeId, updater) => ecrireMetaPhasage((currentPlan) => {
     const etats = lireEtatsEtapes(currentPlan.meta || {});
     const nouveau = typeof updater === "function" ? updater(etats[etapeId] || {}) : updater;
     const nextEtats = { ...etats };
     if (nouveau == null) delete nextEtats[etapeId]; else nextEtats[etapeId] = nouveau;
-    const newPlan = { ...currentPlan, meta: { ...(currentPlan.meta || {}), [CV_META_ETAPES]: nextEtats } };
-    const { error } = await supabase.from("phasages")
-      .update({ plan_travaux: newPlan, updated_at: new Date().toISOString() })
-      .eq("id", selectedPhasage.id);
-    if (error) { alert(`Sauvegarde impossible : ${error.message}`); return false; }
-    setPhasages(prev => prev.map(p => p.id === selectedPhasage.id ? { ...p, plan_travaux: newPlan } : p));
-    return true;
-  };
+    return { ...currentPlan, meta: { ...(currentPlan.meta || {}), [CV_META_ETAPES]: nextEtats } };
+  });
 
   // ── Actions sur les étapes du cycle de vie (Prompt 6) ──
   const auteurCV = profil?.nom || profil?.email || "";

@@ -5,7 +5,7 @@
 // qu'aucune réécriture inconditionnelle de ouvrages / plan_travaux ne subsiste.
 //   node scripts/verif-phasage-ecriture.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const {
   creerRegistre, noterRevision, noterRevisions, revisionDe,
@@ -129,6 +129,50 @@ test("10. aucune réécriture inconditionnelle de ouvrages / plan_travaux", () =
   }
   assert.ok(/conducteur_sauvegarder_phasage_v2/.test(lire("src/Renovation/PhasageV2.jsx")),
     "PhasageV2 garde sa propre file versionnée");
+});
+
+test("11. balayage de TOUT src : aucun update client de ouvrages / plan_travaux", () => {
+  // Le contrôle 10 ne regarde que quatre fichiers connus : c'est ainsi que
+  // deux écritures de plan_travaux dans PageChantiers ont pu passer. Ici on
+  // balaie l'arborescence entière, y compris les fichiers ajoutés plus tard.
+  const racine = new URL("../src/", import.meta.url);
+  const fichiers = [];
+  (function marcher(dir, prefixe) {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) marcher(new URL(e.name + "/", dir), prefixe + e.name + "/");
+      else if (/\.(js|jsx|mjs)$/.test(e.name)) fichiers.push([prefixe + e.name, new URL(e.name, dir)]);
+    }
+  })(racine, "src/");
+  assert.ok(fichiers.length > 20, "le balayage doit trouver les sources");
+
+  // Un .update({ ... }) qui pose l'une des deux colonnes protégées — mais
+  // seulement sur la table `phasages` : d'autres tables ont une colonne
+  // `ouvrages` (profero_categories_ouvrages, la bibliothèque de chiffrage),
+  // et elles ne sont pas concernées.
+  const TABLE = /from\(\s*["'`]phasages["'`]\s*\)/g;
+  const INTERDIT = /^[\s\S]{0,400}?\.\s*(update|upsert)\s*\(\s*\{[^}]*\b(ouvrages|plan_travaux)\s*:/;
+  const fautifs = [];
+  for (const [nom, url] of fichiers) {
+    const src = readFileSync(url, "utf8");
+    TABLE.lastIndex = 0;
+    let m;
+    while ((m = TABLE.exec(src))) {
+      // On ne regarde que ce qui suit immédiatement l'accès à la table :
+      // au-delà, on est déjà dans une autre requête.
+      if (INTERDIT.test(src.slice(m.index + m[0].length))) { fautifs.push(nom); break; }
+    }
+  }
+  assert.deepEqual(fautifs, [],
+    `ces fichiers réécrivent ouvrages/plan_travaux sans passer par une RPC versionnée : ${fautifs.join(", ")}`);
+});
+
+test("bonus — la fiche chantier écrit ses meta avec la révision relue", () => {
+  const src = lire("src/Renovation/PageChantiers.jsx");
+  assert.ok(/select\("revision, plan_travaux"\)/.test(src),
+    "la révision est lue dans le MÊME select que le contenu");
+  assert.ok(/sauvegarderPhasage\(/.test(src), "l'écriture passe par la RPC versionnée");
+  assert.ok(!/fetchErr\.message|error\.message/.test(src.split("ecrireMetaPhasage")[1] || ""),
+    "aucun détail technique n'est affiché à l'utilisateur");
 });
 
 test("bonus — le lot transmet bien une révision par phasage", () => {

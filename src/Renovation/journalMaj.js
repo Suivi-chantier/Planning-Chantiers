@@ -26,8 +26,8 @@ export const JOURNAL_MAJ = [
     date: "2026-09-17",
     type: "correctif",
     titre: "Plus aucun écran ne peut effacer en silence une modification du phasage",
-    pages: [{ id: "planning-commandes", label: "Planning commandes" }, { id: "validation", label: "Validation fin de journée" }],
-    quoi: "La protection mise en place sur le Phasage s'étend maintenant à tous les écrans qui touchent au contenu d'un chantier : Planning commandes, Validation fin de journée et le déplacement de groupes depuis le planning. Aucun d'eux ne peut plus réécrire un phasage à partir de données chargées avant une modification faite ailleurs.",
+    pages: [{ id: "planning-commandes", label: "Planning commandes" }, { id: "validation", label: "Validation fin de journée" }, { id: "chantiers", label: "Chantiers" }],
+    quoi: "La protection mise en place sur le Phasage s'étend maintenant à tous les écrans qui touchent au contenu d'un chantier : Planning commandes, Validation fin de journée, le déplacement de groupes depuis le planning, ainsi que le cycle de vie et les sommets QCD de la fiche chantier. Aucun d'eux ne peut plus réécrire un phasage à partir de données chargées avant une modification faite ailleurs.",
     comment: "Rien ne change tant que personne ne travaille en même temps. Si le phasage a été modifié entre le moment où l'écran a chargé et celui où vous validez, l'enregistrement est refusé et un bandeau rouge l'explique — « vos données n'ont pas été enregistrées afin de protéger les données récentes » — avec un bouton « Recharger les données récentes ». Vous refaites alors votre action sur la version à jour. Marquer une commande comme passée sur plusieurs chantiers d'un coup est désormais tout ou rien : soit tous les chantiers sont marqués, soit aucun, jamais la moitié.",
   },
   {
