@@ -26,9 +26,12 @@ import { DEFAULT_CHANTIERS } from "../constants";
 import { Icon } from "../ui";
 import {
   Building2, MapPin, ArrowLeft, ChevronRight, FileText, Image as ImageIcon,
-  FolderOpen, Timer, HardHat, Ruler, ImageOff, Layers,
+  FolderOpen, Timer, HardHat, Ruler, ImageOff, Layers, ClipboardList,
 } from "lucide-react";
 import { grouperParOperation } from "./ouvrierOperations";
+// Niveau 4 : la préparation du chantier. Écran à part, alimenté uniquement
+// par la RPC ouvrier_preparation_chantier — il ne lit aucune table.
+import OuvrierPreparationChantier from "./OuvrierPreparationChantier";
 import { MobileCard, MobileSection, MobileEmptyState, Pill, SummaryBar } from "../mobileUI";
 import { indexPointagesParTache, tacheHeuresReelles } from "../chantierFinance";
 import { urlDocumentChantier, derniereErreurDocument } from "./storageChantier";
@@ -67,6 +70,11 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
   const [erreur, setErreur]   = useState(false);
   const [plans, setPlans]     = useState(null); // plans de la page Plans (null = en cours)
   const [planOuvert, setPlanOuvert] = useState(null); // { id, name } → visionneuse
+  // Niveau 4 : préparation du chantier. `sel` et `opSel` restent intacts, si
+  // bien que fermer la préparation retrouve le détail EXACT d'où l'on vient,
+  // et le retour suivant l'opération d'origine. Aucun état de provenance en
+  // plus, aucune route : la pile de navigation, c'est ces trois booléens.
+  const [prepOuverte, setPrepOuverte] = useState(false);
 
   useEffect(() => {
     // Une seule requête pour les trois référentiels. On ne passe pas par
@@ -92,6 +100,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
 
   const openChantier = async (c) => {
     setSel(c); setDetail(null); setErreur(false); setLoading(true); setPlans(null);
+    setPrepOuverte(false);
     // Plans de la page Plans (dessins) — chargés en parallèle du détail.
     supabase.rpc("ouvrier_plans_chantier", { p_chantier_id: c.id }).then(({ data, error }) => {
       if (error) { console.error("ouvrier_plans_chantier:", error); setPlans([]); return; }
@@ -271,6 +280,18 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
     );
   }
 
+  // ── NIVEAU 4 : PRÉPARATION DU CHANTIER ─────────────────────────────────────
+  // Monté/démonté par ce booléen : chaque ouverture refait donc l'appel RPC.
+  // Le retour ne fait que refermer — `sel` n'a jamais été touché, le détail
+  // réapparaît tel qu'il était, et son propre retour ramène à l'opération.
+  if (sel && prepOuverte) {
+    return (
+      <OuvrierPreparationChantier
+        chantier={sel} T={T} accent={accent}
+        onRetour={() => setPrepOuverte(false)}/>
+    );
+  }
+
   // ── Vue DÉTAIL ──────────────────────────────────────────────────────────────
   const couleur = sel.couleur || accent;
   const st = STATUTS[sel.statut || "en_cours"] || STATUTS.en_cours;
@@ -341,6 +362,34 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
           </div>
         )}
         <NavButtons geo={geo}/>
+      </MobileCard>
+
+      {/* Accès à la préparation — après l'identité du chantier, avant les
+          heures, les plans et les documents. Disponible immédiatement : il
+          n'attend pas le chargement du détail, la préparation a sa propre
+          source (la RPC) et ses propres états. */}
+      <MobileCard T={T} accent={accent} style={{ padding:0, overflow:"hidden" }}>
+        <button onClick={() => setPrepOuverte(true)} style={{
+          width:"100%", textAlign:"left", display:"flex", alignItems:"center", gap:11,
+          padding:"13px 14px", border:"none", background:"transparent",
+          fontFamily:"inherit", cursor:"pointer",
+        }}>
+          <div style={{
+            width:38, height:38, borderRadius:12, flexShrink:0,
+            background:`linear-gradient(135deg, ${accent}, ${accent}c0)`, color:"#1a1f2e",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            boxShadow:`0 4px 12px ${accent}55`,
+          }}><Icon as={ClipboardList} size={19} strokeWidth={2.2}/></div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:15.5, fontWeight:800, color:T.text, letterSpacing:-0.2 }}>
+              Préparation du chantier
+            </div>
+            <div style={{ fontSize:12.5, color:T.textSub, marginTop:2 }}>
+              Voir les phases, les tâches et les matériaux prévus
+            </div>
+          </div>
+          <Icon as={ChevronRight} size={18} style={{ color:T.textMuted, flexShrink:0 }}/>
+        </button>
       </MobileCard>
 
       {loading && (

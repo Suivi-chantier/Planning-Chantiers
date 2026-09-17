@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
+    titre: "Les ouvriers voient la préparation du chantier sur leur téléphone",
+    pages: [],
+    quoi: "Depuis un chantier, l'espace ouvrier donne accès à « Préparation du chantier » : les phases dans l'ordre d'exécution, les ouvrages de chaque phase, leurs tâches et les matériaux prévus. L'équipe sait ce qui l'attend et ce qu'elle doit avoir avec elle, sans appeler le bureau. Tout ce qui est modifié dans le Phasage est repris — c'est la même source, il n'y a rien à publier.",
+    comment: "Espace ouvrier → onglet Opérations → un chantier → « Préparation du chantier ». Les phases s'ouvrent une à une : chacune indique son nombre d'ouvrages et combien de tâches y sont terminées. On ouvre un ouvrage pour voir ses tâches (à faire, en cours, terminée) puis ses matériaux, avec la quantité totale, la référence, le fournisseur et une pastille « Commandé » le cas échéant. Un ouvrage qui intervient dans plusieurs phases affiche ses matériaux à chaque fois, avec la mention « prévus pour l'ensemble de cet ouvrage » : ils ne se commandent qu'une seule fois. Les étapes que le conducteur n'a pas encore classées apparaissent en fin de liste sous « À organiser ». L'écran est en lecture seule : aucun avancement ne se modifie depuis le téléphone, et aucun prix n'y figure. Le bouton « Actualiser » recharge les dernières modifications du conducteur. Si le phasage du chantier est trop ancien ou pas encore fait, l'écran le dit clairement au lieu d'afficher une liste vide.",
+  },
+  {
+    date: "2026-09-17",
+    type: "nouveaute",
     titre: "Modifier les matériaux d'un ouvrage directement dans le phasage",
     pages: [{ id: "phasage-v2", label: "Phasage" }],
     quoi: "Les matériaux d'un ouvrage étaient figés à l'import du devis : on les voyait, sans pouvoir les corriger. Il fallait réimporter l'ouvrage depuis la bibliothèque pour changer quoi que ce soit. Ils sont maintenant modifiables ouvrage par ouvrage, et ces changements ne concernent que ce chantier — la bibliothèque centrale n'est jamais touchée.",
