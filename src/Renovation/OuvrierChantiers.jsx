@@ -60,7 +60,7 @@ const couleurDerive = (vendues, reelles) => {
   return pct > 120 ? "#ef4444" : pct > 100 ? "#f59e0b" : "#22c55e";
 };
 
-export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
+export default function OuvrierChantiers({ T, accent = "#FFC200", preview = false }) {
   const [config, setConfig]   = useState(null); // { chantiers, adresses, operations }
   const [erreurConfig, setErreurConfig] = useState(false);
   const [opSel, setOpSel]     = useState(null); // opération ouverte (niveau 2) — null = niveau 1
@@ -287,7 +287,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200" }) {
   if (sel && prepOuverte) {
     return (
       <OuvrierPreparationChantier
-        chantier={sel} T={T} accent={accent}
+        chantier={sel} T={T} accent={accent} preview={preview}
         onRetour={() => setPrepOuverte(false)}/>
     );
   }

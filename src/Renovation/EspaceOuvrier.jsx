@@ -200,7 +200,7 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
               estResponsable={profilEspace.est_responsable}
               equipesResponsable={profilEspace.equipes_responsable}/>
           )}
-          {tab === "chantiers"        && <OuvrierChantiers T={T} accent={ACCENT}/>}
+          {tab === "chantiers"        && <OuvrierChantiers T={T} accent={ACCENT} preview={preview}/>}
           {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT} preview={preview}/>}
         </div>
       )}

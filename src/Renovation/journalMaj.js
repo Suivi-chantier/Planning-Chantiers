@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
+    titre: "Les ouvriers peuvent signaler un matériau manquant",
+    pages: [],
+    quoi: "Dans la préparation du chantier, chaque ouvrage a maintenant un bouton « Suggérer un matériau ». L'équipe signale ce qui manque sans passer un coup de fil, et voit ce que les collègues ont déjà demandé sur le même ouvrage — donc pas deux fois la même demande.",
+    comment: "Espace ouvrier → Opérations → un chantier → Préparation du chantier → ouvrir un ouvrage → « Suggérer un matériau ». On cherche le matériau dans la bibliothèque (à partir de deux lettres, par nom ou référence) ou, s'il n'y est pas, on le saisit à la main avec son unité. On indique la quantité totale nécessaire pour le chantier — pas par unité d'ouvrage — et, si utile, une précision pour le conducteur. Les suggestions déjà envoyées apparaissent en dessous avec la mention « En attente », séparées des matériaux prévus : elles ne sont pas encore validées. Rien n'est modifié automatiquement — ni le phasage, ni la bibliothèque, ni une commande. Le traitement par le conducteur arrivera dans une prochaine mise à jour.",
+  },
+  {
+    date: "2026-09-17",
+    type: "nouveaute",
     titre: "Les ouvriers voient la préparation du chantier sur leur téléphone",
     pages: [],
     quoi: "Depuis un chantier, l'espace ouvrier donne accès à « Préparation du chantier » : les phases dans l'ordre d'exécution, les ouvrages de chaque phase, leurs tâches et les matériaux prévus. L'équipe sait ce qui l'attend et ce qu'elle doit avoir avec elle, sans appeler le bureau. Tout ce qui est modifié dans le Phasage est repris — c'est la même source, il n'y a rien à publier.",
