@@ -5,7 +5,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
-  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2,
+  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -19,12 +19,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux",
+    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux",
+    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","journal-maj"
   ],
   commercial: [
@@ -62,6 +62,7 @@ const ALL_NAV_ITEMS = [
   { id:"info-client",      icon:IdCard,          label:"Chiffrage",  longLabel:"Chiffrage"           },
   { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
   { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
+  { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions",longLabel:"Suggestions de matériaux" },
   { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide",      longLabel:"Guide ouvrages"      },
   { id:"journal-maj",      icon:Newspaper,       label:"MAJ",        longLabel:"Journal des MAJ"     },
   { id:"admin",            icon:Settings,        label:"Réglages",   longLabel:"Réglages"            },
@@ -263,6 +264,7 @@ function Sidebar({
     { id:"info-client",      icon:IdCard,          label:"Chiffrage"        },
     { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
     { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
+    { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions de matériaux" },
     { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide ouvrages"   },
     { id:"journal-maj",      icon:Newspaper,       label:"Journal des MAJ"  },
     { id:"admin",            icon:Settings,        label:"Réglages"         },

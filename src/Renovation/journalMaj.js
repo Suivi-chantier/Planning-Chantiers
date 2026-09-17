@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
+    titre: "Traiter les suggestions de matériaux des ouvriers",
+    pages: [{ id: "suggestions-mat", label: "Suggestions de matériaux" }, { id: "chantiers", label: "Chantiers" }],
+    quoi: "Les matériaux signalés par les équipes depuis leur téléphone arrivent maintenant dans un écran dédié. Le conducteur accepte ou refuse, et une acceptation ajoute réellement le matériau aux matériaux prévus de l'ouvrage — plus besoin de le ressaisir dans le phasage.",
+    comment: "Menu « Suggestions de matériaux », ou directement depuis la fiche d'un chantier, qui affiche les siennes. « Traiter » ouvre une validation préremplie : le matériau proposé, la quantité totale demandée, et la quantité par unité d'ouvrage calculée automatiquement (quantité demandée ÷ quantité de l'ouvrage). Tout reste modifiable avant de valider, et le résultat final est annoncé en clair. Si l'ouvrier a saisi un matériau à la main, il faut d'abord le rattacher à une référence de la bibliothèque — existante, ou créée sur place avec la fiche habituelle. Si le matériau est déjà prévu sur l'ouvrage, il faut choisir explicitement d'ajouter la quantité ou de remplacer celle en place : aucun doublon n'est créé en silence. Le refus demande un motif et ne touche jamais au phasage. Les filtres En attente / Acceptées / Refusées gardent l'historique, avec qui a traité, quand et pourquoi.",
+  },
+  {
+    date: "2026-09-17",
+    type: "nouveaute",
     titre: "Les ouvriers peuvent signaler un matériau manquant",
     pages: [],
     quoi: "Dans la préparation du chantier, chaque ouvrage a maintenant un bouton « Suggérer un matériau ». L'équipe signale ce qui manque sans passer un coup de fil, et voit ce que les collègues ont déjà demandé sur le même ouvrage — donc pas deux fois la même demande.",

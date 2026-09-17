@@ -597,7 +597,10 @@ function ModaleImportSheets({ onClose, onImport, T }) {
 }
 
 // ─── MODALE ARTICLE ───────────────────────────────────────────────────────────
-function ArticleModal({ article, onClose, onSave, T, acc, fournisseurs = [] }) {
+// Exportée pour être RÉUTILISÉE telle quelle par l'écran de traitement des
+// suggestions (PageSuggestionsMateriaux) : c'est le seul éditeur de fiche
+// matériau de l'application, il ne doit pas en exister un second.
+export function ArticleModal({ article, onClose, onSave, T, acc, fournisseurs = [] }) {
   const [draft, setDraft] = useState(article || emptyArticle());
   const [saving, setSaving] = useState(false);
   acc = acc || getBranchAccent("renovation");

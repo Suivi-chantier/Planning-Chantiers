@@ -35,6 +35,7 @@ import {
   etapesAValiderDepuisFacturation,
 } from "./facturationClient";
 import FacturationChantier from "./FacturationChantier";
+import PageSuggestionsMateriaux from "./PageSuggestionsMateriaux";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
 import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, ACCEPT_DOCS } from "./storageChantier";
 // Diagramme financier (Point 5) : séries prévues + récapitulatif (calcul pur)
@@ -3220,6 +3221,15 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             <Icon as={StickyNote} size={13}/> Notes du chantier
           </div>
           <NotesChantier chantierId={selected} T={T} accent={acc.accent}/>
+        </div>
+
+        {/* ── Section : Suggestions de matériaux des ouvriers ──
+             MÊME composant que la page centrale, avec le chantier imposé :
+             il n'existe pas de seconde implémentation. Il affiche lui-même le
+             nombre en attente et porte tout le traitement. */}
+        <div>
+          <PageSuggestionsMateriaux T={T} branch={branch} chantierId={selected}
+            chantierNom={selectedChantier?.nom || ""}/>
         </div>
 
         </>)}
