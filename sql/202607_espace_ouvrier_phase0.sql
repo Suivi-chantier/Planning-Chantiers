@@ -146,6 +146,15 @@ end $$;
 -- 0C-3 — Policies fines pour les 4 tables à chemins anon/ouvrier — APPLIQUÉ
 -- Préserve le formulaire public (SELECT config/cells + INSERT rapports/besoins
 -- en anon) et ouvre l'accès ouvrier filtré (utilisé dès la Phase 1+).
+--
+-- ⚠ NE PAS REJOUER LE §2 (planning_config) TEL QUEL — PÉRIMÉ.
+-- Les policies "config_ouvrier_sel" et "config_anon_sel" écrites ci-dessous
+-- ouvrent TOUTES les clés de planning_config, salaires (taux_horaires) et
+-- états financiers compris. Elles ont été remplacées par une liste blanche
+-- de clés : sql/202609_planning_config_liste_blanche.sql, qui est désormais
+-- la SOURCE DE VÉRITÉ de ces deux policies. Rejouer le §2 rouvrirait la
+-- fuite — réappliquer la liste blanche juste après si cela arrive.
+-- Les §3, §4 et §5 (cells / rapports / besoins) restent valables.
 -- ---------------------------------------------------------------------
 
 -- 1) Purge des policies existantes de ces 4 tables
