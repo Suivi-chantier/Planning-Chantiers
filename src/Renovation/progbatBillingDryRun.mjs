@@ -273,24 +273,52 @@ export function valeursDistinctes(valeurs) {
 }
 
 /**
+ * Sérialisation CANONIQUE : clés d'objet triées, ordre des tableaux conservé.
+ *
+ * Indispensable pour comparer un jsonb relu en base. PostgreSQL ne conserve PAS
+ * l'ordre des clés d'un jsonb : il les range par longueur puis par octets, si
+ * bien que {level, rate, base, amount} revient {base, rate, level, amount}. Une
+ * comparaison sur JSON.stringify brut verrait donc une différence à CHAQUE
+ * passage, et progbat_tax_details / progbat_deductions rendraient toute facture
+ * éternellement « à mettre à jour ».
+ * L'ordre des TABLEAUX, lui, est significatif (une ligne de TVA n'est pas
+ * l'autre) : il n'est jamais trié.
+ */
+export function serialiserCanonique(v) {
+  if (v === null || v === undefined) return "null";
+  if (Array.isArray(v)) return `[${v.map(serialiserCanonique).join(",")}]`;
+  if (typeof v === "object") {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${serialiserCanonique(v[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v);
+}
+
+// Écart maximal imputable au STOCKAGE, pas à un changement réel. Les montants
+// sont en numeric(_,2) : écrire 12,345 relit 12,34 ou 12,35, soit un demi-
+// centime d'écart que la base a créé toute seule. Comparer plus finement ferait
+// re-proposer indéfiniment la même « mise à jour ». Le petit epsilon met la
+// borne du bon côté : à un demi-centime exactement, c'est encore un arrondi.
+export const TOLERANCE_COMPARAISON = 0.005 + 1e-9;
+
+/**
  * Égalité TOLÉRANTE au transport : PostgREST rend un numeric en chaîne
  * ("925.15"), la lecture ProGBat un nombre (925.15). Les comparer en strict
  * ferait apparaître des « mises à jour » qui n'en sont pas.
  *   • null et undefined sont la même absence ;
- *   • deux nombres se comparent au demi-centime ;
- *   • objets et tableaux se comparent sérialisés ;
+ *   • deux nombres se comparent au demi-centime (arrondi de la colonne) ;
+ *   • objets et tableaux se comparent sérialisés CANONIQUEMENT ;
  *   • le reste se compare en texte.
  */
 export function memeValeur(a, b) {
   if (a === null || a === undefined) return b === null || b === undefined;
   if (b === null || b === undefined) return false;
   if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
-  if (typeof a === "object" || typeof b === "object") return JSON.stringify(a) === JSON.stringify(b);
+  if (typeof a === "object" || typeof b === "object") return serialiserCanonique(a) === serialiserCanonique(b);
   const sa = String(a).trim();
   const sb = String(b).trim();
   const na = Number(sa);
   const nb = Number(sb);
-  if (sa !== "" && sb !== "" && Number.isFinite(na) && Number.isFinite(nb)) return Math.abs(na - nb) < 0.005;
+  if (sa !== "" && sb !== "" && Number.isFinite(na) && Number.isFinite(nb)) return Math.abs(na - nb) <= TOLERANCE_COMPARAISON;
   return sa === sb;
 }
 
@@ -454,6 +482,7 @@ export function analyserFactures({ elements = [], contexte = {}, existantes = []
   const journal = creerJournal(CATEGORIES_FACTURE);
   const resolution = Object.fromEntries(CATEGORIES_RESOLUTION.map((c) => [c, 0]));
   const parBillId = new Map();
+  const plan = [];
 
   const dejaEnBase = new Map();
   for (const f of existantes || []) {
@@ -531,6 +560,17 @@ export function analyserFactures({ elements = [], contexte = {}, existantes = []
       chantier_id: res.chantier_id,
       action: categorie,
     });
+    // LE PLAN D'ÉCRITURE. Le diagnostic ne s'en sert pas — il ne compte que —
+    // mais la synchronisation réelle (progbatBillingSync.mjs) applique
+    // EXACTEMENT ces lignes-là. Les deux voient donc rigoureusement la même
+    // chose : ce qui est prévisualisé est ce qui est écrit.
+    plan.push({
+      bill_id: billId,
+      action: categorie,                       // creation | mise_a_jour | inchangee
+      facture_id: existante?.id ?? null,
+      chantier_id: res.chantier_id,
+      ligne: fusion.ligne,
+    });
     journal.ajouter(categorie, exempleFacture(brut, {
       categorie,
       chantier_id: res.chantier_id,
@@ -540,7 +580,7 @@ export function analyserFactures({ elements = [], contexte = {}, existantes = []
     }));
   }
 
-  return { recues: elements.length, journal, resolution, parBillId };
+  return { recues: elements.length, journal, resolution, parBillId, plan };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -566,6 +606,10 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
   const docTypesObserves = [];
   let actives = 0;
   let retenus = 0;
+  // Plan d'ecriture, meme role que pour les factures : le diagnostic compte,
+  // la synchronisation applique. Une seule analyse pour les deux.
+  const plan = [];
+  const absences = [];
 
   // Paire (transaction, facture) : une transaction peut régler deux factures,
   // et l'unicité en base porte sur la paire.
@@ -625,10 +669,19 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
       }
 
       if (cible.facture_id === null) {
+        // La facture n'existe pas encore en base. En DIAGNOSTIC c'est le cas
+        // normal (rien n'est écrit) ; en SYNCHRONISATION, l'analyse est rejouée
+        // APRÈS l'écriture des factures, avec les vrais UUID — un facture_id
+        // encore nul y signifie alors « la création de la facture a échoué ».
         journal.ajouter("creation", exempleReglement({
           ...commun, categorie: "creation",
           motif: `Règlement à créer sur la facture n° ${billId}, elle-même proposée à la création.`,
         }));
+        plan.push({
+          action: "creation", facture_id: null, progbat_bill_id: billId,
+          progbat_transaction_id: norm.ligne.progbat_transaction_id,
+          ligne: norm.ligne, local_id: null,
+        });
         continue;
       }
 
@@ -640,6 +693,11 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
           ...commun, facture_id: cible.facture_id, categorie: "creation",
           motif: "Règlement absent du registre : création proposée.",
         }));
+        plan.push({
+          action: "creation", facture_id: cible.facture_id, progbat_bill_id: billId,
+          progbat_transaction_id: norm.ligne.progbat_transaction_id,
+          ligne: norm.ligne, local_id: null,
+        });
         continue;
       }
       const diff = champsModifies(local, norm.ligne, CHAMPS_COMPARES_REGLEMENT);
@@ -648,6 +706,12 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
         categorie: diff.length === 0 ? "inchange" : "mise_a_jour",
         motif: diff.length === 0 ? "Déjà à jour." : `Champs modifiés : ${diff.join(", ")}.`,
       }));
+      plan.push({
+        action: diff.length === 0 ? "inchange" : "mise_a_jour",
+        facture_id: cible.facture_id, progbat_bill_id: billId,
+        progbat_transaction_id: norm.ligne.progbat_transaction_id,
+        ligne: norm.ligne, local_id: local.id ?? null, champs: diff,
+      });
     }
   }
 
@@ -677,11 +741,21 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
           ? "Règlement déjà annulé en base et toujours absent des transactions actives de ProGBat : rien à faire."
           : "Règlement présent en base mais absent des transactions actives de ProGBat : annulation à confirmer (rien n'est modifié ici).",
       }));
+      absences.push({
+        local_id: local.id ?? null,
+        facture_id: local.facture_id ?? null,
+        progbat_transaction_id: idProgbat(local.progbat_transaction_id),
+        deja_annule: dejaAnnule,
+      });
     }
   }
 
   return {
     journal,
+    plan,
+    // Vide dès que la pagination est incomplète : « absent » n'y veut rien dire,
+    // et la synchronisation n'a donc rien à annuler.
+    absences,
     transactions_recues: elements.length,
     transactions_actives: actives,
     lettrages_retenus: retenus,
@@ -724,6 +798,40 @@ export async function executerDryRun({
   maintenant = /** @type {string | null} */ (null),
   debutMs = 0,
   finMs = 0,
+  pageSize = PAGE_SIZE,
+  maxPages = MAX_PAGES,
+} = {}) {
+  const prep = await preparerSynchronisation({ depot, progbat, maintenant, pageSize, maxPages });
+  if (!prep.ok) return { ok: false, status: prep.status, erreur: prep.erreur };
+  const { factures, transactions, anaF, anaR, facturesLocales } = prep;
+
+  return {
+    ok: true,
+    rapport: composerRapportDiagnostic({
+      factures, transactions, anaF, anaR, facturesLocales,
+      maintenant, debutMs, finMs,
+    }),
+  };
+}
+
+/**
+ * LA PRÉPARATION, PARTAGÉE PAR LE DIAGNOSTIC ET LA SYNCHRONISATION RÉELLE.
+ *
+ * Elle lit tout — les deux listes ProGBat paginées jusqu'à leur fin réelle, les
+ * cinq tables locales — puis classe tout, AVANT que quoi que ce soit ne soit
+ * écrit. Le diagnostic s'arrête là et compte ; la synchronisation (progbatBillingSync.mjs)
+ * applique le `plan` que les deux analyses produisent. Ce partage est ce qui
+ * garantit que ce qui a été prévisualisé est exactement ce qui sera écrit :
+ * il n'existe qu'un seul jeu de règles, et une seule façon de les enchaîner.
+ *
+ * @returns { ok: true, factures, transactions, transactionsCompletes, anaF, anaR,
+ *            facturesLocales, reglementsLocaux }
+ *        | { ok: false, status, erreur }
+ */
+export async function preparerSynchronisation({
+  depot = /** @type {any} */ (null),
+  progbat = /** @type {any} */ (null),
+  maintenant = /** @type {string | null} */ (null),
   pageSize = PAGE_SIZE,
   maxPages = MAX_PAGES,
 } = {}) {
@@ -773,9 +881,12 @@ export async function executerDryRun({
     paginationComplete: transactionsCompletes,
   });
 
+  return { ok: true, factures, transactions, transactionsCompletes, anaF, anaR, facturesLocales, reglementsLocaux };
+}
+
+/** Mise en forme du rapport de DIAGNOSTIC (forme inchangée depuis 2d67a72). */
+export function composerRapportDiagnostic({ factures, transactions, anaF, anaR, facturesLocales, maintenant, debutMs = 0, finMs = 0 }) {
   return {
-    ok: true,
-    rapport: {
       dry_run: true,
       // Ce diagnostic n'écrit RIEN. Le dire dans la réponse plutôt que dans un
       // commentaire : c'est vérifiable par l'appelant et par les tests.
@@ -806,6 +917,5 @@ export async function executerDryRun({
         categories: anaR.journal.categories,
         exemples: anaR.journal.exemples,
       },
-    },
   };
 }

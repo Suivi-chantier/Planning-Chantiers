@@ -26,6 +26,13 @@ export const CIBLES = Object.freeze({
   "progbat-billing-dry-run": [
     "progbatFacturation.mjs", "progbatLiaison.mjs", "progbatYards.mjs", "progbatBillingDryRun.mjs",
   ],
+  // Synchronisation réelle : mêmes règles, plus l'exécution du plan. Elle
+  // partage le moteur de préparation du diagnostic (progbatBillingDryRun.mjs)
+  // au lieu de le recopier.
+  "progbat-billing-sync": [
+    "progbatFacturation.mjs", "progbatLiaison.mjs", "progbatYards.mjs",
+    "progbatBillingDryRun.mjs", "progbatBillingSync.mjs",
+  ],
 });
 // Compatibilité : liste plate des fichiers de la première cible (anciens scripts).
 export const FICHIERS = CIBLES["progbat-library-inventory"];
