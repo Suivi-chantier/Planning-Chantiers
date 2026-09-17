@@ -21,6 +21,7 @@ const {
   libelleFactureProgbat, natureFactureProgbat, referenceAnnulationProgbat,
   reglementsActifs, sommeReglements, totauxFacturesProgbat,
   croiserEcheancierProgbat, numeroSituationLigne, suggestionLigneProgbat,
+  statutVisuelLigneProgbat,
 } = await import(new URL("../src/Renovation/facturesProgbatAffichage.mjs", import.meta.url).href);
 
 // La règle du patch de rattachement est celle de la synchronisation : on la
@@ -740,6 +741,229 @@ test("34. écran : l'import manuel disparaît sur une échéance couverte par Pr
     assert.ok(!/\/\s*1[.,]2\b/.test(source), "aucune division par 1,2 : le HT ne se reconstitue pas");
     assert.ok(!/montant_ttc\s*\/\s*\(?1\s*\+/.test(source), "aucun HT déduit d'un taux de TVA");
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3 quinquies. ÉTAT VISUEL D'UNE ÉCHÉANCE COUVERTE PAR ProGBat
+// ═══════════════════════════════════════════════════════════════════════════
+/** Le style de la ligne « situation_1 » pour un jeu facture/règlements donné. */
+const visuel = (factures, reglements, ligne = ligneEtat({ montantAttendu: 1000 })) =>
+  statutVisuelLigneProgbat(croiser([ligne], factures, reglements).parLigne.get("situation_1"));
+
+test("35. ligne sans facture ProGBat : aucun style imposé, le manuel reste maître", () => {
+  assert.equal(statutVisuelLigneProgbat(null), null);
+  assert.equal(statutVisuelLigneProgbat(undefined), null);
+  // Une facture ProGBat non rattachée ne couvre aucune ligne.
+  const c = croiser([ligneEtat({ montantAttendu: 1000 })], [fact({ id: "f-1", ligne_id: null, montant_ttc: 500 })], []);
+  assert.equal(c.parLigne.size, 0);
+  assert.equal(statutVisuelLigneProgbat(c.parLigne.get("situation_1")), null,
+    "sans couverture ProGBat, l'écran garde STATUT_STYLE");
+});
+
+test("36. facture émise sans aucun règlement → ÉMISE, jamais « à émettre »", () => {
+  const v = visuel([fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })], []);
+  assert.equal(v.cle, "emise");
+  assert.equal(v.label, "émise");
+  assert.equal(v.couleur, "#4db8ff");
+  assert.equal(v.plein, true, "la bordure est pleine : l'échéance est engagée, pas future");
+  assert.equal(v.coche, false);
+  assert.equal(v.alerte, false, "aucune carte orange");
+});
+
+test("37. paiement partiel → PARTIELLEMENT RÉGLÉE, distinct d'émise et de réglée", () => {
+  const v = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 400 })],
+  );
+  assert.equal(v.cle, "partielle");
+  assert.equal(v.label, "partiellement réglée");
+  assert.equal(v.coche, false, "pas de coche tant que tout n'est pas réglé");
+  assert.equal(v.alerte, false);
+  // Distinct des deux voisins : ni le bleu d'émise, ni le vert plein de réglée.
+  const emise = visuel([fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })], []);
+  const reglee = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 1200 })],
+  );
+  assert.notEqual(v.couleur, emise.couleur);
+  assert.notEqual(`${v.couleur}|${v.plein}`, `${reglee.couleur}|${reglee.plein}`);
+});
+
+test("38. totalement réglée, à la tolérance du centime → RÉGLÉE, vert, cochée", () => {
+  const v = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 925.16 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 925.15 })],
+  );
+  assert.equal(v.cle, "reglee");
+  assert.equal(v.label, "réglée");
+  assert.equal(v.couleur, "#22c55e");
+  assert.equal(v.coche, true, "cercle coché vert");
+  assert.equal(v.alerte, false, "la carte n'est plus orange");
+});
+
+test("39. surpayée → SURPAYÉE, avertissement, jamais présentée comme réglée", () => {
+  const v = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1000 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 1500 })],
+  );
+  assert.equal(v.cle, "surpayee");
+  assert.equal(v.label, "surpayée");
+  assert.equal(v.couleur, "#f59e0b");
+  assert.equal(v.coche, false, "surpayée n'est pas cochée comme soldée");
+  assert.equal(v.alerte, true);
+});
+
+test("40. anomalies → À VÉRIFIER, jamais un état réglé inventé", () => {
+  // a. Signe incohérent : remboursement sur une facture positive.
+  const signe = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: -300 })],
+  );
+  assert.equal(signe.cle, "a_verifier");
+  assert.equal(signe.label, "à vérifier");
+  assert.equal(signe.couleur, "#e15a5a");
+  assert.equal(signe.coche, false);
+  assert.equal(signe.alerte, true);
+
+  // b. TTC non positif : un avoir actif seul sur la ligne. Surtout pas « réglée ».
+  const avoir = visuel([fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: -900 })], []);
+  assert.equal(avoir.cle, "a_verifier");
+  assert.equal(avoir.coche, false, "un avoir actif ne coche jamais l'échéance");
+
+  // c. Avoir actif remboursé : l'anomalie ttc_non_positif prime sur l'état.
+  const rembourse = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: -900 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: -900 })],
+  );
+  assert.equal(rembourse.cle, "a_verifier");
+  assert.equal(rembourse.coche, false);
+
+  // d. Montant illisible.
+  const illisible = visuel([fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: null })], []);
+  assert.equal(illisible.cle, "a_verifier");
+});
+
+test("41. manuel + ProGBat sur la même ligne → DOUBLON À VÉRIFIER, prioritaire", () => {
+  const ligne = ligneEtat({
+    montantAttendu: 1000,
+    factures: [{ id: "man-1", numero: "MAN-1", montant_ht: 900, statut: "encaissee" }],
+    montantEmis: 900, montantEncaisse: 900,
+  });
+  // Même entièrement réglée côté ProGBat, le doublon passe devant.
+  const v = visuel(
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 1200 })],
+    ligne,
+  );
+  assert.equal(v.cle, "doublon");
+  assert.equal(v.label, "doublon à vérifier");
+  assert.equal(v.coche, false, "on ne coche pas une ligne dont on ignore quel document fait foi");
+  assert.equal(v.alerte, true);
+});
+
+test("42. plusieurs factures ProGBat sur une ligne → UN seul état agrégé", () => {
+  const v = visuel(
+    [
+      fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 600, progbat_bill_id: 1 }),
+      fact({ id: "f-2", ligne_id: "situation_1", montant_ttc: 600, progbat_bill_id: 2 }),
+    ],
+    [
+      regl({ id: "r-1", facture_id: "f-1", montant: 600 }),
+      regl({ id: "r-2", facture_id: "f-2", montant: 600 }),
+    ],
+  );
+  assert.equal(v.cle, "reglee", "les deux factures soldées donnent UNE échéance réglée");
+  // L'une réglée, l'autre pas → partiel, pas deux pastilles.
+  const partiel = visuel(
+    [
+      fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 600, progbat_bill_id: 1 }),
+      fact({ id: "f-2", ligne_id: "situation_1", montant_ttc: 600, progbat_bill_id: 2 }),
+    ],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 600 })],
+  );
+  assert.equal(partiel.cle, "partielle");
+});
+
+test("43. un document d'annulation ne donne aucun état à une échéance", () => {
+  // Seule une facture ACTIVE couvre une ligne : l'annulation est écartée en
+  // amont, la ligne n'existe donc pas dans le croisement.
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [fact({ id: "f-2", ligne_id: "situation_1", montant_ttc: -1200, progbat_situation_number: -469 })],
+    [],
+  );
+  assert.equal(c.parLigne.size, 0);
+  assert.equal(statutVisuelLigneProgbat(c.parLigne.get("situation_1")), null,
+    "la ligne garde son affichage manuel");
+});
+
+test("44. cas réel #83 : quatre pastilles RÉGLÉE vertes, le solde intact", () => {
+  const marche = 29714.27 / 0.95;
+  const ht = (pct) => Math.round((marche * pct) / 100 * 100) / 100;
+  const lignes = [
+    ligneEtat({ id: "acompte", nom: "Facture d'acompte", pct: 50, montantAttendu: ht(50) }),
+    ligneEtat({ id: "demarrage", nom: "Facture de démarrage", pct: 20, montantAttendu: ht(20) }),
+    ligneEtat({ id: "situation_1", nom: "Facture de situation n° 1", pct: 15, montantAttendu: ht(15) }),
+    ligneEtat({ id: "situation_2", nom: "Facture de situation n° 2", pct: 10, montantAttendu: ht(10) }),
+    ligneEtat({ id: "solde", nom: "Facture de solde", pct: 5, montantAttendu: ht(5) }),
+  ];
+  const factures = [
+    fact({ id: "f-45", numero: "F-260045", ligne_id: "acompte", montant_ttc: 12000, progbat_bill_id: 400 }),
+    fact({ id: "f-50", numero: "F-260050", ligne_id: "demarrage", montant_ttc: 7000, progbat_bill_id: 410 }),
+    fact({ id: "f-81", numero: "F-260081", ligne_id: "situation_1", montant_ttc: 6000, progbat_situation_number: 1, progbat_bill_id: 470 }),
+    fact({ id: "f-111", numero: "F-260111", ligne_id: "situation_2", montant_ttc: 4714.27, progbat_situation_number: 2, progbat_bill_id: 500 }),
+    fact({ id: "f-42", numero: "F-260042", montant_ttc: -15639.11, progbat_situation_number: -469, progbat_bill_id: 480 }),
+    fact({ id: "f-44", numero: "F-260044", montant_ttc: -16317.15, progbat_situation_number: -485, progbat_bill_id: 490 }),
+  ];
+  const reglements = [
+    regl({ id: "r-45", facture_id: "f-45", montant: 12000 }),
+    regl({ id: "r-50", facture_id: "f-50", montant: 7000 }),
+    regl({ id: "r-81", facture_id: "f-81", montant: 6000 }),
+    regl({ id: "r-111", facture_id: "f-111", montant: 4714.27 }),
+  ];
+  const c = croiserEcheancierProgbat({
+    lignesEtat: lignes,
+    actives: composerFacturesProgbat(factures, reglements).factures_actives,
+    montantReference: marche, totauxManuels: { emis: 0, encaisse: 0 },
+  });
+
+  for (const id of ["acompte", "demarrage", "situation_1", "situation_2"]) {
+    const v = statutVisuelLigneProgbat(c.parLigne.get(id));
+    assert.equal(v.cle, "reglee", `${id} doit afficher RÉGLÉE`);
+    assert.equal(v.couleur, "#22c55e", `${id} doit être vert`);
+    assert.equal(v.coche, true);
+    assert.equal(v.alerte, false, `${id} ne doit plus être orange`);
+  }
+  // Le solde n'est couvert par aucune facture ProGBat : rien ne le touche.
+  assert.equal(statutVisuelLigneProgbat(c.parLigne.get("solde")), null,
+    "le solde garde sa pastille « prévue » et son bouton d'import");
+
+  // Les montants du bandeau ne bougent pas d'un centime : ce lot n'est que visuel.
+  const attendu95 = Math.round(lignes.slice(0, 4).reduce((s, l) => s + l.montantAttendu, 0) * 100) / 100;
+  assert.equal(c.totaux.facture_ht, attendu95);
+  assert.equal(c.totaux.encaisse_ht, attendu95);
+});
+
+test("45. écran : la pastille suit ProGBat, l'import reste masqué, rien n'est recalculé", () => {
+  // Le style vient du helper pur, pas d'un calcul refait dans le JSX.
+  assert.match(ECRAN, /const vis = statutVisuelLigneProgbat\(pg\);/);
+  assert.match(ECRAN, /const st = vis \|\| STATUT_STYLE\[l\.statut\] \|\| STATUT_STYLE\.attente;/);
+  assert.match(ECRAN, /const alerte = vis \? vis\.alerte : l\.prete;/);
+  assert.match(ECRAN, /const coche = vis \? vis\.coche : l\.statut === "encaissee";/);
+  // L'import manuel reste masqué sur une échéance couverte par ProGBat.
+  assert.match(ECRAN, /\{!f && !pg && \(/);
+  // Aucun useEffect ajouté : le module n'en a toujours qu'un, celui de lecture.
+  assert.equal((ECRAN.match(/React\.useEffect\(/g) || []).length, 2,
+    "un effet de lecture ProGBat + celui, préexistant, de la modale d'import");
+  // Aucune requête ni écriture supplémentaire : ce lot est purement visuel.
+  assert.equal((ECRAN.match(/supabase\.from\(/g) || []).length, 6,
+    "le nombre de requêtes est inchangé");
+  assert.deepEqual([...new Set((ECRAN.match(/supabase\.from\("[a-z_]+"\)/g) || []))].sort(), [
+    'supabase.from("chantier_factures_client")',
+    'supabase.from("chantier_factures_reglements")',
+  ], "les mêmes deux tables qu'avant, et elles seules");
+  // Une seule écriture dans tout l'écran ProGBat : le rattachement.
+  assert.equal((ECRAN.match(/\.update\(\{ \.\.\.patch/g) || []).length, 1);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -41,7 +41,8 @@ import {
   montantAttenduLigne, FACT_META_ECHEANCIER, FACT_META_MONTANT_REF,
 } from "./facturationClient";
 import {
-  composerFacturesProgbat, croiserEcheancierProgbat, suggestionLigneProgbat, LIBELLE_NATURE,
+  composerFacturesProgbat, croiserEcheancierProgbat, suggestionLigneProgbat,
+  statutVisuelLigneProgbat, LIBELLE_NATURE,
 } from "./facturesProgbatAffichage";
 // La règle de correction humaine d'une échéance (patch + verrou) vit déjà dans
 // le module de facturation ProGBat : on la RÉUTILISE, on ne la réécrit pas.
@@ -58,6 +59,7 @@ const eurSigne = (n) => {
   if (!Number.isFinite(v)) return "—";
   return `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 };
+const arrondiCentime = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const jj = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "");
 const auj = () => new Date().toISOString().slice(0, 10);
 const toNum = (v) => {
@@ -1206,25 +1208,33 @@ export default function FacturationChantier({
       {/* ── Les échéances ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 10 }}>
         {(etat?.lignes || []).map(l => {
-          const st = STATUT_STYLE[l.statut] || STATUT_STYLE.attente;
           const f = l.facture;
           // Factures ProGBat actives rattachées à cette échéance. Les documents
           // d'annulation et leurs règlements n'y sont jamais : ils sont écartés
           // en amont par composerFacturesProgbat.
           const pg = croisement.parLigne.get(String(l.id)) || null;
+          // Dès qu'une facture ProGBat active couvre l'échéance, c'est SON état
+          // qui pilote la pastille, le cercle et la couleur de la carte : le
+          // cycle manuel ne connaît pas ces factures et afficherait « prévue »
+          // sur une ligne déjà encaissée. Sans facture ProGBat, `vis` vaut null
+          // et absolument rien ne change.
+          const vis = statutVisuelLigneProgbat(pg);
+          const st = vis || STATUT_STYLE[l.statut] || STATUT_STYLE.attente;
+          const alerte = vis ? vis.alerte : l.prete;
+          const coche = vis ? vis.coche : l.statut === "encaissee";
           return (
             <div key={l.id} style={{
               display: "flex", alignItems: "flex-start", gap: 10,
               padding: "10px 12px", borderRadius: RADIUS.lg,
-              border: `1px solid ${l.prete ? "#f59e0b55" : border}`,
-              background: l.prete ? "rgba(245,158,11,0.07)" : "transparent",
+              border: `1px solid ${alerte ? "#f59e0b55" : vis ? `${vis.couleur}44` : border}`,
+              background: alerte ? "rgba(245,158,11,0.07)" : "transparent",
             }}>
               <span style={{
                 width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 2,
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                background: l.statut === "encaissee" ? "#22c55e" : "transparent",
+                background: coche ? "#22c55e" : "transparent",
                 border: `2px solid ${st.plein ? st.couleur : border}`,
-              }}>{l.statut === "encaissee" ? <Icon as={Check} size={10} color="#fff"/> : null}</span>
+              }}>{coche ? <Icon as={Check} size={10} color="#fff"/> : null}</span>
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1238,22 +1248,23 @@ export default function FacturationChantier({
                     borderRadius: RADIUS.pill, padding: "1px 8px",
                   }}>{st.label}</span>
                 </div>
-                <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>{l.raison}</div>
+                {/* La phrase du cycle manuel (« À émettre à 40 % d'avancement »)
+                    contredirait une échéance déjà encaissée dans ProGBat. Sur
+                    ces lignes, le bloc ProGBat juste en dessous dit la
+                    situation réelle, montants à l'appui. */}
+                {!pg && <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>{l.raison}</div>}
 
                 {/* ── Ce que ProGBat dit de cette échéance ────────────────── */}
                 {pg && (
                   <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, lineHeight: 1.6 }}>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                      {/* L'état n'est plus répété ici : la pastille de la
+                          ligne le porte désormais. Restent les montants. */}
                       <span style={{ color: textMuted }}>ProGBat</span>
                       <strong style={{ color: text }}>{pg.numeros.join(" · ")}</strong>
-                      <span style={{
-                        fontSize: 9.5, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
-                        color: pg.anomalie ? "#e15a5a" : pg.etat === "reglee" ? "#22c55e" : "#f59e0b",
-                        border: `1px solid ${pg.anomalie ? "#e15a5a" : pg.etat === "reglee" ? "#22c55e" : "#f59e0b"}88`,
-                        borderRadius: RADIUS.pill, padding: "1px 8px",
-                      }}>{pg.libelle_etat}</span>
                       <span style={{ color: textMuted }}>
                         {eurSigne(pg.ttc_du)} TTC dû · {eurSigne(pg.regle)} réglé
+                        {pg.ttc_du !== null ? ` · reste ${eurSigne(arrondiCentime(pg.ttc_du - pg.regle))}` : ""}
                       </span>
                     </div>
                     {pg.anomalie ? (

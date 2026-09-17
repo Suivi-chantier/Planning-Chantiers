@@ -469,6 +469,67 @@ export function croiserEcheancierProgbat({
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ÉTAT VISUEL D'UNE ÉCHÉANCE COUVERTE PAR ProGBat
+// ─────────────────────────────────────────────────────────────────────────────
+// La pastille d'une ligne d'échéancier vient du cycle MANUEL : elle regarde les
+// factures déposées à la main et le déclencheur (« à émettre » dès 40 %
+// d'avancement). Sur une ligne facturée et encaissée dans ProGBat, elle affiche
+// donc « prévue » ou « à émettre » — l'inverse de la réalité.
+//
+// Ce qui suit ne touche QUE l'apparence : la pastille, le cercle et la couleur
+// de la carte. Aucune donnée n'est écrite, etatFacturation() n'est ni modifié
+// ni rappelé, et les lignes SANS facture ProGBat gardent exactement leur
+// affichage d'aujourd'hui.
+//
+// L'ORDRE DE PRIORITÉ EST DÉLIBÉRÉ. Un doublon manuel/ProGBat passe avant tout :
+// c'est la seule situation où l'on ne sait pas quel document fait foi, et elle
+// doit se voir avant l'état financier. Vient ensuite l'anomalie — jamais
+// masquée par un état qui paraîtrait sain. L'état des règlements ne décide
+// qu'en dernier.
+export const STATUT_VISUEL_PROGBAT = Object.freeze({
+  DOUBLON: "doublon",
+  A_VERIFIER: "a_verifier",
+  SURPAYEE: "surpayee",
+  REGLEE: "reglee",
+  PARTIELLE: "partielle",
+  EMISE: "emise",
+});
+
+// `plein` : bordure pleine (l'échéance est engagée) ou pointillée (en cours).
+// `coche` : pastille verte cochée — réservée à ce qui est réellement soldé.
+// `alerte` : la carte prend le fond d'avertissement au lieu de rester neutre.
+const STYLES_VISUELS = Object.freeze({
+  doublon:    { label: "doublon à vérifier",      couleur: "#f59e0b", plein: true,  coche: false, alerte: true  },
+  a_verifier: { label: "à vérifier",              couleur: "#e15a5a", plein: true,  coche: false, alerte: true  },
+  surpayee:   { label: "surpayée",                couleur: "#f59e0b", plein: true,  coche: false, alerte: true  },
+  reglee:     { label: "réglée",                  couleur: "#22c55e", plein: true,  coche: true,  alerte: false },
+  // Vert POINTILLÉ : en route vers le vert plein, et distinct du bleu « émise ».
+  partielle:  { label: "partiellement réglée",    couleur: "#22c55e", plein: false, coche: false, alerte: false },
+  emise:      { label: "émise",                   couleur: "#4db8ff", plein: true,  coche: false, alerte: false },
+});
+
+/**
+ * @param pg entrée de croiserEcheancierProgbat().parLigne — elle porte déjà
+ *           l'état agrégé, l'anomalie et le doublon. RIEN n'est recalculé ici.
+ * @returns { cle, label, couleur, plein, coche, alerte } | null si la ligne
+ *          n'est couverte par aucune facture ProGBat active (l'appelant garde
+ *          alors son affichage manuel, intact).
+ */
+export function statutVisuelLigneProgbat(pg) {
+  if (!pg) return null;
+  const cle = pg.doublon_manuel ? STATUT_VISUEL_PROGBAT.DOUBLON
+    : pg.anomalie ? STATUT_VISUEL_PROGBAT.A_VERIFIER
+    : pg.etat === ETAT.SUR_REGLEE || pg.etat === ETAT.AVOIR_SUR_REMBOURSE ? STATUT_VISUEL_PROGBAT.SURPAYEE
+    : pg.etat === ETAT.SIGNE_INCOHERENT || pg.etat === ETAT.MONTANT_INCONNU ? STATUT_VISUEL_PROGBAT.A_VERIFIER
+    // Un avoir remboursé n'est pas une échéance « réglée » au sens du client :
+    // ttc_du <= 0 produit déjà l'anomalie ttc_non_positif, qui a la priorité.
+    : pg.etat === ETAT.REGLEE ? STATUT_VISUEL_PROGBAT.REGLEE
+    : pg.etat === ETAT.PARTIELLE || pg.etat === ETAT.AVOIR_PARTIEL ? STATUT_VISUEL_PROGBAT.PARTIELLE
+    : STATUT_VISUEL_PROGBAT.EMISE;          // non réglée : la facture existe, rien n'est encaissé
+  return { cle, ...STYLES_VISUELS[cle] };
+}
+
 const parDatePuisId = (a, b) =>
   String(a.facture?.date_facture ?? "").localeCompare(String(b.facture?.date_facture ?? ""))
   || (Number(a.facture?.progbat_bill_id ?? 0) - Number(b.facture?.progbat_bill_id ?? 0));
