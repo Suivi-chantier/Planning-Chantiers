@@ -2415,10 +2415,28 @@ function PrevisualisationSyncProgbat({ T, acc }) {
   const [rapport, setRapport] = useState(null);
   const [erreur, setErreur]   = useState(null);
 
+  // ── Synchronisation réelle : son propre état, séparé du diagnostic ───────
+  // `analyseSeq` compte les analyses réussies ; `syncSeq` retient celle sur
+  // laquelle la dernière synchronisation s'est appuyée. Les comparer dit si le
+  // diagnostic affiché est ENCORE valable : après une écriture, il ne l'est
+  // plus, et il faut relancer l'analyse avant toute nouvelle tentative.
+  const [analyseSeq, setAnalyseSeq] = useState(0);
+  const [syncSeq, setSyncSeq]       = useState(null);
+  const [syncEnCours, setSyncEnCours] = useState(false);
+  const [syncRapport, setSyncRapport] = useState(null);
+  const [syncErreur, setSyncErreur]   = useState(null);
+  const [confirmation, setConfirmation] = useState(false);
+  const [saisie, setSaisie]             = useState("");
+
   // Le dernier résultat reste affiché tant qu'une nouvelle analyse n'est pas
-  // lancée ; c'est ce lancement, et lui seul, qui le remplace.
+  // lancée ; c'est ce lancement, et lui seul, qui le remplace. Le rapport de
+  // SYNCHRONISATION, lui, n'est pas effacé : après une écriture réussie, il
+  // doit rester lisible pendant qu'on vérifie.
   const analyser = async () => {
+    if (enCours) return;
     setEnCours(true); setRapport(null); setErreur(null);
+    // Un panneau de confirmation ouvert résumerait un diagnostic périmé.
+    setConfirmation(false); setSaisie("");
     try {
       const { data, error } = await supabase.functions.invoke("progbat-billing-dry-run");
       if (error && !data) {
@@ -2429,6 +2447,7 @@ function PrevisualisationSyncProgbat({ T, acc }) {
         setErreur(body?.error || error.message || "Appel de la fonction impossible.");
       } else if (data?.ok) {
         setRapport(data);
+        setAnalyseSeq((n) => n + 1);
       } else {
         setErreur(data?.error || "Réponse vide de la fonction.");
       }
@@ -2436,6 +2455,40 @@ function PrevisualisationSyncProgbat({ T, acc }) {
       setErreur(e?.message || "Erreur inattendue.");
     }
     setEnCours(false);
+  };
+
+  // L'UNIQUE appel d'écriture de cet écran. Il n'est atteignable que par le
+  // bouton final du panneau de confirmation : aucun effet, aucun enchaînement
+  // automatique après le diagnostic, aucune relance automatique après un échec.
+  const synchroniser = async () => {
+    if (syncEnCours) return;                       // double-clic : ignoré
+    setSyncEnCours(true); setSyncRapport(null); setSyncErreur(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-billing-sync", {
+        body: { confirmation: "SYNCHRONISER_PROGBAT" },
+      });
+      if (error && !data) {
+        let body = null;
+        try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
+        // Le message du serveur est plus utile qu'un générique : on le garde.
+        if (body && typeof body.ok === "boolean" && body.ecritures) setSyncRapport(body);
+        setSyncErreur(body?.error || error.message || "Appel de la fonction impossible.");
+      } else if (data) {
+        // ATTENTION : un 207 n'est pas une erreur de transport. functions.invoke
+        // le rend comme un succès — c'est `data.ok` qui fait foi, jamais le
+        // simple fait d'avoir reçu une réponse.
+        setSyncRapport(data);
+        if (data.ok !== true) setSyncErreur(null);   // le rapport porte déjà le détail
+        else { setConfirmation(false); setSaisie(""); }
+      } else {
+        setSyncErreur("Réponse vide de la fonction.");
+      }
+    } catch (e) {
+      setSyncErreur(e?.message || "Erreur inattendue.");
+    }
+    // Quoi qu'il arrive, le diagnostic affiché a cessé d'être à jour.
+    setSyncSeq(analyseSeq);
+    setSyncEnCours(false);
   };
 
   // Tout ce qui suit lit le rapport DÉFENSIVEMENT : un rapport partiel (champ
@@ -2535,6 +2588,50 @@ function PrevisualisationSyncProgbat({ T, acc }) {
     ...(Array.isArray(exR.transaction_inactive_ou_inconnue) ? exR.transaction_inactive_ou_inconnue : []),
     ...(Array.isArray(exR.annulation_proposee) ? exR.annulation_proposee : []),
   ];
+
+  // ── Peut-on écrire ? ────────────────────────────────────────────────────
+  // On n'écrit QUE sur la foi d'un diagnostic complet, sain et en lecture
+  // seule, présent dans l'état courant. Chaque condition est vérifiée ici et
+  // pas seulement côté serveur : proposer le bouton, c'est déjà s'engager.
+  //
+  // Les factures NON RÉSOLUES ne bloquent pas : le serveur les ignore, elles
+  // sont juste annoncées dans la confirmation pour que personne ne croie
+  // qu'elles ont été importées.
+  const dryRunValide = Boolean(rapport)
+    && rapport.ok === true
+    && rapport.dry_run === true
+    && pagFactures.complet === true
+    && pagTrans.complet === true
+    && pagFactures.garde_atteinte !== true
+    && pagTrans.garde_atteinte !== true
+    && nb(ecritures.supabase) === 0
+    && nb(ecritures.progbat) === 0
+    && nb(catF.normalisation_refusee) === 0
+    && nb(catF.fusion_refusee) === 0
+    && nb(resF.conflit) === 0;
+
+  const aCreerFactures  = nb(catF.creation);
+  const aMajFactures    = nb(catF.mise_a_jour);
+  const aCreerReglement = nb(catR.creation);
+  const aMajReglement   = nb(catR.mise_a_jour);
+  const aAnnuler        = nb(catR.annulation_proposee);
+  const nonResolues     = nb(catF.non_resolue);
+  const actions = aCreerFactures + aMajFactures + aCreerReglement + aMajReglement + aAnnuler;
+
+  // Une synchronisation a eu lieu depuis ce diagnostic : il décrit un état
+  // révolu, il faut réanalyser avant toute nouvelle écriture.
+  const analysePerimee = syncSeq !== null && syncSeq === analyseSeq;
+  const rienAFaire      = dryRunValide && actions === 0;
+  const peutSynchroniser = dryRunValide && actions > 0 && !analysePerimee;
+  const saisieExacte = saisie === "SYNCHRONISER";
+
+  const syncCat  = syncRapport?.factures?.categories ?? {};
+  const syncCatR = syncRapport?.reglements?.categories ?? {};
+  const syncEcr  = syncRapport?.ecritures ?? {};
+  const syncPag  = syncRapport?.pagination ?? {};
+  const syncErreurs = Array.isArray(syncRapport?.erreurs) ? syncRapport.erreurs : [];
+  const syncReussi  = syncRapport?.ok === true;
+  const syncPartiel = syncRapport ? syncRapport.ok !== true && syncRapport.partiel === true : false;
 
   return (
     <div style={{flex:"1 1 100%",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
@@ -2653,6 +2750,217 @@ function PrevisualisationSyncProgbat({ T, acc }) {
               fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
             }}>{JSON.stringify(rapport, null, 2)}</pre>
           </details>
+
+          {/* ── Passage à l'écriture ─────────────────────────────────────── */}
+          {rienAFaire && (
+            <div style={{marginTop:12,padding:"8px 11px",background:T.card,border:"1px solid #22c55e",borderRadius:RADIUS.md,color:"#22c55e",fontWeight:700}}>
+              ✓ La synchronisation est à jour — rien à créer, mettre à jour ni annuler.
+            </div>
+          )}
+
+          {analysePerimee && !rienAFaire && (
+            <div style={{marginTop:12,padding:"8px 11px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+              ⚠ Une synchronisation a eu lieu depuis cette analyse : relancez « Analyser la synchronisation » avant toute nouvelle tentative.
+            </div>
+          )}
+
+          {dryRunValide && actions > 0 && !analysePerimee && !confirmation && (
+            <button onClick={()=>{ setSaisie(""); setConfirmation(true); }} disabled={syncEnCours} style={{
+              marginTop:12,display:"inline-flex",alignItems:"center",gap:5,
+              padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+              background:syncEnCours?T.border:"#e15a5a",color:syncEnCours?T.textMuted:"#fff",
+              fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:syncEnCours?"not-allowed":"pointer",
+            }}>
+              <Icon as={Database} size={11}/>
+              Synchroniser avec ProGBat
+            </button>
+          )}
+
+          {!dryRunValide && actions >= 0 && rapport && (
+            <div style={{marginTop:12,fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.6}}>
+              La synchronisation n'est pas proposée : elle exige une analyse complète et sans anomalie
+              (lecture entière des deux ressources, aucun conflit, aucune normalisation ni fusion refusée).
+            </div>
+          )}
+
+          {/* Confirmation explicite — aucun appel réseau tant que le bouton
+              final n'est pas cliqué. */}
+          {confirmation && (
+            <div style={{
+              marginTop:12,padding:"12px 14px",background:T.card,
+              border:"1px solid #e15a5a",borderRadius:RADIUS.md,
+            }}>
+              <div style={{fontSize:FONT.sm.size,fontWeight:800,color:"#e15a5a",marginBottom:6}}>
+                Confirmer la synchronisation
+              </div>
+              <div style={{fontSize:FONT.xs.size+1,color:T.text,lineHeight:1.7}}>
+                D'après la dernière analyse, cette opération va :
+              </div>
+              <ul style={{margin:"6px 0 0",paddingLeft:18,fontSize:FONT.xs.size+1,color:T.text,lineHeight:1.7}}>
+                <li>créer <strong>{aCreerFactures}</strong> facture(s)</li>
+                <li>mettre à jour <strong>{aMajFactures}</strong> facture(s)</li>
+                <li>créer <strong>{aCreerReglement}</strong> règlement(s)</li>
+                <li>mettre à jour <strong>{aMajReglement}</strong> règlement(s)</li>
+                <li>annuler <strong>{aAnnuler}</strong> règlement(s) absent(s) de ProGBat</li>
+                <li><strong>{nonResolues}</strong> facture(s) non résolue(s) seront <strong>ignorées</strong> (chantier ProGBat non rattaché) : rattachez-les puis relancez pour les importer</li>
+              </ul>
+              <div style={{marginTop:8,fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.6}}>
+                L'écriture a lieu <strong>uniquement dans Supabase</strong>. ProGBat n'est jamais modifié :
+                la fonction ne fait que des lectures côté ProGBat.
+              </div>
+              <div style={{marginTop:10,fontSize:FONT.xs.size+1,color:T.text}}>
+                Pour confirmer, saisissez <strong>SYNCHRONISER</strong> :
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:6}}>
+                <input
+                  value={saisie}
+                  onChange={(e)=>setSaisie(e.target.value)}
+                  placeholder="SYNCHRONISER"
+                  disabled={syncEnCours}
+                  style={{
+                    padding:"7px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
+                    background:T.surface,color:T.text,fontFamily:"inherit",fontSize:FONT.xs.size+1,
+                    minWidth:180,
+                  }}
+                />
+                <button onClick={synchroniser} disabled={!saisieExacte || syncEnCours} style={{
+                  display:"inline-flex",alignItems:"center",gap:5,
+                  padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                  background:(!saisieExacte || syncEnCours)?T.border:"#e15a5a",
+                  color:(!saisieExacte || syncEnCours)?T.textMuted:"#fff",
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,
+                  cursor:(!saisieExacte || syncEnCours)?"not-allowed":"pointer",
+                }}>
+                  <Icon as={Database} size={11} style={syncEnCours?{animation:"spin 1s linear infinite"}:undefined}/>
+                  {syncEnCours ? "Synchronisation en cours…" : "Lancer la synchronisation"}
+                </button>
+                <button onClick={()=>{ setConfirmation(false); setSaisie(""); }} disabled={syncEnCours} style={{
+                  background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+                  padding:"7px 12px",color:T.textSub,fontFamily:"inherit",
+                  fontSize:FONT.xs.size+1,fontWeight:700,cursor:syncEnCours?"not-allowed":"pointer",
+                }}>
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Résultat de la SYNCHRONISATION — bloc distinct du diagnostic ────
+          Il survit à une relance de l'analyse : c'est la trace de ce qui a été
+          réellement écrit. */}
+      {(syncRapport || syncErreur) && (
+        <div style={{
+          marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`,
+          fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text,
+        }}>
+          <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+            Résultat de la synchronisation
+          </div>
+
+          {syncErreur && !syncRapport && (
+            <div>
+              <div style={{fontWeight:700,color:"#e15a5a"}}>⚠ Synchronisation impossible</div>
+              <div style={{color:T.textSub}}>{syncErreur}</div>
+              <div style={{color:T.textMuted}}>Aucune écriture n'a été effectuée.</div>
+            </div>
+          )}
+
+          {syncRapport && (
+            <>
+              <div style={{fontWeight:700,color:syncReussi?"#22c55e":syncPartiel?"#f59e0b":"#e15a5a"}}>
+                {syncReussi ? "✓ Synchronisation terminée"
+                  : syncPartiel ? "⚠ Synchronisation partielle — des écritures ont échoué"
+                  : "⚠ Synchronisation en échec"}
+                {Number.isFinite(syncRapport.duree_ms) ? <span style={{color:T.textMuted,fontWeight:500}}> · {(syncRapport.duree_ms / 1000).toFixed(1)} s</span> : null}
+              </div>
+              {syncErreur && <div style={{color:T.textSub}}>{syncErreur}</div>}
+              <div style={{color:T.textSub,fontWeight:700}}>
+                {nb(syncEcr.supabase)} écriture(s) Supabase · {nb(syncEcr.progbat)} écriture ProGBat.
+              </div>
+
+              {!syncReussi && (
+                <div style={{marginTop:8,padding:"7px 11px",background:T.card,border:`1px solid ${syncPartiel?"#f59e0b":"#e15a5a"}`,borderRadius:RADIUS.md,color:syncPartiel?"#f59e0b":"#e15a5a",fontWeight:700}}>
+                  Relancez « Analyser la synchronisation » avant toute nouvelle tentative : le diagnostic
+                  affiché ne décrit plus l'état réel. Rien n'est relancé automatiquement.
+                </div>
+              )}
+
+              <div style={{marginTop:10}}>
+                <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Pagination</div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {ligneSource("Factures", syncPag.bills ?? {})}
+                  {ligneSource("Transactions", syncPag.transactions ?? {})}
+                </div>
+                {syncRapport.reconciliation_absence_autorisee === false && (
+                  <div style={{marginTop:6,padding:"6px 10px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                    ⚠ Réconciliation par absence désactivée : aucune annulation de règlement n'a été effectuée.
+                  </div>
+                )}
+              </div>
+
+              {compteurs("Factures écrites", [
+                ["Créées", nb(syncCat.creation), "#22c55e"],
+                ["Mises à jour", nb(syncCat.mise_a_jour), "#22c55e"],
+                ["Inchangées", nb(syncCat.inchangee)],
+                ["Ignorées", nb(syncCat.ignoree), "#f59e0b"],
+                ["Échecs", nb(syncCat.echec), "#e15a5a"],
+              ])}
+
+              {compteurs("Règlements écrits", [
+                ["Créés", nb(syncCatR.creation), "#22c55e"],
+                ["Mis à jour", nb(syncCatR.mise_a_jour), "#22c55e"],
+                ["Inchangés", nb(syncCatR.inchange)],
+                ["Annulés", nb(syncCatR.annulation), "#f59e0b"],
+                ["Déjà annulés", nb(syncCatR.deja_annule)],
+                ["Ignorés", nb(syncCatR.ignore)],
+                ["Échecs", nb(syncCatR.echec), "#e15a5a"],
+              ])}
+
+              {/* Erreurs telles que la fonction les a nettoyées et bornées :
+                  on n'en fabrique aucune, on n'en cache aucune. */}
+              {syncErreurs.length > 0 && (
+                <div style={{marginTop:12}}>
+                  <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+                    Écritures refusées ({syncErreurs.length}{nb(syncRapport.erreurs_total) > syncErreurs.length ? ` sur ${nb(syncRapport.erreurs_total)}` : ""})
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {syncErreurs.map((e, i) => (
+                      <div key={i} style={{padding:"6px 10px",background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.md}}>
+                        <span style={{color:T.textSub}}>{val(e?.portee)} </span>
+                        <strong style={{fontWeight:700}}>{val(e?.reference)}</strong>
+                        <div style={{color:T.textSub,marginTop:2}}>{val(e?.message)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {syncReussi && (
+                <button onClick={analyser} disabled={enCours} style={{
+                  marginTop:12,display:"inline-flex",alignItems:"center",gap:5,
+                  padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                  background:enCours?T.border:acc.accent,color:enCours?T.textMuted:acc.onAccent,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:enCours?"not-allowed":"pointer",
+                }}>
+                  <Icon as={RefreshCw} size={11} style={enCours?{animation:"spin 1s linear infinite"}:undefined}/>
+                  {enCours ? "Vérification en cours…" : "Vérifier la synchronisation"}
+                </button>
+              )}
+
+              <details style={{marginTop:12}}>
+                <summary style={{cursor:"pointer",fontSize:FONT.xs.size+1,fontWeight:700,color:T.textMuted}}>
+                  Rapport technique de la synchronisation
+                </summary>
+                <pre style={{
+                  marginTop:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,
+                  border:`1px solid ${T.border}`,maxHeight:340,overflow:"auto",
+                  fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
+                }}>{JSON.stringify(syncRapport, null, 2)}</pre>
+              </details>
+            </>
+          )}
         </div>
       )}
     </div>

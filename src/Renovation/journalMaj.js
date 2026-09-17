@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-17",
+    type: "nouveaute",
+    titre: "Import des factures et règlements ProGBat, avec prévisualisation avant écriture",
+    pages: [{ id: "admin", label: "Réglages" }],
+    quoi: "Les factures émises et les règlements encaissés dans ProGBat peuvent maintenant être importés dans le registre de facturation, sans aucune ressaisie. L'import est toujours précédé d'une prévisualisation qui annonce exactement ce qui sera créé, mis à jour ou laissé de côté.",
+    comment: "Réglages → Fournisseurs, carte « Connexion ProGBat ». « Analyser la synchronisation » affiche ce qui serait importé sans rien écrire. Si l'analyse est complète et sans anomalie, un bouton « Synchroniser avec ProGBat » apparaît : il demande de saisir SYNCHRONISER, puis écrit. L'import ne modifie jamais ProGBat, ne touche pas aux factures saisies à la main, et ne reprend pas une échéance corrigée manuellement. Les factures dont le chantier ProGBat n'est pas encore rattaché sont ignorées et comptées : rattachez-les sur la fiche chantier puis relancez.",
+  },
+  {
     date: "2026-09-16",
     type: "nouveaute",
     titre: "Rattachement des chantiers ProGBat pour préparer la synchronisation automatique des factures",
