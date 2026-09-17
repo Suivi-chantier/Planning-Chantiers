@@ -33,6 +33,12 @@ export const CIBLES = Object.freeze({
     "progbatFacturation.mjs", "progbatLiaison.mjs", "progbatYards.mjs",
     "progbatBillingDryRun.mjs", "progbatBillingSync.mjs",
   ],
+  // Déclenchement horaire : même moteur que la synchronisation manuelle, plus
+  // la porte du cron (secret serveur). Aucune règle métier n'y est ajoutée.
+  "progbat-billing-sync-cron": [
+    "progbatFacturation.mjs", "progbatLiaison.mjs", "progbatYards.mjs",
+    "progbatBillingDryRun.mjs", "progbatBillingSync.mjs", "progbatBillingCron.mjs",
+  ],
 });
 // Compatibilité : liste plate des fichiers de la première cible (anciens scripts).
 export const FICHIERS = CIBLES["progbat-library-inventory"];

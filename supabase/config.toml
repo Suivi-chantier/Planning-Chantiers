@@ -1,0 +1,69 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Configuration Supabase du projet — VÉRIFICATION JWT DES EDGE FUNCTIONS.
+#
+# Ce fichier n'existait pas : les fonctions ont toujours été déployées une par
+# une. Il est créé ici pour UNE raison, et une seule — déclarer que
+# progbat-billing-sync-cron accepte un appel non signé par un JWT utilisateur,
+# parce qu'un cron n'est personne et n'a pas de session.
+#
+# Toutes les autres fonctions sont listées EXPLICITEMENT avec verify_jwt = true.
+# C'est volontairement verbeux : ainsi aucune ne peut se retrouver ouverte par
+# omission, et la seule exception se lit d'un coup d'œil.
+#
+# ⚠️ progbat-billing-sync (la synchronisation MANUELLE) garde verify_jwt = true.
+# Elle exige en plus, dans son code, un utilisateur actif du bureau et la
+# confirmation « SYNCHRONISER_PROGBAT ». Ce lot ne touche rien de tout cela.
+#
+# La fonction cron n'est pas pour autant ouverte : sans JWT, elle exige un
+# secret serveur (PROGBAT_BILLING_CRON_SECRET) transmis dans l'en-tête
+# x-progbat-cron-secret. C'est sa seule preuve d'autorisation.
+# ═══════════════════════════════════════════════════════════════════════════
+
+project_id = "yooksnzhlffqgpzkcjhl"
+
+# ── La seule exception ─────────────────────────────────────────────────────
+[functions.progbat-billing-sync-cron]
+verify_jwt = false
+
+# ── Tout le reste : JWT exigé ──────────────────────────────────────────────
+[functions.progbat-billing-sync]
+verify_jwt = true
+
+[functions.progbat-billing-dry-run]
+verify_jwt = true
+
+[functions.progbat-test-connection]
+verify_jwt = true
+
+[functions.progbat-yards-list]
+verify_jwt = true
+
+[functions.progbat-quote]
+verify_jwt = true
+
+[functions.progbat-tax-rates]
+verify_jwt = true
+
+[functions.progbat-library-inventory]
+verify_jwt = true
+
+[functions.progbat-library-sync]
+verify_jwt = true
+
+[functions.progbat-library-categories]
+verify_jwt = true
+
+[functions.progbat-library-cadences]
+verify_jwt = true
+
+[functions.admin-users-local]
+verify_jwt = true
+
+[functions.analyse-commande]
+verify_jwt = true
+
+[functions.analyse-facture]
+verify_jwt = true
+
+[functions.list-team-calendar-events]
+verify_jwt = true
