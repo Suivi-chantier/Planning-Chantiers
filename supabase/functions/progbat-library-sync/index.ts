@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
 import { rapprocherBibliotheque } from "./lib/progbatInventaire.mjs"
-import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, listerFamillesOuvrages, listerJobsHoraires, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
+import { construireCompositionCadence, construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, listerFamillesOuvrages, listerJobsHoraires, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
 
 // Synchronisation CONSERVATRICE Profero → ProGBat.
 // Actions : prepare (aucune écriture), sync (confirmation + hash), status.
@@ -264,8 +264,28 @@ serve(async (req) => {
       // Pose la cadence Profero sur un ouvrage ProGBat. Le PUT remplace la
       // composition : il n'est appelé que sur un ouvrage créé à l'instant ou
       // dont la composition était VIDE à la préparation.
-      const poserCadence = async (cible: number) =>
-        await progbatFetch("PUT", `/company/library/structures/${cible}/composition`, token, item.composition.payload)
+      // Le PUT remplace la composition : on relit d'abord ce que ProGBat a
+      // réellement (il s'ajoute une composition générique « Fournitures » +
+      // « Main d'oeuvre » dès qu'on lui donne un prix), pour tout réécrire à
+      // l'identique et ne corriger que les heures. Sans relecture fiable, on
+      // s'en tient au corps confirmé dans l'aperçu.
+      const poserCadence = async (cible: number) => {
+        let corps = item.composition.payload
+        const lu = await progbatFetch("GET", `/company/structures/${cible}/composition`, token)
+        if (lu.ok && Array.isArray(lu.data) && lu.data.length) {
+          const recalcule = construireCompositionCadence({
+            cadence: item.composition.heures,
+            job: { ok: true, id: item.composition.jobId, libelle: item.composition.jobLibelle },
+            existants: lu.data,
+          })
+          if (!recalcule.ok) {
+            return { ok: false as const, status: 0, message: recalcule.erreurs.join(" · "), incertain: false }
+          }
+          if (recalcule.inchange) return { ok: true as const, status: 200, data: null, inchange: true }
+          corps = recalcule.payload
+        }
+        return await progbatFetch("PUT", `/company/library/structures/${cible}/composition`, token, corps)
+      }
 
       if (item.type === "composition") {
         const repCompo = await poserCadence(item.progbatId)

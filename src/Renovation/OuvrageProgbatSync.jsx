@@ -9,8 +9,9 @@
 //      plan : si l'ouvrage a changé entre-temps, ProGBat n'est pas touché.
 // La CADENCE Profero part avec l'ouvrage : elle devient la quantité, en heures,
 // d'un job horaire ProGBat (sinon ProGBat reconstitue un temps depuis le prix).
-// Elle peut aussi être posée sur un ouvrage déjà lié dont la composition
-// ProGBat est VIDE ; une composition existante n'est jamais remplacée.
+// Elle peut aussi corriger un ouvrage déjà lié : la composition ProGBat est
+// réécrite à l'identique, seule la quantité de la main-d'œuvre horaire change.
+// Aucun composant n'est retiré, et ProGBat ne recalcule pas le prix.
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
@@ -234,14 +235,16 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
                   achat {fmtEur2(action.payload?.purchaseNetUnitPrice)} · vente {fmtEur2(action.payload?.saleNetUnitPrice)} HT · TVA {action.payload?.taxRate} %
                 </div>
                 <div style={{ color: T.textSub }}>
-                  Cadence envoyée : <strong>{fmtHeures(action.composition?.heures)}</strong> sur « {action.composition?.jobLibelle} ». Le prix de vente reste celui de Profero, ProGBat ne le recalcule pas.
+                  Cadence envoyée : <strong>{fmtHeures(action.composition?.heures)}</strong> sur « {action.composition?.jobLibelle} ». Si ProGBat ajoute lui-même des composants à la création, ils sont conservés. Le prix de vente reste celui de Profero, ProGBat ne le recalcule pas.
                 </div>
               </>
             ) : action.type === "composition" ? (
               <div style={{ color: T.textSub }}>
-                Sa composition ProGBat est vide, c'est pourquoi le devis affichait un temps reconstitué depuis le prix.
-                Profero va y inscrire <strong>{fmtHeures(action.composition?.heures)}</strong> sur « {action.composition?.jobLibelle} ».
-                Ni le prix ni le libellé ne sont touchés.
+                {action.composition?.ajout
+                  ? <>Aucune main-d'œuvre horaire dans ProGBat : Profero en ajoute une à <strong>{fmtHeures(action.composition?.heures)}</strong> sur « {action.composition?.jobLibelle} ».</>
+                  : <>« {action.composition?.jobLibelle} » passe de <strong>{fmtHeures(action.composition?.heuresAvant)}</strong> à <strong>{fmtHeures(action.composition?.heures)}</strong>.</>}
+                {action.composition?.conserves > 0 && <> Les {action.composition.conserves} composant(s) déjà présents sont réécrits à l'identique.</>}
+                {" "}Ni le prix ni le libellé ne sont touchés.
               </div>
             ) : (
               <div style={{ color: T.textSub }}>

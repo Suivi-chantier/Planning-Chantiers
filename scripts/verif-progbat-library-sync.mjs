@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { construirePlanSynchronisation, construirePayloadStructure, trouverFamilleCible, trouverTva, donneesPourHash, restreindrePlan, etatOuvragePourSync, listerFamillesOuvrages, resoudreFamilleParId, listerJobsHoraires, resoudreJobHoraire, construireCompositionCadence, compositionVide, blocageComposition } from "../src/Renovation/progbatLibrarySync.mjs";
+import { construirePlanSynchronisation, construirePayloadStructure, trouverFamilleCible, trouverTva, donneesPourHash, restreindrePlan, etatOuvragePourSync, listerFamillesOuvrages, resoudreFamilleParId, listerJobsHoraires, resoudreJobHoraire, construireCompositionCadence, compositionVide, blocageComposition, composantsMainOeuvre } from "../src/Renovation/progbatLibrarySync.mjs";
 
 const structures = [
   { id: 501, code: "D-001", label: "D-001 : Dépose" },
@@ -79,7 +79,7 @@ assert.equal(plan.actions[1].type, "create");
 assert.deepEqual(plan.actions[1].payload.families, [10]);
 assert.deepEqual(plan.garanties, {
   modifie_existants_progbat: false, supprime_progbat: false, cree_elements: false,
-  ecrase_composition: false, recalcule_prix_progbat: false,
+  retire_composants: false, recalcule_prix_progbat: false,
 });
 assert.equal(donneesPourHash(plan).actions.length, 2);
 
@@ -114,8 +114,10 @@ assert.match(resoudreJobHoraire(jobs, null).erreur, /Choisir la main-d'œuvre/);
 assert.match(resoudreJobHoraire(jobs, 999).erreur, /introuvable/);
 assert.match(resoudreJobHoraire(jobs, 71).erreur, /n'est pas une main-d'œuvre horaire/);
 
-const compo = construireCompositionCadence({ cadence: 2.5, job: jobOk });
+// Structure neuve (aucun composant) : la main-d'œuvre est AJOUTÉE.
+const compo = construireCompositionCadence({ cadence: 2.5, job: jobOk, existants: [] });
 assert.equal(compo.ok, true);
+assert.equal(compo.ajout, true);
 assert.deepEqual(compo.payload, {
   components: [{ componentId: 70, quantity: 2.5 }],
   updatePrice: false,
@@ -124,6 +126,36 @@ assert.equal(compo.heures, 2.5);
 assert.match(construireCompositionCadence({ cadence: 0, job: jobOk }).erreurs[0], /Cadence/);
 assert.match(construireCompositionCadence({ cadence: null, job: jobOk }).erreurs[0], /Cadence/);
 assert.equal(construireCompositionCadence({ cadence: 2, job: resoudreJobHoraire(jobs, null) }).ok, false);
+
+// Cas réel de l'ouvrage #891 : ProGBat s'était fabriqué une composition
+// générique « Fournitures » + « Main d'oeuvre 1,836 h » à partir du seul prix.
+// Les deux composants sont CONSERVÉS, seule la quantité d'heures est corrigée.
+const generique = [
+  { componentId: 1, componentType: 1, label: "Fournitures", quantity: 1, unitCode: "U" },
+  { componentId: 2, componentType: 2, label: "Main d'oeuvre", quantity: 1.836, unitCode: "H" },
+];
+assert.deepEqual(composantsMainOeuvre(generique).map((c) => c.componentId), [2]);
+const corrige = construireCompositionCadence({ cadence: 1, job: jobOk, existants: generique });
+assert.equal(corrige.ok, true);
+assert.equal(corrige.ajout, false, "ProGBat a déjà une main-d'œuvre : on la corrige, on n'en ajoute pas");
+assert.equal(corrige.jobId, 2, "c'est SA main-d'œuvre qui est corrigée, pas le job choisi");
+assert.equal(corrige.heuresAvant, 1.836);
+assert.deepEqual(corrige.payload, {
+  components: [{ componentId: 1, quantity: 1 }, { componentId: 2, quantity: 1 }],
+  updatePrice: false,
+}, "« Fournitures » est réécrit à l'identique : aucun composant n'est retiré");
+assert.equal(corrige.conserves, 2);
+
+// Aucun choix de main-d'œuvre n'est nécessaire quand ProGBat en a déjà une.
+assert.equal(construireCompositionCadence({ cadence: 1, job: resoudreJobHoraire(jobs, null), existants: generique }).ok, true);
+
+// Déjà à la bonne valeur : rien à écrire.
+assert.equal(construireCompositionCadence({ cadence: 1.836, job: jobOk, existants: generique }).inchange, true);
+assert.equal(corrige.inchange, false);
+
+// Plusieurs main-d'œuvre horaires : Profero ne devine pas laquelle corriger.
+const deuxMO = [...generique, { componentId: 3, componentType: 2, label: "MO 2", quantity: 2, unitCode: "H" }];
+assert.match(construireCompositionCadence({ cadence: 1, job: jobOk, existants: deuxMO }).erreurs[0], /2 main-d'œuvre horaires/);
 
 assert.equal(compositionVide([]), true);
 assert.equal(compositionVide([{ componentId: 1 }]), false);
@@ -146,9 +178,11 @@ assert.equal(poseCadence.progbatId, 777);
 assert.deepEqual(poseCadence.composition.payload.components, [{ componentId: 70, quantity: 2.5 }]);
 assert.equal(avecVide.compteurs.a_composer, 1);
 
-const avecCompo = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", { ok: true, items: [{ componentId: 9, quantity: 1 }] }]]) });
-assert.equal(avecCompo.compteurs.a_composer, 0, "une composition existante n'est JAMAIS remplacée");
-assert.equal(avecCompo.actions.some((a) => a.ouvrageId === "p5"), false);
+const avecCompo = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", { ok: true, items: generique }]]) });
+const corrigee = avecCompo.actions.find((a) => a.type === "composition");
+assert.ok(corrigee, "une composition existante est corrigée, pas refusée");
+assert.deepEqual(corrigee.composition.payload.components, [{ componentId: 1, quantity: 1 }, { componentId: 2, quantity: 2.5 }],
+  "les composants existants sont conservés, seules les heures changent");
 
 const nonLue = construirePlanSynchronisation({ ...contexte, compositions: new Map() });
 assert.equal(nonLue.compteurs.a_composer, 0, "composition non lue : rien n'est proposé");
@@ -161,7 +195,7 @@ assert.deepEqual(h.actions.find((a) => a.type === "create").composition, { compo
 assert.equal(hAutreJob.actions.length, h.actions.length);
 assert.deepEqual(construirePlanSynchronisation(contexte).garanties, {
   modifie_existants_progbat: false, supprime_progbat: false, cree_elements: false,
-  ecrase_composition: false, recalcule_prix_progbat: false,
+  retire_composants: false, recalcule_prix_progbat: false,
 });
 
 // Une lecture RATÉE de composition n'est jamais présentée comme « non vide » :
@@ -171,7 +205,8 @@ assert.match(blocageComposition(null), /non lue/);
 assert.match(blocageComposition({ ok: false, status: 403, message: "ProGBat a répondu HTTP 403." }), /illisible/);
 assert.match(blocageComposition({ ok: false, status: 403, message: "ProGBat a répondu HTTP 403." }), /403/);
 assert.match(blocageComposition({ ok: true, items: null }), /inattendue/);
-assert.match(blocageComposition({ ok: true, items: [{ componentId: 1 }] }), /n'est pas vide \(1 composant/);
+assert.equal(blocageComposition({ ok: true, items: [{ componentId: 1 }] }), null,
+  "une composition non vide n'est plus un refus : elle est conservée et corrigée");
 
 const lectureRatee = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", { ok: false, status: 403, message: "ProGBat a répondu HTTP 403." }]]) });
 assert.equal(lectureRatee.compteurs.a_composer, 0);

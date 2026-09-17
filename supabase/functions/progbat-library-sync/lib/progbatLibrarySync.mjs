@@ -138,20 +138,66 @@ export function resoudreJobHoraire(jobs = [], jobId) {
  * Corps du PUT de composition pour porter la cadence Profero.
  * @param cadence heures par unité d'ouvrage (bibliotheque_ratios.cadence)
  */
-export function construireCompositionCadence({ cadence, job } = {}) {
+/** Composants de main-d'œuvre HORAIRE d'une composition lue (type 2, unité H). */
+export function composantsMainOeuvre(composants = []) {
+  return (composants || []).filter((c) =>
+    Number(c?.componentType) === TYPE_JOB_MAIN_OEUVRE && cleUnite(c?.unitCode) === cleUnite(UNITE_HEURE)
+  );
+}
+
+/**
+ * Corps du PUT de composition pour porter la cadence Profero.
+ *
+ * Le PUT REMPLACE la composition : on la reconstruit donc à l'identique et on
+ * ne change QUE la quantité de la main-d'œuvre horaire. Rien n'est retiré.
+ *   • aucune main-d'œuvre horaire présente → on en ajoute une (job à choisir) ;
+ *   • une seule                            → sa quantité devient la cadence ;
+ *   • plusieurs                            → refus : on ne devine pas laquelle.
+ * ProGBat crée lui-même une composition générique (« Fournitures » +
+ * « Main d'oeuvre ») quand on lui donne un prix sans composition : c'est elle
+ * qui produisait des heures inventées, et c'est bien elle qu'il faut corriger.
+ *
+ * @param cadence   heures par unité d'ouvrage (bibliotheque_ratios.cadence)
+ * @param existants composants lus, [] pour une structure qu'on vient de créer
+ */
+export function construireCompositionCadence({ cadence, job, existants = [] } = {}) {
   const erreurs = [];
   const heures = num(cadence);
-  if (!job?.ok) erreurs.push(str(job?.erreur) || "Main-d'œuvre ProGBat non choisie");
   if (heures == null || !(heures > 0)) erreurs.push("Cadence Profero absente ou nulle : aucun temps à envoyer");
+
+  const anciens = Array.isArray(existants) ? existants : [];
+  const mo = composantsMainOeuvre(anciens);
+  if (mo.length > 1) {
+    erreurs.push(`L'ouvrage ProGBat porte ${mo.length} main-d'œuvre horaires : Profero ne choisit pas laquelle corriger`);
+  }
+  // Le job n'est demandé QUE s'il faut en ajouter une : quand ProGBat en a
+  // déjà une, c'est la sienne qu'on met à jour, sans rien choisir.
+  const ajout = mo.length === 0;
+  if (ajout && !job?.ok) erreurs.push(str(job?.erreur) || "Main-d'œuvre ProGBat non choisie");
   if (erreurs.length) return { ok: false, erreurs, payload: null };
+
+  const quantite = arrondir4(heures);
+  const cibleId = ajout ? job.id : Number(mo[0].componentId);
+  const components = anciens.map((c) => ({
+    componentId: Number(c?.componentId),
+    quantity: Number(c?.componentId) === cibleId ? quantite : num(c?.quantity),
+  })).filter((c) => Number.isInteger(c.componentId) && c.componentId > 0 && c.quantity != null);
+  if (ajout) components.push({ componentId: cibleId, quantity: quantite });
+
+  const avant = ajout ? null : num(mo[0].quantity);
   return {
     ok: true,
     erreurs: [],
-    jobId: job.id,
-    jobLibelle: job.libelle,
-    heures: arrondir4(heures),
+    jobId: cibleId,
+    jobLibelle: ajout ? job.libelle : str(mo[0].label) || `composant #${cibleId}`,
+    heures: quantite,
+    heuresAvant: avant,
+    ajout,
+    conserves: components.length - (ajout ? 1 : 0),
+    // Déjà à la bonne valeur : rien à écrire, mais rien d'anormal non plus.
+    inchange: avant != null && Math.abs(avant - quantite) < 1e-6,
     // updatePrice explicitement faux : Profero garde la main sur le prix.
-    payload: { components: [{ componentId: job.id, quantity: arrondir4(heures) }], updatePrice: false },
+    payload: { components, updatePrice: false },
   };
 }
 
@@ -165,9 +211,11 @@ export function compositionVide(composition) {
 }
 
 /**
- * Pourquoi un ouvrage déjà lié ne peut pas recevoir sa cadence — ou null s'il
- * le peut. La lecture de la composition est un fait à part entière : une
- * lecture RATÉE ne doit jamais être présentée comme « composition non vide ».
+ * Pourquoi la composition d'un ouvrage déjà lié ne peut pas être utilisée — ou
+ * null si elle peut l'être. Une lecture RATÉE n'est jamais présentée comme une
+ * composition « non vide » : c'est un fait distinct.
+ * Une composition NON VIDE n'est plus un refus : elle est conservée telle
+ * quelle, seule la quantité de main-d'œuvre horaire est corrigée.
  * @param lecture { ok: true, items: [] } | { ok: false, status, message } | null
  */
 export function blocageComposition(lecture) {
@@ -177,9 +225,6 @@ export function blocageComposition(lecture) {
     return `Composition ProGBat illisible${detail ? ` (${detail})` : ""} : la cadence n'est pas posée tant qu'on ignore ce qu'elle contient`;
   }
   if (!Array.isArray(lecture.items)) return "Réponse de composition ProGBat inattendue : cadence non posée par précaution";
-  if (!compositionVide(lecture.items)) {
-    return `La composition ProGBat de cet ouvrage n'est pas vide (${lecture.items.length} composant(s)) : Profero ne la remplace pas, son temps vient de ProGBat`;
-  }
   return null;
 }
 
@@ -291,10 +336,19 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
       const blocage = blocageComposition(lecture);
       if (blocage) raisons.push(blocage);
       if (!Number.isInteger(progbatId) || progbatId <= 0) raisons.push("Identifiant ProGBat de l'ouvrage illisible");
-      const c = construireCompositionCadence({ cadence: r.prix?.heures_main_oeuvre, job });
+      const c = construireCompositionCadence({
+        cadence: r.prix?.heures_main_oeuvre, job,
+        existants: blocage ? [] : lecture.items,
+      });
       if (!c.ok) raisons.push(...c.erreurs);
       if (raisons.length) {
         exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons });
+      } else if (c.inchange) {
+        // Même valeur des deux côtés : aucune écriture, et ce n'est pas un refus.
+        exclus.push({
+          ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court,
+          raisons: [`Sa main-d'œuvre ProGBat porte déjà ${c.heures} h : rien à corriger`],
+        });
       } else {
         actions.push({
           type: "composition", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court,
@@ -321,10 +375,11 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
       total: actions.length,
     },
     garanties: {
-      // Une composition n'est posée que sur un ouvrage créé à l'instant ou dont
-      // la composition ProGBat est VIDE : rien d'existant n'est remplacé.
+      // Aucun composant existant n'est retiré et ProGBat ne recalcule pas le prix.
       modifie_existants_progbat: false, supprime_progbat: false, cree_elements: false,
-      ecrase_composition: false, recalcule_prix_progbat: false,
+      // Les composants existants sont tous réécrits à l'identique : seule la
+      // quantité de la main-d'œuvre horaire change.
+      retire_composants: false, recalcule_prix_progbat: false,
     },
   };
 }
