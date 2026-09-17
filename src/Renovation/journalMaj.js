@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
+    titre: "Les factures ProGBat d'un chantier s'affichent sur sa fiche",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Le bloc « Facturation client » d'une fiche chantier montre maintenant les factures venues de ProGBat, avec ce qui a été facturé, ce qui a été encaissé et ce qui reste dû. Plus besoin d'ouvrir ProGBat pour savoir où en est une facture.",
+    comment: "Fiche chantier, bloc « Facturation client », section « Factures ProGBat ». Chaque ligne indique sa nature (facture, acompte ou avoir), son montant TTC, les règlements reçus et son état — non réglée, partiellement réglée, réglée, ou l'équivalent pour un avoir. Le détail des règlements s'ouvre au clic. Tout y est en lecture seule : ces factures viennent de la synchronisation (Réglages → Fournisseurs) et ne se modifient pas ici. L'échéancier prévisionnel au-dessus continue de ne concerner que les factures déposées à la main.",
+  },
+  {
+    date: "2026-09-17",
+    type: "nouveaute",
     titre: "Import des factures et règlements ProGBat, avec prévisualisation avant écriture",
     pages: [{ id: "admin", label: "Réglages" }],
     quoi: "Les factures émises et les règlements encaissés dans ProGBat peuvent maintenant être importés dans le registre de facturation, sans aucune ressaisie. L'import est toujours précédé d'une prévisualisation qui annonce exactement ce qui sera créé, mis à jour ou laissé de côté.",

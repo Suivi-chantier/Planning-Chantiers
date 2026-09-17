@@ -40,10 +40,19 @@ import {
   normaliserEcheancier, rapprocherFacture, factureDoublon,
   montantAttenduLigne, FACT_META_ECHEANCIER, FACT_META_MONTANT_REF,
 } from "./facturationClient";
+import { composerFacturesProgbat, LIBELLE_NATURE } from "./facturesProgbatAffichage";
 
 const ACCEPT_FACTURE = "application/pdf,image/*";
 
 const eur = (n) => `${Math.round(parseFloat(n) || 0).toLocaleString("fr-FR")} €`;
+// Montant ProGBat : au centime et SIGNÉ. Les avoirs et leurs remboursements
+// sont négatifs, et arrondir à l'euro comme `eur` masquerait les écarts d'un
+// centime que ProGBat produit lui-même (1850,31 = 925,16 + 925,15).
+const eurSigne = (n) => {
+  const v = typeof n === "number" ? n : parseFloat(String(n ?? "").replace(",", "."));
+  if (!Number.isFinite(v)) return "—";
+  return `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+};
 const jj = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "");
 const auj = () => new Date().toISOString().slice(0, 10);
 const toNum = (v) => {
@@ -418,6 +427,225 @@ function EditeurEcheancier({ lignes, surcharge, montantReference, T, onAnnuler, 
 }
 
 // ─── BLOC PRINCIPAL ──────────────────────────────────────────────────────────
+// ─── Factures ProGBat du chantier — LECTURE SEULE ────────────────────────────
+// Ce bloc montre ce que la synchronisation a importé : les lignes de
+// chantier_factures_client portant source='progbat', et leurs règlements.
+//
+// Il n'écrit RIEN. Aucun insert, update, delete ; aucun appel aux Edge
+// Functions de synchronisation (progbat-billing-dry-run, progbat-billing-sync,
+// qui se lancent depuis Réglages) ; aucune modification de ProGBat. Deux SELECT
+// à colonnes nommées, et c'est tout.
+//
+// IL VIT À PART DE L'ÉCHÉANCIER MANUEL, et c'est délibéré :
+//   • les factures ProGBat sont en TTC et leur montant_ht est volontairement
+//     NULL (netTotal/taxes suivent atiTotal cumulatif et ne décrivent pas le HT
+//     exigible) — elles n'ont donc rien à faire dans des totaux HT ;
+//   • aucune n'est rapprochée d'une échéance : ce rapprochement est un travail
+//     humain, il viendra dans un autre lot ;
+//   • son échec ne doit jamais masquer l'échéancier : état d'erreur local,
+//     bouton Réessayer, et le reste de la page continue de fonctionner.
+function FacturesProgbat({ chantierId, T }) {
+  const [chargement, setChargement] = useState(true);
+  const [erreurLecture, setErreurLecture] = useState("");
+  const [donnees, setDonnees] = useState({ factures: [], reglements: [] });
+
+  const border = T?.border || "rgba(255,255,255,0.07)";
+  const text = T?.text || "#f0f0f0";
+  const textSub = T?.textSub || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
+  // Deux SELECT, colonnes nommées. Ni client, ni adresse, ni coordonnées, ni
+  // donnée bancaire, ni détail ProGBat (taxDetails, deductions) ne sont même
+  // demandés : ce qui n'est pas lu ne peut pas fuiter.
+  const charger = React.useCallback(async () => {
+    if (!chantierId) { setDonnees({ factures: [], reglements: [] }); setChargement(false); return; }
+    setChargement(true); setErreurLecture("");
+    const rf = await supabase.from("chantier_factures_client")
+      .select("id,numero,date_facture,montant_ttc,progbat_bill_id,progbat_bill_code,progbat_type,progbat_situation_number,progbat_synced_at")
+      .eq("chantier_id", chantierId)
+      .eq("source", "progbat")
+      .order("date_facture", { ascending: true });
+    if (rf.error) {
+      setErreurLecture(rf.error.message || "Lecture des factures ProGBat impossible.");
+      setChargement(false);
+      return;
+    }
+    const factures = rf.data || [];
+    let reglements = [];
+    if (factures.length) {
+      const rr = await supabase.from("chantier_factures_reglements")
+        .select("id,facture_id,date_reglement,montant,progbat_transaction_id,annule")
+        .in("facture_id", factures.map((f) => f.id));
+      if (rr.error) {
+        setErreurLecture(rr.error.message || "Lecture des règlements ProGBat impossible.");
+        setChargement(false);
+        return;
+      }
+      reglements = rr.data || [];
+    }
+    setDonnees({ factures, reglements });
+    setChargement(false);
+  }, [chantierId]);
+
+  React.useEffect(() => { charger(); }, [charger]);
+
+  const { lignes, totaux } = React.useMemo(
+    () => composerFacturesProgbat(donnees.factures, donnees.reglements),
+    [donnees],
+  );
+
+  const titre = (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10,
+      fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+      letterSpacing: 1.2, textTransform: "uppercase",
+    }}>
+      Factures ProGBat
+      <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .7 }}>
+        — importées automatiquement depuis ProGBat, en lecture seule
+      </span>
+      <button onClick={charger} disabled={chargement} style={{
+        marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
+        background: "transparent", border: `1px solid ${border}`, borderRadius: RADIUS.md,
+        padding: "4px 10px", color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 700,
+        cursor: chargement ? "default" : "pointer", fontFamily: "inherit",
+        letterSpacing: 0, textTransform: "none", opacity: chargement ? .6 : 1,
+      }}>
+        <Icon as={chargement ? Loader2 : RotateCcw} size={12}/>
+        {chargement ? "Chargement…" : "Actualiser"}
+      </button>
+    </div>
+  );
+
+  const cadre = (contenu) => (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${border}` }}>
+      {titre}
+      {contenu}
+    </div>
+  );
+
+  if (chargement && !donnees.factures.length) {
+    return cadre(<div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Lecture des factures ProGBat…</div>);
+  }
+
+  if (erreurLecture) {
+    return cadre(
+      <div style={{
+        display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "9px 12px",
+        borderRadius: RADIUS.md, background: "rgba(225,90,90,0.12)",
+        border: "1px solid rgba(225,90,90,0.4)", fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 600,
+      }}>
+        <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0 }}/>
+        <span style={{ flex: 1, minWidth: 180 }}>{erreurLecture}</span>
+        <button onClick={charger} style={{
+          display: "inline-flex", alignItems: "center", gap: 5, background: "transparent",
+          border: "1px solid rgba(225,90,90,0.5)", borderRadius: RADIUS.md, padding: "4px 10px",
+          color: "#e15a5a", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+        }}>
+          <Icon as={RotateCcw} size={12}/>Réessayer
+        </button>
+      </div>,
+    );
+  }
+
+  if (!lignes.length) {
+    return cadre(
+      <div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+        Aucune facture ProGBat synchronisée pour ce chantier.
+      </div>,
+    );
+  }
+
+  // Totaux TTC SIGNÉS : un avoir diminue le facturé, son remboursement diminue
+  // le réglé, et le reste suit. Aucune valeur absolue nulle part.
+  const kpiProgbat = (label, valeur, couleur) => (
+    <div style={{ flex: "1 1 120px", minWidth: 110 }}>
+      <div style={{ fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: .6 }}>{label}</div>
+      <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: couleur || text, marginTop: 2 }}>{valeur}</div>
+    </div>
+  );
+
+  return cadre(
+    <>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
+        {kpiProgbat("Factures", String(totaux.nombre))}
+        {kpiProgbat("Facturé TTC", eurSigne(totaux.total_facture))}
+        {kpiProgbat("Réglé", eurSigne(totaux.total_regle), "#22c55e")}
+        {kpiProgbat("Reste à régler", eurSigne(totaux.reste), Math.abs(totaux.reste) > 0.01 ? "#f59e0b" : "#22c55e")}
+      </div>
+
+      {totaux.sans_montant > 0 && (
+        <div style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", marginBottom: 8, fontWeight: 600 }}>
+          {totaux.sans_montant} facture(s) sans montant lisible : elles ne sont pas comptées dans les totaux.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {lignes.map(({ facture, reglements, etat, nature, libelle }) => (
+          <div key={facture.id} style={{
+            padding: "8px 11px", borderRadius: RADIUS.md,
+            background: "rgba(255,255,255,0.02)", border: `1px solid ${border}`,
+          }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+              <strong style={{ fontSize: FONT.sm.size, fontWeight: 800, color: text }}>{libelle}</strong>
+              <span style={{
+                fontSize: FONT.xs.size, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+                border: `1px solid ${nature === "avoir" ? "#f59e0b" : border}`,
+                color: nature === "avoir" ? "#f59e0b" : textSub,
+              }}>
+                {LIBELLE_NATURE[nature]}
+              </span>
+              {facture.date_facture && <span style={{ fontSize: FONT.xs.size + 1, color: textSub }}>{jj(facture.date_facture)}</span>}
+              {facture.progbat_situation_number != null && (
+                <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>situation n° {facture.progbat_situation_number}</span>
+              )}
+              <span style={{
+                marginLeft: "auto", fontSize: FONT.xs.size + 1, fontWeight: 800,
+                color: etat.anomalie ? "#e15a5a" : etat.etat === "reglee" || etat.etat === "avoir_rembourse" ? "#22c55e" : textSub,
+              }}>
+                {etat.libelle}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 4, fontSize: FONT.xs.size + 1 }}>
+              <span><span style={{ color: textMuted }}>Dû TTC </span><strong style={{ color: text }}>{eurSigne(etat.montant_du)}</strong></span>
+              <span><span style={{ color: textMuted }}>Réglé </span><strong style={{ color: text }}>{eurSigne(etat.somme_reglee)}</strong></span>
+              <span><span style={{ color: textMuted }}>Reste </span><strong style={{ color: etat.anomalie ? "#e15a5a" : text }}>{eurSigne(etat.reste)}</strong></span>
+              {/* Identifiant technique, discret : il sert à retrouver le
+                  document dans ProGBat, pas à lire la facture. */}
+              {facture.progbat_bill_id != null && (
+                <span style={{ marginLeft: "auto", color: textMuted, opacity: .8 }}>ProGBat n°{facture.progbat_bill_id}</span>
+              )}
+            </div>
+
+            {/* Le détail des règlements ACTIFS : date, montant signé,
+                identifiant de transaction. Rien de bancaire — ni libellé, ni
+                compte, ni mode de paiement : ces colonnes ne sont pas lues. */}
+            {reglements.length > 0 ? (
+              <details style={{ marginTop: 5 }}>
+                <summary style={{ cursor: "pointer", fontSize: FONT.xs.size + 1, color: textSub, fontWeight: 700 }}>
+                  {reglements.length} règlement{reglements.length > 1 ? "s" : ""}
+                </summary>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 5 }}>
+                  {reglements.map((r) => (
+                    <div key={r.id} style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: FONT.xs.size + 1, color: textSub }}>
+                      <span style={{ minWidth: 76 }}>{jj(r.date_reglement) || "date inconnue"}</span>
+                      <strong style={{ color: text }}>{eurSigne(r.montant)}</strong>
+                      <span style={{ color: textMuted }}>transaction n°{r.progbat_transaction_id ?? "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : (
+              <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: textMuted }}>Aucun règlement enregistré.</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </>,
+  );
+}
+
 export default function FacturationChantier({
   T, chantierId, phasageId, etat, echeancier, echeancierSurcharge, montantRef, factures,
   chantiers, peutModifier, auteur, onRefresh, onSaveMeta,
@@ -817,6 +1045,11 @@ export default function FacturationChantier({
           onEnregistrer={enregistrerEcheancier}
           onReinitialiser={reinitialiserEcheancier}/>
       )}
+
+      {/* Ce que la synchronisation a importé, en lecture seule. Bloc autonome :
+          sa lecture est indépendante de l'échéancier manuel ci-dessus, et son
+          échec ne l'empêche pas de s'afficher. */}
+      <FacturesProgbat chantierId={chantierId} T={T}/>
 
       {/* Chantiers ProGBat associés : le rattachement PRINCIPAL. Une facture
           ProGBat porte yardId, stable d'un avenant à l'autre — c'est par lui

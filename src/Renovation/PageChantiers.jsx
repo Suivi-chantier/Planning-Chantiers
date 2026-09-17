@@ -2068,8 +2068,15 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         supabase.from("reserves")
           .select("id, groupe_id, controle_id, statut, created_at, levee_le")
           .eq("chantier_id", cvChantierId),
+        // source='manuel' : l'échéancier et etatFacturation() raisonnent en HT,
+        // et une facture ProGBat a un montant_ht volontairement NULL (elle est
+        // en TTC). Depuis la synchronisation, la table porte les deux régimes —
+        // sans ce filtre, les factures ProGBat entreraient dans les totaux du
+        // bloc manuel en comptant pour 0. Elles ont leur propre bloc, en
+        // lecture seule (FacturesProgbat dans FacturationChantier.jsx).
         supabase.from("chantier_factures_client")
-          .select("*").eq("chantier_id", cvChantierId).order("date_facture", { ascending: true }),
+          .select("*").eq("chantier_id", cvChantierId).eq("source", "manuel")
+          .order("date_facture", { ascending: true }),
         supabase.from("planning_config")
           .select("value").eq("key", "echeancier_facturation").maybeSingle(),
       ]);
