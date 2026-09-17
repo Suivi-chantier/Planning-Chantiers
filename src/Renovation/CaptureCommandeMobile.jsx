@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase, photoTransform } from "../supabase";
+import { supabase, photoTransform, invoquerFonction } from "../supabase";
 import { useDraft, useDirtyGuard } from "../hooks";
 import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId, matchFournisseur } from "../constants";
@@ -9,9 +9,6 @@ import {
   ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
   Building2, Package, ExternalLink, Pencil,
 } from "lucide-react";
-
-const EDGE_ANALYSE_COMMANDE =
-  "https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-commande";
 
 const LS_DERNIER_CHANTIER = "capture_cmd_dernier_chantier";
 
@@ -83,13 +80,10 @@ function fileToBase64(file) {
 // Appel IA — `images` = [{ base64, mediaType }] (BL pouvant tenir sur
 // plusieurs pages/photos). Renvoie l'objet JSON extrait (ou jette une erreur).
 async function analyseCommande(images) {
-  const response = await fetch(EDGE_ANALYSE_COMMANDE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ images }),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
+  // Appel AVEC la session : functions.invoke joint le jeton de l'utilisateur,
+  // sans URL ni en-tête d'autorisation écrits à la main. Sans session,
+  // invoquerFonction lève avant tout appel réseau.
+  const data = await invoquerFonction("analyse-commande", { images });
   const anthropic = data.content ? data : (data.data || data);
   // L'API peut renvoyer un objet d'erreur (ex. PDF illisible) sans "content" :
   // on remonte son message plutôt que de laisser JSON.parse("") échouer.

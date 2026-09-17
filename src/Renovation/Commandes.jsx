@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "../supabase";
+import { supabase, invoquerFonction } from "../supabase";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
@@ -293,15 +293,11 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
         images = [{ base64: await fileToB64(file), mediaType: file.type }];
       }
 
-      const response = await fetch("https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-commande", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ images }),
-      });
-
-      const data = await response.json();
+      // Appel AVEC la session : functions.invoke joint le jeton de
+      // l'utilisateur, sans URL ni en-tête d'autorisation écrits à la main.
+      // Sans session, invoquerFonction lève avant tout appel réseau.
+      const data = await invoquerFonction("analyse-commande", { images });
       console.log("Réponse complète Edge Function:", JSON.stringify(data).substring(0, 500));
-      if (!response.ok) throw new Error(data.error?.message || "Erreur Edge Function");
 
       // La Edge Function peut renvoyer la réponse Anthropic directement ou encapsulée
       const anthropicData = data.content ? data : (data.data || data);
