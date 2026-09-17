@@ -48,8 +48,17 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
   useEffect(() => {
     supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle()
       .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setChantiers(data.value); });
-    supabase.from("materiaux_bibliotheque").select("*").order("nom")
-      .then(({ data }) => { setBiblio(data || []); setLoadingBiblio(false); });
+    // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
+    // id, nom, reference, categorie, photo_url, unite — jamais les prix ni les
+    // fournisseurs. La table materiaux_bibliotheque n'est plus lisible depuis
+    // le terrain ; ne PAS ajouter de repli vers elle, ce repli rouvrirait la
+    // dépendance que cette bascule supprime. Le tri par nom est fait côté SQL.
+    supabase.rpc("catalogue_materiaux_demande")
+      .then(({ data, error }) => {
+        if (error) console.error("catalogue_materiaux_demande:", error);
+        setBiblio(Array.isArray(data) ? data : []);
+        setLoadingBiblio(false);
+      });
     chargerBesoins();
   }, []);
 

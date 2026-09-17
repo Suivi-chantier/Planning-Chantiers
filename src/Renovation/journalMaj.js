@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "correctif",
+    titre: "Les prix fournisseurs ne sortent plus par la bibliothèque matériaux",
+    pages: [{ id: "biblio-materiaux", label: "Biblio. matériaux" }],
+    quoi: "L'écran de demande de matériel — l'onglet « Commande » sur le téléphone, et le tiroir « besoin de commande » du formulaire de compte rendu — chargeait la bibliothèque matériaux en entier : prix d'achat et fournisseurs compris, y compris pour le formulaire accessible sans connexion. Ces écrans n'affichaient pas ces informations, mais elles transitaient quand même. Elles ne sortent plus. Au passage, un compte ouvrier ne peut plus modifier ni supprimer la bibliothèque matériaux, ce qui était techniquement possible.",
+    comment: "Rien ne change à l'usage : les mêmes matériaux, dans le même ordre, avec la recherche, les catégories, les références et les photos. Ces deux écrans reçoivent désormais un catalogue réduit au strict nécessaire (nom, référence, catégorie, photo, unité). Les pages bureau — Biblio. matériaux, Commandes, Chiffrage, Phasage — gardent l'accès complet, prix et fournisseurs inclus, et restent seules à pouvoir modifier la bibliothèque.",
+  },
+  {
+    date: "2026-09-17",
     type: "nouveaute",
     titre: "La cadence Profero part maintenant avec l'ouvrage envoyé dans ProGBat",
     pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "admin", label: "Réglages" }],

@@ -52,12 +52,15 @@ export default function BesoinCommandeDrawer({
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from("materiaux_bibliotheque")
-        .select("*")
-        .order("nom");
+      // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
+      // id, nom, reference, categorie, photo_url, unite — jamais les prix ni
+      // les fournisseurs. Ce tiroir s'affiche AUSSI dans le formulaire public
+      // /rapport, donc sans authentification : la RPC est exécutable par anon,
+      // la table ne l'est pas. Ne PAS ajouter de repli vers la table.
+      // Le tri par nom est fait côté SQL.
+      const { data, error } = await supabase.rpc("catalogue_materiaux_demande");
       if (error) console.error("Erreur chargement bibliothèque:", error);
-      setBibliotheque(data || []);
+      setBibliotheque(Array.isArray(data) ? data : []);
       setLoading(false);
     })();
   }, []);
