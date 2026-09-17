@@ -159,15 +159,19 @@ serve(async (req) => {
     // sert uniquement à savoir si l'on peut y poser la cadence sans rien
     // écraser. Lue seulement en périmètre restreint (1 appel par ouvrage) ;
     // la synchronisation globale ne traite donc que les créations.
-    const compositions = new Map<string, unknown[]>()
+    // Le RÉSULTAT de la lecture est conservé tel quel, succès comme échec :
+    // une composition illisible ne doit jamais être présentée à l'écran comme
+    // une composition « non vide ».
+    const compositions = new Map<string, Record<string, unknown>>()
     if (ouvrageIds.length) {
       for (const id of ouvrageIds) {
         const r = (inventaire.rapprochements || []).find((x: Record<string, any>) => String(x?.profero?.id) === id)
         const pid = Number(r?.profero?.progbat_id ?? 0)
         if (r?.statut !== "deja_lie" || !Number.isInteger(pid) || pid <= 0) continue
         const rep = await progbatFetch("GET", `/company/structures/${pid}/composition`, token)
-        // Composition illisible : on ne propose rien plutôt que de risquer un écrasement.
-        if (rep.ok && Array.isArray(rep.data)) compositions.set(id, rep.data as unknown[])
+        compositions.set(id, rep.ok
+          ? { ok: true, items: Array.isArray(rep.data) ? rep.data : null, status: rep.status }
+          : { ok: false, status: rep.status, message: rep.message })
       }
     }
     let plan = restreindrePlan(construirePlanSynchronisation({

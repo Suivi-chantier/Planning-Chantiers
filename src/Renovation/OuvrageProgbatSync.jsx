@@ -32,11 +32,9 @@ const LIBELLES_STATUT = {
 function raisonsHorsPlan(plan, etat) {
   const exclu = (plan?.exclus || [])[0];
   if (exclu?.raisons?.length) return exclu.raisons;
-  // Déjà lié et aucune action : sa composition ProGBat n'est pas vide, donc
-  // son temps vient de cette composition — Profero ne la remplace jamais.
-  if (etat?.statut === "deja_lie") {
-    return ["Il est lié à ProGBat et sa composition ProGBat n'est pas vide : son temps vient de cette composition, que Profero ne remplace pas."];
-  }
+  // Déjà lié sans action ET sans exclusion : la cause exacte vient du serveur
+  // (elle est dans les exclusions). Ne jamais l'inventer ici.
+  if (etat?.statut === "deja_lie") return ["Il est lié à ProGBat et il n'y a rien à modifier."];
   if (etat?.blocages?.length) return etat.blocages;
   if (etat?.statut) return [`Statut « ${LIBELLES_STATUT[etat.statut] || etat.statut} » : à traiter depuis Réglages → Maintenance.`];
   return ["Ouvrage introuvable dans l'inventaire : relancer l'analyse depuis Réglages → Maintenance."];
@@ -130,6 +128,7 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
   const famillesDisponibles = apercu?.famillesDisponibles || [];
   const jobsDisponibles = apercu?.jobsDisponibles || [];
   const job = apercu?.plan?.job || null;
+  const exclusion = (apercu?.plan?.exclus || [])[0] || null;
 
   const bouton = (label, onClick, { principal = false, disabled = false, icone = UploadCloud } = {}) => (
     <button onClick={onClick} disabled={disabled} style={{
@@ -252,10 +251,12 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
               {bouton(chargement ? "Envoi…" : (action.type === "create" ? "Confirmer la création" : action.type === "composition" ? "Confirmer la cadence" : "Confirmer la liaison"), envoyer, { principal: true, disabled: chargement })}
             </div>
           </>
-        )) : encart(etat?.statut === "deja_lie" ? "#22c55e" : "#f59e0b", (
+        )) : encart(etat?.statut === "deja_lie" && !exclusion ? "#22c55e" : "#f59e0b", (
           <>
             <div style={{ fontWeight: 800, marginBottom: 3 }}>
-              {etat?.statut === "deja_lie" ? "Rien à faire sur cet ouvrage." : "Envoi impossible pour l'instant."}
+              {exclusion
+                ? (etat?.statut === "deja_lie" ? "Cadence non posée." : "Envoi impossible pour l'instant.")
+                : "Rien à faire sur cet ouvrage."}
             </div>
             {raisonsHorsPlan(apercu?.plan, etat).map((r, i) => (
               <div key={i} style={{ color: T.textSub }}>• {r}</div>

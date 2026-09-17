@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { construirePlanSynchronisation, construirePayloadStructure, trouverFamilleCible, trouverTva, donneesPourHash, restreindrePlan, etatOuvragePourSync, listerFamillesOuvrages, resoudreFamilleParId, listerJobsHoraires, resoudreJobHoraire, construireCompositionCadence, compositionVide } from "../src/Renovation/progbatLibrarySync.mjs";
+import { construirePlanSynchronisation, construirePayloadStructure, trouverFamilleCible, trouverTva, donneesPourHash, restreindrePlan, etatOuvragePourSync, listerFamillesOuvrages, resoudreFamilleParId, listerJobsHoraires, resoudreJobHoraire, construireCompositionCadence, compositionVide, blocageComposition } from "../src/Renovation/progbatLibrarySync.mjs";
 
 const structures = [
   { id: 501, code: "D-001", label: "D-001 : Dépose" },
@@ -138,7 +138,7 @@ assert.ok(sansJob.exclus.some((x) => x.raisons.some((r) => /main-d'œuvre/i.test
 
 // Ouvrage déjà lié : la cadence n'est proposée QUE si la composition est vide.
 const contexte = { inventaire, familles, unites, taxes, tvaDefaut: 10, familleId: 10, jobs, jobId: 70 };
-const avecVide = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", []]]) });
+const avecVide = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", { ok: true, items: [] }]]) });
 const poseCadence = avecVide.actions.find((a) => a.type === "composition");
 assert.ok(poseCadence, "composition vide → la cadence peut être posée");
 assert.equal(poseCadence.ouvrageId, "p5");
@@ -146,12 +146,13 @@ assert.equal(poseCadence.progbatId, 777);
 assert.deepEqual(poseCadence.composition.payload.components, [{ componentId: 70, quantity: 2.5 }]);
 assert.equal(avecVide.compteurs.a_composer, 1);
 
-const avecCompo = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", [{ componentId: 9, quantity: 1 }]]]) });
+const avecCompo = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", { ok: true, items: [{ componentId: 9, quantity: 1 }] }]]) });
 assert.equal(avecCompo.compteurs.a_composer, 0, "une composition existante n'est JAMAIS remplacée");
 assert.equal(avecCompo.actions.some((a) => a.ouvrageId === "p5"), false);
 
 const nonLue = construirePlanSynchronisation({ ...contexte, compositions: new Map() });
 assert.equal(nonLue.compteurs.a_composer, 0, "composition non lue : rien n'est proposé");
+assert.equal(nonLue.exclus.some((x) => x.ouvrageId === "p5"), false, "hors périmètre, l'ouvrage n'est même pas mentionné");
 
 // L'empreinte couvre la cadence : confirmer une création, c'est confirmer son temps.
 const h = donneesPourHash(construirePlanSynchronisation(contexte));
@@ -162,6 +163,20 @@ assert.deepEqual(construirePlanSynchronisation(contexte).garanties, {
   modifie_existants_progbat: false, supprime_progbat: false, cree_elements: false,
   ecrase_composition: false, recalcule_prix_progbat: false,
 });
+
+// Une lecture RATÉE de composition n'est jamais présentée comme « non vide » :
+// c'était le défaut constaté sur l'ouvrage ProGBat #891.
+assert.equal(blocageComposition({ ok: true, items: [] }), null);
+assert.match(blocageComposition(null), /non lue/);
+assert.match(blocageComposition({ ok: false, status: 403, message: "ProGBat a répondu HTTP 403." }), /illisible/);
+assert.match(blocageComposition({ ok: false, status: 403, message: "ProGBat a répondu HTTP 403." }), /403/);
+assert.match(blocageComposition({ ok: true, items: null }), /inattendue/);
+assert.match(blocageComposition({ ok: true, items: [{ componentId: 1 }] }), /n'est pas vide \(1 composant/);
+
+const lectureRatee = construirePlanSynchronisation({ ...contexte, compositions: new Map([["p5", { ok: false, status: 403, message: "ProGBat a répondu HTTP 403." }]]) });
+assert.equal(lectureRatee.compteurs.a_composer, 0);
+assert.ok(lectureRatee.exclus.some((x) => x.ouvrageId === "p5" && x.raisons.some((r) => /illisible/.test(r))),
+  "la vraie cause remonte à l'écran, avec son code HTTP");
 
 // ─── Périmètre restreint (envoi d'un ouvrage depuis sa fiche) ───────────────
 assert.equal(restreindrePlan(plan, []), plan, "sans périmètre, le plan est rendu tel quel");

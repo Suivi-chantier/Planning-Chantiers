@@ -163,6 +163,25 @@ export function compositionVide(composition) {
   return Array.isArray(composition) && composition.length === 0;
 }
 
+/**
+ * Pourquoi un ouvrage déjà lié ne peut pas recevoir sa cadence — ou null s'il
+ * le peut. La lecture de la composition est un fait à part entière : une
+ * lecture RATÉE ne doit jamais être présentée comme « composition non vide ».
+ * @param lecture { ok: true, items: [] } | { ok: false, status, message } | null
+ */
+export function blocageComposition(lecture) {
+  if (lecture == null) return "Composition ProGBat non lue : relancer la vérification depuis la fiche de l'ouvrage";
+  if (lecture.ok !== true) {
+    const detail = [str(lecture.message), lecture.status ? `HTTP ${lecture.status}` : ""].filter(Boolean).join(" · ");
+    return `Composition ProGBat illisible${detail ? ` (${detail})` : ""} : la cadence n'est pas posée tant qu'on ignore ce qu'elle contient`;
+  }
+  if (!Array.isArray(lecture.items)) return "Réponse de composition ProGBat inattendue : cadence non posée par précaution";
+  if (!compositionVide(lecture.items)) {
+    return `La composition ProGBat de cet ouvrage n'est pas vide (${lecture.items.length} composant(s)) : Profero ne la remplace pas, son temps vient de ProGBat`;
+  }
+  return null;
+}
+
 export function construirePayloadStructure(rapprochement, { familleId, unites = [], taxe, familleErreur = null } = {}) {
   const erreurs = [];
   const code = str(rapprochement?.profero?.code);
@@ -223,7 +242,9 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
   // `compositions` : composition ProGBat actuelle des ouvrages DÉJÀ liés, lue
   // par l'appelant (Map id Profero → tableau de composants, ou null si non lue).
   // Elle sert uniquement à savoir si l'on peut poser la cadence sans rien écraser.
-  const compositionDe = (id) => (compositions instanceof Map ? compositions.get(str(id)) : null);
+  // Valeur : { ok: true, items } | { ok: false, status, message } ; absente = non lue.
+  // undefined = composition non lue pour cet ouvrage (ou pas lue du tout).
+  const compositionDe = (id) => (compositions instanceof Map ? compositions.get(str(id)) : undefined);
   const actions = [];
   const exclus = [];
 
@@ -260,18 +281,24 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
     // si sa composition ProGBat est vide. Une composition existante n'est
     // jamais remplacée (le PUT ProGBat écraserait matériaux et main-d'œuvre).
     if (r.statut === "deja_lie") {
-      const actuelle = compositionDe(ouvrageId);
-      if (actuelle == null) continue;                       // composition non lue : rien à proposer
+      const lecture = compositionDe(ouvrageId);
+      // Hors périmètre restreint, la composition n'est pas lue du tout : on ne
+      // dit rien de cet ouvrage plutôt que d'inventer une raison.
+      if (lecture === undefined) continue;
       const progbatId = num(r.profero?.progbat_id ?? r.correspondance?.id);
-      if (!compositionVide(actuelle) || !Number.isInteger(progbatId) || progbatId <= 0) continue;
+      const raisons = [];
+      const blocage = blocageComposition(lecture);
+      if (blocage) raisons.push(blocage);
+      if (!Number.isInteger(progbatId) || progbatId <= 0) raisons.push("Identifiant ProGBat de l'ouvrage illisible");
       const c = construireCompositionCadence({ cadence: r.prix?.heures_main_oeuvre, job });
-      if (c.ok) {
+      if (!c.ok) raisons.push(...c.erreurs);
+      if (raisons.length) {
+        exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons });
+      } else {
         actions.push({
           type: "composition", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court,
           progbatId, composition: c,
         });
-      } else {
-        exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: c.erreurs });
       }
       continue;
     }
