@@ -24,11 +24,27 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "correctif",
+    titre: "Plus aucun écran ne peut effacer en silence une modification du phasage",
+    pages: [{ id: "planning-commandes", label: "Planning commandes" }, { id: "validation", label: "Validation fin de journée" }],
+    quoi: "La protection mise en place sur le Phasage s'étend maintenant à tous les écrans qui touchent au contenu d'un chantier : Planning commandes, Validation fin de journée et le déplacement de groupes depuis le planning. Aucun d'eux ne peut plus réécrire un phasage à partir de données chargées avant une modification faite ailleurs.",
+    comment: "Rien ne change tant que personne ne travaille en même temps. Si le phasage a été modifié entre le moment où l'écran a chargé et celui où vous validez, l'enregistrement est refusé et un bandeau rouge l'explique — « vos données n'ont pas été enregistrées afin de protéger les données récentes » — avec un bouton « Recharger les données récentes ». Vous refaites alors votre action sur la version à jour. Marquer une commande comme passée sur plusieurs chantiers d'un coup est désormais tout ou rien : soit tous les chantiers sont marqués, soit aucun, jamais la moitié.",
+  },
+  {
+    date: "2026-09-17",
+    type: "amelioration",
+    titre: "Les plans s'exportent en vraie planche A4 paysage, à l'échelle",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "L'export PDF d'un plan ne ressemblait à rien d'autre qu'une capture d'écran : flou à l'impression, sans échelle, sans cadre. C'est maintenant une planche A4 paysage propre, dessinée au trait — nette même en zoomant ou en agrandissant — avec l'échelle indiquée et un cartouche. Un plan imprimé est directement exploitable sur le chantier : l'ouvrier peut mesurer dessus à la règle.",
+    comment: "Page Plans → ouvrir un plan → bouton « PDF A4 paysage ». Le dessin est recadré tout seul à l'échelle normalisée la plus fine qui tient sur la feuille (1:50, 1:100…), affichée dans le cartouche avec un réglet gradué en mètres. À droite, une colonne de légende liste les symboles réellement posés sur le plan avec leur nombre — décochable par le bouton « Légende » juste à côté. Le cartouche en pied porte le logo, le nom du plan, le chantier rattaché, la date, la surface totale des zones et le rappel « cotes à vérifier sur site ». Ce qui est masqué à l'écran (calques désactivés) ne s'imprime pas, et la taille de police des cotes réglée dans l'éditeur est respectée. Les exports PNG restent inchangés.",
+  },
+  {
+    date: "2026-09-17",
     type: "nouveaute",
     titre: "Imprimer la préparation d'un chantier pour l'équipe",
     pages: [{ id: "chantiers", label: "Chantiers" }],
-    quoi: "La fiche d'un chantier a maintenant un bouton « Préparation PDF ». Il édite le dossier papier de la préparation : les phases dans leur ordre d'exécution, les ouvrages, les tâches et les matériaux — exactement ce que les équipes voient dans leur espace sur leur téléphone. De quoi partir sur le chantier avec le dossier en main, même sans réseau.",
-    comment: "Fiche Chantiers → ouvrir un chantier → bouton « Préparation PDF » en haut à droite. Le document reprend la mise en page des autres documents Profero. Chaque tâche et chaque matériau a une case à cocher au stylo, chaque phase se termine par quelques lignes de notes, et la dernière page est réservée aux observations générales. Les matériaux d'un ouvrage présent dans plusieurs phases sont réaffichés à chaque fois, avec la mention « ne pas additionner avec les autres phases » : ils ne se commandent qu'une fois. Un matériau retiré de la bibliothèque reste visible et signalé en rouge. Ce document est un support de terrain : il ne contient aucun chiffre financier, ni prix, ni marge, ni facturation. Si le phasage est absent, vide, ambigu ou dans l'ancien modèle, le document le dit clairement au lieu de sortir vide.",
+    quoi: "La fiche d'un chantier a maintenant un bouton « Préparation PDF ». Il édite le dossier papier de la préparation : les phases dans leur ordre d'exécution, les ouvrages, les tâches et les matériaux — exactement ce que les équipes voient dans leur espace sur leur téléphone. De quoi partir sur le chantier avec le dossier en main, même sans réseau.",
+    comment: "Fiche Chantiers → ouvrir un chantier → bouton « Préparation PDF » en haut à droite. Le document reprend la mise en page des autres documents Profero. Chaque tâche et chaque matériau a une case à cocher au stylo, chaque phase se termine par quelques lignes de notes, et la dernière page est réservée aux observations générales. Les matériaux d'un ouvrage présent dans plusieurs phases sont réaffichés à chaque fois, avec la mention « ne pas additionner avec les autres phases » : ils ne se commandent qu'une fois. Un matériau retiré de la bibliothèque reste visible et signalé en rouge. Ce document est un support de terrain : il ne contient aucun chiffre financier, ni prix, ni marge, ni facturation. Si le phasage est absent, vide, ambigu ou dans l'ancien modèle, le document le dit clairement au lieu de sortir vide.",
   },
   {
     date: "2026-09-17",

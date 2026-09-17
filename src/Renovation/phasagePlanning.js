@@ -6,6 +6,9 @@
 // de PhasageV2, incident du 2026-06-03) et ne touche qu'UN champ d'UNE tâche.
 
 import { supabase } from "../supabase";
+// Écriture versionnée : ces helpers réécrivent ouvrages / plan_travaux, ils
+// doivent donc passer par le verrou optimiste comme tout le reste.
+import { sauvegarderPhasage } from "./phasageEcriture.mjs";
 import { statsGroupeChrono } from "../chantierFinance";
 
 // Les heures/capacités par jour dépendent désormais de la parité de la
@@ -179,7 +182,7 @@ export async function shiftGroupePhasage(chantierId, groupeId, { jours = 0, ouvr
   };
 
   const { data, error } = await supabase.from("phasages")
-    .select("id, ouvrages, plan_travaux").eq("chantier_id", chantierId).maybeSingle();
+    .select("id, revision, ouvrages, plan_travaux").eq("chantier_id", chantierId).maybeSingle();
   if (error || !data?.id) return { ok: false, reason: "phasage introuvable" };
 
   const ouvrages = Array.isArray(data.ouvrages) ? data.ouvrages : [];
@@ -209,8 +212,18 @@ export async function shiftGroupePhasage(chantierId, groupeId, { jours = 0, ouvr
     patch.plan_travaux = { ...plan, meta: { ...(plan.meta || {}), chrono_jalons: nextJalons } };
   }
 
-  const { error: e2 } = await supabase.from("phasages").update(patch).eq("id", data.id);
-  if (e2) { console.warn("shiftGroupePhasage:", e2.message); return { ok: false, reason: e2.message }; }
+  // Écriture versionnée : la révision est celle relue trois lignes plus haut.
+  // Si la ligne a bougé depuis (acceptation d'un matériau suggéré, auto-save
+  // d'un phasage ouvert ailleurs), le serveur refuse et rien n'est écrasé.
+  const res = await sauvegarderPhasage({
+    phasageId: data.id,
+    revision: data.revision ?? 0,
+    ouvrages: patch.ouvrages,
+    plan_travaux: patch.plan_travaux ?? null,
+  });
+  if (!res.ok) {
+    return { ok: false, reason: res.code === "conflit" ? "conflit" : "enregistrement impossible" };
+  }
   return { ok: true, taches };
 }
 
@@ -310,7 +323,7 @@ export async function syncDatePrevueTache(chantierId, tacheId, { addDates = [], 
 export async function setDatePrevueTache(chantierId, tacheId, dateISO, options = {}) {
   if (!chantierId || !tacheId) return false;
   const { data, error } = await supabase.from("phasages")
-    .select("id, ouvrages").eq("chantier_id", chantierId).maybeSingle();
+    .select("id, revision, ouvrages").eq("chantier_id", chantierId).maybeSingle();
   if (error || !data?.id) return false;
   let found = false;
   const ouvrages = (data.ouvrages || []).map(o => ({
@@ -323,8 +336,10 @@ export async function setDatePrevueTache(chantierId, tacheId, dateISO, options =
     }),
   }));
   if (!found) return false;
-  const { error: e2 } = await supabase.from("phasages")
-    .update({ ouvrages, updated_at: new Date().toISOString() }).eq("id", data.id);
-  if (e2) { console.warn("setDatePrevueTache:", e2.message); return false; }
+  // Écriture versionnée, même raison que shiftGroupePhasage.
+  const res = await sauvegarderPhasage({
+    phasageId: data.id, revision: data.revision ?? 0, ouvrages,
+  });
+  if (!res.ok) { console.warn("setDatePrevueTache:", res.code); return false; }
   return true;
 }

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
+// Écritures versionnées : marquer « commandé » touche plusieurs phasages en
+// une seule action, d'où le lot transactionnel (tout ou rien).
+import { sauvegarderPhasage, sauvegarderPhasagesLot, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -59,6 +62,11 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 
   const [lots, setLots]           = useState(LOTS_DEFAUT);
   const [materiaux, setMateriaux] = useState([]); // biblio : valorise les materiaux_liens
+  // Écriture refusée parce que le phasage a bougé ailleurs. L'affichage est
+  // conservé tel quel : rien n'est réessayé, rien n'est écrasé.
+  const [conflitEcriture, setConflitEcriture] = useState(false);
+  const [annulationEnCours, setAnnulationEnCours] = useState(false);
+  const [rechargementEnCours, setRechargementEnCours] = useState(false);
   const [phasages, setPhasages]   = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
   const [lignesCmd, setLignesCmd] = useState([]); // commande_lignes existantes (+ en-tête commande)
@@ -140,9 +148,14 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       parPhasage.get(l.phasageId).push(l);
     });
     const dateISO = new Date().toISOString().slice(0, 10);
+    // Une seule action utilisateur peut cocher des matériaux répartis sur
+    // PLUSIEURS chantiers. On prépare tout, puis on écrit en UN lot : soit
+    // tous les phasages sont marqués, soit aucun. Une boucle d'écritures
+    // séparées pourrait réussir à moitié, sans moyen de savoir où on en est.
+    const lot = [];
     for (const [phasageId, ls] of parPhasage) {
-      // Relit la version fraîche du phasage pour ne pas écraser des modifs concurrentes.
-      const { data: frais } = await supabase.from("phasages").select("ouvrages").eq("id", phasageId).single();
+      const { data: frais } = await supabase.from("phasages")
+        .select("revision, ouvrages").eq("id", phasageId).single();
       const base = Array.isArray(frais?.ouvrages) ? frais.ouvrages : null;
       if (!base) continue;
       const ouvrages = base.map(o => {
@@ -155,9 +168,18 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           ),
         };
       });
-      await supabase.from("phasages").update({ ouvrages }).eq("id", phasageId);
+      lot.push({ phasage_id: phasageId, revision_attendue: frais.revision ?? 0, ouvrages });
+    }
+    if (lot.length === 0) return true;
+    const res = await sauvegarderPhasagesLot(lot);
+    if (!res.ok) {
+      // Conflit : l'affichage reste tel quel, rien n'est réessayé tout seul.
+      setConflitEcriture(res.code === "conflit");
+      if (res.code !== "conflit") window.alert(MESSAGE_ERREUR_ECRITURE);
+      return false;
     }
     await loadPhasages();
+    return true;
   };
   const onCommandePassee = async (lignesPassees) => {
     await marquerCommande(lignesPassees);
@@ -166,17 +188,31 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   };
   // Annule le marquage "commandé" d'un matériau : il revient dans "à commander".
   const annulerMarque = async (chantier, ouvrage, materiauId) => {
-    const { data: frais } = await supabase.from("phasages").select("ouvrages").eq("id", chantier.phasageId).single();
-    const base = Array.isArray(frais?.ouvrages) ? frais.ouvrages : null;
-    if (!base) return;
-    const ouvrages = base.map(o => o.id !== ouvrage.id ? o : ({
-      ...o,
-      materiaux_liens: (o.materiaux_liens || []).map(ml =>
-        String(ml.materiau_id) === String(materiauId) ? (({ commande_le, ...rest }) => rest)(ml) : ml
-      ),
-    }));
-    await supabase.from("phasages").update({ ouvrages }).eq("id", chantier.phasageId);
-    await loadPhasages();
+    if (annulationEnCours) return;          // double clic impossible
+    setAnnulationEnCours(true);
+    try {
+      const { data: frais } = await supabase.from("phasages")
+        .select("revision, ouvrages").eq("id", chantier.phasageId).single();
+      const base = Array.isArray(frais?.ouvrages) ? frais.ouvrages : null;
+      if (!base) return;
+      const ouvrages = base.map(o => o.id !== ouvrage.id ? o : ({
+        ...o,
+        materiaux_liens: (o.materiaux_liens || []).map(ml =>
+          String(ml.materiau_id) === String(materiauId) ? (({ commande_le, ...rest }) => rest)(ml) : ml
+        ),
+      }));
+      const res = await sauvegarderPhasage({
+        phasageId: chantier.phasageId, revision: frais.revision ?? 0, ouvrages,
+      });
+      if (!res.ok) {
+        setConflitEcriture(res.code === "conflit");
+        if (res.code !== "conflit") window.alert(MESSAGE_ERREUR_ECRITURE);
+        return;
+      }
+      await loadPhasages();
+    } finally {
+      setAnnulationEnCours(false);
+    }
   };
 
   // Index biblio par id (string-safe)
@@ -412,8 +448,38 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const showOuvrages  = !isMobile || (selChantierId && !selOuvrageId);
   const showDetail    = !isMobile || !!selOuvrageId;
 
+  const rechargerDonneesRecentes = async () => {
+    if (rechargementEnCours) return;
+    setRechargementEnCours(true);
+    try {
+      await loadPhasages();          // l'ancien contenu reste affiché jusqu'au retour
+      setConflitEcriture(false);
+    } finally {
+      setRechargementEnCours(false);
+    }
+  };
+
   return (
     <div className="page-padding pgc-page" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: bg }}>
+      {/* Conflit : le phasage a été modifié ailleurs. Aucun bouton de forçage. */}
+      {conflitEcriture && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          padding: "11px 14px", marginBottom: 14, borderRadius: RADIUS.md,
+          background: "#e15a5a18", border: "1px solid #e15a5a55", color: "#e15a5a",
+          fontSize: FONT.sm.size, fontWeight: 700,
+        }}>
+          Les matériaux de ce chantier ont été modifiés ailleurs. Votre action n'a pas été
+          enregistrée afin de protéger les données récentes.
+          <button onClick={rechargerDonneesRecentes} disabled={rechargementEnCours} style={{
+            marginLeft: "auto", padding: "7px 14px", borderRadius: RADIUS.sm, border: "none",
+            background: rechargementEnCours ? border : acc.accent,
+            color: rechargementEnCours ? textMuted : acc.onAccent,
+            fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
+            cursor: rechargementEnCours ? "default" : "pointer",
+          }}>{rechargementEnCours ? "Rechargement…" : "Recharger les données récentes"}</button>
+        </div>
+      )}
       <style>{`
         .pgc-page .pgc-cols { display: grid; grid-template-columns: 260px 320px 1fr; gap: 14px; align-items: start; }
         .pgc-page .pgc-pane { background: ${surface}; border: 1px solid ${border}; border-radius: ${RADIUS.lg}px; overflow: hidden; display: flex; flex-direction: column; }

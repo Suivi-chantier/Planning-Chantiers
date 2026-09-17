@@ -84,14 +84,14 @@ export const LEGENDE_TITRES = {
   chauff: "LÉGENDE CHAUFFAGE", global: "LÉGENDE GÉNÉRALE",
 };
 
-// ── Cadrage : viewport { x, y, scale } dans un canvas logique W×H (null si
-//    plan vide). Le cadre de référence est celui de l'ÉDITEUR bureau
-//    (Plans.jsx fitView) : segments + symboles — c'est le dessin lui-même.
-//    Les surfaces et cotes n'étendent le cadre que si elles restent PROCHES
-//    du dessin (marge de 35 % de son emprise) : un polygone parasite créé
-//    par erreur à des centaines de mètres (cas réel : zone « 90 028 m² »)
-//    n'écrase plus le cadrage — il sera simplement hors champ. ────────────────
-export function calerVue(d, W, H) {
+// ── Emprise du dessin en mètres (null si plan vide). Le cadre de référence
+//    est celui de l'ÉDITEUR bureau (Plans.jsx fitView) : segments + symboles
+//    — c'est le dessin lui-même. Les surfaces et cotes n'étendent le cadre que
+//    si elles restent PROCHES du dessin (marge de 35 % de son emprise) : un
+//    polygone parasite créé par erreur à des centaines de mètres (cas réel :
+//    zone « 90 028 m² ») n'écrase plus le cadrage — il sera simplement hors
+//    champ. `calerVue` en déduit le viewport qui remplit le canvas. ───────────
+export function cadreDessin(d) {
   const segs = (d?.segments || []).filter(s => !s.deleted);
   const syms = (d?.symbols || []).filter(s => !s.deleted);
   const surfPts = (d?.surfaces || []).filter(s => !s.deleted).flatMap(s => s.points || []);
@@ -116,23 +116,43 @@ export function calerVue(d, W, H) {
     minX = Math.min(...pts.map(p => p.x)); maxX = Math.max(...pts.map(p => p.x));
     minY = Math.min(...pts.map(p => p.y)); maxY = Math.max(...pts.map(p => p.y));
   }
-
   const w = Math.max(maxX - minX, 0.01), h = Math.max(maxY - minY, 0.01);
-  const scale = Math.min(W / (w * 1.15), H / (h * 1.15));
-  if (!isFinite(scale) || scale <= 0) return null;
+  return { minX, maxX, minY, maxY, w, h };
+}
+
+// ── Viewport { x, y, scale } pour une ÉCHELLE IMPOSÉE (px logiques par mètre)
+//    dans un canvas W×H : le dessin est centré, rien n'est ajusté. Sert à
+//    l'export A4 à l'échelle (1:50, 1:100…) où c'est l'échelle qui commande. ──
+export function calerVueEchelle(cadre, W, H, scale) {
+  if (!cadre || !isFinite(scale) || scale <= 0) return null;
   return {
     scale,
-    x: minX - (W / scale - w) / 2,
-    y: minY - (H / scale - h) / 2,
+    x: cadre.minX - (W / scale - cadre.w) / 2,
+    y: cadre.minY - (H / scale - cadre.h) / 2,
   };
+}
+
+export function calerVue(d, W, H) {
+  const cadre = cadreDessin(d);
+  if (!cadre) return null;
+  const scale = Math.min(W / (cadre.w * 1.15), H / (cadre.h * 1.15));
+  if (!isFinite(scale) || scale <= 0) return null;
+  return calerVueEchelle(cadre, W, H, scale);
 }
 
 // ── Dessin de la scène complète (surfaces, segments, cotes, symboles) dans un
 //    contexte déjà mis à l'échelle. W/H : taille LOGIQUE du canvas ; vp :
 //    viewport { x, y, scale }. Le fond n'est PAS peint ici (à la charge de
-//    l'appelant : blanc pour la visionneuse comme pour l'export). ─────────────
-export function dessinerScene(ctx, d, W, H, vp) {
+//    l'appelant : blanc pour la visionneuse comme pour l'export).
+//    opts.calques  : { surfaces, segments, cotes, symbols } — masque une
+//                    famille d'objets (repris de l'éditeur bureau) ;
+//    opts.coteFont : taille du texte des cotes (12 par défaut, réglable dans
+//                    l'éditeur). Le contexte peut être un vrai canvas 2D ou
+//    l'enregistreur SVG de planPdf.js (même sous-ensemble d'API). ─────────────
+export function dessinerScene(ctx, d, W, H, vp, opts = {}) {
   if (!ctx || !d || !vp) return;
+  const CAL = { surfaces: true, segments: true, cotes: true, symbols: true, ...(opts.calques || {}) };
+  const coteFont = opts.coteFont || 12;
   const rot = (parseFloat(d.planRotation) || 0) * Math.PI / 180;
   const cosR = Math.cos(rot), sinR = Math.sin(rot);
   const cx0 = W / 2, cy0 = H / 2;
@@ -144,7 +164,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   };
 
   // Surfaces (polygones + étiquette d'aire)
-  (d.surfaces || []).forEach(surf => {
+  if (CAL.surfaces) (d.surfaces || []).forEach(surf => {
     if (surf.deleted || !Array.isArray(surf.points) || surf.points.length < 3) return;
     const pts = surf.points;
     ctx.save();
@@ -182,7 +202,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   });
 
   // Segments
-  (d.segments || []).forEach(s => {
+  if (CAL.segments) (d.segments || []).forEach(s => {
     if (s.deleted) return;
     const { cx: x1, cy: y1 } = toC(s.x1, s.y1);
     const { cx: x2, cy: y2 } = toC(s.x2, s.y2);
@@ -193,7 +213,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   });
 
   // Cotes (ligne décalée, flèches, rappels, étiquette m/cm)
-  (d.cotes || []).forEach(c => {
+  if (CAL.cotes) (d.cotes || []).forEach(c => {
     if (c.deleted) return;
     const { cx: x1, cy: y1 } = toC(c.x1, c.y1);
     const { cx: x2, cy: y2 } = toC(c.x2, c.y2);
@@ -223,7 +243,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
     ctx.save();
     ctx.translate(mx + ox, my + oy - 8);
     ctx.rotate(Math.abs(angle) > Math.PI / 2 ? angle + Math.PI : angle);
-    const fs = 12;
+    const fs = coteFont;
     ctx.font = `bold ${fs}px sans-serif`;
     ctx.textAlign = "center";
     ctx.fillStyle = "#f5f5f0";
@@ -236,7 +256,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   });
 
   // Symboles
-  (d.symbols || []).forEach(sym => {
+  if (CAL.symbols) (d.symbols || []).forEach(sym => {
     if (sym.deleted) return;
     const { cx, cy } = toC(sym.x, sym.y);
     if (!isFinite(cx) || !isFinite(cy)) return;

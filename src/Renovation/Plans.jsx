@@ -7,6 +7,8 @@ import {
   Layers, AlertTriangle,
 } from "lucide-react";
 import { getBounds, calcSurface, drawLibSym } from "./planDessin";
+import { imprimerPlanA4 } from "./planPdf";
+import { LOGO_RENO_H } from "../constants";
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 
@@ -611,6 +613,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const movingCoteRef = useRef(null);
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0);
   const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true });
+  const [legendePdf, setLegendePdf] = useState(true); // colonne de légende dans le PDF A4
   const [symProps, setSymProps] = useState(null);
   const [groupProps, setGroupProps] = useState(null); // {groupId, angle, cx, cy}
 
@@ -2100,19 +2103,31 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     }
   };
 
-  const exportPDF = (forPrint=false) => {
-    const canvas=canvasRef.current; if(!canvas) return;
-    const doExport = () => {
-      const dataUrl=canvas.toDataURL('image/png');
-      const w=window.open('','_blank');
-      w.document.write(`<!DOCTYPE html><html><head><title>${plan.name}</title>
-    <style>@page{size:A3 landscape;margin:10mm}body{margin:0}img{width:100%;height:auto}</style>
-    </head><body><img src="${dataUrl}"/></body></html>`);
-      w.document.close(); setTimeout(()=>w.print(),500);
-      if (forPrint) { printModeRef.current=false; render(); }
-    };
-    if (forPrint) { printModeRef.current=true; render(); setTimeout(doExport,50); }
-    else doExport();
+  // ── PDF A4 paysage — planche vectorielle à l'échelle (planPdf.js) ──────────
+  // Le dessin n'est plus une capture du canvas : il est rejoué dans un
+  // enregistreur SVG, cadré à une échelle normalisée (1:50, 1:100…), encadré,
+  // légendé et signé par un cartouche — une planche exploitable sur chantier.
+  const exportPDF = () => {
+    const vivants = (arr) => arr.filter(x => !x.deleted).length;
+    if (!vivants(segmentsRef.current) && !vivants(symbolsRef.current)
+        && !vivants(cotesRef.current) && !vivants(surfacesRef.current)) {
+      alert("Ce plan est vide : rien à imprimer.");
+      return;
+    }
+    const chantier = chantiers?.find(c => c.id === plan.chantier_id);
+    imprimerPlanA4({
+      data: {
+        segments: segmentsRef.current, symbols: symbolsRef.current,
+        cotes: cotesRef.current, surfaces: surfacesRef.current,
+        planRotation: planRotRef.current,
+      },
+      nom: plan.name || 'Plan',
+      chantier: chantier?.nom || '',
+      logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+      calques: layersRef.current,
+      coteFont: coteFontRef.current,
+      avecLegende: legendePdf,
+    });
   };
 
   const segCount=segments.filter(s=>!s.deleted).length;
@@ -2344,10 +2359,19 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PNG</button>
         <button onClick={()=>exportPNG(true)} style={{background:'rgba(80,200,120,0.2)',border:'1px solid rgba(80,200,120,0.4)',
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PNG</button>
-        <button onClick={()=>exportPDF()} style={{background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
-          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PDF</button>
-        <button onClick={()=>exportPDF(true)} style={{background:'rgba(245,166,35,0.2)',border:'1px solid rgba(245,166,35,0.4)',
-          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PDF</button>
+        <button onClick={exportPDF}
+          title="Planche A4 paysage vectorielle : dessin à l'échelle normalisée, cadre, légende et cartouche — prête à imprimer pour le chantier"
+          style={{background:'rgba(245,166,35,0.2)',border:'1px solid rgba(245,166,35,0.45)',
+          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:700,
+          cursor:'pointer',whiteSpace:'nowrap'}}>🖨 PDF A4 paysage</button>
+        <button onClick={()=>setLegendePdf(v=>!v)}
+          title="Colonne de légende dans le PDF : liste les symboles réellement posés sur le plan"
+          style={{background:legendePdf?'rgba(245,166,35,0.12)':'rgba(255,255,255,0.06)',
+          border:`1px solid ${legendePdf?'rgba(245,166,35,0.35)':'transparent'}`,
+          borderRadius:8,padding:'6px 9px',color:legendePdf?'#f5a623':'#9aa5c0',fontFamily:'inherit',
+          fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+          {legendePdf?'☑':'☐'} Légende
+        </button>
         <button onClick={handleSave} disabled={saving}
           title="Sauvegarde automatique activée — cliquer pour forcer une sauvegarde immédiate"
           style={{background:saving?'#5b8af5':lastSaved?'rgba(80,200,120,0.18)':'#5b8af5',

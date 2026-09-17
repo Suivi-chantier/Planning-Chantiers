@@ -29,6 +29,10 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
+// Écriture versionnée : Validation réécrit ouvrages / plan_travaux depuis son
+// état React, qui peut être périmé. Le verrou optimiste l'empêche d'écraser
+// une modification arrivée entre-temps.
+import { sauvegarderPhasage, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
 import { Icon, InputNombre } from "../ui";
 import {
   CheckCircle2, AlertTriangle, Clock, User as UserIcon, X,
@@ -210,6 +214,9 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const [rapports, setRapports] = useState([]);
   const [cellsJour, setCellsJour] = useState([]);
   const [phasages, setPhasages] = useState([]);
+  // Écriture refusée : le phasage a bougé ailleurs. On n'écrase rien et on
+  // ne réessaie jamais tout seul — l'utilisateur recharge puis recommence.
+  const [conflitPhasage, setConflitPhasage] = useState(false);
   const [phases, setPhases] = useState(PHASES_DEFAUT);
   const [loading, setLoading] = useState(true);
   const [openedId, setOpenedId] = useState(null);
@@ -279,7 +286,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const chIds = [...new Set((rs || []).map(r => r.chantier_id).filter(Boolean))];
     if (chIds.length > 0) {
       const { data: phs } = await supabase.from("phasages")
-        .select("id,chantier_id,plan_travaux,ouvrages")
+        .select("id,chantier_id,revision,plan_travaux,ouvrages")
         .in("chantier_id", chIds);
       setPhasages(phs || []);
     } else {
@@ -506,13 +513,16 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           quantite: null, unite: "U", prix_ht: null, cout_materiaux: null, taches: [newTache] };
         next = [...next, divers];
       }
-      const { error } = await supabase.from("phasages").update({ ouvrages: next }).eq("id", ph.id);
-      if (error) {
-        console.error("creerTacheDansOuvrage:", error);
-        alert("Erreur lors de la création de la tâche.");
+      const res = await sauvegarderPhasage({
+        phasageId: ph.id, revision: ph.revision ?? 0, ouvrages: next,
+      });
+      if (!res.ok) {
+        if (res.code === "conflit") { setConflitPhasage(true); return null; }
+        console.error("creerTacheDansOuvrage:", res.code);
+        alert(MESSAGE_ERREUR_ECRITURE);
         return null;
       }
-      setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next } : p));
+      setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next, revision: res.revision } : p));
       return { tache_id: newTache.id, ouvrage_id: divers.id, phase_id: null };
     }
 
@@ -527,10 +537,13 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       avancement: 0, date_prevue: null, _cree_depuis_validation: true,
     };
     plan[phase_id] = [...existing, newTache];
-    const { error } = await supabase.from("phasages").update({ plan_travaux: plan }).eq("id", ph.id);
-    if (error) {
-      console.error("creerTacheDansPlan:", error);
-      alert("Erreur lors de la création de la tâche dans le plan.");
+    const resPlan = await sauvegarderPhasage({
+      phasageId: ph.id, revision: ph.revision ?? 0, plan_travaux: plan,
+    });
+    if (!resPlan.ok) {
+      if (resPlan.code === "conflit") { setConflitPhasage(true); return null; }
+      console.error("creerTacheDansPlan:", resPlan.code);
+      alert(MESSAGE_ERREUR_ECRITURE);
       return null;
     }
     setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan } : p));
@@ -740,9 +753,15 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           }
         });
         if (touched) {
-          const { error: upPlanErr } = await supabase.from("phasages").update({ plan_travaux: plan }).eq("id", ph.id);
-          if (upPlanErr) console.error("Update plan_travaux avancement:", upPlanErr);
-          else setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan } : p));
+          const resAv = await sauvegarderPhasage({
+            phasageId: ph.id, revision: ph.revision ?? 0, plan_travaux: plan,
+          });
+          if (!resAv.ok) {
+            if (resAv.code === "conflit") setConflitPhasage(true);
+            else console.error("Update plan_travaux avancement:", resAv.code);
+          } else {
+            setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan, revision: resAv.revision } : p));
+          }
         }
       }
     }
@@ -788,9 +807,15 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           }),
         }));
         if (touchedO) {
-          const { error: upOErr } = await supabase.from("phasages").update({ ouvrages: ouvragesNext }).eq("id", phV2.id);
-          if (upOErr) console.error("Update ouvrages avancement (double écriture):", upOErr);
-          else setPhasages(prev => prev.map(p => p.id === phV2.id ? { ...p, ouvrages: ouvragesNext } : p));
+          const resO = await sauvegarderPhasage({
+            phasageId: phV2.id, revision: phV2.revision ?? 0, ouvrages: ouvragesNext,
+          });
+          if (!resO.ok) {
+            if (resO.code === "conflit") setConflitPhasage(true);
+            else console.error("Update ouvrages avancement (double écriture):", resO.code);
+          } else {
+            setPhasages(prev => prev.map(p => p.id === phV2.id ? { ...p, ouvrages: ouvragesNext, revision: resO.revision } : p));
+          }
         }
       }
     }
@@ -1007,6 +1032,24 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 
   return (
     <div className="page-padding" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
+      {/* Conflit d'écriture sur le phasage. Aucun bouton de forçage : on
+          recharge la version récente, puis on refait la validation. */}
+      {conflitPhasage && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          padding: "11px 14px", marginBottom: 14, borderRadius: RADIUS.md || 8,
+          background: "#e15a5a18", border: "1px solid #e15a5a55", color: "#e15a5a",
+          fontSize: 13, fontWeight: 700,
+        }}>
+          Ce phasage a été modifié ailleurs. La validation n'a pas été enregistrée
+          afin de protéger les données récentes.
+          <button onClick={async () => { await load(); setConflitPhasage(false); }} style={{
+            marginLeft: "auto", padding: "7px 14px", borderRadius: RADIUS.sm || 6, border: "none",
+            background: "#e15a5a", color: "#fff", fontFamily: "inherit",
+            fontSize: 12, fontWeight: 800, cursor: "pointer",
+          }}>Recharger la version récente</button>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22, color: T.text, fontWeight: 700 }}>
           Validation de fin de journée
