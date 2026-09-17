@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "nouveaute",
+    titre: "Imprimer la préparation d'un chantier pour l'équipe",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "La fiche d'un chantier a maintenant un bouton « Préparation PDF ». Il édite le dossier papier de la préparation : les phases dans leur ordre d'exécution, les ouvrages, les tâches et les matériaux — exactement ce que les équipes voient dans leur espace sur leur téléphone. De quoi partir sur le chantier avec le dossier en main, même sans réseau.",
+    comment: "Fiche Chantiers → ouvrir un chantier → bouton « Préparation PDF » en haut à droite. Le document reprend la mise en page des autres documents Profero. Chaque tâche et chaque matériau a une case à cocher au stylo, chaque phase se termine par quelques lignes de notes, et la dernière page est réservée aux observations générales. Les matériaux d'un ouvrage présent dans plusieurs phases sont réaffichés à chaque fois, avec la mention « ne pas additionner avec les autres phases » : ils ne se commandent qu'une fois. Un matériau retiré de la bibliothèque reste visible et signalé en rouge. Ce document est un support de terrain : il ne contient aucun chiffre financier, ni prix, ni marge, ni facturation. Si le phasage est absent, vide, ambigu ou dans l'ancien modèle, le document le dit clairement au lieu de sortir vide.",
+  },
+  {
+    date: "2026-09-17",
     type: "correctif",
     titre: "Le phasage ne peut plus écraser en silence une modification faite ailleurs",
     pages: [{ id: "phasage-v2", label: "Phasage" }],

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
-import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT } from "../constants";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT, LOGO_RENO_H, loadOperations } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers/avancement V2 : src/chantierFinance.js
 // (mêmes formules que Phasage V2). Les branches V1 legacy (plan_travaux sans
@@ -46,6 +46,10 @@ import {
 } from "./diagrammeFinancier";
 import { loadReferenceFinanciere, prendreReference } from "./referenceFinanciere";
 import { exporterDiagrammePDF } from "./diagrammeFinancierPdf";
+// Dossier de préparation (support PAPIER pour l'équipe) : gabarit Profero
+// commun, alimenté par la MÊME RPC que l'espace ouvrier. Aucune donnée
+// financière n'y entre — c'est un document de terrain, pas de pilotage.
+import { buildPreparationDocHTML } from "./preparationChantierDoc";
 // Le rendu recharts du diagramme est chargé à la demande (React.lazy) pour
 // que le chunk "charts" ne pèse pas sur l'ouverture de la page Chantiers.
 const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
@@ -57,7 +61,7 @@ import {
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
   Wallet, Banknote, Receipt, TrendingDown, TrendingUp, Image as ImageIcon,
   Clock, Search, Package, Calendar, Info, StickyNote, Bold, Italic, Underline,
-  Palette, List, ListOrdered, ShieldCheck, Upload, Paperclip, Send,
+  Palette, List, ListOrdered, ShieldCheck, Upload, Paperclip, Send, FileDown,
 } from "lucide-react";
 
 // PHASES dynamiques : chargées depuis Admin → Phases (fallback sur défaut)
@@ -2100,6 +2104,85 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
+  // ─── DOSSIER DE PRÉPARATION (PDF papier pour l'équipe) ──────────────────────
+  // Source UNIQUE : la RPC ouvrier_preparation_chantier, celle de l'espace
+  // ouvrier. La hiérarchie n'est donc PAS reconstruite ici depuis le phasage —
+  // le papier et le téléphone montrent la même chose, par construction.
+  // Rien de financier n'entre dans ce document (cf. preparationChantierDoc.js).
+  const [prepPdfBusy, setPrepPdfBusy] = useState(false);
+  const exporterPreparationPDF = async () => {
+    if (!selectedChantier || prepPdfBusy) return;
+    // La fenêtre s'ouvre SYNCHRONEMENT dans le geste du clic : ouverte après
+    // un await, Safari (et Chrome en mode strict) la bloquerait.
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    const ecranSimple = (titre, texte, couleur) =>
+      `<!doctype html><html lang='fr'><head><meta charset='UTF-8'><title>${escHtml(titre)}</title></head>`
+      + `<body style="font-family:Arial,Helvetica,sans-serif;padding:48px;color:#1a1f2e;">`
+      + `<div style="font-size:18px;font-weight:700;color:${couleur};">${escHtml(titre)}</div>`
+      + `<div style="font-size:14px;color:#5b6a8a;margin-top:8px;line-height:1.6;">${escHtml(texte)}</div>`
+      + `</body></html>`;
+    w.document.write(ecranSimple("Préparation du dossier…", "Chargement de la préparation du chantier.", "#1a1f2e"));
+    w.document.close();
+    setPrepPdfBusy(true);
+    try {
+      // Les opérations ne sont pas chargées par la page : lecture à la demande,
+      // et son échec ne prive pas du document (le nom d'opération est optionnel).
+      const [prep, ops] = await Promise.all([
+        supabase.rpc("ouvrier_preparation_chantier", { p_chantier_id: selectedChantier.id }),
+        loadOperations().catch(() => []),
+      ]);
+      // data null = garde d'appelant de la RPC (profil applicatif absent ou
+      // inactif). On ne génère JAMAIS un document vide en silence.
+      if (prep.error || !prep.data) {
+        const detail = prep.error?.message || "La préparation n'a pas pu être lue (droits ou profil inactif).";
+        console.error("ouvrier_preparation_chantier:", prep.error || "réponse vide");
+        w.document.open();
+        w.document.write(ecranSimple("Préparation indisponible", detail, "#c0392b"));
+        w.document.close();
+        alert("Impossible de générer le dossier de préparation : " + detail);
+        return;
+      }
+      const op = (ops || []).find(o => o.id === selectedChantier.operation_id);
+      const html = buildPreparationDocHTML({
+        payload: prep.data,
+        chantierNom: selectedChantier.nom || "",
+        operationNom: op?.nom || "",
+        adresse: chantierAdresses[selectedChantier.id]?.adresse || "",
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+          + " à " + new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+      });
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.document.title = `Preparation-${(selectedChantier.nom || "chantier").replace(/[^a-zA-Z0-9-_]/g, "_")}`;
+      // Attendre le logo + les polices Google (Barlow) : imprimer avant leur
+      // arrivée donnerait un héros sans logo et une mise en page décalée.
+      await new Promise(res => {
+        const debut = Date.now();
+        const tick = () => {
+          const imgs = Array.from(w.document.images || []);
+          if ((w.document.readyState === "complete" && imgs.every(i => i.complete)) || Date.now() - debut > 8000) res();
+          else setTimeout(tick, 150);
+        };
+        tick();
+      });
+      try { await (w.document.fonts?.ready || Promise.resolve()); } catch { /* polices indisponibles : on imprime avec le repli Arial */ }
+      setTimeout(() => { w.focus(); w.print(); }, 200);
+    } catch (e) {
+      console.error("Export dossier de préparation:", e);
+      try {
+        w.document.open();
+        w.document.write(ecranSimple("Erreur de génération", e?.message || String(e), "#c0392b"));
+        w.document.close();
+      } catch { /* fenêtre déjà fermée par l'utilisateur */ }
+      alert("Erreur lors de la génération du dossier de préparation : " + (e?.message || e));
+    } finally {
+      setPrepPdfBusy(false);
+    }
+  };
+
   // Heures vendues vs réelles par OUVRAGE (suivi des dérives).
   // Source : ouvrage.heures_devis pour les vendues, somme des heures réelles
   // (dérivées du registre, repli legacy) des tâches rattachées à l'ouvrage.
@@ -2793,6 +2876,26 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             )}
           </div>
         </div>
+
+        {/* ── Dossier de préparation (PDF papier pour l'équipe) ──
+            Visible seulement dans la fiche détaillée, donc quand un chantier
+            est sélectionné. Sans rapport avec l'export du diagramme financier,
+            qui reste dans le bloc Référence financière. */}
+        <button onClick={exporterPreparationPDF} disabled={prepPdfBusy}
+          title="Imprimer la préparation du chantier : phases, ouvrages, tâches et matériaux — le même document que l'espace ouvrier, sans aucun chiffre financier"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0,
+            background: prepPdfBusy ? "transparent" : acc.bg10,
+            border: `1px solid ${prepPdfBusy ? border : acc.border}`,
+            borderRadius: RADIUS.md, padding: "7px 14px",
+            color: prepPdfBusy ? textMuted : acc.accent,
+            fontSize: FONT.sm.size, fontWeight: 700,
+            cursor: prepPdfBusy ? "default" : "pointer", fontFamily: "inherit",
+            transition: "opacity .12s",
+          }}>
+          <Icon as={FileDown} size={15}/>
+          {prepPdfBusy ? "Préparation…" : "Préparation PDF"}
+        </button>
       </div>
 
       <div className="pchan-detail-body" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1200, margin: "0 auto" }}>
