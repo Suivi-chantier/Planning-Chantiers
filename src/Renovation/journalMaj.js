@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "correctif",
+    titre: "Un compte désactivé n'a plus accès aux données",
+    pages: [],
+    quoi: "Jusqu'ici, désactiver un compte dans Réglages → Utilisateurs l'empêchait d'utiliser l'application, mais ne lui retirait pas ses droits sur les données. Et un compte de connexion sans fiche utilisateur obtenait par défaut les droits du bureau — donc l'accès aux salaires, aux chiffrages et aux factures. Les deux trous sont fermés.",
+    comment: "Rien ne change pour les comptes actifs : un ouvrier garde son espace, le bureau garde tous ses accès. Désormais, un compte désactivé ou sans fiche utilisateur n'a plus aucun accès, ni en lecture ni en écriture. Conséquence pratique : pour retirer l'accès à quelqu'un, décochez « actif » sur sa fiche — ne supprimez pas sa fiche, et si elle a déjà été supprimée, recréez-la puis désactivez-la. Réactiver un compte lui rend ses accès immédiatement.",
+  },
+  {
+    date: "2026-09-17",
     type: "nouveaute",
     titre: "Créer un ouvrage dans ProGBat directement depuis sa fiche de bibliothèque",
     pages: [{ id: "bibliotheque", label: "Bibliothèque" }],
