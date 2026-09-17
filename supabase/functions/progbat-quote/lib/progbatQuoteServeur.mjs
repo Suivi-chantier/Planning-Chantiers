@@ -49,8 +49,10 @@
 
 import { construirePayloadDevisProGBat, hacherPayload } from "./progbatQuotePayload.mjs";
 
-export const ACTIONS = Object.freeze(["prepare", "create", "status"]);
-export const STATUTS_EXPORT = Object.freeze(["preparing", "creating", "created", "failed", "uncertain"]);
+export const ACTIONS = Object.freeze(["prepare", "create", "status", "verifier_existant"]);
+// « absent » : ProGBat a confirmé par un 404 que le devis n'existe plus (supprimé
+// chez eux). Hors de l'index d'unicité : une nouvelle création redevient possible.
+export const STATUTS_EXPORT = Object.freeze(["preparing", "creating", "created", "failed", "uncertain", "absent"]);
 /** Statuts qui interdisent toute nouvelle création pour le logement. */
 export const STATUTS_BLOQUANTS = Object.freeze(["creating", "created", "uncertain"]);
 /** Une réservation `creating` plus ancienne que ce délai est considérée incertaine (fonction interrompue). */
@@ -239,7 +241,7 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
 
   const action = str(requete.action);
   const logementReference = str(requete.logementReference);
-  if (!ACTIONS.includes(action)) return { http: 400, body: { ok: false, code: "action_invalide", error: "Action inconnue (prepare, create ou status attendu)." } };
+  if (!ACTIONS.includes(action)) return { http: 400, body: { ok: false, code: "action_invalide", error: "Action inconnue (prepare, create, status ou verifier_existant attendu)." } };
   const projectId = str(requete.projectId);
   if (!RE_UUID.test(projectId)) return { http: 400, body: { ok: false, code: "project_id_invalide", error: "projectId manquant ou invalide." } };
 
@@ -260,6 +262,63 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
         motif_blocage: blocage.bloque ? { code: blocage.code, message: blocage.message } : null,
       },
       journal: { action, projectId, statut: exportResume?.statut ?? "aucun" },
+    };
+  }
+
+  // ── verifier_existant ───────────────────────────────────────────────────
+  // Le brouillon a-t-il été supprimé dans ProGBat ? Le verrou anti-doublon
+  // n'est levé que sur un 404 de ProGBat : jamais sur la seule affirmation de
+  // l'utilisateur, et jamais sur une erreur de lecture (réseau, 401, 5xx…).
+  if (action === "verifier_existant") {
+    const projet = await depot.chargerProjet(projectId);
+    if (!projet) return { http: 404, body: { ok: false, code: "projet_introuvable", error: "Projet introuvable." } };
+    const brut = await depot.dernierExport(projectId);
+    const exportResume = resumerExport(brut, maintenant);
+    const quoteId = Number(exportResume?.progbat_quote_id ?? str(projet.progbat_devis_id));
+    if (!Number.isInteger(quoteId) || quoteId <= 0) {
+      return {
+        http: 200,
+        body: { ok: true, action, libere: false, code: "aucun_devis", message: "Aucun brouillon ProGBat n'est enregistré pour ce logement.", aucune_ecriture: true },
+        journal: { action, projectId, resultat: "aucun_devis" },
+      };
+    }
+    if (typeof progbat?.lireDevis !== "function") {
+      return { http: 200, body: { ok: false, action, code: "lecture_indisponible", error: "Lecture des devis ProGBat indisponible.", aucune_ecriture: true } };
+    }
+    const lu = await progbat.lireDevis(quoteId);
+    if (lu?.ok) {
+      return {
+        http: 200,
+        body: { ok: true, action, libere: false, existe: true, progbat_quote_id: quoteId, message: `Le brouillon ${quoteId} existe toujours dans ProGBat : le verrou est maintenu.`, aucune_ecriture: true },
+        journal: { action, projectId, quoteId, resultat: "existe" },
+      };
+    }
+    if (Number(lu?.status) !== 404) {
+      return {
+        http: 200,
+        body: { ok: false, action, code: "verification_impossible", progbat_status: lu?.status ?? 0, error: `Impossible de vérifier le brouillon ${quoteId} dans ProGBat${lu?.message ? ` : ${nettoyerMessage(lu.message)}` : ""}. Rien n'a été modifié.`, aucune_ecriture: true },
+        journal: { action, projectId, quoteId, resultat: "verification_impossible", http_progbat: lu?.status ?? 0 },
+      };
+    }
+    // 404 confirmé : on libère.
+    const horodatage = maintenant.toISOString();
+    if (brut?.id) {
+      const maj = await depot.majExport(brut.id, {
+        statut: "absent", http_status: 404, finished_at: horodatage,
+        error_message: "Devis supprimé dans ProGBat (404 confirmé par lecture)",
+      });
+      if (!maj?.ok) {
+        return { http: 200, body: { ok: false, action, code: "liberation_incomplete", error: "ProGBat confirme la suppression, mais le suivi Profero n'a pas pu être mis à jour. Réessayer.", aucune_ecriture: false } };
+      }
+    }
+    const majProjet = await depot.majProjetDevis(projectId, { progbat_devis_id: null, progbat_sync_at: null });
+    if (!majProjet?.ok) {
+      return { http: 200, body: { ok: false, action, code: "liberation_incomplete", error: "ProGBat confirme la suppression, mais le logement garde la trace du brouillon. Réessayer.", aucune_ecriture: false } };
+    }
+    return {
+      http: 200,
+      body: { ok: true, action, libere: true, progbat_quote_id: quoteId, message: `ProGBat confirme que le brouillon ${quoteId} n'existe plus : une nouvelle création est de nouveau possible.`, aucune_ecriture: false },
+      journal: { action, projectId, quoteId, resultat: "libere" },
     };
   }
 

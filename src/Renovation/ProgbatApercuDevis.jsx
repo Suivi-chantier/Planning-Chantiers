@@ -50,6 +50,8 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   const [confirmation, setConfirmation] = useState(false);
   const [creation, setCreation] = useState(false);    // appel `create` en cours
   const [resultat, setResultat] = useState(null);     // réponse serveur `create`
+  const [verif, setVerif] = useState(null);           // réponse serveur `verifier_existant`
+  const [verifEnCours, setVerifEnCours] = useState(false);
 
   const preparer = async () => {
     setChargement(true); setErreurServeur(null);
@@ -63,6 +65,21 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
     setChargement(false);
   };
   useEffect(() => { if (projetId) preparer(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projetId]);
+
+  // Le brouillon a-t-il été supprimé dans ProGBat ? Le verrou n'est levé que si
+  // ProGBat répond 404 : jamais sur notre seule parole. Une erreur de lecture
+  // ne libère rien.
+  const verifierExistant = async () => {
+    setVerifEnCours(true); setVerif(null);
+    try {
+      const rep = await appelerProgbatQuote({ action: "verifier_existant", projectId: projetId });
+      setVerif(rep);
+      if (rep?.libere) await preparer();
+    } catch (e) {
+      setVerif({ ok: false, error: e?.message || "Erreur inattendue." });
+    }
+    setVerifEnCours(false);
+  };
 
   // Reconstitution locale (même générateur, mêmes taux) : JSON technique + contrôle de parité
   const local = useMemo(
@@ -175,6 +192,22 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
             <div style={{ fontSize: FONT.sm.size }}>Devis brouillon ProGBat créé</div>
             <div style={{ fontWeight: 500, marginTop: 3 }}>Identifiant ProGBat <strong>{devisExistant.progbat_quote_id}</strong>{devisExistant.progbat_quote_code ? <> · code <strong>{devisExistant.progbat_quote_code}</strong></> : null}{devisExistant.cree_le ? ` · le ${fmtDate(devisExistant.cree_le)}` : ""}{exportPrec?.created_by_email ? ` par ${exportPrec.created_by_email}` : ""}. Aucune nouvelle création possible pour ce logement.</div>
             {prep?.chiffrage_modifie_depuis && <div style={{ color: "#f5a623", marginTop: 4 }}>Le devis Profero a été modifié depuis la création du brouillon ProGBat. La mise à jour via l'API fera l'objet d'une phase séparée.</div>}
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={verifierExistant} disabled={verifEnCours} style={{
+                display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: RADIUS.md,
+                border: `1px solid ${T.border}`, background: "transparent", color: T.textSub,
+                fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: verifEnCours ? "wait" : "pointer",
+              }}>
+                <Icon as={RefreshCw} size={12}/>
+                {verifEnCours ? "Vérification…" : "Ce brouillon a été supprimé dans ProGBat ?"}
+              </button>
+              <span style={{ fontWeight: 500, color: T.textMuted }}>Profero demande à ProGBat s'il existe encore, et ne rouvre la création que si ProGBat répond qu'il n'existe plus.</span>
+            </div>
+            {verif && (
+              <div style={{ marginTop: 6, fontWeight: 700, color: verif.ok ? (verif.libere ? "#22c55e" : T.textSub) : "#e15a5a" }}>
+                {verif.message || verif.error}
+              </div>
+            )}
           </>)}
           {!resultat && exportPrec?.statut === "uncertain" && bandeau("#e15a5a", ShieldAlert, <>
             <div style={{ fontSize: FONT.sm.size }}>ÉTAT INCERTAIN — vérification manuelle requise</div>

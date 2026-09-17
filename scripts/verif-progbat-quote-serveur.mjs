@@ -566,4 +566,65 @@ for (const status of [500, 502, 503]) {
   assert.equal(r2.body.code, "etat_incertain"); assert.equal(nbPost(p), 1);
 }
 
-console.log("verif-progbat-quote-serveur : OK (accès, jeton absent, prepare, refus, logement, liaisons elementId vérifiées, hybride interdit, injection ignorée, 201 + GET de vérification, 400/401/403/409/422/429 → failed, 5xx/délai/réseau → incertain, id absent, sauvegarde locale, concurrence, aucune fuite de secret, parité src/lib)");
+// ── verifier_existant : le verrou ne tombe que sur un 404 de ProGBat ────────
+{
+  const verifier = (depot, progbat, appelant = BUREAU) =>
+    traiterRequeteDevis({ action: "verifier_existant", projectId: PID }, { appelant, depot, progbat, maintenant: MAINTENANT });
+  const avecDevis = () => creerDepot({
+    projet: { ...projetValide(), progbat_devis_id: "454", progbat_sync_at: "2026-09-14T12:00:00Z" },
+    exports: [{ id: "exp-1", project_id: PID, statut: "created", progbat_quote_id: 454, progbat_quote_code: "DEV-454", payload_hash: "h", started_at: "2026-09-14T12:00:00Z", finished_at: "2026-09-14T12:00:01Z" }],
+  });
+
+  // Aucun brouillon enregistré : rien à vérifier, rien à écrire.
+  const vide = await verifier(creerDepot(), creerProgbat());
+  assert.equal(vide.body.code, "aucun_devis");
+  assert.equal(vide.body.libere, false);
+  assert.equal(vide.body.aucune_ecriture, true);
+
+  // ProGBat répond 200 : le devis existe, le verrou est MAINTENU.
+  const d1 = avecDevis();
+  const existe = await verifier(d1, creerProgbat({ lecture: { ok: true, status: 200, data: { id: 454 } } }));
+  assert.equal(existe.body.ok, true);
+  assert.equal(existe.body.libere, false);
+  assert.equal(d1.etat.exports[0].statut, "created", "rien n'est modifié quand le devis existe");
+  assert.equal(d1.etat.projet.progbat_devis_id, "454");
+
+  // Lecture impossible (401, 5xx, réseau) : surtout ne rien libérer.
+  for (const panne of [{ ok: false, status: 401, message: "refus" }, { ok: false, status: 500, message: "boum" }, { ok: false, status: 0, message: "réseau" }]) {
+    const d = avecDevis();
+    const r = await verifier(d, creerProgbat({ lecture: panne }));
+    assert.equal(r.body.ok, false);
+    assert.equal(r.body.code, "verification_impossible");
+    assert.equal(d.etat.exports[0].statut, "created", `HTTP ${panne.status} ne doit jamais libérer le verrou`);
+    assert.equal(d.etat.projet.progbat_devis_id, "454");
+  }
+
+  // 404 confirmé : le verrou tombe, une nouvelle création redevient possible.
+  const d2 = avecDevis();
+  const libere = await verifier(d2, creerProgbat({ lecture: { ok: false, status: 404, message: "introuvable" } }));
+  assert.equal(libere.body.ok, true);
+  assert.equal(libere.body.libere, true);
+  assert.equal(libere.body.progbat_quote_id, 454);
+  assert.equal(d2.etat.exports[0].statut, "absent");
+  assert.equal(d2.etat.exports[0].http_status, 404);
+  assert.equal(d2.etat.projet.progbat_devis_id, null);
+  assert.equal(d2.etat.projet.progbat_sync_at, null);
+  // « absent » est hors de l'index d'unicité : la réservation repasse.
+  const reprise = await d2.reserverExport({ project_id: PID, payload_hash: "h2", statut: "creating", started_at: "2026-09-14T15:00:00Z" });
+  assert.equal(reprise.ok, true, "après libération, une nouvelle création est possible");
+
+  // Un état INCERTAIN se règle aussi : ProGBat confirme l'absence.
+  const d3 = creerDepot({
+    projet: { ...projetValide(), progbat_devis_id: null },
+    exports: [{ id: "exp-1", project_id: PID, statut: "uncertain", progbat_quote_id: 999, payload_hash: "h", started_at: "2026-09-14T12:00:00Z" }],
+  });
+  const r3 = await verifier(d3, creerProgbat({ lecture: { ok: false, status: 404 } }));
+  assert.equal(r3.body.libere, true);
+  assert.equal(d3.etat.exports[0].statut, "absent");
+
+  // Accès : un ouvrier ne peut pas lever le verrou.
+  const refus = await verifier(avecDevis(), creerProgbat(), OUVRIER);
+  assert.equal(refus.body.ok, false);
+}
+
+console.log("verif-progbat-quote-serveur : OK (accès, jeton absent, prepare, refus, logement, liaisons elementId vérifiées, hybride interdit, injection ignorée, 201 + GET de vérification, 400/401/403/409/422/429 → failed, 5xx/délai/réseau → incertain, id absent, sauvegarde locale, concurrence, aucune fuite de secret, verrou levé seulement sur 404, parité src/lib)");

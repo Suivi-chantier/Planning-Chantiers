@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "correctif",
+    titre: "Recréer un devis ProGBat après avoir supprimé le brouillon chez eux",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Supprimer un brouillon dans ProGBat laissait Profero bloqué : il continuait d'annoncer « un brouillon existe déjà pour ce logement » et refusait toute nouvelle création. Il est maintenant possible de débloquer la situation, à condition que ProGBat confirme lui-même la suppression.",
+    comment: "Dans l'aperçu du devis ProGBat, sous le bandeau « Devis brouillon ProGBat créé », le bouton « Ce brouillon a été supprimé dans ProGBat ? » interroge ProGBat. Si ProGBat répond que le devis n'existe plus, le verrou est levé et la création redevient possible. S'il existe toujours, rien ne change et Profero le dit. Et si la question ne peut pas être posée (connexion, autorisation, panne), rien n'est libéré non plus : le verrou ne tombe jamais sur une simple affirmation, seulement sur une réponse de ProGBat.",
+  },
+  {
+    date: "2026-09-17",
+    type: "correctif",
     titre: "Les prix fournisseurs ne sortent plus par la bibliothèque matériaux",
     pages: [{ id: "biblio-materiaux", label: "Biblio. matériaux" }],
     quoi: "L'écran de demande de matériel — l'onglet « Commande » sur le téléphone, et le tiroir « besoin de commande » du formulaire de compte rendu — chargeait la bibliothèque matériaux en entier : prix d'achat et fournisseurs compris, y compris pour le formulaire accessible sans connexion. Ces écrans n'affichaient pas ces informations, mais elles transitaient quand même. Elles ne sortent plus. Au passage, un compte ouvrier ne peut plus modifier ni supprimer la bibliothèque matériaux, ce qui était techniquement possible.",
