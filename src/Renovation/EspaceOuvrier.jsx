@@ -4,7 +4,7 @@ import { PROFERO_YELLOW, LOGO_RENO_H, loadEquipes } from "../constants";
 import { normaliserNomRessource } from "./planningResourceModelV1";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, CalendarDays, Building2, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
+  LayoutDashboard, CalendarDays, Layers, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
   Sun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, Zap,
 } from "lucide-react";
 import { MobileHero } from "../mobileUI";
@@ -41,10 +41,13 @@ export const T = {
 const ACCENT = PROFERO_YELLOW;
 
 // Les 5 onglets. Les id correspondent aux pages dédiées "ouvrier-*" (access.js).
+// ⚠ L'id "chantiers" est figé : il porte la permission ouvrier-chantiers de la
+// matrice d'accès. Seul son LIBELLÉ a changé (« Chantiers » → « Opérations »)
+// quand l'onglet est passé à la navigation Opération → Chantier → Détail.
 const TABS = [
-  { id: "dashboard",        label: "Accueil",   icon: LayoutDashboard, titre: "Tableau de bord" },
-  { id: "planning",         label: "Planning",  icon: CalendarDays,    titre: "Mon planning" },
-  { id: "chantiers",        label: "Chantiers", icon: Building2,       titre: "Les chantiers" },
+  { id: "dashboard",        label: "Accueil",    icon: LayoutDashboard, titre: "Tableau de bord" },
+  { id: "planning",         label: "Planning",   icon: CalendarDays,    titre: "Mon planning" },
+  { id: "chantiers",        label: "Opérations", icon: Layers,          titre: "Les opérations" },
   { id: "compte-rendu",     label: "Rapport",   icon: ClipboardList,   titre: "Mon compte rendu" },
   { id: "demande-commande", label: "Commande",  icon: ShoppingCart,    titre: "Mes demandes" },
 ];

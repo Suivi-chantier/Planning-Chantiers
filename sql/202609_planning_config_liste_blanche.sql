@@ -66,9 +66,13 @@ begin;
 --                         équipe et vue du chef d'équipe. Noms d'équipes et
 --                         prénoms de collègues — aucune donnée de paie.
 --
--- Volontairement ABSENTE : 'operations'. Aucun écran ouvrier ne la lit
--- aujourd'hui. À ajouter ici — et seulement ici — le jour où un écran
--- « Mes opérations » existera.
+--   operations          → OuvrierChantiers, niveaux 1 et 2 de l'onglet
+--                         « Opérations » : nom, adresse et couleur d'une
+--                         opération. Un référentiel de libellés, sans
+--                         montant ni marge. AJOUTÉE le 17/09/2026 par
+--                         sql/202609_planning_config_operations_ouvrier.sql ;
+--                         reprise ici pour que les deux fichiers donnent le
+--                         MÊME résultat si l'un ou l'autre est rejoué.
 drop policy if exists "config_ouvrier_sel" on public.planning_config;
 create policy "config_ouvrier_sel" on public.planning_config
   for select to authenticated
@@ -80,7 +84,8 @@ create policy "config_ouvrier_sel" on public.planning_config
       'ouvriers',
       'heures_par_jour',
       'espace_ouvrier_actif',
-      'equipes'
+      'equipes',
+      'operations'
     ])
   );
 
@@ -113,7 +118,7 @@ commit;
 -- =====================================================================
 -- VÉRIFICATION (à passer après application — lecture seule, annulée)
 -- =====================================================================
--- Attendu : ouvrier = 6 clés, anon = 4 clés, bureau = toutes les clés.
+-- Attendu : ouvrier = 7 clés, anon = 4 clés, bureau = toutes les clés.
 --
 -- begin;
 --   set local role authenticated;
