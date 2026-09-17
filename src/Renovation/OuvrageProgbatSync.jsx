@@ -89,6 +89,7 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
 
   const action = (apercu?.plan?.actions || [])[0] || null;
   const etat = (apercu?.etats || [])[0] || null;
+  const famille = apercu?.plan?.famille || null;
 
   const bouton = (label, onClick, { principal = false, disabled = false, icone = UploadCloud } = {}) => (
     <button onClick={onClick} disabled={disabled} style={{
@@ -160,6 +161,20 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
             {raisonsHorsPlan(apercu?.plan, etat).map((r, i) => (
               <div key={i} style={{ color: T.textSub }}>• {r}</div>
             ))}
+            {/* Le blocage vient de ProGBat, pas de l'ouvrage : dire ce qui existe. */}
+            {famille && !famille.ok && (
+              <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${T.sectionDivider}`, color: T.textSub }}>
+                {famille.homonymes?.length > 0
+                  ? <>Trouvé dans ProGBat sous ce nom : {famille.homonymes.map(f => `#${f.id} (${f.structureFamily ? "famille d'ouvrages" : "pas une famille d'ouvrages"})`).join(", ")}.</>
+                  : <>Aucune famille ProGBat ne porte le nom « {famille.libelle} ».</>}
+                {famille.disponibles?.length > 0 && (
+                  <div style={{ marginTop: 3 }}>
+                    Familles d'ouvrages existantes ({famille.disponibles.length}) : {famille.disponibles.slice(0, 15).join(" · ")}
+                    {famille.disponibles.length > 15 ? " …" : ""}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         ))
       )}

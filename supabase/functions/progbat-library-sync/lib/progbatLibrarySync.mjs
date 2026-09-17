@@ -18,19 +18,39 @@ export function cleUnite(v) {
   return str(v).toLowerCase().replace(/\s+/g, "").replace(/²/g, "2");
 }
 
+/**
+ * Famille ProGBat qui accueillera les ouvrages créés. Les trois causes d'échec
+ * sont distinguées, parce qu'elles ne se corrigent pas de la même façon :
+ *   • aucune famille de ce nom              → la créer dans ProGBat ;
+ *   • une famille de ce nom, mais qui n'est pas une famille d'OUVRAGES
+ *     (structureFamily = false)             → cocher « ouvrages » dessus ;
+ *   • plusieurs familles de ce nom          → en supprimer/renommer une.
+ * `disponibles` liste les familles d'ouvrages réellement utilisables, pour que
+ * l'écran puisse montrer ce qui existe au lieu d'un simple « introuvable ».
+ */
 export function trouverFamilleCible(familles = [], libelle = FAMILLE_CIBLE_DEFAUT) {
   const cible = normaliserLibelle(libelle);
-  const candidats = (familles || []).filter((f) =>
-    f?.id != null && f.structureFamily !== false && normaliserLibelle(f.label) === cible
-  );
+  const liste = (familles || []).filter((f) => f?.id != null);
+  const resume = (f) => ({ id: Number(f.id), label: str(f.label), structureFamily: f?.structureFamily !== false });
+  // Homonymes : même nom, quel que soit le type de famille.
+  const homonymes = liste.filter((f) => normaliserLibelle(f.label) === cible);
+  const candidats = homonymes.filter((f) => f.structureFamily !== false);
+  const ok = candidats.length === 1;
+  let erreur = null;
+  if (candidats.length > 1) erreur = `Plusieurs familles d'ouvrages ProGBat portent le nom « ${libelle} »`;
+  else if (!candidats.length && homonymes.length) {
+    erreur = `La famille ProGBat « ${libelle} » existe mais n'est pas une famille d'ouvrages : cocher « ouvrages » dessus dans ProGBat`;
+  } else if (!candidats.length) {
+    erreur = `Famille d'ouvrages ProGBat « ${libelle} » introuvable : la créer dans ProGBat (bibliothèque → familles), au nom exact « ${libelle} »`;
+  }
   return {
-    ok: candidats.length === 1,
-    id: candidats.length === 1 ? Number(candidats[0].id) : null,
+    ok,
+    id: ok ? Number(candidats[0].id) : null,
     libelle,
-    candidats: candidats.map((f) => ({ id: Number(f.id), label: str(f.label) })),
-    erreur: candidats.length === 0
-      ? `Famille d'ouvrages ProGBat « ${libelle} » introuvable`
-      : candidats.length > 1 ? `Plusieurs familles d'ouvrages ProGBat portent le nom « ${libelle} »` : null,
+    candidats: candidats.map(resume),
+    homonymes: homonymes.map(resume),
+    disponibles: liste.filter((f) => f.structureFamily !== false).map((f) => str(f.label)).filter(Boolean).sort((a, b) => a.localeCompare(b, "fr")),
+    erreur,
   };
 }
 
@@ -43,7 +63,7 @@ export function trouverTva(taxes = [], tvaDefaut) {
   }) || null;
 }
 
-export function construirePayloadStructure(rapprochement, { familleId, unites = [], taxe } = {}) {
+export function construirePayloadStructure(rapprochement, { familleId, unites = [], taxe, familleErreur = null } = {}) {
   const erreurs = [];
   const code = str(rapprochement?.profero?.code);
   const libelleCourt = str(rapprochement?.profero?.libelle_court);
@@ -55,7 +75,8 @@ export function construirePayloadStructure(rapprochement, { familleId, unites = 
 
   if (!code) erreurs.push("Code Profero absent");
   if (!libelleCourt) erreurs.push("Libellé absent");
-  if (!Number.isInteger(famille) || famille <= 0) erreurs.push(`Famille ProGBat « ${FAMILLE_CIBLE_DEFAUT} » introuvable ou ambiguë`);
+  // La cause exacte vient de trouverFamilleCible : elle dit quoi corriger dans ProGBat.
+  if (!Number.isInteger(famille) || famille <= 0) erreurs.push(str(familleErreur) || `Famille ProGBat « ${FAMILLE_CIBLE_DEFAUT} » introuvable ou ambiguë`);
   if (!unite?.code) erreurs.push(`Unité « ${str(rapprochement?.profero?.unite)} » inconnue dans ProGBat`);
   if (cout == null || cout < 0) erreurs.push("Coût total HT invalide");
   if (vente == null || vente < 0) erreurs.push("Prix de vente HT invalide");
@@ -105,7 +126,7 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
       continue;
     }
     if (r.statut === "nouveau_a_creer" && r.synchronisable) {
-      const p = construirePayloadStructure(r, { familleId: famille.id, unites, taxe });
+      const p = construirePayloadStructure(r, { familleId: famille.id, unites, taxe, familleErreur: famille.erreur });
       if (p.ok) actions.push({ type: "create", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, payload: p.payload });
       else exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: p.erreurs });
       continue;

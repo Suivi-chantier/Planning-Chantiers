@@ -13,9 +13,35 @@ const base = {
   prix: { cout_total_ht: 100, prix_vente_ht: 150 }, synchronisable: true, blocages: [],
 };
 
-assert.deepEqual(trouverFamilleCible(familles), { ok: true, id: 10, libelle: "Ouvrages V2", candidats: [{ id: 10, label: "Ouvrages V2" }], erreur: null });
-assert.equal(trouverFamilleCible([], "Ouvrages V2").ok, false);
-assert.equal(trouverFamilleCible([{ id: 1, label: "Ouvrages V2" }, { id: 2, label: "ouvrages v2" }]).ok, false);
+const familleOk = trouverFamilleCible(familles);
+assert.equal(familleOk.ok, true);
+assert.equal(familleOk.id, 10);
+assert.equal(familleOk.erreur, null);
+assert.deepEqual(familleOk.candidats, [{ id: 10, label: "Ouvrages V2", structureFamily: true }]);
+
+// Les trois causes d'échec sont distinguées : elles ne se corrigent pas pareil.
+const absente = trouverFamilleCible([{ id: 3, label: "Plâtrerie", structureFamily: true }], "Ouvrages V2");
+assert.equal(absente.ok, false);
+assert.deepEqual(absente.homonymes, []);
+assert.match(absente.erreur, /introuvable/);
+assert.deepEqual(absente.disponibles, ["Plâtrerie"], "les familles d'ouvrages utilisables sont listées");
+
+const mauvaisType = trouverFamilleCible([{ id: 4, label: "Ouvrages V2", structureFamily: false }]);
+assert.equal(mauvaisType.ok, false);
+assert.equal(mauvaisType.homonymes.length, 1, "l'homonyme est rendu même s'il n'est pas une famille d'ouvrages");
+assert.equal(mauvaisType.homonymes[0].structureFamily, false);
+assert.equal(mauvaisType.candidats.length, 0);
+assert.match(mauvaisType.erreur, /n'est pas une famille d'ouvrages/);
+
+const plusieurs = trouverFamilleCible([{ id: 1, label: "Ouvrages V2" }, { id: 2, label: "ouvrages v2" }]);
+assert.equal(plusieurs.ok, false);
+assert.match(plusieurs.erreur, /Plusieurs/);
+
+// La cause exacte remonte jusqu'aux exclusions du plan, pas un message générique.
+assert.deepEqual(
+  construirePayloadStructure(base, { familleId: null, unites, taxe: taxes[0], familleErreur: absente.erreur }).erreurs,
+  [absente.erreur],
+);
 assert.equal(trouverTva(taxes, 10).id, 5);
 assert.equal(trouverTva([{ id: 6, rate: .1 }], 10).id, 6);
 
@@ -47,7 +73,8 @@ assert.equal(donneesPourHash(plan).actions.length, 2);
 const sansFamille = construirePlanSynchronisation({ inventaire, familles: [], unites, taxes, tvaDefaut: 10 });
 assert.equal(sansFamille.compteurs.a_lier, 1, "les liaisons restent possibles sans famille cible");
 assert.equal(sansFamille.compteurs.a_creer, 0, "aucune création sans famille cible unique");
-assert.ok(sansFamille.exclus.some((x) => x.raisons.some((r) => /famille/i.test(r))));
+assert.ok(sansFamille.exclus.some((x) => x.raisons.includes(sansFamille.famille.erreur)), "l'exclusion porte la cause exacte");
+assert.match(sansFamille.famille.erreur, /introuvable/);
 
 const sansTva = construirePlanSynchronisation({ inventaire, familles, unites, taxes, tvaDefaut: null });
 assert.equal(sansTva.compteurs.a_lier, 1);
@@ -89,4 +116,4 @@ assert.deepEqual(etat.blocages, ["Prix absent"]);
 assert.equal(etatOuvragePourSync(inventaire, "p1").progbatId, 501, "code identique : l'id candidat est rendu");
 assert.equal(etatOuvragePourSync(inventaire, "zz"), null);
 
-console.log("verif-progbat-library-sync : OK (liaison, création, dossier V2, unité, TVA, exclusions, garanties, périmètre par ouvrage)");
+console.log("verif-progbat-library-sync : OK (liaison, création, dossier V2, unité, TVA, exclusions, garanties, périmètre par ouvrage, diagnostic de famille)");
