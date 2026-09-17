@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "correctif",
+    titre: "Le phasage ne peut plus écraser en silence une modification faite ailleurs",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Quand le Phasage restait ouvert et qu'une modification arrivait d'ailleurs — typiquement l'acceptation d'un matériau suggéré par une équipe — la sauvegarde automatique pouvait réécrire l'ancien contenu et faire disparaître cette modification sans rien dire. Ce n'est plus possible.",
+    comment: "La base numérote maintenant chaque version du phasage. À l'enregistrement, Profero vérifie que personne n'a modifié le phasage entre-temps. Si c'est le cas, rien n'est écrit et un message s'affiche : « Le phasage a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée afin de protéger les nouvelles données. » La sauvegarde automatique est alors suspendue — un bandeau rouge le rappelle — et le bouton « Recharger la version récente » remet l'écran à jour. Il prévient avant : la dernière modification non enregistrée sera à refaire. Il n'existe volontairement aucun bouton pour forcer l'écrasement.",
+  },
+  {
+    date: "2026-09-17",
     type: "nouveaute",
     titre: "Traiter les suggestions de matériaux des ouvriers",
     pages: [{ id: "suggestions-mat", label: "Suggestions de matériaux" }, { id: "chantiers", label: "Chantiers" }],

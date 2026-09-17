@@ -22,12 +22,20 @@ import {
 // Écran de contrôle de fin de groupe (Point 2 b) — overlay plein écran monté
 // depuis la vue chrono (bouton « Contrôler » du jalon de contrôle).
 import ControleGroupe from "./ControleGroupe";
+// File d'auto-save en verrouillage optimiste : plus aucune écriture de cet
+// éditeur n'est inconditionnelle (voir sql/202609_phasages_revision_verrou_optimiste.sql).
+import {
+  etatInitial as fileInitiale, avecRevision, planifier, demarrer,
+  succes as fileSucces, conflit as fileConflit, echec as fileEchec,
+  apresRechargement, aDesChangementsNonEnregistres,
+} from "./phasageSauvegarde";
 // Éditeur des matériaux d'un ouvrage (modale) — écrit dans
 // ouvrages[].materiaux_liens via updateOuvrage, jamais dans la bibliothèque.
 import MateriauxOuvrage from "./MateriauxOuvrage";
 // État de contrôle d'un groupe (badge signalé, jamais bloquant).
 import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
+import { useDirtyGuard } from "../hooks";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
 import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches, reordonnancementPropose } from "./rang";
@@ -353,7 +361,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // tâches sont dérivés de ce registre (taux figé par ouvrier), avec repli sur
   // l'ancien champ heures_reelles pour les chantiers sans pointage.
   const [pointages, setPointages] = useState([]);
-  const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
+  const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error | conflit
+  // Verrouillage optimiste : la file porte la dernière révision CONFIRMÉE,
+  // ce qui reste à écrire et l'état de conflit. Une ref, pas un state :
+  // elle est lue et écrite dans des callbacks asynchrones.
+  const fileRef = useRef(fileInitiale());
+  const [conflitInfo, setConflitInfo] = useState(null);   // { revision } | null
+  const [bandeauReduit, setBandeauReduit] = useState(false);
+  const [rechargeEnCours, setRechargeEnCours] = useState(false);
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -592,16 +607,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           });
         }
         setPhasage(data || null);
+        // Révision de départ du verrouillage optimiste. Sans elle, aucune
+        // écriture n'est tentée (cf. phasageSauvegarde.demarrer).
+        fileRef.current = avecRevision(fileInitiale(), data?.revision ?? null);
+        setConflitInfo(null);
         setLoadingPhasage(false);
         // Si on a assigné de nouveaux ids, on les persiste pour que le
         // prochain chargement parte sur des ids stables.
         if (mutated && data?.id) {
-          supabase.from("phasages").update({
-            ouvrages: data.ouvrages,
-            updated_at: new Date().toISOString(),
-          }).eq("id", data.id).then(({ error: err }) => {
-            if (err) console.warn("Persist normalized ids:", err.message);
-          });
+          // Passe par la file versionnée comme toute autre écriture de
+          // l'éditeur : aucun chemin de sauvegarde ne reste inconditionnel.
+          enregistrer({ ouvrages: data.ouvrages });
         }
       });
     return () => { cancelled = true; };
@@ -756,6 +772,74 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
 
   // ─── PERSISTANCE ────────────────────────────────────────────────────────
+  // Toutes les écritures de cet éditeur passent par ici : une seule requête à
+  // la fois, chacune accompagnée de la dernière révision confirmée. Si la
+  // ligne a bougé ailleurs — typiquement l'acceptation d'un matériau suggéré —
+  // le serveur refuse, RIEN n'est réécrit, et l'auto-save se met en pause.
+  const pousserSauvegarde = async () => {
+    const depart = demarrer(fileRef.current);
+    fileRef.current = depart.etat;
+    if (!depart.lot) return;
+    const { lot, seq } = depart;
+    const revisionAttendue = depart.etat.revision;
+    setAutoSaveStatus("saving");
+
+    const p = await ensurePhasage();
+    if (!p?.id) {
+      fileRef.current = fileEchec(fileRef.current, seq);
+      setAutoSaveStatus("error");
+      return;
+    }
+    try {
+      const { data, error } = await supabase.rpc("conducteur_sauvegarder_phasage_v2", {
+        p_phasage_id: p.id,
+        p_revision_attendue: revisionAttendue,
+        p_ouvrages: lot.ouvrages ?? null,
+        p_plan_travaux: lot.plan_travaux ?? null,
+      });
+      if (error) {
+        console.warn("sauvegarde phasage:", error.message);
+        fileRef.current = fileEchec(fileRef.current, seq);
+        setAutoSaveStatus("error");
+        return;
+      }
+      if (!data) {            // null = compte non autorisé à écrire
+        console.warn("sauvegarde phasage: refusée pour ce compte");
+        fileRef.current = fileEchec(fileRef.current, seq);
+        setAutoSaveStatus("error");
+        return;
+      }
+      if (data.ok !== true) {
+        if (data.code === "conflit") {
+          fileRef.current = fileConflit(fileRef.current, seq, data.revision);
+          setConflitInfo({ revision: data.revision });
+          setBandeauReduit(false);
+          setAutoSaveStatus("conflit");
+          return;
+        }
+        console.warn("sauvegarde phasage:", data.code);
+        fileRef.current = fileEchec(fileRef.current, seq);
+        setAutoSaveStatus("error");
+        return;
+      }
+      fileRef.current = fileSucces(fileRef.current, seq, data.revision);
+      setAutoSaveStatus(fileRef.current.attente ? "pending" : "saved");
+      if (fileRef.current.attente) pousserSauvegarde();   // ce qui s'est accumulé
+    } catch (e) {
+      console.warn("sauvegarde phasage:", e);
+      fileRef.current = fileEchec(fileRef.current, seq);
+      setAutoSaveStatus("error");
+    }
+  };
+
+  // Point d'entrée unique de l'éditeur : empiler des champs puis pousser.
+  const enregistrer = (champs) => {
+    fileRef.current = planifier(fileRef.current, champs);
+    if (fileRef.current.conflit) return;    // auto-save suspendu
+    setAutoSaveStatus("pending");
+    pousserSauvegarde();
+  };
+
   // Crée la ligne phasages si elle n'existe pas encore pour ce chantier.
   const ensurePhasage = async () => {
     if (phasage?.id) return phasage;
@@ -766,6 +850,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     }).select().single();
     if (error) { console.error("ensurePhasage:", error.message); return null; }
     setPhasage(data);
+    // La ligne vient de naître : sa révision est le point de départ du verrou.
+    fileRef.current = avecRevision(fileRef.current, data?.revision ?? 0);
     return data;
   };
 
@@ -803,12 +889,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         if (full) setPhasage(full);
         return;
       }
-      const { error } = await supabase.from("phasages").update({
-        ouvrages: ouvragesNext,
-        updated_at: new Date().toISOString(),
-      }).eq("id", p.id);
-      setAutoSaveStatus(error ? "error" : "saved");
-      if (error) console.warn("PhasageV2 save:", error.message);
+      enregistrer({ ouvrages: ouvragesNext });
     }, 800);
   };
 
@@ -966,10 +1047,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     const newMeta = { ...(currentPlan.meta || {}), ...patch };
     const newPlan = { ...currentPlan, meta: newMeta };
     setPhasage(prev => ({ ...prev, plan_travaux: newPlan }));
-    const { error } = await supabase.from("phasages").update({
-      plan_travaux: newPlan, updated_at: new Date().toISOString(),
-    }).eq("id", p.id);
-    if (error) console.warn("saveMeta:", error.message);
+    enregistrer({ plan_travaux: newPlan });
   };
 
   // Saisie des champs « Suivi direction » : chaque frappe déclenchait un
@@ -2157,19 +2235,125 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
 
   // ── Statut sauvegarde ──
-  const statusColor = autoSaveStatus === "saved"  ? "#22c55e"
-                    : autoSaveStatus === "saving" ? acc.accent
-                    : autoSaveStatus === "error"  ? "#e15a5a"
+  const statusColor = autoSaveStatus === "saved"   ? "#22c55e"
+                    : autoSaveStatus === "saving"  ? acc.accent
+                    : autoSaveStatus === "error"   ? "#e15a5a"
+                    : autoSaveStatus === "conflit" ? "#e15a5a"
                     : "#f5a623";
-  const statusLbl = autoSaveStatus === "saved"  ? "Sauvegardé"
-                  : autoSaveStatus === "saving" ? "Sauvegarde…"
-                  : autoSaveStatus === "error"  ? "Erreur"
+  const statusLbl = autoSaveStatus === "saved"   ? "Sauvegardé"
+                  : autoSaveStatus === "saving"  ? "Sauvegarde…"
+                  : autoSaveStatus === "error"   ? "Erreur"
+                  : autoSaveStatus === "conflit" ? "Sauvegarde suspendue"
                   : "Modif en cours";
+
+  // Recharge la version récente. Remplace l'état local : la dernière
+  // modification non enregistrée est perdue, et on le dit AVANT.
+  const rechargerVersionRecente = async () => {
+    if (rechargeEnCours) return;
+    const ok = window.confirm(
+      "Votre dernière modification non enregistrée sera perdue et devra être refaite.\n\n"
+      + "Recharger la version récente du phasage ?");
+    if (!ok) return;
+    setRechargeEnCours(true);
+    try {
+      const { data, error } = await supabase.from("phasages")
+        .select("*").eq("chantier_id", chantierId).maybeSingle();
+      if (error || !data) {
+        console.warn("rechargement phasage:", error?.message || "introuvable");
+        window.alert("Le rechargement n'a pas abouti. Vérifiez votre connexion et réessayez.");
+        return;
+      }
+      setPhasage(data);
+      fileRef.current = apresRechargement(fileRef.current, data.revision ?? 0);
+      setConflitInfo(null);
+      setBandeauReduit(false);
+      setAutoSaveStatus("saved");
+    } finally {
+      setRechargeEnCours(false);
+    }
+  };
+
+  // Sortie protégée tant qu'une modification n'est pas enregistrée — en
+  // attente, en vol, ou bloquée par un conflit.
+  const nonEnregistre = autoSaveStatus === "pending"
+    || autoSaveStatus === "saving"
+    || autoSaveStatus === "error"
+    || autoSaveStatus === "conflit";
+  useDirtyGuard("phasage-v2", nonEnregistre);
+  useEffect(() => {
+    if (!nonEnregistre) return undefined;
+    const avantFermeture = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", avantFermeture);
+    return () => window.removeEventListener("beforeunload", avantFermeture);
+  }, [nonEnregistre]);
 
   const noChantier = !chantierId;
 
   return (
     <div className="p2-root" style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, overflow: "hidden" }}>
+      {/* ── Conflit : le phasage a changé ailleurs ──────────────────────────
+          Bandeau bloquant. Aucune réécriture automatique, aucun « forcer » :
+          la seule issue est de recharger la version récente. */}
+      {conflitInfo && !bandeauReduit && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 950,
+          background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div style={{
+            width: "min(520px, 100%)", background: T.modal || T.surface,
+            border: `1px solid ${T.border}`, borderRadius: RADIUS.xl,
+            boxShadow: "0 24px 60px rgba(0,0,0,0.45)", padding: 20,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Icon as={AlertTriangle} size={19} style={{ color: "#e15a5a" }}/>
+              <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>
+                Sauvegarde suspendue
+              </div>
+            </div>
+            <div style={{ marginTop: 10, fontSize: FONT.sm.size, color: T.text, lineHeight: 1.55 }}>
+              Le phasage a été modifié ailleurs. Votre dernière modification n'a pas été
+              enregistrée afin de protéger les nouvelles données.
+            </div>
+            <div style={{ marginTop: 8, fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.55 }}>
+              Cela peut notamment arriver lorsqu'un matériau suggéré vient d'être accepté.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
+              <button onClick={() => setBandeauReduit(true)} style={{
+                padding: "9px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                background: "transparent", color: T.textSub, fontFamily: "inherit",
+                fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Consulter l'écran</button>
+              <button onClick={rechargerVersionRecente} disabled={rechargeEnCours} style={{
+                padding: "9px 20px", borderRadius: RADIUS.md, border: "none",
+                background: rechargeEnCours ? T.border : acc.accent,
+                color: rechargeEnCours ? T.textMuted : acc.onAccent,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                cursor: rechargeEnCours ? "default" : "pointer",
+              }}>{rechargeEnCours ? "Rechargement…" : "Recharger la version récente"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Indication PERSISTANTE tant que la sauvegarde est suspendue, même
+          quand le bandeau a été réduit pour consulter l'écran. */}
+      {conflitInfo && bandeauReduit && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
+          padding: "8px 14px", background: "#e15a5a18",
+          borderBottom: "1px solid #e15a5a55", color: "#e15a5a",
+          fontSize: FONT.sm.size, fontWeight: 700,
+        }}>
+          <Icon as={AlertTriangle} size={14}/>
+          Sauvegarde suspendue : le phasage a été modifié ailleurs. Vos modifications ne sont plus enregistrées.
+          <button onClick={() => setBandeauReduit(false)} style={{
+            marginLeft: "auto", padding: "5px 12px", borderRadius: RADIUS.sm, border: "none",
+            background: acc.accent, color: acc.onAccent, fontFamily: "inherit",
+            fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer",
+          }}>Recharger</button>
+        </div>
+      )}
       {/* CSS bubbles — couleur de chaque bulle = --bubble-color (var inline). */}
       <style>{`
         /* Mobile : le scroll passe au niveau de la PAGE (sur desktop chaque
