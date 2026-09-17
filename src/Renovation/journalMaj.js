@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "nouveaute",
+    titre: "Modifier les matériaux d'un ouvrage directement dans le phasage",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Les matériaux d'un ouvrage étaient figés à l'import du devis : on les voyait, sans pouvoir les corriger. Il fallait réimporter l'ouvrage depuis la bibliothèque pour changer quoi que ce soit. Ils sont maintenant modifiables ouvrage par ouvrage, et ces changements ne concernent que ce chantier — la bibliothèque centrale n'est jamais touchée.",
+    comment: "Phasage → ouvrir un ouvrage → bloc « Matériaux de l'ouvrage ». On peut changer la quantité nécessaire pour une unité d'ouvrage (la virgule est acceptée), retirer un matériau, ou en ajouter un avec « Ajouter un matériau » : la recherche porte sur le nom, la référence, la catégorie et le fournisseur, et les matériaux déjà rattachés n'y apparaissent pas. La quantité totale du chantier se recalcule aussitôt à l'écran ; elle affiche « — » tant que la quantité de l'ouvrage n'est pas renseignée. Un matériau déjà commandé porte une pastille « Commandé » et demande une confirmation plus explicite avant d'être retiré — le retirer ne supprime pas la commande passée. Un matériau supprimé de la bibliothèque reste affiché comme « Matériau introuvable » avec sa quantité, et peut seulement être retiré. Le coût matériaux de l'ouvrage n'est jamais recalculé tout seul : le bouton « Recalculer » reste le seul à le modifier, et un rappel s'affiche après chaque changement.",
+  },
+  {
+    date: "2026-09-17",
     type: "correctif",
     titre: "Recréer un devis ProGBat après avoir supprimé le brouillon chez eux",
     pages: [{ id: "info-client", label: "Chiffrage" }],

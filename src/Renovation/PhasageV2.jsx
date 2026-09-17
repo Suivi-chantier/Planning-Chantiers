@@ -22,6 +22,9 @@ import {
 // Écran de contrôle de fin de groupe (Point 2 b) — overlay plein écran monté
 // depuis la vue chrono (bouton « Contrôler » du jalon de contrôle).
 import ControleGroupe from "./ControleGroupe";
+// Éditeur des matériaux d'un ouvrage (modale) — écrit dans
+// ouvrages[].materiaux_liens via updateOuvrage, jamais dans la bibliothèque.
+import MateriauxOuvrage from "./MateriauxOuvrage";
 // État de contrôle d'un groupe (badge signalé, jamais bloquant).
 import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
@@ -533,11 +536,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     supabase.from("bibliotheque_ratios").select("*").order("libelle")
       .then(({ data }) => setBibliotheque(data || []));
   }, []);
-  // Charge la bibliothèque matériaux (pour le prix unitaire lors du calcul du
-  // coût matériaux à l'import devis).
+  // Charge la bibliothèque matériaux : prix unitaire pour le calcul du coût
+  // matériaux à l'import devis, et — depuis l'éditeur de matériaux de la
+  // modale d'ouvrage — référence, catégorie et fournisseur, sur lesquels
+  // porte la recherche d'ajout. Lecture directe de la table : c'est un écran
+  // BUREAU, seul profil à y avoir encore accès (materiaux_bibliotheque_bureau).
   useEffect(() => {
     supabase.from("materiaux_bibliotheque")
-      .select("id,nom,unite,prix_unitaire")
+      .select("id,nom,unite,prix_unitaire,reference,categorie,fournisseur")
       .then(({ data }) => setMateriauxBiblio(data || []));
   }, []);
 
@@ -3619,92 +3625,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 placeholder="0" style={modalInp(T)}/>
             </ModalField>
 
-            {/* ── Matériaux liés (depuis la biblio ouvrage) ─────────────── */}
-            {(() => {
-              const liens = (o.materiaux_liens || []).filter(ml => ml && ml.materiau_id != null);
-              if (liens.length === 0) return null;
-              const qOuvrage = parseFloat(o.quantite) || 0;
-              const lignes = liens.map(ml => {
-                const m = materiauxBiblio.find(x => x.id === ml.materiau_id);
-                const qParU = parseFloat(ml.quantite) || 0;
-                const prixU = m ? (parseFloat(m.prix_unitaire) || 0) : 0;
-                const qTot  = qOuvrage * qParU;
-                const cout  = qTot * prixU;
-                return { m, ml, qParU, prixU, qTot, cout };
-              });
-              const totalCout = lignes.reduce((s, l) => s + l.cout, 0);
-              return (
-                <ModalField label={`Matériaux liés (${liens.length})`}>
-                  <div style={{
-                    background: T.card, border: `1px solid ${T.border}`,
-                    borderRadius: RADIUS.md, overflow: "hidden",
-                  }}>
-                    <div style={{
-                      display: "grid", gridTemplateColumns: "1fr 70px 90px 80px",
-                      gap: 8, padding: "6px 10px",
-                      background: T.surface, borderBottom: `1px solid ${T.border}`,
-                      fontSize: 10, fontWeight: 700, color: T.textMuted,
-                      textTransform: "uppercase", letterSpacing: 0.6,
-                    }}>
-                      <div>Matériau</div>
-                      <div style={{ textAlign: "center" }}>Qté/u</div>
-                      <div style={{ textAlign: "center" }}>Qté totale</div>
-                      <div style={{ textAlign: "right" }}>Coût</div>
-                    </div>
-                    {lignes.map((l, i) => (
-                      <div key={i} style={{
-                        display: "grid", gridTemplateColumns: "1fr 70px 90px 80px",
-                        gap: 8, padding: "7px 10px",
-                        borderTop: i === 0 ? "none" : `1px solid ${T.sectionDivider}`,
-                        fontSize: FONT.xs.size + 1, color: T.text, alignItems: "center",
-                      }}>
-                        <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {l.m ? l.m.nom : <span style={{ color: T.textMuted, fontStyle: "italic" }}>Matériau introuvable</span>}
-                        </div>
-                        <div style={{ textAlign: "center", color: T.textSub }}>
-                          {l.qParU || "—"}
-                        </div>
-                        <div style={{ textAlign: "center", color: T.textSub }}>
-                          {l.qTot > 0 ? `${l.qTot.toFixed(2)} ${l.m?.unite || ""}` : "—"}
-                        </div>
-                        <div style={{ textAlign: "right", fontWeight: 700 }}>
-                          {l.cout > 0 ? `${l.cout.toFixed(2)} €` : "—"}
-                        </div>
-                      </div>
-                    ))}
-                    <div style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      padding: "8px 10px", borderTop: `1px solid ${T.border}`,
-                      background: T.surface,
-                    }}>
-                      <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
-                        Total calculé
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text }}>
-                          {totalCout.toFixed(2)} €
-                        </div>
-                        <button
-                          onClick={() => updateOuvrage(o.id, { cout_materiaux: parseFloat(totalCout.toFixed(2)) })}
-                          disabled={!(totalCout > 0)}
-                          title="Recopier ce total dans le champ Coût matériaux"
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            padding: "4px 10px", borderRadius: RADIUS.sm, border: "none",
-                            background: totalCout > 0 ? acc.accent : T.border,
-                            color: acc.onAccent || "#fff",
-                            fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
-                            cursor: totalCout > 0 ? "pointer" : "default",
-                            opacity: totalCout > 0 ? 1 : .5,
-                          }}>
-                          Recalculer
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </ModalField>
-              );
-            })()}
+            {/* ── Matériaux de l'ouvrage (éditables) ────────────────────── */}
+            <ModalField label={`Matériaux de l'ouvrage (${(o.materiaux_liens || []).length})`}>
+              <MateriauxOuvrage
+                ouvrage={o}
+                materiaux={materiauxBiblio}
+                onChangeLiens={liens => updateOuvrage(o.id, { materiaux_liens: liens })}
+                onRecalculerCout={cout => updateOuvrage(o.id, { cout_materiaux: cout })}
+                T={T} accent={acc.accent} onAccent={acc.onAccent}/>
+            </ModalField>
 
             <ModalField label="Lot">
               <select value={o.lot_id || ""}
