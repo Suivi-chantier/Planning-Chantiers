@@ -29,9 +29,14 @@
 // de charger ce module dans Node pour la vérification, sans build.
 import { docClientHTML, sectionTitre } from "./previsionnelDoc.js";
 import {
-  phasesVisibles, compterTaches, etatOuvrage, etatTache,
+  compterTaches, etatOuvrage, etatTache,
   avancementAffichable, formaterQuantite, ecranModele, PHASE_A_ORGANISER,
 } from "./preparationChantier.mjs";
+// Échappement (HTML et chaîne CSS) et ordre réel des phases : partagés avec le
+// dossier d'OPÉRATION (operationDoc.js). Deux implémentations divergentes
+// seraient un bug — une faille pour l'échappement, un contresens métier pour
+// l'ordre des phases.
+import { escDoc, escCssDoc, phasesOrdonnees } from "./preparationDocCommun.mjs";
 
 const OR    = "#FFC200"; // jaune marque Profero
 const ENCRE = "#12151c";
@@ -39,17 +44,10 @@ const GRIS  = "#8a90a0";
 const BLEU  = "#5b8af5";
 const ROUGE = "#c0392b";
 
-const esc = (s) => (s ?? "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-// Chaîne destinée à un `content:` CSS (pied de page). Le backslash et le
-// guillemet double casseraient la chaîne CSS ; `<` et `>` casseraient le
-// <style> qui la contient — un nom de chantier valant « </style><script>… »
-// s'exécuterait. Les deux sont donc réécrits en échappements CSS
-// hexadécimaux, que le moteur réaffiche tels quels.
-const escCss = (s) => (s ?? "").toString()
-  .replace(/\\/g, "\\\\")
-  .replace(/"/g, '\\"')
-  .replace(/</g, "\\3c ")
-  .replace(/>/g, "\\3e ");
+// Alias locaux : l'implémentation vit dans preparationDocCommun.mjs, partagée
+// avec le dossier d'opération.
+const esc = escDoc;
+const escCss = escCssDoc;
 
 const s  = (n) => (n > 1 ? "s" : "");
 const sx = (n) => (n > 1 ? "x" : "");
@@ -73,32 +71,6 @@ const LIGNES_CARTE_COMPACTE = 10;
 // coché à l'impression, même une tâche terminée — l'état est déjà dit par sa
 // pastille, et une case pré-cochée empêcherait le pointage papier.
 const CASE = '<span class="pc-case"></span>';
-
-// ─── PHASES : ORDRE RÉEL D'EXÉCUTION ─────────────────────────────────────────
-// La RPC trie déjà (order by ordre, rang_source) et « À organiser » porte
-// ordre = 999999. On ne RECONSTRUIT rien : on re-trie défensivement le
-// tableau reçu, de façon stable, pour que l'ordre du papier ne dépende pas
-// d'un éventuel changement de tri côté serveur.
-//   1. la phase synthétique « À organiser » toujours en dernier
-//   2. puis `ordre` croissant
-//   3. à égalité, l'ordre d'arrivée du payload
-function phasesOrdonnees(payload) {
-  const estAOrganiser = (p) => p?.synthetique === true || p?.id === PHASE_A_ORGANISER;
-  const rang = (p) => {
-    const n = typeof p?.ordre === "number" ? p.ordre : parseFloat(String(p?.ordre ?? "").replace(",", "."));
-    return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
-  };
-  return phasesVisibles(payload)
-    .map((p, i) => ({ p, i }))
-    .sort((a, b) => {
-      const sa = estAOrganiser(a.p) ? 1 : 0, sb = estAOrganiser(b.p) ? 1 : 0;
-      if (sa !== sb) return sa - sb;
-      const ra = rang(a.p), rb = rang(b.p);
-      if (ra !== rb) return ra - rb;
-      return a.i - b.i;
-    })
-    .map(x => x.p);
-}
 
 // ─── BLOCS ────────────────────────────────────────────────────────────────────
 

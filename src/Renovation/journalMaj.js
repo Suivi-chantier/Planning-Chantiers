@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "amelioration",
+    titre: "Le PDF d'une opération devient un vrai dossier, préparation comprise",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Le bouton PDF de la fiche Opération édite maintenant un dossier complet : la synthèse financière habituelle, puis l'état de préparation de chaque logement. En une lecture, on sait quels logements sont prêts à démarrer et lesquels demandent encore une reprise du phasage.",
+    comment: "Page Opérations → ouvrir une opération → bouton « Dossier PDF ». Après les chiffres, une section « Préparation de l'opération » donne les totaux (logements préparés, phases, ouvrages, tâches, tâches à organiser) et liste nommément les logements à reprendre avant démarrage. Vient ensuite une fiche par logement : adresse, dates de travaux, équipes, état de préparation, et ses phases dans l'ordre réel d'exécution avec leur nombre d'ouvrages et de tâches. Un logement sans phasage exploitable n'est jamais annoncé comme préparé : un encadré dit ce qui manque. Si la préparation d'un logement ne se charge pas, elle est signalée à sa place et les autres s'impriment normalement. Le détail des tâches et des matériaux n'y figure pas — il resterait 60 à 100 pages : il s'imprime logement par logement depuis la fiche du chantier, bouton « Préparation PDF ».",
+  },
+  {
+    date: "2026-09-17",
     type: "correctif",
     titre: "Plus aucun écran ne peut effacer en silence une modification du phasage",
     pages: [{ id: "planning-commandes", label: "Planning commandes" }, { id: "validation", label: "Validation fin de journée" }, { id: "chantiers", label: "Chantiers" }],

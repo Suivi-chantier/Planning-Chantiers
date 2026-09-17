@@ -18,7 +18,7 @@
 // d'opération ne recharge rien.
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { supabase } from "../supabase";
-import { loadOperations, FONT, RADIUS, getBranchAccent, LOGO_RENO_H } from "../constants";
+import { loadOperations, loadGroupesTypes, loadEquipes, FONT, RADIUS, getBranchAccent, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import { computeChantierFinance, eur, fmtH, couleurMarge } from "../chantierFinance";
@@ -26,6 +26,12 @@ import { seriesReellesChantier, consoliderSeries, fusionnerSeriesPourGraphe } fr
 import { loadReferencesFinancieres } from "./referenceFinanciere";
 import { KpiCard } from "./chantierFinanceUI";
 import { buildOperationDocHTML } from "./operationDoc";
+// Préparation des chantiers dans le dossier PDF : mêmes règles que l'espace
+// ouvrier et que le dossier détaillé d'un chantier.
+import { resumePreparation, totauxOperation } from "./preparationDocCommun.mjs";
+// Dates de travaux et groupe type (→ équipe) par logement : la source déjà
+// utilisée par le Chemin de fer, l'autre onglet de cette même page.
+import { loadPhasagesOperation } from "./phasagePlanning";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
@@ -122,6 +128,10 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const [periode, setPeriode] = useState("12");
   const [masques, setMasques] = useState({});
   const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer"
+  // Génération du dossier PDF en cours. Déclaré ICI avec les autres hooks :
+  // la vue liste sort par un `return` anticipé plus bas, un useState placé
+  // après serait un hook conditionnel.
+  const [pdfBusy, setPdfBusy] = useState(false);
   const grapheRef = useRef(null);
 
   // ── Chargement : une passe pour toutes les opérations ──
@@ -355,10 +365,34 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const { op, chantiersOp, agg } = selection;
   const margeColor = agg.vendu > 0 ? couleurMarge(agg.marge, agg.margePct ?? 0) : textMuted;
 
-  // Export PDF « Fiche opération » : gabarit Profero commun (operationDoc.js),
-  // même patron d'impression que le Chemin de fer (window.open synchrone dans
-  // le geste du clic, attente des polices Google avant print).
-  const exportFichePDF = () => {
+  // ─── EXPORT PDF « Dossier d'opération » ─────────────────────────────────────
+  // Gabarit Profero commun (operationDoc.js). Deux parties :
+  //   • la synthèse FINANCIÈRE historique (chiffres clés, prévisionnel vs réel,
+  //     détail par logement) — inchangée, c'est un document interne ;
+  //   • la PRÉPARATION de chaque logement, ajoutée ici : synthèse et phases
+  //     dans l'ordre réel. Le détail (tâches, matériaux) reste dans le dossier
+  //     propre à chaque chantier — sur cinq logements il ferait 60 à 100 pages.
+  //
+  // Source de la préparation : la RPC ouvrier_preparation_chantier, la même que
+  // l'espace ouvrier et que le dossier de chantier. Rien n'est reconstruit.
+  const exportFichePDF = async () => {
+    if (pdfBusy) return;
+    // Fenêtre ouverte SYNCHRONEMENT dans le geste du clic : après un await,
+    // Safari (et Chrome en mode strict) la bloquerait.
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    const ecranSimple = (titre, texte, couleur) => {
+      const e = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      return `<!doctype html><html lang='fr'><head><meta charset='UTF-8'><title>${e(titre)}</title></head>`
+        + `<body style="font-family:Arial,Helvetica,sans-serif;padding:48px;color:#1a1f2e;">`
+        + `<div style="font-size:18px;font-weight:700;color:${couleur};">${e(titre)}</div>`
+        + `<div style="font-size:14px;color:#5b6a8a;margin-top:8px;line-height:1.6;">${e(texte)}</div>`
+        + `</body></html>`;
+    };
+    w.document.write(ecranSimple("Préparation du dossier d'opération…",
+      `Chargement de la préparation de ${chantiersOp.length} logement${chantiersOp.length > 1 ? "s" : ""}.`, "#1a1f2e"));
+    w.document.close();
+    setPdfBusy(true);
     try {
       const lignes = chantiersOp.map((c) => {
         const s = STATUTS[c.statut] || STATUTS.en_cours;
@@ -368,23 +402,112 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
           b: finParChantier[c.id]?.finance.brut || null,
         };
       });
-      const html = buildOperationDocHTML({
-        op, agg, lignes,
-        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
-        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }),
+
+      // Contexte commun (adresses, équipes, dates). Chaque source est
+      // tolérante : son échec retire une ligne d'information du document, il
+      // n'empêche jamais de l'imprimer.
+      const [adrRes, groupesTypes, equipes, planning] = await Promise.all([
+        supabase.from("planning_config").select("value").eq("key", "chantier_adresses").maybeSingle()
+          .then(r => r.data?.value || {}, () => ({})),
+        loadGroupesTypes().catch(() => []),
+        loadEquipes().catch(() => []),
+        loadPhasagesOperation(chantiersOp).catch(() => ({ chantiers: [] })),
+      ]);
+
+      // Préparations : une RPC par logement, en parallèle mais BORNÉ — une
+      // opération de vingt logements ne doit pas ouvrir vingt requêtes d'un
+      // coup. Chaque échec est capturé et devient un encadré dans la fiche du
+      // chantier concerné : les autres s'impriment normalement.
+      const CONCURRENCE = 4;
+      const payloads = new Array(chantiersOp.length);
+      let curseur = 0;
+      const ouvrier = async () => {
+        for (;;) {
+          const i = curseur++;
+          if (i >= chantiersOp.length) return;
+          try {
+            const { data, error } = await supabase.rpc("ouvrier_preparation_chantier", {
+              p_chantier_id: chantiersOp[i].id,
+            });
+            if (error) throw new Error(error.message);
+            // data null = garde d'appelant de la RPC (profil inactif) : ce
+            // n'est pas une préparation vide, c'est un refus. On le dit.
+            if (!data) throw new Error("réponse vide (droits ou profil inactif)");
+            payloads[i] = { data, erreur: "" };
+          } catch (e) {
+            console.error("ouvrier_preparation_chantier", chantiersOp[i]?.id, e);
+            payloads[i] = { data: null, erreur: e?.message || String(e) };
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCE, chantiersOp.length) }, ouvrier));
+
+      const parChantierPlanning = {};
+      (planning?.chantiers || []).forEach((row) => { parChantierPlanning[row?.chantier?.id] = row; });
+      const nomEquipe = (groupeTypeId) => {
+        if (!groupeTypeId) return null;
+        const gt = groupesTypes.find(t => t.id === groupeTypeId);
+        if (!gt?.equipe_id) return null;
+        return equipes.find(e => e.id === gt.equipe_id)?.nom || null;
+      };
+      const jourFR = (iso) => {
+        if (!iso) return "";
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? "" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+      };
+
+      const preparations = chantiersOp.map((c, i) => {
+        const s = STATUTS[c.statut] || STATUTS.en_cours;
+        const row = parChantierPlanning[c.id];
+        // Équipes réellement affectées, dédupliquées, dans l'ordre des groupes.
+        const eqs = [];
+        (row?.groupes || []).forEach((g) => {
+          const n = nomEquipe(g.groupe_type_id);
+          if (n && !eqs.includes(n)) eqs.push(n);
+        });
+        return {
+          chantier: { id: c.id, nom: c.nom, couleur: c.couleur },
+          statutLabel: s.label, statutColor: s.color,
+          adresse: (adrRes?.[c.id]?.adresse || "").trim(),
+          planning: { debut: jourFR(row?.bornes?.debut), fin: jourFR(row?.bornes?.fin) },
+          equipes: eqs,
+          resume: resumePreparation(payloads[i]?.data || null, payloads[i]?.erreur || ""),
+        };
       });
-      const w = window.open("", "_blank", "width=900,height=700");
-      if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
-      w.document.title = `FicheOperation-${op.nom}`;
+      const totaux = totauxOperation(preparations.map(p => p.resume));
+
+      const html = buildOperationDocHTML({
+        op, agg, lignes, preparations, totaux,
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+          + " à " + new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+      });
+      w.document.open();
       w.document.write(html);
       w.document.close();
-      // Attendre les polices (Barlow, Google Fonts) avant d'imprimer.
-      w.onload = () => {
-        const go = () => setTimeout(() => { w.focus(); w.print(); }, 150);
-        (w.document.fonts?.ready || Promise.resolve()).then(go, go);
-      };
+      w.document.title = `DossierOperation-${(op.nom || "operation").replace(/[^a-zA-Z0-9-_]/g, "_")}`;
+      // Attendre le logo + les polices Google (Barlow) avant d'imprimer.
+      await new Promise((res) => {
+        const debut = Date.now();
+        const tick = () => {
+          const imgs = Array.from(w.document.images || []);
+          if ((w.document.readyState === "complete" && imgs.every(i => i.complete)) || Date.now() - debut > 8000) res();
+          else setTimeout(tick, 150);
+        };
+        tick();
+      });
+      try { await (w.document.fonts?.ready || Promise.resolve()); } catch { /* repli Arial */ }
+      setTimeout(() => { w.focus(); w.print(); }, 200);
     } catch (e) {
-      alert("Erreur génération de la fiche opération : " + (e.message || e));
+      console.error("Export dossier d'opération:", e);
+      try {
+        w.document.open();
+        w.document.write(ecranSimple("Erreur de génération", e?.message || String(e), "#c0392b"));
+        w.document.close();
+      } catch { /* fenêtre déjà fermée par l'utilisateur */ }
+      alert("Erreur génération du dossier d'opération : " + (e?.message || e));
+    } finally {
+      setPdfBusy(false);
     }
   };
 
@@ -449,13 +572,22 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         <select value={op.id} onChange={(e) => ouvrirOp(e.target.value)} style={selectStyle} title="Changer d'opération">
           {(operations || []).map((o) => <option key={o.id} value={o.id}>{o.nom}</option>)}
         </select>
+        {/* Bouton PDF unique de la fiche : il édite le dossier complet
+            (finances + préparation de chaque logement). Pas de second bouton —
+            le détail tâches/matériaux s'imprime depuis la fiche chantier. */}
         {chantiersOp.length > 0 && (
-          <button onClick={exportFichePDF} title="Exporter la fiche opération en PDF (document interne, contient les marges)" style={{
-            display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
-            borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10,
-            color: acc.accent, fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer", fontFamily: "inherit",
-          }}>
-            <Icon as={FileDown} size={15}/> PDF
+          <button onClick={exportFichePDF} disabled={pdfBusy}
+            title="Exporter le dossier de l'opération en PDF : synthèse financière et préparation de chaque logement (document interne, contient les marges)"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+              borderRadius: RADIUS.md,
+              border: `1px solid ${pdfBusy ? border : acc.border}`,
+              background: pdfBusy ? "transparent" : acc.bg10,
+              color: pdfBusy ? textMuted : acc.accent,
+              fontWeight: 700, fontSize: FONT.sm.size,
+              cursor: pdfBusy ? "default" : "pointer", fontFamily: "inherit",
+            }}>
+            <Icon as={FileDown} size={15}/> {pdfBusy ? "Préparation…" : "Dossier PDF"}
           </button>
         )}
       </div>
