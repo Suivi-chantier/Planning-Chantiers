@@ -16,7 +16,7 @@
 // écriture. Pas d'abonnement temps réel non plus — les modifications du
 // conducteur apparaissent à l'actualisation, ce que l'en-tête annonce.
 // ─────────────────────────────────────────────────────────────────────────────
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
 import { Icon } from "../ui";
 import { RADIUS } from "../constants";
@@ -32,6 +32,94 @@ import {
 
 const GRIS = "#94a3b8";
 
+// Nombre de matériaux affichés d'emblée. Au-delà, le reste est replié :
+// certains ouvrages en comptent plus de trente, et dérouler la liste entière
+// transforme la phase en tunnel vertical.
+const MATERIAUX_VISIBLES = 5;
+// Lignes de libellé montrées avant repli. Les libellés viennent des devis et
+// font couramment 8 à 15 lignes.
+const LIGNES_LIBELLE = 3;
+
+// Accords simples. Centraliser ici évite de réécrire la même ternaire partout
+// et de laisser passer un « 0/6 terminée ».
+const s  = (n) => (n > 1 ? "s" : "");
+const sx = (n) => (n > 1 ? "x" : "");
+
+// Anneau de focus : sur mobile, le contour noir du navigateur restait affiché
+// après un simple appui. On le supprime au focus ordinaire et on le rend au
+// focus CLAVIER (:focus-visible), dans la couleur passée en --prep-focus —
+// l'accessibilité est préservée, le contour parasite disparaît.
+const STYLE_INJECTE = { current: false };
+function injecterStyles() {
+  if (STYLE_INJECTE.current || typeof document === "undefined") return;
+  STYLE_INJECTE.current = true;
+  const el = document.createElement("style");
+  el.textContent = `
+    .prep-btn { -webkit-tap-highlight-color: transparent; }
+    .prep-btn:focus { outline: none; }
+    .prep-btn:focus-visible {
+      outline: 2px solid var(--prep-focus, #5b8af5);
+      outline-offset: -2px;
+    }
+  `;
+  document.head.appendChild(el);
+}
+
+// Libellé d'ouvrage : limité à LIGNES_LIBELLE lignes, jamais tronqué dans les
+// données. Le bouton « Voir le descriptif complet » n'apparaît que si le texte
+// DÉBORDE RÉELLEMENT — mesuré sur le DOM (scrollHeight vs clientHeight), pas
+// deviné à partir d'un nombre de caractères, qui dépendrait de la largeur de
+// l'écran et de la longueur des mots.
+function LibelleOuvrage({ libelle, ouvert, T }) {
+  const ref = useRef(null);
+  const [deborde, setDeborde] = useState(false);
+  const [deplie, setDeplie]   = useState(false);
+
+  // Refermer l'ouvrage remet son descriptif à l'état réduit : en le rouvrant,
+  // on retrouve toujours la même chose.
+  useEffect(() => { if (!ouvert) setDeplie(false); }, [ouvert]);
+
+  useLayoutEffect(() => {
+    // En mode déplié la mesure n'a plus de sens (le texte n'est plus borné) :
+    // on garde la dernière valeur connue, sinon le bouton disparaîtrait.
+    if (deplie) return undefined;
+    const el = ref.current;
+    if (!el) return undefined;
+    const mesurer = () => setDeborde(el.scrollHeight > el.clientHeight + 1);
+    mesurer();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(mesurer); // rotation, changement de largeur
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [libelle, deplie, ouvert]);
+
+  const clamp = deplie ? {} : {
+    display: "-webkit-box",
+    WebkitLineClamp: LIGNES_LIBELLE,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+  };
+
+  return (
+    <>
+      <div ref={ref} style={{ fontSize: 14, fontWeight: 800, color: T.text, lineHeight: 1.35, ...clamp }}>
+        {libelle}
+      </div>
+      {ouvert && deborde && (
+        <button className="prep-btn"
+          onClick={(e) => { e.stopPropagation(); setDeplie(v => !v); }}
+          style={{
+            marginTop: 4, padding: 0, border: "none", background: "transparent",
+            color: T.textSub, fontFamily: "inherit", fontSize: 12,
+            fontWeight: 700, textDecoration: "underline", cursor: "pointer",
+          }}>
+          {deplie ? "Réduire le descriptif" : "Voir le descriptif complet"}
+        </button>
+      )}
+    </>
+  );
+}
+
 export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC200", onRetour }) {
   const [payload, setPayload]   = useState(null);   // dernier payload affichable
   const [chargement, setChargement] = useState(true); // premier chargement
@@ -40,6 +128,17 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
   const [okMessage, setOkMessage] = useState(false);
   const [phaseOuverte, setPhaseOuverte]     = useState(null);
   const [ouvrageOuvert, setOuvrageOuvert]   = useState(null);
+  // Liste de matériaux dépliée pour l'ouvrage ouvert. Un seul ouvrage étant
+  // ouvert à la fois, un booléen suffit — et refermer remet la liste réduite.
+  const [matsDeplies, setMatsDeplies]       = useState(false);
+
+  injecterStyles();
+
+  // Changer d'ouvrage remet sa liste de matériaux à l'état réduit.
+  const ouvrirOuvrage = (cle) => {
+    setOuvrageOuvert(prev => (prev === cle ? null : cle));
+    setMatsDeplies(false);
+  };
 
   // Un seul chemin de chargement, utilisé au montage ET par « Actualiser ».
   // Pendant une actualisation, l'ancien contenu reste à l'écran : on ne vide
@@ -137,14 +236,9 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
             { label: "Ouvrages", value: String(compteurs.ouvrages_uniques ?? "—"), color: "#5b8af5", icon: Package },
             { label: "Tâches",   value: String(compteurs.taches ?? "—"),           color: "#8b5cf6", icon: ClipboardList },
           ]}/>
-          {/* Le compteur affiché est celui des phases VISIBLES : annoncer des
-              étapes vides ferait chercher du travail qui n'existe pas. On le
-              dit quand le payload en contient davantage. */}
-          {Number.isFinite(compteurs.phases) && compteurs.phases > visibles.length && (
-            <div style={{ ...muted, marginTop: 6 }}>
-              {compteurs.phases - visibles.length} phase{compteurs.phases - visibles.length > 1 ? "s" : ""} sans ouvrage n'{compteurs.phases - visibles.length > 1 ? "ont" : "a"} pas été affichée{compteurs.phases - visibles.length > 1 ? "s" : ""}.
-            </div>
-          )}
+          {/* Le compteur affiché est celui des phases VISIBLES. Les phases
+              sans ouvrage restent masquées et hors comptage, mais on ne le
+              dit plus : sur le terrain, cette phrase n'apportait rien. */}
         </div>
       )}
 
@@ -228,39 +322,53 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
   };
 
   // ── Un ouvrage ────────────────────────────────────────────────────────────
-  const carteOuvrage = (o, phaseId) => {
+  const carteOuvrage = (o, phaseId, couleurPhase) => {
     const cle = `${phaseId}::${o.id}`;
     const ouvert = ouvrageOuvert === cle;
     const e = etatOuvrage(o);
     const nbT = (o.taches || []).length;
     const mats = o.materiaux || [];
+    // Limitation d'AFFICHAGE seulement : l'ordre reçu est conservé, rien n'est
+    // agrégé, réordonné ni retiré des données.
+    const matsAffiches = (ouvert && !matsDeplies && mats.length > MATERIAUX_VISIBLES)
+      ? mats.slice(0, MATERIAUX_VISIBLES) : mats;
+    const restants = mats.length - matsAffiches.length;
     return (
       <div key={cle} style={{
-        border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+        // Ouvert, la carte prend la couleur de la phase plutôt qu'un contour
+        // appuyé : on voit où l'on est sans que le bloc écrase la liste.
+        border: `1px solid ${ouvert ? `${couleurPhase}66` : T.border}`,
+        borderRadius: RADIUS.md,
         background: T.surface, overflow: "hidden",
       }}>
-        <button onClick={() => setOuvrageOuvert(ouvert ? null : cle)} style={{
-          width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 9,
-          padding: "10px 11px", border: "none", background: "transparent",
-          fontFamily: "inherit", cursor: "pointer",
-        }}>
+        <button className="prep-btn" onClick={() => ouvrirOuvrage(cle)}
+          style={{
+            width: "100%", textAlign: "left", display: "flex", alignItems: "flex-start", gap: 9,
+            padding: "10px 11px", border: "none", background: "transparent",
+            fontFamily: "inherit", cursor: "pointer", borderRadius: RADIUS.md,
+            "--prep-focus": couleurPhase,
+          }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>
-              {o.code_ouvrage ? <span style={{ color: T.textMuted, fontWeight: 700 }}>{o.code_ouvrage} · </span> : null}
-              {o.libelle}
-            </div>
-            <div style={{ ...muted, marginTop: 2 }}>
+            {/* Le code reste sur sa propre ligne : il ne doit jamais être
+                emporté par le repli du libellé. */}
+            {o.code_ouvrage && (
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: T.textMuted, letterSpacing: 0.3, marginBottom: 2 }}>
+                {o.code_ouvrage}
+              </div>
+            )}
+            <LibelleOuvrage libelle={o.libelle} ouvert={ouvert} T={T}/>
+            <div style={{ ...muted, marginTop: 3 }}>
               {[
                 o.quantite !== null && o.quantite !== undefined
                   ? `${formaterQuantite(o.quantite) ?? "?"} ${o.unite || ""}`.trim() : null,
-                `${nbT} tâche${nbT > 1 ? "s" : ""} dans cette phase`,
-                mats.length > 0 ? `${mats.length} matériau${mats.length > 1 ? "x" : ""}` : null,
+                `${nbT} tâche${s(nbT)} dans cette phase`,
+                mats.length > 0 ? `${mats.length} matériau${sx(mats.length)}` : null,
               ].filter(Boolean).join(" · ")}
             </div>
           </div>
           <Pill color={e.couleur}>{e.label}</Pill>
           <Icon as={ouvert ? ChevronDown : ChevronRight} size={16}
-            style={{ color: T.textMuted, flexShrink: 0 }}/>
+            style={{ color: T.textMuted, flexShrink: 0, marginTop: 2 }}/>
         </button>
 
         {ouvert && (
@@ -297,7 +405,24 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
               <div style={{ padding: "10px 11px", fontSize: 13, color: T.textMuted, fontStyle: "italic" }}>
                 Aucun matériau prévu pour cet ouvrage
               </div>
-            ) : mats.map(ligneMateriau)}
+            ) : (
+              <>
+                {matsAffiches.map(ligneMateriau)}
+                {(restants > 0 || matsDeplies) && mats.length > MATERIAUX_VISIBLES && (
+                  <button className="prep-btn"
+                    onClick={() => setMatsDeplies(v => !v)}
+                    style={{
+                      width: "100%", padding: "9px 11px",
+                      border: "none", borderTop: `1px solid ${T.border}`,
+                      background: T.card, color: T.textSub, fontFamily: "inherit",
+                      fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                      "--prep-focus": couleurPhase,
+                    }}>
+                    {restants > 0 ? `Voir les ${restants} autres matériaux` : "Réduire la liste"}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -313,11 +438,13 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
     const nbO = (p.ouvrages || []).length;
     return (
       <MobileCard key={p.id} T={T} accent={couleur} style={{ padding: 0, overflow: "hidden" }}>
-        <button onClick={() => { setPhaseOuverte(ouvert ? null : p.id); setOuvrageOuvert(null); }}
+        <button className="prep-btn"
+          onClick={() => { setPhaseOuverte(ouvert ? null : p.id); setOuvrageOuvert(null); setMatsDeplies(false); }}
           style={{
             width: "100%", textAlign: "left", display: "flex", alignItems: "center", gap: 10,
             padding: "12px 13px", border: "none", background: "transparent",
-            fontFamily: "inherit", cursor: "pointer",
+            fontFamily: "inherit", cursor: "pointer", borderRadius: RADIUS.lg,
+            "--prep-focus": couleur,
           }}>
           <div style={{
             width: 30, height: 30, borderRadius: 10, flexShrink: 0,
@@ -335,14 +462,17 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
               {synth
                 ? "Éléments pas encore classés par le conducteur"
                 : [
-                    `${nbO} ouvrage${nbO > 1 ? "s" : ""}`,
-                    total > 0 ? `${total} tâche${total > 1 ? "s" : ""}` : null,
-                    total > 0 ? `${terminees}/${total} terminée${terminees > 1 ? "s" : ""}` : null,
+                    `${nbO} ouvrage${s(nbO)}`,
+                    total > 0 ? `${total} tâche${s(total)}` : null,
+                    // L'accord suit le TOTAL, pas le compte des terminées :
+                    // « 0/6 terminées », « 1/1 terminée ».
+                    total > 0 ? `${terminees}/${total} terminée${s(total)}` : null,
                   ].filter(Boolean).join(" · ")}
             </div>
             {synth && (
               <div style={{ ...muted, marginTop: 2 }}>
-                {nbO} ouvrage{nbO > 1 ? "s" : ""}{total > 0 ? ` · ${terminees}/${total} tâches terminées` : ""}
+                {nbO} ouvrage{s(nbO)}
+                {total > 0 ? ` · ${terminees}/${total} tâche${s(total)} terminée${s(total)}` : ""}
               </div>
             )}
           </div>
@@ -355,7 +485,7 @@ export default function OuvrierPreparationChantier({ chantier, T, accent = "#FFC
             display: "flex", flexDirection: "column", gap: 8,
             padding: "0 11px 12px", background: synth ? `${GRIS}0A` : "transparent",
           }}>
-            {(p.ouvrages || []).map(o => carteOuvrage(o, p.id))}
+            {(p.ouvrages || []).map(o => carteOuvrage(o, p.id, couleur))}
           </div>
         )}
       </MobileCard>
