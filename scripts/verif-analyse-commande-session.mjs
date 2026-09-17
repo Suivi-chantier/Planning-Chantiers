@@ -188,13 +188,17 @@ test("9. le traitement de la réponse est inchangé des deux côtés", () => {
   assert.ok(COMMANDES_CODE.includes('setErreur("")'));
 });
 
-test("10. rien de serveur n'a bougé", () => {
-  // Ce lot ne touche NI la fonction, NI config.toml, NI verify_jwt.
+test("10. le contrat client/serveur tient des deux côtés", () => {
+  // Ce harnais avait été écrit AVANT le durcissement de la fonction : il
+  // vérifiait alors qu'elle n'était pas encore protégée. Maintenant qu'elle
+  // l'est, c'est l'inverse qui doit être vrai — le client envoie la session,
+  // le serveur l'exige.
   const fn = lire("supabase/functions/analyse-commande/index.ts");
-  assert.ok(!fn.includes("auth.getUser"), "la fonction distante n'est pas encore durcie — voulu");
+  assert.match(fn, /auth\.getUser\(\)/, "la fonction valide désormais le jeton");
+  assert.match(fn, /from\("utilisateurs"\)/, "et relit le profil métier");
   const cfg = lire("supabase/config.toml");
   assert.match(cfg, /\[functions\.analyse-commande\]\s*\nverify_jwt = true/,
-    "config.toml reste tel quel : l'alignement est un lot séparé");
+    "la passerelle reste le premier verrou");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
