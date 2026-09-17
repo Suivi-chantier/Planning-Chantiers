@@ -163,6 +163,7 @@ serve(async (req) => {
     // une composition illisible ne doit jamais être présentée à l'écran comme
     // une composition « non vide ».
     const compositions = new Map<string, Record<string, unknown>>()
+    const compositionsLues: Record<string, unknown>[] = []
     if (ouvrageIds.length) {
       for (const id of ouvrageIds) {
         const r = (inventaire.rapprochements || []).find((x: Record<string, any>) => String(x?.profero?.id) === id)
@@ -172,6 +173,21 @@ serve(async (req) => {
         compositions.set(id, rep.ok
           ? { ok: true, items: Array.isArray(rep.data) ? rep.data : null, status: rep.status }
           : { ok: false, status: rep.status, message: rep.message })
+        // Ce qui a été lu est rendu à l'écran : c'est le seul moyen de vérifier
+        // que Profero regarde bien le même ouvrage que ProGBat.
+        const lu = compositions.get(id) as Record<string, any>
+        compositionsLues.push({
+          ouvrageId: id, progbatId: pid, ok: lu.ok === true, progbat_status: lu.status ?? null,
+          error: lu.ok === true ? null : nettoyer(lu.message),
+          nb: Array.isArray(lu.items) ? lu.items.length : null,
+          composants: (Array.isArray(lu.items) ? lu.items : []).slice(0, 10).map((c: Record<string, unknown>) => ({
+            componentId: c?.componentId ?? null,
+            componentType: c?.componentType ?? null,
+            label: nettoyer(c?.label),
+            quantity: num(c?.quantity),
+            unitCode: nettoyer(c?.unitCode),
+          })),
+        })
       }
     }
     let plan = restreindrePlan(construirePlanSynchronisation({
@@ -208,7 +224,7 @@ serve(async (req) => {
 
     if (action === "prepare") {
       console.log(`[progbat-library-sync] appelant=${user.id} action=prepare perimetre=${ouvrageIds.length || "global"} liens=${plan.compteurs.a_lier} creations=${plan.compteurs.a_creer} compositions=${plan.compteurs.a_composer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
-      return json({ ok: true, action, planHash, plan, etats, famillesDisponibles, jobsDisponibles, aucune_suppression: true, aucune_modification_progbat: false, ecrase_composition: false })
+      return json({ ok: true, action, planHash, plan, etats, famillesDisponibles, jobsDisponibles, compositionsLues, aucune_suppression: true, aucune_modification_progbat: false, ecrase_composition: false })
     }
     if (body.confirmed !== true) return json({ ok: false, error: "Confirmation explicite requise.", code: "confirmation_requise" }, 400)
     if (String(body.expectedPlanHash || "") !== planHash) return json({ ok: false, error: "La bibliothèque a changé depuis l’aperçu. Relancer la préparation.", code: "plan_modifie", planHash }, 409)

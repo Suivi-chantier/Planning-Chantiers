@@ -129,6 +129,7 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
   const jobsDisponibles = apercu?.jobsDisponibles || [];
   const job = apercu?.plan?.job || null;
   const exclusion = (apercu?.plan?.exclus || [])[0] || null;
+  const lecture = (apercu?.compositionsLues || [])[0] || null;
 
   const bouton = (label, onClick, { principal = false, disabled = false, icone = UploadCloud } = {}) => (
     <button onClick={onClick} disabled={disabled} style={{
@@ -261,6 +262,18 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
             {raisonsHorsPlan(apercu?.plan, etat).map((r, i) => (
               <div key={i} style={{ color: T.textSub }}>• {r}</div>
             ))}
+            {/* Ce que Profero a réellement lu dans ProGBat, pour comparer avec
+                l'écran ProGBat quand les deux ne disent pas la même chose. */}
+            {lecture && (
+              <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${T.sectionDivider}`, color: T.textSub }}>
+                <div>Lu dans ProGBat sur l'ouvrage #{lecture.progbatId} : {lecture.ok ? `${lecture.nb} composant(s)` : `échec (HTTP ${lecture.progbat_status})`}</div>
+                {(lecture.composants || []).map((c, i) => (
+                  <div key={i} style={{ color: T.textMuted }}>
+                    • #{c.componentId} · type {c.componentType} · {c.label || "sans libellé"} · {c.quantity} {c.unitCode}
+                  </div>
+                ))}
+              </div>
+            )}
             {famillesDisponibles.length === 0 && (
               <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${T.sectionDivider}`, color: T.textSub }}>
                 Aucune famille d'ouvrages n'a été trouvée dans ProGBat : en créer une dans ProGBat (bibliothèque → familles), puis relancer la vérification.
