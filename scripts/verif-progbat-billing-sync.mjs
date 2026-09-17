@@ -111,7 +111,7 @@ function faireBase({ yards = [], exports = [], liaisons = [], factures = [], reg
         insert(ligne) { trace.op = "insert"; trace.ligne = ligne; return q; },
         update(patch) { trace.op = "update"; trace.patch = patch; return q; },
         then(resoudre, rejeter) {
-          journal.push({ op: trace.op, table });
+          journal.push({ op: trace.op, table, colonnes: trace.colonnes });
           let resultat;
           try { resultat = executerRequete(trace); }
           catch (e) { resultat = { data: null, error: { message: String(e?.message || e) } }; }
@@ -123,9 +123,21 @@ function faireBase({ yards = [], exports = [], liaisons = [], factures = [], reg
   };
 
   const executerRequete = (trace) => {
-    const lignes = tables[trace.table] ?? [];
+    // Le crochet passe AVANT la lecture de la table : il peut donc refuser
+    // l'opération, mais aussi faire disparaître la ligne visée juste avant
+    // l'écriture — ce qui est exactement le cas qu'on veut reproduire.
     const panne = pannes ? pannes(trace.op, trace.table, trace.ligne ?? trace.patch) : null;
     if (panne) return { data: null, error: { message: panne } };
+    const lignes = tables[trace.table] ?? [];
+
+    // COMPORTEMENT RÉEL DE PostgREST, et c'est tout l'intérêt de cette
+    // doublure : sans .select(), une écriture ne renvoie AUCUNE donnée ; avec
+    // .select(), elle renvoie la liste — éventuellement VIDE — des lignes
+    // réellement écrites. Un UPDATE qui ne touche rien n'est pas une erreur :
+    // c'est une requête valide et sans effet, `error` reste null.
+    const retour = (touchees) => (trace.colonnes === null
+      ? { data: null, error: null }
+      : { data: touchees.map((l) => projeter(l, trace.colonnes)), error: null });
 
     if (trace.op === "select") {
       return { data: appliquer(lignes, trace.filtres).map((l) => projeter(l, trace.colonnes)), error: null };
@@ -143,13 +155,14 @@ function faireBase({ yards = [], exports = [], liaisons = [], factures = [], reg
         return { data: null, error: { message: "duplicate key value violates unique constraint \"uq_factures_reglements_progbat\"" } };
       }
       lignes.push(ligne);
-      return { data: [ligne], error: null };
+      return retour([ligne]);
     }
     if (trace.op === "update") {
       const cibles = appliquer(lignes, trace.filtres);
-      if (!cibles.length) return { data: null, error: { message: "aucune ligne correspondante" } };
       for (const l of cibles) Object.assign(l, versBase(trace.patch));
-      return { data: cibles, error: null };
+      // Zéro cible → data: [] et error: null. AUCUNE erreur n'est fabriquée :
+      // c'est à l'appelant de voir qu'il n'a rien écrit.
+      return retour(cibles);
     }
     throw new Error(`opération inattendue : ${trace.op}`);
   };
@@ -712,6 +725,137 @@ test("écriture concurrente : l'index unique refuse le doublon, la passe suivant
   assert.equal(stable.r.ok, true);
   assert.equal(stable.r.rapport.ecritures.supabase, 0);
   assert.equal(stable.r.rapport.factures.categories.inchangee, 3);
+});
+
+// ── Écritures sans effet : PostgREST ne les signale PAS comme des erreurs ───
+// Un UPDATE dont le filtre ne trouve rien répond error: null. Ne regarder que
+// `error` ferait compter une mise à jour ou une annulation réussie alors que
+// zéro ligne a été écrite. Les trois cas ci-dessous provoquent exactement cela
+// en faisant disparaître la ligne juste avant son écriture.
+test("écriture sans effet : facture disparue entre la préparation et l'UPDATE", async () => {
+  let hook = null;
+  const base = faireBase({ ...CONTEXTE, pannes: (...a) => (hook ? hook(...a) : null) });
+  await synchroniser(base);
+  assert.equal(base.tables[T_FACTURES].length, 3);
+
+  // 1003 change chez ProGBat → mise à jour prévue. Mais la ligne disparaît
+  // (suppression concurrente) juste avant l'UPDATE.
+  hook = (op, table, patch) => {
+    if (op === "update" && table === T_FACTURES && patch?.progbat_bill_id === 1003) {
+      base.tables[T_FACTURES] = base.tables[T_FACTURES].filter((l) => l.progbat_bill_id !== 1003);
+    }
+    return null;   // PostgREST ne renverra AUCUNE erreur : juste zéro ligne
+  };
+  const bills = FACTURES.map((f) => (f.id === 1003 ? { ...f, toBePaid: 222.22 } : f));
+  const { r } = await synchroniser(base, { bills });
+
+  assert.equal(r.ok, false, "une écriture sans effet ne peut pas donner ok:true");
+  assert.equal(r.rapport.factures.categories.mise_a_jour, 0, "rien n'a été écrit, rien n'est compté");
+  assert.equal(r.rapport.factures.categories.echec, 1);
+  assert.equal(r.rapport.ecritures.supabase, 0, "ecritures.supabase n'est pas incrémenté");
+  assert.equal(r.rapport.erreurs.length, 1);
+  assert.equal(r.rapport.erreurs[0].portee, "facture");
+  assert.equal(r.rapport.erreurs[0].reference, 1003);
+  assert.match(r.rapport.erreurs[0].message, /aucune ligne touchée/i);
+
+  // Reprise : la facture manquante est recréée, et la convergence revient.
+  hook = null;
+  const reprise = await synchroniser(base, { bills });
+  assert.equal(reprise.r.ok, true);
+  assert.equal(reprise.r.rapport.factures.categories.creation, 1, "1003 est recréée");
+  assert.equal(reprise.r.rapport.factures.categories.echec, 0);
+  const stable = await synchroniser(base, { bills });
+  assert.equal(stable.r.rapport.ecritures.supabase, 0);
+});
+
+test("écriture sans effet : règlement disparu avant sa mise à jour", async () => {
+  let hook = null;
+  const base = faireBase({ ...CONTEXTE, pannes: (...a) => (hook ? hook(...a) : null) });
+  await synchroniser(base);
+  // La ligne a été éteinte : la transaction étant active, une mise à jour est
+  // prévue pour la rallumer.
+  base.tables[T_REGLEMENTS].find((l) => l.progbat_transaction_id === 5001).annule = true;
+
+  // Le patch d'une mise à jour porte plusieurs colonnes ; celui d'une
+  // annulation n'en porte qu'une (annule).
+  hook = (op, table, patch) => {
+    if (op === "update" && table === T_REGLEMENTS && Object.keys(patch || {}).length > 1) {
+      base.tables[T_REGLEMENTS] = base.tables[T_REGLEMENTS].filter((l) => l.progbat_transaction_id !== 5001);
+    }
+    return null;
+  };
+  const { r } = await synchroniser(base);
+
+  assert.equal(r.ok, false);
+  assert.equal(r.rapport.reglements.categories.mise_a_jour, 0);
+  assert.equal(r.rapport.reglements.categories.echec, 1);
+  assert.equal(r.rapport.ecritures.supabase, 0);
+  assert.equal(r.rapport.erreurs[0].portee, "reglement");
+  assert.equal(r.rapport.erreurs[0].reference, 5001);
+  assert.match(r.rapport.erreurs[0].message, /aucune ligne touchée/i);
+
+  // Reprise : le règlement manquant est recréé.
+  hook = null;
+  const reprise = await synchroniser(base);
+  assert.equal(reprise.r.ok, true);
+  assert.equal(reprise.r.rapport.reglements.categories.creation, 1);
+});
+
+test("écriture sans effet : règlement disparu avant son annulation", async () => {
+  let hook = null;
+  const base = faireBase({ ...CONTEXTE, pannes: (...a) => (hook ? hook(...a) : null) });
+  await synchroniser(base);
+
+  // La transaction 5001 disparaît de ProGBat → annulation par absence prévue.
+  hook = (op, table, patch) => {
+    if (op === "update" && table === T_REGLEMENTS && Object.keys(patch || {}).length === 1 && patch.annule === true) {
+      base.tables[T_REGLEMENTS] = base.tables[T_REGLEMENTS].filter((l) => l.progbat_transaction_id !== 5001);
+    }
+    return null;
+  };
+  const { r } = await synchroniser(base, { transactions: TRANSACTIONS.filter((t) => t.id !== 5001) });
+
+  assert.equal(r.ok, false);
+  assert.equal(r.rapport.reconciliation_absence_autorisee, true);
+  assert.equal(r.rapport.reglements.categories.annulation, 0, "aucune annulation n'a réellement eu lieu");
+  assert.equal(r.rapport.reglements.categories.echec, 1);
+  assert.equal(r.rapport.ecritures.supabase, 0);
+  assert.equal(r.rapport.erreurs[0].portee, "annulation");
+  assert.equal(r.rapport.erreurs[0].reference, 5001);
+  assert.match(r.rapport.erreurs[0].message, /aucune ligne touchée/i);
+});
+
+test("toute écriture demande le retour de sa ligne, et n'accepte qu'elle", async () => {
+  const base = baseNeuve();
+  await synchroniser(base);
+  const ecritures = base.journal.filter((j) => j.op === "insert" || j.op === "update");
+  assert.ok(ecritures.length > 0);
+  for (const e of ecritures) {
+    assert.equal(e.colonnes, "id", `${e.op} sur ${e.table} doit demander .select("id")`);
+  }
+  // Sans retour demandé, la doublure renvoie data: null — comme PostgREST — et
+  // l'écriture doit alors être refusée plutôt que comptée pour acquise.
+  const depot = creerDepotSynchronisation(base.client);
+  const sansRetour = await (async () => {
+    const q = base.client.from(T_FACTURES).update({ numero: "x" }).eq("id", "inexistant");
+    const { data, error } = await q;
+    return { data, error };
+  })();
+  assert.equal(sansRetour.error, null, "PostgREST ne signale AUCUNE erreur ici");
+  assert.equal(sansRetour.data, null);
+  // Et avec .select("id") sur une cible absente : liste vide, toujours sans erreur.
+  const vide = await base.client.from(T_FACTURES).update({ numero: "x" }).eq("id", "inexistant").select("id");
+  assert.equal(vide.error, null);
+  assert.deepEqual(vide.data, []);
+  // C'est ce cas-là que le dépôt transforme en échec explicite.
+  const r = await depot.majFacture("inexistant", { numero: "x" });
+  assert.equal(r.ok, false);
+  assert.match(r.erreur, /aucune ligne touchée/i);
+  const rr = await depot.majReglement("inexistant", { montant: 1 });
+  assert.equal(rr.ok, false);
+  const ra = await depot.annulerReglement("inexistant");
+  assert.equal(ra.ok, false);
+  assert.match(ra.erreur, /aucune ligne touchée/i);
 });
 
 test("relecture des identifiants impossible : la phase des règlements est abandonnée, pas devinée", async () => {

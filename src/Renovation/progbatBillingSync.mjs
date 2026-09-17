@@ -117,14 +117,41 @@ export function projeterEcriture(ligne, champs) {
  * ajoutées ici, et elles sont les SEULES du dépôt — il n'existe aucun delete.
  * Chacune renvoie { ok } ou { ok: false, erreur } : une écriture ratée est une
  * VALEUR, pas une exception, pour que la boucle puisse continuer et compter.
+ *
+ * UNE ÉCRITURE QUI NE TOUCHE RIEN N'EST PAS UNE ÉCRITURE. PostgREST répond
+ * `error: null` à un UPDATE dont le filtre ne correspond à aucune ligne : c'est
+ * une requête valide, simplement sans effet. Se fier à l'absence d'erreur
+ * ferait compter une mise à jour ou une annulation réussie là où la ligne a
+ * disparu entre la préparation et l'écriture. Toutes les écritures demandent
+ * donc le retour de la ligne écrite (.select("id")) et EXIGENT d'en recevoir
+ * exactement une.
  */
 export function creerDepotSynchronisation(client) {
   const lecture = creerDepotLecture(client);
-  const executer = async (requete, contexte) => {
+
+  /**
+   * Exécute une écriture et n'accepte QUE le cas « exactement une ligne ».
+   * `data` vaut null quand aucun retour n'a été demandé, [] quand le filtre
+   * n'a rien trouvé : les deux sont des non-écritures, et toutes deux échouent.
+   */
+  const executerUnique = async (requete, contexte) => {
     try {
-      const { error } = await requete;
+      const { data, error } = await requete;
       if (error) return { ok: false, erreur: `${contexte} : ${error.message}` };
-      return { ok: true };
+      const lignes = Array.isArray(data) ? data : data ? [data] : [];
+      if (lignes.length === 0) {
+        return {
+          ok: false,
+          erreur: `${contexte} : aucune ligne touchée. La ligne visée a disparu entre la lecture et l'écriture, ou ne correspond plus au filtre ; rien n'a été enregistré.`,
+        };
+      }
+      if (lignes.length > 1) {
+        return {
+          ok: false,
+          erreur: `${contexte} : ${lignes.length} lignes touchées alors qu'une seule était visée. Écriture considérée comme incorrecte.`,
+        };
+      }
+      return { ok: true, id: lignes[0]?.id ?? null };
     } catch (e) {
       return { ok: false, erreur: `${contexte} : ${e?.message || "erreur inconnue"}` };
     }
@@ -140,13 +167,21 @@ export function creerDepotSynchronisation(client) {
       if (error) throw new Error(`${tF} : ${error.message}`);
       return data ?? [];
     },
-    insererFacture: (ligne) => executer(client.from(tF).insert(ligne), "création de facture"),
-    majFacture: (id, patch) => executer(client.from(tF).update(patch).eq("id", id), "mise à jour de facture"),
-    insererReglement: (ligne) => executer(client.from(tR).insert(ligne), "création de règlement"),
-    majReglement: (id, patch) => executer(client.from(tR).update(patch).eq("id", id), "mise à jour de règlement"),
+    // `.select("id")` sur CHAQUE écriture : c'est le retour minimal qui prouve
+    // qu'une ligne a bien été écrite. On ne demande que l'identifiant — ni
+    // montant, ni donnée nominative ne repassent par le réseau pour rien.
+    insererFacture: (ligne) =>
+      executerUnique(client.from(tF).insert(ligne).select("id"), "création de facture"),
+    majFacture: (id, patch) =>
+      executerUnique(client.from(tF).update(patch).eq("id", id).select("id"), "mise à jour de facture"),
+    insererReglement: (ligne) =>
+      executerUnique(client.from(tR).insert(ligne).select("id"), "création de règlement"),
+    majReglement: (id, patch) =>
+      executerUnique(client.from(tR).update(patch).eq("id", id).select("id"), "mise à jour de règlement"),
     // La seule « suppression » possible est un drapeau : on n'efface jamais un
     // règlement, on l'éteint.
-    annulerReglement: (id) => executer(client.from(tR).update({ annule: true }).eq("id", id), "annulation de règlement"),
+    annulerReglement: (id) =>
+      executerUnique(client.from(tR).update({ annule: true }).eq("id", id).select("id"), "annulation de règlement"),
   };
 }
 
