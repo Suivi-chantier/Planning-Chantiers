@@ -130,9 +130,65 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
   };
 }
 
+/**
+ * Restreint un plan global à quelques ouvrages Profero (envoi d'un ouvrage
+ * depuis sa fiche de bibliothèque, sans toucher au reste). Les règles ne
+ * changent pas : le plan complet est construit normalement, puis filtré.
+ * Un identifiant demandé qui n'apparaît ni en action ni en exclusion est
+ * rendu dans `hors_plan` (déjà lié, ou inconnu de l'inventaire).
+ * @returns le plan inchangé si aucun périmètre n'est demandé.
+ */
+export function restreindrePlan(plan, ouvrageIds) {
+  const demandes = (ouvrageIds || []).map((x) => str(x)).filter(Boolean);
+  if (!plan || !demandes.length) return plan;
+  const voulu = new Set(demandes);
+  const actions = (plan.actions || []).filter((a) => voulu.has(str(a.ouvrageId)));
+  const exclus = (plan.exclus || []).filter((e) => voulu.has(str(e.ouvrageId)));
+  const vus = new Set([...actions, ...exclus].map((x) => str(x.ouvrageId)));
+  return {
+    ...plan,
+    actions,
+    exclus,
+    perimetre: { ouvrageIds: [...voulu].sort() },
+    hors_plan: demandes.filter((id) => !vus.has(id)),
+    compteurs: {
+      a_lier: actions.filter((a) => a.type === "link").length,
+      a_creer: actions.filter((a) => a.type === "create").length,
+      exclus: exclus.length,
+      total: actions.length,
+    },
+  };
+}
+
+/**
+ * État de synchronisation d'un ouvrage Profero tel que l'inventaire le voit.
+ * Sert à expliquer sur la fiche pourquoi un ouvrage n'a aucune action à faire
+ * (déjà lié) ou ne peut pas être créé (blocages).
+ */
+export function etatOuvragePourSync(inventaire, ouvrageId) {
+  const cible = str(ouvrageId);
+  const r = (inventaire?.rapprochements || []).find((x) => str(x?.profero?.id) === cible);
+  if (!r) return null;
+  return {
+    ouvrageId: cible,
+    code: r.profero?.code ?? null,
+    libelle: r.profero?.libelle_court ?? null,
+    statut: r.statut,
+    synchronisable: r.synchronisable === true,
+    blocages: r.blocages || [],
+    notes: r.notes || [],
+    progbatId: r.profero?.progbat_id ?? r.correspondance?.id ?? null,
+    progbatLabel: str(r.correspondance?.label) || null,
+    candidats: (r.candidats || []).map((c) => ({ id: c?.id ?? null, label: str(c?.label) })),
+  };
+}
+
 export function donneesPourHash(plan) {
   return {
     famille: plan?.famille?.id ?? null,
+    // Le périmètre entre dans l'empreinte : un aperçu préparé pour un seul
+    // ouvrage ne peut pas servir à confirmer une synchronisation globale.
+    perimetre: plan?.perimetre?.ouvrageIds ?? null,
     actions: (plan?.actions || []).map((a) => a.type === "link"
       ? { type: a.type, ouvrageId: a.ouvrageId, progbatId: a.progbatId }
       : { type: a.type, ouvrageId: a.ouvrageId, payload: a.payload }),

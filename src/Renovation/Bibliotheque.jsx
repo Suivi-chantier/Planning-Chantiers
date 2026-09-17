@@ -15,6 +15,7 @@ import {
 import {
   expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe, tauxParDefaut,
 } from "./tauxHorairesVente.mjs";
+import OuvrageProgbatSync from "./OuvrageProgbatSync";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft,
@@ -503,6 +504,14 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               {maturite.planifiable ? "Prêt planning" : "Planning à compléter"}
             </span>
           )}
+          {/* Liaison ProGBat : visible d'un coup d'œil, détail dans la fiche */}
+          {!isEdit && !editData.progbat_id && (
+            <span title="Cet ouvrage n'existe pas encore dans ProGBat : ouvrir la fiche pour l'y créer."
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size, fontWeight: 700,
+                color: T.textMuted, background: T.card, border: `1px solid ${T.border}`, padding: "2px 8px", borderRadius: RADIUS.pill }}>
+              Pas sur ProGBat
+            </span>
+          )}
           {/* Aperçu des sous-tâches */}
           {!isEdit && (ouvrage.sous_taches || []).length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -889,6 +898,16 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               <Icon as={Plus} size={12}/>
               Ajouter un matériau
             </button>
+          </div>
+
+          {/* Envoi vers ProGBat : un ouvrage à la fois, aperçu puis confirmation */}
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.sectionDivider}` }}>
+            <OuvrageProgbatSync
+              ouvrage={editData}
+              T={T}
+              acc={acc}
+              onLie={(progbatId) => patchOuvrage({ progbat_id: progbatId, progbat_sync_at: new Date().toISOString() })}
+            />
           </div>
 
           {/* Footer */}

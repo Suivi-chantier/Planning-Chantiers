@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
+    titre: "Créer un ouvrage dans ProGBat directement depuis sa fiche de bibliothèque",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }],
+    quoi: "Un ouvrage créé dans la bibliothèque Profero peut maintenant être envoyé dans ProGBat depuis sa propre fiche, un par un, sans attendre ni déclencher la synchronisation de toute la bibliothèque depuis les Réglages.",
+    comment: "Ouvrir l'ouvrage dans la Bibliothèque : en bas de la fiche, « Créer sur ProGBat » vérifie d'abord la situation sans rien écrire, puis affiche ce qui sera fait — création dans le dossier « Ouvrages V2 » avec l'unité, le prix d'achat, le prix de vente et la TVA, ou simple liaison si un ouvrage ProGBat porte déjà ce code. L'écriture n'a lieu qu'après confirmation. Si l'ouvrage est incomplet (code, unité, cadence, matériaux, prix), la fiche dit précisément ce qui manque. Une fois envoyé, l'ouvrage affiche son numéro ProGBat ; les ouvrages non encore envoyés portent la mention « Pas sur ProGBat » dans la liste. Aucun ouvrage existant dans ProGBat n'est modifié ni supprimé.",
+  },
+  {
+    date: "2026-09-17",
+    type: "nouveaute",
     titre: "Les factures ProGBat d'un chantier s'affichent sur sa fiche",
     pages: [{ id: "chantiers", label: "Chantiers" }],
     quoi: "Le bloc « Facturation client » d'une fiche chantier montre maintenant les factures venues de ProGBat, avec ce qui a été facturé, ce qui a été encaissé et ce qui reste dû. Plus besoin d'ouvrir ProGBat pour savoir où en est une facture.",

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { construirePlanSynchronisation, construirePayloadStructure, trouverFamilleCible, trouverTva, donneesPourHash } from "../src/Renovation/progbatLibrarySync.mjs";
+import { construirePlanSynchronisation, construirePayloadStructure, trouverFamilleCible, trouverTva, donneesPourHash, restreindrePlan, etatOuvragePourSync } from "../src/Renovation/progbatLibrarySync.mjs";
 
 const structures = [
   { id: 501, code: "D-001", label: "D-001 : Dépose" },
@@ -53,4 +53,40 @@ const sansTva = construirePlanSynchronisation({ inventaire, familles, unites, ta
 assert.equal(sansTva.compteurs.a_lier, 1);
 assert.equal(sansTva.compteurs.a_creer, 0);
 
-console.log("verif-progbat-library-sync : OK (liaison, création, dossier V2, unité, TVA, exclusions, garanties)");
+// ─── Périmètre restreint (envoi d'un ouvrage depuis sa fiche) ───────────────
+assert.equal(restreindrePlan(plan, []), plan, "sans périmètre, le plan est rendu tel quel");
+assert.equal(restreindrePlan(plan, null), plan);
+
+const unSeul = restreindrePlan(plan, ["p2"]);
+assert.deepEqual(unSeul.compteurs, { a_lier: 0, a_creer: 1, exclus: 0, total: 1 });
+assert.equal(unSeul.actions[0].ouvrageId, "p2");
+assert.deepEqual(unSeul.hors_plan, [], "p2 est bien dans le plan");
+assert.deepEqual(unSeul.perimetre, { ouvrageIds: ["p2"] });
+assert.deepEqual(unSeul.garanties, plan.garanties, "les garanties suivent le plan restreint");
+
+const bloque = restreindrePlan(plan, ["p4"]);
+assert.deepEqual(bloque.compteurs, { a_lier: 0, a_creer: 0, exclus: 1, total: 0 });
+assert.deepEqual(bloque.exclus[0].raisons, ["Prix absent"]);
+
+const dejaLie = restreindrePlan(plan, ["p5"]);
+assert.equal(dejaLie.compteurs.total, 0, "un ouvrage déjà lié n'a aucune action");
+assert.deepEqual(dejaLie.hors_plan, ["p5"], "ni action ni exclusion : signalé hors plan");
+
+const inconnu = restreindrePlan(plan, ["zz"]);
+assert.deepEqual(inconnu.hors_plan, ["zz"]);
+assert.equal(inconnu.compteurs.total, 0);
+
+// L'empreinte dépend du périmètre : un aperçu d'un ouvrage ne peut pas
+// confirmer une synchronisation globale, même à actions identiques.
+assert.notDeepEqual(donneesPourHash(unSeul), donneesPourHash(plan));
+assert.deepEqual(donneesPourHash(restreindrePlan(plan, ["p2", "p1"])).perimetre, ["p1", "p2"], "périmètre trié, ordre d'appel sans effet");
+assert.equal(donneesPourHash(plan).perimetre, null);
+
+const etat = etatOuvragePourSync(inventaire, "p4");
+assert.equal(etat.statut, "nouveau_a_creer");
+assert.equal(etat.synchronisable, false);
+assert.deepEqual(etat.blocages, ["Prix absent"]);
+assert.equal(etatOuvragePourSync(inventaire, "p1").progbatId, 501, "code identique : l'id candidat est rendu");
+assert.equal(etatOuvragePourSync(inventaire, "zz"), null);
+
+console.log("verif-progbat-library-sync : OK (liaison, création, dossier V2, unité, TVA, exclusions, garanties, périmètre par ouvrage)");

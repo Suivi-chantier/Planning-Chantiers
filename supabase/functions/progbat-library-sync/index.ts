@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
 import { rapprocherBibliotheque } from "./lib/progbatInventaire.mjs"
-import { construirePlanSynchronisation, donneesPourHash } from "./lib/progbatLibrarySync.mjs"
+import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
 
 // Synchronisation CONSERVATRICE Profero → ProGBat.
 // Actions : prepare (aucune écriture), sync (confirmation + hash), status.
+// Le corps accepte un périmètre optionnel `ouvrageIds` : le plan est alors
+// restreint à ces ouvrages (envoi depuis la fiche d'un ouvrage de la
+// bibliothèque). Sans périmètre, le plan porte sur toute la bibliothèque.
 // Cette fonction peut uniquement :
 //   1. enregistrer dans Profero une correspondance de code métier unique ;
 //   2. créer une nouvelle structure ProGBat sous « Ouvrages V2 ».
@@ -16,6 +19,7 @@ const MAX_PAGES = 80
 const GET_TIMEOUT_MS = 15_000
 const POST_TIMEOUT_MS = 25_000
 const STATUTS_BLOQUANTS = ["linking", "creating", "uncertain"]
+const MAX_PERIMETRE = 50
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,11 +102,17 @@ serve(async (req) => {
     try { body = await req.json() } catch { body = {} }
     const action = String(body.action || "prepare")
     if (!["prepare", "sync", "status"].includes(action)) return json({ ok: false, error: "Action inconnue." }, 400)
+    // Périmètre optionnel : uniquement ces ouvrages Profero.
+    const ouvrageIds = Array.isArray(body.ouvrageIds)
+      ? [...new Set(body.ouvrageIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean))]
+      : []
+    if (ouvrageIds.length > MAX_PERIMETRE) return json({ ok: false, error: `Périmètre limité à ${MAX_PERIMETRE} ouvrages.` }, 400)
 
     if (action === "status") {
-      const { data, error } = await admin.from("progbat_library_sync_items")
+      let requete = admin.from("progbat_library_sync_items")
         .select("id,ouvrage_id,action,statut,progbat_target_id,progbat_code,started_at,finished_at,http_status,error_message")
-        .order("started_at", { ascending: false }).limit(200)
+      if (ouvrageIds.length) requete = requete.in("ouvrage_id", ouvrageIds)
+      const { data, error } = await requete.order("started_at", { ascending: false }).limit(200)
       if (error) return json({ ok: false, error: "Lecture du suivi impossible." }, 500)
       return json({ ok: true, action, items: data || [] })
     }
@@ -132,10 +142,13 @@ serve(async (req) => {
       coutHoraire: num(cfgMap.taux_mo_previsionnel), tauxHoraires: tauxH.data || [], coefficientsVente: coefV.data || [], tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
       taxes: taxesData, unites: unites.items,
     })
-    let plan = construirePlanSynchronisation({
+    let plan = restreindrePlan(construirePlanSynchronisation({
       inventaire, familles: familles.items, unites: unites.items, taxes: taxesData,
       tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
-    })
+    }), ouvrageIds)
+    // Périmètre restreint : l'état vu par l'inventaire explique sur la fiche
+    // pourquoi un ouvrage n'a rien à faire (déjà lié) ou reste bloqué.
+    const etats = ouvrageIds.map((id) => etatOuvragePourSync(inventaire, id)).filter(Boolean)
 
     // Un état incertain/en cours reste bloquant même si l'inventaire le repropose.
     const ids = plan.actions.map((x: Record<string, unknown>) => x.ouvrageId)
@@ -157,12 +170,12 @@ serve(async (req) => {
     const planHash = await hashSha256(donneesPourHash(plan))
 
     if (action === "prepare") {
-      console.log(`[progbat-library-sync] appelant=${user.id} action=prepare liens=${plan.compteurs.a_lier} creations=${plan.compteurs.a_creer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
-      return json({ ok: true, action, planHash, plan, aucune_suppression: true, aucune_modification_progbat: true })
+      console.log(`[progbat-library-sync] appelant=${user.id} action=prepare perimetre=${ouvrageIds.length || "global"} liens=${plan.compteurs.a_lier} creations=${plan.compteurs.a_creer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
+      return json({ ok: true, action, planHash, plan, etats, aucune_suppression: true, aucune_modification_progbat: true })
     }
     if (body.confirmed !== true) return json({ ok: false, error: "Confirmation explicite requise.", code: "confirmation_requise" }, 400)
     if (String(body.expectedPlanHash || "") !== planHash) return json({ ok: false, error: "La bibliothèque a changé depuis l’aperçu. Relancer la préparation.", code: "plan_modifie", planHash }, 409)
-    if (!plan.actions.length) return json({ ok: false, error: "Aucune liaison ou création sûre à effectuer.", code: "plan_vide" }, 400)
+    if (!plan.actions.length) return json({ ok: false, error: "Aucune liaison ou création sûre à effectuer.", code: "plan_vide", etats }, 400)
 
     const resultats: Record<string, unknown>[] = []
     let interrompu = false
@@ -223,7 +236,7 @@ serve(async (req) => {
     }
 
     const compteurs = Object.fromEntries(["linked", "created", "failed", "uncertain", "conflit", "non_execute"].map((s) => [s, resultats.filter((r) => r.statut === s).length]))
-    console.log(`[progbat-library-sync] appelant=${user.id} action=sync ${JSON.stringify(compteurs)} (${Date.now() - started} ms)`)
+    console.log(`[progbat-library-sync] appelant=${user.id} action=sync perimetre=${ouvrageIds.length || "global"} ${JSON.stringify(compteurs)} (${Date.now() - started} ms)`)
     return json({ ok: compteurs.failed === 0 && compteurs.uncertain === 0 && compteurs.conflit === 0, action, planHash, compteurs, resultats, aucune_suppression: true, aucune_modification_progbat: true })
   } catch (e) {
     console.error(`[progbat-library-sync] erreur=${nettoyer((e as Error)?.message)}`)
