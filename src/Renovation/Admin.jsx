@@ -2425,6 +2425,10 @@ function PrevisualisationSyncProgbat({ T, acc }) {
   const [syncEnCours, setSyncEnCours] = useState(false);
   const [syncRapport, setSyncRapport] = useState(null);
   const [syncErreur, setSyncErreur]   = useState(null);
+  // Vrai quand l'issue côté serveur est INCONNUE : réseau coupé, réponse
+  // perdue, erreur interne. Le serveur a pu recevoir la demande et écrire
+  // avant que le navigateur perde la réponse — on ne peut donc rien affirmer.
+  const [syncIncertain, setSyncIncertain] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
   const [saisie, setSaisie]             = useState("");
 
@@ -2462,7 +2466,7 @@ function PrevisualisationSyncProgbat({ T, acc }) {
   // automatique après le diagnostic, aucune relance automatique après un échec.
   const synchroniser = async () => {
     if (syncEnCours) return;                       // double-clic : ignoré
-    setSyncEnCours(true); setSyncRapport(null); setSyncErreur(null);
+    setSyncEnCours(true); setSyncRapport(null); setSyncErreur(null); setSyncIncertain(false);
     try {
       const { data, error } = await supabase.functions.invoke("progbat-billing-sync", {
         body: { confirmation: "SYNCHRONISER_PROGBAT" },
@@ -2473,6 +2477,17 @@ function PrevisualisationSyncProgbat({ T, acc }) {
         // Le message du serveur est plus utile qu'un générique : on le garde.
         if (body && typeof body.ok === "boolean" && body.ecritures) setSyncRapport(body);
         setSyncErreur(body?.error || error.message || "Appel de la fonction impossible.");
+        // CE QU'ON SAIT, ET CE QU'ON NE SAIT PAS.
+        // Un corps portant `ecritures` est un rapport : le serveur a fini son
+        // travail et dit combien il a écrit — issue connue.
+        // Un refus prononcé AVANT tout travail l'est aussi : 400 (confirmation
+        // absente), 401/403 (appelant refusé), 405 (méthode). Ces réponses
+        // sortent de la fonction avant le moindre appel ProGBat.
+        // Tout le reste — réseau coupé, réponse perdue, 500 inattendu — laisse
+        // l'issue INCONNUE : la demande a pu aboutir et écrire.
+        const statut = Number(error?.context?.status ?? 0);
+        const refusAvantTravail = [400, 401, 403, 405].includes(statut);
+        if (!body?.ecritures && !refusAvantTravail) setSyncIncertain(true);
       } else if (data) {
         // ATTENTION : un 207 n'est pas une erreur de transport. functions.invoke
         // le rend comme un succès — c'est `data.ok` qui fait foi, jamais le
@@ -2481,10 +2496,14 @@ function PrevisualisationSyncProgbat({ T, acc }) {
         if (data.ok !== true) setSyncErreur(null);   // le rapport porte déjà le détail
         else { setConfirmation(false); setSaisie(""); }
       } else {
+        // Ni rapport ni erreur : on ne sait pas ce que le serveur a fait.
         setSyncErreur("Réponse vide de la fonction.");
+        setSyncIncertain(true);
       }
     } catch (e) {
+      // Réseau, délai, réponse perdue : la demande est peut-être partie.
       setSyncErreur(e?.message || "Erreur inattendue.");
+      setSyncIncertain(true);
     }
     // Quoi qu'il arrive, le diagnostic affiché a cessé d'être à jour.
     setSyncSeq(analyseSeq);
@@ -2861,9 +2880,37 @@ function PrevisualisationSyncProgbat({ T, acc }) {
 
           {syncErreur && !syncRapport && (
             <div>
-              <div style={{fontWeight:700,color:"#e15a5a"}}>⚠ Synchronisation impossible</div>
-              <div style={{color:T.textSub}}>{syncErreur}</div>
-              <div style={{color:T.textMuted}}>Aucune écriture n'a été effectuée.</div>
+              {syncIncertain ? (
+                // ISSUE INCONNUE. Ne jamais affirmer ici que rien n'a été
+                // écrit : le serveur a pu recevoir la demande, écrire, et la
+                // réponse se perdre en chemin. Le seul conseil sûr est de
+                // réanalyser — c'est l'analyse qui dira l'état réel.
+                <>
+                  <div style={{fontWeight:700,color:"#f59e0b"}}>⚠ Résultat non confirmé</div>
+                  <div style={{marginTop:6,padding:"7px 11px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                    Le résultat de la synchronisation n'a pas pu être confirmé. Des écritures ont peut-être
+                    été effectuées. Ne relancez pas immédiatement la synchronisation : relancez d'abord l'analyse.
+                  </div>
+                  <div style={{color:T.textSub,marginTop:6}}>{syncErreur}</div>
+                  <button onClick={analyser} disabled={enCours} style={{
+                    marginTop:8,display:"inline-flex",alignItems:"center",gap:5,
+                    padding:"7px 12px",borderRadius:RADIUS.md,border:"none",
+                    background:enCours?T.border:acc.accent,color:enCours?T.textMuted:acc.onAccent,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:enCours?"not-allowed":"pointer",
+                  }}>
+                    <Icon as={RefreshCw} size={11} style={enCours?{animation:"spin 1s linear infinite"}:undefined}/>
+                    {enCours ? "Analyse en cours…" : "Relancer l'analyse"}
+                  </button>
+                </>
+              ) : (
+                // Refus prononcé avant tout travail : là, et seulement là, on
+                // peut dire que rien n'a bougé.
+                <>
+                  <div style={{fontWeight:700,color:"#e15a5a"}}>⚠ Synchronisation refusée</div>
+                  <div style={{color:T.textSub}}>{syncErreur}</div>
+                  <div style={{color:T.textMuted}}>La demande a été refusée avant tout traitement : rien n'a été écrit.</div>
+                </>
+              )}
             </div>
           )}
 
