@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
+    titre: "La cadence Profero part maintenant avec l'ouvrage envoyé dans ProGBat",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "admin", label: "Réglages" }],
+    quoi: "Jusqu'ici, un ouvrage envoyé dans ProGBat n'emportait que ses prix. ProGBat, n'ayant aucun temps pour cet ouvrage, en reconstituait un à partir du prix : les devis affichaient donc des heures qui ne correspondaient pas à la bibliothèque Profero. Désormais la cadence est envoyée avec l'ouvrage, et les temps concordent.",
+    comment: "Sur la fiche d'un ouvrage, « Créer sur ProGBat » demande, en plus de la famille, la main-d'œuvre ProGBat qui portera les heures (le choix est automatique s'il n'y en a qu'une). L'aperçu annonce la cadence exacte avant toute écriture. Le prix de vente reste celui de Profero : ProGBat ne le recalcule pas. Pour un ouvrage DÉJÀ envoyé dans ProGBat, le bouton « Vérifier la cadence ProGBat » permet de lui poser sa cadence, à une condition stricte : sa composition ProGBat doit être vide. Si l'ouvrage a déjà une composition dans ProGBat, Profero n'y touche pas et le dit — c'est ProGBat qui fait foi dans ce cas. Les matériaux ne sont pas encore envoyés : cela demandera d'abord une correspondance entre les matériaux Profero et les éléments ProGBat.",
+  },
+  {
+    date: "2026-09-17",
+    type: "nouveaute",
     titre: "Espace ouvrier : les chantiers sont maintenant rangés par opération",
     pages: [],
     quoi: "Sur le téléphone, l'onglet « Chantiers » de l'espace ouvrier s'appelle désormais « Opérations » et présente d'abord les opérations — l'immeuble ou l'adresse — au lieu d'une longue liste de tous les chantiers mélangés. Sur un programme de plusieurs logements, on trouve le bon bien plus vite.",

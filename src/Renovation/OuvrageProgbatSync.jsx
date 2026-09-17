@@ -7,13 +7,17 @@
 //      dans ProGBat), ou pourquoi c'est impossible ;
 //   3. l'écriture n'a lieu qu'après confirmation explicite, avec l'empreinte du
 //      plan : si l'ouvrage a changé entre-temps, ProGBat n'est pas touché.
-// Aucune structure ProGBat existante n'est modifiée ni supprimée.
+// La CADENCE Profero part avec l'ouvrage : elle devient la quantité, en heures,
+// d'un job horaire ProGBat (sinon ProGBat reconstitue un temps depuis le prix).
+// Elle peut aussi être posée sur un ouvrage déjà lié dont la composition
+// ProGBat est VIDE ; une composition existante n'est jamais remplacée.
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { UploadCloud, Check, AlertTriangle, Link2, X } from "lucide-react";
 
+const fmtHeures = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h`;
 const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 const LIBELLES_STATUT = {
@@ -28,7 +32,11 @@ const LIBELLES_STATUT = {
 function raisonsHorsPlan(plan, etat) {
   const exclu = (plan?.exclus || [])[0];
   if (exclu?.raisons?.length) return exclu.raisons;
-  if (etat?.statut === "deja_lie") return [];
+  // Déjà lié et aucune action : sa composition ProGBat n'est pas vide, donc
+  // son temps vient de cette composition — Profero ne la remplace jamais.
+  if (etat?.statut === "deja_lie") {
+    return ["Il est lié à ProGBat et sa composition ProGBat n'est pas vide : son temps vient de cette composition, que Profero ne remplace pas."];
+  }
   if (etat?.blocages?.length) return etat.blocages;
   if (etat?.statut) return [`Statut « ${LIBELLES_STATUT[etat.statut] || etat.statut} » : à traiter depuis Réglages → Maintenance.`];
   return ["Ouvrage introuvable dans l'inventaire : relancer l'analyse depuis Réglages → Maintenance."];
@@ -45,6 +53,7 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
   const [apercu, setApercu] = useState(null);    // { planHash, plan, etats }
   const [resultat, setResultat] = useState(null);
   const [familleId, setFamilleId] = useState(null);   // famille ProGBat choisie
+  const [jobId, setJobId] = useState(null);           // main-d'œuvre ProGBat choisie
 
   const progbatId = ouvrage?.progbat_id ? String(ouvrage.progbat_id) : null;
 
@@ -62,10 +71,10 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
 
   // `cible` : null = on laisse le serveur décider qu'aucune famille n'est
   // choisie (premier appel), ce qui sert surtout à récupérer la liste.
-  const verifier = async (cible = familleId) => {
+  const verifier = async (cible = familleId, cibleJob = jobId) => {
     setChargement(true); setErreur(null); setResultat(null);
     try {
-      const data = await appeler({ action: "prepare", ouvrageIds: [ouvrage.id], familleId: cible ?? null });
+      const data = await appeler({ action: "prepare", ouvrageIds: [ouvrage.id], familleId: cible ?? null, jobId: cibleJob ?? null });
       if (!data.ok) throw new Error(data.error || "Préparation impossible.");
       const familles = data.famillesDisponibles || [];
       // Aucune famille choisie : proposer celle qui porte le nom de la
@@ -76,11 +85,18 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
         : null;
       // On relance avec la famille suggérée sans afficher l'aperçu vide
       // intermédiaire : l'utilisateur ne voit qu'un seul état, le bon.
-      if (suggeree) {
-        setFamilleId(suggeree.id);
-        return verifier(suggeree.id);
+      // Une seule main-d'œuvre horaire dans ProGBat : aucun choix à faire.
+      const jobsDispo = data.jobsDisponibles || [];
+      const jobEvident = cibleJob == null && jobsDispo.length === 1 ? jobsDispo[0] : null;
+      if (suggeree || jobEvident) {
+        const f = suggeree ? suggeree.id : cible;
+        const j = jobEvident ? jobEvident.id : cibleJob;
+        if (suggeree) setFamilleId(f);
+        if (jobEvident) setJobId(j);
+        return verifier(f ?? null, j ?? null);
       }
       setFamilleId(cible ?? null);
+      setJobId(cibleJob ?? null);
       setApercu(data);
       setEtape("apercu");
     } catch (e) { setErreur(e?.message || "Erreur inattendue."); }
@@ -92,7 +108,7 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
     setChargement(true); setErreur(null);
     try {
       const data = await appeler({
-        action: "sync", ouvrageIds: [ouvrage.id], familleId: familleId ?? null,
+        action: "sync", ouvrageIds: [ouvrage.id], familleId: familleId ?? null, jobId: jobId ?? null,
         expectedPlanHash: apercu.planHash, confirmed: true,
       });
       const ligne = (data.resultats || [])[0] || null;
@@ -112,6 +128,8 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
   const etat = (apercu?.etats || [])[0] || null;
   const famille = apercu?.plan?.famille || null;
   const famillesDisponibles = apercu?.famillesDisponibles || [];
+  const jobsDisponibles = apercu?.jobsDisponibles || [];
+  const job = apercu?.plan?.job || null;
 
   const bouton = (label, onClick, { principal = false, disabled = false, icone = UploadCloud } = {}) => (
     <button onClick={onClick} disabled={disabled} style={{
@@ -139,13 +157,18 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        {progbatId
-          ? <span title={`Ouvrage lié à la structure ProGBat #${progbatId}${ouvrage.progbat_sync_at ? ` le ${new Date(ouvrage.progbat_sync_at).toLocaleDateString("fr-FR")}` : ""}`}
-              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: RADIUS.pill,
-                fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,.10)", border: "1px solid rgba(34,197,94,.28)" }}>
-              <Icon as={Link2} size={11}/> Sur ProGBat · #{progbatId}
-            </span>
-          : etape === "repos" && bouton(chargement ? "Vérification…" : "Créer sur ProGBat", () => verifier(null), { disabled: chargement })}
+        {progbatId && (
+          <span title={`Ouvrage lié à la structure ProGBat #${progbatId}${ouvrage.progbat_sync_at ? ` le ${new Date(ouvrage.progbat_sync_at).toLocaleDateString("fr-FR")}` : ""}`}
+            style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "6px 10px", borderRadius: RADIUS.pill,
+              fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,.10)", border: "1px solid rgba(34,197,94,.28)" }}>
+            <Icon as={Link2} size={11}/> Sur ProGBat · #{progbatId}
+          </span>
+        )}
+        {/* Un ouvrage déjà lié peut encore avoir besoin de sa cadence. */}
+        {etape === "repos" && bouton(
+          chargement ? "Vérification…" : progbatId ? "Vérifier la cadence ProGBat" : "Créer sur ProGBat",
+          () => verifier(null, null), { disabled: chargement },
+        )}
         {etape !== "repos" && bouton("Fermer", () => { setEtape("repos"); setApercu(null); setResultat(null); setErreur(null); }, { icone: X })}
       </div>
 
@@ -175,18 +198,50 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
         </div>
       )}
 
+      {/* Main-d'œuvre : c'est elle qui porte la cadence Profero dans ProGBat. */}
+      {etape === "apercu" && !erreur && jobsDisponibles.length > 1 && (
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+            Main-d'œuvre ProGBat
+          </label>
+          <select
+            value={jobId ?? ""}
+            disabled={chargement}
+            onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setJobId(v); verifier(familleId, v); }}
+            style={{ padding: "7px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", maxWidth: 320 }}
+          >
+            <option value="">— choisir la main-d'œuvre —</option>
+            {jobsDisponibles.map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
+          </select>
+          <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>porte la cadence, en heures</span>
+        </div>
+      )}
+
       {etape === "apercu" && !erreur && (
         action ? encart("#4db8ff", (
           <>
             <div style={{ fontWeight: 800, marginBottom: 3 }}>
               {action.type === "create"
                 ? `Création dans ProGBat, famille « ${famille?.libelle || "?"} »`
-                : `Liaison au ProGBat existant #${action.progbatId}`}
+                : action.type === "composition"
+                  ? `Cadence à poser sur l'ouvrage ProGBat #${action.progbatId}`
+                  : `Liaison au ProGBat existant #${action.progbatId}`}
             </div>
             {action.type === "create" ? (
+              <>
+                <div style={{ color: T.textSub }}>
+                  {action.payload?.label} · unité {action.payload?.unitCode} ·
+                  achat {fmtEur2(action.payload?.purchaseNetUnitPrice)} · vente {fmtEur2(action.payload?.saleNetUnitPrice)} HT · TVA {action.payload?.taxRate} %
+                </div>
+                <div style={{ color: T.textSub }}>
+                  Cadence envoyée : <strong>{fmtHeures(action.composition?.heures)}</strong> sur « {action.composition?.jobLibelle} ». Le prix de vente reste celui de Profero, ProGBat ne le recalcule pas.
+                </div>
+              </>
+            ) : action.type === "composition" ? (
               <div style={{ color: T.textSub }}>
-                {action.payload?.label} · unité {action.payload?.unitCode} ·
-                achat {fmtEur2(action.payload?.purchaseNetUnitPrice)} · vente {fmtEur2(action.payload?.saleNetUnitPrice)} HT · TVA {action.payload?.taxRate} %
+                Sa composition ProGBat est vide, c'est pourquoi le devis affichait un temps reconstitué depuis le prix.
+                Profero va y inscrire <strong>{fmtHeures(action.composition?.heures)}</strong> sur « {action.composition?.jobLibelle} ».
+                Ni le prix ni le libellé ne sont touchés.
               </div>
             ) : (
               <div style={{ color: T.textSub }}>
@@ -194,13 +249,13 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
               </div>
             )}
             <div style={{ marginTop: 8 }}>
-              {bouton(chargement ? "Envoi…" : (action.type === "create" ? "Confirmer la création" : "Confirmer la liaison"), envoyer, { principal: true, disabled: chargement })}
+              {bouton(chargement ? "Envoi…" : (action.type === "create" ? "Confirmer la création" : action.type === "composition" ? "Confirmer la cadence" : "Confirmer la liaison"), envoyer, { principal: true, disabled: chargement })}
             </div>
           </>
         )) : encart(etat?.statut === "deja_lie" ? "#22c55e" : "#f59e0b", (
           <>
             <div style={{ fontWeight: 800, marginBottom: 3 }}>
-              {etat?.statut === "deja_lie" ? "Rien à faire : ouvrage déjà lié à ProGBat." : "Envoi impossible pour l'instant."}
+              {etat?.statut === "deja_lie" ? "Rien à faire sur cet ouvrage." : "Envoi impossible pour l'instant."}
             </div>
             {raisonsHorsPlan(apercu?.plan, etat).map((r, i) => (
               <div key={i} style={{ color: T.textSub }}>• {r}</div>
@@ -215,11 +270,13 @@ export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, ac
       )}
 
       {etape === "fait" && resultat && !erreur && encart(
-        ["created", "linked"].includes(resultat.statut) ? "#22c55e" : "#f59e0b",
+        ["created", "linked", "composed"].includes(resultat.statut) ? "#22c55e" : "#f59e0b",
         <>
           <div style={{ fontWeight: 800 }}>
-            <Icon as={["created", "linked"].includes(resultat.statut) ? Check : AlertTriangle} size={11} style={{ verticalAlign: -1, marginRight: 4 }}/>
-            {resultat.statut === "created" ? `Créé dans ProGBat (#${resultat.progbatId}).`
+            <Icon as={["created", "linked", "composed"].includes(resultat.statut) ? Check : AlertTriangle} size={11} style={{ verticalAlign: -1, marginRight: 4 }}/>
+            {resultat.statut === "created" ? `Créé dans ProGBat (#${resultat.progbatId}) avec ${fmtHeures(resultat.heures)} de main-d'œuvre.`
+              : resultat.statut === "composed" ? `Cadence posée sur ProGBat #${resultat.progbatId} : ${fmtHeures(resultat.heures)}.`
+              : resultat.statut === "created_sans_cadence" ? `Créé dans ProGBat (#${resultat.progbatId}), mais SANS sa cadence : relancer pour la poser.`
               : resultat.statut === "linked" ? `Lié à ProGBat (#${resultat.progbatId}).`
               : resultat.statut === "uncertain" ? "Résultat incertain : vérifier dans ProGBat avant de recommencer."
               : resultat.statut === "conflit" ? "Une synchronisation de cet ouvrage est déjà en cours ou incertaine."

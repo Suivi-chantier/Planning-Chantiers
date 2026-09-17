@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
 import { rapprocherBibliotheque } from "./lib/progbatInventaire.mjs"
-import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, listerFamillesOuvrages, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
+import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, listerFamillesOuvrages, listerJobsHoraires, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
 
 // Synchronisation CONSERVATRICE Profero → ProGBat.
 // Actions : prepare (aucune écriture), sync (confirmation + hash), status.
@@ -37,9 +37,10 @@ const parseRange = (h: string | null) => { const m = (h || "").match(/(\d+)\s*-\
 type ApiResult = { ok: true; status: number; data: unknown; range?: { end: number; count: number } | null }
   | { ok: false; status: number; message: string; incertain?: boolean }
 
-async function progbatFetch(method: "GET" | "POST", path: string, token: string, body?: unknown): Promise<ApiResult> {
+async function progbatFetch(method: "GET" | "POST" | "PUT", path: string, token: string, body?: unknown): Promise<ApiResult> {
   const ctrl = new AbortController()
-  const timeout = method === "POST" ? POST_TIMEOUT_MS : GET_TIMEOUT_MS
+  const ecriture = method === "POST" || method === "PUT"
+  const timeout = ecriture ? POST_TIMEOUT_MS : GET_TIMEOUT_MS
   const timer = setTimeout(() => ctrl.abort(), timeout)
   try {
     const res = await fetch(`${PROGBAT_API}${path}`, {
@@ -56,12 +57,12 @@ async function progbatFetch(method: "GET" | "POST", path: string, token: string,
         status: res.status,
         message: `ProGBat a répondu HTTP ${res.status}${detail ? ` (${detail})` : ""}.`,
         // Un 5xx/408 après un POST ne prouve pas que l'écriture n'a pas eu lieu.
-        incertain: method === "POST" && (res.status === 408 || res.status >= 500),
+        incertain: ecriture && (res.status === 408 || res.status >= 500),
       }
     }
     return { ok: true, status: res.status, data, range: parseRange(res.headers.get("Range")) }
   } catch (e) {
-    return { ok: false, status: 0, message: (e as Error)?.name === "AbortError" ? `Délai ProGBat dépassé (${timeout / 1000} s).` : "Connexion à ProGBat interrompue.", incertain: method === "POST" }
+    return { ok: false, status: 0, message: (e as Error)?.name === "AbortError" ? `Délai ProGBat dépassé (${timeout / 1000} s).` : "Connexion à ProGBat interrompue.", incertain: ecriture }
   } finally { clearTimeout(timer) }
 }
 
@@ -113,6 +114,9 @@ serve(async (req) => {
     // familles existantes. Sa validité est revérifiée ici contre ProGBat.
     const familleId = body.familleId == null ? null : Number(body.familleId)
     if (familleId != null && (!Number.isInteger(familleId) || familleId <= 0)) return json({ ok: false, error: "Famille ProGBat invalide." }, 400)
+    // Main-d'œuvre ProGBat qui portera la cadence Profero.
+    const jobId = body.jobId == null ? null : Number(body.jobId)
+    if (jobId != null && (!Number.isInteger(jobId) || jobId <= 0)) return json({ ok: false, error: "Main-d'œuvre ProGBat invalide." }, 400)
 
     if (action === "status") {
       let requete = admin.from("progbat_library_sync_items")
@@ -123,7 +127,7 @@ serve(async (req) => {
       return json({ ok: true, action, items: data || [] })
     }
 
-    const [ouv, mats, cfg, tauxH, coefV, structures, familles, unites, taxes] = await Promise.all([
+    const [ouv, mats, cfg, tauxH, coefV, structures, familles, unites, taxes, jobs] = await Promise.all([
       admin.from("bibliotheque_ratios").select("*"),
       admin.from("materiaux_bibliotheque").select("id,nom,reference,unite,prix_unitaire,fournisseur,categorie"),
       admin.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
@@ -135,12 +139,15 @@ serve(async (req) => {
       getAll("/company/library/families", token),
       getAll("/company/library/units", token),
       progbatFetch("GET", "/company/taxes", token),
+      // Jobs : la cadence Profero devient la quantité d'un job horaire.
+      getAll("/company/jobs", token),
     ])
     if (ouv.error || mats.error || cfg.error || tauxH.error || coefV.error) return json({ ok: false, error: "Lecture de la bibliothèque Profero impossible." }, 500)
     if (!structures.ok) return json({ ok: false, error: structures.message, etape: "structures", progbat_status: structures.status }, 200)
     if (!familles.ok) return json({ ok: false, error: familles.message, etape: "familles", progbat_status: familles.status }, 200)
     if (!unites.ok) return json({ ok: false, error: unites.message, etape: "unites", progbat_status: unites.status }, 200)
     if (!taxes.ok) return json({ ok: false, error: taxes.message, etape: "taxes", progbat_status: taxes.status }, 200)
+    if (!jobs.ok) return json({ ok: false, error: jobs.message, etape: "jobs", progbat_status: jobs.status }, 200)
     const cfgMap = Object.fromEntries((cfg.data || []).map((x: Record<string, unknown>) => [x.key, x.value]))
     const taxesData = Array.isArray(taxes.data) ? taxes.data as Record<string, unknown>[] : []
     const inventaire = rapprocherBibliotheque({
@@ -148,16 +155,32 @@ serve(async (req) => {
       coutHoraire: num(cfgMap.taux_mo_previsionnel), tauxHoraires: tauxH.data || [], coefficientsVente: coefV.data || [], tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
       taxes: taxesData, unites: unites.items,
     })
+    // Composition ProGBat actuelle des ouvrages DÉJÀ liés du périmètre : elle
+    // sert uniquement à savoir si l'on peut y poser la cadence sans rien
+    // écraser. Lue seulement en périmètre restreint (1 appel par ouvrage) ;
+    // la synchronisation globale ne traite donc que les créations.
+    const compositions = new Map<string, unknown[]>()
+    if (ouvrageIds.length) {
+      for (const id of ouvrageIds) {
+        const r = (inventaire.rapprochements || []).find((x: Record<string, any>) => String(x?.profero?.id) === id)
+        const pid = Number(r?.profero?.progbat_id ?? 0)
+        if (r?.statut !== "deja_lie" || !Number.isInteger(pid) || pid <= 0) continue
+        const rep = await progbatFetch("GET", `/company/structures/${pid}/composition`, token)
+        // Composition illisible : on ne propose rien plutôt que de risquer un écrasement.
+        if (rep.ok && Array.isArray(rep.data)) compositions.set(id, rep.data as unknown[])
+      }
+    }
     let plan = restreindrePlan(construirePlanSynchronisation({
       inventaire, familles: familles.items, unites: unites.items, taxes: taxesData,
       tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
-      familleId,
+      familleId, jobs: jobs.items, jobId, compositions,
     }), ouvrageIds)
     // Périmètre restreint : l'état vu par l'inventaire explique sur la fiche
     // pourquoi un ouvrage n'a rien à faire (déjà lié) ou reste bloqué.
     const etats = ouvrageIds.map((id) => etatOuvragePourSync(inventaire, id)).filter(Boolean)
     // Toujours renvoyé : c'est ce qui alimente la liste de choix des écrans.
     const famillesDisponibles = listerFamillesOuvrages(familles.items)
+    const jobsDisponibles = listerJobsHoraires(jobs.items)
 
     // Un état incertain/en cours reste bloquant même si l'inventaire le repropose.
     const ids = plan.actions.map((x: Record<string, unknown>) => x.ouvrageId)
@@ -173,27 +196,28 @@ serve(async (req) => {
       plan = { ...plan, actions: gardees, exclus: [...plan.exclus, ...bloquees], compteurs: {
         a_lier: gardees.filter((x: Record<string, unknown>) => x.type === "link").length,
         a_creer: gardees.filter((x: Record<string, unknown>) => x.type === "create").length,
+        a_composer: gardees.filter((x: Record<string, unknown>) => x.type === "composition").length,
         exclus: plan.exclus.length + bloquees.length, total: gardees.length,
       } }
     }
     const planHash = await hashSha256(donneesPourHash(plan))
 
     if (action === "prepare") {
-      console.log(`[progbat-library-sync] appelant=${user.id} action=prepare perimetre=${ouvrageIds.length || "global"} liens=${plan.compteurs.a_lier} creations=${plan.compteurs.a_creer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
-      return json({ ok: true, action, planHash, plan, etats, famillesDisponibles, aucune_suppression: true, aucune_modification_progbat: true })
+      console.log(`[progbat-library-sync] appelant=${user.id} action=prepare perimetre=${ouvrageIds.length || "global"} liens=${plan.compteurs.a_lier} creations=${plan.compteurs.a_creer} compositions=${plan.compteurs.a_composer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
+      return json({ ok: true, action, planHash, plan, etats, famillesDisponibles, jobsDisponibles, aucune_suppression: true, aucune_modification_progbat: false, ecrase_composition: false })
     }
     if (body.confirmed !== true) return json({ ok: false, error: "Confirmation explicite requise.", code: "confirmation_requise" }, 400)
     if (String(body.expectedPlanHash || "") !== planHash) return json({ ok: false, error: "La bibliothèque a changé depuis l’aperçu. Relancer la préparation.", code: "plan_modifie", planHash }, 409)
-    if (!plan.actions.length) return json({ ok: false, error: "Aucune liaison ou création sûre à effectuer.", code: "plan_vide", etats, famillesDisponibles }, 400)
+    if (!plan.actions.length) return json({ ok: false, error: "Aucune liaison ou création sûre à effectuer.", code: "plan_vide", etats, famillesDisponibles, jobsDisponibles }, 400)
 
     const resultats: Record<string, unknown>[] = []
     let interrompu = false
     for (const item of plan.actions) {
       if (interrompu) { resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "non_execute" }); continue }
-      const statutInitial = item.type === "link" ? "linking" : "creating"
+      const statutInitial = item.type === "link" ? "linking" : item.type === "composition" ? "composing" : "creating"
       const { data: reservation, error: reserveError } = await admin.from("progbat_library_sync_items").insert({
         ouvrage_id: item.ouvrageId, action: item.type, plan_hash: planHash, statut: statutInitial,
-        progbat_target_id: item.type === "link" ? item.progbatId : null,
+        progbat_target_id: item.type === "link" || item.type === "composition" ? item.progbatId : null,
         progbat_code: item.code, created_by: user.id, created_by_email: user.email,
       }).select("id").single()
       if (reserveError) {
@@ -214,6 +238,27 @@ serve(async (req) => {
         }
         await finir({ statut: "linked", progbat_target_id: item.progbatId })
         resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "linked", progbatId: item.progbatId })
+        continue
+      }
+
+      // Pose la cadence Profero sur un ouvrage ProGBat. Le PUT remplace la
+      // composition : il n'est appelé que sur un ouvrage créé à l'instant ou
+      // dont la composition était VIDE à la préparation.
+      const poserCadence = async (cible: number) =>
+        await progbatFetch("PUT", `/company/library/structures/${cible}/composition`, token, item.composition.payload)
+
+      if (item.type === "composition") {
+        const repCompo = await poserCadence(item.progbatId)
+        if (!repCompo.ok) {
+          const statut = repCompo.incertain ? "uncertain" : "failed"
+          await finir({ statut, http_status: repCompo.status || null, error_message: repCompo.message })
+          resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut, progbat_status: repCompo.status, error: repCompo.message })
+          if (repCompo.incertain || [401, 403, 429].includes(repCompo.status)) interrompu = true
+          continue
+        }
+        await admin.from("bibliotheque_ratios").update({ progbat_sync_at: new Date().toISOString() }).eq("id", item.ouvrageId)
+        await finir({ statut: "composed", progbat_target_id: item.progbatId, http_status: repCompo.status })
+        resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "composed", progbatId: item.progbatId, heures: item.composition.heures, job: item.composition.jobLibelle })
         continue
       }
 
@@ -240,13 +285,25 @@ serve(async (req) => {
         interrompu = true
         continue
       }
+      // L'ouvrage existe et est lié : reste à lui poser sa cadence. Un échec
+      // ici ne remet pas la création en cause — d'où un statut distinct.
+      const repCompo = await poserCadence(progbatId)
+      if (!repCompo.ok) {
+        await finir({ statut: "created_sans_cadence", progbat_target_id: progbatId, http_status: repCompo.status || null, error_message: repCompo.message })
+        resultats.push({
+          ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "created_sans_cadence", progbatId,
+          progbat_status: repCompo.status, error: `Ouvrage créé et lié, mais la cadence n'a pas été posée : ${repCompo.message}`,
+        })
+        if (repCompo.incertain || [401, 403, 429].includes(repCompo.status)) interrompu = true
+        continue
+      }
       await finir({ statut: "created", progbat_target_id: progbatId, http_status: rep.status })
-      resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "created", progbatId })
+      resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "created", progbatId, heures: item.composition.heures, job: item.composition.jobLibelle })
     }
 
-    const compteurs = Object.fromEntries(["linked", "created", "failed", "uncertain", "conflit", "non_execute"].map((s) => [s, resultats.filter((r) => r.statut === s).length]))
+    const compteurs = Object.fromEntries(["linked", "created", "composed", "created_sans_cadence", "failed", "uncertain", "conflit", "non_execute"].map((s) => [s, resultats.filter((r) => r.statut === s).length]))
     console.log(`[progbat-library-sync] appelant=${user.id} action=sync perimetre=${ouvrageIds.length || "global"} ${JSON.stringify(compteurs)} (${Date.now() - started} ms)`)
-    return json({ ok: compteurs.failed === 0 && compteurs.uncertain === 0 && compteurs.conflit === 0, action, planHash, compteurs, resultats, aucune_suppression: true, aucune_modification_progbat: true })
+    return json({ ok: compteurs.failed === 0 && compteurs.uncertain === 0 && compteurs.conflit === 0 && compteurs.created_sans_cadence === 0, action, planHash, compteurs, resultats, aucune_suppression: true, ecrase_composition: false })
   } catch (e) {
     console.error(`[progbat-library-sync] erreur=${nettoyer((e as Error)?.message)}`)
     return json({ ok: false, error: "Erreur interne de synchronisation." }, 500)

@@ -95,6 +95,74 @@ export function trouverTva(taxes = [], tvaDefaut) {
   }) || null;
 }
 
+// ─── MAIN-D'ŒUVRE : LA CADENCE PROFERO PART AVEC L'OUVRAGE ──────────────────
+// ProGBat ne stocke aucun temps sur l'ouvrage lui-même : le temps est la
+// QUANTITÉ, en heures, d'un composant qui référence un « job » horaire
+// (type 2, unité H) — exactement la règle que l'import des cadences applique
+// en lecture (progbatCadences.mjs). L'écriture se fait par un appel séparé :
+//   PUT /company/library/structures/{id}/composition
+//       { components: [{ componentId, quantity }], updatePrice: false }
+// `updatePrice` reste FAUX : le prix de vente vient de Profero et ne doit
+// jamais être recalculé depuis la composition.
+export const TYPE_JOB_MAIN_OEUVRE = 2;
+export const UNITE_HEURE = "H";
+
+/** Jobs ProGBat utilisables comme main-d'œuvre horaire, triés par libellé. */
+export function listerJobsHoraires(jobs = []) {
+  return (jobs || [])
+    .filter((j) => Number.isInteger(Number(j?.id)) && Number(j.id) > 0
+      && Number(j?.type) === TYPE_JOB_MAIN_OEUVRE
+      && cleUnite(j?.unitCode) === cleUnite(UNITE_HEURE)
+      && j?.active !== false && str(j?.label))
+    .map((j) => ({ id: Number(j.id), label: str(j.label), code: str(j.code) }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
+}
+
+/** Job de main-d'œuvre désigné par son identifiant ProGBat. */
+export function resoudreJobHoraire(jobs = [], jobId) {
+  const vise = num(jobId);
+  const disponibles = listerJobsHoraires(jobs);
+  const base = { ok: false, id: null, libelle: "", disponibles, erreur: null };
+  if (!Number.isInteger(vise) || vise <= 0) return { ...base, erreur: "Choisir la main-d'œuvre ProGBat qui portera la cadence" };
+  const trouve = disponibles.find((j) => j.id === vise);
+  if (!trouve) {
+    const brut = (jobs || []).find((j) => Number(j?.id) === vise);
+    if (!brut) return { ...base, erreur: `Main-d'œuvre ProGBat n° ${vise} introuvable : relancer la vérification` };
+    return { ...base, libelle: str(brut.label), erreur: `« ${str(brut.label) || vise} » n'est pas une main-d'œuvre horaire (type ${TYPE_JOB_MAIN_OEUVRE}, unité ${UNITE_HEURE})` };
+  }
+  return { ...base, ok: true, id: trouve.id, libelle: trouve.label };
+}
+
+/**
+ * Corps du PUT de composition pour porter la cadence Profero.
+ * @param cadence heures par unité d'ouvrage (bibliotheque_ratios.cadence)
+ */
+export function construireCompositionCadence({ cadence, job } = {}) {
+  const erreurs = [];
+  const heures = num(cadence);
+  if (!job?.ok) erreurs.push(str(job?.erreur) || "Main-d'œuvre ProGBat non choisie");
+  if (heures == null || !(heures > 0)) erreurs.push("Cadence Profero absente ou nulle : aucun temps à envoyer");
+  if (erreurs.length) return { ok: false, erreurs, payload: null };
+  return {
+    ok: true,
+    erreurs: [],
+    jobId: job.id,
+    jobLibelle: job.libelle,
+    heures: arrondir4(heures),
+    // updatePrice explicitement faux : Profero garde la main sur le prix.
+    payload: { components: [{ componentId: job.id, quantity: arrondir4(heures) }], updatePrice: false },
+  };
+}
+
+/**
+ * Une composition ProGBat est-elle vide ? On n'écrase JAMAIS une composition
+ * existante : un ouvrage qui en a déjà une est écarté, pas modifié.
+ * @param composition tableau renvoyé par GET /company/structures/{id}/composition
+ */
+export function compositionVide(composition) {
+  return Array.isArray(composition) && composition.length === 0;
+}
+
 export function construirePayloadStructure(rapprochement, { familleId, unites = [], taxe, familleErreur = null } = {}) {
   const erreurs = [];
   const code = str(rapprochement?.profero?.code);
@@ -146,11 +214,16 @@ export function construirePayloadStructure(rapprochement, { familleId, unites = 
  * Sans l'un ni l'autre, les LIAISONS restent possibles — elles ne créent rien —
  * et seules les CRÉATIONS sont écartées, faute de destination.
  */
-export function construirePlanSynchronisation({ inventaire, familles = [], unites = [], taxes = [], tvaDefaut = null, familleId = null, familleLabel = null } = {}) {
+export function construirePlanSynchronisation({ inventaire, familles = [], unites = [], taxes = [], tvaDefaut = null, familleId = null, familleLabel = null, jobs = [], jobId = null, compositions = null } = {}) {
   const famille = familleId != null || !str(familleLabel)
     ? resoudreFamilleParId(familles, familleId)
     : trouverFamilleCible(familles, familleLabel);
+  const job = resoudreJobHoraire(jobs, jobId);
   const taxe = trouverTva(taxes, tvaDefaut);
+  // `compositions` : composition ProGBat actuelle des ouvrages DÉJÀ liés, lue
+  // par l'appelant (Map id Profero → tableau de composants, ou null si non lue).
+  // Elle sert uniquement à savoir si l'on peut poser la cadence sans rien écraser.
+  const compositionDe = (id) => (compositions instanceof Map ? compositions.get(str(id)) : null);
   const actions = [];
   const exclus = [];
 
@@ -170,28 +243,61 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
     }
     if (r.statut === "nouveau_a_creer" && r.synchronisable) {
       const p = construirePayloadStructure(r, { familleId: famille.id, unites, taxe, familleErreur: famille.erreur });
-      if (p.ok) actions.push({ type: "create", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, payload: p.payload });
-      else exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: p.erreurs });
+      // La cadence part AVEC l'ouvrage : sans main-d'œuvre utilisable, la
+      // création est refusée plutôt que de laisser ProGBat inventer un temps.
+      const c = construireCompositionCadence({ cadence: r.prix?.heures_main_oeuvre, job });
+      if (p.ok && c.ok) {
+        actions.push({
+          type: "create", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court,
+          payload: p.payload, composition: c,
+        });
+      } else {
+        exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: [...p.erreurs, ...c.erreurs] });
+      }
       continue;
     }
-    if (!["deja_lie"].includes(r.statut)) {
-      exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: r.blocages?.length ? r.blocages : [`Statut « ${r.statut} » à traiter manuellement`] });
+    // Ouvrage déjà lié : on peut encore lui poser sa cadence, mais UNIQUEMENT
+    // si sa composition ProGBat est vide. Une composition existante n'est
+    // jamais remplacée (le PUT ProGBat écraserait matériaux et main-d'œuvre).
+    if (r.statut === "deja_lie") {
+      const actuelle = compositionDe(ouvrageId);
+      if (actuelle == null) continue;                       // composition non lue : rien à proposer
+      const progbatId = num(r.profero?.progbat_id ?? r.correspondance?.id);
+      if (!compositionVide(actuelle) || !Number.isInteger(progbatId) || progbatId <= 0) continue;
+      const c = construireCompositionCadence({ cadence: r.prix?.heures_main_oeuvre, job });
+      if (c.ok) {
+        actions.push({
+          type: "composition", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court,
+          progbatId, composition: c,
+        });
+      } else {
+        exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: c.erreurs });
+      }
+      continue;
     }
+    exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: r.blocages?.length ? r.blocages : [`Statut « ${r.statut} » à traiter manuellement`] });
   }
 
   actions.sort((a, b) => String(a.code || "").localeCompare(String(b.code || ""), "fr", { numeric: true }));
   return {
     famille,
+    job,
     taxe: taxe ? { id: taxe.id ?? null, rate: num(taxe.rate), label: str(taxe.label) } : null,
     actions,
     exclus,
     compteurs: {
       a_lier: actions.filter((a) => a.type === "link").length,
       a_creer: actions.filter((a) => a.type === "create").length,
+      a_composer: actions.filter((a) => a.type === "composition").length,
       exclus: exclus.length,
       total: actions.length,
     },
-    garanties: { modifie_existants_progbat: false, supprime_progbat: false, cree_elements: false },
+    garanties: {
+      // Une composition n'est posée que sur un ouvrage créé à l'instant ou dont
+      // la composition ProGBat est VIDE : rien d'existant n'est remplacé.
+      modifie_existants_progbat: false, supprime_progbat: false, cree_elements: false,
+      ecrase_composition: false, recalcule_prix_progbat: false,
+    },
   };
 }
 
@@ -219,6 +325,7 @@ export function restreindrePlan(plan, ouvrageIds) {
     compteurs: {
       a_lier: actions.filter((a) => a.type === "link").length,
       a_creer: actions.filter((a) => a.type === "create").length,
+      a_composer: actions.filter((a) => a.type === "composition").length,
       exclus: exclus.length,
       total: actions.length,
     },
@@ -256,6 +363,10 @@ export function donneesPourHash(plan) {
     perimetre: plan?.perimetre?.ouvrageIds ?? null,
     actions: (plan?.actions || []).map((a) => a.type === "link"
       ? { type: a.type, ouvrageId: a.ouvrageId, progbatId: a.progbatId }
-      : { type: a.type, ouvrageId: a.ouvrageId, payload: a.payload }),
+      : a.type === "composition"
+        ? { type: a.type, ouvrageId: a.ouvrageId, progbatId: a.progbatId, composition: a.composition?.payload }
+        // La composition entre dans l'empreinte : confirmer une création, c'est
+        // aussi confirmer le temps qui l'accompagne.
+        : { type: a.type, ouvrageId: a.ouvrageId, payload: a.payload, composition: a.composition?.payload }),
   };
 }

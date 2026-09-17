@@ -41,6 +41,7 @@ export default function ProgbatInventaire({ T, acc }) {
   const [syncResultat, setSyncResultat] = useState(null);
   const [confirmation, setConfirmation] = useState(false);
   const [familleId, setFamilleId] = useState(null);   // famille ProGBat de destination
+  const [jobId, setJobId] = useState(null);           // main-d'œuvre qui porte la cadence
 
   const analyser = async () => {
     setLoading(true); setErreur(null);
@@ -61,10 +62,10 @@ export default function ProgbatInventaire({ T, acc }) {
     setLoading(false);
   };
 
-  const preparerSynchronisation = async (cible = familleId) => {
+  const preparerSynchronisation = async (cible = familleId, cibleJob = jobId) => {
     setSyncLoading(true); setSyncErreur(null); setSyncResultat(null); setConfirmation(false);
     try {
-      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare", familleId: cible ?? null } });
+      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare", familleId: cible ?? null, jobId: cibleJob ?? null } });
       if (error && !data) throw error;
       if (!data?.ok) throw new Error(data?.error || "Préparation de la synchronisation impossible.");
       setSyncPlan(data);
@@ -77,7 +78,7 @@ export default function ProgbatInventaire({ T, acc }) {
     setSyncLoading(true); setSyncErreur(null);
     try {
       const { data, error } = await supabase.functions.invoke("progbat-library-sync", {
-        body: { action: "sync", familleId: familleId ?? null, expectedPlanHash: syncPlan.planHash, confirmed: true },
+        body: { action: "sync", familleId: familleId ?? null, jobId: jobId ?? null, expectedPlanHash: syncPlan.planHash, confirmed: true },
       });
       if (error && !data) throw error;
       if (!data) throw new Error("Réponse vide de la synchronisation.");
@@ -160,7 +161,7 @@ export default function ProgbatInventaire({ T, acc }) {
           <Icon as={RefreshCw} size={11} style={loading ? { animation: "spin 1s linear infinite" } : undefined} />
           {loading ? "Analyse en cours…" : "Analyser la bibliothèque"}
         </button>
-        {result && <button onClick={() => preparerSynchronisation(familleId)} disabled={syncLoading || loading} style={{
+        {result && <button onClick={() => preparerSynchronisation(familleId, jobId)} disabled={syncLoading || loading} style={{
           display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 14px", borderRadius: RADIUS.md,
           border: `1px solid ${acc.accent}`, background: "transparent", color: acc.accent,
           fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
@@ -184,7 +185,7 @@ export default function ProgbatInventaire({ T, acc }) {
         {syncResultat && <div style={{ flex: "1 1 100%", padding: "9px 12px", borderRadius: RADIUS.md,
           color: syncResultat.ok ? "#22c55e" : "#f59e0b", background: syncResultat.ok ? "rgba(34,197,94,.08)" : "rgba(245,158,11,.08)",
           border: `1px solid ${syncResultat.ok ? "rgba(34,197,94,.28)" : "rgba(245,158,11,.28)"}`, fontWeight: 700 }}>
-          Synchronisation terminée : {syncResultat.compteurs?.linked || 0} liaison(s), {syncResultat.compteurs?.created || 0} création(s)
+          Synchronisation terminée : {syncResultat.compteurs?.linked || 0} liaison(s), {syncResultat.compteurs?.created || 0} création(s) avec cadence{(syncResultat.compteurs?.created_sans_cadence || 0) > 0 ? `, ${syncResultat.compteurs.created_sans_cadence} création(s) SANS cadence (à relancer)` : ""}
           {(syncResultat.compteurs?.failed || syncResultat.compteurs?.uncertain || syncResultat.compteurs?.conflit) ? ` · ${syncResultat.compteurs?.failed || 0} échec(s), ${syncResultat.compteurs?.uncertain || 0} état(s) incertain(s), ${syncResultat.compteurs?.conflit || 0} conflit(s)` : ""}.
           {(syncResultat.compteurs?.uncertain || 0) > 0 && <div>Vérifier manuellement dans ProGBat avant toute nouvelle tentative.</div>}
         </div>}
@@ -206,12 +207,25 @@ export default function ProgbatInventaire({ T, acc }) {
                   <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Famille ProGBat</label>
                     <select value={familleId ?? ""} disabled={syncLoading}
-                      onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setFamilleId(v); preparerSynchronisation(v); }}
+                      onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setFamilleId(v); preparerSynchronisation(v, jobId); }}
                       style={{ padding: "7px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", maxWidth: 320 }}>
                       <option value="">— choisir la famille —</option>
                       {(syncPlan.famillesDisponibles || []).map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
                     </select>
                     <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>les liaisons n'en ont pas besoin ; les créations si</span>
+                  </div>
+                )}
+                {/* La cadence Profero devient la quantité (en heures) de ce job. */}
+                {(syncPlan.jobsDisponibles || []).length > 0 && (
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Main-d'œuvre ProGBat</label>
+                    <select value={jobId ?? ""} disabled={syncLoading}
+                      onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setJobId(v); preparerSynchronisation(familleId, v); }}
+                      style={{ padding: "7px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", maxWidth: 320 }}>
+                      <option value="">— choisir la main-d'œuvre —</option>
+                      {(syncPlan.jobsDisponibles || []).map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
+                    </select>
+                    <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>porte la cadence Profero, en heures</span>
                   </div>
                 )}
               </div>
@@ -222,7 +236,7 @@ export default function ProgbatInventaire({ T, acc }) {
               }}><Icon as={UploadCloud} size={13}/>Synchroniser</button>
             </div>
             <div style={{ marginTop: 8, color: T.textMuted }}>
-              Garanties : aucun ouvrage ProGBat existant modifié, aucune suppression, aucun matériau créé. Les créations reprennent le coût et le prix de vente calculés dans Profero.
+              Garanties : aucun ouvrage ProGBat existant modifié, aucune suppression, aucun matériau créé, aucune composition existante remplacée. Les créations reprennent le coût, le prix de vente et la cadence calculés dans Profero ; ProGBat ne recalcule pas le prix.
             </div>
             {syncPlan.plan.actions?.length > 0 && <div style={{ marginTop: 8, maxHeight: 180, overflowY: "auto", borderTop: `1px solid ${T.border}` }}>
               {syncPlan.plan.actions.map(a => <div key={`${a.type}-${a.ouvrageId}`} style={{ display: "flex", gap: 8, padding: "5px 2px", borderBottom: `1px solid ${T.border}` }}>

@@ -151,6 +151,10 @@ export function verifierCompletude(ouvrage, { materiaux = [], coutHoraire = null
       prix_vente_ht: calc.prixVenteUnitaire,
       prix_materiaux_ht: calc.prixMateriauxUnitaire,
       prix_main_oeuvre_ht: calc.prixMainOeuvreUnitaire,
+      // Heures de main-d'œuvre par unité, telles qu'elles servent au prix. La
+      // synchronisation les envoie à ProGBat comme quantité du job horaire :
+      // prix et temps restent ainsi cohérents entre les deux logiciels.
+      heures_main_oeuvre: calc.mainOeuvre?.heures ?? null,
       taux_horaire_vente: calc.tauxHoraire?.valeur ?? null,
       taux_horaire_vente_id: calc.tauxHoraire?.id ?? null,
       coef_vente: calc.coefVente,
