@@ -2,20 +2,53 @@
 // ─── SYNCHRONISATION BIBLIOTHÈQUE PROGBAT — PLAN PUR ────────────────────────
 // Construit un plan conservateur à partir de l'inventaire :
 //   • un code métier unique déjà présent est seulement LIÉ dans Profero ;
-//   • un ouvrage réellement absent et complet est CRÉÉ sous « Ouvrages V2 » ;
+//   • un ouvrage réellement absent et complet est CRÉÉ dans une famille
+//     d'ouvrages EXISTANTE, désignée explicitement par l'utilisateur ;
 //   • aucune structure existante n'est modifiée ou supprimée ;
 //   • aucun matériau/composant n'est créé dans cette première version.
 
 import { arrondirMontant, num } from "./chiffragePricing.mjs";
 import { normaliserLibelle } from "./progbatInventaire.mjs";
 
-export const FAMILLE_CIBLE_DEFAUT = "Ouvrages V2";
+// Aucune famille de destination par défaut : elle est choisie sur l'écran,
+// parmi les familles d'ouvrages qui existent déjà dans ProGBat. Créer les
+// ouvrages dans une famille « fourre-tout » imposait un reclassement ensuite.
+
 
 const str = (v) => String(v ?? "").trim();
 const arrondir4 = (v) => Math.round((Number(v) + Number.EPSILON) * 10000) / 10000;
 
 export function cleUnite(v) {
   return str(v).toLowerCase().replace(/\s+/g, "").replace(/²/g, "2");
+}
+
+/** Familles ProGBat utilisables comme famille d'OUVRAGES, triées par nom. */
+export function listerFamillesOuvrages(familles = []) {
+  return (familles || [])
+    .filter((f) => f?.id != null && f.structureFamily !== false && str(f.label))
+    .map((f) => ({ id: Number(f.id), label: str(f.label) }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
+}
+
+/**
+ * Famille de destination désignée par son identifiant ProGBat (le cas normal :
+ * l'utilisateur l'a choisie dans la liste des familles existantes). Le nom
+ * n'est jamais réinventé ici : il est relu depuis ProGBat.
+ */
+export function resoudreFamilleParId(familles = [], familleId) {
+  const vise = num(familleId);
+  const disponibles = listerFamillesOuvrages(familles);
+  const base = { ok: false, id: null, libelle: "", candidats: [], homonymes: [], disponibles, erreur: null };
+  if (!Number.isInteger(vise) || vise <= 0) {
+    return { ...base, erreur: "Choisir la famille ProGBat qui recevra l'ouvrage" };
+  }
+  const trouvee = (familles || []).find((f) => f?.id != null && Number(f.id) === vise);
+  if (!trouvee) return { ...base, erreur: `Famille ProGBat n° ${vise} introuvable : la liste a peut-être changé, relancer la vérification` };
+  if (trouvee.structureFamily === false) {
+    return { ...base, libelle: str(trouvee.label), erreur: `La famille ProGBat « ${str(trouvee.label)} » n'est pas une famille d'ouvrages` };
+  }
+  const resume = { id: vise, label: str(trouvee.label), structureFamily: true };
+  return { ...base, ok: true, id: vise, libelle: resume.label, candidats: [resume], homonymes: [resume] };
 }
 
 /**
@@ -28,7 +61,7 @@ export function cleUnite(v) {
  * `disponibles` liste les familles d'ouvrages réellement utilisables, pour que
  * l'écran puisse montrer ce qui existe au lieu d'un simple « introuvable ».
  */
-export function trouverFamilleCible(familles = [], libelle = FAMILLE_CIBLE_DEFAUT) {
+export function trouverFamilleCible(familles = [], libelle) {
   const cible = normaliserLibelle(libelle);
   const liste = (familles || []).filter((f) => f?.id != null);
   const resume = (f) => ({ id: Number(f.id), label: str(f.label), structureFamily: f?.structureFamily !== false });
@@ -49,7 +82,7 @@ export function trouverFamilleCible(familles = [], libelle = FAMILLE_CIBLE_DEFAU
     libelle,
     candidats: candidats.map(resume),
     homonymes: homonymes.map(resume),
-    disponibles: liste.filter((f) => f.structureFamily !== false).map((f) => str(f.label)).filter(Boolean).sort((a, b) => a.localeCompare(b, "fr")),
+    disponibles: listerFamillesOuvrages(liste),
     erreur,
   };
 }
@@ -76,7 +109,7 @@ export function construirePayloadStructure(rapprochement, { familleId, unites = 
   if (!code) erreurs.push("Code Profero absent");
   if (!libelleCourt) erreurs.push("Libellé absent");
   // La cause exacte vient de trouverFamilleCible : elle dit quoi corriger dans ProGBat.
-  if (!Number.isInteger(famille) || famille <= 0) erreurs.push(str(familleErreur) || `Famille ProGBat « ${FAMILLE_CIBLE_DEFAUT} » introuvable ou ambiguë`);
+  if (!Number.isInteger(famille) || famille <= 0) erreurs.push(str(familleErreur) || "Famille ProGBat de destination non choisie");
   if (!unite?.code) erreurs.push(`Unité « ${str(rapprochement?.profero?.unite)} » inconnue dans ProGBat`);
   if (cout == null || cout < 0) erreurs.push("Coût total HT invalide");
   if (vente == null || vente < 0) erreurs.push("Prix de vente HT invalide");
@@ -105,8 +138,19 @@ export function construirePayloadStructure(rapprochement, { familleId, unites = 
   };
 }
 
-export function construirePlanSynchronisation({ inventaire, familles = [], unites = [], taxes = [], tvaDefaut = null, familleLabel = FAMILLE_CIBLE_DEFAUT } = {}) {
-  const famille = trouverFamilleCible(familles, familleLabel);
+/**
+ * @param familleId    identifiant ProGBat de la famille de destination, choisi
+ *                     par l'utilisateur parmi les familles existantes. C'est
+ *                     la voie normale.
+ * @param familleLabel repli par NOM (aucun écran ne l'utilise aujourd'hui) ;
+ *                     ignoré dès qu'un familleId est fourni.
+ * Sans l'un ni l'autre, les LIAISONS restent possibles — elles ne créent rien —
+ * et seules les CRÉATIONS sont écartées, faute de destination.
+ */
+export function construirePlanSynchronisation({ inventaire, familles = [], unites = [], taxes = [], tvaDefaut = null, familleId = null, familleLabel = null } = {}) {
+  const famille = familleId != null || !str(familleLabel)
+    ? resoudreFamilleParId(familles, familleId)
+    : trouverFamilleCible(familles, familleLabel);
   const taxe = trouverTva(taxes, tvaDefaut);
   const actions = [];
   const exclus = [];

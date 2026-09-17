@@ -2,9 +2,9 @@
 // Envoi d'UN ouvrage Profero vers ProGBat, sans passer par la synchronisation
 // globale des Réglages. Même Edge Function, même garde-fous :
 //   1. « Vérifier » prépare le plan restreint à cet ouvrage (LECTURE SEULE) ;
-//   2. l'aperçu dit exactement ce qui sera fait (créer sous « Ouvrages V2 » ou
-//      seulement lier un code déjà présent dans ProGBat), ou pourquoi c'est
-//      impossible ;
+//   2. l'aperçu dit exactement ce qui sera fait (créer dans la famille
+//      d'ouvrages EXISTANTE choisie, ou seulement lier un code déjà présent
+//      dans ProGBat), ou pourquoi c'est impossible ;
 //   3. l'écriture n'a lieu qu'après confirmation explicite, avec l'empreinte du
 //      plan : si l'ouvrage a changé entre-temps, ProGBat n'est pas touché.
 // Aucune structure ProGBat existante n'est modifiée ni supprimée.
@@ -34,12 +34,17 @@ function raisonsHorsPlan(plan, etat) {
   return ["Ouvrage introuvable dans l'inventaire : relancer l'analyse depuis Réglages → Maintenance."];
 }
 
-export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
+// Comparaison de noms tolérante aux accents/casse, pour proposer d'emblée la
+// famille ProGBat qui porte le nom de la catégorie Profero de l'ouvrage.
+const cleNom = (v) => String(v ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+export default function OuvrageProgbatSync({ ouvrage, categorieLabel = "", T, acc, onLie }) {
   const [etape, setEtape] = useState("repos");   // repos | apercu | fait
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState(null);
   const [apercu, setApercu] = useState(null);    // { planHash, plan, etats }
   const [resultat, setResultat] = useState(null);
+  const [familleId, setFamilleId] = useState(null);   // famille ProGBat choisie
 
   const progbatId = ouvrage?.progbat_id ? String(ouvrage.progbat_id) : null;
 
@@ -55,11 +60,27 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
     return data;
   };
 
-  const verifier = async () => {
+  // `cible` : null = on laisse le serveur décider qu'aucune famille n'est
+  // choisie (premier appel), ce qui sert surtout à récupérer la liste.
+  const verifier = async (cible = familleId) => {
     setChargement(true); setErreur(null); setResultat(null);
     try {
-      const data = await appeler({ action: "prepare", ouvrageIds: [ouvrage.id] });
+      const data = await appeler({ action: "prepare", ouvrageIds: [ouvrage.id], familleId: cible ?? null });
       if (!data.ok) throw new Error(data.error || "Préparation impossible.");
+      const familles = data.famillesDisponibles || [];
+      // Aucune famille choisie : proposer celle qui porte le nom de la
+      // catégorie Profero de l'ouvrage, quand elle existe. Rien n'est envoyé
+      // pour autant — la confirmation reste à faire.
+      const suggeree = cible == null && categorieLabel
+        ? familles.find((f) => cleNom(f.label) === cleNom(categorieLabel))
+        : null;
+      // On relance avec la famille suggérée sans afficher l'aperçu vide
+      // intermédiaire : l'utilisateur ne voit qu'un seul état, le bon.
+      if (suggeree) {
+        setFamilleId(suggeree.id);
+        return verifier(suggeree.id);
+      }
+      setFamilleId(cible ?? null);
       setApercu(data);
       setEtape("apercu");
     } catch (e) { setErreur(e?.message || "Erreur inattendue."); }
@@ -71,7 +92,7 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
     setChargement(true); setErreur(null);
     try {
       const data = await appeler({
-        action: "sync", ouvrageIds: [ouvrage.id],
+        action: "sync", ouvrageIds: [ouvrage.id], familleId: familleId ?? null,
         expectedPlanHash: apercu.planHash, confirmed: true,
       });
       const ligne = (data.resultats || [])[0] || null;
@@ -90,6 +111,7 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
   const action = (apercu?.plan?.actions || [])[0] || null;
   const etat = (apercu?.etats || [])[0] || null;
   const famille = apercu?.plan?.famille || null;
+  const famillesDisponibles = apercu?.famillesDisponibles || [];
 
   const bouton = (label, onClick, { principal = false, disabled = false, icone = UploadCloud } = {}) => (
     <button onClick={onClick} disabled={disabled} style={{
@@ -123,7 +145,7 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
                 fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#22c55e", background: "rgba(34,197,94,.10)", border: "1px solid rgba(34,197,94,.28)" }}>
               <Icon as={Link2} size={11}/> Sur ProGBat · #{progbatId}
             </span>
-          : etape === "repos" && bouton(chargement ? "Vérification…" : "Créer sur ProGBat", verifier, { disabled: chargement })}
+          : etape === "repos" && bouton(chargement ? "Vérification…" : "Créer sur ProGBat", () => verifier(null), { disabled: chargement })}
         {etape !== "repos" && bouton("Fermer", () => { setEtape("repos"); setApercu(null); setResultat(null); setErreur(null); }, { icone: X })}
       </div>
 
@@ -131,12 +153,34 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
         <span><Icon as={AlertTriangle} size={11} style={{ verticalAlign: -1, marginRight: 4 }}/>{erreur}</span>
       ))}
 
+      {/* Famille de destination : uniquement des familles qui EXISTENT déjà
+          dans ProGBat. Rien n'est créé côté familles. */}
+      {etape === "apercu" && !erreur && etat?.statut !== "deja_lie" && famillesDisponibles.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+            Famille ProGBat
+          </label>
+          <select
+            value={familleId ?? ""}
+            disabled={chargement}
+            onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setFamilleId(v); verifier(v); }}
+            style={{ padding: "7px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", maxWidth: 320 }}
+          >
+            <option value="">— choisir la famille —</option>
+            {famillesDisponibles.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+          <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+            {famillesDisponibles.length} famille(s) d'ouvrages existantes dans ProGBat
+          </span>
+        </div>
+      )}
+
       {etape === "apercu" && !erreur && (
         action ? encart("#4db8ff", (
           <>
             <div style={{ fontWeight: 800, marginBottom: 3 }}>
               {action.type === "create"
-                ? `Création dans ProGBat, dossier « ${apercu?.plan?.famille?.libelle || "Ouvrages V2"} »`
+                ? `Création dans ProGBat, famille « ${famille?.libelle || "?"} »`
                 : `Liaison au ProGBat existant #${action.progbatId}`}
             </div>
             {action.type === "create" ? (
@@ -161,18 +205,9 @@ export default function OuvrageProgbatSync({ ouvrage, T, acc, onLie }) {
             {raisonsHorsPlan(apercu?.plan, etat).map((r, i) => (
               <div key={i} style={{ color: T.textSub }}>• {r}</div>
             ))}
-            {/* Le blocage vient de ProGBat, pas de l'ouvrage : dire ce qui existe. */}
-            {famille && !famille.ok && (
+            {famillesDisponibles.length === 0 && (
               <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${T.sectionDivider}`, color: T.textSub }}>
-                {famille.homonymes?.length > 0
-                  ? <>Trouvé dans ProGBat sous ce nom : {famille.homonymes.map(f => `#${f.id} (${f.structureFamily ? "famille d'ouvrages" : "pas une famille d'ouvrages"})`).join(", ")}.</>
-                  : <>Aucune famille ProGBat ne porte le nom « {famille.libelle} ».</>}
-                {famille.disponibles?.length > 0 && (
-                  <div style={{ marginTop: 3 }}>
-                    Familles d'ouvrages existantes ({famille.disponibles.length}) : {famille.disponibles.slice(0, 15).join(" · ")}
-                    {famille.disponibles.length > 15 ? " …" : ""}
-                  </div>
-                )}
+                Aucune famille d'ouvrages n'a été trouvée dans ProGBat : en créer une dans ProGBat (bibliothèque → familles), puis relancer la vérification.
               </div>
             )}
           </>

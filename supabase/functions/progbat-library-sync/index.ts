@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.105.4"
 import { rapprocherBibliotheque } from "./lib/progbatInventaire.mjs"
-import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
+import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, listerFamillesOuvrages, restreindrePlan } from "./lib/progbatLibrarySync.mjs"
 
 // Synchronisation CONSERVATRICE Profero → ProGBat.
 // Actions : prepare (aucune écriture), sync (confirmation + hash), status.
@@ -10,7 +10,9 @@ import { construirePlanSynchronisation, donneesPourHash, etatOuvragePourSync, re
 // bibliothèque). Sans périmètre, le plan porte sur toute la bibliothèque.
 // Cette fonction peut uniquement :
 //   1. enregistrer dans Profero une correspondance de code métier unique ;
-//   2. créer une nouvelle structure ProGBat sous « Ouvrages V2 ».
+//   2. créer une nouvelle structure ProGBat dans une famille d'ouvrages
+//      EXISTANTE, désignée par `familleId` (aucune famille par défaut, aucune
+//      famille créée : la liste des familles utilisables est renvoyée à l'écran).
 // Elle ne PATCH/PUT/DELETE jamais ProGBat et ne crée aucun élément/composant.
 
 const PROGBAT_API = "https://api.progbat.com/v2"
@@ -107,6 +109,10 @@ serve(async (req) => {
       ? [...new Set(body.ouvrageIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean))]
       : []
     if (ouvrageIds.length > MAX_PERIMETRE) return json({ ok: false, error: `Périmètre limité à ${MAX_PERIMETRE} ouvrages.` }, 400)
+    // Famille ProGBat de destination : choisie par l'utilisateur parmi les
+    // familles existantes. Sa validité est revérifiée ici contre ProGBat.
+    const familleId = body.familleId == null ? null : Number(body.familleId)
+    if (familleId != null && (!Number.isInteger(familleId) || familleId <= 0)) return json({ ok: false, error: "Famille ProGBat invalide." }, 400)
 
     if (action === "status") {
       let requete = admin.from("progbat_library_sync_items")
@@ -145,10 +151,13 @@ serve(async (req) => {
     let plan = restreindrePlan(construirePlanSynchronisation({
       inventaire, familles: familles.items, unites: unites.items, taxes: taxesData,
       tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
+      familleId,
     }), ouvrageIds)
     // Périmètre restreint : l'état vu par l'inventaire explique sur la fiche
     // pourquoi un ouvrage n'a rien à faire (déjà lié) ou reste bloqué.
     const etats = ouvrageIds.map((id) => etatOuvragePourSync(inventaire, id)).filter(Boolean)
+    // Toujours renvoyé : c'est ce qui alimente la liste de choix des écrans.
+    const famillesDisponibles = listerFamillesOuvrages(familles.items)
 
     // Un état incertain/en cours reste bloquant même si l'inventaire le repropose.
     const ids = plan.actions.map((x: Record<string, unknown>) => x.ouvrageId)
@@ -171,11 +180,11 @@ serve(async (req) => {
 
     if (action === "prepare") {
       console.log(`[progbat-library-sync] appelant=${user.id} action=prepare perimetre=${ouvrageIds.length || "global"} liens=${plan.compteurs.a_lier} creations=${plan.compteurs.a_creer} exclus=${plan.compteurs.exclus} (${Date.now() - started} ms)`)
-      return json({ ok: true, action, planHash, plan, etats, aucune_suppression: true, aucune_modification_progbat: true })
+      return json({ ok: true, action, planHash, plan, etats, famillesDisponibles, aucune_suppression: true, aucune_modification_progbat: true })
     }
     if (body.confirmed !== true) return json({ ok: false, error: "Confirmation explicite requise.", code: "confirmation_requise" }, 400)
     if (String(body.expectedPlanHash || "") !== planHash) return json({ ok: false, error: "La bibliothèque a changé depuis l’aperçu. Relancer la préparation.", code: "plan_modifie", planHash }, 409)
-    if (!plan.actions.length) return json({ ok: false, error: "Aucune liaison ou création sûre à effectuer.", code: "plan_vide", etats }, 400)
+    if (!plan.actions.length) return json({ ok: false, error: "Aucune liaison ou création sûre à effectuer.", code: "plan_vide", etats, famillesDisponibles }, 400)
 
     const resultats: Record<string, unknown>[] = []
     let interrompu = false

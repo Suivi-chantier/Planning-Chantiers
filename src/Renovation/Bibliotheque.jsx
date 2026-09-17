@@ -904,6 +904,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
           <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.sectionDivider}` }}>
             <OuvrageProgbatSync
               ouvrage={editData}
+              categorieLabel={currentCat}
               T={T}
               acc={acc}
               onLie={(progbatId) => patchOuvrage({ progbat_id: progbatId, progbat_sync_at: new Date().toISOString() })}

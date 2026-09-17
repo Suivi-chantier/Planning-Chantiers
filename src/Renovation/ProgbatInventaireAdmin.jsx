@@ -1,6 +1,7 @@
 // src/Renovation/ProgbatInventaireAdmin.jsx — Réglages → Outils → Maintenance
 // Inventaire en lecture seule, puis synchronisation conservatrice explicitement
-// confirmée : lier les codes uniques et créer les absents sous « Ouvrages V2 ».
+// confirmée : lier les codes uniques et créer les absents dans une famille
+// d'ouvrages EXISTANTE, choisie ici parmi celles que ProGBat renvoie.
 // Jamais de modification/suppression d'une structure ProGBat existante.
 import React, { useMemo, useState } from "react";
 import { supabase } from "../supabase";
@@ -39,6 +40,7 @@ export default function ProgbatInventaire({ T, acc }) {
   const [syncErreur, setSyncErreur] = useState(null);
   const [syncResultat, setSyncResultat] = useState(null);
   const [confirmation, setConfirmation] = useState(false);
+  const [familleId, setFamilleId] = useState(null);   // famille ProGBat de destination
 
   const analyser = async () => {
     setLoading(true); setErreur(null);
@@ -59,10 +61,10 @@ export default function ProgbatInventaire({ T, acc }) {
     setLoading(false);
   };
 
-  const preparerSynchronisation = async () => {
+  const preparerSynchronisation = async (cible = familleId) => {
     setSyncLoading(true); setSyncErreur(null); setSyncResultat(null); setConfirmation(false);
     try {
-      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare" } });
+      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare", familleId: cible ?? null } });
       if (error && !data) throw error;
       if (!data?.ok) throw new Error(data?.error || "Préparation de la synchronisation impossible.");
       setSyncPlan(data);
@@ -75,7 +77,7 @@ export default function ProgbatInventaire({ T, acc }) {
     setSyncLoading(true); setSyncErreur(null);
     try {
       const { data, error } = await supabase.functions.invoke("progbat-library-sync", {
-        body: { action: "sync", expectedPlanHash: syncPlan.planHash, confirmed: true },
+        body: { action: "sync", familleId: familleId ?? null, expectedPlanHash: syncPlan.planHash, confirmed: true },
       });
       if (error && !data) throw error;
       if (!data) throw new Error("Réponse vide de la synchronisation.");
@@ -158,7 +160,7 @@ export default function ProgbatInventaire({ T, acc }) {
           <Icon as={RefreshCw} size={11} style={loading ? { animation: "spin 1s linear infinite" } : undefined} />
           {loading ? "Analyse en cours…" : "Analyser la bibliothèque"}
         </button>
-        {result && <button onClick={preparerSynchronisation} disabled={syncLoading || loading} style={{
+        {result && <button onClick={() => preparerSynchronisation(familleId)} disabled={syncLoading || loading} style={{
           display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 14px", borderRadius: RADIUS.md,
           border: `1px solid ${acc.accent}`, background: "transparent", color: acc.accent,
           fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
@@ -195,10 +197,23 @@ export default function ProgbatInventaire({ T, acc }) {
                 <div style={{ color: T.textSub }}>
                   <strong>{syncPlan.plan.compteurs.a_lier}</strong> code(s) unique(s) à lier · <strong>{syncPlan.plan.compteurs.a_creer}</strong> ouvrage(s) à créer · <strong>{syncPlan.plan.compteurs.exclus}</strong> exclu(s)
                 </div>
-                <div style={{ color: syncPlan.plan.dossier?.ok ? "#22c55e" : "#f59e0b" }}>
-                  Famille cible : {syncPlan.plan.famille?.ok ? `Ouvrages V2 (id ${syncPlan.plan.famille.id})` : syncPlan.plan.famille?.erreur}
+                <div style={{ color: syncPlan.plan.famille?.ok ? "#22c55e" : "#f59e0b" }}>
+                  Famille de destination : {syncPlan.plan.famille?.ok ? `${syncPlan.plan.famille.libelle} (id ${syncPlan.plan.famille.id})` : syncPlan.plan.famille?.erreur}
                   {syncPlan.plan.taxe ? ` · TVA ${syncPlan.plan.taxe.rate} %` : " · TVA par défaut non configurée"}
                 </div>
+                {/* Seules des familles EXISTANTES sont proposées : aucune n'est créée. */}
+                {(syncPlan.famillesDisponibles || []).length > 0 && (
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Famille ProGBat</label>
+                    <select value={familleId ?? ""} disabled={syncLoading}
+                      onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; setFamilleId(v); preparerSynchronisation(v); }}
+                      style={{ padding: "7px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none", maxWidth: 320 }}>
+                      <option value="">— choisir la famille —</option>
+                      {(syncPlan.famillesDisponibles || []).map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+                    </select>
+                    <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>les liaisons n'en ont pas besoin ; les créations si</span>
+                  </div>
+                )}
               </div>
               <button onClick={() => setConfirmation(true)} disabled={!syncPlan.plan.compteurs.total || syncLoading} style={{
                 display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: RADIUS.md, border: "none",
@@ -377,7 +392,8 @@ export default function ProgbatInventaire({ T, acc }) {
         <div onMouseDown={e => e.stopPropagation()} style={{ width: "min(580px,96vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: 20, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}><Icon as={ShieldCheck} size={20} color={acc.accent}/><div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Confirmer la synchronisation</div></div>
           <div style={{ color: T.textSub, lineHeight: 1.6 }}>
-            Profero va enregistrer <strong>{syncPlan.plan.compteurs.a_lier} liaison(s)</strong> par code unique et créer <strong>{syncPlan.plan.compteurs.a_creer} nouvel(aux) ouvrage(s)</strong> dans « Ouvrages V2 ».
+            Profero va enregistrer <strong>{syncPlan.plan.compteurs.a_lier} liaison(s)</strong> par code unique et créer <strong>{syncPlan.plan.compteurs.a_creer} nouvel(aux) ouvrage(s)</strong>
+            {syncPlan.plan.famille?.ok ? <> dans la famille ProGBat <strong>« {syncPlan.plan.famille.libelle} »</strong></> : null}.
           </div>
           <div style={{ marginTop: 10, padding: 10, borderRadius: RADIUS.md, background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.25)", color: T.text }}>
             Aucun ouvrage existant ne sera modifié ou supprimé dans ProGBat.

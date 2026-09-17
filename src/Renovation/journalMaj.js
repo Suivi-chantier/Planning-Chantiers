@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
+    type: "nouveaute",
+    titre: "Espace ouvrier : les chantiers sont maintenant rangés par opération",
+    pages: [],
+    quoi: "Sur le téléphone, l'onglet « Chantiers » de l'espace ouvrier s'appelle désormais « Opérations » et présente d'abord les opérations — l'immeuble ou l'adresse — au lieu d'une longue liste de tous les chantiers mélangés. Sur un programme de plusieurs logements, on trouve le bon bien plus vite.",
+    comment: "Onglet « Opérations » : chaque opération montre sa couleur, son adresse, son nombre de chantiers et où ils en sont. On l'ouvre pour voir l'adresse, l'itinéraire Maps/Waze et la liste de ses chantiers ; on ouvre ensuite un chantier pour retrouver exactement l'écran habituel — plans, documents et heures par ouvrage, rien n'y a changé. Les chantiers qui ne sont rattachés à aucune opération restent accessibles dans la section « Chantiers hors opération », en bas. Le bouton retour ramène à l'opération d'où l'on vient. Le rattachement d'un chantier à une opération se règle côté bureau, dans Réglages → Opérations.",
+  },
+  {
+    date: "2026-09-17",
     type: "correctif",
     titre: "Un compte désactivé n'a plus accès aux données",
     pages: [],
@@ -33,10 +41,10 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-17",
     type: "nouveaute",
-    titre: "Créer un ouvrage dans ProGBat directement depuis sa fiche de bibliothèque",
+    titre: "Créer un ouvrage dans ProGBat depuis sa fiche, dans la famille de votre choix",
     pages: [{ id: "bibliotheque", label: "Bibliothèque" }],
-    quoi: "Un ouvrage créé dans la bibliothèque Profero peut maintenant être envoyé dans ProGBat depuis sa propre fiche, un par un, sans attendre ni déclencher la synchronisation de toute la bibliothèque depuis les Réglages.",
-    comment: "Ouvrir l'ouvrage dans la Bibliothèque : en bas de la fiche, « Créer sur ProGBat » vérifie d'abord la situation sans rien écrire, puis affiche ce qui sera fait — création dans le dossier « Ouvrages V2 » avec l'unité, le prix d'achat, le prix de vente et la TVA, ou simple liaison si un ouvrage ProGBat porte déjà ce code. L'écriture n'a lieu qu'après confirmation. Si l'ouvrage est incomplet (code, unité, cadence, matériaux, prix), la fiche dit précisément ce qui manque. Une fois envoyé, l'ouvrage affiche son numéro ProGBat ; les ouvrages non encore envoyés portent la mention « Pas sur ProGBat » dans la liste. Aucun ouvrage existant dans ProGBat n'est modifié ni supprimé.",
+    quoi: "Un ouvrage créé dans la bibliothèque Profero peut maintenant être envoyé dans ProGBat depuis sa propre fiche, un par un, sans attendre ni déclencher la synchronisation de toute la bibliothèque depuis les Réglages. Il arrive directement dans une de vos familles ProGBat existantes : plus de dossier d'attente à reclasser ensuite. La synchronisation globale des Réglages demande la même chose.",
+    comment: "Ouvrir l'ouvrage dans la Bibliothèque : en bas de la fiche, « Créer sur ProGBat » vérifie d'abord la situation sans rien écrire, puis propose la famille ProGBat de destination — la liste ne contient que des familles qui existent déjà dans ProGBat, et celle qui porte le nom de la catégorie de l'ouvrage est présélectionnée. L'aperçu affiche alors ce qui sera fait : création dans cette famille avec l'unité, le prix d'achat, le prix de vente et la TVA, ou simple liaison si un ouvrage ProGBat porte déjà ce code. L'écriture n'a lieu qu'après confirmation. Si l'ouvrage est incomplet (code, unité, cadence, matériaux, prix), la fiche dit précisément ce qui manque. Une fois envoyé, l'ouvrage affiche son numéro ProGBat ; les ouvrages non encore envoyés portent la mention « Pas sur ProGBat » dans la liste. Aucun ouvrage ni aucune famille existante n'est modifié, créé ou supprimé dans ProGBat.",
   },
   {
     date: "2026-09-17",
