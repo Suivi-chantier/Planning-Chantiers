@@ -268,6 +268,207 @@ export function totauxFacturesProgbat(factures, parFacture = new Map()) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RATTACHEMENT À UNE ÉCHÉANCE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Numéro de situation porté par une ligne d'échéancier, ou null.
+ *
+ * Lu sur le LIBELLÉ (« Facture de situation n° 2 ») et sur l'identifiant
+ * (« situation_2 »), qui sont les deux seules formes que produisent
+ * normaliserEcheancier() et l'écran de réglage. Si les deux sont présents et se
+ * contredisent, la ligne n'a PAS de numéro : mieux vaut aucune suggestion
+ * qu'une suggestion tirée d'une ambiguïté.
+ */
+export function numeroSituationLigne(ligne) {
+  const surNom = /situation\s*n\s*[°ºo]?\s*(\d{1,3})(?!\d)/i.exec(String(ligne?.nom ?? ""));
+  const surId = /^situation[_-]?(\d{1,3})$/i.exec(String(ligne?.id ?? "").trim());
+  const a = surNom ? Number(surNom[1]) : null;
+  const b = surId ? Number(surId[1]) : null;
+  if (a !== null && b !== null && a !== b) return null;
+  const n = a ?? b;
+  return n !== null && Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Suggestion de rattachement — UNE PROPOSITION, JAMAIS UNE ÉCRITURE.
+ * L'écran doit la présenter comme telle et exiger une confirmation.
+ *
+ * Ne suggère QUE sur un fait certain : le numéro de situation. Aucun
+ * rapprochement par montant, date, client, adresse ou libellé approximatif —
+ * ce sont ces rapprochements-là qui cochent la mauvaise ligne d'argent.
+ *
+ * Refuse, dans cet ordre :
+ *   • un document d'annulation — il ne se rattache à aucune échéance ;
+ *   • un avoir actif (montant négatif) — hors périmètre de ce lot ;
+ *   • situationNumber = 0 — ce peut être l'acompte comme le démarrage ;
+ *   • plusieurs lignes portant le même numéro — ambiguïté.
+ */
+export function suggestionLigneProgbat(facture, echeancier = []) {
+  if (referenceAnnulationProgbat(facture).est_document_annulation) return null;
+  const ttc = montantOuNull(facture?.montant_ttc);
+  if (ttc === null || ttc < 0) return null;
+  const numero = entierStrict(facture?.progbat_situation_number);
+  if (numero === null || numero <= 0) return null;
+
+  const candidates = (Array.isArray(echeancier) ? echeancier : [])
+    .filter((l) => numeroSituationLigne(l) === numero);
+  if (candidates.length !== 1) return null;
+
+  const ligne = candidates[0];
+  const id = String(ligne?.id ?? "").trim();
+  if (!id) return null;
+  return {
+    ligne_id: id,
+    ligne_nom: String(ligne?.nom ?? "").slice(0, 80) || null,
+    numero_situation: numero,
+    raison: `Situation n° ${numero} : une seule échéance porte ce numéro.`,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CROISEMENT ÉCHÉANCIER × FACTURES ProGBat
+// ─────────────────────────────────────────────────────────────────────────────
+// Le bandeau du haut raisonne en HT. Une facture ProGBat n'a QUE son TTC
+// (montant_ht est volontairement NULL : netTotal et taxes suivent atiTotal
+// cumulatif et ne décrivent pas le HT exigible). Reconstituer un HT en divisant
+// le TTC donnerait un nombre plausible, faux, et qui finirait dans un tableau
+// comptable.
+//
+// LA BASE HT EST DONC CELLE DE L'ÉCHÉANCIER, jamais celle de la facture :
+//     facturé   → le HT PRÉVU de la ligne, dès qu'une facture ProGBat active
+//                 lui est rattachée ;
+//     encaissé  → ce même HT prévu, au prorata de ce qui est réellement réglé
+//                 côté ProGBat :  ratio = règlements actifs / TTC dû, borné à
+//                 [0, 1].
+// Une ligne entièrement réglée pèse donc tout son HT prévu ; une ligne à moitié
+// réglée, la moitié. C'est un ÉQUIVALENT, et l'écran doit le dire.
+
+/** Pourquoi un ensemble lié ne permet aucun équivalent HT. */
+export const ANOMALIE_LIGNE = Object.freeze({
+  MONTANT_ILLISIBLE: "montant_illisible",
+  TTC_NON_POSITIF: "ttc_non_positif",       // total nul, négatif, ou uniquement un avoir
+  SIGNE_INCOHERENT: "signe_incoherent",
+});
+export const LIBELLE_ANOMALIE_LIGNE = Object.freeze({
+  montant_illisible: "Montant ProGBat illisible : aucun équivalent HT n'est calculé.",
+  ttc_non_positif: "Total TTC nul ou négatif (avoir seul) : aucun équivalent HT n'est calculé.",
+  signe_incoherent: "Règlements de sens contraire au montant dû : aucun équivalent HT n'est calculé.",
+});
+
+/**
+ * @param lignesEtat  etat.lignes d'etatFacturation() — chacune porte déjà son
+ *                    montantAttendu (HT prévu), ses factures MANUELLES et ses
+ *                    montantEmis / montantEncaisse manuels.
+ * @param actives     entrées actives de composerFacturesProgbat() —
+ *                    { facture, reglements, etat, libelle }
+ * @param montantReference marché HT
+ * @param totauxManuels    etat.totaux — le calcul manuel actuel, intact
+ *
+ * @returns { parLigne: Map, totaux, lignesLiees, actif }
+ *
+ * `totaux` part des totaux MANUELS et n'y touche que pour les lignes reprises
+ * par ProGBat : la contribution manuelle de ces lignes est retirée, celle de
+ * l'échéancier est ajoutée. Sans aucun rattachement ProGBat, les totaux sont
+ * donc rigoureusement ceux d'aujourd'hui — le manuel ne bouge pas d'un centime.
+ */
+export function croiserEcheancierProgbat({
+  lignesEtat = [], actives = [], montantReference = 0, totauxManuels = null,
+} = {}) {
+  const parLigne = new Map();
+  const attachees = new Map();
+  for (const entree of Array.isArray(actives) ? actives : []) {
+    const id = String(entree?.facture?.ligne_id ?? "").trim();
+    if (!id) continue;
+    if (!attachees.has(id)) attachees.set(id, []);
+    attachees.get(id).push(entree);
+  }
+
+  let emisRetire = 0;
+  let encaisseRetire = 0;
+  let emisAjoute = 0;
+  let encaisseAjoute = 0;
+  let lignesLiees = 0;
+
+  for (const ligne of Array.isArray(lignesEtat) ? lignesEtat : []) {
+    const entrees = attachees.get(String(ligne?.id)) ?? [];
+    if (!entrees.length) continue;
+    lignesLiees++;
+
+    const attendu = montantOuNull(ligne?.montantAttendu) ?? 0;
+    const montants = entrees.map((e) => montantOuNull(e?.facture?.montant_ttc));
+    const illisible = montants.some((m) => m === null);
+    const ttcDu = arrondi(montants.reduce((s, m) => s + (m ?? 0), 0));
+    const regle = arrondi(entrees.reduce((s, e) => s + sommeReglements(e?.reglements), 0));
+
+    let anomalie = null;
+    if (illisible) anomalie = ANOMALIE_LIGNE.MONTANT_ILLISIBLE;
+    else if (ttcDu <= TOLERANCE_EUR) anomalie = ANOMALIE_LIGNE.TTC_NON_POSITIF;
+    else if (regle < -TOLERANCE_EUR) anomalie = ANOMALIE_LIGNE.SIGNE_INCOHERENT;
+
+    // Borné à [0, 1] : un surpaiement ne fait pas facturer plus que prévu, et
+    // un remboursement ne fait pas descendre l'encaissé sous zéro.
+    const ratio = anomalie ? null : Math.max(0, Math.min(1, regle / ttcDu));
+    const equivalentHt = anomalie ? null : arrondi(ratio * attendu);
+
+    // L'état affiché sur la ligne réutilise la règle des factures : un ensemble
+    // lié se lit comme une facture unique de ttcDu réglée de `regle`.
+    const etatLigne = etatFactureProgbat(
+      { montant_ttc: illisible ? null : ttcDu },
+      entrees.flatMap((e) => (Array.isArray(e?.reglements) ? e.reglements : [])),
+    );
+
+    // Une ligne portant AUSSI une facture manuelle : on ne compte qu'une fois
+    // (ProGBat prime), et on le signale — rien n'est supprimé ni modifié.
+    const doublonManuel = Array.isArray(ligne?.factures) && ligne.factures.length > 0;
+
+    parLigne.set(String(ligne.id), {
+      ligne_id: String(ligne.id),
+      ligne_nom: ligne?.nom ?? null,
+      montant_attendu_ht: attendu,
+      entrees,
+      numeros: entrees.map((e) => e.libelle),
+      ttc_du: illisible ? null : ttcDu,
+      regle,
+      ratio,
+      equivalent_ht: equivalentHt,
+      etat: etatLigne.etat,
+      libelle_etat: etatLigne.libelle,
+      anomalie,
+      libelle_anomalie: anomalie ? LIBELLE_ANOMALIE_LIGNE[anomalie] : null,
+      doublon_manuel: doublonManuel,
+    });
+
+    emisRetire += montantOuNull(ligne?.montantEmis) ?? 0;
+    encaisseRetire += montantOuNull(ligne?.montantEncaisse) ?? 0;
+    emisAjoute += attendu;
+    encaisseAjoute += equivalentHt ?? 0;
+  }
+
+  const ref = montantOuNull(montantReference) ?? 0;
+  const emisManuel = montantOuNull(totauxManuels?.emis) ?? 0;
+  const encaisseManuel = montantOuNull(totauxManuels?.encaisse) ?? 0;
+  const factureHt = arrondi(emisManuel - emisRetire + emisAjoute);
+  const encaisseHt = arrondi(encaisseManuel - encaisseRetire + encaisseAjoute);
+
+  return {
+    parLigne,
+    lignesLiees,
+    actif: lignesLiees > 0,
+    totaux: {
+      facture_ht: factureHt,
+      encaisse_ht: encaisseHt,
+      reste_a_facturer_ht: arrondi(ref - factureHt),
+      reste_a_encaisser_ht: arrondi(factureHt - encaisseHt),
+      pct_facture: ref > 0 ? Math.round((factureHt / ref) * 1000) / 10 : null,
+      pct_encaisse: ref > 0 ? Math.round((encaisseHt / ref) * 1000) / 10 : null,
+      anomalies: [...parLigne.values()].filter((l) => l.anomalie).length,
+      doublons: [...parLigne.values()].filter((l) => l.doublon_manuel).length,
+    },
+  };
+}
+
 const parDatePuisId = (a, b) =>
   String(a.facture?.date_facture ?? "").localeCompare(String(b.facture?.date_facture ?? ""))
   || (Number(a.facture?.progbat_bill_id ?? 0) - Number(b.facture?.progbat_bill_id ?? 0));

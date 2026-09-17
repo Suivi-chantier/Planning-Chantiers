@@ -40,7 +40,12 @@ import {
   normaliserEcheancier, rapprocherFacture, factureDoublon,
   montantAttenduLigne, FACT_META_ECHEANCIER, FACT_META_MONTANT_REF,
 } from "./facturationClient";
-import { composerFacturesProgbat, LIBELLE_NATURE } from "./facturesProgbatAffichage";
+import {
+  composerFacturesProgbat, croiserEcheancierProgbat, suggestionLigneProgbat, LIBELLE_NATURE,
+} from "./facturesProgbatAffichage";
+// La règle de correction humaine d'une échéance (patch + verrou) vit déjà dans
+// le module de facturation ProGBat : on la RÉUTILISE, on ne la réécrit pas.
+import { corrigerLigneFacture } from "./progbatFacturation.mjs";
 
 const ACCEPT_FACTURE = "application/pdf,image/*";
 
@@ -444,24 +449,22 @@ function EditeurEcheancier({ lignes, surcharge, montantReference, T, onAnnuler, 
 //     humain, il viendra dans un autre lot ;
 //   • son échec ne doit jamais masquer l'échéancier : état d'erreur local,
 //     bouton Réessayer, et le reste de la page continue de fonctionner.
-function FacturesProgbat({ chantierId, T }) {
+// Chargement des factures ProGBat d'un chantier. Remonté ici (et non dans le
+// bloc d'affichage) parce que l'échéancier et le bandeau financier en ont
+// besoin eux aussi : une seule lecture, une seule vérité.
+function useFacturesProgbat(chantierId) {
   const [chargement, setChargement] = useState(true);
   const [erreurLecture, setErreurLecture] = useState("");
   const [donnees, setDonnees] = useState({ factures: [], reglements: [] });
 
-  const border = T?.border || "rgba(255,255,255,0.07)";
-  const text = T?.text || "#f0f0f0";
-  const textSub = T?.textSub || "#9aa5c0";
-  const textMuted = T?.textMuted || "#5b6a8a";
-
-  // Deux SELECT, colonnes nommées. Ni client, ni adresse, ni coordonnées, ni
-  // donnée bancaire, ni détail ProGBat (taxDetails, deductions) ne sont même
-  // demandés : ce qui n'est pas lu ne peut pas fuiter.
+  // Deux SELECT, colonnes nommées. Ni client, ni adresse, ni coordonnees, ni
+  // donnee bancaire, ni detail ProGBat (taxDetails, deductions) ne sont meme
+  // demandes : ce qui n'est pas lu ne peut pas fuiter.
   const charger = React.useCallback(async () => {
     if (!chantierId) { setDonnees({ factures: [], reglements: [] }); setChargement(false); return; }
     setChargement(true); setErreurLecture("");
     const rf = await supabase.from("chantier_factures_client")
-      .select("id,numero,date_facture,montant_ttc,progbat_bill_id,progbat_bill_code,progbat_type,progbat_situation_number,progbat_synced_at")
+      .select("id,numero,date_facture,montant_ttc,ligne_id,ligne_nom,ligne_id_verrouille,progbat_bill_id,progbat_bill_code,progbat_type,progbat_situation_number,progbat_synced_at")
       .eq("chantier_id", chantierId)
       .eq("source", "progbat")
       .order("date_facture", { ascending: true });
@@ -477,7 +480,7 @@ function FacturesProgbat({ chantierId, T }) {
         .select("id,facture_id,date_reglement,montant,progbat_transaction_id,annule")
         .in("facture_id", factures.map((f) => f.id));
       if (rr.error) {
-        setErreurLecture(rr.error.message || "Lecture des règlements ProGBat impossible.");
+        setErreurLecture(rr.error.message || "Lecture des reglements ProGBat impossible.");
         setChargement(false);
         return;
       }
@@ -487,7 +490,18 @@ function FacturesProgbat({ chantierId, T }) {
     setChargement(false);
   }, [chantierId]);
 
+  // Lecture seule : aucune ÉCRITURE ne part jamais d'un effet.
   React.useEffect(() => { charger(); }, [charger]);
+
+  return { chargement, erreurLecture, donnees, charger };
+}
+
+function FacturesProgbat({ T, peutModifier, echeancier = [], chargement, erreurLecture, donnees, charger, onRattacher, onDetacher, busyRattachement, erreurRattachement }) {
+  const border = T?.border || "rgba(255,255,255,0.07)";
+  const text = T?.text || "#f0f0f0";
+  const textSub = T?.textSub || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
 
   // Deux groupes : ce qui est réellement dû, et les documents d'annulation
   // ProGBat (situationNumber négatif), conservés pour l'historique mais hors
@@ -570,6 +584,16 @@ function FacturesProgbat({ chantierId, T }) {
 
   return cadre(
     <>
+      {erreurRattachement && (
+        <div style={{
+          display: "flex", gap: 8, padding: "8px 11px", marginBottom: 10, borderRadius: RADIUS.md,
+          background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.4)",
+          fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 600,
+        }}>
+          <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0 }}/>{erreurRattachement}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
         {kpiProgbat("Factures actives", String(totaux.nombre))}
         {kpiProgbat("Facturé TTC", eurSigne(totaux.total_facture))}
@@ -620,6 +644,99 @@ function FacturesProgbat({ chantierId, T }) {
                 <span style={{ marginLeft: "auto", color: textMuted, opacity: .8 }}>ProGBat n°{facture.progbat_bill_id}</span>
               )}
             </div>
+
+            {/* ── Rattachement à une échéance ──────────────────────────────
+                Une facture ne porte qu'un ligne_id. Plusieurs factures PEUVENT
+                viser la même échéance (complément, correction, avoir) : ce
+                n'est pas interdit, c'est signalé. */}
+            {(() => {
+              const rattachee = String(facture.ligne_id ?? "").trim();
+              const nomLigne = echeancier.find((l) => l.id === rattachee)?.nom || facture.ligne_nom || rattachee;
+              const occupe = (id) => lignes.filter((x) => x.facture.id !== facture.id && String(x.facture.ligne_id ?? "") === id).length;
+              const autres = rattachee ? occupe(rattachee) : 0;
+              const sugg = rattachee ? null : suggestionLigneProgbat(facture, echeancier);
+              const enCours = busyRattachement === facture.id;
+              return (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                  <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Échéance</span>
+                  {rattachee ? (
+                    <strong style={{ fontSize: FONT.xs.size + 1, color: text }}>{nomLigne}</strong>
+                  ) : (
+                    <span style={{
+                      fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
+                      color: "#f59e0b", border: "1px dashed #f59e0b55", borderRadius: RADIUS.pill, padding: "1px 8px",
+                    }}>À rattacher</span>
+                  )}
+                  {rattachee && autres > 0 && (
+                    <span style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b" }}>
+                      · {autres} autre(s) facture(s) active(s) sur cette échéance
+                    </span>
+                  )}
+
+                  {peutModifier && (
+                    <>
+                      <select value={rattachee} disabled={enCours}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          if (!id) return;
+                          onRattacher?.(facture, echeancier.find((x) => x.id === id),
+                            "Échéance choisie à la main sur la fiche chantier.");
+                        }}
+                        style={{
+                          padding: "4px 8px", borderRadius: RADIUS.md, border: `1px solid ${border}`,
+                          background: "transparent", color: textSub, fontFamily: "inherit",
+                          fontSize: FONT.xs.size + 1, maxWidth: 280,
+                        }}>
+                        <option value="">{rattachee ? "Changer d'échéance…" : "Choisir une échéance…"}</option>
+                        {echeancier.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.nom}{occupe(l.id) ? ` — déjà ${occupe(l.id)} facture(s)` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {rattachee && (
+                        <button disabled={enCours}
+                          onClick={() => onDetacher?.(facture, nomLigne, libelle)}
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 4, background: "transparent",
+                            border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "3px 9px",
+                            color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 700,
+                            cursor: enCours ? "default" : "pointer", fontFamily: "inherit",
+                          }}>
+                          <Icon as={X} size={10}/> Détacher
+                        </button>
+                      )}
+                      {enCours && <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>enregistrement…</span>}
+                    </>
+                  )}
+
+                  {/* Une SUGGESTION, affichée comme telle. Rien n'est écrit
+                      tant que personne n'a cliqué : aucune association
+                      automatique n'est jamais enregistrée. */}
+                  {sugg && peutModifier && (
+                    <div style={{
+                      flex: "1 1 100%", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
+                      marginTop: 4, padding: "5px 9px", borderRadius: RADIUS.md,
+                      background: "rgba(77,184,255,0.08)", border: "1px solid rgba(77,184,255,0.35)",
+                    }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: "#4db8ff" }}>
+                        Suggestion : <strong>{sugg.ligne_nom}</strong> — {sugg.raison}
+                      </span>
+                      <button disabled={enCours}
+                        onClick={() => onRattacher?.(facture, echeancier.find((x) => x.id === sugg.ligne_id), sugg.raison)}
+                        style={{
+                          marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4,
+                          background: "transparent", border: "1px solid rgba(77,184,255,0.5)", borderRadius: RADIUS.md,
+                          padding: "3px 10px", color: "#4db8ff", fontSize: FONT.xs.size + 1, fontWeight: 700,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}>
+                        <Icon as={Check} size={10}/> Confirmer ce rattachement
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Le détail des règlements ACTIFS : date, montant signé,
                 identifiant de transaction. Rien de bancaire — ni libellé, ni
@@ -730,6 +847,111 @@ export default function FacturationChantier({
   const textMuted = T?.textMuted || "#5b6a8a";
   const ref = montantRef?.montant || 0;
   const totaux = etat?.totaux || {};
+
+  // ── Factures ProGBat : une seule lecture, partagée ──────────────────────
+  // Le bloc ProGBat, l'échéancier et le bandeau financier en ont besoin.
+  const progbat = useFacturesProgbat(chantierId);
+  const [busyRattachement, setBusyRattachement] = useState(null);
+  const [erreurRattachement, setErreurRattachement] = useState("");
+
+  const progbatCompose = React.useMemo(
+    () => composerFacturesProgbat(progbat.donnees.factures, progbat.donnees.reglements),
+    [progbat.donnees],
+  );
+  // Croisement échéancier × ProGBat. Sans aucun rattachement, il est INERTE :
+  // les totaux rendus sont exactement ceux du calcul manuel.
+  const croisement = React.useMemo(() => croiserEcheancierProgbat({
+    lignesEtat: etat?.lignes || [],
+    actives: progbatCompose.factures_actives,
+    montantReference: ref,
+    totauxManuels: totaux,
+  }), [etat, progbatCompose, ref, totaux]);
+
+  /**
+   * ÉCRITURE DE RATTACHEMENT — la seule de cet écran sur une facture ProGBat.
+   * Déclenchée par un clic, jamais par un effet.
+   *
+   * Le patch vient de corrigerLigneFacture() : ligne_id, ligne_nom, le verrou
+   * et sa trace, rapprochement et raison. Aucune colonne ProGBat n'y figure —
+   * le trigger de la base les refuserait de toute façon au navigateur.
+   *
+   * L'UPDATE est borné par l'id ET par source='progbat' : même avec un id
+   * erroné, il ne peut pas toucher une facture manuelle. `.select("id")` puis
+   * « exactement une ligne » : zéro ligne (facture disparue, source changée)
+   * comme plusieurs lignes sont des ÉCHECS, jamais un succès silencieux.
+   */
+  const ecrireRattachement = async (facture, patch, libelleAction) => {
+    if (busyRattachement) return;
+    setBusyRattachement(facture.id);
+    setErreurRattachement("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data, error } = await supabase
+        .from("chantier_factures_client")
+        .update({ ...patch, ligne_id_modifie_par: session?.user?.id ?? null })
+        .eq("id", facture.id)
+        .eq("source", "progbat")
+        .select("id");
+      if (error) {
+        setErreurRattachement(`${libelleAction} impossible : ${error.message}`);
+      } else {
+        const n = Array.isArray(data) ? data.length : data ? 1 : 0;
+        if (n !== 1) {
+          setErreurRattachement(n === 0
+            ? `${libelleAction} sans effet : aucune facture ProGBat ne correspond (elle a pu être supprimée ou modifiée entre-temps). Actualisez.`
+            : `${libelleAction} refusée : ${n} lignes auraient été modifiées alors qu'une seule était visée.`);
+        } else {
+          await progbat.charger();
+          await onRefresh?.();
+        }
+      }
+    } catch (e) {
+      setErreurRattachement(`${libelleAction} impossible : ${e?.message || "erreur inattendue"}`);
+    }
+    setBusyRattachement(null);
+  };
+
+  const rattacherProgbat = (facture, ligne, raison) => {
+    if (!ligne?.id) return;
+    const patch = corrigerLigneFacture(facture, {
+      ligneId: ligne.id,
+      ligneNom: ligne.nom || null,
+      maintenant: new Date().toISOString(),
+      raison: raison || "Échéance choisie à la main sur la fiche chantier.",
+    });
+    if (!patch) return;                       // déjà rattachée à cette ligne
+    return ecrireRattachement(facture, patch, "Le rattachement");
+  };
+
+  // Les trois chiffres du bandeau. Identiques au calcul manuel tant qu'aucune
+  // échéance ne porte de facture ProGBat.
+  const bandeau = croisement.actif ? {
+    emis: croisement.totaux.facture_ht,
+    encaisse: croisement.totaux.encaisse_ht,
+    resteAFacturer: croisement.totaux.reste_a_facturer_ht,
+    resteAEncaisser: croisement.totaux.reste_a_encaisser_ht,
+    pctEmis: croisement.totaux.pct_facture,
+    pctEncaisse: croisement.totaux.pct_encaisse,
+  } : {
+    emis: totaux.emis, encaisse: totaux.encaisse,
+    resteAFacturer: totaux.resteAFacturer, resteAEncaisser: totaux.resteAEncaisser,
+    pctEmis: totaux.pctEmis, pctEncaisse: totaux.pctEncaisse,
+  };
+
+  const detacherProgbat = (facture, nomLigne, libelle) => {
+    if (!window.confirm(
+      `Détacher « ${libelle} » de l'échéance « ${nomLigne} » ?\n\n`
+      + "La facture et ses règlements restent en base : seul le rattachement est retiré.",
+    )) return;
+    const patch = corrigerLigneFacture(facture, {
+      ligneId: null,
+      ligneNom: null,
+      maintenant: new Date().toISOString(),
+      raison: "Rattachement retiré à la main sur la fiche chantier.",
+    });
+    if (!patch) return;
+    return ecrireRattachement(facture, patch, "Le détachement");
+  };
 
   // ── Import : upload → lecture IA → rapprochement → confirmation ──
   const choisirFichier = (ligneId = null) => {
@@ -942,18 +1164,31 @@ export default function FacturationChantier({
             {montantRef?.source === "saisi" ? "saisi à la main" : "somme des ouvrages du phasage"}
           </div>
         </div>
-        {kpi("Facturé", eur(totaux.emis), totaux.pctEmis !== null ? `${totaux.pctEmis} % du marché` : null, "#4db8ff")}
-        {kpi("Encaissé", eur(totaux.encaisse), totaux.pctEncaisse !== null ? `${totaux.pctEncaisse} % du marché` : null, "#22c55e")}
-        {kpi("Reste à facturer", eur(totaux.resteAFacturer),
-          totaux.resteAEncaisser > 0 ? `${eur(totaux.resteAEncaisser)} en attente de paiement` : null,
-          totaux.resteAFacturer > 0 ? text : "#22c55e")}
+        {/* Dès qu'une échéance porte une facture ProGBat, ces trois chiffres
+            passent sur l'ÉQUIVALENT HT de l'échéancier : une facture ProGBat
+            n'a qu'un TTC fiable, et son HT ne se reconstitue pas. Sans aucun
+            rattachement ProGBat, ce sont exactement les chiffres d'avant. */}
+        {kpi("Facturé", eur(bandeau.emis), bandeau.pctEmis !== null ? `${bandeau.pctEmis} % du marché` : null, "#4db8ff")}
+        {kpi("Encaissé", eur(bandeau.encaisse), bandeau.pctEncaisse !== null ? `${bandeau.pctEncaisse} % du marché` : null, "#22c55e")}
+        {kpi("Reste à facturer", eur(bandeau.resteAFacturer),
+          bandeau.resteAEncaisser > 0 ? `${eur(bandeau.resteAEncaisser)} en attente de paiement` : null,
+          bandeau.resteAFacturer > 0 ? text : "#22c55e")}
       </div>
+
+      {croisement.actif && (
+        <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginBottom: 8, lineHeight: 1.5 }}>
+          Équivalent HT <strong>selon l'échéancier</strong> : {croisement.lignesLiees} échéance(s) portent une facture ProGBat,
+          dont le HT n'existe pas. Leur HT prévu est retenu, au prorata des règlements reçus — ce n'est pas un HT extrait des factures ProGBat.
+          {croisement.totaux.anomalies > 0 && ` ${croisement.totaux.anomalies} échéance(s) en anomalie ne comptent pas d'encaissé.`}
+          {croisement.totaux.doublons > 0 && ` ${croisement.totaux.doublons} échéance(s) portent aussi une facture manuelle : comptées une seule fois.`}
+        </div>
+      )}
 
       {/* Barre : encaissé / émis / marché */}
       {ref > 0 && (
         <div style={{ height: 8, borderRadius: 4, background: border, overflow: "hidden", display: "flex", marginBottom: 6 }}>
-          <div style={{ width: `${Math.min(100, (totaux.encaisse / ref) * 100)}%`, background: "#22c55e" }}/>
-          <div style={{ width: `${Math.max(0, Math.min(100 - (totaux.encaisse / ref) * 100, ((totaux.emis - totaux.encaisse) / ref) * 100))}%`, background: "#4db8ff" }}/>
+          <div style={{ width: `${Math.min(100, (bandeau.encaisse / ref) * 100)}%`, background: "#22c55e" }}/>
+          <div style={{ width: `${Math.max(0, Math.min(100 - (bandeau.encaisse / ref) * 100, ((bandeau.emis - bandeau.encaisse) / ref) * 100))}%`, background: "#4db8ff" }}/>
         </div>
       )}
       {ref <= 0 && (
@@ -973,6 +1208,10 @@ export default function FacturationChantier({
         {(etat?.lignes || []).map(l => {
           const st = STATUT_STYLE[l.statut] || STATUT_STYLE.attente;
           const f = l.facture;
+          // Factures ProGBat actives rattachées à cette échéance. Les documents
+          // d'annulation et leurs règlements n'y sont jamais : ils sont écartés
+          // en amont par composerFacturesProgbat.
+          const pg = croisement.parLigne.get(String(l.id)) || null;
           return (
             <div key={l.id} style={{
               display: "flex", alignItems: "flex-start", gap: 10,
@@ -1000,6 +1239,40 @@ export default function FacturationChantier({
                   }}>{st.label}</span>
                 </div>
                 <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>{l.raison}</div>
+
+                {/* ── Ce que ProGBat dit de cette échéance ────────────────── */}
+                {pg && (
+                  <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, lineHeight: 1.6 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                      <span style={{ color: textMuted }}>ProGBat</span>
+                      <strong style={{ color: text }}>{pg.numeros.join(" · ")}</strong>
+                      <span style={{
+                        fontSize: 9.5, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
+                        color: pg.anomalie ? "#e15a5a" : pg.etat === "reglee" ? "#22c55e" : "#f59e0b",
+                        border: `1px solid ${pg.anomalie ? "#e15a5a" : pg.etat === "reglee" ? "#22c55e" : "#f59e0b"}88`,
+                        borderRadius: RADIUS.pill, padding: "1px 8px",
+                      }}>{pg.libelle_etat}</span>
+                      <span style={{ color: textMuted }}>
+                        {eurSigne(pg.ttc_du)} TTC dû · {eurSigne(pg.regle)} réglé
+                      </span>
+                    </div>
+                    {pg.anomalie ? (
+                      <div style={{ color: "#e15a5a", fontWeight: 700 }}>{pg.libelle_anomalie}</div>
+                    ) : (
+                      <div style={{ color: textMuted }}>
+                        Équivalent HT selon l'échéancier : {eur(pg.equivalent_ht)} sur {eur(pg.montant_attendu_ht)} prévus
+                        {pg.ratio !== null && pg.ratio < 1 ? ` (${Math.round(pg.ratio * 1000) / 10} % réglé)` : ""}.
+                      </div>
+                    )}
+                    {pg.doublon_manuel && (
+                      <div style={{ color: "#f59e0b", fontWeight: 700 }}>
+                        ⚠ Cette échéance porte AUSSI une facture manuelle : elle n'est comptée qu'une fois
+                        dans le bandeau (côté ProGBat). Rien n'a été supprimé — vérifiez le doublon.
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {l.ecart !== 0 && f && (
                   <div style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", marginTop: 2, fontWeight: 700 }}>
                     Facturé {eur(l.montantEmis)} — écart de {eur(Math.abs(l.ecart))} {l.ecart > 0 ? "au-dessus" : "en dessous"} de l'attendu.
@@ -1021,10 +1294,17 @@ export default function FacturationChantier({
                   ))}
                   {peutModifier && (
                     <>
-                      {!f && (
+                      {/* Une échéance déjà couverte par ProGBat n'offre plus
+                          l'import manuel : ce serait un doublon. */}
+                      {!f && !pg && (
                         <button onClick={() => choisirFichier(l.id)} disabled={!!busy} style={btn("#4db8ff")}>
                           <Icon as={Upload} size={11}/> Importer la facture
                         </button>
+                      )}
+                      {!f && pg && (
+                        <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+                          Facturée dans ProGBat — import manuel inutile.
+                        </span>
                       )}
                       {f && f.statut === "emise" && (
                         <button onClick={() => setEncaissement({ facture: f, ligneNom: l.nom })} style={btn("#22c55e")}>
@@ -1113,7 +1393,12 @@ export default function FacturationChantier({
       {/* Ce que la synchronisation a importé, en lecture seule. Bloc autonome :
           sa lecture est indépendante de l'échéancier manuel ci-dessus, et son
           échec ne l'empêche pas de s'afficher. */}
-      <FacturesProgbat chantierId={chantierId} T={T}/>
+      <FacturesProgbat
+        T={T} peutModifier={peutModifier} echeancier={echeancier || []}
+        chargement={progbat.chargement} erreurLecture={progbat.erreurLecture}
+        donnees={progbat.donnees} charger={progbat.charger}
+        onRattacher={rattacherProgbat} onDetacher={detacherProgbat}
+        busyRattachement={busyRattachement} erreurRattachement={erreurRattachement}/>
 
       {/* Chantiers ProGBat associés : le rattachement PRINCIPAL. Une facture
           ProGBat porte yardId, stable d'un avenant à l'autre — c'est par lui

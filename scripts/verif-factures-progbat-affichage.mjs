@@ -20,7 +20,13 @@ const {
   composerFacturesProgbat, etatFactureProgbat, grouperReglements,
   libelleFactureProgbat, natureFactureProgbat, referenceAnnulationProgbat,
   reglementsActifs, sommeReglements, totauxFacturesProgbat,
+  croiserEcheancierProgbat, numeroSituationLigne, suggestionLigneProgbat,
 } = await import(new URL("../src/Renovation/facturesProgbatAffichage.mjs", import.meta.url).href);
+
+// La règle du patch de rattachement est celle de la synchronisation : on la
+// vérifie ici telle qu'elle est utilisée, sans la redéfinir.
+const { corrigerLigneFacture } =
+  await import(new URL("../src/Renovation/progbatFacturation.mjs", import.meta.url).href);
 
 const ECRAN = lire("src/Renovation/FacturationChantier.jsx");
 
@@ -379,6 +385,361 @@ test("18. l'écran n'affiche que les actives, et replie les annulations", () => 
   assert.ok(!rendu.includes("etat.libelle"), "aucun état affiché sur une annulation");
   assert.ok(!rendu.includes("Reste "), "aucun reste à payer affiché sur une annulation");
   assert.ok(!/rembours/i.test(rendu), "ni dette ni remboursement supposé");
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3 ter. RATTACHEMENT À UNE ÉCHÉANCE
+// ═══════════════════════════════════════════════════════════════════════════
+const ECHEANCIER = [
+  { id: "acompte", nom: "Facture d'acompte", pct: 50 },
+  { id: "demarrage", nom: "Facture de démarrage", pct: 20 },
+  { id: "situation_1", nom: "Facture de situation n° 1", pct: 15 },
+  { id: "situation_2", nom: "Facture de situation n° 2", pct: 10 },
+  { id: "solde", nom: "Facture de solde", pct: 5 },
+];
+
+test("19. numéro de situation d'une ligne : libellé, identifiant, et refus si ambigu", () => {
+  assert.equal(numeroSituationLigne({ id: "situation_1", nom: "Facture de situation n° 1" }), 1);
+  assert.equal(numeroSituationLigne({ id: "situation_2", nom: "Facture de situation n° 2" }), 2);
+  assert.equal(numeroSituationLigne({ id: "situation_3", nom: "Autre libellé" }), 3, "l'identifiant suffit");
+  assert.equal(numeroSituationLigne({ id: "x", nom: "Situation n°4" }), 4, "le libellé suffit");
+  assert.equal(numeroSituationLigne({ id: "situation_1", nom: "Facture de situation n° 2" }), null, "contradiction → aucun numéro");
+  assert.equal(numeroSituationLigne({ id: "acompte", nom: "Facture d'acompte" }), null);
+  assert.equal(numeroSituationLigne({ id: "solde", nom: "Facture de solde" }), null);
+  assert.equal(numeroSituationLigne({}), null);
+});
+
+test("20. suggestion : situation n° 1 unique → proposée, jamais enregistrée", () => {
+  const f = fact({ progbat_situation_number: 1, montant_ttc: 4457.14, numero: "F-260081" });
+  const s = suggestionLigneProgbat(f, ECHEANCIER);
+  assert.equal(s.ligne_id, "situation_1");
+  assert.equal(s.ligne_nom, "Facture de situation n° 1");
+  assert.equal(s.numero_situation, 1);
+  assert.match(s.raison, /une seule échéance/i);
+  // Et la situation n° 2.
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: 2, montant_ttc: 100 }), ECHEANCIER).ligne_id, "situation_2");
+});
+
+test("21. aucune suggestion pour situationNumber = 0, absent ou non exploitable", () => {
+  // L'acompte et le démarrage du chantier #83 sont TOUS DEUX à 0 : impossible
+  // de trancher, donc rien n'est proposé.
+  for (const v of [0, "0", null, undefined, "", "abc", true, 1.5, -1, "-3"]) {
+    assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: v, montant_ttc: 100 }), ECHEANCIER), null,
+      `situationNumber ${JSON.stringify(v)} ne doit rien proposer`);
+  }
+});
+
+test("22. aucune suggestion si plusieurs lignes portent le même numéro", () => {
+  const ambigu = [...ECHEANCIER, { id: "situation_1_bis", nom: "Facture de situation n° 1 (avenant)", pct: 5 }];
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: 1, montant_ttc: 100 }), ambigu), null);
+  // Et rien non plus si aucune ligne ne porte ce numéro.
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: 9, montant_ttc: 100 }), ECHEANCIER), null);
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: 1, montant_ttc: 100 }), []), null);
+});
+
+test("23. aucune suggestion pour une annulation ni pour un avoir actif négatif", () => {
+  // Un document d'annulation ne se rattache à aucune échéance, même si son
+  // situationNumber négatif pourrait ressembler à un numéro.
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: -469, montant_ttc: -15639.11 }), ECHEANCIER), null);
+  // Un vrai avoir actif : hors périmètre de ce lot.
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: 1, montant_ttc: -500 }), ECHEANCIER), null);
+  // Montant illisible : rien non plus.
+  assert.equal(suggestionLigneProgbat(fact({ progbat_situation_number: 1, montant_ttc: null }), ECHEANCIER), null);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3 quater. CROISEMENT ÉCHÉANCIER × ProGBat
+// ═══════════════════════════════════════════════════════════════════════════
+// Fabrique une entrée d'état de ligne telle que etatFacturation() la produit.
+const ligneEtat = (o) => ({
+  id: "situation_1", nom: "Facture de situation n° 1", pct: 15,
+  montantAttendu: 1500, factures: [], montantEmis: 0, montantEncaisse: 0, ...o,
+});
+const croiser = (lignesEtat, factures, reglements, ref = 10000, totauxManuels = { emis: 0, encaisse: 0 }) =>
+  croiserEcheancierProgbat({
+    lignesEtat,
+    actives: composerFacturesProgbat(factures, reglements).factures_actives,
+    montantReference: ref, totauxManuels,
+  });
+
+test("24. ligne intégralement réglée : tout son HT prévu, facturé et encaissé", () => {
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1500 })],
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1800, numero: "F-1" })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 1800 })],
+  );
+  const pg = c.parLigne.get("situation_1");
+  assert.equal(pg.ttc_du, 1800);
+  assert.equal(pg.regle, 1800);
+  assert.equal(pg.ratio, 1);
+  assert.equal(pg.equivalent_ht, 1500, "tout le HT prévu de la ligne");
+  assert.equal(pg.etat, ETAT.REGLEE);
+  assert.equal(pg.anomalie, null);
+  assert.equal(c.totaux.facture_ht, 1500);
+  assert.equal(c.totaux.encaisse_ht, 1500);
+  assert.equal(c.totaux.reste_a_facturer_ht, 8500, "marché 10 000 − 1 500");
+  assert.equal(c.actif, true);
+});
+
+test("25. règlement partiel : HT équivalent au prorata", () => {
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 2000 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 500 })],
+  );
+  const pg = c.parLigne.get("situation_1");
+  assert.equal(pg.ratio, 0.25);
+  assert.equal(pg.equivalent_ht, 250);
+  assert.equal(pg.etat, ETAT.PARTIELLE);
+  assert.equal(c.totaux.facture_ht, 1000, "la ligne est facturée en entier");
+  assert.equal(c.totaux.encaisse_ht, 250, "mais encaissée au quart");
+});
+
+test("26. surpaiement : le ratio est borné à 1, jamais au-delà du HT prévu", () => {
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 5000 })],
+  );
+  const pg = c.parLigne.get("situation_1");
+  assert.equal(pg.ratio, 1);
+  assert.equal(pg.equivalent_ht, 1000, "borné : on n'encaisse pas plus que le HT prévu");
+  assert.equal(pg.etat, ETAT.SUR_REGLEE);
+  assert.equal(c.totaux.encaisse_ht, 1000);
+});
+
+test("27. signe incohérent, TTC nul ou avoir seul : aucun équivalent HT", () => {
+  // a. Remboursement sur une facture positive.
+  const a = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: -300 })],
+  );
+  const pa = a.parLigne.get("situation_1");
+  assert.equal(pa.anomalie, "signe_incoherent");
+  assert.equal(pa.equivalent_ht, null);
+  assert.equal(pa.ratio, null);
+  assert.equal(a.totaux.facture_ht, 1000, "la ligne reste facturée");
+  assert.equal(a.totaux.encaisse_ht, 0, "mais rien n'est encaissé en équivalent");
+  assert.equal(a.totaux.anomalies, 1);
+
+  // b. Un avoir actif SEUL rattaché à la ligne : TTC total négatif.
+  const b = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: -900 })],
+    [],
+  );
+  assert.equal(b.parLigne.get("situation_1").anomalie, "ttc_non_positif");
+  assert.equal(b.totaux.encaisse_ht, 0);
+
+  // c. Montant illisible.
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: null })],
+    [],
+  );
+  assert.equal(c.parLigne.get("situation_1").anomalie, "montant_illisible");
+  assert.equal(c.parLigne.get("situation_1").equivalent_ht, null);
+});
+
+test("28. plusieurs factures sur une même ligne : un seul comptage", () => {
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [
+      fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 600, date_facture: "2026-09-01", progbat_bill_id: 1 }),
+      fact({ id: "f-2", ligne_id: "situation_1", montant_ttc: 600, date_facture: "2026-09-02", progbat_bill_id: 2 }),
+    ],
+    [
+      regl({ id: "r-1", facture_id: "f-1", montant: 600 }),
+      regl({ id: "r-2", facture_id: "f-2", montant: 300 }),
+    ],
+  );
+  assert.equal(c.parLigne.size, 1);
+  assert.equal(c.lignesLiees, 1, "la ligne n'est comptée qu'une fois");
+  const pg = c.parLigne.get("situation_1");
+  assert.equal(pg.ttc_du, 1200, "les deux factures s'additionnent");
+  assert.equal(pg.regle, 900);
+  assert.equal(pg.ratio, 0.75);
+  assert.equal(c.totaux.facture_ht, 1000, "le HT prévu de la ligne, une seule fois");
+  assert.equal(c.totaux.encaisse_ht, 750);
+});
+
+test("29. facture manuelle ET ProGBat sur la même ligne : un comptage, un avertissement", () => {
+  const lignes = [ligneEtat({
+    montantAttendu: 1000,
+    factures: [{ id: "man-1", numero: "MAN-1", montant_ht: 900, statut: "encaissee" }],
+    montantEmis: 900, montantEncaisse: 900,
+  })];
+  const c = croiser(
+    lignes,
+    [fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 })],
+    [regl({ id: "r-1", facture_id: "f-1", montant: 1200 })],
+    10000,
+    { emis: 900, encaisse: 900 },   // totaux manuels actuels
+  );
+  const pg = c.parLigne.get("situation_1");
+  assert.equal(pg.doublon_manuel, true, "le doublon est signalé");
+  assert.equal(c.totaux.doublons, 1);
+  // 900 manuels retirés, 1000 de HT prévu ajoutés : la ligne compte UNE fois.
+  assert.equal(c.totaux.facture_ht, 1000);
+  assert.equal(c.totaux.encaisse_ht, 1000);
+});
+
+test("30. aucun rattachement ProGBat : les totaux manuels sont rigoureusement intacts", () => {
+  const lignes = [
+    ligneEtat({ id: "acompte", nom: "Facture d'acompte", montantAttendu: 5000,
+      factures: [{ id: "man-1", montant_ht: 4800, statut: "encaissee" }], montantEmis: 4800, montantEncaisse: 4800 }),
+    ligneEtat({ id: "solde", nom: "Facture de solde", montantAttendu: 500 }),
+  ];
+  const totauxManuels = { emis: 4800, encaisse: 4800 };
+  // Des factures ProGBat existent, mais AUCUNE n'est rattachée.
+  const c = croiser(lignes, [fact({ id: "f-1", ligne_id: null, montant_ttc: 1200 })], [], 10000, totauxManuels);
+  assert.equal(c.actif, false);
+  assert.equal(c.lignesLiees, 0);
+  assert.equal(c.parLigne.size, 0);
+  assert.equal(c.totaux.facture_ht, 4800, "exactement le total manuel");
+  assert.equal(c.totaux.encaisse_ht, 4800);
+  assert.equal(c.totaux.reste_a_facturer_ht, 5200);
+});
+
+test("31. un document d'annulation n'est jamais rattaché ni compté", () => {
+  const c = croiser(
+    [ligneEtat({ montantAttendu: 1000 })],
+    [
+      fact({ id: "f-1", ligne_id: "situation_1", montant_ttc: 1200 }),
+      // Même si un ligne_id traînait sur une annulation, elle est écartée en
+      // amont par composerFacturesProgbat : elle n'atteint pas le croisement.
+      fact({ id: "f-2", ligne_id: "situation_1", montant_ttc: -1200, progbat_situation_number: -469 }),
+    ],
+    [
+      regl({ id: "r-1", facture_id: "f-1", montant: 1200 }),
+      regl({ id: "r-2", facture_id: "f-2", montant: -1200 }),
+    ],
+  );
+  const pg = c.parLigne.get("situation_1");
+  assert.equal(pg.entrees.length, 1, "seule la facture active est liée");
+  assert.equal(pg.ttc_du, 1200, "l'annulation n'entre pas dans le TTC dû");
+  assert.equal(pg.regle, 1200, "son règlement non plus");
+  assert.equal(pg.equivalent_ht, 1000);
+  assert.equal(c.totaux.encaisse_ht, 1000);
+});
+
+test("32. cas réel #83 : quatre échéances réglées, le solde non facturé", () => {
+  // Marché et pourcentages RÉELS de l'échéancier — aucun montant en dur : les
+  // HT prévus sont calculés depuis le marché et les pourcentages.
+  const marche = 29714.27 / 0.95;   // les 4 lignes rattachées couvrent 95 %
+  const ht = (pct) => Math.round((marche * pct) / 100 * 100) / 100;
+  const lignes = [
+    ligneEtat({ id: "acompte", nom: "Facture d'acompte", pct: 50, montantAttendu: ht(50) }),
+    ligneEtat({ id: "demarrage", nom: "Facture de démarrage", pct: 20, montantAttendu: ht(20) }),
+    ligneEtat({ id: "situation_1", nom: "Facture de situation n° 1", pct: 15, montantAttendu: ht(15) }),
+    ligneEtat({ id: "situation_2", nom: "Facture de situation n° 2", pct: 10, montantAttendu: ht(10) }),
+    ligneEtat({ id: "solde", nom: "Facture de solde", pct: 5, montantAttendu: ht(5) }),
+  ];
+  const factures = [
+    fact({ id: "f-45", numero: "F-260045", ligne_id: "acompte", montant_ttc: 12000, progbat_situation_number: 0, date_facture: "2026-05-02", progbat_bill_id: 400 }),
+    fact({ id: "f-50", numero: "F-260050", ligne_id: "demarrage", montant_ttc: 7000, progbat_situation_number: 0, date_facture: "2026-06-03", progbat_bill_id: 410 }),
+    fact({ id: "f-81", numero: "F-260081", ligne_id: "situation_1", montant_ttc: 6000, progbat_situation_number: 1, date_facture: "2026-07-03", progbat_bill_id: 470 }),
+    fact({ id: "f-111", numero: "F-260111", ligne_id: "situation_2", montant_ttc: 4714.27, progbat_situation_number: 2, date_facture: "2026-08-03", progbat_bill_id: 500 }),
+    // Les deux annulations restent dans l'historique, rattachées à rien.
+    fact({ id: "f-42", numero: "F-260042", montant_ttc: -15639.11, progbat_situation_number: -469, date_facture: "2026-06-20", progbat_bill_id: 480 }),
+    fact({ id: "f-44", numero: "F-260044", montant_ttc: -16317.15, progbat_situation_number: -485, date_facture: "2026-06-28", progbat_bill_id: 490 }),
+  ];
+  const reglements = [
+    regl({ id: "r-45", facture_id: "f-45", montant: 12000 }),
+    regl({ id: "r-50", facture_id: "f-50", montant: 7000 }),
+    regl({ id: "r-81", facture_id: "f-81", montant: 6000 }),
+    regl({ id: "r-111", facture_id: "f-111", montant: 4714.27 }),
+  ];
+
+  const compose = composerFacturesProgbat(factures, reglements);
+  assert.equal(compose.factures_actives.length, 4);
+  assert.equal(compose.documents_annulation.length, 2, "F-260042 et F-260044 restent dans l'historique");
+
+  const c = croiserEcheancierProgbat({
+    lignesEtat: lignes, actives: compose.factures_actives,
+    montantReference: marche, totauxManuels: { emis: 0, encaisse: 0 },
+  });
+
+  assert.equal(c.lignesLiees, 4, "quatre échéances portent une facture ProGBat");
+  for (const id of ["acompte", "demarrage", "situation_1", "situation_2"]) {
+    const pg = c.parLigne.get(id);
+    assert.equal(pg.etat, ETAT.REGLEE, `${id} doit être réglée`);
+    assert.equal(pg.ratio, 1);
+    assert.equal(pg.anomalie, null);
+    assert.equal(pg.equivalent_ht, pg.montant_attendu_ht, `${id} contribue pour tout son HT prévu`);
+  }
+  assert.equal(c.parLigne.has("solde"), false, "la ligne de solde reste non facturée");
+
+  // Facturé = les 95 % rattachés ; reste à facturer = les 5 % du solde.
+  const attendu95 = Math.round((lignes.slice(0, 4).reduce((s, l) => s + l.montantAttendu, 0)) * 100) / 100;
+  assert.equal(c.totaux.facture_ht, attendu95);
+  assert.equal(c.totaux.encaisse_ht, attendu95, "tout est réglé");
+  assert.equal(c.totaux.reste_a_facturer_ht, Math.round((marche - attendu95) * 100) / 100);
+  assert.equal(c.totaux.anomalies, 0);
+  assert.equal(c.totaux.doublons, 0);
+
+  // Les suggestions : rien pour l'acompte ni le démarrage (situationNumber 0),
+  // les deux situations proposables.
+  assert.equal(suggestionLigneProgbat(factures[0], ECHEANCIER), null);
+  assert.equal(suggestionLigneProgbat(factures[1], ECHEANCIER), null);
+  assert.equal(suggestionLigneProgbat(factures[2], ECHEANCIER).ligne_id, "situation_1");
+  assert.equal(suggestionLigneProgbat(factures[3], ECHEANCIER).ligne_id, "situation_2");
+});
+
+test("33. écriture de rattachement : payload borné, UPDATE contrôlé, aucun effet", () => {
+  // Le patch vient de corrigerLigneFacture : aucune colonne ProGBat, aucun
+  // montant. Seulement le rattachement, son verrou et sa trace.
+  const patch = corrigerLigneFacture({ id: "f-1", ligne_id: null }, {
+    ligneId: "situation_1", ligneNom: "Facture de situation n° 1",
+    utilisateurId: "u-1", maintenant: "2026-09-17T10:00:00.000Z", raison: "test",
+  });
+  assert.deepEqual(Object.keys(patch).sort(), [
+    "ligne_id", "ligne_id_modifie_le", "ligne_id_modifie_par", "ligne_id_verrouille",
+    "ligne_nom", "raison", "rapprochement",
+  ].sort());
+  assert.equal(patch.ligne_id, "situation_1");
+  assert.equal(patch.ligne_id_verrouille, true);
+  assert.equal(patch.rapprochement, "corrige");
+  // Détachement : les mêmes colonnes, vidées.
+  const detach = corrigerLigneFacture({ id: "f-1", ligne_id: "situation_1" }, {
+    ligneId: null, maintenant: "2026-09-17T10:00:00.000Z", raison: "retrait",
+  });
+  assert.equal(detach.ligne_id, null);
+  assert.equal(detach.ligne_nom, null);
+
+  // Côté écran : l'UPDATE est borné par l'id ET par source='progbat', demande
+  // .select("id"), et n'est un succès qu'à exactement une ligne.
+  assert.match(ECRAN, /\.update\(\{ \.\.\.patch, ligne_id_modifie_par: session\?\.user\?\.id \?\? null \}\)/);
+  assert.match(ECRAN, /\.eq\("id", facture\.id\)\s*\n\s*\.eq\("source", "progbat"\)\s*\n\s*\.select\("id"\)/);
+  assert.match(ECRAN, /if \(n !== 1\)/);
+  assert.match(ECRAN, /aucune facture ProGBat ne correspond/);
+  assert.match(ECRAN, /lignes auraient été modifiées alors qu'une seule était visée/);
+
+  // AUCUNE écriture dans un effet : le seul useEffect du module appelle la
+  // lecture, et les deux écritures partent d'un onClick / onChange.
+  const effets = [...ECRAN.matchAll(/React\.useEffect\(\(\) => \{([\s\S]*?)\}, \[/g)].map((m) => m[1]);
+  for (const corps of effets) {
+    for (const verbe of [".update(", ".insert(", ".delete(", ".upsert("]) {
+      assert.ok(!corps.includes(verbe), `aucun ${verbe} dans un useEffect`);
+    }
+  }
+  assert.ok(ECRAN.includes("onRattacher?.(facture"), "le rattachement part d'un clic");
+  assert.ok(ECRAN.includes("onDetacher?.(facture"), "le détachement aussi");
+  assert.ok(ECRAN.includes("window.confirm("), "le détachement demande confirmation");
+});
+
+test("34. écran : l'import manuel disparaît sur une échéance couverte par ProGBat", () => {
+  assert.match(ECRAN, /\{!f && !pg && \(/, "import manuel seulement sans facture ProGBat");
+  assert.match(ECRAN, /Facturée dans ProGBat — import manuel inutile\./);
+  // Le bandeau bascule sur l'équivalent HT, et le dit.
+  assert.match(ECRAN, /const bandeau = croisement\.actif \?/);
+  assert.match(ECRAN, /Équivalent HT <strong>selon l'échéancier<\/strong>/);
+  // Aucun HT reconstitué depuis un TTC, nulle part.
+  for (const source of [ECRAN, lire("src/Renovation/facturesProgbatAffichage.mjs")]) {
+    assert.ok(!/\/\s*1[.,]2\b/.test(source), "aucune division par 1,2 : le HT ne se reconstitue pas");
+    assert.ok(!/montant_ttc\s*\/\s*\(?1\s*\+/.test(source), "aucun HT déduit d'un taux de TVA");
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
