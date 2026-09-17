@@ -770,6 +770,171 @@ export function analyserReglements({ elements = [], parBillId = new Map(), exist
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 3 bis. ANNULATIONS — MESURE, PAS RÈGLE
+// ─────────────────────────────────────────────────────────────────────────────
+// Observé sur le chantier #83 TROTTIER - T2 - R+2 : une facture annulée reste
+// dans ProGBat et un AVOIR d'annulation lui répond, du même montant au signe
+// près, portant un `situationNumber` NÉGATIF dont la valeur absolue semble être
+// l'identifiant technique de la facture annulée.
+//     F-260036  annulée   +15 639,11      F-260042  avoir  -15 639,11  situationNumber -469
+//     F-260043  annulée   +16 317,15      F-260044  avoir  -16 317,15  situationNumber -485
+// Conséquence dans le registre : seuls les avoirs sont entrés (validated = 1),
+// les factures annulées ayant vraisemblablement validated = 2 et étant donc
+// écartées par la règle `validated === 1`. Le chantier affiche alors un facturé
+// négatif et des avoirs « non remboursés ».
+//
+// CE BLOC NE DÉCIDE RIEN. Il ne change aucune catégorie, ne touche ni
+// normaliserFactureProgbat ni le plan d'écriture, et la règle `validated === 1`
+// reste exactement ce qu'elle est. Il MESURE la relation sur les 482 documents
+// déjà chargés — aucun appel ProGBat supplémentaire — pour qu'on choisisse le
+// modèle comptable sur des chiffres et non sur une intuition.
+//
+// Sa sortie ne va QUE dans le rapport du diagnostic. Le rapport de la
+// synchronisation réelle garde sa forme, à la clé près.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Liste blanche STRICTE des couples rendus. Reconstruits champ par champ. */
+export const CHAMPS_EXEMPLE_ANNULATION = Object.freeze([
+  "avoir_bill_id", "avoir_code", "avoir_type", "avoir_validated", "avoir_status",
+  "avoir_situation_number", "avoir_yard_id", "avoir_quote_id", "avoir_date",
+  "avoir_ati_total", "avoir_to_be_paid",
+  "reference_bill_id", "reference_trouvee", "reference_code", "reference_type",
+  "reference_validated", "reference_status", "reference_situation_number",
+  "reference_yard_id", "reference_quote_id", "reference_date",
+  "reference_ati_total", "reference_to_be_paid",
+  "to_be_paid_inverses", "ati_total_inverses", "meme_yard", "meme_quote",
+]);
+
+// Deux montants opposés au centime près. null d'un côté = non comparable.
+// La somme est ARRONDIE avant comparaison : sur de grands nombres, 15639,11 et
+// −15639,12 donnent en flottant −0,010000000000218, que « ≤ 0,01 » rejetterait
+// alors que l'écart est bien d'un centime.
+const auCentime = (n) => Math.round(n * 100) / 100;
+const inverses = (a, b) => (a === null || b === null ? false : Math.abs(auCentime(a + b)) <= 0.01);
+
+/**
+ * @param elements [{ id, brut }] — la liste COMPLÈTE déjà paginée par le
+ *                 diagnostic. Rien n'est relu, rien n'est appelé.
+ * @returns le bloc `annulations_documents` du rapport.
+ */
+export function analyserAnnulations(elements = []) {
+  const bruts = (Array.isArray(elements) ? elements : []).map((e) => e?.brut).filter(Boolean);
+
+  // Index par identifiant ProGBat : c'est la cible de la référence.
+  const parId = new Map();
+  for (const b of bruts) {
+    const id = idProgbat(b?.id);
+    if (id !== null) parId.set(id, b);
+  }
+
+  let facturesValidated2 = 0;
+  let documentsNegatifs = 0;
+  const negatifs = [];          // documents à montant négatif, pour la distribution
+  const referencees = [];       // factures désignées par un situationNumber négatif
+  const journal = creerJournal(["couple"]);
+
+  let situationNegative = 0;
+  let referencesRetrouvees = 0;
+  let referencesValidated2 = 0;
+  let montantsInverses = 0;
+  let atiInverses = 0;
+  let memeYard = 0;
+  let memeQuote = 0;
+  let referencesAbsentes = 0;
+
+  for (const b of bruts) {
+    if (entierStrict(b?.validated) === 2) facturesValidated2++;
+    const toBePaid = montantOuNull(b?.toBePaid);
+    if (toBePaid !== null && toBePaid < 0) { documentsNegatifs++; negatifs.push(b); }
+
+    // Seul un ENTIER strictement négatif est une référence. 0, un positif,
+    // null, un décimal ou un texte ne le sont pas et sont ignorés.
+    const situation = entierStrict(b?.situationNumber);
+    if (situation === null || situation >= 0) continue;
+    situationNegative++;
+
+    const cible = Math.abs(situation);
+    const ref = parId.get(cible) ?? null;
+    if (ref) { referencesRetrouvees++; referencees.push(ref); } else { referencesAbsentes++; }
+
+    const aTo = montantOuNull(b?.toBePaid);
+    const aAti = montantOuNull(b?.atiTotal);
+    const rTo = ref ? montantOuNull(ref?.toBePaid) : null;
+    const rAti = ref ? montantOuNull(ref?.atiTotal) : null;
+    const toInv = inverses(aTo, rTo);
+    const atiInv = inverses(aAti, rAti);
+    const yA = idProgbat(b?.yardId);
+    const yR = ref ? idProgbat(ref?.yardId) : null;
+    const qA = idProgbat(b?.quoteId);
+    const qR = ref ? idProgbat(ref?.quoteId) : null;
+    // « Identique » exige que les DEUX existent : deux absences ne font pas un
+    // rattachement commun.
+    const yardIdentique = yA !== null && yR !== null && yA === yR;
+    const quoteIdentique = qA !== null && qR !== null && qA === qR;
+
+    if (ref && entierStrict(ref?.validated) === 2) referencesValidated2++;
+    if (toInv) montantsInverses++;
+    if (atiInv) atiInverses++;
+    if (yardIdentique) memeYard++;
+    if (quoteIdentique) memeQuote++;
+
+    journal.ajouter("couple", {
+      avoir_bill_id: idProgbat(b?.id),
+      avoir_code: texteCourt(b?.code, 60),
+      avoir_type: texteCourt(b?.type, 40),
+      avoir_validated: entierStrict(b?.validated),
+      avoir_status: entierStrict(b?.status),
+      avoir_situation_number: situation,
+      avoir_yard_id: yA,
+      avoir_quote_id: qA,
+      avoir_date: jourSeul(b?.documentDate),
+      avoir_ati_total: aAti,
+      avoir_to_be_paid: aTo,
+      reference_bill_id: cible,
+      reference_trouvee: Boolean(ref),
+      reference_code: ref ? texteCourt(ref?.code, 60) : null,
+      reference_type: ref ? texteCourt(ref?.type, 40) : null,
+      reference_validated: ref ? entierStrict(ref?.validated) : null,
+      reference_status: ref ? entierStrict(ref?.status) : null,
+      reference_situation_number: ref ? entierStrict(ref?.situationNumber) : null,
+      reference_yard_id: yR,
+      reference_quote_id: qR,
+      reference_date: ref ? jourSeul(ref?.documentDate) : null,
+      reference_ati_total: rAti,
+      reference_to_be_paid: rTo,
+      to_be_paid_inverses: toInv,
+      ati_total_inverses: atiInv,
+      meme_yard: yardIdentique,
+      meme_quote: quoteIdentique,
+    });
+  }
+
+  const distribution = (liste) => ({
+    type: valeursDistinctes(liste.map((x) => x?.type ?? null)),
+    status: valeursDistinctes(liste.map((x) => x?.status ?? null)),
+    validated: valeursDistinctes(liste.map((x) => x?.validated ?? null)),
+  });
+
+  return {
+    factures_validated_2: facturesValidated2,
+    documents_negatifs: documentsNegatifs,
+    documents_situation_negative: situationNegative,
+    references_retrouvees: referencesRetrouvees,
+    references_validated_2: referencesValidated2,
+    montants_exactement_inverses: montantsInverses,   // sur toBePaid
+    ati_total_inverses: atiInverses,
+    meme_yard: memeYard,
+    meme_quote: memeQuote,
+    references_absentes: referencesAbsentes,
+    // Ce que valent type / status / validated des deux populations, tel quel :
+    // aucune de ces valeurs n'est interprétée ici.
+    distribution_negatifs: distribution(negatifs),
+    distribution_references: distribution(referencees),
+    exemples: journal.exemples.couple,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 4. DIAGNOSTIC COMPLET
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -902,6 +1067,10 @@ export function composerRapportDiagnostic({ factures, transactions, anaF, anaR, 
         ...anaR.valeurs,
       },
       reconciliation_absence_autorisee: anaR.reconciliation_absence_autorisee,
+      // MESURE, pas règle : la relation « facture annulée ↔ avoir » observée
+      // sur les documents déjà chargés. Aucune catégorie n'en dépend, et cette
+      // clé n'existe QUE dans le rapport du diagnostic.
+      annulations_documents: analyserAnnulations(factures.elements),
       factures: {
         recues: anaF.recues,
         deja_en_base: (facturesLocales || []).length,

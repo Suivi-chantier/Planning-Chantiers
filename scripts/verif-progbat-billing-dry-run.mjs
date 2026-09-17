@@ -21,7 +21,8 @@ const test = (nom, fn) => cas.push([nom, fn]);
 const {
   MAX_EXEMPLES, MAX_PAGES, PAGE_SIZE, TRI_FACTURES, TRI_TRANSACTIONS,
   CHAMPS_EXEMPLE_FACTURE, CHAMPS_EXEMPLE_REGLEMENT, CHAMPS_COMPARES_FACTURE,
-  CHAMPS_VOLATILS_FACTURE, CHAMPS_COMPARES_REGLEMENT, CATEGORIES_FACTURE, CATEGORIES_REGLEMENT,
+  CHAMPS_VOLATILS_FACTURE, CHAMPS_COMPARES_REGLEMENT, CHAMPS_EXEMPLE_ANNULATION,
+  CATEGORIES_FACTURE, CATEGORIES_REGLEMENT,
   LECTURES, STATUT_EXPORT_RETENU, QUOTE_ID_MINIMUM, creerDepotLecture,
   analyserFactures, analyserReglements, executerDryRun, entierStrict,
   lireRessourceProgbat, memeValeur, transactionActive,
@@ -1118,7 +1119,7 @@ test("réponse : forme complète — pagination, valeurs distinctes, comptages, 
   const { r } = await lancer();
   const rap = r.rapport;
   assert.deepEqual(Object.keys(rap).sort(), [
-    "dry_run", "duree_ms", "ecritures", "factures", "genere_le",
+    "annulations_documents", "dry_run", "duree_ms", "ecritures", "factures", "genere_le",
     "pagination", "reconciliation_absence_autorisee", "reglements", "valeurs_distinctes",
   ].sort());
   for (const ressource of ["bills", "transactions"]) {
@@ -1146,6 +1147,208 @@ test("réponse : le diagnostic est déterministe (deux passages identiques)", as
   const b = await lancer({ factures });
   assert.deepEqual(a.r.rapport.factures, b.r.rapport.factures);
   assert.deepEqual(a.r.rapport.reglements, b.r.rapport.reglements);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5 bis. ANNULATIONS — une MESURE, qui ne change aucune règle
+// ═══════════════════════════════════════════════════════════════════════════
+// Cas réel du chantier #83 TROTTIER - T2 - R+2 : deux factures annulées et
+// leurs deux avoirs, dont le situationNumber négatif désigne la facture.
+const COUPLES_REELS = [
+  facture({ id: 469, code: "F-260036", validated: 2, status: 0, yardId: 77, quoteId: 451,
+    situationNumber: 3, toBePaid: 15639.11, atiTotal: 15639.11, documentDate: "2026-06-12" }),
+  facture({ id: 480, code: "F-260042", validated: 1, status: 1, yardId: 77, quoteId: 451,
+    situationNumber: -469, toBePaid: -15639.11, atiTotal: -15639.11, documentDate: "2026-06-20" }),
+  facture({ id: 485, code: "F-260043", validated: 2, status: 0, yardId: 77, quoteId: 451,
+    situationNumber: 4, toBePaid: 16317.15, atiTotal: 16317.15, documentDate: "2026-06-25" }),
+  facture({ id: 490, code: "F-260044", validated: 1, status: 1, yardId: 77, quoteId: 451,
+    situationNumber: -485, toBePaid: -16317.15, atiTotal: -16317.15, documentDate: "2026-06-28" }),
+];
+
+test("annulations : un avoir retrouve la facture que son situationNumber désigne", async () => {
+  const { r } = await lancer({ bills: COUPLES_REELS, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  assert.equal(a.documents_situation_negative, 2, "les deux avoirs");
+  assert.equal(a.references_retrouvees, 2, "-469 → 469 et -485 → 485");
+  assert.equal(a.references_absentes, 0);
+  assert.equal(a.factures_validated_2, 2);
+  assert.equal(a.references_validated_2, 2, "les deux factures référencées sont annulées");
+  assert.equal(a.documents_negatifs, 2);
+  assert.equal(a.montants_exactement_inverses, 2);
+  assert.equal(a.ati_total_inverses, 2);
+  assert.equal(a.meme_yard, 2);
+  assert.equal(a.meme_quote, 2);
+
+  const ex = a.exemples.find((e) => e.avoir_bill_id === 480);
+  assert.equal(ex.avoir_situation_number, -469);
+  assert.equal(ex.reference_bill_id, 469);
+  assert.equal(ex.reference_trouvee, true);
+  assert.equal(ex.reference_code, "F-260036");
+  assert.equal(ex.reference_validated, 2);
+  assert.equal(ex.avoir_validated, 1);
+  assert.equal(ex.avoir_to_be_paid, -15639.11);
+  assert.equal(ex.reference_to_be_paid, 15639.11);
+  assert.equal(ex.to_be_paid_inverses, true);
+  assert.equal(ex.meme_yard, true);
+  assert.equal(ex.meme_quote, true);
+});
+
+test("annulations : montants inverses au centime, au-delà c'est un écart", async () => {
+  const bills = [
+    facture({ id: 469, validated: 2, toBePaid: 15639.11, atiTotal: 15639.11, yardId: 77 }),
+    // Un centime d'écart : encore « inverses ».
+    facture({ id: 480, validated: 1, situationNumber: -469, toBePaid: -15639.12, atiTotal: -15639.11, yardId: 77 }),
+    facture({ id: 500, validated: 2, toBePaid: 1000, atiTotal: 1000, yardId: 77 }),
+    // Deux centimes : ce n'est plus la même somme.
+    facture({ id: 501, validated: 1, situationNumber: -500, toBePaid: -1000.02, atiTotal: -999.5, yardId: 77 }),
+  ];
+  const { r } = await lancer({ bills, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  assert.equal(a.documents_situation_negative, 2);
+  assert.equal(a.references_retrouvees, 2);
+  assert.equal(a.montants_exactement_inverses, 1, "seul l'écart d'un centime passe");
+  assert.equal(a.ati_total_inverses, 1);
+});
+
+test("annulations : yard et devis, identiques ou non", async () => {
+  const bills = [
+    facture({ id: 469, validated: 2, yardId: 77, quoteId: 451, toBePaid: 100 }),
+    facture({ id: 480, validated: 1, situationNumber: -469, yardId: 77, quoteId: 451, toBePaid: -100 }),
+    facture({ id: 500, validated: 2, yardId: 90, quoteId: 500, toBePaid: 200 }),
+    facture({ id: 501, validated: 1, situationNumber: -500, yardId: 77, quoteId: 451, toBePaid: -200 }),
+    // Les deux sans yard ni devis : deux absences ne font pas une identité.
+    facture({ id: 600, validated: 2, yardId: 0, quoteId: 0, toBePaid: 300 }),
+    facture({ id: 601, validated: 1, situationNumber: -600, yardId: 0, quoteId: 0, toBePaid: -300 }),
+  ];
+  const { r } = await lancer({ bills, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  assert.equal(a.documents_situation_negative, 3);
+  assert.equal(a.meme_yard, 1, "seul le couple 469/480");
+  assert.equal(a.meme_quote, 1);
+  const sansYard = a.exemples.find((e) => e.avoir_bill_id === 601);
+  assert.equal(sansYard.avoir_yard_id, null);
+  assert.equal(sansYard.reference_yard_id, null);
+  assert.equal(sansYard.meme_yard, false, "deux yards absents ne sont pas « le même »");
+});
+
+test("annulations : référence absente, comptée et rendue telle quelle", async () => {
+  const bills = [
+    facture({ id: 480, validated: 1, situationNumber: -9999, toBePaid: -100, yardId: 77 }),
+  ];
+  const { r } = await lancer({ bills, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  assert.equal(a.documents_situation_negative, 1);
+  assert.equal(a.references_retrouvees, 0);
+  assert.equal(a.references_absentes, 1);
+  assert.equal(a.references_validated_2, 0);
+  assert.equal(a.montants_exactement_inverses, 0);
+  const ex = a.exemples[0];
+  assert.equal(ex.reference_bill_id, 9999);
+  assert.equal(ex.reference_trouvee, false);
+  assert.equal(ex.reference_code, null);
+  assert.equal(ex.reference_to_be_paid, null);
+});
+
+test("annulations : seul un entier strictement négatif est une référence", async () => {
+  const bills = [
+    facture({ id: 469, validated: 2, toBePaid: 100, yardId: 77 }),
+    facture({ id: 1, validated: 1, situationNumber: 0, toBePaid: -1, yardId: 77 }),
+    facture({ id: 2, validated: 1, situationNumber: 3, toBePaid: -1, yardId: 77 }),
+    facture({ id: 3, validated: 1, situationNumber: null, toBePaid: -1, yardId: 77 }),
+    facture({ id: 4, validated: 1, situationNumber: -4.5, toBePaid: -1, yardId: 77 }),
+    facture({ id: 5, validated: 1, situationNumber: "abc", toBePaid: -1, yardId: 77 }),
+    facture({ id: 6, validated: 1, situationNumber: true, toBePaid: -1, yardId: 77 }),
+    // Celui-ci compte : entier, strictement négatif, même en chaîne.
+    facture({ id: 7, validated: 1, situationNumber: "-469", toBePaid: -100, yardId: 77 }),
+  ];
+  const { r } = await lancer({ bills, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  assert.equal(a.documents_situation_negative, 1, "seul -469 est une référence");
+  assert.equal(a.exemples[0].avoir_bill_id, 7);
+  assert.equal(a.exemples[0].reference_bill_id, 469);
+  assert.equal(a.documents_negatifs, 7, "tous les toBePaid négatifs sont comptés");
+});
+
+test("annulations : distributions de type, status et validated", async () => {
+  const { r } = await lancer({ bills: COUPLES_REELS, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  for (const bloc of [a.distribution_negatifs, a.distribution_references]) {
+    assert.deepEqual(Object.keys(bloc).sort(), ["status", "type", "validated"]);
+  }
+  const valid = Object.fromEntries(a.distribution_references.validated.map((v) => [String(v.valeur), v.occurrences]));
+  assert.equal(valid["2"], 2, "les deux factures référencées sont à validated = 2");
+  const validNeg = Object.fromEntries(a.distribution_negatifs.validated.map((v) => [String(v.valeur), v.occurrences]));
+  assert.equal(validNeg["1"], 2, "les deux avoirs sont à validated = 1");
+  const typesNeg = Object.fromEntries(a.distribution_negatifs.type.map((v) => [String(v.valeur), v.occurrences]));
+  assert.equal(typesNeg["bill"], 2, "un avoir reste de type bill");
+});
+
+test("annulations : 20 exemples au plus, comptages complets", async () => {
+  const bills = [];
+  for (let i = 0; i < 25; i++) {
+    bills.push(facture({ id: 1000 + i, validated: 2, toBePaid: 100, yardId: 77 }));
+    bills.push(facture({ id: 2000 + i, validated: 1, situationNumber: -(1000 + i), toBePaid: -100, yardId: 77 }));
+  }
+  const { r } = await lancer({ bills, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  assert.equal(a.documents_situation_negative, 25);
+  assert.equal(a.references_retrouvees, 25);
+  assert.equal(a.montants_exactement_inverses, 25);
+  assert.equal(a.exemples.length, 20, "exemples bornés");
+});
+
+test("annulations : liste blanche stricte, aucune donnée nominative", async () => {
+  const { r } = await lancer({ bills: COUPLES_REELS, transactions: [] });
+  const a = r.rapport.annulations_documents;
+  for (const ex of a.exemples) {
+    assert.deepEqual(Object.keys(ex).sort(), [...CHAMPS_EXEMPLE_ANNULATION].sort());
+  }
+  const texte = JSON.stringify(a);
+  for (const valeur of [
+    NOMINATIF.clientName, NOMINATIF.clientAddress, NOMINATIF.clientPostcode, NOMINATIF.clientCity,
+    NOMINATIF.clientEmail, NOMINATIF.clientPhone, "Dépose cloison", "4242",
+  ]) {
+    assert.ok(!texte.includes(valeur), `« ${valeur} » ne doit pas sortir`);
+  }
+  for (const cle of ["clientName", "clientAddress", "clientEmail", "content", "thirdId", "payload", "token"]) {
+    assert.ok(!texte.includes(`"${cle}"`), `la clé « ${cle} » ne doit pas sortir`);
+  }
+});
+
+test("annulations : aucune lecture supplémentaire, aucune écriture, aucune règle changée", async () => {
+  const { r, appelsProgbat, appelsDepot } = await lancer({ bills: COUPLES_REELS, transactions: [] });
+  // Les deux mêmes ressources qu'avant, et rien de plus.
+  assert.deepEqual([...new Set(appelsProgbat.map((x) => x.ressource))].sort(), ["bills", "transactions"]);
+  assert.deepEqual([...new Set(appelsDepot)].sort(), [
+    "chantier_factures_client", "chantier_factures_reglements",
+    "chantier_progbat_yards", "chantier_projets", "progbat_quote_exports",
+  ]);
+  assert.deepEqual(r.rapport.ecritures, { supabase: 0, progbat: 0 });
+
+  // La règle validated === 1 n'a pas bougé : les deux factures annulées
+  // restent des brouillons ignorés, et seuls les deux avoirs sont retenus.
+  const f = r.rapport.factures;
+  assert.equal(f.categories.brouillon_ignore, 2, "validated = 2 reste écarté");
+  assert.equal(f.categories.creation, 2, "seuls les avoirs entrent");
+  assert.deepEqual(Object.keys(f.categories).sort(), [...CATEGORIES_FACTURE].sort());
+
+  // Le module d'analyse ne calcule rien à partir de la mesure.
+  const source = lire("src/Renovation/progbatBillingDryRun.mjs");
+  const iAnnul = source.indexOf("export function analyserAnnulations");
+  const iFact = source.indexOf("export function analyserFactures");
+  assert.ok(iAnnul > iFact, "la mesure vient APRÈS les règles, elle n'y entre pas");
+  assert.ok(!/analyserAnnulations\(/.test(source.slice(iFact, iAnnul)), "analyserFactures ne l'appelle pas");
+});
+
+test("annulations : le rapport de la SYNCHRONISATION RÉELLE garde sa forme", async () => {
+  // La clé est réservée au diagnostic. Le module de synchronisation compose son
+  // propre rapport et ne doit pas l'avoir gagnée au passage.
+  const SYNC = lire("src/Renovation/progbatBillingSync.mjs");
+  assert.ok(!SYNC.includes("annulations_documents"), "clé absente du rapport de synchronisation");
+  assert.ok(!SYNC.includes("analyserAnnulations"));
+  // Et composerRapportDiagnostic est bien le seul à la poser.
+  const source = lire("src/Renovation/progbatBillingDryRun.mjs");
+  assert.equal((source.match(/annulations_documents:/g) || []).length, 1);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
