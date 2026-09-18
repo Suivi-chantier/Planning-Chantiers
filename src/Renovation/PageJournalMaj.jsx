@@ -6,8 +6,10 @@ import { JOURNAL_MAJ, TYPES_MAJ } from "./journalMaj";
 
 const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const moisLabel = (ym) => {
-  const [y, m] = String(ym).split("-");
-  const nom = MOIS_FR[parseInt(m, 10) - 1] || m;
+  const [y, m] = String(ym || "").split("-");
+  const nom = MOIS_FR[parseInt(m, 10) - 1];
+  // Date absente ou mal formée : on affiche le brut plutôt que de casser la page.
+  if (!nom) return String(ym || "Sans date");
   return `${nom.charAt(0).toUpperCase()}${nom.slice(1)} ${y}`;
 };
 const dateFR = (iso) => {

@@ -263,7 +263,7 @@ export const JOURNAL_MAJ = [
     comment: "Dans n'importe quel champ d'adresse (chantier et facturation du chiffrage, opérations, compte-rendu d'équipe, biens, visites, annonces, structuration, urbanisme, état des lieux) : taper par exemple « 12 rue Paul » puis choisir « 12 Rue Paul Langevin 49240 Avrillé » à la souris ou avec les flèches + Entrée. Les champs Ville et Code postal proposent aussi les communes (taper « Avril » ou « 49240 »). La saisie libre reste possible, y compris pour une adresse hors de France.",
   },
   {
-    date: "15/09/2026",
+    date: "2026-09-15",
     titre: "Classement sécurisé des ouvrages ProGBat",
     quoi: "L’inventaire ProGBat peut maintenant préparer puis exécuter le classement des ouvrages déjà liés dans les familles métier correspondant aux préfixes de code configurés dans les lots Profero.",
     comment: "Réglages → Inventaire de la bibliothèque → Préparer le classement. Une simulation affiche les familles existantes à activer, celles à créer, les ouvrages à déplacer et les préfixes non configurés laissés dans Ouvrages V2. Après confirmation, seuls l’activation de la famille pour les ouvrages puis le champ families des ouvrages sont modifiés dans ProGBat : aucun prix, libellé, code, composant ou ouvrage n’est créé ou supprimé.",
