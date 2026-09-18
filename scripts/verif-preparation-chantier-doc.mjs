@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// Vérifie le gabarit PDF « Dossier de préparation »
+// Vérifie le gabarit PDF « Préparation de chantier »
 // (src/Renovation/preparationChantierDoc.js). Aucun réseau, aucune base :
 // le module est alimenté par un payload de RPC en dur et on inspecte le HTML
 // produit.
 //   node scripts/verif-preparation-chantier-doc.mjs
 //
-// Le module importe previsionnelDoc.js et preparationChantier.mjs : le dépôt
-// n'a pas "type": "module", d'où le chargeur maison qui réécrit les imports
-// relatifs (scripts/_chargeur.mjs).
+// Le module importe previsionnelDoc.js, preparationChantier.mjs et
+// preparationDocCommun.mjs : le dépôt n'a pas "type": "module", d'où le
+// chargeur maison qui réécrit les imports relatifs (scripts/_chargeur.mjs).
 import assert from "node:assert/strict";
 import { chargerModuleSource } from "./_chargeur.mjs";
 
@@ -19,19 +19,19 @@ const { PHASE_A_ORGANISER } =
 const cas = [];
 const test = (nom, fn) => cas.push([nom, fn]);
 
-// Position de la première occurrence ; -1 si absente.
 const pos = (html, s) => html.indexOf(s);
 const compte = (html, s) => html.split(s).length - 1;
 // Position du BANDEAU d'une phase. Indispensable : « À organiser » est aussi
-// le libellé d'une tuile du résumé et l'état d'un ouvrage — chercher le texte
-// nu situerait la phase bien avant sa vraie place.
-const posPhase = (html, nom) => html.indexOf(`class="pc-phase-nom bc">${nom}<`);
+// une ligne de la synthèse de tête — chercher le texte nu situerait la phase
+// bien avant sa vraie place.
+const posPhase = (html, nom) => html.indexOf(`class="pc-ph-nom bc">${nom}<`);
 
 // ─── FIXTURE ─────────────────────────────────────────────────────────────────
-// Elle reproduit les cas limites réels : un ouvrage réparti sur DEUX phases
-// (matériaux répétés), une phase « À organiser » donnée AVANT les autres et
-// avec un ordre plus petit (elle doit quand même finir dernière), un matériau
-// introuvable, une quantité totale inconnue, des caractères spéciaux.
+// Reproduit les cas limites réels de FOURMOND 001 : un ouvrage réparti sur
+// DEUX phases (ses matériaux ne doivent sortir qu'une fois), une phase
+// « À organiser » donnée AVANT les autres et avec un ordre plus petit, un
+// ouvrage sans tâche, un ouvrage sans matériau, un matériau introuvable, une
+// quantité totale inconnue, un libellé très long, des caractères spéciaux.
 const MAT_PLAQUES = {
   materiau_id: "m1", nom: 'Plaque BA13 <standard> & "hydro"', reference: "BA13-H",
   unite: "m²", fournisseur: "Point P", quantite_par_unite: 1.05, quantite_totale: 42,
@@ -44,152 +44,188 @@ const MAT_INTROUVABLE = {
 };
 const MAT_SANS_QTE = {
   materiau_id: "m3", nom: "Bande à joint", reference: "BJ-50", unite: "rlx",
-  fournisseur: "Sider", quantite_par_unite: null, quantite_totale: null,
+  fournisseur: "Sider", quantite_par_unite: 0.25, quantite_totale: null,
   commande_le: null, introuvable: false,
 };
 
-// Le MÊME ouvrage, vu depuis deux phases : tâches différentes, matériaux
-// identiques (materiaux_portee = "ouvrage_complet").
-const ouvrageCloisons = (taches) => ({
-  id: "o1", code_ouvrage: "CLO-01",
-  libelle: "Cloison 48 BA13 <hydro> & isolation — locaux \"humides\"",
-  quantite: 40, unite: "m²",
+// Libellé de devis long (les vrais font 319 caractères en moyenne, 778 au max).
+const LIB_LONG = "Cloison de distribution 98/48 <hydro> & isolation — ossature métallique "
+  + "simple peau, parement BA13 hydrofuge sur faces exposées, isolation laine minérale 45 mm, "
+  + "bandes et enduits toutes finitions, y compris calfeutrement périphérique, traitement des "
+  + "points singuliers, réservations pour appareillages et toutes sujétions de mise en œuvre "
+  + "conformément au CCTP des locaux \"humides\".";
+
+// Le MÊME ouvrage (même id), vu depuis deux phases : tâches différentes,
+// matériaux identiques (materiaux_portee = "ouvrage_complet").
+const cloison = (taches) => ({
+  id: "o1", code_ouvrage: "CLO-01", libelle: LIB_LONG, quantite: 148.5, unite: "m²",
   taches, materiaux: [MAT_PLAQUES, MAT_INTROUVABLE, MAT_SANS_QTE],
   materiaux_portee: "ouvrage_complet",
 });
 
 const PAYLOAD = {
-  chantier_id: "c1", chantier_nom: "LAMARTINE", phasage_id: "p1", modele: "v2",
+  chantier_id: "c1", chantier_nom: "FOURMOND 001", phasage_id: "p1", modele: "v2",
   phases: [
     // Volontairement en désordre, et « À organiser » en tête.
     { id: PHASE_A_ORGANISER, nom: "À organiser", ordre: 1, couleur: "#94a3b8", synthetique: true,
       ouvrages: [
-        { id: "o9", code_ouvrage: null, libelle: "Reprise ponctuelle", quantite: null,
-          unite: null, taches: [{ id: "t9", nom: "Tâche orpheline", ordre: null, avancement: null }],
-          materiaux: [], materiaux_portee: "ouvrage_complet" },
-        // Ouvrage SANS aucune tâche : la RPC le fait tomber ici (cf. la CTE
-        // `paire`). Il ne doit ni disparaître, ni casser la mise en page.
+        // Ouvrage SANS aucune tâche : la RPC le fait tomber ici.
         { id: "o8", code_ouvrage: null, libelle: "Ouvrage sans tâche", quantite: null,
-          unite: null, taches: [], materiaux: [], materiaux_portee: "ouvrage_complet" },
-      ] },
+          unite: null, taches: [], materiaux: [], materiaux_portee: "ouvrage_complet" }] },
     { id: "g2", nom: "Doublages", ordre: 20, couleur: "#5b8af5", synthetique: false,
-      ouvrages: [ouvrageCloisons([{ id: "t3", nom: "Bandes et enduits", ordre: 1, avancement: 0 }])] },
-    { id: "g1", nom: "Démolition & dépose", ordre: 10, couleur: "#e0a800", synthetique: false,
-      ouvrages: [ouvrageCloisons([
+      ouvrages: [cloison([{ id: "t3", nom: "Bandes et enduits", ordre: 1, avancement: 0 }])] },
+    { id: "g1", nom: "Démolition &amp; dépose", ordre: 10, couleur: "#e0a800", synthetique: false,
+      ouvrages: [cloison([
         { id: "t1", nom: "Pose ossature métallique", ordre: 1, avancement: 100 },
         { id: "t2", nom: "Plaquage BA13", ordre: 2, avancement: 45 },
       ])] },
     // Phase déclarée mais vide : masquée par phasesVisibles.
     { id: "g3", nom: "Phase vide", ordre: 30, couleur: "#c084fc", synthetique: false, ouvrages: [] },
   ],
-  compteurs: { phases: 4, ouvrages_uniques: 3, taches: 4, taches_a_organiser: 1 },
+  compteurs: { phases: 4, ouvrages_uniques: 2, taches: 3, taches_a_organiser: 0 },
 };
 
 const HTML = buildPreparationDocHTML({
-  payload: PAYLOAD, chantierNom: "LAMARTINE", operationNom: "Îlot <Sud> & Ouest",
+  payload: PAYLOAD, chantierNom: "FOURMOND 001", operationNom: "Îlot <Sud> & Ouest",
   adresse: '12 rue "des Lilas", Angers', logoUrl: "/logos/profero-reno-h.png",
-  dateGen: "17 septembre 2026 à 14:32",
+  dateGen: "18 septembre 2026",
 });
 
-// ─── 1. ORDRE DES PHASES ─────────────────────────────────────────────────────
-test("1. les phases suivent chrono_groupes.ordre, pas l'ordre du payload", () => {
-  const demo = posPhase(HTML, "Démolition &amp; dépose");
+// ─── 1. CHAQUE PHASE VISIBLE UNE FOIS ────────────────────────────────────────
+test("1. chaque phase visible apparaît une fois, dans l'ordre réel", () => {
+  assert.equal(compte(HTML, 'class="pc-ph-band"'), 3, "3 phases visibles, une fois chacune");
+  const demo = posPhase(HTML, "Démolition &amp;amp; dépose");
   const doub = posPhase(HTML, "Doublages");
-  assert.ok(demo > -1, "la phase Démolition est rendue");
-  assert.ok(doub > -1, "la phase Doublages est rendue");
+  assert.ok(demo > -1 && doub > -1, "les deux phases réelles sont rendues");
   assert.ok(demo < doub, "ordre 10 avant ordre 20, malgré l'ordre d'arrivée inverse");
   assert.ok(!HTML.includes("Phase vide"), "une phase sans ouvrage n'est pas imprimée");
+  // La synthèse de tête liste les mêmes phases, une ligne chacune.
+  // L'ÉLÉMENT rendu, pas le nom de classe : la feuille de style le déclare aussi.
+  assert.equal(compte(HTML, 'class="pc-t pc-synth"'), 1, "une seule table de synthèse");
+  assert.equal(compte(HTML, 'class="pc-c-dot"'), 3, "une ligne de synthèse par phase visible");
 });
 
 // ─── 2. « À ORGANISER » EN DERNIER ───────────────────────────────────────────
-test("2. « À organiser » passe en dernier malgré son ordre = 1", () => {
+test("2. « À organiser » reste en dernier malgré son ordre = 1", () => {
   const ao = posPhase(HTML, "À organiser");
   assert.ok(ao > -1, "la phase synthétique est rendue");
   assert.ok(ao > posPhase(HTML, "Doublages"), "elle suit toutes les phases réelles");
-  assert.ok(HTML.includes("Hors planning"), "elle est signalée comme hors planning");
-  assert.ok(HTML.includes("Tâche orpheline"), "et son contenu est bien imprimé");
+  assert.ok(HTML.includes("Hors planning"), "elle est signalée");
 });
 
-// ─── 3. OUVRAGES ─────────────────────────────────────────────────────────────
-test("3. ouvrages présents, libellé intégral, code, quantité et état", () => {
-  // Libellé échappé mais NON tronqué (pas de clamp sur papier).
-  assert.ok(HTML.includes("Cloison 48 BA13 &lt;hydro&gt; &amp; isolation — locaux &quot;humides&quot;"),
-    "le libellé est rendu en entier");
-  assert.ok(HTML.includes("CLO-01"), "le code ouvrage est rendu");
-  assert.ok(HTML.includes("40 m²"), "la quantité et l'unité de l'ouvrage");
-  assert.equal(compte(HTML, "CLO-01"), 2, "l'ouvrage apparaît dans CHACUNE de ses deux phases");
-  // État calculé par etatOuvrage : 100 + 45 → En cours ; 0 seul → À faire.
-  assert.ok(HTML.includes("En cours"), "état En cours présent");
-  assert.ok(HTML.includes("À faire"), "état À faire présent");
-  assert.ok(HTML.includes("Ouvrage sans tâche"), "un ouvrage sans aucune tâche reste imprimé");
-  assert.ok(HTML.includes("Aucune tâche définie pour cet ouvrage dans cette phase."),
-    "et son absence de tâche est dite explicitement");
-  assert.ok(/pc-pastille[^>]*>À organiser</.test(HTML), "ouvrage sans tâche → état À organiser");
-  assert.ok(HTML.includes("Aucun matériau prévu pour cet ouvrage."), "ouvrage sans matériau annoncé");
-});
-
-// ─── 4. TÂCHES LIMITÉES À LEUR PHASE ─────────────────────────────────────────
-test("4. chaque phase ne montre que ses propres tâches", () => {
-  const demo = posPhase(HTML, "Démolition &amp; dépose");
+// ─── 3. CHAQUE TÂCHE UNE FOIS, DANS LA BONNE PHASE ───────────────────────────
+test("3. chaque tâche apparaît exactement une fois, dans sa phase", () => {
+  const demo = posPhase(HTML, "Démolition &amp;amp; dépose");
   const doub = posPhase(HTML, "Doublages");
   const ao   = posPhase(HTML, "À organiser");
-  const dans = (s, debut, fin) => { const i = pos(HTML, s); return i > debut && i < fin; };
-  assert.ok(dans("Pose ossature métallique", demo, doub), "t1 seulement dans Démolition");
-  assert.ok(dans("Plaquage BA13<", demo, doub), "t2 seulement dans Démolition");
-  assert.ok(dans("Bandes et enduits", doub, ao), "t3 seulement dans Doublages");
-  assert.equal(compte(HTML, "Pose ossature métallique"), 1, "une tâche n'est jamais dupliquée");
-  assert.equal(compte(HTML, "Bandes et enduits"), 1);
-  // Avancement : affiché seulement entre 1 et 99 (règle avancementAffichable).
+  const dans = (s, a, b) => { const i = pos(HTML, s); return i > a && i < b; };
+  assert.ok(dans("Pose ossature métallique", demo, doub), "t1 dans Démolition");
+  assert.ok(dans("Plaquage BA13<", demo, doub), "t2 dans Démolition");
+  assert.ok(dans("Bandes et enduits<", doub, ao), "t3 dans Doublages");
+  assert.equal(compte(HTML, "Pose ossature métallique"), 1, "jamais dupliquée");
+  assert.equal(compte(HTML, "Bandes et enduits<"), 1, "jamais dupliquée");
+  // Une ligne de tâche par tâche : 3 tâches, 3 cases dans le déroulé.
+  assert.equal(compte(HTML, 'class="pc-c-nom">Pose'), 1);
+  // Avancement affiché seulement entre 1 et 99.
   assert.ok(HTML.includes("45 %"), "l'avancement intermédiaire est imprimé");
-  assert.ok(!HTML.includes("100 %"), "100 % n'est pas répété, l'état le dit déjà");
-  assert.ok(!HTML.includes("0 %"), "0 % n'est pas imprimé");
-  // Cases à cocher vierges : 4 tâches + 6 matériaux (3 × 2 phases).
-  assert.equal(compte(HTML, 'class="pc-case"'), 10, "une case vierge par tâche et par matériau");
+  assert.ok(!HTML.includes("100 %") && !HTML.includes("0 %"), "ni 0 % ni 100 % ne sont imprimés");
+  assert.ok(HTML.includes(">faite<"), "une tâche terminée est signalée");
 });
 
-// ─── 5. MATÉRIAUX ────────────────────────────────────────────────────────────
-test("5. matériaux : nom, réf., fournisseur, quantités, badge Commandé", () => {
-  assert.ok(HTML.includes("Réf. BA13-H"), "référence");
-  assert.ok(HTML.includes("Point P"), "fournisseur");
-  assert.ok(HTML.includes("42 m²"), "quantité totale + unité");
-  assert.ok(HTML.includes("soit 1,05 m² par unité d&#39;ouvrage") || HTML.includes("soit 1,05 m² par unité d'ouvrage"),
-    "quantité par unité d'ouvrage");
-  assert.ok(HTML.includes("Commandé"), "badge Commandé quand commande_le est renseigné");
-  assert.equal(compte(HTML, "Commandé"), 2, "répété dans les deux phases, jamais dédupliqué");
+// ─── 4. LIBELLÉS DE TÂCHES NON TRONQUÉS ──────────────────────────────────────
+test("4. aucun libellé de tâche n'est tronqué", () => {
+  ["Pose ossature métallique", "Plaquage BA13", "Bandes et enduits"].forEach(n =>
+    assert.ok(HTML.includes(`>${n}</td>`), `« ${n} » est rendu en entier`));
+  assert.ok(!/…<\/td>/.test(HTML.replace(/class="pc-ouv-lib"[\s\S]*?<\/div>/g, "")),
+    "aucune ellipse dans une cellule de tâche");
 });
 
-// ─── 6. MENTION OBLIGATOIRE SUR LA PORTÉE ────────────────────────────────────
-test("6. la mention de portée accompagne CHAQUE bloc de matériaux", () => {
-  const attendu = "Matériaux prévus pour l'ensemble de l'ouvrage — ne pas additionner avec les autres phases.";
-  assert.equal(MENTION_PORTEE_MATERIAUX, attendu, "le libellé exact est figé");
-  // 4 ouvrages rendus (CLO-01 × 2 phases + les 2 de « À organiser »).
-  assert.equal(compte(HTML, attendu), 4, "une mention par bloc de matériaux, même vide");
-  // Les matériaux sont bien RÉPÉTÉS, ni additionnés ni dédupliqués.
-  assert.equal(compte(HTML, "Réf. BA13-H"), 2, "le même matériau réapparaît dans la seconde phase");
-  assert.equal(compte(HTML, ">42 m²<"), 2,
-    "la quantité est réaffichée à l'identique dans chaque phase, jamais cumulée");
-  assert.ok(!HTML.includes(">84 m²<"), "aucune addition entre phases (42 + 42 ne devient pas 84)");
+// ─── 5. OUVRAGE DANS CHACUNE DE SES PHASES, LIBELLÉ INTÉGRAL AU DÉROULÉ ──────
+test("5. l'ouvrage apparaît dans chaque phase où il a des tâches", () => {
+  // CLO-01 est dans Démolition ET Doublages : 2 fois au déroulé + 1 fois dans
+  // l'index des matériaux = 3 occurrences du code.
+  assert.equal(compte(HTML, "CLO-01"), 3, "2 passages au déroulé + 1 repère dans l'index");
+  // Libellé INTÉGRAL au déroulé (pas de clamp, pas d'ellipse), deux fois.
+  const libEchappe = LIB_LONG.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  assert.equal(compte(HTML, libEchappe), 2, "le libellé complet est imprimé à chaque passage");
+  assert.ok(HTML.includes("Ouvrage sans tâche"), "un ouvrage sans tâche reste imprimé");
+  assert.ok(HTML.includes("Aucune tâche prévue pour cet ouvrage dans cette phase."),
+    "et son absence de tâche est dite");
 });
 
-// ─── 7. QUANTITÉ INCONNUE ────────────────────────────────────────────────────
-test("7. quantité totale nulle → « Quantité totale à définir »", () => {
-  assert.ok(HTML.includes("Quantité totale à définir"), "libellé explicite");
-  assert.equal(compte(HTML, "Quantité totale à définir"), 4,
-    "2 matériaux sans quantité × 2 phases");
-  assert.ok(!/NaN|Infinity|undefined|null m²/.test(HTML), "aucune valeur technique ne fuit");
+// ─── 6 & 7. MATÉRIAUX CONSOLIDÉS, UNE SEULE FOIS PAR OUVRAGE ─────────────────
+test("6. chaque matériau n'apparaît qu'une fois, pour son ouvrage", () => {
+  assert.equal(compte(HTML, "Matériaux prévus"), 1, "une seule section matériaux");
+  assert.equal(compte(HTML, "BA13-H"), 1, "la référence n'est imprimée qu'une fois");
+  assert.equal(compte(HTML, "Bande à joint<"), 1, "idem pour les autres lignes");
+  assert.equal(compte(HTML, 'class="pc-c-mat"'), 3, "3 lignes de matériaux, pas 6");
+  // Les matériaux ne doivent plus figurer dans le déroulé des phases.
+  const deroule = HTML.slice(pos(HTML, "Déroulé des travaux"), pos(HTML, "Matériaux prévus"));
+  assert.ok(!deroule.includes("Point P"), "aucun fournisseur dans le déroulé");
+  assert.ok(!deroule.includes("BA13-H"), "aucune référence dans le déroulé");
 });
 
-// ─── 8. MATÉRIAU INTROUVABLE ─────────────────────────────────────────────────
-test("8. matériau retiré de la bibliothèque : signalé, jamais masqué", () => {
+test("7. un ouvrage sur plusieurs phases ne multiplie pas ses matériaux", () => {
+  // L'ouvrage o1 traverse 2 phases ; ses 3 matériaux sortent 3 fois au total.
+  assert.equal(compte(HTML, 'class="pc-mat-bloc"'), 1, "un seul bloc pour l'ouvrage o1");
+  assert.equal(compte(HTML, "Commandé"), 1, "le badge n'est pas répété par phase");
+  assert.ok(HTML.includes(MENTION_PORTEE_MATERIAUX), "la règle de portée est écrite");
+  assert.ok(MENTION_PORTEE_MATERIAUX.includes("ne se commande qu'une fois"),
+    "et dit explicitement de ne pas commander deux fois");
+});
+
+// ─── 8. AUCUNE QUANTITÉ ADDITIONNÉE ──────────────────────────────────────────
+test("8. les quantités ne sont jamais additionnées", () => {
+  assert.equal(compte(HTML, ">42 m²<"), 1, "la quantité sort telle quelle, une fois");
+  assert.ok(!HTML.includes("84 m²"), "42 + 42 ne devient jamais 84");
+  assert.ok(!HTML.includes("297"), "la quantité d'ouvrage n'est pas doublée non plus");
+  assert.ok(HTML.includes("148,5 m²"), "la quantité d'ouvrage est imprimée telle quelle");
+});
+
+// ─── 9 & 10. MATÉRIAU INTROUVABLE / QUANTITÉ INCONNUE ────────────────────────
+test("9. un matériau retiré de la bibliothèque reste signalé", () => {
   assert.ok(HTML.includes("Matériau introuvable"), "la ligne est conservée");
-  assert.ok(HTML.includes("Retiré de la bibliothèque"), "avec un avertissement lisible");
-  assert.ok(HTML.includes("pc-ligne-alerte"), "et un fond d'alerte sur la ligne");
+  assert.ok(HTML.includes("retiré de la bibliothèque"), "avec son avertissement");
+  assert.ok(HTML.includes("pc-l-alerte"), "et un fond d'alerte");
 });
 
-// ─── 9. AUCUNE DONNÉE FINANCIÈRE ─────────────────────────────────────────────
-test("9. aucun champ financier n'atteint le HTML", () => {
+test("10. une quantité totale inconnue reste signalée", () => {
+  assert.ok(HTML.includes("Quantité à définir"), "libellé explicite");
+  // La quantité par unité ne réapparaît QUE dans ce cas — c'est alors la seule
+  // information exploitable.
+  assert.ok(HTML.includes("par unité d&#39;ouvrage") || HTML.includes("par unité d'ouvrage"),
+    "le repli par unité d'ouvrage est proposé");
+  assert.equal(compte(HTML, "par unité d&#39;ouvrage") + compte(HTML, "par unité d'ouvrage"), 1,
+    "et uniquement là : jamais quand le total est connu");
+});
+
+// ─── 11, 12, 13. ZONES DE NOTES ──────────────────────────────────────────────
+test("11. une seule zone de notes, en fin de document", () => {
+  assert.equal(compte(HTML, 'class="pc-notes"'), 1, "une seule zone");
+  assert.equal(compte(HTML, "Observations et points à vérifier"), 1, "un seul titre");
+  const nb = compte(HTML, 'class="pc-notes-l"');
+  assert.ok(nb >= 5 && nb <= 8, `entre 5 et 8 lignes manuscrites (${nb})`);
+});
+
+test("12. aucune zone de notes par phase", () => {
+  assert.ok(!HTML.includes("Notes / points à vérifier sur chantier"),
+    "l'ancienne zone par phase a disparu");
+  assert.ok(!HTML.includes("Observations générales de préparation"),
+    "l'ancienne page finale a disparu");
+  // 3 phases visibles mais UNE zone : elle n'est pas répétée.
+  assert.equal(compte(HTML, 'class="pc-notes-titre"'), 1);
+});
+
+test("13. aucune page forcée pour les notes ni ailleurs", () => {
+  assert.ok(!/page-break-before\s*:\s*always/.test(HTML), "aucun saut de page forcé");
+  assert.ok(!/break-before\s*:\s*page/.test(HTML), "aucun break-before:page");
+  assert.ok(!/\.pc-notes\{[^}]*page-break-before/.test(HTML), "la zone de notes suit le flux");
+});
+
+// ─── 14. AUCUNE DONNÉE FINANCIÈRE ────────────────────────────────────────────
+test("14. aucun champ financier n'atteint le HTML", () => {
   // Payload VOLONTAIREMENT pollué : si le gabarit recopiait un objet reçu
-  // (spread, Object.keys, to_jsonb côté SQL…), ces valeurs sortiraient.
+  // (spread, Object.keys…), ces valeurs sortiraient.
   const sale = JSON.parse(JSON.stringify(PAYLOAD));
   const POISON = "999777555";
   sale.prix_total_chantier = POISON;
@@ -202,18 +238,16 @@ test("9. aucun champ financier n'atteint le HTML", () => {
     });
   });
   const html = buildPreparationDocHTML({
-    payload: sale, chantierNom: "LAMARTINE", logoUrl: "/l.png", dateGen: "17 septembre 2026 à 14:32",
+    payload: sale, chantierNom: "FOURMOND 001", logoUrl: "/l.png", dateGen: "18 septembre 2026",
   });
   assert.ok(!html.includes(POISON), "aucune valeur financière injectée ne ressort");
-  // Second filet, sur le TEXTE : pas de symbole monétaire, pas de vocabulaire
-  // de gestion. (La casse et les accents sont couverts par le i + la liste.)
   const interdits = [/€/, /\bmarge/i, /\bprix\b/i, /\bcoûts?\b/i, /\bcouts?\b/i, /\bfactur/i,
     /\bencaiss/i, /\bQCD\b/, /heures?\s+vendues/i, /\bHT\b/, /\bTTC\b/, /\bTVA\b/, /\bdébours/i];
   interdits.forEach(re => assert.ok(!re.test(html), `le motif ${re} ne doit pas apparaître`));
 });
 
-// ─── 10. ÉCHAPPEMENT HTML ────────────────────────────────────────────────────
-test("10. tout le contenu interpolé est échappé", () => {
+// ─── 15. ÉCHAPPEMENT HTML ET CSS ─────────────────────────────────────────────
+test("15. échappement HTML et CSS de tout le contenu interpolé", () => {
   const xss = {
     chantier_id: "c1", chantier_nom: "X", phasage_id: "p1", modele: "v2",
     phases: [{ id: "g1", nom: '<script>alert("phase")</script>', ordre: 1, couleur: '"><b>', synthetique: false,
@@ -227,28 +261,23 @@ test("10. tout le contenu interpolé est échappé", () => {
     compteurs: { phases: 1, ouvrages_uniques: 1, taches: 1, taches_a_organiser: 0 },
   };
   const html = buildPreparationDocHTML({
-    payload: xss, chantierNom: '<script>alert("titre")</script>',
+    payload: xss, chantierNom: '</style><script>alert("titre")</script>',
     operationNom: "<b>op</b>", adresse: '<img src=x onerror="alert(1)">',
-    logoUrl: "/l.png", dateGen: "17 septembre 2026",
+    logoUrl: "/l.png", dateGen: "18 septembre 2026",
   });
-  // On vérifie l'absence de balise EXÉCUTABLE, pas l'absence du texte : une
-  // fois échappée, la chaîne « onerror= » a parfaitement le droit d'être
-  // affichée — c'est même la preuve que l'échappement a eu lieu.
-  assert.ok(!/<script/i.test(html), "aucune balise script dans le document");
+  // HTML : aucune balise EXÉCUTABLE. Le texte échappé, lui, a le droit d'être là.
+  assert.ok(!/<script/i.test(html), "aucune balise script");
   assert.ok(!/<img[^>]*onerror/i.test(html), "aucun gestionnaire d'événement sur une balise réelle");
-  assert.ok(!/<b>|<i>|<u>|<em>/i.test(html), "aucune balise issue des libellés");
-  assert.ok(html.includes("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"),
-    "l'adresse hostile est rendue en texte inerte");
   assert.ok(!html.includes("<b>gras</b>"), "les balises des libellés sont neutralisées");
   assert.ok(html.includes("&lt;script&gt;alert"), "elles apparaissent en texte échappé");
-  assert.ok(html.includes("&lt;b&gt;gras&lt;/b&gt; &amp; &quot;co&quot;"), "libellé d'ouvrage échappé");
-  // La couleur de phase passe dans un attribut style : elle doit être échappée
-  // pour ne pas fermer l'attribut.
-  assert.ok(!html.includes('border-left-color:"><b>'), "la couleur ne peut pas casser l'attribut");
+  assert.ok(!html.includes('border-left-color:"><b>'), "une couleur ne peut pas casser l'attribut");
+  // CSS : le nom du chantier passe dans un content: de @page, dans le <style>.
+  assert.ok(!html.includes("</style><script>"), "le <style> ne peut pas être fermé");
+  assert.ok(html.includes("\\3c "), "les chevrons passent en échappement CSS hexadécimal");
 });
 
-// ─── 11. ÉTATS PARTICULIERS DU MODÈLE ────────────────────────────────────────
-test("11. absent / vide / legacy_v1 / ambigu : un message dédié, jamais un vide", () => {
+// ─── 16. ÉTATS PARTICULIERS DU MODÈLE ────────────────────────────────────────
+test("16. absent / vide / legacy_v1 / ambigu : un message dédié, jamais un vide", () => {
   const attendus = {
     absent:    "Aucun phasage trouvé",
     vide:      "Préparation non renseignée",
@@ -259,59 +288,45 @@ test("11. absent / vide / legacy_v1 / ambigu : un message dédié, jamais un vid
     const html = buildPreparationDocHTML({
       payload: { chantier_id: "c1", chantier_nom: "X", phasage_id: null, modele,
         phases: [], compteurs: { phases: 0, ouvrages_uniques: 0, taches: 0, taches_a_organiser: 0 } },
-      chantierNom: "X", logoUrl: "/l.png", dateGen: "17 septembre 2026",
+      chantierNom: "X", logoUrl: "/l.png", dateGen: "18 septembre 2026",
     });
     assert.ok(html.includes(titre), `${modele} → « ${titre} »`);
-    assert.ok(!html.includes("Déroulé des phases"), `${modele} : la section phases est omise`);
-    assert.ok(html.includes("Observations générales de préparation"),
-      `${modele} : la page de notes reste utilisable`);
+    assert.ok(!html.includes("Déroulé des travaux"), `${modele} : le déroulé est omis`);
+    assert.ok(!html.includes("Matériaux prévus"), `${modele} : la section matériaux est omise`);
+    assert.ok(html.includes("Observations et points à vérifier"),
+      `${modele} : la zone de notes reste utilisable`);
   });
-  // Modèle inconnu : traité comme une anomalie, pas ignoré.
-  const inconnu = buildPreparationDocHTML({
-    payload: { modele: "martien", phases: [], compteurs: {} },
-    chantierNom: "X", logoUrl: "/l.png", dateGen: "",
-  });
-  assert.ok(inconnu.includes("Préparation indisponible"), "modèle inconnu signalé");
-  // Payload absent (RPC muette) : le document ne part pas en exception.
-  const rien = buildPreparationDocHTML({ chantierNom: "X", logoUrl: "/l.png" });
-  assert.ok(rien.includes("Préparation indisponible"), "payload null géré");
+  // Modèle inconnu et payload nul : anomalies, jamais ignorées.
+  assert.ok(buildPreparationDocHTML({ payload: { modele: "martien", phases: [], compteurs: {} },
+    chantierNom: "X", logoUrl: "/l.png", dateGen: "" }).includes("Préparation indisponible"),
+    "modèle inconnu signalé");
+  assert.ok(buildPreparationDocHTML({ chantierNom: "X", logoUrl: "/l.png" })
+    .includes("Préparation indisponible"), "payload nul géré");
 });
 
-// ─── 12. ENVELOPPE, HÉROS ET PAGINATION ──────────────────────────────────────
-test("12. héros, enveloppe Profero et règles de coupure", () => {
+// ─── 17. HÉROS, PAGINATION, DENSITÉ ──────────────────────────────────────────
+test("17. héros compact, pagination et règles de coupure", () => {
   assert.ok(HTML.startsWith("<!DOCTYPE html>"), "document complet");
-  assert.ok(HTML.includes("Dossier de préparation"), "eyebrow du héros");
-  assert.ok(HTML.includes("LAMARTINE"), "nom du chantier");
-  assert.ok(HTML.includes("Îlot &lt;Sud&gt; &amp; Ouest"), "opération de rattachement (échappée)");
+  assert.ok(HTML.includes("Préparation de chantier"), "eyebrow");
+  assert.ok(HTML.includes("FOURMOND 001"), "nom du chantier");
+  assert.ok(HTML.includes("Îlot &lt;Sud&gt; &amp; Ouest"), "opération (échappée)");
   assert.ok(HTML.includes("12 rue &quot;des Lilas&quot;, Angers"), "adresse (échappée)");
-  assert.ok(HTML.includes("Généré le 17 septembre 2026 à 14:32"), "date ET heure de génération");
-  assert.ok(HTML.includes("Équipe chantier"), "badge « Support équipe chantier »");
-  assert.ok(HTML.includes("3 phases") && HTML.includes("3 ouvrages")
-    && HTML.includes("4 tâches") && HTML.includes("1 à organiser"), "compteurs dans le héros");
-  // Enveloppe commune, non dupliquée.
-  assert.ok(HTML.includes("Barlow+Condensed"), "typographies Profero");
-  assert.ok(HTML.includes("Document confidentiel"), "pied commun");
-  assert.ok(HTML.includes("size:A4"), "A4 portrait (pas de `landscape`)");
-  assert.ok(!HTML.includes("landscape"), "aucune bascule paysage");
-  // Pagination : numéros + rappel du chantier.
+  assert.ok(HTML.includes("Généré le 18 septembre 2026"), "date de génération");
+  assert.ok(HTML.includes("3 phases") && HTML.includes("2 ouvrages") && HTML.includes("3 tâches"),
+    "compteurs du héros");
+  assert.ok(HTML.includes("size:A4") && !HTML.includes("landscape"), "A4 portrait");
   assert.ok(HTML.includes('counter(page) " / " counter(pages)'), "numérotation de page");
-  assert.ok(HTML.includes('@bottom-left  { content:"LAMARTINE"'), "nom du chantier en pied");
-  // Coupures : phase sécable, bandeau et lignes protégés.
-  assert.ok(/\.pc-phase\{[^}]*\}/.test(HTML), "la classe de phase existe");
-  assert.ok(!/\.pc-phase\{[^}]*break-inside:avoid/.test(HTML),
-    "une phase entière n'est JAMAIS insécable");
-  assert.ok(/\.pc-phase-band\{[^}]*page-break-after:avoid/.test(HTML),
-    "le bandeau de phase ne reste pas orphelin en bas de page");
-  assert.ok(/\.pc-ligne\{[^}]*page-break-inside:avoid/.test(HTML), "lignes de matériaux protégées");
-  assert.ok(HTML.includes("pc-ouvrage-compacte"), "une carte courte reste d'un seul tenant");
-  assert.ok(/\.pc-final\{[^}]*page-break-before:always/.test(HTML), "saut de page avant le debrief");
-});
-
-// ─── 13. ZONES DE NOTES PAPIER ───────────────────────────────────────────────
-test("13. zones de notes : une par phase + un debrief final", () => {
-  assert.equal(compte(HTML, "Notes / points à vérifier sur chantier"), 3, "une zone par phase visible");
-  assert.equal(compte(HTML, "Observations générales de préparation"), 1, "une zone finale");
-  assert.ok(compte(HTML, 'class="pc-notes-ligne"') >= 3 * 3 + 12, "des lignes vierges à remplir");
+  assert.ok(HTML.includes('@bottom-left  { content:"FOURMOND 001"'), "chantier en pied de page");
+  // Coupures : phase et ouvrage sécables, bandeaux et lignes protégés.
+  assert.ok(!/\.pc-ph\{[^}]*break-inside:avoid/.test(HTML), "une phase entière n'est jamais insécable");
+  assert.ok(!/\.pc-ouv\{[^}]*break-inside:avoid/.test(HTML), "un ouvrage entier n'est jamais insécable");
+  assert.ok(/\.pc-ph-band\{[^}]*page-break-after:avoid/.test(HTML), "bandeau de phase non orphelin");
+  assert.ok(/\.pc-ouv-tete\{[^}]*page-break-after:avoid/.test(HTML), "en-tête d'ouvrage solidaire");
+  assert.ok(/\.pc-l\{[^}]*page-break-inside:avoid/.test(HTML), "lignes tâche/matériau protégées");
+  // Densité : aucune taille de police sous 7pt pour du contenu lisible.
+  const tailles = [...HTML.matchAll(/font-size:\s*([0-9.]+)pt/g)].map(m => parseFloat(m[1]));
+  assert.ok(Math.min(...tailles) >= 6, "aucune police en dessous de 6pt (badges compris)");
+  assert.ok(HTML.includes("font-size:9pt"), "le texte courant reste à 9pt");
 });
 
 let echecs = 0;

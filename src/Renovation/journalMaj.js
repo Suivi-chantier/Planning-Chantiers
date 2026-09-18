@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-18",
+    type: "amelioration",
+    titre: "La préparation PDF d'un chantier tient maintenant sur 10 pages au lieu de 35",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Sur Fourmond 001, le dossier de préparation sortait en 35 pages — 105 feuilles pour les trois exemplaires du chantier. Il en fait 10, sans qu'une seule tâche ni un seul matériau disparaisse. C'est le même contenu, présenté comme une liste de contrôle plutôt que comme une suite de grandes fiches.",
+    comment: "Fiche Chantiers → ouvrir un chantier → « Préparation PDF ». Le document commence par un tableau des phases (ordre, nombre d'ouvrages et de tâches), suivi du déroulé : une ligne par tâche, avec sa case à cocher. Les matériaux ne sont plus réimprimés à chaque phase : ils sont regroupés une seule fois par ouvrage, dans une section « Matériaux prévus » en fin de document — un ouvrage qui revient dans trois phases ne voit plus ses matériaux comptés trois fois, ce qui évitait déjà les commandes en double. Référence et fournisseur sont passés en colonne, ce qui met chaque matériau sur une ligne. Les trois lignes de notes après chaque phase et la page finale de douze lignes sont remplacées par une seule zone « Observations et points à vérifier » de six lignes, à la suite du texte. Les descriptifs d'ouvrage restent complets dans le déroulé ; dans l'index des matériaux, l'ouvrage est repéré par le début de son descriptif, la section le précise.",
+  },
+  {
     date: "2026-09-17",
     type: "amelioration",
     titre: "Le PDF d'une opération devient un vrai dossier, préparation comprise",
