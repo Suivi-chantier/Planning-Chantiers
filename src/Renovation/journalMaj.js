@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-18",
+    type: "nouveaute",
+    titre: "Exporter une opération entière en un fichier texte à donner à ChatGPT",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Préparer une opération avec ChatGPT demandait de recopier à la main les chiffres, les ouvrages, les dates et les comptes rendus. Un bouton produit maintenant un seul fichier .md qui contient tout ce que l'application sait de l'opération et de chacun de ses chantiers : il suffit de le déposer comme source dans un projet ChatGPT pour pouvoir poser des questions dessus.",
+    comment: "Page Opérations → ouvrir une opération → bouton « Exporter pour ChatGPT (.md) », à côté de « Dossier PDF ». Le fichier se télécharge sous la forme « Fourmond_operation-complete_2026-09-18.md ». Il commence par une synthèse de l'opération (chiffres clés, liste des chantiers, planning, équipes, commandes, points de vigilance, documents), puis donne une fiche complète par chantier : ouvrages avec leur descriptif intégral, sous-tâches dans l'ordre d'exécution, matériaux, phases, planning, avancement, comptes rendus, visites, commandes, réserves, contrôles, cycle de vie, actions restantes et données budgétaires. Aucun chiffre n'est recalculé : ce sont exactement ceux affichés à l'écran. Rien n'est inventé non plus — une information absente est écrite « Non renseigné », une section vide « Aucune information enregistrée ». Les fichiers eux-mêmes (plans, photos, PDF) ne sont pas inclus : le document le rappelle, il faut les ajouter séparément au projet ChatGPT. Si une source ne peut pas être lue, le bouton le dit et le fichier porte lui-même l'avertissement en tête — il n'est jamais présenté comme complet à tort. Attention : le document contient les marges et les coûts, c'est un document interne.",
+  },
+  {
+    date: "2026-09-18",
     type: "amelioration",
     titre: "La préparation PDF d'un chantier tient maintenant sur 10 pages au lieu de 35",
     pages: [{ id: "chantiers", label: "Chantiers" }],

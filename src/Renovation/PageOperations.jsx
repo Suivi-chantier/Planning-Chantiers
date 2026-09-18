@@ -32,10 +32,14 @@ import { resumePreparation, totauxOperation } from "./preparationDocCommun.mjs";
 // Dates de travaux et groupe type (→ équipe) par logement : la source déjà
 // utilisée par le Chemin de fer, l'autre onglet de cette même page.
 import { loadPhasagesOperation } from "./phasagePlanning";
+// Export Markdown « opération complète » (source pour un projet ChatGPT) :
+// chargement + rédaction + téléchargement vivent dans leurs propres modules,
+// cette page ne fait que déclencher et rendre compte.
+import { exporterOperationMarkdown } from "./operationExportData";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
-  ChartBar, TrainFront,
+  ChartBar, TrainFront, FileText,
 } from "lucide-react";
 
 // recharts reste dans son chunk dédié (même règle que la fiche Chantier).
@@ -123,7 +127,7 @@ const pctTxt = (p) => (p == null ? "—" : `${p.toFixed(1)} %`);
 export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin }) {
   const acc = getBranchAccent(branch);
   const [operations, setOperations] = useState(null); // null = chargement
-  const [etat, setEtat] = useState({ charge: false, phasages: [], ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
+  const [etat, setEtat] = useState({ charge: false, phasages: [], phasagesParChantier: {}, ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
   const [opId, setOpId] = useState(() => localStorage.getItem("operations_selected") || null);
   const [periode, setPeriode] = useState("12");
   const [masques, setMasques] = useState({});
@@ -132,6 +136,10 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   // la vue liste sort par un `return` anticipé plus bas, un useState placé
   // après serait un hook conditionnel.
   const [pdfBusy, setPdfBusy] = useState(false);
+  // Export Markdown pour ChatGPT : même raison de déclaration ici (hook avant
+  // le `return` anticipé de la vue liste).
+  const [mdBusy, setMdBusy] = useState(false);
+  const [notif, setNotif] = useState(null); // { ton: "ok"|"alerte"|"erreur", texte }
   const grapheRef = useRef(null);
 
   // ── Chargement : une passe pour toutes les opérations ──
@@ -171,7 +179,10 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
       if (!actif) return;
       setOperations(ops || []);
-      setEtat({ charge: true, phasages, ptsByChantier, clByChantier, cfg, refsParChantier: refsRes.parChantier || {}, erreurs });
+      // `phasages` (filtré sur les phasages chiffrés) alimente les calculs ;
+      // `parChantier` garde AUSSI les phasages vides, dont l'export Markdown a
+      // besoin pour dire « ce chantier n'a pas de phasage exploitable ».
+      setEtat({ charge: true, phasages, phasagesParChantier: parChantier, ptsByChantier, clByChantier, cfg, refsParChantier: refsRes.parChantier || {}, erreurs });
     })();
     return () => { actif = false; };
   }, []);
@@ -511,6 +522,41 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
     }
   };
 
+  // ─── EXPORT MARKDOWN « source ChatGPT » ────────────────────────────────────
+  // Un seul fichier .md : synthèse de l'opération + fiche complète de chaque
+  // chantier. Rien n'est recalculé — les chiffres sont ceux de `finParChantier`
+  // (computeChantierFinance), les phasages ceux déjà chargés au montage ; les
+  // sources annexes (comptes rendus, commandes, réserves…) sont lues en UNE
+  // requête par table pour toute l'opération, jamais une par chantier.
+  const exporterMarkdown = async () => {
+    if (mdBusy) return;
+    setMdBusy(true);
+    setNotif(null);
+    try {
+      const { nomFichier, erreurs, nbChantiers } = await exporterOperationMarkdown({
+        op,
+        chantiersOp,
+        phasagesParChantier: etat.phasagesParChantier,
+        pointagesParChantier: etat.ptsByChantier,
+        finParChantier,
+        agg,
+        cfg: etat.cfg,
+        statutsLabels: Object.fromEntries(Object.entries(STATUTS).map(([k, v]) => [k, v.label])),
+        maintenant: new Date(),
+      });
+      const socle = etat.erreurs || [];
+      const toutes = [...socle, ...erreurs];
+      setNotif(toutes.length === 0
+        ? { ton: "ok", texte: `${nomFichier} téléchargé — ${nbChantiers} chantier${nbChantiers > 1 ? "s" : ""} exporté${nbChantiers > 1 ? "s" : ""}.` }
+        : { ton: "alerte", texte: `${nomFichier} téléchargé, mais INCOMPLET : ${toutes.join(" — ")}. Le fichier signale lui-même les sections concernées.` });
+    } catch (e) {
+      console.error("Export Markdown opération :", e);
+      setNotif({ ton: "erreur", texte: `Export impossible : ${e?.message || e}. Aucun fichier n'a été produit.` });
+    } finally {
+      setMdBusy(false);
+    }
+  };
+
   // Barre de décomposition du vendu : MO / matériaux / FG / marge. Si les coûts
   // dépassent le vendu, la base devient les coûts (la marge négative se lit
   // alors dans les KPI, pas dans la barre).
@@ -548,7 +594,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   return (
     <div className="pops-detail" style={{ flex: 1, overflowY: "auto", background: bg, padding: "24px 32px 40px" }}>
       <style>{`
-        @media(max-width:768px) { .pops-detail { padding: 14px 12px 30px !important; } .pops-kpis { grid-template-columns: repeat(2, 1fr) !important; } }
+        @media(max-width:768px) { .pops-detail { padding: 14px 12px 30px !important; } .pops-kpis { grid-template-columns: repeat(2, 1fr) !important; } .pops-export-md { flex: 1 1 100%; justify-content: center; } }
         .pops-row-clic:hover { background: ${acc.bg10}; }
       `}</style>
 
@@ -590,7 +636,40 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
             <Icon as={FileDown} size={15}/> {pdfBusy ? "Préparation…" : "Dossier PDF"}
           </button>
         )}
+        {/* Export texte destiné à être déposé comme source dans un projet
+            ChatGPT : un seul .md, opération + détail de chaque chantier. */}
+        {chantiersOp.length > 0 && (
+          <button onClick={exporterMarkdown} disabled={mdBusy} className="pops-export-md"
+            title="Télécharger un fichier Markdown unique (synthèse de l'opération + détail complet de chaque chantier) à ajouter comme source d'un projet ChatGPT. Document interne : il contient les marges."
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+              borderRadius: RADIUS.md,
+              border: `1px solid ${mdBusy ? border : acc.border}`,
+              background: mdBusy ? "transparent" : acc.bg10,
+              color: mdBusy ? textMuted : acc.accent,
+              fontWeight: 700, fontSize: FONT.sm.size,
+              cursor: mdBusy ? "default" : "pointer", fontFamily: "inherit",
+            }}>
+            <Icon as={FileText} size={15}/> {mdBusy ? "Génération…" : "Exporter pour ChatGPT (.md)"}
+          </button>
+        )}
       </div>
+
+      {notif && (
+        <div style={{
+          marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 12.5, fontWeight: 600,
+          display: "flex", alignItems: "flex-start", gap: 10,
+          background: notif.ton === "ok" ? "rgba(34,197,94,.12)" : notif.ton === "alerte" ? "rgba(245,166,35,.12)" : "rgba(225,90,90,.12)",
+          border: `1px solid ${notif.ton === "ok" ? "rgba(34,197,94,.4)" : notif.ton === "alerte" ? "rgba(245,166,35,.45)" : "rgba(225,90,90,.4)"}`,
+          color: notif.ton === "ok" ? "#15803d" : notif.ton === "alerte" ? "#b97a10" : "#e15a5a",
+        }}>
+          <span style={{ flex: 1 }}>{notif.texte}</span>
+          <button onClick={() => setNotif(null)} style={{
+            border: "none", background: "transparent", color: "inherit",
+            cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 13, lineHeight: 1,
+          }} title="Masquer">×</button>
+        </div>
+      )}
 
       {bandeauErreurs && <div style={{ marginBottom: 14 }}>{bandeauErreurs}</div>}
 
