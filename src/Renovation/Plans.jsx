@@ -6,7 +6,7 @@ import {
   Ruler, Plus, Copy, Trash2, FolderOpen, Building2, ImageOff, Search,
   Layers, AlertTriangle,
 } from "lucide-react";
-import { getBounds, calcSurface, drawLibSym } from "./planDessin";
+import { getBounds, calcSurface, drawLibSym, pointDansPolygone } from "./planDessin";
 import { imprimerPlanA4 } from "./planPdf";
 import { LOGO_RENO_H } from "../constants";
 
@@ -900,10 +900,17 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.restore();
         const cx_c = pts.reduce((a,p)=>a+p.x,0)/pts.length;
         const cy_c = pts.reduce((a,p)=>a+p.y,0)/pts.length;
-        const {cx:lx,cy:ly}=toC(cx_c,cy_c);
+        // Même règle qu'à l'impression : si la pièce porte un nom (symbole
+        // texte posé dedans), l'aire se range juste dessous au lieu de se
+        // superposer au nom.
+        const nomZone = symbolsRef.current
+          .filter(sy => !sy.deleted && sy.type==='text' && (sy.text||'').trim() && pointDansPolygone(sy.x, sy.y, pts))
+          .sort((a,b) => ((a.x-cx_c)**2+(a.y-cy_c)**2) - ((b.x-cx_c)**2+(b.y-cy_c)**2))[0];
+        const ancreZone = nomZone ? toC(nomZone.x, nomZone.y) : toC(cx_c, cy_c);
+        const lx = ancreZone.cx, ly = ancreZone.cy + (nomZone ? 13*(nomZone.size||1) + 8 : 0);
         const area = calcSurface(pts);
         const label = area>=1 ? `${area.toFixed(2)} m²` : `${(area*10000).toFixed(0)} cm²`;
-        const fontSize = Math.max(10, Math.min(14, vp.scale*0.4));
+        const fontSize = 12;   // ancrée au papier : ne dépend PAS du zoom
         ctx.font=`bold ${fontSize}px sans-serif`;
         ctx.textAlign='center';
         const tw=ctx.measureText(label).width+10;
@@ -1185,14 +1192,27 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.strokeStyle=C.symA; ctx.lineWidth=1.5;
           ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
         }
-        if (sym.text && sym.type!=='text') {
-          ctx.fillStyle=C.txt; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
-          ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
-        }
-        if (sym.type==='text') {
-          ctx.fillStyle=C.symT; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
-          ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
-        }
+        // Textes : taille ANCRÉE AU PAPIER, identique au moteur d'impression
+        // (planRendu). Elle ne suit plus `sz` — qui vaut 0,60 m de dessin —
+        // donc un libellé ne grossit plus quand on zoome : ce qu'on place ici
+        // sort à la même taille relative sur la planche A4.
+        const szTxt = 13 * (sym.size||1);
+        const texteAvecFond = (t, fs, y, couleur) => {
+          ctx.font=`bold ${fs}px sans-serif`;
+          ctx.textAlign='center';
+          if (isPrint) {   // même fond clair qu'à l'impression
+            const tw = ctx.measureText(t).width + 8;
+            ctx.fillStyle='rgba(250,250,247,0.88)';
+            ctx.beginPath();
+            if (ctx.roundRect) { ctx.roundRect(-tw/2, y-fs*0.82, tw, fs*1.08, 3); }
+            else { ctx.rect(-tw/2, y-fs*0.82, tw, fs*1.08); }
+            ctx.fill();
+          }
+          ctx.fillStyle=couleur;
+          ctx.fillText(t,0,y);
+        };
+        if (sym.text && sym.type!=='text') texteAvecFond(sym.text, Math.max(9,szTxt*0.8), sz+12, C.txt);
+        if (sym.type==='text') texteAvecFond(sym.text||'', Math.max(10,szTxt), 4, C.symT);
         if (selectedRef.current.has(sym.id)) {
           ctx.restore();
           const {cx:scx,cy:scy}=toC(sym.x,sym.y);

@@ -83,7 +83,9 @@ function mesurer(font, texte) {
   if (!canvasMesure && typeof document !== "undefined") {
     canvasMesure = document.createElement("canvas").getContext("2d");
   }
-  if (!canvasMesure) return { width: (texte || "").length * 6 };
+  // Hors navigateur (tests, rendu serveur) : estimation à 0,52 em par
+  // caractère — de quoi cadrer une planche sans canvas sous la main.
+  if (!canvasMesure) return { width: (texte || "").length * policeSVG(font).taille * 0.52 };
   canvasMesure.font = font;
   return { width: canvasMesure.measureText(texte || "").width };
 }
@@ -102,10 +104,21 @@ export function contexteSVG() {
   // un chemin peut être commencé sous une transformation puis complété sous une
   // autre — c'est exactement ce que fait l'étiquette de cote de dessinerScene,
   // qui enchaîne un roundRect sans beginPath après un translate/rotate.
+  // Emprise réelle de ce qui est dessiné (« l'encre »), en px du SVG : elle
+  // inclut les textes et les symboles, pas seulement la géométrie. C'est elle
+  // qui décide de l'échelle de la planche et du centrage — voir cadrerPlanche.
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  const encre = (x, y) => {
+    if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+    if (y < by0) by0 = y; if (y > by1) by1 = y;
+  };
   const P = (x, y) => {
     const m = etat.ctm;
-    return [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f];
+    const px = m.a * x + m.c * y + m.e, py = m.b * x + m.d * y + m.f;
+    encre(px, py);
+    return [px, py];
   };
+  const encreBoite = (x0, y0, x1, y1) => { P(x0, y0); P(x1, y0); P(x1, y1); P(x0, y1); };
   const ech = () => Math.hypot(etat.ctm.a, etat.ctm.b) || 1;  // facteur d'échelle (1 ici)
   const angDeg = () => Math.atan2(etat.ctm.b, etat.ctm.a) * 180 / Math.PI;
   const pousse = (cmd, x, y) => { const [px, py] = P(x, y); d += cmd + n2(px) + " " + n2(py); vide = false; };
@@ -192,11 +205,13 @@ export function contexteSVG() {
         + `${etat.dash ? ` stroke-dasharray="${etat.dash}"` : ""}/>`);
     },
     fillRect(x, y, w, h) {
+      encreBoite(x, y, x + w, y + h);
       const c = couleurSVG(etat.fill);
       out.push(`<rect x="${n2(x)}" y="${n2(y)}" width="${n2(w)}" height="${n2(h)}" fill="${c.couleur}"`
         + `${c.opacite < 1 ? ` fill-opacity="${n2(c.opacite)}"` : ""}${tr(etat.ctm)}/>`);
     },
     strokeRect(x, y, w, h) {
+      encreBoite(x, y, x + w, y + h);
       const c = couleurSVG(etat.stroke);
       out.push(`<rect x="${n2(x)}" y="${n2(y)}" width="${n2(w)}" height="${n2(h)}" fill="none" stroke="${c.couleur}"`
         + ` stroke-width="${n2(etat.lineWidth)}"${etat.dash ? ` stroke-dasharray="${etat.dash}"` : ""}${tr(etat.ctm)}/>`);
@@ -209,6 +224,12 @@ export function contexteSVG() {
       const c = couleurSVG(etat.fill);
       const ancre = etat.textAlign === "center" ? "middle"
         : (etat.textAlign === "right" || etat.textAlign === "end") ? "end" : "start";
+      // Encombrement du texte : largeur mesurée, hauteur approchée par les
+      // proportions usuelles d'une police (0,80 em au-dessus de la ligne de
+      // base, 0,25 en dessous) — suffisant pour cadrer une planche.
+      const lt = mesurer(etat.font, t).width;
+      const gx = ancre === "middle" ? x - lt / 2 : ancre === "end" ? x - lt : x;
+      encreBoite(gx, y - p.taille * 0.8, gx + lt, y + p.taille * 0.25);
       out.push(`<text x="${n2(x)}" y="${n2(y)}" font-family="${esc(p.famille)}" font-size="${n2(p.taille)}"`
         + `${p.graisse !== "normal" ? ` font-weight="${p.graisse}"` : ""}${p.italique ? ` font-style="italic"` : ""}`
         + ` text-anchor="${ancre}" fill="${c.couleur}"${c.opacite < 1 ? ` fill-opacity="${n2(c.opacite)}"` : ""}`
@@ -218,6 +239,10 @@ export function contexteSVG() {
 
     // ── sortie ──
     corpsSVG() { return out.join(""); },
+    boite() {
+      if (!isFinite(bx0)) return null;
+      return { minX: bx0, minY: by0, maxX: bx1, maxY: by1, w: bx1 - bx0, h: by1 - by0 };
+    },
   };
   return ctx;
 }
@@ -265,6 +290,64 @@ function regletHTML(den) {
         <span style="position:absolute;left:${segMM * 4 + 2}mm;font-size:5pt;color:#5a6172;">m</span>
       </div>
     </div>`;
+}
+
+// ── Cadrage de la planche : on ne se contente pas de faire tenir la GÉOMÉTRIE,
+//    on fait tenir L'ENCRE — textes, étiquettes et symboles compris. Ces
+//    éléments ont une taille fixée sur le papier : à 1:200 un nom de pièce
+//    occupe quatre fois plus de mètres qu'à 1:50, et c'est ce qui faisait
+//    déborder ou coller les libellés. On essaie donc les échelles de la plus
+//    fine à la plus large, on MESURE le rendu à chaque essai, et on retient la
+//    première où tout entre — puis on recentre sur l'encre réelle (et non sur
+//    les murs), pour que la feuille soit occupée sans débord.
+function recentrer(vp, boite, W, H, rotationDeg) {
+  const dx = (boite.minX + boite.maxX) / 2 - W / 2;
+  const dy = (boite.minY + boite.maxY) / 2 - H / 2;
+  // vp agit AVANT la rotation du plan : on ramène le décalage dans ce repère.
+  const r = ((parseFloat(rotationDeg) || 0) * Math.PI) / 180;
+  const co = Math.cos(r), si = Math.sin(r);
+  return {
+    scale: vp.scale,
+    x: vp.x + (dx * co + dy * si) / vp.scale,
+    y: vp.y + (-dx * si + dy * co) / vp.scale,
+  };
+}
+
+export function cadrerPlanche(data, cadre, W, H, zoneW, zoneH, opts) {
+  const MARGE = 6;  // px logiques laissés libres au bord du cadre
+  const rendre = (vp) => {
+    const ctx = contexteSVG();
+    dessinerScene(ctx, data, W, H, vp, opts);
+    return ctx;
+  };
+  const tient = (b) => !b || (b.w <= W - MARGE * 2 && b.h <= H - MARGE * 2);
+
+  // Premier candidat plausible d'après la seule géométrie : inutile de rendre
+  // la scène pour des échelles où même les murs ne tiennent pas.
+  const denGeo = choisirEchelle(cadre, data?.planRotation, zoneW, zoneH);
+  const depart = denGeo ? ECHELLES.indexOf(denGeo) : -1;
+  if (depart >= 0) {
+    for (let i = depart; i < ECHELLES.length; i++) {
+      const vp0 = calerVueEchelle(cadre, W, H, (1000 / ECHELLES[i]) * PX_MM);
+      if (!vp0) break;
+      const b = rendre(vp0).boite();
+      if (!tient(b)) continue;
+      const vp = b ? recentrer(vp0, b, W, H, data?.planRotation) : vp0;
+      return { den: ECHELLES[i], vp, ctx: rendre(vp) };
+    }
+  }
+
+  // Hors échelle normalisée : on réduit jusqu'à ce que tout entre. Les textes
+  // gardant leur taille papier, une seule division ne suffit pas — on itère.
+  let vp = calerVueEchelle(cadre, W, H, Math.min(W / (cadre.w * 1.15), H / (cadre.h * 1.15)));
+  for (let i = 0; i < 6 && vp; i++) {
+    const b = rendre(vp).boite();
+    if (!b) break;
+    const k = Math.min((W - MARGE * 2) / b.w, (H - MARGE * 2) / b.h);
+    if (k >= 0.995) { vp = recentrer(vp, b, W, H, data?.planRotation); break; }
+    vp = calerVueEchelle(cadre, W, H, vp.scale * k * 0.98);
+  }
+  return { den: null, vp, ctx: rendre(vp) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -345,14 +428,10 @@ export function buildPlanchePlanHTML({
   const zoneH = CADRE_H - BORD * 2 - CARTOUCHE_H - BORD;
   const W = Math.round(zoneW * PX_MM), H = Math.round(zoneH * PX_MM);
 
-  // Échelle normalisée si le dessin y tient, cadrage libre sinon.
-  const den = cadre ? choisirEchelle(cadre, dessine?.planRotation, zoneW, zoneH) : null;
-  const vp = !cadre ? null
-    : den ? calerVueEchelle(cadre, W, H, (1000 / den) * PX_MM)
-          : calerVueEchelle(cadre, W, H, Math.min(W / (cadre.w * 1.15), H / (cadre.h * 1.15)));
-
-  const ctx = contexteSVG();
-  if (vp) dessinerScene(ctx, dessine, W, H, vp, { calques, coteFont });
+  // Échelle + cadrage mesurés sur le rendu réel (textes compris).
+  const planche = cadre ? cadrerPlanche(dessine, cadre, W, H, zoneW, zoneH, { calques, coteFont }) : null;
+  const den = planche?.den ?? null;
+  const ctx = planche?.ctx || contexteSVG();
   const dessin = `<svg viewBox="0 0 ${W} ${H}" width="${zoneW}mm" height="${zoneH}mm"
     preserveAspectRatio="xMidYMid meet" style="display:block;" shape-rendering="geometricPrecision">
     <rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>${ctx.corpsSVG()}</svg>`;
@@ -417,10 +496,17 @@ export function buildPlanchePlanHTML({
   .c-info .k{font-size:5.5pt;font-weight:700;letter-spacing:1pt;text-transform:uppercase;color:#9aa0ab;}
   .c-info .v{font-size:8pt;font-weight:700;color:#12151c;white-space:nowrap;}
 
+  /* Bouton d'impression : la fenêtre reste ouverte après coup et sert
+     d'aperçu — on peut relancer l'impression sans repasser par l'éditeur. */
+  .btn-imprimer{position:fixed;right:10mm;bottom:6mm;z-index:9;border:0;border-radius:8px;
+    padding:9px 16px;background:#12151c;color:${OR};font-family:'Barlow',Arial,sans-serif;
+    font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.35);}
+
   @page{size:A4 landscape;margin:0;}
   @media print{
     html,body{background:#fff;}
     .feuille{margin:0;box-shadow:none;}
+    .btn-imprimer{display:none;}
     body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   }
 </style></head><body>
@@ -452,6 +538,7 @@ export function buildPlanchePlanHTML({
   </div>
 
 </div></div>
+<button class="btn-imprimer" onclick="window.print()">Imprimer</button>
 </body></html>`;
 }
 
