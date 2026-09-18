@@ -25,6 +25,7 @@
 //     écrasés, le HTML retiré, les titres vides remplacés.
 // ─────────────────────────────────────────────────────────────────────────────
 import { eur, fmtH } from "../chantierFinance.mjs";
+import { HORIZON_ECHEANCES_JOURS } from "./operationExportModele.mjs";
 
 export const ND = "Non renseigné";
 export const AUCUNE = "Aucune information enregistrée.";
@@ -103,9 +104,26 @@ export function nombre(valeur, unite = "", { defaut = ND, decimales = 2 } = {}) 
   return unite ? `${s} ${unite}` : s;
 }
 
+// Montant CALCULÉ : arrondi à l'euro, comme partout dans l'application (eur()).
+// Un total d'export qui ne tomberait pas sur le chiffre affiché à l'écran
+// serait pire qu'inutile.
 export function euros(valeur, { defaut = ND } = {}) {
   const n = nombreOuNull(valeur);
   return n === null ? defaut : eur(n);
+}
+
+// Montant SAISI ou reçu tel quel (montant d'une facture, acompte encaissé du
+// cycle de vie…). Les centimes en font partie : les arrondir ferait perdre
+// l'information exacte que quelqu'un a enregistrée. Un montant rond reste
+// écrit sans décimales.
+export function montantExact(valeur, { defaut = ND } = {}) {
+  const n = nombreOuNull(valeur);
+  if (n === null) return defaut;
+  const entier = Math.round(n * 100) % 100 === 0;
+  return `${n.toLocaleString("fr-FR", {
+    minimumFractionDigits: entier ? 0 : 2,
+    maximumFractionDigits: 2,
+  })} €`;
 }
 
 export function heures(valeur, { defaut = ND } = {}) {
@@ -180,25 +198,79 @@ export function yamlValeur(valeur) {
 // Titre jamais vide (règle 5 : « éviter les titres vides »).
 const titre = (niveau, texte, defaut) => `${"#".repeat(niveau)} ${txt(texte, defaut)}`;
 
-// Tableau Markdown. `colonnes` = [{ t: en-tête, a: "l"|"c"|"r" }].
-// `lignes` = tableau de tableaux de chaînes DÉJÀ passées par cellule().
-export function tableau(colonnes, lignes) {
-  if (!Array.isArray(lignes) || lignes.length === 0) return [AUCUNE];
-  const sep = colonnes.map((c) => (c.a === "r" ? "---:" : c.a === "c" ? ":---:" : "---"));
-  return [
-    `| ${colonnes.map((c) => cellule(c.t, { defaut: "—" })).join(" | ")} |`,
-    `|${sep.join("|")}|`,
-    ...lignes.map((l) => `| ${l.join(" | ")} |`),
-  ];
+// Une cellule ne portant aucune information. `cellule()` a déjà remplacé le
+// vide par « Non renseigné » : c'est ce marqueur qu'on reconnaît ici.
+const celluleVide = (v) => {
+  const s = String(v ?? "").trim();
+  return s === "" || s === ND || s === "—";
+};
+
+/**
+ * Tableau Markdown.
+ * `colonnes` = [{ t: en-tête, a: "l"|"c"|"r", garder: true }]
+ * `lignes`   = tableau de tableaux de chaînes DÉJÀ passées par cellule().
+ *
+ * DEUX RÈGLES ANTI-BRUIT, la raison d'être de cette fonction :
+ *  1. une colonne dont AUCUNE ligne ne porte de valeur est retirée. Écrire
+ *     « Non renseigné » cent-six fois dans une colonne « Dépendances » vide
+ *     n'informe de rien et noie le reste ; la colonne disparaît, et la section
+ *     le signale. `garder: true` protège les colonnes dont l'absence est en
+ *     elle-même une information (adresse, date de démarrage, montant d'une
+ *     facture existante, responsable d'une action ouverte).
+ *  2. une LIGNE entièrement vide n'est pas écrite.
+ *
+ * Retour : { lignes, colonnesRetirees } — le générateur décide s'il mentionne
+ * les colonnes retirées.
+ */
+export function construireTableau(colonnes, lignes, { defaut = AUCUNE } = {}) {
+  const cols = (colonnes || []).filter(Boolean);
+  const brutes = (Array.isArray(lignes) ? lignes : [])
+    .filter((l) => Array.isArray(l) && l.some((v) => !celluleVide(v)));
+  if (brutes.length === 0) return { lignes: defaut === null ? [] : [defaut], colonnesRetirees: [] };
+
+  const garde = cols.map((c, i) => c.garder === true || brutes.some((l) => !celluleVide(l[i])));
+  const colonnesRetirees = cols.filter((_, i) => !garde[i]).map((c) => txt(c.t, "—"));
+  const gardees = cols.filter((_, i) => garde[i]);
+  // Tout retirer laisserait un tableau sans colonne : on garde alors la
+  // première, pour que les lignes restent rattachables.
+  const finales = gardees.length > 0 ? gardees : cols.slice(0, 1);
+  const index = cols.map((_, i) => i).filter((i) => (gardees.length > 0 ? garde[i] : i === 0));
+
+  const sep = finales.map((c) => (c.a === "r" ? "---:" : c.a === "c" ? ":---:" : "---"));
+  return {
+    lignes: [
+      `| ${finales.map((c) => cellule(c.t, { defaut: "—" })).join(" | ")} |`,
+      `|${sep.join("|")}|`,
+      ...brutes.map((l) => `| ${index.map((i) => l[i] ?? ND).join(" | ")} |`),
+    ],
+    colonnesRetirees,
+  };
 }
 
-// Liste à puces « label : valeur », les entrées vides sont conservées avec
-// « Non renseigné » (savoir qu'une information manque est une information).
-export function listeDefinitions(paires) {
+// Forme courte : seulement les lignes du tableau.
+export function tableau(colonnes, lignes, options) {
+  return construireTableau(colonnes, lignes, options).lignes;
+}
+
+/**
+ * Liste à puces « label : valeur ».
+ *
+ * Une paire peut s'écrire [label, valeur] ou [label, valeur, { garder: true }].
+ * Par défaut une valeur absente est SILENCIEUSEMENT OMISE : un champ secondaire
+ * vide n'a rien à dire. `garder: true` force l'affichage avec « Non renseigné »
+ * pour les absences qui, elles, sont des informations.
+ * Si tout est vide, la liste vaut « Aucune information enregistrée. ».
+ */
+export function listeDefinitions(paires, { defaut = AUCUNE } = {}) {
   const lignes = (paires || [])
     .filter(Boolean)
-    .map(([label, valeur]) => `- **${txt(label, "—")}** : ${cellule(valeur, { max: 600 })}`);
-  return lignes.length > 0 ? lignes : [AUCUNE];
+    .map(([label, valeur, opts]) => {
+      const rendu = cellule(valeur, { max: 600 });
+      if (celluleVide(rendu) && !(opts && opts.garder === true)) return null;
+      return `- **${txt(label, "—")}** : ${rendu}`;
+    })
+    .filter(Boolean);
+  return lignes.length > 0 ? lignes : (defaut === null ? [] : [defaut]);
 }
 
 // Paragraphes d'un texte long, préservés tels quels (règle 5).
@@ -218,6 +290,57 @@ function section(niveau, nom, contenu) {
 
 const pluriel = (n, singulier, plurielMot) => `${n} ${n > 1 ? (plurielMot || `${singulier}s`) : singulier}`;
 
+// ── MARGES : nommer ce qui est mesuré ────────────────────────────────────────
+// `margeChantier` de computeChantierFinance est le vendu moins les coûts
+// ENREGISTRÉS à l'instant T. Sur un chantier à 0 % d'avancement, presque aucun
+// coût n'est engagé : l'indicateur frôle alors 100 % du vendu et n'a aucune
+// valeur prédictive. Le calcul n'est pas touché — seul son nom l'est, et une
+// mise en garde l'accompagne tant que l'avancement est faible.
+const LABEL_MARGE_PROVISOIRE = "Marge provisoire sur coûts enregistrés";
+// En dessous de ce seuil d'avancement, la marge provisoire est trompeuse.
+const SEUIL_AVANCEMENT_MARGE_FIABLE = 20;
+
+function avertissementMarge(avancement, vendu) {
+  const av = typeof avancement === "number" ? avancement : parseFloat(avancement);
+  if (!(vendu > 0) || !Number.isFinite(av) || av >= SEUIL_AVANCEMENT_MARGE_FIABLE) return [];
+  return [
+    "",
+    `> **Attention** : la « ${LABEL_MARGE_PROVISOIRE.toLowerCase()} » n'est pas`,
+    `> représentative de la marge finale — l'avancement n'est que de ${pourcent(av)} et`,
+    "> la majorité des coûts n'est pas encore engagée. Pour la préparation, c'est la",
+    "> **marge prévisionnelle au devis** qui fait foi.",
+  ];
+}
+
+// ── ADRESSE DE L'OPÉRATION ───────────────────────────────────────────────────
+// Une adresse déduite des chantiers n'est pas une adresse enregistrée sur
+// l'opération : le libellé le dit, il n'est jamais présenté comme une saisie.
+function adresseOperation(op) {
+  const a = op?.adresse;
+  // Compatibilité : un modèle ancien passait une simple chaîne.
+  if (typeof a === "string" || a === null || a === undefined) {
+    return { label: "Adresse principale", valeur: a || null, liste: [] };
+  }
+  if (a.origine === "operation") return { label: "Adresse principale", valeur: a.valeur, liste: a.liste || [] };
+  if (a.origine === "chantiers") {
+    return {
+      label: "Adresse principale déduite des chantiers",
+      valeur: a.valeur,
+      liste: a.liste || [],
+      note: "L'opération elle-même n'a pas d'adresse enregistrée ; tous ses chantiers partagent celle-ci.",
+    };
+  }
+  if (a.origine === "multisite") {
+    return {
+      label: "Adresses des chantiers (opération multisite)",
+      valeur: (a.liste || []).join(" · "),
+      liste: a.liste || [],
+      note: "L'opération n'a pas d'adresse enregistrée et ses chantiers sont à des adresses différentes.",
+    };
+  }
+  return { label: "Adresse principale", valeur: null, liste: [] };
+}
+
 /**
  * Construit le document Markdown complet d'une opération.
  * @param {object} modele  modèle d'export (voir operationExportData.js)
@@ -230,10 +353,16 @@ export function construireMarkdownOperation(modele) {
   const agg = m.agg || {};
   const chantiers = Array.isArray(m.chantiers) ? m.chantiers : [];
   const erreurs = Array.isArray(gen.erreurs) ? gen.erreurs : [];
-  const complet = erreurs.length === 0;
+  const restrictions = Array.isArray(gen.restrictions) ? gen.restrictions : [];
+  // Une source en panne ET une source fermée au rôle rendent toutes deux le
+  // document incomplet — mais pas pour la même raison, et le lecteur doit
+  // pouvoir les distinguer.
+  const complet = erreurs.length === 0 && restrictions.length === 0;
 
   const L = [];
   const push = (...lignes) => lignes.forEach((l) => L.push(l));
+
+  const adresseOp = adresseOperation(op);
 
   // ── Frontmatter YAML ──
   push(
@@ -241,11 +370,15 @@ export function construireMarkdownOperation(modele) {
     "type: operation_profero",
     `version_export: ${VERSION_EXPORT}`,
     `operation_id: ${yamlValeur(op.id)}`,
-    `reference: ${yamlValeur(op.reference || op.id)}`,
+    // Aucune référence métier n'existe au niveau opération : recopier
+    // l'identifiant technique laisserait croire à un numéro de dossier.
+    ...(op.reference ? [`reference: ${yamlValeur(op.reference)}`] : ["reference: null"]),
     `nom: ${yamlValeur(op.nom)}`,
     `nombre_chantiers: ${chantiers.length}`,
     `exporte_le: ${yamlValeur(gen.le)}`,
     `export_complet: ${complet ? "true" : "false"}`,
+    ...(erreurs.length > 0 ? [`sources_en_erreur: ${erreurs.length}`] : []),
+    ...(restrictions.length > 0 ? [`sections_non_accessibles: ${restrictions.length}`] : []),
     'application: "Profero"',
     "---",
     "",
@@ -261,11 +394,20 @@ export function construireMarkdownOperation(modele) {
     "",
   );
 
-  if (!complet) {
+  if (erreurs.length > 0) {
     push(
       "> [!ATTENTION] **Export incomplet.** Les sources suivantes n'ont pas pu être lues ;",
       "> les sections qui en dépendent sont vides ou partielles :",
       ...erreurs.map((e) => `> - ${cellule(e, { max: 400 })}`),
+      "",
+    );
+  }
+  if (restrictions.length > 0) {
+    push(
+      "> [!ATTENTION] **Document partiel : certaines catégories ne sont pas accessibles",
+      "> au compte qui a lancé l'export.** Ce n'est pas une panne — l'application les",
+      "> réserve à d'autres rôles. Un export lancé par un compte habilité les contiendra :",
+      ...restrictions.map((r) => `> - ${cellule(r, { max: 400 })}`),
       "",
     );
   }
@@ -278,18 +420,22 @@ export function construireMarkdownOperation(modele) {
   push(...section(2, "1. Synthèse de l'opération", [
     ...listeDefinitions([
       ["Opération", op.nom],
-      ["Adresse principale", op.adresse],
+      [adresseOp.label, adresseOp.valeur, { garder: true }],
       ["Nombre de chantiers rattachés", chantiers.length === 0 ? "0" : String(chantiers.length)],
       ["Répartition par statut", repartition],
       ["Chantiers chiffrés (avec phasage)", `${agg.nbAvecPhasage ?? 0} sur ${agg.nbChantiers ?? chantiers.length}`],
-      ["Avancement global (pondéré par le vendu HT)", pourcent(agg.avancement)],
-      ["Vendu HT", euros(agg.vendu)],
-      ["Marge nette à date", agg.vendu > 0 ? `${euros(agg.marge)} (${pourcent(agg.margePct, { decimales: 1 })})` : ND],
-      ["Marge prévisionnelle (au devis)", agg.vendu > 0 ? `${euros(agg.margePrev)} (${pourcent(agg.margePrevPct, { decimales: 1 })})` : ND],
+      ["Avancement global (pondéré par le vendu HT)", pourcent(agg.avancement), { garder: true }],
+      ["Vendu HT", euros(agg.vendu), { garder: true }],
+      // La marge AU DEVIS vient en premier : c'est l'indicateur de pilotage.
+      ["Marge prévisionnelle au devis", agg.vendu > 0
+        ? `${euros(agg.margePrev)} (${pourcent(agg.margePrevPct, { decimales: 1 })})` : null, { garder: true }],
+      [LABEL_MARGE_PROVISOIRE, agg.vendu > 0
+        ? `${euros(agg.marge)} (${pourcent(agg.margePct, { decimales: 1 })})` : null],
       ["Heures réelles / heures vendues", `${heures(agg.hReelles)} / ${heures(agg.hVendues)}`],
       ["Période de travaux planifiée", m.bornes?.debut || m.bornes?.fin
         ? `${dateFR(m.bornes.debut)} → ${dateFR(m.bornes.fin)}` : null],
     ]),
+    ...avertissementMarge(agg.avancement, agg.vendu),
     "",
     "Méthode de calcul : chaque chantier est passé par le module de calcul unique de",
     "l'application (`computeChantierFinance`), puis les montants sont sommés.",
@@ -298,27 +444,31 @@ export function construireMarkdownOperation(modele) {
   ]));
 
   // ── 2. Informations générales ──
-  push(...section(2, "2. Informations générales", listeDefinitions([
-    ["Identifiant interne de l'opération", op.id],
-    ["Nom", op.nom],
-    ["Adresse principale", op.adresse],
-    ["Couleur de repérage", op.couleur],
-    ["Nombre total de chantiers", String(chantiers.length)],
-    ["Vendu HT", euros(agg.vendu)],
-    ["Coût main-d'œuvre réel", euros(agg.moReel)],
-    ["Coût matériaux réel", euros(agg.mat)],
-    ["Frais généraux", euros(agg.fg)],
-    ["Main-d'œuvre prévisionnelle", euros(agg.moPrev)],
-    ["Matériaux prévisionnels", euros(agg.matPrev)],
-    ["Frais généraux prévisionnels", euros(agg.fgPrev)],
-    ["Marge nette à date", euros(agg.marge)],
-    ["Marge prévisionnelle", euros(agg.margePrev)],
-    ["Heures vendues", heures(agg.hVendues)],
-    ["Heures réelles", heures(agg.hReelles)],
-    ["Date de l'export", txt(gen.leFr)],
-    ["Description / observations générales de l'opération",
-      m.observationsOperation || "L'application ne stocke pas de description au niveau de l'opération."],
-  ])));
+  push(...section(2, "2. Informations générales", [
+    ...listeDefinitions([
+      ["Identifiant interne de l'opération", op.id],
+      ["Nom", op.nom],
+      [adresseOp.label, adresseOp.valeur, { garder: true }],
+      ["Nombre total de chantiers", String(chantiers.length)],
+      ["Vendu HT", euros(agg.vendu), { garder: true }],
+      ["Main-d'œuvre prévisionnelle", euros(agg.moPrev)],
+      ["Matériaux prévisionnels", euros(agg.matPrev)],
+      ["Frais généraux prévisionnels", euros(agg.fgPrev)],
+      ["Marge prévisionnelle au devis", euros(agg.margePrev), { garder: true }],
+      ["Coût main-d'œuvre enregistré à ce jour", euros(agg.moReel)],
+      ["Coût matériaux enregistré à ce jour", euros(agg.mat)],
+      ["Frais généraux enregistrés à ce jour", euros(agg.fg)],
+      [LABEL_MARGE_PROVISOIRE, euros(agg.marge)],
+      ["Heures vendues", heures(agg.hVendues)],
+      ["Heures réelles", heures(agg.hReelles)],
+      ["Date de l'export", txt(gen.leFr)],
+    ]),
+    ...(adresseOp.note ? ["", adresseOp.note] : []),
+    "",
+    "L'application ne stocke ni description, ni conducteur de travaux, ni référence",
+    "de dossier au niveau de l'opération : ces champs n'existent pas et ne sont donc",
+    "pas absents par oubli de saisie.",
+  ]));
 
   // ── 3. Client, contacts et intervenants ──
   const contacts = Array.isArray(m.contacts) ? m.contacts : [];
@@ -341,13 +491,17 @@ export function construireMarkdownOperation(modele) {
       "devis y a été rattaché).",
       "",
     ]),
-    "### Intervenants internes (équipes affectées)",
+    "### Intervenants (équipes affectées aux phases)",
     "",
     ...tableau(
-      [{ t: "Équipe" }, { t: "Responsable(s)" }, { t: "Membres" }, { t: "Type" }, { t: "Chantiers concernés" }],
+      [{ t: "Équipe" }, { t: "Nature" }, { t: "Responsable(s)" }, { t: "Membres" }, { t: "Chantiers concernés" }],
       intervenants.map((e) => [
-        cellule(e.nom), cellule(e.responsables), cellule(e.membres),
-        cellule(e.externe ? "Prestataire externe" : "Interne"), cellule(e.chantiers),
+        cellule(e.nom),
+        // La nature vient du référentiel des équipes : l'équipe « Externe »
+        // regroupe des prestataires, elle n'a ni responsable ni membre interne.
+        cellule(e.externe === true ? "Prestataire externe"
+          : e.externe === false ? "Équipe interne" : "Nature non renseignée au référentiel"),
+        cellule(e.responsables), cellule(e.membres), cellule(e.chantiers),
       ]),
     ),
   ]));
@@ -370,9 +524,11 @@ export function construireMarkdownOperation(modele) {
 
   // ── 5. Liste des chantiers ──
   push(...section(2, "5. Liste des chantiers", tableau(
+    // Adresse et dates de démarrage : leur absence est une information, elles
+    // restent affichées même vides (règle `garder`).
     [
-      { t: "Chantier" }, { t: "Référence" }, { t: "Adresse" }, { t: "Statut" },
-      { t: "Avancement", a: "r" }, { t: "Début prévu" }, { t: "Fin prévue" }, { t: "Équipe" },
+      { t: "Chantier" }, { t: "Référence" }, { t: "Adresse", garder: true }, { t: "Statut" },
+      { t: "Avancement", a: "r" }, { t: "Début prévu", garder: true }, { t: "Fin prévue" }, { t: "Équipe" },
     ],
     chantiers.map((c) => [
       cellule(c.nom),
@@ -395,7 +551,7 @@ export function construireMarkdownOperation(modele) {
     "",
     ...tableau(
       [
-        { t: "Chantier" }, { t: "Début prévu" }, { t: "Fin prévue" },
+        { t: "Chantier" }, { t: "Début prévu", garder: true }, { t: "Fin prévue" },
         { t: "Phases", a: "r" }, { t: "Tâches", a: "r" }, { t: "Tâches datées", a: "r" },
         { t: "Avancement", a: "r" },
       ],
@@ -479,19 +635,20 @@ export function construireMarkdownOperation(modele) {
   push(...section(2, "9. Avancement général", [
     ...tableau(
       [
-        { t: "Chantier" }, { t: "Statut" }, { t: "Avancement", a: "r" },
-        { t: "Vendu HT", a: "r" }, { t: "Coût MO réel", a: "r" }, { t: "Matériaux réels", a: "r" },
-        { t: "Marge prév.", a: "r" }, { t: "Marge", a: "r" }, { t: "Marge %", a: "r" },
+        { t: "Chantier" }, { t: "Statut" }, { t: "Avancement", a: "r", garder: true },
+        { t: "Vendu HT", a: "r", garder: true }, { t: "Marge prév. au devis", a: "r", garder: true },
+        { t: "Coût MO enregistré", a: "r" }, { t: "Matériaux enregistrés", a: "r" },
+        { t: "Marge provisoire", a: "r" }, { t: "Marge provisoire %", a: "r" },
         { t: "Heures réelles / vendues", a: "r" },
       ],
       chantiers.map((c) => {
         const b = c.finance;
-        if (!b) return [cellule(c.nom), cellule(c.statutLabel), ...Array(8).fill("Sans phasage")];
+        if (!b) return [cellule(c.nom), cellule(c.statutLabel), ...Array(7).fill("Sans phasage")];
         return [
           cellule(c.nom), cellule(c.statutLabel), cellule(pourcent(b.avancementChantier)),
           cellule(b.prixHTChantier > 0 ? euros(b.prixHTChantier) : ND),
-          cellule(euros(b.coutMOTotalChantier)), cellule(euros(b.coutMatChantier)),
           cellule(b.prixHTChantier > 0 ? euros(b.margePrevChantier) : ND),
+          cellule(euros(b.coutMOTotalChantier)), cellule(euros(b.coutMatChantier)),
           cellule(b.prixHTChantier > 0 ? euros(b.margeChantier) : ND),
           cellule(b.prixHTChantier > 0 ? pourcent(b.margePctChantier, { decimales: 1 }) : ND),
           cellule(`${heures(b.heuresReellesTotalChantier)} / ${heures(b.heuresVenduesChantier)}`),
@@ -500,8 +657,10 @@ export function construireMarkdownOperation(modele) {
     ),
     "",
     `**Total opération** — avancement ${pourcent(agg.avancement)} · vendu ${euros(agg.vendu)} · `
-    + `coût MO ${euros(agg.moReel)} · matériaux ${euros(agg.mat)} · marge ${euros(agg.marge)} `
+    + `marge prévisionnelle au devis ${euros(agg.margePrev)} · coût MO enregistré ${euros(agg.moReel)} · `
+    + `matériaux enregistrés ${euros(agg.mat)} · ${LABEL_MARGE_PROVISOIRE.toLowerCase()} ${euros(agg.marge)} `
     + `(${pourcent(agg.margePct, { decimales: 1 })}) · heures ${heures(agg.hReelles)} / ${heures(agg.hVendues)}.`,
+    ...avertissementMarge(agg.avancement, agg.vendu),
   ]));
 
   // ── 10. Points de vigilance ──
@@ -529,7 +688,12 @@ export function construireMarkdownOperation(modele) {
     "### Actions à réaliser (tâches partagées rattachées à un chantier)",
     "",
     ...tableau(
-      [{ t: "Chantier" }, { t: "Action" }, { t: "Responsable(s)" }, { t: "Échéance" }, { t: "Priorité" }, { t: "Statut" }],
+      // Une action ouverte sans responsable ni échéance est un risque : ces
+      // deux colonnes restent visibles même quand elles sont vides partout.
+      [
+        { t: "Chantier" }, { t: "Action" }, { t: "Responsable(s)", garder: true },
+        { t: "Échéance", garder: true }, { t: "Priorité" }, { t: "Statut" },
+      ],
       actions.map((t) => [
         cellule(t.chantierNom), cellule(t.texte), cellule(t.assignes),
         cellule(dateFR(t.echeance)), cellule(t.priorite), cellule(t.statut),
@@ -629,21 +793,24 @@ function ficheChantier(c, rang, m) {
 
   push(titre(1, `Chantier ${rang} — ${txt(c.nom, "sans nom")}`, `Chantier ${rang}`), "");
 
-  // Informations générales
+  // Informations générales. Adresse et date de démarrage restent affichées
+  // même absentes (leur absence bloque la préparation) ; les réglages
+  // secondaires du phasage disparaissent quand ils ne sont pas renseignés.
   push(...section(2, "Informations générales", listeDefinitions([
     ["Identifiant interne", c.id],
     ["Nom", c.nom],
     ["Opération de rattachement", m.operation?.nom],
-    ["Adresse", c.adresse],
+    ["Adresse", c.adresse, { garder: true }],
     ["Statut", c.statutLabel],
-    ["Avancement global", b ? pourcent(b.avancementChantier) : "Sans phasage — aucun avancement calculable"],
+    ["Avancement global", b ? pourcent(b.avancementChantier) : "Sans phasage — aucun avancement calculable", { garder: true }],
     ["Équipe(s) affectée(s)", c.equipes],
-    ["Début prévu", dateFR(c.planning?.debut)],
+    ["Début prévu", dateFR(c.planning?.debut), { garder: true }],
     ["Fin prévue", dateFR(c.planning?.fin)],
-    ["Phasage enregistré", c.phasage?.id ? `oui (modifié le ${dateHeureFR(c.phasage.updatedAt)})` : "non"],
+    ["Phasage enregistré", c.phasage?.id ? `oui (modifié le ${dateHeureFR(c.phasage.updatedAt)})` : "non", { garder: true }],
     ["Montant de devis saisi", c.phasage ? euros(c.phasage.montantDevis) : null],
-    ["Taux de frais généraux (€/h)", c.phasage ? nombre(c.phasage.fgTauxHoraire) : null],
-    ["Marge vendue cible", c.phasage ? pourcent(c.phasage.margeCible) : null],
+    ["Taux de frais généraux", c.phasage && c.phasage.fgTauxHoraire != null
+      ? nombre(c.phasage.fgTauxHoraire, "€/h") : null],
+    ["Marge vendue cible", c.phasage && c.phasage.margeCible != null ? pourcent(c.phasage.margeCible) : null],
     ["Reprise d'antériorité", c.phasage && (c.phasage.repriseHeures || c.phasage.repriseTaux)
       ? `${heures(c.phasage.repriseHeures)} à ${nombre(c.phasage.repriseTaux, "€/h")}` : null],
     ["Phase du cycle de vie", c.cycleVie?.phaseLabel],
@@ -694,31 +861,36 @@ function ficheChantier(c, rang, m) {
     ...conditionsChiffrage(c),
   ]));
 
-  // Sous-tâches des ouvrages
-  const lignesTaches = ouvrages.flatMap((o) => (o.taches || []).map((t) => [
-    cellule(o.reference), cellule(t.ordre === null || t.ordre === undefined ? ND : String(t.ordre)),
-    cellule(t.nom), cellule(t.phaseNom),
-    cellule(t.ratio === null || t.ratio === undefined ? ND : nombre(t.ratio)),
-    cellule(heures(t.heuresEstimees)), cellule(heures(t.heuresVendues)), cellule(heures(t.heuresReelles)),
-    cellule(pourcent(t.avancement)), cellule(t.etat),
-    cellule(dateFR(t.datePrevue)), cellule(t.ouvriers), cellule(t.dependances),
-  ]));
-  push(...section(2, "Sous-tâches des ouvrages", [
+  // Sous-tâches des ouvrages — RÉCAPITULATIF SEULEMENT.
+  // Le détail complet de chaque tâche (ratio, heures, dates, ouvriers,
+  // dépendances) est écrit UNE SEULE FOIS, dans « Plan de travaux et tâches ».
+  // Le répéter ici triplait le volume du fichier sans rien apprendre de plus.
+  const recapOuvrages = ouvrages.filter((o) => (o.taches || []).length > 0);
+  push(...section(2, "Sous-tâches des ouvrages (récapitulatif)", [
     ...tableau(
       [
-        { t: "Ouvrage (réf.)" }, { t: "Ordre", a: "r" }, { t: "Sous-tâche" }, { t: "Phase" },
-        { t: "Ratio", a: "r" }, { t: "H. estimées", a: "r" }, { t: "H. vendues", a: "r" },
-        { t: "H. réelles", a: "r" }, { t: "Avancement", a: "r" }, { t: "État" },
-        { t: "Date prévue" }, { t: "Ouvriers" }, { t: "Dépendances" },
+        { t: "Ouvrage (réf.)" }, { t: "Sous-tâches", a: "r" }, { t: "H. estimées", a: "r" },
+        { t: "H. vendues", a: "r" }, { t: "H. réelles", a: "r" }, { t: "Avancement", a: "r" },
+        { t: "Phases traversées" },
       ],
-      lignesTaches,
+      recapOuvrages.map((o) => {
+        const ts = o.taches || [];
+        const somme = (cle) => ts.reduce((s, t) => s + (t[cle] || 0), 0);
+        return [
+          cellule(o.reference), cellule(String(ts.length)),
+          cellule(heures(somme("heuresEstimees"))), cellule(heures(somme("heuresVendues"))),
+          cellule(heures(somme("heuresReelles"))), cellule(pourcent(o.avancement)),
+          cellule([...new Set(ts.map((t) => t.phaseNom).filter(Boolean))]),
+        ];
+      }),
     ),
-    ...(lignesTaches.length > 0 ? [
+    ...(recapOuvrages.length > 0 ? [
       "",
-      "Les sous-tâches sont listées dans l'ordre enregistré au phasage ; la colonne",
-      "« Ordre » reprend `chrono_ordre`, l'ordre d'exécution décidé par le conducteur.",
-      "La colonne « Ouvrage (réf.) » renvoie au numéro de ligne du tableau des",
-      "ouvrages ci-dessus (`#3` = 3ᵉ ouvrage), suivi de son code quand il en a un.",
+      "**Le détail de chaque sous-tâche** — ordre d'exécution, ratio, heures, date",
+      "prévue, ouvriers et dépendances — figure dans la section « Plan de travaux et",
+      "tâches » ci-dessous, classé par phase : c'est la liste de référence, elle",
+      "n'est écrite qu'une fois. La colonne « Ouvrage (réf.) » y renvoie au numéro de",
+      "ligne du tableau des ouvrages ci-dessus.",
     ] : []),
   ]));
 
@@ -749,57 +921,81 @@ function ficheChantier(c, rang, m) {
       "### Matériaux signalés manquants par les équipes",
       "",
       ...tableau(
-        [{ t: "Désignation" }, { t: "Quantité", a: "r" }, { t: "Précision" }, { t: "Statut" }, { t: "Signalé le" }],
+        [
+          { t: "Désignation" }, { t: "Référence" }, { t: "Fournisseur" }, { t: "Ouvrage" },
+          { t: "Quantité", a: "r" }, { t: "Précision" }, { t: "Signalé par" },
+          { t: "Statut" }, { t: "Signalé le" },
+        ],
         c.suggestionsMateriaux.map((s) => [
-          cellule(s.designation), cellule(nombre(s.quantite, s.unite || "")),
-          cellule(s.precision), cellule(s.statut), cellule(dateFR(s.date)),
+          cellule(s.designation), cellule(s.reference), cellule(s.fournisseur),
+          cellule(s.ouvrage, { max: LARGEUR_REFERENCE }),
+          cellule(nombre(s.quantite, s.unite || "")),
+          cellule(s.precision), cellule(s.auteur), cellule(s.statut), cellule(dateFR(s.date)),
         ]),
       ),
     ] : []),
   ]));
 
-  // Plan de travaux et phasage
+  // Plan de travaux et tâches — LISTE CANONIQUE.
+  // C'est ici, et nulle part ailleurs, que chaque tâche est décrite en entier.
+  // Les autres sections s'y réfèrent. Colonnes du tableau de tâches : celles
+  // qui restent vides d'un bout à l'autre d'une phase disparaissent d'elles-
+  // mêmes (règle de construireTableau), la date prévue restant toujours
+  // affichée — une tâche sans date ne partira jamais.
   const phases = Array.isArray(c.phases) ? c.phases : [];
-  push(...section(2, "Plan de travaux et phasage", [
-    ...(phases.length === 0 ? [AUCUNE] : phases.flatMap((p, i) => [
-      `### Phase ${i + 1} — ${txt(p.nom, "sans nom")}`,
-      "",
-      ...listeDefinitions([
-        ["Ordre enregistré", p.ordre === null || p.ordre === undefined ? null : String(p.ordre)],
-        ["Groupe type", p.groupeTypeNom],
-        ["Équipe", p.equipeNom],
-        ["Tâches", `${p.nbTaches ?? 0} (dont ${p.nbTachesDatees ?? 0} datée(s))`],
-        ["Heures estimées / vendues", `${heures(p.heuresEstimees)} / ${heures(p.heuresVendues)}`],
-        ["Avancement", pourcent(p.avancement)],
-        ["Terminée", p.termine ? "Oui" : "Non"],
-        ["Période", p.debut || p.fin ? `${dateFR(p.debut)} → ${dateFR(p.fin)}` : null],
-        ["Dernier contrôle", p.controle ? `${dateFR(p.controle.date)} — ${p.controle.nbConformes}/${p.controle.nbTaches} conformes (${txt(p.controle.auteur)})` : null],
-      ]),
-      "",
-      ...tableau(
-        [
-          { t: "Ordre", a: "r" }, { t: "Tâche" }, { t: "Ouvrage (réf.)" }, { t: "Date prévue" },
-          { t: "H. estimées", a: "r" }, { t: "Avancement", a: "r" }, { t: "Ouvriers" },
-        ],
-        (p.taches || []).map((t) => [
-          cellule(t.ordre === null || t.ordre === undefined ? ND : String(t.ordre)),
-          cellule(t.nom), cellule(t.ouvrageRef), cellule(dateFR(t.datePrevue)),
-          cellule(heures(t.heuresEstimees)), cellule(pourcent(t.avancement)), cellule(t.ouvriers),
+  const colonnesTache = [
+    { t: "Ordre", a: "r" }, { t: "Tâche" }, { t: "Ouvrage (réf.)" },
+    { t: "Date prévue", garder: true }, { t: "Ratio", a: "r" },
+    { t: "H. estimées", a: "r" }, { t: "H. vendues", a: "r" }, { t: "H. réelles", a: "r" },
+    { t: "Avancement", a: "r" }, { t: "État" }, { t: "Ouvriers" }, { t: "Dépendances" },
+  ];
+  const ligneTache = (t) => [
+    cellule(t.ordre === null || t.ordre === undefined ? ND : String(t.ordre)),
+    cellule(t.nom), cellule(t.ouvrageRef), cellule(dateFR(t.datePrevue)),
+    // Le ratio est un POURCENTAGE de l'ouvrage : sans son unité, « 25 » se lit
+    // comme des heures ou une quantité.
+    cellule(t.ratio === null || t.ratio === undefined ? ND : pourcent(t.ratio)),
+    cellule(heures(t.heuresEstimees)), cellule(heures(t.heuresVendues)), cellule(heures(t.heuresReelles)),
+    cellule(pourcent(t.avancement)), cellule(t.etat), cellule(t.ouvriers), cellule(t.dependances),
+  ];
+  push(...section(2, "Plan de travaux et tâches", [
+    ...(phases.length === 0 && !(c.tachesHorsPhase?.length > 0) ? [AUCUNE] : []),
+    ...phases.flatMap((p, i) => {
+      const t = construireTableau(colonnesTache, (p.taches || []).map(ligneTache), { defaut: null });
+      return [
+        `### Phase ${i + 1} — ${txt(p.nom, "sans nom")}`,
+        "",
+        ...listeDefinitions([
+          ["Ordre enregistré", p.ordre === null || p.ordre === undefined ? null : String(p.ordre)],
+          ["Groupe type", p.groupeTypeNom],
+          ["Équipe", p.equipeNom ? `${p.equipeNom}${p.equipeExterne === true ? " (prestataire externe)" : ""}` : null],
+          ["Tâches", `${p.nbTaches ?? 0} (dont ${p.nbTachesDatees ?? 0} datée(s))`, { garder: true }],
+          ["Heures estimées / vendues", `${heures(p.heuresEstimees)} / ${heures(p.heuresVendues)}`],
+          ["Avancement", pourcent(p.avancement), { garder: true }],
+          ["Terminée", p.termine ? "Oui" : "Non"],
+          ["Période", p.debut || p.fin ? `${dateFR(p.debut)} → ${dateFR(p.fin)}` : null],
+          ["Dernier contrôle", p.controle
+            ? `${dateFR(p.controle.date)} — ${p.controle.nbConformes}/${p.controle.nbTaches} conformes (${txt(p.controle.auteur)})` : null],
         ]),
-      ),
-      "",
-    ])),
-    ...(c.tachesHorsPhase?.length > 0 ? [
-      "### Tâches non rattachées à une phase (« à organiser »)",
-      "",
-      ...tableau(
-        [{ t: "Tâche" }, { t: "Ouvrage (réf.)" }, { t: "H. estimées", a: "r" }, { t: "Avancement", a: "r" }],
-        c.tachesHorsPhase.map((t) => [
-          cellule(t.nom), cellule(t.ouvrageRef), cellule(heures(t.heuresEstimees)), cellule(pourcent(t.avancement)),
-        ]),
-      ),
-      "",
-    ] : []),
+        "",
+        ...(t.lignes.length > 0 ? t.lignes : ["Aucune tâche rattachée à cette phase."]),
+        ...(t.colonnesRetirees.length > 0
+          ? ["", `*Colonnes sans aucune valeur sur cette phase, retirées : ${t.colonnesRetirees.join(", ")}.*`]
+          : []),
+        "",
+      ];
+    }),
+    ...(c.tachesHorsPhase?.length > 0 ? (() => {
+      const t = construireTableau(colonnesTache, c.tachesHorsPhase.map(ligneTache), { defaut: null });
+      return [
+        "### Tâches non rattachées à une phase (« à organiser »)",
+        "",
+        ...t.lignes,
+        ...(t.colonnesRetirees.length > 0
+          ? ["", `*Colonnes sans aucune valeur, retirées : ${t.colonnesRetirees.join(", ")}.*`] : []),
+        "",
+      ];
+    })() : []),
     ...(c.jalons?.length > 0 ? [
       "### Jalons",
       "",
@@ -1018,7 +1214,7 @@ function ficheChantier(c, rang, m) {
       [{ t: "Phase" }, { t: "Étape" }, { t: "État" }, { t: "Date" }, { t: "Auteur" }, { t: "Données saisies" }],
       (c.cycleVie?.etapes || []).map((e) => [
         cellule(e.phaseNom), cellule(e.nom), cellule(e.fait ? "Validée" : "À faire"),
-        cellule(dateFR(e.date)), cellule(e.auteur), cellule(e.donnees),
+        cellule(dateFR(e.date)), cellule(e.auteur), cellule(donneesEtape(e.donnees)),
       ]),
     ),
     ...(c.notes?.length > 0 ? [
@@ -1034,23 +1230,36 @@ function ficheChantier(c, rang, m) {
     "### Tâches partagées ouvertes",
     "",
     ...tableau(
-      [{ t: "Action" }, { t: "Responsable(s)" }, { t: "Échéance" }, { t: "Priorité" }, { t: "Statut" }, { t: "Note" }],
+      // Une action ouverte sans responsable ni échéance appelle une décision :
+      // ces deux colonnes restent visibles même vides partout.
+      [
+        { t: "Action" }, { t: "Responsable(s)", garder: true }, { t: "Échéance", garder: true },
+        { t: "Priorité" }, { t: "Statut" }, { t: "Note" },
+      ],
       (c.todos || []).map((t) => [
         cellule(t.texte), cellule(t.assignes), cellule(dateFR(t.echeance)),
         cellule(t.priorite), cellule(t.statut), cellule(t.note, { max: 300 }),
       ]),
     ),
     "",
-    "### Tâches du plan non terminées et datées",
+    `### Tâches du plan qui appellent une décision (retard, sans date, ou sous ${HORIZON_ECHEANCES_JOURS} jours)`,
     "",
     ...tableau(
-      [{ t: "Date prévue" }, { t: "Phase" }, { t: "Tâche" }, { t: "Ouvrage (réf.)" }, { t: "Avancement", a: "r" }, { t: "Ouvriers" }],
+      [
+        { t: "Motif" }, { t: "Date prévue", garder: true }, { t: "Phase" }, { t: "Tâche" },
+        { t: "Ouvrage (réf.)" }, { t: "Avancement", a: "r" }, { t: "Ouvriers" },
+      ],
       (c.echeances || []).map((t) => [
-        cellule(dateFR(t.datePrevue)), cellule(t.phaseNom), cellule(t.nom),
+        cellule(t.motif), cellule(dateFR(t.datePrevue)), cellule(t.phaseNom), cellule(t.nom),
         cellule(t.ouvrageRef), cellule(pourcent(t.avancement)), cellule(t.ouvriers),
       ]),
     ),
     "",
+    ...((c.nbTachesAVenirHorsEcheances || 0) > 0 ? [
+      `${pluriel(c.nbTachesAVenirHorsEcheances, "autre tâche non terminée est planifiée", `autres tâches non terminées sont planifiées`)} `
+      + `au-delà de ${HORIZON_ECHEANCES_JOURS} jours : elles figurent, en détail, dans « Plan de travaux et tâches ».`,
+      "",
+    ] : []),
     "### Prochaine étape du cycle de vie",
     "",
     c.cycleVie?.prochaine
@@ -1062,7 +1271,7 @@ function ficheChantier(c, rang, m) {
   push(...section(2, "Données budgétaires", [
     ...(b ? [
       ...tableau(
-        [{ t: "Poste" }, { t: "Prévisionnel", a: "r" }, { t: "Réel / à date", a: "r" }],
+        [{ t: "Poste" }, { t: "Prévu au devis", a: "r" }, { t: "Enregistré à ce jour", a: "r" }],
         [
           ["Vendu HT", euros(b.prixHTChantier), euros(b.prixHTChantier)],
           ["Main-d'œuvre", euros(b.moPrevChantier), euros(b.coutMOTotalChantier)],
@@ -1073,6 +1282,10 @@ function ficheChantier(c, rang, m) {
         ].map((r) => r.map((x) => cellule(x))),
       ),
       "",
+      "La colonne « Enregistré à ce jour » ne contient que les coûts déjà saisis :",
+      `la ligne Marge y est donc la « ${LABEL_MARGE_PROVISOIRE.toLowerCase()} », pas la marge finale.`,
+      ...avertissementMarge(b.avancementChantier, b.prixHTChantier),
+      "",
       ...listeDefinitions([
         ["Taux de main-d'œuvre prévisionnel appliqué", nombre(b.tauxMOPrevEff, "€/h")],
         ["Taux de frais généraux appliqué", b.fgTauxHoraire > 0 ? nombre(b.fgTauxHoraire, "€/h") : "non réglé"],
@@ -1080,20 +1293,7 @@ function ficheChantier(c, rang, m) {
         ["Montant de devis saisi", b.montantDevis ? euros(b.montantDevis) : null],
       ]),
       "",
-      ...(c.facturesClient?.length > 0 ? [
-        "### Facturation client",
-        "",
-        ...tableau(
-          [{ t: "Numéro" }, { t: "Date" }, { t: "Libellé" }, { t: "Montant HT", a: "r" }, { t: "Statut" }, { t: "Encaissée le" }],
-          c.facturesClient.map((f) => [
-            cellule(f.numero), cellule(dateFR(f.date)), cellule(f.libelle),
-            cellule(euros(f.montantHT)), cellule(f.statut), cellule(dateFR(f.dateEncaissement)),
-          ]),
-        ),
-        "",
-        `Total facturé HT : **${euros(c.totalFacture)}**.`,
-      ] : []),
-      "",
+      ...facturationChantier(c.facturation),
       "Tous ces montants proviennent du module de calcul unique de l'application ;",
       "aucun n'est recalculé pour cet export.",
     ] : ["Ce chantier n'a pas de phasage exploitable : aucune donnée budgétaire n'est calculable."]),
@@ -1113,6 +1313,110 @@ function ficheChantier(c, rang, m) {
   ]));
 
   return out;
+}
+
+// ── DONNÉES SAISIES SUR UNE ÉTAPE DU CYCLE DE VIE ────────────────────────────
+// Elles arrivent typées (date / montant / nombre / booléen / liste). Aucune
+// paire clé-valeur brute ni JSON ne doit apparaître dans le document :
+// « montant : 20210.62 » devient « Montant : 20 210,62 € ».
+export function donneesEtape(donnees) {
+  const liste = Array.isArray(donnees) ? donnees : [];
+  if (liste.length === 0) return null;
+  const rendues = liste.map((d) => {
+    // Compatibilité : un modèle plus ancien passait des chaînes déjà formées.
+    if (typeof d === "string") return d;
+    const label = txt(d?.label || d?.cle, "Donnée");
+    const v = d?.valeur;
+    const valeur = d?.type === "date" ? dateFR(v)
+      : d?.type === "montant" ? montantExact(v)
+        : d?.type === "nombre" ? nombre(v)
+          : d?.type === "booleen" ? (v ? "Oui" : "Non")
+            : d?.type === "liste" ? txt(Array.isArray(v) ? v : [v])
+              : txt(v);
+    return `${label} : ${valeur}`;
+  }).filter(Boolean);
+  return rendues.length > 0 ? rendues.join(" · ") : null;
+}
+
+// ── FACTURATION CLIENT ───────────────────────────────────────────────────────
+//
+// Deux familles de factures cohabitent et ne se mesurent pas de la même façon :
+// les factures ProGBat sont en TTC (leur montant HT est volontairement vide en
+// base, il ne décrit pas le HT exigible), les factures saisies à la main sont
+// en HT. Le tableau porte donc une colonne « Base » et ne mélange jamais les
+// deux dans un total.
+//
+// UN MONTANT INCONNU N'EST PAS ZÉRO : une facture sans montant est listée,
+// comptée à part, et le total annonce qu'il ne porte que sur les montants
+// connus — jamais un « 0 € » qui ferait croire à l'absence de facturation.
+function facturationChantier(f) {
+  if (!f || !Array.isArray(f.lignes) || f.lignes.length === 0) return [];
+  const sansMontant = f.lignes.filter((l) => !l.montantConnu).length;
+  const totaux = [];
+
+  if (f.progbat) {
+    const p = f.progbat;
+    if (p.sansMontant > 0 && p.nb === p.sansMontant) {
+      totaux.push(`- **Factures ProGBat** : total non calculable, le montant des ${p.nb} factures est manquant.`);
+    } else if (p.sansMontant > 0) {
+      totaux.push(`- **Factures ProGBat** — total des montants connus : ${montantExact(p.totalTTC)} TTC `
+        + `(${pluriel(p.sansMontant, "facture est écartée", "factures sont écartées")} du total, montant manquant).`);
+    } else {
+      totaux.push(`- **Factures ProGBat** — total facturé : ${montantExact(p.totalTTC)} TTC · `
+        + `réglé ${montantExact(p.totalRegle)} · reste ${montantExact(p.reste)}.`);
+    }
+    if (p.anomalies > 0) {
+      totaux.push(`- ${pluriel(p.anomalies, "facture ProGBat présente une anomalie", "factures ProGBat présentent une anomalie")} `
+        + "de règlement (sur-règlement, signe incohérent ou montant illisible) — voir la colonne « État ».");
+    }
+  }
+  if (f.manuel) {
+    const mm = f.manuel;
+    if (mm.totalHT === null) {
+      totaux.push(`- **Factures saisies à la main** : total HT non calculable, `
+        + `le montant ${pluriel(mm.sansMontant, "de la facture est manquant", "de plusieurs factures est manquant")}.`);
+    } else if (mm.sansMontant > 0) {
+      totaux.push(`- **Factures saisies à la main** — total des montants connus : ${montantExact(mm.totalHT)} HT `
+        + `(${pluriel(mm.sansMontant, "facture écartée", "factures écartées")} du total, montant manquant).`);
+    } else {
+      totaux.push(`- **Factures saisies à la main** — total facturé : ${montantExact(mm.totalHT)} HT.`);
+    }
+  }
+
+  return [
+    "### Facturation client",
+    "",
+    ...tableau(
+      [
+        { t: "Numéro" }, { t: "Date" }, { t: "Libellé" }, { t: "Nature" }, { t: "Source" },
+        // Le montant d'une facture qui existe DOIT rester visible, même
+        // inconnu : c'est une anomalie à traiter, pas un champ facultatif.
+        { t: "Montant", a: "r", garder: true }, { t: "Base" },
+        { t: "Réglé", a: "r" }, { t: "Reste", a: "r" }, { t: "État" },
+      ],
+      f.lignes.map((l) => [
+        cellule(l.numero), cellule(dateFR(l.date)), cellule(l.libelle),
+        cellule(l.nature), cellule(l.source),
+        cellule(l.montantConnu ? montantExact(l.montant) : ND),
+        cellule(l.montantConnu ? l.base : null),
+        cellule(l.regle === null ? null : montantExact(l.regle)),
+        cellule(l.reste === null ? null : montantExact(l.reste)),
+        cellule(l.etat),
+      ]),
+    ),
+    "",
+    ...totaux,
+    ...(sansMontant > 0 ? [
+      "",
+      `> ${pluriel(sansMontant, "facture n'a pas de montant enregistré", "factures n'ont pas de montant enregistré")} : `
+      + "ces lignes sont exclues des totaux ci-dessus. **Un montant inconnu n'est pas",
+      "> un montant nul** — le total réel est donc supérieur à celui affiché.",
+    ] : []),
+    "",
+    "Les montants et les états de règlement sont ceux calculés par le module de",
+    "facturation de l'application ; l'export n'en refait aucun.",
+    "",
+  ];
 }
 
 // Conditions de vente du chiffrage rattaché (coefficient / taux horaire par

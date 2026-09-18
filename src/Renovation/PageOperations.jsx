@@ -36,6 +36,10 @@ import { loadPhasagesOperation } from "./phasagePlanning";
 // chargement + rédaction + téléchargement vivent dans leurs propres modules,
 // cette page ne fait que déclencher et rendre compte.
 import { exporterOperationMarkdown } from "./operationExportData";
+// L'agrégat d'opération vit dans operationExportModele : l'écran et le fichier
+// exporté doivent afficher rigoureusement les mêmes totaux, donc une seule
+// implémentation. La formule est inchangée (avancement pondéré par le vendu).
+import { agregerOperation } from "./operationExportModele.mjs";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
@@ -83,44 +87,9 @@ async function fetchTout(table, select) {
   }
 }
 
-// Somme des scalaires `brut` des logements d'une opération. L'avancement est
-// pondéré par le vendu HT (un studio à 20 k€ ne pèse pas comme un T4 à 80 k€).
-function agregerOperation(chantiersOp, finParChantier) {
-  const t = {
-    nbChantiers: chantiersOp.length, nbAvecPhasage: 0,
-    vendu: 0, moReel: 0, mat: 0, fg: 0, marge: 0,
-    moPrev: 0, matPrev: 0, fgPrev: 0, margePrev: 0,
-    hVendues: 0, hReelles: 0,
-    avNum: 0, avDen: 0,
-    statuts: {},
-  };
-  chantiersOp.forEach((c) => {
-    const statut = STATUTS[c.statut] ? c.statut : "en_cours";
-    t.statuts[statut] = (t.statuts[statut] || 0) + 1;
-    const f = finParChantier[c.id];
-    if (!f) return;
-    const b = f.finance.brut;
-    t.nbAvecPhasage++;
-    t.vendu    += b.prixHTChantier || 0;
-    t.moReel   += b.coutMOTotalChantier || 0;
-    t.mat      += b.coutMatChantier || 0;
-    t.fg       += b.fgChantier || 0;
-    t.marge    += b.margeChantier || 0;
-    t.moPrev   += b.moPrevChantier || 0;
-    t.matPrev  += b.commandesPrevChantier || 0;
-    t.fgPrev   += b.fgPrevChantier || 0;
-    t.margePrev += b.margePrevChantier || 0;
-    t.hVendues += b.heuresVenduesChantier || 0;
-    t.hReelles += b.heuresReellesTotalChantier || 0;
-    const poids = b.prixHTChantier || 0;
-    t.avNum += (b.avancementChantier || 0) * poids;
-    t.avDen += poids;
-  });
-  t.avancement = t.avDen > 0 ? Math.round(t.avNum / t.avDen) : 0;
-  t.margePct = t.vendu > 0 ? (t.marge / t.vendu) * 100 : null;
-  t.margePrevPct = t.vendu > 0 ? (t.margePrev / t.vendu) * 100 : null;
-  return t;
-}
+// Les statuts reconnus par l'écran : agregerOperation range sous « en cours »
+// tout chantier dont le statut est vide ou inconnu.
+const STATUTS_IDS = Object.keys(STATUTS);
 
 const pctTxt = (p) => (p == null ? "—" : `${p.toFixed(1)} %`);
 
@@ -215,7 +184,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const parOperation = useMemo(() => {
     return (operations || []).map((op) => {
       const chantiersOp = chantiers.filter((c) => c.operation_id === op.id);
-      return { op, chantiersOp, agg: agregerOperation(chantiersOp, finParChantier) };
+      return { op, chantiersOp, agg: agregerOperation(chantiersOp, finParChantier, STATUTS_IDS) };
     });
   }, [operations, chantiers, finParChantier]);
 
@@ -533,7 +502,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
     setMdBusy(true);
     setNotif(null);
     try {
-      const { nomFichier, erreurs, nbChantiers } = await exporterOperationMarkdown({
+      const { nomFichier, erreurs, restrictions, nbChantiers } = await exporterOperationMarkdown({
         op,
         chantiersOp,
         phasagesParChantier: etat.phasagesParChantier,
@@ -544,11 +513,21 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         statutsLabels: Object.fromEntries(Object.entries(STATUTS).map(([k, v]) => [k, v.label])),
         maintenant: new Date(),
       });
-      const socle = etat.erreurs || [];
-      const toutes = [...socle, ...erreurs];
-      setNotif(toutes.length === 0
-        ? { ton: "ok", texte: `${nomFichier} téléchargé — ${nbChantiers} chantier${nbChantiers > 1 ? "s" : ""} exporté${nbChantiers > 1 ? "s" : ""}.` }
-        : { ton: "alerte", texte: `${nomFichier} téléchargé, mais INCOMPLET : ${toutes.join(" — ")}. Le fichier signale lui-même les sections concernées.` });
+      // L'export relit ses propres sources : les erreurs du chargement initial
+      // de l'écran ne le concernent plus. Deux causes d'incomplétude, dites
+      // séparément — une panne de lecture, ou une catégorie fermée au rôle.
+      const pannes = erreurs || [];
+      const fermees = restrictions || [];
+      const libelle = `${nomFichier} téléchargé — ${nbChantiers} chantier${nbChantiers > 1 ? "s" : ""} exporté${nbChantiers > 1 ? "s" : ""}`;
+      setNotif(pannes.length === 0 && fermees.length === 0
+        ? { ton: "ok", texte: `${libelle}.` }
+        : {
+          ton: pannes.length > 0 ? "alerte" : "ok",
+          texte: `${libelle}. `
+            + (pannes.length > 0 ? `Sources illisibles : ${pannes.join(" — ")}. ` : "")
+            + (fermees.length > 0 ? `${fermees.length} catégorie${fermees.length > 1 ? "s" : ""} non accessible${fermees.length > 1 ? "s" : ""} avec votre rôle. ` : "")
+            + "Le fichier signale lui-même les sections concernées.",
+        });
     } catch (e) {
       console.error("Export Markdown opération :", e);
       setNotif({ ton: "erreur", texte: `Export impossible : ${e?.message || e}. Aucun fichier n'a été produit.` });

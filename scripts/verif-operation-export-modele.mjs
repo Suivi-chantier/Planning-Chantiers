@@ -6,7 +6,10 @@
 import assert from "node:assert/strict";
 import { chargerModuleSource } from "./_chargeur.mjs";
 
-const { normaliserChantier, assemblerModele, statutCommande, documentCommande, texteOuNull } =
+const {
+  normaliserChantier, assemblerModele, agregerOperation,
+  statutCommande, documentCommande, texteOuNull,
+} =
   await chargerModuleSource("../src/Renovation/operationExportModele.mjs", import.meta.url);
 const { construireMarkdownOperation } =
   await chargerModuleSource("../src/Renovation/operationMarkdown.mjs", import.meta.url);
@@ -136,8 +139,14 @@ const CONTEXTE = {
   materiauxById: { "mat-1": { id: "mat-1", nom: "Plaque BA13", reference: "BA13", unite: "m²", fournisseur: "Point P" } },
   ratiosById: { "bib-1": { id: "bib-1", identifiant: "cloison_48", unite: "m²", cadence: 0.8, coefficient_vente_valeur: 1.35, taux_horaire_vente_valeur: 52 } },
   equipeParGroupeType: {
-    gt_ossature: { groupeTypeNom: "Ossature placo", equipeNom: "Second œuvre" },
-    gt_peinture: { groupeTypeNom: "Peinture", equipeNom: "Second œuvre" },
+    gt_ossature: {
+      groupeTypeNom: "Ossature placo",
+      equipe: { id: "eq_so", nom: "Second œuvre", externe: false, responsables: ["Davy"], membres: [{ ouvrier: "Kev" }] },
+    },
+    gt_peinture: {
+      groupeTypeNom: "Peinture",
+      equipe: { id: "eq_externe", nom: "Externe", externe: true, responsables: [], membres: [] },
+    },
   },
   sources: SOURCES,
   aujourdhui: "2026-10-07",
@@ -222,10 +231,10 @@ test("les sous-tâches gardent l'ordre chronologique enregistré, pas l'ordre du
 test("chaque tâche porte une référence courte vers son ouvrage", () => {
   // Les intitulés d'ouvrage font couramment 400 signes : les tableaux de
   // tâches renvoient au numéro de ligne du tableau des ouvrages.
-  assert.equal(C.ouvrages[0].reference, "#1 CLO-048");
-  assert.equal(C.ouvrages[1].reference, "#2", "sans code, la référence reste le numéro");
-  assert.equal(C.phases[0].taches[0].ouvrageRef, "#1 CLO-048");
-  assert.equal(C.materiaux[0].ouvrageRef, "#1 CLO-048");
+  assert.equal(C.ouvrages[0].reference, "CLO-048 (#1)");
+  assert.equal(C.ouvrages[1].reference, "#2", "sans code, la référence reste le numéro interne");
+  assert.equal(C.phases[0].taches[0].ouvrageRef, "CLO-048 (#1)");
+  assert.equal(C.materiaux[0].ouvrageRef, "CLO-048 (#1)");
 });
 
 test("une sous-tâche porte ratio, heures, état, date et ouvriers", () => {
@@ -261,6 +270,7 @@ test("une phase porte son équipe, ses bornes de dates et son dernier contrôle"
   const p = C.phases[0];
   assert.equal(p.groupeTypeNom, "Ossature placo");
   assert.equal(p.equipeNom, "Second œuvre");
+  assert.equal(p.equipeExterne, false);
   assert.equal(p.debut, "2026-10-03");
   assert.equal(p.fin, "2026-10-06");
   assert.equal(p.nbTaches, 2);
@@ -315,7 +325,7 @@ test("les commandes portent leur en-tête (fournisseur, document, statut)", () =
   assert.equal(l.fournisseur, "Point P");
   assert.equal(l.document, "BL-1");
   assert.equal(l.statut, "Complète");
-  assert.equal(l.ouvrageRef, "#1 CLO-048", "la ligne pointe l'ouvrage par sa référence courte");
+  assert.equal(l.ouvrageRef, "CLO-048 (#1)", "la ligne pointe l'ouvrage par sa référence courte");
   assert.equal(C.totalCommandes, 150);
 });
 
@@ -358,22 +368,74 @@ test("les tâches partagées gardent leurs assignés, anciens champs compris", (
   assert.equal(C.todos[1].statut, "Terminée");
 });
 
-test("les échéances ne retiennent que les tâches datées non terminées", () => {
-  assert.equal(C.echeances.length, 1);
-  assert.equal(C.echeances[0].nom, "Plaquage");
-  assert.equal(C.echeances[0].enRetard, true, "prévue le 06/10, export du 07/10");
+test("les échéances ne retiennent que ce qui appelle une décision", () => {
+  // Export daté du 07/10 : « Plaquage » (prévue le 06/10, 0 %) est en retard,
+  // « Tâche orpheline » (50 %, sans date) n'a aucun déclencheur. « Ossature »
+  // est terminée à 100 % : elle n'appelle rien.
+  assert.equal(C.echeances.length, 2);
+  const retard = C.echeances.find((t) => t.enRetard);
+  assert.equal(retard.nom, "Plaquage");
+  assert.equal(retard.motif, "En retard");
+  const sansDate = C.echeances.find((t) => t.sansDate);
+  assert.equal(sansDate.nom, "Tâche orpheline");
+  assert.equal(sansDate.motif, "Sans date");
+  assert.ok(!C.echeances.some((t) => t.nom === "Ossature"), "une tâche terminée n'est pas une échéance");
+});
+
+test("une tâche planifiée au-delà de l'horizon sort des échéances mais reste comptée", () => {
+  const loin = normaliserChantier({
+    ...CONTEXTE,
+    phasage: {
+      ...PHASAGE,
+      ouvrages: [{
+        ...PHASAGE.ouvrages[0],
+        taches: [{ id: "tz", nom: "Peinture finale", chrono_groupe_id: "g2", chrono_ordre: 1, avancement: 0, date_prevue: "2026-12-01" }],
+      }],
+    },
+  });
+  assert.equal(loin.echeances.length, 0, "au-delà de 14 jours, ce n'est pas une échéance");
+  assert.equal(loin.nbTachesAVenirHorsEcheances, 1, "elle reste comptée et décrite dans le plan");
 });
 
 // ─── CYCLE DE VIE ET DOCUMENTS ───────────────────────────────────────────────
 
-test("le cycle de vie reprend les étapes validées, leurs données et la phase déclarée", () => {
+test("le cycle de vie reprend les étapes validées, leurs données typées et la phase déclarée", () => {
   const metres = C.cycleVie.etapes.find((e) => e.id === "metres");
   assert.equal(metres.fait, true);
   assert.equal(metres.auteur, "Loris");
   const reponse = C.cycleVie.etapes.find((e) => e.id === "reponse_client");
-  assert.deepEqual(reponse.donnees, ["reponse : accepte"]);
+  // Les données sont TYPÉES (pas une chaîne « reponse : accepte ») : c'est ce
+  // qui permet au générateur d'écrire un libellé métier et un format humain.
+  assert.equal(reponse.donnees.length, 1);
+  assert.equal(reponse.donnees[0].cle, "reponse");
+  assert.equal(reponse.donnees[0].label, "Réponse");
+  assert.equal(reponse.donnees[0].valeur, "accepte");
   assert.ok(C.cycleVie.phaseLabel.startsWith("Travaux"));
   assert.ok(C.cycleVie.prochaine, "la prochaine étape à faire doit être identifiée");
+});
+
+test("un montant saisi sur une étape est typé « montant », pas un nombre nu", () => {
+  const c = normaliserChantier({
+    ...CONTEXTE,
+    phasage: {
+      ...PHASAGE,
+      plan_travaux: {
+        meta: {
+          ...PHASAGE.plan_travaux.meta,
+          cycle_vie_etapes: {
+            acompte_encaisse: { fait: true, date: "2026-05-30T09:00:00.000Z", auteur: "Loris",
+              donnees: { montant: 20210.62, date: "2026-05-30" } },
+          },
+        },
+      },
+    },
+  });
+  const etape = c.cycleVie.etapes.find((e) => e.id === "acompte_encaisse");
+  const montant = etape.donnees.find((d) => d.cle === "montant");
+  assert.equal(montant.type, "montant");
+  assert.equal(montant.label, "Montant", "le « (€) » du libellé est retiré, l'unité vient du format");
+  assert.equal(montant.valeur, 20210.62);
+  assert.equal(etape.donnees.find((d) => d.cle === "date").type, "date");
 });
 
 test("des pièces jointes on ne garde que les métadonnées — jamais le chemin", () => {
@@ -447,8 +509,11 @@ test("le modèle se laisse rédiger sans erreur et sans valeur technique parasit
   assert.ok(md.includes("# Chantier 2 — LOT B"));
   assert.ok(md.includes("Devis signé.pdf"));
   assert.ok(!md.includes("cycle-vie/"));
+  // « reference: null » est du YAML volontaire : c'est le corps du document qui
+  // ne doit porter aucune valeur technique.
+  const corps = md.slice(md.indexOf("\n---\n", 4) + 5);
   [/\bnull\b/, /\bundefined\b/, /\bNaN\b/, /\[object Object\]/].forEach((re) => {
-    const ligne = md.split("\n").find((l) => re.test(l));
+    const ligne = corps.split("\n").find((l) => re.test(l));
     assert.equal(ligne, undefined, `le document contient ${re} : ${ligne}`);
   });
 });
@@ -459,7 +524,7 @@ test("les statuts techniques sont traduits avec les libellés des écrans", () =
   assert.equal(C.besoins[0].statut, "En attente");
   assert.equal(C.besoins[0].priorite, "Urgent");
   assert.equal(C.visites[0].statut, "Terminée");
-  assert.equal(C.facturesClient[0].statut, "Émise");
+  assert.equal(C.facturation.lignes[0].etat, "Émise");
   assert.equal(C.suggestionsMateriaux[0].statut, "En attente");
 });
 
@@ -476,6 +541,221 @@ test("texteOuNull ne laisse jamais passer une chaîne vide ou blanche", () => {
   assert.equal(texteOuNull(null), null);
   assert.equal(texteOuNull(0), "0");
   assert.equal(texteOuNull(" a "), "a");
+});
+
+// ─── CODE CANONIQUE DE L'OUVRAGE ─────────────────────────────────────────────
+
+// Fabrique un chantier à un seul ouvrage, pour isoler la résolution du code.
+const avecOuvrage = (ouvrage, extra = {}) => normaliserChantier({
+  ...CONTEXTE,
+  ...extra,
+  phasage: { ...PHASAGE, ouvrages: [{ taches: [], ...ouvrage }] },
+}).ouvrages[0];
+
+test("le code explicite du phasage prime sur tout le reste", () => {
+  const o = avecOuvrage({
+    code_ouvrage: "MU-001",
+    bibliotheque_ref: { code_ouvrage: "AUTRE-9" },
+    libelle: "ZZ-999 : autre chose",
+  });
+  assert.equal(o.code, "MU-001");
+  assert.equal(o.codeSource, "phasage");
+});
+
+test("le code est récupéré dans l'objet bibliotheque_ref quand le champ est vide", () => {
+  const o = avecOuvrage({
+    code_ouvrage: null,
+    bibliotheque_ref: { id: "1788c067", code_ouvrage: "S-011", sous_taches: [{ id: "st_1" }] },
+    libelle: "Sol souple",
+  });
+  assert.equal(o.code, "S-011");
+  assert.equal(o.codeSource, "bibliotheque_ref");
+});
+
+test("le code est récupéré sur la fiche de bibliothèque en troisième recours", () => {
+  const o = avecOuvrage({
+    code_ouvrage: null, bibliotheque_id: "bib-code", libelle: "Doublage sans code",
+  }, {
+    ratiosById: { ...CONTEXTE.ratiosById, "bib-code": { id: "bib-code", libelle: "PL-003 : Faux-plafond", unite: "m²" } },
+  });
+  assert.equal(o.code, "PL-003");
+  assert.equal(o.codeSource, "bibliotheque");
+});
+
+test("en dernier recours, le code est lu au début de l'intitulé", () => {
+  // Cas RÉEL de Fourmond : les 57 ouvrages portent leur code en tête de
+  // libellé et aucun champ code_ouvrage.
+  const o = avecOuvrage({
+    code_ouvrage: null,
+    libelle: "MU-001 :Fourniture et pose d'un doublage de mur (2,5ml hauteur max)…",
+  });
+  assert.equal(o.code, "MU-001");
+  assert.equal(o.codeSource, "intitule");
+  assert.equal(o.reference, "MU-001 (#1)");
+});
+
+test("l'extraction depuis l'intitulé reconnaît les codes à décimale et à préfixe long", () => {
+  assert.equal(avecOuvrage({ libelle: "P-021.2 :Salle de bain type" }).code, "P-021.2");
+  assert.equal(avecOuvrage({ libelle: "COUV-001 : Reprise de couverture" }).code, "COUV-001");
+  assert.equal(avecOuvrage({ libelle: "ME-003.2 :Porte intérieure" }).code, "ME-003.2");
+});
+
+test("l'extraction ne prend ni une dimension ni une référence produit pour un code", () => {
+  ["Pose 3 prises de courant", "Bac 3", "70505960 plaque BA13",
+    "2,5ml de plinthe", "Cloison 48 BA13 hydro"].forEach((libelle) => {
+    const o = avecOuvrage({ code_ouvrage: null, libelle });
+    assert.equal(o.code, null, `« ${libelle} » ne doit pas produire de code : ${o.code}`);
+  });
+});
+
+test("un ouvrage sans aucun code garde son numéro interne comme référence", () => {
+  const o = avecOuvrage({ code_ouvrage: null, libelle: "Divers et imprévus" });
+  assert.equal(o.code, null);
+  assert.equal(o.codeSource, null);
+  assert.equal(o.reference, "#1");
+});
+
+// ─── FACTURATION ─────────────────────────────────────────────────────────────
+
+// Factures telles qu'elles existent : une ProGBat (HT volontairement NULL,
+// montant porté par montant_ttc) et une saisie à la main (HT renseigné).
+const FACTURE_PROGBAT = {
+  id: "f-pg", chantier_id: "c1", numero: "F-260067", ligne_nom: "Facture d'acompte",
+  date_facture: "2026-05-28", montant_ht: null, montant_ttc: "22231.68", statut: "emise",
+  source: "progbat", progbat_bill_id: 4412, progbat_type: "advance", progbat_net_total: "20210.62",
+};
+const FACTURE_SANS_MONTANT = {
+  id: "f-vide", chantier_id: "c1", numero: "F-260071", date_facture: "2026-06-30",
+  montant_ht: null, montant_ttc: null, statut: "emise", source: "progbat", progbat_bill_id: 4413,
+};
+const FACTURE_MANUELLE = {
+  id: "f-man", chantier_id: "c1", numero: "M-001", ligne_nom: "Situation 1",
+  date_facture: "2026-07-15", montant_ht: 12000, montant_ttc: null, statut: "emise", source: "manuel",
+};
+const facturationDe = (factures, reglements = []) => normaliserChantier({
+  ...CONTEXTE, sources: { ...SOURCES, factures, reglements },
+}).facturation;
+
+test("une facture ProGBat est mesurée en TTC, jamais par progbat_net_total", () => {
+  const f = facturationDe([FACTURE_PROGBAT]);
+  const l = f.lignes[0];
+  assert.equal(l.base, "TTC");
+  assert.equal(l.montant, 22231.68);
+  assert.equal(l.montantConnu, true);
+  assert.equal(l.nature, "Acompte");
+  // progbat_net_total ne décrit PAS le HT exigible (règle de FacturationChantier).
+  assert.notEqual(l.montant, 20210.62);
+});
+
+test("une facture saisie à la main est mesurée en HT", () => {
+  const l = facturationDe([FACTURE_MANUELLE]).lignes[0];
+  assert.equal(l.base, "HT");
+  assert.equal(l.montant, 12000);
+  assert.equal(l.source, "Saisie manuelle");
+});
+
+test("un montant de facture absent reste null — jamais zéro", () => {
+  const f = facturationDe([FACTURE_SANS_MONTANT]);
+  assert.equal(f.lignes[0].montant, null);
+  assert.equal(f.lignes[0].montantConnu, false);
+  assert.notEqual(f.lignes[0].montant, 0);
+});
+
+test("le total exclut les factures sans montant et le dit", () => {
+  const f = facturationDe([FACTURE_PROGBAT, FACTURE_SANS_MONTANT]);
+  assert.equal(f.progbat.sansMontant, 1);
+  assert.equal(Math.round(f.progbat.totalTTC * 100) / 100, 22231.68,
+    "la facture sans montant ne doit pas être comptée pour 0");
+  assert.equal(f.nb, 2);
+});
+
+test("HT et TTC sont totalisés séparément", () => {
+  const f = facturationDe([FACTURE_PROGBAT, FACTURE_MANUELLE]);
+  assert.equal(Math.round(f.progbat.totalTTC * 100) / 100, 22231.68);
+  assert.equal(f.manuel.totalHT, 12000);
+  assert.equal(f.manuel.sansMontant, 0);
+});
+
+test("les règlements alimentent l'état et le reste dû", () => {
+  const f = facturationDe([FACTURE_PROGBAT], [
+    { id: "r1", facture_id: "f-pg", date_reglement: "2026-06-10", montant: 10000, annule: false },
+  ]);
+  assert.equal(f.progbat.totalRegle, 10000);
+  assert.equal(Math.round(f.progbat.reste * 100) / 100, 12231.68);
+  assert.ok(/partiel/i.test(f.lignes[0].etat), f.lignes[0].etat);
+});
+
+// ─── ADRESSE DE L'OPÉRATION ──────────────────────────────────────────────────
+
+const modeleAvec = (op, chantiersModele) => assemblerModele({
+  op, chantiers: chantiersModele, agg: {}, statutsLabels: {}, erreurs: [], restrictions: [],
+  maintenant: new Date("2026-10-07T08:00:00.000Z"),
+});
+
+test("l'adresse saisie sur l'opération est marquée comme telle", () => {
+  const m = modeleAvec({ id: "op", nom: "X", adresse: "12 rue des Lilas" }, [C]);
+  assert.equal(m.operation.adresse.origine, "operation");
+  assert.equal(m.operation.adresse.valeur, "12 rue des Lilas");
+});
+
+test("une adresse unique partagée par les chantiers est marquée comme déduite", () => {
+  const m = modeleAvec({ id: "op", nom: "X", adresse: "" },
+    [{ ...C, adresse: "6 Square de l'Étrier" }, { ...VIDE, adresse: "6 Square de l'Étrier" }]);
+  assert.equal(m.operation.adresse.origine, "chantiers");
+  assert.equal(m.operation.adresse.valeur, "6 Square de l'Étrier");
+});
+
+test("des adresses différentes rendent l'opération multisite", () => {
+  const m = modeleAvec({ id: "op", nom: "X", adresse: null },
+    [{ ...C, adresse: "3 rue A" }, { ...VIDE, adresse: "7 rue B" }]);
+  assert.equal(m.operation.adresse.origine, "multisite");
+  assert.equal(m.operation.adresse.valeur, null);
+  assert.deepEqual(m.operation.adresse.liste, ["3 rue A", "7 rue B"]);
+});
+
+test("aucune adresse nulle part reste une absence, pas une déduction", () => {
+  const m = modeleAvec({ id: "op", nom: "X" }, [{ ...VIDE, adresse: null }]);
+  assert.equal(m.operation.adresse.origine, "absente");
+});
+
+test("la référence d'opération n'est jamais l'identifiant technique", () => {
+  const m = modeleAvec({ id: "op_1785760193820", nom: "Fourmond" }, [C]);
+  assert.equal(m.operation.reference, null);
+  assert.equal(m.operation.id, "op_1785760193820");
+});
+
+// ─── ÉQUIPES ─────────────────────────────────────────────────────────────────
+
+test("la nature d'une équipe vient du référentiel, pas d'une supposition", () => {
+  assert.deepEqual(C.equipes, ["Second œuvre", "Externe"]);
+  const externe = C.equipesDetail.find((e) => e.nom === "Externe");
+  assert.equal(externe.externe, true, "« Externe » est une équipe de prestataires");
+  const interne = C.equipesDetail.find((e) => e.nom === "Second œuvre");
+  assert.equal(interne.externe, false);
+  assert.deepEqual(interne.responsables, ["Davy"]);
+  assert.deepEqual(interne.membres, ["Kev"]);
+  const m = modeleAvec({ id: "op", nom: "X" }, [C]);
+  assert.equal(m.intervenants.find((e) => e.nom === "Externe").externe, true);
+});
+
+// ─── AGRÉGAT PARTAGÉ AVEC L'ÉCRAN ────────────────────────────────────────────
+
+test("agregerOperation somme les scalaires bruts et pondère l'avancement par le vendu", () => {
+  const fin = {
+    a: { finance: { brut: { prixHTChantier: 100000, avancementChantier: 80, margeChantier: 20000, margePrevChantier: 25000, coutMOTotalChantier: 10, coutMatChantier: 10, fgChantier: 10, moPrevChantier: 1, commandesPrevChantier: 1, fgPrevChantier: 1, heuresVenduesChantier: 10, heuresReellesTotalChantier: 5 } } },
+    b: { finance: { brut: { prixHTChantier: 20000, avancementChantier: 0, margeChantier: 5000, margePrevChantier: 5000, coutMOTotalChantier: 0, coutMatChantier: 0, fgChantier: 0, moPrevChantier: 0, commandesPrevChantier: 0, fgPrevChantier: 0, heuresVenduesChantier: 2, heuresReellesTotalChantier: 0 } } },
+  };
+  const t = agregerOperation(
+    [{ id: "a", statut: "en_cours" }, { id: "b", statut: "planifie" }, { id: "c", statut: null }],
+    fin, ["en_cours", "planifie"],
+  );
+  assert.equal(t.nbChantiers, 3);
+  assert.equal(t.nbAvecPhasage, 2);
+  assert.equal(t.vendu, 120000);
+  // (80 × 100 000 + 0 × 20 000) / 120 000 = 66,67 → 67
+  assert.equal(t.avancement, 67, "l'avancement est pondéré par le vendu, jamais moyenné");
+  assert.deepEqual(t.statuts, { en_cours: 2, planifie: 1 },
+    "un statut inconnu est rangé sous « en cours », comme à l'écran");
 });
 
 // ─── EXÉCUTION ───────────────────────────────────────────────────────────────

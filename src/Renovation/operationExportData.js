@@ -25,7 +25,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "../supabase";
 import { loadGroupesTypes, loadEquipes } from "../constants";
-import { normaliserChantier, assemblerModele, texteOuNull } from "./operationExportModele.mjs";
+import { computeChantierFinance } from "../chantierFinance";
+import {
+  normaliserChantier, assemblerModele, agregerOperation, texteOuNull,
+} from "./operationExportModele.mjs";
 import { construireMarkdownOperation, nomFichierMarkdownOperation } from "./operationMarkdown.mjs";
 
 const PAGE = 1000;
@@ -64,6 +67,10 @@ const grouper = (lignes, cle = "chantier_id") => {
   (lignes || []).forEach((l) => { (m[l?.[cle]] ||= []).push(l); });
   return m;
 };
+
+// Statuts connus de l'écran Opérations — ils servent à ranger un chantier dont
+// le statut est vide ou inconnu, exactement comme la page le fait.
+const STATUTS_CONNUS = ["en_cours", "termine", "planifie", "en_pause"];
 
 // ─── CHARGEMENT ──────────────────────────────────────────────────────────────
 
@@ -111,7 +118,11 @@ export async function chargerDonneesExportOperation({
     configRes, groupesTypes, equipes, biblioRatiosRes, materiauxRes,
     rapportsRes, lignesRes, besoinsRes, controlesRes, reservesRes, visitesRes,
     notesChantierRes, notesPlanningRes, plansRes, facturesRes, cellsRes,
-    avancementRes, suggestionsRes, liensProjetsRes,
+    avancementRes, suggestionsRpc, liensProjetsRes,
+    // FRAÎCHEUR : phasages et pointages sont RELUS au clic, en un lot, et non
+    // repris du cache de la page. Un phasage modifié par un collègue depuis
+    // l'ouverture de l'écran doit figurer dans le fichier téléchargé.
+    phasagesRes, pointagesRes, reglesConfigRes,
   ] = await Promise.all([
     supabase.from("planning_config").select("key,value").in("key", ["chantier_adresses", "bloc_todos"]),
     loadGroupesTypes().catch((e) => { noter("groupes types", e); return []; }),
@@ -138,9 +149,21 @@ export async function chargerDonneesExportOperation({
       "id, chantier_id, numero, ligne_nom, date_facture, montant_ht, statut, date_encaissement, document_nom, source"),
     parIds("planning_cells", "week_id, chantier_id, jour, planifie, reel, ouvriers"),
     parIds("chantier_avancement_history", "chantier_id, avancement, taches_terminees, taches_total, date_snapshot"),
-    parIds("suggestions_materiaux_ouvriers",
-      "id, chantier_id, materiau_id, designation_libre, unite, quantite_totale, precision_ouvrier, statut, cree_le"),
+    // SUGGESTIONS DE MATÉRIAUX — jamais en lecture directe.
+    // La table suggestions_materiaux_ouvriers est verrouillée par conception
+    // (RLS active SANS policy et GRANT révoqués, cf.
+    // sql/202609_suggestions_materiaux_ouvriers.sql) : un select PostgREST y
+    // répond « permission denied ». L'application passe, elle, par cette RPC
+    // SECURITY DEFINER — le même chemin est repris ici. Statut null = tous.
+    // La RPC rend `null` (et non une erreur) quand le rôle n'est pas
+    // admin/conducteur : c'est une restriction, pas une panne.
+    supabase.rpc("conducteur_lister_suggestions_materiaux", { p_chantier_id: null, p_statut: null }),
     parIds("chantier_projets", "chantier_id, projet_id"),
+    parIds("phasages", "id, chantier_id, chantier_nom, ouvrages, plan_travaux, updated_at"),
+    parIds("pointages",
+      "id, chantier_id, tache_id, ouvrier, date, heures, taux_horaire, type_pointage, motif_indirect"),
+    supabase.from("planning_config").select("key,value")
+      .in("key", ["taux_horaires", "taux_mo_previsionnel", "lots_travaux"]),
   ]);
 
   [
@@ -159,9 +182,26 @@ export async function chargerDonneesExportOperation({
     ["factures client", facturesRes],
     ["planning hebdomadaire", cellsRes],
     ["historique d'avancement", avancementRes],
-    ["matériaux signalés par les équipes", suggestionsRes],
     ["rattachement des chiffrages", liensProjetsRes],
+    ["phasages (relecture au moment de l'export)", phasagesRes],
+    ["pointages (relecture au moment de l'export)", pointagesRes],
+    ["réglages de calcul (taux, lots)", reglesConfigRes],
   ].forEach(([nom, res]) => noter(nom, res?.error));
+
+  // Suggestions de matériaux : distinguer la PANNE de la RESTRICTION de rôle.
+  const restrictions = [];
+  let suggestions = [];
+  if (suggestionsRpc?.error) {
+    noter("matériaux signalés par les équipes", suggestionsRpc.error);
+  } else if (suggestionsRpc?.data === null || suggestionsRpc?.data === undefined) {
+    restrictions.push(
+      "Matériaux signalés manquants par les équipes — réservés aux rôles "
+      + "« administrateur » et « conducteur de travaux » (la donnée existe peut-être, "
+      + "elle n'est simplement pas lisible par le compte qui a lancé l'export).",
+    );
+  } else {
+    suggestions = Array.isArray(suggestionsRpc.data) ? suggestionsRpc.data : [];
+  }
 
   // Chiffrages rattachés (client + conditions de vente par ligne). Deux
   // requêtes supplémentaires SEULEMENT si un rattachement existe réellement.
@@ -184,22 +224,40 @@ export async function chargerDonneesExportOperation({
     lignesChiffrage = lignesChiffrageRes.data || [];
   }
 
+  // Règlements des factures : lus en UN lot, une fois les factures connues.
+  // Sans eux, l'état d'une facture (réglée, partielle, sur-réglée) est faux.
+  const factureIds = [...new Set((facturesRes?.data || []).map((f) => f?.id).filter(Boolean))];
+  let reglements = [];
+  if (factureIds.length > 0) {
+    const r = await lireParIds("chantier_factures_reglements",
+      "id, facture_id, date_reglement, montant, mode, annule, progbat_canceled",
+      factureIds, { colonne: "facture_id" });
+    noter("règlements des factures", r.error);
+    reglements = r.data || [];
+  }
+
   const config = Object.fromEntries((configRes?.data || []).map((r) => [r.key, r.value]));
   const adresses = config.chantier_adresses || {};
   const todosTous = Array.isArray(config.bloc_todos?.items)
     ? config.bloc_todos.items
     : (Array.isArray(config.bloc_todos) ? config.bloc_todos : []);
 
-  const lots = cfg.lots_travaux?.items || [];
-  const tauxHoraires = cfg.taux_horaires || {};
+  // Réglages de calcul : la version relue au clic fait foi ; le cache de la
+  // page ne sert que si la relecture a échoué.
+  const reglesFraiches = Object.fromEntries((reglesConfigRes?.data || []).map((r) => [r.key, r.value]));
+  const lots = reglesFraiches.lots_travaux?.items || cfg.lots_travaux?.items || [];
+  const tauxHoraires = reglesFraiches.taux_horaires || cfg.taux_horaires || {};
+  const tauxMOPrev = parseFloat(reglesFraiches.taux_mo_previsionnel ?? cfg.taux_mo_previsionnel) || 0;
   const materiauxById = {};
   (materiauxRes?.data || []).forEach((m) => { materiauxById[String(m.id)] = m; });
   const ratiosById = {};
   (biblioRatiosRes?.data || []).forEach((r) => { ratiosById[String(r.id)] = r; });
+  // L'ÉQUIPE ENTIÈRE est transmise, pas seulement son nom : sa nature
+  // (`externe`), ses responsables et ses membres viennent du référentiel.
   const equipeParGroupeType = {};
   (groupesTypes || []).forEach((gt) => {
-    const eq = (equipes || []).find((e) => e.id === gt.equipe_id);
-    equipeParGroupeType[gt.id] = { groupeTypeNom: gt.nom || null, equipeNom: eq?.nom || null };
+    const eq = (equipes || []).find((e) => e.id === gt.equipe_id) || null;
+    equipeParGroupeType[gt.id] = { groupeTypeNom: gt.nom || null, equipe: eq };
   });
 
   const projetsById = {};
@@ -221,17 +279,58 @@ export async function chargerDonneesExportOperation({
     factures: grouper(facturesRes?.data),
     cells: grouper(cellsRes?.data),
     avancement: grouper(avancementRes?.data),
-    suggestions: grouper(suggestionsRes?.data),
+    // La RPC rend les suggestions de TOUS les chantiers : on ne garde que
+    // celles de l'opération. Le filtre de sécurité, lui, est côté serveur.
+    suggestions: grouper(suggestions.filter((s) => ids.includes(s?.chantier_id))),
+    reglements: grouper(reglements, "facture_id"),
   };
   const todosParChantier = grouper(todosTous.filter((t) => t && t.chantier_id));
 
   const aujourdhui = toISO(maintenant);
 
+  // ── INSTANTANÉ FRAIS ─────────────────────────────────────────────────────
+  // Les phasages et pointages relus au clic remplacent ceux du cache de la
+  // page, et la finance est RECALCULÉE avec le même module que l'écran
+  // (computeChantierFinance) et les mêmes entrées. Si la relecture a échoué,
+  // on retombe sur le cache — jamais sur rien.
+  const phasagesFrais = {};
+  (phasagesRes?.data || []).forEach((ph) => {
+    const courant = phasagesFrais[ph.chantier_id];
+    if (!courant || String(ph.updated_at || "") > String(courant.updated_at || "")) {
+      phasagesFrais[ph.chantier_id] = ph;
+    }
+  });
+  const relectureOk = !phasagesRes?.error;
+  const phasageDe = (id) => (relectureOk ? (phasagesFrais[id] || null) : (phasagesParChantier[id] || null));
+  const pointagesFrais = grouper(pointagesRes?.data);
+  const pointagesDe = (id) => (pointagesRes?.error ? (pointagesParChantier[id] || []) : (pointagesFrais[id] || []));
+
+  const financeFraiche = {};
+  if (relectureOk) {
+    chantiersOp.forEach((c) => {
+      const ph = phasagesFrais[c.id];
+      if (!ph || !(Array.isArray(ph.ouvrages) && ph.ouvrages.length > 0)) return;
+      financeFraiche[c.id] = {
+        finance: computeChantierFinance({
+          phasage: ph,
+          pointages: pointagesDe(c.id),
+          commandeLignes: parChantier.lignes[c.id] || [],
+          tauxHoraires, tauxMOPrev, lots,
+        }),
+      };
+    });
+  }
+  const finance = relectureOk ? financeFraiche : finParChantier;
+  // L'agrégat suit les mêmes chiffres, par la MÊME fonction que l'écran.
+  const aggEffectif = relectureOk
+    ? agregerOperation(chantiersOp, financeFraiche, STATUTS_CONNUS)
+    : agg;
+
   const chantiers = chantiersOp.map((c) => normaliserChantier({
     chantier: c,
-    phasage: phasagesParChantier[c.id] || null,
-    pointages: pointagesParChantier[c.id] || [],
-    finance: finParChantier[c.id]?.finance || null,
+    phasage: phasageDe(c.id),
+    pointages: pointagesDe(c.id),
+    finance: finance[c.id]?.finance || null,
     adresse: texteOuNull(adresses?.[c.id]?.adresse),
     statutLabel: statutsLabels[c.statut] || statutsLabels.en_cours || c.statut || null,
     lots, tauxHoraires, materiauxById, ratiosById, equipeParGroupeType,
@@ -246,6 +345,8 @@ export async function chargerDonneesExportOperation({
       notesPlanning: parChantier.notesPlanning[c.id] || [],
       plans: parChantier.plans[c.id] || [],
       factures: parChantier.factures[c.id] || [],
+      reglements: (parChantier.factures[c.id] || [])
+        .flatMap((f) => parChantier.reglements[String(f.id)] || []),
       cells: parChantier.cells[c.id] || [],
       avancement: parChantier.avancement[c.id] || [],
       suggestions: parChantier.suggestions[c.id] || [],
@@ -258,8 +359,10 @@ export async function chargerDonneesExportOperation({
     aujourdhui,
   }));
 
-  const modele = assemblerModele({ op, chantiers, agg, statutsLabels, erreurs, maintenant });
-  return { modele, erreurs };
+  const modele = assemblerModele({
+    op, chantiers, agg: aggEffectif, statutsLabels, erreurs, restrictions, maintenant,
+  });
+  return { modele, erreurs, restrictions };
 }
 
 const toISO = (d) => {
@@ -292,7 +395,7 @@ export function telechargerMarkdown(nomFichier, contenu) {
 // Renvoie { nomFichier, erreurs, nbChantiers, taille } ; lève si le chargement
 // lui-même est impossible (l'appelant affiche alors une erreur franche).
 export async function exporterOperationMarkdown(params) {
-  const { modele, erreurs } = await chargerDonneesExportOperation(params);
+  const { modele, erreurs, restrictions } = await chargerDonneesExportOperation(params);
   const contenu = construireMarkdownOperation(modele);
   // Date LOCALE dans le nom du fichier : `toISOString()` renverrait la veille
   // pour un export lancé après 22 h en heure d'été française.
@@ -301,5 +404,8 @@ export async function exporterOperationMarkdown(params) {
     toISO(params?.maintenant instanceof Date ? params.maintenant : new Date()),
   );
   telechargerMarkdown(nomFichier, contenu);
-  return { nomFichier, erreurs, nbChantiers: modele.chantiers.length, taille: contenu.length };
+  return {
+    nomFichier, erreurs, restrictions,
+    nbChantiers: modele.chantiers.length, taille: contenu.length,
+  };
 }

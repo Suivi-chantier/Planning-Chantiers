@@ -10,7 +10,8 @@ const M = await chargerModuleSource("../src/Renovation/operationMarkdown.mjs", i
 const {
   construireMarkdownOperation, nomFichierMarkdownOperation, assainirNomFichier,
   txt, cellule, bloc, nombre, euros, heures, pourcent, dateFR, dateHeureFR,
-  sansHtml, yamlValeur, tableau, ND, AUCUNE,
+  sansHtml, yamlValeur, tableau, construireTableau, listeDefinitions, donneesEtape,
+  ND, AUCUNE,
 } = M;
 
 const cas = [];
@@ -18,7 +19,11 @@ const test = (nom, fn) => cas.push([nom, fn]);
 
 // ─── FIXTURES ────────────────────────────────────────────────────────────────
 
-const OP = { id: "op_1", nom: "Fourmond", reference: "op_1", adresse: "12 rue des Lilas", couleur: "#84cc16", statuts: { en_cours: 1, termine: 1 } };
+const OP = {
+  id: "op_1", nom: "Fourmond", reference: null,
+  adresse: { valeur: "12 rue des Lilas", origine: "operation", liste: [] },
+  couleur: "#84cc16", statuts: { en_cours: 1, termine: 1 },
+};
 const AGG = {
   nbChantiers: 2, nbAvecPhasage: 2,
   vendu: 120000, moReel: 30000, mat: 20000, fg: 5000, marge: 65000, margePct: 54.2,
@@ -41,34 +46,61 @@ const BRUT = {
 // accents, apostrophe typographique.
 const TACHE_PIEGE = {
   id: "t1", nom: "Pose cloison | BA13 <b>hydro</b>\nRDC & 1er étage — côté « cour »",
-  ouvrageLibelle: "Cloisons", ordre: 1, phaseId: "g1", phaseNom: "Ossature",
+  ouvrageLibelle: "Cloisons", ouvrageRef: "CLO-048 (#1)", ordre: 1, phaseId: "g1", phaseNom: "Ossature",
   ratio: 35, heuresEstimees: 12, heuresVendues: 14, heuresReelles: 11.5,
   avancement: 50, etat: "En cours", datePrevue: "2026-10-03",
   ouvriers: ["Kev", "Margaux"], dependances: ["Démolition"],
+};
+// Tâche dont TOUTES les colonnes secondaires sont vides : elle sert à vérifier
+// que ces colonnes disparaissent au lieu de répéter « Non renseigné ».
+const TACHE_NUE = {
+  id: "t2", nom: "Repli de chantier", ouvrageRef: "#2", ordre: 2, phaseId: "g2",
+  phaseNom: "Peinture", ratio: null, heuresEstimees: null, heuresVendues: null,
+  heuresReelles: null, avancement: 0, etat: "À faire", datePrevue: null,
+  ouvriers: null, dependances: null,
 };
 
 const CHANTIER = {
   id: "fourmond-rdc", nom: "FOURMOND RDC", couleur: "#84cc16",
   statutId: "en_cours", statutLabel: "En cours", adresse: "12 rue des Lilas — RDC",
-  equipes: ["Second œuvre"], finance: BRUT,
+  equipes: ["Second œuvre", "Externe"],
+  equipesDetail: [
+    { nom: "Second œuvre", externe: false, responsables: ["Davy"], membres: ["Kev"] },
+    { nom: "Externe", externe: true, responsables: null, membres: null },
+  ],
+  finance: BRUT,
   alertes: [{ gravite: "alerte", message: "Lot Placo : dérive d'heures ×1,30." }],
   lots: [{ id: "murs_cloison", label: "Murs & cloisons", nbOuvrages: 3, heuresVendues: 200, heuresReelles: 230, avancement: 70, ratioDerive: 1.64 }],
   phasage: { id: "ph1", updatedAt: "2026-09-17T13:40:00.000Z", montantDevis: 80000, fgTauxHoraire: 6, margeCible: 45, repriseHeures: 0, repriseTaux: 0 },
   ouvrages: [{
-    id: "o1", code: "CLO-048", libelle: "Cloisons", libelleDevis: "Cloison 48 + isolation",
+    id: "o1", code: "CLO-048", numero: "#1", reference: "CLO-048 (#1)",
+    libelle: "Cloisons", libelleDevis: "Cloison 48 + isolation",
     lotId: "murs_cloison", lotLabel: "Murs & cloisons", quantite: 45.5, unite: "m²",
     prixHT: 6800, coutMateriaux: 1400, heuresDevis: 60, heuresEstimees: 58,
     heuresReelles: 51, coutMOReel: 1900, avancement: 65, bibliothequeRef: "cloison_48_standard_isol",
     cadence: 0.8, cadenceUnite: "m²", coefficientVente: 1.35, tauxHoraireVente: 52,
     taches: [TACHE_PIEGE],
+  }, {
+    id: "o2", code: null, numero: "#2", reference: "#2", libelle: "Divers",
+    libelleDevis: null, lotLabel: null, quantite: null, unite: null,
+    prixHT: null, coutMateriaux: null, heuresDevis: null, heuresEstimees: null,
+    heuresReelles: null, coutMOReel: null, avancement: 0, bibliothequeRef: null,
+    taches: [TACHE_NUE],
   }],
-  nbTaches: 1, nbTachesDatees: 1,
+  nbTaches: 2, nbTachesDatees: 1,
   phases: [{
-    id: "g1", nom: "Ossature", ordre: 50, groupeTypeNom: "Ossature placo", equipeNom: "Second œuvre",
+    id: "g1", nom: "Ossature", ordre: 50, groupeTypeNom: "Ossature placo",
+    equipeNom: "Second œuvre", equipeExterne: false,
     nbTaches: 1, nbTachesDatees: 1, heuresEstimees: 12, heuresVendues: 14, avancement: 50,
     termine: false, debut: "2026-10-03", fin: "2026-10-03", ouvriers: ["Kev", "Margaux"],
     controle: { date: "2026-10-10", auteur: "Loris", nbTaches: 4, nbConformes: 3 },
     taches: [TACHE_PIEGE],
+  }, {
+    id: "g2", nom: "Peinture", ordre: 80, groupeTypeNom: null,
+    equipeNom: "Externe", equipeExterne: true,
+    nbTaches: 1, nbTachesDatees: 0, heuresEstimees: 0, heuresVendues: 0, avancement: 0,
+    termine: false, debut: null, fin: null, ouvriers: null, controle: null,
+    taches: [TACHE_NUE],
   }],
   tachesHorsPhase: [],
   jalons: [{ nom: "Contrôle — Ossature", type: "controle", groupeNom: "Ossature", date: null }],
@@ -104,6 +136,11 @@ const CHANTIER = {
     phaseLabel: "Travaux (déclarée par Loris)",
     etapes: [
       { id: "metres", nom: "Métrés", phaseNom: "Devis", hint: "Coche manuelle.", fait: true, date: "2026-05-02", auteur: "Loris", donnees: null, nbPiecesJointes: 0 },
+      // Données typées : le document doit écrire « Montant : 20 210,62 € »,
+      // jamais « montant : 20210.62 ».
+      { id: "acompte_encaisse", nom: "Acompte encaissé", phaseNom: "Contrat", hint: "", fait: true, date: "2026-05-30", auteur: "Loris",
+        donnees: [{ cle: "montant", label: "Montant", valeur: 20210.62, type: "montant" },
+                  { cle: "date", label: "Date d'encaissement", valeur: "2026-05-30", type: "date" }], nbPiecesJointes: 0 },
       { id: "devis_signe", nom: "Devis signé", phaseNom: "Contrat", hint: "Importer le devis signé.", fait: false, date: null, auteur: null, donnees: null, nbPiecesJointes: 1 },
     ],
     prochaine: { nom: "Devis signé", phaseNom: "Contrat", hint: "Importer le devis signé." },
@@ -111,12 +148,42 @@ const CHANTIER = {
   documents: [{ nom: "Devis-signe.pdf", categorie: "Cycle de vie — Devis signé", type: "application/pdf", date: "2026-05-20T10:00:00.000Z", auteur: "Loris" }],
   notes: [{ source: "Note de chantier", contenu: "Clé sous le paillasson.\nCode portail 1234A.", date: "2026-09-01T08:00:00.000Z" }],
   todos: [{ texte: "Relancer le plaquiste", assignes: ["Loris"], echeance: "2026-09-25", priorite: "haute", statut: "À faire", note: null, fait: false }],
-  echeances: [{ ...TACHE_PIEGE, enRetard: false }],
+  echeances: [
+    { ...TACHE_PIEGE, enRetard: true, sansDate: false, proche: false, motif: "En retard" },
+    { ...TACHE_NUE, enRetard: false, sansDate: true, proche: false, motif: "Sans date" },
+  ],
+  nbTachesAVenirHorsEcheances: 3,
   ouvriersHeures: [{ nom: "Kev", heures: 120, cout: 2400, taux: 20 }],
   heuresParMois: [{ label: "septembre 2026", heures: 120, cout: 2400, ouvriers: ["Kev 120 h"] }],
   avancementHistorique: [{ date: "2026-09-14", avancement: 60, tachesTerminees: 8, tachesTotal: 20 }],
-  facturesClient: [{ numero: "F-2026-014", date: "2026-08-31", libelle: "Situation 1", montantHT: 24000, statut: "emise", dateEncaissement: null }],
-  totalFacture: 24000,
+  // Facturation : une facture ProGBat en TTC dont le montant est CONNU, et une
+  // seconde dont le montant est absent — le total ne doit donc pas être présenté
+  // comme complet, et surtout jamais valoir zéro.
+  facturation: {
+    nb: 3,
+    lignes: [
+      {
+        numero: "F-260067", date: "2026-05-28", libelle: "Facture d'acompte", source: "ProGBat",
+        nature: "Acompte", base: "TTC", montant: 22231.68, montantConnu: true,
+        regle: 0, reste: 22231.68, etat: "Non réglée", anomalie: false,
+        dateEncaissement: null, documentAnnulation: false,
+      },
+      {
+        numero: "F-260071", date: "2026-06-30", libelle: null, source: "ProGBat",
+        nature: "Facture", base: "TTC", montant: null, montantConnu: false,
+        regle: 0, reste: null, etat: "Montant inconnu", anomalie: true,
+        dateEncaissement: null, documentAnnulation: false,
+      },
+      {
+        numero: "M-001", date: "2026-07-15", libelle: "Situation 1", source: "Saisie manuelle",
+        nature: null, base: "HT", montant: 12000, montantConnu: true,
+        regle: null, reste: null, etat: "Émise", anomalie: false,
+        dateEncaissement: null, documentAnnulation: false,
+      },
+    ],
+    progbat: { nb: 2, totalTTC: 22231.68, totalRegle: 0, reste: 22231.68, sansMontant: 1, anomalies: 1 },
+    manuel: { nb: 1, nbConnues: 1, sansMontant: 0, totalHT: 12000 },
+  },
   chiffrage: {
     reference: "Réno RDC — LOT A",
     modeCoefficient: "global", coefficientGlobal: "1.35 — Coefficient standard",
@@ -134,24 +201,29 @@ const CHANTIER = {
 const CHANTIER_VIDE = {
   id: "fourmond-r1", nom: "FOURMOND R+1", couleur: null,
   statutId: "planifie", statutLabel: "Planifié", adresse: null,
-  equipes: null, finance: null, alertes: [], lots: [], phasage: null,
+  equipes: null, equipesDetail: [], finance: null, alertes: [], lots: [], phasage: null,
   ouvrages: [], nbTaches: 0, nbTachesDatees: 0, phases: [], tachesHorsPhase: [],
   jalons: [], planning: { debut: null, fin: null }, planningCells: [], previsionnel: null,
   materiaux: [], suggestionsMateriaux: [], rapports: [], visites: [], commandes: [],
   totalCommandes: 0, besoins: [], controles: [], reserves: [],
   cycleVie: { phaseLabel: null, etapes: [], prochaine: null },
   documents: [], notes: [], todos: [], echeances: [], ouvriersHeures: [],
-  heuresParMois: [], avancementHistorique: [], facturesClient: [], totalFacture: 0,
+  heuresParMois: [], avancementHistorique: [], nbTachesAVenirHorsEcheances: 0,
+  facturation: { nb: 0, lignes: [], progbat: null, manuel: null },
   chiffrage: null, client: null,
 };
 
 const MODELE = {
-  genere: { le: "2026-09-18T07:30:00.000Z", leFr: "18 septembre 2026 à 09:30", erreurs: [] },
+  genere: { le: "2026-09-18T07:30:00.000Z", leFr: "18 septembre 2026 à 09:30", erreurs: [], restrictions: [] },
   operation: OP,
   statutsLabels: { en_cours: "En cours", termine: "Terminé", planifie: "Planifié", en_pause: "En pause" },
   agg: AGG,
   bornes: { debut: "2026-10-03", fin: "2026-11-20" },
-  contacts: [], intervenants: [{ nom: "Second œuvre", responsables: ["Davy"], membres: ["Kev"], externe: false, chantiers: ["FOURMOND RDC"] }],
+  contacts: [],
+  intervenants: [
+    { nom: "Second œuvre", responsables: ["Davy"], membres: ["Kev"], externe: false, chantiers: ["FOURMOND RDC"] },
+    { nom: "Externe", responsables: null, membres: null, externe: true, chantiers: ["FOURMOND RDC"] },
+  ],
   affectations: [{ nom: "Kev", heures: 120, cout: 2400, chantiers: ["FOURMOND RDC"] }],
   consignes: [{ chantierNom: "FOURMOND RDC", source: "Note de chantier", contenu: "Clé sous le paillasson." }],
   commandes: [{ ...CHANTIER.commandes[0], chantierNom: "FOURMOND RDC" }],
@@ -276,8 +348,10 @@ test("le frontmatter YAML est présent, complet et bien formé", () => {
   assert.ok(fin > 0, "le frontmatter doit être refermé");
   const fm = MD.slice(4, fin);
   ["type: operation_profero", "version_export: 1", 'operation_id: "op_1"',
+    "reference: null",
     'nom: "Fourmond"', "nombre_chantiers: 2", "export_complet: true",
     'application: "Profero"'].forEach((l) => assert.ok(fm.includes(l), `manque : ${l}`));
+  assert.ok(!fm.includes('reference: "op_1"'), "l'identifiant technique ne doit pas servir de référence métier");
 });
 
 test("les onze sections de l'opération apparaissent dans l'ordre", () => {
@@ -308,8 +382,9 @@ test("chaque chantier a sa fiche, dans l'ordre reçu, avec toutes ses sous-secti
   const p2 = MD.indexOf("# Chantier 2 — FOURMOND R+1");
   assert.ok(p1 > 0 && p2 > p1, "les deux fiches doivent exister dans l'ordre");
   [
-    "## Informations générales", "## Devis, lots et ouvrages", "## Sous-tâches des ouvrages",
-    "## Matériaux prévisionnels", "## Plan de travaux et phasage", "## Planning prévisionnel",
+    "## Informations générales", "## Devis, lots et ouvrages",
+    "## Sous-tâches des ouvrages (récapitulatif)",
+    "## Matériaux prévisionnels", "## Plan de travaux et tâches", "## Planning prévisionnel",
     "## Équipes et affectations", "## Avancement réel", "## Comptes rendus chantier",
     "## Visites et observations", "## Commandes et approvisionnements",
     "## Problèmes, blocages et décisions", "## Actions restantes et prochaines échéances",
@@ -399,8 +474,12 @@ test("une opération sans chantier produit un document valide", () => {
 
 test("les valeurs manquantes s'écrivent « Non renseigné », jamais null/undefined", () => {
   assert.ok(MD.includes(ND));
+  // « reference: null » est du YAML volontaire dans le frontmatter (aucune
+  // référence métier n'existe) : c'est le CORPS du document qui ne doit porter
+  // aucune de ces valeurs techniques.
+  const corps = MD.slice(MD.indexOf("\n---\n", 4) + 5);
   [/\bnull\b/, /\bundefined\b/, /\bNaN\b/, /\[object Object\]/].forEach((re) => {
-    const ligne = MD.split("\n").find((l) => re.test(l));
+    const ligne = corps.split("\n").find((l) => re.test(l));
     assert.equal(ligne, undefined, `le document contient ${re} : ${ligne}`);
   });
 });
@@ -443,6 +522,243 @@ test("appelé sans modèle, le générateur ne jette pas", () => {
   const vide = construireMarkdownOperation();
   assert.ok(vide.includes("type: operation_profero"));
   assert.ok(vide.includes("nombre_chantiers: 0"));
+});
+
+// ─── ANTI-BRUIT : COLONNES ET CHAMPS VIDES ───────────────────────────────────
+
+test("une colonne entièrement vide est retirée du tableau", () => {
+  const r = construireTableau(
+    [{ t: "Tâche" }, { t: "Dépendances" }],
+    [["Ossature", ND], ["Plaquage", ND]],
+  );
+  assert.ok(!r.lignes[0].includes("Dépendances"), r.lignes[0]);
+  assert.deepEqual(r.colonnesRetirees, ["Dépendances"]);
+  assert.equal(r.lignes.length, 4, "en-tête + séparateur + 2 lignes");
+});
+
+test("une colonne qui porte au moins une valeur est conservée", () => {
+  const r = construireTableau(
+    [{ t: "Tâche" }, { t: "Dépendances" }],
+    [["Ossature", ND], ["Plaquage", "Ossature"]],
+  );
+  assert.ok(r.lignes[0].includes("Dépendances"));
+  assert.deepEqual(r.colonnesRetirees, []);
+});
+
+test("une colonne marquée `garder` reste même totalement vide", () => {
+  const r = construireTableau(
+    [{ t: "Tâche" }, { t: "Date prévue", garder: true }],
+    [["Ossature", ND]],
+  );
+  assert.ok(r.lignes[0].includes("Date prévue"));
+  assert.deepEqual(r.colonnesRetirees, []);
+});
+
+test("une ligne entièrement vide n'est pas écrite", () => {
+  const r = construireTableau([{ t: "A" }, { t: "B" }], [["x", "y"], [ND, ND]]);
+  assert.equal(r.lignes.length, 3, "une seule ligne de données doit survivre");
+});
+
+test("un champ secondaire absent ne produit pas de ligne, un champ gardé oui", () => {
+  const l = listeDefinitions([
+    ["Nom", "Cloisons"],
+    ["Marge cible", null],
+    ["Adresse", null, { garder: true }],
+  ]);
+  assert.equal(l.length, 2);
+  assert.ok(l.some((x) => x.includes("Cloisons")));
+  assert.ok(l.some((x) => x.includes("Adresse") && x.includes(ND)));
+  assert.ok(!l.some((x) => x.includes("Marge cible")));
+});
+
+test("le document signale les colonnes retirées au lieu de les remplir de vide", () => {
+  const nd = MD.split(ND).length - 1;
+  const lignesTableau = MD.split("\n").filter((l) => l.startsWith("|")).length;
+  assert.ok(nd < lignesTableau, `« ${ND} » apparaît ${nd} fois pour ${lignesTableau} lignes de tableau`);
+  assert.ok(MD.includes("Colonnes sans aucune valeur"), "les colonnes retirées doivent être signalées");
+});
+
+// ─── RÉFÉRENCES D'OUVRAGE ────────────────────────────────────────────────────
+
+test("les références d'ouvrage s'écrivent CODE (#n), ou #n sans code", () => {
+  assert.ok(MD.includes("CLO-048 (#1)"), "la référence codée doit apparaître");
+  assert.ok(MD.includes("| #2 |"), "un ouvrage sans code garde son numéro interne");
+});
+
+// ─── MARGES ──────────────────────────────────────────────────────────────────
+
+test("la marge à date est nommée « provisoire » et passe après la marge au devis", () => {
+  assert.ok(MD.includes("Marge provisoire sur coûts enregistrés"));
+  assert.ok(!MD.includes("Marge nette à date"), "l'ancien intitulé trompeur ne doit plus exister");
+  const devis = MD.indexOf("Marge prévisionnelle au devis");
+  const provisoire = MD.indexOf("Marge provisoire sur coûts enregistrés");
+  assert.ok(devis > 0 && provisoire > devis, "la marge au devis vient en premier");
+});
+
+test("un avancement faible déclenche la mise en garde sur la marge provisoire", () => {
+  const md = construireMarkdownOperation({
+    ...MODELE,
+    agg: { ...AGG, avancement: 0, marge: 105544, margePct: 95.9 },
+  });
+  assert.ok(md.includes("l'avancement n'est que de 0 %"));
+  assert.ok(md.includes("marge prévisionnelle au devis** qui fait foi"));
+});
+
+test("un avancement significatif n'affiche pas la mise en garde", () => {
+  const md = construireMarkdownOperation({ ...MODELE, agg: { ...AGG, avancement: 62 } });
+  assert.ok(!md.includes("l'avancement n'est que de"));
+});
+
+// ─── ADRESSE ─────────────────────────────────────────────────────────────────
+
+test("une adresse déduite des chantiers est annoncée comme déduite", () => {
+  const md = construireMarkdownOperation({
+    ...MODELE,
+    operation: { ...OP, adresse: { valeur: "6 Square de l'Étrier", origine: "chantiers", liste: ["6 Square de l'Étrier"] } },
+  });
+  assert.ok(md.includes("Adresse principale déduite des chantiers"));
+  assert.ok(md.includes("6 Square de l'Étrier"));
+  assert.ok(md.includes("L'opération elle-même n'a pas d'adresse enregistrée"));
+  assert.ok(!md.includes("**Adresse principale** :"), "elle ne doit pas passer pour une saisie");
+});
+
+test("une opération multisite liste les adresses de ses chantiers", () => {
+  const md = construireMarkdownOperation({
+    ...MODELE,
+    operation: { ...OP, adresse: { valeur: null, origine: "multisite", liste: ["3 rue A", "7 rue B"] } },
+  });
+  assert.ok(md.includes("opération multisite"));
+  assert.ok(md.includes("3 rue A") && md.includes("7 rue B"));
+});
+
+// ─── FACTURATION ─────────────────────────────────────────────────────────────
+
+test("un montant de facture inconnu n'est jamais rendu par zéro", () => {
+  const bloc = MD.slice(MD.indexOf("### Facturation client"));
+  const entete = bloc.split("\n").find((l) => l.startsWith("| Numéro |"));
+  const colonnes = entete.split("|").map((x) => x.trim());
+  const iMontant = colonnes.indexOf("Montant");
+  assert.ok(iMontant > 0, "la colonne Montant doit exister");
+
+  const ligne = bloc.split("\n").find((l) => l.includes("F-260071"));
+  assert.ok(ligne, "la facture sans montant doit être listée, pas masquée");
+  const montant = ligne.split("|").map((x) => x.trim())[iMontant];
+  assert.equal(montant, ND, `un montant inconnu s'écrit « ${ND} », jamais 0 € : ${ligne}`);
+
+  // La facture dont le montant EST connu le montre, centimes compris.
+  const connue = bloc.split("\n").find((l) => l.includes("F-260067"));
+  assert.ok(connue.split("|").map((x) => x.trim())[iMontant].includes("22 231,68")
+    || connue.split("|").map((x) => x.trim())[iMontant].includes("22\u00a0231,68"), connue);
+});
+
+test("le total de facturation dit qu'il ne porte que sur les montants connus", () => {
+  assert.ok(MD.includes("total des montants connus"));
+  assert.ok(MD.includes("Un montant inconnu n'est pas"));
+  assert.ok(!MD.includes("Total facturé HT : **0 €**"), "l'ancien total faux ne doit plus exister");
+});
+
+test("HT et TTC ne sont jamais confondus dans les totaux", () => {
+  const bloc = MD.slice(MD.indexOf("### Facturation client"));
+  assert.ok(bloc.includes("TTC"), "les factures ProGBat se totalisent en TTC");
+  assert.ok(bloc.includes("Factures saisies à la main"), "les factures manuelles ont leur propre total HT");
+  assert.ok(/Factures saisies à la main.*HT\./.test(bloc));
+});
+
+test("un total entièrement inconnu est dit non calculable", () => {
+  const md = construireMarkdownOperation({
+    ...MODELE,
+    chantiers: [{
+      ...CHANTIER,
+      facturation: {
+        nb: 1,
+        lignes: [{ ...CHANTIER.facturation.lignes[1] }],
+        progbat: { nb: 1, totalTTC: 0, totalRegle: 0, reste: 0, sansMontant: 1, anomalies: 1 },
+        manuel: null,
+      },
+    }],
+  });
+  assert.ok(md.includes("total non calculable"), "un total sans aucun montant connu doit être annoncé tel quel");
+});
+
+// ─── RÉPÉTITION DES TÂCHES ───────────────────────────────────────────────────
+
+test("le détail d'une tâche n'est écrit qu'une fois, dans le plan de travaux", () => {
+  const debut = MD.indexOf("## Sous-tâches des ouvrages (récapitulatif)");
+  const fin = MD.indexOf("## Matériaux prévisionnels");
+  const recap = MD.slice(debut, fin);
+  assert.ok(recap.includes("Sous-tâches"), "le récapitulatif existe");
+  assert.ok(!recap.includes("Pose cloison"), "le nom des tâches n'est pas répété dans le récapitulatif");
+  assert.ok(recap.includes("Plan de travaux et"), "il renvoie à la liste canonique");
+  const lignesDetail = MD.split("\n").filter((l) => l.includes("Pose cloison") && l.includes("35 %"));
+  assert.equal(lignesDetail.length, 1, "une seule ligne de détail par tâche");
+});
+
+test("les ratios sont affichés avec leur unité de pourcentage", () => {
+  const ligne = MD.split("\n").find((l) => l.includes("Pose cloison") && l.startsWith("|"));
+  assert.ok(ligne.includes("35 %"), `le ratio doit porter son unité : ${ligne}`);
+});
+
+test("les actions restantes ne reprennent pas toutes les tâches à venir", () => {
+  const bloc = MD.slice(MD.indexOf("### Tâches du plan qui appellent une décision"));
+  assert.ok(bloc.includes("En retard"));
+  assert.ok(bloc.includes("Sans date"));
+  assert.ok(MD.includes("au-delà de 14 jours"), "le reste doit être renvoyé au plan de travaux");
+});
+
+// ─── DONNÉES DU CYCLE DE VIE ─────────────────────────────────────────────────
+
+test("les données saisies sur une étape sont formatées, jamais brutes", () => {
+  assert.ok(MD.includes("Montant : "), "le libellé métier doit apparaître");
+  assert.ok(!MD.includes("montant : 20210.62"), "aucune paire clé-valeur brute");
+  assert.ok(/Montant : 20.210,62 €/.test(MD), "le montant doit être formaté en euros");
+});
+
+test("donneesEtape formate dates, montants, nombres et booléens", () => {
+  assert.equal(donneesEtape([{ label: "Date", valeur: "2026-05-30", type: "date" }]), "Date : 30/05/2026");
+  assert.equal(donneesEtape([{ label: "Signé", valeur: true, type: "booleen" }]), "Signé : Oui");
+  assert.equal(donneesEtape([]), null);
+  assert.ok(donneesEtape([{ label: "Montant", valeur: 1500, type: "montant" }]).includes("€"));
+  assert.equal(donneesEtape(["Réponse : accepté"]), "Réponse : accepté");
+});
+
+// ─── ÉQUIPES ─────────────────────────────────────────────────────────────────
+
+test("une équipe de prestataires n'est pas annoncée comme interne", () => {
+  const ligne = MD.split("\n").find((l) => l.startsWith("| Externe |"));
+  assert.ok(ligne, "l'équipe Externe doit figurer dans les intervenants");
+  assert.ok(ligne.includes("Prestataire externe"), ligne);
+  assert.ok(!ligne.includes("Équipe interne"), ligne);
+  const interne = MD.split("\n").find((l) => l.startsWith("| Second œuvre |"));
+  assert.ok(interne.includes("Équipe interne"), interne);
+});
+
+// ─── RESTRICTION DE RÔLE ─────────────────────────────────────────────────────
+
+test("une catégorie fermée au rôle rend le document partiel et le dit", () => {
+  const md = construireMarkdownOperation({
+    ...MODELE,
+    genere: { ...MODELE.genere, restrictions: ["Matériaux signalés manquants — réservés aux conducteurs."] },
+  });
+  assert.ok(md.includes("export_complet: false"));
+  assert.ok(md.includes("sections_non_accessibles: 1"));
+  assert.ok(md.includes("certaines catégories ne sont pas accessibles"));
+  assert.ok(md.includes("Ce n'est pas une panne"));
+  assert.ok(md.includes("Matériaux signalés manquants — réservés aux conducteurs."));
+});
+
+test("panne et restriction sont distinguées dans le même document", () => {
+  const md = construireMarkdownOperation({
+    ...MODELE,
+    genere: {
+      ...MODELE.genere,
+      erreurs: ["comptes rendus : timeout"],
+      restrictions: ["Suggestions de matériaux — rôle insuffisant."],
+    },
+  });
+  assert.ok(md.includes("sources_en_erreur: 1"));
+  assert.ok(md.includes("sections_non_accessibles: 1"));
+  assert.ok(md.includes("**Export incomplet.**"));
+  assert.ok(md.includes("certaines catégories ne sont pas accessibles"));
 });
 
 // ─── EXÉCUTION ───────────────────────────────────────────────────────────────
