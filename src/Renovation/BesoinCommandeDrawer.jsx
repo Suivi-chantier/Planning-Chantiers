@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
+import { InputNombre } from "../ui";
 
 const STYLE_INJECTED = { current: false };
 function injectStyles() {
@@ -51,12 +52,15 @@ export default function BesoinCommandeDrawer({
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from("materiaux_bibliotheque")
-        .select("*")
-        .order("nom");
+      // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
+      // id, nom, reference, categorie, photo_url, unite — jamais les prix ni
+      // les fournisseurs. Ce tiroir s'affiche AUSSI dans le formulaire public
+      // /rapport, donc sans authentification : la RPC est exécutable par anon,
+      // la table ne l'est pas. Ne PAS ajouter de repli vers la table.
+      // Le tri par nom est fait côté SQL.
+      const { data, error } = await supabase.rpc("catalogue_materiaux_demande");
       if (error) console.error("Erreur chargement bibliothèque:", error);
-      setBibliotheque(data || []);
+      setBibliotheque(Array.isArray(data) ? data : []);
       setLoading(false);
     })();
   }, []);
@@ -277,10 +281,10 @@ export default function BesoinCommandeDrawer({
                           border: "1.5px solid rgba(224,92,92,0.3)", borderRadius: 8,
                           fontSize: 16, fontWeight: 800, cursor: "pointer", color: "#e05c5c",
                         }}>−</button>
-                        <input
-                          type="number" min="1" max="999"
-                          value={qty}
-                          onChange={e => setQty(article, Math.max(0, parseInt(e.target.value) || 0), true)}
+                        <InputNombre
+                          min="1" max="999"
+                          valeur={qty}
+                          entier onValeur={n => setQty(article, Math.max(0, n || 0), true)} vide={0}
                           style={{
                             flex: 1, textAlign: "center",
                             border: `1.5px solid ${accent}`,

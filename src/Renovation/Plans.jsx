@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { COULEURS_PALETTE, THEMES, DEFAULT_CHANTIERS, FONT, RADIUS, SPACING, getBranchAccent } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import {
   Ruler, Plus, Copy, Trash2, FolderOpen, Building2, ImageOff, Search,
   Layers, AlertTriangle,
 } from "lucide-react";
-import { getBounds, calcSurface, drawLibSym } from "./planDessin";
+import { getBounds, calcSurface, drawLibSym, pointDansPolygone } from "./planDessin";
+import { imprimerPlanA4 } from "./planPdf";
+import { LOGO_RENO_H } from "../constants";
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 
@@ -611,6 +613,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const movingCoteRef = useRef(null);
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0);
   const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true });
+  const [legendePdf, setLegendePdf] = useState(true); // colonne de légende dans le PDF A4
   const [symProps, setSymProps] = useState(null);
   const [groupProps, setGroupProps] = useState(null); // {groupId, angle, cx, cy}
 
@@ -897,10 +900,17 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         ctx.restore();
         const cx_c = pts.reduce((a,p)=>a+p.x,0)/pts.length;
         const cy_c = pts.reduce((a,p)=>a+p.y,0)/pts.length;
-        const {cx:lx,cy:ly}=toC(cx_c,cy_c);
+        // Même règle qu'à l'impression : si la pièce porte un nom (symbole
+        // texte posé dedans), l'aire se range juste dessous au lieu de se
+        // superposer au nom.
+        const nomZone = symbolsRef.current
+          .filter(sy => !sy.deleted && sy.type==='text' && (sy.text||'').trim() && pointDansPolygone(sy.x, sy.y, pts))
+          .sort((a,b) => ((a.x-cx_c)**2+(a.y-cy_c)**2) - ((b.x-cx_c)**2+(b.y-cy_c)**2))[0];
+        const ancreZone = nomZone ? toC(nomZone.x, nomZone.y) : toC(cx_c, cy_c);
+        const lx = ancreZone.cx, ly = ancreZone.cy + (nomZone ? 13*(nomZone.size||1) + 8 : 0);
         const area = calcSurface(pts);
         const label = area>=1 ? `${area.toFixed(2)} m²` : `${(area*10000).toFixed(0)} cm²`;
-        const fontSize = Math.max(10, Math.min(14, vp.scale*0.4));
+        const fontSize = 12;   // ancrée au papier : ne dépend PAS du zoom
         ctx.font=`bold ${fontSize}px sans-serif`;
         ctx.textAlign='center';
         const tw=ctx.measureText(label).width+10;
@@ -1182,14 +1192,27 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           ctx.strokeStyle=C.symA; ctx.lineWidth=1.5;
           ctx.beginPath(); ctx.ellipse(0,0,sz/2,sz/3,0,0,Math.PI*2); ctx.stroke();
         }
-        if (sym.text && sym.type!=='text') {
-          ctx.fillStyle=C.txt; ctx.font=`bold ${Math.max(10,sz*0.5)}px sans-serif`;
-          ctx.textAlign='center'; ctx.fillText(sym.text,0,sz+12);
-        }
-        if (sym.type==='text') {
-          ctx.fillStyle=C.symT; ctx.font=`bold ${Math.max(11,sz*0.6)}px sans-serif`;
-          ctx.textAlign='center'; ctx.fillText(sym.text||'',0,4);
-        }
+        // Textes : taille ANCRÉE AU PAPIER, identique au moteur d'impression
+        // (planRendu). Elle ne suit plus `sz` — qui vaut 0,60 m de dessin —
+        // donc un libellé ne grossit plus quand on zoome : ce qu'on place ici
+        // sort à la même taille relative sur la planche A4.
+        const szTxt = 13 * (sym.size||1);
+        const texteAvecFond = (t, fs, y, couleur) => {
+          ctx.font=`bold ${fs}px sans-serif`;
+          ctx.textAlign='center';
+          if (isPrint) {   // même fond clair qu'à l'impression
+            const tw = ctx.measureText(t).width + 8;
+            ctx.fillStyle='rgba(250,250,247,0.88)';
+            ctx.beginPath();
+            if (ctx.roundRect) { ctx.roundRect(-tw/2, y-fs*0.82, tw, fs*1.08, 3); }
+            else { ctx.rect(-tw/2, y-fs*0.82, tw, fs*1.08); }
+            ctx.fill();
+          }
+          ctx.fillStyle=couleur;
+          ctx.fillText(t,0,y);
+        };
+        if (sym.text && sym.type!=='text') texteAvecFond(sym.text, Math.max(9,szTxt*0.8), sz+12, C.txt);
+        if (sym.type==='text') texteAvecFond(sym.text||'', Math.max(10,szTxt), 4, C.symT);
         if (selectedRef.current.has(sym.id)) {
           ctx.restore();
           const {cx:scx,cy:scy}=toC(sym.x,sym.y);
@@ -2100,19 +2123,31 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     }
   };
 
-  const exportPDF = (forPrint=false) => {
-    const canvas=canvasRef.current; if(!canvas) return;
-    const doExport = () => {
-      const dataUrl=canvas.toDataURL('image/png');
-      const w=window.open('','_blank');
-      w.document.write(`<!DOCTYPE html><html><head><title>${plan.name}</title>
-    <style>@page{size:A3 landscape;margin:10mm}body{margin:0}img{width:100%;height:auto}</style>
-    </head><body><img src="${dataUrl}"/></body></html>`);
-      w.document.close(); setTimeout(()=>w.print(),500);
-      if (forPrint) { printModeRef.current=false; render(); }
-    };
-    if (forPrint) { printModeRef.current=true; render(); setTimeout(doExport,50); }
-    else doExport();
+  // ── PDF A4 paysage — planche vectorielle à l'échelle (planPdf.js) ──────────
+  // Le dessin n'est plus une capture du canvas : il est rejoué dans un
+  // enregistreur SVG, cadré à une échelle normalisée (1:50, 1:100…), encadré,
+  // légendé et signé par un cartouche — une planche exploitable sur chantier.
+  const exportPDF = () => {
+    const vivants = (arr) => arr.filter(x => !x.deleted).length;
+    if (!vivants(segmentsRef.current) && !vivants(symbolsRef.current)
+        && !vivants(cotesRef.current) && !vivants(surfacesRef.current)) {
+      alert("Ce plan est vide : rien à imprimer.");
+      return;
+    }
+    const chantier = chantiers?.find(c => c.id === plan.chantier_id);
+    imprimerPlanA4({
+      data: {
+        segments: segmentsRef.current, symbols: symbolsRef.current,
+        cotes: cotesRef.current, surfaces: surfacesRef.current,
+        planRotation: planRotRef.current,
+      },
+      nom: plan.name || 'Plan',
+      chantier: chantier?.nom || '',
+      logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+      calques: layersRef.current,
+      coteFont: coteFontRef.current,
+      avecLegende: legendePdf,
+    });
   };
 
   const segCount=segments.filter(s=>!s.deleted).length;
@@ -2274,8 +2309,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {showThreshold&&(
           <div style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.06)',borderRadius:8,padding:'5px 10px'}}>
             <span style={{fontSize:11,color:'#9aa5c0'}}>Seuil:</span>
-            <input type='number' value={threshold} min='0.01' max='10' step='0.05'
-              onChange={e=>setThreshold(parseFloat(e.target.value)||0.5)}
+            <InputNombre valeur={threshold} min='0.01' max='10'
+              onValeur={n => setThreshold(n || 0.5)} vide={0.5}
               style={{width:55,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',
                 borderRadius:5,padding:'3px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:13}}/>
             <span style={{fontSize:11,color:'#5b6a8a'}}>m</span>
@@ -2344,10 +2379,19 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PNG</button>
         <button onClick={()=>exportPNG(true)} style={{background:'rgba(80,200,120,0.2)',border:'1px solid rgba(80,200,120,0.4)',
           borderRadius:8,padding:'6px 12px',color:'#7ee8a2',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PNG</button>
-        <button onClick={()=>exportPDF()} style={{background:'rgba(245,166,35,0.15)',border:'1px solid rgba(245,166,35,0.3)',
-          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer'}}>↓ PDF</button>
-        <button onClick={()=>exportPDF(true)} style={{background:'rgba(245,166,35,0.2)',border:'1px solid rgba(245,166,35,0.4)',
-          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:700,cursor:'pointer'}}>🖨 PDF</button>
+        <button onClick={exportPDF}
+          title="Planche A4 paysage vectorielle : dessin à l'échelle normalisée, cadre, légende et cartouche — prête à imprimer pour le chantier"
+          style={{background:'rgba(245,166,35,0.2)',border:'1px solid rgba(245,166,35,0.45)',
+          borderRadius:8,padding:'6px 12px',color:'#f5a623',fontFamily:'inherit',fontSize:12,fontWeight:700,
+          cursor:'pointer',whiteSpace:'nowrap'}}>🖨 PDF A4 paysage</button>
+        <button onClick={()=>setLegendePdf(v=>!v)}
+          title="Colonne de légende dans le PDF : liste les symboles réellement posés sur le plan"
+          style={{background:legendePdf?'rgba(245,166,35,0.12)':'rgba(255,255,255,0.06)',
+          border:`1px solid ${legendePdf?'rgba(245,166,35,0.35)':'transparent'}`,
+          borderRadius:8,padding:'6px 9px',color:legendePdf?'#f5a623':'#9aa5c0',fontFamily:'inherit',
+          fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+          {legendePdf?'☑':'☐'} Légende
+        </button>
         <button onClick={handleSave} disabled={saving}
           title="Sauvegarde automatique activée — cliquer pour forcer une sauvegarde immédiate"
           style={{background:saving?'#5b8af5':lastSaved?'rgba(80,200,120,0.18)':'#5b8af5',
@@ -2552,23 +2596,15 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             <div style={{display:'flex',gap:6}}>
               <div style={{flex:1}}>
                 <div style={{fontSize:9,color:'#5b6a8a',marginBottom:2}}>X</div>
-                <input type='number' step={0.1} value={parseFloat(symProps.x.toFixed(2))}
-                  onChange={e=>{
-                    const v=parseFloat(e.target.value)||0;
-                    setSymProps(p=>({...p,x:v}));
-                    setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,x:v}:x));
-                  }}
+                <InputNombre valeur={parseFloat(symProps.x.toFixed(2))}
+                  onValeur={v=>{ const n = v || 0; setSymProps(p=>({...p,x:n})); setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,x:n}:x)); }} vide={0}
                   style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
                     borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:11,boxSizing:'border-box'}}/>
               </div>
               <div style={{flex:1}}>
                 <div style={{fontSize:9,color:'#5b6a8a',marginBottom:2}}>Y</div>
-                <input type='number' step={0.1} value={parseFloat(symProps.y.toFixed(2))}
-                  onChange={e=>{
-                    const v=parseFloat(e.target.value)||0;
-                    setSymProps(p=>({...p,y:v}));
-                    setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,y:v}:x));
-                  }}
+                <InputNombre valeur={parseFloat(symProps.y.toFixed(2))}
+                  onValeur={v=>{ const n = v || 0; setSymProps(p=>({...p,y:n})); setSymbols(s=>s.map(x=>x.id===symProps.id?{...x,y:n}:x)); }} vide={0}
                   style={{width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',
                     borderRadius:5,padding:'4px 6px',color:'#e8eaf0',fontFamily:'inherit',fontSize:11,boxSizing:'border-box'}}/>
               </div>

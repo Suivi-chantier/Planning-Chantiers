@@ -31,6 +31,7 @@ import {
   ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip as RTooltip, Legend,
 } from "recharts";
+import { InputNombre } from "../ui";
 
 // ─── DONNÉES STATIQUES ───────────────────────────────────────────────────────
 // Labels de phase utilisés pour le PhaseTrack visuel (rétro-compatibilité).
@@ -607,7 +608,7 @@ function Modal({ open, onClose, title, children, footer, T, acc }) {
 }
 
 const ENum = ({ v, onChange, ph = '0', T, style: es = {} }) => (
-  <input type="number" value={v || ''} onChange={e => onChange(nv(e.target.value))} placeholder={ph} style={{ ...edtCls(T), ...es }}/>
+  <InputNombre valeur={v} onValeur={n => onChange(n ?? 0)} vide={0} placeholder={ph} style={{ ...edtCls(T), ...es }}/>
 );
 
 // ─── MODALE PIPELINE ─────────────────────────────────────────────────────────
@@ -633,8 +634,8 @@ function PipelineModal({ open, item, onClose, onSave, onDelete, T, acc }) {
     }>
       <FG label="Client / Projet" T={T}><input type="text" value={f.nom} onChange={e => u('nom')(e.target.value)} placeholder="M. Dupont — Division T4 en 3 lots" style={inpCls(T)}/></FG>
       <FR2>
-        <FG label="CA estimé (€)" T={T}><input type="number" value={f.ca || ''} onChange={e => u('ca')(nv(e.target.value))} placeholder="80000" style={inpCls(T)}/></FG>
-        <FG label="Probabilité (%)" T={T}><input type="number" value={f.proba || ''} onChange={e => u('proba')(nv(e.target.value))} min="0" max="100" placeholder="70" style={inpCls(T)}/></FG>
+        <FG label="CA estimé (€)" T={T}><InputNombre valeur={f.ca || ''} onValeur={n => u('ca')(n ?? 0)} vide={0} placeholder="80000" style={inpCls(T)}/></FG>
+        <FG label="Probabilité (%)" T={T}><InputNombre valeur={f.proba || ''} onValeur={n => u('proba')(n ?? 0)} vide={0} min="0" max="100" placeholder="70" style={inpCls(T)}/></FG>
       </FR2>
       <FR2>
         <FG label="Statut" T={T}>
@@ -1800,7 +1801,7 @@ function SocieteFinanceTab({ derivedFinance = { moByMonth: {}, matByMonth: {} },
             <select value={newMonthMonth} onChange={e => setNewMonthMonth(e.target.value)} style={{ ...inpCls(T), width: 130, padding: '7px 10px', cursor: 'pointer' }}>
               {monthOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <input type="number" value={newMonthYear} onChange={e => setNewMonthYear(parseInt(e.target.value) || today.getFullYear())} style={{ ...inpCls(T), width: 100, padding: '7px 10px' }} min="2020" max="2099"/>
+            <InputNombre valeur={newMonthYear} entier onValeur={n => setNewMonthYear(n ?? today.getFullYear())} vide={today.getFullYear()} style={{ ...inpCls(T), width: 100, padding: '7px 10px' }} min="2020" max="2099"/>
             <Btn onClick={ajouterMois} sm color="gold" T={T} acc={acc}>Confirmer</Btn>
             <Btn onClick={() => setAddMonthOpen(false)} sm color="ghost" T={T} acc={acc}>Annuler</Btn>
           </div>
@@ -1833,10 +1834,9 @@ function SocieteFinanceTab({ derivedFinance = { moByMonth: {}, matByMonth: {} },
                           {row._derived ? (
                             <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: '#34d188', paddingRight: 7 }}>{fmt(monthValue(row, m.key), 0)}</span>
                           ) : (
-                            <input
-                              type="number"
-                              value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
-                              onChange={e => updCR(row.idx, m.key, nv(e.target.value))}
+                            <InputNombre
+                              valeur={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
+                              onValeur={n => updCR(row.idx, m.key, n ?? 0)} vide={0}
                               style={{ ...edtCls(T), width: 92 }}
                             />
                           )}
@@ -1899,10 +1899,9 @@ function SocieteFinanceTab({ derivedFinance = { moByMonth: {}, matByMonth: {} },
                       <td style={{ fontSize: 12, color: T?.text || '#f0f0f0' }}>{row.label}</td>
                       {visibleMonths.map(m => (
                         <td key={m.key} style={{ textAlign: 'right' }}>
-                          <input
-                            type="number"
-                            value={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
-                            onChange={e => updFG(row.idx, m.key, nv(e.target.value))}
+                          <InputNombre
+                            valeur={Number.isFinite(monthValue(row, m.key)) ? monthValue(row, m.key) : ''}
+                            onValeur={n => updFG(row.idx, m.key, n ?? 0)} vide={0}
                             style={{ ...edtCls(T), width: 92 }}
                           />
                         </td>

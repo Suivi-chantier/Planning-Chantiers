@@ -12,13 +12,11 @@
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/migrate-planning-model-v1.mjs
 //   ... node scripts/migrate-planning-model-v1.mjs --apply
 
-import { readFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
+import { chargerModuleSource } from "./_chargeur.mjs";
 
 async function loadModule(path) {
-  const source = await readFile(new URL(path, import.meta.url), "utf8");
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-  return import(dataUrl);
+  return chargerModuleSource(path, import.meta.url);
 }
 
 const APPLY = process.argv.includes("--apply");

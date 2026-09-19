@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import AdresseInput from "../AdresseAutocomplete";
 import { readNavTarget } from "./_shared";
 import { createPortal } from "react-dom";
 import {
@@ -1991,8 +1992,8 @@ function ListeEDL({ profil, onOuvrir }) {
                   <input type="text" autoFocus value={form.titre} placeholder="Résidence Al Hana — Apt 16"
                     onChange={e => setForm(f => ({ ...f, titre:e.target.value }))}/></label>
                 <label className="f"><span>Adresse du bien</span>
-                  <input type="text" value={form.adresse} placeholder="Guéliz, 40000 Marrakech"
-                    onChange={e => setForm(f => ({ ...f, adresse:e.target.value }))}/></label>
+                  <AdresseInput value={form.adresse} placeholder="Guéliz, 40000 Marrakech"
+                    onChange={v => setForm(f => ({ ...f, adresse:v }))}/></label>
                 {biens.length > 0 && (
                   <label className="f"><span>Bien du stock (facultatif)</span>
                     <select value={form.bien_id || ""} onChange={e => {

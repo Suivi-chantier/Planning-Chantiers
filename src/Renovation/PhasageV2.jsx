@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
-import { Icon } from "../ui";
+import { Icon, InputNombre } from "../ui";
 import {
   ListChecks, Sparkles, Building2, Boxes, Hammer, ClipboardList,
   ChevronDown, Plus, Trash2, FileSpreadsheet, X, Check, AlertTriangle,
@@ -22,9 +22,23 @@ import {
 // Écran de contrôle de fin de groupe (Point 2 b) — overlay plein écran monté
 // depuis la vue chrono (bouton « Contrôler » du jalon de contrôle).
 import ControleGroupe from "./ControleGroupe";
+// File d'auto-save en verrouillage optimiste : plus aucune écriture de cet
+// éditeur n'est inconditionnelle (voir sql/202609_phasages_revision_verrou_optimiste.sql).
+import {
+  etatInitial as fileInitiale, avecRevision, planifier, demarrer,
+  succes as fileSucces, conflit as fileConflit, echec as fileEchec,
+  apresRechargement, aDesChangementsNonEnregistres,
+} from "./phasageSauvegarde";
+// Un chantier ne devrait porter qu'un phasage ; choisirPhasage décide lequel
+// ouvrir quand il y en a plusieurs, au lieu d'échouer en silence.
+import { choisirPhasage } from "./phasageRegistre.mjs";
+// Éditeur des matériaux d'un ouvrage (modale) — écrit dans
+// ouvrages[].materiaux_liens via updateOuvrage, jamais dans la bibliothèque.
+import MateriauxOuvrage from "./MateriauxOuvrage";
 // État de contrôle d'un groupe (badge signalé, jamais bloquant).
 import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
+import { useDirtyGuard } from "../hooks";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
 import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches, reordonnancementPropose } from "./rang";
@@ -65,7 +79,7 @@ import {
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
-// Membres proposables d'une équipe : responsable + membres, par prénom
+// Membres proposables d'une équipe : responsables + membres, par prénom
 // (la clé de jointure de toute l'appli), sans doublon. Un membre avec une
 // date_dispo FUTURE (embauche à venir, ex : Keita en septembre) reste visible
 // dans l'Admin mais n'est ni proposé au pré-remplissage ni compté ici tant
@@ -74,7 +88,8 @@ const rid = () => Math.random().toString(36).slice(2, 10);
 const membresEquipe = (eq) => {
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const list = [
-    eq?.responsable,
+    // Multi-chefs : responsables[] avec repli sur l'ancien champ responsable.
+    ...(Array.isArray(eq?.responsables) && eq.responsables.length ? eq.responsables : [eq?.responsable]),
     ...(eq?.membres || [])
       .filter(m => !m.date_dispo || String(m.date_dispo).slice(0, 10) <= aujourdhui)
       .map(m => m.ouvrier),
@@ -349,7 +364,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // tâches sont dérivés de ce registre (taux figé par ouvrier), avec repli sur
   // l'ancien champ heures_reelles pour les chantiers sans pointage.
   const [pointages, setPointages] = useState([]);
-  const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error
+  const [autoSaveStatus, setAutoSaveStatus] = useState("saved"); // saved | pending | saving | error | conflit
+  // Verrouillage optimiste : la file porte la dernière révision CONFIRMÉE,
+  // ce qui reste à écrire et l'état de conflit. Une ref, pas un state :
+  // elle est lue et écrite dans des callbacks asynchrones.
+  const fileRef = useRef(fileInitiale());
+  // Identité de la ligne écrite. Une REF, pas le state `phasage` : dans le
+  // .then() du chargement, setPhasage(data) n'a pas encore re-rendu, donc
+  // `phasage` y vaut encore null. S'y fier a fait créer un phasage EN DOUBLE
+  // (régression du 17/09 : la normalisation des ids à l'ouverture passait par
+  // ensurePhasage, qui ne voyait aucune ligne et en insérait une seconde).
+  const phasageIdRef = useRef(null);
+  const creationRef = useRef(null);   // promesse de création en cours (anti-double)
+  const [conflitInfo, setConflitInfo] = useState(null);   // { revision } | null
+  const [bandeauReduit, setBandeauReduit] = useState(false);
+  const [rechargeEnCours, setRechargeEnCours] = useState(false);
   const saveTimerRef = useRef(null);
   const newOuvrageInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -358,7 +387,6 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
   // Comptes rendus (rapports) du chantier — pour le bouton "voir le dernier CR"
   const [rapports, setRapports] = useState([]);
-  const [rapportModal, setRapportModal] = useState(null); // { rapport, tacheNom }
   const [rapportsModal, setRapportsModal] = useState(null); // { tacheNom, rapports } — tous les CR d'une tâche
   // Repli du bandeau KPI (on ne garde que la barre d'avancement). Préférence
   // d'affichage locale, mémorisée entre les sessions.
@@ -381,6 +409,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [matPanel, setMatPanel] = useState(null); // { type: 'lot'|'ouvrage', id }
   const [matKpiModal, setMatKpiModal] = useState(false); // modale "toutes les commandes du chantier"
+  const [matKpiSearch, setMatKpiSearch] = useState("");
   const [kpiDetail, setKpiDetail] = useState(null); // détail d'un KPI : "vendu" | "heures" | "mo" | "fg" | "marge"
   const [moisModal, setMoisModal] = useState(false); // modale « heures par mois / par ouvrier »
   const [moisOuvert, setMoisOuvert] = useState({});  // { "2026-07": true } — mois dépliés dans la modale
@@ -532,11 +561,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     supabase.from("bibliotheque_ratios").select("*").order("libelle")
       .then(({ data }) => setBibliotheque(data || []));
   }, []);
-  // Charge la bibliothèque matériaux (pour le prix unitaire lors du calcul du
-  // coût matériaux à l'import devis).
+  // Charge la bibliothèque matériaux : prix unitaire pour le calcul du coût
+  // matériaux à l'import devis, et — depuis l'éditeur de matériaux de la
+  // modale d'ouvrage — référence, catégorie et fournisseur, sur lesquels
+  // porte la recherche d'ajout. Lecture directe de la table : c'est un écran
+  // BUREAU, seul profil à y avoir encore accès (materiaux_bibliotheque_bureau).
   useEffect(() => {
     supabase.from("materiaux_bibliotheque")
-      .select("id,nom,unite,prix_unitaire")
+      .select("id,nom,unite,prix_unitaire,reference,categorie,fournisseur")
       .then(({ data }) => setMateriauxBiblio(data || []));
   }, []);
 
@@ -557,10 +589,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!chantierId) { setPhasage(null); return; }
     let cancelled = false;
     setLoadingPhasage(true);
-    supabase.from("phasages").select("*").eq("chantier_id", chantierId).maybeSingle()
-      .then(({ data, error }) => {
+    // Pas de maybeSingle() : si le chantier porte plusieurs lignes, il renvoie
+    // une erreur et l'éditeur reste vide sans rien dire. On ouvre celle qui
+    // porte le travail et on signale le doublon dans la console.
+    supabase.from("phasages").select("*").eq("chantier_id", chantierId).limit(5)
+      .then(({ data: lignes, error }) => {
         if (cancelled) return;
-        if (error && error.code !== "PGRST116") console.warn("PhasageV2 load:", error.message);
+        if (error) console.warn("PhasageV2 load:", error.message);
+        if (Array.isArray(lignes) && lignes.length > 1) {
+          console.warn(`PhasageV2 : ${lignes.length} phasages pour le chantier ${chantierId} — le plus fourni est ouvert.`);
+        }
+        const data = choisirPhasage(lignes);
         let mutated = false;
         if (data && Array.isArray(data.ouvrages)) {
           data.ouvrages = data.ouvrages.map(o => {
@@ -585,16 +624,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           });
         }
         setPhasage(data || null);
+        // Identité connue tout de suite : le state React ne l'est pas encore.
+        phasageIdRef.current = data?.id ?? null;
+        // Révision de départ du verrouillage optimiste. Sans elle, aucune
+        // écriture n'est tentée (cf. phasageSauvegarde.demarrer).
+        fileRef.current = avecRevision(fileInitiale(), data?.revision ?? null);
+        setConflitInfo(null);
         setLoadingPhasage(false);
         // Si on a assigné de nouveaux ids, on les persiste pour que le
         // prochain chargement parte sur des ids stables.
         if (mutated && data?.id) {
-          supabase.from("phasages").update({
-            ouvrages: data.ouvrages,
-            updated_at: new Date().toISOString(),
-          }).eq("id", data.id).then(({ error: err }) => {
-            if (err) console.warn("Persist normalized ids:", err.message);
-          });
+          // Passe par la file versionnée comme toute autre écriture de
+          // l'éditeur : aucun chemin de sauvegarde ne reste inconditionnel.
+          enregistrer({ ouvrages: data.ouvrages });
         }
       });
     return () => { cancelled = true; };
@@ -641,19 +683,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
   }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots]);
 
-  // Dernier compte rendu contenant une tâche liée à `t` : on matche par tache_id
-  // (tâches créées/planifiées en V2) OU par nom (tâches migrées depuis la V1,
-  // dont l'id a été régénéré). `rapports` est déjà trié du plus récent au plus ancien.
-  const rapportPourTache = (t) => {
-    if (!t) return null;
-    const nom = (t.nom || "").trim().toLowerCase();
-    return rapports.find(r => (r.taches || []).some(x =>
-      (x.tache_id && String(x.tache_id) === String(t.id)) ||
-      (nom && (x.planifie || x.nom || "").trim().toLowerCase() === nom)
-    )) || null;
-  };
-  // TOUS les comptes rendus liés à la tâche `t` (même logique de matching que
-  // rapportPourTache, mais renvoie l'ensemble, du plus récent au plus ancien).
+  // TOUS les comptes rendus liés à la tâche `t`, du plus récent au plus ancien.
+  // On matche par tache_id (tâches créées/planifiées en V2) OU par nom (tâches
+  // migrées depuis la V1, dont l'id a été régénéré).
   const rapportsPourTache = (t) => {
     if (!t) return [];
     const nom = (t.nom || "").trim().toLowerCase();
@@ -759,17 +791,112 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
 
   // ─── PERSISTANCE ────────────────────────────────────────────────────────
-  // Crée la ligne phasages si elle n'existe pas encore pour ce chantier.
+  // Toutes les écritures de cet éditeur passent par ici : une seule requête à
+  // la fois, chacune accompagnée de la dernière révision confirmée. Si la
+  // ligne a bougé ailleurs — typiquement l'acceptation d'un matériau suggéré —
+  // le serveur refuse, RIEN n'est réécrit, et l'auto-save se met en pause.
+  const pousserSauvegarde = async () => {
+    // L'identité de la ligne se résout AVANT de figer la révision : sinon on
+    // vérifie la révision d'une ligne et on écrit dans une autre — c'est ce
+    // qui produisait un « conflit » immédiat sans aucune modification
+    // externe. ensurePhasage peut faire avancer la révision de la file
+    // (adoption ou création) ; demarrer doit donc venir après.
+    const p = await ensurePhasage();
+    if (!p?.id) { setAutoSaveStatus("error"); return; }
+
+    const depart = demarrer(fileRef.current);
+    fileRef.current = depart.etat;
+    if (!depart.lot) return;
+    const { lot, seq } = depart;
+    const revisionAttendue = depart.etat.revision;
+    setAutoSaveStatus("saving");
+    try {
+      const { data, error } = await supabase.rpc("conducteur_sauvegarder_phasage_v2", {
+        p_phasage_id: p.id,
+        p_revision_attendue: revisionAttendue,
+        p_ouvrages: lot.ouvrages ?? null,
+        p_plan_travaux: lot.plan_travaux ?? null,
+      });
+      if (error) {
+        console.warn("sauvegarde phasage:", error.message);
+        fileRef.current = fileEchec(fileRef.current, seq);
+        setAutoSaveStatus("error");
+        return;
+      }
+      if (!data) {            // null = compte non autorisé à écrire
+        console.warn("sauvegarde phasage: refusée pour ce compte");
+        fileRef.current = fileEchec(fileRef.current, seq);
+        setAutoSaveStatus("error");
+        return;
+      }
+      if (data.ok !== true) {
+        if (data.code === "conflit") {
+          fileRef.current = fileConflit(fileRef.current, seq, data.revision);
+          setConflitInfo({ revision: data.revision });
+          setBandeauReduit(false);
+          setAutoSaveStatus("conflit");
+          return;
+        }
+        console.warn("sauvegarde phasage:", data.code);
+        fileRef.current = fileEchec(fileRef.current, seq);
+        setAutoSaveStatus("error");
+        return;
+      }
+      fileRef.current = fileSucces(fileRef.current, seq, data.revision);
+      setAutoSaveStatus(fileRef.current.attente ? "pending" : "saved");
+      if (fileRef.current.attente) pousserSauvegarde();   // ce qui s'est accumulé
+    } catch (e) {
+      console.warn("sauvegarde phasage:", e);
+      fileRef.current = fileEchec(fileRef.current, seq);
+      setAutoSaveStatus("error");
+    }
+  };
+
+  // Point d'entrée unique de l'éditeur : empiler des champs puis pousser.
+  const enregistrer = (champs) => {
+    fileRef.current = planifier(fileRef.current, champs);
+    if (fileRef.current.conflit) return;    // auto-save suspendu
+    setAutoSaveStatus("pending");
+    pousserSauvegarde();
+  };
+
+  // Donne la ligne phasages du chantier, en la créant SEULEMENT s'il n'en
+  // existe aucune. Trois gardes, chacune contre un doublon déjà constaté :
+  //   1. la ref d'identité (le state `phasage` peut être périmé) ;
+  //   2. une relecture en base avant toute insertion ;
+  //   3. une promesse partagée, pour que deux sauvegardes simultanées
+  //      n'insèrent pas chacune leur ligne.
   const ensurePhasage = async () => {
-    if (phasage?.id) return phasage;
-    const { data, error } = await supabase.from("phasages").insert({
-      chantier_id: chantierId,
-      chantier_nom: chantier?.nom || chantierId,
-      ouvrages: [],
-    }).select().single();
-    if (error) { console.error("ensurePhasage:", error.message); return null; }
-    setPhasage(data);
-    return data;
+    if (phasageIdRef.current) return { id: phasageIdRef.current };
+    if (phasage?.id) { phasageIdRef.current = phasage.id; return phasage; }
+    if (creationRef.current) return creationRef.current;
+
+    creationRef.current = (async () => {
+      const { data: lignes, error: lireErr } = await supabase.from("phasages")
+        .select("*").eq("chantier_id", chantierId).limit(5);
+      if (lireErr) { console.error("ensurePhasage (relecture) :", lireErr.message); return null; }
+      const dejaLa = choisirPhasage(lignes);
+      if (dejaLa?.id) {
+        // Une ligne existait : on l'adopte au lieu d'en créer une seconde.
+        phasageIdRef.current = dejaLa.id;
+        setPhasage(dejaLa);
+        fileRef.current = avecRevision(fileRef.current, dejaLa.revision ?? 0);
+        return dejaLa;
+      }
+      const { data, error } = await supabase.from("phasages").insert({
+        chantier_id: chantierId,
+        chantier_nom: chantier?.nom || chantierId,
+        ouvrages: [],
+      }).select().single();
+      if (error) { console.error("ensurePhasage:", error.message); return null; }
+      phasageIdRef.current = data.id;
+      setPhasage(data);
+      // La ligne vient de naître : sa révision est le point de départ du verrou.
+      fileRef.current = avecRevision(fileRef.current, data?.revision ?? 0);
+      return data;
+    })();
+    try { return await creationRef.current; }
+    finally { creationRef.current = null; }
   };
 
   // Autosave debounced 800ms : on push tout le tableau ouvrages à chaque
@@ -806,12 +933,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         if (full) setPhasage(full);
         return;
       }
-      const { error } = await supabase.from("phasages").update({
-        ouvrages: ouvragesNext,
-        updated_at: new Date().toISOString(),
-      }).eq("id", p.id);
-      setAutoSaveStatus(error ? "error" : "saved");
-      if (error) console.warn("PhasageV2 save:", error.message);
+      enregistrer({ ouvrages: ouvragesNext });
     }, 800);
   };
 
@@ -969,10 +1091,32 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     const newMeta = { ...(currentPlan.meta || {}), ...patch };
     const newPlan = { ...currentPlan, meta: newMeta };
     setPhasage(prev => ({ ...prev, plan_travaux: newPlan }));
-    const { error } = await supabase.from("phasages").update({
-      plan_travaux: newPlan, updated_at: new Date().toISOString(),
-    }).eq("id", p.id);
-    if (error) console.warn("saveMeta:", error.message);
+    enregistrer({ plan_travaux: newPlan });
+  };
+
+  // Saisie des champs « Suivi direction » : chaque frappe déclenchait un
+  // saveMeta (aller-retour réseau qui relit puis réécrit tout plan_travaux).
+  // Les réponses revenaient dans le désordre et remettaient dans le champ la
+  // valeur d'une frappe précédente — le nombre « revenait en arrière ».
+  // On garde donc la frappe en local (texte brut, pour pouvoir taper « 12.5 »)
+  // et on n'écrit qu'une fois la saisie retombée.
+  const [metaDraft, setMetaDraft] = useState({});     // champ -> texte en cours
+  const metaSaveTimers = useRef({});
+
+  const champMeta = (champ) => metaDraft[champ] ?? (meta[champ] ?? "");
+
+  const majChampMeta = (champ, texte) => {
+    setMetaDraft(d => ({ ...d, [champ]: texte }));
+    if (metaSaveTimers.current[champ]) clearTimeout(metaSaveTimers.current[champ]);
+    metaSaveTimers.current[champ] = setTimeout(async () => {
+      delete metaSaveTimers.current[champ];
+      await saveMeta({ [champ]: texte === "" ? null : parseFloat(texte) });
+      setMetaDraft(d => {
+        // Une frappe est repartie entre-temps : on laisse la main au brouillon.
+        if (metaSaveTimers.current[champ]) return d;
+        const n = { ...d }; delete n[champ]; return n;
+      });
+    }, 600);
   };
 
   // Reprise : on écrit TOUJOURS les deux champs ensemble (une seule écriture),
@@ -2135,19 +2279,127 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
 
   // ── Statut sauvegarde ──
-  const statusColor = autoSaveStatus === "saved"  ? "#22c55e"
-                    : autoSaveStatus === "saving" ? acc.accent
-                    : autoSaveStatus === "error"  ? "#e15a5a"
+  const statusColor = autoSaveStatus === "saved"   ? "#22c55e"
+                    : autoSaveStatus === "saving"  ? acc.accent
+                    : autoSaveStatus === "error"   ? "#e15a5a"
+                    : autoSaveStatus === "conflit" ? "#e15a5a"
                     : "#f5a623";
-  const statusLbl = autoSaveStatus === "saved"  ? "Sauvegardé"
-                  : autoSaveStatus === "saving" ? "Sauvegarde…"
-                  : autoSaveStatus === "error"  ? "Erreur"
+  const statusLbl = autoSaveStatus === "saved"   ? "Sauvegardé"
+                  : autoSaveStatus === "saving"  ? "Sauvegarde…"
+                  : autoSaveStatus === "error"   ? "Erreur"
+                  : autoSaveStatus === "conflit" ? "Sauvegarde suspendue"
                   : "Modif en cours";
+
+  // Recharge la version récente. Remplace l'état local : la dernière
+  // modification non enregistrée est perdue, et on le dit AVANT.
+  const rechargerVersionRecente = async () => {
+    if (rechargeEnCours) return;
+    const ok = window.confirm(
+      "Votre dernière modification non enregistrée sera perdue et devra être refaite.\n\n"
+      + "Recharger la version récente du phasage ?");
+    if (!ok) return;
+    setRechargeEnCours(true);
+    try {
+      const { data: lignes, error } = await supabase.from("phasages")
+        .select("*").eq("chantier_id", chantierId).limit(5);
+      const data = choisirPhasage(lignes);
+      if (error || !data) {
+        console.warn("rechargement phasage:", error?.message || "introuvable");
+        window.alert("Le rechargement n'a pas abouti. Vérifiez votre connexion et réessayez.");
+        return;
+      }
+      setPhasage(data);
+      phasageIdRef.current = data.id;
+      fileRef.current = apresRechargement(fileRef.current, data.revision ?? 0);
+      setConflitInfo(null);
+      setBandeauReduit(false);
+      setAutoSaveStatus("saved");
+    } finally {
+      setRechargeEnCours(false);
+    }
+  };
+
+  // Sortie protégée tant qu'une modification n'est pas enregistrée — en
+  // attente, en vol, ou bloquée par un conflit.
+  const nonEnregistre = autoSaveStatus === "pending"
+    || autoSaveStatus === "saving"
+    || autoSaveStatus === "error"
+    || autoSaveStatus === "conflit";
+  useDirtyGuard("phasage-v2", nonEnregistre);
+  useEffect(() => {
+    if (!nonEnregistre) return undefined;
+    const avantFermeture = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", avantFermeture);
+    return () => window.removeEventListener("beforeunload", avantFermeture);
+  }, [nonEnregistre]);
 
   const noChantier = !chantierId;
 
   return (
     <div className="p2-root" style={{ flex: 1, display: "flex", flexDirection: "column", background: T.bg, overflow: "hidden" }}>
+      {/* ── Conflit : le phasage a changé ailleurs ──────────────────────────
+          Bandeau bloquant. Aucune réécriture automatique, aucun « forcer » :
+          la seule issue est de recharger la version récente. */}
+      {conflitInfo && !bandeauReduit && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 950,
+          background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div style={{
+            width: "min(520px, 100%)", background: T.modal || T.surface,
+            border: `1px solid ${T.border}`, borderRadius: RADIUS.xl,
+            boxShadow: "0 24px 60px rgba(0,0,0,0.45)", padding: 20,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Icon as={AlertTriangle} size={19} style={{ color: "#e15a5a" }}/>
+              <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>
+                Sauvegarde suspendue
+              </div>
+            </div>
+            <div style={{ marginTop: 10, fontSize: FONT.sm.size, color: T.text, lineHeight: 1.55 }}>
+              Le phasage a été modifié ailleurs. Votre dernière modification n'a pas été
+              enregistrée afin de protéger les nouvelles données.
+            </div>
+            <div style={{ marginTop: 8, fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.55 }}>
+              Cela peut notamment arriver lorsqu'un matériau suggéré vient d'être accepté.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18, flexWrap: "wrap" }}>
+              <button onClick={() => setBandeauReduit(true)} style={{
+                padding: "9px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+                background: "transparent", color: T.textSub, fontFamily: "inherit",
+                fontSize: FONT.sm.size, cursor: "pointer",
+              }}>Consulter l'écran</button>
+              <button onClick={rechargerVersionRecente} disabled={rechargeEnCours} style={{
+                padding: "9px 20px", borderRadius: RADIUS.md, border: "none",
+                background: rechargeEnCours ? T.border : acc.accent,
+                color: rechargeEnCours ? T.textMuted : acc.onAccent,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                cursor: rechargeEnCours ? "default" : "pointer",
+              }}>{rechargeEnCours ? "Rechargement…" : "Recharger la version récente"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Indication PERSISTANTE tant que la sauvegarde est suspendue, même
+          quand le bandeau a été réduit pour consulter l'écran. */}
+      {conflitInfo && bandeauReduit && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap",
+          padding: "8px 14px", background: "#e15a5a18",
+          borderBottom: "1px solid #e15a5a55", color: "#e15a5a",
+          fontSize: FONT.sm.size, fontWeight: 700,
+        }}>
+          <Icon as={AlertTriangle} size={14}/>
+          Sauvegarde suspendue : le phasage a été modifié ailleurs. Vos modifications ne sont plus enregistrées.
+          <button onClick={() => setBandeauReduit(false)} style={{
+            marginLeft: "auto", padding: "5px 12px", borderRadius: RADIUS.sm, border: "none",
+            background: acc.accent, color: acc.onAccent, fontFamily: "inherit",
+            fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer",
+          }}>Recharger</button>
+        </div>
+      )}
       {/* CSS bubbles — couleur de chaque bulle = --bubble-color (var inline). */}
       <style>{`
         /* Mobile : le scroll passe au niveau de la PAGE (sur desktop chaque
@@ -2215,7 +2467,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           border-color: var(--c) !important;
           color: #000 !important;
         }
-        /* Bouton "voir le dernier compte rendu" : masqué, révélé au survol de la bulle. */
+        /* Bouton "comptes rendus" : masqué, révélé au survol de la bulle. */
         .p2-cr-btn { opacity: 0; transition: opacity .12s, background .12s, color .12s; }
         .p2-bubble:hover .p2-cr-btn { opacity: 1; }
         .p2-cr-btn:hover {
@@ -2477,7 +2729,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 donnee={fin.matReel} dateRef={todayRefISO}
                 value={fin.matReel.valeurTexte}
                 sub={fin.matReel.sousLabel}
-                onClick={() => setMatKpiModal(true)}/>
+                onClick={() => { setMatKpiSearch(""); setMatKpiModal(true); }}/>
               <KpiCard T={T} icon={Percent} iconColor="#a78bfa" label={fin.fg.label}
                 donnee={fin.fg} dateRef={todayRefISO}
                 value={fin.fg.valeurTexte}
@@ -2960,21 +3212,23 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                             </div>
                           </div>
                           {(() => {
-                            const rapport = rapportPourTache(t);
-                            if (!rapport) return null;
+                            const crs = rapportsPourTache(t);
+                            if (!crs.length) return null;
+                            const n = crs.length;
                             return (
                               <button
                                 className="p2-cr-btn"
-                                onClick={e => { e.stopPropagation(); setRapportModal({ rapport, tacheNom: t.nom }); }}
-                                title="Voir le dernier compte rendu lié à cette tâche"
+                                onClick={e => { e.stopPropagation(); setRapportsModal({ tacheNom: t.nom, tacheId: t.id, rapports: crs }); }}
+                                title={`${n} compte${n > 1 ? "s" : ""} rendu${n > 1 ? "s" : ""} lié${n > 1 ? "s" : ""} à cette tâche`}
                                 style={{
                                   background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
                                   color: T.text, borderRadius: RADIUS.sm,
-                                  width: 26, height: 26, padding: 0, cursor: "pointer",
-                                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                  height: 26, padding: "0 7px", cursor: "pointer",
+                                  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
+                                  fontFamily: "inherit", fontSize: 10, fontWeight: 800,
                                   flexShrink: 0,
                                 }}>
-                                <Icon as={FileText} size={12}/>
+                                <Icon as={FileText} size={12}/>{n > 1 && <span>{n}</span>}
                               </button>
                             );
                           })()}
@@ -2998,11 +3252,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, minWidth: 70 }}>
                                 Heures réelles
                               </span>
-                              <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
+                              <InputNombre min="0" valeur={tacheHeuresReelles(t) || ""}
                                 onClick={e => e.stopPropagation()}
                                 readOnly={tachePointages(t).length > 0}
                                 title={tachePointages(t).length > 0 ? "Heures issues du registre de pointage (validation de fin de journée) — non modifiable ici" : undefined}
-                                onChange={e => { if (tachePointages(t).length > 0) return; updateTache(selectedOuvrage.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) }); }}
+                                onValeur={n => { if (tachePointages(t).length > 0) return; updateTache(selectedOuvrage.id, t.id, { heures_reelles: n }); }}
                                 placeholder="0"
                                 style={{
                                   width: 70, padding: "4px 8px", borderRadius: RADIUS.sm,
@@ -3015,9 +3269,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginLeft: 8 }}>
                                 Avanc.
                               </span>
-                              <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
+                              <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
                                 onClick={e => e.stopPropagation()}
-                                onChange={e => updateTache(selectedOuvrage.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                                entier onValeur={n => updateTache(selectedOuvrage.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
                                 placeholder="0"
                                 style={{
                                   width: 60, padding: "4px 8px", borderRadius: RADIUS.sm,
@@ -3069,25 +3323,25 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <ModalField label="Marge vendue cible (%)">
-              <input type="number" step="1" min="0" max="100" value={meta.marge_vendue_cible ?? ""}
-                onChange={e => saveMeta({ marge_vendue_cible: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="1" min="0" max="100" value={champMeta("marge_vendue_cible")}
+                onChange={e => majChampMeta("marge_vendue_cible", e.target.value)}
                 placeholder="30" style={modalInp(T)}/>
             </ModalField>
             <ModalField label="FG — Taux horaire (€/h)">
-              <input type="number" step="0.5" min="0" value={meta.fg_taux_horaire ?? ""}
-                onChange={e => saveMeta({ fg_taux_horaire: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="0.5" min="0" value={champMeta("fg_taux_horaire")}
+                onChange={e => majChampMeta("fg_taux_horaire", e.target.value)}
                 placeholder="5" style={modalInp(T)}/>
             </ModalField>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <ModalField label="Seuil prime (%)">
-              <input type="number" step="1" min="0" max="100" value={meta.seuil_prime ?? ""}
-                onChange={e => saveMeta({ seuil_prime: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="1" min="0" max="100" value={champMeta("seuil_prime")}
+                onChange={e => majChampMeta("seuil_prime", e.target.value)}
                 placeholder="25" style={modalInp(T)}/>
             </ModalField>
             <ModalField label="Prime chantier (€)">
-              <input type="number" step="50" min="0" value={meta.prime ?? ""}
-                onChange={e => saveMeta({ prime: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <input type="number" step="50" min="0" value={champMeta("prime")}
+                onChange={e => majChampMeta("prime", e.target.value)}
                 placeholder="300" style={modalInp(T)}/>
             </ModalField>
           </div>
@@ -3145,11 +3399,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       {/* ── Modale édition ouvrage ── */}
       {matKpiModal && (() => {
         const lignes = commandeLignes;
-        const total = totalLignes(lignes);
         const sansPrix = (l) => l.prix_total == null && l.prix_unitaire == null;
         const sansPrixCount = lignes.filter(sansPrix).length;
         const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || (id || null);
         const ouvrageLabelOf = (id) => ouvrages.find(o => o.id === id)?.libelle || null;
+        const q = matKpiSearch.trim().toLowerCase();
+        const lignesAffichees = !q ? lignes : lignes.filter(l =>
+          (l.libelle || "").toLowerCase().includes(q) ||
+          (l.commande?.fournisseur_nom || "").toLowerCase().includes(q) ||
+          (lotLabelOf(l.lot_id) || "").toLowerCase().includes(q) ||
+          (ouvrageLabelOf(l.ouvrage_id) || "").toLowerCase().includes(q)
+        );
+        const total = totalLignes(lignesAffichees);
         return (
           <div onClick={() => setMatKpiModal(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
@@ -3168,10 +3429,27 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 </div>
                 <button onClick={() => setMatKpiModal(false)} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
               </div>
+              {lignes.length > 0 && (
+                <div style={{ position: "sticky", top: 0, zIndex: 1, padding: "10px 20px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+                  <input autoFocus value={matKpiSearch} onChange={e => setMatKpiSearch(e.target.value)}
+                    placeholder="Rechercher une ligne, un fournisseur, un lot…"
+                    style={{
+                      width: "100%", padding: "7px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+                      background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", fontSize: FONT.xs.size + 1, outline: "none",
+                    }}/>
+                  {q && (
+                    <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 5 }}>
+                      {lignesAffichees.length} ligne{lignesAffichees.length > 1 ? "s" : ""} sur {lignes.length}
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ padding: "12px 20px" }}>
                 {lignes.length === 0 ? (
                   <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>Aucune commande liée à ce chantier pour l'instant.</div>
-                ) : lignes.map(l => {
+                ) : lignesAffichees.length === 0 ? (
+                  <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic" }}>Aucune ligne ne correspond à « {matKpiSearch.trim()} ».</div>
+                ) : lignesAffichees.map(l => {
                   const st = statutLigne(l);
                   const lot = lotLabelOf(l.lot_id);
                   const ouv = ouvrageLabelOf(l.ouvrage_id);
@@ -3196,7 +3474,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 })}
               </div>
               <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card }}>
-                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>Total</span>
+                <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>{q ? "Total (résultats filtrés)" : "Total"}</span>
                 <span style={{ fontSize: 16, fontWeight: 900, color: "#50c878" }}>{fmtEur(total)} € HT</span>
               </div>
             </div>
@@ -3452,71 +3730,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         );
       })()}
 
-      {rapportModal && (() => {
-        const r = rapportModal.rapport;
-        const cibleNom = (rapportModal.tacheNom || "").trim().toLowerCase();
-        const taches = Array.isArray(r.taches) ? r.taches : [];
-        const statutColor = (s) => s === "faite" ? "#22c55e" : s === "en_cours" ? "#eab308" : s === "non_faite" ? "#e05c5c" : T.textMuted;
-        const statutLbl = (s) => s === "faite" ? "Faite" : s === "en_cours" ? "En cours" : s === "non_faite" ? "Non faite" : (s || "—");
-        return (
-          <div onClick={() => setRapportModal(null)}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
-              display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
-                width: "min(560px, 100%)", maxHeight: "85vh", overflow: "auto",
-                boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
-              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-                <Icon as={FileText} size={18}/>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Dernier compte rendu</div>
-                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, display: "flex", gap: 12, marginTop: 2, flexWrap: "wrap" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={User} size={11}/> {r.ouvrier || "—"}</span>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={Calendar} size={11}/> {r.date_rapport || "—"}</span>
-                    {r.chantier_nom && <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Icon as={Building2} size={11}/> {r.chantier_nom}</span>}
-                  </div>
-                </div>
-                <button onClick={() => setRapportModal(null)}
-                  style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}>
-                  <Icon as={X} size={18}/>
-                </button>
-              </div>
-              <div style={{ padding: "12px 20px" }}>
-                {taches.length === 0 ? (
-                  <div style={{ color: T.textMuted, fontStyle: "italic", fontSize: FONT.sm.size }}>Aucune tâche dans ce compte rendu.</div>
-                ) : taches.map((x, i) => {
-                  const isCible = cibleNom && (x.planifie || x.nom || "").trim().toLowerCase() === cibleNom;
-                  return (
-                    <div key={i} style={{
-                      padding: "10px 12px", marginBottom: 8, borderRadius: 10,
-                      background: isCible ? "color-mix(in srgb, #5b8af5 16%, transparent)" : T.card,
-                      border: `1px solid ${isCible ? "rgba(91,138,245,0.5)" : T.border}`,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ flex: 1, fontWeight: 700, fontSize: FONT.sm.size, color: T.text }}>{x.planifie || x.nom || "(sans nom)"}</span>
-                        <span style={{ fontSize: 10, fontWeight: 800, color: statutColor(x.statut) }}>{statutLbl(x.statut)}</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 12, marginTop: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
-                        {x.heures_reelles != null && x.heures_reelles !== "" && <span>{x.heures_reelles}h réelles</span>}
-                        {x.avancement != null && x.avancement !== "" && <span>{x.avancement}%</span>}
-                      </div>
-                      {x.remarque && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {x.remarque} »</div>}
-                    </div>
-                  );
-                })}
-                {r.remarque && (
-                  <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: T.card, border: `1px solid ${T.border}` }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: .5, color: T.textMuted, marginBottom: 4 }}>Remarque générale</div>
-                    <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>{r.remarque}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── Modale : TOUS les comptes rendus liés à une tâche (vue Chronologique) ── */}
+      {/* ── Modale : TOUS les comptes rendus liés à une tâche (vues Liste et Chronologique) ── */}
       {rapportsModal && (() => {
         const cibleNom = (rapportsModal.tacheNom || "").trim().toLowerCase();
         const cibleId = rapportsModal.tacheId;
@@ -3615,14 +3829,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures vendues">
-                <input type="number" step="0.5" min="0" value={o.heures_devis ?? ""}
-                  onChange={e => setOuvrageHeuresDevis(o.id, e.target.value === "" ? null : parseFloat(e.target.value))}
+                <InputNombre min="0" valeur={o.heures_devis ?? ""}
+                  onValeur={n => setOuvrageHeuresDevis(o.id, n)}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
               <ModalField label="Quantité">
                 <div style={{ display: "flex", gap: 4 }}>
-                  <input type="number" step="0.01" min="0" value={o.quantite ?? ""}
-                    onChange={e => updateOuvrage(o.id, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                  <InputNombre min="0" valeur={o.quantite ?? ""}
+                    onValeur={n => updateOuvrage(o.id, { quantite: n })}
                     placeholder="0" style={{ ...modalInp(T), flex: 1 }}/>
                   <input value={o.unite || ""}
                     onChange={e => updateOuvrage(o.id, { unite: e.target.value })}
@@ -3630,103 +3844,26 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 </div>
               </ModalField>
               <ModalField label="Prix HT (€)">
-                <input type="number" step="0.01" min="0" value={o.prix_ht ?? ""}
-                  onChange={e => updateOuvrage(o.id, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                <InputNombre min="0" valeur={o.prix_ht ?? ""}
+                  onValeur={n => updateOuvrage(o.id, { prix_ht: n })}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
             <ModalField label="Coût matériaux (€)">
-              <input type="number" step="0.01" min="0" value={o.cout_materiaux ?? ""}
-                onChange={e => updateOuvrage(o.id, { cout_materiaux: e.target.value === "" ? null : parseFloat(e.target.value) })}
+              <InputNombre min="0" valeur={o.cout_materiaux ?? ""}
+                onValeur={n => updateOuvrage(o.id, { cout_materiaux: n })}
                 placeholder="0" style={modalInp(T)}/>
             </ModalField>
 
-            {/* ── Matériaux liés (depuis la biblio ouvrage) ─────────────── */}
-            {(() => {
-              const liens = (o.materiaux_liens || []).filter(ml => ml && ml.materiau_id != null);
-              if (liens.length === 0) return null;
-              const qOuvrage = parseFloat(o.quantite) || 0;
-              const lignes = liens.map(ml => {
-                const m = materiauxBiblio.find(x => x.id === ml.materiau_id);
-                const qParU = parseFloat(ml.quantite) || 0;
-                const prixU = m ? (parseFloat(m.prix_unitaire) || 0) : 0;
-                const qTot  = qOuvrage * qParU;
-                const cout  = qTot * prixU;
-                return { m, ml, qParU, prixU, qTot, cout };
-              });
-              const totalCout = lignes.reduce((s, l) => s + l.cout, 0);
-              return (
-                <ModalField label={`Matériaux liés (${liens.length})`}>
-                  <div style={{
-                    background: T.card, border: `1px solid ${T.border}`,
-                    borderRadius: RADIUS.md, overflow: "hidden",
-                  }}>
-                    <div style={{
-                      display: "grid", gridTemplateColumns: "1fr 70px 90px 80px",
-                      gap: 8, padding: "6px 10px",
-                      background: T.surface, borderBottom: `1px solid ${T.border}`,
-                      fontSize: 10, fontWeight: 700, color: T.textMuted,
-                      textTransform: "uppercase", letterSpacing: 0.6,
-                    }}>
-                      <div>Matériau</div>
-                      <div style={{ textAlign: "center" }}>Qté/u</div>
-                      <div style={{ textAlign: "center" }}>Qté totale</div>
-                      <div style={{ textAlign: "right" }}>Coût</div>
-                    </div>
-                    {lignes.map((l, i) => (
-                      <div key={i} style={{
-                        display: "grid", gridTemplateColumns: "1fr 70px 90px 80px",
-                        gap: 8, padding: "7px 10px",
-                        borderTop: i === 0 ? "none" : `1px solid ${T.sectionDivider}`,
-                        fontSize: FONT.xs.size + 1, color: T.text, alignItems: "center",
-                      }}>
-                        <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {l.m ? l.m.nom : <span style={{ color: T.textMuted, fontStyle: "italic" }}>Matériau introuvable</span>}
-                        </div>
-                        <div style={{ textAlign: "center", color: T.textSub }}>
-                          {l.qParU || "—"}
-                        </div>
-                        <div style={{ textAlign: "center", color: T.textSub }}>
-                          {l.qTot > 0 ? `${l.qTot.toFixed(2)} ${l.m?.unite || ""}` : "—"}
-                        </div>
-                        <div style={{ textAlign: "right", fontWeight: 700 }}>
-                          {l.cout > 0 ? `${l.cout.toFixed(2)} €` : "—"}
-                        </div>
-                      </div>
-                    ))}
-                    <div style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      padding: "8px 10px", borderTop: `1px solid ${T.border}`,
-                      background: T.surface,
-                    }}>
-                      <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
-                        Total calculé
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text }}>
-                          {totalCout.toFixed(2)} €
-                        </div>
-                        <button
-                          onClick={() => updateOuvrage(o.id, { cout_materiaux: parseFloat(totalCout.toFixed(2)) })}
-                          disabled={!(totalCout > 0)}
-                          title="Recopier ce total dans le champ Coût matériaux"
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            padding: "4px 10px", borderRadius: RADIUS.sm, border: "none",
-                            background: totalCout > 0 ? acc.accent : T.border,
-                            color: acc.onAccent || "#fff",
-                            fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 700,
-                            cursor: totalCout > 0 ? "pointer" : "default",
-                            opacity: totalCout > 0 ? 1 : .5,
-                          }}>
-                          Recalculer
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </ModalField>
-              );
-            })()}
+            {/* ── Matériaux de l'ouvrage (éditables) ────────────────────── */}
+            <ModalField label={`Matériaux de l'ouvrage (${(o.materiaux_liens || []).length})`}>
+              <MateriauxOuvrage
+                ouvrage={o}
+                materiaux={materiauxBiblio}
+                onChangeLiens={liens => updateOuvrage(o.id, { materiaux_liens: liens })}
+                onRecalculerCout={cout => updateOuvrage(o.id, { cout_materiaux: cout })}
+                T={T} accent={acc.accent} onAccent={acc.onAccent}/>
+            </ModalField>
 
             <ModalField label="Lot">
               <select value={o.lot_id || ""}
@@ -3782,15 +3919,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures estimées">
-                <input type="number" step="0.5" min="0" value={t.heures_estimees ?? ""}
-                  onChange={e => updateTache(o.id, t.id, { heures_estimees: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                <InputNombre min="0" valeur={t.heures_estimees ?? ""}
+                  onValeur={n => updateTache(o.id, t.id, { heures_estimees: n })}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
               <ModalField label="Heures réelles">
-                <input type="number" step="0.5" min="0" value={tacheHeuresReelles(t) || ""}
+                <InputNombre min="0" valeur={tacheHeuresReelles(t) || ""}
                   readOnly={tachePointages(t).length > 0}
                   title={tachePointages(t).length > 0 ? "Heures issues du registre de pointage (validation de fin de journée) — non modifiable ici" : undefined}
-                  onChange={e => { if (tachePointages(t).length > 0) return; updateTache(o.id, t.id, { heures_reelles: e.target.value === "" ? null : parseFloat(e.target.value) }); }}
+                  onValeur={n => { if (tachePointages(t).length > 0) return; updateTache(o.id, t.id, { heures_reelles: n }); }}
                   placeholder="0"
                   style={{ ...modalInp(T), opacity: tachePointages(t).length > 0 ? 0.65 : 1, cursor: tachePointages(t).length > 0 ? "not-allowed" : "text" }}/>
                 {tachePointages(t).length > 0 && (
@@ -3800,8 +3937,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 )}
               </ModalField>
               <ModalField label="Avancement (%)">
-                <input type="number" step="5" min="0" max="100" value={t.avancement ?? ""}
-                  onChange={e => updateTache(o.id, t.id, { avancement: e.target.value === "" ? 0 : Math.max(0, Math.min(100, parseInt(e.target.value, 10) || 0)) })}
+                <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
+                  entier onValeur={n => updateTache(o.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
                   placeholder="0" style={modalInp(T)}/>
               </ModalField>
             </div>
@@ -6330,14 +6467,14 @@ function ImportDevisModal({ state, lots, bibliotheque = [], T, accent, accentBor
                           </span>
                         </div>
                       </div>
-                      <input type="number" step="0.5" value={it.heures ?? ""}
-                        onChange={e => onUpdateItem(it._key, { heures: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      <InputNombre valeur={it.heures ?? ""}
+                        onValeur={n => onUpdateItem(it._key, { heures: n })}
                         placeholder="h" style={{ ...inp, textAlign: "right" }}/>
-                      <input type="number" step="0.01" value={it.quantite ?? ""}
-                        onChange={e => onUpdateItem(it._key, { quantite: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      <InputNombre valeur={it.quantite ?? ""}
+                        onValeur={n => onUpdateItem(it._key, { quantite: n })}
                         placeholder="qté" style={{ ...inp, textAlign: "right" }}/>
-                      <input type="number" step="0.01" value={it.prix_ht ?? ""}
-                        onChange={e => onUpdateItem(it._key, { prix_ht: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      <InputNombre valeur={it.prix_ht ?? ""}
+                        onValeur={n => onUpdateItem(it._key, { prix_ht: n })}
                         placeholder="€ HT" style={{ ...inp, textAlign: "right" }}/>
                       <select value={it.lot_id || ""}
                         onChange={e => onUpdateItem(it._key, { lot_id: e.target.value || null })}

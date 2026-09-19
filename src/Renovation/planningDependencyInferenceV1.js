@@ -6,6 +6,8 @@
 // On ne propose une dépendance `certain` que lorsque l'enchaînement technique
 // interne de l'ouvrage est suffisamment évident et stable.
 
+import { codeOuvrage } from "./codeOuvrage.mjs";
+
 export const CONFIANCE_DEPENDANCE_V1 = Object.freeze({
   CERTAIN: "certain",
   PROBABLE: "probable",
@@ -14,9 +16,9 @@ export const CONFIANCE_DEPENDANCE_V1 = Object.freeze({
 
 const str = v => String(v ?? "").trim();
 
+// Détecteur unique (codeOuvrage.mjs) : préfixes jusqu'à 5 lettres (COUV-001).
 export function codeOuvrageV1(libelle) {
-  const m = str(libelle).match(/^([A-Z]{1,3})[\s\-._]?(\d{1,5}(?:\.\d+)?)\b/i);
-  return m ? `${m[1].toUpperCase()}-${m[2]}` : null;
+  return codeOuvrage(libelle);
 }
 
 function suggestion(st, predIds, confiance, regle, raison) {

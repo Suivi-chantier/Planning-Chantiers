@@ -2,7 +2,7 @@
 // Utiliser ces composants au lieu de bricoler des div + styles inline pour
 // garantir la cohérence visuelle sur toute l'app.
 
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { NEUTRAL, RADIUS, SPACING, FONT, SHADOW, SEMANTIC, getBranchAccent } from "./constants";
 
 // ─── ICON ─────────────────────────────────────────────────────────────────────
@@ -213,5 +213,100 @@ export function SectionTitle({ children, branch = "renovation", style, ...props 
     >
       {children}
     </div>
+  );
+}
+
+// ─── INPUT NOMBRE ──────────────────────────────────────────────────────
+// Champ de saisie d'un nombre, tolérant à la frappe.
+//
+// POURQUOI. Un <input type="number"> piloté par un nombre rend la saisie
+// hostile : dès que le contenu est momentanément incomplet (« 12, », « 0. »,
+// « - »), le navigateur renvoie une valeur vide, le parent enregistre 0 ou null
+// et réécrit le champ — impossible de taper une décimale, ni de commencer par
+// un zéro. La virgule, elle, n'est simplement pas acceptée.
+//
+// COMMENT. Tant que le champ a le focus, on affiche EXACTEMENT ce qui est tapé
+// et on ne remonte au parent que les états numériquement exploitables (virgule
+// comprise). Le champ ne borne ni n'arrondit rien de lui-même : min/max restent
+// l'affaire du parent. inputMode donne le pavé numérique sur mobile.
+//
+//   <InputNombre valeur={o.cadence} onValeur={v => patch({ cadence: v })}
+//                style={inp} placeholder="0" />
+//
+//   valeur   : number | string | null  (ce qui est enregistré)
+//   onValeur : (nombre|null) => void   — null quand le champ est vidé
+//   vide     : ce qu'on remonte quand le champ est vidé (null par défaut, 0 si
+//              le parent ne sait pas gérer l'absence de valeur)
+//   entier   : refuse les décimales (pavé numérique entier sur mobile)
+
+const texteNombre = (v) => (v === null || v === undefined || v === "" ? "" : String(v));
+
+// "12,5" → 12.5 ; "" ou saisie incomplète ("-", ",", "12e") → null
+const versNombre = (t, entier) => {
+  const brut = String(t).trim().replace(",", ".");
+  if (brut === "" || !/^-?\d*\.?\d*$/.test(brut) || !/\d/.test(brut)) return null;
+  const n = entier ? parseInt(brut, 10) : parseFloat(brut);
+  return Number.isFinite(n) ? n : null;
+};
+
+export function InputNombre({
+  valeur, onValeur, entier = false, vide = null,
+  onBlur, onFocus, ...props
+}) {
+  const [texte, setTexte] = useState(() => texteNombre(valeur));
+  const enSaisie = useRef(false);
+
+  // Le parent a changé la valeur (chargement, calcul, autre écran) : on
+  // resynchronise l'affichage — mais jamais pendant que l'utilisateur tape.
+  useEffect(() => {
+    if (enSaisie.current) return;
+    setTexte(texteNombre(valeur));
+  }, [valeur]);
+
+  const changer = (e) => {
+    const t = e.target.value;
+    setTexte(t);
+    if (t.trim() === "") { onValeur?.(vide); return; }
+    const n = versNombre(t, entier);
+    if (n !== null) onValeur?.(n);     // saisie incomplète : on laisse taper
+  };
+
+  const sortir = (e) => {
+    enSaisie.current = false;
+    const n = versNombre(texte, entier);
+    if (texte.trim() === "") {
+      setTexte(texteNombre(vide));
+    } else if (n === null) {
+      setTexte(texteNombre(valeur));   // saisie inexploitable : on remet l'existant
+    } else {
+      const enregistre = versNombre(texteNombre(valeur), entier);
+      if (enregistre !== null && enregistre !== n) {
+        // Le parent a corrige la valeur (borne, arrondi) : on affiche la sienne.
+        setTexte(texteNombre(valeur));
+      } else {
+        // On remet la frappe au propre SANS changer le nombre : "05" -> "5",
+        // "7." -> "7". La virgule decimale, elle, est conservee ("12,5").
+        const canonique = String(n);
+        if (texte.trim().replace(",", ".") !== canonique) {
+          setTexte(texte.includes(",") ? canonique.replace(".", ",") : canonique);
+        }
+      }
+    }
+    // Le champ ne borne ni n'arrondit rien : min/max restent l'affaire du
+    // parent (Math.max/Math.min dans son gestionnaire).
+    onBlur?.(e);
+  };
+
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode={entier ? "numeric" : "decimal"}
+      autoComplete="off"
+      value={texte}
+      onFocus={(e) => { enSaisie.current = true; onFocus?.(e); }}
+      onChange={changer}
+      onBlur={sortir}
+    />
   );
 }

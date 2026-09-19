@@ -201,45 +201,20 @@ export function etapesTravauxDepuisGroupes(chronoGroupes, statsParGroupe = {}) {
     });
 }
 
-// ── Factures de situation (phase Travaux) ───────────────────────────────────
-// Jalons de facturation intermédiaire indexés sur l'AVANCEMENT du chantier :
-// à chaque seuil franchi, la facture de situation correspondante devient
-// « à émettre » (prete: true) — signalée, jamais bloquante. Étapes de nature
-// "coche" : validées à l'émission (montant + date), la facture peut être
-// jointe en preuve et envoyée par email depuis la frise comme toute pièce.
-// L'état vit dans meta.cycle_vie_etapes sous les ids situation_<seuil>.
-// Les seuils sont RÉGLABLES dans Admin → Taux horaires (planning_config,
-// clé "situations_seuils", forme { seuils: [25, 50, …] }) ; défaut ci-dessous.
-export const SEUILS_SITUATIONS = [25, 50, 75, 100];
-
-// Nettoie une liste de seuils (nombres entiers 1-100, uniques, croissants).
-export function normaliserSeuilsSituations(seuils) {
-  const liste = (Array.isArray(seuils) ? seuils : [])
-    .map(s => Math.round(parseFloat(s) || 0))
-    .filter(s => s >= 1 && s <= 100);
-  const uniques = [...new Set(liste)].sort((a, b) => a - b);
-  return uniques.length ? uniques : [...SEUILS_SITUATIONS];
-}
-
-export function etapesSituationsTravaux(avancement, seuils = SEUILS_SITUATIONS) {
-  const avNum = parseFloat(avancement);
-  const av = Number.isFinite(avNum) ? Math.max(0, Math.min(100, avNum)) : null;
-  return normaliserSeuilsSituations(seuils).map(seuil => ({
-    id: `situation_${seuil}`,
-    nom: `Facture de situation — ${seuil} %`,
-    nature: "coche",
-    phaseId: "cv_travaux",
-    seuil,
-    prete: av != null && av >= seuil, // seuil franchi et pas encore émise → à émettre
-    champs: [
-      { id: "montant", nom: "Montant (€ HT)", type: "nombre" },
-      { id: "date", nom: "Date d'émission", type: "date" },
-    ],
-    hint: av != null && av >= seuil
-      ? `Avancement ${Math.round(av)} % — facture de situation à émettre.`
-      : `À émettre quand l'avancement atteint ${seuil} %${av != null ? ` (actuel : ${Math.round(av)} %)` : ""}.`,
-  }));
-}
+// ── Factures du chantier (phase Travaux) ────────────────────────────────────
+// Les anciens jalons « Facture de situation — 25/50/75/100 % », indexés sur le
+// seul avancement et cochés à la main, ont été REMPLACÉS par l'échéancier
+// contractuel : voir src/Renovation/facturationClient.mjs. Chaque échéance
+// (acompte 50 %, démarrage 20 %, situations, solde) produit son étape ici via
+// etapesFacturationTravaux(), de nature "auto" — on ne coche plus une facture
+// à la main, on l'importe dans le bloc « Facturation client » de la fiche
+// chantier, et son état (à émettre / émise / encaissée) descend jusqu'ici.
+// L'étape est portée par le signal "facture_client" ci-dessous, alimenté par
+// ctx.facturation = facturationParLigne(etatFacturation(…)).
+//
+// Les états cycle_vie_etapes des anciens ids situation_<seuil> restent en base
+// (rien n'est supprimé) mais ne sont plus affichés : la facturation réelle,
+// pièce à l'appui, vit désormais dans chantier_factures_client.
 
 // ── Stockage dans phasages.plan_travaux.meta (Prompts 5 et 6) ───────────────
 // Clés réservées — PLATES au niveau meta, comme les overrides QCD :
@@ -288,6 +263,8 @@ export function lirePhaseDeclaree(meta) {
 //  - chiffrage        : bool — le chantier a un phasage chiffré
 //  - equipesAffectees : bool | null — chaque groupe a ses ouvriers (null =
 //                       aucun groupe défini, indéterminé)
+//  - facturation      : { [ligneId]: étatLigne } — facturationParLigne(…) du
+//                       module facturationClient (signal "facture_client")
 //  - todayISO         : "YYYY-MM-DD"
 // Renvoie { fait, auto, raison } — la raison est toujours affichable telle
 // quelle (POURQUOI c'est validé ou non, exigence des étapes auto).
@@ -355,6 +332,18 @@ export function evaluerEtape(etape, ctx = {}) {
         fait, auto: true,
         raison: fait ? `Réception le ${ref} → parfait achèvement échu le ${limite}.` : `Réception le ${ref} → parfait achèvement jusqu'au ${limite}.`,
       };
+    }
+    case "facture_client": {
+      // État d'une échéance de facturation (module facturationClient) : la
+      // case est cochée dès que la facture est ÉMISE — c'est le jalon du
+      // chantier. L'encaissement, lui, est suivi dans le bloc Facturation et
+      // ne valide que les étapes qui parlent d'argent reçu (« Acompte
+      // encaissé »). La raison affichée vient telle quelle de l'échéance.
+      const ligne = ctx.facturation ? ctx.facturation[etape.ligneId] : null;
+      if (!ligne) {
+        return { fait: false, auto: true, raison: etape.hint || "Facturation du chantier non chargée." };
+      }
+      return { fait: ligne.statut === "emise" || ligne.statut === "encaissee", auto: true, raison: ligne.raison };
     }
     case "groupe_controle": {
       // Témoin « contrôlé / non contrôlé » : source unique controleGroupe.

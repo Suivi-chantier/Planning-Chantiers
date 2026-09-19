@@ -1,0 +1,1446 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// BLOC « FACTURATION CLIENT » de la fiche chantier.
+//
+// La personne en charge de la facturation dépose ici les factures au fur et à
+// mesure. Chaque import suit toujours le même chemin, dans cet ordre :
+//
+//   1. le PDF part dans le bucket privé "chantier-documents" (il doit rester
+//      attaché à la facture, quoi qu'il arrive ensuite) ;
+//   2. la tâche IA "facture_client" LIT le document (numéro, date, montants,
+//      mentions) — via /api/ai, qui journalise, plafonne et quota l'appel ;
+//   3. le rapprochement avec l'échéancier est fait ICI, en clair et sans
+//      modèle : rapprocherFacture() (src/Renovation/facturationClient.mjs) ;
+//   4. une fenêtre de confirmation montre ce qui a été lu, l'échéance
+//      proposée et POURQUOI — tout reste modifiable avant enregistrement.
+//
+// Le point 4 n'est pas négociable : une lecture automatique ne coche pas une
+// ligne d'argent toute seule. En revanche, une fois la facture enregistrée,
+// tout le reste est automatique — la frise du cycle de vie suit, et
+// l'encaissement de l'acompte coche « Acompte encaissé ».
+//
+// Ce composant n'appelle jamais computeCycleVie ni n'écrit dans meta : il
+// remonte ses écritures à PageChantiers (onRefresh), seul détenteur du
+// read-before-write sur le phasage.
+// ─────────────────────────────────────────────────────────────────────────────
+import React, { useState, useRef } from "react";
+import { supabase } from "../supabase";
+import { FONT, RADIUS } from "../constants";
+import { Icon } from "../ui";
+import {
+  Receipt, Upload, Check, X, Loader2, AlertTriangle, Paperclip,
+  Pencil, Banknote, Plus, RotateCcw, FileText,
+} from "lucide-react";
+import {
+  uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier,
+  derniereErreurDocument,
+} from "./storageChantier";
+import ChantierYardsProgbat from "./ChantierYardsProgbat";
+import ChantierProjetsProgbat from "./ChantierProjetsProgbat";
+import {
+  normaliserEcheancier, rapprocherFacture, factureDoublon,
+  montantAttenduLigne, FACT_META_ECHEANCIER, FACT_META_MONTANT_REF,
+} from "./facturationClient";
+import {
+  composerFacturesProgbat, croiserEcheancierProgbat, suggestionLigneProgbat,
+  statutVisuelLigneProgbat, LIBELLE_NATURE,
+} from "./facturesProgbatAffichage";
+// La règle de correction humaine d'une échéance (patch + verrou) vit déjà dans
+// le module de facturation ProGBat : on la RÉUTILISE, on ne la réécrit pas.
+import { corrigerLigneFacture } from "./progbatFacturation.mjs";
+
+const ACCEPT_FACTURE = "application/pdf,image/*";
+
+const eur = (n) => `${Math.round(parseFloat(n) || 0).toLocaleString("fr-FR")} €`;
+// Montant ProGBat : au centime et SIGNÉ. Les avoirs et leurs remboursements
+// sont négatifs, et arrondir à l'euro comme `eur` masquerait les écarts d'un
+// centime que ProGBat produit lui-même (1850,31 = 925,16 + 925,15).
+const eurSigne = (n) => {
+  const v = typeof n === "number" ? n : parseFloat(String(n ?? "").replace(",", "."));
+  if (!Number.isFinite(v)) return "—";
+  return `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+};
+const arrondiCentime = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const jj = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "");
+const auj = () => new Date().toISOString().slice(0, 10);
+const toNum = (v) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = parseFloat(String(v).replace(",", ".").replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+
+const STATUT_STYLE = {
+  attente:   { label: "prévue",     couleur: "#8a94ad", plein: false },
+  a_emettre: { label: "à émettre",  couleur: "#f59e0b", plein: true  },
+  emise:     { label: "émise",      couleur: "#4db8ff", plein: true  },
+  encaissee: { label: "encaissée",  couleur: "#22c55e", plein: true  },
+};
+
+const DECLENCHEURS = [
+  { type: "signature",  label: "À la signature du devis" },
+  { type: "avancement", label: "À un % d'avancement" },
+  { type: "reception",  label: "À la réception des travaux" },
+  { type: "manuel",     label: "À la main (aucun signalement)" },
+];
+
+// Appel de la tâche IA de lecture de facture. Renvoie l'extrait, ou lève —
+// l'appelant doit pouvoir continuer à la main en cas d'échec : un document
+// illisible ne doit jamais empêcher d'enregistrer une facture.
+async function lireFacture(documentPath, chantierId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Session expirée : reconnectez-vous.");
+  const res = await fetch("/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({
+      tache: "facture_client",
+      entree: { document_path: documentPath },
+      contexte: { chantier_id: chantierId, branche: "renovation", entite_type: "facture_client" },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data?.erreur?.message || `Lecture impossible (HTTP ${res.status}).`);
+  return { extrait: data.resultat || {}, confianceLecture: data.confiance ?? null };
+}
+
+// ─── Fenêtre de confirmation d'un import ─────────────────────────────────────
+// Montre ce qui a été LU, ce qui est PROPOSÉ et pourquoi. Tout est modifiable.
+function ModaleImport({ brouillon, lignes, montantReference, factures, T, onAnnuler, onEnregistrer }) {
+  const [champs, setChamps] = useState(() => ({
+    numero: brouillon.extrait?.numero || "",
+    date_facture: brouillon.extrait?.date_facture || auj(),
+    montant_ht: brouillon.extrait?.montant_ht ?? "",
+    montant_tva: brouillon.extrait?.montant_tva ?? "",
+    montant_ttc: brouillon.extrait?.montant_ttc ?? "",
+  }));
+  const [ligneId, setLigneId] = useState(brouillon.proposition?.ligneId || "");
+  const [busy, setBusy] = useState(false);
+  // Import lancé depuis UNE échéance précise : ce choix tient, la proposition
+  // automatique ne le remplace pas (elle reste affichée, en dessous).
+  const [ligneTouchee, setLigneTouchee] = useState(!!brouillon.cible);
+
+  // Le rapprochement se rejoue à chaque correction du montant : corriger un
+  // montant mal lu doit reproposer la bonne échéance, pas figer la première.
+  const propositionCourante = React.useMemo(() => rapprocherFacture(
+    { ...brouillon.extrait, montant_ht: toNum(champs.montant_ht) },
+    { echeancier: lignes, montantReference, factures }
+  ), [champs.montant_ht, brouillon.extrait, lignes, montantReference, factures]);
+
+  React.useEffect(() => {
+    if (!ligneTouchee && propositionCourante.ligneId) setLigneId(propositionCourante.ligneId);
+  }, [propositionCourante.ligneId, ligneTouchee]);
+
+  const doublon = factureDoublon({ numero: champs.numero }, factures);
+  const ligneChoisie = lignes.find(l => l.id === ligneId) || null;
+  const attendu = ligneChoisie ? montantAttenduLigne(ligneChoisie, montantReference) : null;
+  const montantHt = toNum(champs.montant_ht);
+  const ecart = attendu !== null && montantHt !== null ? Math.round((montantHt - attendu) * 100) / 100 : null;
+  const lectureRatee = !!brouillon.erreurLecture;
+
+  const inputStyle = {
+    padding: "7px 10px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+    background: T.inputBg || "transparent", color: T.text, fontSize: FONT.sm.size,
+    fontFamily: "inherit", outline: "none", width: "100%",
+  };
+  const labelStyle = { fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, marginBottom: 4, display: "block" };
+
+  const enregistrer = async () => {
+    setBusy(true);
+    await onEnregistrer({
+      numero: champs.numero.trim() || null,
+      date_facture: champs.date_facture || null,
+      montant_ht: toNum(champs.montant_ht),
+      montant_tva: toNum(champs.montant_tva),
+      montant_ttc: toNum(champs.montant_ttc),
+      ligne_id: ligneId || null,
+      ligne_nom: ligneChoisie?.nom || null,
+      pct_du_marche: montantHt !== null && montantReference > 0
+        ? Math.round((montantHt / montantReference) * 1000) / 10 : null,
+      confiance: propositionCourante.confiance,
+      rapprochement: !ligneId ? "manuel"
+        : ligneId === propositionCourante.ligneId ? "auto" : "corrige",
+      raison: ligneId === propositionCourante.ligneId
+        ? propositionCourante.raison
+        : `Échéance choisie à la main. Proposition automatique : ${propositionCourante.raison}`,
+      extraction: { ...brouillon.extrait, _confiance_lecture: brouillon.confianceLecture ?? null },
+    });
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <div onClick={busy ? undefined : onAnnuler} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1200 }}/>
+      <div style={{
+        position: "fixed", zIndex: 1201, top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        width: "min(620px, 94vw)", maxHeight: "92vh", overflowY: "auto",
+        background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl,
+        boxShadow: "0 20px 60px rgba(0,0,0,0.45)", padding: 22,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
+          <Icon as={Receipt} size={17} color="#4db8ff"/>
+          <span style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Facture lue</span>
+        </div>
+        <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginBottom: 14, display: "flex", alignItems: "center", gap: 5 }}>
+          <Icon as={Paperclip} size={11}/> {brouillon.doc?.nom}
+        </div>
+
+        {lectureRatee && (
+          <div style={{
+            display: "flex", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: RADIUS.md,
+            background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.4)",
+            fontSize: FONT.xs.size + 1, color: "#f59e0b", fontWeight: 600,
+          }}>
+            <Icon as={AlertTriangle} size={14} style={{ flexShrink: 0, marginTop: 1 }}/>
+            <span>Lecture automatique impossible ({brouillon.erreurLecture}). Le document est bien enregistré :
+            saisissez le montant et l'échéance à la main.</span>
+          </div>
+        )}
+
+        {doublon && (
+          <div style={{
+            display: "flex", gap: 8, padding: "10px 12px", marginBottom: 14, borderRadius: RADIUS.md,
+            background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.45)",
+            fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 600,
+          }}>
+            <Icon as={AlertTriangle} size={14} style={{ flexShrink: 0, marginTop: 1 }}/>
+            <span>Le numéro « {champs.numero} » est déjà enregistré sur ce chantier
+            ({eur(doublon.montant_ht)}{doublon.date_facture ? `, ${jj(doublon.date_facture)}` : ""}).
+            Vérifiez qu'il ne s'agit pas d'un doublon.</span>
+          </div>
+        )}
+
+        {/* Ce qui a été lu — modifiable */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+          <div>
+            <label style={labelStyle}>Numéro de facture</label>
+            <input value={champs.numero} onChange={e => setChamps(c => ({ ...c, numero: e.target.value }))} style={inputStyle}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Date d'émission</label>
+            <input type="date" value={champs.date_facture} onChange={e => setChamps(c => ({ ...c, date_facture: e.target.value }))} style={inputStyle}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Montant HT</label>
+            <input type="number" step="0.01" value={champs.montant_ht}
+              onChange={e => setChamps(c => ({ ...c, montant_ht: e.target.value }))}
+              style={{ ...inputStyle, fontWeight: 800 }}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Montant TTC</label>
+            <input type="number" step="0.01" value={champs.montant_ttc}
+              onChange={e => setChamps(c => ({ ...c, montant_ttc: e.target.value }))} style={inputStyle}/>
+          </div>
+        </div>
+
+        {/* L'échéance : proposée, toujours modifiable */}
+        <div style={{
+          padding: 13, borderRadius: RADIUS.lg, border: `1px solid ${T.border}`,
+          background: T.bg, marginBottom: 16,
+        }}>
+          <label style={labelStyle}>Échéance du contrat</label>
+          <select value={ligneId} onChange={e => { setLigneTouchee(true); setLigneId(e.target.value); }} style={inputStyle}>
+            <option value="">— Aucune (facture hors échéancier) —</option>
+            {lignes.map(l => {
+              const prise = factures.some(f => f.ligne_id === l.id && f.statut !== "annulee");
+              return (
+                <option key={l.id} value={l.id}>
+                  {l.nom} — {l.pct} % ({eur(montantAttenduLigne(l, montantReference))}){prise ? " · déjà facturée" : ""}
+                </option>
+              );
+            })}
+          </select>
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 7, lineHeight: 1.5 }}>
+            {propositionCourante.raison}
+            {propositionCourante.pctDuMarche !== null && (
+              <> {" "}<strong style={{ color: T.textSub }}>Soit {propositionCourante.pctDuMarche} % du marché.</strong></>
+            )}
+          </div>
+          {ecart !== null && Math.abs(ecart) >= 1 && (
+            <div style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", marginTop: 5, fontWeight: 700 }}>
+              Écart de {eur(Math.abs(ecart))} {ecart > 0 ? "au-dessus" : "en dessous"} du montant attendu ({eur(attendu)}).
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+          <button onClick={onAnnuler} disabled={busy} style={{
+            padding: "9px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub, fontSize: FONT.sm.size, fontWeight: 700,
+            cursor: busy ? "default" : "pointer", fontFamily: "inherit",
+          }}>Annuler</button>
+          <button onClick={enregistrer} disabled={busy} style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+            background: busy ? T.textMuted : "#22c55e", color: "#fff",
+            fontSize: FONT.sm.size, fontWeight: 800,
+            cursor: busy ? "default" : "pointer", fontFamily: "inherit",
+          }}>
+            <Icon as={busy ? Loader2 : Check} size={14}/>
+            {busy ? "Enregistrement…" : "Enregistrer la facture"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Fenêtre d'encaissement ──────────────────────────────────────────────────
+function ModaleEncaissement({ facture, ligneNom, T, onAnnuler, onValider }) {
+  const [date, setDate] = useState(auj());
+  const [montant, setMontant] = useState(facture.montant_ht ?? "");
+  const [busy, setBusy] = useState(false);
+  const inputStyle = {
+    padding: "7px 10px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+    background: T.inputBg || "transparent", color: T.text, fontSize: FONT.sm.size,
+    fontFamily: "inherit", outline: "none", width: "100%",
+  };
+  return (
+    <>
+      <div onClick={busy ? undefined : onAnnuler} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1200 }}/>
+      <div style={{
+        position: "fixed", zIndex: 1201, top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        width: "min(420px, 94vw)", background: T.surface, border: `1px solid ${T.border}`,
+        borderRadius: RADIUS.xl, boxShadow: "0 20px 60px rgba(0,0,0,0.45)", padding: 20,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
+          <Icon as={Banknote} size={17} color="#22c55e"/>
+          <span style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>Encaissement</span>
+        </div>
+        <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginBottom: 16 }}>
+          {ligneNom}{facture.numero ? ` · facture n° ${facture.numero}` : ""} — émise {jj(facture.date_facture) || "sans date"}.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          <div>
+            <label style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, marginBottom: 4, display: "block" }}>Date d'encaissement</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle}/>
+          </div>
+          <div>
+            <label style={{ fontSize: FONT.xs.size, fontWeight: 700, color: T.textMuted, marginBottom: 4, display: "block" }}>Montant reçu</label>
+            <input type="number" step="0.01" value={montant} onChange={e => setMontant(e.target.value)} style={inputStyle}/>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+          <button onClick={onAnnuler} disabled={busy} style={{
+            padding: "9px 16px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub, fontSize: FONT.sm.size, fontWeight: 700,
+            cursor: busy ? "default" : "pointer", fontFamily: "inherit",
+          }}>Annuler</button>
+          <button onClick={async () => { setBusy(true); await onValider({ date, montant: toNum(montant) }); setBusy(false); }}
+            disabled={busy || !date} style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "9px 18px", borderRadius: RADIUS.md, border: "none",
+              background: busy || !date ? T.textMuted : "#22c55e", color: "#fff",
+              fontSize: FONT.sm.size, fontWeight: 800,
+              cursor: busy || !date ? "default" : "pointer", fontFamily: "inherit",
+            }}>
+            <Icon as={busy ? Loader2 : Check} size={14}/>{busy ? "Enregistrement…" : "Confirmer"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Édition de l'échéancier du chantier ─────────────────────────────────────
+// Surcharge locale : tant qu'on n'a rien touché, le chantier suit le réglage
+// Admin (et bénéficie de ses évolutions). Dès qu'on enregistre ici,
+// l'échéancier est FIGÉ sur ce chantier — un contrat signé ne doit pas changer
+// de découpage parce qu'un réglage général a bougé. Le retour au réglage
+// général reste possible en un clic.
+function EditeurEcheancier({ lignes, surcharge, montantReference, T, onAnnuler, onEnregistrer, onReinitialiser }) {
+  const [draft, setDraft] = useState(() => lignes.map(l => ({ ...l })));
+  const [busy, setBusy] = useState(false);
+  const somme = Math.round(draft.reduce((s, l) => s + (toNum(l.pct) || 0), 0) * 100) / 100;
+
+  const maj = (i, patch) => setDraft(d => d.map((l, j) => j === i ? { ...l, ...patch } : l));
+  const inputStyle = {
+    padding: "6px 9px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+    background: T.inputBg || "transparent", color: T.text, fontSize: FONT.sm.size,
+    fontFamily: "inherit", outline: "none",
+  };
+
+  return (
+    <div style={{ marginTop: 12, padding: 14, borderRadius: RADIUS.lg, border: `1px dashed ${T.border}`, background: T.bg }}>
+      <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text, marginBottom: 10 }}>
+        Échéancier de ce chantier
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {draft.map((l, i) => (
+          <div key={i} style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+            <input value={l.nom} onChange={e => maj(i, { nom: e.target.value })}
+              placeholder="Libellé" style={{ ...inputStyle, flex: "1 1 180px", minWidth: 140 }}/>
+            <input type="number" min="0" step="1" value={l.pct} onChange={e => maj(i, { pct: e.target.value })}
+              style={{ ...inputStyle, width: 70, textAlign: "center", fontWeight: 800 }}/>
+            <span style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, width: 78 }}>
+              % · {eur(montantAttenduLigne({ pct: toNum(l.pct) || 0 }, montantReference))}
+            </span>
+            <select value={l.declencheur?.type || "manuel"}
+              onChange={e => maj(i, { declencheur: { type: e.target.value, seuil: l.declencheur?.seuil ?? 50 } })}
+              style={{ ...inputStyle, flex: "0 1 200px" }}>
+              {DECLENCHEURS.map(d => <option key={d.type} value={d.type}>{d.label}</option>)}
+            </select>
+            {l.declencheur?.type === "avancement" && (
+              <input type="number" min="0" max="100" value={l.declencheur?.seuil ?? 0}
+                onChange={e => maj(i, { declencheur: { type: "avancement", seuil: e.target.value } })}
+                style={{ ...inputStyle, width: 62, textAlign: "center" }} title="Seuil d'avancement (%)"/>
+            )}
+            <button onClick={() => setDraft(d => d.filter((_, j) => j !== i))}
+              title="Retirer cette échéance" style={{
+                background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+                width: 28, height: 28, color: T.textMuted, cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}><Icon as={X} size={13}/></button>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={() => setDraft(d => [...d, { id: `echeance_${d.length + 1}`, nom: "Nouvelle échéance", pct: 0, declencheur: { type: "manuel" } }])}
+        style={{
+          marginTop: 10, display: "inline-flex", alignItems: "center", gap: 6,
+          background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+          padding: "6px 12px", color: T.textSub, fontSize: FONT.xs.size + 1, fontWeight: 700,
+          cursor: "pointer", fontFamily: "inherit",
+        }}><Icon as={Plus} size={12}/> Ajouter une échéance</button>
+
+      <div style={{
+        marginTop: 12, fontSize: FONT.xs.size + 1, fontWeight: 700,
+        color: somme === 100 ? "#22c55e" : "#f59e0b",
+      }}>
+        Total : {somme} %{somme !== 100 ? ` — l'échéancier ${somme < 100 ? "ne couvre pas" : "dépasse"} le marché.` : " du marché."}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+        <button onClick={async () => { setBusy(true); await onEnregistrer(draft); setBusy(false); }} disabled={busy} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "8px 15px", borderRadius: RADIUS.md, border: "none",
+          background: busy ? T.textMuted : "#22c55e", color: "#fff",
+          fontSize: FONT.sm.size, fontWeight: 800, cursor: busy ? "default" : "pointer", fontFamily: "inherit",
+        }}><Icon as={Check} size={13}/> Enregistrer pour ce chantier</button>
+        {surcharge && (
+          <button onClick={async () => { setBusy(true); await onReinitialiser(); setBusy(false); }} disabled={busy} style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 15px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.textSub, fontSize: FONT.sm.size, fontWeight: 700,
+            cursor: busy ? "default" : "pointer", fontFamily: "inherit",
+          }}><Icon as={RotateCcw} size={13}/> Revenir au réglage général</button>
+        )}
+        <button onClick={onAnnuler} disabled={busy} style={{
+          padding: "8px 15px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`,
+          background: "transparent", color: T.textMuted, fontSize: FONT.sm.size, fontWeight: 700,
+          cursor: busy ? "default" : "pointer", fontFamily: "inherit",
+        }}>Fermer</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── BLOC PRINCIPAL ──────────────────────────────────────────────────────────
+// ─── Factures ProGBat du chantier — LECTURE SEULE ────────────────────────────
+// Ce bloc montre ce que la synchronisation a importé : les lignes de
+// chantier_factures_client portant source='progbat', et leurs règlements.
+//
+// Il n'écrit RIEN. Aucun insert, update, delete ; aucun appel aux Edge
+// Functions de synchronisation (progbat-billing-dry-run, progbat-billing-sync,
+// qui se lancent depuis Réglages) ; aucune modification de ProGBat. Deux SELECT
+// à colonnes nommées, et c'est tout.
+//
+// IL VIT À PART DE L'ÉCHÉANCIER MANUEL, et c'est délibéré :
+//   • les factures ProGBat sont en TTC et leur montant_ht est volontairement
+//     NULL (netTotal/taxes suivent atiTotal cumulatif et ne décrivent pas le HT
+//     exigible) — elles n'ont donc rien à faire dans des totaux HT ;
+//   • aucune n'est rapprochée d'une échéance : ce rapprochement est un travail
+//     humain, il viendra dans un autre lot ;
+//   • son échec ne doit jamais masquer l'échéancier : état d'erreur local,
+//     bouton Réessayer, et le reste de la page continue de fonctionner.
+// Chargement des factures ProGBat d'un chantier. Remonté ici (et non dans le
+// bloc d'affichage) parce que l'échéancier et le bandeau financier en ont
+// besoin eux aussi : une seule lecture, une seule vérité.
+function useFacturesProgbat(chantierId) {
+  const [chargement, setChargement] = useState(true);
+  const [erreurLecture, setErreurLecture] = useState("");
+  const [donnees, setDonnees] = useState({ factures: [], reglements: [] });
+
+  // Deux SELECT, colonnes nommées. Ni client, ni adresse, ni coordonnees, ni
+  // donnee bancaire, ni detail ProGBat (taxDetails, deductions) ne sont meme
+  // demandes : ce qui n'est pas lu ne peut pas fuiter.
+  const charger = React.useCallback(async () => {
+    if (!chantierId) { setDonnees({ factures: [], reglements: [] }); setChargement(false); return; }
+    setChargement(true); setErreurLecture("");
+    const rf = await supabase.from("chantier_factures_client")
+      .select("id,numero,date_facture,montant_ttc,ligne_id,ligne_nom,ligne_id_verrouille,progbat_bill_id,progbat_bill_code,progbat_type,progbat_situation_number,progbat_synced_at")
+      .eq("chantier_id", chantierId)
+      .eq("source", "progbat")
+      .order("date_facture", { ascending: true });
+    if (rf.error) {
+      setErreurLecture(rf.error.message || "Lecture des factures ProGBat impossible.");
+      setChargement(false);
+      return;
+    }
+    const factures = rf.data || [];
+    let reglements = [];
+    if (factures.length) {
+      const rr = await supabase.from("chantier_factures_reglements")
+        .select("id,facture_id,date_reglement,montant,progbat_transaction_id,annule")
+        .in("facture_id", factures.map((f) => f.id));
+      if (rr.error) {
+        setErreurLecture(rr.error.message || "Lecture des reglements ProGBat impossible.");
+        setChargement(false);
+        return;
+      }
+      reglements = rr.data || [];
+    }
+    setDonnees({ factures, reglements });
+    setChargement(false);
+  }, [chantierId]);
+
+  // Lecture seule : aucune ÉCRITURE ne part jamais d'un effet.
+  React.useEffect(() => { charger(); }, [charger]);
+
+  return { chargement, erreurLecture, donnees, charger };
+}
+
+function FacturesProgbat({ T, peutModifier, echeancier = [], chargement, erreurLecture, donnees, charger, onRattacher, onDetacher, busyRattachement, erreurRattachement }) {
+  const border = T?.border || "rgba(255,255,255,0.07)";
+  const text = T?.text || "#f0f0f0";
+  const textSub = T?.textSub || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+
+
+  // Deux groupes : ce qui est réellement dû, et les documents d'annulation
+  // ProGBat (situationNumber négatif), conservés pour l'historique mais hors
+  // de tous les totaux.
+  const { factures_actives: lignes, documents_annulation: annulations, totaux } = React.useMemo(
+    () => composerFacturesProgbat(donnees.factures, donnees.reglements),
+    [donnees],
+  );
+
+  const titre = (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10,
+      fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+      letterSpacing: 1.2, textTransform: "uppercase",
+    }}>
+      Factures ProGBat
+      <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .7 }}>
+        — importées automatiquement depuis ProGBat, en lecture seule
+      </span>
+      <button onClick={charger} disabled={chargement} style={{
+        marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
+        background: "transparent", border: `1px solid ${border}`, borderRadius: RADIUS.md,
+        padding: "4px 10px", color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 700,
+        cursor: chargement ? "default" : "pointer", fontFamily: "inherit",
+        letterSpacing: 0, textTransform: "none", opacity: chargement ? .6 : 1,
+      }}>
+        <Icon as={chargement ? Loader2 : RotateCcw} size={12}/>
+        {chargement ? "Chargement…" : "Actualiser"}
+      </button>
+    </div>
+  );
+
+  const cadre = (contenu) => (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${border}` }}>
+      {titre}
+      {contenu}
+    </div>
+  );
+
+  if (chargement && !donnees.factures.length) {
+    return cadre(<div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Lecture des factures ProGBat…</div>);
+  }
+
+  if (erreurLecture) {
+    return cadre(
+      <div style={{
+        display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "9px 12px",
+        borderRadius: RADIUS.md, background: "rgba(225,90,90,0.12)",
+        border: "1px solid rgba(225,90,90,0.4)", fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 600,
+      }}>
+        <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0 }}/>
+        <span style={{ flex: 1, minWidth: 180 }}>{erreurLecture}</span>
+        <button onClick={charger} style={{
+          display: "inline-flex", alignItems: "center", gap: 5, background: "transparent",
+          border: "1px solid rgba(225,90,90,0.5)", borderRadius: RADIUS.md, padding: "4px 10px",
+          color: "#e15a5a", fontSize: FONT.xs.size + 1, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+        }}>
+          <Icon as={RotateCcw} size={12}/>Réessayer
+        </button>
+      </div>,
+    );
+  }
+
+  if (!lignes.length && !annulations.length) {
+    return cadre(
+      <div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+        Aucune facture ProGBat synchronisée pour ce chantier.
+      </div>,
+    );
+  }
+
+  // Totaux TTC SIGNÉS : un avoir diminue le facturé, son remboursement diminue
+  // le réglé, et le reste suit. Aucune valeur absolue nulle part.
+  const kpiProgbat = (label, valeur, couleur) => (
+    <div style={{ flex: "1 1 120px", minWidth: 110 }}>
+      <div style={{ fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: .6 }}>{label}</div>
+      <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: couleur || text, marginTop: 2 }}>{valeur}</div>
+    </div>
+  );
+
+  return cadre(
+    <>
+      {erreurRattachement && (
+        <div style={{
+          display: "flex", gap: 8, padding: "8px 11px", marginBottom: 10, borderRadius: RADIUS.md,
+          background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.4)",
+          fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 600,
+        }}>
+          <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0 }}/>{erreurRattachement}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
+        {kpiProgbat("Factures actives", String(totaux.nombre))}
+        {kpiProgbat("Facturé TTC", eurSigne(totaux.total_facture))}
+        {kpiProgbat("Réglé", eurSigne(totaux.total_regle), "#22c55e")}
+        {kpiProgbat("Reste à régler", eurSigne(totaux.reste), Math.abs(totaux.reste) > 0.01 ? "#f59e0b" : "#22c55e")}
+      </div>
+
+      {totaux.sans_montant > 0 && (
+        <div style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", marginBottom: 8, fontWeight: 600 }}>
+          {totaux.sans_montant} facture(s) sans montant lisible : elles ne sont pas comptées dans les totaux.
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {lignes.map(({ facture, reglements, etat, nature, libelle }) => (
+          <div key={facture.id} style={{
+            padding: "8px 11px", borderRadius: RADIUS.md,
+            background: "rgba(255,255,255,0.02)", border: `1px solid ${border}`,
+          }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+              <strong style={{ fontSize: FONT.sm.size, fontWeight: 800, color: text }}>{libelle}</strong>
+              <span style={{
+                fontSize: FONT.xs.size, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+                border: `1px solid ${nature === "avoir" ? "#f59e0b" : border}`,
+                color: nature === "avoir" ? "#f59e0b" : textSub,
+              }}>
+                {LIBELLE_NATURE[nature]}
+              </span>
+              {facture.date_facture && <span style={{ fontSize: FONT.xs.size + 1, color: textSub }}>{jj(facture.date_facture)}</span>}
+              {facture.progbat_situation_number != null && (
+                <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>situation n° {facture.progbat_situation_number}</span>
+              )}
+              <span style={{
+                marginLeft: "auto", fontSize: FONT.xs.size + 1, fontWeight: 800,
+                color: etat.anomalie ? "#e15a5a" : etat.etat === "reglee" || etat.etat === "avoir_rembourse" ? "#22c55e" : textSub,
+              }}>
+                {etat.libelle}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 4, fontSize: FONT.xs.size + 1 }}>
+              <span><span style={{ color: textMuted }}>Dû TTC </span><strong style={{ color: text }}>{eurSigne(etat.montant_du)}</strong></span>
+              <span><span style={{ color: textMuted }}>Réglé </span><strong style={{ color: text }}>{eurSigne(etat.somme_reglee)}</strong></span>
+              <span><span style={{ color: textMuted }}>Reste </span><strong style={{ color: etat.anomalie ? "#e15a5a" : text }}>{eurSigne(etat.reste)}</strong></span>
+              {/* Identifiant technique, discret : il sert à retrouver le
+                  document dans ProGBat, pas à lire la facture. */}
+              {facture.progbat_bill_id != null && (
+                <span style={{ marginLeft: "auto", color: textMuted, opacity: .8 }}>ProGBat n°{facture.progbat_bill_id}</span>
+              )}
+            </div>
+
+            {/* ── Rattachement à une échéance ──────────────────────────────
+                Une facture ne porte qu'un ligne_id. Plusieurs factures PEUVENT
+                viser la même échéance (complément, correction, avoir) : ce
+                n'est pas interdit, c'est signalé. */}
+            {(() => {
+              const rattachee = String(facture.ligne_id ?? "").trim();
+              const nomLigne = echeancier.find((l) => l.id === rattachee)?.nom || facture.ligne_nom || rattachee;
+              const occupe = (id) => lignes.filter((x) => x.facture.id !== facture.id && String(x.facture.ligne_id ?? "") === id).length;
+              const autres = rattachee ? occupe(rattachee) : 0;
+              const sugg = rattachee ? null : suggestionLigneProgbat(facture, echeancier);
+              const enCours = busyRattachement === facture.id;
+              return (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                  <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Échéance</span>
+                  {rattachee ? (
+                    <strong style={{ fontSize: FONT.xs.size + 1, color: text }}>{nomLigne}</strong>
+                  ) : (
+                    <span style={{
+                      fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
+                      color: "#f59e0b", border: "1px dashed #f59e0b55", borderRadius: RADIUS.pill, padding: "1px 8px",
+                    }}>À rattacher</span>
+                  )}
+                  {rattachee && autres > 0 && (
+                    <span style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b" }}>
+                      · {autres} autre(s) facture(s) active(s) sur cette échéance
+                    </span>
+                  )}
+
+                  {peutModifier && (
+                    <>
+                      <select value={rattachee} disabled={enCours}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          if (!id) return;
+                          onRattacher?.(facture, echeancier.find((x) => x.id === id),
+                            "Échéance choisie à la main sur la fiche chantier.");
+                        }}
+                        style={{
+                          padding: "4px 8px", borderRadius: RADIUS.md, border: `1px solid ${border}`,
+                          background: "transparent", color: textSub, fontFamily: "inherit",
+                          fontSize: FONT.xs.size + 1, maxWidth: 280,
+                        }}>
+                        <option value="">{rattachee ? "Changer d'échéance…" : "Choisir une échéance…"}</option>
+                        {echeancier.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.nom}{occupe(l.id) ? ` — déjà ${occupe(l.id)} facture(s)` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {rattachee && (
+                        <button disabled={enCours}
+                          onClick={() => onDetacher?.(facture, nomLigne, libelle)}
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 4, background: "transparent",
+                            border: `1px solid ${border}`, borderRadius: RADIUS.md, padding: "3px 9px",
+                            color: textSub, fontSize: FONT.xs.size + 1, fontWeight: 700,
+                            cursor: enCours ? "default" : "pointer", fontFamily: "inherit",
+                          }}>
+                          <Icon as={X} size={10}/> Détacher
+                        </button>
+                      )}
+                      {enCours && <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>enregistrement…</span>}
+                    </>
+                  )}
+
+                  {/* Une SUGGESTION, affichée comme telle. Rien n'est écrit
+                      tant que personne n'a cliqué : aucune association
+                      automatique n'est jamais enregistrée. */}
+                  {sugg && peutModifier && (
+                    <div style={{
+                      flex: "1 1 100%", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
+                      marginTop: 4, padding: "5px 9px", borderRadius: RADIUS.md,
+                      background: "rgba(77,184,255,0.08)", border: "1px solid rgba(77,184,255,0.35)",
+                    }}>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: "#4db8ff" }}>
+                        Suggestion : <strong>{sugg.ligne_nom}</strong> — {sugg.raison}
+                      </span>
+                      <button disabled={enCours}
+                        onClick={() => onRattacher?.(facture, echeancier.find((x) => x.id === sugg.ligne_id), sugg.raison)}
+                        style={{
+                          marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4,
+                          background: "transparent", border: "1px solid rgba(77,184,255,0.5)", borderRadius: RADIUS.md,
+                          padding: "3px 10px", color: "#4db8ff", fontSize: FONT.xs.size + 1, fontWeight: 700,
+                          cursor: "pointer", fontFamily: "inherit",
+                        }}>
+                        <Icon as={Check} size={10}/> Confirmer ce rattachement
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Le détail des règlements ACTIFS : date, montant signé,
+                identifiant de transaction. Rien de bancaire — ni libellé, ni
+                compte, ni mode de paiement : ces colonnes ne sont pas lues. */}
+            {reglements.length > 0 ? (
+              <details style={{ marginTop: 5 }}>
+                <summary style={{ cursor: "pointer", fontSize: FONT.xs.size + 1, color: textSub, fontWeight: 700 }}>
+                  {reglements.length} règlement{reglements.length > 1 ? "s" : ""}
+                </summary>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 5 }}>
+                  {reglements.map((r) => (
+                    <div key={r.id} style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: FONT.xs.size + 1, color: textSub }}>
+                      <span style={{ minWidth: 76 }}>{jj(r.date_reglement) || "date inconnue"}</span>
+                      <strong style={{ color: text }}>{eurSigne(r.montant)}</strong>
+                      <span style={{ color: textMuted }}>transaction n°{r.progbat_transaction_id ?? "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ) : (
+              <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: textMuted }}>Aucun règlement enregistré.</div>
+            )}
+          </div>
+        ))}
+        {!lignes.length && (
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+            Aucune facture active : tous les documents synchronisés sont des annulations.
+          </div>
+        )}
+      </div>
+
+      {/* ── Documents d'annulation ProGBat ────────────────────────────────
+          Un situationNumber négatif désigne un document qui NEUTRALISE celui
+          dont l'identifiant vaut sa valeur absolue. Le document annulé n'est
+          pas en base (validated = 2 l'écarte de la synchronisation) : on ne le
+          cherche pas, on nomme son identifiant.
+          Ces documents ne sont ni des avoirs à rembourser, ni des factures à
+          régler : aucun état, aucun reste, aucune dette ne leur est attribué. */}
+      {annulations.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary style={{
+            cursor: "pointer", fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+            textTransform: "uppercase", color: textMuted,
+          }}>
+            Documents d'annulation ProGBat ({annulations.length})
+          </summary>
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, margin: "6px 0 8px", lineHeight: 1.5 }}>
+            Conservés pour l'historique. Ils neutralisent un document annulé et n'entrent dans aucun total.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {annulations.map(({ facture, reglements, libelle, reference }) => (
+              <div key={facture.id} style={{
+                padding: "8px 11px", borderRadius: RADIUS.md,
+                background: "rgba(255,255,255,0.02)", border: `1px solid ${border}`, opacity: .85,
+              }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}>
+                  <strong style={{ fontSize: FONT.sm.size, fontWeight: 800, color: text }}>{libelle}</strong>
+                  <span style={{
+                    fontSize: FONT.xs.size, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+                    border: `1px solid ${border}`, color: textSub,
+                  }}>
+                    Annulation
+                  </span>
+                  {facture.date_facture && <span style={{ fontSize: FONT.xs.size + 1, color: textSub }}>{jj(facture.date_facture)}</span>}
+                  <span style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, fontWeight: 800, color: text }}>
+                    {eurSigne(facture.montant_ttc)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 4, fontSize: FONT.xs.size + 1, color: textSub }}>
+                  <span>Neutralise le document ProGBat n°{reference.progbat_bill_id_reference}</span>
+                  {facture.progbat_bill_id != null && (
+                    <span style={{ marginLeft: "auto", color: textMuted, opacity: .8 }}>ProGBat n°{facture.progbat_bill_id}</span>
+                  )}
+                </div>
+                {/* Cas exceptionnel : un règlement rattaché à une annulation.
+                    On le signale, sans montant — il n'entre dans aucun total. */}
+                {reglements.length > 0 && (
+                  <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, color: textMuted }}>
+                    {reglements.length} règlement(s) associé(s), exclus des totaux actifs.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </>,
+  );
+}
+
+export default function FacturationChantier({
+  T, chantierId, phasageId, etat, echeancier, echeancierSurcharge, montantRef, factures,
+  chantiers, peutModifier, auteur, onRefresh, onSaveMeta,
+}) {
+  const [busy, setBusy] = useState("");          // libellé de l'opération en cours
+  const [erreur, setErreur] = useState("");
+  const [brouillon, setBrouillon] = useState(null);      // import en attente de confirmation
+  const [encaissement, setEncaissement] = useState(null); // { facture, ligneNom }
+  const [editerEcheancier, setEditerEcheancier] = useState(false);
+  const [editerMontant, setEditerMontant] = useState(false);
+  const [montantSaisi, setMontantSaisi] = useState("");
+  const fileRef = useRef(null);
+  const ligneCibleRef = useRef(null); // échéance visée quand on importe depuis une ligne
+
+  const border = T?.border || "rgba(255,255,255,0.07)";
+  const text = T?.text || "#f0f0f0";
+  const textSub = T?.textSub || "#9aa5c0";
+  const textMuted = T?.textMuted || "#5b6a8a";
+  const ref = montantRef?.montant || 0;
+  const totaux = etat?.totaux || {};
+
+  // ── Factures ProGBat : une seule lecture, partagée ──────────────────────
+  // Le bloc ProGBat, l'échéancier et le bandeau financier en ont besoin.
+  const progbat = useFacturesProgbat(chantierId);
+  const [busyRattachement, setBusyRattachement] = useState(null);
+  const [erreurRattachement, setErreurRattachement] = useState("");
+
+  const progbatCompose = React.useMemo(
+    () => composerFacturesProgbat(progbat.donnees.factures, progbat.donnees.reglements),
+    [progbat.donnees],
+  );
+  // Croisement échéancier × ProGBat. Sans aucun rattachement, il est INERTE :
+  // les totaux rendus sont exactement ceux du calcul manuel.
+  const croisement = React.useMemo(() => croiserEcheancierProgbat({
+    lignesEtat: etat?.lignes || [],
+    actives: progbatCompose.factures_actives,
+    montantReference: ref,
+    totauxManuels: totaux,
+  }), [etat, progbatCompose, ref, totaux]);
+
+  /**
+   * ÉCRITURE DE RATTACHEMENT — la seule de cet écran sur une facture ProGBat.
+   * Déclenchée par un clic, jamais par un effet.
+   *
+   * Le patch vient de corrigerLigneFacture() : ligne_id, ligne_nom, le verrou
+   * et sa trace, rapprochement et raison. Aucune colonne ProGBat n'y figure —
+   * le trigger de la base les refuserait de toute façon au navigateur.
+   *
+   * L'UPDATE est borné par l'id ET par source='progbat' : même avec un id
+   * erroné, il ne peut pas toucher une facture manuelle. `.select("id")` puis
+   * « exactement une ligne » : zéro ligne (facture disparue, source changée)
+   * comme plusieurs lignes sont des ÉCHECS, jamais un succès silencieux.
+   */
+  const ecrireRattachement = async (facture, patch, libelleAction) => {
+    if (busyRattachement) return;
+    setBusyRattachement(facture.id);
+    setErreurRattachement("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data, error } = await supabase
+        .from("chantier_factures_client")
+        .update({ ...patch, ligne_id_modifie_par: session?.user?.id ?? null })
+        .eq("id", facture.id)
+        .eq("source", "progbat")
+        .select("id");
+      if (error) {
+        setErreurRattachement(`${libelleAction} impossible : ${error.message}`);
+      } else {
+        const n = Array.isArray(data) ? data.length : data ? 1 : 0;
+        if (n !== 1) {
+          setErreurRattachement(n === 0
+            ? `${libelleAction} sans effet : aucune facture ProGBat ne correspond (elle a pu être supprimée ou modifiée entre-temps). Actualisez.`
+            : `${libelleAction} refusée : ${n} lignes auraient été modifiées alors qu'une seule était visée.`);
+        } else {
+          await progbat.charger();
+          await onRefresh?.();
+        }
+      }
+    } catch (e) {
+      setErreurRattachement(`${libelleAction} impossible : ${e?.message || "erreur inattendue"}`);
+    }
+    setBusyRattachement(null);
+  };
+
+  const rattacherProgbat = (facture, ligne, raison) => {
+    if (!ligne?.id) return;
+    const patch = corrigerLigneFacture(facture, {
+      ligneId: ligne.id,
+      ligneNom: ligne.nom || null,
+      maintenant: new Date().toISOString(),
+      raison: raison || "Échéance choisie à la main sur la fiche chantier.",
+    });
+    if (!patch) return;                       // déjà rattachée à cette ligne
+    return ecrireRattachement(facture, patch, "Le rattachement");
+  };
+
+  // Les trois chiffres du bandeau. Identiques au calcul manuel tant qu'aucune
+  // échéance ne porte de facture ProGBat.
+  const bandeau = croisement.actif ? {
+    emis: croisement.totaux.facture_ht,
+    encaisse: croisement.totaux.encaisse_ht,
+    resteAFacturer: croisement.totaux.reste_a_facturer_ht,
+    resteAEncaisser: croisement.totaux.reste_a_encaisser_ht,
+    pctEmis: croisement.totaux.pct_facture,
+    pctEncaisse: croisement.totaux.pct_encaisse,
+  } : {
+    emis: totaux.emis, encaisse: totaux.encaisse,
+    resteAFacturer: totaux.resteAFacturer, resteAEncaisser: totaux.resteAEncaisser,
+    pctEmis: totaux.pctEmis, pctEncaisse: totaux.pctEncaisse,
+  };
+
+  const detacherProgbat = (facture, nomLigne, libelle) => {
+    if (!window.confirm(
+      `Détacher « ${libelle} » de l'échéance « ${nomLigne} » ?\n\n`
+      + "La facture et ses règlements restent en base : seul le rattachement est retiré.",
+    )) return;
+    const patch = corrigerLigneFacture(facture, {
+      ligneId: null,
+      ligneNom: null,
+      maintenant: new Date().toISOString(),
+      raison: "Rattachement retiré à la main sur la fiche chantier.",
+    });
+    if (!patch) return;
+    return ecrireRattachement(facture, patch, "Le détachement");
+  };
+
+  // ── Import : upload → lecture IA → rapprochement → confirmation ──
+  const choisirFichier = (ligneId = null) => {
+    if (!peutModifier) return;
+    ligneCibleRef.current = ligneId;
+    setErreur("");
+    fileRef.current?.click();
+  };
+
+  const importer = async (file) => {
+    if (!file) return;
+    const ligneCible = ligneCibleRef.current;
+    ligneCibleRef.current = null;
+    setErreur("");
+    setBusy("Envoi du document…");
+    const doc = await uploadDocumentChantier(file, `factures-client/${chantierId}`);
+    if (!doc) {
+      setBusy("");
+      setErreur(derniereErreurDocument() || "Envoi du document impossible.");
+      return;
+    }
+    setBusy("Lecture de la facture…");
+    let extrait = {}, confianceLecture = null, erreurLecture = "";
+    try {
+      const lu = await lireFacture(doc.path, chantierId);
+      extrait = lu.extrait || {};
+      confianceLecture = lu.confianceLecture;
+    } catch (e) {
+      erreurLecture = e.message || "erreur inconnue";
+    }
+    const proposition = rapprocherFacture(extrait, {
+      echeancier, montantReference: ref, factures,
+    });
+    setBusy("");
+    setBrouillon({
+      doc, extrait, confianceLecture, erreurLecture,
+      cible: ligneCible || null,
+      proposition: ligneCible ? { ...proposition, ligneId: ligneCible } : proposition,
+    });
+  };
+
+  // Abandon d'un import : le document envoyé repart avec lui (on ne laisse pas
+  // de fichier orphelin dans le bucket).
+  const annulerImport = async () => {
+    if (brouillon?.doc?.path) await supprimerDocumentChantier(brouillon.doc.path);
+    setBrouillon(null);
+  };
+
+  const enregistrerFacture = async (valeurs) => {
+    const { error } = await supabase.from("chantier_factures_client").insert({
+      chantier_id: chantierId,
+      phasage_id: phasageId || null,
+      statut: "emise",
+      document_path: brouillon.doc.path,
+      document_nom: brouillon.doc.nom,
+      cree_par: auteur || null,
+      ...valeurs,
+    });
+    if (error) {
+      // 23505 = l'index unique (chantier, numéro) a parlé : deux imports
+      // simultanés passent la vérification côté écran, pas celle de la base.
+      setErreur(error.code === "23505"
+        ? `Une facture portant le numéro « ${valeurs.numero} » existe déjà sur ce chantier.`
+        : `Enregistrement impossible : ${error.message}`);
+      return;
+    }
+    setBrouillon(null);
+    await onRefresh?.();
+  };
+
+  const encaisser = async ({ date, montant }) => {
+    const { error } = await supabase.from("chantier_factures_client")
+      .update({ statut: "encaissee", date_encaissement: date, montant_encaisse: montant })
+      .eq("id", encaissement.facture.id);
+    if (error) { setErreur(`Encaissement impossible : ${error.message}`); return; }
+    setEncaissement(null);
+    await onRefresh?.();
+  };
+
+  const annulerEncaissement = async (facture) => {
+    if (!window.confirm("Annuler l'encaissement de cette facture ? Elle redeviendra « émise ».")) return;
+    setBusy("Mise à jour…");
+    const { error } = await supabase.from("chantier_factures_client")
+      .update({ statut: "emise", date_encaissement: null, montant_encaisse: null })
+      .eq("id", facture.id);
+    setBusy("");
+    if (error) { setErreur(`Mise à jour impossible : ${error.message}`); return; }
+    await onRefresh?.();
+  };
+
+  const supprimerFacture = async (facture) => {
+    if (!window.confirm(`Supprimer la facture ${facture.numero ? `n° ${facture.numero}` : ""} (${eur(facture.montant_ht)}) ? Le document joint sera supprimé lui aussi.`)) return;
+    setBusy("Suppression…");
+    const { error } = await supabase.from("chantier_factures_client").delete().eq("id", facture.id);
+    if (!error && facture.document_path) await supprimerDocumentChantier(facture.document_path);
+    setBusy("");
+    if (error) { setErreur(`Suppression impossible : ${error.message}`); return; }
+    await onRefresh?.();
+  };
+
+  const ouvrirDocument = async (facture) => {
+    if (!facture.document_path) return;
+    const fenetre = window.open("", "_blank");
+    const url = await urlDocumentChantier(facture.document_path);
+    if (url) { if (fenetre) fenetre.location = url; else window.open(url, "_blank"); }
+    else { if (fenetre) fenetre.close(); alert(derniereErreurDocument() || "Document introuvable."); }
+  };
+
+  // ── Réglages du chantier (meta du phasage) ──
+  const enregistrerEcheancier = async (lignes) => {
+    const ok = await onSaveMeta?.({
+      [FACT_META_ECHEANCIER]: {
+        lignes: normaliserEcheancier(lignes),
+        auteur: auteur || "", date: new Date().toISOString(),
+      },
+    });
+    if (ok !== false) setEditerEcheancier(false);
+  };
+  const reinitialiserEcheancier = async () => {
+    const ok = await onSaveMeta?.({ [FACT_META_ECHEANCIER]: null });
+    if (ok !== false) setEditerEcheancier(false);
+  };
+  const enregistrerMontant = async () => {
+    const v = toNum(montantSaisi);
+    await onSaveMeta?.({ [FACT_META_MONTANT_REF]: v && v > 0 ? v : null });
+    setEditerMontant(false);
+  };
+
+  const btn = (couleur) => ({
+    display: "inline-flex", alignItems: "center", gap: 5,
+    background: "transparent", border: `1px solid ${couleur || border}`,
+    borderRadius: RADIUS.md, padding: "4px 10px",
+    color: couleur || textSub, fontSize: FONT.xs.size + 1, fontWeight: 700,
+    cursor: "pointer", fontFamily: "inherit",
+  });
+
+  const kpi = (label, valeur, sous, couleur) => (
+    <div style={{ flex: "1 1 130px", minWidth: 120 }}>
+      <div style={{ fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: .6 }}>{label}</div>
+      <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: couleur || text, marginTop: 2 }}>{valeur}</div>
+      {sous && <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>{sous}</div>}
+    </div>
+  );
+
+  return (
+    <div className="ch-stat-card">
+      <input ref={fileRef} type="file" accept={ACCEPT_FACTURE} style={{ display: "none" }}
+        onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; importer(f); }}/>
+
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap",
+        fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
+        letterSpacing: 1.2, textTransform: "uppercase",
+      }}>
+        Facturation client
+        <span style={{ fontWeight: 500, letterSpacing: 0, textTransform: "none", opacity: .7 }}>
+          — importez les factures au fil de l'eau : le montant est lu, l'échéance reconnue, la frise suit
+        </span>
+        {peutModifier && (
+          <button onClick={() => choisirFichier(null)} disabled={!!busy} style={{
+            ...btn("#4db8ff"), marginLeft: "auto", letterSpacing: 0, textTransform: "none",
+            padding: "6px 13px", opacity: busy ? .6 : 1,
+          }}>
+            <Icon as={busy ? Loader2 : Upload} size={13}/>{busy || "Importer une facture"}
+          </button>
+        )}
+      </div>
+
+      {erreur && (
+        <div style={{
+          display: "flex", gap: 8, padding: "9px 12px", marginBottom: 12, borderRadius: RADIUS.md,
+          background: "rgba(225,90,90,0.12)", border: "1px solid rgba(225,90,90,0.4)",
+          fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 600,
+        }}>
+          <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0, marginTop: 1 }}/>{erreur}
+        </div>
+      )}
+
+      {/* ── Marché de référence + totaux ── */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start", marginBottom: 14 }}>
+        <div style={{ flex: "1 1 150px", minWidth: 130 }}>
+          <div style={{ fontSize: FONT.xs.size, color: textMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: .6 }}>Marché HT</div>
+          {editerMontant ? (
+            <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 3 }}>
+              <input type="number" step="0.01" value={montantSaisi} autoFocus
+                onChange={e => setMontantSaisi(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") enregistrerMontant(); if (e.key === "Escape") setEditerMontant(false); }}
+                placeholder={String(montantRef?.auto || 0)}
+                style={{
+                  width: 110, padding: "4px 8px", borderRadius: RADIUS.md, border: `1px solid ${border}`,
+                  background: T.inputBg || "transparent", color: text, fontSize: FONT.sm.size,
+                  fontWeight: 800, fontFamily: "inherit", outline: "none",
+                }}/>
+              <button onClick={enregistrerMontant} style={btn("#22c55e")}><Icon as={Check} size={12}/></button>
+              <button onClick={() => setEditerMontant(false)} style={btn()}><Icon as={X} size={12}/></button>
+            </div>
+          ) : (
+            <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, marginTop: 2, display: "flex", alignItems: "center", gap: 7 }}>
+              {ref > 0 ? eur(ref) : "—"}
+              {peutModifier && (
+                <button onClick={() => { setMontantSaisi(ref ? String(ref) : ""); setEditerMontant(true); }}
+                  title="Corriger le montant du marché" style={{
+                    background: "transparent", border: "none", color: textMuted,
+                    cursor: "pointer", padding: 0, display: "inline-flex",
+                  }}><Icon as={Pencil} size={12}/></button>
+              )}
+            </div>
+          )}
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 1 }}>
+            {montantRef?.source === "saisi" ? "saisi à la main" : "somme des ouvrages du phasage"}
+          </div>
+        </div>
+        {/* Dès qu'une échéance porte une facture ProGBat, ces trois chiffres
+            passent sur l'ÉQUIVALENT HT de l'échéancier : une facture ProGBat
+            n'a qu'un TTC fiable, et son HT ne se reconstitue pas. Sans aucun
+            rattachement ProGBat, ce sont exactement les chiffres d'avant. */}
+        {kpi("Facturé", eur(bandeau.emis), bandeau.pctEmis !== null ? `${bandeau.pctEmis} % du marché` : null, "#4db8ff")}
+        {kpi("Encaissé", eur(bandeau.encaisse), bandeau.pctEncaisse !== null ? `${bandeau.pctEncaisse} % du marché` : null, "#22c55e")}
+        {kpi("Reste à facturer", eur(bandeau.resteAFacturer),
+          bandeau.resteAEncaisser > 0 ? `${eur(bandeau.resteAEncaisser)} en attente de paiement` : null,
+          bandeau.resteAFacturer > 0 ? text : "#22c55e")}
+      </div>
+
+      {croisement.actif && (
+        <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginBottom: 8, lineHeight: 1.5 }}>
+          Équivalent HT <strong>selon l'échéancier</strong> : {croisement.lignesLiees} échéance(s) portent une facture ProGBat,
+          dont le HT n'existe pas. Leur HT prévu est retenu, au prorata des règlements reçus — ce n'est pas un HT extrait des factures ProGBat.
+          {croisement.totaux.anomalies > 0 && ` ${croisement.totaux.anomalies} échéance(s) en anomalie ne comptent pas d'encaissé.`}
+          {croisement.totaux.doublons > 0 && ` ${croisement.totaux.doublons} échéance(s) portent aussi une facture manuelle : comptées une seule fois.`}
+        </div>
+      )}
+
+      {/* Barre : encaissé / émis / marché */}
+      {ref > 0 && (
+        <div style={{ height: 8, borderRadius: 4, background: border, overflow: "hidden", display: "flex", marginBottom: 6 }}>
+          <div style={{ width: `${Math.min(100, (bandeau.encaisse / ref) * 100)}%`, background: "#22c55e" }}/>
+          <div style={{ width: `${Math.max(0, Math.min(100 - (bandeau.encaisse / ref) * 100, ((bandeau.emis - bandeau.encaisse) / ref) * 100))}%`, background: "#4db8ff" }}/>
+        </div>
+      )}
+      {ref <= 0 && (
+        <div style={{
+          display: "flex", gap: 8, padding: "9px 12px", marginBottom: 10, borderRadius: RADIUS.md,
+          background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.35)",
+          fontSize: FONT.xs.size + 1, color: "#f59e0b", fontWeight: 600,
+        }}>
+          <Icon as={AlertTriangle} size={13} style={{ flexShrink: 0, marginTop: 1 }}/>
+          Aucun montant de marché : les pourcentages ne peuvent pas être calculés et les factures
+          devront être rattachées à la main. Renseignez le marché HT ci-dessus.
+        </div>
+      )}
+
+      {/* ── Les échéances ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 10 }}>
+        {(etat?.lignes || []).map(l => {
+          const f = l.facture;
+          // Factures ProGBat actives rattachées à cette échéance. Les documents
+          // d'annulation et leurs règlements n'y sont jamais : ils sont écartés
+          // en amont par composerFacturesProgbat.
+          const pg = croisement.parLigne.get(String(l.id)) || null;
+          // Dès qu'une facture ProGBat active couvre l'échéance, c'est SON état
+          // qui pilote la pastille, le cercle et la couleur de la carte : le
+          // cycle manuel ne connaît pas ces factures et afficherait « prévue »
+          // sur une ligne déjà encaissée. Sans facture ProGBat, `vis` vaut null
+          // et absolument rien ne change.
+          const vis = statutVisuelLigneProgbat(pg);
+          const st = vis || STATUT_STYLE[l.statut] || STATUT_STYLE.attente;
+          const alerte = vis ? vis.alerte : l.prete;
+          const coche = vis ? vis.coche : l.statut === "encaissee";
+          return (
+            <div key={l.id} style={{
+              display: "flex", alignItems: "flex-start", gap: 10,
+              padding: "10px 12px", borderRadius: RADIUS.lg,
+              border: `1px solid ${alerte ? "#f59e0b55" : vis ? `${vis.couleur}44` : border}`,
+              background: alerte ? "rgba(245,158,11,0.07)" : "transparent",
+            }}>
+              <span style={{
+                width: 16, height: 16, borderRadius: "50%", flexShrink: 0, marginTop: 2,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                background: coche ? "#22c55e" : "transparent",
+                border: `2px solid ${st.plein ? st.couleur : border}`,
+              }}>{coche ? <Icon as={Check} size={10} color="#fff"/> : null}</span>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: text }}>{l.nom}</span>
+                  <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: textSub }}>{l.pct} %</span>
+                  <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>{eur(l.montantAttendu)}</span>
+                  <span style={{
+                    fontSize: 9.5, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase",
+                    color: st.couleur, border: `1px ${st.plein ? "solid" : "dashed"} ${st.couleur}${st.plein ? "88" : "55"}`,
+                    background: st.plein ? `${st.couleur}14` : "transparent",
+                    borderRadius: RADIUS.pill, padding: "1px 8px",
+                  }}>{st.label}</span>
+                </div>
+                {/* La phrase du cycle manuel (« À émettre à 40 % d'avancement »)
+                    contredirait une échéance déjà encaissée dans ProGBat. Sur
+                    ces lignes, le bloc ProGBat juste en dessous dit la
+                    situation réelle, montants à l'appui. */}
+                {!pg && <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2 }}>{l.raison}</div>}
+
+                {/* ── Ce que ProGBat dit de cette échéance ────────────────── */}
+                {pg && (
+                  <div style={{ marginTop: 4, fontSize: FONT.xs.size + 1, lineHeight: 1.6 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                      {/* L'état n'est plus répété ici : la pastille de la
+                          ligne le porte désormais. Restent les montants. */}
+                      <span style={{ color: textMuted }}>ProGBat</span>
+                      <strong style={{ color: text }}>{pg.numeros.join(" · ")}</strong>
+                      <span style={{ color: textMuted }}>
+                        {eurSigne(pg.ttc_du)} TTC dû · {eurSigne(pg.regle)} réglé
+                        {pg.ttc_du !== null ? ` · reste ${eurSigne(arrondiCentime(pg.ttc_du - pg.regle))}` : ""}
+                      </span>
+                    </div>
+                    {pg.anomalie ? (
+                      <div style={{ color: "#e15a5a", fontWeight: 700 }}>{pg.libelle_anomalie}</div>
+                    ) : (
+                      <div style={{ color: textMuted }}>
+                        Équivalent HT selon l'échéancier : {eur(pg.equivalent_ht)} sur {eur(pg.montant_attendu_ht)} prévus
+                        {pg.ratio !== null && pg.ratio < 1 ? ` (${Math.round(pg.ratio * 1000) / 10} % réglé)` : ""}.
+                      </div>
+                    )}
+                    {pg.doublon_manuel && (
+                      <div style={{ color: "#f59e0b", fontWeight: 700 }}>
+                        ⚠ Cette échéance porte AUSSI une facture manuelle : elle n'est comptée qu'une fois
+                        dans le bandeau (côté ProGBat). Rien n'a été supprimé — vérifiez le doublon.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {l.ecart !== 0 && f && (
+                  <div style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", marginTop: 2, fontWeight: 700 }}>
+                    Facturé {eur(l.montantEmis)} — écart de {eur(Math.abs(l.ecart))} {l.ecart > 0 ? "au-dessus" : "en dessous"} de l'attendu.
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  {l.factures.map(fac => (
+                    <button key={fac.id} onClick={() => ouvrirDocument(fac)}
+                      title="Ouvrir la facture" style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "2px 9px",
+                        background: "transparent", color: textSub, fontSize: FONT.xs.size + 1,
+                        cursor: fac.document_path ? "pointer" : "default", fontFamily: "inherit",
+                      }}>
+                      <Icon as={FileText} size={10}/>
+                      {fac.numero ? `n° ${fac.numero}` : "facture"} · {eur(fac.montant_ht)}
+                    </button>
+                  ))}
+                  {peutModifier && (
+                    <>
+                      {/* Une échéance déjà couverte par ProGBat n'offre plus
+                          l'import manuel : ce serait un doublon. */}
+                      {!f && !pg && (
+                        <button onClick={() => choisirFichier(l.id)} disabled={!!busy} style={btn("#4db8ff")}>
+                          <Icon as={Upload} size={11}/> Importer la facture
+                        </button>
+                      )}
+                      {!f && pg && (
+                        <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+                          Facturée dans ProGBat — import manuel inutile.
+                        </span>
+                      )}
+                      {f && f.statut === "emise" && (
+                        <button onClick={() => setEncaissement({ facture: f, ligneNom: l.nom })} style={btn("#22c55e")}>
+                          <Icon as={Banknote} size={11}/> Marquer encaissée
+                        </button>
+                      )}
+                      {f && f.statut === "encaissee" && (
+                        <button onClick={() => annulerEncaissement(f)} style={btn()}>
+                          <Icon as={RotateCcw} size={11}/> Annuler l'encaissement
+                        </button>
+                      )}
+                      {f && (
+                        <button onClick={() => supprimerFacture(f)} title="Supprimer cette facture" style={btn()}>
+                          <Icon as={X} size={11}/>
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Factures hors échéancier ── */}
+      {(etat?.horsEcheancier || []).length > 0 && (
+        <div style={{ marginTop: 14, paddingTop: 10, borderTop: `1px solid ${border}` }}>
+          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, color: textMuted, letterSpacing: .5, textTransform: "uppercase", marginBottom: 7 }}>
+            Hors échéancier
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {etat.horsEcheancier.map(f => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => ouvrirDocument(f)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 4, background: "transparent",
+                  border: `1px solid ${border}`, borderRadius: RADIUS.pill, padding: "2px 9px",
+                  color: textSub, fontSize: FONT.xs.size + 1, cursor: "pointer", fontFamily: "inherit",
+                }}>
+                  <Icon as={FileText} size={10}/>{f.numero ? `n° ${f.numero}` : "facture"} · {eur(f.montant_ht)}
+                </button>
+                <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>
+                  {jj(f.date_facture)} · {f.statut === "encaissee" ? "encaissée" : "émise"} · rattachée à aucune échéance
+                </span>
+                {peutModifier && (
+                  <button onClick={() => supprimerFacture(f)} style={btn()}><Icon as={X} size={11}/></button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Échéancier : alertes + réglage ── */}
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {(etat?.controle?.alertes || []).map((a, i) => (
+          <span key={i} style={{ fontSize: FONT.xs.size + 1, color: "#f59e0b", fontWeight: 600 }}>
+            <Icon as={AlertTriangle} size={11} style={{ verticalAlign: "-2px", marginRight: 4 }}/>{a}
+          </span>
+        ))}
+        {echeancierSurcharge && (
+          <span title="Cet échéancier est figé sur ce chantier : le réglage général n'y touche plus."
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              fontSize: FONT.xs.size, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+              color: textSub, border: `1px dashed ${border}`,
+            }}>
+            <Icon as={Pencil} size={10}/> échéancier propre à ce chantier
+          </span>
+        )}
+        {peutModifier && !editerEcheancier && (
+          <button onClick={() => setEditerEcheancier(true)} style={{ ...btn(), marginLeft: "auto" }}>
+            <Icon as={Pencil} size={11}/> Modifier l'échéancier
+          </button>
+        )}
+      </div>
+
+      {editerEcheancier && (
+        <EditeurEcheancier lignes={echeancier} surcharge={!!echeancierSurcharge}
+          montantReference={ref} T={T}
+          onAnnuler={() => setEditerEcheancier(false)}
+          onEnregistrer={enregistrerEcheancier}
+          onReinitialiser={reinitialiserEcheancier}/>
+      )}
+
+      {/* Ce que la synchronisation a importé, en lecture seule. Bloc autonome :
+          sa lecture est indépendante de l'échéancier manuel ci-dessus, et son
+          échec ne l'empêche pas de s'afficher. */}
+      <FacturesProgbat
+        T={T} peutModifier={peutModifier} echeancier={echeancier || []}
+        chargement={progbat.chargement} erreurLecture={progbat.erreurLecture}
+        donnees={progbat.donnees} charger={progbat.charger}
+        onRattacher={rattacherProgbat} onDetacher={detacherProgbat}
+        busyRattachement={busyRattachement} erreurRattachement={erreurRattachement}/>
+
+      {/* Chantiers ProGBat associés : le rattachement PRINCIPAL. Une facture
+          ProGBat porte yardId, stable d'un avenant à l'autre — c'est par lui
+          qu'elle se reconnaîtra. Rien n'y est automatique, voir
+          ChantierYardsProgbat.jsx. */}
+      <ChantierYardsProgbat chantierId={chantierId} chantiers={chantiers} T={T} peutModifier={peutModifier}/>
+
+      {/* Repli par devis, replié par défaut : il ne sert qu'aux factures sans
+          yardId. Toujours branché, rien n'y change — voir
+          ChantierProjetsProgbat.jsx. */}
+      <details style={{ marginTop: 12 }}>
+        <summary style={{
+          cursor: "pointer", fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2,
+          textTransform: "uppercase", color: T?.textMuted || "#5b6a8a",
+        }}>
+          Rattachement de secours par devis
+        </summary>
+        <div style={{ fontSize: FONT.xs.size + 1, color: T?.textMuted || "#5b6a8a", marginTop: 6, lineHeight: 1.5 }}>
+          À utiliser uniquement pour une facture ProGBat ne possédant pas de chantier (yardId absent).
+        </div>
+        <ChantierProjetsProgbat chantierId={chantierId} chantiers={chantiers} T={T} peutModifier={peutModifier}/>
+      </details>
+
+      {brouillon && (
+        <ModaleImport brouillon={brouillon} lignes={echeancier} montantReference={ref}
+          factures={factures} T={T} onAnnuler={annulerImport} onEnregistrer={enregistrerFacture}/>
+      )}
+      {encaissement && (
+        <ModaleEncaissement facture={encaissement.facture} ligneNom={encaissement.ligneNom} T={T}
+          onAnnuler={() => setEncaissement(null)} onValider={encaisser}/>
+      )}
+    </div>
+  );
+}

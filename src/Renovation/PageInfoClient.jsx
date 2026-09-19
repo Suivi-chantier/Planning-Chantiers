@@ -1,14 +1,33 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, getClientId } from "../supabase";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
-import { FONT, RADIUS, SHADOW, getBranchAccent } from "../constants";
+import { FONT, RADIUS, SHADOW, getBranchAccent, LOGO_RENO_H, loadLots } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
+import StylusCanvas, { renderStrokesDataURL } from "./StylusCanvas";
+import { buildChiffrageDocHTML } from "./chiffrageDoc";
+import { renderPlanDataURL } from "./planRendu";
+import { parseCodeOuvrage } from "./codeOuvrage.mjs";
+import ProgbatApercuDevis from "./ProgbatApercuDevis.jsx";
+import ConditionsVenteChiffrage from "./ConditionsVenteChiffrage.jsx";
+import ConditionsVenteLigne from "./ConditionsVenteLigne.jsx";
+import { lireConditionsProjet, decrireConditionsLigne, lireModesLigne, libelleSource } from "./conditionsChiffrage.mjs";
+import { expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe } from "./tauxHorairesVente.mjs";
+import { expliquerPrixMateriaux, formaterCoefficient, diagnostiquerCoefficients } from "./coefficientsVente.mjs";
+import {
+  ZONE_DEFAUT, ZONES_SUGGEREES, TYPES_LOGEMENT, TVA_TAUX_USUELS,
+  calculerOuvrage, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
+  ligneEstSnapshot, totalLigneHT, totauxDevis, grouperParLotZone,
+  lireLogementProjet, verifierPreparationDevis, normaliserUnite, num as numOrNull,
+} from "./chiffragePricing.mjs";
 import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
-  Pencil, Eraser, Download, ChevronRight, Building2, Layers,
+  Pencil, Download, ChevronRight, Building2, Layers,
   Camera, Copy, Euro, ChevronLeft as ChevronLeftIcon,
   ImagePlus, ArrowUp, ArrowDown, Send, StickyNote, Edit2, Image as ImageIcon,
+  Video, Film, Library, Wallet, Clock, PenTool, Type as TypeIcon, Play,
+  RefreshCw, Home, Receipt, Info, Lock, SlidersHorizontal, Package,
 } from "lucide-react";
 
 // Ordre des lots = chronologie d'un chantier (démolition → finitions).
@@ -23,7 +42,6 @@ const CATEGORIES_DEFAUT = {
   "Sols & Peinture": ["Parquet stratifié","Ragréage sol","Peinture finition C","Escalier 1/4 tournant"],
 };
 const UNITES = { "Électricité":"U","Plomberie":"U","Ventilation":"U","Plaquiste":"m²","Sols & Peinture":"m²","Menuiseries":"U","Maçonnerie":"U","Démolition":"m²" };
-const LOGEMENTS = ["T1 (1 pièce)","T2 (2 pièces)","T3 (3 pièces)","T4 (4 pièces)","T5 (5 pièces)"];
 
 // ─── STATUTS DE PROJET (flux commercial) ─────────────────────────────────────
 const STATUTS_PROJET = [
@@ -36,6 +54,11 @@ const STATUTS_PROJET = [
   { id: "abandonne",      label: "Abandonné",        color: "#e15a5a" },
 ];
 const statutMeta = (id) => STATUTS_PROJET.find(s => s.id === id) || STATUTS_PROJET[0];
+// Un chiffrage « terminé » (devis parti chez le client, signé ou abandonné) ne
+// se réactualise plus tout seul : ses prix ont été communiqués. On signale
+// l'écart, et l'actualisation reste possible ligne par ligne (bouton ↻).
+const STATUTS_CHIFFRAGE_FIGE = ["devis_envoye", "signe", "abandonne"];
+const chiffrageEstTermine = (statut) => STATUTS_CHIFFRAGE_FIGE.includes(statut || "prospect");
 
 // ─── UPLOAD PHOTO (bucket "photos") ──────────────────────────────────────────
 async function uploadInfoClientPhoto(file, projetId) {
@@ -48,13 +71,61 @@ async function uploadInfoClientPhoto(file, projetId) {
   return data?.publicUrl || null;
 }
 
-export default function PageInfoClient({ T, branch = "renovation", chantiers = [] }) {
+// Champs ajoutés par sql/202609_chiffrage_devis_logement.sql (1 projet = 1
+// logement = 1 futur devis ProGBat). Servent au repli si la base n'est pas à
+// jour, au merge Realtime et à la duplication.
+const CHAMPS_DEVIS = [
+  "client_societe", "client_email", "client_telephone", "client_adresse", "client_adresse_complement", "client_code_postal", "client_ville", "client_pays",
+  "chantier_adresse", "chantier_adresse_complement", "chantier_code_postal", "chantier_ville", "chantier_pays",
+  "logement_reference", "type_logement",
+  "devis_objet", "devis_date", "devis_validite", "tva_pct", "devis_num_commande_client", "devis_conditions",
+];
+const CHAMPS_DEVIS_DATE = ["devis_date", "devis_validite"];
+const CHAMPS_DEVIS_NUM  = ["tva_pct"];
+const CHAMPS_DEVIS_VIDES = Object.fromEntries(CHAMPS_DEVIS.map(f => [f, ""]));
+const erreurColonnesDevis = (error) => !!error && CHAMPS_DEVIS.some(c => (error?.message || "").includes(c));
+// Colonnes de snapshot d'une ligne (profero_ouvrages_selectionnes) de la même migration
+const COLONNES_LIGNE_V3 = ["zone", "code_ouvrage", "cout_materiaux_unitaire", "cout_main_oeuvre_unitaire", "cout_direct_unitaire", "cout_total_unitaire", "taux_marge_pct", "coef_vente", "coefficient_vente_id", "taux_horaire_vente_id", "taux_horaire_vente", "coefficient_source", "coefficient_origine_valeur", "coefficient_origine_libelle", "coefficient_global_id", "taux_horaire_source", "taux_horaire_origine_valeur", "taux_horaire_origine_libelle", "taux_horaire_global_id", "mode_coefficient_ligne", "coefficient_ligne_id", "coefficient_ligne_valeur", "coefficient_ligne_libelle", "mode_taux_horaire_ligne", "taux_horaire_ligne_id", "taux_horaire_ligne_valeur", "taux_horaire_ligne_libelle", "tva_pct", "calcul_version", "calcul_detail", "ordre"];
+const fmtCoef = (k) => k == null ? "—" : `× ${Number(k).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}`;
+const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (error?.message || "").includes(c));
+const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
+const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const fmtPct = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+
+// État vide d'un projet (formulaire + reset). `logements` (ancien tableau) est
+// conservé en lecture seule pour les anciens projets.
+const INFOS_VIDES = { client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"", budget_client:"", delai_souhaite:"", ...CHAMPS_DEVIS_VIDES };
+
+// Médias : photos ET vidéos dans le même bucket "photos" (max 50 Mo, limite
+// par défaut du stockage Supabase).
+const MAX_MEDIA_OCTETS = 50 * 1024 * 1024;
+const estFichierVideo = (f) => (f?.type || "").startsWith("video/") || /\.(mp4|mov|m4v|webm|3gp|mkv)$/i.test(f?.name || "");
+
+// Dessins au stylet : repère logique d'une page de notes (portrait) et d'un
+// croquis (paysage). Le rendu s'adapte à la largeur de l'écran.
+const NOTE_W = 1000, NOTE_H = 1400;
+const CROQUIS_W = 1400, CROQUIS_H = 1000;
+const fmtEur = (n) => Number(n || 0).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " €";
+
+// Code en tête d'un libellé de la bibliothèque : « D-001 : Dépose… »,
+// « E-002.3 : Tableau… », « COUV-001 : Reprise… ». Détecteur unique
+// (codeOuvrage.mjs) partagé avec l'import, le planning et les lots.
+function decoderLibelleCode(libelle) {
+  const c = parseCodeOuvrage(libelle);
+  return c ? { code: c.code, prefixe: c.prefixe, num: c.numeroValeur, reste: c.reste } : null;
+}
+
+// `onModifierMateriaux` / `retourBiblio` : aller-retour avec la page Bibliothèque
+// (bouton « Modifier matériaux » d'une ligne d'ouvrage). Au retour, les lignes
+// de CE chiffrage issues de l'ouvrage modifié sont réactualisées automatiquement
+// tant que le chiffrage n'est pas terminé.
+export default function PageInfoClient({ T, branch = "renovation", chantiers = [], onModifierMateriaux = null, retourBiblio = null, onRetourBiblioConsomme = null }) {
   const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
   const [projetId, setProjetId]       = useState(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
-  const [infos, setInfos]             = useState({ client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"", date_visite:"", observations:"", logements:[], statut:"prospect", notes:"" });
+  const [infos, setInfos]             = useState(INFOS_VIDES);
   const [ouvrages, setOuvrages]       = useState([]);
   const [cotes, setCotes]             = useState([]);
   // Plans riches (table `plans` partagée avec la page Plans) liés au projet
@@ -71,6 +142,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [filtreStatut, setFiltreStatut] = useState("all");
   const [searchProjets, setSearchProjets] = useState("");
   const [showModal, setShowModal]     = useState(false);
+  const [showProgbat, setShowProgbat] = useState(false);   // aperçu du payload ProGBat (aucun envoi)
   const [newCat, setNewCat]           = useState("Électricité");
   const [newLib, setNewLib]           = useState("");
   const [catParam, setCatParam]       = useState("");
@@ -92,6 +164,37 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [lightbox, setLightbox]       = useState(null); // { urls:[], idx:0 }
   const [exporting, setExporting]     = useState(false);
   const photoInputRef = useRef(null);
+  // Dessins au stylet (table profero_dessins) : pages de notes manuscrites + croquis
+  const [dessins, setDessins]         = useState([]);
+  const [notesMode, setNotesMode]     = useState("texte");   // "texte" | "manuscrit"
+  const [notePageId, setNotePageId]   = useState(null);
+  const [croquisOuvert, setCroquisOuvert] = useState(null);  // id du croquis en édition
+  const [toDeleteDessin, setToDeleteDessin] = useState(null);
+  const dessinOuvertRef = useRef(null);
+  const vignetteCache = useRef(new Map());
+  // Bibliothèque d'ouvrages (page Bibliothèque) : source principale de l'onglet
+  // Ouvrages — seuls les libellés codés (« D-001 : … ») sont proposés.
+  const [biblio, setBiblio]           = useState(null);      // { ouvrages, lots, materiaux, coutHoraire, tvaDefaut } chargé au montage
+  const [biblioBusy, setBiblioBusy]   = useState(null);
+  const [showAnciens, setShowAnciens] = useState(false);     // anciens ouvrages du chiffrage (masqués par défaut)
+  // Colonnes/table de la v2 absentes en base (SQL 202609_chiffrage_v2 pas encore lancé)
+  const [schemaV2Manquant, setSchemaV2Manquant] = useState(false);
+  // Colonnes v3 (devis / logement / snapshot) absentes (SQL 202609_chiffrage_devis_logement pas lancé)
+  const [schemaDevisManquant, setSchemaDevisManquant] = useState(false);
+  // Zone dans laquelle le prochain « Ajouter » place l'ouvrage (libre, suggestions)
+  const [zoneAjout, setZoneAjout]     = useState(ZONE_DEFAUT);
+  // Actualisation d'une ligne depuis la bibliothèque : { ligne, ouvrage, calcul, diffs, patch }
+  const [actualisation, setActualisation] = useState(null);
+  // Résultat du retour de la Bibliothèque (« Modifier matériaux ») :
+  // { libelle, nb, aucun?, fige?, supprime?, erreur? } — bandeau informatif.
+  const [majBiblio, setMajBiblio]     = useState(null);
+  const retourTraiteRef = useRef(null);
+  // Duplication « pour un autre logement » : { reference, type }
+  const [dupliquerModal, setDupliquerModal] = useState(null);
+  const [dupliquant, setDupliquant]   = useState(false);
+  const [toDeleteLigne, setToDeleteLigne] = useState(null);
+  const [voirDetailLigne, setVoirDetailLigne] = useState(null); // ligne dont on affiche le détail du coût
+  const [conditionsLigne, setConditionsLigne] = useState(null); // ligne dont on modifie coefficient / taux horaire
   // Timers de debounce, indexés par clé. BUG corrigé : auparavant un seul ref
   // partagé annulait les saves des autres opérations (ex : taper un nom client
   // puis modifier une quantité d'ouvrage avant 800ms écrasait la save du nom).
@@ -125,13 +228,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const tabS = (a) => ({ padding:"7px 16px", border:a?"none":`1px solid ${border}`, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700, background:a?accent:card, color:a?"#000":textSub, letterSpacing:.4, textTransform:"uppercase", transition:"all .12s" });
 
   // ─── INIT ────────────────────────────────────────────────────────────────────
-  useEffect(() => { chargerProjets(); chargerCategories(); }, []);
+  useEffect(() => {
+    chargerProjets(retourBiblio?.projetId || null);
+    chargerCategories();
+    chargerBiblio();
+    if (retourBiblio?.projetId) setTab("ouvrages");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── DATA ────────────────────────────────────────────────────────────────────
-  async function chargerProjets() {
+  // `preferId` : projet à rouvrir en priorité (retour de la Bibliothèque).
+  async function chargerProjets(preferId = null) {
     setLoading(true);
     const { data } = await supabase.from("profero_projets").select("*").order("created_at", { ascending:false });
-    if (data) { setProjets(data); if (data.length > 0) chargerProjet(data[0].id); else setLoading(false); }
+    if (data) {
+      setProjets(data);
+      const cible = (preferId && data.some(p => p.id === preferId)) ? preferId : data[0]?.id;
+      if (cible) chargerProjet(cible); else setLoading(false);
+    }
     else setLoading(false);
   }
 
@@ -139,6 +253,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const { data } = await supabase.from("profero_categories_ouvrages").select("*").order("ordre");
     if (data && data.length > 0) { const c={}; data.forEach(r => { c[r.nom]=r.ouvrages||[]; }); setCategories(c); }
     else { await supabase.from("profero_categories_ouvrages").insert(Object.entries(CATEGORIES_DEFAUT).map(([nom,ouvrages],i)=>({nom,ouvrages,ordre:i}))); }
+  }
+
+  // Ligne profero_projets → état `infos` du formulaire (chaînes vides plutôt que null)
+  function infosDepuisProjet(p) {
+    const base = { ...INFOS_VIDES, client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:Array.isArray(p.logements)?p.logements:[], statut:p.statut||"prospect", notes:p.notes||"", budget_client:p.budget_client ?? "", delai_souhaite:p.delai_souhaite||"" };
+    CHAMPS_DEVIS.forEach(f => { base[f] = p[f] == null ? "" : p[f]; });
+    return base;
   }
 
   async function chargerProjet(id) {
@@ -150,13 +271,16 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saved");
     setProjetId(id);
     setEditingPlan(null);
-    const [{ data:p },{ data:o },{ data:c },{ data:pl }] = await Promise.all([
+    setCroquisOuvert(null); setNotePageId(null);
+    const [{ data:p },{ data:o },{ data:c },{ data:pl },{ data:ds }] = await Promise.all([
       supabase.from("profero_projets").select("*").eq("id",id).single(),
       supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id",id),
       supabase.from("profero_cotes").select("*").eq("projet_id",id),
       supabase.from("plans").select("id,name,thumbnail,chantier_id,updated_at").eq("projet_id",id).order("updated_at",{ascending:false}),
+      supabase.from("profero_dessins").select("*").eq("projet_id",id).order("ordre").order("created_at"),
     ]);
-    if (p) setInfos({ client_nom:p.client_nom||"", client_prenom:p.client_prenom||"", adresse_bien:p.adresse_bien||"", description_projet:p.description_projet||"", date_visite:p.date_visite||"", observations:p.observations||"", logements:p.logements||[], statut:p.statut||"prospect", notes:p.notes||"" });
+    if (p) setInfos(infosDepuisProjet(p));
+    setDessins(ds || []);
     setOuvrages(o||[]); setCotes(c||[]);
     setRichPlans(pl || []);
     setPhotos(Array.isArray(p?.photos) ? p.photos : []);
@@ -211,9 +335,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           const dirty = dirtyInfosRef.current;
           setInfos(prev => {
             const merged = { ...prev };
-            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut"].forEach(f => {
+            ["client_nom","client_prenom","adresse_bien","description_projet","date_visite","observations","notes","logements","statut","budget_client","delai_souhaite", ...CHAMPS_DEVIS].forEach(f => {
               if (!dirty.has(f) && remote[f] !== undefined && remote[f] !== null) merged[f] = remote[f];
-              else if (!dirty.has(f) && remote[f] === null && f === "date_visite") merged[f] = "";
+              else if (!dirty.has(f) && remote[f] === null && (f === "date_visite" || f === "budget_client" || CHAMPS_DEVIS_DATE.includes(f) || CHAMPS_DEVIS_NUM.includes(f))) merged[f] = "";
             });
             return merged;
           });
@@ -230,7 +354,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           if (payload.eventType === "INSERT") {
             setOuvrages(prev => prev.some(o => o.id === payload.new.id) ? prev : [...prev, payload.new]);
           } else if (payload.eventType === "UPDATE") {
-            setOuvrages(prev => prev.map(o => o.id === payload.new.id ? { ...o, ...payload.new } : o));
+            setOuvrages(prev => prev.map(o => o.id === payload.new.id ? fusionnerLigneDistante("ouvrages", o, payload.new) : o));
           } else if (payload.eventType === "DELETE") {
             setOuvrages(prev => prev.filter(o => o.id !== payload.old.id));
           }
@@ -245,9 +369,27 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           if (payload.eventType === "INSERT") {
             setCotes(prev => prev.some(c => c.id === payload.new.id) ? prev : [...prev, payload.new]);
           } else if (payload.eventType === "UPDATE") {
-            setCotes(prev => prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
+            setCotes(prev => prev.map(c => c.id === payload.new.id ? fusionnerLigneDistante("cotes", c, payload.new) : c));
           } else if (payload.eventType === "DELETE") {
             setCotes(prev => prev.filter(c => c.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+    // Dessins (notes manuscrites / croquis) : on ignore les UPDATE du dessin
+    // qu'on est en train d'éditer (sinon le tracé distant écraserait le nôtre).
+    const dessinChan = supabase
+      .channel(`info-client-dessins-${projetId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "profero_dessins", filter: `projet_id=eq.${projetId}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            setDessins(prev => prev.some(d => d.id === payload.new.id) ? prev : [...prev, payload.new]);
+          } else if (payload.eventType === "UPDATE") {
+            if (dessinOuvertRef.current === payload.new.id) return;
+            setDessins(prev => prev.map(d => d.id === payload.new.id ? fusionnerLigneDistante("dessins", d, payload.new) : d));
+          } else if (payload.eventType === "DELETE") {
+            setDessins(prev => prev.filter(d => d.id !== payload.old.id));
           }
         }
       )
@@ -256,6 +398,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       supabase.removeChannel(projChan);
       supabase.removeChannel(ouvChan);
       supabase.removeChannel(coteChan);
+      supabase.removeChannel(dessinChan);
     };
   }, [projetId]);
 
@@ -268,27 +411,75 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saved");
   }
 
+  // Photos ET vidéos : même flux d'upload, un champ `type` distingue les deux.
+  // Chaque média porte un titre (`label`) et un commentaire libre.
   async function onPhotoFiles(files) {
     if (!projetId) return;
     const arr = Array.from(files || []);
     if (arr.length === 0) return;
-    setUploadingCount(arr.length);
+    const tropGros = arr.filter(f => f.size > MAX_MEDIA_OCTETS);
+    if (tropGros.length > 0) alert(`Fichier${tropGros.length > 1 ? "s" : ""} trop volumineux (max ${Math.round(MAX_MEDIA_OCTETS / 1048576)} Mo) : ${tropGros.map(f => f.name).join(", ")}`);
+    const ok = arr.filter(f => f.size <= MAX_MEDIA_OCTETS);
+    if (ok.length === 0) { if (photoInputRef.current) photoInputRef.current.value = ""; return; }
+    setUploadingCount(ok.length);
     const news = [];
-    for (const f of arr) {
+    for (const f of ok) {
       const url = await uploadInfoClientPhoto(f, projetId);
-      if (url) news.push({ id: Math.random().toString(36).slice(2), url, label: "", created_at: new Date().toISOString() });
+      if (url) news.push({ id: Math.random().toString(36).slice(2), url, type: estFichierVideo(f) ? "video" : "image", label: "", commentaire: "", created_at: new Date().toISOString() });
       setUploadingCount(n => n - 1);
     }
     if (news.length > 0) await savePhotos([...photos, ...news]);
     if (photoInputRef.current) photoInputRef.current.value = "";
   }
   const removePhoto = (i) => savePhotos(photos.filter((_, idx) => idx !== i));
-  const updatePhotoLabel = (i, label) => {
-    const next = photos.map((p, idx) => idx === i ? { ...p, label } : p);
+  const updatePhotoField = (i, field, value) => {
+    dirtyInfosRef.current.add("photos");
+    const next = photos.map((p, idx) => idx === i ? { ...p, [field]: value } : p);
     setPhotos(next);
     const pid = projetId;
-    debounce("photos", () => savePhotos(next, pid));
+    debounce("photos", async () => { await savePhotos(next, pid); dirtyInfosRef.current.delete("photos"); });
   };
+
+  // Champs de LIGNE en cours de saisie (ouvrage, cote, dessin).
+  //
+  // Le temps reel applique chaque UPDATE recu sur la ligne correspondante --
+  // y compris l'echo de NOTRE propre enregistrement, qui part 800 ms apres la
+  // derniere frappe et revient encore plus tard. Si l'utilisateur a repris sa
+  // saisie entre-temps, cet echo reecrit la valeur telle qu'elle etait a
+  // l'envoi : le champ "revient en arriere" en pleine frappe.
+  //
+  // On note donc, par ligne et par champ, un numero de frappe. Tant que le
+  // champ est note, le temps reel garde la valeur locale pour CE champ (les
+  // autres champs de la ligne, eux, sont bien mis a jour). Le champ est libere
+  // un court instant apres son enregistrement, et seulement si aucune frappe
+  // n'est arrivee depuis. Meme principe que dirtyInfosRef pour les champs du
+  // projet.
+  const saisieLignesRef = useRef({ ouvrages: new Map(), cotes: new Map(), dessins: new Map() });
+
+  function marquerSaisieLigne(table, id, champ) {
+    const lignes = saisieLignesRef.current[table];
+    if (!lignes.has(id)) lignes.set(id, new Map());
+    const champs = lignes.get(id);
+    const n = (champs.get(champ) || 0) + 1;
+    champs.set(champ, n);
+    return n;
+  }
+
+  function libererSaisieLigne(table, id, champ, n, delai = 1500) {
+    setTimeout(() => {
+      const champs = saisieLignesRef.current[table].get(id);
+      if (!champs || champs.get(champ) !== n) return;   // l'utilisateur a retape
+      champs.delete(champ);
+      if (champs.size === 0) saisieLignesRef.current[table].delete(id);
+    }, delai);
+  }
+
+  function fusionnerLigneDistante(table, local, distant) {
+    const fusion = { ...local, ...distant };
+    const champs = saisieLignesRef.current[table].get(distant.id);
+    if (champs) champs.forEach((_n, champ) => { fusion[champ] = local[champ]; });
+    return fusion;
+  }
 
   // Debounce avec timer dédié par clé : évite que des opérations indépendantes
   // (saveInfos, update ouvrage, update cote…) s'écrasent mutuellement.
@@ -317,11 +508,28 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       date_visite:         v.date_visite || null,
       observations:        v.observations        ?? "",
       notes:               v.notes               ?? "",
+      budget_client:       v.budget_client === "" || v.budget_client == null ? null : parseFloat(v.budget_client),
+      delai_souhaite:      v.delai_souhaite      ?? "",
       logements:           v.logements           ?? [],
       statut:              v.statut              ?? "prospect",
       last_client_id:      getClientId(),
+      ...payloadDevis(v),
     };
-    const { error } = await supabase.from("profero_projets").update(payload).eq("id", pid);
+    let { error } = await supabase.from("profero_projets").update(payload).eq("id", pid);
+    if (erreurColonnesDevis(error)) {
+      // Colonnes v3 absentes (SQL 202609_chiffrage_devis_logement pas lancé) : on sauve le reste
+      setSchemaDevisManquant(true);
+      const reduit = { ...payload };
+      CHAMPS_DEVIS.forEach(f => { delete reduit[f]; });
+      ({ error } = await supabase.from("profero_projets").update(reduit).eq("id", pid));
+    }
+    if (error && /budget_client|delai_souhaite/.test(error.message || "")) {
+      // Colonnes v2 absentes (SQL 202609_chiffrage_v2 pas lancé) : on sauve le reste
+      setSchemaV2Manquant(true);
+      const { budget_client, delai_souhaite, ...ancien } = payload;
+      CHAMPS_DEVIS.forEach(f => { delete ancien[f]; });
+      ({ error } = await supabase.from("profero_projets").update(ancien).eq("id", pid));
+    }
     setSaving(false);
     if (error) {
       console.error("saveInfos projet error:", error);
@@ -332,6 +540,17 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setAutoSaveStatus("saved");
     setProjets(prev => prev.map(p => p.id===pid ? { ...p, ...v } : p));
   }
+  // Champs v3 du projet → payload Supabase (dates et TVA : null si vides)
+  function payloadDevis(v) {
+    const out = {};
+    CHAMPS_DEVIS.forEach(f => {
+      const val = v[f];
+      if (CHAMPS_DEVIS_DATE.includes(f)) out[f] = val || null;
+      else if (CHAMPS_DEVIS_NUM.includes(f)) out[f] = val === "" || val == null ? null : parseFloat(val);
+      else out[f] = val ?? "";
+    });
+    return out;
+  }
   function updInfo(f,v) {
     dirtyInfosRef.current.add(f);
     const u = { ...infos, [f]: v };
@@ -339,13 +558,26 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const pid = projetId;
     debounce("infos", () => saveInfos(u, pid));
   }
-  function togLog(v) {
-    dirtyInfosRef.current.add("logements");
-    const l = infos.logements.includes(v) ? infos.logements.filter(x => x!==v) : [...infos.logements, v];
-    const u = { ...infos, logements: l };
+  // Plusieurs champs d'un coup (ex : reprise de l'adresse de visite dans l'adresse chantier)
+  function updInfos(patch) {
+    Object.keys(patch).forEach(f => dirtyInfosRef.current.add(f));
+    const u = { ...infos, ...patch };
     setInfos(u);
     const pid = projetId;
     debounce("infos", () => saveInfos(u, pid));
+  }
+  // TVA du projet : répercutée sur les lignes qui « suivent le projet » (TVA
+  // nulle ou égale à l'ancienne valeur). Les lignes à TVA spécifique gardent la leur.
+  async function updTvaProjet(valeur) {
+    const ancienne = numOrNull(infos.tva_pct);
+    const nouvelle = valeur === "" ? null : parseFloat(valeur);
+    updInfo("tva_pct", valeur);
+    if (!projetId || nouvelle == null || Number.isNaN(nouvelle)) return;
+    const cibles = ouvrages.filter(o => numOrNull(o.tva_pct) == null || (ancienne != null && numOrNull(o.tva_pct) === ancienne));
+    if (cibles.length === 0) return;
+    setOuvrages(p => p.map(o => cibles.some(c => c.id === o.id) ? { ...o, tva_pct: nouvelle } : o));
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ tva_pct: nouvelle }).in("id", cibles.map(c => c.id));
+    if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
   }
 
   async function togOuvrage(cat,item) {
@@ -355,76 +587,145 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     else { const{data}=await supabase.from("profero_ouvrages_selectionnes").insert({projet_id:projetId,category:cat,item,quantite:"",unite:UNITES[cat]||"U"}).select().single(); if(data) setOuvrages(p=>[...p,data]); }
   }
   async function updQte(id,q) {
+    const n = marquerSaisieLigne("ouvrages", id, "quantite");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, quantite: q } : o));
     debounce(`ouvrage-qte-${id}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ quantite: q }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("ouvrages", id, "quantite", n);
     });
   }
   async function updUnite(id,u) {
+    const n = marquerSaisieLigne("ouvrages", id, "unite");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, unite: u } : o));
     setAutoSaveStatus("saving");
     const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ unite: u }).eq("id", id);
     setAutoSaveStatus(error ? "error" : "saved");
+    libererSaisieLigne("ouvrages", id, "unite", n);
+  }
+  // Zone de l'occurrence (texte libre avec suggestions) — propre à la ligne
+  function updZone(id, zone) {
+    const n = marquerSaisieLigne("ouvrages", id, "zone");
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, zone } : o));
+    debounce(`ouvrage-zone-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ zone: (zone || "").trim() || ZONE_DEFAUT }).eq("id", id);
+      if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
+      setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("ouvrages", id, "zone", n);
+    });
+  }
+  // TVA spécifique d'une ligne ("" = suit la TVA du projet)
+  async function updTvaLigne(id, valeur) {
+    const v = valeur === "" ? null : parseFloat(valeur);
+    const n = marquerSaisieLigne("ouvrages", id, "tva_pct");
+    setOuvrages(p => p.map(o => o.id===id ? { ...o, tva_pct: v } : o));
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ tva_pct: v }).eq("id", id);
+    if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
+    setAutoSaveStatus(error ? "error" : "saved");
+    libererSaisieLigne("ouvrages", id, "tva_pct", n);
+  }
+  // Suppression d'UNE occurrence : uniquement par son id de ligne. Les autres
+  // occurrences du même bibliotheque_id ne sont jamais touchées.
+  async function supprimerLigne(id) {
+    setToDeleteLigne(null);
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").delete().eq("id", id);
+    if (error) { alert("Suppression impossible : " + error.message); return; }
+    setOuvrages(p => p.filter(o => o.id !== id));
   }
   async function updPrix(id,prix) {
+    const n = marquerSaisieLigne("ouvrages", id, "prix_unitaire");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, prix_unitaire: prix } : o));
     debounce(`ouvrage-prix-${id}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_ouvrages_selectionnes")
         .update({ prix_unitaire: prix==="" ? null : parseFloat(prix) }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("ouvrages", id, "prix_unitaire", n);
     });
   }
 
   async function ajoutCote() { if(!projetId) return; const{data}=await supabase.from("profero_cotes").insert({projet_id:projetId,nom:"",largeur:"",hauteur:"",localisation:""}).select().single(); if(data) setCotes(p=>[...p,data]); }
   async function updCote(id,f,v) {
+    const n = marquerSaisieLigne("cotes", id, f);
     setCotes(p => p.map(c => c.id===id ? { ...c, [f]: v } : c));
     debounce(`cote-${id}-${f}`, async () => {
       setAutoSaveStatus("saving");
       const { error } = await supabase.from("profero_cotes").update({ [f]: v }).eq("id", id);
       setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("cotes", id, f, n);
     });
   }
   async function delCote(id) { await supabase.from("profero_cotes").delete().eq("id",id); setCotes(p=>p.filter(c=>c.id!==id)); }
 
   async function nouveauProjet() {
-    const{data}=await supabase.from("profero_projets").insert({
+    const today = new Date().toISOString().split("T")[0];
+    const base = {
       client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"",
-      date_visite:new Date().toISOString().split("T")[0], observations:"", logements:[], statut:"prospect",
-    }).select().single();
+      date_visite:today, observations:"", logements:[], statut:"prospect",
+    };
+    // Pré-remplissages sûrs : pays, date de préparation du devis, TVA réglée dans Admin (sinon vide)
+    const v3 = { client_pays:"France", chantier_pays:"France", devis_date:today, tva_pct: biblio?.tvaDefaut ?? null };
+    let { data, error } = await supabase.from("profero_projets").insert({ ...base, ...v3 }).select().single();
+    if (erreurColonnesDevis(error)) {
+      setSchemaDevisManquant(true);
+      ({ data } = await supabase.from("profero_projets").insert(base).select().single());
+    }
     if(data){ setProjets(p=>[data,...p]); chargerProjet(data.id); }
   }
 
-  async function dupliquerProjet() {
-    if (!projetId) return;
+  // Duplication « pour un autre logement » : même client, même adresse de
+  // chantier, mêmes ouvrages/zones/quantités et SNAPSHOTS FIGÉS (aucun recalcul
+  // depuis la bibliothèque), plans, côtes, dessins et médias. La référence du
+  // nouveau logement est demandée (modale) ; le statut repart à « prospect ».
+  async function dupliquerProjet({ reference, type } = {}) {
+    if (!projetId || dupliquant) return;
     const src = projets.find(p => p.id === projetId);
     if (!src) return;
+    setDupliquant(true);
+    try {
+    const today = new Date().toISOString().split("T")[0];
     // 1) Création du nouveau projet (copie des infos + photos, statut reset à prospect)
-    const newNom = src.client_nom ? `Copie de ${src.client_nom}` : "Copie sans client";
-    const { data: nouveau } = await supabase.from("profero_projets").insert({
-      client_nom:      newNom,
+    const baseDup = {
+      client_nom:      src.client_nom || "",
       client_prenom:   src.client_prenom || "",
       adresse_bien:    src.adresse_bien || "",
       description_projet: src.description_projet || "",
-      date_visite:     new Date().toISOString().split("T")[0],
+      date_visite:     today,
       observations:    src.observations || "",
-      logements:       src.logements || [],
+      notes:           src.notes || "",
+      logements:       [],                 // le nouveau projet = UN logement (champs ci-dessous)
       statut:          "prospect",
       photos:          src.photos || [],
-    }).select().single();
+    };
+    const v2 = { budget_client: src.budget_client ?? null, delai_souhaite: src.delai_souhaite || "" };
+    const v3 = { ...payloadDevis({ ...infos, ...src }), logement_reference: (reference || "").trim(), type_logement: type || infos.type_logement || "", devis_date: today, devis_validite: null };
+    let { data: nouveau, error } = await supabase.from("profero_projets").insert({ ...baseDup, ...v2, ...v3 }).select().single();
+    if (erreurColonnesDevis(error)) {
+      setSchemaDevisManquant(true);
+      ({ data: nouveau, error } = await supabase.from("profero_projets").insert({ ...baseDup, ...v2 }).select().single());
+    }
+    if (!nouveau) {
+      // Colonnes v2 absentes (SQL pas lancé) : copie sans budget/délai
+      setSchemaV2Manquant(true);
+      ({ data: nouveau } = await supabase.from("profero_projets").insert(baseDup).select().single());
+    }
     if (!nouveau) return;
-    // 2) Clone ouvrages
-    const ouvrSrc = ouvrages.map(o => ({
-      projet_id: nouveau.id,
-      category:  o.category,
-      item:      o.item,
-      quantite:  o.quantite,
-      unite:     o.unite,
-      prix_unitaire: o.prix_unitaire ?? null,
-    }));
-    if (ouvrSrc.length > 0) await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc);
+    // 2) Clone des lignes : tout est recopié (zone, quantité, snapshot financier,
+    //    TVA, ordre, lien bibliothèque) sauf l'identité de la ligne.
+    const ouvrSrc = ouvrages.map(o => {
+      const { id, projet_id, created_at, updated_at, progbat_ligne_id, ...reste } = o;
+      return { ...reste, projet_id: nouveau.id };
+    });
+    if (ouvrSrc.length > 0) {
+      const { error: errL } = await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc);
+      if (erreurColonnesLigne(errL)) {
+        setSchemaDevisManquant(true);
+        await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc.map(sansColonnesLigneV3));
+      }
+    }
     // 3) Clone côtes
     const cotesSrc = cotes.map(c => ({
       projet_id: nouveau.id,
@@ -439,9 +740,18 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         projet_id: nouveau.id, chantier_id: "",
       })));
     }
+    // 4b) Clone dessins au stylet (pages manuscrites + croquis)
+    const { data: dessinsSrc } = await supabase.from("profero_dessins").select("type,nom,ordre,largeur,hauteur,fond,strokes").eq("projet_id", projetId);
+    if (dessinsSrc && dessinsSrc.length > 0) {
+      await supabase.from("profero_dessins").insert(dessinsSrc.map(d => ({ ...d, projet_id: nouveau.id })));
+    }
     // 5) Refresh
     setProjets(p => [nouveau, ...p]);
+    setDupliquerModal(null);
     chargerProjet(nouveau.id);
+    } finally {
+      setDupliquant(false);
+    }
   }
 
   async function confirmSuppProjet() {
@@ -454,8 +764,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       if (r.length > 0) chargerProjet(r[0].id);
       else {
         setProjetId(null);
-        setInfos({client_nom:"",client_prenom:"",adresse_bien:"",description_projet:"",date_visite:"",observations:"",logements:[],statut:"prospect",notes:""});
-        setOuvrages([]); setCotes([]); setRichPlans([]); setEditingPlan(null);
+        setInfos(INFOS_VIDES);
+        setOuvrages([]); setCotes([]); setRichPlans([]); setEditingPlan(null); setDessins([]);
       }
     }
     setDeleting(false);
@@ -546,6 +856,232 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setReordering(false);
   }
 
+  // ─── DESSINS AU STYLET (profero_dessins) ─────────────────────────────────────
+  async function creerDessin(type) {
+    if (!projetId) return null;
+    const liste = dessins.filter(d => d.type === type);
+    const payload = type === "note"
+      ? { projet_id: projetId, type, nom: `Page ${liste.length + 1}`,    ordre: liste.length, largeur: NOTE_W,    hauteur: NOTE_H,    fond: "lignes", strokes: [] }
+      : { projet_id: projetId, type, nom: `Croquis ${liste.length + 1}`, ordre: liste.length, largeur: CROQUIS_W, hauteur: CROQUIS_H, fond: "grille", strokes: [] };
+    const { data, error } = await supabase.from("profero_dessins").insert(payload).select().single();
+    if (error) {
+      setSchemaV2Manquant(true);
+      alert("Impossible de créer le dessin : " + error.message + "\n\nLa table profero_dessins n'existe pas encore : lancer sql/202609_chiffrage_v2.sql dans Supabase.");
+      return null;
+    }
+    setDessins(p => [...p, data]);
+    if (type === "note") setNotePageId(data.id); else setCroquisOuvert(data.id);
+    return data;
+  }
+  function updDessinStrokes(id, strokes) {
+    setDessins(p => p.map(d => d.id === id ? { ...d, strokes } : d));
+    debounce(`dessin-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_dessins").update({ strokes, updated_at: new Date().toISOString() }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+    }, 1000);
+  }
+  function updDessinChamp(id, champ, valeur) {
+    const n = marquerSaisieLigne("dessins", id, champ);
+    setDessins(p => p.map(d => d.id === id ? { ...d, [champ]: valeur } : d));
+    debounce(`dessin-${champ}-${id}`, async () => {
+      setAutoSaveStatus("saving");
+      const { error } = await supabase.from("profero_dessins").update({ [champ]: valeur }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("dessins", id, champ, n);
+    }, champ === "nom" ? 800 : 0);
+  }
+  async function supprimerDessin(id) {
+    await supabase.from("profero_dessins").delete().eq("id", id);
+    setDessins(p => p.filter(d => d.id !== id));
+    if (notePageId === id) setNotePageId(null);
+    if (croquisOuvert === id) setCroquisOuvert(null);
+    setToDeleteDessin(null);
+  }
+  // Vignette PNG d'un dessin (cache par id + nombre de tracés + fond)
+  function vignetteDessin(d) {
+    const key = `${d.id}:${(d.strokes || []).length}:${d.fond}`;
+    const cache = vignetteCache.current;
+    if (!cache.has(key)) {
+      cache.set(key, renderStrokesDataURL(d.strokes || [], { largeur: d.largeur || CROQUIS_W, hauteur: d.hauteur || CROQUIS_H, fond: d.fond || "grille", pixelWidth: 480 }));
+      if (cache.size > 60) cache.delete(cache.keys().next().value);
+    }
+    return cache.get(key);
+  }
+
+  // ─── BIBLIOTHÈQUE D'OUVRAGES (source principale de l'onglet Ouvrages) ────────
+  // Seuls les ouvrages dont le libellé commence par un code (« D-001 : … »)
+  // sont proposés ; le préfixe du code renvoie au lot de travaux
+  // (code_prefixe, planning_config.lots_travaux). Les anciens ouvrages du
+  // chiffrage (profero_categories_ouvrages) restent disponibles mais masqués.
+  async function chargerBiblio() {
+    const [{ data: ouv }, lots, { data: mats }, { data: cfg }, { data: tauxH }, { data: coefV }] = await Promise.all([
+      supabase.from("bibliotheque_ratios").select("*").order("libelle"),
+      loadLots(),
+      supabase.from("materiaux_bibliotheque").select("id,nom,unite,prix_unitaire"),
+      supabase.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
+      supabase.from("taux_horaires_vente").select("*"),   // prix MO = cadence × taux de l'ouvrage
+      supabase.from("coefficients_vente").select("*"),    // prix matériaux = coût × coefficient de l'ouvrage
+    ]);
+    const taux = parseFloat((cfg || []).find(r => r.key === "taux_mo_previsionnel")?.value);
+    const tva  = parseFloat((cfg || []).find(r => r.key === "chiffrage_tva_defaut")?.value);
+    const b = {
+      ouvrages: ouv || [], lots: lots || [], materiaux: mats || [],
+      coutHoraire: Number.isFinite(taux) && taux > 0 ? taux : null,   // null = marge non calculable (le prix reste calculable)
+      tauxHoraires: tauxH || [],                                        // vide = bloquant (aucun prix MO)
+      coefficients: coefV || [],                                        // vide = bloquant (aucun prix matériaux)
+      tvaDefaut: Number.isFinite(tva) ? tva : null,
+    };
+    setBiblio(b);
+    return b;   // l'appelant peut calculer tout de suite, sans attendre le state
+  }
+  // Calcul du prix d'un ouvrage de bibliothèque avec le contexte courant ET les
+  // conditions de vente FIGÉES du chiffrage (coefficient / taux global éventuels) :
+  // l'origine (paramètres de l'ouvrage) est figée sur la ligne, l'appliqué aussi.
+  const conditionsProjet = lireConditionsProjet(projets.find(p => p.id === projetId));
+  // `modesLigne` : pour une ligne existante (actualisation), ses dérogations sont
+  // reprises telles quelles — actualiser ne remet jamais une ligne en héritage.
+  const calculBiblio = (o, modesLigne = null) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [], conditions: conditionsProjet, modesLigne });
+
+  // Après application des conditions (RPC) : recharger CE projet et SES lignes,
+  // sans changer de projet ni toucher aux autres chiffrages.
+  async function rechargerApresConditions() {
+    if (!projetId) return;
+    const [{ data: p }, { data: o }] = await Promise.all([
+      supabase.from("profero_projets").select("*").eq("id", projetId).maybeSingle(),
+      supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id", projetId),
+    ]);
+    if (p) setProjets(prev => prev.map(x => x.id === p.id ? { ...x, ...p } : x));
+    if (o) setOuvrages(o);
+  }
+  // Après application des conditions d'UNE ligne (RPC) : recharger cette seule
+  // ligne et le projet (version de concurrence). Aucun autre chiffrage touché.
+  async function rechargerApresConditionsLigne(res) {
+    const id = res?.ligne_id;
+    const [{ data: p }, { data: o }] = await Promise.all([
+      supabase.from("profero_projets").select("*").eq("id", projetId).maybeSingle(),
+      id ? supabase.from("profero_ouvrages_selectionnes").select("*").eq("id", id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    if (p) setProjets(prev => prev.map(x => x.id === p.id ? { ...x, ...p } : x));
+    if (o) setOuvrages(prev => prev.map(x => x.id === o.id ? o : x));
+  }
+
+  // Occurrences déjà présentes dans le devis pour un ouvrage de bibliothèque
+  const occurrencesDe = (o) => ouvrages.filter(x => x.bibliotheque_id === o.id);
+
+  // « Ajouter » : chaque clic crée UNE NOUVELLE occurrence (id propre, zone,
+  // quantité, snapshot financier figé au moment de l'ajout). Aucune bascule
+  // ajout/suppression : la suppression se fait depuis la ligne du devis.
+  async function ajouterDepuisBiblio(o, lotLabel) {
+    if (!projetId || biblioBusy) return;
+    setBiblioBusy(o.id);
+    try {
+      const calcul = calculBiblio(o);
+      const zone = (zoneAjout || "").trim() || ZONE_DEFAUT;
+      const snapshot = creerSnapshotOuvrage(o, calcul, { zone, tvaPct: numOrNull(infos.tva_pct), quantite: "" });
+      const ordre = ouvrages.filter(x => (x.zone || ZONE_DEFAUT) === zone && x.category === lotLabel).length;
+      const complet = { projet_id: projetId, category: lotLabel, ...snapshot, ordre };
+      let { data, error } = await supabase.from("profero_ouvrages_selectionnes").insert(complet).select().single();
+      if (erreurColonnesLigne(error)) {
+        // Colonnes v3 absentes (SQL 202609_chiffrage_devis_logement pas lancé) : ligne minimale
+        setSchemaDevisManquant(true);
+        const base = sansColonnesLigneV3(complet);
+        ({ data, error } = await supabase.from("profero_ouvrages_selectionnes").insert(base).select().single());
+        if (error && /bibliotheque_id/.test(error.message || "")) {
+          setSchemaV2Manquant(true);
+          const { bibliotheque_id, ...sansLien } = base;
+          ({ data, error } = await supabase.from("profero_ouvrages_selectionnes").insert(sansLien).select().single());
+        }
+      }
+      if (error) { alert("Ajout impossible : " + error.message); return; }
+      if (data) setOuvrages(p => p.some(x => x.id === data.id) ? p : [...p, data]);
+    } finally {
+      setBiblioBusy(null);
+    }
+  }
+
+  // « Actualiser depuis la bibliothèque » : recharge l'ouvrage source, calcule
+  // les différences avec le snapshot de CETTE ligne et ouvre une confirmation.
+  // Rien n'est écrit ici.
+  async function preparerActualisation(ligne) {
+    if (!ligne?.bibliotheque_id) return;
+    const { data: o } = await supabase.from("bibliotheque_ratios").select("*").eq("id", ligne.bibliotheque_id).maybeSingle();
+    if (!o) { alert("L'ouvrage source n'existe plus dans la bibliothèque : la ligne garde son snapshot."); return; }
+    const calcul = calculBiblio(o, lireModesLigne(ligne));
+    const diffs = differencesSnapshot(ligne, o, calcul);
+    setActualisation({ ligne, ouvrage: o, calcul, diffs, patch: appliquerActualisation(ligne, o, calcul) });
+  }
+  async function confirmerActualisation() {
+    if (!actualisation) return;
+    const { ligne, patch } = actualisation;
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update(patch).eq("id", ligne.id);   // UNIQUEMENT cette ligne
+    if (erreurColonnesLigne(error)) setSchemaDevisManquant(true);
+    setAutoSaveStatus(error ? "error" : "saved");
+    if (!error) setOuvrages(p => p.map(o => o.id === ligne.id ? { ...o, ...patch } : o));
+    setActualisation(null);
+  }
+
+  // ─── « MODIFIER MATÉRIAUX » : ALLER-RETOUR AVEC LA BIBLIOTHÈQUE ──────────────
+  // Aller : on ouvre la fiche de l'ouvrage source dans la page Bibliothèque
+  // (c'est là que les matériaux se modifient). Rien n'est écrit ici.
+  function ouvrirMateriauxBiblio(ligne) {
+    if (!onModifierMateriaux || !ligne?.bibliotheque_id) return;
+    onModifierMateriaux({ ouvrageId: ligne.bibliotheque_id, projetId });
+  }
+
+  // Retour : TOUTES les lignes de CE chiffrage issues de l'ouvrage modifié sont
+  // recalculées et réécrites (les autres chiffrages ne sont jamais touchés).
+  // Un chiffrage terminé (devis envoyé / signé / abandonné) garde ses prix figés :
+  // on signale seulement l'écart, l'actualisation reste possible ligne par ligne.
+  async function actualiserApresBiblio(ouvrageId, lignesProjet, statut) {
+    const lignes = lignesProjet.filter(o => o.bibliotheque_id === ouvrageId);
+    if (lignes.length === 0) return;
+    // La bibliothèque est rechargée : les matériaux (prix, nouveaux liens) et
+    // l'ouvrage viennent d'être modifiés, le state local serait périmé.
+    const [{ data: o }, b] = await Promise.all([
+      supabase.from("bibliotheque_ratios").select("*").eq("id", ouvrageId).maybeSingle(),
+      chargerBiblio(),
+    ]);
+    if (!o) { setMajBiblio({ libelle: lignes[0].item, nb: lignes.length, supprime: true }); return; }
+    const majs = lignes.map(l => {
+      const calcul = calculerOuvrage(o, {
+        materiaux: b.materiaux, coutHoraire: b.coutHoraire, tauxHoraires: b.tauxHoraires,
+        coefficientsVente: b.coefficients, conditions: conditionsProjet, modesLigne: lireModesLigne(l),
+      });
+      return { ligne: l, diffs: differencesSnapshot(l, o, calcul), patch: appliquerActualisation(l, o, calcul) };
+    }).filter(m => m.diffs.length > 0);
+    if (majs.length === 0) { setMajBiblio({ libelle: o.libelle, nb: lignes.length, aucun: true }); return; }
+    if (chiffrageEstTermine(statut)) { setMajBiblio({ libelle: o.libelle, nb: majs.length, fige: true, statut }); return; }
+    setAutoSaveStatus("saving");
+    let erreur = null;
+    for (const m of majs) {
+      const { error } = await supabase.from("profero_ouvrages_selectionnes").update(m.patch).eq("id", m.ligne.id);
+      if (error) { erreur = error; if (erreurColonnesLigne(error)) setSchemaDevisManquant(true); break; }
+    }
+    setAutoSaveStatus(erreur ? "error" : "saved");
+    if (!erreur) setOuvrages(prev => prev.map(x => {
+      const m = majs.find(y => y.ligne.id === x.id);
+      return m ? { ...x, ...m.patch } : x;
+    }));
+    setMajBiblio({ libelle: o.libelle, nb: majs.length, diffs: majs[0].diffs, erreur: erreur?.message || null });
+  }
+
+  // Déclenchement du retour : une seule fois par couple (projet, ouvrage), une
+  // fois le projet visé chargé avec ses lignes.
+  useEffect(() => {
+    if (!retourBiblio?.ouvrageBiblioId || loading || !projetId) return;
+    // Le chiffrage d'origine n'existe plus : on abandonne sans rien écrire.
+    if (projetId !== retourBiblio.projetId) { onRetourBiblioConsomme?.(); return; }
+    const cle = `${retourBiblio.projetId}:${retourBiblio.ouvrageBiblioId}`;
+    if (retourTraiteRef.current === cle) return;
+    retourTraiteRef.current = cle;
+    setTab("ouvrages");
+    actualiserApresBiblio(retourBiblio.ouvrageBiblioId, ouvrages, infos.statut);
+    onRetourBiblioConsomme?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retourBiblio, loading, projetId, ouvrages]);
+
   // ─── EXPORT WORD ─────────────────────────────────────────────────────────────
   async function handleExportWord() {
     if (!projetId || exporting) return;
@@ -556,7 +1092,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       const plansSnap = (richPlans || [])
         .filter(p => typeof p.thumbnail === "string" && p.thumbnail.startsWith("data:image"))
         .map(p => ({ nom: p.name, data: p.thumbnail }));
-      const payload = { infos, ouvrages, cotes, plans: plansSnap, photos };
+      // Document CLIENT : lignes groupées lot → zone, prix de vente et TVA
+      // uniquement (aucun coût interne ni marge n'est transmis).
+      const payload = { infos, ouvrages, cotes, plans: plansSnap, photos, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, lotsOrdre };
       const res = await fetch("/api/generate-info-client-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -581,6 +1119,67 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setExporting(false);
   }
 
+  // ─── EXPORT PDF (gabarit Profero commun, chiffrageDoc.js) ────────────────────
+  // La fenêtre est ouverte SYNCHRONEMENT dans le geste du clic (sinon Safari la
+  // bloque), puis remplie une fois les rendus (plans, dessins) prêts.
+  // `interne` = synthèse interne avec coûts et marge (jamais pour le client).
+  async function exporterPDF(interne = false) {
+    if (!projetId || exporting) return;
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    w.document.write(`<!doctype html><html lang='fr'><body style='font-family:Arial,sans-serif;padding:40px;color:#666;'>Préparation ${interne ? "de la synthèse interne" : "du dossier de chiffrage"}…</body></html>`);
+    w.document.close();
+    setExporting(true);
+    try {
+      // Plans : rendu haute résolution depuis les données complètes (repli : vignette)
+      let plansImgs = [];
+      if (richPlans.length > 0) {
+        const { data: full } = await supabase.from("plans").select("id,data").in("id", richPlans.map(p => p.id));
+        plansImgs = richPlans.map(p => {
+          const f = (full || []).find(x => x.id === p.id);
+          let image = "";
+          try { image = f?.data ? renderPlanDataURL(f.data, { largeur: 1000, hauteur: 700, dpi: 2 }) : ""; } catch { image = ""; }
+          if (!image && typeof p.thumbnail === "string" && p.thumbnail.startsWith("data:image")) image = p.thumbnail;
+          return { nom: p.name, image };
+        }).filter(p => p.image);
+      }
+      const rendu = (d, pixelWidth) => renderStrokesDataURL(d.strokes || [], { largeur: d.largeur || NOTE_W, hauteur: d.hauteur || NOTE_H, fond: d.fond || "lignes", pixelWidth });
+      const notesImgs   = dessins.filter(d => d.type === "note"    && (d.strokes || []).length > 0).map(d => ({ nom: d.nom, image: rendu(d, 1400) }));
+      const croquisImgs = dessins.filter(d => d.type === "croquis" && (d.strokes || []).length > 0).map(d => ({ nom: d.nom, image: rendu(d, 1600) }));
+      const st = statutMeta(infos.statut);
+      const html = buildChiffrageDocHTML({
+        infos, statut: { label: st.label, color: st.color },
+        ouvrages, lotsOrdre, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, preparation, interne,
+        cotes,
+        notesPages: interne ? [] : notesImgs, plans: interne ? [] : plansImgs, croquis: interne ? [] : croquisImgs,
+        medias: interne ? [] : photos.map(p => ({ type: p.type === "video" ? "video" : "image", url: p.url, label: p.label, commentaire: p.commentaire })),
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }),
+      });
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.document.title = `${interne ? "Synthese-interne" : "Chiffrage"}-${(infos.client_nom || "client").replace(/[^a-zA-Z0-9-_]/g, "_")}${logementInfo.reference ? "-" + logementInfo.reference.replace(/[^a-zA-Z0-9-_]/g, "_") : ""}`;
+      // Attendre les photos distantes + les polices (8 s max) avant d'imprimer.
+      await new Promise(res => {
+        const debut = Date.now();
+        const tick = () => {
+          const imgs = Array.from(w.document.images || []);
+          const ok = w.document.readyState === "complete" && imgs.every(i => i.complete);
+          if (ok || Date.now() - debut > 8000) res(); else setTimeout(tick, 150);
+        };
+        tick();
+      });
+      try { await (w.document.fonts?.ready || Promise.resolve()); } catch {}
+      setTimeout(() => { w.focus(); w.print(); }, 200);
+    } catch (e) {
+      console.error("Export PDF chiffrage:", e);
+      alert("Erreur lors de la génération du PDF : " + (e.message || e));
+      try { w.close(); } catch {}
+    }
+    setExporting(false);
+  }
+
   // ─── COMPUTED ────────────────────────────────────────────────────────────────
   // Filtrage projets (recherche + statut)
   const projetsFiltres = projets.filter(p => {
@@ -599,6 +1198,48 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     return acc;
   }, {});
 
+  // Totaux du devis (module pur chiffragePricing) : vente HT, coûts figés,
+  // marge pondérée, TVA/TTC, écart budget. `estimationTotale` = vente HT.
+  const budgetClient = infos.budget_client === "" || infos.budget_client == null ? null : parseFloat(infos.budget_client);
+  const totauxProjet = totauxDevis(ouvrages, { tvaPctDefaut: numOrNull(infos.tva_pct), budgetClient });
+  const estimationTotale = totauxProjet.venteHT;
+  const lotsOrdre = [...(biblio?.lots || []).map(l => l.label), ...Object.keys(categories)];
+  const groupesDevis = grouperParLotZone(ouvrages, lotsOrdre);          // LOT → ZONE → OUVRAGES
+  const logementInfo = lireLogementProjet(infos);                        // repli sur l'ancien `logements`
+  const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet);
+  const couleurLot = (label) => (biblio?.lots || []).find(l => l.label === label)?.couleur || "#8a90a0";
+  const coutHoraireManquant = !!biblio && biblio.coutHoraire == null;
+  const diagTaux = biblio ? diagnostiquerListe(biblio.tauxHoraires || []) : null;
+  const diagCoef = biblio ? diagnostiquerCoefficients(biblio.coefficients || []) : null;
+  const tvaManquante = numOrNull(infos.tva_pct) == null;
+
+  // Dessins au stylet
+  const notesPages  = dessins.filter(d => d.type === "note");
+  const croquisList = dessins.filter(d => d.type === "croquis");
+  const pageActive  = notesPages.find(d => d.id === notePageId) || notesPages[0] || null;
+  const croquisActif = croquisList.find(d => d.id === croquisOuvert) || null;
+  dessinOuvertRef.current = croquisActif?.id || (tab === "notes" && notesMode === "manuscrit" ? pageActive?.id : null) || null;
+
+  // Bibliothèque : ouvrages codés, groupés par lot (préfixe du code → code_prefixe)
+  const groupesBiblio = (() => {
+    const lots = biblio?.lots || [];
+    const map = new Map();
+    (biblio?.ouvrages || []).forEach(o => {
+      const c = decoderLibelleCode(o.libelle);
+      if (!c) return;
+      const lot = lots.find(l => (l.code_prefixe || "").toUpperCase() === c.prefixe);
+      const key = lot ? lot.label : c.prefixe;
+      if (!map.has(key)) map.set(key, { label: key, couleur: lot?.couleur || "#8a90a0", prefixe: c.prefixe, ordre: lot ? lots.indexOf(lot) : 999, items: [] });
+      map.get(key).items.push({ ...o, _code: c });
+    });
+    return [...map.values()]
+      .sort((a, b) => a.ordre - b.ordre || a.label.localeCompare(b.label))
+      .map(g => ({ ...g, items: g.items.sort((a, b) => a._code.num - b._code.num || a._code.code.localeCompare(b._code.code)) }));
+  })();
+  const nbBiblio = groupesBiblio.reduce((s, g) => s + g.items.length, 0);
+  const nbAnciens = Object.values(categories).flat().length;
+  const nbAnciensSel = ouvrages.filter(o => !o.bibliotheque_id && (categories[o.category] || []).includes(o.item)).length;
+
   // ─── RENDU ───────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:T.bg,color:T.textMuted,fontSize:FONT.sm.size}}>
@@ -607,6 +1248,97 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   );
 
   const projetActif = projets.find(p => p.id === projetId);
+  // Ligne d'édition d'une occurrence du devis : zone · quantité × unité × prix
+  // · TVA · total. Le prix de vente d'une ligne issue de la bibliothèque est
+  // FIGÉ (snapshot) et ne se saisit pas ; les anciennes lignes (sans snapshot)
+  // gardent leur prix saisi à la main.
+  const ligneEdition = (sel) => {
+    const snap = ligneEstSnapshot(sel);
+    const pu = numOrNull(sel.prix_unitaire);
+    const total = totalLigneHT(sel);
+    const erreursSnap = snap ? (sel.calcul_detail?.erreurs || []) : [];
+    const condLigne = decrireConditionsLigne(sel);
+    const tvaLigne = numOrNull(sel.tva_pct);
+    const pill = (c) => ({ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size+1, fontWeight:800, color:c, background:c+"1a", border:`1px solid ${c}40`, borderRadius:RADIUS.sm, padding:"4px 8px", whiteSpace:"nowrap" });
+    return (
+      <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
+        <input list="pic-zones" placeholder="Zone" value={sel.zone ?? ZONE_DEFAUT} onChange={e=>updZone(sel.id,e.target.value)}
+          className="zone-input" title="Zone de cette occurrence (libre, suggestions proposées)"
+          style={{...inp,width:150,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
+        <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
+          className="qte-input"
+          style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
+        <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
+          className="unit-select"
+          style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
+          <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option><option value="m3">m³</option><option value="kg">kg</option><option value="forfait">Forfait</option>{!["U","m","m²","ml","m3","kg","forfait"].includes(sel.unite||"U") && <option value={sel.unite}>{sel.unite}</option>}
+        </select>
+        <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
+        {snap ? (
+          pu != null ? (
+            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={`Prix de vente HT unitaire figé (coût matériaux + main-d'œuvre + marge). Cliquer pour le détail.${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`} style={{ ...pill(condLigne.derogation ? "#a78bfa" : condLigne.global ? "#4db8ff" : "#22c55e"), cursor:"pointer", fontFamily:"inherit" }}>
+              <Icon as={Lock} size={10}/>{fmtEur2(pu)}{(condLigne.global || condLigne.derogation) && <span style={{fontWeight:600,opacity:.85}}>· {condLigne.court}</span>}
+            </button>
+          ) : (
+            <button type="button" onClick={()=>setVoirDetailLigne(sel)} title={erreursSnap.join(" · ") || "Prix non calculable"} style={{ ...pill("#e15a5a"), cursor:"pointer", fontFamily:"inherit" }}>
+              <Icon as={AlertTriangle} size={10}/>Prix incalculable
+            </button>
+          )
+        ) : (
+          <div className="prix-wrap" style={{position:"relative",width:100}} title="Ancienne ligne : prix de vente HT saisi à la main">
+            <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
+              style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
+            <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+          </div>
+        )}
+        <select value={tvaLigne ?? ""} onChange={e=>updTvaLigne(sel.id,e.target.value)} title="TVA de la ligne (vide = TVA du projet)"
+          style={{...inp,width:"auto",padding:"5px 6px",fontSize:FONT.xs.size,cursor:"pointer",color:T.textSub}}>
+          <option value="">TVA projet{!tvaManquante ? ` ${infos.tva_pct} %` : " ?"}</option>
+          {TVA_TAUX_USUELS.map(t => <option key={t} value={t}>TVA {t} %</option>)}
+          {tvaLigne != null && !TVA_TAUX_USUELS.includes(tvaLigne) && <option value={tvaLigne}>TVA {tvaLigne} %</option>}
+        </select>
+        {total != null && total > 0 && (
+          <span className="total-badge" style={{ ...pill("#22c55e"), marginLeft:"auto" }}>= {fmtEur2(total)}</span>
+        )}
+        {condLigne.badge && (
+          <span title={condLigne.lignes.join("\n")} style={{ ...pill("#a78bfa"), fontWeight:700 }}>{condLigne.badge}</span>
+        )}
+        <button title={`Coefficient et taux horaire de vente de CETTE ligne (aucun autre ouvrage, aucun autre chiffrage, ni la bibliothèque).${condLigne.lignes.length ? "\n" + condLigne.lignes.join("\n") : ""}`}
+          onClick={()=>setConditionsLigne(sel)} style={iconBtnSec}><Icon as={SlidersHorizontal} size={12}/></button>
+        {sel.bibliotheque_id && onModifierMateriaux && (
+          <button title={`Ouvrir « ${sel.item} » dans la bibliothèque pour en modifier les matériaux. Au retour, les lignes de ce chiffrage issues de cet ouvrage sont réactualisées (sauf chiffrage terminé).`}
+            onClick={()=>ouvrirMateriauxBiblio(sel)}
+            style={{ ...iconBtnSec, width:"auto", gap:5, padding:"0 9px", fontFamily:"inherit", fontSize:FONT.xs.size, fontWeight:700, whiteSpace:"nowrap" }}>
+            <Icon as={Package} size={12}/> Modifier matériaux
+          </button>
+        )}
+        {sel.bibliotheque_id && (
+          <button title="Actualiser depuis la bibliothèque (affiche les différences, puis confirmation)" onClick={()=>preparerActualisation(sel)} style={iconBtnSec}><Icon as={RefreshCw} size={12}/></button>
+        )}
+        <button title="Retirer cette ligne du devis" onClick={()=>setToDeleteLigne(sel)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+      </div>
+    );
+  };
+  // Petit sélecteur de TVA (projet) : taux usuels + saisie libre
+  const selecteurTva = (value, onChange, { large = false } = {}) => {
+    const v = value === "" || value == null ? "" : String(value);
+    const usuel = v === "" || TVA_TAUX_USUELS.map(String).includes(v);
+    return (
+      <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
+        {TVA_TAUX_USUELS.map(t => {
+          const a = v !== "" && parseFloat(v) === t;
+          return <button key={t} type="button" onClick={()=>onChange(String(t))} style={{ ...(a?btn:btnSec), padding: large ? "8px 14px" : "6px 12px" }}>{t} %</button>;
+        })}
+        <div style={{ position:"relative", width:110 }}>
+          <input type="number" min="0" max="100" step="0.1" placeholder="Autre" value={usuel && v !== "" ? "" : v} onChange={e=>onChange(e.target.value)}
+            style={{...inp, padding:"7px 24px 7px 10px"}}/>
+          <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>%</span>
+        </div>
+        {v === "" && <span style={{ fontSize:FONT.xs.size+1, color:"#e15a5a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:4 }}><Icon as={AlertTriangle} size={11}/> À choisir</span>}
+      </div>
+    );
+  };
+
 
   return (
     <div className="pic-page" style={{ flex:1, minWidth:0, width:"100%", display:"flex", height:"100%", background:T.bg, overflow:"hidden", position:"relative" }}>
@@ -865,10 +1597,21 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     background:st.color+"22",color:st.color,whiteSpace:"nowrap",flexShrink:0,
                   }}>{st.label}</span>
                 </div>
-                {p.adresse_bien && (
+                {(() => {
+                  const lg = lireLogementProjet(p);
+                  const txt = [lg.reference, lg.type].filter(Boolean).join(" · ");
+                  if (!txt && !lg.aVerifier) return null;
+                  return (
+                    <div style={{fontSize:FONT.xs.size,color:lg.aVerifier?"#f5a623":T.textSub,marginTop:2,display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
+                      <Icon as={lg.aVerifier?AlertTriangle:Home} size={9}/>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lg.aVerifier ? `À vérifier : ${lg.legacy.join(" · ")}` : txt}</span>
+                    </div>
+                  );
+                })()}
+                {(p.chantier_adresse || p.adresse_bien) && (
                   <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:2,display:"flex",alignItems:"center",gap:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     <Icon as={MapPin} size={9}/>
-                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.adresse_bien}</span>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.chantier_adresse ? [p.chantier_adresse, p.chantier_ville].filter(Boolean).join(", ") : p.adresse_bien}</span>
                   </div>
                 )}
                 {p.date_visite && (
@@ -925,14 +1668,34 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   {infos.client_nom ? `${infos.client_nom} ${infos.client_prenom||""}` : "Nouveau projet"}
                 </div>
                 <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:2,display:"flex",flexWrap:"wrap",gap:10}}>
-                  {infos.adresse_bien && (
+                  {(logementInfo.reference || logementInfo.type) && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,color:acc.accent,fontWeight:700}}>
+                      <Icon as={Home} size={11}/>{[logementInfo.reference, logementInfo.type].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                  {logementInfo.aVerifier && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#f5a623",fontWeight:700}} title={logementInfo.message}>
+                      <Icon as={AlertTriangle} size={11}/>Ancien projet multi-logements : à vérifier
+                    </span>
+                  )}
+                  {(infos.chantier_adresse || infos.adresse_bien) && (
                     <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-                      <Icon as={MapPin} size={11}/>{infos.adresse_bien}
+                      <Icon as={MapPin} size={11}/>{infos.chantier_adresse ? [infos.chantier_adresse, infos.chantier_code_postal, infos.chantier_ville].filter(Boolean).join(" ") : infos.adresse_bien}
                     </span>
                   )}
                   {infos.date_visite && (
                     <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
                       <Icon as={Calendar} size={11}/>{new Date(infos.date_visite).toLocaleDateString("fr-FR")}
+                    </span>
+                  )}
+                  {budgetClient != null && !isNaN(budgetClient) && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#22c55e",fontWeight:700}}>
+                      <Icon as={Wallet} size={11}/>{fmtEur(budgetClient)}
+                    </span>
+                  )}
+                  {infos.delai_souhaite && (
+                    <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                      <Icon as={Clock} size={11}/>{infos.delai_souhaite}
                     </span>
                   )}
                 </div>
@@ -947,7 +1710,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   }}>
                   {STATUTS_PROJET.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
-                <button onClick={dupliquerProjet} title="Dupliquer ce projet" style={{
+                <button onClick={()=>setDupliquerModal({ reference: "", type: logementInfo.type || "" })} title="Dupliquer pour un autre logement (mêmes client, adresse, ouvrages et prix figés)" style={{
                   display:"inline-flex",alignItems:"center",justifyContent:"center",
                   background:"transparent",border:`1px solid ${T.border}`,
                   borderRadius:RADIUS.md,padding:"7px 10px",color:T.textSub,cursor:"pointer",
@@ -971,7 +1734,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 { id:"notes",    label:"Notes",           icon:StickyNote },
                 { id:"ouvrages", label:"Ouvrages",        icon:Hammer },
                 { id:"plan",     label:"Plan & côtes",    icon:Ruler },
-                { id:"photos",   label:"Photos",          icon:Camera },
+                { id:"photos",   label:"Photos & vidéos", icon:Camera },
                 { id:"params",   label:"Paramètres",      icon:Settings },
                 { id:"export",   label:"Export",          icon:FileDown },
               ].map(t => {
@@ -996,281 +1759,592 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
           {/* Corps onglet */}
           <div className="pic-body" style={{flex:1,overflowY:"auto",padding:"18px 22px",background:T.bg,minWidth:0}}>
+            {schemaV2Manquant && (
+              <div style={{ marginBottom:12, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <Icon as={AlertTriangle} size={13}/>
+                Base non à jour : lancer <code style={{fontFamily:"monospace"}}>sql/202609_chiffrage_v2.sql</code> dans Supabase pour activer budget/délai, notes manuscrites, croquis et le lien bibliothèque.
+              </div>
+            )}
+            {schemaDevisManquant && (
+              <div style={{ marginBottom:12, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.10)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <Icon as={AlertTriangle} size={13}/>
+                Base non à jour : lancer <code style={{fontFamily:"monospace"}}>sql/202609_chiffrage_devis_logement.sql</code> dans Supabase pour enregistrer client/chantier/logement/devis, les zones et les prix figés des lignes. En attendant, ces champs ne sont PAS sauvegardés.
+              </div>
+            )}
 
-            {tab==="client" && (
+            {tab==="client" && (() => {
+              const carte = (titre, icon, children, { warn = false } = {}) => (
+                <div style={{ background:T.surface, border:`1px solid ${warn ? "rgba(245,166,35,0.5)" : T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:warn ? "#f5a623" : acc.accent, marginBottom:14, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={icon} size={12}/>{titre}
+                  </div>
+                  {children}
+                </div>
+              );
+              const grille = (children, cols = "1fr 1fr") => <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:cols, gap:12, alignItems:"start" }}>{children}</div>;
+              // Champs d'adresse : suggestions Base Adresse Nationale. Le choix d'une
+              // suggestion remplit rue + code postal + ville (+ pays) du même préfixe d'un coup.
+              const patchAdresse = (prefixe, s, complet) => complet
+                ? { [`${prefixe}_adresse`]: s.adresse || s.label, [`${prefixe}_code_postal`]: s.codePostal, [`${prefixe}_ville`]: s.ville, [`${prefixe}_pays`]: infos[`${prefixe}_pays`] || "France" }
+                : { [`${prefixe}_code_postal`]: s.codePostal || infos[`${prefixe}_code_postal`] || "", [`${prefixe}_ville`]: s.ville || infos[`${prefixe}_ville`] || "" };
+              const champ = (label, f, props = {}) => (
+                <div style={props.span ? { gridColumn:"1 / -1" } : undefined}>
+                  <label style={lbl}>{label}</label>
+                  {props.adresse
+                    ? <AdresseInput style={inp} inputMode={props.inputMode} value={infos[f] ?? ""} placeholder={props.placeholder || ""}
+                        type={props.adresse.type} champ={props.adresse.champ}
+                        onChange={v=>updInfo(f,v)}
+                        onSelect={s=>updInfos(patchAdresse(props.adresse.prefixe, s, props.adresse.champ === "rue"))} />
+                    : <input style={inp} type={props.type || "text"} inputMode={props.inputMode} value={infos[f] ?? ""} onChange={e=>updInfo(f,e.target.value)} placeholder={props.placeholder || ""} />}
+                </div>
+              );
+              const typeCourant = infos.type_logement || (logementInfo.repli ? logementInfo.type : "");
+              return (
               <div className="pic-section-narrow">
-                {/* ── Carte : fiche chantier ── */}
+                {/* ── Carte : ancien projet multi-logements (lecture seule) ── */}
+                {logementInfo.aVerifier && carte("Ancien projet à vérifier", AlertTriangle, (
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6 }}>
+                    Ce projet a été créé avec l'ancienne « composition » : <strong style={{color:T.text}}>{logementInfo.legacy.join(" · ")}</strong>.
+                    Désormais <strong style={{color:T.text}}>un projet = un logement = un devis</strong>. Rien n'a été découpé automatiquement : renseigne ci-dessous le logement que CE projet représente, puis utilise <strong style={{color:T.text}}>Dupliquer</strong> pour créer les autres logements (ouvrages, zones et prix figés recopiés).
+                  </div>
+                ), { warn:true })}
+
+                {/* ── Carte : client ── */}
+                {carte("Client", UserCircle, grille(<>
+                  {champ("Nom", "client_nom", { placeholder:"Dupont" })}
+                  {champ("Prénom", "client_prenom", { placeholder:"Jean" })}
+                  {champ("Société (si applicable)", "client_societe", { placeholder:"SCI Les Tilleuls" })}
+                  {champ("E-mail", "client_email", { type:"email", placeholder:"jean.dupont@mail.fr" })}
+                  {champ("Téléphone", "client_telephone", { type:"tel", placeholder:"06 12 34 56 78" })}
+                  <div style={{ gridColumn:"1 / -1", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap", marginTop:4 }}>
+                    <span style={{ ...lbl, marginBottom:0 }}>Adresse de facturation</span>
+                    {infos.chantier_adresse && (
+                      <button type="button" onClick={()=>updInfos({ client_adresse:infos.chantier_adresse, client_adresse_complement:infos.chantier_adresse_complement, client_code_postal:infos.chantier_code_postal, client_ville:infos.chantier_ville, client_pays:infos.chantier_pays || "France" })}
+                        style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, padding:"5px 10px"}}><Icon as={Copy} size={11}/> Même adresse que le chantier</button>
+                    )}
+                  </div>
+                  {champ("Adresse", "client_adresse", { span:true, placeholder:"12 rue des Lilas", adresse:{ prefixe:"client", champ:"rue" } })}
+                  {champ("Complément", "client_adresse_complement", { placeholder:"Bâtiment B, 3e étage" })}
+                  {champ("Code postal", "client_code_postal", { inputMode:"numeric", placeholder:"49000", adresse:{ prefixe:"client", type:"commune", champ:"cp" } })}
+                  {champ("Ville", "client_ville", { placeholder:"Angers", adresse:{ prefixe:"client", type:"commune", champ:"ville" } })}
+                  {champ("Pays", "client_pays", { placeholder:"France" })}
+                </>))}
+
+                {/* ── Carte : chantier & logement ── */}
+                {carte("Chantier & logement", Home, <>
+                  {grille(<>
+                    <div style={{ gridColumn:"1 / -1", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, flexWrap:"wrap" }}>
+                      <span style={{ ...lbl, marginBottom:0 }}>Adresse du chantier</span>
+                      {infos.adresse_bien && !infos.chantier_adresse && (
+                        <button type="button" onClick={()=>updInfos({ chantier_adresse:(infos.adresse_bien || "").split("\n")[0].trim(), chantier_pays: infos.chantier_pays || "France" })}
+                          title="Recopie la première ligne de l'adresse saisie à la visite ; code postal et ville restent à compléter."
+                          style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, padding:"5px 10px"}}><Icon as={Copy} size={11}/> Reprendre l'adresse de visite</button>
+                      )}
+                    </div>
+                    {champ("Adresse", "chantier_adresse", { span:true, placeholder:"12 rue des Lilas", adresse:{ prefixe:"chantier", champ:"rue" } })}
+                    {champ("Complément", "chantier_adresse_complement", { placeholder:"Escalier A, porte gauche" })}
+                    {champ("Code postal", "chantier_code_postal", { inputMode:"numeric", placeholder:"49000", adresse:{ prefixe:"chantier", type:"commune", champ:"cp" } })}
+                    {champ("Ville", "chantier_ville", { placeholder:"Angers", adresse:{ prefixe:"chantier", type:"commune", champ:"ville" } })}
+                    {champ("Pays", "chantier_pays", { placeholder:"France" })}
+                    <div style={{gridColumn:"1 / -1"}}>
+                      <label style={lbl}>Adresse saisie à la visite (historique / repli)</label>
+                      <AdresseInput multiline style={{...ta, minHeight:48}} value={infos.adresse_bien} onChange={v=>updInfo("adresse_bien",v)} placeholder="Rue, code postal, ville" />
+                    </div>
+                  </>)}
+                  <div style={{ ...h2s, marginTop:16 }}>Logement de ce devis</div>
+                  {grille(<>
+                    {champ("Référence du logement", "logement_reference", { placeholder:"Appartement 101, Logement 3, Studio RDC…" })}
+                    <div>
+                      <label style={lbl}>Type de logement{logementInfo.repli && !infos.type_logement ? <span style={{ color:"#f5a623", marginLeft:6 }}>· repris de l'ancienne composition, à confirmer</span> : null}</label>
+                      <select style={{...inp, cursor:"pointer"}} value={typeCourant} onChange={e=>updInfo("type_logement",e.target.value)}>
+                        <option value="">— Choisir —</option>
+                        {TYPES_LOGEMENT.map(t => <option key={t} value={t}>{t}</option>)}
+                        {typeCourant && !TYPES_LOGEMENT.includes(typeCourant) && <option value={typeCourant}>{typeCourant}</option>}
+                      </select>
+                    </div>
+                  </>)}
+                  <div style={{ fontSize:FONT.xs.size+1, color:T.textMuted, marginTop:8, lineHeight:1.5 }}>
+                    Un projet = un logement = un devis. Pour un immeuble, crée un projet par logement (bouton <Icon as={Copy} size={10}/> Dupliquer dans l'en-tête).
+                  </div>
+                </>)}
+
+                {/* ── Carte : devis ── */}
+                {carte("Devis", Receipt, <>
+                  {grille(<>
+                    {champ("Objet du devis", "devis_objet", { span:true, placeholder:"Rénovation complète de l'appartement 101" })}
+                    {champ("Date du devis / de préparation", "devis_date", { type:"date" })}
+                    {champ("Date de validité", "devis_validite", { type:"date" })}
+                    <div style={{ gridColumn:"1 / -1" }}>
+                      <label style={lbl}>Taux de TVA par défaut du devis</label>
+                      {selecteurTva(infos.tva_pct, updTvaProjet, { large:true })}
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:6 }}>Répercuté sur les lignes qui suivent le projet ; une ligne peut porter sa propre TVA.</div>
+                    </div>
+                    {champ("N° de commande client (optionnel)", "devis_num_commande_client", { placeholder:"BC-2026-014" })}
+                    <div style={{gridColumn:"1 / -1"}}>
+                      <label style={lbl}>Observations / conditions particulières</label>
+                      <textarea style={{...ta, minHeight:70}} value={infos.devis_conditions || ""} onChange={e=>updInfo("devis_conditions",e.target.value)} placeholder="Acompte, accès, délais, exclusions…" />
+                    </div>
+                  </>)}
+                </>)}
+
+                {/* ── Carte : visite ── */}
+                {carte("Visite & projet", FileText, grille(<>
+                  <div><label style={lbl}>Description du projet</label><textarea style={{...ta,minHeight:90}} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : rénovation complète du T2 du 1er étage" /></div>
+                  <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:90}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
+                  <div><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
+                </>))}
+
+                {/* ── Carte : budget & délai ── */}
                 <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
                   <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:14, display:"inline-flex", alignItems:"center", gap:6 }}>
-                    <Icon as={FileText} size={12}/>
-                    Fiche chantier
+                    <Icon as={Wallet} size={12}/>
+                    Budget & délai
                   </div>
                   <div className="pic-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"start" }}>
-                    <div><label style={lbl}>Nom</label><input style={inp} value={infos.client_nom} onChange={e=>updInfo("client_nom",e.target.value)} placeholder="Dupont" /></div>
-                    <div><label style={lbl}>Prénom</label><input style={inp} value={infos.client_prenom} onChange={e=>updInfo("client_prenom",e.target.value)} placeholder="Jean" /></div>
-                    <div style={{gridColumn:"1 / -1"}}><label style={lbl}>Adresse du bien</label><textarea style={ta} value={infos.adresse_bien} onChange={e=>updInfo("adresse_bien",e.target.value)} placeholder="Rue, code postal, ville" /></div>
-                    <div><label style={lbl}>Description du projet</label><textarea style={{...ta,minHeight:90}} value={infos.description_projet} onChange={e=>updInfo("description_projet",e.target.value)} placeholder="Ex : division en 1 studio + 2 T2" /></div>
-                    <div><label style={lbl}>Observations générales</label><textarea style={{...ta,minHeight:90}} value={infos.observations} onChange={e=>updInfo("observations",e.target.value)} placeholder="Notes, accès, contraintes…" /></div>
-                    <div><label style={lbl}>Date de visite</label><input type="date" style={inp} value={infos.date_visite} onChange={e=>updInfo("date_visite",e.target.value)} /></div>
+                    <div>
+                      <label style={lbl}>Budget client (€ HT)</label>
+                      <div style={{position:"relative"}}>
+                        <input type="number" step="100" min="0" inputMode="decimal" style={{...inp, paddingRight:30, fontWeight:700, color:"#22c55e"}} value={infos.budget_client ?? ""} onChange={e=>updInfo("budget_client",e.target.value)} placeholder="Ex : 45000" />
+                        <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>Délai souhaité</label>
+                      <input style={inp} value={infos.delai_souhaite || ""} onChange={e=>updInfo("delai_souhaite",e.target.value)} placeholder="Ex : livraison avant juin 2027, 3 mois de travaux…" />
+                    </div>
                   </div>
+                  {budgetClient != null && !isNaN(budgetClient) && estimationTotale > 0 && (() => {
+                    const ecart = estimationTotale - budgetClient;
+                    const c = ecart > 0 ? "#e15a5a" : "#22c55e";
+                    return (
+                      <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"9px 12px", borderRadius:RADIUS.md, background:c+"12", border:`1px solid ${c}40`, fontSize:FONT.xs.size+1, color:T.textSub }}>
+                        <Icon as={Euro} size={12} color={c}/>
+                        <span>Vente HT du devis <strong style={{color:T.text}}>{fmtEur(estimationTotale)}</strong></span>
+                        <span>·</span>
+                        <span>Écart budget <strong style={{color:c}}>{ecart > 0 ? "+" : "−"}{fmtEur(Math.abs(ecart))}</strong></span>
+                      </div>
+                    );
+                  })()}
                 </div>
+              </div>
+              );
+            })()}
 
-                {/* ── Carte : composition du projet ── */}
-                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, padding:18, marginBottom:14, boxShadow:SHADOW.sm }}>
-                  <div style={{ ...h2s, marginTop:0 }}>Composition du projet</div>
-                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:8 }}>
-                    {LOGEMENTS.map(log => {
-                      const val=log.split(" ")[0], chk=infos.logements.includes(val);
+            {tab==="notes" && (
+              <div className="pic-section-narrow">
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={StickyNote} size={12}/>
+                    {notesMode === "manuscrit" ? "Notes manuscrites" : "Notes libres"}
+                  </div>
+                  <div style={{ display:"inline-flex", gap:3, background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:3 }}>
+                    {[{ id:"texte", label:"Clavier", icon:TypeIcon }, { id:"manuscrit", label:`Stylet${notesPages.length ? ` (${notesPages.length})` : ""}`, icon:PenTool }].map(m => {
+                      const a = notesMode === m.id;
                       return (
-                        <div key={val} className="pic-card" onClick={()=>togLog(val)} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 13px", background:chk?`linear-gradient(135deg, ${acc.bg10}, ${acc.bg20})`:T.card, border:`1px solid ${chk?acc.accent:T.border}`, borderRadius:RADIUS.lg, cursor:"pointer", boxShadow:chk?SHADOW.sm:"none" }}>
-                          <input type="checkbox" checked={chk} onChange={()=>togLog(val)} style={{ accentColor:acc.accent, width:16, height:16, flexShrink:0 }} />
-                          <span style={{ fontSize:FONT.sm.size, color:chk?acc.accent:T.text, fontWeight:chk?700:500 }}>{log}</span>
-                        </div>
+                        <button key={m.id} onClick={()=>setNotesMode(m.id)} style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"6px 12px", borderRadius:RADIUS.sm, border:"none", background:a?acc.accent:"transparent", color:a?acc.onAccent:T.textSub, fontFamily:"inherit", fontSize:FONT.xs.size+1, fontWeight:700, cursor:"pointer" }}>
+                          <Icon as={m.icon} size={12}/>{m.label}
+                        </button>
                       );
                     })}
                   </div>
                 </div>
-              </div>
-            )}
 
-            {tab==="notes" && (
-              <div className="pic-section-narrow">
-                <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, marginBottom:12, display:"inline-flex", alignItems:"center", gap:6 }}>
-                  <Icon as={StickyNote} size={12}/>
-                  Notes libres
-                </div>
-                <textarea
-                  value={infos.notes || ""}
-                  onChange={e=>updInfo("notes", e.target.value)}
-                  placeholder="Prends des notes librement : contraintes, échanges client, idées de chiffrage, points à vérifier…"
-                  style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.base.size, padding:16, borderRadius:RADIUS.xl, boxShadow:SHADOW.sm }}
-                />
+                {notesMode === "texte" ? (
+                  <textarea
+                    value={infos.notes || ""}
+                    onChange={e=>updInfo("notes", e.target.value)}
+                    placeholder="Prends des notes librement : contraintes, échanges client, idées de chiffrage, points à vérifier…"
+                    style={{ ...ta, minHeight:"calc(100vh - 320px)", lineHeight:1.7, fontSize:FONT.base.size, padding:16, borderRadius:RADIUS.xl, boxShadow:SHADOW.sm }}
+                  />
+                ) : (
+                  <>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+                      {notesPages.map((d, i) => (
+                        <button key={d.id} onClick={()=>setNotePageId(d.id)} style={tabS(pageActive?.id === d.id)}>{d.nom || `Page ${i+1}`}</button>
+                      ))}
+                      <button onClick={()=>creerDessin("note")} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={Plus} size={11}/> Page
+                      </button>
+                    </div>
+                    {pageActive ? (
+                      <>
+                        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+                          <input value={pageActive.nom || ""} onChange={e=>updDessinChamp(pageActive.id, "nom", e.target.value)} placeholder="Nom de la page" style={{...inp, flex:"1 1 180px", maxWidth:320}}/>
+                          <select value={pageActive.fond || "lignes"} onChange={e=>updDessinChamp(pageActive.id, "fond", e.target.value)} style={{...inp, width:"auto", cursor:"pointer"}}>
+                            <option value="lignes">Lignes</option><option value="grille">Grille</option><option value="blanc">Blanc</option>
+                          </select>
+                          <button title="Supprimer cette page" onClick={()=>setToDeleteDessin(pageActive)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                        </div>
+                        <StylusCanvas key={pageActive.id} strokes={pageActive.strokes || []} onChange={s=>updDessinStrokes(pageActive.id, s)}
+                          largeur={pageActive.largeur || NOTE_W} hauteur={pageActive.hauteur || NOTE_H} fond={pageActive.fond || "lignes"} T={T} acc={acc}/>
+                      </>
+                    ) : (
+                      <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"36px 24px", textAlign:"center", color:T.textSub }}>
+                        <div style={{ width:48,height:48,borderRadius:RADIUS.lg, background:acc.bg10,color:acc.accent, display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
+                          <Icon as={PenTool} size={24} strokeWidth={1.5}/>
+                        </div>
+                        <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucune page manuscrite</div>
+                        <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6,marginBottom:14}}>Écris directement au stylet sur la tablette : la page se sauvegarde toute seule et se retrouve dans le PDF.</div>
+                        <button onClick={()=>creerDessin("note")} style={{...btn, display:"inline-flex", alignItems:"center", gap:6}}>
+                          <Icon as={Plus} size={12}/> Nouvelle page manuscrite
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
             {tab==="ouvrages" && (
               <>
+                <datalist id="pic-zones">{ZONES_SUGGEREES.map(z => <option key={z} value={z}/>)}</datalist>
+
+                {/* ── Retour de la bibliothèque après « Modifier matériaux » ── */}
+                {majBiblio && (() => {
+                  const ko  = majBiblio.supprime || majBiblio.erreur;
+                  const att = majBiblio.fige || majBiblio.aucun;
+                  const col = ko ? "#e15a5a" : att ? "#f5a623" : "#22c55e";
+                  const texte = majBiblio.supprime
+                    ? `L'ouvrage « ${majBiblio.libelle} » n'existe plus dans la bibliothèque : les ${majBiblio.nb} ligne${majBiblio.nb>1?"s":""} gardent leur prix figé.`
+                    : majBiblio.erreur
+                      ? `Actualisation impossible : ${majBiblio.erreur}`
+                      : majBiblio.aucun
+                        ? `« ${majBiblio.libelle} » : rien n'a changé, les ${majBiblio.nb} ligne${majBiblio.nb>1?"s":""} de ce devis sont déjà à jour.`
+                        : majBiblio.fige
+                          ? `« ${majBiblio.libelle} » a changé dans la bibliothèque, mais ce chiffrage est ${statutMeta(majBiblio.statut).label.toLowerCase()} : les prix restent figés. Utilise ↻ sur une ligne pour l'actualiser quand même.`
+                          : `« ${majBiblio.libelle} » : ${majBiblio.nb} ligne${majBiblio.nb>1?"s":""} de ce devis actualisée${majBiblio.nb>1?"s":""} depuis la bibliothèque${majBiblio.diffs?.length ? " (" + majBiblio.diffs.map(d=>d.label.toLowerCase()).join(", ") + ")" : ""}.`;
+                  return (
+                    <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:col+"1a", border:`1px solid ${col}66`, color:col, fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                      <Icon as={ko ? AlertTriangle : att ? Info : Check} size={13}/>
+                      <span style={{ flex:1, minWidth:200 }}>{texte}</span>
+                      <button onClick={()=>setMajBiblio(null)} title="Masquer" style={{ ...iconBtnSec, width:22, height:22, color:col, border:`1px solid ${col}66` }}><Icon as={X} size={11}/></button>
+                    </div>
+                  );
+                })()}
+
+                {/* ── Bandeaux bloquants ── */}
+                {/* Les prix viennent des valeurs SAISIES sur chaque ouvrage : un
+                    référentiel vide n'empêche plus de chiffrer, il prive seulement
+                    les champs libres d'une valeur proposée par défaut. */}
+                {((diagCoef && !diagCoef.ok) || (diagTaux && !diagTaux.ok)) && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <Icon as={Info} size={13}/>
+                    Aucune valeur par défaut dans les Réglages → Taux horaires{diagCoef && !diagCoef.ok && diagTaux && !diagTaux.ok ? "" : diagCoef && !diagCoef.ok ? " (coefficients de vente)" : " (taux horaires)"} : les coefficients et taux horaires restent à saisir sur chaque fiche d'ouvrage.
+                  </div>
+                )}
+                {coutHoraireManquant && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <Icon as={AlertTriangle} size={13}/>
+                    Coût horaire chargé non configuré (Réglages → Taux → taux horaire moyen) : les prix sont calculés, mais la marge des lignes ajoutées ne le sera pas.
+                  </div>
+                )}
+                {tvaManquante && ouvrages.length > 0 && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#f5a623", fontSize:FONT.xs.size+1, fontWeight:600, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                    <Icon as={AlertTriangle} size={13}/>
+                    <span>Taux de TVA du devis non choisi : pas de total TTC.</span>
+                    {selecteurTva(infos.tva_pct, updTvaProjet)}
+                  </div>
+                )}
+
+                {/* ══ CONDITIONS DE VENTE DU CHIFFRAGE (coefficient / taux global figés, RPC atomique) ══ */}
+                {projetActif && (
+                  <ConditionsVenteChiffrage T={T} acc={acc} projet={projetActif} projetId={projetId} coefficients={biblio?.coefficients || []} tauxHoraires={biblio?.tauxHoraires || []} nbLignes={ouvrages.length} onApplique={rechargerApresConditions}/>
+                )}
+
+                {/* ══ DEVIS : LOT → ZONE → OUVRAGES ══ */}
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:acc.accent, display:"inline-flex", alignItems:"center", gap:6 }}>
+                    <Icon as={Receipt} size={11}/>
+                    Devis — ouvrages retenus
+                    <span style={{color:T.textMuted}}>· {ouvrages.length} ligne{ouvrages.length>1?"s":""}{logementInfo.reference ? ` · ${logementInfo.reference}` : ""}</span>
+                  </div>
+                  {ouvrages.length > 0 && (
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      <button onClick={()=>setShowModal(true)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={FileText} size={11}/> Aperçu du devis
+                      </button>
+                      <button onClick={()=>setShowProgbat(true)} title="Aperçu du devis ProGBat reconstruit par le serveur, puis création d'un brouillon après confirmation." style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={Send} size={11}/> {projets.find(p=>p.id===projetId)?.progbat_devis_id ? "Devis ProGBat (brouillon créé)" : "Aperçu ProGBat"}
+                      </button>
+                      <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
+                        style={{...btnDng, display:"inline-flex", alignItems:"center", gap:5, padding:"8px 14px"}}>
+                        <Icon as={X} size={11}/> Tout retirer
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {ouvrages.length === 0 ? (
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"22px 20px", textAlign:"center", color:T.textSub, marginBottom:14 }}>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:3}}>Aucun ouvrage dans ce devis</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Choisis la zone puis clique sur « Ajouter » dans la bibliothèque ci-dessous. Le même ouvrage peut être ajouté plusieurs fois (une ligne par zone).</div>
+                  </div>
+                ) : groupesDevis.map(g => (
+                  <div key={g.lot} style={{ marginBottom:14 }}>
+                    <div style={{ ...h2s, marginTop:6, display:"flex", alignItems:"center", gap:8 }}>
+                      <span style={{ width:9, height:9, borderRadius:"50%", background:couleurLot(g.lot), flexShrink:0 }}/>
+                      <span style={{flex:1}}>{g.lot}</span>
+                      <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:g.total > 0 ? "#22c55e" : T.textMuted, textTransform:"none", letterSpacing:0 }}>{fmtEur2(g.total)}</span>
+                    </div>
+                    {g.zones.map(z => (
+                      <div key={z.zone} style={{ marginLeft:12, marginBottom:8, paddingLeft:10, borderLeft:`2px solid ${couleurLot(g.lot)}55` }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                          <Icon as={Home} size={11} color={T.textSub}/>
+                          <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:T.textSub, textTransform:"uppercase", letterSpacing:.6, flex:1 }}>{z.zone} <span style={{ color:T.textMuted, fontWeight:600 }}>({z.lignes.length})</span></span>
+                          {g.zones.length > 1 && <span style={{ fontSize:FONT.xs.size, fontWeight:700, color:T.textMuted }}>{fmtEur2(z.total)}</span>}
+                        </div>
+                        {z.lignes.map(sel => {
+                          const c = decoderLibelleCode(sel.code_ouvrage ? `${sel.code_ouvrage} : ${sel.item}` : sel.item) || (sel.code_ouvrage ? { code: sel.code_ouvrage, reste: sel.item } : null);
+                          const snap = ligneEstSnapshot(sel);
+                          const libelleCourt = c ? (decoderLibelleCode(sel.item)?.reste || sel.item) : sel.item;
+                          return (
+                            <div key={sel.id} style={{ padding:"9px 12px", background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
+                              <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                                {c && <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:couleurLot(g.lot), background:couleurLot(g.lot)+"1f", border:`1px solid ${couleurLot(g.lot)}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{c.code}</span>}
+                                <div style={{ flex:1, minWidth:0, fontSize:FONT.sm.size, color:T.text, fontWeight:600, lineHeight:1.45 }}>{libelleCourt}</div>
+                                {!snap && <span title="Ligne ancienne ou hors bibliothèque : prix saisi à la main, pas de coût figé" style={{ fontSize:FONT.xs.size-1, fontWeight:700, color:T.textMuted, border:`1px solid ${T.border}`, borderRadius:RADIUS.pill, padding:"1px 7px", whiteSpace:"nowrap" }}>prix saisi</span>}
+                              </div>
+                              {ligneEdition(sel)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                {/* ── Totaux & préparation du devis ── */}
+                {(() => {
+                  const t = totauxProjet;
+                  const carteKpi = (label, valeur, { color = T.text, sub = null, flex = 1 } = {}) => (
+                    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex, minWidth:150 }}>
+                      <div style={{ fontSize:FONT.xs.size, color:T.textMuted, fontWeight:700, textTransform:"uppercase", letterSpacing:.6 }}>{label}</div>
+                      <div style={{ fontSize:FONT.lg.size, fontWeight:800, color, lineHeight:1.15, marginTop:3, letterSpacing:-.3 }}>{valeur}</div>
+                      {sub && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2 }}>{sub}</div>}
+                    </div>
+                  );
+                  return (
+                    <div style={{ marginTop:8, marginBottom:20 }}>
+                      <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                        {carteKpi("Total vente HT", fmtEur2(t.venteHT), { color: t.venteHT > 0 ? "#22c55e" : T.textMuted, sub: t.nbLignesSansPrix > 0 ? `${t.nbLignesSansPrix} ligne${t.nbLignesSansPrix>1?"s":""} sans prix` : `${t.nbLignes} ligne${t.nbLignes>1?"s":""}`, flex:"2 1 200px" })}
+                        {carteKpi("Coût total", t.coutsIncomplets && t.nbLignesAvecCout === 0 ? "—" : fmtEur2(t.coutTotal), { sub: `matériaux ${fmtEur2(t.coutMateriaux)} · MO ${fmtEur2(t.coutMainOeuvre)}${t.coutDirect > 0 ? ` · direct ${fmtEur2(t.coutDirect)}` : ""}${t.coutsIncomplets ? " · partiel" : ""}` })}
+                        {carteKpi("Marge", t.marge == null ? "—" : fmtEur2(t.marge), { color: t.marge == null ? T.textMuted : t.marge >= 0 ? "#22c55e" : "#e15a5a", sub: t.tauxMargeReel == null ? (t.coutsIncomplets ? "non fiable : lignes sans coût figé" : "—") : `taux réel global ${fmtPct(t.tauxMargeReel)} (pondéré)` })}
+                        {carteKpi("TVA", t.tva == null ? "à choisir" : fmtEur2(t.tva), { color: t.tva == null ? "#f5a623" : T.text, sub: Object.entries(t.tvaDetail || {}).map(([k, v]) => `${k} % → ${fmtEur2(v)}`).join(" · ") || null })}
+                        {carteKpi("Total TTC", t.ttc == null ? "—" : fmtEur2(t.ttc), { color: t.ttc == null ? T.textMuted : T.text })}
+                        {budgetClient != null && !isNaN(budgetClient) && carteKpi("Budget client", fmtEur2(budgetClient), { sub: t.ecartBudget == null ? "écart : —" : `écart ${t.ecartBudget > 0 ? "+" : "−"}${fmtEur2(Math.abs(t.ecartBudget))}`, color: t.ecartBudget == null ? T.text : t.ecartBudget > 0 ? "#e15a5a" : "#22c55e" })}
+                      </div>
+                      {/* Préparation du devis (futur brouillon ProGBat) */}
+                      <div style={{ marginTop:10, padding:"10px 14px", borderRadius:RADIUS.lg, background:preparation.pret ? "rgba(34,197,94,0.08)" : T.surface, border:`1px solid ${preparation.pret ? "rgba(34,197,94,0.35)" : T.border}` }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:FONT.sm.size, fontWeight:800, color:preparation.pret ? "#22c55e" : T.text }}>
+                          <Icon as={preparation.pret ? Check : Info} size={14}/>
+                          {preparation.pret ? "Devis complet : prêt à être préparé" : `Devis à compléter (${preparation.bloquants.length} point${preparation.bloquants.length>1?"s":""} bloquant${preparation.bloquants.length>1?"s":""})`}
+                        </div>
+                        {preparation.bloquants.length > 0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:6 }}>
+                            {preparation.bloquants.map((b, i) => <div key={i} style={{ fontSize:FONT.xs.size+1, color:"#e15a5a", display:"flex", gap:6, alignItems:"flex-start" }}><Icon as={X} size={11} style={{marginTop:2,flexShrink:0}}/>{b}</div>)}
+                          </div>
+                        )}
+                        {preparation.avertissements.length > 0 && (
+                          <div style={{ display:"flex", flexDirection:"column", gap:3, marginTop:6 }}>
+                            {preparation.avertissements.map((a, i) => <div key={i} style={{ fontSize:FONT.xs.size+1, color:"#f5a623", display:"flex", gap:6, alignItems:"flex-start" }}><Icon as={AlertTriangle} size={11} style={{marginTop:2,flexShrink:0}}/>{a}</div>)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ══ BIBLIOTHÈQUE : catalogue avec bouton Ajouter ══ */}
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10, marginBottom:12, flexWrap:"wrap" }}>
                   <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
-                    <Icon as={Hammer} size={11}/>
-                    {manageMode ? "Gérer lots & ouvrages" : "Sélection d'ouvrages"}
+                    <Icon as={manageMode ? Settings : Library} size={11}/>
+                    {manageMode ? "Gérer les anciens lots & ouvrages" : "Ajouter depuis la bibliothèque"}
+                    {!manageMode && biblio && <span style={{color:acc.accent}}>· {nbBiblio}</span>}
                   </div>
-                  <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
-                    style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
-                    <Icon as={manageMode?Check:Settings} size={11}/>
-                    {manageMode ? "Terminer" : "Gérer"}
-                  </button>
+                  {!manageMode && (
+                    <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:T.surface, border:`1px solid ${acc.accent}55`, borderRadius:RADIUS.md, padding:"5px 10px" }}>
+                      <Icon as={Home} size={12} color={acc.accent}/>
+                      <span style={{ fontSize:FONT.xs.size+1, fontWeight:700, color:T.textSub }}>Ajouter dans la zone</span>
+                      <input list="pic-zones" value={zoneAjout} onChange={e=>setZoneAjout(e.target.value)} placeholder={ZONE_DEFAUT}
+                        style={{...inp, width:170, padding:"5px 8px", fontSize:FONT.xs.size+1, fontWeight:700, color:acc.accent}}/>
+                    </div>
+                  )}
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                    <button onClick={()=>{ setShowAnciens(v=>!v); if (showAnciens) { setManageMode(false); setEditLib(null); setEditLot(null); setAddLibCat(null); } }}
+                      style={{ ...btnSec, display:"inline-flex", alignItems:"center", gap:5, ...(showAnciens ? { borderColor:acc.accent, color:acc.accent } : {}) }}>
+                      <Icon as={Layers} size={11}/>
+                      {showAnciens ? "Masquer les anciens ouvrages" : `Anciens ouvrages (${nbAnciens})`}
+                      {!showAnciens && nbAnciensSel > 0 && <span style={{ background:acc.accent, color:acc.onAccent, borderRadius:RADIUS.pill, padding:"0 6px", fontSize:FONT.xs.size-1 }}>{nbAnciensSel} coché{nbAnciensSel>1?"s":""}</span>}
+                    </button>
+                    {showAnciens && (
+                      <button onClick={()=>{ setManageMode(m=>!m); setEditLib(null); setEditLot(null); setAddLibCat(null); }}
+                        style={{ ...(manageMode?btn:btnSec), display:"inline-flex", alignItems:"center", gap:5 }}>
+                        <Icon as={manageMode?Check:Settings} size={11}/>
+                        {manageMode ? "Terminer" : "Gérer"}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{position:"relative",marginBottom:10}}>
                   <Icon as={Search} size={13} color={T.textMuted} style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
-                  <input style={{...inp,padding:"9px 12px 9px 30px"}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un ouvrage…" />
+                  <input style={{...inp,padding:"9px 12px 9px 30px"}} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un ouvrage (code ou libellé)…" />
                 </div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:14 }}>
-                  {Object.keys(categories).map(cat => {
+                  {[...groupesBiblio.map(g => g.label), ...(showAnciens ? Object.keys(categories).filter(c => !groupesBiblio.some(g => g.label === c)) : [])].map(cat => {
                     const a=filtresCat.includes(cat);
                     return <div key={cat} onClick={()=>setFiltresCat(p=>p.includes(cat)?p.filter(c=>c!==cat):[...p,cat])} style={{ padding:"3px 10px", borderRadius:RADIUS.pill, border:`1px solid ${a?acc.accent:T.border}`, background:a?acc.bg10:"transparent", color:a?acc.accent:T.textSub, fontSize:FONT.xs.size, fontWeight:700, cursor:"pointer", textTransform:"uppercase", letterSpacing:.4 }}>{cat}</div>;
                   })}
                 </div>
 
-                {manageMode && (
-                  <div style={{ display:"flex", gap:6, marginBottom:14, alignItems:"center", flexWrap:"wrap" }}>
-                    <input style={{...inp, flex:"1 1 200px"}} value={newLotName} onChange={e=>setNewLotName(e.target.value)}
-                      placeholder="Nouveau lot (ex : Carrelage, Isolation…)" onKeyDown={e=>e.key==="Enter"&&createLot(newLotName)} />
-                    <button onClick={()=>createLot(newLotName)} style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
-                      <Icon as={Plus} size={12}/> Créer un lot
-                    </button>
-                  </div>
+                {/* ── Ouvrages codés de la bibliothèque, par lot ── */}
+                {!manageMode && (
+                  !biblio ? (
+                    <div style={{color:T.textMuted,fontSize:FONT.sm.size,textAlign:"center",padding:20}}>Chargement de la bibliothèque…</div>
+                  ) : nbBiblio === 0 ? (
+                    <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"28px 22px", textAlign:"center", color:T.textSub, marginBottom:14 }}>
+                      <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun ouvrage codé dans la bibliothèque</div>
+                      <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Seuls les ouvrages dont le libellé commence par un code (ex : « D-001 : Dépose… ») sont proposés ici. Complète les codes dans la page Bibliothèque.</div>
+                    </div>
+                  ) : groupesBiblio.map(g => {
+                    const q = search.trim().toLowerCase();
+                    const vis = g.items.filter(o => (filtresCat.length===0 || filtresCat.includes(g.label)) && (!q || o._code.code.toLowerCase().includes(q) || (o.libelle||"").toLowerCase().includes(q)));
+                    if (vis.length === 0) return null;
+                    return (
+                      <div key={g.label}>
+                        <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ width:9, height:9, borderRadius:"50%", background:g.couleur, flexShrink:0 }}/>
+                          <span style={{flex:1}}>{g.label} ({g.items.length})</span>
+                          <span style={{ fontSize:FONT.xs.size-1, fontWeight:800, letterSpacing:.5, color:T.textSub, background:T.card, border:`1px solid ${T.border}`, padding:"1px 7px", borderRadius:RADIUS.sm }}>{g.prefixe}</span>
+                        </div>
+                        {vis.map(o => {
+                          const occ = occurrencesDe(o), busy = biblioBusy === o.id;
+                          const calc = calculBiblio(o);
+                          return (
+                            <div key={o.id} style={{ padding:"9px 12px", background:occ.length?acc.bg10:T.card, border:`1px solid ${occ.length?acc.accent+"88":T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s", opacity:busy?.6:1 }}>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                                  <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:g.couleur, background:g.couleur+"1f", border:`1px solid ${g.couleur}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{o._code.code}</span>
+                                  <div style={{ fontSize:FONT.sm.size, color:T.text, fontWeight:500, lineHeight:1.45, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{o._code.reste}</div>
+                                </div>
+                                <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                                  <span>{normaliserUnite(o.unite)}{o.cadence ? ` · ${o.cadence} h / ${normaliserUnite(o.unite)}` : " · sans cadence"}</span>
+                                  {calc.complet ? (
+                                    <span style={{ color:"#22c55e", fontWeight:800 }} title={`Matériaux ${expliquerPrixMateriaux(calc.coutMateriauxUnitaire, calc.coefVente) || fmtEur2(calc.prixMateriauxUnitaire)} (${calc.coefficient.libelle || "coefficient"}) + main-d'œuvre ${expliquerPrixMainOeuvre(calc.mainOeuvre.heures, calc.mainOeuvre.tauxVente) || "—"} (${calc.tauxHoraire.libelle || "taux"})${calc.tauxMargePct != null ? ` · marge ${calc.tauxMargePct} % du prix de vente` : " · marge non calculable"}`}>
+                                      {fmtEur2(calc.prixVenteUnitaire)} HT / {calc.unite} · MO {calc.mainOeuvre.tauxVente} €/h
+                                    </span>
+                                  ) : (
+                                    <span style={{ color:"#e15a5a", fontWeight:700, display:"inline-flex", alignItems:"center", gap:4 }} title={calc.erreurs.join(" · ")}>
+                                      <Icon as={AlertTriangle} size={10}/> prix incalculable ({calc.erreurs.length})
+                                    </span>
+                                  )}
+                                  {occ.length > 0 && <span style={{ color:acc.accent, fontWeight:800 }}>· {occ.length} dans le devis ({occ.map(x => x.zone || ZONE_DEFAUT).join(", ")})</span>}
+                                </div>
+                              </div>
+                              <button disabled={busy} onClick={()=>ajouterDepuisBiblio(o, g.label)}
+                                title={calc.complet ? `Ajouter dans « ${(zoneAjout||"").trim() || ZONE_DEFAUT} » au prix figé de ${fmtEur2(calc.prixVenteUnitaire)} HT / ${calc.unite}` : `Ajouter sans prix (à compléter dans la Bibliothèque : ${calc.erreurs.join(" · ")})`}
+                                style={{ ...(calc.complet ? btn : btnSec), display:"inline-flex", alignItems:"center", gap:5, padding:"7px 12px", flexShrink:0, cursor:busy?"wait":"pointer" }}>
+                                <Icon as={Plus} size={12}/> Ajouter
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
                 )}
 
-                {Object.entries(categories).map(([cat,items],catIndex,arr) => {
-                  const vis=items.filter(item=>(!search||item.toLowerCase().includes(search.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
-                  if(vis.length===0 && !manageMode) return null;
-                  return (
-                    <div key={cat}>
-                      {manageMode ? (
-                        <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
-                          {editLot && editLot.nom===cat ? (
-                            <input autoFocus style={{...inp, flex:1, padding:"5px 8px", fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:0}}
-                              value={editLot.value} onChange={e=>setEditLot({nom:cat, value:e.target.value})}
-                              onKeyDown={e=>{ if(e.key==="Enter") renameLot(cat, editLot.value); if(e.key==="Escape") setEditLot(null); }}
-                              onBlur={()=>renameLot(cat, editLot.value)} />
-                          ) : (
-                            <span style={{flex:1}}>{cat} ({items.length})</span>
-                          )}
-                          <button title="Monter" disabled={catIndex===0||reordering} onClick={()=>reorderLot(cat,-1)} style={{...iconBtnSec, opacity:(catIndex===0||reordering)?.4:1}}><Icon as={ArrowUp} size={12}/></button>
-                          <button title="Descendre" disabled={catIndex===arr.length-1||reordering} onClick={()=>reorderLot(cat,1)} style={{...iconBtnSec, opacity:(catIndex===arr.length-1||reordering)?.4:1}}><Icon as={ArrowDown} size={12}/></button>
-                          <button title="Renommer le lot" onClick={()=>setEditLot({nom:cat, value:cat})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
-                          <button title="Supprimer le lot" onClick={()=>setToDeleteLot(cat)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
-                        </div>
-                      ) : (
-                        <div style={h2s}>{cat} ({items.length})</div>
-                      )}
-                      {vis.map((item) => {
-                        const idx=items.indexOf(item);
-                        const sel=ouvrages.find(o=>o.category===cat&&o.item===item), chk=!!sel;
-                        const isEditing=editLib&&editLib.cat===cat&&editLib.idx===idx;
-                        return (
-                          <div key={idx} style={{ padding:"9px 12px", background:chk&&!manageMode?acc.bg10:T.card, border:`1px solid ${chk&&!manageMode?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
-                            {!manageMode && <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />}
-                            <div style={{flex:1,minWidth:0}}>
-                              {isEditing ? (
-                                <input autoFocus style={{...inp, padding:"5px 8px", fontSize:FONT.sm.size}}
-                                  value={editLib.value} onChange={e=>setEditLib({cat,idx,value:e.target.value})}
-                                  onKeyDown={e=>{ if(e.key==="Enter") renameOuvrageLib(cat,idx,editLib.value); if(e.key==="Escape") setEditLib(null); }}
-                                  onBlur={()=>renameOuvrageLib(cat,idx,editLib.value)} />
-                              ) : (
-                                <div style={{ fontSize:FONT.sm.size, color:chk&&!manageMode?acc.accent:T.text, fontWeight:chk&&!manageMode?700:500 }}>{item}</div>
-                              )}
-                              <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}</div>
-                              {chk && !manageMode && (() => {
-                                const q  = parseFloat(sel.quantite) || 0;
-                                const pu = parseFloat(sel.prix_unitaire) || 0;
-                                const totalLigne = q * pu;
-                                return (
-                                  <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
-                                    <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
-                                      className="qte-input"
-                                      style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
-                                    <select value={sel.unite||"U"} onChange={e=>updUnite(sel.id,e.target.value)}
-                                      className="unit-select"
-                                      style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1,cursor:"pointer"}}>
-                                      <option value="U">Unité</option><option value="m">m</option><option value="m²">m²</option><option value="ml">ml</option>
-                                    </select>
-                                    <span style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>×</span>
-                                    <div className="prix-wrap" style={{position:"relative",width:100}}>
-                                      <input type="number" placeholder="Prix" step="0.01" value={sel.prix_unitaire ?? ""} onChange={e=>updPrix(sel.id,e.target.value)}
-                                        style={{...inp,width:"100%",padding:"5px 22px 5px 8px",fontSize:FONT.xs.size+1,color:"#22c55e",fontWeight:700}}/>
-                                      <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
-                                    </div>
-                                    {totalLigne > 0 && (
-                                      <span className="total-badge" style={{
-                                        marginLeft:"auto", display:"inline-flex", alignItems:"center", gap:4,
-                                        fontSize:FONT.xs.size+1, fontWeight:800, color:"#22c55e",
-                                        background:"rgba(34,197,94,0.10)", border:"1px solid rgba(34,197,94,0.25)",
-                                        borderRadius:RADIUS.sm, padding:"3px 8px",
-                                      }}>
-                                        = {totalLigne.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                            {manageMode && !isEditing && (
-                              <div style={{display:"flex", gap:4, flexShrink:0}}>
-                                <button title="Renommer l'ouvrage" onClick={()=>setEditLib({cat,idx,value:item})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
-                                <button title="Supprimer l'ouvrage" onClick={()=>setToDeleteOuvrage({cat,idx,label:item})} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {manageMode && (
-                        addLibCat===cat ? (
-                          <div style={{display:"flex", gap:6, marginBottom:10, alignItems:"center"}}>
-                            <input autoFocus style={{...inp, flex:1, padding:"7px 10px", fontSize:FONT.sm.size}}
-                              value={addLibVal} onChange={e=>setAddLibVal(e.target.value)}
-                              placeholder={`Nouvel ouvrage dans « ${cat} »`}
-                              onKeyDown={e=>{ if(e.key==="Enter") addOuvrageToCat(cat, addLibVal); if(e.key==="Escape"){setAddLibCat(null);setAddLibVal("");} }} />
-                            <button onClick={()=>addOuvrageToCat(cat, addLibVal)} style={{...btn, padding:"7px 12px"}}><Icon as={Check} size={12}/></button>
-                            <button onClick={()=>{setAddLibCat(null);setAddLibVal("");}} style={{...btnSec, padding:"7px 12px"}}><Icon as={X} size={12}/></button>
-                          </div>
-                        ) : (
-                          <button onClick={()=>{setAddLibCat(cat);setAddLibVal("");}} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, marginBottom:10}}>
-                            <Icon as={Plus} size={11}/> Ajouter un ouvrage
-                          </button>
-                        )
-                      )}
-                    </div>
-                  );
-                })}
-
-                {(() => {
-                  // Estimation par catégorie + total
-                  const totauxParCat = {};
-                  ouvrages.forEach(o => {
-                    const q  = parseFloat(o.quantite) || 0;
-                    const pu = parseFloat(o.prix_unitaire) || 0;
-                    if (q > 0 && pu > 0) {
-                      totauxParCat[o.category] = (totauxParCat[o.category] || 0) + q * pu;
-                    }
-                  });
-                  const totalGlobal = Object.values(totauxParCat).reduce((s, v) => s + v, 0);
-                  const fmt = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                  return (
-                    <>
-                      <div style={{ display:"flex", gap:10, marginTop:18, flexWrap:"wrap" }}>
-                        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
-                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center" }}>
-                            <Icon as={Check} size={15}/>
-                          </div>
-                          <div>
-                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{ouvrages.length}</div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Sélectionnés</div>
-                          </div>
-                        </div>
-                        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:1, minWidth:140, display:"flex", alignItems:"center", gap:10 }}>
-                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(91,156,246,0.16)",color:"#5b9cf6",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                            <Icon as={Layers} size={15}/>
-                          </div>
-                          <div>
-                            <div style={{ fontSize:FONT.xl.size-2, fontWeight:800, color:T.text, lineHeight:1 }}>{Object.values(categories).flat().length}</div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Disponibles</div>
-                          </div>
-                        </div>
-                        <div style={{ background:T.surface, border:`1px solid ${totalGlobal > 0 ? "rgba(34,197,94,0.40)" : T.border}`, borderRadius:RADIUS.lg, padding:"10px 14px", flex:"2 1 240px", display:"flex", alignItems:"center", gap:10 }}>
-                          <div style={{ width:30,height:30,borderRadius:RADIUS.md,background:"rgba(34,197,94,0.16)",color:"#22c55e",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                            <Icon as={Euro} size={15}/>
-                          </div>
-                          <div style={{flex:1}}>
-                            <div style={{ fontSize:FONT.xl.size, fontWeight:800, color: totalGlobal > 0 ? "#22c55e" : T.textMuted, lineHeight:1, letterSpacing:-.5 }}>
-                              {fmt(totalGlobal)} €
-                            </div>
-                            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2, fontWeight:600 }}>Estimation totale</div>
-                          </div>
-                        </div>
+                {/* ── Anciens ouvrages du chiffrage (masqués par défaut) ── */}
+                {showAnciens && (
+                  <>
+                    {!manageMode && (
+                      <div style={{ ...h2s, marginTop:24, color:T.textMuted, display:"flex", alignItems:"center", gap:8 }}>
+                        <Icon as={Layers} size={11}/> Anciens ouvrages du chiffrage ({nbAnciens})
                       </div>
+                    )}
+                    {manageMode && (
+                      <div style={{ display:"flex", gap:6, marginBottom:14, alignItems:"center", flexWrap:"wrap" }}>
+                        <input style={{...inp, flex:"1 1 200px"}} value={newLotName} onChange={e=>setNewLotName(e.target.value)}
+                          placeholder="Nouveau lot (ex : Carrelage, Isolation…)" onKeyDown={e=>e.key==="Enter"&&createLot(newLotName)} />
+                        <button onClick={()=>createLot(newLotName)} style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
+                          <Icon as={Plus} size={12}/> Créer un lot
+                        </button>
+                      </div>
+                    )}
 
-                      {/* Détail par catégorie */}
-                      {Object.keys(totauxParCat).length > 0 && (
-                        <div style={{
-                          marginTop: 10, background: T.surface, border: `1px solid ${T.border}`,
-                          borderRadius: RADIUS.lg, padding: "10px 14px",
-                        }}>
-                          <div style={{ fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
-                            Détail par catégorie
-                          </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                            {Object.entries(totauxParCat).sort(([,a],[,b])=>b-a).map(([cat, total]) => (
-                              <div key={cat} style={{
-                                display: "inline-flex", alignItems: "baseline", gap: 6,
-                                padding: "6px 12px", background: T.card,
-                                border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
-                              }}>
-                                <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.textSub }}>{cat}</span>
-                                <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: "#22c55e" }}>
-                                  {fmt(total)} €
-                                </span>
+                    {Object.entries(categories).map(([cat,items],catIndex,arr) => {
+                      const vis=items.filter(item=>(!search||item.toLowerCase().includes(search.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
+                      if(vis.length===0 && !manageMode) return null;
+                      return (
+                        <div key={cat}>
+                          {manageMode ? (
+                            <div style={{ ...h2s, display:"flex", alignItems:"center", gap:8 }}>
+                              {editLot && editLot.nom===cat ? (
+                                <input autoFocus style={{...inp, flex:1, padding:"5px 8px", fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:0}}
+                                  value={editLot.value} onChange={e=>setEditLot({nom:cat, value:e.target.value})}
+                                  onKeyDown={e=>{ if(e.key==="Enter") renameLot(cat, editLot.value); if(e.key==="Escape") setEditLot(null); }}
+                                  onBlur={()=>renameLot(cat, editLot.value)} />
+                              ) : (
+                                <span style={{flex:1}}>{cat} ({items.length})</span>
+                              )}
+                              <button title="Monter" disabled={catIndex===0||reordering} onClick={()=>reorderLot(cat,-1)} style={{...iconBtnSec, opacity:(catIndex===0||reordering)?.4:1}}><Icon as={ArrowUp} size={12}/></button>
+                              <button title="Descendre" disabled={catIndex===arr.length-1||reordering} onClick={()=>reorderLot(cat,1)} style={{...iconBtnSec, opacity:(catIndex===arr.length-1||reordering)?.4:1}}><Icon as={ArrowDown} size={12}/></button>
+                              <button title="Renommer le lot" onClick={()=>setEditLot({nom:cat, value:cat})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
+                              <button title="Supprimer le lot" onClick={()=>setToDeleteLot(cat)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                            </div>
+                          ) : (
+                            <div style={h2s}>{cat} ({items.length})</div>
+                          )}
+                          {vis.map((item) => {
+                            const idx=items.indexOf(item);
+                            const sel=ouvrages.find(o=>o.category===cat&&o.item===item), chk=!!sel;
+                            const isEditing=editLib&&editLib.cat===cat&&editLib.idx===idx;
+                            return (
+                              <div key={idx} style={{ padding:"9px 12px", background:chk&&!manageMode?acc.bg10:T.card, border:`1px solid ${chk&&!manageMode?acc.accent:T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s" }}>
+                                {!manageMode && <input type="checkbox" checked={chk} onChange={()=>togOuvrage(cat,item)} style={{ accentColor:acc.accent, width:15, height:15, marginTop:2, flexShrink:0, cursor:"pointer" }} />}
+                                <div style={{flex:1,minWidth:0}}>
+                                  {isEditing ? (
+                                    <input autoFocus style={{...inp, padding:"5px 8px", fontSize:FONT.sm.size}}
+                                      value={editLib.value} onChange={e=>setEditLib({cat,idx,value:e.target.value})}
+                                      onKeyDown={e=>{ if(e.key==="Enter") renameOuvrageLib(cat,idx,editLib.value); if(e.key==="Escape") setEditLib(null); }}
+                                      onBlur={()=>renameOuvrageLib(cat,idx,editLib.value)} />
+                                  ) : (
+                                    <div style={{ fontSize:FONT.sm.size, color:chk&&!manageMode?acc.accent:T.text, fontWeight:chk&&!manageMode?700:500 }}>{item}</div>
+                                  )}
+                                  <div style={{ fontSize:FONT.xs.size, color:T.textMuted }}>{cat}{chk && sel?.bibliotheque_id ? " · repris de la bibliothèque" : ""}</div>
+                                  {chk && !manageMode && ligneEdition(sel)}
+                                </div>
+                                {manageMode && !isEditing && (
+                                  <div style={{display:"flex", gap:4, flexShrink:0}}>
+                                    <button title="Renommer l'ouvrage" onClick={()=>setEditLib({cat,idx,value:item})} style={iconBtnSec}><Icon as={Edit2} size={12}/></button>
+                                    <button title="Supprimer l'ouvrage" onClick={()=>setToDeleteOuvrage({cat,idx,label:item})} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                                  </div>
+                                )}
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })}
+                          {manageMode && (
+                            addLibCat===cat ? (
+                              <div style={{display:"flex", gap:6, marginBottom:10, alignItems:"center"}}>
+                                <input autoFocus style={{...inp, flex:1, padding:"7px 10px", fontSize:FONT.sm.size}}
+                                  value={addLibVal} onChange={e=>setAddLibVal(e.target.value)}
+                                  placeholder={`Nouvel ouvrage dans « ${cat} »`}
+                                  onKeyDown={e=>{ if(e.key==="Enter") addOuvrageToCat(cat, addLibVal); if(e.key==="Escape"){setAddLibCat(null);setAddLibVal("");} }} />
+                                <button onClick={()=>addOuvrageToCat(cat, addLibVal)} style={{...btn, padding:"7px 12px"}}><Icon as={Check} size={12}/></button>
+                                <button onClick={()=>{setAddLibCat(null);setAddLibVal("");}} style={{...btnSec, padding:"7px 12px"}}><Icon as={X} size={12}/></button>
+                              </div>
+                            ) : (
+                              <button onClick={()=>{setAddLibCat(cat);setAddLibVal("");}} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, marginBottom:10}}>
+                                <Icon as={Plus} size={11}/> Ajouter un ouvrage
+                              </button>
+                            )
+                          )}
                         </div>
-                      )}
-                    </>
-                  );
-                })()}
-                <div style={{ display:"flex", gap:8, marginTop:10, flexWrap:"wrap" }}>
-                  <button onClick={async()=>{ if(!window.confirm("Désélectionner tous les ouvrages ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
-                    style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
-                    <Icon as={X} size={11}/>
-                    Tout désélectionner
-                  </button>
-                  <button onClick={()=>setShowModal(true)}
-                    style={{...btn, display:"inline-flex", alignItems:"center", gap:5}}>
-                    <Icon as={FileText} size={11}/>
-                    Voir la sélection
-                  </button>
-                </div>
+                      );
+                    })}
+
+                  </>
+                )}
+
               </>
             )}
 
@@ -1343,6 +2417,58 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   </div>
                 )}
 
+                {/* ── Croquis à main levée (stylet) ── */}
+                <div style={{...h2s, marginTop:20, display:"flex", alignItems:"center", gap:8}}>
+                  <span style={{flex:1}}>Croquis à main levée {croquisList.length > 0 && `(${croquisList.length})`}</span>
+                  {!croquisActif && (
+                    <button onClick={()=>creerDessin("croquis")} style={{...btn, display:"inline-flex", alignItems:"center", gap:5, padding:"6px 12px", textTransform:"none", letterSpacing:0}}>
+                      <Icon as={Plus} size={11}/> Nouveau croquis
+                    </button>
+                  )}
+                </div>
+                {croquisActif ? (
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+                      <button onClick={()=>setCroquisOuvert(null)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
+                        <Icon as={ChevronLeftIcon} size={12}/> Retour
+                      </button>
+                      <input value={croquisActif.nom || ""} onChange={e=>updDessinChamp(croquisActif.id, "nom", e.target.value)} placeholder="Nom du croquis (ex : Implantation cuisine)" style={{...inp, flex:"1 1 200px", maxWidth:360}}/>
+                      <select value={croquisActif.fond || "grille"} onChange={e=>updDessinChamp(croquisActif.id, "fond", e.target.value)} style={{...inp, width:"auto", cursor:"pointer"}}>
+                        <option value="grille">Grille</option><option value="lignes">Lignes</option><option value="blanc">Blanc</option>
+                      </select>
+                      <button title="Supprimer ce croquis" onClick={()=>setToDeleteDessin(croquisActif)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+                    </div>
+                    <StylusCanvas key={croquisActif.id} strokes={croquisActif.strokes || []} onChange={s=>updDessinStrokes(croquisActif.id, s)}
+                      largeur={croquisActif.largeur || CROQUIS_W} hauteur={croquisActif.hauteur || CROQUIS_H} fond={croquisActif.fond || "grille"} T={T} acc={acc}/>
+                  </div>
+                ) : croquisList.length === 0 ? (
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"22px 20px", textAlign:"center", color:T.textSub, marginBottom:8 }}>
+                    <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:3}}>Aucun croquis</div>
+                    <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Dessine librement au stylet : implantation, détail, cotes rapides. Les croquis rejoignent le PDF du dossier.</div>
+                  </div>
+                ) : (
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12, marginBottom:8 }}>
+                    {croquisList.map(d => (
+                      <div key={d.id} className="pic-card" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:SHADOW.sm }}>
+                        <div style={{ position:"relative", aspectRatio:"7/5", background:"#fff", cursor:"pointer" }} onClick={()=>setCroquisOuvert(d.id)}>
+                          <img src={vignetteDessin(d)} alt={d.nom||""} style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"contain" }}/>
+                        </div>
+                        <div style={{ padding:"8px 10px", display:"flex", flexDirection:"column", gap:6 }}>
+                          <div style={{ fontSize:FONT.sm.size, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.nom||"Croquis"}</div>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <button onClick={()=>setCroquisOuvert(d.id)} style={{...btnSec, flex:1, display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, padding:"6px 8px"}}>
+                              <Icon as={Pencil} size={11}/> Ouvrir
+                            </button>
+                            <button title="Supprimer le croquis" onClick={()=>setToDeleteDessin(d)} style={iconBtnDng}>
+                              <Icon as={Trash2} size={12}/>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div style={{...h2s, marginTop:20}}>Côtes menuiseries / huisseries</div>
                 <button onClick={ajoutCote} style={{
                   display:"inline-flex",alignItems:"center",gap:5,marginBottom:10,
@@ -1377,31 +2503,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, gap:10, flexWrap:"wrap" }}>
                   <div style={{ fontSize:FONT.xs.size, fontWeight:700, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, display:"inline-flex", alignItems:"center", gap:6 }}>
                     <Icon as={Camera} size={11}/>
-                    Photos du projet
+                    Photos & vidéos du projet
                     {photos.length > 0 && <span style={{color:acc.accent}}>· {photos.length}</span>}
                   </div>
                   <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                    <label style={{
-                      display:"inline-flex", alignItems:"center", gap:6,
-                      background:acc.accent, color:acc.onAccent, border:"none",
-                      borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
-                      fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800,
-                    }}>
+                    <label style={{ display:"inline-flex", alignItems:"center", gap:6, background:acc.accent, color:acc.onAccent, border:"none", borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800 }}>
                       <Icon as={Camera} size={13}/>
-                      Prendre une photo
-                      <input ref={photoInputRef} type="file" accept="image/*" capture="environment"
-                        onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                      Photo
+                      <input ref={photoInputRef} type="file" accept="image/*" capture="environment" onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
                     </label>
-                    <label style={{
-                      display:"inline-flex", alignItems:"center", gap:6,
-                      background:"transparent", color:T.text, border:`1px solid ${T.border}`,
-                      borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer",
-                      fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700,
-                    }}>
+                    <label style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#5b9cf6", color:"#fff", border:"none", borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:800 }}>
+                      <Icon as={Video} size={13}/>
+                      Filmer
+                      <input type="file" accept="video/*" capture="environment" onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                    </label>
+                    <label style={{ display:"inline-flex", alignItems:"center", gap:6, background:"transparent", color:T.text, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, padding:"9px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700 }}>
                       <Icon as={ImagePlus} size={13}/>
                       Importer
-                      <input type="file" accept="image/*" multiple
-                        onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
+                      <input type="file" accept="image/*,video/*" multiple onChange={e=>onPhotoFiles(e.target.files)} style={{display:"none"}}/>
                     </label>
                   </div>
                 </div>
@@ -1410,60 +2529,62 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     <svg width="13" height="13" viewBox="0 0 24 24" style={{animation:"spin 1s linear infinite"}}>
                       <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="30 70"/>
                     </svg>
-                    Upload en cours… {uploadingCount} restante{uploadingCount > 1 ? "s" : ""}
+                    Upload en cours… {uploadingCount} restant{uploadingCount > 1 ? "s" : ""} (les vidéos peuvent prendre un moment)
                   </div>
                 )}
                 {photos.length === 0 ? (
-                  <div style={{
-                    background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl,
-                    padding:"40px 24px", textAlign:"center", color:T.textSub,
-                  }}>
-                    <div style={{
-                      width:48,height:48,borderRadius:RADIUS.lg,
-                      background:acc.bg10,color:acc.accent,
-                      display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12,
-                    }}>
+                  <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"40px 24px", textAlign:"center", color:T.textSub }}>
+                    <div style={{ width:48,height:48,borderRadius:RADIUS.lg, background:acc.bg10,color:acc.accent, display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
                       <Icon as={Camera} size={24} strokeWidth={1.5}/>
                     </div>
-                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucune photo</div>
+                    <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:4}}>Aucun média</div>
                     <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>
-                      Prends des photos sur place (état de l'existant, points d'attention) — l'appareil photo s'ouvrira directement sur mobile.
+                      Prends des photos ou filme sur place (état de l'existant, points d'attention) — l'appareil s'ouvre directement sur mobile. Max 50 Mo par vidéo.
                     </div>
                   </div>
                 ) : (
-                  <div style={{
-                    display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12,
-                  }}>
-                    {photos.map((ph, i) => (
-                      <div key={ph.id || i} className="pic-card" style={{
-                        background:T.surface, border:`1px solid ${T.border}`,
-                        borderRadius:RADIUS.lg, overflow:"hidden", boxShadow:SHADOW.sm,
-                      }}>
-                        <div style={{ position:"relative", aspectRatio:"4/3", background:T.card, cursor:"pointer" }}
-                          onClick={()=>setLightbox({urls:photos.map(p=>p.url),idx:i})}>
-                          <img src={ph.url} alt={ph.label||""} loading="lazy"
-                            style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
-                          <button onClick={(e)=>{e.stopPropagation();removePhoto(i);}} title="Supprimer cette photo"
-                            style={{
-                              position:"absolute", top:6, right:6,
-                              display:"inline-flex", alignItems:"center", justifyContent:"center",
-                              background:"rgba(0,0,0,0.65)", color:"#fff", border:"none",
-                              borderRadius:"50%", width:26, height:26, cursor:"pointer", padding:0,
-                            }}>
-                            <Icon as={Trash2} size={11}/>
-                          </button>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12 }}>
+                    {photos.map((ph, i) => {
+                      const isVideo = ph.type === "video";
+                      return (
+                        <div key={ph.id || i} className="pic-card" style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden", boxShadow:SHADOW.sm }}>
+                          <div style={{ position:"relative", aspectRatio:"4/3", background:isVideo?"#0b0d12":T.card, cursor:"pointer" }} onClick={()=>setLightbox({ idx:i })}>
+                            {isVideo ? (
+                              <video src={ph.url} preload="metadata" muted playsInline style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+                            ) : (
+                              <img src={ph.url} alt={ph.label||""} loading="lazy" style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+                            )}
+                            {isVideo && (
+                              <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
+                                <span style={{ width:40, height:40, borderRadius:"50%", background:"rgba(0,0,0,0.55)", color:"#fff", display:"inline-flex", alignItems:"center", justifyContent:"center", border:"2px solid rgba(255,255,255,0.7)" }}>
+                                  <Icon as={Play} size={16}/>
+                                </span>
+                              </div>
+                            )}
+                            <span style={{ position:"absolute", top:6, left:6, display:"inline-flex", alignItems:"center", gap:4, background:"rgba(0,0,0,0.6)", color:"#fff", borderRadius:RADIUS.sm, padding:"2px 7px", fontSize:FONT.xs.size-1, fontWeight:700, letterSpacing:.5, textTransform:"uppercase" }}>
+                              <Icon as={isVideo?Film:Camera} size={10}/>{isVideo?"Vidéo":"Photo"}
+                            </span>
+                            <button onClick={(e)=>{e.stopPropagation();removePhoto(i);}} title={isVideo?"Supprimer cette vidéo":"Supprimer cette photo"}
+                              style={{ position:"absolute", top:6, right:6, display:"inline-flex", alignItems:"center", justifyContent:"center", background:"rgba(0,0,0,0.65)", color:"#fff", border:"none", borderRadius:"50%", width:26, height:26, cursor:"pointer", padding:0 }}>
+                              <Icon as={Trash2} size={11}/>
+                            </button>
+                            {ph.label && (
+                              <div style={{ position:"absolute", left:0, right:0, bottom:0, padding:"18px 10px 8px", background:"linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.7))", color:"#fff", fontSize:FONT.sm.size, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", pointerEvents:"none" }}>
+                                {ph.label}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ padding:"8px 10px", display:"flex", flexDirection:"column", gap:2 }}>
+                            <input value={ph.label || ""} onChange={e=>updatePhotoField(i, "label", e.target.value)}
+                              placeholder={isVideo ? "Titre de la vidéo" : "Titre de la photo"}
+                              style={{ width:"100%", background:"transparent", border:"none", color:T.text, fontFamily:"inherit", fontSize:FONT.sm.size, fontWeight:700, outline:"none", padding:"3px 0" }}/>
+                            <input value={ph.commentaire || ""} onChange={e=>updatePhotoField(i, "commentaire", e.target.value)}
+                              placeholder="Commentaire (ex : Salon — mur sud, fissure)"
+                              style={{ width:"100%", background:"transparent", border:"none", borderTop:`1px dashed ${T.border}`, color:T.textSub, fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none", padding:"5px 0 2px" }}/>
+                          </div>
                         </div>
-                        <div style={{ padding:"8px 10px" }}>
-                          <input value={ph.label || ""} onChange={e=>updatePhotoLabel(i, e.target.value)}
-                            placeholder="Libellé (ex : Salon — mur sud)"
-                            style={{
-                              width:"100%", background:"transparent", border:"none",
-                              color:T.text, fontFamily:"inherit", fontSize:FONT.xs.size+1, outline:"none",
-                              padding:"3px 0",
-                            }}/>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -1520,14 +2641,22 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   Export du dossier
                 </div>
                 <p style={{color:T.textSub,fontSize:FONT.sm.size,marginBottom:14,lineHeight:1.7}}>
-                  Génère une fiche complète avec infos client, ouvrages sélectionnés, côtes, plan et photos.
+                  Le dossier de chiffrage reprend le design des documents Profero (même en-tête que le prévisionnel et la fiche opération) : tout ce qui a été saisi pendant la visite, prêt à imprimer ou à enregistrer en PDF.
                 </p>
                 <div style={{ background:acc.bg10, border:`1px solid ${acc.accent}33`, borderRadius:RADIUS.md, padding:"12px 14px", marginBottom:18 }}>
                   <div style={{display:"inline-flex",alignItems:"center",gap:5,color:acc.accent,fontWeight:700,marginBottom:8,fontSize:FONT.sm.size}}>
                     <Icon as={FileText} size={12}/>
-                    Contenu de la fiche
+                    Contenu du dossier
                   </div>
-                  {["Infos client et projet","Composition (logements)","Ouvrages avec estimation budgétaire","Côtes menuiseries / huisseries","Plan du chantier","Photos sur place","Observations"].map(i=>(
+                  {[
+                    `Client (${infos.client_societe ? "société, " : ""}contact, adresse de facturation), chantier${logementInfo.reference || logementInfo.type ? ` et logement ${[logementInfo.reference, logementInfo.type].filter(Boolean).join(" · ")}` : ""}, statut, budget et délai`,
+                    `Devis : objet, dates, TVA ${tvaManquante ? "(à choisir)" : `${infos.tva_pct} %`}, conditions`,
+                    `Notes${notesPages.some(d => (d.strokes||[]).length) ? " + pages manuscrites" : ""}`,
+                    `Ouvrages par LOT puis ZONE : quantité, unité, PU HT, total HT${totauxProjet.ttc != null ? ", TVA et TTC" : ""}${budgetClient != null ? " et écart budget" : ""} — sans coûts ni marge`,
+                    "Côtes menuiseries / huisseries",
+                    `Plans (${richPlans.length}) et croquis à main levée (${croquisList.filter(d => (d.strokes||[]).length).length})`,
+                    `Photos & vidéos (${photos.length}) avec titres et commentaires`,
+                  ].map(i=>(
                     <div key={i} style={{fontSize:FONT.xs.size+1,color:T.textSub,marginBottom:4,display:"inline-flex",alignItems:"center",gap:5,width:"100%"}}>
                       <Icon as={Check} size={10} color={acc.accent}/>
                       {i}
@@ -1535,27 +2664,36 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   ))}
                 </div>
                 <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                  <button onClick={handleExportWord} disabled={exporting} style={{
+                  <button onClick={()=>exporterPDF(false)} disabled={exporting} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:acc.accent,color:acc.onAccent,border:"none",
                     borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
                     fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,opacity:exporting?.6:1,
                   }}>
-                    <Icon as={FileDown} size={13}/>
-                    {exporting ? "Génération…" : "Exporter en Word (.docx)"}
+                    <Icon as={Download} size={13}/>
+                    {exporting ? "Génération…" : "Dossier PDF (client)"}
                   </button>
-                  <button onClick={()=>genPDF({infos,ouvrages,cotes,plans:(richPlans||[]).filter(p=>typeof p.thumbnail==="string"&&p.thumbnail.startsWith("data:image")).map(p=>({nom:p.name,data:p.thumbnail}))})} style={{
+                  <button onClick={()=>exporterPDF(true)} disabled={exporting} title="Document INTERNE : coûts matériaux / main-d'œuvre, marge par ligne et globale. Ne pas envoyer au client." style={{
+                    display:"inline-flex",alignItems:"center",gap:6,
+                    background:"transparent",color:"#e15a5a",border:"1px solid rgba(225,90,90,0.45)",
+                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,opacity:exporting?.6:1,
+                  }}>
+                    <Icon as={Lock} size={13}/>
+                    Synthèse interne PDF (coûts & marge)
+                  </button>
+                  <button onClick={handleExportWord} disabled={exporting} style={{
                     display:"inline-flex",alignItems:"center",gap:6,
                     background:"transparent",color:T.textSub,border:`1px solid ${T.border}`,
-                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:"pointer",
-                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,
+                    borderRadius:RADIUS.md,padding:"10px 18px",cursor:exporting?"not-allowed":"pointer",
+                    fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700,opacity:exporting?.6:1,
                   }}>
-                    <Icon as={Download} size={13}/>
-                    PDF (impression navigateur)
+                    <Icon as={FileDown} size={13}/>
+                    Word (.docx)
                   </button>
                 </div>
                 <p style={{color:T.textMuted,fontSize:FONT.xs.size+1,marginTop:14,lineHeight:1.6,fontStyle:"italic"}}>
-                  Le Word inclut les photos directement dans le document. Le PDF reste accessible via l'impression du navigateur.
+                  Le PDF s'ouvre dans la fenêtre d'impression du navigateur : choisir « Enregistrer au format PDF » comme destination. Les vidéos y figurent par leur titre et leur lien (une vidéo ne s'imprime pas).
                 </p>
               </>
             )}
@@ -1563,53 +2701,55 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         </div>
       )}
 
-      {/* ── LIGHTBOX PHOTOS ── */}
-      {lightbox && (
-        <div onClick={()=>setLightbox(null)} style={{
-          position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:1200,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          padding:20, flexDirection:"column", gap:14,
-        }}>
-          <img src={lightbox.urls[lightbox.idx]} alt=""
-            onClick={e=>e.stopPropagation()}
-            style={{ maxWidth:"100%", maxHeight:"calc(100vh - 120px)", objectFit:"contain", borderRadius:8 }}/>
-          <div onClick={e=>e.stopPropagation()} style={{ display:"flex", gap:12, alignItems:"center" }}>
-            {lightbox.urls.length > 1 && (
-              <>
-                <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx-1+l.urls.length)%l.urls.length}))}
-                  style={{
-                    display:"inline-flex", alignItems:"center", justifyContent:"center",
-                    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
-                    color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit",
-                  }}>
-                  <Icon as={ChevronLeftIcon} size={16}/>
-                </button>
-                <span style={{ color:"#fff", fontSize:13, fontWeight:600 }}>
-                  {lightbox.idx + 1} / {lightbox.urls.length}
-                </span>
-                <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx+1)%l.urls.length}))}
-                  style={{
-                    display:"inline-flex", alignItems:"center", justifyContent:"center",
-                    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
-                    color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit",
-                  }}>
-                  <Icon as={ChevronRight} size={16}/>
-                </button>
-              </>
-            )}
-            <button onClick={()=>setLightbox(null)}
-              style={{
-                background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
-                color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer",
-                fontFamily:"inherit", fontSize:13, fontWeight:600,
-              }}>
-              Fermer
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* ── MODAL SÉLECTION OUVRAGES ── */}
+{/* ── LIGHTBOX PHOTOS & VIDÉOS ── */}
+      {lightbox && photos[lightbox.idx] && (() => {
+        const m = photos[lightbox.idx];
+        const isVideo = m.type === "video";
+        return (
+          <div onClick={()=>setLightbox(null)} style={{
+            position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:1200,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            padding:20, flexDirection:"column", gap:14,
+          }}>
+            {isVideo ? (
+              <video key={m.url} src={m.url} controls autoPlay playsInline onClick={e=>e.stopPropagation()}
+                style={{ maxWidth:"100%", maxHeight:"calc(100vh - 160px)", borderRadius:8, background:"#000" }}/>
+            ) : (
+              <img src={m.url} alt={m.label||""} onClick={e=>e.stopPropagation()}
+                style={{ maxWidth:"100%", maxHeight:"calc(100vh - 160px)", objectFit:"contain", borderRadius:8 }}/>
+            )}
+            {(m.label || m.commentaire) && (
+              <div onClick={e=>e.stopPropagation()} style={{ color:"#fff", textAlign:"center", maxWidth:720 }}>
+                {m.label && <div style={{ fontSize:15, fontWeight:800 }}>{m.label}</div>}
+                {m.commentaire && <div style={{ fontSize:13, opacity:.75, marginTop:3 }}>{m.commentaire}</div>}
+              </div>
+            )}
+            <div onClick={e=>e.stopPropagation()} style={{ display:"flex", gap:12, alignItems:"center" }}>
+              {photos.length > 1 && (
+                <>
+                  <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx-1+photos.length)%photos.length}))}
+                    style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit" }}>
+                    <Icon as={ChevronLeftIcon} size={16}/>
+                  </button>
+                  <span style={{ color:"#fff", fontSize:13, fontWeight:600 }}>{lightbox.idx + 1} / {photos.length}</span>
+                  <button onClick={()=>setLightbox(l=>({...l,idx:(l.idx+1)%photos.length}))}
+                    style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit" }}>
+                    <Icon as={ChevronRight} size={16}/>
+                  </button>
+                </>
+              )}
+              <button onClick={()=>setLightbox(null)}
+                style={{ background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)", color:"#fff", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:600 }}>
+                Fermer
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+
+{/* ── MODAL SÉLECTION OUVRAGES ── */}
       {showModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}
           onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
@@ -1624,8 +2764,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 <Icon as={Check} size={16}/>
               </div>
               <div style={{flex:1}}>
-                <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Ouvrages sélectionnés</div>
-                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ouvrage{ouvrages.length>1?"s":""} retenus</div>
+                <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Aperçu du devis{logementInfo.reference ? ` — ${logementInfo.reference}` : ""}</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ligne{ouvrages.length>1?"s":""} · LOT → ZONE → OUVRAGES · {fmtEur2(totauxProjet.venteHT)} HT{totauxProjet.ttc != null ? ` · ${fmtEur2(totauxProjet.ttc)} TTC` : ""}</div>
               </div>
               <button onClick={()=>setShowModal(false)} title="Fermer" style={{
                 display:"inline-flex",alignItems:"center",justifyContent:"center",
@@ -1636,16 +2776,29 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
               </button>
             </div>
             <div style={{flex:1,overflowY:"auto",padding:"16px 22px"}}>
-              {ouvrages.length===0 ? <div style={{color:T.textMuted,textAlign:"center",padding:20,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage sélectionné</div> : (
-                Object.entries(ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{})).map(([cat,items])=>(
-                  <div key={cat} style={{marginBottom:14}}>
-                    <div style={{display:"inline-flex",alignItems:"center",gap:5,background:acc.bg10,color:acc.accent,padding:"4px 10px",borderRadius:RADIUS.sm,fontWeight:700,fontSize:FONT.xs.size+1,marginBottom:6,border:`1px solid ${acc.accent}33`}}>
-                      <Icon as={Layers} size={11}/>
-                      {cat}
+              {ouvrages.length===0 ? <div style={{color:T.textMuted,textAlign:"center",padding:20,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucun ouvrage dans le devis</div> : (
+                groupesDevis.map(g=>(
+                  <div key={g.lot} style={{marginBottom:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:5,background:acc.bg10,color:acc.accent,padding:"4px 10px",borderRadius:RADIUS.sm,fontWeight:700,fontSize:FONT.xs.size+1,border:`1px solid ${acc.accent}33`,textTransform:"uppercase"}}>
+                        <Icon as={Layers} size={11}/>{g.lot}
+                      </span>
+                      <span style={{flex:1}}/>
+                      <span style={{fontSize:FONT.xs.size+1,fontWeight:800,color:T.textSub}}>{fmtEur2(g.total)}</span>
                     </div>
-                    {items.map((it,i)=>(
-                      <div key={i} style={{padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${T.border}`,marginBottom:4}}>
-                        {it.item}{it.quantite?` — ${it.quantite} ${it.unite}`:""}
+                    {g.zones.map(z=>(
+                      <div key={z.zone} style={{marginLeft:8,marginBottom:6}}>
+                        <div style={{fontSize:FONT.xs.size+1,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:.5,padding:"2px 0 4px"}}>{z.zone}</div>
+                        {z.lignes.map(it=>{
+                          const tot = totalLigneHT(it);
+                          return (
+                            <div key={it.id} style={{display:"flex",gap:8,padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${T.border}`,marginBottom:4}}>
+                              <span style={{flex:1,minWidth:0}}>{it.code_ouvrage ? <strong style={{fontFamily:"ui-monospace, Menlo, Consolas, monospace",marginRight:6}}>{it.code_ouvrage}</strong> : null}{decoderLibelleCode(it.item)?.reste || it.item}</span>
+                              <span style={{color:T.textMuted,whiteSpace:"nowrap"}}>{it.quantite ? `${it.quantite} ${it.unite || "U"}` : "—"}{numOrNull(it.prix_unitaire) != null ? ` × ${fmtEur2(it.prix_unitaire)}` : ""}</span>
+                              <span style={{fontWeight:800,color:tot != null ? "#22c55e" : T.textMuted,whiteSpace:"nowrap",minWidth:80,textAlign:"right"}}>{tot != null ? fmtEur2(tot) : "sans prix"}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     ))}
                   </div>
@@ -1658,6 +2811,185 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",
                 fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,
               }}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DEVIS PROGBAT : aperçu reconstruit par le serveur + création d'un brouillon après confirmation ── */}
+      {showProgbat && (
+        <ProgbatApercuDevis T={T} acc={acc} projetId={projetId} projet={infos} lignes={ouvrages} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)} onDevisCree={()=>chargerProjets()}/>
+      )}
+
+      {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}
+      {actualisation && (() => {
+        const { ligne, calcul, diffs } = actualisation;
+        const fmtVal = (champ, v) => v == null ? "—" : /taux_horaire/.test(champ) ? `${fmtEur2(v)}/h` : /taux/.test(champ) ? fmtPct(v) : /coef/.test(champ) ? fmtCoef(v) : /cout|prix/.test(champ) ? fmtEur2(v) : String(v);
+        return (
+          <div onClick={()=>setActualisation(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:560,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={RefreshCw} size={18}/></div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Actualiser depuis la bibliothèque</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ligne.code_ouvrage ? `${ligne.code_ouvrage} · ` : ""}{ligne.item} · zone {ligne.zone || ZONE_DEFAUT}</div>
+                </div>
+              </div>
+              {diffs.length === 0 ? (
+                <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>Cette ligne est déjà identique au calcul actuel de la bibliothèque. Rien à actualiser.</div>
+              ) : (
+                <>
+                  <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:12}}>
+                    Seule <strong style={{color:T.text}}>cette ligne</strong> sera mise à jour (zone, quantité et TVA conservées). Les autres lignes et les autres devis ne bougent pas.
+                    {!calcul.complet && <div style={{color:"#e15a5a",fontWeight:700,marginTop:6}}>Le calcul actuel est incomplet : {calcul.erreurs.join(" · ")}</div>}
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:FONT.sm.size,marginBottom:18}}>
+                    <thead><tr>{["Champ","Ligne actuelle","Bibliothèque"].map((h,i)=><th key={h} style={{textAlign:i===0?"left":"right",fontSize:FONT.xs.size,color:T.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:.6,padding:"4px 8px",borderBottom:`1px solid ${T.border}`}}>{h}</th>)}</tr></thead>
+                    <tbody>{diffs.map(d=>(
+                      <tr key={d.champ}>
+                        <td style={{padding:"6px 8px",color:T.textSub,borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>{d.label}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",color:T.textMuted,textDecoration:"line-through",borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>{fmtVal(d.champ,d.avant)}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",fontWeight:800,color:T.text,borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>{fmtVal(d.champ,d.apres)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </>
+              )}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setActualisation(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer"}}>{diffs.length === 0 ? "Fermer" : "Annuler"}</button>
+                {diffs.length > 0 && (
+                  <button onClick={confirmerActualisation} style={{display:"inline-flex",alignItems:"center",gap:6,background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+                    <Icon as={Check} size={13}/> Actualiser cette ligne
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MODAL DÉTAIL DU PRIX D'UNE LIGNE (snapshot) ── */}
+      {voirDetailLigne && (() => {
+        const l = voirDetailLigne, d = l.calcul_detail || {};
+        const cond = decrireConditionsLigne(l);
+        const row = (label, val, strong = false) => (
+          <div style={{display:"flex",justifyContent:"space-between",gap:12,padding:"5px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`,fontSize:FONT.sm.size}}>
+            <span style={{color:T.textSub}}>{label}</span><span style={{fontWeight:strong?800:600,color:T.text}}>{val}</span>
+          </div>
+        );
+        return (
+          <div onClick={()=>setVoirDetailLigne(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:520,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Lock} size={18}/></div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Prix figé de la ligne</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.code_ouvrage ? `${l.code_ouvrage} · ` : ""}{l.item}</div>
+                </div>
+              </div>
+              <div style={{marginBottom:14}}>
+                {row("Zone", l.zone || ZONE_DEFAUT)}
+                {row(`Coût matériaux / ${l.unite || "u"}`, fmtEur2(l.cout_materiaux_unitaire))}
+                {row(`Coût main-d'œuvre / ${l.unite || "u"}`, `${fmtEur2(l.cout_main_oeuvre_unitaire)}${d.heures_unitaires != null && d.cout_horaire != null ? ` (${d.heures_unitaires} h × ${d.cout_horaire} €/h chargé)` : ""}`)}
+                {numOrNull(l.cout_direct_unitaire) > 0 && row(`Coût direct / ${l.unite || "u"}`, fmtEur2(l.cout_direct_unitaire))}
+                {row(`Coût total / ${l.unite || "u"}`, fmtEur2(l.cout_total_unitaire), true)}
+                {(l.coef_vente != null || d.coef_vente != null) && row(d.version >= 2 ? "Coefficient appliqué" : "Coefficient de vente (coût total)", `${d.coefficient_applique?.libelle ? `${d.coefficient_applique.libelle} — ` : (d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : "")}${formaterCoefficient(l.coef_vente ?? d.coef_vente)}`)}
+                {(l.coef_vente != null || d.coef_vente != null) && row("Origine du coefficient", libelleSource(cond.coefficient.source))}
+                {cond.coefficient.source !== "ouvrage" && row("Coefficient d'origine de l'ouvrage", cond.coefficient.origine != null ? `${d.coefficient_vente_libelle ? `${d.coefficient_vente_libelle} — ` : ""}${formaterCoefficient(cond.coefficient.origine)}` : "non figé sur cette ligne")}
+                {d.prix_materiaux_unitaire != null && row(`Prix matériaux HT / ${l.unite || "u"}`, `${expliquerPrixMateriaux(l.cout_materiaux_unitaire, l.coef_vente ?? d.coef_vente) || fmtEur2(d.prix_materiaux_unitaire)}${d.prix_direct_unitaire ? ` + coût direct ${fmtEur2(d.prix_direct_unitaire)}` : ""}`)}
+                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row("Taux horaire appliqué", `${d.taux_applique?.libelle ? `${d.taux_applique.libelle} — ` : (d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : "")}${formaterTauxHT(l.taux_horaire_vente ?? d.taux_horaire_vente)}`)}
+                {(l.taux_horaire_vente != null || d.taux_horaire_vente != null) && row("Origine du taux horaire", libelleSource(cond.tauxHoraire.source))}
+                {cond.tauxHoraire.source !== "ouvrage" && row("Taux horaire d'origine de l'ouvrage", cond.tauxHoraire.origine != null ? `${d.taux_horaire_vente_libelle ? `${d.taux_horaire_vente_libelle} — ` : ""}${formaterTauxHT(cond.tauxHoraire.origine)}` : "non figé sur cette ligne")}
+                {d.prix_main_oeuvre_unitaire != null && row(`Prix main-d'œuvre HT / ${l.unite || "u"}`, expliquerPrixMainOeuvre(d.heures_unitaires, l.taux_horaire_vente ?? d.taux_horaire_vente) || fmtEur2(d.prix_main_oeuvre_unitaire))}
+                {row("Marge sur prix de vente", fmtPct(l.taux_marge_pct))}
+                {row(`Prix de vente HT / ${l.unite || "u"}`, fmtEur2(l.prix_unitaire), true)}
+                {row("TVA de la ligne", numOrNull(l.tva_pct) != null ? fmtPct(l.tva_pct) : `TVA du projet${!tvaManquante ? ` (${infos.tva_pct} %)` : ""}`)}
+                {row("Calcul figé le", d.date ? new Date(d.date).toLocaleString("fr-FR") : (l.calcul_version || "—"))}
+              </div>
+              {Array.isArray(d.materiaux) && d.materiaux.length > 0 && (
+                <div style={{marginBottom:14}}>
+                  <div style={{...lbl}}>Matériaux (pour 1 {l.unite || "u"})</div>
+                  {d.materiaux.map((m,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:FONT.xs.size+1,color:T.textSub,padding:"3px 0"}}>
+                      <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.nom}</span>
+                      <span style={{whiteSpace:"nowrap"}}>{m.quantite ?? "?"} {m.unite || ""} × {fmtEur2(m.prix_unitaire)} = <strong style={{color:T.text}}>{fmtEur2(m.total)}</strong></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(d.erreurs || []).length > 0 && (
+                <div style={{marginBottom:14,padding:"8px 10px",borderRadius:RADIUS.md,background:"rgba(225,90,90,0.10)",border:"1px solid rgba(225,90,90,0.35)"}}>
+                  {(d.erreurs || []).map((e,i)=><div key={i} style={{fontSize:FONT.xs.size+1,color:"#e15a5a",fontWeight:600}}>• {e}</div>)}
+                  <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:4}}>Corrige l'ouvrage dans la page Bibliothèque puis utilise « Actualiser » sur cette ligne.</div>
+                </div>
+              )}
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                <button onClick={()=>{ setConditionsLigne(l); setVoirDetailLigne(null); }} title="Choisir le coefficient et le taux horaire de vente de CETTE ligne uniquement"
+                  style={{display:"inline-flex",alignItems:"center",gap:6,background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 14px",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:700}}>
+                  <Icon as={SlidersHorizontal} size={13}/> Conditions de vente de cette ligne
+                </button>
+                <button onClick={()=>setVoirDetailLigne(null)} style={{background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800}}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MODAL CONDITIONS DE VENTE D'UNE LIGNE (dérogation coefficient / taux) ── */}
+      {conditionsLigne && (
+        <ConditionsVenteLigne T={T} acc={acc} projet={projetActif} projetId={projetId}
+          ligne={ouvrages.find(o => o.id === conditionsLigne.id) || conditionsLigne}
+          coefficients={biblio?.coefficients || []} tauxHoraires={biblio?.tauxHoraires || []}
+          onApplique={rechargerApresConditionsLigne} onClose={()=>setConditionsLigne(null)}/>
+      )}
+
+      {/* ── MODAL RETIRER UNE LIGNE DU DEVIS ── */}
+      {toDeleteLigne && (
+        <div onClick={()=>setToDeleteLigne(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:440,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Trash2} size={20}/></div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Retirer cette ligne ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              <strong style={{color:T.text}}>{toDeleteLigne.code_ouvrage ? `${toDeleteLigne.code_ouvrage} · ` : ""}{decoderLibelleCode(toDeleteLigne.item)?.reste || toDeleteLigne.item}</strong> — zone <strong style={{color:T.text}}>{toDeleteLigne.zone || ZONE_DEFAUT}</strong>.
+              {ouvrages.filter(o => o.bibliotheque_id && o.bibliotheque_id === toDeleteLigne.bibliotheque_id).length > 1 && <><br/><span style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>Les autres occurrences de cet ouvrage dans le devis sont conservées.</span></>}
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeleteLigne(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer"}}>Annuler</button>
+              <button onClick={()=>supprimerLigne(toDeleteLigne.id)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e15a5a",color:"#fff",border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+                <Icon as={Trash2} size={13}/> Retirer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL DUPLIQUER POUR UN AUTRE LOGEMENT ── */}
+      {dupliquerModal && (
+        <div onClick={()=>!dupliquant&&setDupliquerModal(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:480,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Copy} size={18}/></div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Dupliquer pour un autre logement</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:14}}>
+              Le nouveau projet reprend le client, l'adresse du chantier, les ouvrages avec leurs zones, quantités et <strong style={{color:T.text}}>prix figés</strong> (aucun recalcul depuis la bibliothèque), les plans, côtes, dessins et médias. Statut remis à « Prospect ».
+            </div>
+            <label style={lbl}>Référence du nouveau logement</label>
+            <input autoFocus style={{...inp, marginBottom:10}} value={dupliquerModal.reference} onChange={e=>setDupliquerModal(m=>({...m, reference:e.target.value}))} placeholder="Appartement 102, Logement 4, Studio 1er…"
+              onKeyDown={e=>{ if(e.key==="Enter") dupliquerProjet(dupliquerModal); if(e.key==="Escape") setDupliquerModal(null); }}/>
+            <label style={lbl}>Type de logement</label>
+            <select style={{...inp, marginBottom:20, cursor:"pointer"}} value={dupliquerModal.type} onChange={e=>setDupliquerModal(m=>({...m, type:e.target.value}))}>
+              <option value="">— Choisir —</option>
+              {TYPES_LOGEMENT.map(t => <option key={t} value={t}>{t}</option>)}
+              {dupliquerModal.type && !TYPES_LOGEMENT.includes(dupliquerModal.type) && <option value={dupliquerModal.type}>{dupliquerModal.type}</option>}
+            </select>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setDupliquerModal(null)} disabled={dupliquant} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer",opacity:dupliquant?.5:1}}>Annuler</button>
+              <button onClick={()=>dupliquerProjet(dupliquerModal)} disabled={dupliquant} style={{display:"inline-flex",alignItems:"center",gap:6,background:acc.accent,color:acc.onAccent,border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer",opacity:dupliquant?.6:1}}>
+                <Icon as={Copy} size={13}/> {dupliquant ? "Duplication…" : "Créer le logement"}
+              </button>
             </div>
           </div>
         </div>
@@ -1873,41 +3205,36 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           </div>
         </div>
       )}
+      {/* ── MODAL SUPPRESSION DESSIN (page manuscrite / croquis) ── */}
+      {toDeleteDessin && (
+        <div onClick={()=>setToDeleteDessin(null)} style={{
+          position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:T.modal,borderRadius:RADIUS.xl,padding:24,
+            width:"100%",maxWidth:420,border:`1px solid ${T.border}`,
+            boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
+          }}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <div style={{width:40,height:40,borderRadius:RADIUS.md,flexShrink:0,background:"rgba(224,92,92,0.12)",color:"#e15a5a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon as={AlertTriangle} size={20}/>
+              </div>
+              <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Supprimer {toDeleteDessin.type === "note" ? "cette page" : "ce croquis"} ?</div>
+            </div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:20}}>
+              <strong style={{color:T.text}}>« {toDeleteDessin.nom || (toDeleteDessin.type === "note" ? "Page" : "Croquis")} »</strong> et ses {(toDeleteDessin.strokes||[]).length} trait{(toDeleteDessin.strokes||[]).length>1?"s":""} seront définitivement supprimés.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDeleteDessin(null)} style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,padding:"9px 18px",color:T.textSub,fontFamily:"inherit",fontSize:FONT.sm.size,cursor:"pointer"}}>Annuler</button>
+              <button onClick={()=>supprimerDessin(toDeleteDessin.id)} style={{display:"inline-flex",alignItems:"center",gap:6,background:"#e15a5a",color:"#fff",border:"none",borderRadius:RADIUS.md,padding:"9px 18px",fontFamily:"inherit",fontSize:FONT.sm.size,fontWeight:800,cursor:"pointer"}}>
+                <Icon as={Trash2} size={13}/>
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-// ─── PDF ─────────────────────────────────────────────────────────────────────
-function genPDF({ infos, ouvrages, cotes, plans = [] }) {
-  const g=ouvrages.reduce((a,o)=>{if(!a[o.category])a[o.category]=[];a[o.category].push(o);return a;},{});
-  const plansImgs=(plans||[]).filter(p=>typeof p.data==="string"&&p.data.startsWith("data:image"));
-  const d=new Date().toLocaleDateString("fr-FR");
-  const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><style>
-    body{font-family:Arial,sans-serif;margin:20px;color:#333}
-    .hd{text-align:center;border-bottom:3px solid #FFC300;padding-bottom:15px;margin-bottom:20px}
-    .hd h1{color:#FFC300;margin:0;font-size:22px}
-    .sec{margin-bottom:24px;page-break-inside:avoid}
-    h2{border-bottom:2px solid #FFC300;padding-bottom:8px;margin-bottom:12px;font-size:15px}
-    .row{margin:6px 0;font-size:14px}.lbl{font-weight:bold;color:#FFC300}
-    .cat{background:#fff9e6;padding:10px 14px;border-left:4px solid #FFC300;margin-bottom:10px;border-radius:4px}
-    .cat-t{font-weight:bold;margin-bottom:6px}ul{margin-left:20px;line-height:2}
-    .cote{background:#f9f9f9;padding:10px;border-radius:4px;margin-bottom:8px;font-size:13px}
-    img{max-width:100%;border:2px solid #FFC300;margin:10px 0;border-radius:4px}
-    .ft{margin-top:30px;text-align:center;color:#aaa;font-size:11px;border-top:1px solid #eee;padding-top:10px}
-  </style></head><body>
-  <div class="hd"><div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px;"><img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCABkAGQDASIAAhEBAxEB/8QAGwABAAIDAQEAAAAAAAAAAAAAAAUGAgMEAQf/xAA4EAABAwMCBAMGBAQHAAAAAAABAAIDBAUREjEGIUFhFFFxEyIygZGhFTVS0UJTcrIWI5OxwcLw/8QAGgEBAAMBAQEAAAAAAAAAAAAAAAECAwQFBv/EACQRAAICAQQCAwADAAAAAAAAAAABAhEDBCExQRJhE1FxIqHB/9oADAMBAAIRAxEAPwCloiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAtdisNBXWqKoqGSGRxdkh5A5HCkP8LWv+XL/AKpWfCv5DB/U/wDuKl183qNTmjlklJ8s7oY4uKtFXq+F6SEF/tZRCd35BMfcjq36EKAutqqLVMGTAOY74JG7O/Y9l9Gcxr2ljxlrhgjsVFVFKLjw2I383+xDmOP6gOR+33W2n12RNebtcFZ4V0UBE6IveOMIiIAiIgCIiAIiIC/cK/kMH9T/AO4qWJA3IHzVNpb823cPw09Ph1U4v9IxqPM9+y47PdY6epcK+JlRFI7LnvaHOafPv6LwsmhyZJTye3Xs7I5lFJFznqPb6qekcHSO918jeYiHUk+fkFlWyR0Nslf8McURDR8sAf7LU+7WymhB8XA1gGQ1hB+gCqd/vzrmRDC0spmnODu8+Z/ZY4NNPLJKqii08iirvchRsiIvozhCIiAIiID0AnYE+iEEbgj1Vh4K/Mp8/wAn/sFMVIqJrPX/AIzDDG1ocYi3fbkfXOFxZdX8eTwr67339GscdxuyjaXfpP0Xivz5LjHbrd+HQxyksb7QP2A0juuSuttHWcTwR6W8ojJOxv8AEQeWfXP0VI65N/yW2/d8EvF9FN0u06sHT545IATsCfRWyTib2dyNGKSPwjX+yI674zjb5KRoKCOgvda2naGskhY8NGzTkggdshTPWSxq5xra1uFiTezKFpI/hI+SaXfpP0Vnu1ddxDFBX0sEUc0rQCw5OQQfNT1wddGzAUEdK6PHvGZxBznsolrXFK0t772290FiTvf+j51pPkfovCCN+SufD9VUVVPdKlrGeIfJlrRtq08gsrjDLWWJv4rHFDWOkDIy3GQS4AfbOQpesqfg12lz9+h8Vq0UsNc74Wk48hleK43O6M4efFQ0FNGQGBznOzz+m55bri4ihp6u1Ut3hjET5SA9o65z9wRurw1Tk43GlLhkPGldPgraIi7DImOGrhT22tllqi4MdHpGlueeQVHVVVNUPfrmkezUS0PcSB8loUpFS2xzHh9W5rw1m+MEnBOPTZYOMITeSt2XTbVElU8RRxw23wkkhdBgTMIIDhpAx36rRW3elivkdytxc4uGJo3N056fcfcLk8Ha8F3jXgcsDlkdPLn58tsLNtJamsc41bn41ADUG5OHdMZ3A9crnWLDHdJ9r9su5SZJm48OvqfHugl8RnUWaT8XnjZYUHEcJuVZVVmqNsjGsia0asAE/uo59JatRd4w6cn3WEfQZ26czvnsvIoKM22pZ4iAStkdpe8e85o+EDrz8xy8+ir8OJxadvrfr8J8pX0cRrJ5pYjUTyytY8OGtxdjmrLcLlw/cZmy1LqkuaNI0hzeWcqEgp7aYiZKlzZBC12DjGo7gen/AD2W40dpdM9zawiPJIaXjkMnrjnnA781pkjCTT3VfRWLaR10d1t9BT3KGmfMxsp/yDpOfhxv05rXU3enr7HFHUve2vpzqY/TnJHXPcfcLWKW0Nc8Goa4asty/OO2Rv8A+8liKS0F5eap2gHAZ7QZ29Pnn5Knhivyp3z/AITcqo73Xaz3WKN11heyojGC5gOHfMdOxUffbxHXMipaSIxUkPwgjBJ2HLoAsHUlsIL/ABZA30NIz8Owz367c8KOqGRx1EjIn+0ja4hrvMea0xYcalavbhPhfhEpSo1oiLsMgiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiAIiIAiIgCIiA/9k=" style="height:48px;width:48px;object-fit:contain;background:#0a0a0a;border-radius:8px;padding:4px;" /><h1 style="margin:0;">Information Client — Rapport de Visite</h1></div><p><strong>Client :</strong> ${infos.client_nom} ${infos.client_prenom}</p><p><strong>Date :</strong> ${d}</p></div>
-  <div class="sec"><h2>Informations Client</h2>
-    <div class="row"><span class="lbl">Nom :</span> ${infos.client_nom} ${infos.client_prenom}</div>
-    <div class="row"><span class="lbl">Adresse :</span> ${infos.adresse_bien||"—"}</div>
-    <div class="row"><span class="lbl">Date de visite :</span> ${infos.date_visite?new Date(infos.date_visite).toLocaleDateString("fr-FR"):"—"}</div>
-    <div class="row"><span class="lbl">Description :</span> ${infos.description_projet||"—"}</div>
-    ${infos.logements?.length?`<div class="row"><span class="lbl">Composition :</span> ${infos.logements.join(", ")}</div>`:""}
-    ${infos.observations?`<div class="row"><span class="lbl">Observations :</span> ${infos.observations}</div>`:""}
-    ${infos.notes?`<div class="row"><span class="lbl">Notes :</span> ${String(infos.notes).replace(/\n/g,"<br>")}</div>`:""}
-  </div>
-  ${ouvrages.length>0?`<div class="sec"><h2>Ouvrages Sélectionnés</h2>${Object.entries(g).map(([cat,its])=>`<div class="cat"><div class="cat-t">${cat}</div><ul>${its.map(i=>`<li>${i.item}${i.quantite?` — ${i.quantite} ${i.unite}`:""}</li>`).join("")}</ul></div>`).join("")}</div>`:""}
-  ${cotes.length>0?`<div class="sec"><h2>Côtes</h2>${cotes.map(c=>`<div class="cote"><strong>${c.nom||"(Sans nom)"}</strong><br>L : ${c.largeur||"—"} cm | H : ${c.hauteur||"—"} cm | ${c.localisation||"—"}</div>`).join("")}</div>`:""}
-  ${plansImgs.length>0?`<div class="sec"><h2>Plans du Chantier</h2>${plansImgs.map(p=>`<div style="margin-bottom:12px;"><div style="font-weight:bold;margin-bottom:4px;">${p.nom||"Plan"}</div><img src="${p.data}" /></div>`).join("")}</div>`:""}
-  <div class="ft">Rapport généré — ${d}</div></body></html>`;
-  const w=window.open("","_blank"); w.document.write(html); w.document.close(); setTimeout(()=>{w.focus();w.print();},500);
 }

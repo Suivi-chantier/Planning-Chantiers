@@ -219,13 +219,15 @@ const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;",
 const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
 
 // Titre de section : libellé condensé + filet dégradé jaune.
-const sectionTitre = (t) => `
+// (exporté : sert aussi aux autres documents au gabarit commun, ex. la fiche
+// opération d'operationDoc.js)
+export const sectionTitre = (t) => `
   <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 12pt;">
     <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">${t}</span>
     <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
   </div>`;
 
-function docClientHTML({ titreDoc, eyebrow, titre, sousTitre = "", chips = [], badgeHTML = "", logoUrl, corps, cssExtra = "" }) {
+export function docClientHTML({ titreDoc, eyebrow, titre, sousTitre = "", chips = [], badgeHTML = "", logoUrl, corps, cssExtra = "" }) {
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
 <title>${esc(titreDoc)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">

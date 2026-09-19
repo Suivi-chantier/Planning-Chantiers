@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { chargerModuleSource } from "./_chargeur.mjs";
 
 async function loadModule(path) {
-  const source = await readFile(new URL(path, import.meta.url), "utf8");
-  const dataUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
-  return import(dataUrl);
+  return chargerModuleSource(path, import.meta.url);
 }
 
 const m = await loadModule("../src/Renovation/planningDependencyInferenceV1.js");

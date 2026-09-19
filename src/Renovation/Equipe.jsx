@@ -4,6 +4,7 @@ import { fetchPointages } from "../pointages";
 import { avancementChantier as cfAvancementChantier } from "../chantierFinance";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
   Check, X, RefreshCw, MessageSquare, Pencil, Camera, FileDown, Trash2,
@@ -331,7 +332,7 @@ function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defau
             </div>
             <div>
               <div style={fieldLbl}>Adresse</div>
-              <input value={adresse} onChange={e => setAdresse(e.target.value)} placeholder="Adresse du chantier" style={inp}/>
+              <AdresseInput value={adresse} onChange={setAdresse} placeholder="Adresse du chantier" style={inp}/>
             </div>
           </div>
 
@@ -477,22 +478,24 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
   const appUrl = window.location.origin + "/rapport#rapport";
   const [copied, setCopied] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  // silencieux : rafraîchissement de fond (temps réel), sans écran de
+  // chargement — il démonterait un formulaire ouvert au-dessus de la liste.
+  const load = async ({ silencieux = false } = {}) => {
+    if (!silencieux) setLoading(true);
     let q = supabase.from("rapports").select("*").order("date_rapport",{ascending:false}).order("submitted_at",{ascending:false});
     if (filterOuvrier !== "all") q = q.eq("ouvrier", filterOuvrier);
     if (filterChantier !== "all") q = q.eq("chantier_id", filterChantier);
     if (filterSemaine) q = q.eq("semaine", filterSemaine);
     const { data } = await q;
     setRapports(data||[]);
-    setLoading(false);
+    if (!silencieux) setLoading(false);
   };
 
   useEffect(() => { load(); }, [filterOuvrier, filterChantier, filterSemaine]);
 
   useEffect(() => {
     const ch = supabase.channel("rapports-live")
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"rapports"},()=>load())
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"rapports"},()=>load({ silencieux: true }))
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [filterOuvrier, filterChantier, filterSemaine]);

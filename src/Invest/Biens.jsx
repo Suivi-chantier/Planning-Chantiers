@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -1726,15 +1727,18 @@ function FormulaireBien({ bien, profil, onSave, onClose, T=THEMES_INV.dark }) {
 
           <div style={{ marginBottom:12, gridColumn: "1 / 3" }}>
             <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Adresse du bien</label>
-            <InpText value={form.adresse} onChange={e=>setForm({...form,adresse:e.target.value})} placeholder="123 rue de la Paix"/>
+            <AdresseInput className="inv-inp" champ="rue" value={form.adresse} onChange={v=>setForm(f=>({...f,adresse:v}))} placeholder="123 rue de la Paix"
+              onSelect={s=>setForm(f=>({...f, adresse:s.adresse || s.label, ville:s.ville, code_postal:s.codePostal, latitude:s.lat ?? f.latitude, longitude:s.lng ?? f.longitude}))}/>
           </div>
           <div style={{ marginBottom:12 }}>
             <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Ville</label>
-            <InpText value={form.ville} onChange={e=>setForm({...form,ville:e.target.value})}/>
+            <AdresseInput className="inv-inp" type="commune" champ="ville" value={form.ville} onChange={v=>setForm(f=>({...f,ville:v}))}
+              onSelect={s=>setForm(f=>({...f, ville:s.ville, code_postal:s.codePostal || f.code_postal}))}/>
           </div>
           <div style={{ marginBottom:12 }}>
             <label style={{ fontSize:10, fontWeight:700, color:"#9aa0b0", textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:4 }}>Code postal</label>
-            <InpText value={form.code_postal} onChange={e=>setForm({...form,code_postal:e.target.value})}/>
+            <AdresseInput className="inv-inp" type="commune" champ="cp" value={form.code_postal} onChange={v=>setForm(f=>({...f,code_postal:v}))}
+              onSelect={s=>setForm(f=>({...f, code_postal:s.codePostal, ville:s.ville || f.ville}))}/>
           </div>
 
           <div style={{ marginBottom:12 }}>
@@ -1953,7 +1957,7 @@ const numVal = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-function MiniField({ label, value, onChange, type="text", options, textarea=false, readOnly=false, required=false, helper="", T=THEMES_INV.dark }) {
+function MiniField({ label, value, onChange, type="text", options, textarea=false, readOnly=false, required=false, helper="", adresse=null, T=THEMES_INV.dark }) {
   const isMissing = required && !readOnly && (value === null || value === undefined || String(value).trim() === "");
   const commonStyle = {
     width:"100%",
@@ -1973,6 +1977,9 @@ function MiniField({ label, value, onChange, type="text", options, textarea=fals
         <select className="inv-sel" value={value || ""} disabled={readOnly} onChange={e=>onChange(e.target.value)} style={{ width:"100%", ...commonStyle }}>
           {options.map(o => <option key={o} value={o}>{o || "Sélectionner"}</option>)}
         </select>
+      ) : adresse ? (
+        <AdresseInput className="inv-inp" value={value ?? ""} readOnly={readOnly} onChange={onChange} style={commonStyle}
+          type={adresse.type} champ={adresse.champ} onSelect={adresse.onSelect} />
       ) : (
         <input className="inv-inp" type={type} value={value ?? ""} readOnly={readOnly} onChange={e=>onChange(e.target.value)} style={commonStyle} />
       )}
@@ -2376,9 +2383,12 @@ const FicheVisiteBien = React.forwardRef(function FicheVisiteBien({ bien, profil
               <div style={grid2}>
                 <MiniField label="Référence interne Profero" value={bien.reference_interne || data.identification.reference_interne || "Générée automatiquement"} readOnly onChange={()=>{}} T={T}/>
                 <MiniField label="Conseiller Profero en charge" value={data.identification.conseiller_profero} onChange={v=>upd("identification","conseiller_profero",v)} required helper="Personne responsable du suivi du bien" T={T}/>
-                <MiniField label="Adresse complète" value={data.identification.adresse} onChange={v=>upd("identification","adresse",v)} required helper="Utilisée pour créer automatiquement latitude / longitude" T={T}/>
-                <MiniField label="Ville" value={data.identification.ville} onChange={v=>upd("identification","ville",v)} required T={T}/>
-                <MiniField label="Code postal" value={data.identification.code_postal} onChange={v=>upd("identification","code_postal",v)} required T={T}/>
+                <MiniField label="Adresse complète" value={data.identification.adresse} onChange={v=>upd("identification","adresse",v)} required helper="Utilisée pour créer automatiquement latitude / longitude" T={T}
+                  adresse={{ champ:"rue", onSelect:s=>{ upd("identification","adresse",s.adresse || s.label); upd("identification","ville",s.ville); upd("identification","code_postal",s.codePostal); if (s.lat != null && s.lng != null) { upd("identification","latitude",s.lat); upd("identification","longitude",s.lng); } } }}/>
+                <MiniField label="Ville" value={data.identification.ville} onChange={v=>upd("identification","ville",v)} required T={T}
+                  adresse={{ type:"commune", champ:"ville", onSelect:s=>{ upd("identification","ville",s.ville); if (s.codePostal) upd("identification","code_postal",s.codePostal); } }}/>
+                <MiniField label="Code postal" value={data.identification.code_postal} onChange={v=>upd("identification","code_postal",v)} required T={T}
+                  adresse={{ type:"commune", champ:"cp", onSelect:s=>{ upd("identification","code_postal",s.codePostal); if (s.ville) upd("identification","ville",s.ville); } }}/>
                 <MiniField label="Date de la visite" type="date" value={data.identification.date_visite} onChange={v=>upd("identification","date_visite",v)} required T={T}/>
                 <MiniField label="Source" value={data.identification.source} options={SOURCES_BIEN_VISITE} onChange={v=>upd("identification","source",v)} required T={T}/>
                 <MiniField label="Géolocalisation" value={data.identification.geocoding_status || (data.identification.latitude && data.identification.longitude ? "Coordonnées enregistrées" : "Automatique à l'enregistrement")} readOnly onChange={()=>{}} T={T}/>

@@ -9,6 +9,7 @@
 // d'ouvrages (pour pré-remplir les tâches via biblio.sous_taches).
 
 import * as XLSX from "xlsx";
+import { parseCodeOuvrage } from "./Renovation/codeOuvrage.mjs";
 
 export const normalise = (str) =>
   (str || "").toString().toLowerCase()
@@ -62,16 +63,15 @@ export function detectLot(rowCells, lots) {
 
 // Extrait un éventuel code en début de libellé (ex : "E-001 Prise courant"
 // → { prefix: "E", number: "001", full: "E-001", rest: "Prise courant" }).
-// Accepte plusieurs séparateurs : "E-001", "E001", "E 001", "E.001".
-// Renvoie null si pas de code détecté.
+// Accepte plusieurs séparateurs : "E-001", "E001", "E 001", "E.001", et des
+// préfixes jusqu'à 5 lettres ("COUV-001"). La détection est centralisée dans
+// src/Renovation/codeOuvrage.mjs ; on ne garde ici que la forme historique
+// { prefix, number, full, rest } attendue par l'import et le Phasage.
 export function extractCode(libelle) {
-  if (!libelle) return null;
-  const s = String(libelle).trim();
-  const m = s.match(/^([A-Z]{1,3})[\s\-\._]?(\d{1,5})\b\s*(.*)$/i);
-  if (!m) return null;
-  const prefix = m[1].toUpperCase();
-  const number = m[2];
-  return { prefix, number, full: `${prefix}-${number}`, rest: (m[3] || "").trim() };
+  const c = parseCodeOuvrage(libelle);
+  if (!c) return null;
+  const rest = c.reste === String(libelle).trim() ? "" : c.reste;
+  return { prefix: c.prefixe, number: c.numero, full: c.code, rest };
 }
 
 // Détermine le lot d'un libellé via son préfixe de code (ex : "E-001" →

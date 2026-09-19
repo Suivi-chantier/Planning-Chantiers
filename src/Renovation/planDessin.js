@@ -29,6 +29,19 @@ export function calcSurface(pts) {
   return Math.abs(s/2);
 }
 
+// Point dans un polygone (lancer de rayon horizontal). Sert à rattacher un
+// libellé à la zone qui le contient : le nom de pièce écrit par l'utilisateur
+// commande alors la place de l'étiquette d'aire, au lieu de lui rentrer dedans.
+export function pointDansPolygone(px, py, pts) {
+  if (!Array.isArray(pts) || pts.length < 3) return false;
+  let dedans = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) dedans = !dedans;
+  }
+  return dedans;
+}
+
 // ── Dessin des symboles bibliothèque (taille écran fixe) ────────────────────
 // SZ = taille de base en pixels écran, indépendante du zoom
 export function drawLibSym(ctx, symType, label, color, sz, isPrint) {

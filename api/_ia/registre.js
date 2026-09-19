@@ -16,11 +16,28 @@
 //   schema_entree(e)   validation du payload reçu → true | "erreur" | [erreurs]
 //   schema_sortie(s)   validation du résultat parsé → true | "erreur" | [erreurs]
 //   construire_prompt(entree, contexte) → { system, messages }
+//                      peut être ASYNC : la route l'attend. Une tâche qui doit
+//                      aller chercher ce qu'elle donne à lire au modèle (un
+//                      document dans le stockage privé, cf. facture_client)
+//                      le fait là, plutôt que de le faire transiter par
+//                      `entree`, qui est journalisée telle quelle dans ia_jobs.
 //   parser_sortie(texte)   optionnel — défaut : JSON.parse, sinon { texte }
 //   calculer_confiance(resultat)   optionnel → nombre 0..1
 
+// Champs supplémentaires, apparus avec le Copilote Invest et disponibles pour
+// toute tâche :
+//   autoriser(profil)          → true, ou une chaîne expliquant le refus.
+//                                Pour ce que le rôle seul ne dit pas — la
+//                                branche, par exemple : `role` est unique et
+//                                partagé par Rénovation et Invest.
+//   construire_outils(profil)  → [{ nom, description, schema, executer }]
+//                                La route boucle alors sur le tool use. La
+//                                liste peut dépendre des droits de l'appelant :
+//                                un outil non exposé ne peut pas être appelé.
 const TACHES = [
   require("./taches/ping"),
+  require("./taches/invest_copilot"),
+  require("./taches/facture_client"),
 ];
 
 module.exports = Object.fromEntries(TACHES.map((t) => [t.id, t]));

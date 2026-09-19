@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, getISOWeek, libelleRythme } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
@@ -10,7 +11,7 @@ import {
   KeyRound, AlertTriangle, RefreshCw, Moon, Sun, Info, Send, UserPlus,
   LayoutDashboard, Database, Briefcase, Clock, Wrench,
   Download, ClipboardCheck, Activity, ChevronRight, Truck, Lock,
-  Boxes, Car, Eye, ListOrdered, Receipt, Home,
+  Boxes, Car, Eye, ListOrdered, Receipt, Home, Plug,
 } from "lucide-react";
 import {
   loadAccessConfig, saveAccessConfig, pagesForBranch,
@@ -19,8 +20,12 @@ import {
 } from "../access";
 import EspaceOuvrier from "./EspaceOuvrier";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
-// Seuils des factures de situation (frise du cycle de vie, phase Travaux).
-import { SEUILS_SITUATIONS, normaliserSeuilsSituations } from "./cycleVie";
+import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
+import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
+import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
+// Échéancier de facturation client (bloc Facturation de la fiche chantier +
+// étapes de facturation de la frise du cycle de vie, phase Travaux).
+import { ECHEANCIER_DEFAUT, normaliserEcheancier, controleEcheancier } from "./facturationClient";
 
 // ─── APPEL EDGE FUNCTION ──────────────────────────────────────────────────────
 const callEdgeFunction = async (fnName, payload) => {
@@ -1749,8 +1754,26 @@ const EMAIL_TEMPLATES_DEFAUT = {
   todo_assign: {
     nom: "Assignation d'une tâche To-Do",
     subject: "Nouvelle tâche : {texte}",
-    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
-    variables: ["{prenom}", "{texte}", "{priorite}", "{assigneur}"],
+    body: "Bonjour {prenom},\n\n{assigneur} vous a assigné cette tâche :\n{texte}\n{note}\nPriorité : {priorite}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour cocher la tâche une fois terminée.",
+    variables: ["{prenom}", "{texte}", "{note}", "{priorite}", "{assigneur}"],
+  },
+  todo_assign_copie: {
+    nom: "Assignation d'une tâche To-Do (copie au créateur)",
+    subject: "Tâche assignée : {texte}",
+    body: "Bonjour {prenom},\n\n{assigneur} a assigné la tâche que vous suivez :\n{texte}\n{note}\nAssignée à : {assignes}\nPriorité : {priorite}\n\nVous recevez cet email en tant que créateur de la tâche.",
+    variables: ["{prenom}", "{texte}", "{note}", "{assignes}", "{priorite}", "{assigneur}"],
+  },
+  todo_done: {
+    nom: "Tâche To-Do terminée (assignés + créateur)",
+    subject: "Tâche terminée : {texte}",
+    body: "Bonjour {prenom},\n\n{acteur} a marqué comme terminée la tâche qui vous concerne :\n{texte}\n\nElle est close pour tous les assignés — plus rien à faire de votre côté.",
+    variables: ["{prenom}", "{texte}", "{acteur}"],
+  },
+  todo_update: {
+    nom: "Mise à jour d'une tâche To-Do",
+    subject: "Mise à jour : {texte}",
+    body: "Bonjour {prenom},\n\n{acteur} a ajouté une mise à jour sur la tâche :\n{texte}\n\nMise à jour du {date} :\n{maj}\n\nConnectez-vous à Profero Planning, onglet Notes & To-do, pour voir la tâche complète.",
+    variables: ["{prenom}", "{texte}", "{acteur}", "{maj}", "{date}"],
   },
 };
 
@@ -2235,6 +2258,762 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
   );
 }
 
+// ─── Diagnostic « capacités de facturation » ProGBat (lecture seule) ─────────
+// Affiche le bloc `billing` renvoyé par l'Edge Function progbat-test-connection.
+// Purement descriptif : les valeurs de `status`, `validated` et `docType` sont
+// montrées TELLES QUELLES, sans traduction — leur signification n'est pas
+// documentée par ProGBat, et c'est justement ce que ce diagnostic sert à
+// établir sur des données réelles. Aucune donnée client ni bancaire n'est
+// transmise par la fonction : il n'y a donc rien à masquer ici.
+function CapacitesFacturationProgbat({ billing, T }) {
+  const [details, setDetails] = useState(false);
+  if (!billing) return null;
+
+  const { factures, transactions, croisement, pdf } = billing;
+
+  // accessible / scope manquant / erreur — jamais d'interprétation au-delà.
+  const etat = (bloc) => {
+    if (!bloc) return { libelle: "non testé", couleur: T.textMuted };
+    if (bloc.ok) return { libelle: "accessible", couleur: "#22c55e" };
+    if (bloc.scope_accessible === false) return { libelle: "scope manquant", couleur: "#f59e0b" };
+    return { libelle: "erreur", couleur: "#e15a5a" };
+  };
+  const etatPdf = !pdf || pdf.teste === false
+    ? { libelle: "non testé", couleur: T.textMuted }
+    : pdf.ok ? { libelle: "accessible", couleur: "#22c55e" }
+    : { libelle: "erreur", couleur: "#e15a5a" };
+
+  const ligne = (label, e, complement) => (
+    <div style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+      <span style={{minWidth:86,color:T.textSub}}>{label}</span>
+      <span style={{fontWeight:800,color:e.couleur}}>{e.libelle}</span>
+      {complement && <span style={{color:T.textMuted}}>{complement}</span>}
+    </div>
+  );
+
+  // Valeurs observées : « valeur ×n », séparées par des points médians.
+  const listeValeurs = (arr) => (Array.isArray(arr) && arr.length)
+    ? arr.map(v => `${v.valeur === null ? "(absent)" : v.valeur} ×${v.occurrences}`).join(" · ")
+    : "—";
+
+  const bloc = (titre, contenu) => (
+    <div style={{marginTop:8}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,color:T.textMuted,letterSpacing:.5,textTransform:"uppercase",marginBottom:3}}>{titre}</div>
+      <div style={{fontFamily:"ui-monospace, SFMono-Regular, Menlo, monospace",fontSize:FONT.xs.size,color:T.text,wordBreak:"break-word"}}>{contenu}</div>
+    </div>
+  );
+
+  return (
+    <div style={{flex:"1 1 100%",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:8}}>
+        Capacités de facturation
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:4,fontSize:FONT.xs.size+1,lineHeight:1.6}}>
+        {ligne("Factures", etat(factures),
+          factures ? `${factures.nombre_recu} examinée(s) · HTTP ${factures.http_status}${factures.content_range ? " · Content-Range présent" : " · Content-Range absent"}${factures.tri_refuse ? " · tri refusé, relance sans tri" : ""}` : null)}
+        {!factures?.ok && factures?.message && (
+          <div style={{color:T.textSub,paddingLeft:94}}>{factures.message}</div>
+        )}
+
+        {ligne("Règlements", etat(transactions),
+          transactions ? `${transactions.nombre_recu} examinée(s) · HTTP ${transactions.http_status}${transactions.content_range ? " · Content-Range présent" : " · Content-Range absent"}${transactions.tri_refuse ? " · tri refusé, relance sans tri" : ""}` : null)}
+        {!transactions?.ok && transactions?.message && (
+          <div style={{color:T.textSub,paddingLeft:94}}>{transactions.message}</div>
+        )}
+
+        {ligne("PDF", etatPdf,
+          pdf?.teste
+            ? `HTTP ${pdf.http_status}${pdf.content_type ? ` · ${pdf.content_type}` : ""}${pdf.taille_octets != null ? ` · ${pdf.taille_octets.toLocaleString("fr-FR")} octets` : ""}`
+            : (pdf?.message || null))}
+        {pdf?.teste && pdf.critere && (
+          <div style={{color:T.textMuted,paddingLeft:94}}>{pdf.critere}</div>
+        )}
+
+        {ligne("Rapprochements", { libelle: String(croisement?.allocations_trouvees ?? 0), couleur: (croisement?.allocations_trouvees > 0) ? "#22c55e" : T.textMuted },
+          croisement ? `allocation(s) sur ${croisement.factures_referencees ?? 0} facture(s) de l'échantillon` : null)}
+
+        {/* Montants détaillés (4 factures au plus) : le détail complet est dans
+            le panneau technique, ici on ne dit que combien ont été examinées. */}
+        {ligne("Détails financiers",
+          { libelle: `${billing.details_factures?.nombre ?? 0} facture(s) examinée(s)`,
+            couleur: (billing.details_factures?.nombre > 0) ? T.text : T.textMuted },
+          billing.details_factures?.message || null)}
+
+        {/* Chantiers ProGBat : combien de yardId des factures se retrouvent
+            réellement dans /company/yards. Le détail est dans le JSON technique. */}
+        {(() => {
+          const cy = billing.chantiers_progbat;
+          const c = cy?.croisement;
+          const reconnus = c?.yards_reconnus ?? 0;
+          const cherches = c?.yards_distincts ?? 0;
+          return ligne("Chantiers ProGBat",
+            cy?.ok
+              ? { libelle: `${reconnus}/${cherches} identifiant(s) reconnu(s)`,
+                  couleur: cherches > 0 && reconnus === cherches ? "#22c55e" : reconnus > 0 ? "#f59e0b" : T.textMuted }
+              : etat(cy),
+            cy?.ok
+              ? `${cy.nombre_recu} chantier(s) lu(s) · ${cy.pages_lues} page(s)`
+                + (c?.factures_sans_yard ? ` · ${c.factures_sans_yard} facture(s) sans yardId` : "")
+                + (cy.garde_pages_atteinte ? " · garde de pages atteinte" : "")
+              : (cy?.message || null));
+        })()}
+      </div>
+
+      {/* Valeurs brutes observées — aucune traduction : la sémantique de ces
+          entiers n'est pas documentée par ProGBat. */}
+      <div style={{marginTop:10,padding:"9px 11px",background:T.card,borderRadius:RADIUS.md}}>
+        <div style={{fontSize:FONT.xs.size,color:T.textSub,marginBottom:6,lineHeight:1.5}}>
+          Valeurs observées, reproduites telles quelles (leur signification n'est pas documentée par ProGBat) :
+        </div>
+        {bloc("status", listeValeurs(factures?.valeurs_distinctes?.status))}
+        {bloc("validated", listeValeurs(factures?.valeurs_distinctes?.validated))}
+        {bloc("type", listeValeurs(factures?.valeurs_distinctes?.type))}
+        {bloc("einvoiceStatus", listeValeurs(factures?.valeurs_distinctes?.einvoiceStatus))}
+        {bloc("checking.docType", listeValeurs(transactions?.valeurs_distinctes?.checking_docType))}
+        {bloc("canceled / checked", `${listeValeurs(transactions?.valeurs_distinctes?.canceled)}  |  ${listeValeurs(transactions?.valeurs_distinctes?.checked)}`)}
+        {bloc("docType correspondant à un id de facture",
+          (croisement?.doc_types_correspondants?.length ? croisement.doc_types_correspondants.join(" · ") : "aucune correspondance observée"))}
+      </div>
+
+      <button onClick={()=>setDetails(d=>!d)} style={{
+        marginTop:10,display:"inline-flex",alignItems:"center",gap:5,
+        background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+        padding:"5px 11px",color:T.textSub,fontFamily:"inherit",
+        fontSize:FONT.xs.size+1,fontWeight:700,cursor:"pointer",
+      }}>
+        <Icon as={details?ChevronUp:ChevronDown} size={11}/>
+        {details ? "Masquer le détail technique" : "Détail technique (échantillons)"}
+      </button>
+
+      {details && (
+        <pre style={{
+          marginTop:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,
+          border:`1px solid ${T.border}`,maxHeight:340,overflow:"auto",
+          fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
+        }}>{JSON.stringify(billing, null, 2)}</pre>
+      )}
+    </div>
+  );
+}
+
+// ─── Prévisualisation de la synchronisation ProGBat (dry-run, lecture seule) ──
+// Appelle l'Edge Function `progbat-billing-dry-run`, qui calcule ce que la
+// future synchronisation des factures et des règlements CRÉERAIT ou MODIFIERAIT
+// sans rien écrire — ni dans Supabase, ni dans ProGBat.
+//
+// DÉCLENCHEMENT STRICTEMENT MANUEL : aucun useEffect ici, aucun appel au
+// montage, aucun enchaînement après le test de connexion. L'analyse parcourt
+// toutes les pages de /company/bills et /company/transactions : elle ne doit
+// partir que sur un clic explicite.
+//
+// La fonction ne renvoie ni client, ni adresse, ni e-mail, ni téléphone, ni
+// donnée bancaire, ni jeton (listes blanches côté serveur) : il n'y a donc rien
+// à masquer ici, et aucun champ n'est reconstitué.
+function PrevisualisationSyncProgbat({ T, acc }) {
+  const [enCours, setEnCours] = useState(false);
+  const [rapport, setRapport] = useState(null);
+  const [erreur, setErreur]   = useState(null);
+
+  // ── Synchronisation réelle : son propre état, séparé du diagnostic ───────
+  // `analyseSeq` compte les analyses réussies ; `syncSeq` retient celle sur
+  // laquelle la dernière synchronisation s'est appuyée. Les comparer dit si le
+  // diagnostic affiché est ENCORE valable : après une écriture, il ne l'est
+  // plus, et il faut relancer l'analyse avant toute nouvelle tentative.
+  const [analyseSeq, setAnalyseSeq] = useState(0);
+  const [syncSeq, setSyncSeq]       = useState(null);
+  const [syncEnCours, setSyncEnCours] = useState(false);
+  const [syncRapport, setSyncRapport] = useState(null);
+  const [syncErreur, setSyncErreur]   = useState(null);
+  // Vrai quand l'issue côté serveur est INCONNUE : réseau coupé, réponse
+  // perdue, erreur interne. Le serveur a pu recevoir la demande et écrire
+  // avant que le navigateur perde la réponse — on ne peut donc rien affirmer.
+  const [syncIncertain, setSyncIncertain] = useState(false);
+  const [confirmation, setConfirmation] = useState(false);
+  const [saisie, setSaisie]             = useState("");
+
+  // Le dernier résultat reste affiché tant qu'une nouvelle analyse n'est pas
+  // lancée ; c'est ce lancement, et lui seul, qui le remplace. Le rapport de
+  // SYNCHRONISATION, lui, n'est pas effacé : après une écriture réussie, il
+  // doit rester lisible pendant qu'on vérifie.
+  const analyser = async () => {
+    if (enCours) return;
+    setEnCours(true); setRapport(null); setErreur(null);
+    // Un panneau de confirmation ouvert résumerait un diagnostic périmé.
+    setConfirmation(false); setSaisie("");
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-billing-dry-run");
+      if (error && !data) {
+        // Refus avant ProGBat (401/403 Supabase) ou erreur de transport : le
+        // corps JSON de la fonction est parfois joint à l'erreur.
+        let body = null;
+        try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
+        setErreur(body?.error || error.message || "Appel de la fonction impossible.");
+      } else if (data?.ok) {
+        setRapport(data);
+        setAnalyseSeq((n) => n + 1);
+      } else {
+        setErreur(data?.error || "Réponse vide de la fonction.");
+      }
+    } catch (e) {
+      setErreur(e?.message || "Erreur inattendue.");
+    }
+    setEnCours(false);
+  };
+
+  // L'UNIQUE appel d'écriture de cet écran. Il n'est atteignable que par le
+  // bouton final du panneau de confirmation : aucun effet, aucun enchaînement
+  // automatique après le diagnostic, aucune relance automatique après un échec.
+  const synchroniser = async () => {
+    if (syncEnCours) return;                       // double-clic : ignoré
+    setSyncEnCours(true); setSyncRapport(null); setSyncErreur(null); setSyncIncertain(false);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-billing-sync", {
+        body: { confirmation: "SYNCHRONISER_PROGBAT" },
+      });
+      if (error && !data) {
+        let body = null;
+        try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
+        // Le message du serveur est plus utile qu'un générique : on le garde.
+        if (body && typeof body.ok === "boolean" && body.ecritures) setSyncRapport(body);
+        setSyncErreur(body?.error || error.message || "Appel de la fonction impossible.");
+        // CE QU'ON SAIT, ET CE QU'ON NE SAIT PAS.
+        // Un corps portant `ecritures` est un rapport : le serveur a fini son
+        // travail et dit combien il a écrit — issue connue.
+        // Un refus prononcé AVANT tout travail l'est aussi : 400 (confirmation
+        // absente), 401/403 (appelant refusé), 405 (méthode). Ces réponses
+        // sortent de la fonction avant le moindre appel ProGBat.
+        // Tout le reste — réseau coupé, réponse perdue, 500 inattendu — laisse
+        // l'issue INCONNUE : la demande a pu aboutir et écrire.
+        const statut = Number(error?.context?.status ?? 0);
+        const refusAvantTravail = [400, 401, 403, 405].includes(statut);
+        if (!body?.ecritures && !refusAvantTravail) setSyncIncertain(true);
+      } else if (data) {
+        // ATTENTION : un 207 n'est pas une erreur de transport. functions.invoke
+        // le rend comme un succès — c'est `data.ok` qui fait foi, jamais le
+        // simple fait d'avoir reçu une réponse.
+        setSyncRapport(data);
+        if (data.ok !== true) setSyncErreur(null);   // le rapport porte déjà le détail
+        else { setConfirmation(false); setSaisie(""); }
+      } else {
+        // Ni rapport ni erreur : on ne sait pas ce que le serveur a fait.
+        setSyncErreur("Réponse vide de la fonction.");
+        setSyncIncertain(true);
+      }
+    } catch (e) {
+      // Réseau, délai, réponse perdue : la demande est peut-être partie.
+      setSyncErreur(e?.message || "Erreur inattendue.");
+      setSyncIncertain(true);
+    }
+    // Quoi qu'il arrive, le diagnostic affiché a cessé d'être à jour.
+    setSyncSeq(analyseSeq);
+    setSyncEnCours(false);
+  };
+
+  // Tout ce qui suit lit le rapport DÉFENSIVEMENT : un rapport partiel (champ
+  // absent, catégorie inconnue) doit s'afficher en creux, jamais casser l'écran.
+  const nb = (v) => (Number.isFinite(v) ? v : 0);
+  const pagination  = rapport?.pagination ?? {};
+  const pagFactures = pagination.bills ?? {};
+  const pagTrans    = pagination.transactions ?? {};
+  const factures    = rapport?.factures ?? {};
+  const catF        = factures.categories ?? {};
+  const resF        = factures.resolution ?? {};
+  const exF         = factures.exemples ?? {};
+  const reglements  = rapport?.reglements ?? {};
+  const catR        = reglements.categories ?? {};
+  const exR         = reglements.exemples ?? {};
+  const ecritures   = rapport?.ecritures ?? {};
+  const absencesBloquees = rapport ? rapport.reconciliation_absence_autorisee === false : false;
+
+  const ligneSource = (label, bloc) => {
+    const complet = bloc?.complet === true;
+    return (
+      <div key={label} style={{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+        <span style={{minWidth:92,color:T.textSub}}>{label}</span>
+        <span style={{fontWeight:800,color:complet?"#22c55e":"#f59e0b"}}>
+          {complet ? "lecture complète" : "lecture incomplète"}
+        </span>
+        <span style={{color:T.textMuted}}>
+          {nb(bloc?.pages)} page(s) · {nb(bloc?.nombre_distinct)} élément(s) distinct(s)
+          {bloc?.garde_atteinte ? " · garde de pages atteinte" : ""}
+          {bloc?.tri_refuse ? " · tri refusé, relance sans tri" : ""}
+        </span>
+        {!complet && bloc?.erreur ? <span style={{flex:"1 1 100%",color:T.textSub,paddingLeft:100}}>{bloc.erreur}</span> : null}
+      </div>
+    );
+  };
+
+  const compteurs = (titre, items) => (
+    <div style={{marginTop:12}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>{titre}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {items.map(([label, valeur, couleur]) => (
+          <div key={label} style={{
+            display:"inline-flex",alignItems:"baseline",gap:6,
+            padding:"5px 9px",background:T.card,border:`1px solid ${T.border}`,
+            borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,
+          }}>
+            <span style={{color:T.textSub}}>{label}</span>
+            <strong style={{fontWeight:800,color:(valeur > 0 && couleur) ? couleur : T.text}}>{valeur}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Liste bornée (le serveur en renvoie 20 au plus par catégorie).
+  const liste = (titre, lignes, colonnes) => (lignes.length ? (
+    <div style={{marginTop:12}}>
+      <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+        {titre} ({lignes.length})
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {lignes.map((l, i) => (
+          <div key={i} style={{
+            padding:"6px 10px",background:T.card,border:`1px solid ${T.border}`,
+            borderRadius:RADIUS.md,fontSize:FONT.xs.size+1,lineHeight:1.6,
+          }}>
+            <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"baseline"}}>
+              {colonnes(l).map(([label, valeur]) => (
+                <span key={label}>
+                  <span style={{color:T.textSub}}>{label} </span>
+                  <strong style={{fontWeight:700}}>{valeur}</strong>
+                </span>
+              ))}
+            </div>
+            {l?.motif ? <div style={{color:T.textSub,marginTop:2}}>{l.motif}</div> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  ) : null);
+
+  const val = (v) => (v === null || v === undefined || v === "" ? "—" : String(v));
+  const montant = (v) => (Number.isFinite(v)
+    ? `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+    : "—");
+
+  // Factures à traiter à la main. Les conflits yard/devis sortent aujourd'hui
+  // dans la catégorie `non_resolue` (avec resolution = "conflit") ; la clé
+  // `conflit` est lue au cas où le serveur viendrait à l'isoler.
+  const facturesAVerifier = [
+    ...(Array.isArray(exF.non_resolue) ? exF.non_resolue : []),
+    ...(Array.isArray(exF.fusion_refusee) ? exF.fusion_refusee : []),
+    ...(Array.isArray(exF.conflit) ? exF.conflit : []),
+  ];
+  const reglementsAVerifier = [
+    ...(Array.isArray(exR.facture_introuvable) ? exR.facture_introuvable : []),
+    ...(Array.isArray(exR.transaction_inactive_ou_inconnue) ? exR.transaction_inactive_ou_inconnue : []),
+    ...(Array.isArray(exR.annulation_proposee) ? exR.annulation_proposee : []),
+  ];
+
+  // ── Peut-on écrire ? ────────────────────────────────────────────────────
+  // On n'écrit QUE sur la foi d'un diagnostic complet, sain et en lecture
+  // seule, présent dans l'état courant. Chaque condition est vérifiée ici et
+  // pas seulement côté serveur : proposer le bouton, c'est déjà s'engager.
+  //
+  // Les factures NON RÉSOLUES ne bloquent pas : le serveur les ignore, elles
+  // sont juste annoncées dans la confirmation pour que personne ne croie
+  // qu'elles ont été importées.
+  const dryRunValide = Boolean(rapport)
+    && rapport.ok === true
+    && rapport.dry_run === true
+    && pagFactures.complet === true
+    && pagTrans.complet === true
+    && pagFactures.garde_atteinte !== true
+    && pagTrans.garde_atteinte !== true
+    && nb(ecritures.supabase) === 0
+    && nb(ecritures.progbat) === 0
+    && nb(catF.normalisation_refusee) === 0
+    && nb(catF.fusion_refusee) === 0
+    && nb(resF.conflit) === 0;
+
+  const aCreerFactures  = nb(catF.creation);
+  const aMajFactures    = nb(catF.mise_a_jour);
+  const aCreerReglement = nb(catR.creation);
+  const aMajReglement   = nb(catR.mise_a_jour);
+  const aAnnuler        = nb(catR.annulation_proposee);
+  const nonResolues     = nb(catF.non_resolue);
+  const actions = aCreerFactures + aMajFactures + aCreerReglement + aMajReglement + aAnnuler;
+
+  // Une synchronisation a eu lieu depuis ce diagnostic : il décrit un état
+  // révolu, il faut réanalyser avant toute nouvelle écriture.
+  const analysePerimee = syncSeq !== null && syncSeq === analyseSeq;
+  const rienAFaire      = dryRunValide && actions === 0;
+  const peutSynchroniser = dryRunValide && actions > 0 && !analysePerimee;
+  const saisieExacte = saisie === "SYNCHRONISER";
+
+  const syncCat  = syncRapport?.factures?.categories ?? {};
+  const syncCatR = syncRapport?.reglements?.categories ?? {};
+  const syncEcr  = syncRapport?.ecritures ?? {};
+  const syncPag  = syncRapport?.pagination ?? {};
+  const syncErreurs = Array.isArray(syncRapport?.erreurs) ? syncRapport.erreurs : [];
+  const syncReussi  = syncRapport?.ok === true;
+  const syncPartiel = syncRapport ? syncRapport.ok !== true && syncRapport.partiel === true : false;
+
+  return (
+    <div style={{flex:"1 1 100%",marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{flex:1,minWidth:200}}>
+          <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:2}}>Prévisualisation de la synchronisation</div>
+          <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.55}}>
+            Analyse les factures et règlements ProGBat et indique ce qui serait importé. Aucune donnée n'est créée ou modifiée.
+          </div>
+        </div>
+        <button onClick={analyser} disabled={enCours} style={{
+          display:"inline-flex",alignItems:"center",gap:5,
+          padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+          background:enCours?T.border:acc.accent,color:enCours?T.textMuted:acc.onAccent,
+          fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:enCours?"not-allowed":"pointer",
+        }}>
+          <Icon as={RefreshCw} size={11} style={enCours?{animation:"spin 1s linear infinite"}:undefined}/>
+          {enCours ? "Analyse en cours…" : "Analyser la synchronisation"}
+        </button>
+      </div>
+
+      {erreur && (
+        <div style={{marginTop:10,fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text}}>
+          <div style={{fontWeight:700,color:"#e15a5a"}}>⚠ Analyse impossible</div>
+          <div style={{color:T.textSub}}>{erreur}</div>
+          <button onClick={analyser} disabled={enCours} style={{
+            marginTop:8,display:"inline-flex",alignItems:"center",gap:5,
+            background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+            padding:"5px 11px",color:T.textSub,fontFamily:"inherit",
+            fontSize:FONT.xs.size+1,fontWeight:700,cursor:enCours?"not-allowed":"pointer",
+          }}>
+            <Icon as={RefreshCw} size={11}/>
+            Réessayer
+          </button>
+        </div>
+      )}
+
+      {rapport && (
+        <div style={{marginTop:10,fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text}}>
+          <div style={{fontWeight:700,color:"#22c55e"}}>
+            ✓ Analyse terminée
+            {Number.isFinite(rapport.duree_ms) ? <span style={{color:T.textMuted,fontWeight:500}}> · {(rapport.duree_ms / 1000).toFixed(1)} s</span> : null}
+          </div>
+          {/* Ce que la fonction a réellement écrit : zéro, des deux côtés. */}
+          <div style={{color:T.textSub,fontWeight:700}}>
+            Lecture seule : {nb(ecritures.supabase)} écriture Supabase, {nb(ecritures.progbat)} écriture ProGBat.
+          </div>
+
+          <div style={{marginTop:12}}>
+            <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Pagination</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {ligneSource("Factures", pagFactures)}
+              {ligneSource("Transactions", pagTrans)}
+            </div>
+            {(pagFactures.complet !== true || pagTrans.complet !== true) && (
+              <div style={{marginTop:6,padding:"6px 10px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                ⚠ Une ressource ProGBat n'a pas été lue entièrement : les comptages ci-dessous sont partiels.
+              </div>
+            )}
+            {absencesBloquees && (
+              <div style={{marginTop:6,padding:"6px 10px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                ⚠ Réconciliation par absence désactivée : la lecture des transactions étant incomplète, aucune annulation de règlement n'est proposée.
+              </div>
+            )}
+          </div>
+
+          {compteurs("Factures", [
+            ["Reçues", nb(factures.recues)],
+            ["Créations proposées", nb(catF.creation), "#22c55e"],
+            ["Mises à jour", nb(catF.mise_a_jour), "#22c55e"],
+            ["Inchangées", nb(catF.inchangee)],
+            ["Brouillons ignorés", nb(catF.brouillon_ignore)],
+            ["Non résolues", nb(catF.non_resolue), "#f59e0b"],
+            ["Conflits", nb(resF.conflit), "#e15a5a"],
+            ["Résolues par chantier ProGBat", nb(resF.resolution_yard)],
+            ["Résolues par devis de secours", nb(resF.resolution_devis_secours)],
+            ["Chantiers ProGBat non rattachés", nb(resF.yard_non_rattache), "#f59e0b"],
+            ["Devis non rattachés", nb(resF.devis_non_rattache), "#f59e0b"],
+          ])}
+
+          {compteurs("Règlements", [
+            ["Transactions actives", nb(reglements.transactions_actives)],
+            ["Lettrages retenus", nb(reglements.lettrages_retenus)],
+            ["Créations", nb(catR.creation), "#22c55e"],
+            ["Mises à jour", nb(catR.mise_a_jour), "#22c55e"],
+            ["Inchangés", nb(catR.inchange)],
+            ["Factures introuvables", nb(catR.facture_introuvable), "#f59e0b"],
+            ["Annulations proposées", nb(catR.annulation_proposee), "#f59e0b"],
+            ["Déjà annulés", nb(catR.deja_annule)],
+            ["Transactions inactives ou inconnues", nb(catR.transaction_inactive_ou_inconnue)],
+          ])}
+
+          {liste("Factures à rattacher ou à vérifier", facturesAVerifier, (l) => [
+            ["Facture", val(l?.code)],
+            ["Chantier ProGBat", val(l?.yard_id)],
+            ["Devis", val(l?.quote_id)],
+            ["Cas", val(l?.resolution || l?.categorie)],
+          ])}
+
+          {liste("Règlements à vérifier", reglementsAVerifier, (l) => [
+            ["Transaction", val(l?.progbat_transaction_id)],
+            ["Facture ProGBat", val(l?.progbat_bill_id)],
+            ["Montant", montant(l?.montant)],
+            ["Cas", val(l?.categorie)],
+          ])}
+
+          {/* Rapport brut, replié par défaut — même esprit que le panneau
+              technique du test de connexion. */}
+          <details style={{marginTop:12}}>
+            <summary style={{cursor:"pointer",fontSize:FONT.xs.size+1,fontWeight:700,color:T.textMuted}}>
+              Rapport technique du dry-run
+            </summary>
+            <pre style={{
+              marginTop:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,
+              border:`1px solid ${T.border}`,maxHeight:340,overflow:"auto",
+              fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
+            }}>{JSON.stringify(rapport, null, 2)}</pre>
+          </details>
+
+          {/* ── Passage à l'écriture ─────────────────────────────────────── */}
+          {rienAFaire && (
+            <div style={{marginTop:12,padding:"8px 11px",background:T.card,border:"1px solid #22c55e",borderRadius:RADIUS.md,color:"#22c55e",fontWeight:700}}>
+              ✓ La synchronisation est à jour — rien à créer, mettre à jour ni annuler.
+            </div>
+          )}
+
+          {analysePerimee && !rienAFaire && (
+            <div style={{marginTop:12,padding:"8px 11px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+              ⚠ Une synchronisation a eu lieu depuis cette analyse : relancez « Analyser la synchronisation » avant toute nouvelle tentative.
+            </div>
+          )}
+
+          {dryRunValide && actions > 0 && !analysePerimee && !confirmation && (
+            <button onClick={()=>{ setSaisie(""); setConfirmation(true); }} disabled={syncEnCours} style={{
+              marginTop:12,display:"inline-flex",alignItems:"center",gap:5,
+              padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+              background:syncEnCours?T.border:"#e15a5a",color:syncEnCours?T.textMuted:"#fff",
+              fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:syncEnCours?"not-allowed":"pointer",
+            }}>
+              <Icon as={Database} size={11}/>
+              Synchroniser avec ProGBat
+            </button>
+          )}
+
+          {!dryRunValide && actions >= 0 && rapport && (
+            <div style={{marginTop:12,fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.6}}>
+              La synchronisation n'est pas proposée : elle exige une analyse complète et sans anomalie
+              (lecture entière des deux ressources, aucun conflit, aucune normalisation ni fusion refusée).
+            </div>
+          )}
+
+          {/* Confirmation explicite — aucun appel réseau tant que le bouton
+              final n'est pas cliqué. */}
+          {confirmation && (
+            <div style={{
+              marginTop:12,padding:"12px 14px",background:T.card,
+              border:"1px solid #e15a5a",borderRadius:RADIUS.md,
+            }}>
+              <div style={{fontSize:FONT.sm.size,fontWeight:800,color:"#e15a5a",marginBottom:6}}>
+                Confirmer la synchronisation
+              </div>
+              <div style={{fontSize:FONT.xs.size+1,color:T.text,lineHeight:1.7}}>
+                D'après la dernière analyse, cette opération va :
+              </div>
+              <ul style={{margin:"6px 0 0",paddingLeft:18,fontSize:FONT.xs.size+1,color:T.text,lineHeight:1.7}}>
+                <li>créer <strong>{aCreerFactures}</strong> facture(s)</li>
+                <li>mettre à jour <strong>{aMajFactures}</strong> facture(s)</li>
+                <li>créer <strong>{aCreerReglement}</strong> règlement(s)</li>
+                <li>mettre à jour <strong>{aMajReglement}</strong> règlement(s)</li>
+                <li>annuler <strong>{aAnnuler}</strong> règlement(s) absent(s) de ProGBat</li>
+                <li><strong>{nonResolues}</strong> facture(s) non résolue(s) seront <strong>ignorées</strong> (chantier ProGBat non rattaché) : rattachez-les puis relancez pour les importer</li>
+              </ul>
+              <div style={{marginTop:8,fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.6}}>
+                L'écriture a lieu <strong>uniquement dans Supabase</strong>. ProGBat n'est jamais modifié :
+                la fonction ne fait que des lectures côté ProGBat.
+              </div>
+              <div style={{marginTop:10,fontSize:FONT.xs.size+1,color:T.text}}>
+                Pour confirmer, saisissez <strong>SYNCHRONISER</strong> :
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:6}}>
+                <input
+                  value={saisie}
+                  onChange={(e)=>setSaisie(e.target.value)}
+                  placeholder="SYNCHRONISER"
+                  disabled={syncEnCours}
+                  style={{
+                    padding:"7px 10px",borderRadius:RADIUS.md,border:`1px solid ${T.border}`,
+                    background:T.surface,color:T.text,fontFamily:"inherit",fontSize:FONT.xs.size+1,
+                    minWidth:180,
+                  }}
+                />
+                <button onClick={synchroniser} disabled={!saisieExacte || syncEnCours} style={{
+                  display:"inline-flex",alignItems:"center",gap:5,
+                  padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                  background:(!saisieExacte || syncEnCours)?T.border:"#e15a5a",
+                  color:(!saisieExacte || syncEnCours)?T.textMuted:"#fff",
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,
+                  cursor:(!saisieExacte || syncEnCours)?"not-allowed":"pointer",
+                }}>
+                  <Icon as={Database} size={11} style={syncEnCours?{animation:"spin 1s linear infinite"}:undefined}/>
+                  {syncEnCours ? "Synchronisation en cours…" : "Lancer la synchronisation"}
+                </button>
+                <button onClick={()=>{ setConfirmation(false); setSaisie(""); }} disabled={syncEnCours} style={{
+                  background:"transparent",border:`1px solid ${T.border}`,borderRadius:RADIUS.md,
+                  padding:"7px 12px",color:T.textSub,fontFamily:"inherit",
+                  fontSize:FONT.xs.size+1,fontWeight:700,cursor:syncEnCours?"not-allowed":"pointer",
+                }}>
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Résultat de la SYNCHRONISATION — bloc distinct du diagnostic ────
+          Il survit à une relance de l'analyse : c'est la trace de ce qui a été
+          réellement écrit. */}
+      {(syncRapport || syncErreur) && (
+        <div style={{
+          marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`,
+          fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text,
+        }}>
+          <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+            Résultat de la synchronisation
+          </div>
+
+          {syncErreur && !syncRapport && (
+            <div>
+              {syncIncertain ? (
+                // ISSUE INCONNUE. Ne jamais affirmer ici que rien n'a été
+                // écrit : le serveur a pu recevoir la demande, écrire, et la
+                // réponse se perdre en chemin. Le seul conseil sûr est de
+                // réanalyser — c'est l'analyse qui dira l'état réel.
+                <>
+                  <div style={{fontWeight:700,color:"#f59e0b"}}>⚠ Résultat non confirmé</div>
+                  <div style={{marginTop:6,padding:"7px 11px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                    Le résultat de la synchronisation n'a pas pu être confirmé. Des écritures ont peut-être
+                    été effectuées. Ne relancez pas immédiatement la synchronisation : relancez d'abord l'analyse.
+                  </div>
+                  <div style={{color:T.textSub,marginTop:6}}>{syncErreur}</div>
+                  <button onClick={analyser} disabled={enCours} style={{
+                    marginTop:8,display:"inline-flex",alignItems:"center",gap:5,
+                    padding:"7px 12px",borderRadius:RADIUS.md,border:"none",
+                    background:enCours?T.border:acc.accent,color:enCours?T.textMuted:acc.onAccent,
+                    fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:enCours?"not-allowed":"pointer",
+                  }}>
+                    <Icon as={RefreshCw} size={11} style={enCours?{animation:"spin 1s linear infinite"}:undefined}/>
+                    {enCours ? "Analyse en cours…" : "Relancer l'analyse"}
+                  </button>
+                </>
+              ) : (
+                // Refus prononcé avant tout travail : là, et seulement là, on
+                // peut dire que rien n'a bougé.
+                <>
+                  <div style={{fontWeight:700,color:"#e15a5a"}}>⚠ Synchronisation refusée</div>
+                  <div style={{color:T.textSub}}>{syncErreur}</div>
+                  <div style={{color:T.textMuted}}>La demande a été refusée avant tout traitement : rien n'a été écrit.</div>
+                </>
+              )}
+            </div>
+          )}
+
+          {syncRapport && (
+            <>
+              <div style={{fontWeight:700,color:syncReussi?"#22c55e":syncPartiel?"#f59e0b":"#e15a5a"}}>
+                {syncReussi ? "✓ Synchronisation terminée"
+                  : syncPartiel ? "⚠ Synchronisation partielle — des écritures ont échoué"
+                  : "⚠ Synchronisation en échec"}
+                {Number.isFinite(syncRapport.duree_ms) ? <span style={{color:T.textMuted,fontWeight:500}}> · {(syncRapport.duree_ms / 1000).toFixed(1)} s</span> : null}
+              </div>
+              {syncErreur && <div style={{color:T.textSub}}>{syncErreur}</div>}
+              <div style={{color:T.textSub,fontWeight:700}}>
+                {nb(syncEcr.supabase)} écriture(s) Supabase · {nb(syncEcr.progbat)} écriture ProGBat.
+              </div>
+
+              {!syncReussi && (
+                <div style={{marginTop:8,padding:"7px 11px",background:T.card,border:`1px solid ${syncPartiel?"#f59e0b":"#e15a5a"}`,borderRadius:RADIUS.md,color:syncPartiel?"#f59e0b":"#e15a5a",fontWeight:700}}>
+                  Relancez « Analyser la synchronisation » avant toute nouvelle tentative : le diagnostic
+                  affiché ne décrit plus l'état réel. Rien n'est relancé automatiquement.
+                </div>
+              )}
+
+              <div style={{marginTop:10}}>
+                <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>Pagination</div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {ligneSource("Factures", syncPag.bills ?? {})}
+                  {ligneSource("Transactions", syncPag.transactions ?? {})}
+                </div>
+                {syncRapport.reconciliation_absence_autorisee === false && (
+                  <div style={{marginTop:6,padding:"6px 10px",background:T.card,border:"1px solid #f59e0b",borderRadius:RADIUS.md,color:"#f59e0b",fontWeight:700}}>
+                    ⚠ Réconciliation par absence désactivée : aucune annulation de règlement n'a été effectuée.
+                  </div>
+                )}
+              </div>
+
+              {compteurs("Factures écrites", [
+                ["Créées", nb(syncCat.creation), "#22c55e"],
+                ["Mises à jour", nb(syncCat.mise_a_jour), "#22c55e"],
+                ["Inchangées", nb(syncCat.inchangee)],
+                ["Ignorées", nb(syncCat.ignoree), "#f59e0b"],
+                ["Échecs", nb(syncCat.echec), "#e15a5a"],
+              ])}
+
+              {compteurs("Règlements écrits", [
+                ["Créés", nb(syncCatR.creation), "#22c55e"],
+                ["Mis à jour", nb(syncCatR.mise_a_jour), "#22c55e"],
+                ["Inchangés", nb(syncCatR.inchange)],
+                ["Annulés", nb(syncCatR.annulation), "#f59e0b"],
+                ["Déjà annulés", nb(syncCatR.deja_annule)],
+                ["Ignorés", nb(syncCatR.ignore)],
+                ["Échecs", nb(syncCatR.echec), "#e15a5a"],
+              ])}
+
+              {/* Erreurs telles que la fonction les a nettoyées et bornées :
+                  on n'en fabrique aucune, on n'en cache aucune. */}
+              {syncErreurs.length > 0 && (
+                <div style={{marginTop:12}}>
+                  <div style={{fontSize:FONT.xs.size,fontWeight:700,letterSpacing:.5,textTransform:"uppercase",color:T.textMuted,marginBottom:6}}>
+                    Écritures refusées ({syncErreurs.length}{nb(syncRapport.erreurs_total) > syncErreurs.length ? ` sur ${nb(syncRapport.erreurs_total)}` : ""})
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {syncErreurs.map((e, i) => (
+                      <div key={i} style={{padding:"6px 10px",background:T.card,border:`1px solid ${T.border}`,borderRadius:RADIUS.md}}>
+                        <span style={{color:T.textSub}}>{val(e?.portee)} </span>
+                        <strong style={{fontWeight:700}}>{val(e?.reference)}</strong>
+                        <div style={{color:T.textSub,marginTop:2}}>{val(e?.message)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {syncReussi && (
+                <button onClick={analyser} disabled={enCours} style={{
+                  marginTop:12,display:"inline-flex",alignItems:"center",gap:5,
+                  padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                  background:enCours?T.border:acc.accent,color:enCours?T.textMuted:acc.onAccent,
+                  fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:enCours?"not-allowed":"pointer",
+                }}>
+                  <Icon as={RefreshCw} size={11} style={enCours?{animation:"spin 1s linear infinite"}:undefined}/>
+                  {enCours ? "Vérification en cours…" : "Vérifier la synchronisation"}
+                </button>
+              )}
+
+              <details style={{marginTop:12}}>
+                <summary style={{cursor:"pointer",fontSize:FONT.xs.size+1,fontWeight:700,color:T.textMuted}}>
+                  Rapport technique de la synchronisation
+                </summary>
+                <pre style={{
+                  marginTop:8,padding:"10px 12px",background:T.card,borderRadius:RADIUS.md,
+                  border:`1px solid ${T.border}`,maxHeight:340,overflow:"auto",
+                  fontSize:FONT.xs.size,lineHeight:1.5,color:T.textSub,whiteSpace:"pre-wrap",wordBreak:"break-word",
+                }}>{JSON.stringify(syncRapport, null, 2)}</pre>
+              </details>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
@@ -2288,19 +3067,21 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [heuresParJour, setHeuresParJour] = useState(HEURES_DEFAUT);
   const [excDate, setExcDate]     = useState("");
   const [excHeures, setExcHeures] = useState("0");
-  // Factures de situation : seuils d'avancement (%) qui les déclenchent, et
-  // rôles destinataires de l'email « facture de situation prête ».
-  const [seuilsSituations, setSeuilsSituations] = useState([...SEUILS_SITUATIONS]);
+  // Échéancier de facturation par défaut (acompte 50 %, démarrage 20 %,
+  // situations, solde) et rôles destinataires de l'email « facture à émettre ».
+  const [echeancier, setEcheancier] = useState(() => ECHEANCIER_DEFAUT.map(l => ({ ...l })));
   const [rolesSituations, setRolesSituations] = useState(["admin", "conducteur"]);
-  const [nouveauSeuil, setNouveauSeuil] = useState("");
   // % d'acompte par défaut (Point 5) : utilisé par les recettes prévues du
   // diagramme financier quand ni les États financiers ni le chantier n'en ont.
   const [acomptePctDefaut, setAcomptePctDefaut] = useState("");
+  // TVA proposée aux nouveaux projets de chiffrage (planning_config/chiffrage_tva_defaut).
+  // Volontairement vide tant que rien n'est réglé : aucun taux n'est inventé.
+  const [chiffrageTvaDefaut, setChiffrageTvaDefaut] = useState("");
 
   // ─── LOAD CONFIGS SUPABASE ───────────────────────────────────────────────
   useEffect(() => {
     const loadConfigs = async () => {
-      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "situations_seuils", "acompte_pct_defaut"]);
+      const { data } = await supabase.from("planning_config").select("key,value").in("key", ["phases_travaux", "lots_travaux", "groupes_types", "equipes", "operations", "email_templates", "heures_par_jour", "echeancier_facturation", "acompte_pct_defaut", "chiffrage_tva_defaut"]);
       if (data) {
         data.forEach(r => {
           if (r.key === "phases_travaux" && r.value && Array.isArray(r.value.items) && r.value.items.length > 0) {
@@ -2324,14 +3105,17 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           if (r.key === "heures_par_jour" && r.value) {
             setHeuresParJour({ ...HEURES_DEFAUT, ...r.value });
           }
-          if (r.key === "situations_seuils" && r.value) {
-            if (Array.isArray(r.value.seuils) && r.value.seuils.length > 0) {
-              setSeuilsSituations(normaliserSeuilsSituations(r.value.seuils));
+          if (r.key === "echeancier_facturation" && r.value) {
+            if (Array.isArray(r.value.lignes) && r.value.lignes.length > 0) {
+              setEcheancier(normaliserEcheancier(r.value.lignes));
             }
             if (Array.isArray(r.value.roles)) setRolesSituations(r.value.roles);
           }
           if (r.key === "acompte_pct_defaut" && r.value != null && r.value !== "") {
             setAcomptePctDefaut(String(r.value));
+          }
+          if (r.key === "chiffrage_tva_defaut" && r.value != null && r.value !== "") {
+            setChiffrageTvaDefaut(String(r.value));
           }
         });
       }
@@ -2363,7 +3147,34 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   }, [adminTab, chantiers.length, ouvriers.length]);
 
   // ─── SAUVEGARDE CONFIGS ──────────────────────────────────────────────────
-  const saveDebounce = React.useRef(null);
+  // Sauvegardes différées pendant la frappe, avec UNE minuterie PAR CLÉ.
+  // (Auparavant une seule minuterie était partagée par toutes les configs :
+  // modifier un modèle d'email puis aussitôt une phase annulait la sauvegarde
+  // en attente de l'email — la saisie était perdue au rechargement suivant.)
+  const saveTimers   = React.useRef({});   // clé -> timeout
+  const savePendings = React.useRef({});   // clé -> valeur pas encore écrite
+
+  const saveConfigDiffere = (key, value, delai = 600) => {
+    savePendings.current[key] = value;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      delete saveTimers.current[key];
+      delete savePendings.current[key];
+      saveConfig(key, value);
+    }, delai);
+  };
+
+  // Quitter la page (ou changer d'onglet) ne doit jamais perdre une saisie
+  // encore en attente : on écrit tout de suite ce qui restait en file.
+  useEffect(() => () => {
+    Object.keys(saveTimers.current).forEach(key => {
+      clearTimeout(saveTimers.current[key]);
+      if (key in savePendings.current) saveConfig(key, savePendings.current[key]);
+    });
+    saveTimers.current = {};
+    savePendings.current = {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ─── HEURES PAR JOUR CRUD ────────────────────────────────────────────────
   // Depuis le rythme 4j/5j (24/08/2026), le barème hebdomadaire est porté par
@@ -2380,8 +3191,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updExceptionJour = (d, val) => {
     const next = { ...heuresParJour, exceptions: { ...(heuresParJour.exceptions || {}), [d]: parseFloat(val) || 0 } };
     setHeuresParJour(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("heures_par_jour", next), 600);
+    saveConfigDiffere("heures_par_jour", next);
   };
   const removeExceptionJour = (d) => {
     const exceptions = { ...(heuresParJour.exceptions || {}) };
@@ -2391,40 +3201,47 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     saveConfig("heures_par_jour", next);
   };
 
-  // ─── FACTURES DE SITUATION : seuils + rôles destinataires ────────────────
-  // Une seule clé planning_config ("situations_seuils") porte les deux :
-  // { seuils: [25, 50…], roles: ["admin", …] } — toujours écrite ENTIÈRE.
-  const saveSituationsCfg = (seuils, roles) =>
-    saveConfig("situations_seuils", { seuils, roles });
-  const majSeuilsSituations = (arr) => {
-    const clean = normaliserSeuilsSituations(arr);
-    setSeuilsSituations(clean);
-    saveSituationsCfg(clean, rolesSituations);
+  // ─── ÉCHÉANCIER DE FACTURATION : lignes + rôles destinataires ────────────
+  // Une seule clé planning_config ("echeancier_facturation") porte les deux :
+  // { lignes: [{ id, nom, pct, declencheur, etape_cycle_vie }], roles: [...] }
+  // — toujours écrite ENTIÈRE. C'est le DÉFAUT : un chantier peut avoir son
+  // propre échéancier (meta.facturation_echeancier), figé le jour où il est
+  // enregistré ; modifier ce réglage-ci n'y touche pas.
+  const saveEcheancierCfg = (lignes, roles) =>
+    saveConfig("echeancier_facturation", { lignes, roles });
+  // Écriture DIFFÉRÉE : on tape un libellé ou un pourcentage caractère par
+  // caractère, et un pourcentage momentanément vide vaut 0 — écrire à chaque
+  // frappe enregistrerait des états intermédiaires incohérents.
+  const majEcheancier = (lignes) => {
+    setEcheancier(lignes);
+    saveConfigDiffere("echeancier_facturation", {
+      lignes: normaliserEcheancier(lignes), roles: rolesSituations,
+    });
   };
-  const addSeuilSituation = () => {
-    const v = Math.round(parseFloat(nouveauSeuil) || 0);
-    if (v < 1 || v > 100) return;
-    majSeuilsSituations([...seuilsSituations, v]);
-    setNouveauSeuil("");
+  const majLigneEcheancier = (i, patch) =>
+    majEcheancier(echeancier.map((l, j) => j === i ? { ...l, ...patch } : l));
+  const addLigneEcheancier = () => majEcheancier([
+    ...echeancier,
+    { id: `echeance_${echeancier.length + 1}`, nom: "Nouvelle échéance", pct: 0, declencheur: { type: "manuel" } },
+  ]);
+  const removeLigneEcheancier = (i) => {
+    if (echeancier.length <= 1) return; // toujours au moins une échéance
+    majEcheancier(echeancier.filter((_, j) => j !== i));
   };
-  const removeSeuilSituation = (s) => {
-    if (seuilsSituations.length <= 1) return; // toujours au moins un seuil
-    majSeuilsSituations(seuilsSituations.filter(x => x !== s));
-  };
+  const resetEcheancier = () => majEcheancier(ECHEANCIER_DEFAUT.map(l => ({ ...l })));
   const toggleRoleSituation = (roleId) => {
     const next = rolesSituations.includes(roleId)
       ? rolesSituations.filter(r => r !== roleId)
       : [...rolesSituations, roleId];
     setRolesSituations(next);
-    saveSituationsCfg(seuilsSituations, next);
+    saveEcheancierCfg(normaliserEcheancier(echeancier), next);
   };
 
   // ─── EMAIL TEMPLATES CRUD ────────────────────────────────────────────────
   const updEmailTemplate = (key, field, val) => {
     const next = { ...emailTemplates, [key]: { ...emailTemplates[key], [field]: val } };
     setEmailTemplates(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("email_templates", next), 600);
+    saveConfigDiffere("email_templates", next);
   };
   const resetEmailTemplate = (key) => {
     const next = { ...emailTemplates, [key]: EMAIL_TEMPLATES_DEFAUT[key] };
@@ -2445,8 +3262,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     const next = phases.map((p, idx) => idx === i ? { ...p, ...patch } : p);
     setPhases(next);
     // Debounce save
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("phases_travaux", { items: next }), 600);
+    saveConfigDiffere("phases_travaux", { items: next });
   };
   const removePhase = () => {
     if (phaseToDelete === null) return;
@@ -2477,8 +3293,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updLot = (i, patch) => {
     const next = lots.map((l, idx) => idx === i ? { ...l, ...patch } : l);
     setLots(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("lots_travaux", { items: next }), 600);
+    saveConfigDiffere("lots_travaux", { items: next });
   };
   const removeLot = () => {
     if (lotToDelete === null) return;
@@ -2520,8 +3335,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updGroupeType = (i, patch) => {
     const next = groupesTypes.map((g, idx) => idx === i ? { ...g, ...patch } : g);
     setGroupesTypes(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("groupes_types", { items: next }), 600);
+    saveConfigDiffere("groupes_types", { items: next });
   };
   const removeGroupeType = () => {
     if (gtToDelete === null) return;
@@ -2544,12 +3358,18 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   };
 
   // ─── ÉQUIPES CRUD ────────────────────────────────────────────────────────
+  // Chefs d'une équipe : responsables[] (multi) avec repli sur l'ancien champ
+  // responsable (string, conservé en compat = premier de la liste).
+  const respsDe = (eq) =>
+    Array.isArray(eq?.responsables) && eq.responsables.filter(Boolean).length > 0
+      ? eq.responsables.filter(Boolean)
+      : (eq?.responsable ? [eq.responsable] : []);
   const saveEquipes = async (next) => {
     setEquipes(next);
     let items = next;
     try {
       const noms = [...new Set((next || []).flatMap(eq => [
-        eq?.responsable,
+        ...respsDe(eq),
         ...(eq?.membres || []).map(m => m?.ouvrier),
       ]).filter(Boolean))];
       if (noms.length) {
@@ -2582,6 +3402,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       id: `eq_${Date.now()}`,
       nom: "Nouvelle équipe",
       responsable: "",
+      responsables: [],
       membres: [],
       externe: false,
       couleur: COULEURS_PALETTE[equipes.length % COULEURS_PALETTE.length],
@@ -2590,8 +3411,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updEquipe = (i, patch) => {
     const next = equipes.map((eq, idx) => idx === i ? { ...eq, ...patch } : eq);
     setEquipes(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("equipes", { items: next }), 600);
+    saveConfigDiffere("equipes", { items: next });
   };
   const removeEquipe = () => {
     if (eqToDelete === null) return;
@@ -2640,8 +3460,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const updOperation = (i, patch) => {
     const next = operations.map((o, idx) => idx === i ? { ...o, ...patch } : o);
     setOperations(next);
-    if (saveDebounce.current) clearTimeout(saveDebounce.current);
-    saveDebounce.current = setTimeout(() => saveConfig("operations", { items: next }), 600);
+    saveConfigDiffere("operations", { items: next });
   };
   const removeOperation = () => {
     if (opToDelete === null) return;
@@ -2744,20 +3563,33 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     setChantierToDelete(null);
   };
 
-  const updateChantier = async (i, ch) => {
+  // Sync différée du nom de phasage (une minuterie par chantier).
+  const syncPhasageTimers = React.useRef({});
+
+  // `differe` = la valeur vient d'une frappe au clavier : on n'écrit qu'une
+  // fois la saisie retombée. Écrire à chaque caractère faisait revenir en
+  // temps réel une version plus ancienne du nom par-dessus la frappe en cours.
+  const updateChantier = async (i, ch, differe = false) => {
     const ancien = chantiers[i];
     const u = chantiers.map((c, idx) => idx === i ? { ...c, ...ch } : c);
     setChantiers(u);
-    saveConfig("chantiers", u);
+    if (differe) saveConfigDiffere("chantiers", u);
+    else saveConfig("chantiers", u);
     // Synchronise le nom du phasage si le chantier a été renommé.
     if (ch.nom && ancien?.id && ch.nom !== ancien.nom) {
-      try {
-        await supabase.from("phasages")
-          .update({ chantier_nom: ch.nom })
-          .eq("chantier_id", ancien.id);
-      } catch (e) {
-        console.warn("Sync nom phasage échouée :", e?.message || e);
-      }
+      const chantierId = ancien.id, nom = ch.nom;
+      const sync = async () => {
+        try {
+          await supabase.from("phasages")
+            .update({ chantier_nom: nom })
+            .eq("chantier_id", chantierId);
+        } catch (e) {
+          console.warn("Sync nom phasage échouée :", e?.message || e);
+        }
+      };
+      if (!differe) return sync();
+      if (syncPhasageTimers.current[chantierId]) clearTimeout(syncPhasageTimers.current[chantierId]);
+      syncPhasageTimers.current[chantierId] = setTimeout(sync, 800);
     }
   };
 
@@ -2778,6 +3610,36 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   // cherche un chantier dont le nom apparait dans l'adresse du CR.
   const [syncingCR, setSyncingCR] = useState(false);
   const [syncCRMsg, setSyncCRMsg] = useState("");
+
+  // Test de connexion ProGBat : appelle l'Edge Function `progbat-test-connection`
+  // (lecture seule, GET /v2/me puis /v2/clients/me côté serveur). La session
+  // Supabase est transmise automatiquement par functions.invoke ; aucun jeton
+  // ni en-tête n'est manipulé ni affiché ici. Aucune écriture ProGBat.
+  const [progbatTesting, setProgbatTesting] = useState(false);
+  const [progbatResult, setProgbatResult]   = useState(null);
+  const testerConnexionProgbat = async () => {
+    setProgbatTesting(true); setProgbatResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("progbat-test-connection");
+      if (error && !data) {
+        // Erreur de transport ou refus avant ProGBat (401/403 Supabase) : le corps
+        // JSON de la fonction est parfois joint à l'erreur, on l'exploite si présent.
+        let body = null;
+        try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
+        setProgbatResult({
+          ok: false,
+          progbat_status: body?.progbat_status ?? null,
+          error: body?.error || error.message || "Appel de la fonction impossible.",
+        });
+      } else {
+        setProgbatResult(data || { ok: false, error: "Réponse vide de la fonction." });
+      }
+    } catch (e) {
+      setProgbatResult({ ok: false, progbat_status: null, error: e?.message || "Erreur inattendue." });
+    }
+    setProgbatTesting(false);
+  };
+
   const synchroniserCRs = async () => {
     setSyncingCR(true); setSyncCRMsg("");
     try {
@@ -2935,7 +3797,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
       ["fournisseurs", "Fournisseurs", Truck],
       ["vehicules",    "Véhicules",    Car],
       ["emails",       "Emails",       Mail],
-      ["situations",   "Fact. de situation", Receipt],
+      ["situations",   "Facturation",   Receipt],
       ...(isAdmin ? [["mail-encours", "Mail encours", Send]] : []),
     ]},
     { id:"outils", label:"Outils", icon:Wrench, tabs:[
@@ -3435,7 +4297,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   {(() => {
                     const eq = equipes.find(x => x.id === g.equipe_id);
                     if (!eq || eq.externe) return null;
-                    const membres = [...new Set([eq.responsable, ...(eq.membres||[]).map(m=>m.ouvrier)].filter(Boolean))];
+                    const membres = [...new Set([...respsDe(eq), ...(eq.membres||[]).map(m=>m.ouvrier)].filter(Boolean))];
                     if (membres.length === 0) return null;
                     const prios = Array.isArray(g.ouvriers_prio) ? g.ouvriers_prio : [];
                     const toggle = (nom) => updGroupeType(i, {
@@ -3560,7 +4422,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <div>
               <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Équipes</div>
               <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
-                Équipes stables de l'entreprise : un <strong style={{color:T.text}}>responsable</strong> et des <strong style={{color:T.text}}>membres</strong> pris dans la liste des ouvriers du planning. Elles serviront à pré-remplir les ouvriers des groupes d'un chantier — toujours proposé, jamais imposé.
+                Équipes stables de l'entreprise : un ou plusieurs <strong style={{color:T.text}}>responsables</strong> et des <strong style={{color:T.text}}>membres</strong> pris dans la liste des ouvriers du planning. Elles serviront à pré-remplir les ouvriers des groupes d'un chantier — toujours proposé, jamais imposé.
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -3613,7 +4475,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   fontSize:FONT.xs.size+1,fontWeight:600,color:eq.externe?"#f5a623":T.textSub,userSelect:"none"}}
                   title="Prestataire externe : pas de membres internes, ne compte pas dans les heures internes">
                   <input type="checkbox" checked={!!eq.externe}
-                    onChange={e=>updEquipe(i, e.target.checked ? { externe:true, responsable:"", membres:[] } : { externe:false })}
+                    onChange={e=>updEquipe(i, e.target.checked ? { externe:true, responsable:"", responsables:[], membres:[] } : { externe:false })}
                     style={{accentColor:"#f5a623",width:15,height:15,cursor:"pointer"}}/>
                   Externe
                 </label>
@@ -3638,22 +4500,45 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 </div>
               ) : (
                 <>
-                  {/* Responsable */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                    <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92}}>Responsable</span>
-                    <select className="ti" value={eq.responsable||""} onChange={e=>updEquipe(i,{responsable:e.target.value})}
-                      style={{flex:"0 1 220px",minWidth:150,cursor:"pointer",
-                        ...(horsListe(eq.responsable)?{color:"#f5a623",fontWeight:700}:{})}}>
-                      <option value="">— Aucun —</option>
-                      {horsListe(eq.responsable) && <option value={eq.responsable}>{eq.responsable} (hors liste planning)</option>}
-                      {ouvriers.filter(Boolean).map(o=>(<option key={o} value={o}>{o}</option>))}
-                    </select>
-                    {horsListe(eq.responsable) && (
-                      <span style={{fontSize:FONT.xs.size,color:"#f5a623",display:"inline-flex",alignItems:"center",gap:4}}>
-                        <Icon as={AlertTriangle} size={11}/>
-                        à créer dans l'onglet Ouvriers
-                      </span>
-                    )}
+                  {/* Responsables — une équipe peut avoir plusieurs chefs.
+                      responsables[] est la source ; responsable (string) est
+                      maintenu = premier de la liste (compat semis/phasage). */}
+                  <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                    <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92,paddingTop:7}}>Responsables</span>
+                    <div style={{flex:"1 1 300px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      {respsDe(eq).map(r => (
+                        <span key={r} style={{
+                          display:"inline-flex",alignItems:"center",gap:6,
+                          padding:"4px 6px 4px 12px",borderRadius:999,
+                          border:`1px solid ${horsListe(r) ? "#f5a623" : T.border}`,background:T.bg,
+                          fontSize:FONT.xs.size+1,fontWeight:700,
+                          color:horsListe(r) ? "#f5a623" : T.text,
+                        }} title={horsListe(r) ? `${r} : hors liste planning — à créer dans l'onglet Ouvriers` : `${r} est responsable de « ${eq.nom} »`}>
+                          {r}
+                          <button className="ib" onClick={()=>{
+                            const next = respsDe(eq).filter(x => x !== r);
+                            updEquipe(i, { responsables: next, responsable: next[0] || "" });
+                          }} title={`Retirer ${r} des responsables`}>
+                            <Icon as={X} size={11}/>
+                          </button>
+                        </span>
+                      ))}
+                      <select className="ti" value="" onChange={e=>{
+                        const v = e.target.value;
+                        if (!v) return;
+                        const next = [...new Set([...respsDe(eq), v])];
+                        updEquipe(i, { responsables: next, responsable: next[0] || "" });
+                      }} style={{flex:"0 1 200px",minWidth:140,maxWidth:210,cursor:"pointer",color:T.textMuted}}>
+                        <option value="">+ Ajouter un responsable…</option>
+                        {ouvriers.filter(Boolean).filter(o=>!respsDe(eq).includes(o)).map(o=>(<option key={o} value={o}>{o}</option>))}
+                      </select>
+                      {respsDe(eq).some(horsListe) && (
+                        <span style={{fontSize:FONT.xs.size,color:"#f5a623",display:"inline-flex",alignItems:"center",gap:4}}>
+                          <Icon as={AlertTriangle} size={11}/>
+                          à créer dans l'onglet Ouvriers
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Membres */}
@@ -3694,7 +4579,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                       <select className="ti" value="" onChange={e=>addMembre(i, e.target.value)}
                         style={{flex:"0 1 200px",minWidth:140,maxWidth:200,cursor:"pointer",color:T.textMuted}}>
                         <option value="">+ Ajouter un membre…</option>
-                        {ouvriers.filter(Boolean).filter(o=>!membresPris.includes(o)&&o!==eq.responsable).map(o=>(<option key={o} value={o}>{o}</option>))}
+                        {ouvriers.filter(Boolean).filter(o=>!membresPris.includes(o)&&!respsDe(eq).includes(o)).map(o=>(<option key={o} value={o}>{o}</option>))}
                       </select>
                     </div>
                   </div>
@@ -4219,17 +5104,93 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               )}
             </div>
           </div>
+
+          {/* Connexion ProGBat — test en lecture seule du jeton privé (aucune synchro) */}
+          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14,marginTop:14}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
+              <Icon as={Plug} size={11}/>
+              Connexion ProGBat
+            </div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",background:T.card,borderRadius:RADIUS.md}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text,marginBottom:2}}>Tester la connexion</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textSub,lineHeight:1.55}}>
+                  Vérifie que le jeton ProGBat enregistré dans Supabase est valide et correspond au compte Profero. Lecture seule : rien n'est créé ni modifié.
+                </div>
+              </div>
+              <button onClick={testerConnexionProgbat} disabled={progbatTesting} style={{
+                display:"inline-flex",alignItems:"center",gap:5,
+                padding:"8px 14px",borderRadius:RADIUS.md,border:"none",
+                background:progbatTesting?T.border:acc.accent,color:progbatTesting?T.textMuted:acc.onAccent,
+                fontFamily:"inherit",fontSize:FONT.xs.size+1,fontWeight:800,cursor:progbatTesting?"not-allowed":"pointer",
+              }}>
+                <Icon as={RefreshCw} size={11} style={progbatTesting?{animation:"spin 1s linear infinite"}:undefined}/>
+                {progbatTesting?"Test en cours…":"Tester la connexion"}
+              </button>
+              {progbatResult && (
+                <div style={{flex:"1 1 100%",fontSize:FONT.xs.size+1,lineHeight:1.7,color:T.text}}>
+                  <div style={{fontWeight:700,color:progbatResult.ok?"#22c55e":"#e15a5a"}}>
+                    {progbatResult.ok ? "✓ Connexion réussie" : "⚠ Échec de la connexion"}
+                  </div>
+                  {progbatResult.ok && (
+                    <>
+                      <div>
+                        Compte ProGBat : <strong>{[progbatResult.utilisateur?.prenom, progbatResult.utilisateur?.nom].filter(Boolean).join(" ") || "—"}</strong>
+                        {progbatResult.utilisateur?.email ? <span style={{color:T.textSub}}> ({progbatResult.utilisateur.email})</span> : null}
+                      </div>
+                      <div>
+                        Entreprise : {progbatResult.entreprise?.nom
+                          ? <strong>{progbatResult.entreprise.nom}{progbatResult.entreprise.id != null ? <span style={{color:T.textSub,fontWeight:500}}> (id {progbatResult.entreprise.id})</span> : null}</strong>
+                          : <span style={{color:T.textSub}}>non disponible{progbatResult.entreprise_status ? ` (HTTP ${progbatResult.entreprise_status} sur /clients/me — scope company-accounts.read absent, sans incidence sur le test)` : ""}</span>}
+                      </div>
+                      <div style={{color:T.textSub}}>
+                        Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}
+                        {/* token_source ne décrit QUE le jeton du diagnostic de facturation :
+                            /me et /clients/me utilisent le jeton d'identité, qui peut être l'autre. */}
+                        {progbatResult.token_source ? ` · diagnostic facturation via le jeton ${progbatResult.token_source === "billing" ? "dédié" : "historique"}` : ""}
+                      </div>
+                    </>
+                  )}
+                  {!progbatResult.ok && (
+                    <>
+                      <div>{progbatResult.error || "Erreur inconnue."}</div>
+                      <div style={{color:T.textSub}}>Code HTTP ProGBat : {progbatResult.progbat_status ?? "—"}</div>
+                    </>
+                  )}
+                </div>
+              )}
+              {/* Diagnostic facturation (lecture seule) — factures, règlements, PDF */}
+              {progbatResult?.ok && <CapacitesFacturationProgbat billing={progbatResult.billing} T={T}/>}
+
+              {/* Prévisualisation de la synchronisation (dry-run). Toujours
+                  disponible : elle ne dépend pas du test de connexion et ne
+                  part JAMAIS toute seule — uniquement sur clic. */}
+              <PrevisualisationSyncProgbat T={T} acc={acc}/>
+            </div>
+          </div>
+
+          {/* Inventaire de la bibliothèque — simulation lecture seule (aucun bouton d'écriture) */}
+          <ProgbatInventaire T={T} acc={acc} />
         </div>
       )}
 
       {adminTab==="taux"&&(
         <div className="ac">
+          {/* Taux horaires de VENTE de main-d'œuvre (table taux_horaires_vente) :
+              liste proposée dans chaque fiche ouvrage, prix MO = cadence × taux. */}
+          <TauxHorairesVenteAdmin T={T} acc={acc} profil={profil}/>
+
+          {/* Coefficients de VENTE (table coefficients_vente) : liste proposée dans
+              chaque fiche ouvrage, prix matériaux = coût matériaux × coefficient. */}
+          <CoefficientsVenteAdmin T={T} acc={acc} profil={profil}/>
+
           {/* Taux MO prévisionnel global — base du coût MO PRÉVU (heures vendues ×
               ce taux) dans le phasage v2 et la page Chantiers. Distinct des taux
               par ouvrier ci-dessous, qui servent au coût MO RÉEL (pointages). */}
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux MO prévisionnel</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
             Taux horaire moyen utilisé pour estimer le <strong>coût MO prévisionnel</strong> (heures vendues × ce taux) dans le phasage et les fiches chantier. Défaut : {TAUX_MO_PREV_DEFAUT} €/h.
+            <br/>C'est aussi le <strong>coût horaire chargé de référence</strong> de la Bibliothèque et du Chiffrage : coût main-d'œuvre d'un ouvrage = cadence (h/unité) × ce taux, d'où la <strong>marge</strong>. Le prix de vente, lui, vient des taux horaires de vente ci-dessus ; s'il n'est pas réglé, les prix restent calculés mais la marge ne l'est pas.
           </div>
           <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
             <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>Taux horaire moyen (prévisionnel)</div>
@@ -4240,7 +5201,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 onChange={e=>{
                   const v=parseFloat(e.target.value)||0;
                   setTauxMOPrev&&setTauxMOPrev(v);
-                  saveConfig("taux_mo_previsionnel",v);
+                  saveConfigDiffere("taux_mo_previsionnel",v);
                 }}
                 placeholder={String(TAUX_MO_PREV_DEFAUT)}
                 style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4252,6 +5213,37 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             {!(tauxMOPrev>0)&&(
               <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
                 non réglé → {TAUX_MO_PREV_DEFAUT} €/h
+              </span>
+            )}
+          </div>
+
+          {/* TVA proposée aux NOUVEAUX projets de chiffrage. Chaque projet garde
+              son propre taux (modifiable) ; un devis sans TVA n'est pas « prêt ». */}
+          <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>TVA par défaut du chiffrage</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
+            Taux de TVA pré-rempli sur les <strong>nouveaux projets de chiffrage</strong> (10 % rénovation, 20 % neuf, 5,5 % énergétique). Chaque projet peut le changer ; un devis sans TVA reste « à compléter ».
+          </div>
+          <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+            <div style={{flex:1,fontWeight:700,fontSize:15,color:T.text}}>TVA proposée aux nouveaux devis</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <input
+                type="number" min="0" max="100" step="0.1"
+                value={chiffrageTvaDefaut}
+                onChange={e=>{
+                  const v=e.target.value;
+                  setChiffrageTvaDefaut(v);
+                  saveConfigDiffere("chiffrage_tva_defaut",v===""?"":parseFloat(v)||0);
+                }}
+                placeholder="—"
+                style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                  border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                  fontFamily:"inherit",fontSize:15,fontWeight:700,outline:"none"}}
+              />
+              <span style={{fontSize:13,color:T.textMuted}}>%</span>
+            </div>
+            {(chiffrageTvaDefaut===""||chiffrageTvaDefaut==null)&&(
+              <span style={{fontSize:12,color:T.textMuted,fontStyle:"italic"}}>
+                non réglé → la TVA se choisit sur chaque projet
               </span>
             )}
           </div>
@@ -4272,7 +5264,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                 onChange={e=>{
                   const v=e.target.value;
                   setAcomptePctDefaut(v);
-                  saveConfig("acompte_pct_defaut",v===""?"":parseFloat(v)||0);
+                  saveConfigDiffere("acompte_pct_defaut",v===""?"":parseFloat(v)||0);
                 }}
                 placeholder="30"
                 style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4302,7 +5294,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                   onChange={e=>{
                     const t={...tauxHoraires,[o]:parseFloat(e.target.value)||0};
                     setTauxHoraires(t);
-                    saveConfig("taux_horaires",t);
+                    saveConfigDiffere("taux_horaires",t);
                   }}
                   placeholder="0"
                   style={{width:80,padding:"7px 10px",borderRadius:8,textAlign:"center",
@@ -4326,59 +5318,100 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         </div>
       )}
 
-      {/* ── FACTURES DE SITUATION : seuils d'avancement + rôles notifiés ── */}
+      {/* ── ÉCHÉANCIER DE FACTURATION : lignes du contrat + rôles notifiés ── */}
       {adminTab==="situations"&&(
         <div className="ac">
-          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Factures de situation</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:18,maxWidth:640,lineHeight:1.6}}>
-            À chaque seuil d'<strong>avancement du chantier</strong> franchi, une facture de situation passe
-            « à émettre » dans la frise du cycle de vie (phase Travaux) et un email de notification part
-            automatiquement — une seule fois par seuil et par chantier (les chantiers au statut Terminé sont exclus).
+          <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Échéancier de facturation</div>
+          <div style={{color:T.textSub,fontSize:13,marginBottom:18,maxWidth:700,lineHeight:1.6}}>
+            Le découpage par défaut d'un marché en factures : acompte, démarrage, situations, solde.
+            Il est repris automatiquement par chaque chantier, où il reste ajustable
+            (fiche chantier → <strong>Facturation client</strong> → « Modifier l'échéancier »).
+            Quand une échéance atteint son déclencheur, elle passe « à émettre » dans la frise du cycle de vie
+            et un email part une seule fois par échéance et par chantier (chantiers Terminés exclus).
+            À l'import d'une facture, c'est le <strong>montant</strong> rapporté à ces pourcentages
+            qui permet de reconnaître l'échéance concernée.
           </div>
 
-          {/* Seuils */}
-          <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:T.text}}>Seuils de déclenchement</div>
-          <div style={{color:T.textSub,fontSize:13,marginBottom:10}}>Défaut : {SEUILS_SITUATIONS.join(" · ")} %.</div>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
-            {seuilsSituations.map(s => (
-              <span key={s} style={{
-                display:"inline-flex",alignItems:"center",gap:6,
-                padding:"6px 6px 6px 12px",borderRadius:RADIUS.pill,
-                border:`1px solid ${T.border}`,background:T.surface,
-                fontSize:14,fontWeight:800,color:T.accent,
-              }}>
-                {s} %
-                <button onClick={()=>removeSeuilSituation(s)}
-                  title={seuilsSituations.length<=1?"Au moins un seuil requis":"Retirer ce seuil"}
-                  disabled={seuilsSituations.length<=1}
-                  style={{
-                    width:20,height:20,borderRadius:"50%",border:"none",
-                    background:T.card,color:T.textMuted,cursor:seuilsSituations.length<=1?"default":"pointer",
+          {/* Lignes de l'échéancier */}
+          <div style={{fontWeight:700,fontSize:15,marginBottom:10,color:T.text}}>Échéances</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+            {echeancier.map((l,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <input value={l.nom} onChange={e=>majLigneEcheancier(i,{nom:e.target.value})}
+                  placeholder="Libellé de l'échéance"
+                  style={{flex:"1 1 220px",minWidth:160,padding:"7px 10px",borderRadius:8,
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                    fontFamily:"inherit",fontSize:14,outline:"none"}}/>
+                <input type="number" min="0" max="100" step="1" value={l.pct}
+                  onChange={e=>majLigneEcheancier(i,{pct:parseFloat(e.target.value)||0})}
+                  style={{width:72,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
+                    fontFamily:"inherit",fontSize:14,fontWeight:800,outline:"none"}}/>
+                <span style={{fontSize:13,color:T.textMuted,width:14}}>%</span>
+                <select value={l.declencheur?.type||"manuel"}
+                  onChange={e=>majLigneEcheancier(i,{declencheur:{type:e.target.value,seuil:l.declencheur?.seuil??50}})}
+                  style={{flex:"0 1 230px",padding:"7px 10px",borderRadius:8,
+                    border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                    fontFamily:"inherit",fontSize:13,outline:"none"}}>
+                  <option value="signature">À la signature du devis</option>
+                  <option value="avancement">À un % d'avancement</option>
+                  <option value="reception">À la réception des travaux</option>
+                  <option value="manuel">À la main (aucun signalement)</option>
+                </select>
+                {l.declencheur?.type==="avancement"&&(
+                  <input type="number" min="0" max="100" value={l.declencheur?.seuil??0}
+                    onChange={e=>majLigneEcheancier(i,{declencheur:{type:"avancement",seuil:parseFloat(e.target.value)||0}})}
+                    title="Seuil d'avancement (%)"
+                    style={{width:64,padding:"7px 10px",borderRadius:8,textAlign:"center",
+                      border:`1px solid ${T.border}`,background:T.inputBg,color:T.text,
+                      fontFamily:"inherit",fontSize:13,outline:"none"}}/>
+                )}
+                {l.etape_cycle_vie&&(
+                  <span title={`L'encaissement de cette échéance coche l'étape « ${l.etape_cycle_vie} » du cycle de vie`}
+                    style={{fontSize:11,fontWeight:700,color:T.textMuted,
+                      border:`1px dashed ${T.border}`,borderRadius:RADIUS.pill,padding:"2px 9px"}}>
+                    coche le cycle de vie
+                  </span>
+                )}
+                <button onClick={()=>removeLigneEcheancier(i)}
+                  title={echeancier.length<=1?"Au moins une échéance requise":"Retirer cette échéance"}
+                  disabled={echeancier.length<=1}
+                  style={{width:28,height:28,borderRadius:8,border:`1px solid ${T.border}`,
+                    background:T.surface,color:T.textMuted,
+                    cursor:echeancier.length<=1?"default":"pointer",
                     display:"inline-flex",alignItems:"center",justifyContent:"center",
-                    fontFamily:"inherit",fontSize:12,fontWeight:800,opacity:seuilsSituations.length<=1?0.4:1,
-                  }}>×</button>
-              </span>
+                    fontFamily:"inherit",fontSize:13,fontWeight:800,opacity:echeancier.length<=1?0.4:1}}>×</button>
+              </div>
             ))}
-            <input type="number" min="1" max="100" step="5" value={nouveauSeuil}
-              onChange={e=>setNouveauSeuil(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter")addSeuilSituation();}}
-              placeholder="%"
-              style={{width:64,padding:"7px 10px",borderRadius:8,textAlign:"center",
-                border:`1px solid ${T.border}`,background:T.inputBg,color:T.accent,
-                fontFamily:"inherit",fontSize:14,fontWeight:700,outline:"none"}}/>
-            <button onClick={addSeuilSituation}
-              disabled={!(parseFloat(nouveauSeuil)>=1&&parseFloat(nouveauSeuil)<=100)}
-              style={{
-                padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
-                background:T.surface,color:T.textSub,fontFamily:"inherit",
-                fontSize:13,fontWeight:700,cursor:"pointer",
-              }}>+ Ajouter un seuil</button>
           </div>
+
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:10}}>
+            <button onClick={addLigneEcheancier} style={{
+              padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+              background:T.surface,color:T.textSub,fontFamily:"inherit",
+              fontSize:13,fontWeight:700,cursor:"pointer",
+            }}>+ Ajouter une échéance</button>
+            <button onClick={resetEcheancier} style={{
+              padding:"8px 14px",borderRadius:8,border:`1px solid ${T.border}`,
+              background:"transparent",color:T.textMuted,fontFamily:"inherit",
+              fontSize:13,fontWeight:700,cursor:"pointer",
+            }}>Revenir au défaut ({ECHEANCIER_DEFAUT.map(l=>`${l.pct}`).join(" / ")} %)</button>
+          </div>
+
+          {(()=>{ const ctrl=controleEcheancier(echeancier); return (
+            <div style={{
+              fontSize:13,fontWeight:700,marginBottom:24,paddingBottom:20,
+              borderBottom:`1px solid ${T.border}`,
+              color:ctrl.somme===100?"#22c55e":"#f59e0b",
+            }}>
+              Total : {ctrl.somme} %{ctrl.alertes.length?` — ${ctrl.alertes[0]}`:" du marché."}
+            </div>
+          ); })()}
 
           {/* Rôles destinataires */}
           <div style={{fontWeight:700,fontSize:15,marginBottom:6,color:T.text}}>Destinataires de la notification</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:10,maxWidth:640,lineHeight:1.6}}>
-            L'email « facture de situation prête » est envoyé aux utilisateurs <strong>actifs</strong> des rôles cochés
+            L'email « facture à émettre » est envoyé aux utilisateurs <strong>actifs</strong> des rôles cochés
             (seuls les comptes avec une vraie adresse email la reçoivent — les comptes locaux sont ignorés).
           </div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
@@ -4401,7 +5434,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           {rolesSituations.length===0&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"rgba(245,158,11,0.12)",border:"1px solid rgba(245,158,11,0.4)",borderRadius:RADIUS.md,fontSize:13,color:"#f59e0b",fontWeight:600}}>
               <Icon as={AlertTriangle} size={14}/>
-              Aucun rôle coché : aucune notification ne sera envoyée (les situations restent signalées dans la frise).
+              Aucun rôle coché : aucune notification ne sera envoyée (les échéances restent signalées « à émettre » dans la fiche chantier).
             </div>
           )}
         </div>
@@ -4496,7 +5529,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                         style={{background:col}} onClick={()=>{updateChantier(i,{couleur:col});setEditChIdx(null);}}/>
                     ))}
                   </div>
-                :<input className="ti" value={c.nom} onChange={e=>updateChantier(i,{nom:e.target.value.toUpperCase()})} style={{fontWeight:700}}/>
+                :<input className="ti" value={c.nom} onChange={e=>updateChantier(i,{nom:e.target.value.toUpperCase()},true)} style={{fontWeight:700}}/>
               }
               {editChIdx!==i&&operations.length>0&&(
                 <select className="ti" value={c.operation_id||""}
@@ -4565,8 +5598,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     :<>
                         <input className="ti" value={o.nom} onChange={e=>updOperation(i,{nom:e.target.value})}
                           placeholder="Nom de l'opération…" style={{fontWeight:700,flex:1,minWidth:140}}/>
-                        <input className="ti" value={o.adresse||""} onChange={e=>updOperation(i,{adresse:e.target.value})}
-                          placeholder="Adresse…" style={{flex:2,minWidth:180}}/>
+                        <AdresseInput className="ti" value={o.adresse||""} onChange={v=>updOperation(i,{adresse:v})}
+                          placeholder="Adresse…" wrapperStyle={{flex:2,minWidth:180}}/>
                       </>
                   }
                   {editOpIdx===i

@@ -7,7 +7,7 @@
 // Le dessin des symboles reste dans planDessin.js (drawLibSym/getBounds/
 // calcSurface) : même rendu que l'éditeur bureau. Ne modifier la scène qu'ici.
 // ─────────────────────────────────────────────────────────────────────────────
-import { getBounds, calcSurface, drawLibSym } from "./planDessin";
+import { getBounds, calcSurface, drawLibSym, pointDansPolygone } from "./planDessin";
 
 // Palette impression (mêmes valeurs que le bloc isPrint du render bureau).
 export const PALETTE_IMPRESSION = {
@@ -84,14 +84,14 @@ export const LEGENDE_TITRES = {
   chauff: "LÉGENDE CHAUFFAGE", global: "LÉGENDE GÉNÉRALE",
 };
 
-// ── Cadrage : viewport { x, y, scale } dans un canvas logique W×H (null si
-//    plan vide). Le cadre de référence est celui de l'ÉDITEUR bureau
-//    (Plans.jsx fitView) : segments + symboles — c'est le dessin lui-même.
-//    Les surfaces et cotes n'étendent le cadre que si elles restent PROCHES
-//    du dessin (marge de 35 % de son emprise) : un polygone parasite créé
-//    par erreur à des centaines de mètres (cas réel : zone « 90 028 m² »)
-//    n'écrase plus le cadrage — il sera simplement hors champ. ────────────────
-export function calerVue(d, W, H) {
+// ── Emprise du dessin en mètres (null si plan vide). Le cadre de référence
+//    est celui de l'ÉDITEUR bureau (Plans.jsx fitView) : segments + symboles
+//    — c'est le dessin lui-même. Les surfaces et cotes n'étendent le cadre que
+//    si elles restent PROCHES du dessin (marge de 35 % de son emprise) : un
+//    polygone parasite créé par erreur à des centaines de mètres (cas réel :
+//    zone « 90 028 m² ») n'écrase plus le cadrage — il sera simplement hors
+//    champ. `calerVue` en déduit le viewport qui remplit le canvas. ───────────
+export function cadreDessin(d) {
   const segs = (d?.segments || []).filter(s => !s.deleted);
   const syms = (d?.symbols || []).filter(s => !s.deleted);
   const surfPts = (d?.surfaces || []).filter(s => !s.deleted).flatMap(s => s.points || []);
@@ -116,23 +116,43 @@ export function calerVue(d, W, H) {
     minX = Math.min(...pts.map(p => p.x)); maxX = Math.max(...pts.map(p => p.x));
     minY = Math.min(...pts.map(p => p.y)); maxY = Math.max(...pts.map(p => p.y));
   }
-
   const w = Math.max(maxX - minX, 0.01), h = Math.max(maxY - minY, 0.01);
-  const scale = Math.min(W / (w * 1.15), H / (h * 1.15));
-  if (!isFinite(scale) || scale <= 0) return null;
+  return { minX, maxX, minY, maxY, w, h };
+}
+
+// ── Viewport { x, y, scale } pour une ÉCHELLE IMPOSÉE (px logiques par mètre)
+//    dans un canvas W×H : le dessin est centré, rien n'est ajusté. Sert à
+//    l'export A4 à l'échelle (1:50, 1:100…) où c'est l'échelle qui commande. ──
+export function calerVueEchelle(cadre, W, H, scale) {
+  if (!cadre || !isFinite(scale) || scale <= 0) return null;
   return {
     scale,
-    x: minX - (W / scale - w) / 2,
-    y: minY - (H / scale - h) / 2,
+    x: cadre.minX - (W / scale - cadre.w) / 2,
+    y: cadre.minY - (H / scale - cadre.h) / 2,
   };
+}
+
+export function calerVue(d, W, H) {
+  const cadre = cadreDessin(d);
+  if (!cadre) return null;
+  const scale = Math.min(W / (cadre.w * 1.15), H / (cadre.h * 1.15));
+  if (!isFinite(scale) || scale <= 0) return null;
+  return calerVueEchelle(cadre, W, H, scale);
 }
 
 // ── Dessin de la scène complète (surfaces, segments, cotes, symboles) dans un
 //    contexte déjà mis à l'échelle. W/H : taille LOGIQUE du canvas ; vp :
 //    viewport { x, y, scale }. Le fond n'est PAS peint ici (à la charge de
-//    l'appelant : blanc pour la visionneuse comme pour l'export). ─────────────
-export function dessinerScene(ctx, d, W, H, vp) {
+//    l'appelant : blanc pour la visionneuse comme pour l'export).
+//    opts.calques  : { surfaces, segments, cotes, symbols } — masque une
+//                    famille d'objets (repris de l'éditeur bureau) ;
+//    opts.coteFont : taille du texte des cotes (12 par défaut, réglable dans
+//                    l'éditeur). Le contexte peut être un vrai canvas 2D ou
+//    l'enregistreur SVG de planPdf.js (même sous-ensemble d'API). ─────────────
+export function dessinerScene(ctx, d, W, H, vp, opts = {}) {
   if (!ctx || !d || !vp) return;
+  const CAL = { surfaces: true, segments: true, cotes: true, symbols: true, ...(opts.calques || {}) };
+  const coteFont = opts.coteFont || 12;
   const rot = (parseFloat(d.planRotation) || 0) * Math.PI / 180;
   const cosR = Math.cos(rot), sinR = Math.sin(rot);
   const cx0 = W / 2, cy0 = H / 2;
@@ -144,7 +164,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   };
 
   // Surfaces (polygones + étiquette d'aire)
-  (d.surfaces || []).forEach(surf => {
+  if (CAL.surfaces) (d.surfaces || []).forEach(surf => {
     if (surf.deleted || !Array.isArray(surf.points) || surf.points.length < 3) return;
     const pts = surf.points;
     ctx.save();
@@ -165,10 +185,18 @@ export function dessinerScene(ctx, d, W, H, vp) {
     ctx.restore();
     const cx_c = pts.reduce((a, p) => a + p.x, 0) / pts.length;
     const cy_c = pts.reduce((a, p) => a + p.y, 0) / pts.length;
-    const { cx: lx, cy: ly } = toC(cx_c, cy_c);
+    // Étiquette d'aire : au centre de la zone, SAUF si l'utilisateur a nommé
+    // la pièce (symbole texte posé dedans) — elle se range alors juste sous ce
+    // nom, comme sur un plan d'architecte : « Cuisine » puis « 8,20 m² ». Les
+    // deux libellés visaient sinon le même point et se recouvraient.
+    const nom = (d.symbols || [])
+      .filter(sy => !sy.deleted && sy.type === "text" && (sy.text || "").trim() && pointDansPolygone(sy.x, sy.y, pts))
+      .sort((a, b) => ((a.x - cx_c) ** 2 + (a.y - cy_c) ** 2) - ((b.x - cx_c) ** 2 + (b.y - cy_c) ** 2))[0];
+    const ancre = nom ? toC(nom.x, nom.y) : toC(cx_c, cy_c);
+    const lx = ancre.cx, ly = ancre.cy + (nom ? 13 * (nom.size || 1) + 8 : 0);
     const area = calcSurface(pts);
     const label = area >= 1 ? `${area.toFixed(2)} m²` : `${(area * 10000).toFixed(0)} cm²`;
-    const fontSize = Math.max(10, Math.min(14, vp.scale * 0.4));
+    const fontSize = 12;   // ancrée au papier : ne dépend PAS du zoom
     ctx.font = `bold ${fontSize}px sans-serif`;
     ctx.textAlign = "center";
     const tw = ctx.measureText(label).width + 10;
@@ -182,7 +210,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   });
 
   // Segments
-  (d.segments || []).forEach(s => {
+  if (CAL.segments) (d.segments || []).forEach(s => {
     if (s.deleted) return;
     const { cx: x1, cy: y1 } = toC(s.x1, s.y1);
     const { cx: x2, cy: y2 } = toC(s.x2, s.y2);
@@ -193,12 +221,17 @@ export function dessinerScene(ctx, d, W, H, vp) {
   });
 
   // Cotes (ligne décalée, flèches, rappels, étiquette m/cm)
-  (d.cotes || []).forEach(c => {
+  if (CAL.cotes) (d.cotes || []).forEach(c => {
     if (c.deleted) return;
     const { cx: x1, cy: y1 } = toC(c.x1, c.y1);
     const { cx: x2, cy: y2 } = toC(c.x2, c.y2);
     if (!isFinite(x1) || !isFinite(y1) || !isFinite(x2) || !isFinite(y2)) return;
     const dist = Math.sqrt((c.x2 - c.x1) ** 2 + (c.y2 - c.y1) ** 2);
+    // Cote dégénérée (double-clic, point posé deux fois) : elle n'imprime
+    // qu'un « 0 cm » et un tas de flèches sur un point. Aucune information,
+    // que de l'encombrement — l'éditeur, lui, continue de l'afficher pour
+    // qu'elle reste repérable et supprimable.
+    if (dist < 0.02) return;
     const label = dist >= 1 ? `${dist.toFixed(2)} m` : `${(dist * 100).toFixed(0)} cm`;
     const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
     const angle = Math.atan2(y2 - y1, x2 - x1);
@@ -223,7 +256,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
     ctx.save();
     ctx.translate(mx + ox, my + oy - 8);
     ctx.rotate(Math.abs(angle) > Math.PI / 2 ? angle + Math.PI : angle);
-    const fs = 12;
+    const fs = coteFont;
     ctx.font = `bold ${fs}px sans-serif`;
     ctx.textAlign = "center";
     ctx.fillStyle = "#f5f5f0";
@@ -236,7 +269,7 @@ export function dessinerScene(ctx, d, W, H, vp) {
   });
 
   // Symboles
-  (d.symbols || []).forEach(sym => {
+  if (CAL.symbols) (d.symbols || []).forEach(sym => {
     if (sym.deleted) return;
     const { cx, cy } = toC(sym.x, sym.y);
     if (!isFinite(cx) || !isFinite(cy)) return;
@@ -330,14 +363,28 @@ export function dessinerScene(ctx, d, W, H, vp) {
       ctx.strokeStyle = C.symA; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.ellipse(0, 0, sz / 2, sz / 3, 0, 0, Math.PI * 2); ctx.stroke();
     }
-    if (sym.text && sym.type !== "text") {
-      ctx.fillStyle = C.txt; ctx.font = `bold ${Math.max(10, sz * 0.5)}px sans-serif`;
-      ctx.textAlign = "center"; ctx.fillText(sym.text, 0, sz + 12);
-    }
-    if (sym.type === "text") {
-      ctx.fillStyle = C.symT; ctx.font = `bold ${Math.max(11, sz * 0.6)}px sans-serif`;
-      ctx.textAlign = "center"; ctx.fillText(sym.text || "", 0, 4);
-    }
+    // Textes : taille ANCRÉE AU PAPIER (13 px logiques par unité de taille,
+    // soit ~3,2 mm sur la planche A4). Elle ne suit plus `sz`, qui vaut
+    // 0,60 m de dessin : un libellé ne change donc plus de corps selon le
+    // zoom de l'éditeur ni selon l'échelle d'impression — ce qui est placé
+    // dans l'éditeur sort à la même taille relative sur la feuille.
+    const szTxt = 13 * (sym.size || 1);
+    // Fond clair sous le texte : sans lui, un nom de pièce qui croise une
+    // cloison, une cote ou une étiquette de surface devient illisible.
+    const texteAvecFond = (t, fs, y, couleur) => {
+      ctx.font = `bold ${fs}px sans-serif`;
+      ctx.textAlign = "center";
+      const tw = ctx.measureText(t).width + 8;
+      ctx.fillStyle = "rgba(250,250,247,0.88)";
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-tw / 2, y - fs * 0.82, tw, fs * 1.08, 3);
+      else ctx.rect(-tw / 2, y - fs * 0.82, tw, fs * 1.08);
+      ctx.fill();
+      ctx.fillStyle = couleur;
+      ctx.fillText(t, 0, y);
+    };
+    if (sym.text && sym.type !== "text") texteAvecFond(sym.text, Math.max(9, szTxt * 0.8), sz + 12, C.txt);
+    if (sym.type === "text" && (sym.text || "")) texteAvecFond(sym.text, Math.max(10, szTxt), 4, C.symT);
     ctx.restore();
   });
 }

@@ -41,6 +41,16 @@ create unique index if not exists utilisateurs_prenom_planning_uniq
 --    la RLS de utilisateurs → pas de récursion). Ne renvoient que des infos
 --    sur le compte de l'appelant (auth.email() courant).
 
+-- ⚠ DÉFINITIONS À JOUR ci-dessous (corrigées le 17/09/2026).
+-- Source de vérité : sql/202609_helpers_role_faille_profil_absent.sql.
+-- Les versions d'origine renvoyaient le rôle sans regarder `actif`, et
+-- est_ouvrier() enveloppait sa sous-requête dans coalesce(..., false) :
+-- un compte authentifié SANS ligne dans utilisateurs devenait donc du
+-- BUREAU pour les 66 policies « not est_ouvrier() ». Ne jamais remettre
+-- ce coalesce — ni le remplacer par coalesce(..., true), qui rendrait
+-- ouvrier tout compte inconnu. Le NULL est volontaire : il refuse à la
+-- fois les policies bureau et les policies ouvrières.
+
 create or replace function public.mon_role()
 returns text
 language sql
@@ -48,7 +58,11 @@ stable
 security definer
 set search_path = public
 as $$
-  select role from public.utilisateurs where email = auth.email() limit 1;
+  select u.role
+  from public.utilisateurs u
+  where u.email = auth.email()
+    and u.actif is true
+  limit 1;
 $$;
 
 create or replace function public.est_ouvrier()
@@ -58,10 +72,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select coalesce(
-    (select role = 'ouvrier' from public.utilisateurs where email = auth.email() limit 1),
-    false
-  );
+  select public.mon_role() = 'ouvrier';
 $$;
 
 create or replace function public.mon_prenom_planning()
@@ -146,6 +157,15 @@ end $$;
 -- 0C-3 — Policies fines pour les 4 tables à chemins anon/ouvrier — APPLIQUÉ
 -- Préserve le formulaire public (SELECT config/cells + INSERT rapports/besoins
 -- en anon) et ouvre l'accès ouvrier filtré (utilisé dès la Phase 1+).
+--
+-- ⚠ NE PAS REJOUER LE §2 (planning_config) TEL QUEL — PÉRIMÉ.
+-- Les policies "config_ouvrier_sel" et "config_anon_sel" écrites ci-dessous
+-- ouvrent TOUTES les clés de planning_config, salaires (taux_horaires) et
+-- états financiers compris. Elles ont été remplacées par une liste blanche
+-- de clés : sql/202609_planning_config_liste_blanche.sql, qui est désormais
+-- la SOURCE DE VÉRITÉ de ces deux policies. Rejouer le §2 rouvrirait la
+-- fuite — réappliquer la liste blanche juste après si cela arrive.
+-- Les §3, §4 et §5 (cells / rapports / besoins) restent valables.
 -- ---------------------------------------------------------------------
 
 -- 1) Purge des policies existantes de ces 4 tables

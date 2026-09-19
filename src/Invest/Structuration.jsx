@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, u
 import { supabase } from "../supabase";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
+import AdresseInput from "../AdresseAutocomplete";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
@@ -218,7 +219,7 @@ const STRUCT_REGIMES = ["Foncier réel","Micro-foncier","LMNP réel","Micro-BIC"
 // Champ stable utilisé par la page Structuration Patrimoniale.
 // Important : il est défini hors du composant principal pour éviter que React
 // démonte/remonte l'input à chaque frappe, ce qui faisait perdre le focus.
-function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", placeholder="", options=null, wide=false, compact=false }) {
+function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", placeholder="", options=null, wide=false, compact=false, adresse=false }) {
   const controlStyle = {
     width:"100%",
     minHeight: compact ? 38 : 42,
@@ -240,6 +241,8 @@ function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", p
         </select>
       ) : type === "textarea" ? (
         <textarea className="inv-textarea" rows={compact ? 2 : 3} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{ ...controlStyle, minHeight:compact ? 58 : 82, resize:"vertical" }} />
+      ) : adresse ? (
+        <AdresseInput className="inv-inp" value={value || ""} placeholder={placeholder} onChange={onChange} style={{ ...controlStyle, textAlign:"left" }} />
       ) : (
         <input className="inv-inp" type={type} value={value || ""} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{ ...controlStyle, textAlign:type === "number" ? "right" : "left" }} />
       )}
@@ -1280,7 +1283,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
           <StructField T={T} label="Régime matrimonial" value={p.regime_matrimonial} onChange={v=>updateSection("profil","regime_matrimonial",v)} options={["Communauté réduite aux acquêts","Séparation de biens","Participation aux acquêts","Communauté universelle","Non applicable"]}/>
           <StructField T={T} label="Enfants à charge" type="number" value={p.enfants} onChange={v=>updateSection("profil","enfants",v)}/>
           <StructField T={T} label="Enfants / objectifs transmission" value={p.enfants_details} onChange={v=>updateSection("profil","enfants_details",v)} wide/>
-          <StructField T={T} label="Adresse" value={p.adresse} onChange={v=>updateSection("profil","adresse",v)} wide/>
+          <StructField T={T} label="Adresse" value={p.adresse} onChange={v=>updateSection("profil","adresse",v)} wide adresse/>
         </div></div>
         <div style={cardStyle}>{cardHd("Profession, revenus & fiscalité")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:SPACING.md }}>
           <StructField T={T} label="Profession / fonction" value={p.profession} onChange={v=>updateSection("profil","profession",v)} />
@@ -1328,7 +1331,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
         <div style={cardStyle}>{cardHd("Inventaire immobilier & lecture de performance", "gold")}<div style={{ padding:14 }}>
           <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginBottom:10 }}>Un actif par ligne : valeur, dette, flux et régime de détention. Cette base alimente l'analyse de levier, l'arbitrage et la fiscalité.</div>
-          <div style={{ overflowX:"auto", border:`1px solid ${T.border}`, borderRadius:RADIUS.md }}><table className="inv-table" style={{ minWidth:980 }}><thead><tr><th>#</th><th>Bien / adresse</th><th>Type</th><th>Détention</th><th>Fiscalité</th><th>Loyer</th><th>Mensualité</th><th>CRD</th><th>Valeur</th><th>Équité</th><th></th></tr></thead><tbody>{lots.map((l,i)=>{ const equity = toN(l.valeur)-toN(l.crd); return <tr key={l.id || i}><td style={{ color:T.accent, fontWeight:900 }}>{i+1}</td><td><input className="inv-inp" value={l.adresse || ""} onChange={e=>updateLot(i,"adresse",e.target.value)} placeholder="Adresse"/></td><td><select className="inv-sel" value={l.type || ""} onChange={e=>updateLot(i,"type",e.target.value)}>{STRUCT_LOT_TYPES.map(o=><option key={o}>{o}</option>)}</select></td><td><select className="inv-sel" value={l.structure || ""} onChange={e=>updateLot(i,"structure",e.target.value)}>{STRUCT_DETENTION.map(o=><option key={o}>{o}</option>)}</select></td><td><select className="inv-sel" value={l.regime || ""} onChange={e=>updateLot(i,"regime",e.target.value)}>{STRUCT_REGIMES.map(o=><option key={o}>{o}</option>)}</select></td><td><input className="inv-inp" type="number" value={l.loyer_mois || ""} onChange={e=>updateLot(i,"loyer_mois",e.target.value)} style={{textAlign:"right"}}/></td><td><input className="inv-inp" type="number" value={l.mensualite || ""} onChange={e=>updateLot(i,"mensualite",e.target.value)} style={{textAlign:"right"}}/></td><td><input className="inv-inp" type="number" value={l.crd || ""} onChange={e=>updateLot(i,"crd",e.target.value)} style={{textAlign:"right"}}/></td><td><input className="inv-inp" type="number" value={l.valeur || ""} onChange={e=>updateLot(i,"valeur",e.target.value)} style={{textAlign:"right"}}/></td><td style={{ color:equity >= 0 ? SU : DA, fontWeight:900, whiteSpace:"nowrap" }}>{fmtEur(equity)}</td><td><button className="inv-rm" onClick={()=>removeLot(i)}>×</button></td></tr>})}</tbody></table></div>
+          <div style={{ overflowX:"auto", border:`1px solid ${T.border}`, borderRadius:RADIUS.md }}><table className="inv-table" style={{ minWidth:980 }}><thead><tr><th>#</th><th>Bien / adresse</th><th>Type</th><th>Détention</th><th>Fiscalité</th><th>Loyer</th><th>Mensualité</th><th>CRD</th><th>Valeur</th><th>Équité</th><th></th></tr></thead><tbody>{lots.map((l,i)=>{ const equity = toN(l.valeur)-toN(l.crd); return <tr key={l.id || i}><td style={{ color:T.accent, fontWeight:900 }}>{i+1}</td><td><AdresseInput className="inv-inp" value={l.adresse || ""} onChange={v=>updateLot(i,"adresse",v)} placeholder="Adresse" wrapperStyle={{minWidth:220}}/></td><td><select className="inv-sel" value={l.type || ""} onChange={e=>updateLot(i,"type",e.target.value)}>{STRUCT_LOT_TYPES.map(o=><option key={o}>{o}</option>)}</select></td><td><select className="inv-sel" value={l.structure || ""} onChange={e=>updateLot(i,"structure",e.target.value)}>{STRUCT_DETENTION.map(o=><option key={o}>{o}</option>)}</select></td><td><select className="inv-sel" value={l.regime || ""} onChange={e=>updateLot(i,"regime",e.target.value)}>{STRUCT_REGIMES.map(o=><option key={o}>{o}</option>)}</select></td><td><input className="inv-inp" type="number" value={l.loyer_mois || ""} onChange={e=>updateLot(i,"loyer_mois",e.target.value)} style={{textAlign:"right"}}/></td><td><input className="inv-inp" type="number" value={l.mensualite || ""} onChange={e=>updateLot(i,"mensualite",e.target.value)} style={{textAlign:"right"}}/></td><td><input className="inv-inp" type="number" value={l.crd || ""} onChange={e=>updateLot(i,"crd",e.target.value)} style={{textAlign:"right"}}/></td><td><input className="inv-inp" type="number" value={l.valeur || ""} onChange={e=>updateLot(i,"valeur",e.target.value)} style={{textAlign:"right"}}/></td><td style={{ color:equity >= 0 ? SU : DA, fontWeight:900, whiteSpace:"nowrap" }}>{fmtEur(equity)}</td><td><button className="inv-rm" onClick={()=>removeLot(i)}>×</button></td></tr>})}</tbody></table></div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, marginTop:12, flexWrap:"wrap" }}><button className="inv-btn inv-btn-blue inv-btn-sm" onClick={addLot}><Icon as={Plus} size={12}/> Ajouter un actif</button><div style={{ display:"flex", gap:14, color:T.textSub, fontSize:FONT.xs.size+1, fontWeight:800 }}><span>Valeur <b style={{color:T.text}}>{fmtEur(c.valeurLots)}</b></span><span>Loyers <b style={{color:T.text}}>{fmtEur(c.loyers)}/mois</b></span><span>CRD <b style={{color:T.text}}>{fmtEur(c.crdLots)}</b></span></div></div>
         </div></div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>

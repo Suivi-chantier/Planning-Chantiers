@@ -32,6 +32,7 @@ import Sourcing from "./Sourcing";
 import EtatDesLieux from "./EtatDesLieux";
 import Urbanisme from "./Urbanisme";
 import { ClocheNotifications } from "./notifications";
+import PanneauAI from "./AI/PanneauAI";
 
 const INVEST_PAGES_BASE = [
   { id: "dashboard", label: "Tableau de bord" },
@@ -282,7 +283,7 @@ function BarreBasInvest({ nav, page, setPage, T }) {
   );
 }
 
-function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null, onNavItems = null }) {
+function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null, onNavItems = null, onOuvrirAI = null }) {
   const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
   const [replieChoisi, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
@@ -447,6 +448,19 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
         {/* Notifications : l'e-mail de la veille quotidienne va chercher ceux
             qui ne sont pas dans l'application, la cloche sert ceux qui y sont. */}
         <ClocheNotifications profil={profil} theme={theme} onNaviguer={onNaviguer} collapsed={collapsed}/>
+        {/* Profero AI — consultation en langage naturel, lecture seule.
+            Placé près de la cloche : les deux servent à savoir ce qui se passe
+            sans changer d'onglet. Raccourci ⌘K / Ctrl K, indiqué dans l'info-bulle. */}
+        {onOuvrirAI && (
+          <button onClick={onOuvrirAI}
+            title={`Profero AI  (${typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || "") ? "\u2318" : "Ctrl "}K)`}
+            aria-label="Ouvrir Profero AI"
+            style={sidebarBtnStyle(T.accent)}
+            onMouseEnter={e => e.currentTarget.style.background = T.accentBg}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <Icon as={Sparkles} size={16}/>
+          </button>
+        )}
         {onRetourPortail && (
           <button onClick={onRetourPortail} title="Retour au portail"
             style={sidebarBtnStyle(T.accent)}
@@ -514,6 +528,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [urbanismeInitialFilter, setUrbanismeInitialFilter] = useState(null);
   const [edlInitialFilter, setEdlInitialFilter] = useState(null);
   const [structInitialClientId, setStructInitialClientId] = useState(null);
+  const [aiOuvert, setAiOuvert] = useState(false);
 
   // Config d'accès Invest (chargée depuis planning_config, fallback hardcodé)
   const role = profil?.role || "admin";
@@ -646,6 +661,49 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     if (p !== "structuration") setStructInitialClientId(null);
   };
 
+  // ⌘K sur Mac, Ctrl K ailleurs. Écouteur global : le raccourci doit répondre
+  // depuis n'importe quel onglet Invest, y compris quand le focus est dans un
+  // champ de saisie. On ne l'installe pas quand le Simulateur plein écran est
+  // ouvert : cet écran a ses propres raccourcis.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && String(e.key).toLowerCase() === "k") {
+        e.preventDefault();
+        setAiOuvert(v => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Contexte de page transmis au Copilote.
+  //
+  // Il DÉSIGNE une entité, il ne la transporte pas : seuls le nom de l'onglet
+  // et un identifiant partent au serveur, qui relit la fiche avec ses propres
+  // contrôles de portée. C'est ce qui empêche le contexte de page de servir de
+  // porte dérobée — le front ne peut pas faire fuiter ce qu'il n'envoie pas.
+  //
+  // LIMITE CONNUE DE CETTE V1 : l'entité n'est connue que lorsque la fiche a
+  // été ouverte par une cible de navigation (lien de mail, saut depuis le
+  // tableau de bord, ?client_id= dans l'URL). Une fiche ouverte en cliquant
+  // une carte à l'intérieur de l'onglet n'est pas encore remontée jusqu'ici :
+  // il faudrait que CRM.jsx et Biens.jsx signalent leur fiche courante. À
+  // faire en phase 2, ces fichiers étant volumineux.
+  const contexteAI = useMemo(() => {
+    const ctx = { page };
+    const cible = page === "crm" ? crmInitialFilter
+                : page === "biens" ? biensInitialFilter
+                : null;
+    if (cible && (cible.action === "open" || cible.action === "actions") && cible.id) {
+      ctx.entite_type = page === "crm" ? "client" : "bien";
+      ctx.entite_id = cible.id;
+    } else if (page === "structuration" && structInitialClientId) {
+      ctx.entite_type = "client";
+      ctx.entite_id = structInitialClientId;
+    }
+    return ctx;
+  }, [page, crmInitialFilter, biensInitialFilter, structInitialClientId]);
+
   // Simulateur plein écran — uniquement quand une fiche projet est ouverte
   if (page === "simulateur" && vueSim === "simulateur") {
     return (
@@ -660,7 +718,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} onNavItems={setNavItems} />
+      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} onNavItems={setNavItems} onOuvrirAI={() => setAiOuvert(true)} />
       <div className="inv-content" style={{ flex:1, minHeight:0, overflowY:"auto", background:T.bg }}>
         {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
         {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
@@ -686,6 +744,11 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       {estMobile && navItems.length > 0 && (
         <BarreBasInvest nav={navItems} page={page} setPage={changerPage} T={T}/>
       )}
+      {/* Profero AI. Rendu en dernier : le volet passe au-dessus du contenu et
+          de la barre du bas, et la page reste montée derrière — on ne perd ni
+          saisie ni filtre en posant une question. */}
+      <PanneauAI ouvert={aiOuvert} onFermer={() => setAiOuvert(false)}
+        T={T} profil={profil} contexte={contexteAI} onNaviguer={naviguer} estMobile={estMobile} />
     </div>
   );
 }

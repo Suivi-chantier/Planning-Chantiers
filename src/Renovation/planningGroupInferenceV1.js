@@ -13,6 +13,8 @@
 // `probable` : proposition à relire, jamais écrite automatiquement en V1 ;
 // `review`   : volontairement non classé.
 
+import { prefixeCodeOuvrage as prefixeCode } from "./codeOuvrage.mjs";
+
 export const GROUPES_EXECUTION_V1 = Object.freeze({
   DEMOLITION: "gt_demolition",
   MACONNERIE: "gt_1785154120513",
@@ -54,9 +56,9 @@ function review(regle, raison) {
   return result(null, CONFIANCE_GROUPE_V1.REVIEW, regle, raison);
 }
 
+// Détecteur unique (codeOuvrage.mjs) : « COUV-001 » → « COUV ».
 export function prefixeCodeOuvrage(code) {
-  const m = String(code ?? "").trim().toUpperCase().match(/^([A-Z]{1,3})-/);
-  return m?.[1] || null;
+  return prefixeCode(code);
 }
 
 // `position` est 1-based, comme l'affichage Bibliothèque et les rapports.

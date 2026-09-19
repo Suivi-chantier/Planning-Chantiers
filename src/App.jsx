@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
+import { marquerEcritureConfig, estEchoConfigLocal } from "./configSync";
 import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant, normalizeBranches } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
@@ -116,10 +117,13 @@ import PageChantiers          from "./Renovation/PageChantiers";
 // alléger le bundle initial. recharts (DashboardAnalyse, Invest) et xlsx
 // (PhasageV2 via devisImport) ne sont ainsi plus dans le chunk principal.
 const PagePhasageV2          = lazy(() => import("./Renovation/PhasageV2"));
-const PageCheminDeFer        = lazy(() => import("./Renovation/CheminDeFer"));
+const PageOperations         = lazy(() => import("./Renovation/PageOperations"));
 const PageBibliotheque       = lazy(() => import("./Renovation/Bibliotheque"));
 const PageBibliothequeMateriaux = lazy(() => import("./Renovation/PageBibliothequeMateriaux"));
+const PageSuggestionsMateriaux = lazy(() => import("./Renovation/PageSuggestionsMateriaux"));
 const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages"));
+const PageJournalMaj         = lazy(() => import("./Renovation/PageJournalMaj"));
+const PageInventaireEquipes  = lazy(() => import("./Renovation/PageInventaireEquipes"));
 const PageInvest             = lazyAvecReprise(() => import("./PageInvest"), "invest");
 const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
 const PageHeuresSalaries     = lazy(() => import("./Renovation/HeuresSalaries"));
@@ -499,6 +503,32 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     setPage("validation");
   };
 
+  // Aller-retour Chiffrage ↔ Bibliothèque (« Modifier matériaux » sur une ligne
+  // d'ouvrage) : on ouvre la fiche de l'ouvrage dans la Bibliothèque en gardant
+  // de quoi revenir sur LE chiffrage d'origine. Au retour, les lignes de ce
+  // chiffrage issues de cet ouvrage sont réactualisées (voir PageInfoClient).
+  const [biblioOuvrageToOpen, setBiblioOuvrageToOpen] = useState(null);  // ouvrage à ouvrir dans la Bibliothèque
+  const [allerBiblio, setAllerBiblio] = useState(null);                  // { projetId, ouvrageBiblioId } en cours
+  const [retourChiffrage, setRetourChiffrage] = useState(null);          // idem, consommé par le Chiffrage
+  const ouvrirOuvrageBiblio = ({ ouvrageId, projetId }) => {
+    if (!ouvrageId) return;
+    setBiblioOuvrageToOpen(ouvrageId);
+    setAllerBiblio({ projetId, ouvrageBiblioId: ouvrageId });
+    setRetourChiffrage(null);
+    setPage("bibliotheque");
+  };
+  const revenirAuChiffrage = () => {
+    setRetourChiffrage(allerBiblio);
+    setAllerBiblio(null);
+    setBiblioOuvrageToOpen(null);
+    setPage("info-client");
+  };
+  // Sortie de la Bibliothèque par le menu (sans « Revenir au chiffrage ») :
+  // l'aller-retour est abandonné, aucune actualisation automatique.
+  useEffect(() => {
+    if (allerBiblio && page !== "bibliotheque") { setAllerBiblio(null); setBiblioOuvrageToOpen(null); }
+  }, [page]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // Config d'accès dynamique (rôles ↔ pages), chargée depuis planning_config.
   const [rolePages, setRolePages] = useState(ROLE_PAGES_DEFAULT_RENOVATION);
   useEffect(() => {
@@ -564,6 +594,10 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
       })
       .on("postgres_changes",{event:"*",schema:"public",table:"planning_config"},p=>{
         const r=p.new;if(!r)return;
+        // Écho de notre propre écriture : l'ignorer. Sinon une valeur partie il
+        // y a quelques centaines de ms revient écraser ce que l'utilisateur est
+        // en train de taper (champ qui « revient en arrière »).
+        if(estEchoConfigLocal(r.key))return;
         if(r.key==="ouvriers")setOuvriers(r.value);
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
@@ -576,11 +610,19 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   },[weekId]);
 
   const saveConfig=async(key,value)=>{
+    // On borne la fenêtre d'écho AVANT l'envoi (l'événement peut arriver très
+    // vite) et APRÈS la réponse (il arrive le plus souvent à ce moment-là).
+    marquerEcritureConfig(key);
     const{error}=await supabase.from("planning_config")
       .upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"});
+    marquerEcritureConfig(key);
     if(error){
       console.error("saveConfig:",error.message);
-      setTimeout(()=>supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"}),1000);
+      setTimeout(()=>{
+        marquerEcritureConfig(key);
+        supabase.from("planning_config").upsert({key,value,updated_at:new Date().toISOString()},{onConflict:"key"})
+          .then(()=>marquerEcritureConfig(key));
+      },1000);
     }
   };
 
@@ -798,19 +840,22 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
           {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")}/> : <AccesRefuse T={T} page="equipe"/>)}
+          {page==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
           {page==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
           {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={validationDate} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
           {page==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
           {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
-          {page==="chemin-de-fer"      && (canAccess(role,"chemin-de-fer")      ? <PageCheminDeFer chantiers={chantiers} T={T} branch={branch} onOuvrirAdmin={()=>setPage("admin")}/> : <AccesRefuse T={T} page="chemin-de-fer"/>)}
-          {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
+          {page==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")}/> : <AccesRefuse T={T} page="operations"/>)}
+          {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={biblioOuvrageToOpen} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
-          {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers}/> : <AccesRefuse T={T} page="info-client"/>)}
+          {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={retourChiffrage} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
           {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
           {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
+          {page==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
           {page==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
+          {page==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={setPage} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
           {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
           </Suspense>
         </div>

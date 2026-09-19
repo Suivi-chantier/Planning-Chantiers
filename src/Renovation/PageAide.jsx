@@ -19,6 +19,24 @@ import { METHODE_CALCUL } from "../chantierFinance";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const AIDE_CONTENU = {
+  operations: {
+    titre: "Opérations",
+    sousTitre: "La fiche d'une opération : tous ses logements, ses finances et sa marge consolidées.",
+    intro: "Une opération regroupe plusieurs chantiers (les logements d'un même immeuble ou programme). Cette page additionne les chiffres de chaque logement — calculés exactement comme sur la fiche Chantier et le Phasage — pour donner la vision d'ensemble : vendu HT, coûts, marge nette, marge prévisionnelle, avancement pondéré et diagramme financier consolidé.",
+    etapes: [
+      "Choisis une opération dans la liste (chaque carte résume déjà l'avancement, le vendu et la marge).",
+      "Lis les cartes financières en haut de la fiche : vendu HT, coût MO, matériaux, frais généraux, marge nette et marge prévisionnelle.",
+      "Parcours le tableau des logements : chaque ligne montre ses propres chiffres ; clique sur une ligne pour ouvrir la fiche du chantier.",
+      "En bas, le diagramme financier cumule mois par mois les dépenses, la facturation et la valeur générée de toute l'opération.",
+      "L'onglet « Chemin de fer » affiche la frise des logements dans le temps (l'ancienne page dédiée) : zoom semaines/jours, décalage des groupes et exports PDF (chemin de fer paysage, prévisionnel client, dossier de plans).",
+    ],
+    savoir: [
+      "L'avancement de l'opération est pondéré par le vendu HT de chaque logement (un grand logement pèse plus qu'un studio).",
+      "Un logement sans phasage apparaît dans le tableau mais n'entre pas dans les chiffres — il est signalé.",
+      "Les opérations et le rattachement des chantiers se gèrent dans Réglages → Opérations.",
+      "Dans le diagramme, un logement sans référence figée n'entre pas dans les courbes de référence (pointillés) — prendre la référence depuis sa fiche chantier.",
+    ],
+  },
   "bilan-semaine": {
     titre: "Bilan de semaine",
     sousTitre: "Le point hebdomadaire multi-chantiers : opérationnel + financier.",
@@ -289,16 +307,19 @@ export const AIDE_CONTENU = {
   },
   "info-client": {
     titre: "Chiffrage (fiche projet)",
-    sousTitre: "Préparer un devis : infos client, travaux et prix.",
-    intro: "Sert à enregistrer un projet commercial : les informations du client, les travaux envisagés et le chiffrage, avant la signature.",
+    sousTitre: "Préparer un devis par logement : client, chantier, ouvrages par zone et prix calculés.",
+    intro: "Sert à enregistrer un projet commercial : un projet = un logement = un futur devis. On y renseigne le client, l'adresse du chantier, le logement, l'en-tête du devis (objet, dates, TVA), puis on compose le devis à partir des ouvrages de la Bibliothèque, dont le prix est calculé (coût matériaux + main-d'œuvre, puis marge).",
     etapes: [
-      "Créez un nouveau projet ou sélectionnez-en un dans la liste.",
-      "Remplissez les informations client et décrivez les travaux.",
-      "Sélectionnez les ouvrages par catégorie et saisissez quantités et prix.",
-      "Ajoutez des photos, créez des plans, puis exportez une fiche Word pour le client.",
+      "Créez un nouveau projet ou sélectionnez-en un dans la liste ; pour un immeuble, un projet par logement (bouton Dupliquer).",
+      "Onglet Client & projet : client, adresse du chantier, référence et type du logement, TVA du devis.",
+      "Onglet Ouvrages : choisissez la zone (Cuisine, Salle de bains…) puis « Ajouter » sur un ouvrage de la bibliothèque — autant de fois que de zones. Saisissez les quantités ; le prix est figé au moment de l'ajout.",
+      "Vérifiez les totaux (HT, TVA, TTC, marge) et la liste « Devis à compléter », puis exportez le dossier PDF client ou la synthèse interne.",
     ],
     savoir: [
       "Le statut suit l'avancement commercial (Prospect → Visite → Chiffrage → Devis envoyé → Signé).",
+      "Une modification de la bibliothèque ne change jamais un devis existant : utilisez ⟳ « Actualiser » sur une ligne pour reprendre le nouveau prix, après avoir vu les différences.",
+      "Le prix de vente n'est jamais saisi : il vient de la bibliothèque (coût ÷ (1 − marge)). Si le coût horaire des Réglages ou la marge d'un ouvrage manque, la ligne est « prix incalculable ».",
+      "Les documents client ne contiennent ni coûts ni marge ; seule la « Synthèse interne » les montre.",
       "La page sauvegarde toute seule au fur et à mesure (un indicateur le montre en haut).",
     ],
   },

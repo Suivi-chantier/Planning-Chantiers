@@ -1,0 +1,868 @@
+// PageOperations — la fiche « Opération » : le pendant de la fiche Chantier à
+// l'échelle d'une opération (immeuble / programme de plusieurs logements).
+//
+// Une opération = un item du référentiel planning_config/operations (Réglages →
+// Opérations) ; ses logements = les chantiers dont operation_id pointe dessus.
+//
+// RÈGLE DE CALCUL : aucun chiffre nouveau. Chaque chantier passe par
+// computeChantierFinance (le MÊME module que Phasage / fiche Chantier / Bilan
+// semaine), puis la page SOMME les scalaires `brut`. L'avancement de
+// l'opération est pondéré par le vendu HT de chaque logement (jamais une
+// moyenne simple). Le diagramme financier réutilise seriesReellesChantier +
+// consoliderSeries (diagrammeFinancier.mjs) + DiagrammeFinancierChart —
+// exactement comme le consolidé entreprise de DashboardAnalyse.
+//
+// Performance : tout est chargé en UNE passe au montage (Promise.all +
+// regroupement côté client), avec pagination sur pointages / commande_lignes
+// (la limite Supabase de 1 000 lignes tronquerait les gros volumes). Changer
+// d'opération ne recharge rien.
+import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { supabase } from "../supabase";
+import { loadOperations, loadGroupesTypes, loadEquipes, FONT, RADIUS, getBranchAccent, LOGO_RENO_H } from "../constants";
+import { Icon } from "../ui";
+import { CARD_SHADOW, SummaryBar } from "../mobileUI";
+import { computeChantierFinance, eur, fmtH, couleurMarge } from "../chantierFinance";
+import { seriesReellesChantier, consoliderSeries, fusionnerSeriesPourGraphe } from "./diagrammeFinancier";
+import { loadReferencesFinancieres } from "./referenceFinanciere";
+import { KpiCard } from "./chantierFinanceUI";
+import { buildOperationDocHTML } from "./operationDoc";
+// Préparation des chantiers dans le dossier PDF : mêmes règles que l'espace
+// ouvrier et que le dossier détaillé d'un chantier.
+import { resumePreparation, totauxOperation } from "./preparationDocCommun.mjs";
+// Dates de travaux et groupe type (→ équipe) par logement : la source déjà
+// utilisée par le Chemin de fer, l'autre onglet de cette même page.
+import { loadPhasagesOperation } from "./phasagePlanning";
+// Export Markdown « opération complète » (source pour un projet ChatGPT) :
+// chargement + rédaction + téléchargement vivent dans leurs propres modules,
+// cette page ne fait que déclencher et rendre compte.
+import { exporterOperationMarkdown } from "./operationExportData";
+// L'agrégat d'opération vit dans operationExportModele : l'écran et le fichier
+// exporté doivent afficher rigoureusement les mêmes totaux, donc une seule
+// implémentation. La formule est inchangée (avancement pondéré par le vendu).
+import { agregerOperation } from "./operationExportModele.mjs";
+import {
+  Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
+  TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
+  ChartBar, TrainFront, FileText,
+} from "lucide-react";
+
+// recharts reste dans son chunk dédié (même règle que la fiche Chantier).
+const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
+// Chemin de fer : l'ancienne page dédiée, embarquée ici comme onglet de la
+// fiche opération (chunk séparé — la frise n'est chargée que si on l'ouvre).
+const CheminDeFerVue = React.lazy(() => import("./CheminDeFer"));
+
+const STATUTS = {
+  en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
+  termine:  { label: "Terminé",   color: "#22c55e", bg: "rgba(34,197,94,0.15)"  },
+  planifie: { label: "Planifié",  color: "#3b82f6", bg: "rgba(59,130,246,0.15)" },
+  en_pause: { label: "En pause",  color: "#f97316", bg: "rgba(249,115,22,0.15)" },
+};
+
+function ProgressBar({ value, color, height = 6 }) {
+  const pct = Math.min(100, Math.max(0, value || 0));
+  return (
+    <div style={{ width: "100%", height, borderRadius: height, background: "rgba(128,128,128,0.2)", overflow: "hidden" }}>
+      <div style={{
+        height: "100%", width: `${pct}%`, borderRadius: height,
+        background: pct >= 100 ? "#22c55e" : (color || "#FFC300"),
+        transition: "width .4s ease",
+      }}/>
+    </div>
+  );
+}
+
+// Pagination Supabase : au-delà de 1 000 lignes une requête simple TRONQUE en
+// silence — même garde-fou que Bilan semaine.
+async function fetchTout(table, select) {
+  const PAGE = 1000;
+  let from = 0;
+  const out = [];
+  for (;;) {
+    const { data, error } = await supabase.from(table).select(select).range(from, from + PAGE - 1);
+    if (error) return { data: out, error };
+    out.push(...(data || []));
+    if (!data || data.length < PAGE) return { data: out, error: null };
+    from += PAGE;
+  }
+}
+
+// Les statuts reconnus par l'écran : agregerOperation range sous « en cours »
+// tout chantier dont le statut est vide ou inconnu.
+const STATUTS_IDS = Object.keys(STATUTS);
+
+const pctTxt = (p) => (p == null ? "—" : `${p.toFixed(1)} %`);
+
+export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin }) {
+  const acc = getBranchAccent(branch);
+  const [operations, setOperations] = useState(null); // null = chargement
+  const [etat, setEtat] = useState({ charge: false, phasages: [], phasagesParChantier: {}, ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
+  const [opId, setOpId] = useState(() => localStorage.getItem("operations_selected") || null);
+  const [periode, setPeriode] = useState("12");
+  const [masques, setMasques] = useState({});
+  const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer"
+  // Génération du dossier PDF en cours. Déclaré ICI avec les autres hooks :
+  // la vue liste sort par un `return` anticipé plus bas, un useState placé
+  // après serait un hook conditionnel.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  // Export Markdown pour ChatGPT : même raison de déclaration ici (hook avant
+  // le `return` anticipé de la vue liste).
+  const [mdBusy, setMdBusy] = useState(false);
+  const [notif, setNotif] = useState(null); // { ton: "ok"|"alerte"|"erreur", texte }
+  const grapheRef = useRef(null);
+
+  // ── Chargement : une passe pour toutes les opérations ──
+  useEffect(() => {
+    let actif = true;
+    (async () => {
+      const erreurs = [];
+      const [ops, phRes, ptsRes, clRes, cfgRes] = await Promise.all([
+        loadOperations(),
+        // select("*") volontaire : évite d'échouer si une colonne manque dans
+        // le schéma de cette instance (même précaution que la fiche Chantier).
+        supabase.from("phasages").select("*"),
+        fetchTout("pointages", "*"),
+        fetchTout("commande_lignes",
+          "id, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)"),
+        supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "lots_travaux"]),
+      ]);
+      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["réglages", cfgRes]]
+        .forEach(([nom, r]) => { if (r.error) erreurs.push(`${nom} : ${r.error.message}`); });
+
+      // Un phasage par chantier : le plus récent (même règle que le cron snapshot).
+      const parChantier = {};
+      (phRes.data || []).forEach((ph) => {
+        const cur = parChantier[ph.chantier_id];
+        if (!cur || String(ph.updated_at || "") > String(cur.updated_at || "")) parChantier[ph.chantier_id] = ph;
+      });
+      const phasages = Object.values(parChantier).filter((ph) => (ph.ouvrages || []).length > 0);
+
+      const ptsByChantier = {};
+      (ptsRes.data || []).forEach((p) => { (ptsByChantier[p.chantier_id] ||= []).push(p); });
+      const clByChantier = {};
+      (clRes.data || []).forEach((l) => { (clByChantier[l.chantier_id] ||= []).push(l); });
+      const cfg = Object.fromEntries((cfgRes.data || []).map((r) => [r.key, r.value]));
+
+      const refsRes = await loadReferencesFinancieres(phasages.map((ph) => ph.chantier_id));
+      if (refsRes.erreur) erreurs.push(`références figées : ${refsRes.erreur}`);
+
+      if (!actif) return;
+      setOperations(ops || []);
+      // `phasages` (filtré sur les phasages chiffrés) alimente les calculs ;
+      // `parChantier` garde AUSSI les phasages vides, dont l'export Markdown a
+      // besoin pour dire « ce chantier n'a pas de phasage exploitable ».
+      setEtat({ charge: true, phasages, phasagesParChantier: parChantier, ptsByChantier, clByChantier, cfg, refsParChantier: refsRes.parChantier || {}, erreurs });
+    })();
+    return () => { actif = false; };
+  }, []);
+
+  // ── Finance par chantier (uniquement les chantiers rattachés à une opération) ──
+  const finParChantier = useMemo(() => {
+    if (!etat.charge) return {};
+    const rattaches = new Set(chantiers.filter((c) => c.operation_id).map((c) => c.id));
+    const tauxHoraires = etat.cfg.taux_horaires || {};
+    const tauxMOPrev = parseFloat(etat.cfg.taux_mo_previsionnel) || 0;
+    const etatsFinanciers = etat.cfg.etats_financiers || null;
+    const lots = etat.cfg.lots_travaux?.items || [];
+    const out = {};
+    etat.phasages.forEach((ph) => {
+      if (!rattaches.has(ph.chantier_id)) return;
+      const pointages = etat.ptsByChantier[ph.chantier_id] || [];
+      const commandeLignes = etat.clByChantier[ph.chantier_id] || [];
+      const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots });
+      const reelles = seriesReellesChantier({
+        finance, pointages, commandeLignes, etatsFinanciers,
+        chantierNom: ph.chantier_nom || ph.chantier_id,
+      });
+      out[ph.chantier_id] = { finance, reelles, reference: etat.refsParChantier[ph.chantier_id]?.series || null };
+    });
+    return out;
+  }, [etat, chantiers]);
+
+  // ── Agrégats par opération (l'ordre des logements = l'ordre global des
+  //    chantiers dans Réglages, le même que suit le Chemin de fer) ──
+  const parOperation = useMemo(() => {
+    return (operations || []).map((op) => {
+      const chantiersOp = chantiers.filter((c) => c.operation_id === op.id);
+      return { op, chantiersOp, agg: agregerOperation(chantiersOp, finParChantier, STATUTS_IDS) };
+    });
+  }, [operations, chantiers, finParChantier]);
+
+  const sansOperation = useMemo(() => chantiers.filter((c) => !c.operation_id).length, [chantiers]);
+
+  const selection = opId ? parOperation.find((e) => e.op.id === opId) : null;
+
+  const ouvrirOp = (id) => {
+    setOpId(id);
+    localStorage.setItem("operations_selected", id || "");
+  };
+
+  const bg = T.bg, text = T.text, textSub = T.textSub, textMuted = T.textMuted, border = T.border;
+  const selectStyle = {
+    padding: "6px 10px", borderRadius: 8, border: `1px solid ${border}`,
+    background: T.inputBg || T.surface, color: text, fontFamily: "inherit", fontSize: 12.5, outline: "none",
+  };
+
+  const bandeauErreurs = etat.erreurs.length > 0 && (
+    <div style={{ padding: "10px 14px", borderRadius: 10, background: "rgba(225,90,90,.12)",
+      border: "1px solid rgba(225,90,90,.4)", fontSize: 12.5, color: "#e15a5a", fontWeight: 600 }}>
+      Sources en erreur (les chiffres ci-dessous sont incomplets) : {etat.erreurs.join(" — ")}
+    </div>
+  );
+
+  // ─── VUE LISTE ──────────────────────────────────────────────────────────────
+  if (!selection) {
+    const totaux = parOperation.reduce((s, e) => ({ vendu: s.vendu + e.agg.vendu, marge: s.marge + e.agg.marge }), { vendu: 0, marge: 0 });
+    return (
+      <div className="pops-list" style={{ flex: 1, overflowY: "auto", background: bg, padding: "28px 32px" }}>
+        <style>{`
+          .operation-card { transition: all .18s; cursor: pointer; }
+          .operation-card:hover { transform: translateY(-3px); box-shadow: 0 16px 34px rgba(16,24,40,0.14); border-color: ${acc.border} !important; }
+          @media(max-width:768px) { .operations-grid { grid-template-columns: 1fr !important; } .pops-list { padding: 14px 12px !important; } }
+        `}</style>
+
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: RADIUS.md,
+            background: acc.bg10, color: acc.accent,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon as={Building2} size={20} strokeWidth={2}/>
+          </div>
+          <div>
+            <h1 style={{ fontSize: FONT.xl.size + 4, fontWeight: 800, color: text, letterSpacing: -0.3, margin: 0 }}>Opérations</h1>
+            <p style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 3 }}>
+              {(operations || []).length} opération{(operations || []).length > 1 ? "s" : ""} · {chantiers.filter((c) => c.operation_id).length} logement{chantiers.filter((c) => c.operation_id).length > 1 ? "s" : ""} rattaché{chantiers.filter((c) => c.operation_id).length > 1 ? "s" : ""}
+              {sansOperation > 0 ? ` · ${sansOperation} chantier${sansOperation > 1 ? "s" : ""} hors opération` : ""}
+            </p>
+          </div>
+        </div>
+
+        {bandeauErreurs && <div style={{ marginBottom: 14 }}>{bandeauErreurs}</div>}
+
+        {operations === null || !etat.charge ? (
+          <div style={{ textAlign: "center", color: textMuted, padding: 80, fontSize: FONT.base.size }}>Chargement…</div>
+        ) : (operations.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
+            <div style={{ fontSize: FONT.base.size, fontWeight: 600, marginBottom: 10 }}>Aucune opération pour le moment.</div>
+            <div style={{ fontSize: FONT.sm.size, marginBottom: 16 }}>Les opérations se créent dans Réglages → Opérations, puis chaque chantier s'y rattache.</div>
+            {onOuvrirAdmin && (
+              <button onClick={onOuvrirAdmin} style={{
+                display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px",
+                borderRadius: RADIUS.md, border: `1px solid ${acc.border}`, background: acc.bg10,
+                color: acc.accent, fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer", fontFamily: "inherit",
+              }}>
+                <Icon as={Settings} size={15}/> Ouvrir les Réglages
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: 18 }}>
+              <SummaryBar T={T} items={[
+                { label: "Opérations", value: operations.length,  color: acc.accent, icon: Building2 },
+                { label: "Vendu HT",   value: eur(totaux.vendu),  color: "#5b8af5",  icon: Wallet },
+                { label: "Marge nette", value: eur(totaux.marge), color: totaux.marge >= 0 ? "#22c55e" : "#e15a5a", icon: totaux.marge >= 0 ? TrendingUp : TrendingDown },
+              ]}/>
+            </div>
+
+            <div className="operations-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+              {parOperation.map(({ op, chantiersOp, agg }) => (
+                <div key={op.id} className="operation-card" onClick={() => ouvrirOp(op.id)} style={{
+                  background: T.surface, border: `1px solid ${border}`, borderRadius: 16,
+                  boxShadow: CARD_SHADOW, overflow: "hidden",
+                }}>
+                  <div style={{ height: 5, background: op.couleur || "#888" }}/>
+                  <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: FONT.md.size + 1, fontWeight: 800, color: text, letterSpacing: -0.2 }}>{op.nom}</div>
+                        {op.adresse && (
+                          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 2, display: "flex", alignItems: "center", gap: 5 }}>
+                            <Icon as={MapPin} size={11}/> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{op.adresse}</span>
+                          </div>
+                        )}
+                      </div>
+                      <span style={{
+                        fontSize: FONT.xs.size, fontWeight: 700, padding: "3px 10px", borderRadius: RADIUS.pill,
+                        background: acc.bg10, color: acc.accent, whiteSpace: "nowrap", flexShrink: 0,
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                      }}>
+                        <Icon as={HardHat} size={11}/> {chantiersOp.length} logement{chantiersOp.length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+
+                    {chantiersOp.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {Object.entries(agg.statuts).map(([sId, n]) => {
+                          const s = STATUTS[sId];
+                          return (
+                            <span key={sId} style={{
+                              fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: RADIUS.pill,
+                              color: s.color, background: s.bg, border: `1px solid ${s.color}40`,
+                            }}>{n} {s.label.toLowerCase()}</span>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.xs.size + 1, color: textSub, marginBottom: 5 }}>
+                        <span>Avancement</span><span style={{ fontWeight: 800, color: text }}>{agg.avancement}%</span>
+                      </div>
+                      <ProgressBar value={agg.avancement} color={op.couleur}/>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderTop: `1px solid ${border}`, paddingTop: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted }}>Vendu HT</div>
+                        <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: text }}>{agg.vendu > 0 ? eur(agg.vendu) : "—"}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted }}>Marge nette</div>
+                        <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.marge, agg.margePct ?? 0) : textMuted }}>
+                          {agg.vendu > 0 ? `${eur(agg.marge)} · ${pctTxt(agg.margePct)}` : "—"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {agg.nbAvecPhasage < chantiersOp.length && (
+                      <div style={{ fontSize: FONT.xs.size, color: textMuted, fontStyle: "italic" }}>
+                        {chantiersOp.length - agg.nbAvecPhasage} logement{chantiersOp.length - agg.nbAvecPhasage > 1 ? "s" : ""} sans phasage — hors chiffres.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ))}
+      </div>
+    );
+  }
+
+  // ─── VUE DÉTAILLÉE ──────────────────────────────────────────────────────────
+  const { op, chantiersOp, agg } = selection;
+  const margeColor = agg.vendu > 0 ? couleurMarge(agg.marge, agg.margePct ?? 0) : textMuted;
+
+  // ─── EXPORT PDF « Dossier d'opération » ─────────────────────────────────────
+  // Gabarit Profero commun (operationDoc.js). Deux parties :
+  //   • la synthèse FINANCIÈRE historique (chiffres clés, prévisionnel vs réel,
+  //     détail par logement) — inchangée, c'est un document interne ;
+  //   • la PRÉPARATION de chaque logement, ajoutée ici : synthèse et phases
+  //     dans l'ordre réel. Le détail (tâches, matériaux) reste dans le dossier
+  //     propre à chaque chantier — sur cinq logements il ferait 60 à 100 pages.
+  //
+  // Source de la préparation : la RPC ouvrier_preparation_chantier, la même que
+  // l'espace ouvrier et que le dossier de chantier. Rien n'est reconstruit.
+  const exportFichePDF = async () => {
+    if (pdfBusy) return;
+    // Fenêtre ouverte SYNCHRONEMENT dans le geste du clic : après un await,
+    // Safari (et Chrome en mode strict) la bloquerait.
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    const ecranSimple = (titre, texte, couleur) => {
+      const e = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      return `<!doctype html><html lang='fr'><head><meta charset='UTF-8'><title>${e(titre)}</title></head>`
+        + `<body style="font-family:Arial,Helvetica,sans-serif;padding:48px;color:#1a1f2e;">`
+        + `<div style="font-size:18px;font-weight:700;color:${couleur};">${e(titre)}</div>`
+        + `<div style="font-size:14px;color:#5b6a8a;margin-top:8px;line-height:1.6;">${e(texte)}</div>`
+        + `</body></html>`;
+    };
+    w.document.write(ecranSimple("Préparation du dossier d'opération…",
+      `Chargement de la préparation de ${chantiersOp.length} logement${chantiersOp.length > 1 ? "s" : ""}.`, "#1a1f2e"));
+    w.document.close();
+    setPdfBusy(true);
+    try {
+      const lignes = chantiersOp.map((c) => {
+        const s = STATUTS[c.statut] || STATUTS.en_cours;
+        return {
+          nom: c.nom, couleur: c.couleur,
+          statutLabel: s.label, statutColor: s.color,
+          b: finParChantier[c.id]?.finance.brut || null,
+        };
+      });
+
+      // Contexte commun (adresses, équipes, dates). Chaque source est
+      // tolérante : son échec retire une ligne d'information du document, il
+      // n'empêche jamais de l'imprimer.
+      const [adrRes, groupesTypes, equipes, planning] = await Promise.all([
+        supabase.from("planning_config").select("value").eq("key", "chantier_adresses").maybeSingle()
+          .then(r => r.data?.value || {}, () => ({})),
+        loadGroupesTypes().catch(() => []),
+        loadEquipes().catch(() => []),
+        loadPhasagesOperation(chantiersOp).catch(() => ({ chantiers: [] })),
+      ]);
+
+      // Préparations : une RPC par logement, en parallèle mais BORNÉ — une
+      // opération de vingt logements ne doit pas ouvrir vingt requêtes d'un
+      // coup. Chaque échec est capturé et devient un encadré dans la fiche du
+      // chantier concerné : les autres s'impriment normalement.
+      const CONCURRENCE = 4;
+      const payloads = new Array(chantiersOp.length);
+      let curseur = 0;
+      const ouvrier = async () => {
+        for (;;) {
+          const i = curseur++;
+          if (i >= chantiersOp.length) return;
+          try {
+            const { data, error } = await supabase.rpc("ouvrier_preparation_chantier", {
+              p_chantier_id: chantiersOp[i].id,
+            });
+            if (error) throw new Error(error.message);
+            // data null = garde d'appelant de la RPC (profil inactif) : ce
+            // n'est pas une préparation vide, c'est un refus. On le dit.
+            if (!data) throw new Error("réponse vide (droits ou profil inactif)");
+            payloads[i] = { data, erreur: "" };
+          } catch (e) {
+            console.error("ouvrier_preparation_chantier", chantiersOp[i]?.id, e);
+            payloads[i] = { data: null, erreur: e?.message || String(e) };
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCE, chantiersOp.length) }, ouvrier));
+
+      const parChantierPlanning = {};
+      (planning?.chantiers || []).forEach((row) => { parChantierPlanning[row?.chantier?.id] = row; });
+      const nomEquipe = (groupeTypeId) => {
+        if (!groupeTypeId) return null;
+        const gt = groupesTypes.find(t => t.id === groupeTypeId);
+        if (!gt?.equipe_id) return null;
+        return equipes.find(e => e.id === gt.equipe_id)?.nom || null;
+      };
+      const jourFR = (iso) => {
+        if (!iso) return "";
+        const d = new Date(iso);
+        return isNaN(d.getTime()) ? "" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+      };
+
+      const preparations = chantiersOp.map((c, i) => {
+        const s = STATUTS[c.statut] || STATUTS.en_cours;
+        const row = parChantierPlanning[c.id];
+        // Équipes réellement affectées, dédupliquées, dans l'ordre des groupes.
+        const eqs = [];
+        (row?.groupes || []).forEach((g) => {
+          const n = nomEquipe(g.groupe_type_id);
+          if (n && !eqs.includes(n)) eqs.push(n);
+        });
+        return {
+          chantier: { id: c.id, nom: c.nom, couleur: c.couleur },
+          statutLabel: s.label, statutColor: s.color,
+          adresse: (adrRes?.[c.id]?.adresse || "").trim(),
+          planning: { debut: jourFR(row?.bornes?.debut), fin: jourFR(row?.bornes?.fin) },
+          equipes: eqs,
+          resume: resumePreparation(payloads[i]?.data || null, payloads[i]?.erreur || ""),
+        };
+      });
+      const totaux = totauxOperation(preparations.map(p => p.resume));
+
+      const html = buildOperationDocHTML({
+        op, agg, lignes, preparations, totaux,
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+        dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+          + " à " + new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+      });
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.document.title = `DossierOperation-${(op.nom || "operation").replace(/[^a-zA-Z0-9-_]/g, "_")}`;
+      // Attendre le logo + les polices Google (Barlow) avant d'imprimer.
+      await new Promise((res) => {
+        const debut = Date.now();
+        const tick = () => {
+          const imgs = Array.from(w.document.images || []);
+          if ((w.document.readyState === "complete" && imgs.every(i => i.complete)) || Date.now() - debut > 8000) res();
+          else setTimeout(tick, 150);
+        };
+        tick();
+      });
+      try { await (w.document.fonts?.ready || Promise.resolve()); } catch { /* repli Arial */ }
+      setTimeout(() => { w.focus(); w.print(); }, 200);
+    } catch (e) {
+      console.error("Export dossier d'opération:", e);
+      try {
+        w.document.open();
+        w.document.write(ecranSimple("Erreur de génération", e?.message || String(e), "#c0392b"));
+        w.document.close();
+      } catch { /* fenêtre déjà fermée par l'utilisateur */ }
+      alert("Erreur génération du dossier d'opération : " + (e?.message || e));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  // ─── EXPORT MARKDOWN « source ChatGPT » ────────────────────────────────────
+  // Un seul fichier .md : synthèse de l'opération + fiche complète de chaque
+  // chantier. Rien n'est recalculé — les chiffres sont ceux de `finParChantier`
+  // (computeChantierFinance), les phasages ceux déjà chargés au montage ; les
+  // sources annexes (comptes rendus, commandes, réserves…) sont lues en UNE
+  // requête par table pour toute l'opération, jamais une par chantier.
+  const exporterMarkdown = async () => {
+    if (mdBusy) return;
+    setMdBusy(true);
+    setNotif(null);
+    try {
+      const { nomFichier, erreurs, restrictions, nbChantiers } = await exporterOperationMarkdown({
+        op,
+        chantiersOp,
+        phasagesParChantier: etat.phasagesParChantier,
+        pointagesParChantier: etat.ptsByChantier,
+        finParChantier,
+        agg,
+        cfg: etat.cfg,
+        statutsLabels: Object.fromEntries(Object.entries(STATUTS).map(([k, v]) => [k, v.label])),
+        maintenant: new Date(),
+      });
+      // L'export relit ses propres sources : les erreurs du chargement initial
+      // de l'écran ne le concernent plus. Deux causes d'incomplétude, dites
+      // séparément — une panne de lecture, ou une catégorie fermée au rôle.
+      const pannes = erreurs || [];
+      const fermees = restrictions || [];
+      const libelle = `${nomFichier} téléchargé — ${nbChantiers} chantier${nbChantiers > 1 ? "s" : ""} exporté${nbChantiers > 1 ? "s" : ""}`;
+      setNotif(pannes.length === 0 && fermees.length === 0
+        ? { ton: "ok", texte: `${libelle}.` }
+        : {
+          ton: pannes.length > 0 ? "alerte" : "ok",
+          texte: `${libelle}. `
+            + (pannes.length > 0 ? `Sources illisibles : ${pannes.join(" — ")}. ` : "")
+            + (fermees.length > 0 ? `${fermees.length} catégorie${fermees.length > 1 ? "s" : ""} non accessible${fermees.length > 1 ? "s" : ""} avec votre rôle. ` : "")
+            + "Le fichier signale lui-même les sections concernées.",
+        });
+    } catch (e) {
+      console.error("Export Markdown opération :", e);
+      setNotif({ ton: "erreur", texte: `Export impossible : ${e?.message || e}. Aucun fichier n'a été produit.` });
+    } finally {
+      setMdBusy(false);
+    }
+  };
+
+  // Barre de décomposition du vendu : MO / matériaux / FG / marge. Si les coûts
+  // dépassent le vendu, la base devient les coûts (la marge négative se lit
+  // alors dans les KPI, pas dans la barre).
+  const coutTotal = agg.moReel + agg.mat + agg.fg;
+  const baseBarre = Math.max(agg.vendu, coutTotal);
+  const segments = baseBarre > 0 ? [
+    { label: "Coût MO",     val: agg.moReel, color: "#f5a623" },
+    { label: "Matériaux",   val: agg.mat,    color: "#5b8af5" },
+    { label: "Frais gén.",  val: agg.fg,     color: "#c084fc" },
+    ...(agg.marge > 0 ? [{ label: "Marge", val: agg.marge, color: "#22c55e" }] : []),
+  ].filter((s) => s.val > 0) : [];
+
+  // Diagramme financier consolidé de l'opération (mêmes briques que le
+  // consolidé entreprise) : un logement sans référence figée n'entre pas dans
+  // les courbes de référence.
+  const entrees = chantiersOp
+    .filter((c) => finParChantier[c.id])
+    .map((c) => ({
+      chantierId: c.id, nom: c.nom,
+      reelles: finParChantier[c.id].reelles,
+      reference: finParChantier[c.id].reference,
+    }));
+  const consolide = consoliderSeries(entrees);
+  const dataGraphe = (() => {
+    const rows = fusionnerSeriesPourGraphe({ reelles: consolide.reelles, reference: consolide.reference });
+    if (periode === "tout") return rows;
+    const d = new Date(); d.setMonth(d.getMonth() - parseInt(periode, 10) + 1);
+    const cutoff = d.toISOString().slice(0, 7);
+    return rows.filter((r) => r.mois >= cutoff);
+  })();
+
+  const th = { textAlign: "right", padding: "8px 10px", fontWeight: 700, fontSize: FONT.xs.size, textTransform: "uppercase", letterSpacing: .6, color: textMuted, whiteSpace: "nowrap" };
+  const td = { padding: "9px 10px", textAlign: "right", fontSize: FONT.sm.size, color: textSub, whiteSpace: "nowrap" };
+
+  return (
+    <div className="pops-detail" style={{ flex: 1, overflowY: "auto", background: bg, padding: "24px 32px 40px" }}>
+      <style>{`
+        @media(max-width:768px) { .pops-detail { padding: 14px 12px 30px !important; } .pops-kpis { grid-template-columns: repeat(2, 1fr) !important; } .pops-export-md { flex: 1 1 100%; justify-content: center; } }
+        .pops-row-clic:hover { background: ${acc.bg10}; }
+      `}</style>
+
+      {/* ── En-tête ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 18 }}>
+        <button onClick={() => ouvrirOp(null)} style={{
+          display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+          borderRadius: RADIUS.md, border: `1px solid ${border}`, background: T.surface,
+          color: textSub, fontWeight: 700, fontSize: FONT.sm.size, cursor: "pointer", fontFamily: "inherit",
+        }}>
+          <Icon as={ArrowLeft} size={15}/> Opérations
+        </button>
+        <span style={{ width: 14, height: 14, borderRadius: 5, background: op.couleur || "#888", flexShrink: 0 }}/>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <h1 style={{ fontSize: FONT.xl.size + 2, fontWeight: 800, color: text, letterSpacing: -0.3, margin: 0 }}>{op.nom}</h1>
+          <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginTop: 3, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {op.adresse && <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon as={MapPin} size={12}/>{op.adresse}</span>}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon as={HardHat} size={12}/>{chantiersOp.length} logement{chantiersOp.length > 1 ? "s" : ""}</span>
+          </div>
+        </div>
+        <select value={op.id} onChange={(e) => ouvrirOp(e.target.value)} style={selectStyle} title="Changer d'opération">
+          {(operations || []).map((o) => <option key={o.id} value={o.id}>{o.nom}</option>)}
+        </select>
+        {/* Bouton PDF unique de la fiche : il édite le dossier complet
+            (finances + préparation de chaque logement). Pas de second bouton —
+            le détail tâches/matériaux s'imprime depuis la fiche chantier. */}
+        {chantiersOp.length > 0 && (
+          <button onClick={exportFichePDF} disabled={pdfBusy}
+            title="Exporter le dossier de l'opération en PDF : synthèse financière et préparation de chaque logement (document interne, contient les marges)"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+              borderRadius: RADIUS.md,
+              border: `1px solid ${pdfBusy ? border : acc.border}`,
+              background: pdfBusy ? "transparent" : acc.bg10,
+              color: pdfBusy ? textMuted : acc.accent,
+              fontWeight: 700, fontSize: FONT.sm.size,
+              cursor: pdfBusy ? "default" : "pointer", fontFamily: "inherit",
+            }}>
+            <Icon as={FileDown} size={15}/> {pdfBusy ? "Préparation…" : "Dossier PDF"}
+          </button>
+        )}
+        {/* Export texte destiné à être déposé comme source dans un projet
+            ChatGPT : un seul .md, opération + détail de chaque chantier. */}
+        {chantiersOp.length > 0 && (
+          <button onClick={exporterMarkdown} disabled={mdBusy} className="pops-export-md"
+            title="Télécharger un fichier Markdown unique (synthèse de l'opération + détail complet de chaque chantier) à ajouter comme source d'un projet ChatGPT. Document interne : il contient les marges."
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+              borderRadius: RADIUS.md,
+              border: `1px solid ${mdBusy ? border : acc.border}`,
+              background: mdBusy ? "transparent" : acc.bg10,
+              color: mdBusy ? textMuted : acc.accent,
+              fontWeight: 700, fontSize: FONT.sm.size,
+              cursor: mdBusy ? "default" : "pointer", fontFamily: "inherit",
+            }}>
+            <Icon as={FileText} size={15}/> {mdBusy ? "Génération…" : "Exporter pour ChatGPT (.md)"}
+          </button>
+        )}
+      </div>
+
+      {notif && (
+        <div style={{
+          marginBottom: 14, padding: "10px 14px", borderRadius: 10, fontSize: 12.5, fontWeight: 600,
+          display: "flex", alignItems: "flex-start", gap: 10,
+          background: notif.ton === "ok" ? "rgba(34,197,94,.12)" : notif.ton === "alerte" ? "rgba(245,166,35,.12)" : "rgba(225,90,90,.12)",
+          border: `1px solid ${notif.ton === "ok" ? "rgba(34,197,94,.4)" : notif.ton === "alerte" ? "rgba(245,166,35,.45)" : "rgba(225,90,90,.4)"}`,
+          color: notif.ton === "ok" ? "#15803d" : notif.ton === "alerte" ? "#b97a10" : "#e15a5a",
+        }}>
+          <span style={{ flex: 1 }}>{notif.texte}</span>
+          <button onClick={() => setNotif(null)} style={{
+            border: "none", background: "transparent", color: "inherit",
+            cursor: "pointer", fontFamily: "inherit", fontWeight: 800, fontSize: 13, lineHeight: 1,
+          }} title="Masquer">×</button>
+        </div>
+      )}
+
+      {bandeauErreurs && <div style={{ marginBottom: 14 }}>{bandeauErreurs}</div>}
+
+      {chantiersOp.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
+          <div style={{ fontSize: FONT.base.size, fontWeight: 600, marginBottom: 8 }}>Aucun chantier rattaché à cette opération.</div>
+          <div style={{ fontSize: FONT.sm.size }}>Le rattachement se fait dans Réglages → Opérations (colonne Opération du tableau des chantiers).</div>
+        </div>
+      ) : (
+        <>
+          {/* ── Onglets : Synthèse (finances) / Chemin de fer (planning) ── */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            {[["synthese", "Synthèse", ChartBar], ["chemin-de-fer", "Chemin de fer", TrainFront]].map(([id, label, Ic]) => {
+              const active = onglet === id;
+              return (
+                <button key={id} onClick={() => setOnglet(id)} style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "7px 16px", borderRadius: RADIUS.pill,
+                  border: `1px solid ${active ? acc.accent : border}`,
+                  background: active ? acc.bg10 : "transparent",
+                  color: active ? acc.accent : textSub,
+                  fontSize: FONT.sm.size, fontWeight: 700,
+                  cursor: "pointer", fontFamily: "inherit", transition: "all .15s",
+                }}>
+                  <Icon as={Ic} size={14}/> {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {onglet === "chemin-de-fer" ? (
+            <Suspense fallback={<div style={{ color: textMuted, fontSize: 13, padding: 20 }}>Chargement du chemin de fer…</div>}>
+              <CheminDeFerVue chantiers={chantiers} T={T} branch={branch} onOuvrirAdmin={onOuvrirAdmin} opIdForce={op.id} embedded/>
+            </Suspense>
+          ) : (
+          <>
+          {/* ── KPI financiers agrégés ── */}
+          <div className="pops-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
+            <KpiCard T={T} icon={Wallet} iconColor="#5b8af5" label="Vendu HT" bold
+              value={agg.vendu > 0 ? eur(agg.vendu) : "—"}
+              sub={`${agg.nbAvecPhasage}/${agg.nbChantiers} logements chiffrés`}/>
+            <KpiCard T={T} icon={Clock} iconColor="#f5a623" label="Coût MO réel"
+              value={eur(agg.moReel)}
+              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h vendues`}/>
+            <KpiCard T={T} icon={Package} iconColor="#5b8af5" label="Matériaux réels"
+              value={eur(agg.mat)}
+              sub={agg.matPrev > 0 ? `prévu : ${eur(agg.matPrev)}` : undefined}/>
+            <KpiCard T={T} icon={Receipt} iconColor="#c084fc" label="Frais généraux"
+              value={agg.fg > 0 ? eur(agg.fg) : "—"}/>
+            <KpiCard T={T} icon={agg.marge >= 0 ? TrendingUp : TrendingDown} iconColor={margeColor} accent={margeColor} bold
+              label="Marge nette" value={agg.vendu > 0 ? eur(agg.marge) : "—"}
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margePct)} du vendu` : "vendu HT non renseigné"}/>
+            <KpiCard T={T} icon={Banknote} iconColor="#22c55e" label="Marge prévisionnelle"
+              value={agg.vendu > 0 ? eur(agg.margePrev) : "—"}
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margePrevPct)} au devis` : undefined}/>
+          </div>
+
+          {/* ── Avancement + décomposition du vendu ── */}
+          <div style={{ background: T.surface, border: `1px solid ${border}`, borderRadius: 14, boxShadow: CARD_SHADOW, padding: "14px 16px", marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.sm.size, color: textSub, marginBottom: 6 }}>
+                <span style={{ fontWeight: 700 }}>Avancement de l'opération <span style={{ fontWeight: 500, color: textMuted }}>(pondéré par le vendu HT de chaque logement)</span></span>
+                <span style={{ fontWeight: 800, color: text }}>{agg.avancement}%</span>
+              </div>
+              <ProgressBar value={agg.avancement} color={op.couleur} height={8}/>
+            </div>
+            {segments.length > 0 && (
+              <div>
+                <div style={{ fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted, marginBottom: 6 }}>
+                  Décomposition du vendu HT
+                </div>
+                <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", background: "rgba(128,128,128,0.15)" }}>
+                  {segments.map((s) => (
+                    <div key={s.label} title={`${s.label} : ${eur(s.val)}`}
+                      style={{ width: `${(s.val / baseBarre) * 100}%`, background: s.color, minWidth: s.val > 0 ? 2 : 0 }}/>
+                  ))}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 7 }}>
+                  {segments.map((s) => (
+                    <span key={s.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size + 1, color: textSub }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 3, background: s.color }}/>{s.label} · <strong style={{ color: text }}>{eur(s.val)}</strong>
+                    </span>
+                  ))}
+                  {agg.marge < 0 && (
+                    <span style={{ fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 700 }}>
+                      Coûts supérieurs au vendu : marge {eur(agg.marge)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Tableau des logements ── */}
+          <div style={{ background: T.surface, border: `1px solid ${border}`, borderRadius: 14, boxShadow: CARD_SHADOW, padding: "6px 4px", marginBottom: 16, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 850 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, textAlign: "left" }}>Logement</th>
+                  <th style={{ ...th, textAlign: "left" }}>Statut</th>
+                  <th style={th}>Avanc.</th>
+                  <th style={th}>Vendu HT</th>
+                  <th style={th}>Coût MO</th>
+                  <th style={th}>Matériaux</th>
+                  <th style={th}>Marge prév.</th>
+                  <th style={th}>Marge</th>
+                  <th style={th}>Marge %</th>
+                  <th style={th}>Heures (réel/vendu)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chantiersOp.map((c) => {
+                  const f = finParChantier[c.id];
+                  const b = f?.finance.brut;
+                  const s = STATUTS[c.statut] || STATUTS.en_cours;
+                  const mColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margeChantier, b.margePctChantier ?? 0) : textMuted;
+                  const mPrevColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margePrevChantier, b.margePrevPctChantier ?? 0) : textMuted;
+                  return (
+                    <tr key={c.id} className={onOpenChantier ? "pops-row-clic" : undefined}
+                      onClick={onOpenChantier ? () => onOpenChantier(c.id) : undefined}
+                      style={{ borderTop: `1px solid ${border}`, cursor: onOpenChantier ? "pointer" : "default" }}>
+                      <td style={{ ...td, textAlign: "left", color: text, fontWeight: 700 }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ width: 9, height: 9, borderRadius: 3, background: c.couleur || "#888", flexShrink: 0 }}/>
+                          {c.nom}
+                          {onOpenChantier && <Icon as={ExternalLink} size={11} style={{ opacity: .45 }}/>}
+                        </span>
+                      </td>
+                      <td style={{ ...td, textAlign: "left" }}>
+                        <span style={{
+                          fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: RADIUS.pill,
+                          color: s.color, background: s.bg, border: `1px solid ${s.color}40`, whiteSpace: "nowrap",
+                        }}>{s.label}</span>
+                      </td>
+                      {!b ? (
+                        <td colSpan={8} style={{ ...td, textAlign: "left", fontStyle: "italic", color: textMuted }}>Sans phasage — hors chiffres</td>
+                      ) : (
+                        <>
+                          <td style={{ ...td, fontWeight: 700, color: text }}>{b.avancementChantier}%</td>
+                          <td style={td}>{b.prixHTChantier > 0 ? eur(b.prixHTChantier) : "—"}</td>
+                          <td style={td}>{eur(b.coutMOTotalChantier)}</td>
+                          <td style={td}>{eur(b.coutMatChantier)}</td>
+                          <td style={{ ...td, fontWeight: 700, color: mPrevColor }}>{b.prixHTChantier > 0 ? eur(b.margePrevChantier) : "—"}</td>
+                          <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? eur(b.margeChantier) : "—"}</td>
+                          <td style={{ ...td, fontWeight: 700, color: mColor }}>{b.prixHTChantier > 0 ? pctTxt(b.margePctChantier) : "—"}</td>
+                          <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h</td>
+                        </>
+                      )}
+                    </tr>
+                  );
+                })}
+                {/* Ligne de total */}
+                <tr style={{ borderTop: `2px solid ${border}` }}>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 800, color: text }}>Total opération</td>
+                  <td style={td}/>
+                  <td style={{ ...td, fontWeight: 800, color: text }}>{agg.avancement}%</td>
+                  <td style={{ ...td, fontWeight: 800, color: text }}>{agg.vendu > 0 ? eur(agg.vendu) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.moReel)}</td>
+                  <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.mat)}</td>
+                  <td style={{ ...td, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margePrev, agg.margePrevPct ?? 0) : textMuted }}>{agg.vendu > 0 ? eur(agg.margePrev) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.marge) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? pctTxt(agg.margePct) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Diagramme financier consolidé de l'opération ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: text }}>
+                Diagramme financier de l'opération
+                <span style={{ fontWeight: 600, fontSize: 12.5, color: textMuted, marginLeft: 10 }}>
+                  courbes de référence : {consolide.stats.nbAvecReference} logement{consolide.stats.nbAvecReference > 1 ? "s" : ""} inclus / {consolide.stats.sansReference.length} exclu{consolide.stats.sansReference.length > 1 ? "s" : ""}
+                </span>
+              </div>
+              <div style={{ flex: 1 }}/>
+              <select value={periode} onChange={(e) => setPeriode(e.target.value)} style={selectStyle}>
+                <option value="12">12 derniers mois</option>
+                <option value="24">24 derniers mois</option>
+                <option value="tout">Tout l'historique</option>
+              </select>
+            </div>
+            {consolide.stats.sansReference.length > 0 && (
+              <div style={{ padding: "8px 12px", borderRadius: 10, border: `1px dashed ${border}`, fontSize: 12.5, color: textSub }}>
+                <strong>Sans référence figée</strong> (hors courbes de référence — prendre la référence depuis la fiche chantier) : {consolide.stats.sansReference.map((c) => c.nom).join(" · ")}
+              </div>
+            )}
+            {consolide.stats.nonApparies.length > 0 && (
+              <div style={{ padding: "8px 12px", borderRadius: 10, background: "rgba(245,166,35,.12)",
+                border: "1px solid rgba(245,166,35,.4)", fontSize: 12.5, color: "#b97a10", fontWeight: 600 }}>
+                Non apparié{consolide.stats.nonApparies.length > 1 ? "s" : ""} aux États financiers (jointure par nom) — absent{consolide.stats.nonApparies.length > 1 ? "s" : ""} des recettes réelles : {consolide.stats.nonApparies.map((c) => c.nom).join(" · ")}
+              </div>
+            )}
+            {dataGraphe.length > 0 ? (
+              <div ref={grapheRef} style={{ background: T.surface, border: `1px solid ${border}`, borderRadius: 12, padding: "16px 14px 6px", minWidth: 0 }}>
+                <Suspense fallback={<div style={{ color: textMuted, fontSize: 13, padding: 20 }}>Chargement du graphique…</div>}>
+                  <DiagrammeFinancierChart T={T} data={dataGraphe} hauteur={320}
+                    masques={masques}
+                    onToggleSerie={(k) => k && setMasques((m) => ({ ...m, [k]: !m[k] }))}/>
+                </Suspense>
+                <div style={{ fontSize: 11.5, color: textMuted, textAlign: "center", margin: "2px 0 8px" }}>
+                  Trait plein = réel · pointillés = référence figée · somme des logements de l'opération, cumuls mensuels € HT · clic sur la légende = masquer/afficher
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: textMuted, fontSize: 13 }}>Aucune donnée mensuelle sur la période choisie.</div>
+            )}
+          </div>
+          </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

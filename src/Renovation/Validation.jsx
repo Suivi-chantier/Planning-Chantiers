@@ -16,6 +16,11 @@
 //          + correction du CHANTIER du rapport (erreur de saisie de l'ouvrier) :
 //          sélecteur dans l'en-tête de la modale, tant que le rapport n'est pas
 //          validé (sinon passer par « Corriger » d'abord).
+//          + BASCULE d'une ligne (ou d'une partie de ses heures) vers un AUTRE
+//          chantier : l'ouvrier a tout déclaré sur un chantier alors qu'il a
+//          passé une partie de la journée ailleurs. Les heures rejoignent le
+//          rapport du même ouvrier / même jour sur le chantier cible (créé au
+//          besoin), à valider ensuite comme les autres.
 //   - P5 : avancement arbitré. Champ "validé" pré-rempli avec la valeur
 //          déclarée par l'ouvrier. Garde-fou anti-régression si baisse vs plan.
 //          Affichage des propositions des autres ouvriers ayant pointé la même
@@ -24,13 +29,18 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
-import { Icon } from "../ui";
+// Écriture versionnée : Validation réécrit ouvrages / plan_travaux depuis son
+// état React, qui peut être périmé. Le verrou optimiste l'empêche d'écraser
+// une modification arrivée entre-temps.
+import { sauvegarderPhasage, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
+import { Icon, InputNombre } from "../ui";
 import {
   CheckCircle2, AlertTriangle, Clock, User as UserIcon, X,
-  Plus, Trash2, Split, PlusCircle, Lock, LockOpen,
+  Plus, Trash2, Split, PlusCircle, Lock, LockOpen, ArrowRightLeft,
 } from "lucide-react";
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
+import { getISOWeek, profilSemaine } from "../rythmeSemaine";
 
 // ─── Helpers date ────────────────────────────────────────────────────────────
 
@@ -98,6 +108,19 @@ function fmtH(h) {
 }
 
 function genId() { return Math.random().toString(36).slice(2); }
+
+// Heures normalement attendues pour une date, d'après la source unique du rythme
+// 4j/5j. Les exceptions de date de planning_config sont appliquées au moment
+// exact de la validation (requête Supabase dans validerRapport).
+function heuresAttenduesPourDate(dateStr) {
+  const isoDate = frToISO(dateStr);
+  const d = new Date(`${isoDate}T12:00:00`);
+  if (isNaN(d.getTime())) return null;
+  const { year, week } = getISOWeek(d);
+  const jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const h = parseFloat(profilSemaine(year, week)?.[jours[d.getDay()]]);
+  return Number.isFinite(h) ? h : null;
+}
 
 // ─── Fuzzy match : nom écrit par l'ouvrier → tâche du plan ──────────────────
 // Score sur 1. Le seuil d'auto-affectation est défini plus bas (0.55).
@@ -191,6 +214,9 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const [rapports, setRapports] = useState([]);
   const [cellsJour, setCellsJour] = useState([]);
   const [phasages, setPhasages] = useState([]);
+  // Écriture refusée : le phasage a bougé ailleurs. On n'écrase rien et on
+  // ne réessaie jamais tout seul — l'utilisateur recharge puis recommence.
+  const [conflitPhasage, setConflitPhasage] = useState(false);
   const [phases, setPhases] = useState(PHASES_DEFAUT);
   const [loading, setLoading] = useState(true);
   const [openedId, setOpenedId] = useState(null);
@@ -260,7 +286,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const chIds = [...new Set((rs || []).map(r => r.chantier_id).filter(Boolean))];
     if (chIds.length > 0) {
       const { data: phs } = await supabase.from("phasages")
-        .select("id,chantier_id,plan_travaux,ouvrages")
+        .select("id,chantier_id,revision,plan_travaux,ouvrages")
         .in("chantier_id", chIds);
       setPhasages(phs || []);
     } else {
@@ -487,13 +513,16 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           quantite: null, unite: "U", prix_ht: null, cout_materiaux: null, taches: [newTache] };
         next = [...next, divers];
       }
-      const { error } = await supabase.from("phasages").update({ ouvrages: next }).eq("id", ph.id);
-      if (error) {
-        console.error("creerTacheDansOuvrage:", error);
-        alert("Erreur lors de la création de la tâche.");
+      const res = await sauvegarderPhasage({
+        phasageId: ph.id, revision: ph.revision ?? 0, ouvrages: next,
+      });
+      if (!res.ok) {
+        if (res.code === "conflit") { setConflitPhasage(true); return null; }
+        console.error("creerTacheDansOuvrage:", res.code);
+        alert(MESSAGE_ERREUR_ECRITURE);
         return null;
       }
-      setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next } : p));
+      setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next, revision: res.revision } : p));
       return { tache_id: newTache.id, ouvrage_id: divers.id, phase_id: null };
     }
 
@@ -508,10 +537,13 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       avancement: 0, date_prevue: null, _cree_depuis_validation: true,
     };
     plan[phase_id] = [...existing, newTache];
-    const { error } = await supabase.from("phasages").update({ plan_travaux: plan }).eq("id", ph.id);
-    if (error) {
-      console.error("creerTacheDansPlan:", error);
-      alert("Erreur lors de la création de la tâche dans le plan.");
+    const resPlan = await sauvegarderPhasage({
+      phasageId: ph.id, revision: ph.revision ?? 0, plan_travaux: plan,
+    });
+    if (!resPlan.ok) {
+      if (resPlan.code === "conflit") { setConflitPhasage(true); return null; }
+      console.error("creerTacheDansPlan:", resPlan.code);
+      alert(MESSAGE_ERREUR_ECRITURE);
       return null;
     }
     setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan } : p));
@@ -542,6 +574,69 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
                 + regressions.map(r => `• « ${r.planifie} » : ${r.ancien}% → ${r.nouveau}%`).join("\n")
                 + "\n\nConfirmer la validation ?";
       if (!window.confirm(msg)) return;
+    }
+
+    // ── GARDE-FOU HEURES JOURNÉE ───────────────────────────────────────────
+    // Le CR mobile impose déjà la cible du jour. On refait le contrôle ici,
+    // après les éventuelles corrections du conducteur, AVANT toute écriture
+    // dans pointages. Le contrôle porte sur la journée entière de l'ouvrier :
+    // tous ses rapports/chantiers + un seul trajet journalier.
+    const rapportsMemeJourGuard = rapports.filter(r =>
+      r.ouvrier === rapport.ouvrier && r.date_rapport === rapport.date_rapport
+    );
+    const heuresEditeesRapportGuard = lignes.reduce((sum, l) => sum + (parseFloat(l.heures) || 0), 0)
+      + indirectes.reduce((sum, x) => sum + (parseFloat(x.heures) || 0), 0);
+    const heuresHorsTrajetJour = rapportsMemeJourGuard.reduce((sum, r) =>
+      sum + (r.id === rapport.id ? heuresEditeesRapportGuard : heuresDeclareesRapport(r)), 0
+    );
+    const trajetJourH = ((parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0)) / 60;
+    const totalJourValide = heuresHorsTrajetJour + trajetJourH;
+    const totalJourDeclare = rapportsMemeJourGuard.reduce((sum, r) => sum + heuresDeclareesRapport(r), 0) + trajetJourH;
+
+    let heuresAttendues = heuresAttenduesPourDate(rapport.date_rapport);
+    // Même priorité que le formulaire ouvrier : exception de date Admin > rythme 4j/5j.
+    try {
+      const { data: cfg } = await supabase.from("planning_config")
+        .select("value").eq("key", "heures_par_jour").maybeSingle();
+      const isoRapport = frToISO(rapport.date_rapport);
+      const exc = parseFloat(cfg?.value?.exceptions?.[isoRapport]);
+      if (Number.isFinite(exc)) heuresAttendues = exc;
+    } catch (e) {
+      console.warn("Garde-fou heures — lecture exception planning_config:", e);
+    }
+
+    let exceptionHeures = null;
+    const ecartHeures = heuresAttendues == null ? 0 : totalJourValide - heuresAttendues;
+    if (heuresAttendues != null && Math.abs(ecartHeures) > 0.01) {
+      const sens = ecartHeures > 0 ? `+${fmtH(ecartHeures)}h` : `-${fmtH(Math.abs(ecartHeures))}h`;
+      const deverrouiller = window.confirm(
+        `⚠️ Garde-fou heures — ${rapport.ouvrier}\n\n`
+        + `Déclaré par l'ouvrier : ${fmtH(totalJourDeclare)}h\n`
+        + `Après validation : ${fmtH(totalJourValide)}h\n`
+        + `Attendu : ${fmtH(heuresAttendues)}h\n`
+        + `Écart : ${sens}\n\n`
+        + `La validation est bloquée.\n\n`
+        + `S'agit-il réellement d'une journée exceptionnelle ?`
+      );
+      if (!deverrouiller) return;
+
+      const motif = window.prompt(
+        `Journée exceptionnelle — motif obligatoire\n\n`
+        + `Explique pourquoi ${rapport.ouvrier} doit être validé à ${fmtH(totalJourValide)}h au lieu de ${fmtH(heuresAttendues)}h :`
+      );
+      if (!motif?.trim()) {
+        alert("Validation annulée : un motif est obligatoire pour déverrouiller le garde-fou.");
+        return;
+      }
+      exceptionHeures = {
+        actif: true,
+        motif: motif.trim(),
+        heures_attendues: heuresAttendues,
+        heures_declarees: Math.round(totalJourDeclare * 100) / 100,
+        heures_validees: Math.round(totalJourValide * 100) / 100,
+        ecart: Math.round(ecartHeures * 100) / 100,
+        par: valideur,
+      };
     }
 
     setValidating(true);
@@ -658,9 +753,15 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           }
         });
         if (touched) {
-          const { error: upPlanErr } = await supabase.from("phasages").update({ plan_travaux: plan }).eq("id", ph.id);
-          if (upPlanErr) console.error("Update plan_travaux avancement:", upPlanErr);
-          else setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan } : p));
+          const resAv = await sauvegarderPhasage({
+            phasageId: ph.id, revision: ph.revision ?? 0, plan_travaux: plan,
+          });
+          if (!resAv.ok) {
+            if (resAv.code === "conflit") setConflitPhasage(true);
+            else console.error("Update plan_travaux avancement:", resAv.code);
+          } else {
+            setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan, revision: resAv.revision } : p));
+          }
         }
       }
     }
@@ -706,16 +807,28 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           }),
         }));
         if (touchedO) {
-          const { error: upOErr } = await supabase.from("phasages").update({ ouvrages: ouvragesNext }).eq("id", phV2.id);
-          if (upOErr) console.error("Update ouvrages avancement (double écriture):", upOErr);
-          else setPhasages(prev => prev.map(p => p.id === phV2.id ? { ...p, ouvrages: ouvragesNext } : p));
+          const resO = await sauvegarderPhasage({
+            phasageId: phV2.id, revision: phV2.revision ?? 0, ouvrages: ouvragesNext,
+          });
+          if (!resO.ok) {
+            if (resO.code === "conflit") setConflitPhasage(true);
+            else console.error("Update ouvrages avancement (double écriture):", resO.code);
+          } else {
+            setPhasages(prev => prev.map(p => p.id === phV2.id ? { ...p, ouvrages: ouvragesNext, revision: resO.revision } : p));
+          }
         }
       }
     }
 
-    // 3) Marque le rapport comme validé. Repli si colonnes absentes.
+    // 3) Marque le rapport comme validé + trace l'éventuel déverrouillage
+    // exceptionnel du garde-fou. Le déclaratif d'origine reste inchangé.
+    const valideLe = new Date().toISOString();
+    const exceptionHeuresTrace = exceptionHeures ? { ...exceptionHeures, le: valideLe } : null;
     let { error: upErr } = await supabase.from("rapports")
-      .update({ statut: "valide", valide_par: valideur, valide_le: new Date().toISOString() })
+      .update({
+        statut: "valide", valide_par: valideur, valide_le: valideLe,
+        exception_heures: exceptionHeuresTrace,
+      })
       .eq("id", rapport.id);
     if (upErr && /statut|valide_par|valide_le/.test(upErr.message || "")) {
       console.warn("Colonne statut/valide_* absente, repli sans marquage de statut.");
@@ -759,6 +872,120 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     }
     setValidating(false);
     await load(); // recharge rapports + phasages (dont celui du nouveau chantier)
+  }
+
+  // ── Bascule d'une ligne vers un AUTRE chantier ─────────────────────────────
+  // Cas : l'ouvrier a déclaré toutes ses heures sur un chantier alors qu'il en
+  // a passé une partie ailleurs. Une ligne (ou une partie de ses heures) est
+  // déplacée dans le rapport du même ouvrier / même jour pour le chantier cible
+  // — créé s'il n'existe pas, complété sinon. Le rapport cible reste « en
+  // attente » : c'est en le validant que ses pointages seront écrits sur le bon
+  // chantier ; le trajet du jour se re-pondère de lui-même (même trajet porté
+  // par chaque rapport du jour, quote-part au temps passé).
+  // Trace : la tâche déplacée porte `bascule_depuis` ; la tâche d'origine garde
+  // ses heures déclarées (`heures_declarees_origine`) + la liste `bascules`, et
+  // reste dans le rapport à 0h si tout a été déplacé (sans avancement pour ne
+  // rien écrire au plan du mauvais chantier).
+  async function basculerLigneVersChantier({ rapport, ligne, chantierId, heures }) {
+    if (!rapport || !ligne || !chantierId) return false;
+    if (String(chantierId) === String(rapport.chantier_id)) return false;
+    if (rapport.statut === "valide") {
+      alert("Ce rapport est déjà validé — clique d'abord sur « Corriger » pour le rouvrir.");
+      return false;
+    }
+    if (journeeCloturee) {
+      alert("La journée est clôturée — rouvre-la d'abord pour basculer des heures.");
+      return false;
+    }
+    const h = Math.round((parseFloat(heures) || 0) * 100) / 100;
+    if (h <= 0) { alert("Indique un nombre d'heures supérieur à 0."); return false; }
+    const ch = chantiers.find(c => String(c.id) === String(chantierId));
+    const nomNew = ch?.nom || String(chantierId);
+    const cible = rapports.find(r =>
+      r.ouvrier === rapport.ouvrier
+      && r.date_rapport === rapport.date_rapport
+      && String(r.chantier_id) === String(chantierId)
+    );
+    if (cible?.statut === "valide") {
+      alert(`Le rapport de ${rapport.ouvrier} sur « ${nomNew} » est déjà validé — ouvre-le et clique sur « Corriger » avant d'y basculer des heures.`);
+      return false;
+    }
+    const le = new Date().toISOString();
+    const tacheDeplacee = {
+      planifie: ligne.planifie || "",
+      tache_id: null, phase_id: null,           // à rattacher au plan du chantier cible à sa validation
+      statut: ligne.statut || "non_faite",
+      remarque: ligne.remarque || "",
+      heures_reelles: h,
+      avancement: ligne.avancement_declare != null ? ligne.avancement_declare : 0,
+      photos: [],
+      bascule_depuis: {
+        rapport_id: rapport.id, chantier_id: rapport.chantier_id,
+        chantier_nom: rapport.chantier_nom || null, heures: h, par: valideur, le,
+      },
+    };
+    // Source : retire les heures de la tâche d'origine (les index des lignes de
+    // la modale pointent sur rapport.taches[] — on ne supprime jamais l'entrée).
+    const tachesSrc = [...(rapport.taches || [])];
+    const idx = ligne.origineIdx;
+    if (idx != null && tachesSrc[idx]) {
+      const t = tachesSrc[idx];
+      const avant = parseFloat(t.heures_reelles) || 0;
+      const reste = Math.max(0, Math.round((avant - h) * 100) / 100);
+      tachesSrc[idx] = {
+        ...t,
+        heures_reelles: reste,
+        heures_declarees_origine: t.heures_declarees_origine ?? avant,
+        avancement: reste > 0 ? t.avancement : null,
+        bascules: [...(t.bascules || []), { vers_chantier_id: chantierId, vers_chantier_nom: nomNew, heures: h, par: valideur, le }],
+      };
+    }
+
+    setValidating(true);
+    let err = null;
+    if (cible) {
+      ({ error: err } = await supabase.from("rapports")
+        .update({ taches: [...(cible.taches || []), tacheDeplacee] })
+        .eq("id", cible.id));
+    } else {
+      // Même gabarit que l'envoi mobile (RapportMobile) : le trajet du jour est
+      // recopié tel quel, chaque rapport n'en écrit que sa quote-part.
+      let payload = {
+        ouvrier: rapport.ouvrier,
+        chantier_id: chantierId,
+        chantier_nom: nomNew,
+        date_rapport: rapport.date_rapport,
+        semaine: rapport.semaine || null,
+        taches: [tacheDeplacee],
+        heures_indirectes: [],
+        remarque: `Heures basculées depuis « ${rapport.chantier_nom || rapport.chantier_id} » par ${valideur} (validation de fin de journée).`,
+        photos_chantier: [],
+        trajet_matin_min: parseInt(rapport.trajet_matin_min) || 0,
+        trajet_soir_min: parseInt(rapport.trajet_soir_min) || 0,
+      };
+      const optionalCols = ["trajet_matin_min", "trajet_soir_min", "photos_chantier", "heures_indirectes", "semaine"];
+      ({ error: err } = await supabase.from("rapports").insert(payload));
+      while (err && err.code === "42703") {
+        const dropped = optionalCols.find(c => new RegExp(c).test(err.message || ""));
+        if (!dropped) break;
+        delete payload[dropped];
+        ({ error: err } = await supabase.from("rapports").insert(payload));
+      }
+    }
+    if (err) {
+      console.error("Bascule vers un autre chantier:", err);
+      alert(`Impossible de basculer ces heures vers « ${nomNew} » : ${err.message || err}\n\nRien n'a été modifié.`);
+      setValidating(false);
+      return false;
+    }
+    const { error: srcErr } = await supabase.from("rapports").update({ taches: tachesSrc }).eq("id", rapport.id);
+    if (srcErr) {
+      console.error("Bascule — mise à jour du rapport d'origine:", srcErr);
+      alert(`Les ${fmtH(h)}h ont bien été ajoutées sur « ${nomNew} », mais le rapport d'origine n'a pas pu être mis à jour (${srcErr.message || srcErr}).\n\nRetire ces heures à la main sur la ligne avant de valider.`);
+    }
+    setValidating(false);
+    await load(); // recharge rapports (dont le nouveau) + phasage du chantier cible
+    return true;
   }
 
   // ── Correction d'un rapport déjà validé (dé-validation) ───────────────────
@@ -805,6 +1032,24 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 
   return (
     <div className="page-padding" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
+      {/* Conflit d'écriture sur le phasage. Aucun bouton de forçage : on
+          recharge la version récente, puis on refait la validation. */}
+      {conflitPhasage && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          padding: "11px 14px", marginBottom: 14, borderRadius: RADIUS.md || 8,
+          background: "#e15a5a18", border: "1px solid #e15a5a55", color: "#e15a5a",
+          fontSize: 13, fontWeight: 700,
+        }}>
+          Ce phasage a été modifié ailleurs. La validation n'a pas été enregistrée
+          afin de protéger les données récentes.
+          <button onClick={async () => { await load(); setConflitPhasage(false); }} style={{
+            marginLeft: "auto", padding: "7px 14px", borderRadius: RADIUS.sm || 6, border: "none",
+            background: "#e15a5a", color: "#fff", fontFamily: "inherit",
+            fontSize: 12, fontWeight: 800, cursor: "pointer",
+          }}>Recharger la version récente</button>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22, color: T.text, fontWeight: 700 }}>
           Validation de fin de journée
@@ -953,6 +1198,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           rapport={opened}
           chantiers={chantiers}
           onChangerChantier={(chId) => changerChantierRapport(opened, chId)}
+          onBasculerLigne={(args) => basculerLigneVersChantier({ rapport: opened, ...args })}
           T={T} acc={acc}
           taux={parseFloat(tauxHoraires?.[opened.ouvrier]) || 0}
           alertes={alertesRapport(opened)}
@@ -1080,7 +1326,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
-  chantiers = [], onChangerChantier,
+  chantiers = [], onChangerChantier, onBasculerLigne,
   nbChantiersDuJour = 1,
   autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
   onCreerTache, onClose, onValider, onDevalider, validating,
@@ -1090,6 +1336,8 @@ function ModaleRapport({
   const [lignes, setLignes] = useState([]);
   const [indirectes, setIndirectes] = useState([]);
   const [creerTacheState, setCreerTacheState] = useState(null); // { ligneRowId, nom?, phase_id? }
+  const [basculeState, setBasculeState] = useState(null);       // { rowId, chantierId, heures }
+  const [basculeBusy, setBasculeBusy] = useState(false);
 
   // P6 : verrouille toute action si la journée est clôturée (sauf consultation).
   const valide = rapport.statut === "valide";
@@ -1104,11 +1352,14 @@ function ModaleRapport({
       phase_id: t.phase_id || null,
       planifie: t.planifie || "",
       heures: parseFloat(t.heures_reelles) || 0,
+      heures_origine: parseFloat(t.heures_reelles) || 0,
       statut: t.statut || null,
       avancement_declare: t.avancement != null ? parseInt(t.avancement) : null,
       avancement_arbitre: t.avancement != null ? parseInt(t.avancement) : "",  // pré-rempli avec déclaré
       remarque: t.remarque || "",
       photos: t.photos || [],
+      bascules: Array.isArray(t.bascules) ? t.bascules : [],
+      bascule_depuis: t.bascule_depuis || null,
       _autoMatched: false,
     }));
     setLignes(init);
@@ -1174,6 +1425,33 @@ function ModaleRapport({
     return [...prev.slice(0, i), modif, nouvelle, ...prev.slice(i + 1)];
   });
   const removeLigne = (rowId) => setLignes(prev => prev.filter(l => l.rowId !== rowId));
+
+  // Bascule vers un autre chantier : la page écrit en base (rapport cible +
+  // rapport d'origine), puis on reflète localement — la ligne disparaît si tout
+  // est parti, sinon elle garde le reste. Les autres corrections en cours dans
+  // la modale sont conservées.
+  const ouvrirBascule = (rowId) => {
+    const li = lignes.find(l => l.rowId === rowId);
+    if (!li) return;
+    setBasculeState({ rowId, chantierId: "", heures: parseFloat(li.heures) || 0 });
+  };
+  const confirmerBascule = async () => {
+    if (!basculeState || basculeBusy) return;
+    const li = lignes.find(l => l.rowId === basculeState.rowId);
+    if (!li) { setBasculeState(null); return; }
+    if (!basculeState.chantierId) { alert("Choisis le chantier de destination."); return; }
+    const h = Math.round((parseFloat(basculeState.heures) || 0) * 100) / 100;
+    if (h <= 0) { alert("Indique un nombre d'heures supérieur à 0."); return; }
+    setBasculeBusy(true);
+    const ok = await onBasculerLigne?.({ ligne: li, chantierId: basculeState.chantierId, heures: h });
+    setBasculeBusy(false);
+    if (!ok) return;
+    const reste = Math.round(((parseFloat(li.heures) || 0) - h) * 100) / 100;
+    setLignes(prev => reste > 0
+      ? prev.map(l => l.rowId === li.rowId ? { ...l, heures: reste } : l)
+      : prev.filter(l => l.rowId !== li.rowId));
+    setBasculeState(null);
+  };
 
   // Réaffectation : on capture la sélection (tache_id du plan, "__libre__", ou "__creer__")
   // V2 si les options du menu portent un ouvrage_id (chantier avec ouvrages).
@@ -1324,6 +1602,7 @@ function ModaleRapport({
                   onChange={(patch) => updateLigne(li.rowId, patch)}
                   onChangeTache={(value) => onChangeTache(li.rowId, value)}
                   onSplit={() => splitLigne(li.rowId)}
+                  onBasculer={chantiers.length > 0 && onBasculerLigne ? () => ouvrirBascule(li.rowId) : null}
                   onRemove={() => removeLigne(li.rowId)}
                 />
               ))}
@@ -1484,6 +1763,24 @@ function ModaleRapport({
           onClose={() => setCreerTacheState(null)}
         />
       )}
+
+      {/* Sous-modale bascule d'une ligne vers un autre chantier */}
+      {basculeState && (() => {
+        const li = lignes.find(l => l.rowId === basculeState.rowId);
+        return li ? (
+          <BasculerChantierModale
+            state={basculeState}
+            setState={setBasculeState}
+            ligne={li}
+            rapport={rapport}
+            chantiers={chantiers}
+            busy={basculeBusy}
+            T={T} acc={acc}
+            onValider={confirmerBascule}
+            onClose={() => setBasculeState(null)}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -1492,7 +1789,7 @@ function ModaleRapport({
 
 function LigneEditable({
   ligne, T, acc, valide, tachesPlan, phases,
-  avancementActuel, autres, onChange, onChangeTache, onSplit, onRemove,
+  avancementActuel, autres, onChange, onChangeTache, onSplit, onRemove, onBasculer,
 }) {
   const phasesById = useMemo(() => Object.fromEntries((phases || []).map(p => [p.id, p])), [phases]);
   // Groupe les tâches par `groupe` : libellé d'ouvrage (V2) ou id de phase (V1).
@@ -1576,6 +1873,24 @@ function LigneEditable({
               ✨ Auto-détecté
             </span>
           )}
+          {ligne.bascule_depuis && (
+            <span title={`Heures basculées depuis « ${ligne.bascule_depuis.chantier_nom || ligne.bascule_depuis.chantier_id} » par ${ligne.bascule_depuis.par || "?"} — à rattacher au plan de CE chantier`} style={{
+              fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
+              background: "rgba(77,184,255,0.15)", color: "#2a8fd6", textTransform: "uppercase", letterSpacing: .3,
+              cursor: "help",
+            }}>
+              ⇄ Reçue de {libelleCourt(ligne.bascule_depuis.chantier_nom || ligne.bascule_depuis.chantier_id || "?", 28)}
+            </span>
+          )}
+          {Array.isArray(ligne.bascules) && ligne.bascules.length > 0 && (
+            <span title={ligne.bascules.map(b => `${fmtH(b.heures)}h → « ${b.vers_chantier_nom || b.vers_chantier_id} » (${b.par || "?"})`).join("\n")} style={{
+              fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
+              background: "rgba(77,184,255,0.15)", color: "#2a8fd6", textTransform: "uppercase", letterSpacing: .3,
+              cursor: "help",
+            }}>
+              ⇄ {fmtH(ligne.bascules.reduce((t, b) => t + (parseFloat(b.heures) || 0), 0))}h basculées ailleurs
+            </span>
+          )}
           {autres.length > 0 && (
             <span style={{ fontSize: 11, color: T.textSub }}>
               Aussi pointée par : {autres.map((a, i) => (
@@ -1610,13 +1925,19 @@ function LigneEditable({
       {/* Heures */}
       <div>
         <label style={miniLabel(T)}>Heures</label>
-        <input
-          type="number" step="0.25" min="0"
-          value={ligne.heures ?? ""}
-          onChange={e => onChange({ heures: e.target.value === "" ? "" : parseFloat(e.target.value) })}
+        <InputNombre
+          min="0"
+          valeur={ligne.heures ?? ""}
+          onValeur={n => onChange({ heures: n === null ? "" : n })} vide={""}
+          onWheel={e => e.currentTarget.blur()}
           disabled={valide}
           style={{ ...inputStyle(T), textAlign: "right" }}
         />
+        {Math.abs((parseFloat(ligne.heures) || 0) - (parseFloat(ligne.heures_origine) || 0)) > 0.001 && (
+          <div style={{ fontSize: 10, color: "#e05c5c", marginTop: 2, fontWeight: 700 }}>
+            Déclaré {fmtH(ligne.heures_origine)}h → retenu {fmtH(ligne.heures)}h
+          </div>
+        )}
       </div>
 
       {/* Avancement déclaré + arbitré */}
@@ -1630,10 +1951,10 @@ function LigneEditable({
           )}
         </label>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <input
-            type="number" min="0" max="100" step="1"
-            value={ligne.avancement_arbitre ?? ""}
-            onChange={e => onChange({ avancement_arbitre: e.target.value === "" ? "" : parseInt(e.target.value) })}
+          <InputNombre
+            min="0" max="100"
+            valeur={ligne.avancement_arbitre ?? ""}
+            entier onValeur={n => onChange({ avancement_arbitre: n === null ? "" : Math.max(0, Math.min(100, n)) })} vide={""}
             disabled={valide || !ligne.tache_id}
             style={{
               ...inputStyle(T), textAlign: "right",
@@ -1654,6 +1975,11 @@ function LigneEditable({
         <button onClick={onSplit} disabled={valide} title="Splitter en 2 lignes" style={iconBtnStyle(T)}>
           <Icon as={Split} size={14}/>
         </button>
+        {onBasculer && (
+          <button onClick={onBasculer} disabled={valide} title="Basculer tout ou partie de ces heures vers un autre chantier (erreur de chantier de l'ouvrier)" style={{ ...iconBtnStyle(T), color: "#2a8fd6" }}>
+            <Icon as={ArrowRightLeft} size={14}/>
+          </button>
+        )}
         <button onClick={onRemove} disabled={valide} title="Supprimer la ligne" style={{ ...iconBtnStyle(T), color: "#e05c5c" }}>
           <Icon as={Trash2} size={14}/>
         </button>
@@ -1750,6 +2076,120 @@ function CreerTacheModale({ state, setState, phases, T, acc, onValider, onClose 
             cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
           }}>
             Créer et rattacher
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sous-modale bascule d'une ligne vers un autre chantier ──────────────────
+// L'ouvrier a déclaré ses heures sur le mauvais chantier (en tout ou partie).
+// On choisit le chantier de destination et le nombre d'heures à déplacer ; le
+// reste (s'il y en a) demeure sur la ligne courante.
+
+function BasculerChantierModale({ state, setState, ligne, rapport, chantiers, busy, T, acc, onValider, onClose }) {
+  const heuresLigne = parseFloat(ligne.heures) || 0;
+  const h = parseFloat(state.heures) || 0;
+  const reste = Math.max(0, Math.round((heuresLigne - h) * 100) / 100);
+  const tout = h >= heuresLigne - 0.001;
+  const chCible = chantiers.find(c => String(c.id) === String(state.chantierId));
+  const liste = [...chantiers]
+    .filter(c => String(c.id) !== String(rapport.chantier_id))
+    .sort((a, b) => String(a.nom || a.id).localeCompare(String(b.nom || b.id)));
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 300,
+      background: "rgba(0,0,0,0.65)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 16,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: T.surface, color: T.text,
+        borderRadius: RADIUS.lg || 12,
+        width: "100%", maxWidth: 480,
+        border: `1px solid ${T.border}`,
+      }}>
+        <div style={{
+          padding: "14px 20px", borderBottom: `1px solid ${T.border}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Icon as={ArrowRightLeft} size={18} color={acc.accent}/>
+            <span style={{ fontWeight: 700, fontSize: 15 }}>Basculer vers un autre chantier</span>
+          </div>
+          <button onClick={onClose} style={{
+            background: "transparent", border: "none", cursor: "pointer", padding: 4,
+            color: T.textSub, display: "flex", alignItems: "center",
+          }}>
+            <Icon as={X} size={18}/>
+          </button>
+        </div>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 13, color: T.textSub }}>
+            <strong style={{ color: T.text }}>{rapport.ouvrier}</strong> a déclaré{" "}
+            <strong style={{ color: T.text }}>{fmtH(heuresLigne)}h</strong> sur « {libelleCourt(ligne.planifie || "(sans nom)", 60)} »
+            pour le chantier <strong style={{ color: T.text }}>{rapport.chantier_nom || rapport.chantier_id}</strong>.
+          </div>
+          <div>
+            <label style={miniLabel(T)}>Chantier de destination</label>
+            <select
+              autoFocus
+              value={state.chantierId || ""}
+              onChange={e => setState({ ...state, chantierId: e.target.value })}
+              style={inputStyle(T)}
+            >
+              <option value="">— Choisir un chantier —</option>
+              {liste.map(c => (
+                <option key={c.id} value={c.id}>{libelleCourt(c.nom || c.id, 70)}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={miniLabel(T)}>Heures à basculer</label>
+            <InputNombre
+              min="0"
+              valeur={state.heures ?? ""}
+              onValeur={n => setState({ ...state, heures: n === null ? "" : n })} vide={""}
+              onWheel={e => e.currentTarget.blur()}
+              style={{ ...inputStyle(T), textAlign: "right" }}
+            />
+            <div style={{ fontSize: 11, color: T.textSub, marginTop: 4 }}>
+              {h <= 0
+                ? "Indique le nombre d'heures réellement passées sur l'autre chantier."
+                : tout
+                  ? `Toute la ligne part vers ${chCible ? `« ${libelleCourt(chCible.nom || chCible.id, 40)} »` : "l'autre chantier"} — elle disparaît d'ici.`
+                  : `${fmtH(h)}h partent vers ${chCible ? `« ${libelleCourt(chCible.nom || chCible.id, 40)} »` : "l'autre chantier"} · ${fmtH(reste)}h restent sur ce chantier.`}
+            </div>
+          </div>
+          <div style={{
+            fontSize: 12, color: "#2a6fa8", padding: "8px 10px", borderRadius: RADIUS.md,
+            background: "rgba(77,184,255,0.10)", border: "1px solid rgba(77,184,255,0.35)",
+          }}>
+            Les heures rejoignent le rapport de {rapport.ouvrier} du même jour sur le chantier cible
+            (créé s'il n'existe pas). Il apparaît « En attente » dans la liste : ouvre-le pour rattacher
+            la tâche à son plan et le valider. Le trajet du jour se répartit automatiquement au temps passé.
+          </div>
+        </div>
+        <div style={{
+          padding: "12px 20px", borderTop: `1px solid ${T.border}`,
+          display: "flex", justifyContent: "flex-end", gap: 8,
+        }}>
+          <button onClick={onClose} disabled={busy} style={{
+            padding: "8px 16px", borderRadius: RADIUS.md,
+            border: `1px solid ${T.border}`, background: "transparent", color: T.text,
+            cursor: "pointer", fontFamily: "inherit", fontSize: 13,
+          }}>
+            Annuler
+          </button>
+          <button onClick={onValider} disabled={busy || !state.chantierId || h <= 0} style={{
+            padding: "8px 16px", borderRadius: RADIUS.md,
+            border: "none", background: acc.accent, color: "#fff",
+            cursor: busy || !state.chantierId || h <= 0 ? "not-allowed" : "pointer",
+            opacity: busy || !state.chantierId || h <= 0 ? .6 : 1,
+            fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+          }}>
+            {busy ? "…" : "Basculer"}
           </button>
         </div>
       </div>
