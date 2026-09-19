@@ -29,6 +29,9 @@ import {
   succes as fileSucces, conflit as fileConflit, echec as fileEchec,
   apresRechargement, aDesChangementsNonEnregistres,
 } from "./phasageSauvegarde";
+// Un chantier ne devrait porter qu'un phasage ; choisirPhasage décide lequel
+// ouvrir quand il y en a plusieurs, au lieu d'échouer en silence.
+import { choisirPhasage } from "./phasageRegistre.mjs";
 // Éditeur des matériaux d'un ouvrage (modale) — écrit dans
 // ouvrages[].materiaux_liens via updateOuvrage, jamais dans la bibliothèque.
 import MateriauxOuvrage from "./MateriauxOuvrage";
@@ -366,6 +369,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // ce qui reste à écrire et l'état de conflit. Une ref, pas un state :
   // elle est lue et écrite dans des callbacks asynchrones.
   const fileRef = useRef(fileInitiale());
+  // Identité de la ligne écrite. Une REF, pas le state `phasage` : dans le
+  // .then() du chargement, setPhasage(data) n'a pas encore re-rendu, donc
+  // `phasage` y vaut encore null. S'y fier a fait créer un phasage EN DOUBLE
+  // (régression du 17/09 : la normalisation des ids à l'ouverture passait par
+  // ensurePhasage, qui ne voyait aucune ligne et en insérait une seconde).
+  const phasageIdRef = useRef(null);
+  const creationRef = useRef(null);   // promesse de création en cours (anti-double)
   const [conflitInfo, setConflitInfo] = useState(null);   // { revision } | null
   const [bandeauReduit, setBandeauReduit] = useState(false);
   const [rechargeEnCours, setRechargeEnCours] = useState(false);
@@ -579,10 +589,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!chantierId) { setPhasage(null); return; }
     let cancelled = false;
     setLoadingPhasage(true);
-    supabase.from("phasages").select("*").eq("chantier_id", chantierId).maybeSingle()
-      .then(({ data, error }) => {
+    // Pas de maybeSingle() : si le chantier porte plusieurs lignes, il renvoie
+    // une erreur et l'éditeur reste vide sans rien dire. On ouvre celle qui
+    // porte le travail et on signale le doublon dans la console.
+    supabase.from("phasages").select("*").eq("chantier_id", chantierId).limit(5)
+      .then(({ data: lignes, error }) => {
         if (cancelled) return;
-        if (error && error.code !== "PGRST116") console.warn("PhasageV2 load:", error.message);
+        if (error) console.warn("PhasageV2 load:", error.message);
+        if (Array.isArray(lignes) && lignes.length > 1) {
+          console.warn(`PhasageV2 : ${lignes.length} phasages pour le chantier ${chantierId} — le plus fourni est ouvert.`);
+        }
+        const data = choisirPhasage(lignes);
         let mutated = false;
         if (data && Array.isArray(data.ouvrages)) {
           data.ouvrages = data.ouvrages.map(o => {
@@ -607,6 +624,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           });
         }
         setPhasage(data || null);
+        // Identité connue tout de suite : le state React ne l'est pas encore.
+        phasageIdRef.current = data?.id ?? null;
         // Révision de départ du verrouillage optimiste. Sans elle, aucune
         // écriture n'est tentée (cf. phasageSauvegarde.demarrer).
         fileRef.current = avecRevision(fileInitiale(), data?.revision ?? null);
@@ -777,19 +796,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // ligne a bougé ailleurs — typiquement l'acceptation d'un matériau suggéré —
   // le serveur refuse, RIEN n'est réécrit, et l'auto-save se met en pause.
   const pousserSauvegarde = async () => {
+    // L'identité de la ligne se résout AVANT de figer la révision : sinon on
+    // vérifie la révision d'une ligne et on écrit dans une autre — c'est ce
+    // qui produisait un « conflit » immédiat sans aucune modification
+    // externe. ensurePhasage peut faire avancer la révision de la file
+    // (adoption ou création) ; demarrer doit donc venir après.
+    const p = await ensurePhasage();
+    if (!p?.id) { setAutoSaveStatus("error"); return; }
+
     const depart = demarrer(fileRef.current);
     fileRef.current = depart.etat;
     if (!depart.lot) return;
     const { lot, seq } = depart;
     const revisionAttendue = depart.etat.revision;
     setAutoSaveStatus("saving");
-
-    const p = await ensurePhasage();
-    if (!p?.id) {
-      fileRef.current = fileEchec(fileRef.current, seq);
-      setAutoSaveStatus("error");
-      return;
-    }
     try {
       const { data, error } = await supabase.rpc("conducteur_sauvegarder_phasage_v2", {
         p_phasage_id: p.id,
@@ -840,19 +860,43 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     pousserSauvegarde();
   };
 
-  // Crée la ligne phasages si elle n'existe pas encore pour ce chantier.
+  // Donne la ligne phasages du chantier, en la créant SEULEMENT s'il n'en
+  // existe aucune. Trois gardes, chacune contre un doublon déjà constaté :
+  //   1. la ref d'identité (le state `phasage` peut être périmé) ;
+  //   2. une relecture en base avant toute insertion ;
+  //   3. une promesse partagée, pour que deux sauvegardes simultanées
+  //      n'insèrent pas chacune leur ligne.
   const ensurePhasage = async () => {
-    if (phasage?.id) return phasage;
-    const { data, error } = await supabase.from("phasages").insert({
-      chantier_id: chantierId,
-      chantier_nom: chantier?.nom || chantierId,
-      ouvrages: [],
-    }).select().single();
-    if (error) { console.error("ensurePhasage:", error.message); return null; }
-    setPhasage(data);
-    // La ligne vient de naître : sa révision est le point de départ du verrou.
-    fileRef.current = avecRevision(fileRef.current, data?.revision ?? 0);
-    return data;
+    if (phasageIdRef.current) return { id: phasageIdRef.current };
+    if (phasage?.id) { phasageIdRef.current = phasage.id; return phasage; }
+    if (creationRef.current) return creationRef.current;
+
+    creationRef.current = (async () => {
+      const { data: lignes, error: lireErr } = await supabase.from("phasages")
+        .select("*").eq("chantier_id", chantierId).limit(5);
+      if (lireErr) { console.error("ensurePhasage (relecture) :", lireErr.message); return null; }
+      const dejaLa = choisirPhasage(lignes);
+      if (dejaLa?.id) {
+        // Une ligne existait : on l'adopte au lieu d'en créer une seconde.
+        phasageIdRef.current = dejaLa.id;
+        setPhasage(dejaLa);
+        fileRef.current = avecRevision(fileRef.current, dejaLa.revision ?? 0);
+        return dejaLa;
+      }
+      const { data, error } = await supabase.from("phasages").insert({
+        chantier_id: chantierId,
+        chantier_nom: chantier?.nom || chantierId,
+        ouvrages: [],
+      }).select().single();
+      if (error) { console.error("ensurePhasage:", error.message); return null; }
+      phasageIdRef.current = data.id;
+      setPhasage(data);
+      // La ligne vient de naître : sa révision est le point de départ du verrou.
+      fileRef.current = avecRevision(fileRef.current, data?.revision ?? 0);
+      return data;
+    })();
+    try { return await creationRef.current; }
+    finally { creationRef.current = null; }
   };
 
   // Autosave debounced 800ms : on push tout le tableau ouvrages à chaque
@@ -2256,14 +2300,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!ok) return;
     setRechargeEnCours(true);
     try {
-      const { data, error } = await supabase.from("phasages")
-        .select("*").eq("chantier_id", chantierId).maybeSingle();
+      const { data: lignes, error } = await supabase.from("phasages")
+        .select("*").eq("chantier_id", chantierId).limit(5);
+      const data = choisirPhasage(lignes);
       if (error || !data) {
         console.warn("rechargement phasage:", error?.message || "introuvable");
         window.alert("Le rechargement n'a pas abouti. Vérifiez votre connexion et réessayez.");
         return;
       }
       setPhasage(data);
+      phasageIdRef.current = data.id;
       fileRef.current = apresRechargement(fileRef.current, data.revision ?? 0);
       setConflitInfo(null);
       setBandeauReduit(false);

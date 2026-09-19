@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-19",
+    type: "correctif",
+    titre: "Phasage : fin des « Sauvegarde suspendue » qui n'avaient aucune raison d'être",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Depuis le 17/09, l'ouverture d'un phasage issu de l'ancienne version pouvait afficher « Sauvegarde suspendue : le phasage a été modifié ailleurs » alors que personne n'avait rien modifié, puis refuser le rechargement. En corrigeant les identifiants de tâches à l'ouverture, l'éditeur croyait que le chantier n'avait pas encore de phasage et en créait un seconde fois, vide ; il écrivait ensuite dans cette coquille avec le numéro de version de l'original, d'où le faux conflit.",
+    comment: "L'éditeur retient désormais quelle ligne il modifie dès le chargement, relit la base avant toute création, et n'en crée plus jamais une deuxième. Si un chantier porte malgré tout deux phasages — cas anciens —, il ouvre celui qui contient le travail au lieu de rester vide, et le rechargement fonctionne. Aucune donnée n'a été perdue : les lignes créées en double sont restées vides, et c'est précisément le blocage qui les a empêchées de recevoir quoi que ce soit.",
+  },
+  {
     date: "2026-09-18",
     type: "correctif",
     titre: "L'export ChatGPT d'une opération devient fiable : codes d'ouvrages, montants de factures et bruit en moins",

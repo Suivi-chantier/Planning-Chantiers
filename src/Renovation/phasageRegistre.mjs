@@ -82,3 +82,25 @@ export function conflitEcriture(reg, phasageId, jeton) {
 export function ecritureEnCours(reg, phasageId) {
   return !!reg?.enVol?.[String(phasageId || "")];
 }
+
+// ── Choix de la ligne à ouvrir quand un chantier en porte plusieurs ────────
+// Un chantier ne DEVRAIT avoir qu'un phasage. Il peut en avoir deux : cas
+// hérités, et doublons créés par la régression du 17/09 (la normalisation des
+// ids à l'ouverture insérait une seconde ligne, restée vide).
+//
+// maybeSingle() renvoyait alors une erreur : l'éditeur s'ouvrait vide et le
+// rechargement échouait. On ouvre donc celle qui porte le travail — jamais la
+// coquille vide — et l'appelant signale le doublon. Choix PUR et déterministe,
+// aucune ligne n'est modifiée ni supprimée ici.
+export function choisirPhasage(lignes) {
+  const liste = Array.isArray(lignes) ? lignes.filter(Boolean) : [];
+  if (liste.length === 0) return null;
+  if (liste.length === 1) return liste[0];
+  const poids = (p) => (Array.isArray(p?.ouvrages) ? p.ouvrages.length : 0);
+  const rev = (p) => (typeof p?.revision === "number" ? p.revision : -1);
+  return liste.reduce((meilleur, candidat) => {
+    if (poids(candidat) !== poids(meilleur)) return poids(candidat) > poids(meilleur) ? candidat : meilleur;
+    if (rev(candidat) !== rev(meilleur)) return rev(candidat) > rev(meilleur) ? candidat : meilleur;
+    return meilleur;   // à égalité stricte, le premier reçu
+  });
+}

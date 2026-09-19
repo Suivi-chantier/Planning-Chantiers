@@ -10,7 +10,7 @@ import { readFileSync, readdirSync } from "node:fs";
 const {
   creerRegistre, noterRevision, noterRevisions, revisionDe,
   debuterEcriture, terminerEcriture, echecEcriture, conflitEcriture,
-  ecritureEnCours,
+  ecritureEnCours, choisirPhasage,
 } = await import(new URL("../src/Renovation/phasageRegistre.mjs", import.meta.url).href);
 
 const cas = [];
@@ -173,6 +173,46 @@ test("bonus — la fiche chantier écrit ses meta avec la révision relue", () =
   assert.ok(/sauvegarderPhasage\(/.test(src), "l'écriture passe par la RPC versionnée");
   assert.ok(!/fetchErr\.message|error\.message/.test(src.split("ecrireMetaPhasage")[1] || ""),
     "aucun détail technique n'est affiché à l'utilisateur");
+});
+
+test("12. un chantier à deux phasages s'ouvre quand même, sur celui qui a le travail", () => {
+  // Régression du 17/09 : maybeSingle() renvoyait une erreur dès qu'un
+  // chantier portait deux lignes — éditeur vide, rechargement en échec.
+  const vide = { id: "doublon", ouvrages: [], revision: 0 };
+  const vrai = { id: "reel", ouvrages: [{ id: "o1" }, { id: "o2" }], revision: 12 };
+  assert.equal(choisirPhasage([vide, vrai])?.id, "reel", "la coquille vide n'est jamais ouverte");
+  assert.equal(choisirPhasage([vrai, vide])?.id, "reel", "l'ordre de la base ne décide pas");
+  // À contenu égal, la révision la plus avancée gagne ; à égalité stricte, le premier.
+  assert.equal(choisirPhasage([{ id: "a", ouvrages: [1], revision: 3 },
+                               { id: "b", ouvrages: [1], revision: 9 }])?.id, "b");
+  assert.equal(choisirPhasage([{ id: "a", ouvrages: [1], revision: 3 },
+                               { id: "b", ouvrages: [1], revision: 3 }])?.id, "a");
+  // Cas normaux, sans doublon.
+  assert.equal(choisirPhasage([vrai])?.id, "reel");
+  assert.equal(choisirPhasage([]), null, "chantier sans phasage");
+  assert.equal(choisirPhasage(null), null, "erreur de requête");
+  assert.equal(choisirPhasage([null, vrai])?.id, "reel");
+});
+
+test("13. l'identité de la ligne est résolue avant la révision", () => {
+  // Le cœur de la régression : on vérifiait la révision d'une ligne et on
+  // écrivait dans une AUTRE (créée entre-temps), d'où un conflit immédiat
+  // sans aucune modification externe.
+  const src = lire("src/Renovation/PhasageV2.jsx");
+  const pousser = src.slice(src.indexOf("const pousserSauvegarde"), src.indexOf("const enregistrer"));
+  assert.ok(pousser.indexOf("await ensurePhasage()") < pousser.indexOf("demarrer(fileRef.current)"),
+    "ensurePhasage doit précéder demarrer, sinon la révision figée n'est pas celle de la ligne écrite");
+
+  // ensurePhasage ne doit plus se fier au state React, ni insérer à l'aveugle.
+  const ensure = src.slice(src.indexOf("const ensurePhasage"), src.indexOf("// Autosave debounced"));
+  assert.ok(/phasageIdRef\.current/.test(ensure), "l'identité vient d'une ref, pas du state");
+  assert.ok(ensure.indexOf('.select("*").eq("chantier_id"') < ensure.indexOf(".insert("),
+    "une relecture en base doit précéder toute insertion");
+  assert.ok(/creationRef/.test(ensure), "deux sauvegardes simultanées ne doivent pas insérer deux lignes");
+
+  // Plus aucun maybeSingle() par chantier_id : il échoue dès qu'il y a un doublon.
+  assert.ok(!/eq\("chantier_id", chantierId\)\.maybeSingle\(\)/.test(src),
+    "le chargement et le rechargement ne doivent plus dépendre de maybeSingle()");
 });
 
 test("bonus — le lot transmet bien une révision par phasage", () => {
