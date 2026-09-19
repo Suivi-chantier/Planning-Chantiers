@@ -187,6 +187,31 @@ test("12. un chantier à deux phasages s'ouvre quand même, sur celui qui a le t
                                { id: "b", ouvrages: [1], revision: 9 }])?.id, "b");
   assert.equal(choisirPhasage([{ id: "a", ouvrages: [1], revision: 3 },
                                { id: "b", ouvrages: [1], revision: 3 }])?.id, "a");
+  // Cas réels relevés en base le 19/09.
+  // FOURMOND : la vraie ligne (18 ouvrages, révision 72) face à la coquille.
+  const fourmond = [
+    { id: "8e08f1ed", ouvrages: [], plan_travaux: {}, revision: 0, updated_at: "2026-09-19T19:29:59Z" },
+    { id: "96cb4164", ouvrages: new Array(18).fill({}), plan_travaux: { meta: { x: 1 } }, revision: 72, updated_at: "2026-09-19T13:37:07Z" },
+  ];
+  assert.equal(choisirPhasage(fourmond)?.id, "96cb4164", "la ligne de travail prime, même moins récente");
+
+  // LAMARTINE : deux phasages v1 SANS ouvrage, tout le travail est dans
+  // plan_travaux. Les compter par ouvrages ne les distingue pas — c'est le
+  // volume de plan_travaux qui tranche, et il désigne la ligne à laquelle
+  // des lignes de commande sont rattachées.
+  const lamartine = [
+    { id: "8eb84d00", ouvrages: [], plan_travaux: { a: [1, 2] }, revision: 0, updated_at: "2026-09-17T05:34:21Z" },
+    { id: "e436dde5", ouvrages: [], plan_travaux: { a: [1, 2, 3, 4, 5] }, revision: 0, updated_at: "2026-05-21T20:00:40Z" },
+  ];
+  assert.equal(choisirPhasage(lamartine)?.id, "e436dde5", "le phasage v1 le plus fourni");
+  assert.equal(choisirPhasage([...lamartine].reverse())?.id, "e436dde5", "et ce, quel que soit l'ordre");
+
+  // Déterminisme absolu : à égalité stricte, deux chargements successifs
+  // doivent ouvrir la MÊME ligne, jamais l'une puis l'autre.
+  const jumeaux = [{ id: "bbb", ouvrages: [] }, { id: "aaa", ouvrages: [] }];
+  assert.equal(choisirPhasage(jumeaux)?.id, "aaa");
+  assert.equal(choisirPhasage([...jumeaux].reverse())?.id, "aaa");
+
   // Cas normaux, sans doublon.
   assert.equal(choisirPhasage([vrai])?.id, "reel");
   assert.equal(choisirPhasage([]), null, "chantier sans phasage");

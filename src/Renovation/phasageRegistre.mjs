@@ -92,15 +92,35 @@ export function ecritureEnCours(reg, phasageId) {
 // rechargement échouait. On ouvre donc celle qui porte le travail — jamais la
 // coquille vide — et l'appelant signale le doublon. Choix PUR et déterministe,
 // aucune ligne n'est modifiée ni supprimée ici.
+// Le classement doit rester DÉTERMINISTE : la requête de chargement ne trie
+// pas, donc départager « au premier arrivé » reviendrait à ouvrir une ligne
+// au hasard. Cas réel : LAMARTINE porte deux phasages v1 sans aucun ouvrage,
+// dont tout le travail est dans plan_travaux — les compter par ouvrages
+// uniquement ne les distingue pas.
+const nbOuvrages = (p) => (Array.isArray(p?.ouvrages) ? p.ouvrages.length : 0);
+const poidsPlan = (p) => {
+  try { return p?.plan_travaux ? JSON.stringify(p.plan_travaux).length : 0; }
+  catch { return 0; }
+};
+const revisionOu = (p) => (typeof p?.revision === "number" ? p.revision : -1);
+const dateOu = (p) => {
+  const t = Date.parse(p?.updated_at || "");
+  return Number.isNaN(t) ? 0 : t;
+};
+// Critères successifs, du plus parlant au simple départage stable.
+const CRITERES = [nbOuvrages, poidsPlan, revisionOu, dateOu];
+
 export function choisirPhasage(lignes) {
   const liste = Array.isArray(lignes) ? lignes.filter(Boolean) : [];
   if (liste.length === 0) return null;
   if (liste.length === 1) return liste[0];
-  const poids = (p) => (Array.isArray(p?.ouvrages) ? p.ouvrages.length : 0);
-  const rev = (p) => (typeof p?.revision === "number" ? p.revision : -1);
   return liste.reduce((meilleur, candidat) => {
-    if (poids(candidat) !== poids(meilleur)) return poids(candidat) > poids(meilleur) ? candidat : meilleur;
-    if (rev(candidat) !== rev(meilleur)) return rev(candidat) > rev(meilleur) ? candidat : meilleur;
-    return meilleur;   // à égalité stricte, le premier reçu
+    for (const critere of CRITERES) {
+      const a = critere(candidat), b = critere(meilleur);
+      if (a !== b) return a > b ? candidat : meilleur;
+    }
+    // Tout est égal : on tranche sur l'identifiant, pour que deux
+    // chargements successifs ouvrent toujours la même ligne.
+    return String(candidat?.id || "") < String(meilleur?.id || "") ? candidat : meilleur;
   });
 }
