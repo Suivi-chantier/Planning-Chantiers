@@ -86,6 +86,7 @@ function indexPhasage(phasages = []) {
         tasks.set(key, {
           phasage_id: txt(ph?.id) || null,
           chantier_id: chantierId,
+          expected_revision: ph?.revision != null && txt(ph.revision) !== "" && Number.isSafeInteger(Number(ph.revision)) ? Number(ph.revision) : null,
           expected_updated_at: ph?.updated_at || null,
           tache_id: txt(t.id),
           date_prevue: dateOnly(t?.date_prevue),
@@ -281,6 +282,7 @@ export function evaluerSecuriteApplicationReplanningV1({
       phasageUpdatesById.set(phId, {
         phasage_id: phId,
         chantier_id: current.chantier_id,
+        expected_revision: current.expected_revision,
         expected_updated_at: current.expected_updated_at,
         task_updates: [],
       });
@@ -333,7 +335,7 @@ export function evaluerSecuriteApplicationReplanningV1({
     },
     preconditions_transaction: {
       planning_cells_compare_before_write_exact: true,
-      phasages_compare_updated_at: true,
+      phasages_compare_revision: true,
       phasages_patch_date_prevue_uniquement_sur_etat_relu: true,
       transaction_unique_obligatoire: true,
       conflit_annule_toute_transaction: true,

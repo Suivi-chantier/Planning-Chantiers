@@ -25,7 +25,7 @@ assert.equal(codeOuvrageReplanningV1({ libelle:"CHANTIER-ABC goulotte" }), null)
 // réseau élec avec confiance certaine. Aucune donnée source n'est mutée.
 {
   const ph = {
-    id:"PH-CHAL", chantier_id:"C1", updated_at:"2026-08-29T12:00:00Z",
+    id:"PH-CHAL", chantier_id:"C1", revision:7, updated_at:"2026-08-29T12:00:00Z",
     ouvrages:[{
       id:"O1",
       code_ouvrage:null,

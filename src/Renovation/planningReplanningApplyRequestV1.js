@@ -75,8 +75,9 @@ export function construireRequeteApplicationReplanningV1({
   for (const guard of phasageGuards) {
     const id = txt(guard?.phasage_id);
     const chantier = txt(guard?.chantier_id);
-    const updatedAt = txt(guard?.expected_updated_at);
-    if (!id || !chantier || !updatedAt) throw new Error("Garde phasage incomplète");
+    const revisionBrute = guard?.expected_revision;
+    const revision = Number(revisionBrute);
+    if (!id || !chantier || revisionBrute == null || txt(revisionBrute) === "" || !Number.isSafeInteger(revision) || revision < 0) throw new Error("Garde phasage incomplète");
     if (guardsById.has(id)) throw new Error(`Garde phasage dupliquée : ${id}`);
     guardsById.set(id, guard);
   }
@@ -85,7 +86,7 @@ export function construireRequeteApplicationReplanningV1({
     const guard = guardsById.get(id);
     if (!guard) throw new Error(`Mise à jour phasage sans garde : ${id || "id absent"}`);
     if (txt(update?.chantier_id) !== txt(guard?.chantier_id)
-        || txt(update?.expected_updated_at) !== txt(guard?.expected_updated_at)) {
+        || Number(update?.expected_revision) !== Number(guard?.expected_revision)) {
       throw new Error(`Mise à jour phasage incohérente avec sa garde : ${id}`);
     }
   }

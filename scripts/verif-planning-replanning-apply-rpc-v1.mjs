@@ -37,6 +37,8 @@ assert.equal(lower.includes("planning_replanning_touched_chantier_guard_required
 assert.equal(lower.includes("planning_replanning_phasage_snapshot_conflict"), true);
 assert.equal(lower.includes("planning_replanning_phasage_update_without_matching_guard"), true);
 assert.equal(lower.includes("phasages_locked"), true);
+assert.equal(lower.includes("expected_revision"), true);
+assert.equal(lower.includes("v_ph.revision is distinct from v_expected_revision"), true);
 
 // 6. Les champs hors périmètre moteur sont immuables côté serveur.
 assert.equal(lower.includes("planning_replanning_reel_immutable"), true);

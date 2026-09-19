@@ -9,17 +9,17 @@ const plan = (extra = {}) => ({
   ...extra,
 });
 const guard = (extra = {}) => ({
-  phasage_id:"P1", chantier_id:"C1", expected_updated_at:"2026-08-29T12:00:00Z", ...extra,
+  phasage_id:"P1", chantier_id:"C1", expected_revision:7, expected_updated_at:"2026-08-29T12:00:00Z", ...extra,
 });
 const safety = (extra = {}) => ({
   version: 1,
-  phasage_guard_version: 1,
+  phasage_guard_version: 2,
   start_date: "2026-08-31",
   horizon_end: "2026-10-11",
   application_autorisable: true,
   blockers: [],
   phasage_guards: [guard()],
-  phasage_updates: [{ phasage_id:"P1", chantier_id:"C1", expected_updated_at:"2026-08-29T12:00:00Z", task_updates:[] }],
+  phasage_updates: [{ phasage_id:"P1", chantier_id:"C1", expected_revision:7, expected_updated_at:"2026-08-29T12:00:00Z", task_updates:[] }],
   resume: { cellules_a_ecrire:1, travaux_touches:1, phasages_a_verrouiller:1 },
   ...extra,
 });
@@ -30,7 +30,7 @@ const safety = (extra = {}) => ({
   assert.equal(out.schema_version, 1);
   assert.equal(out.apply_plan_version, 1);
   assert.equal(out.safety_version, 1);
-  assert.equal(out.phasage_guard_version, 1);
+  assert.equal(out.phasage_guard_version, 2);
   assert.equal(out.application_autorisable, true);
   assert.equal(out.start_date, "2026-08-31");
   assert.equal(out.horizon_end, "2026-10-11");
@@ -88,7 +88,7 @@ assert.throws(() => construireRequeteApplicationReplanningV1({
   planApplication:plan(), securiteApplication:safety({ version:2 }),
 }), /Version de sécurité/);
 assert.throws(() => construireRequeteApplicationReplanningV1({
-  planApplication:plan(), securiteApplication:safety({ phasage_guard_version:2 }),
+  planApplication:plan(), securiteApplication:safety({ phasage_guard_version:1 }),
 }), /Version des gardes phasage/);
 
 // 8. Une tâche liée touchée ne peut jamais produire une requête sans garde phasage.
@@ -106,17 +106,17 @@ assert.throws(() => construireRequeteApplicationReplanningV1({
 // 10. Toute mise à jour date_prevue doit être couverte par une garde identique.
 assert.throws(() => construireRequeteApplicationReplanningV1({
   planApplication:plan(),
-  securiteApplication:safety({ phasage_updates:[{ phasage_id:"P2", chantier_id:"C2", expected_updated_at:"2026-08-29T12:00:00Z", task_updates:[] }] }),
+  securiteApplication:safety({ phasage_updates:[{ phasage_id:"P2", chantier_id:"C2", expected_revision:7, task_updates:[] }] }),
 }), /sans garde/);
 assert.throws(() => construireRequeteApplicationReplanningV1({
   planApplication:plan(),
-  securiteApplication:safety({ phasage_updates:[{ phasage_id:"P1", chantier_id:"C1", expected_updated_at:"2026-08-30T12:00:00Z", task_updates:[] }] }),
+  securiteApplication:safety({ phasage_updates:[{ phasage_id:"P1", chantier_id:"C1", expected_revision:8, task_updates:[] }] }),
 }), /incohérente avec sa garde/);
 
 // 11. Une garde incomplète ou dupliquée est refusée avant le RPC.
 assert.throws(() => construireRequeteApplicationReplanningV1({
   planApplication:plan(),
-  securiteApplication:safety({ phasage_guards:[guard({ expected_updated_at:"" })] }),
+  securiteApplication:safety({ phasage_guards:[guard({ expected_revision:null })] }),
 }), /Garde phasage incomplète/);
 assert.throws(() => construireRequeteApplicationReplanningV1({
   planApplication:plan(),

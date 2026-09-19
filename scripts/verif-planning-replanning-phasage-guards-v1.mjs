@@ -27,7 +27,7 @@ const manualOp = () => ({
   expected_before:{ exists:true, payload:{ chantier_id:"C1", taches:[{ allocation_uid:"M1", text:"Réunion" }] } },
   after:{ chantier_id:"C1", taches:[{ allocation_uid:"M1", text:"Réunion" }] },
 });
-const ph = (id="P1", chantier="C1", updated="2026-08-29T20:00:00Z") => ({ id, chantier_id:chantier, updated_at:updated });
+const ph = (id="P1", chantier="C1", revision=7, updated="2026-08-29T20:00:00Z") => ({ id, chantier_id:chantier, revision, updated_at:updated });
 
 // 1. Une tâche liée touchée verrouille son phasage même sans changement date_prevue.
 {
@@ -35,14 +35,14 @@ const ph = (id="P1", chantier="C1", updated="2026-08-29T20:00:00Z") => ({ id, ch
     securiteApplication:security(), planApplication:{ operations:[linkedOp()] }, phasages:[ph()],
   });
   assert.equal(out.application_autorisable, true);
-  assert.deepEqual(out.phasage_guards, [{ phasage_id:"P1", chantier_id:"C1", expected_updated_at:"2026-08-29T20:00:00Z" }]);
+  assert.deepEqual(out.phasage_guards, [{ phasage_id:"P1", chantier_id:"C1", expected_revision:7, expected_updated_at:"2026-08-29T20:00:00Z" }]);
   assert.equal(out.resume.phasages_a_verrouiller, 1);
 }
 
-// 2. Sans updated_at, l'application devient impossible plutôt que de perdre la garde de concurrence.
+// 2. Sans revision DB, l'application devient impossible plutôt que de perdre la garde de concurrence.
 {
   const out = completerGardesPhasagesApplicationV1({
-    securiteApplication:security(), planApplication:{ operations:[linkedOp()] }, phasages:[ph("P1","C1","")],
+    securiteApplication:security(), planApplication:{ operations:[linkedOp()] }, phasages:[ph("P1","C1",NaN)],
   });
   assert.equal(out.application_autorisable, false);
   assert.equal(out.blockers.some(b => b.code === "phasage_garde_version_absente"), true);

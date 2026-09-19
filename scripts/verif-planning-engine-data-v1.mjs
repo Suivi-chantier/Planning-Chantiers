@@ -22,6 +22,7 @@ assert.equal(dataSource.includes('.in("week_id", horizon.week_ids)'), true);
 assert.equal(dataSource.includes('.lte("date_debut", horizon.end_date)'), true);
 assert.equal(dataSource.includes('.gte("date_fin", horizon.start_date)'), true);
 assert.equal(dataSource.includes('id,week_id,chantier_id,jour,planifie,reel,taches,ouvriers,vehicules'), true, "le compare-before-write futur exige le payload complet des cellules");
+assert.equal(dataSource.includes('id,chantier_id,chantier_nom,ouvrages,plan_travaux,updated_at,revision'), true, "la garde phasage doit lire la revision DB autoritative");
 assert.equal(dataSource.includes("construirePlanApplicationReplanningV1"), true);
 assert.equal(dataSource.includes("plan_application: planApplication"), true);
 assert.equal(dataSource.includes("application_automatique: false"), true);

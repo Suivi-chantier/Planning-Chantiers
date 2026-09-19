@@ -185,7 +185,7 @@ export function simulerSensibiliteHorizonsReplanningDepuisSnapshotV1({
       aucune_ecriture_persistante: true,
       meme_snapshot_source_pour_tous_les_horizons: true,
       meme_moteur_chantier05: true,
-      securite_inclut_garde_updated_at_tous_phasages_touches: true,
+      securite_inclut_garde_revision_tous_phasages_touches: true,
       comparaison_base_limitee_aux_forecasts_visibles_dans_horizon_base: true,
       extension_horizon_peut_introduire_de_nouveaux_forecasts_a_comparer: true,
       donnee_ou_dependance_ne_devient_pas_horizon_par_allongement: true,

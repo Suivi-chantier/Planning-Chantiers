@@ -9,7 +9,7 @@
 --   "schema_version": 1,
 --   "apply_plan_version": 1,
 --   "safety_version": 1,
---   "phasage_guard_version": 1,
+--   "phasage_guard_version": 2,
 --   "application_autorisable": true,
 --   "start_date": "YYYY-MM-DD",
 --   "horizon_end": "YYYY-MM-DD",
@@ -59,7 +59,7 @@ declare
   v_guard jsonb;
   v_ph_update jsonb;
   v_ph public.phasages%rowtype;
-  v_expected_updated_at timestamptz;
+  v_expected_revision bigint;
   v_ouvrages jsonb;
   v_rebuilt_ouvrages jsonb;
   v_rebuilt_taches jsonb;
@@ -106,7 +106,7 @@ begin
   if coalesce((p_request->>'safety_version')::integer, 0) <> 1 then
     raise exception 'planning_replanning_safety_version_unsupported';
   end if;
-  if coalesce((p_request->>'phasage_guard_version')::integer, 0) <> 1 then
+  if coalesce((p_request->>'phasage_guard_version')::integer, 0) <> 2 then
     raise exception 'planning_replanning_phasage_guard_version_unsupported';
   end if;
   if coalesce((p_request->>'application_autorisable')::boolean, false) is not true then
@@ -133,7 +133,7 @@ begin
   end if;
 
   -- Sérialise les applications via CE RPC. Les écritures manuelles concurrentes
-  -- restent détectées par les compare-before-write / updated_at / UNIQUE DB.
+  -- restent détectées par les compare-before-write / revision / UNIQUE DB.
   perform pg_advisory_xact_lock(hashtextextended('planning_replanning_apply_v1', 0));
 
   -- Les gardes doivent être uniques. Un chantier touché ne peut pas être associé
@@ -432,10 +432,10 @@ begin
   loop
     if nullif(btrim(v_guard->>'phasage_id'), '') is null
        or nullif(btrim(v_guard->>'chantier_id'), '') is null
-       or nullif(btrim(v_guard->>'expected_updated_at'), '') is null then
+       or nullif(btrim(v_guard->>'expected_revision'), '') is null then
       raise exception 'planning_replanning_phasage_guard_required';
     end if;
-    v_expected_updated_at := (v_guard->>'expected_updated_at')::timestamptz;
+    v_expected_revision := (v_guard->>'expected_revision')::bigint;
 
     select * into v_ph
     from public.phasages
@@ -448,7 +448,7 @@ begin
     if v_ph.chantier_id is distinct from v_guard->>'chantier_id' then
       raise exception 'planning_replanning_phasage_chantier_conflict: %', v_guard->>'phasage_id';
     end if;
-    if v_ph.updated_at is distinct from v_expected_updated_at then
+    if v_ph.revision is distinct from v_expected_revision then
       raise exception 'planning_replanning_phasage_snapshot_conflict: %', v_guard->>'phasage_id';
     end if;
     v_phasages_locked := v_phasages_locked + 1;
@@ -459,14 +459,14 @@ begin
   loop
     if nullif(btrim(v_ph_update->>'phasage_id'), '') is null
        or nullif(btrim(v_ph_update->>'chantier_id'), '') is null
-       or nullif(btrim(v_ph_update->>'expected_updated_at'), '') is null then
+       or nullif(btrim(v_ph_update->>'expected_revision'), '') is null then
       raise exception 'planning_replanning_phasage_update_guard_required';
     end if;
     select count(*) into v_count
     from jsonb_array_elements(v_phasage_guards) g
     where g.value->>'phasage_id' = v_ph_update->>'phasage_id'
       and g.value->>'chantier_id' = v_ph_update->>'chantier_id'
-      and (g.value->>'expected_updated_at')::timestamptz = (v_ph_update->>'expected_updated_at')::timestamptz;
+      and (g.value->>'expected_revision')::bigint = (v_ph_update->>'expected_revision')::bigint;
     if v_count <> 1 then
       raise exception 'planning_replanning_phasage_update_without_matching_guard: %', v_ph_update->>'phasage_id';
     end if;
@@ -733,4 +733,4 @@ revoke all on function public.apply_planning_replanning_v1(jsonb) from anon;
 grant execute on function public.apply_planning_replanning_v1(jsonb) to authenticated;
 
 comment on function public.apply_planning_replanning_v1(jsonb) is
-'Chantier 05 V1 — applique atomiquement un plan déjà simulé/confirmé. SECURITY INVOKER ; compare-before-write exact ; tous phasages touchés gardés par updated_at ; reel/vehicules et lignes hors scope immuables ; locks respectés ; tâche ouverte ne perd pas son forecast futur ; date_prevue recalculée côté DB ; rollback intégral au conflit.';
+'Chantier 05 V1 — applique atomiquement un plan déjà simulé/confirmé. SECURITY INVOKER ; compare-before-write exact ; tous phasages touchés gardés par revision DB ; reel/vehicules et lignes hors scope immuables ; locks respectés ; tâche ouverte ne perd pas son forecast futur ; date_prevue recalculée côté DB ; rollback intégral au conflit.';

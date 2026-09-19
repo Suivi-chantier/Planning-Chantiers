@@ -16,7 +16,7 @@ const task = (id, extra = {}) => ({
   chrono_groupe_id: "G1", chrono_ordre: 0, ouvriers: [], ...extra,
 });
 const phasage = (taches = [task("T1")], groupeTypeId = "gt_reseau_elec") => ({
-  id: "PH-C1", chantier_id: "C1", updated_at: "2026-08-30T18:00:00Z",
+  id: "PH-C1", chantier_id: "C1", revision:7, updated_at: "2026-08-30T18:00:00Z",
   ouvrages: [{ id: "O1", code_ouvrage: "E-001", taches }],
   plan_travaux: { meta: { chrono_groupes: [{ id: "G1", ordre: 10, groupe_type_id: groupeTypeId }] } },
 });

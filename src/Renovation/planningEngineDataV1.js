@@ -34,7 +34,7 @@ export async function chargerDonneesSimulationPlanningGlobalV1({ startDate, hori
 
   const [phasagesRes, cellsRes, cellsAllRes, resourcesRes, eventsRes, constraintsRes, configRes] = await Promise.all([
     supabase.from("phasages")
-      .select("id,chantier_id,chantier_nom,ouvrages,plan_travaux,updated_at"),
+      .select("id,chantier_id,chantier_nom,ouvrages,plan_travaux,updated_at,revision"),
     supabase.from("planning_cells")
       .select("id,week_id,chantier_id,jour,planifie,reel,taches,ouvriers,vehicules")
       .in("week_id", horizon.week_ids),
@@ -252,8 +252,8 @@ export async function simulerPlanningGlobalV1(options = {}) {
       plan_application_est_un_apercu_sans_ecriture: true,
       securite_application_evaluee_avant_toute_future_ecriture: true,
       compare_before_write_requis_avant_toute_future_application: true,
-      phasage_updated_at_requis_pour_future_transaction: true,
-      tout_phasage_touche_verrouille_par_updated_at: true,
+      phasage_revision_requise_pour_future_transaction: true,
+      tout_phasage_touche_verrouille_par_revision: true,
       diff_par_tache: true,
       diff_explicable_sans_cause_inventee: true,
       phasage_source_de_verite: true,

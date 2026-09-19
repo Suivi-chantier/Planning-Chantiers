@@ -6,8 +6,8 @@ import {
 
 const cell = ({ id="CELL", week_id="2026-W36", chantier_id="C1", jour="Lundi", taches=[], ouvriers=[] } = {}) => ({ id, week_id, chantier_id, jour, taches, ouvriers });
 const line = (uid, tacheId, text="T") => ({ allocation_uid:uid, tache_id:tacheId, text, duree:1, ouvriers:["Kev"] });
-const phasage = ({ date="2026-08-31", updated_at="2026-08-29T12:00:00Z" } = {}) => ({
-  id:"PH1", chantier_id:"C1", updated_at,
+const phasage = ({ date="2026-08-31", revision=7, updated_at="2026-08-29T12:00:00Z" } = {}) => ({
+  id:"PH1", chantier_id:"C1", revision, updated_at,
   ouvrages:[{ id:"O1", taches:[{ id:"T1", nom:"T1", date_prevue:date, avancement:50 }] }],
 });
 const op = ({ beforeDay="Lundi", afterDay="Mardi", before=true, after=true } = {}) => ({
@@ -117,6 +117,7 @@ assert.equal(dateDepuisWeekJourApplicationV1("2026-W53", "Vendredi"), "2027-01-0
   });
   assert.equal(out.application_autorisable, true);
   assert.equal(out.phasage_updates.length, 1);
+  assert.equal(out.phasage_updates[0].expected_revision, 7);
   assert.equal(out.phasage_updates[0].expected_updated_at, "2026-08-29T15:00:00Z");
   assert.deepEqual(out.phasage_updates[0].task_updates[0], {
     travail_id:"C1::T1", tache_id:"T1", expected_date_prevue:"2026-08-31", after_date_prevue:"2026-09-03",

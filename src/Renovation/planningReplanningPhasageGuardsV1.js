@@ -6,7 +6,7 @@
 // une tâche liée présente dans une cellule touchée, même si date_prevue ne change
 // pas. Un avancement réel modifié après simulation invalide donc l'application.
 
-export const PLANNING_REPLANNING_PHASAGE_GUARDS_VERSION = 1;
+export const PLANNING_REPLANNING_PHASAGE_GUARDS_VERSION = 2;
 const txt = v => String(v ?? "").trim();
 
 function chantierIdsTouches(planApplication = {}) {
@@ -62,18 +62,21 @@ export function completerGardesPhasagesApplicationV1({
       continue;
     }
     const phasageId = txt(ph?.id);
+    const revisionBrute = ph?.revision;
+    const revision = Number(revisionBrute);
     const updatedAt = txt(ph?.updated_at);
-    if (!phasageId || !updatedAt) {
+    if (!phasageId || revisionBrute == null || txt(revisionBrute) === "" || !Number.isSafeInteger(revision) || revision < 0) {
       extraBlockers.push(blocker(
         "phasage_garde_version_absente",
         `Le phasage du chantier ${chantierId} n'a pas d'identité/version exploitable pour un compare-before-write.`,
-        { chantier_id:chantierId, phasage_id:phasageId || null, expected_updated_at:updatedAt || null }
+        { chantier_id:chantierId, phasage_id:phasageId || null, expected_revision:Number.isFinite(revision) ? revision : null }
       ));
       continue;
     }
     guards.push({
       phasage_id:phasageId,
       chantier_id:chantierId,
+      expected_revision:revision,
       expected_updated_at:updatedAt,
     });
   }
@@ -105,7 +108,8 @@ export function completerGardesPhasagesApplicationV1({
     },
     preconditions_transaction: {
       ...(securiteApplication?.preconditions_transaction || {}),
-      tous_phasages_touches_compare_updated_at: true,
+      tous_phasages_touches_compare_revision: true,
+      updated_at_conserve_comme_trace_non_autoritative: true,
       phasage_guardes_independantes_des_modifications_date_prevue: true,
     },
     invariants: {
