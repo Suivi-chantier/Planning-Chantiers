@@ -93,7 +93,10 @@ order by v.chantier_id;
 -- N'exécuter qu'APRÈS avoir lu la section 2 et reconnu chaque ligne.
 -- Le DELETE revérifie lui-même toutes les conditions : il ne peut pas
 -- emporter une ligne qui porte du travail, même si la base a changé entre
--- les deux requêtes. La suppression est historisée par data_history.
+-- les deux requêtes. La ligne supprimée est archivée entière dans
+-- public.phasages_history par le trigger trg_phasages_log_history_delete
+-- (et NON dans data_history, qui ne couvre pas cette table) : ouvrages,
+-- plan_travaux et updated_at d'origine y restent consultables.
 --
 -- Lancer d'abord le bloc tel quel : le ROLLBACK annule tout et le SELECT
 -- montre ce qui AURAIT été supprimé. Ne remplacer rollback par commit
