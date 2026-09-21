@@ -160,10 +160,40 @@ function groupePourTache(tache, groupesParId, groupesTypesParId) {
   };
 }
 
-function dependanceAvecDelaiNonSupporte(tache) {
-  return (Array.isArray(tache?.dependances) ? tache.dependances : []).find(d =>
-    txt(d?.contrainte || "hard") === "hard" && num(d?.delai_min_calendaire, 0) > EPS
-  ) || null;
+function delaiTechniqueJoursEntiers(dep) {
+  const valeur = num(dep?.delai_min_calendaire, 0);
+  if (valeur <= EPS) return 0;
+  const unite = txt(dep?.unite_delai || "heures").toLocaleLowerCase("fr-FR");
+  const jours = unite.startsWith("jour") ? valeur : (unite.startsWith("heure") ? valeur / 24 : NaN);
+  if (!Number.isFinite(jours) || jours <= EPS || Math.abs(jours - Math.round(jours)) > EPS) return null;
+  return Math.round(jours);
+}
+
+function dependanceAvecDelaiNonSupporte(tache, completedLocalIds) {
+  return (Array.isArray(tache?.dependances) ? tache.dependances : []).find(d => {
+    if (txt(d?.contrainte || "hard") !== "hard" || num(d?.delai_min_calendaire, 0) <= EPS) return false;
+    const predId = txt(d?.predecesseur_id);
+    return delaiTechniqueJoursEntiers(d) == null || (predId && completedLocalIds.has(predId));
+  }) || null;
+}
+
+function delaisTechniquesMoteur(tache, predLocauxBloquants, chantierId) {
+  const allowed = new Set(uniq(predLocauxBloquants));
+  return (Array.isArray(tache?.dependances) ? tache.dependances : [])
+    .filter(d => txt(d?.contrainte || "hard") === "hard")
+    .map(d => ({
+      predecesseur_local_id: txt(d?.predecesseur_id),
+      delai_jours_calendaires: delaiTechniqueJoursEntiers(d),
+      delai_min_calendaire: num(d?.delai_min_calendaire, 0),
+      unite_delai: txt(d?.unite_delai || "heures") || "heures",
+    }))
+    .filter(d => allowed.has(d.predecesseur_local_id) && d.delai_jours_calendaires > 0)
+    .map(d => ({
+      predecesseur_id: cleTravailMoteurV1(chantierId, d.predecesseur_local_id),
+      delai_jours_calendaires: d.delai_jours_calendaires,
+      delai_min_calendaire: d.delai_min_calendaire,
+      unite_delai: d.unite_delai,
+    }));
 }
 
 function allocationMo(a) {
@@ -379,14 +409,18 @@ export function preparerSimulationPlanningGlobalV1({
       if (groupe.groupe_type_id) groupesTypesResolus++;
       else groupesTypesManquants++;
 
-      const delay = dependanceAvecDelaiNonSupporte(tache);
+      const delay = dependanceAvecDelaiNonSupporte(tache, completedLocalIds);
       if (delay) {
+        const precisionSupportee = delaiTechniqueJoursEntiers(delay) != null;
+        const predTermineSansDate = completedLocalIds.has(txt(delay?.predecesseur_id));
         travauxExclus.push({
           travail_id: travailId,
           chantier_id: chantierId,
           tache_id: tacheId,
-          type: "delai_technique_non_supporte",
-          explication: `Délai technique de ${delay.delai_min_calendaire} ${delay.unite_delai || "heures"} : le moteur V1 ne le contourne pas silencieusement.`,
+          type: predTermineSansDate ? "delai_technique_date_fin_predecesseur_inconnue" : "delai_technique_precision_non_supportee",
+          explication: predTermineSansDate && precisionSupportee
+            ? `Le prédécesseur est déjà terminé mais sa date de fin réelle est inconnue : le délai de ${delay.delai_min_calendaire} ${delay.unite_delai || "heures"} ne peut pas être calculé sans l'inventer.`
+            : `Délai technique de ${delay.delai_min_calendaire} ${delay.unite_delai || "heures"} non exprimable en jours calendaires entiers par le moteur date-only V1.`,
         });
         continue;
       }
@@ -484,6 +518,7 @@ export function preparerSimulationPlanningGlobalV1({
         dependancesAncetresIncompletsPropagees++;
       }
       const predIds = predLocauxBloquants.map(pid => cleTravailMoteurV1(chantierId, pid));
+      const delaisPredecesseurs = delaisTechniquesMoteur(tache, predLocauxBloquants, chantierId);
 
       travaux.push({
         id: travailId,
@@ -497,6 +532,7 @@ export function preparerSimulationPlanningGlobalV1({
         candidate_resource_ids: candidates,
         preferred_resource_ids: preferred,
         predecesseur_ids: predIds,
+        delais_predecesseurs: delaisPredecesseurs,
         priority: 0,
         ordre_groupe: ordreGroupe,
         ordre_tache: ordreTache,
