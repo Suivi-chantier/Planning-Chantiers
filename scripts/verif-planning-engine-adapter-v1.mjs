@@ -161,14 +161,20 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(out.travaux_exclus[0].type, "intervention_externe");
 }
 
-// 13. Un délai technique positif n'est jamais ignoré : tâche exclue tant que le moteur ne le supporte pas.
+// 13. Un délai technique de 24 h vers un prédécesseur ouvert est transmis au
+// moteur sous forme d'un jour calendaire entier.
 {
   const out = base({ phasages: [phasage({ taches: [task("DRY", {
     predecesseurs: ["A"],
     dependances: [{ contrainte: "hard", predecesseur_id: "A", delai_min_calendaire: 24, unite_delai: "heures" }],
-  }), task("A", { avancement: 100, chrono_ordre: -1, predecesseurs: [] })] })] });
-  assert.equal(out.engineInput.travaux.some(t => t.tache_id === "DRY"), false);
-  assert.equal(out.travaux_exclus.some(t => t.type === "delai_technique_non_supporte"), true);
+  }), task("A", { avancement: 0, chrono_ordre: -1, predecesseurs: [] })] })] });
+  const dry = out.engineInput.travaux.find(t => t.tache_id === "DRY");
+  assert.ok(dry);
+  assert.deepEqual(dry.delais_predecesseurs, [{
+    predecesseur_id:"C1::A", delai_jours_calendaires:1,
+    delai_min_calendaire:24, unite_delai:"heures",
+  }]);
+  assert.equal(out.travaux_exclus.some(t => t.tache_id === "DRY"), false);
 }
 
 // 14. Identité globale composite : deux chantiers peuvent avoir le même id de tâche sans collision.
@@ -326,4 +332,32 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(out.audit.dependances_ancetres_incomplets_propagees, 1);
 }
 
-console.log("✓ Planning Engine Adapter V1 — 24 scénarios métier validés");
+// 25. Un délai après un prédécesseur déjà terminé reste bloqué si sa date de fin
+// réelle est inconnue : le moteur ne suppose jamais que le séchage est acquis.
+{
+  const out = base({ phasages:[phasage({ taches:[
+    task("A", { avancement:100, chrono_ordre:0, predecesseurs:[] }),
+    task("DRY", {
+      avancement:0, chrono_ordre:1, predecesseurs:["A"],
+      dependances:[{ contrainte:"hard", predecesseur_id:"A", delai_min_calendaire:24, unite_delai:"heures" }],
+    }),
+  ] })] });
+  assert.equal(out.engineInput.travaux.some(t => t.tache_id === "DRY"), false);
+  assert.equal(out.travaux_exclus.some(t => t.tache_id === "DRY" && t.type === "delai_technique_date_fin_predecesseur_inconnue"), true);
+}
+
+// 26. Une précision infra-journalière reste explicitement non supportée par le
+// moteur date-only au lieu d'être arrondie silencieusement.
+{
+  const out = base({ phasages:[phasage({ taches:[
+    task("A", { avancement:0, chrono_ordre:0, predecesseurs:[] }),
+    task("DRY", {
+      avancement:0, chrono_ordre:1, predecesseurs:["A"],
+      dependances:[{ contrainte:"hard", predecesseur_id:"A", delai_min_calendaire:12, unite_delai:"heures" }],
+    }),
+  ] })] });
+  assert.equal(out.engineInput.travaux.some(t => t.tache_id === "DRY"), false);
+  assert.equal(out.travaux_exclus.some(t => t.tache_id === "DRY" && t.type === "delai_technique_precision_non_supportee"), true);
+}
+
+console.log("✓ Planning Engine Adapter V1 — 26 scénarios métier validés");
