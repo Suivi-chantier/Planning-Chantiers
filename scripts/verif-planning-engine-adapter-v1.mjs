@@ -310,4 +310,20 @@ assert.equal(heuresMoRestantesTacheV1({ heures_vendues: 10, avancement: 50 }), 5
   assert.equal(out.engineInput.travaux[0].site_id, "SITE-EXPLICITE");
 }
 
-console.log("✓ Planning Engine Adapter V1 — 23 scénarios métier validés");
+// 24. Une tâche terminée intercalée ne masque pas un prédécesseur antérieur
+// encore ouvert : boîtes 75 % -> tableau 100 % -> appareillage 0 %.
+{
+  const out = base({
+    phasages:[phasage({ taches:[
+      task("BOITES", { nom:"Pose des boîtes d'encastrement", chrono_ordre:0, avancement:75 }),
+      task("TABLEAU", { nom:"Pose tableau + GTL", chrono_ordre:1, avancement:100 }),
+      task("APPAREILLAGE", { nom:"Pose de l'appareillage", chrono_ordre:2, avancement:0 }),
+    ] })],
+  });
+  const appareillage = out.engineInput.travaux.find(t => t.tache_id === "APPAREILLAGE");
+  assert.deepEqual(appareillage.predecesseur_ids, ["C1::BOITES"]);
+  assert.equal(appareillage.provenance.ancetre_incomplet_propage_apres_predecesseur_termine, true);
+  assert.equal(out.audit.dependances_ancetres_incomplets_propagees, 1);
+}
+
+console.log("✓ Planning Engine Adapter V1 — 24 scénarios métier validés");
