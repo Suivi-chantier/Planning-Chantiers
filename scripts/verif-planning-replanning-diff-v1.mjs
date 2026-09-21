@@ -191,4 +191,31 @@ const codes = c => c.raisons.map(r => r.code);
   assert.equal(out.changements[0].changement_a_verifier, false);
 }
 
-console.log("OK — planning replanning diff V1: 11 scénarios");
+// 12. Un successeur repoussé après son forecast est expliqué lorsque la proposition
+// prouve que son prédécesseur ouvert finit lui-même après cette ancienne date.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ date:"2026-09-01" })],
+    proposition: {
+      allocations_proposees: [
+        proposed({ date:"2026-09-03" }),
+        proposed({
+          allocation_uid:"PROP-PRED", travail_id:"C1::T0", tache_id:"T0",
+          date:"2026-09-03", texte:"T0",
+        }),
+      ],
+      non_planifies: [],
+      replanning: { decisions_stabilite_dates: [], diagnostics_capacite_residuelle: [] },
+    },
+    travaux: [travail({ predecesseur_ids:["C1::T0"] })],
+  });
+  const changement = out.changements.find(c => c.travail_id === "C1::T1");
+  assert.equal(codes(changement).includes("attente_predecesseur_replanifie_apres_forecast"), true);
+  assert.deepEqual(
+    changement.raisons.find(r => r.code === "attente_predecesseur_replanifie_apres_forecast").details.predecesseurs,
+    [{ travail_id:"C1::T0", fin_proposee:"2026-09-03" }]
+  );
+  assert.equal(changement.changement_a_verifier, false);
+}
+
+console.log("OK — planning replanning diff V1: 12 scénarios");
