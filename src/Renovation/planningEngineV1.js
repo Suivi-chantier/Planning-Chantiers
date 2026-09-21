@@ -77,6 +77,12 @@ export function normaliserTravailMoteurV1(value, index = 0) {
     candidate_resource_ids: uniq(t.candidate_resource_ids || t.resource_ids_candidats),
     preferred_resource_ids: uniq(t.preferred_resource_ids || t.resource_ids_preferes),
     predecesseur_ids: uniq(t.predecesseur_ids || t.predecesseurs),
+    delais_predecesseurs: (Array.isArray(t.delais_predecesseurs) ? t.delais_predecesseurs : [])
+      .map(d => ({
+        predecesseur_id: str(d?.predecesseur_id),
+        delai_jours_calendaires: Math.max(0, Math.round(num(d?.delai_jours_calendaires, 0))),
+      }))
+      .filter(d => d.predecesseur_id && d.delai_jours_calendaires > 0),
     priority: num(t.priority, 0),
     ordre_groupe: num(t.ordre_groupe, groupRule?.ordre ?? 9999),
     ordre_tache: num(t.ordre_tache ?? t.chrono_ordre, index),
@@ -157,6 +163,26 @@ function predInconnus(travail, idsTravaux, completedIds) {
 
 function predsTermines(travail, etats, completedIds) {
   return travail.predecesseur_ids.every(id => completedIds.has(id) || etats.get(id)?.termine === true);
+}
+
+function delaisPredecesseursRespectes(travail, date, etats) {
+  return travail.delais_predecesseurs.every(dep => {
+    const fin = etats.get(dep.predecesseur_id)?.finish_date || null;
+    return Boolean(fin && date >= dateAddDays(fin, dep.delai_jours_calendaires));
+  });
+}
+
+function prochainDelaiTechnique(travail, etats) {
+  return travail.delais_predecesseurs
+    .map(dep => {
+      const fin = etats.get(dep.predecesseur_id)?.finish_date || null;
+      return fin ? {
+        predecesseur_id: dep.predecesseur_id,
+        date_eligible: dateAddDays(fin, dep.delai_jours_calendaires),
+      } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.date_eligible.localeCompare(a.date_eligible))[0] || null;
 }
 
 function dernierJourTravail(travailId, allocationsProposees) {
@@ -290,6 +316,10 @@ function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraint
   const missing = predInconnus(travail, idsTravaux, completedIds);
   if (missing.length) return `Prédécesseur(s) introuvable(s) : ${missing.join(", ")}`;
   if (!predsTermines(travail, etats, completedIds)) return "Prédécesseur(s) non terminé(s) dans l'horizon";
+  const delai = prochainDelaiTechnique(travail, etats);
+  if (delai && delai.date_eligible > horizonEnd) {
+    return `Délai technique après ${delai.predecesseur_id} : tâche éligible à partir du ${delai.date_eligible}`;
+  }
   const applicable = contraintesPourTravail(contraintes, travail);
   const fixedFuture = applicable
     .filter(c => [CONSTRAINT_TYPES.NOT_BEFORE, CONSTRAINT_TYPES.FIXED_DATE].includes(c.type) && c.date_debut > horizonEnd)
@@ -360,7 +390,7 @@ export function planifierPropositionV1({
         const state = etats.get(t.id);
         if (!state || state.termine || allocatedToday.has(t.id)) continue;
         const missing = predInconnus(t, idsTravaux, completedIds);
-        if (missing.length || !predsTermines(t, etats, completedIds)) continue;
+        if (missing.length || !predsTermines(t, etats, completedIds) || !delaisPredecesseursRespectes(t, date, etats)) continue;
 
         const dateEval = evaluerContraintesPlanning({
           contraintes: constraints,
