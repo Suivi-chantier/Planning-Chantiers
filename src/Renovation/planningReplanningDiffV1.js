@@ -97,7 +97,7 @@ function raisonExclusionConnue(exclusion) {
   );
 }
 
-function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite }) {
+function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite, predecesseursRetardants = [] }) {
   const raisons = [];
   const etat = travail?.provenance?.etat_reel || null;
   const stability = travail?.stability_forecast || null;
@@ -200,6 +200,15 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
     }
   }
 
+  if (retarde && predecesseursRetardants.length) {
+    raisons.push(raison(
+      "attente_predecesseur_replanifie_apres_forecast",
+      "La tâche est repoussée parce qu'au moins un prédécesseur ouvert est replanifié après sa date forecast actuelle.",
+      { predecesseurs: predecesseursRetardants },
+      "important"
+    ));
+  }
+
   if (retarde && diagnosticCapacite?.capacite_residuelle_confirme_retard === true) {
     raisons.push(raison(
       "capacite_equipe_saturee_avant_date_proposee",
@@ -266,7 +275,16 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
     const decisionDate = decisionsDates.get(changement.travail_id) || null;
     const exclusion = exclusionsConnues.get(changement.travail_id) || null;
     const diagnosticCapacite = diagnosticsCapacite.get(changement.travail_id) || null;
-    const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite });
+    const dateForecast = txt(changement?.courant?.debut);
+    const predecesseursRetardants = uniq(travail?.predecesseur_ids || []).flatMap(predecesseurId => {
+      const rows = allocationsParTravail.get(predecesseurId) || [];
+      const dates = rows.map(row => txt(row?.date)).filter(Boolean).sort();
+      const finProposee = dates.at(-1) || null;
+      return dateForecast && finProposee && finProposee > dateForecast
+        ? [{ travail_id: predecesseurId, fin_proposee: finProposee }]
+        : [];
+    });
+    const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite, predecesseursRetardants });
     const modifie = changement.statut !== "inchangé";
     const explique = !modifie || raisons.length > 0;
     return {
