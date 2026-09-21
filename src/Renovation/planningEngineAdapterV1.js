@@ -178,6 +178,31 @@ function comparerWarning(a, b) {
     .localeCompare(`${b.type || ""}|${b.chantier_id || ""}|${b.tache_id || ""}|${b.allocation_uid || ""}|${b.explication || ""}`);
 }
 
+// Un état réel peut exceptionnellement marquer une tâche intermédiaire comme
+// terminée alors qu'un de ses propres prédécesseurs reste incomplet
+// (ex. boîtes à 75 %, tableau à 100 %, appareillage à faire). Une dépendance
+// directe vers l'intermédiaire terminée ne doit pas rendre la suite libre :
+// on remonte uniquement à travers les prédécesseurs déjà terminés jusqu'aux
+// premiers ancêtres encore ouverts. Si le prédécesseur direct est lui-même
+// ouvert, le contrat historique reste strictement inchangé.
+function predecesseursBloquantsAvecAncetresOuverts(idsDirects, dependances, completedIds) {
+  const result = [];
+  const visites = new Set();
+  const visiter = id => {
+    const key = txt(id);
+    if (!key || visites.has(key)) return;
+    visites.add(key);
+    if (!completedIds.has(key)) {
+      result.push(key);
+      return;
+    }
+    const parents = dependances.get(key)?.ids || [];
+    parents.forEach(visiter);
+  };
+  uniq(idsDirects).forEach(visiter);
+  return uniq(result);
+}
+
 /**
  * Prépare un snapshot déterministe prêt à être donné à planifierPropositionV1.
  * Cette fonction ne modifie aucun de ses arguments.
@@ -272,6 +297,7 @@ export function preparerSimulationPlanningGlobalV1({
   let groupesTypesResolus = 0;
   let groupesTypesInferes = 0;
   let groupesTypesManquants = 0;
+  let dependancesAncetresIncompletsPropagees = 0;
   let heuresMoRestantesBrutes = 0;
   let heuresMoReserveesVerrous = 0;
 
@@ -314,6 +340,9 @@ export function preparerSimulationPlanningGlobalV1({
       const id = cleTravailMoteurV1(chantierId, tache.id);
       if (clamp(tache?.avancement, 0, 100) >= 100 - EPS) completedTaskIds.push(id);
     }
+    const completedLocalIds = new Set(flat
+      .filter(({ tache }) => clamp(tache?.avancement, 0, 100) >= 100 - EPS)
+      .map(({ tache }) => txt(tache.id)));
 
     for (const { ouvrage, tache, tacheIndex } of flat) {
       const tacheId = txt(tache.id);
@@ -446,7 +475,15 @@ export function preparerSimulationPlanningGlobalV1({
       const regle = regleGroupe(groupe.groupe_type_id);
       const ordreGroupe = num(groupe.groupe_chrono?.ordre, num(groupe.groupe_type?.ordre, regle?.ordre ?? 9999));
       const ordreTache = num(tache?.chrono_ordre, tacheIndex);
-      const predIds = uniq(sourcePred.ids).map(pid => cleTravailMoteurV1(chantierId, pid));
+      const predLocauxBloquants = predecesseursBloquantsAvecAncetresOuverts(
+        sourcePred.ids,
+        preds,
+        completedLocalIds,
+      );
+      if (predLocauxBloquants.join("|") !== uniq(sourcePred.ids).join("|")) {
+        dependancesAncetresIncompletsPropagees++;
+      }
+      const predIds = predLocauxBloquants.map(pid => cleTravailMoteurV1(chantierId, pid));
 
       travaux.push({
         id: travailId,
@@ -470,6 +507,8 @@ export function preparerSimulationPlanningGlobalV1({
           ouvrage_id: txt(ouvrage?.id) || null,
           code_ouvrage: txt(ouvrage?.code_ouvrage) || null,
           dependances: sourcePred.source,
+          ancetre_incomplet_propage_apres_predecesseur_termine:
+            predLocauxBloquants.join("|") !== uniq(sourcePred.ids).join("|"),
           groupe_type: groupe.provenance,
           heures_planifiees_total: totalPlanifie,
           avancement,
@@ -505,6 +544,7 @@ export function preparerSimulationPlanningGlobalV1({
     taches_terminees_connues: completedTaskIds.length,
     dependances_legacy_defaut: tachesLegacyDependances,
     dependances_explicites: tachesDependancesExplicites,
+    dependances_ancetres_incomplets_propagees: dependancesAncetresIncompletsPropagees,
     groupes_types_resolus: groupesTypesResolus,
     groupes_types_inferes: groupesTypesInferes,
     groupes_types_non_resolus: groupesTypesManquants,
@@ -544,6 +584,7 @@ export function preparerSimulationPlanningGlobalV1({
       allocations_manuelles_ou_verrouillees_fixes: true,
       groupes_externes_sans_override_exclus: true,
       continuite_site_journaliere: "site_id explicite, sinon operation_id, sinon chantier_id",
+      predecesseur_termine_ne_masque_pas_ancetre_incomplet: true,
       formule_restant_mo: "MO restante = (heures vendues si > 0, sinon heures estimées) × (1 - avancement/100) - MO déjà réservée par les allocations futures verrouillées",
     },
   };
