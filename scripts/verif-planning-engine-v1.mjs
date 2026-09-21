@@ -298,4 +298,44 @@ assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(/.test(engineSource), fal
   assert.equal(out.allocations_proposees[0].site_id, "chantier-A");
 }
 
-console.log("✓ Planning Engine V1 — 23 scénarios métier validés");
+// 24. Un délai technique d'un jour interdit le successeur le jour du prédécesseur.
+{
+  const out = run({
+    travaux:[
+      task("A", 1, { ordre_tache:1 }),
+      task("B", 1, {
+        predecesseur_ids:["A"],
+        delais_predecesseurs:[{ predecesseur_id:"A", delai_jours_calendaires:1 }],
+        ordre_tache:2,
+      }),
+    ],
+    horizonDays:2,
+  });
+  assert.deepEqual(out.allocations_proposees.map(a => [a.travail_id, a.date]), [
+    ["A", "2026-08-31"],
+    ["B", "2026-09-01"],
+  ]);
+}
+
+// 25. Le délai reste calendaire, puis le rythme de travail repousse au prochain
+// jour planifiable : fin jeudi + 24 h => vendredi non travaillé => lundi.
+{
+  const out = run({
+    startDate:"2026-08-27",
+    travaux:[
+      task("A", 1, { ordre_tache:1 }),
+      task("B", 1, {
+        predecesseur_ids:["A"],
+        delais_predecesseurs:[{ predecesseur_id:"A", delai_jours_calendaires:1 }],
+        ordre_tache:2,
+      }),
+    ],
+    horizonDays:5,
+  });
+  assert.deepEqual(out.allocations_proposees.map(a => [a.travail_id, a.date]), [
+    ["A", "2026-08-27"],
+    ["B", "2026-08-31"],
+  ]);
+}
+
+console.log("✓ Planning Engine V1 — 25 scénarios métier validés");
