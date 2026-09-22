@@ -45,4 +45,31 @@ const forecast = [{
   assert.equal(c.raisons.some(r => r.code === "continuite_site_jour_precedent"), false);
 }
 
-console.log("OK — planning replanning diff continuity V1: 2 scénarios");
+// 3. La continuité explique un choix de ressource, mais n'acquitte jamais un
+// conflit de dépendance déduite qui exige encore une validation humaine.
+{
+  const proposition = {
+    allocations_proposees: [{
+      allocation_uid:"NEW", travail_id:"C1::T1", chantier_id:"C1", tache_id:"T1",
+      date:"2026-09-04", duree:4, resource_ids:["R1"], heures_mo:4,
+      explication:{ jour_planifiable_precedent:"2026-09-03", continuite_site_jour_precedent:["R1"] },
+    }, {
+      allocation_uid:"PRED", travail_id:"C1::T0", chantier_id:"C1", tache_id:"T0",
+      date:"2026-09-03", duree:1, resource_ids:["R2"], heures_mo:1, explication:{},
+    }],
+    non_planifies: [], replanning:{ decisions_stabilite_dates:[], diagnostics_capacite_residuelle:[] },
+  };
+  const avecDependanceDeduite = {
+    ...travail,
+    predecesseur_ids:["C1::T0"],
+    provenance:{ ...travail.provenance, dependances:"defaut" },
+  };
+  const out = diffReplanningAvecContinuiteV1({ forecast, proposition, travaux:[avecDependanceDeduite] });
+  const c = out.changements.find(row => row.travail_id === "C1::T1");
+  assert.equal(c.raisons.some(r => r.code === "continuite_site_jour_precedent"), true);
+  assert.equal(c.raisons.some(r => r.code === "dependance_deduite_contredit_forecast"), true);
+  assert.equal(c.qualite_explication, "a_verifier");
+  assert.equal(c.changement_a_verifier, true);
+}
+
+console.log("OK — planning replanning diff continuity V1: 3 scénarios");

@@ -50,11 +50,14 @@ export function diffReplanningAvecContinuiteV1({ forecast = [], proposition = {}
         niveau: "info",
       });
     }
+    const validationMetierRequise = raisons.some(r => r.code === "dependance_deduite_contredit_forecast");
     return {
       ...c,
       raisons,
-      qualite_explication: "explique",
-      changement_a_verifier: false,
+      // Une trace de continuité explique le choix de ressource, mais ne doit
+      // jamais acquitter un autre conflit déjà marqué pour validation métier.
+      qualite_explication: validationMetierRequise ? "a_verifier" : "explique",
+      changement_a_verifier: validationMetierRequise,
     };
   });
 

@@ -219,6 +219,18 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
       { predecesseurs: predecesseursRetardants },
       "important"
     ));
+    if (txt(travail?.provenance?.dependances) === "defaut") {
+      raisons.push(raison(
+        "dependance_deduite_contredit_forecast",
+        "Le décalage provient d'un chaînage déduit par défaut qui contredit le forecast courant. La dépendance métier doit être confirmée avant toute application.",
+        {
+          source_dependance: "defaut",
+          date_forecast: txt(changement?.courant?.debut) || null,
+          predecesseurs: predecesseursRetardants,
+        },
+        "attention"
+      ));
+    }
   }
 
   if (retarde && diagnosticCapacite?.capacite_residuelle_confirme_retard === true) {
@@ -298,12 +310,13 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
     });
     const raisons = raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie, decisionDate, exclusion, diagnosticCapacite, predecesseursRetardants });
     const modifie = changement.statut !== "inchangé";
+    const validationMetierRequise = raisons.some(r => r.code === "dependance_deduite_contredit_forecast");
     const explique = !modifie || raisons.length > 0;
     return {
       ...changement,
       raisons,
-      qualite_explication: explique ? "explique" : "a_verifier",
-      changement_a_verifier: modifie && !explique,
+      qualite_explication: explique && !validationMetierRequise ? "explique" : "a_verifier",
+      changement_a_verifier: modifie && (!explique || validationMetierRequise),
     };
   });
 
@@ -333,6 +346,7 @@ export function diffReplanningV1({ forecast = [], proposition = {}, travaux = []
       forecast_est_une_preference_pas_une_verite: true,
       exclusion_connue_explique_sans_debloquer: true,
       diagnostic_capacite_nexplique_que_si_tous_les_creneaux_residuels_sont_insuffisants: true,
+      dependance_deduite_contredisant_forecast_requiert_validation_humaine: true,
     },
   };
 }

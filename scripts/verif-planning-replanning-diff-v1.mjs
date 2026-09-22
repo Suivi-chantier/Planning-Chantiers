@@ -237,4 +237,34 @@ const codes = c => c.raisons.map(r => r.code);
   assert.equal(changement.changement_a_verifier, false);
 }
 
-console.log("OK — planning replanning diff V1: 13 scénarios");
+// 13. Si ce prédécesseur vient seulement du chaînage par défaut et contredit le
+// forecast courant, la cause technique reste visible mais une validation métier
+// est obligatoire : le moteur ne transforme pas une déduction en vérité HARD.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast({ date:"2026-09-01" })],
+    proposition: {
+      allocations_proposees: [
+        proposed({ date:"2026-09-03" }),
+        proposed({ allocation_uid:"PROP-PRED", travail_id:"C1::T0", tache_id:"T0", date:"2026-09-03", texte:"T0" }),
+      ],
+      non_planifies: [],
+      replanning: { decisions_stabilite_dates: [], diagnostics_capacite_residuelle: [] },
+    },
+    travaux: [travail({
+      predecesseur_ids:["C1::T0"],
+      provenance: {
+        dependances:"defaut",
+        etat_reel:{ avancement:50, reste_a_faire_heures:4, source_verite:"phasage", en_retard:false, date_prevue:null },
+      },
+    })],
+  });
+  const changement = out.changements.find(c => c.travail_id === "C1::T1");
+  assert.equal(codes(changement).includes("attente_predecesseur_replanifie_apres_forecast"), true);
+  assert.equal(codes(changement).includes("dependance_deduite_contredit_forecast"), true);
+  assert.equal(changement.qualite_explication, "a_verifier");
+  assert.equal(changement.changement_a_verifier, true);
+  assert.deepEqual(out.travaux_a_verifier, ["C1::T1"]);
+}
+
+console.log("OK — planning replanning diff V1: 14 scénarios");
