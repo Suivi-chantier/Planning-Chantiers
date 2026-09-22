@@ -11,6 +11,7 @@
 //   - la tâche ajoutée se range EN FIN de groupe, sans bousculer l'existant ;
 //   - le résultat est déterministe (mêmes entrées => mêmes sorties).
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   indexerGroupesChronoV1,
   groupeChronoPourTacheV1,
@@ -179,4 +180,46 @@ const index = indexerGroupesChronoV1(chronoGroupes, groupesTypes);
   }), {}, "une tâche sans id n'est jamais affectée");
 }
 
-console.log("verif-phasage-chrono-affectation-v1 : OK (11 blocs)");
+// 12. Le classement ne doit JAMAIS dépendre de l'écran affiché.
+//     C'est la panne du 22/09/2026 : le semis était conditionné à
+//     `viewMode === "chrono"`, donc un phasage dont personne n'ouvrait la vue
+//     Chrono n'était jamais classé — 291 h invisibles au moteur sur 7
+//     chantiers, sans le moindre signal. Ce bloc relit le composant pour que la
+//     condition ne puisse pas revenir sans que la vérification tombe.
+{
+  const src = readFileSync(new URL("../src/Renovation/PhasageV2.jsx", import.meta.url), "utf8");
+
+  const debutSemis = src.indexOf("const chronoAutoGenRef");
+  const debutRattrapage = src.indexOf("const chronoRattrapageRef");
+  assert.ok(debutSemis > 0, "effet de semis introuvable (chronoAutoGenRef)");
+  assert.ok(debutRattrapage > debutSemis, "effet de rattrapage introuvable (chronoRattrapageRef)");
+
+  const semis = src.slice(debutSemis, debutRattrapage);
+  assert.ok(!/if \([^)]*viewMode/.test(semis),
+    "le semis chrono ne doit pas être conditionné à l'écran affiché (viewMode)");
+  // Les protections qui, elles, doivent rester.
+  for (const garde of ["loadingPhasage", "phasage?.chantier_id !== chantierId",
+                       "groupesTypes.length === 0", "chronoVierge",
+                       "chronoAutoGenRef.current === chantierId"]) {
+    assert.ok(semis.includes(garde), `protection perdue dans le semis : ${garde}`);
+  }
+
+  const rattrapage = src.slice(debutRattrapage, debutRattrapage + 1500);
+  for (const garde of ["loadingPhasage", "phasage?.chantier_id !== chantierId",
+                       "groupesTypes.length === 0", "nbTachesARattraper === 0",
+                       "chronoRattrapageRef.current === chantierId"]) {
+    assert.ok(rattrapage.includes(garde), `protection manquante dans le rattrapage : ${garde}`);
+  }
+  assert.ok(!/if \([^)]*viewMode/.test(rattrapage),
+    "le rattrapage ne doit pas être conditionné à l'écran affiché (viewMode)");
+  // L'écriture passe par le même chemin que le bouton manuel, pas un second.
+  assert.ok(/rattraperChrono\(\)/.test(rattrapage),
+    "le rattrapage automatique doit passer par rattraperChrono (donc applyChrono)");
+
+  // Le filet de secours manuel et le signalement des tâches non classables
+  // restent à l'écran : une impossibilité doit rester visible.
+  assert.ok(src.includes("onRattraperChrono"), "bouton manuel de rattrapage supprimé");
+  assert.ok(src.includes("nbTachesNonClassables"), "compteur des tâches non classables supprimé");
+}
+
+console.log("verif-phasage-chrono-affectation-v1 : OK (12 blocs)");

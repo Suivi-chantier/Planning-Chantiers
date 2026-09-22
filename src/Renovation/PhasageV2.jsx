@@ -1398,11 +1398,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (Object.keys(patch).length) patchTaches(patch);
   };
 
-  // Semis automatique à l'ouverture de la vue Chrono : uniquement sur un
-  // phasage vierge qui a des tâches, une seule application par chantier.
+  // Semis automatique d'un phasage vierge qui a des tâches, une seule
+  // application par chantier.
+  //
+  // Ce semis était conditionné à `viewMode === "chrono"` : il ne partait que si
+  // quelqu'un OUVRAIT la vue Chrono. Un phasage dont personne n'avait ouvert
+  // cet écran n'était donc jamais classé, et tout son travail restait invisible
+  // au moteur de planification — sans que rien ne le signale : il manquait
+  // simplement des heures dans le planning. Constaté le 22/09/2026 : 291 h sur
+  // 7 chantiers. La condition d'écran est retirée, le classement part au
+  // chargement du phasage quel que soit l'onglet affiché. Toutes les autres
+  // protections sont conservées.
   const chronoAutoGenRef = useRef(null);
   useEffect(() => {
-    if (viewMode !== "chrono" || loadingPhasage || !chantierId) return;
+    if (loadingPhasage || !chantierId) return;
     // Anti-course au changement de chantier : dans le commit où chantierId
     // vient de changer, `phasage` (donc `ouvrages`) est encore celui de
     // l'ancien chantier et loadingPhasage capturé vaut encore false. On
@@ -1414,7 +1423,33 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (chronoAutoGenRef.current === chantierId) return;
     chronoAutoGenRef.current = chantierId;
     initChronoDepuisGroupesTypes("init");
-  }, [viewMode, loadingPhasage, chantierId, phasage, chronoVierge, ouvrages, groupesTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadingPhasage, chantierId, phasage, chronoVierge, ouvrages, groupesTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rattrapage automatique des phasages DÉJÀ semés. Le semis ci-dessus ne
+  // traite que les phasages vierges ; un phasage déjà classé qui a reçu des
+  // tâches ensuite (compte rendu d'ouvrier, ajout manuel) gardait son stock
+  // « à classer » jusqu'à ce que quelqu'un pense à cliquer sur le bouton.
+  // Mêmes protections que le semis, plus un garde par ref : `applyChrono`
+  // réécrit `ouvrages`, ce qui relance ce même effet — sans le ref on
+  // bouclerait écriture → rendu → écriture.
+  //
+  // Ne classe QUE les tâches sans groupe, et les range en fin de groupe
+  // (`rattraperAffectationsChronoV1`) : rien de déjà classé ne bouge, rien ne
+  // s'intercale devant du travail séquencé. Les tâches dont le lot n'est
+  // rattaché à aucun groupe type ne sont PAS classées d'office — elles restent
+  // comptées à part par `nbTachesNonClassables`, et cette impossibilité reste
+  // visible à l'écran.
+  const chronoRattrapageRef = useRef(null);
+  useEffect(() => {
+    if (loadingPhasage || !chantierId) return;
+    if (phasage?.chantier_id !== chantierId) return;   // anti-course, cf. semis
+    if (groupesTypes.length === 0) return;             // référentiel pas encore chargé
+    if (chronoVierge) return;                          // cas traité par le semis
+    if (nbTachesARattraper === 0) return;
+    if (chronoRattrapageRef.current === chantierId) return;
+    chronoRattrapageRef.current = chantierId;
+    rattraperChrono();
+  }, [loadingPhasage, chantierId, phasage, chronoVierge, groupesTypes, nbTachesARattraper]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Contrôles & réserves du chantier (Point 2 b) : alimentent le badge d'état
   // des groupes de la vue chrono. Rechargés à la fermeture de l'écran de
