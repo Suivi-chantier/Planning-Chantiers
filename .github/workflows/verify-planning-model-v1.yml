@@ -19,6 +19,7 @@ on:
       - 'scripts/*planning*group*inference*v1*'
       - 'scripts/*planning*dependency*inference*v1*'
       - 'scripts/*planning*eligibility*v1*'
+      - 'scripts/verif-phasage-chrono-affectation-v1.mjs'
       - '.github/workflows/verify-planning-model-v1.yml'
 
 permissions:
@@ -43,6 +44,8 @@ jobs:
         run: node scripts/verif-planning-dependency-inference-v1.mjs
       - name: Fixtures éligibilité et portes techniques
         run: node scripts/verif-planning-eligibility-v1.mjs
+      - name: Fixtures affectation chrono d'une tâche ajoutée
+        run: node scripts/verif-phasage-chrono-affectation-v1.mjs
       - name: Installer dépendances
         run: npm ci
       - name: Build Vite
