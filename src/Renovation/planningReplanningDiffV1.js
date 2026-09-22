@@ -268,6 +268,18 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
         { blocages_predecesseurs: blocages, raison_code: nonPlanifie?.raison_code || null },
         "important"
       ));
+      if (txt(travail?.provenance?.dependances) === "defaut") {
+        raisons.push(raison(
+          "dependance_deduite_contredit_forecast",
+          "Le forecast ne peut pas être remplacé à cause d'un prédécesseur exclu issu du chaînage par défaut. Cette dépendance métier doit être confirmée avant toute application.",
+          {
+            source_dependance: "defaut",
+            date_forecast: txt(changement?.courant?.debut) || null,
+            blocages_predecesseurs: blocages,
+          },
+          "attention"
+        ));
+      }
     } else {
       raisons.push(raison(
         "non_planifiable_dans_horizon",

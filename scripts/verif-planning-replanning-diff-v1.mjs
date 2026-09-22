@@ -267,4 +267,34 @@ const codes = c => c.raisons.map(r => r.code);
   assert.deepEqual(out.travaux_a_verifier, ["C1::T1"]);
 }
 
-console.log("OK — planning replanning diff V1: 14 scénarios");
+// 14. Même garde lorsque le prédécesseur déduit est exclu du moteur : connaître
+// la cause technique ne suffit pas à valider la dépendance métier implicite.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast()],
+    proposition: {
+      allocations_proposees: [],
+      non_planifies: [{
+        travail_id:"C1::T1", chantier_id:"C1", tache_id:"T1", heures_mo_restantes:4,
+        raison:"Prédécesseur encore ouvert mais exclu",
+        raison_code:"predecesseur_exclu",
+        blocages_predecesseurs_connus:[{ travail_id:"C1::T0", type:"equipe_groupe_externe", avancement:33 }],
+      }],
+      replanning:{ decisions_stabilite_dates:[], exclusions_connues:[] },
+    },
+    travaux:[travail({
+      predecesseur_ids:["C1::T0"],
+      provenance:{
+        dependances:"defaut",
+        etat_reel:{ avancement:0, reste_a_faire_heures:4, source_verite:"phasage", en_retard:false, date_prevue:null },
+      },
+    })],
+  });
+  const changement = out.changements[0];
+  assert.equal(codes(changement).includes("attente_predecesseur_exclu"), true);
+  assert.equal(codes(changement).includes("dependance_deduite_contredit_forecast"), true);
+  assert.equal(changement.qualite_explication, "a_verifier");
+  assert.equal(changement.changement_a_verifier, true);
+}
+
+console.log("OK — planning replanning diff V1: 15 scénarios");
