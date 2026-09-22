@@ -1,0 +1,72 @@
+name: Verify Planning Replanning V1
+
+on:
+  push:
+    branches:
+      - feature/planning-replanning-v1
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Replanning real state V1
+        run: node scripts/verif-planning-replanning-state-v1.mjs
+      - name: Replanning adapter bridge V1
+        run: node scripts/verif-planning-replanning-adapter-v1.mjs
+      - name: Replanning legacy ouvrage code V1
+        run: node scripts/verif-planning-replanning-legacy-code-v1.mjs
+      - name: Replanning forecast stability V1
+        run: node scripts/verif-planning-replanning-stability-v1.mjs
+      - name: Replanning site resolution V1
+        run: node scripts/verif-planning-replanning-site-resolution-v1.mjs
+      - name: Replanning multi-day continuity V1
+        run: node scripts/verif-planning-replanning-multi-day-continuity-v1.mjs
+      - name: Replanning forecast date stability V1
+        run: node scripts/verif-planning-replanning-date-stability-v1.mjs
+      - name: Replanning residual capacity diagnostic V1
+        run: node scripts/verif-planning-replanning-capacity-diagnostic-v1.mjs
+      - name: Replanning horizon sensitivity V1
+        run: node scripts/verif-planning-replanning-horizon-sensitivity-v1.mjs
+      - name: Replanning explainable diff V1
+        run: node scripts/verif-planning-replanning-diff-v1.mjs
+      - name: Replanning continuity diff V1
+        run: node scripts/verif-planning-replanning-diff-continuity-v1.mjs
+      - name: Replanning impact scope V1
+        run: node scripts/verif-planning-replanning-impact-v1.mjs
+      - name: Replanning incremental V1
+        run: node scripts/verif-planning-replanning-incremental-v1.mjs
+      - name: Replanning safe apply plan V1
+        run: node scripts/verif-planning-replanning-apply-plan-v1.mjs
+      - name: Replanning apply safety V1
+        run: node scripts/verif-planning-replanning-apply-safety-v1.mjs
+      - name: Replanning touched phasage guards V1
+        run: node scripts/verif-planning-replanning-phasage-guards-v1.mjs
+      - name: Replanning apply request V1
+        run: node scripts/verif-planning-replanning-apply-request-v1.mjs
+      - name: Replanning apply RPC contract V1
+        run: node scripts/verif-planning-replanning-apply-rpc-v1.mjs
+      - name: Planning engine V1 regression
+        run: node scripts/verif-planning-engine-v1.mjs
+      - name: Planning engine adapter V1 regression
+        run: node scripts/verif-planning-engine-adapter-v1.mjs
+      - name: Planning engine data V1 regression
+        run: node scripts/verif-planning-engine-data-v1.mjs
+      - name: Planning engine diff V1 regression
+        run: node scripts/verif-planning-engine-diff-v1.mjs
+      - name: Vite build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
