@@ -3,7 +3,6 @@
 -- Un appelant non administrateur (RLS : 0 ligne modifiée) obtenait donc un
 -- retour NULL au lieu de l'erreur « Modification refusée ». Aucune écriture
 -- n'était possible pour autant (la RLS l'empêchait déjà) ; seul le message manquait.
--- La version corrigée est aussi reportée dans 20260915140000_taux_horaires_vente.sql.
 create or replace function public.definir_taux_horaire_vente_defaut(p_id uuid)
 returns public.taux_horaires_vente
 language plpgsql
@@ -38,10 +37,3 @@ $$;
 
 revoke all on function public.definir_taux_horaire_vente_defaut(uuid) from public, anon;
 grant execute on function public.definir_taux_horaire_vente_defaut(uuid) to authenticated;
-
--- Suites des advisors Supabase : les fonctions trigger ne sont pas exposées en RPC,
--- et la FK profero_ouvrages_selectionnes.taux_horaire_vente_id est indexée.
-revoke execute on function public.bibliotheque_ratios_taux_horaire_garde() from public, anon, authenticated;
-revoke execute on function public.taux_horaires_vente_garde() from public, anon, authenticated;
-create index if not exists profero_ouvrages_selectionnes_taux_horaire_vente_idx
-  on public.profero_ouvrages_selectionnes (taux_horaire_vente_id) where taux_horaire_vente_id is not null;
