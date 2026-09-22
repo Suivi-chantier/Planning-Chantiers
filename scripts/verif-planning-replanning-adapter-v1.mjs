@@ -101,6 +101,18 @@ function retirerEtatReel(travaux) {
   assert.deepEqual(out.engineInput.completedTaskIds, ["C1::T1"]);
 }
 
+// 5b. Si une tâche désormais terminée possède encore un forecast futur, le pont
+// expose explicitement cette obsolescence sans réintroduire la tâche au moteur.
+{
+  const out = preparerSimulationReplanningV1(options({
+    phasages: [phasage([task("T1", { avancement: 100 })])],
+    cellules: [forecastCell(["R1"])],
+  }));
+  assert.equal(out.engineInput.travaux.length, 0);
+  assert.equal(out.engineInput.replanning_exclusions.find(x => x.travail_id === "C1::T1")?.type, "tache_terminee_phasage");
+  assert.equal(out.audit.exclusions_taches_terminees_forecastees, 1);
+}
+
 // 6. Déterminisme strict.
 {
   const input = options({ phasages: [phasage([task("T1", { avancement: 35, date_prevue: "2026-08-29" })])] });
@@ -173,4 +185,4 @@ function retirerEtatReel(travaux) {
   assert.equal(out.etatReel.travaux.find(t => t.id === "C1::T0")?.reste_a_faire_heures, null);
 }
 
-console.log("OK — planning replanning adapter V1: 12 scénarios");
+console.log("OK — planning replanning adapter V1: 13 scénarios");

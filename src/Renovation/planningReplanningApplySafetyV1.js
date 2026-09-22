@@ -148,15 +148,18 @@ function blocker(code, label, details = null) {
 function classerNonReplanifies(rows = []) {
   const horizon = [];
   const donnees = [];
+  const termines = [];
   for (const row of rows) {
     const codes = (Array.isArray(row?.raisons) ? row.raisons : []).map(r => txt(r?.code));
-    if (codes.includes("non_planifiable_dans_horizon") && !codes.some(c => c.startsWith("forecast_non_conservable_") || c === "attente_predecesseur_exclu")) {
+    if (codes.includes("forecast_obsolete_tache_terminee_phasage")) {
+      termines.push(row);
+    } else if (codes.includes("non_planifiable_dans_horizon") && !codes.some(c => c.startsWith("forecast_non_conservable_") || c === "attente_predecesseur_exclu")) {
       horizon.push(row);
     } else {
       donnees.push(row);
     }
   }
-  return { horizon, donnees };
+  return { horizon, donnees, termines };
 }
 
 export function evaluerSecuriteApplicationReplanningV1({
@@ -178,12 +181,16 @@ export function evaluerSecuriteApplicationReplanningV1({
   const nonReplanifies = (Array.isArray(diff?.changements) ? diff.changements : [])
     .filter(c => c?.statut === "non_replanifié");
   const nonReplanifiesClasses = classerNonReplanifies(nonReplanifies);
-  if (nonReplanifies.length) {
+  const nonReplanifiesBloquants = [
+    ...nonReplanifiesClasses.horizon,
+    ...nonReplanifiesClasses.donnees,
+  ];
+  if (nonReplanifiesBloquants.length) {
     blockers.push(blocker(
       "forecast_courant_sans_remplacement",
-      `${nonReplanifies.length} tâche(s) actuellement planifiée(s) n'ont aucun remplacement proposé.`,
+      `${nonReplanifiesBloquants.length} tâche(s) actuellement planifiée(s) n'ont aucun remplacement proposé.`,
       {
-        travaux: nonReplanifies.map(c => c.travail_id).filter(Boolean),
+        travaux: nonReplanifiesBloquants.map(c => c.travail_id).filter(Boolean),
         horizon_ou_capacite: nonReplanifiesClasses.horizon.length,
         donnee_ou_dependance: nonReplanifiesClasses.donnees.length,
         recommandation: nonReplanifiesClasses.horizon.length
@@ -327,6 +334,7 @@ export function evaluerSecuriteApplicationReplanningV1({
       changements_non_replanifies: nonReplanifies.length,
       changements_non_replanifies_horizon_ou_capacite: nonReplanifiesClasses.horizon.length,
       changements_non_replanifies_donnee_ou_dependance: nonReplanifiesClasses.donnees.length,
+      changements_non_replanifies_taches_terminees: nonReplanifiesClasses.termines.length,
       changements_a_verifier: aVerifier.length,
       cellules_fallback_manuel_bloquantes: fallbackConflicts.length,
       allocations_hors_horizon_bloquantes: allocationsHorsHorizon.length,
@@ -343,6 +351,7 @@ export function evaluerSecuriteApplicationReplanningV1({
     invariants: {
       aucune_ecriture_persistante: true,
       forecast_sans_remplacement_bloque_application: true,
+      forecast_tache_terminee_peut_etre_retire_si_explique_par_phasage: true,
       allocation_liee_apres_horizon_bloque_application: true,
       changement_inexplique_bloque_application: true,
       fallback_manuel_ne_change_jamais_implicitement_equipe: true,

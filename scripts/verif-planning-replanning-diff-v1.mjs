@@ -148,6 +148,25 @@ const codes = c => c.raisons.map(r => r.code);
   assert.equal(out.changements[0].changement_a_verifier, false);
 }
 
+// 8b. Une allocation future d'une tâche passée à 100 % est une suppression
+// expliquée par le phasage, jamais un changement mystérieux.
+{
+  const out = diffReplanningV1({
+    forecast: [forecast()],
+    proposition: {
+      allocations_proposees: [], non_planifies: [],
+      replanning: {
+        decisions_stabilite_dates: [],
+        exclusions_connues: [{ travail_id:"C1::T1", chantier_id:"C1", tache_id:"T1", type:"tache_terminee_phasage", avancement:100, source_verite:"phasage", forecast_existant:true }],
+      },
+    },
+    travaux: [],
+  });
+  assert.equal(out.changements[0].statut, "non_replanifié");
+  assert.equal(codes(out.changements[0]).includes("forecast_obsolete_tache_terminee_phasage"), true);
+  assert.equal(out.changements[0].changement_a_verifier, false);
+}
+
 // 10. Un successeur bloqué par un prédécesseur connu et exclu n'est plus présenté comme un mystère.
 {
   const out = diffReplanningV1({
@@ -218,4 +237,4 @@ const codes = c => c.raisons.map(r => r.code);
   assert.equal(changement.changement_a_verifier, false);
 }
 
-console.log("OK — planning replanning diff V1: 12 scénarios");
+console.log("OK — planning replanning diff V1: 13 scénarios");

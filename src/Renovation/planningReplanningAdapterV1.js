@@ -101,6 +101,31 @@ function exclusionsChargeNonQuantifiablePertinentes({ etatReel, preparation, cha
     .sort((a, b) => `${a.chantier_id}|${a.tache_id}`.localeCompare(`${b.chantier_id}|${b.tache_id}`));
 }
 
+function exclusionsTachesTermineesForecastees({ etatReel, preparation } = {}) {
+  const refsForecast = new Set((preparation?.forecastCourant?.allocations_recalculables || [])
+    .map(a => cleTravail(a?.chantier_id, a?.tache_id))
+    .filter(Boolean));
+  const dejaExclus = new Set((preparation?.travaux_exclus || [])
+    .map(x => txt(x?.travail_id))
+    .filter(Boolean));
+
+  return (etatReel?.travaux || [])
+    .filter(etat => etat?.statut_reel === "terminee")
+    .filter(etat => refsForecast.has(txt(etat?.id)))
+    .filter(etat => !dejaExclus.has(txt(etat?.id)))
+    .map(etat => ({
+      travail_id: etat.id,
+      chantier_id: etat.chantier_id,
+      tache_id: etat.tache_id,
+      type: "tache_terminee_phasage",
+      explication: "La tâche est terminée à 100 % dans le phasage : son forecast futur est devenu obsolète et doit être retiré.",
+      source_verite: "phasage",
+      avancement: etat.avancement,
+      forecast_existant: true,
+    }))
+    .sort((a, b) => `${a.chantier_id}|${a.tache_id}`.localeCompare(`${b.chantier_id}|${b.tache_id}`));
+}
+
 // Cas exceptionnel chantier 05 : un groupe peut être EXTERNE par défaut tout
 // en ayant déjà une affectation humaine interne explicite dans le forecast.
 // Cette affectation vaut override volontaire, exactement comme `tache.ouvriers`
@@ -174,7 +199,12 @@ export function preparerSimulationReplanningV1(options = {}) {
     preparation,
     chantiers: options?.chantiers || [],
   });
-  const travauxExclusReplanning = [...(preparation.travaux_exclus || []), ...exclusionsCharge]
+  const exclusionsTermineesForecastees = exclusionsTachesTermineesForecastees({ etatReel, preparation });
+  const travauxExclusReplanning = [
+    ...(preparation.travaux_exclus || []),
+    ...exclusionsCharge,
+    ...exclusionsTermineesForecastees,
+  ]
     .sort((a, b) => `${a?.type || ""}|${a?.travail_id || ""}`.localeCompare(`${b?.type || ""}|${b?.travail_id || ""}`));
 
   const etatParId = new Map(etatReel.travaux.map(t => [t.id, t]));
@@ -251,6 +281,7 @@ export function preparerSimulationReplanningV1(options = {}) {
       etat_reel_travaux_moteur_enrichis: travauxEnrichis,
       etat_reel_heures_brutes_verifiees: round2(heuresBrutesVerifiees),
       exclusions_charge_non_quantifiable_pertinentes: exclusionsCharge.length,
+      exclusions_taches_terminees_forecastees: exclusionsTermineesForecastees.length,
       overrides_groupes_externes_depuis_forecast: overridesExternes.size,
       stabilite_travaux_avec_forecast: stabilite.audit.travaux_avec_forecast,
       stabilite_preferences_forecast_conservees: stabilite.audit.travaux_avec_preference_forecast_conservee,
@@ -267,6 +298,7 @@ export function preparerSimulationReplanningV1(options = {}) {
       date_passee_ne_termine_pas_tache: true,
       heures_reelles_ne_reduisent_pas_le_reste: true,
       forecast_est_une_preference_soft: true,
+      forecast_futur_tache_terminee_est_obsolete: true,
       pool_metier_hard_inchange_par_forecast: true,
       code_ouvrage_legacy_recupere_uniquement_depuis_prefixe_libelle: true,
       code_ouvrage_legacy_non_persiste: true,

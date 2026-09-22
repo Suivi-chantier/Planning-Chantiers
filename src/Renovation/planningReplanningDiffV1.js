@@ -61,6 +61,18 @@ function raison(code, label, details = null, niveau = "info") {
 function raisonExclusionConnue(exclusion) {
   const type = txt(exclusion?.type);
   if (!type) return null;
+  if (type === "tache_terminee_phasage") {
+    return raison(
+      "forecast_obsolete_tache_terminee_phasage",
+      "La tâche est terminée à 100 % dans le phasage : son allocation future est obsolète et peut être retirée.",
+      {
+        avancement: exclusion?.avancement ?? 100,
+        source_verite: exclusion?.source_verite || "phasage",
+        forecast_existant: exclusion?.forecast_existant === true,
+      },
+      "important"
+    );
+  }
   if (type === "charge_reference_manquante") {
     return raison(
       "forecast_non_conservable_charge_manquante",

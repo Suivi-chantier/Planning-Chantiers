@@ -60,6 +60,23 @@ assert.equal(dateDepuisWeekJourApplicationV1("2026-W53", "Vendredi"), "2027-01-0
   assert.equal(out.blockers.some(x => x.code === "allocation_liee_hors_horizon"), true);
 }
 
+// 2b. Une allocation future explicitement obsolète parce que le phasage marque
+// la tâche à 100 % peut être retirée ; les autres gardes restent applicables.
+{
+  const removeCompleted = op({ beforeDay:"Lundi", afterDay:"Lundi", before:true, after:false });
+  const out = evaluerSecuriteApplicationReplanningV1({
+    planApplication: plan([removeCompleted]),
+    cellulesToutes:[cell({ taches:[line("A1","T1")] })],
+    diff:{ ...cleanDiff, changements:[{
+      travail_id:"C1::T1", statut:"non_replanifié", changement_a_verifier:false,
+      raisons:[{ code:"forecast_obsolete_tache_terminee_phasage" }],
+    }] },
+    phasages:[phasage()], startDate:"2026-08-31",
+  });
+  assert.equal(out.blockers.some(x => x.code === "forecast_courant_sans_remplacement"), false);
+  assert.equal(out.resume.changements_non_replanifies_taches_terminees, 1);
+}
+
 // 4. Un changement inexpliqué bloque même si les cellules sont techniquement applicables.
 {
   const out = evaluerSecuriteApplicationReplanningV1({
@@ -179,4 +196,4 @@ assert.equal(dateDepuisWeekJourApplicationV1("2026-W53", "Vendredi"), "2027-01-0
   assert.equal(out.blockers.some(x => x.code === "fallback_manuel_cellule_modifie"), true);
 }
 
-console.log("OK — planning replanning apply safety V1: 10 scénarios");
+console.log("OK — planning replanning apply safety V1: 11 scénarios");
