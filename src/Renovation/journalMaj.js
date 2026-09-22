@@ -23,6 +23,22 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-22",
+    type: "correctif",
+    titre: "Phasage : les tâches se rangent toutes seules, sans avoir à ouvrir l'onglet Chrono",
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "planning", label: "Planning semaine" }],
+    quoi: "Le rangement des tâches d'un phasage ne se déclenchait que si quelqu'un ouvrait l'onglet Chrono. Si personne n'y allait, le chantier n'était jamais rangé — et son travail n'existait tout simplement pas pour le moteur de planification. Le plus gênant : rien ne prévenait. Il manquait des heures dans le planning, sans message et sans alerte. Au 22/09/2026, cela représentait 291 heures sur 7 chantiers.",
+    comment: "Vous n'avez plus rien à faire : un phasage neuf se range dès son ouverture, quel que soit l'onglet que vous regardez, et un phasage déjà rangé rattrape tout seul les tâches arrivées après coup — typiquement celles que les ouvriers remontent dans leurs comptes rendus. Ces tâches se placent en fin de groupe, elles ne passent jamais devant du travail déjà séquencé, et rien de déjà rangé ne bouge. Une exception volontaire : une tâche dont le lot n'est rattaché à aucun groupe type n'est jamais rangée au hasard. Elle reste comptée dans « N non classable(s) », en haut de la vue Chrono — c'est le signal qu'il faut rattacher ce lot dans l'Admin. Le bouton « Classer N tâches ajoutées » reste disponible comme filet de secours.",
+  },
+  {
+    date: "2026-09-22",
+    type: "nouveaute",
+    titre: "Planning : simuler une replanification à partir du chantier réel, sans rien modifier",
+    pages: [{ id: "planning", label: "Planning semaine" }],
+    quoi: "Jusqu'ici, comparer le planning prévu à ce qui est réellement faisable demandait de tout reprendre à la main. Un bouton « Simulation » propose désormais un planning recalculé à partir de l'état réel des chantiers — ce qui est fait, en cours et restant d'après le phasage — et montre en quoi il diffère du planning actuel. C'est un outil d'aide à la décision : rien n'est appliqué.",
+    comment: "Page Planning semaine → bouton « Simulation », puis « Lancer la simulation ». Le panneau affiche les allocations proposées, celles qui sont préservées, les cellules touchées, les fins retardées et le travail qui ne rentre pas (« Non planifié »), avec pour chaque écart une explication en clair. Le calcul évite de déplacer ce qui n'a pas besoin de bouger, garde les tâches longues d'un seul tenant plutôt que de les hacher, et ne touche ni aux affectations manuelles ni aux cellules verrouillées. Un bouton « Comparer 6 / 8 / 12 semaines » montre si le résultat dépend de la profondeur d'horizon choisie. Important : le panneau porte un badge « Lecture seule » et il n'existe aucun bouton pour appliquer la proposition — votre planning n'est jamais modifié. Écrire réellement le résultat sera une étape ultérieure, avec une confirmation explicite.",
+  },
+  {
     date: "2026-09-19",
     type: "correctif",
     titre: "Phasage : fin des « Sauvegarde suspendue » qui n'avaient aucune raison d'être",
