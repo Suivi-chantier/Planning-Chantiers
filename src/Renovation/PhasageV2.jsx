@@ -18,6 +18,7 @@ import {
 import {
   buildChronoInitFromGroupesTypes, sortByChrono,
   estJalonControle, JALON_TYPE_REPERE, buildJalonControle, completerJalonsControle,
+  affectationChronoNouvelleTacheV1, rattraperAffectationsChronoV1,
 } from "./chronoTemplate";
 // Écran de contrôle de fin de groupe (Point 2 b) — overlay plein écran monté
 // depuis la vue chrono (bouton « Contrôler » du jalon de contrôle).
@@ -996,8 +997,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // ─── CRUD TÂCHES ────────────────────────────────────────────────────────
   const createTache = (ouvrageId) => {
     const newT = { id: rid(), nom: "", ratio: null, heures_estimees: null, heures_vendues: null, heures_reelles: null, avancement: 0, ouvriers: [] };
+    // Une tâche ajoutée en cours de chantier (typiquement remontée par un
+    // compte rendu) doit entrer dans la vue Chrono comme si elle avait été là
+    // au semis : sans `chrono_groupe_id`, l'adaptateur du moteur ne peut plus
+    // résoudre son groupe métier ni son pool HARD, et la tâche est exclue de
+    // la planification. Même règle que `buildChronoInitFromGroupesTypes`,
+    // jamais de groupe deviné : si le lot n'est rattaché à aucun groupe type,
+    // la tâche reste « à classer » et c'est visible.
+    const ouvrageCible = ouvrages.find(o => o.id === ouvrageId) || null;
+    const affectation = affectationChronoNouvelleTacheV1({
+      tache: newT, ouvrage: ouvrageCible, ouvrages, chronoGroupes, groupesTypes,
+    });
+    const tacheCreee = affectation ? { ...newT, ...affectation } : newT;
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
-      ? { ...o, taches: [...(o.taches || []), newT] }
+      ? { ...o, taches: [...(o.taches || []), tacheCreee] }
       : o));
     setEditingTache({ ouvrageId, tacheId: newT.id });
   };
@@ -1318,6 +1331,28 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (nextJalons) setChronoGroupesEtJalons(tousGroupes, nextJalons);
     else setChronoGroupes(tousGroupes);
   };
+  // ─── Rattrapage des tâches ajoutées après le semis chrono ────────────────
+  // Une tâche créée après l'initialisation de la vue Chrono — typiquement
+  // remontée par un compte rendu — n'a jamais reçu de `chrono_groupe_id` et
+  // reste invisible au moteur de planification. `createTache` affecte
+  // désormais le groupe à la création ; ce rattrapage traite le stock existant.
+  // Il n'affecte QUE les tâches sans groupe : rien de déjà classé ne bouge.
+  const affectationsRattrapage = useMemo(
+    () => rattraperAffectationsChronoV1({ ouvrages, chronoGroupes, groupesTypes }),
+    [ouvrages, chronoGroupes, groupesTypes]);
+  const nbTachesARattraper = Object.keys(affectationsRattrapage).length;
+  // Tâches sans groupe que la règle du lot ne sait PAS classer : leur lot n'est
+  // rattaché à aucun groupe type. À afficher telles quelles — une impossibilité
+  // doit rester visible plutôt que d'être comblée par une heuristique.
+  const nbTachesNonClassables = useMemo(
+    () => ouvrages.reduce((n, o) => n + (o.taches || []).filter(
+      t => t?.id && !t.chrono_groupe_id && !affectationsRattrapage[t.id]).length, 0),
+    [ouvrages, affectationsRattrapage]);
+  const rattraperChrono = () => {
+    if (nbTachesARattraper === 0) return;
+    applyChrono(affectationsRattrapage);
+  };
+
   // ─── Équipe par défaut d'un groupe chrono ─────────────────────────────────
   // Résolution : groupe.groupe_type_id → groupe type → equipe_id → équipe.
   // Renvoie null ou { equipe, noms, prioritaires } : `noms` = les OUVRIERS
@@ -2839,6 +2874,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           updateTache={updateTache}
           onInitGroupesTypes={groupesTypes.length > 0 ? initChronoDepuisGroupesTypes : null}
           chronoVierge={chronoVierge} nbGtManquants={gtManquants.length}
+          onRattraperChrono={rattraperChrono} nbTachesARattraper={nbTachesARattraper}
+          nbTachesNonClassables={nbTachesNonClassables}
           propositionPourGroupe={propositionPourGroupe} onAffecterOuvriers={affecterOuvriersAuGroupe}
           onMarquerExterne={marquerGroupeExterne}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
@@ -4570,7 +4607,7 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesse
   );
 }
 
-function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne, controleCtx, controlesChantier = [], reservesChantier = [], onControleChange }) {
+function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patchTaches, setGroupes, setJalons, setGroupesEtJalons, updateTache, onClickTache, rapportsPourTache, onShowRapports, onInitGroupesTypes, chronoVierge, nbGtManquants, onRattraperChrono, nbTachesARattraper = 0, nbTachesNonClassables = 0, propositionPourGroupe, onAffecterOuvriers, onMarquerExterne, controleCtx, controlesChantier = [], reservesChantier = [], onControleChange }) {
   const [drag, setDrag] = useState(null);        // { kind: 'tache'|'jalon', id, ouvrageId? }
   const [controleOuvert, setControleOuvert] = useState(null); // groupe dont le contrôle est ouvert
   const todayISO = new Date().toISOString().slice(0, 10);     // ancienneté des réserves (badge)
@@ -5415,6 +5452,36 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
             }}>
             <Icon as={Sparkles} size={14} /> Initialiser depuis les groupes types
           </button>
+        )}
+        {/* Rattrapage : tâches ajoutées APRÈS le semis chrono (souvent
+            remontées par un compte rendu). Sans groupe chrono elles sont
+            invisibles au moteur de planification. Le bouton n'applique que la
+            règle du lot, jamais un groupe deviné, et ne touche aucune tâche
+            déjà classée. */}
+        {onRattraperChrono && nbTachesARattraper > 0 && (
+          <button onClick={onRattraperChrono}
+            title={`Classer ${nbTachesARattraper} tâche(s) ajoutée(s) après l'initialisation, d'après le lot de leur ouvrage. Aucune tâche déjà classée ne sera modifiée.`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 14px", borderRadius: RADIUS.md,
+              border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+            }}>
+            <Icon as={Sparkles} size={14} /> Classer {nbTachesARattraper} tâche{nbTachesARattraper > 1 ? "s" : ""} ajoutée{nbTachesARattraper > 1 ? "s" : ""}
+          </button>
+        )}
+        {/* Sur un phasage dont la vue Chrono n'a jamais été initialisée, TOUTES
+            les tâches sont sans groupe : le bon geste est le semis ci-dessus,
+            pas ce signalement. On ne l'affiche donc que sur un phasage déjà semé. */}
+        {!chronoVierge && nbTachesNonClassables > 0 && (
+          <span title="Ces tâches n'ont aucun groupe chrono et leur lot n'est rattaché à aucun groupe type : rattachez le lot dans l'Admin, ou classez-les à la main. Elles ne sont pas planifiables par le moteur."
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              fontSize: FONT.xs.size, fontWeight: 700, color: T.textSub,
+              background: T.card, border: `1px dashed ${T.border}`, borderRadius: RADIUS.pill, padding: "4px 10px",
+            }}>
+            <Icon as={AlertTriangle} size={12} /> {nbTachesNonClassables} non classable{nbTachesNonClassables > 1 ? "s" : ""}
+          </span>
         )}
         <button onClick={addGroupe}
           style={{

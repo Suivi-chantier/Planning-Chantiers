@@ -177,3 +177,102 @@ export function sortByChrono(rows, groupes) {
   });
   return rows;
 }
+
+// ─── AFFECTATION CHRONO D'UNE TÂCHE AJOUTÉE EN COURS DE CHANTIER ────────────
+// `buildChronoInitFromGroupesTypes` n'est jouée qu'AU SEMIS de la vue Chrono.
+// Une tâche ajoutée après coup — typiquement remontée par un compte rendu
+// d'ouvrier — naissait donc sans `chrono_groupe_id`, restait « à classer », et
+// devenait invisible au moteur de planification : l'adaptateur ne pouvait plus
+// résoudre son groupe métier, donc son pool HARD de ressources.
+//
+// Les fonctions ci-dessous rejouent EXACTEMENT la règle du semis pour une
+// tâche isolée. Aucune règle métier nouvelle, aucune heuristique :
+//   1. `groupe_type_id` explicite de la tâche → groupe concret correspondant ;
+//   2. sinon, premier groupe concret rattaché au `lot_id` de l'ouvrage
+//      (les groupes types sont parcourus par `ordre` croissant, comme au semis) ;
+//   3. sinon `null` — la tâche reste « à classer ». On ne devine JAMAIS un
+//      groupe : une impossibilité doit rester visible.
+//
+// Un groupe concret est rattaché à son groupe type par `groupe_type_id`, ou à
+// défaut par homonymie de nom (même règle d'adoption que le mode « ajouter »
+// de l'écran Phasage, pour les phasages hérités de `buildChronoInit`).
+
+// Index { parType, parLot } des groupes CONCRETS du chantier.
+export function indexerGroupesChronoV1(chronoGroupes, groupesTypes) {
+  const groupes = Array.isArray(chronoGroupes) ? chronoGroupes : [];
+  const gts = [...(groupesTypes || [])].sort((a, b) => (a?.ordre ?? 0) - (b?.ordre ?? 0));
+  const parType = new Map(); // groupe_type_id → groupe concret
+  const parLot = new Map();  // lot_id → premier groupe concret du lot
+  for (const gt of gts) {
+    const idGt = gt?.id == null ? "" : String(gt.id);
+    if (!idGt) continue;
+    const concret = groupes.find(g => g?.groupe_type_id != null && String(g.groupe_type_id) === idGt)
+      || groupes.find(g => g?.groupe_type_id == null && norm(g?.nom).trim() === norm(gt?.nom).trim());
+    if (!concret?.id) continue;
+    if (!parType.has(idGt)) parType.set(idGt, concret);
+    const lot = gt?.lot_id == null ? "" : String(gt.lot_id);
+    if (lot && !parLot.has(lot)) parLot.set(lot, concret);
+  }
+  return { parType, parLot };
+}
+
+// Groupe concret visé par une tâche, ou null. Pur, sans effet de bord.
+export function groupeChronoPourTacheV1(tache, ouvrage, index) {
+  if (!index) return null;
+  const idType = tache?.groupe_type_id == null ? "" : String(tache.groupe_type_id);
+  if (idType) {
+    const explicite = index.parType.get(idType);
+    if (explicite) return explicite;
+  }
+  const lot = ouvrage?.lot_id == null ? "" : String(ouvrage.lot_id);
+  if (!lot) return null;
+  return index.parLot.get(lot) || null;
+}
+
+// Prochain `chrono_ordre` libre dans un groupe : la tâche ajoutée se range en
+// fin de groupe, elle ne s'intercale jamais devant du travail déjà séquencé.
+export function prochainOrdreChronoV1(ouvrages, groupeId) {
+  if (!groupeId) return 0;
+  let max = -1;
+  for (const o of Array.isArray(ouvrages) ? ouvrages : []) {
+    for (const t of Array.isArray(o?.taches) ? o.taches : []) {
+      if (String(t?.chrono_groupe_id ?? "") !== String(groupeId)) continue;
+      const n = Number(t?.chrono_ordre);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return max + 1;
+}
+
+// Affectation d'UNE tâche nouvellement créée : { chrono_groupe_id, chrono_ordre }
+// à fusionner dans la tâche, ou null s'il n'y a pas de groupe déterministe.
+export function affectationChronoNouvelleTacheV1({ tache, ouvrage, ouvrages, chronoGroupes, groupesTypes } = {}) {
+  const index = indexerGroupesChronoV1(chronoGroupes, groupesTypes);
+  const groupe = groupeChronoPourTacheV1(tache, ouvrage, index);
+  if (!groupe?.id) return null;
+  return { chrono_groupe_id: groupe.id, chrono_ordre: prochainOrdreChronoV1(ouvrages, groupe.id) };
+}
+
+// Rattrapage : affectations des tâches qui n'ont AUCUN `chrono_groupe_id`,
+// au format `applyChrono` ({ [tacheId]: { groupe_id, ordre } }).
+// Ne touche jamais une tâche déjà affectée. Déterministe : les tâches sont
+// parcourues dans l'ordre des ouvrages puis des tâches, et les compteurs
+// d'ordre repartent du maximum existant de chaque groupe.
+export function rattraperAffectationsChronoV1({ ouvrages, chronoGroupes, groupesTypes } = {}) {
+  const index = indexerGroupesChronoV1(chronoGroupes, groupesTypes);
+  const compteurs = new Map();
+  const assignments = {};
+  for (const o of Array.isArray(ouvrages) ? ouvrages : []) {
+    for (const t of Array.isArray(o?.taches) ? o.taches : []) {
+      if (!t?.id) continue;
+      if (t.chrono_groupe_id) continue;
+      const groupe = groupeChronoPourTacheV1(t, o, index);
+      if (!groupe?.id) continue;
+      if (!compteurs.has(groupe.id)) compteurs.set(groupe.id, prochainOrdreChronoV1(ouvrages, groupe.id));
+      const ordre = compteurs.get(groupe.id);
+      assignments[t.id] = { groupe_id: groupe.id, ordre };
+      compteurs.set(groupe.id, ordre + 1);
+    }
+  }
+  return assignments;
+}
