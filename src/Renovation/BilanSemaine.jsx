@@ -10,8 +10,10 @@ import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H }
 import { Icon, InputNombre } from "../ui";
 import { profilSemaine } from "../rythmeSemaine";
 import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
-import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
+import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1, lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
+import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
+import { pointsAttentionV1, libellePointAttentionV1 } from "./pointsAttentionV1.js";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
@@ -41,6 +43,10 @@ const JOURS_ACTIVITE = 21;
 // Seuils des points d'attention automatiques (étape 5) — constantes nommées.
 const SEUIL_STAGNATION_PTS = 3;   // delta d'avancement hebdo en dessous duquel un chantier « stagne »
 const JOURS_DEMARRAGE_LOT = 15;   // lot démarrant sous N jours sans commande passée → alerte
+// Points d'attention « consommation sans avancement » : on n'en affiche que les
+// N plus coûteux, écran et PDF. Au-delà, le document devient illisible et la
+// hiérarchie ne voit plus l'essentiel.
+const MAX_POINTS_ATTENTION_AFFICHES = 5;
 
 // ─── PAGE BILAN SEMAINE ───────────────────────────────────────────────────────
 // Bilan hebdomadaire multi-chantiers, sorti de la modale d'Équipe (étape 3 du
@@ -886,6 +892,48 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     setGeneratingDoc(false);
   };
 
+  // ── Points d'attention : consommation sans avancement (chantier 07) ─────────
+  // Compare les snapshots financiers hebdomadaires de la semaine du bilan et de
+  // la précédente (chantier_snapshots_hebdo). Détection faite par le module pur
+  // pointsAttentionV1 : ICI on ne fait que LIRE et transmettre, jamais écrire.
+  // Les chiffres affichés sont exactement ceux que le cron a écrits depuis
+  // computeChantierFinance — aucun recalcul parallèle.
+  const weekIdPrecedent = useMemo(() => {
+    const lundi = lundiSemaineISOv1(weekId);
+    if (!lundi) return null;
+    return semaineISOv1(ajouterJoursV1(lundi, -7))?.week_id || null;
+  }, [weekId]);
+
+  const [snapshotsAttention, setSnapshotsAttention] = useState({ courants: [], precedents: [] });
+  useEffect(() => {
+    if (etape !== "bilan" || !weekId || !weekIdPrecedent) return;
+    let cancelled = false;
+    (async () => {
+      // La table ne contient que les chantiers ACTIFS au moment du cron : c'est
+      // exactement le périmètre sur lequel une dérive mérite d'être remontée.
+      const { data, error } = await supabase
+        .from("chantier_snapshots_hebdo")
+        .select("chantier_id, chantier_nom, week_id, date_snapshot, avancement, heures_reelles, marge")
+        .in("week_id", [weekId, weekIdPrecedent])
+        .order("date_snapshot", { ascending: true });
+      if (cancelled) return;
+      if (error) { console.warn("Points d'attention : load", error.message); return; }
+      setSnapshotsAttention({
+        courants:   (data || []).filter(r => r.week_id === weekId),
+        precedents: (data || []).filter(r => r.week_id === weekIdPrecedent),
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [etape, weekId, weekIdPrecedent]);
+
+  const pointsAttentionConso = useMemo(() => pointsAttentionV1({
+    snapshotsCourants:   snapshotsAttention.courants,
+    snapshotsPrecedents: snapshotsAttention.precedents,
+  }), [snapshotsAttention]);
+  // Affichage borné aux 5 dérives les plus coûteuses ; le module les a déjà
+  // triées par marge perdue décroissante.
+  const pointsAttentionAffiches = pointsAttentionConso.lignes.slice(0, MAX_POINTS_ATTENTION_AFFICHES);
+
   // ── « La semaine qui vient » — proposition du moteur (chantier 07) ───────────
   // Calcul À LA DEMANDE uniquement : la simulation rejoue tout le moteur
   // (phasages, capacités, contraintes) et coûte plusieurs secondes. Le Bilan
@@ -1182,6 +1230,35 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         </div>
       </div>`;
 
+    // ── Points d'attention dans le PDF ───────────────────────────────────────
+    // Destiné à la hiérarchie : toujours présent, y compris quand rien n'est
+    // détecté (l'absence de dérive est une information). Aucune classe
+    // .no-print ici — le bloc doit être capturé par html2pdf comme par
+    // window.print().
+    const pointsAttentionHTML = (() => {
+      const lignes = pointsAttentionAffiches.map(l => `
+        <div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 5pt;padding-left:16pt;position:relative;line-height:1.45;">
+          <span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span>
+          <strong style="color:${INK};">${esc(l.nom)}</strong> — ${esc(libellePointAttentionV1(l).replace(`${l.nom} — `, ""))}
+          <div style="font-size:8.5pt;color:${GREY};margin-top:1pt;">${esc(l.explication)}</div>
+        </div>`).join("");
+      const reste = pointsAttentionConso.lignes.length - pointsAttentionAffiches.length;
+      const suite = reste > 0
+        ? `<div style="font-size:8.5pt;color:${GREY};font-style:italic;">+ ${reste} autre${reste > 1 ? "s" : ""} chantier${reste > 1 ? "s" : ""} dans le même cas (seules les ${MAX_POINTS_ATTENTION_AFFICHES} dérives les plus coûteuses sont détaillées).</div>`
+        : "";
+      return `
+      <div style="border:1pt solid ${LINE};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
+        <div style="background:#f5f6f8;padding:6pt 14pt;border-bottom:1pt solid ${LINE};">
+          <span style="font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${INK};">Points d'attention · consommation sans avancement</span>
+          <span style="font-size:8pt;color:${GREY};margin-left:8pt;">${weekIdPrecedent ? `${esc(weekId)} comparé à ${esc(weekIdPrecedent)}` : "semaine précédente indéterminée"}</span>
+        </div>
+        <div style="padding:10pt 14pt;">
+          ${lignes || `<div style="font-size:9pt;color:${GREY};font-style:italic;">Aucun point d'attention détecté cette semaine.</div>`}
+          ${suite}
+        </div>
+      </div>`;
+    })();
+
     // ── « La semaine qui vient » dans le PDF ─────────────────────────────────
     // N'apparaît QUE si le conducteur a lancé le calcul. Sans calcul, le PDF
     // reste exactement celui d'avant — aucune section vide, aucun encart mort.
@@ -1287,6 +1364,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     </tr>
   </table>
   ${syntheseHTML}
+  ${pointsAttentionHTML}
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun chantier sélectionné pour cette semaine.</div>`}
   ${semaineQuiVientHTML}
   ${includeFinances ? `
@@ -1866,6 +1944,58 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </div>
             </div>
           )}
+
+          {/* ── Points d'attention : consommation sans avancement (chantier 07) ── */}
+          {/* Toujours rendue, même vide : une absence de dérive est une
+              information à part entière, on ne masque pas la section. */}
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 18px", flexShrink:0 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:10 }}>
+              <span style={{ fontSize:15, fontWeight:800, color:T.text, display:"inline-flex", alignItems:"center", gap:8 }}>
+                <Icon as={AlertTriangle} size={15} color="#f5a623"/>
+                Points d'attention · consommation sans avancement
+              </span>
+              <span style={{ fontSize:12, color:T.textMuted }}>
+                {weekIdPrecedent ? `${weekId} comparé à ${weekIdPrecedent}` : "Semaine précédente indéterminée"}
+              </span>
+            </div>
+
+            {pointsAttentionAffiches.length === 0 ? (
+              <div style={{ fontSize:12.5, color:T.textSub, lineHeight:1.5 }}>
+                Aucun point d'attention détecté cette semaine.
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                {pointsAttentionAffiches.map(l => (
+                  <div key={l.chantier_id}
+                    onClick={() => deplierChantier(l.chantier_id)}
+                    style={{ background:"rgba(245,166,35,0.08)", border:"1px solid rgba(245,166,35,0.35)", borderRadius:10,
+                      padding:"9px 12px", cursor:"pointer" }}>
+                    <div style={{ fontSize:12.5, color:T.text, lineHeight:1.45, fontWeight:600 }}>
+                      {libellePointAttentionV1(l)}
+                    </div>
+                    <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
+                      {l.explication}
+                    </div>
+                  </div>
+                ))}
+                {pointsAttentionConso.lignes.length > pointsAttentionAffiches.length && (
+                  <div style={{ fontSize:11.5, color:T.textMuted }}>
+                    + {pointsAttentionConso.lignes.length - pointsAttentionAffiches.length} autre
+                    {pointsAttentionConso.lignes.length - pointsAttentionAffiches.length > 1 ? "s" : ""} chantier
+                    {pointsAttentionConso.lignes.length - pointsAttentionAffiches.length > 1 ? "s" : ""} dans le même cas
+                    (seules les {MAX_POINTS_ATTENTION_AFFICHES} dérives les plus coûteuses sont détaillées).
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginTop:9, fontSize:11, color:T.textMuted, lineHeight:1.45 }}>
+              Détection automatique : avancement stable (± {pointsAttentionConso.seuils.avancementStableMaxPts} pt),
+              au moins {pointsAttentionConso.seuils.heuresAjouteesMin} h consommées
+              et au moins {pointsAttentionConso.seuils.margePerdueMinEuros} € de marge perdue depuis la semaine précédente.
+              Chiffres repris tels quels du snapshot financier hebdomadaire — aucun recalcul.
+            </div>
+          </div>
 
           {/* ── Blocages & arbitrages (saisie conducteur) ────────────────────── */}
           {chantierOptions.length > 0 && (

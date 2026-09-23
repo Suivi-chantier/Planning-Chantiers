@@ -62,6 +62,8 @@ jobs:
         run: node scripts/verif-planning-fin-previsionnelle-v1.mjs
       - name: Bilan semaine prochaine V1
         run: node scripts/verif-bilan-semaine-prochaine-v1.mjs
+      - name: Points attention V1
+        run: node scripts/verif-points-attention-v1.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
