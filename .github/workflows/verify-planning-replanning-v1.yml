@@ -58,6 +58,8 @@ jobs:
         run: node scripts/verif-planning-replanning-apply-request-v1.mjs
       - name: Replanning apply RPC contract V1
         run: node scripts/verif-planning-replanning-apply-rpc-v1.mjs
+      - name: Planning fin previsionnelle V1
+        run: node scripts/verif-planning-fin-previsionnelle-v1.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
