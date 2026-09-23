@@ -10,7 +10,7 @@
 // l'opération est pondéré par le vendu HT de chaque logement (jamais une
 // moyenne simple). Le diagramme financier réutilise seriesReellesChantier +
 // consoliderSeries (diagrammeFinancier.mjs) + DiagrammeFinancierChart —
-// exactement comme le consolidé entreprise de DashboardAnalyse.
+// exactement comme le consolidé entreprise (DiagrammeFinancierConsolide).
 //
 // Performance : tout est chargé en UNE passe au montage (Promise.all +
 // regroupement côté client), avec pagination sur pointages / commande_lignes

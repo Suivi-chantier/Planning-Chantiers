@@ -9,13 +9,15 @@
 // RÈGLE : un chantier SANS référence figée n'entre pas dans les courbes de
 // référence consolidées ; le bandeau indique explicitement inclus / exclus.
 //
-// Accès : ce composant vit dans DashboardAnalyse (admin-only via src/access.js)
-// → verrouillage bureau hérité ; la table des références est de plus protégée
-// par sa RLS bureau-only.
+// Composant conservé volontairement. Il était monté dans la page Dashboard
+// Analyse, supprimée le 23/09/2026. À remonter dans « États fin. » si le besoin
+// revient — ne pas supprimer sans décision explicite.
+//
+// Accès : il était admin-only via src/access.js → verrouillage bureau hérité ;
+// la table des références est de plus protégée par sa RLS bureau-only.
 //
 // Performance : tout est chargé en UNE passe (Promise.all + regroupement par
-// chantier côté client, patron de DashboardAnalyse/loadPhasagesOperation),
-// jamais un appel par chantier.
+// chantier côté client), jamais un appel par chantier.
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabase";
 import { computeChantierFinance } from "../chantierFinance";

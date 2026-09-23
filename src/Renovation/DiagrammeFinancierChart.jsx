@@ -33,7 +33,7 @@ const SERIES = [
 export default function DiagrammeFinancierChart({ T, data = [], hauteur = 300, masques = {}, onToggleSerie = null }) {
   const fmtEuro = (n) => `${Math.round(n).toLocaleString("fr-FR")} €`;
   // recharts force des couleurs de tooltip illisibles selon le thème : styles
-  // explicites depuis T (même parade que DashboardAnalyse).
+  // explicites depuis T.
   const tooltipProps = {
     contentStyle: {
       background: T.cardBg || T.bg || "#fff", border: `1px solid ${T.border}`,

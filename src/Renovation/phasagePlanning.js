@@ -76,7 +76,7 @@ export async function loadPhasagesOperation(chantiersOperation) {
     if (!ph) return { ...base, statut: "sans_phasage" };
 
     // V2 exploitable ⟺ ouvrages non vide (pas de champ data_version : c'est
-    // LE test utilisé partout — Equipe, BilanSemaine, DashboardAnalyse).
+    // LE test utilisé partout — Equipe, BilanSemaine).
     const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
     if (ouvrages.length === 0) return { ...base, statut: "v1" };
 

@@ -6,9 +6,10 @@
 // (tests, crons /api via `await import()`), comme src/chantierFinance.mjs.
 // Le front importe la façade src/Renovation/qcd.js.
 //
-// ⚠️ Les formules d'indicateurs de DashboardAnalyse.jsx (avSt, mrSt, ratioMO,
-// calcAvancementTheorique…) sont considérées FAUSSES par le métier : ce module
-// les redéfinit à neuf et ne doit JAMAIS les importer ni les recopier.
+// ⚠️ Les formules d'indicateurs de l'ancienne page Dashboard Analyse (avSt,
+// mrSt, ratioMO, calcAvancementTheorique…) étaient considérées FAUSSES par le
+// métier : ce module les redéfinit à neuf. La page a été supprimée le
+// 23/09/2026 ; ne jamais réintroduire ces formules.
 //
 // Conventions :
 //  - avancement en FRACTION 0→1 (l'appli manipule des entiers 0-100 :

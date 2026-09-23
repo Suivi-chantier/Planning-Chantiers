@@ -12,7 +12,8 @@ import {
   statsGroupeChrono,
 } from "../chantierFinance";
 // QCD (Point 2a) : calculs du triangle Qualité/Coût/Délai — module dédié,
-// indépendant de DashboardAnalyse (formules jugées fausses par le métier).
+// indépendant des anciennes formules de la page Dashboard Analyse (jugées
+// fausses par le métier, page supprimée le 23/09/2026).
 import {
   computeQCD, qcdDepuisFinance, QCD_METHODE,
   lireOverridesQCD, construireOverrideQCD, QCD_OVERRIDE_KEYS, QCD_STATUTS_FORCABLES,
