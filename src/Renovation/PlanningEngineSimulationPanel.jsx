@@ -7,6 +7,7 @@ import { Icon } from "../ui";
 import { FONT, RADIUS, SHADOW } from "../constants";
 import { capaciteBasePlanningPourDate } from "./planningResourceCapacityV1.js";
 import { simulerPlanningGlobalV1, simulerSensibiliteHorizonsReplanningV1 } from "./planningEngineDataV1.js";
+import { finPrevisionnelleParChantierV1, libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (dateISO, n) => {
@@ -170,6 +171,10 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
   }, [result]);
   const allocations = blocsOperationnels.slice(0, 80);
 
+  // Fin prévisionnelle : lecture seule du résultat moteur, aucun stockage.
+  // Le tri (complets par date croissante, incomplets à la fin) vient du module.
+  const finPrevisionnelle = useMemo(() => finPrevisionnelleParChantierV1(p), [p]);
+
   return (
     <div style={{ position:"fixed", inset:0, zIndex:180, background:"rgba(8,12,20,.58)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", padding:18 }} onMouseDown={e => { if (e.target === e.currentTarget) onClose?.(); }}>
       <div style={{ width:"min(1180px, 96vw)", maxHeight:"92vh", overflow:"hidden", background:T.modal, border:`1px solid ${T.border}`, borderRadius:18, boxShadow:SHADOW.lg, display:"flex", flexDirection:"column" }}>
@@ -321,6 +326,27 @@ export default function PlanningEngineSimulationPanel({ T, acc, onClose }) {
                 })}
               </div>
             </>}
+
+            <SectionTitle T={T}>Fin prévisionnelle par chantier</SectionTitle>
+            <div style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
+              {finPrevisionnelle.chantiers.length === 0 ? <div style={{ padding:14, color:T.textMuted, fontSize:12 }}>Aucun chantier dans cette proposition.</div> : finPrevisionnelle.chantiers.map((c, i) => {
+                const lib = libelleFinPrevisionnelleV1(c, fmtDate);
+                const incomplet = lib.statut === "au_dela_horizon";
+                const premierIncomplet = incomplet && finPrevisionnelle.chantiers[i - 1] && finPrevisionnelle.chantiers[i - 1].complet;
+                const col = incomplet ? "#f59e0b" : lib.statut === "complet" ? "#22c55e" : T.textMuted;
+                return <div key={c.chantier_id} style={{ display:"grid", gridTemplateColumns:"minmax(150px,1fr) minmax(150px,auto) minmax(190px,1.2fr)", gap:9, alignItems:"center", padding:"9px 11px", borderTop:i ? `${premierIncomplet ? 2 : 1}px solid ${premierIncomplet ? "rgba(245,158,11,.45)" : T.border}` : "none", background:incomplet ? "rgba(245,158,11,.06)" : "transparent", fontSize:12 }}>
+                  <strong style={{ color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{nomsChantiers.get(c.chantier_id) || c.chantier_id}</strong>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:6, color:col, fontWeight:850 }}>
+                    <Icon as={incomplet ? TriangleAlert : lib.statut === "complet" ? CheckCircle2 : CircleAlert} size={13}/>{lib.titre}
+                  </span>
+                  <span style={{ color:T.textMuted, lineHeight:1.35 }}>{lib.detail || `${c.nb_allocations} créneau(x) · ${fmtH(c.heures_mo_allouees)} proposées`}</span>
+                </div>;
+              })}
+            </div>
+            <div style={{ marginTop:8, padding:"9px 11px", border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, fontSize:11, lineHeight:1.45, color:T.textMuted, display:"flex", gap:8 }}>
+              <Icon as={CalendarRange} size={14} style={{ flex:"0 0 auto", marginTop:1 }}/>
+              <span>Ces fins dépendent de l’horizon choisi ({Math.round((result.horizon?.horizon_days ?? horizonDays) / 7)} semaines, jusqu’au {fmtDate(result.horizon?.end_date)}) : plus l’horizon est court, plus de chantiers passent « au-delà de l’horizon ». Un chantier incomplet n’a pas de date de fin connue — seulement un minimum.</span>
+            </div>
 
             <SectionTitle T={T}>Proposition — premiers créneaux</SectionTitle>
             <div style={{ border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-23",
     type: "nouveaute",
+    titre: "Simulation du planning : chaque chantier affiche sa date de fin prévue — ou dit qu'il ne peut pas la connaître",
+    pages: [{ id: "planning", label: "Planning semaine" }],
+    quoi: "La simulation de replanification savait déjà répartir le travail à venir, mais elle ne répondait pas à la question que tout le monde pose en premier : « ce chantier, il se termine quand ? ». Une nouvelle section « Fin prévisionnelle par chantier » donne maintenant cette date, chantier par chantier, triée du plus tôt au plus tard. Surtout, elle ne bluffe jamais : quand une partie du travail d'un chantier ne rentre pas dans la période étudiée, elle refuse d'annoncer une date et affiche « Au-delà de l'horizon », avec les heures qui restent à caser. Un chantier sans date de fin affichée est donc une information, pas un oubli.",
+    comment: "Ouvrez la simulation depuis le Planning et lancez le calcul comme d'habitude. La section apparaît sous les chantiers impactés : les chantiers entièrement planifiés en haut avec leur date (« Fin prévue le 12/11/2026 »), puis, regroupés en bas et surlignés en orange, ceux qui débordent. Pour ceux-là on vous donne seulement un minimum (« pas avant le … ») : la vraie fin est plus tard, on ne sait pas encore de combien. Ces dates dépendent de l'horizon choisi (6, 8 ou 12 semaines) — c'est rappelé sous le tableau : plus l'horizon est court, plus il y a de chantiers « au-delà ». Allongez l'horizon et relancez pour en voir davantage se terminer. Rien n'est enregistré : le panneau reste en lecture seule.",
+  },
+  {
+    date: "2026-09-23",
+    type: "nouveaute",
     titre: "États fin. : l'avancement du terrain et le facturé ProGBat s'affichent à côté de votre saisie",
     pages: [{ id: "etats-financiers", label: "États fin." }],
     quoi: "Dans l'onglet « Avancement chantier », vous saisissiez l'avancement réel de chaque chantier sans aucun point de comparaison sous les yeux : il fallait ouvrir une autre page, ou faire confiance à sa mémoire. L'application, elle, connaissait déjà deux choses utiles — ce que les équipes ont réellement produit sur le terrain, relevé chaque semaine, et le cumul déjà facturé au client dans ProGBat. Ces deux chiffres sont maintenant affichés en face de chaque ligne, à titre indicatif.",
