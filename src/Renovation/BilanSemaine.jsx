@@ -9,11 +9,30 @@ import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierF
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon, InputNombre } from "../ui";
 import { profilSemaine } from "../rythmeSemaine";
+import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
+import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
+import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
   TrendingUp, TrendingDown, Target, AlertTriangle, Trash2,
+  CalendarRange, Users, Play, ShieldCheck, CircleAlert,
 } from "lucide-react";
+
+// Date ISO → "lun. 28/09". Le jour de la semaine compte autant que le quantième
+// quand on lit une proposition de planning.
+const JOURS_COURTS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+const fmtJourCourt = (iso) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "—";
+  const d = new Date(`${iso}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? String(iso) : `${JOURS_COURTS[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+const fmtDateCourte = (iso) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "—";
+  const [y, m, j] = String(iso).split("-");
+  return `${j}/${m}/${y}`;
+};
+const fmtHeuresSem = (v) => `${Math.round((Number(v || 0) + Number.EPSILON) * 10) / 10} h`;
 
 // Un chantier est « en cours » par son ACTIVITÉ, pas par un statut : au moins
 // un pointage dans les JOURS_ACTIVITE derniers jours OU avancement strictement
@@ -867,6 +886,57 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     setGeneratingDoc(false);
   };
 
+  // ── « La semaine qui vient » — proposition du moteur (chantier 07) ───────────
+  // Calcul À LA DEMANDE uniquement : la simulation rejoue tout le moteur
+  // (phasages, capacités, contraintes) et coûte plusieurs secondes. Le Bilan
+  // Semaine doit rester instantané à l'ouverture, donc aucun useEffect ici.
+  // Rien n'est enregistré : la proposition est recalculée quand on la redemande,
+  // et ne pré-remplit jamais la saisie libre ci-dessus.
+  const [semProchaine, setSemProchaine] = useState(null);      // découpage du moteur
+  const [semProchaineRef, setSemProchaineRef] = useState(null); // référentiel noms
+  const [semProchaineLoading, setSemProchaineLoading] = useState(false);
+  const [semProchaineErreur, setSemProchaineErreur] = useState("");
+
+  // On change de semaine → la proposition affichée ne correspond plus : on la
+  // retire plutôt que d'afficher une prévision pour la mauvaise semaine.
+  useEffect(() => {
+    setSemProchaine(null); setSemProchaineRef(null); setSemProchaineErreur("");
+  }, [weekId]);
+
+  const fenetreSemProchaine = useMemo(() => fenetreSemaineProchaineV1(weekId), [weekId]);
+
+  const calculerSemaineProchaine = useCallback(async () => {
+    if (!fenetreSemProchaine) { setSemProchaineErreur("Semaine illisible : impossible de déterminer la semaine suivante."); return; }
+    setSemProchaineLoading(true); setSemProchaineErreur("");
+    try {
+      // L'horizon part du premier jour de la semaine qui vient. On garde
+      // 6 semaines (défaut du panneau de simulation) : assez pour que la fin
+      // prévisionnelle ait du sens, sans alourdir inutilement le calcul.
+      const out = await simulerPlanningGlobalV1({ startDate: fenetreSemProchaine.debut, horizonDays: 42 });
+      const decoupe = bilanSemaineProchaineV1({ resultatMoteur: out, fenetre: fenetreSemProchaine });
+      setSemProchaineRef(out?.referentiel || null);
+      setSemProchaine(decoupe);
+    } catch (e) {
+      console.error("Bilan semaine — semaine qui vient :", e);
+      // Une erreur reste visible : jamais masquée derrière une section vide.
+      setSemProchaine(null); setSemProchaineRef(null);
+      setSemProchaineErreur(e?.message || "Impossible de calculer la proposition du moteur.");
+    } finally { setSemProchaineLoading(false); }
+  }, [fenetreSemProchaine]);
+
+  // Résolution des noms : chantiers depuis la page, ressources depuis le
+  // référentiel renvoyé par la simulation.
+  const nomChantierSem = useCallback(
+    (id) => chantiers.find(c => c.id === id)?.nom
+      || (semProchaineRef?.chantiers || []).find(c => c.id === id)?.nom
+      || id,
+    [chantiers, semProchaineRef]
+  );
+  const nomRessourceSem = useCallback((id) => {
+    const r = (semProchaineRef?.ressources || []).find(x => x.id === id);
+    return r?.nom_planning || r?.nom || id;
+  }, [semProchaineRef]);
+
   // ── HTML stylisé du bilan (utilisé par PDF et envoi mail) ─────────────────
   const buildBilanHTML = () => {
     const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
@@ -1112,6 +1182,54 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         </div>
       </div>`;
 
+    // ── « La semaine qui vient » dans le PDF ─────────────────────────────────
+    // N'apparaît QUE si le conducteur a lancé le calcul. Sans calcul, le PDF
+    // reste exactement celui d'avant — aucune section vide, aucun encart mort.
+    const semaineQuiVientHTML = !semProchaine ? "" : (() => {
+      const lignesCh = semProchaine.par_chantier.map(c => `
+        <tr class="presence-row">
+          <td style="padding:4pt 8pt 4pt 0;vertical-align:top;"><strong style="font-size:10pt;color:${INK};">${esc(nomChantierSem(c.chantier_id))}</strong></td>
+          <td style="padding:4pt 8pt;vertical-align:top;white-space:nowrap;font-size:9.5pt;font-weight:700;color:${INK};">${esc(fmtHeuresSem(c.heures_mo))}</td>
+          <td style="padding:4pt 8pt;vertical-align:top;font-size:9pt;color:${GREY};">${esc(c.jours.map(fmtJourCourt).join(" · "))}</td>
+          <td style="padding:4pt 0;vertical-align:top;font-size:9pt;color:#2a2f37;">${esc(c.resource_ids.map(nomRessourceSem).join(", ") || "—")}</td>
+        </tr>`).join("");
+
+      const lignesPers = semProchaine.par_personne.map(p => {
+        const conflit = p.multi_chantiers_meme_jour.length
+          ? `<div style="font-size:8.5pt;color:${ORANGE};margin-top:1pt;">${esc(p.multi_chantiers_meme_jour.map(m => `${fmtJourCourt(m.date)} : ${m.chantier_ids.map(nomChantierSem).join(" + ")}`).join(" · "))}</div>`
+          : "";
+        return `
+        <tr class="presence-row">
+          <td style="padding:4pt 8pt 4pt 0;vertical-align:top;"><strong style="font-size:10pt;color:${INK};">${esc(nomRessourceSem(p.resource_id))}</strong></td>
+          <td style="padding:4pt 8pt;vertical-align:top;white-space:nowrap;font-size:9.5pt;font-weight:700;color:${INK};">${esc(fmtHeuresSem(p.heures_mo))}</td>
+          <td style="padding:4pt 0;vertical-align:top;font-size:9pt;color:#2a2f37;">${esc(p.chantiers.map(c => `${nomChantierSem(c.chantier_id)} (${fmtHeuresSem(c.heures_mo)})`).join(" · "))}${conflit}</td>
+        </tr>`;
+      }).join("");
+
+      // Un chantier qui déborde ne reçoit JAMAIS de date de fin sèche : on
+      // réutilise le libellé du module de fin prévisionnelle.
+      const lignesDebord = semProchaine.chantiers_au_dela_horizon.map(c => {
+        const lib = libelleFinPrevisionnelleV1(c, fmtDateCourte);
+        return `<div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 4pt;padding-left:16pt;position:relative;line-height:1.45;"><span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span><strong style="color:${INK};">${esc(nomChantierSem(c.chantier_id))}</strong> — ${esc(lib.titre)}${lib.detail ? ` <span style="color:${GREY};">(${esc(lib.detail)})</span>` : ""}</div>`;
+      }).join("");
+
+      const rien = !lignesCh && !lignesDebord;
+      const fen = semProchaine.fenetre;
+      return `
+      <div style="border:1pt solid ${LINE};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
+        <div style="background:#f5f6f8;padding:6pt 14pt;border-bottom:1pt solid ${LINE};">
+          <span style="font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${INK};">La semaine qui vient</span>
+          <span style="font-size:8pt;color:${GREY};margin-left:8pt;">${fen ? `du ${esc(fmtDateCourte(fen.debut))} au ${esc(fmtDateCourte(fen.fin))} · ` : ""}proposition du moteur uniquement — rien n'est appliqué</span>
+        </div>
+        <div style="padding:10pt 14pt;">
+          ${rien ? `<div style="font-size:9pt;color:${GREY};font-style:italic;">Le moteur ne propose aucune intervention sur ces 7 jours.</div>` : ""}
+          ${lignesCh ? `${titreSectionGlobal("Par chantier", INK)}<table style="width:100%;border-collapse:collapse;margin:0 0 9pt;">${lignesCh}</table>` : ""}
+          ${lignesPers ? `${titreSectionGlobal("Par personne", INK)}<table style="width:100%;border-collapse:collapse;margin:0 0 9pt;">${lignesPers}</table>` : ""}
+          ${lignesDebord ? `${titreSectionGlobal("Chantiers qui débordent de l'horizon", ORANGE)}${lignesDebord}` : ""}
+        </div>
+      </div>`;
+    })();
+
     const kpiCell = (val, label, color) => `
       <td style="padding:15pt 14pt;vertical-align:middle;text-align:center;border-left:1pt solid rgba(255,255,255,.10);">
         <div style="color:${color};font-size:15pt;font-weight:800;line-height:1;white-space:nowrap;">${val}</div>
@@ -1170,6 +1288,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   </table>
   ${syntheseHTML}
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun chantier sélectionné pour cette semaine.</div>`}
+  ${semaineQuiVientHTML}
   ${includeFinances ? `
   <div style="page-break-before:always;">
     <div style="font-size:13pt;font-weight:800;color:${INK};margin:0 0 4pt;">Annexe — Méthode de calcul</div>
@@ -1478,6 +1597,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     ...prev,
     semaineSuivante: prev.semaineSuivante.filter((_, i) => i !== idx),
   }));
+
 
   // ── Bilan (étape 2) ──────────────────────────────────────────────────────────
   return (
@@ -1875,6 +1995,147 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </button>
             </div>
           )}
+
+          {/* ── La semaine qui vient — proposition du moteur (chantier 07) ────── */}
+          {/* Sous la saisie libre, jamais à la place : le moteur propose, le
+              conducteur complète et corrige au-dessus. Calcul à la demande. */}
+          <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 18px", flexShrink:0 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, marginBottom:10 }}>
+              <div style={{ minWidth:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  <span style={{ fontSize:15, fontWeight:800, color:T.text }}>La semaine qui vient</span>
+                  <span style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 8px", borderRadius:999, fontSize:10, fontWeight:800,
+                    color:"#16a34a", background:"rgba(22,163,74,.10)", border:"1px solid rgba(22,163,74,.24)" }}>
+                    <Icon as={ShieldCheck} size={11}/> Proposition uniquement
+                  </span>
+                </div>
+                <div style={{ fontSize:12, color:T.textMuted, marginTop:3 }}>
+                  {fenetreSemProchaine
+                    ? <>Ce que le moteur placerait du {fmtDateCourte(fenetreSemProchaine.debut)} au {fmtDateCourte(fenetreSemProchaine.fin)} — rien n'est enregistré, rien n'est appliqué.</>
+                    : "Semaine illisible : la semaine suivante ne peut pas être déterminée."}
+                </div>
+              </div>
+              <button onClick={calculerSemaineProchaine} disabled={semProchaineLoading || !fenetreSemProchaine}
+                style={{ background:semProchaineLoading ? T.card : T.accent, border:semProchaineLoading ? `1px solid ${T.border}` : "none",
+                  borderRadius:10, padding:"9px 14px", color:semProchaineLoading ? T.textSub : "#0d1117", fontFamily:"inherit", fontSize:13,
+                  fontWeight:800, cursor:(semProchaineLoading || !fenetreSemProchaine) ? "default" : "pointer",
+                  opacity:fenetreSemProchaine ? 1 : .5, display:"inline-flex", alignItems:"center", gap:7, flexShrink:0 }}>
+                <Icon as={semProchaineLoading ? RefreshCw : Play} size={14} className={semProchaineLoading ? "spin" : ""}/>
+                {semProchaineLoading ? "Calcul en cours…" : semProchaine ? "Recalculer" : "Calculer la proposition"}
+              </button>
+            </div>
+
+            {semProchaineErreur && (
+              <div style={{ padding:"10px 12px", borderRadius:10, background:"rgba(239,68,68,.09)", border:"1px solid rgba(239,68,68,.25)",
+                color:"#ef4444", display:"flex", gap:8, alignItems:"flex-start", fontSize:12.5, lineHeight:1.45 }}>
+                <Icon as={CircleAlert} size={15} style={{ flexShrink:0, marginTop:1 }}/>
+                <span><strong>Le calcul n'a pas abouti.</strong> {semProchaineErreur} Le reste du bilan est intact ; vous pouvez réessayer.</span>
+              </div>
+            )}
+
+            {!semProchaine && !semProchaineErreur && !semProchaineLoading && (
+              <div style={{ padding:"14px 12px", border:`1.5px dashed ${T.border}`, borderRadius:10, fontSize:12.5, lineHeight:1.5, color:T.textMuted }}>
+                Le calcul n'est pas lancé automatiquement : il rejoue tout le moteur de planification et prend quelques secondes.
+                Cliquez sur « Calculer la proposition » pour voir qui travaillerait où, combien d'heures, et quels chantiers débordent.
+              </div>
+            )}
+
+            {semProchaine && (
+              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                {semProchaine.par_chantier.length === 0 && semProchaine.chantiers_au_dela_horizon.length === 0 ? (
+                  <div style={{ padding:"12px", border:`1px solid ${T.border}`, borderRadius:10, background:T.card, fontSize:12.5, color:T.textSub }}>
+                    Le moteur ne propose aucune intervention sur ces 7 jours. Ce n'est pas une erreur : soit il n'y a plus de travail à placer, soit rien n'est éligible sur cette période.
+                  </div>
+                ) : (
+                  <>
+                    {/* Par chantier */}
+                    {semProchaine.par_chantier.length > 0 && (
+                      <div>
+                        <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:7, fontSize:11, fontWeight:800, letterSpacing:.9, textTransform:"uppercase", color:T.textMuted }}>
+                          <Icon as={CalendarRange} size={13}/> Par chantier · {semProchaine.resume.chantiers} chantier{semProchaine.resume.chantiers > 1 ? "s" : ""} · {fmtHeuresSem(semProchaine.resume.heures_mo)} de main-d'œuvre
+                        </div>
+                        <div style={{ border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+                          {semProchaine.par_chantier.map((c, i) => (
+                            <div key={c.chantier_id} style={{ padding:"9px 12px", borderTop:i ? `1px solid ${T.border}` : "none", background:T.card }}>
+                              <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
+                                <strong style={{ fontSize:13, color:T.text }}>{nomChantierSem(c.chantier_id)}</strong>
+                                <span style={{ fontSize:12, fontWeight:800, color:T.accent }}>{fmtHeuresSem(c.heures_mo)}</span>
+                                <span style={{ fontSize:11.5, color:T.textMuted }}>{c.jours.map(fmtJourCourt).join(" · ")}</span>
+                              </div>
+                              <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
+                                {c.resource_ids.map(nomRessourceSem).join(", ") || "aucune personne affectée"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Par personne */}
+                    {semProchaine.par_personne.length > 0 && (
+                      <div>
+                        <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:7, fontSize:11, fontWeight:800, letterSpacing:.9, textTransform:"uppercase", color:T.textMuted }}>
+                          <Icon as={Users} size={13}/> Par personne · {semProchaine.resume.personnes}
+                        </div>
+                        <div style={{ border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
+                          {semProchaine.par_personne.map((p, i) => (
+                            <div key={p.resource_id} style={{ padding:"9px 12px", borderTop:i ? `1px solid ${T.border}` : "none", background:T.card }}>
+                              <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
+                                <strong style={{ fontSize:13, color:T.text }}>{nomRessourceSem(p.resource_id)}</strong>
+                                <span style={{ fontSize:12, fontWeight:800, color:T.accent }}>{fmtHeuresSem(p.heures_mo)}</span>
+                                <span style={{ fontSize:11.5, color:T.textMuted }}>{p.nb_chantiers} chantier{p.nb_chantiers > 1 ? "s" : ""}</span>
+                              </div>
+                              <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
+                                {p.chantiers.map(c => `${nomChantierSem(c.chantier_id)} (${fmtHeuresSem(c.heures_mo)})`).join(" · ")}
+                              </div>
+                              {p.multi_chantiers_meme_jour.length > 0 && (
+                                <div style={{ marginTop:4, fontSize:11.5, color:"#f59e0b", display:"flex", gap:6, alignItems:"flex-start", lineHeight:1.4 }}>
+                                  <Icon as={AlertTriangle} size={12} style={{ flexShrink:0, marginTop:2 }}/>
+                                  <span>{p.multi_chantiers_meme_jour.map(m => `${fmtJourCourt(m.date)} : ${m.chantier_ids.map(nomChantierSem).join(" + ")}`).join(" · ")}</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Chantiers qui débordent de l'horizon */}
+                    {semProchaine.chantiers_au_dela_horizon.length > 0 && (
+                      <div>
+                        <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:7, fontSize:11, fontWeight:800, letterSpacing:.9, textTransform:"uppercase", color:"#f59e0b" }}>
+                          <Icon as={AlertTriangle} size={13}/> Chantiers qui débordent de l'horizon · {semProchaine.chantiers_au_dela_horizon.length}
+                        </div>
+                        <div style={{ border:"1px solid rgba(245,158,11,.35)", borderRadius:10, overflow:"hidden" }}>
+                          {semProchaine.chantiers_au_dela_horizon.map((c, i) => {
+                            const lib = libelleFinPrevisionnelleV1(c, fmtDateCourte);
+                            return (
+                              <div key={c.chantier_id} style={{ padding:"9px 12px", borderTop:i ? "1px solid rgba(245,158,11,.25)" : "none", background:"rgba(245,158,11,.06)" }}>
+                                <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
+                                  <strong style={{ fontSize:13, color:T.text }}>{nomChantierSem(c.chantier_id)}</strong>
+                                  <span style={{ fontSize:12, fontWeight:800, color:"#f59e0b" }}>{lib.titre}</span>
+                                </div>
+                                {lib.detail && <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>{lib.detail}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div style={{ display:"flex", gap:8, alignItems:"flex-start", fontSize:11, lineHeight:1.45, color:T.textMuted,
+                  border:`1px dashed ${T.border}`, borderRadius:10, padding:"9px 11px" }}>
+                  <Icon as={Clock} size={13} style={{ flexShrink:0, marginTop:1 }}/>
+                  <span>
+                    Proposition du moteur, recalculée à chaque demande et jamais enregistrée. Elle ne remplace pas vos points saisis ci-dessus.
+                    Un chantier « au-delà de l'horizon » n'a pas de date de fin connue — seulement un minimum. Cette section apparaîtra dans le PDF.
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* ── Barre de sélection PDF + drapeau finances ── */}
           {chantiersBilan.length > 0 && (

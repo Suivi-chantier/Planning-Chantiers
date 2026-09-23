@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-23",
     type: "nouveaute",
+    titre: "Bilan de la semaine : l'application peut proposer ce qui vient — qui travaille où, et quels chantiers débordent",
+    pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
+    quoi: "Dans le bilan, la rubrique « Semaine suivante » était entièrement à taper à la main, et plus personne n'y écrivait depuis début août. L'application, elle, connaît déjà le travail qui reste, la disponibilité réelle de chacun et, depuis peu, la date de fin prévue de chaque chantier. Une nouvelle section « La semaine qui vient » met tout ça noir sur blanc : chantier par chantier (quels jours, combien d'heures, quelles personnes), personne par personne (où elle est attendue et combien d'heures), et la liste des chantiers dont le travail déborde de la période étudiée. C'est une proposition, pas une décision : elle ne remplace pas ce que vous écrivez à la main, elle vous évite de partir de la feuille blanche.",
+    comment: "La section se trouve juste sous « Semaine suivante ». Elle ne se calcule pas toute seule à l'ouverture — le calcul rejoue tout le moteur de planification et prend quelques secondes, alors que le bilan doit s'ouvrir vite. Cliquez sur « Calculer la proposition » quand vous en avez besoin. Si une personne se retrouve proposée sur deux chantiers le même jour, c'est signalé en orange. Les chantiers qui débordent n'affichent jamais de date de fin inventée : seulement « pas avant le … ». Vos points saisis à la main restent intacts et modifiables, rien n'est pré-rempli ni enregistré. Enfin, la section n'apparaît dans le PDF que si vous avez lancé le calcul : sans ça, le document reste exactement comme avant.",
+  },
+  {
+    date: "2026-09-23",
+    type: "nouveaute",
     titre: "Simulation du planning : chaque chantier affiche sa date de fin prévue — ou dit qu'il ne peut pas la connaître",
     pages: [{ id: "planning", label: "Planning semaine" }],
     quoi: "La simulation de replanification savait déjà répartir le travail à venir, mais elle ne répondait pas à la question que tout le monde pose en premier : « ce chantier, il se termine quand ? ». Une nouvelle section « Fin prévisionnelle par chantier » donne maintenant cette date, chantier par chantier, triée du plus tôt au plus tard. Surtout, elle ne bluffe jamais : quand une partie du travail d'un chantier ne rentre pas dans la période étudiée, elle refuse d'annoncer une date et affiche « Au-delà de l'horizon », avec les heures qui restent à caser. Un chantier sans date de fin affichée est donc une information, pas un oubli.",
