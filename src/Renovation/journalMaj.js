@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-23",
+    type: "nouveaute",
+    titre: "États fin. : l'avancement du terrain et le facturé ProGBat s'affichent à côté de votre saisie",
+    pages: [{ id: "etats-financiers", label: "États fin." }],
+    quoi: "Dans l'onglet « Avancement chantier », vous saisissiez l'avancement réel de chaque chantier sans aucun point de comparaison sous les yeux : il fallait ouvrir une autre page, ou faire confiance à sa mémoire. L'application, elle, connaissait déjà deux choses utiles — ce que les équipes ont réellement produit sur le terrain, relevé chaque semaine, et le cumul déjà facturé au client dans ProGBat. Ces deux chiffres sont maintenant affichés en face de chaque ligne, à titre indicatif.",
+    comment: "Dans la colonne de gauche, un nouveau menu « Chantier lié » vous laisse choisir à quel chantier de l'application correspond la ligne. C'est vous qui choisissez : rien n'est rapproché automatiquement sur la ressemblance des noms, et vous pouvez parfaitement laisser vide — une ligne non reliée reste exactement comme avant. Dès qu'une ligne est reliée, deux colonnes en pointillés apparaissent : « Terrain » (l'avancement du dernier relevé hebdomadaire, avec sa date au survol) et « Facturé ProGBat » (le cumul facturé en euros et sa part du marché, avec le numéro de situation au survol). Ces deux colonnes sont en lecture seule et ne modifient JAMAIS ce que vous saisissez : ni l'avancement réel, ni le % facturé, ni les calculs qui en découlent. Vous gardez entièrement la main, elles sont juste là pour vous alerter d'un écart. Quand un chiffre n'existe pas — ligne non reliée, chantier sans relevé ou sans situation ProGBat — la colonne affiche un tiret : l'application ne devine rien.",
+  },
+  {
+    date: "2026-09-23",
     type: "amelioration",
     titre: "La page « Analyse » est retirée : ses marges étaient fausses",
     pages: [],
