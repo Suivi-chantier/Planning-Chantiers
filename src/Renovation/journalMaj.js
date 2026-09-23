@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-23",
+    type: "amelioration",
+    titre: "La page « Analyse » est retirée : ses marges étaient fausses",
+    pages: [],
+    quoi: "La page « Analyse » (menu de gauche, icône graphique) disparaît de l'application. Elle calculait la marge des chantiers SANS déduire les frais généraux, alors que la fiche chantier, elle, les déduit. Résultat : deux marges différentes pour un même chantier, et l'écart n'était pas anecdotique — 8 665 € sur TOM & CAMILLE R+2, soit 30 % du prix de vente. Un chiffre affiché en trop beau sur un écran de pilotage est pire que pas de chiffre du tout : on prend des décisions dessus. Ses données financières n'avaient d'ailleurs plus bougé depuis le 21 mai, et deux de ses onglets (pipeline commercial, trésorerie) n'ont jamais contenu la moindre donnée.",
+    comment: "Il n'y a rien à faire de votre côté et aucune donnée n'a été supprimée : seul l'écran disparaît. Pour la marge et la rentabilité d'un chantier, la référence est désormais la fiche chantier (page Chantiers), qui déduit bien les frais généraux. Pour le suivi financier mois par mois, c'est la page « États fin. », où le travail financier a été repris depuis septembre. Le diagramme financier consolidé de l'entreprise, qui vivait dans cette page, est conservé de côté : il pourra être rebranché dans « États fin. » si le besoin s'en fait sentir — dites-le simplement.",
+  },
+  {
     date: "2026-09-22",
     type: "correctif",
     titre: "Phasage : les tâches se rangent toutes seules, sans avoir à ouvrir l'onglet Chrono",
@@ -258,7 +266,7 @@ export const JOURNAL_MAJ = [
     date: "2026-09-16",
     type: "correctif",
     titre: "Chiffrage : la saisie d'une ligne ne revient plus en arrière, et les nombres se tapent normalement partout",
-    pages: [{ id: "info-client", label: "Chiffrage" }, { id: "phasage", label: "Phasage" }, { id: "bibliotheque", label: "Biblio. ouvrages" }, { id: "dashboard-analyse", label: "Dashboard Analyse" }],
+    pages: [{ id: "info-client", label: "Chiffrage" }, { id: "phasage", label: "Phasage" }, { id: "bibliotheque", label: "Biblio. ouvrages" }],
     quoi: "Deux gênes de saisie sont corrigées. 1) Sur le Chiffrage, la zone, la quantité, le prix d'une ligne et les champs d'une cote pouvaient revenir à une version précédente en pleine frappe : l'enregistrement automatique partait pendant une pause, et sa confirmation revenait écraser les caractères tapés entre-temps. 2) Partout dans l'application, les champs de nombres refusaient les saisies intermédiaires : impossible de taper une virgule, un chiffre après la virgule ou de commencer par un zéro sans que le champ se remette à zéro ou efface la frappe.",
     comment: "Chiffrage : chaque champ d'une ligne en cours de saisie est protégé le temps de son enregistrement ; les modifications faites au même moment par un collègue sur les AUTRES champs de la ligne continuent d'arriver normalement. Nombres : un champ de saisie unique est désormais utilisé pour tous les nombres (heures, quantités, prix, cadences, pourcentages, budgets Invest…). Il affiche exactement ce qui est tapé tant qu'on est dedans, accepte la virgule comme le point, propose le pavé numérique sur téléphone, et remet la valeur au propre en sortant du champ (« 05 » devient « 5 »). Il ne corrige jamais la valeur en douce : les bornes (0 à 100 %, quantité minimale…) restent celles de chaque écran.",
   },

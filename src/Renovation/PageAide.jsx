@@ -323,20 +323,6 @@ export const AIDE_CONTENU = {
       "La page sauvegarde toute seule au fur et à mesure (un indicateur le montre en haut).",
     ],
   },
-  "dashboard-analyse": {
-    titre: "Analyse & rentabilité",
-    sousTitre: "Piloter la santé financière de tous les chantiers.",
-    intro: "Vue de pilotage : chiffre d'affaires, marges et alertes pour repérer d'un coup d'œil les chantiers qui vont bien et ceux à surveiller.",
-    etapes: [
-      "Lisez les indicateurs en tête (chiffre d'affaires, marge réelle, alertes, ratio d'heures).",
-      "Parcourez le tableau des chantiers actifs : avancement, main-d'œuvre consommée, marge réelle.",
-      "Repérez les chantiers en alerte (rouge) et ceux qui vont bien (vert).",
-      "Suivez le pipeline commercial (opportunités et probabilité de signature).",
-    ],
-    savoir: [
-      "Chaque chantier affiche 3 repères : avancement réel vs prévu, heures consommées vs budget, marge réelle vs cible.",
-    ],
-  },
   "etats-financiers": {
     titre: "États financiers",
     sousTitre: "Suivre et valider l'avancement financier, mois par mois.",

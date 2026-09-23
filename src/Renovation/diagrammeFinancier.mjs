@@ -11,8 +11,9 @@
 // RÈGLE ABSOLUE : aucune formule financière n'est réécrite ici. Tout montant
 // vient de chantierFinance (heuresParMois, sumCoutMO, totalLignes) ou du
 // résultat de computeChantierFinance passé en argument (`finance`). Ce module
-// ne fait que DATER et CUMULER. Les indicateurs de DashboardAnalyse.jsx sont
-// interdits comme référence (formules considérées fausses par le métier).
+// ne fait que DATER et CUMULER. Les indicateurs de l'ancienne page Dashboard
+// Analyse (supprimée le 23/09/2026) restent interdits comme référence :
+// formules considérées fausses par le métier.
 //
 // Conventions :
 //  - clé de mois : "YYYY-MM" ; les séries sont triées du plus ancien au plus

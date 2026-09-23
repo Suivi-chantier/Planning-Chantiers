@@ -114,7 +114,7 @@ import PageInfoClient         from "./Renovation/PageInfoClient";
 import PageChantiers          from "./Renovation/PageChantiers";
 
 // Pages lourdes ou peu fréquentes : chargées à la demande (code-splitting) pour
-// alléger le bundle initial. recharts (DashboardAnalyse, Invest) et xlsx
+// alléger le bundle initial. recharts (Invest) et xlsx
 // (PhasageV2 via devisImport) ne sont ainsi plus dans le chunk principal.
 const PagePhasageV2          = lazy(() => import("./Renovation/PhasageV2"));
 const PageOperations         = lazy(() => import("./Renovation/PageOperations"));
@@ -125,7 +125,6 @@ const PageGuideOuvrages      = lazy(() => import("./Renovation/PageGuideOuvrages
 const PageJournalMaj         = lazy(() => import("./Renovation/PageJournalMaj"));
 const PageInventaireEquipes  = lazy(() => import("./Renovation/PageInventaireEquipes"));
 const PageInvest             = lazyAvecReprise(() => import("./PageInvest"), "invest");
-const PageDashboardAnalyse   = lazy(() => import("./Renovation/DashboardAnalyse"));
 const PageHeuresSalaries     = lazy(() => import("./Renovation/HeuresSalaries"));
 const PageEtatsFinanciers    = lazy(() => import("./Renovation/EtatsFinanciers"));
 const EspaceOuvrier          = lazy(() => import("./Renovation/EspaceOuvrier"));
@@ -851,7 +850,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
           {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
           {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={retourChiffrage} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
-          {page==="dashboard-analyse"  && (canAccess(role,"dashboard-analyse")  ? <PageDashboardAnalyse T={T} branch={branch} onOpenChantier={ouvrirFicheChantier}/> : <AccesRefuse T={T} page="dashboard-analyse"/>)}
           {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {page==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
           {page==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
-  TrendingUp, Calculator, CheckCircle2, Camera, Receipt, Wallet,
+  Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
@@ -60,7 +60,6 @@ const ALL_NAV_ITEMS = [
   { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
   { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
   { id:"info-client",      icon:IdCard,          label:"Chiffrage",  longLabel:"Chiffrage"           },
-  { id:"dashboard-analyse",icon:TrendingUp,      label:"Analyse",    longLabel:"Dashboard Analyse"   },
   { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
   { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions",longLabel:"Suggestions de matériaux" },
   { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide",      longLabel:"Guide ouvrages"      },
@@ -262,7 +261,6 @@ function Sidebar({
     { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
     { id:"visite",           icon:Search,          label:"Visites chantier" },
     { id:"info-client",      icon:IdCard,          label:"Chiffrage"        },
-    { id:"dashboard-analyse",icon:TrendingUp,      label:"Dashboard Analyse"  },
     { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
     { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions de matériaux" },
     { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide ouvrages"   },
