@@ -3,6 +3,15 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import {
+  SANS_DONNEE,
+  donneesLieesLigne,
+  formaterDateFr,
+  indexerSituations,
+  indexerSnapshots,
+  infobulleFacture,
+  infobulleTerrain,
+} from "./avancementDonneesLiees.mjs";
+import {
   Calculator,
   Euro,
   Clock,
@@ -3330,6 +3339,9 @@ function createAvancementRow(periodId) {
     id: createId("chantier"),
     devis: "",
     chantier: "",
+    // Chantier de l'application auquel la ligne est reliée. Vide par défaut :
+    // le lien est toujours choisi à la main par le comptable.
+    chantier_id: "",
     values: {},
   };
 
@@ -3487,6 +3499,7 @@ function normalizeAvancement(raw) {
           id: row.id || createId("chantier"),
           devis: row.devis ?? "",
           chantier: row.chantier ?? "",
+          chantier_id: row.chantier_id ?? "",
           values,
         };
       })
@@ -3582,6 +3595,61 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // ── Ce que l'application sait déjà (lecture seule, informatif) ──────────────
+  // Deux lectures volontairement séparées du chargement principal : si elles
+  // échouent, l'écran affiche des tirets et la saisie continue de fonctionner.
+  // Elles ne lisent que les colonnes nécessaires, et JAMAIS la table `phasages`
+  // dont les ouvrages pèsent plusieurs centaines de kilo-octets.
+  const [chantiersRef, setChantiersRef] = useState([]);
+  const [donneesLiees, setDonneesLiees] = useState(() => ({
+    snapshots: new Map(),
+    situations: new Map(),
+  }));
+
+  useEffect(() => {
+    let annule = false;
+
+    (async () => {
+      try {
+        const [refChantiers, refSnapshots, refSituations] = await Promise.all([
+          supabase
+            .from("planning_config")
+            .select("value")
+            .eq("key", "chantiers")
+            .maybeSingle(),
+          // On ne lit ni `marge` ni `situation_a_facturer` : hors périmètre.
+          supabase
+            .from("chantier_snapshots_hebdo")
+            .select("chantier_id, week_id, date_snapshot, avancement")
+            .order("date_snapshot", { ascending: false }),
+          supabase
+            .from("chantier_factures_client")
+            .select("chantier_id, date_facture, progbat_situation_number, progbat_achievement, progbat_deal_net_total")
+            .order("date_facture", { ascending: false }),
+        ]);
+
+        if (annule) return;
+
+        const chantiers = Array.isArray(refChantiers?.data?.value) ? refChantiers.data.value : [];
+        setChantiersRef(
+          chantiers
+            .filter(c => c?.id)
+            .map(c => ({ id: String(c.id), nom: c.nom || String(c.id) }))
+            .sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
+        );
+
+        setDonneesLiees({
+          snapshots: indexerSnapshots(refSnapshots?.data),
+          situations: indexerSituations(refSituations?.data),
+        });
+      } catch (e) {
+        console.error("EtatsFinanciers donnees liees:", e);
+      }
+    })();
+
+    return () => { annule = true; };
+  }, []);
 
   // ── Sauvegarde manuelle ─────────────────────────────────────────────────────
   const save = async () => {
@@ -4620,6 +4688,8 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             updateRow={updateAvancementRow}
             updateValue={updateAvancementValue}
             toggleLock={toggleAvancementLock}
+            chantiersRef={chantiersRef}
+            donneesLiees={donneesLiees}
           />
         )}
 
@@ -4879,7 +4949,7 @@ function FraisGenerauxTab({
 }
 
 // ─── ONGLET 2 : AVANCEMENT DE CHANTIER ───────────────────────────────────────
-function AvancementChantierTab({
+export function AvancementChantierTab({
   T,
   acc,
   avancement,
@@ -4893,6 +4963,8 @@ function AvancementChantierTab({
   updateRow,
   updateValue,
   toggleLock,
+  chantiersRef = [],
+  donneesLiees,
 }) {
   const periods = avancement.periods || [];
   const rows = avancement.rows || [];
@@ -4965,9 +5037,18 @@ function AvancementChantierTab({
         ? autoCaProvisionner
         : parseNumber(values.caProvisionner);
 
+      // Informatif uniquement : ne participe à AUCUN calcul de la grille.
+      const { terrain, facture } = donneesLieesLigne(
+        row.chantier_id,
+        donneesLiees?.snapshots,
+        donneesLiees?.situations
+      );
+
       return {
         row,
         values,
+        terrain,
+        facture,
         hasPeriodData,
         montantHT,
         avancementReel,
@@ -5253,18 +5334,25 @@ function AvancementChantierTab({
             boxShadow: "0 12px 30px rgba(0,0,0,0.08)",
           }}
         >
-          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2240, borderCollapse: "separate", borderSpacing: 0 }}>
+          <table className="ef-avancement-table" style={{ width: "100%", minWidth: 2740, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                 <AvancementTh T={T}>Couleur</AvancementTh>
                 <AvancementTh T={T}>Déplacer</AvancementTh>
                 <AvancementTh T={T} align="left">Devis</AvancementTh>
                 <AvancementTh T={T} align="left">Nom du chantier</AvancementTh>
+                <AvancementTh T={T} align="left">Chantier lié</AvancementTh>
                 <AvancementTh T={T}>Montant total HT</AvancementTh>
                 <AvancementTh T={T}>Montant total TTC</AvancementTh>
                 <AvancementTh T={T}>Avancement précédent</AvancementTh>
                 <AvancementTh T={T}>Avancement réel</AvancementTh>
+                <AvancementTh T={T} calculated accentColor="#5b9cf6" hint="Avancement constaté sur le terrain, relevé chaque semaine par l'application. Informatif : il ne modifie jamais la saisie.">
+                  Terrain
+                </AvancementTh>
                 <AvancementTh T={T}>% facturé</AvancementTh>
+                <AvancementTh T={T} calculated accentColor="#5b9cf6" hint="Cumul facturé de la dernière situation de travaux ProGBat, et sa part du marché. Informatif : il ne modifie jamais la saisie.">
+                  Facturé ProGBat
+                </AvancementTh>
                 <AvancementTh T={T} calculated accentColor={acc.accent} formula="Avancement réel - % facturé">
                   % à provisionner
                 </AvancementTh>
@@ -5281,13 +5369,13 @@ function AvancementChantierTab({
             <tbody>
               {computedRows.length === 0 && (
                 <tr>
-                  <td colSpan={15} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
+                  <td colSpan={18} style={{ padding: "28px 12px", textAlign: "center", color: T.textSub, fontSize: 14 }}>
                     Aucun chantier saisi pour ce mois. Clique sur <strong style={{ color: T.text }}>Ajouter un chantier</strong> pour commencer.
                   </td>
                 </tr>
               )}
 
-              {computedRows.map(({ row, values, montantHT, avancementReel, pctFacture, autoPctProvisionner, pctProvisionner, autoCaProvisionner, caProvisionner, pctProvisionnerLocked, caProvisionnerLocked, isCompleted }) => {
+              {computedRows.map(({ row, values, terrain, facture, montantHT, avancementReel, pctFacture, autoPctProvisionner, pctProvisionner, autoCaProvisionner, caProvisionner, pctProvisionnerLocked, caProvisionnerLocked, isCompleted }) => {
                 const rowColor = normalizeRowColor(values.rowColor);
                 return (
                 <tr
@@ -5372,6 +5460,15 @@ function AvancementChantierTab({
                     />
                   </td>
 
+                  <td style={{ padding: "7px 8px", width: 200 }}>
+                    <ChantierLieSelect
+                      T={T}
+                      value={row.chantier_id}
+                      chantiers={chantiersRef}
+                      onChange={chantierId => updateRow(row.id, "chantier_id", chantierId)}
+                    />
+                  </td>
+
                   <td style={{ padding: "7px 8px", width: 130 }}>
                     <LockedInput
                       T={T}
@@ -5435,6 +5532,15 @@ function AvancementChantierTab({
                     />
                   </td>
 
+                  <td style={{ padding: "7px 8px", width: 130 }}>
+                    <DonneeLieeCell
+                      T={T}
+                      principal={terrain ? fmtPct(terrain.pct / 100) : SANS_DONNEE}
+                      secondaire={terrain?.date ? formaterDateFr(terrain.date) : ""}
+                      title={infobulleTerrain(terrain)}
+                    />
+                  </td>
+
                   <td style={{ padding: "7px 8px", width: 115 }}>
                     <input
                       className="ef-input"
@@ -5444,6 +5550,15 @@ function AvancementChantierTab({
                       onChange={e => updateValue(row.id, currentPeriodId, "pctFacture", e.target.value)}
                       placeholder="0,68"
                       style={numberInput}
+                    />
+                  </td>
+
+                  <td style={{ padding: "7px 8px", width: 170 }}>
+                    <DonneeLieeCell
+                      T={T}
+                      principal={facture ? fmtEur(facture.cumulEuros) : SANS_DONNEE}
+                      secondaire={facture && facture.pct !== null ? fmtPct(facture.pct / 100) : ""}
+                      title={infobulleFacture(facture)}
                     />
                   </td>
 
@@ -5738,13 +5853,13 @@ function LockedInput({
   );
 }
 
-function AvancementTh({ T, children, align = "right", formula = null, calculated = false, accentColor = "#d7b46a" }) {
+function AvancementTh({ T, children, align = "right", formula = null, calculated = false, accentColor = "#d7b46a", hint = null }) {
   const alignItems = align === "left" ? "flex-start" : "flex-end";
 
   return (
     <th
       className={formula ? "ef-formula-head" : undefined}
-      title={formula ? `Formule : ${formula}` : undefined}
+      title={formula ? `Formule : ${formula}` : (hint || undefined)}
       style={{
         textAlign: align,
         padding: "11px 9px",
@@ -5761,6 +5876,26 @@ function AvancementTh({ T, children, align = "right", formula = null, calculated
     >
       <div style={{ display: "flex", flexDirection: "column", alignItems, gap: 4 }}>
         <span>{children}</span>
+
+        {hint && !formula && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              padding: "2px 6px",
+              borderRadius: RADIUS.pill,
+              background: `${accentColor}18`,
+              border: `1px solid ${accentColor}40`,
+              color: accentColor,
+              fontSize: 9.5,
+              fontWeight: 900,
+              letterSpacing: 0.4,
+              textTransform: "uppercase",
+            }}
+          >
+            lecture seule
+          </span>
+        )}
 
         {formula && (
           <span
@@ -5793,6 +5928,77 @@ function AvancementTh({ T, children, align = "right", formula = null, calculated
         )}
       </div>
     </th>
+  );
+}
+
+// Sélecteur « Chantier lié ». Aucun rapprochement automatique par ressemblance
+// de nom : le comptable choisit, ou laisse vide. Une ligne non reliée reste
+// exactement ce qu'elle était — une ligne purement manuelle.
+function ChantierLieSelect({ T, value, chantiers = [], onChange }) {
+  const valeur = value || "";
+  // Un chantier archivé ou renommé côté configuration ne doit jamais faire
+  // disparaître le lien en silence : on le garde visible tel quel.
+  const inconnu = valeur !== "" && !chantiers.some(c => c.id === valeur);
+
+  return (
+    <select
+      value={valeur}
+      onChange={e => onChange(e.target.value)}
+      title="Relier cette ligne à un chantier de l'application. Sert uniquement à afficher, à titre indicatif, l'avancement du terrain et le cumul facturé ProGBat."
+      style={{
+        width: "100%",
+        minWidth: 180,
+        background: T.bg,
+        border: `1px solid ${T.border}`,
+        borderRadius: RADIUS.md,
+        padding: "8px 10px",
+        color: valeur ? T.text : T.textSub,
+        fontFamily: "inherit",
+        fontSize: 13,
+        outline: "none",
+        boxSizing: "border-box",
+        cursor: "pointer",
+      }}
+    >
+      <option value="">— Aucun —</option>
+      {inconnu && <option value={valeur}>{valeur} (chantier introuvable)</option>}
+      {chantiers.map(c => (
+        <option key={c.id} value={c.id}>{c.nom}</option>
+      ))}
+    </select>
+  );
+}
+
+// Cellule LECTURE SEULE : ce que l'application sait déjà du chantier.
+// Volontairement différente d'une case de saisie — fond neutre, contour en
+// pointillés, aucun champ — pour qu'on ne la prenne jamais pour une valeur
+// modifiable. Elle n'influence aucun calcul de la grille.
+function DonneeLieeCell({ T, principal, secondaire, title }) {
+  const vide = !principal || principal === SANS_DONNEE;
+
+  return (
+    <div
+      title={title}
+      style={{
+        width: "100%",
+        minWidth: 90,
+        background: "transparent",
+        border: `1px dashed ${T.border}`,
+        borderRadius: RADIUS.md,
+        padding: "6px 10px",
+        textAlign: "right",
+        boxSizing: "border-box",
+        cursor: title ? "help" : "default",
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: vide ? 500 : 800, color: vide ? T.textSub : T.text }}>
+        {vide ? SANS_DONNEE : principal}
+      </div>
+
+      {!vide && secondaire ? (
+        <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>{secondaire}</div>
+      ) : null}
+    </div>
   );
 }
 
