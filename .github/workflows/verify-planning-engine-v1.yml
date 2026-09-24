@@ -44,6 +44,8 @@ jobs:
         run: node scripts/verif-planning-engine-diff-v1.mjs
       - name: Planning moteur consignes visibles V1
         run: node scripts/verif-planning-moteur-consignes-v1.mjs
+      - name: Assistant planning etape 2
+        run: node scripts/verif-assistant-planning-etape-2.mjs
       - name: Vite build
         run: npm run build
       - name: Diff check

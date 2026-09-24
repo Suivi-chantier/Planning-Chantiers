@@ -111,6 +111,9 @@ function lazyAvecReprise(importer, cle) {
 }
 
 const PageVisiteChantier = lazy(() => import("./Renovation/VisiteChantier"));
+// Assistant planning (chantier 10, étape 2) : chargé seulement pour un admin,
+// il embarque le moteur de planning.
+const AssistantPlanning = lazyAvecReprise(() => import("./Renovation/AssistantPlanning"), "assistant-planning");
 import PageInfoClient         from "./Renovation/PageInfoClient";
 import PageChantiers          from "./Renovation/PageChantiers";
 
@@ -865,6 +868,14 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           utilisateur n'y voit que les tâches qui lui sont assignées. */}
       <BulleTodo T={T} profil={profil} branch="renovation"
         onOuvrirPageTodo={canAccess(role,"notes-todo") ? () => setPage("notes-todo") : null}/>
+      {/* Assistant planning : administrateurs UNIQUEMENT, toutes les pages
+          Rénovation. La tâche serveur revérifie le rôle et la branche. */}
+      {role === "admin" && (
+        <Suspense fallback={null}>
+          <AssistantPlanning T={T} profil={profil} page={page}
+            pageLibelle={PAGES_RENOVATION.find(p => p.id === page)?.label || page}/>
+        </Suspense>
+      )}
     </div>
   );
 }
