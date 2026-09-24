@@ -19,7 +19,12 @@ import {
   etatPointsAttentionV1,
   releveExploitableV1,
   ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES,
+  libelleMotifsV1,
+  MOTIF_CONSOMMATION_SANS_AVANCEMENT, MOTIF_PERTE_DE_MARGE,
 } from "../src/Renovation/pointsAttentionV1.mjs";
+import {
+  dedoublonnerSnapshotsV1, preparerSemainesAttentionV1, auditDoublonsSnapshotsV1,
+} from "../src/Renovation/pointsAttentionDonneesV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = await readFile(resolve(here, "../src/Renovation/pointsAttentionV1.mjs"), "utf8");
@@ -44,7 +49,7 @@ assert.deepEqual(
 assert.match(facade, /export \* from "\.\/pointsAttentionV1\.mjs";/, "la façade .js doit ré-exporter le .mjs");
 assert.equal(POINTS_ATTENTION_VERSION, "v1");
 assert.deepEqual({ ...SEUILS_POINTS_ATTENTION_V1 }, {
-  avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50,
+  avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50, margePerdueGraveMinEuros: 500,
 });
 
 const snap = (chantierId, { nom, avancement, heures, marge, date } = {}) => ({
@@ -59,6 +64,12 @@ const avant = (id, o = {}) => snap(id, { avancement: 97, heures: 120, marge: -11
 const apres = (id, o = {}) => snap(id, { avancement: 97, heures: 150, marge: -2283, date: "2026-09-18", ...o });
 const lignesDe = (courants, precedents, seuils) =>
   pointsAttentionV1({ snapshotsCourants: courants, snapshotsPrecedents: precedents, seuils }).lignes;
+// Le fixture de référence perd 1 117 € : le motif « perte_de_marge » (seuil 500 €)
+// le retiendrait quoi qu'il arrive. Pour tester le motif 1 EN ISOLATION, on met
+// le second hors de portée — sinon ces blocs ne mesurent plus ce qu'ils annoncent.
+const SANS_MOTIF_2 = { margePerdueGraveMinEuros: 1e9 };
+const motif1Seul = (courants, precedents, seuils) =>
+  lignesDe(courants, precedents, { ...SANS_MOTIF_2, ...(seuils || {}) });
 
 // ── 1. Le cas nominal : les trois conditions réunies. ───────────────────────
 {
@@ -67,7 +78,7 @@ const lignesDe = (courants, precedents, seuils) =>
     snapshotsPrecedents: [avant("C1", { nom: "TOM & CAMILLE R+2" })],
   });
   assert.equal(out.version, "v1");
-  assert.deepEqual(out.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50 });
+  assert.deepEqual(out.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50, margePerdueGraveMinEuros: 500 });
   assert.equal(out.lignes.length, 1);
   const l = out.lignes[0];
   assert.equal(l.chantier_id, "C1");
@@ -92,30 +103,30 @@ const lignesDe = (courants, precedents, seuils) =>
 // ── 2. Condition 1 isolée : l'avancement stable. ────────────────────────────
 {
   // Le chantier a réellement avancé (+5 pts) : ce n'est plus une dérive.
-  assert.equal(lignesDe([apres("C1", { avancement: 102 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { avancement: 102 })], [avant("C1")]).length, 0);
   // Exactement au seuil (+1 pt) : retenu (la condition est un <=).
-  assert.equal(lignesDe([apres("C1", { avancement: 98 })], [avant("C1")]).length, 1);
+  assert.equal(motif1Seul([apres("C1", { avancement: 98 })], [avant("C1")]).length, 1);
   // Juste au-delà (+1,5 pt) : écarté.
-  assert.equal(lignesDe([apres("C1", { avancement: 98.5 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { avancement: 98.5 })], [avant("C1")]).length, 0);
   // Une RÉGRESSION d'avancement compte aussi : la valeur absolue est testée.
-  assert.equal(lignesDe([apres("C1", { avancement: 96 })], [avant("C1")]).length, 1);
-  assert.equal(lignesDe([apres("C1", { avancement: 90 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { avancement: 96 })], [avant("C1")]).length, 1);
+  assert.equal(motif1Seul([apres("C1", { avancement: 90 })], [avant("C1")]).length, 0);
   // Seuil desserré : le +5 pts repasse.
-  assert.equal(lignesDe([apres("C1", { avancement: 102 })], [avant("C1")], { avancementStableMaxPts: 5 }).length, 1);
+  assert.equal(motif1Seul([apres("C1", { avancement: 102 })], [avant("C1")], { avancementStableMaxPts: 5 }).length, 1);
 }
 
 // ── 3. Condition 2 isolée : les heures ajoutées. ────────────────────────────
 {
   // Aucune heure ajoutée : rien ne s'est passé, rien à signaler.
-  assert.equal(lignesDe([apres("C1", { heures: 120 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 120 })], [avant("C1")]).length, 0);
   // Sous le seuil (+1 h).
-  assert.equal(lignesDe([apres("C1", { heures: 121 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 121 })], [avant("C1")]).length, 0);
   // Exactement au seuil (+2 h) : retenu.
-  assert.equal(lignesDe([apres("C1", { heures: 122 })], [avant("C1")]).length, 1);
+  assert.equal(motif1Seul([apres("C1", { heures: 122 })], [avant("C1")]).length, 1);
   // Des heures RETIRÉES (correction de pointage) ne déclenchent rien.
-  assert.equal(lignesDe([apres("C1", { heures: 100 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 100 })], [avant("C1")]).length, 0);
   // Seuil resserré.
-  assert.equal(lignesDe([apres("C1", { heures: 122 })], [avant("C1")], { heuresAjouteesMin: 10 }).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 122 })], [avant("C1")], { heuresAjouteesMin: 10 }).length, 0);
 }
 
 // ── 4. Condition 3 isolée : la marge perdue. ────────────────────────────────
@@ -202,7 +213,7 @@ const lignesDe = (courants, precedents, seuils) =>
     snapshotsCourants: [apres("C1")], snapshotsPrecedents: [avant("C1")],
     seuils: { avancementStableMaxPts: null, heuresAjouteesMin: "abc", margePerdueMinEuros: undefined },
   });
-  assert.deepEqual(seuilsCasses.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50 });
+  assert.deepEqual(seuilsCasses.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50, margePerdueGraveMinEuros: 500 });
   assert.equal(seuilsCasses.lignes.length, 1);
 }
 
@@ -334,4 +345,165 @@ const lignesDe = (courants, precedents, seuils) =>
   assert.equal(etatPointsAttentionV1(null).statut, ETAT_AUCUNE_DERIVE);
 }
 
-console.log("OK — points d'attention V1 : 13 blocs de vérification");
+// ── 14. Le SECOND motif : « ça avance, mais ça coûte plus cher que vendu ». ──
+// La règle d'origine exigeait un avancement stable : elle ratait exactement les
+// chantiers qui progressent en brûlant de la marge. Sur la base en 2026-W38,
+// c'était 4 050 € de perte hebdomadaire invisibles dans le PDF.
+{
+  // (i) Un chantier qui AVANCE et perd beaucoup : attrapé par le nouveau motif.
+  const avance = lignesDe(
+    [snap("R1", { nom: "TOM & CAMILLE R+1", avancement: 97, heures: 173, marge: 1673 })],
+    [snap("R1", { nom: "TOM & CAMILLE R+1", avancement: 88, heures: 120, marge: 3694, date: "2026-09-11" })]
+  );
+  assert.equal(avance.length, 1, "un chantier qui avance en perdant 2 021 € doit remonter");
+  assert.deepEqual(avance[0].motifs, [MOTIF_PERTE_DE_MARGE]);
+  assert.equal(avance[0].avancementDelta, 9);
+  assert.equal(avance[0].heuresAjoutees, 53);
+  assert.equal(avance[0].margePerdue, 2021);
+  // Le libellé doit EXPLIQUER : le « mais » porte tout le sens.
+  assert.equal(
+    libellePointAttentionV1(avance[0]),
+    "TOM & CAMILLE R+1 — avancement +9 pts mais 53 h consommées, marge en baisse de 2 021 € (3 694 € → 1 673 €)."
+  );
+  assert.match(libellePointAttentionV1(avance[0]), / mais /);
+  assert.equal(libelleMotifsV1(avance[0]), "perte de marge");
+  assert.match(avance[0].explication, /coûté nettement plus cher/);
+
+  // (ii) Un chantier STABLE qui perd PEU : ancien motif seulement.
+  const stable = lignesDe([apres("C1", { marge: -1366 })], [avant("C1")]); // 200 € perdus
+  assert.equal(stable.length, 1);
+  assert.deepEqual(stable[0].motifs, [MOTIF_CONSOMMATION_SANS_AVANCEMENT]);
+  assert.equal(stable[0].margePerdue, 200);
+  assert.equal(libelleMotifsV1(stable[0]), "consommation sans avancement");
+  // Phrase de référence inchangée par l'ajout du second motif.
+  assert.match(libellePointAttentionV1(stable[0]), /^Chantier C1 — 97 % d'avancement inchangé, \+30 h consommées, marge en baisse de 200 €/);
+
+  // (iii) Un chantier qui déclenche LES DEUX : une seule ligne, deux motifs.
+  const lesDeux = lignesDe([apres("C1", { nom: "TOM & CAMILLE R+2" })], [avant("C1", { nom: "TOM & CAMILLE R+2" })]);
+  assert.equal(lesDeux.length, 1, "un chantier ne doit jamais apparaître deux fois");
+  assert.deepEqual(lesDeux[0].motifs, [MOTIF_CONSOMMATION_SANS_AVANCEMENT, MOTIF_PERTE_DE_MARGE]);
+  assert.equal(libelleMotifsV1(lesDeux[0]), "consommation sans avancement + perte de marge");
+  // La phrase de référence reste EXACTEMENT celle d'origine : les motifs sont
+  // des étiquettes à côté, ils n'allongent pas le texte.
+  assert.equal(
+    libellePointAttentionV1(lesDeux[0]),
+    "TOM & CAMILLE R+2 — 97 % d'avancement inchangé, +30 h consommées, marge en baisse de 1 117 € (−1 166 € → −2 283 €)."
+  );
+
+  // (iv) LE SEUIL MORD : 499 € perdus avec un avancement qui bouge => rien.
+  const juste = lignesDe(
+    [snap("X", { avancement: 97, heures: 173, marge: 1 })],
+    [snap("X", { avancement: 88, heures: 120, marge: 500, date: "2026-09-11" })]
+  );
+  assert.deepEqual(juste, [], "499 € ne doivent pas déclencher le motif perte_de_marge");
+  // Exactement 500 € : retenu.
+  const pile = lignesDe(
+    [snap("X", { avancement: 97, heures: 173, marge: 0 })],
+    [snap("X", { avancement: 88, heures: 120, marge: 500, date: "2026-09-11" })]
+  );
+  assert.equal(pile.length, 1);
+  assert.deepEqual(pile[0].motifs, [MOTIF_PERTE_DE_MARGE]);
+
+  // (v) Le tri reste la marge perdue décroissante, motifs mélangés.
+  const melange = lignesDe(
+    [apres("PETIT", { marge: -1366 }), snap("GROS", { avancement: 97, heures: 173, marge: 1673 })],
+    [avant("PETIT"), snap("GROS", { avancement: 88, heures: 120, marge: 3694, date: "2026-09-11" })]
+  );
+  assert.deepEqual(melange.map(l => l.chantier_id), ["GROS", "PETIT"]);
+  assert.deepEqual(melange.map(l => l.margePerdue), [2021, 200]);
+
+  // (vi) Le seuil est paramétrable, comme les autres.
+  assert.equal(lignesDe(
+    [snap("X", { avancement: 97, heures: 173, marge: 1 })],
+    [snap("X", { avancement: 88, heures: 120, marge: 500, date: "2026-09-11" })],
+    { margePerdueGraveMinEuros: 100 }
+  ).length, 1);
+  assert.equal(libelleMotifsV1({}), "");
+  assert.equal(libelleMotifsV1(null), "");
+}
+
+// ── 15. Doublons de relevé : une seule ligne retenue, la plus récente. ────
+// Le cron a tourné DEUX FOIS en 2026-W31 : 36 lignes pour 19 chantiers, soit
+// 17 doublons (seule semaine concernée sur les 20). Le suivi remontant huit
+// semaines pour les cumuls, et huit semaines avant W38 tombant précisément sur
+// W31, un rapprochement naïf y produirait une ligne en double ou une valeur
+// arbitraire. Fixture calquée sur le cas réel de TOM & CAMILLE R+1.
+{
+  const brut = [
+    { chantier_id: "R1", chantier_nom: "TOM & CAMILLE R+1", week_id: "2026-W31",
+      date_snapshot: "2026-07-31", created_at: "2026-07-31T17:02:00Z",
+      avancement: 58, heures_reelles: 300, marge: 11856 },
+    { chantier_id: "R1", chantier_nom: "TOM & CAMILLE R+1", week_id: "2026-W31",
+      date_snapshot: "2026-07-31", created_at: "2026-07-31T19:14:00Z",  // seconde exécution
+      avancement: 42, heures_reelles: 320, marge: 13781 },
+    { chantier_id: "C2", chantier_nom: "AUTRE", week_id: "2026-W31",
+      date_snapshot: "2026-07-31", created_at: "2026-07-31T17:02:00Z",
+      avancement: 50, heures_reelles: 100, marge: 900 },
+  ];
+
+  const propre = dedoublonnerSnapshotsV1(brut);
+  assert.equal(propre.length, 2, "un seul relevé par chantier et par semaine");
+  const r1 = propre.find(l => l.chantier_id === "R1");
+  assert.equal(r1.created_at, "2026-07-31T19:14:00Z", "la ligne la plus récemment écrite fait foi");
+  assert.equal(r1.marge, 13781);
+  assert.equal(r1.avancement, 42);
+  // L'ordre d'arrivée ne change pas le résultat.
+  const inverse = dedoublonnerSnapshotsV1([brut[1], brut[0], brut[2]]);
+  assert.equal(inverse.find(l => l.chantier_id === "R1").created_at, "2026-07-31T19:14:00Z");
+
+  // LE point qui compte : le total des points d'attention ne double pas.
+  const semaineSuivante = [
+    { chantier_id: "R1", chantier_nom: "TOM & CAMILLE R+1", week_id: "2026-W32",
+      date_snapshot: "2026-08-07", created_at: "2026-08-07T17:02:00Z",
+      avancement: 42, heures_reelles: 350, marge: 11000 },
+  ];
+  const avecDoublons = pointsAttentionV1({
+    snapshotsCourants: semaineSuivante, snapshotsPrecedents: brut,
+  });
+  const dedoublonne = pointsAttentionV1({
+    snapshotsCourants: preparerSemainesAttentionV1({ lignes: semaineSuivante, weekIds: ["2026-W32"] })[0],
+    snapshotsPrecedents: preparerSemainesAttentionV1({ lignes: brut, weekIds: ["2026-W31"] })[0],
+  });
+  assert.equal(dedoublonne.lignes.length, 1, "un chantier, une ligne");
+  assert.equal(dedoublonne.lignes.filter(l => l.chantier_id === "R1").length, 1,
+    "le doublon de relevé ne doit jamais produire deux points d'attention");
+  assert.equal(dedoublonne.lignes[0].margePerdue, 2781, "13 781 → 11 000, ligne la plus récente");
+  assert.equal(avecDoublons.lignes.length, dedoublonne.lignes.length,
+    "même nombre de lignes : le total ne double pas");
+
+  // Découpage par semaine, dans l'ordre demandé.
+  const semaines = preparerSemainesAttentionV1({
+    lignes: [...brut, ...semaineSuivante], weekIds: ["2026-W32", "2026-W31"],
+  });
+  assert.equal(semaines.length, 2);
+  assert.deepEqual(semaines[0].map(l => l.chantier_id), ["R1"]);
+  assert.deepEqual(semaines[1].map(l => l.chantier_id).sort(), ["C2", "R1"]);
+  // Une semaine sans relevé rend un tableau vide, pas une absence : c'est ce qui
+  // permet ensuite de dire « relevé pas encore disponible ».
+  assert.deepEqual(preparerSemainesAttentionV1({ lignes: brut, weekIds: ["2026-W39"] }), [[]]);
+
+  // Les doublons écartés sont comptés, pas masqués.
+  const audit = auditDoublonsSnapshotsV1(brut);
+  assert.equal(audit.total, 1);
+  assert.deepEqual(audit.parSemaine, [{ week_id: "2026-W31", doublons: 1 }]);
+  assert.equal(auditDoublonsSnapshotsV1(semaineSuivante).total, 0);
+
+  // Entrées malformées et lignes sans created_at.
+  assert.deepEqual(dedoublonnerSnapshotsV1(null), []);
+  assert.deepEqual(dedoublonnerSnapshotsV1([null, 42, "bruit", { chantier_id: "" }]), []);
+  const sansHorodatage = dedoublonnerSnapshotsV1([
+    { chantier_id: "X", week_id: "W", date_snapshot: "2026-07-24", marge: 1 },
+    { chantier_id: "X", week_id: "W", date_snapshot: "2026-07-31", marge: 2 },
+  ]);
+  assert.equal(sansHorodatage.length, 1);
+  assert.equal(sansHorodatage[0].marge, 2, "sans created_at, date_snapshot départage");
+  const horodateeGagne = dedoublonnerSnapshotsV1([
+    { chantier_id: "X", week_id: "W", marge: 1 },
+    { chantier_id: "X", week_id: "W", created_at: "2026-07-31T19:00:00Z", marge: 2 },
+  ]);
+  assert.equal(horodateeGagne[0].marge, 2, "une ligne horodatée l'emporte sur une ligne qui ne l'est pas");
+  // Déterminisme strict.
+  assert.deepEqual(dedoublonnerSnapshotsV1(brut), dedoublonnerSnapshotsV1(brut));
+}
+
+console.log("OK — points d'attention V1 : 15 blocs de vérification");

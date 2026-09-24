@@ -1,7 +1,7 @@
 // Vérification du module pur « suivi des points d'attention » (Chantier 07).
 //
-// Le module dit à la hiérarchie ce qui est NOUVEAU, ce qui TRAÎNE et ce qui est
-// RÉGLÉ. Les scénarios ci-dessous vérifient surtout qu'il n'étiquette rien
+// Le module dit à la hiérarchie ce qui est NOUVEAU, ce qui TRAÎNE et ce qui s'est
+// ARRÊTÉ — jamais « résolu » : l'argent perdu ne revient pas. Les scénarios ci-dessous vérifient surtout qu'il n'étiquette rien
 // qu'il ne puisse prouver : sans une troisième semaine de snapshots, aucune
 // étiquette n'est produite.
 import assert from "node:assert/strict";
@@ -12,7 +12,8 @@ import {
   suiviPointsAttentionV1,
   libelleSuiviV1,
   SUIVI_POINTS_ATTENTION_VERSION,
-  STATUT_NOUVEAU, STATUT_PERSISTANT, STATUT_RESOLU,
+  STATUT_NOUVEAU, STATUT_PERSISTANT, STATUT_DERIVE_ARRETEE,
+  libelleDerivesArreteesV1,
 } from "../src/Renovation/suiviPointsAttentionV1.mjs";
 import {
   pointsAttentionV1, etatPointsAttentionV1,
@@ -32,12 +33,18 @@ assert.equal(/(?:\bimport\b|\bfrom\b)[^\n]*supabase/i.test(code), false, "le sui
 assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(|\.upsert\s*\(|\.rpc\s*\(|\.from\s*\(/.test(code), false, "le suivi ne doit rien lire ni persister en base");
 assert.equal(/new Date\s*\(|Date\.now\s*\(|Date\.UTC\s*\(/.test(code), false, "le suivi ne doit dépendre d'aucune horloge");
 // La détection n'est pas réimplémentée : elle est appelée.
-assert.match(code, /import \{ pointsAttentionV1, releveExploitableV1 \} from "\.\/pointsAttentionV1\.mjs";/);
+assert.match(code, /import \{ pointsAttentionV1, releveExploitableV1, formaterEurosV1 \} from "\.\/pointsAttentionV1\.mjs";/);
 // Le détecteur de relevé est PARTAGé, pas recopié : une seule définition de
 // « une semaine est relevée » dans tout le projet.
 assert.equal(/const semaineExploitable/.test(code), false, "pas de copie locale du détecteur de relevé");
-assert.equal((code.match(/pointsAttentionV1\s*\(/g) || []).length, 2, "pointsAttentionV1 doit être appelé exactement deux fois : N vs N-1, puis N-1 vs N-2");
-assert.equal(/heures_reelles|\bmarge\b|avancement/.test(code), false, "aucun seuil ni aucune colonne redéfinis ici : tout vient de pointsAttentionV1");
+// La détection reste entièrement déléguée : le suivi appelle pointsAttentionV1
+// (en boucle sur les couples de semaines consécutives) et ne redéfinit aucune règle.
+assert.ok((code.match(/pointsAttentionV1\s*\(/g) || []).length >= 2, "le suivi doit appeler pointsAttentionV1, pas réimplémenter la détection");
+assert.equal(/avancementStableMaxPts|heuresAjouteesMin|margePerdueMinEuros|margePerdueGraveMinEuros/.test(code), false, "aucun seuil redéfini dans le suivi");
+// Garde sur les COLONNES, pas sur les mots français : les phrases affichées
+// contiennent légitimement « marge ». Le suivi ne lit aucune colonne de
+// snapshot, il ne manipule que les lignes déjà produites par pointsAttentionV1.
+assert.equal(/heures_reelles|chantier_snapshots_hebdo|\.avancement\b/.test(code), false, "le suivi ne doit toucher aucune colonne de snapshot");
 assert.match(facade, /export \* from "\.\/suiviPointsAttentionV1\.mjs";/);
 assert.equal(SUIVI_POINTS_ATTENTION_VERSION, "v1");
 
@@ -87,7 +94,7 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
   assert.deepEqual(out.resolus, []);
 }
 
-// ── 4. Résolu : dérive en N-1, plus en N. ──────────────────────────────────
+// ── 4. Dérive arrêtée : signée en N-1, plus en N. ──────────────────────────────────
 {
   // C1 dérivait entre N-2 et N-1 ; entre N-1 et N il ne bouge plus.
   const out = suivi(
@@ -99,7 +106,7 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
   assert.equal(out.resolus.length, 1);
   const r = out.resolus[0];
   assert.equal(r.chantier_id, "C1");
-  assert.equal(r.statut, STATUT_RESOLU);
+  assert.equal(r.statut, STATUT_DERIVE_ARRETEE);
   // Dernière marge perdue connue = celle mesurée en N-1.
   assert.equal(r.margePerdueDerniere, 1166);
   assert.equal(r.margePerdue, 1166);
@@ -128,13 +135,13 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
 // ── 6. Chantier apparu puis disparu, et chantier jamais vu. ───────────────
 {
   // APPARU : absent de N-2, dérive en N-1, puis disparaît des snapshots en N.
-  // Il doit ressortir en « résolu », pas être oublié.
+  // Il doit ressortir en « dérive arrêtée », pas être oublié.
   const out = suivi(
     [S0("PERSIST")],                      // APPARU n'est plus snapshoté en N
     [S1("PERSIST"), S1("APPARU")],
     [S2("PERSIST")]                       // APPARU absent de N-2
   );
-  // APPARU n'a pas de point de départ en N-2 → pas détecté en N-1 → pas « résolu ».
+  // APPARU n'a pas de point de départ en N-2 → pas détecté en N-1 → rien à signaler.
   assert.deepEqual(out.resolus.map(l => l.chantier_id), [],
     "sans comparaison possible en N-1, on n'invente pas une résolution");
   assert.deepEqual(out.actifs.map(l => l.chantier_id), ["PERSIST"]);
@@ -171,10 +178,12 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
 // ── 8. Seuils transmis aux DEUX détections, et déterminisme. ──────────────
 {
   const n = [S0("C1")], n1 = [S1("C1")], n2 = [S2("C1")];
-  const serre = suivi(n, n1, n2, { margePerdueMinEuros: 5000 });
+  // Les DEUX motifs doivent être desserrés : sinon « perte_de_marge » (500 €)
+  // retiendrait le chantier tout seul, et le bloc ne testerait plus rien.
+  const serre = suivi(n, n1, n2, { margePerdueMinEuros: 5000, margePerdueGraveMinEuros: 5000 });
   assert.deepEqual(serre.actifs, []);
-  assert.deepEqual(serre.resolus, [], "le seuil s'applique aussi à la détection N-1");
-  assert.deepEqual(serre.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 5000 });
+  assert.deepEqual(serre.resolus, [], "les seuils s'appliquent aussi à la détection N-1");
+  assert.deepEqual(serre.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 5000, margePerdueGraveMinEuros: 5000 });
   // Déterminisme strict à entrées identiques.
   assert.deepEqual(suivi(n, n1, n2), suivi(n, n1, n2));
 }
@@ -250,4 +259,89 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
   }
 }
 
-console.log("OK — suivi points d'attention V1 : 11 blocs de vérification");
+// ── 12. Cumul réel : 4 semaines consécutives, 10 183 €. ────────────────
+// Série relevée en base pour TOM & CAMILLE R+1, avec le seuil de 500 € :
+//   W35 −1 237 € · W36 −2 573 € · W37 −4 352 € · W38 −2 021 €
+//   marge 11 856 € (W34) → 1 673 € (W38), soit 10 183 € sur 4 semaines.
+// Le chantier PROGRESSE tout du long : seul le motif perte_de_marge le retient,
+// et il est donc ACTIF en W38 — pas un cas de « dérive arrêtée ».
+{
+  const r1 = (marge, heures, avancement, date) => snap("R1", {
+    nom: "TOM & CAMILLE R+1", avancement, heures, marge, date,
+  });
+  const W38 = [r1(1673,  210, 97, "2026-09-18")];
+  const W37 = [r1(3694,  180, 88, "2026-09-11")];
+  const W36 = [r1(8046,  150, 76, "2026-09-04")];
+  const W35 = [r1(10619, 120, 68, "2026-08-28")];
+  const W34 = [r1(11856,  90, 60, "2026-08-21")];
+  const W33 = [r1(11856,  60, 52, "2026-08-14")]; // aucune perte : la série s'arrête là
+
+  const out = suiviPointsAttentionV1({
+    snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36, historiqueAnterieur: [W35, W34, W33],
+  });
+  assert.equal(out.actifs.length, 1, "R+1 est encore en dérive en W38");
+  assert.deepEqual(out.resolus, [], "il n'est PAS un cas de dérive arrêtée");
+  const a = out.actifs[0];
+  assert.deepEqual(a.motifs, ["perte_de_marge"], "il progresse : seul le second motif le retient");
+  assert.equal(a.margePerdue, 2021, "perte de la seule semaine W38");
+  assert.equal(a.cumulSemaines, 4);
+  assert.equal(a.cumulMargePerdue, 10183, "1 237 + 2 573 + 4 352 + 2 021");
+  assert.equal(a.cumulComplet, true, "la série s'arrête avant le bord de l'historique");
+  // Le cumul égale exactement la marge disparue sur la période.
+  assert.equal(a.cumulMargePerdue, 11856 - 1673);
+
+  // Sans assez d'historique, on ne peut prouver que ce qu'on voit : « au moins ».
+  // Trois semaines seulement : deux comparaisons possibles, donc 2 021 + 4 352.
+  const court = suiviPointsAttentionV1({ snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36 });
+  assert.equal(court.actifs[0].cumulSemaines, 2);
+  assert.equal(court.actifs[0].cumulMargePerdue, 6373);
+  assert.equal(court.actifs[0].cumulComplet, false, "la série touche le bord : le total est un minimum");
+}
+
+// ── 13. « Arrêtée », jamais « résolue » — et le cumul déjà perdu. ─────────
+// Un chantier qui sort de la liste n'a rien récupéré. Écrire « résolu » dans un
+// document transmis à la hiérarchie dirait le contraire de la réalité.
+{
+  const b = (marge, heures, avancement, date) => snap("BR", {
+    nom: "BRIOLLAY", avancement, heures, marge, date,
+  });
+  // Dérive sur W36 et W37, puis stabilisation en W38.
+  const W38 = [b(5000, 240, 70, "2026-09-18")];  // marge identique à W37 : plus de perte
+  const W37 = [b(5000, 220, 67, "2026-09-11")];
+  const W36 = [b(6026, 190, 64, "2026-09-04")];
+  const W35 = [b(7000, 160, 61, "2026-08-28")];
+  const W34 = [b(7000, 130, 58, "2026-08-21")];  // aucune perte avant
+
+  const out = suiviPointsAttentionV1({
+    snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36, historiqueAnterieur: [W35, W34],
+  });
+  assert.deepEqual(out.actifs, [], "la dérive s'est arrêtée cette semaine");
+  assert.equal(out.resolus.length, 1);
+  const r = out.resolus[0];
+  assert.equal(r.statut, STATUT_DERIVE_ARRETEE);
+  assert.equal(r.statut.includes("resolu"), false, "le statut interne ne dit pas « résolu »");
+  assert.equal(r.margePerdueDerniere, 1026, "dernière semaine signée (W37)");
+  assert.equal(r.cumulMargePerdue, 2000, "1 026 + 974");
+  assert.equal(r.cumulSemaines, 2);
+  assert.equal(r.cumulComplet, true);
+
+  const phrase = libelleDerivesArreteesV1(out.resolus);
+  assert.match(phrase, /La dérive signalée la semaine dernière s'est arrêtée/);
+  assert.match(phrase, /la marge perdue n'est pas récupérée/);
+  assert.match(phrase, /BRIOLLAY — 2 000 € perdus sur 2 semaines signées/);
+  // Le mot interdit, sous toutes ses formes.
+  assert.equal(/résolu|resolu/i.test(phrase), false, "le mot « résolu » est proscrit");
+
+  // Historique tronqué : la série touche le bord, on dit « au moins ».
+  const court = suiviPointsAttentionV1({ snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36 });
+  assert.equal(court.resolus[0].cumulSemaines, 1);
+  assert.equal(court.resolus[0].cumulComplet, false);
+  assert.match(libelleDerivesArreteesV1(court.resolus), /au moins 1 026 € perdus sur 1 semaine signée/);
+
+  // Liste vide : aucune phrase, donc aucune rubrique à afficher.
+  assert.equal(libelleDerivesArreteesV1([]), "");
+  assert.equal(libelleDerivesArreteesV1(null), "");
+  assert.equal(libelleDerivesArreteesV1("bruit"), "");
+}
+
+console.log("OK — suivi points d'attention V1 : 13 blocs de vérification");
