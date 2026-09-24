@@ -10,7 +10,8 @@
 //     « alerte ». Quand tout est en alerte, plus rien ne l'est ;
 //   – codes présents : ouvrages_sans_prix (21 chantiers), fg_non_regle (14),
 //     derive_lot (10), marge_sous_seuil_prime (5) ;
-//   – 14 chantiers ont fg = 0 : leur marge est SURESTIMÉE ;
+//   – 14 chantiers ont fg = 0 : leur marge est SURESTIMÉE. Ils portent tous
+//     un motif « Donnée manquante » ET le drapeau de fiabilité ;
 //   – 6 chantiers ont une marge à terminaison négative.
 // Le travail est donc de séparer ce qui demande une décision cette semaine de
 // ce qui est du bruit de fond ou un fait déjà acquis.
@@ -76,7 +77,7 @@ export const LIBELLES_MOTIFS_ALERTE = Object.freeze({
   [CODE_DERIVE_LOT]: "dérive sur un lot",
   [CODE_OUVRAGES_SANS_PRIX]: "ouvrages sans prix",
   [CODE_MARGE_SOUS_SEUIL_PRIME]: "marge sous le seuil de prime",
-  [CODE_FG_NON_REGLE]: "frais généraux non renseignés",
+  [CODE_FG_NON_REGLE]: "Donnée manquante : frais généraux non renseignés",
 });
 
 const listeSure = v => (Array.isArray(v) ? v : []);
@@ -234,12 +235,15 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
       margeTerminaison != null && margeTerminaison < 0 &&
       avancement != null && avancement >= 100;
     if (termineEnPerte) motifs.push(MOTIF_TERMINE_EN_PERTE);
-    for (const code of codes) {
-      // fg_non_regle n'est pas un motif d'alerte : c'est le drapeau de
-      // fiabilité, porté à part par TOUTES les alertes du chantier.
-      if (code === CODE_FG_NON_REGLE) continue;
-      motifs.push(code);
-    }
+    // fg_non_regle compte comme un motif à part entière, de niveau « info ».
+    // La première version en faisait UNIQUEMENT un drapeau : conséquence, un
+    // chantier dont c'était le seul signal n'avait aucun motif, donc aucune
+    // carte, et le fait disparaissait de l'écran. Mesuré en W38 : 2 chantiers
+    // sur 13 étaient ainsi invisibles (8 RUE SAINT BLAISE - ENEDIS et
+    // PASSAGE CÂBLE). Une donnée manquante doit rester VISIBLE : c'est un
+    // invariant du projet, pas un détail d'affichage.
+    // Le drapeau de fiabilité reste posé EN PLUS sur tous ces chantiers.
+    for (const code of codes) motifs.push(code);
 
     if (motifs.length === 0) continue;
 

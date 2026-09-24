@@ -269,17 +269,14 @@ const parNom = (r, nom) => r.alertes.find(a => a.nom === nom);
   assert.equal(al.fiabilite.margeSurestimee, true);
   assert.equal(al.fiabilite.message, MESSAGE_MARGE_SURESTIMEE);
   assert.match(al.fiabilite.message, /Marge surestimée/);
-  // fg_non_regle est un DRAPEAU, pas un motif : il ne doit pas produire
-  // d'étiquette d'alerte ni influencer le niveau.
-  assert.equal(al.motifs.includes(CODE_FG_NON_REGLE), false, "fg_non_regle n'est pas un motif");
-
-  // Le drapeau ne crée JAMAIS de niveau à lui seul.
-  const seul = paire("C2", { avancement: 100, heures: 5, marge: 1204, margeTerminaison: 1204 },
-                            { avancement: 100, heures: 5.4, marge: 1204.82, margeTerminaison: 1204.82,
-                              warnings: [w(CODE_FG_NON_REGLE)] });
-  const r = lancer([seul]);
-  assert.equal(parNom(r, "Chantier C2"), undefined, "un chantier sans autre motif ne produit pas de carte…");
-  assert.deepEqual(r.margeSurestimee, ["Chantier C2"], "…mais le fait reste compté et visible");
+  // fg_non_regle est À LA FOIS un motif (niveau info) et un drapeau. Les deux,
+  // pas l'un ou l'autre : le motif rend le chantier VISIBLE, le drapeau
+  // qualifie la marge de toutes ses autres alertes.
+  assert.ok(al.motifs.includes(CODE_FG_NON_REGLE), "fg_non_regle doit aussi être un motif");
+  // Sur un chantier qui a d'autres motifs, le niveau reste celui des autres :
+  // une donnée manquante ne fait pas baisser une alerte critique.
+  assert.equal(al.niveau, NIVEAU_CRITIQUE, "le motif « donnée manquante » ne rabaisse pas le niveau");
+  assert.equal(libelleMotifAlerteV1(CODE_FG_NON_REGLE), "Donnée manquante : frais généraux non renseignés");
 
   // GARDE : aucun taux de frais généraux, aucun montant de correction.
   assert.equal(/tauxFg|TAUX_FG|fgEstime|margeCorrigee|correctionFg|margeReelleEstimee/.test(code), false,
@@ -289,6 +286,52 @@ const parNom = (r, nom) => r.alertes.find(a => a.nom === nom);
   assert.equal(fiabiliteV1(null), null);
   // La structure du drapeau ne porte QUE le fait et la phrase.
   assert.deepEqual(Object.keys(al.fiabilite).sort(), ["margeSurestimee", "message"]);
+}
+
+// ── 8 bis. Un chantier dont fg_non_regle est le SEUL signal reste visible ───
+{
+  // Correction d'une règle fausse de la v1 : fg_non_regle n'était QUE le
+  // drapeau, donc un chantier n'ayant que ce signal n'avait aucun motif, donc
+  // aucune carte — et la donnée manquante devenait invisible. Mesuré en W38 :
+  // 8 RUE SAINT BLAISE - ENEDIS et PASSAGE CÂBLE disparaîssaient ainsi.
+  // Une impossibilité doit rester visible.
+  const seul = paire("C1", { nom: "PASSAGE CÂBLE", avancement: 100, heures: 6.5, marge: 774, margeTerminaison: 774 },
+                            { nom: "PASSAGE CÂBLE", avancement: 100, heures: 6.58, marge: 774.42, margeTerminaison: 774.42,
+                              warnings: [w(CODE_FG_NON_REGLE)] });
+  const r = lancer([seul]);
+  const al = parNom(r, "PASSAGE CÂBLE");
+  assert.ok(al, "le chantier doit apparaître, même sans autre signal");
+  assert.equal(al.niveau, NIVEAU_INFO, "seul signal = niveau info");
+  assert.deepEqual(al.motifs, [CODE_FG_NON_REGLE]);
+  assert.equal(libelleMotifAlerteV1(al.motifs[0]), "Donnée manquante : frais généraux non renseignés");
+  // Le drapeau est posé EN PLUS du motif, pas à la place.
+  assert.ok(al.fiabilite, "le drapeau reste posé");
+  assert.equal(al.fiabilite.message, MESSAGE_MARGE_SURESTIMEE);
+  // Aucun montant n'est chiffré : on ignore de combien la marge est surestimée.
+  assert.equal(al.impactEuros, null);
+
+  // Les deux comptes coïncident désormais : tout chantier concerné est visible.
+  assert.equal(r.margeSurestimee.length, 1);
+  assert.equal(r.fiabiliteDouteuse, 1, "plus aucun chantier concerné ne reste sans carte");
+
+  // Un chantier qui a fg_non_regle ET d'autres motifs garde le niveau des
+  // autres, et porte les deux étiquettes.
+  const mixte = paire("C2", { avancement: 38, heures: 100, marge: -1000, margeTerminaison: -1000 },
+                             { avancement: 39, heures: 105, marge: -1200, margeTerminaison: -39188,
+                               warnings: [w(CODE_FG_NON_REGLE), w(CODE_OUVRAGES_SANS_PRIX)] });
+  const alMixte = parNom(lancer([mixte]), "Chantier C2");
+  assert.equal(alMixte.niveau, NIVEAU_CRITIQUE);
+  assert.ok(alMixte.motifs.includes(CODE_FG_NON_REGLE));
+  assert.ok(alMixte.motifs.includes(CODE_OUVRAGES_SANS_PRIX));
+  assert.ok(alMixte.fiabilite, "drapeau présent en plus du motif");
+
+  // Sans fg_non_regle : ni motif, ni drapeau.
+  const sans = paire("C3", { avancement: 40, heures: 10, marge: 500, margeTerminaison: 500 },
+                            { avancement: 45, heures: 11, marge: 500, margeTerminaison: 500,
+                              warnings: [w(CODE_DERIVE_LOT)] });
+  const alSans = parNom(lancer([sans]), "Chantier C3");
+  assert.equal(alSans.fiabilite, null);
+  assert.equal(alSans.motifs.includes(CODE_FG_NON_REGLE), false);
 }
 
 // ── 9. Tri : niveau, puis impact décroissant, inconnu EN DERNIER ────────────
@@ -393,4 +436,4 @@ const parNom = (r, nom) => r.alertes.find(a => a.nom === nom);
     "l'écran ne doit pas recalculer un niveau");
 }
 
-console.log("OK — moteur d'alertes V1 : 12 blocs de vérification");
+console.log("OK — moteur d'alertes V1 : 13 blocs de vérification");
