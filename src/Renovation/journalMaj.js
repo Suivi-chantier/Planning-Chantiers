@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
+    type: "correctif",
+    titre: "Fiabilité : plus aucune modification ne peut passer sans être vérifiée automatiquement",
+    pages: [],
+    quoi: "Avant chaque mise en ligne, une batterie de contrôles automatiques rejoue les calculs de l'application pour s'assurer que rien n'a été cassé. Ces contrôles ne se déclenchaient que dans un cas précis, et on vient de découvrir une faille : quand une modification est préparée par-dessus une autre encore en cours de relecture, les contrôles ne partaient pas du tout. La modification pouvait donc suivre tout son parcours sans qu'aucune vérification ne tourne. C'est exactement ce qui s'est produit cette semaine sur le suivi des points d'attention du Bilan Semaine — sans conséquence, les contrôles ont été lancés à la main avant la mise en ligne, mais rien ne garantissait qu'on y pense la fois suivante.",
+    comment: "Désormais les contrôles se déclenchent sur toute modification proposée, sans exception, quel que soit son point de départ. Rien ne change pour vous dans l'application : c'est un garde-fou interne. Il y a un détail rassurant dans cette correction — pour prouver qu'elle fonctionne, il suffit de regarder si les contrôles se déclenchent sur elle-même. Note : deux autres batteries de contrôles ont encore le même angle mort ; elles seront traitées séparément.",
+  },
+  {
+    date: "2026-09-24",
     type: "nouveaute",
     titre: "Bilan de la semaine : on voit ce qui est nouveau, ce qui traîne et ce qui est réglé — et un résumé e-mail en un clic",
     pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
