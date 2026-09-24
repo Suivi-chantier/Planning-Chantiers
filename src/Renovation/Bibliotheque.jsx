@@ -33,10 +33,21 @@ import {
   usageOuvrageBibliothequeV1, usageIndetermineV1, suppressionAutoriseeV1,
   lectureExploitableV1, messageUsageBloquantV1,
 } from "./usageBibliothequeV1.js";
+// Archives de la bibliothèque : « Archiver » retire un ouvrage des listes de
+// CHOIX sans rien supprimer. La ligne bibliotheque_ratios n'est jamais touchée :
+// l'id reste valide, les chantiers restent reliés, l'échantillon continue de
+// compter. Stocké dans planning_config, comme les catégories personnalisées.
+import {
+  CLE_ARCHIVES_BIBLIOTHEQUE, lireArchivesV1, estArchiveV1,
+  ajouterArchiveV1, retirerArchiveV1, valeurAEcrireV1,
+  libelleFiltreArchivesV1, messageVoiesAlternativesV1,
+  MESSAGE_ARCHIVES_INDISPONIBLES,
+} from "./archivesBibliothequeV1.js";
 import OuvrageProgbatSync from "./OuvrageProgbatSync";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft, FlaskConical,
+  Archive, ArchiveRestore,
 } from "lucide-react";
 
 // LOTS dynamiques (phasage v2) : init avec les défauts, remplacement async au mount
@@ -530,7 +541,7 @@ function EncartEchantillon({ entree, pret, T }) {
   );
 }
 
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, T, acc }) {
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, estArchive = false, onArchiver = null, archivageEnCours = false, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
@@ -621,6 +632,17 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
             }}>
               <Icon as={maturite.planifiable ? Check : AlertTriangle} size={10}/>
               {maturite.planifiable ? "Prêt planning" : "Planning à compléter"}
+            </span>
+          )}
+          {/* Un ouvrage archivé reste PARFAITEMENT visible ici : il n'a
+              disparu que des listes où l'on CHOISIT un ouvrage à ajouter. */}
+          {estArchive && (
+            <span title="Archivé : cet ouvrage n'est plus proposé à l'ajout sur un chantier ou un devis. Rien n'a été supprimé : son historique et ses liens avec les chantiers sont conservés."
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size,
+                fontWeight: 800, color: "#8a8a8a", background: "rgba(138,138,138,.12)",
+                border: "1px solid rgba(138,138,138,.35)", padding: "2px 9px", borderRadius: RADIUS.pill }}>
+              <Icon as={Archive} size={10}/>
+              Archivé
             </span>
           )}
           {/* Échantillon de cadences (chantier 08) : combien d'ouvrages
@@ -1071,6 +1093,26 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                 <Icon as={Copy} size={12}/>
                 Dupliquer
               </button>
+              {/* « Archiver » : le ménage sans la destruction. Ne modifie pas
+                  la ligne bibliotheque_ratios — voir archivesBibliothequeV1. */}
+              {onArchiver && (
+                <button
+                  onClick={() => onArchiver(ouvrage, !estArchive)}
+                  disabled={archivageEnCours}
+                  title={estArchive
+                    ? "Reproposer cet ouvrage à l'ajout sur les chantiers et les devis."
+                    : "Retirer cet ouvrage des listes de choix, sans rien supprimer : son historique et ses liens avec les chantiers sont conservés."}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    background: "transparent", border: `1px solid ${T.border}`,
+                    borderRadius: RADIUS.md, padding: "8px 14px", color: T.textSub,
+                    fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 600,
+                    cursor: archivageEnCours ? "default" : "pointer", opacity: archivageEnCours ? .6 : 1,
+                  }}>
+                  <Icon as={estArchive ? ArchiveRestore : Archive} size={12}/>
+                  {archivageEnCours ? "…" : (estArchive ? "Désarchiver" : "Archiver")}
+                </button>
+              )}
             </div>
             <button
               onClick={() => onSave(editData)}
@@ -1127,6 +1169,12 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
   // Un état à part, parce qu'une liste vide à l'écran ne doit JAMAIS pouvoir
   // se lire comme « il n'y a aucun ouvrage » : ici on ne sait pas.
   const [lectureEchouee, setLectureEchouee] = useState(false);
+  // Archives : état { disponible, ids, raison } produit par le module pur.
+  // Au départ « indisponible » : tant que la lecture n'a pas répondu, on
+  // n'en cache aucun — on ne masque jamais un ouvrage sur une non-réponse.
+  const [archives, setArchives] = useState({ disponible: false, ids: [], raison: null });
+  const [afficherArchives, setAfficherArchives] = useState(false);
+  const [archivageEnCours, setArchivageEnCours] = useState(null);
   const [catToDelete, setCatToDelete] = useState(null); // catégorie à supprimer
   const [deleting, setDeleting] = useState(false);
   // Coût horaire chargé de référence (planning_config.taux_mo_previsionnel,
@@ -1197,6 +1245,7 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     loadTauxHoraires();
     loadCoefficients();
     loadEchantillon();
+    loadArchives();
     loadGroupesTypes().then(setGroupesTypes);
     const chTaux = supabase.channel("biblio-taux-rt")
       .on("postgres_changes",
@@ -1218,6 +1267,13 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
           { event: "*", schema: "public", table: "planning_config", filter: "key=eq.bibliotheque_categories_custom" },
           () => loadCategoriesCustom())
       .subscribe();
+    // Même mécanisme temps réel que les catégories : un archivage fait par un
+    // collègue se propage immédiatement.
+    const chArch = supabase.channel("biblio-archives-rt")
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "planning_config", filter: `key=eq.${CLE_ARCHIVES_BIBLIOTHEQUE}` },
+          () => loadArchives())
+      .subscribe();
     const chMat = supabase.channel("biblio-materiaux-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "materiaux_bibliotheque" },
           () => loadMateriaux())
@@ -1225,6 +1281,7 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     return () => {
       supabase.removeChannel(chOuvr);
       supabase.removeChannel(chCat);
+      supabase.removeChannel(chArch);
       supabase.removeChannel(chMat);
       supabase.removeChannel(chTaux);
     };
@@ -1320,6 +1377,55 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     setLectureEchouee(false);
     setOuvrages(data.map(o => estOuvrageV2(o) ? normaliserOuvrageV2(o, { assignIds: true }) : o));
     if (!silencieux) setLoading(false);
+  }
+
+  // ── Archives de la bibliothèque ──────────────────────────────────────────
+  // Même mécanisme que les catégories personnalisées ci-dessous : une clé
+  // planning_config dont la valeur est { items: [...] }. AUCUNE écriture sur
+  // bibliotheque_ratios : archiver ne modifie pas l'ouvrage, seulement cette
+  // liste à part.
+  async function loadArchives() {
+    const { data, error } = await supabase.from("planning_config")
+      .select("value").eq("key", CLE_ARCHIVES_BIBLIOTHEQUE).maybeSingle();
+    // Le module décide seul de ce qui est exploitable. Clé absente = aucun
+    // archivé (légitime) ; erreur ou valeur illisible = indisponible, et on
+    // affichera tout.
+    setArchives(lireArchivesV1(error, data));
+  }
+
+  /**
+   * Archive ou désarchive un ouvrage.
+   * SÉQUENCE OBLIGATOIRE : relire, modifier, réécrire. On ne part JAMAIS de
+   * l'état affiché : si la lecture échoue, la liste en mémoire vaut [], et
+   * l'écrire effacerait les archivages faits par les autres. Le module renvoie
+   * null dans ce cas, et on s'arrête.
+   */
+  async function basculerArchive(ouvrage, archiver) {
+    if (!ouvrage?.id) return;
+    setArchivageEnCours(ouvrage.id);
+    const { data, error } = await supabase.from("planning_config")
+      .select("value").eq("key", CLE_ARCHIVES_BIBLIOTHEQUE).maybeSingle();
+    const frais = lireArchivesV1(error, data);
+    const ids = archiver ? ajouterArchiveV1(frais, ouvrage.id) : retirerArchiveV1(frais, ouvrage.id);
+    if (ids === null) {
+      setArchives(frais);
+      setArchivageEnCours(null);
+      flash("error", "La liste des archivés n'a pas pu être relue : rien n'a été modifié. Réessayez.");
+      return;
+    }
+    const { error: errEcriture } = await supabase.from("planning_config").upsert(
+      { key: CLE_ARCHIVES_BIBLIOTHEQUE, value: valeurAEcrireV1(ids) },
+      { onConflict: "key" }
+    );
+    setArchivageEnCours(null);
+    if (errEcriture) {
+      flash("error", "L'enregistrement a échoué : rien n'a été modifié.");
+      return;
+    }
+    setArchives({ disponible: true, ids, raison: null });
+    flash("ok", archiver
+      ? `« ${ouvrage.libelle} » est archivé : il ne sera plus proposé à l'ajout. Rien n'a été supprimé.`
+      : `« ${ouvrage.libelle} » est de nouveau proposé à l'ajout.`);
   }
 
   // Catégories custom : stockées dans planning_config (partagées entre tous les
@@ -1570,8 +1676,15 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
   const filtered = ouvrages.filter(o => {
     const matchSearch = !search || o.libelle?.toLowerCase().includes(search.toLowerCase());
     const matchCat = filterCat === "Toutes" || getCat(o.identifiant) === filterCat;
-    return matchSearch && matchCat;
+    // Les archivés sont masqués tant que la case n'est pas cochée. Si la liste
+    // des archives est indisponible, estArchiveV1 rend false pour tout le
+    // monde : on affiche TOUT plutôt que de risquer de cacher un ouvrage actif.
+    const matchArchive = afficherArchives || !estArchiveV1(archives, o.id);
+    return matchSearch && matchCat && matchArchive;
   });
+  const nbArchivesMasques = afficherArchives
+    ? 0
+    : ouvrages.filter(o => estArchiveV1(archives, o.id)).length;
   const grouped = {};
   filtered.forEach(o => { const cat = getCat(o.identifiant); if (!grouped[cat]) grouped[cat] = []; grouped[cat].push(o); });
   const catCounts = {};
@@ -1768,6 +1881,35 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
                   fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none",
                 }}/>
             </div>
+            {/* Archives : désactivé par défaut. Le compte dit combien d'ouvrages
+                sont actuellement masqués, pour qu'une liste courte ne passe
+                jamais pour une bibliothèque complète. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+                fontSize: FONT.xs.size + 1, fontWeight: 600, color: T.textSub }}>
+                <input type="checkbox" checked={afficherArchives}
+                  onChange={e => setAfficherArchives(e.target.checked)}
+                  style={{ cursor: "pointer", accentColor: acc.accent }}/>
+                <Icon as={Archive} size={11}/>
+                {libelleFiltreArchivesV1(archives)}
+              </label>
+              {nbArchivesMasques > 0 && (
+                <span style={{ fontSize: FONT.xs.size, color: T.textMuted, fontStyle: "italic" }}>
+                  {nbArchivesMasques} ouvrage{nbArchivesMasques > 1 ? "s" : ""} archivé{nbArchivesMasques > 1 ? "s" : ""} masqué{nbArchivesMasques > 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            {/* Liste des archives illisible : on le DIT, et on affiche tout.
+                Mieux vaut montrer un ouvrage archivé que cacher un actif. */}
+            {archives.disponible === false && archives.raison && (
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10,
+                padding: "7px 10px", borderRadius: RADIUS.md,
+                background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.35)",
+                fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                <Icon as={AlertTriangle} size={12} color="#f5a623"/>
+                {MESSAGE_ARCHIVES_INDISPONIBLES}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {uniqueCats.map(cat => {
                 const count = cat === "Toutes" ? ouvrages.length : (catCounts[cat] || 0);
@@ -1973,6 +2115,12 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
 
                     {bloqueParUsage && (<>
                       {messageUsageBloquantV1(usageToDelete)}
+                      {/* Sans une alternative concrète, l'utilisateur contourne
+                          le blocage en recréant l'ouvrage — ce qui recrée
+                          exactement le problème qu'on vient de colmater. */}
+                      <div style={{ marginTop: 10, fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                        {messageVoiesAlternativesV1()}
+                      </div>
                       <div style={{ marginTop: 12, padding: "10px 12px", background: T.card,
                         border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
                         <div style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.textMuted,
@@ -2148,6 +2296,9 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
                       coefficients={coefficients}
                       echantillon={echantillon ? (echantillon[ouvrage.id] || null) : null}
                       echantillonPret={echantillon !== null}
+                      estArchive={estArchiveV1(archives, ouvrage.id)}
+                      onArchiver={basculerArchive}
+                      archivageEnCours={archivageEnCours === ouvrage.id}
                       T={T} acc={acc}
                     />
                     </div>

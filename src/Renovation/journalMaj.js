@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
+    type: "nouveaute",
+    titre: "Bibliothèque : un bouton « Archiver » pour faire le ménage sans rien détruire",
+    pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }],
+    quoi: "On supprimait des ouvrages de la bibliothèque pour deux raisons très différentes : pour les refaire autrement, et pour faire le ménage dans une liste devenue trop longue. « Dupliquer » répondait déjà au premier besoin ; le second n'avait aucune solution, sauf la suppression — celle-là même qui a détruit le lien entre 153 ouvrages de chantier et leur fiche d'origine. « Archiver » règle ce cas : l'ouvrage disparaît des listes où l'on choisit quoi ajouter à un chantier ou à un devis, mais rien n'est supprimé. Sa fiche existe toujours, les chantiers qui l'utilisent restent reliés, et les heures réelles passées dessus continuent d'alimenter sa jauge d'échantillon.",
+    comment: "Sur chaque fiche d'ouvrage, un bouton « Archiver » à côté de « Dupliquer ». Un ouvrage archivé n'apparaît plus dans l'ajout depuis la bibliothèque du chiffrage, ni dans la liaison des lignes à l'import d'un devis. Il reste visible sur la page Bibliothèque en cochant « Afficher les archivés », avec une étiquette « Archivé » et un bouton « Désarchiver » pour revenir en arrière à tout moment. Le nombre d'ouvrages masqués est indiqué à côté de la case, pour qu'une liste raccourcie ne passe jamais pour la bibliothèque complète. Quand la suppression d'un ouvrage est refusée parce qu'il est utilisé, le message propose maintenant les deux voies : « Dupliquer » pour une variante, « Archiver » pour le retirer des listes. Enfin, si la liste des archivés ne peut pas être lue, tous les ouvrages sont affichés et un bandeau le signale : mieux vaut voir un ouvrage archivé que de ne pas voir un ouvrage actif.",
+  },
+  {
+    date: "2026-09-24",
     type: "correctif",
     titre: "Bibliothèque : impossible de supprimer un ouvrage déjà utilisé sur des chantiers",
     pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }],
