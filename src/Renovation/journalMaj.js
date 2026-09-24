@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
+    type: "nouveaute",
+    titre: "Bibliothèque : chaque ouvrage dit maintenant sur combien de chantiers terminés sa cadence repose",
+    pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }],
+    quoi: "Les cadences de la bibliothèque sont saisies à la main et servent à calculer tous les prix de vente. Jusqu'ici rien ne disait si une cadence avait été confrontée au terrain ou jamais vérifiée. Chaque ouvrage affiche désormais son échantillon : combien d'ouvrages entièrement terminés le documentent, sur combien de chantiers différents, et si cela suffit pour en tirer quelque chose. Le constat actuel est net et c'est l'information principale : sur toute la base, AUCUN ouvrage n'a encore assez d'historique pour qu'on touche à sa cadence. La très grande majorité affiche « aucun ouvrage terminé », une douzaine affiche « insuffisant », un seul atteint le niveau « indicatif ». C'est fait pour : un écart mesuré sur un ou deux chantiers est une coïncidence, pas une tendance, et corriger un prix de vente là-dessus coûterait cher.",
+    comment: "Sur chaque ouvrage, une pastille indique l'échantillon ; en ouvrant la fiche, un encart juste sous la cadence donne le détail. Trois niveaux : « insuffisant » (moins de 3 ouvrages terminés) n'affiche AUCUN écart, volontairement ; « indicatif » (au moins 3) affiche l'écart entre heures vendues et heures réellement pointées, toujours accompagné de la mention « ne pas corriger la cadence sur cette base » ; « fiable » demande au moins 5 ouvrages terminés répartis sur au moins 3 chantiers différents — cinq ouvrages sur un seul chantier mesurent l'équipe et le bâtiment, pas l'ouvrage. Les heures réelles viennent des pointages du registre, rapprochés chantier par chantier ; les heures indirectes (trajets, préparation) en sont exclues, de même que les pointages saisis sans tâche. Cet affichage ne modifie rien : aucun bouton n'applique quoi que ce soit, à aucun niveau, et les cadences restent saisies à la main.",
+  },
+  {
+    date: "2026-09-24",
     type: "correctif",
     titre: "Bilan de la semaine : les chantiers qui avancent en perdant de l'argent remontent enfin",
     pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],

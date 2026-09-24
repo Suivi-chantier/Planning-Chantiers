@@ -15,10 +15,18 @@ import {
 import {
   expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe, tauxParDefaut,
 } from "./tauxHorairesVente.mjs";
+// Échantillon de cadences (chantier 08) : LECTURE SEULE. Il dit de combien
+// d'ouvrages terminés on dispose pour chaque type, et rien de plus. Il ne
+// calcule aucune cadence corrigée et n'offre aucun bouton d'application.
+import {
+  echantillonCadencesV1, indexEchantillonParBibliothequeV1,
+  libelleEchantillonV1, libelleEcartEchantillonV1,
+  NIVEAU_INSUFFISANT, NIVEAU_INDICATIF, NIVEAU_FIABLE,
+} from "./echantillonCadencesV1.js";
 import OuvrageProgbatSync from "./OuvrageProgbatSync";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
-  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft,
+  AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft, FlaskConical,
 } from "lucide-react";
 
 // LOTS dynamiques (phasage v2) : init avec les défauts, remplacement async au mount
@@ -411,7 +419,108 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
 }
 
 // ─── OUVRAGE CARD ─────────────────────────────────────────────────────────────
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], coefficients = [], T, acc }) {
+// ── Échantillon de cadences (chantier 08) — AFFICHAGE EN LECTURE SEULE ──────
+// Ce bloc répond à une seule question : « sur combien d'ouvrages réellement
+// terminés cette cadence pourrait-elle être jugée ? ». La réponse est le plus
+// souvent « pas encore assez », et c'est l'information utile : elle empêche de
+// corriger une cadence sur une coïncidence.
+// Aucun bouton d'application n'est proposé, à aucun niveau — y compris
+// « fiable » : le désaccord entre le découpage par tâche (+39 %) et par
+// ouvrage (−12 %) n'est pas tranché, donc aucun écart ne peut piloter une
+// écriture dans bibliotheque_ratios.
+const COULEURS_ECHANTILLON = {
+  [NIVEAU_INSUFFISANT]: { texte: "#8a8a8a", fond: "rgba(138,138,138,.10)", bord: "rgba(138,138,138,.28)" },
+  [NIVEAU_INDICATIF]:   { texte: "#f5a623", fond: "rgba(245,166,35,.10)",  bord: "rgba(245,166,35,.28)" },
+  [NIVEAU_FIABLE]:      { texte: "#22c55e", fond: "rgba(34,197,94,.10)",   bord: "rgba(34,197,94,.28)" },
+};
+
+/**
+ * Puce compacte de l'en-tête de carte.
+ * TROIS états, jamais confondus : pas encore lu / lu mais aucun ouvrage
+ * comparable / un échantillon. Afficher « aucun ouvrage terminé » pendant le
+ * chargement ferait passer une donnée qui arrive pour une donnée qui n'existe
+ * pas — c'est exactement le genre d'erreur que ce module doit éviter.
+ */
+function PuceEchantillon({ entree, pret, T }) {
+  if (!pret) {
+    return (
+      <span title="Lecture des phasages et des pointages en cours."
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size,
+          fontWeight: 700, color: T.textMuted, background: T.card,
+          border: `1px solid ${T.border}`, padding: "2px 8px", borderRadius: RADIUS.pill }}>
+        <Icon as={FlaskConical} size={10}/>
+        Échantillon : lecture en cours…
+      </span>
+    );
+  }
+  const c = entree ? COULEURS_ECHANTILLON[entree.niveau] : COULEURS_ECHANTILLON[NIVEAU_INSUFFISANT];
+  const ecart = libelleEcartEchantillonV1(entree);
+  return (
+    <span title={[libelleEchantillonV1(entree), ecart].filter(Boolean).join(" · ")}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT.xs.size,
+        fontWeight: 700, color: c.texte, background: c.fond, border: `1px solid ${c.bord}`,
+        padding: "2px 8px", borderRadius: RADIUS.pill }}>
+      <Icon as={FlaskConical} size={10}/>
+      {entree
+        ? `Échantillon ${entree.nOuvrages} ouvrage${entree.nOuvrages > 1 ? "s" : ""} / ${entree.nChantiers} chantier${entree.nChantiers > 1 ? "s" : ""} · ${entree.niveau}`
+        : "Échantillon : aucun ouvrage terminé"}
+    </span>
+  );
+}
+
+/** Encart détaillé, visible quand la fiche est dépliée. */
+function EncartEchantillon({ entree, pret, T }) {
+  if (!pret) {
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg,
+        padding: "10px 12px", marginTop: 10, fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+        <Icon as={FlaskConical} size={12}/> Échantillon : lecture des phasages et des pointages en cours…
+      </div>
+    );
+  }
+  const c = entree ? COULEURS_ECHANTILLON[entree.niveau] : COULEURS_ECHANTILLON[NIVEAU_INSUFFISANT];
+  const ecart = libelleEcartEchantillonV1(entree);
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg,
+      padding: "10px 12px", marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <Icon as={FlaskConical} size={12}/>
+        <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: T.text }}>
+          {libelleEchantillonV1(entree)}
+        </span>
+        {entree && (
+          <span style={{ fontSize: FONT.xs.size, fontWeight: 700, color: c.texte,
+            background: c.fond, border: `1px solid ${c.bord}`, padding: "1px 7px", borderRadius: RADIUS.pill }}>
+            {entree.niveau}
+          </span>
+        )}
+      </div>
+      {/* L'écart n'apparaît qu'à partir de « indicatif ». En « insuffisant »
+          il vaut null dans le module — un écart calculé sur un ou deux
+          ouvrages se lirait comme une mesure alors qu'il n'en est pas une. */}
+      {ecart ? (
+        <div style={{ fontSize: FONT.xs.size + 1, color: T.text, fontWeight: 600 }}>
+          {ecart}
+          <span style={{ color: T.textMuted, fontWeight: 500 }}>
+            {" "}— {entree.heuresVendues} h vendues, {entree.heuresReelles} h pointées sur les ouvrages terminés.
+          </span>
+        </div>
+      ) : (
+        <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
+          {entree
+            ? "Écart réel/vendu non affiché : l'échantillon est trop petit pour qu'il veuille dire quelque chose."
+            : "Aucun ouvrage de phasage entièrement terminé ne référence cet ouvrage de bibliothèque avec des heures vendues et des heures pointées."}
+        </div>
+      )}
+      <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 6, fontStyle: "italic" }}>
+        Information de lecture seule. La cadence ci-dessus reste saisie à la main :
+        aucune correction n'est calculée ni proposée à partir de cet échantillon.
+      </div>
+    </div>
+  );
+}
+
+function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, T, acc }) {
   const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
   const currentCat = getCat(ouvrage.identifiant);
   const cadence = parseFloat(ouvrage.cadence) || null;
@@ -504,6 +613,11 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               {maturite.planifiable ? "Prêt planning" : "Planning à compléter"}
             </span>
           )}
+          {/* Échantillon de cadences (chantier 08) : combien d'ouvrages
+              terminés documentent cette cadence. Lecture seule, toujours
+              visible — y compris quand il n'y en a aucun, car « pas de
+              donnée » et « donnée à zéro » ne se ressemblent pas. */}
+          <PuceEchantillon entree={echantillon} pret={echantillonPret} T={T}/>
           {/* Liaison ProGBat : visible d'un coup d'œil, détail dans la fiche */}
           {!isEdit && !editData.progbat_id && (
             <span title="Cet ouvrage n'existe pas encore dans ProGBat : ouvrir la fiche pour l'y créer."
@@ -591,6 +705,12 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               />
             </div>
           </div>
+
+          {/* ── Ce que l'échantillon permet de dire de cette cadence ──────────
+              Placé juste sous le champ Cadence, car c'est la seule décision
+              que cette information éclaire — et elle l'éclaire souvent en
+              disant « on ne sait pas encore ». Rien n'est modifiable ici. */}
+          <EncartEchantillon entree={echantillon} pret={echantillonPret} T={T}/>
 
           {/* ── Prix de vente calculé (Profero = source de vérité du prix) ──
               Formule v2 : matériaux × coefficient + coût direct × coefficient
@@ -1004,6 +1124,10 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
   const [newCoef, setNewCoef] = useState(null);       // valeur saisie (pré-remplie au défaut)
   // Colonnes de prix absentes en base (migration 20260917090000 pas lancée)
   const [schemaPrixManquant, setSchemaPrixManquant] = useState(false);
+  // Échantillon de cadences (chantier 08) : { bibliotheque_id → entrée }.
+  // null tant que la lecture n'a pas répondu — à distinguer de {}, qui veut
+  // dire « lu, et aucun ouvrage terminé comparable ».
+  const [echantillon, setEchantillon] = useState(null);
 
   const categories = [...CATEGORIES_BASE, ...categoriesCustom];
 
@@ -1054,6 +1178,7 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     loadCoutHoraire();
     loadTauxHoraires();
     loadCoefficients();
+    loadEchantillon();
     loadGroupesTypes().then(setGroupesTypes);
     const chTaux = supabase.channel("biblio-taux-rt")
       .on("postgres_changes",
@@ -1086,6 +1211,25 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
       supabase.removeChannel(chTaux);
     };
   }, []);
+
+  // ── Échantillon de cadences (chantier 08) ─────────────────────────────────
+  // Lecture seule, une fois au montage. Les heures réelles ne sont PAS dans le
+  // phasage : elles vivent dans `pointages` et se rapprochent par
+  // (chantier_id, tache_id). On charge donc les deux, et le module pur fait
+  // tout le reste — y compris décider ce qu'on a le droit d'en dire.
+  async function loadEchantillon() {
+    const { data: phasages, error: errPh } = await supabase
+      .from("phasages").select("chantier_id, ouvrages");
+    const { data: pointages, error: errPt } = await supabase
+      .from("pointages").select("chantier_id, tache_id, heures, type_pointage")
+      .eq("type_pointage", "tache");
+    // Une lecture qui échoue laisse l'index VIDE, jamais partiel : un
+    // échantillon calculé sur la moitié des pointages afficherait « 2
+    // ouvrages » là où il y en a 5, ce qui est pire que de ne rien afficher.
+    if (errPh || errPt) { setEchantillon({}); return; }
+    const resultat = echantillonCadencesV1({ phasages, pointages });
+    setEchantillon(indexEchantillonParBibliothequeV1(resultat));
+  }
 
   async function loadTauxHoraires() {
     const { data, error } = await supabase.from("taux_horaires_vente").select("*").order("libelle");
@@ -1862,6 +2006,8 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
                       coutHoraire={coutHoraire}
                       tauxHoraires={tauxHoraires}
                       coefficients={coefficients}
+                      echantillon={echantillon ? (echantillon[ouvrage.id] || null) : null}
+                      echantillonPret={echantillon !== null}
                       T={T} acc={acc}
                     />
                     </div>
