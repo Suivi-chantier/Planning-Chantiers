@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-24",
+    type: "nouveaute",
+    titre: "Bilan de la semaine : on voit ce qui est nouveau, ce qui traîne et ce qui est réglé — et un résumé e-mail en un clic",
+    pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
+    quoi: "Une liste de chantiers en difficulté ne dit pas grand-chose si on ne sait pas lesquels sont nouveaux et lesquels traînent depuis quinze jours. Chaque point d'attention porte maintenant une étiquette : « nouveau cette semaine » ou « 2e semaine consécutive ». Et quand un chantier cesse de déraper, il est nommé : « Résolu depuis la semaine dernière : … ». Deux autres choses s'ajoutent : un rappel de ce qui avait été signalé au dernier bilan écrit, avec l'avancement d'aujourd'hui en face de chaque point — pour voir si ça a bougé — et un bouton qui copie un résumé du bilan en texte, prêt à coller dans un e-mail.",
+    comment: "Tout est dans le bilan, et tout est repris dans le PDF envoyé à la hiérarchie. Les étiquettes n'apparaissent qu'à partir de trois semaines de relevés consécutifs : avant ça, l'application affiche les points d'attention sans étiquette et vous dit pourquoi, plutôt que d'annoncer « nouveau » pour tout. Le rappel du dernier bilan va chercher le dernier bilan réellement écrit, même s'il date de plusieurs semaines, et il ne s'affiche pas du tout s'il n'y en a aucun ; il est en lecture seule, vos saisies ne sont jamais modifiées. Le bouton « Copier le résumé e-mail » met le texte dans le presse-papier et affiche « Copié » : à vous de le coller dans votre messagerie et d'y joindre le PDF. Rien n'est envoyé automatiquement. Le résumé mentionne toujours la rubrique des points d'attention, même quand il n'y en a aucun — un mail où la rubrique manque laisserait croire qu'on ne l'a pas regardée.",
+  },
+  {
     date: "2026-09-23",
     type: "nouveaute",
     titre: "Bilan de la semaine : les chantiers qui consomment des heures sans avancer remontent tout seuls",
