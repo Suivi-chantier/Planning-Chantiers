@@ -117,7 +117,21 @@ function hasNumericData(heures, quantite, prix) {
   return heures != null || quantite != null || prix != null;
 }
 
-export async function parseDevisExcel(file, lots = [], bibliotheque = []) {
+/**
+ * @param {File} file
+ * @param {Array} lots
+ * @param {Array} bibliotheque  LA BIBLIOTHÈQUE COMPLÈTE, archivés compris.
+ *   Reconnaître une ligne de devis n'est PAS un choix : c'est une lecture.
+ *   Si on retire les archivés d'ici, une ligne dont le code désigne exactement
+ *   un ouvrage archivé ne le trouve plus, et le repli par similarité de
+ *   libellé (Jaccard 0,4) la rattache SILENCIEUSEMENT à un ouvrage voisin.
+ *   Un mauvais lien est pire qu'une absence de lien : il pré-remplit les
+ *   mauvaises tâches et pollue l'historique d'un autre ouvrage.
+ * @param {string[]} idsArchives  ids des ouvrages archivés. Ne restreint RIEN :
+ *   sert uniquement à poser `matchArchive` sur la ligne, pour que l'aperçu
+ *   d'import le signale et laisse l'utilisateur décider.
+ */
+export async function parseDevisExcel(file, lots = [], bibliotheque = [], idsArchives = []) {
   const buffer = await new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = e => resolve(e.target.result);
@@ -209,7 +223,12 @@ export async function parseDevisExcel(file, lots = [], bibliotheque = []) {
     const lotIdByCode = detectLotByCode(libelle, lots);
     const lot_id = lotIdByCode || currentLotId;
 
+    // Rapprochement sur la bibliothèque COMPLÈTE.
     const bm = matchBiblio(libelle, bibliotheque);
+    // ... puis on QUALIFIE le résultat : l'ouvrage reconnu est-il archivé ?
+    // La ligne reste rattachée à lui ; c'est l'utilisateur qui tranche.
+    const archives = Array.isArray(idsArchives) ? idsArchives : [];
+    const matchArchive = !!bm.match && archives.some(id => String(id) === String(bm.match.id));
     items.push({
       _key: `imp_${i}`,
       libelle,
@@ -222,6 +241,7 @@ export async function parseDevisExcel(file, lots = [], bibliotheque = []) {
       match: bm.match,
       score: bm.score,
       matchBy: bm.by, // "code" | "libelle" | null
+      matchArchive,   // true = l'ouvrage reconnu est archivé (à vérifier avant import)
       selectionne: true,
     });
   }

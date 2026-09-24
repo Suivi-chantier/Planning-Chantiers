@@ -31,6 +31,7 @@ import {
   MESSAGE_ARCHIVES_INDISPONIBLES,
   ARCHIVES_BIBLIOTHEQUE_VERSION,
 } from "../src/Renovation/archivesBibliothequeV1.mjs";
+import { matchBiblio } from "../src/devisImport.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const lire = async f => readFile(resolve(here, f), "utf8");
@@ -39,6 +40,7 @@ const facade = await lire("../src/Renovation/archivesBibliothequeV1.js");
 const ecranBiblio = await lire("../src/Renovation/Bibliotheque.jsx");
 const ecranPhasage = await lire("../src/Renovation/PhasageV2.jsx");
 const ecranInfoClient = await lire("../src/Renovation/PageInfoClient.jsx");
+const devisImport = await lire("../src/devisImport.js");
 const code = source.split("\n").filter(l => !/^\s*\/\//.test(l)).join("\n");
 
 const ouvrage = (id, libelle) => ({ id, libelle: libelle || `Ouvrage ${id}` });
@@ -262,14 +264,13 @@ const dispo = ids => ({ disponible: true, ids, raison: null });
 
 // ── 7. Les points de CHOIX des autres écrans sont bien filtrés ──────────────
 {
-  // PhasageV2 : les deux consommateurs de la bibliothèque sont des choix —
-  // le matching automatique à l'import devis, et le sélecteur manuel de la
-  // modale. Aucun des deux ne doit reproposer un ouvrage archivé.
+  // PhasageV2 : SEUL le sélecteur manuel de la modale est filtré. Le
+  // rapprochement automatique de l'import devis reçoit la bibliothèque
+  // complète — voir le bloc 8, qui explique pourquoi une liste amputée y
+  // produit des liens FAUX plutôt qu'absents.
   assert.match(ecranPhasage, /const bibliothequePourChoix = useMemo\(/,
     "PhasageV2 doit exposer une liste filtrée");
   assert.match(ecranPhasage, /filtrerPourChoixV1\(bibliotheque, archivesBiblio\)/);
-  assert.match(ecranPhasage, /parseDevisExcel\(file, lots, bibliothequePourChoix\)/,
-    "le matching automatique ne doit pas proposer d'archivé");
   assert.match(ecranPhasage, /bibliotheque=\{bibliothequePourChoix\}/,
     "le sélecteur manuel ne doit pas proposer d'archivé");
   // L'état brut reste disponible : on ne casse pas les autres usages.
@@ -287,4 +288,79 @@ const dispo = ids => ({ disponible: true, ids, raison: null });
     "le message de blocage doit proposer Dupliquer et Archiver");
 }
 
-console.log("OK — archiver un ouvrage de bibliothèque : 8 blocs de vérification");
+// ── 8. Le rapprochement AUTOMATIQUE voit toute la bibliothèque ──────────────
+{
+  // Le défaut corrigé ici : passer la liste FILTRÉE au rapprochement
+  // automatique. matchBiblio cherche d'abord un code exact, puis se rabat sur
+  // une similarité de libellé (Jaccard, seuil 0,4). Retirer l'ouvrage archivé
+  // de la liste ne rend donc pas la ligne « non reconnue » : elle est
+  // rattachée à UN AUTRE ouvrage au libellé voisin, silencieusement.
+  // Un mauvais lien est pire qu'une absence de lien.
+  const archive  = { id: "ARCH", libelle: "P-900 Pose d'un receveur de douche 120x80" };
+  const voisin   = { id: "VOIS", libelle: "P-901 Pose d'un receveur de douche 140x90" };
+  const complete = [archive, voisin];
+  const ligneDevis = "P-900 Pose d'un receveur de douche 120x80";
+
+  // (a) Sur la bibliothèque complète : match EXACT par code, sur le bon ouvrage.
+  const surComplete = matchBiblio(ligneDevis, complete);
+  assert.equal(surComplete.match.id, "ARCH", "le code exact doit l'emporter");
+  assert.equal(surComplete.by, "code");
+  assert.equal(surComplete.score, 1);
+
+  // (b) DÉMONSTRATION DU BUG ÉVITÉ : sur la liste filtrée, la ligne n'est pas
+  //     « non reconnue » — elle part sur le VOISIN, par similarité.
+  const filtree = filtrerPourChoixV1(complete, dispo(["ARCH"]));
+  assert.deepEqual(filtree.map(o => o.id), ["VOIS"]);
+  const surFiltree = matchBiblio(ligneDevis, filtree);
+  assert.equal(surFiltree.match?.id, "VOIS", "c'est bien le piège : un lien FAUX, pas un lien absent");
+  assert.equal(surFiltree.by, "libelle");
+  assert.notEqual(surFiltree.match?.id, surComplete.match.id,
+    "les deux listes donnent des ouvrages DIFFÉRENTS : d'où la correction");
+
+  // (c) La ligne au code identique à un archivé est rattachée À CET OUVRAGE,
+  //     et JAMAIS à un autre par similarité.
+  const idsArchives = ["ARCH"];
+  const matchArchive = !!surComplete.match && idsArchives.some(id => String(id) === String(surComplete.match.id));
+  assert.equal(surComplete.match.id, "ARCH");
+  assert.equal(matchArchive, true, "l'indicateur doit signaler que l'ouvrage reconnu est archivé");
+  // Un ouvrage NON archivé ne porte pas l'indicateur.
+  const surVoisin = matchBiblio("P-901 Pose d'un receveur de douche 140x90", complete);
+  assert.equal(surVoisin.match.id, "VOIS");
+  assert.equal(idsArchives.some(id => String(id) === String(surVoisin.match.id)), false);
+
+  // (d) L'écran passe bien la liste COMPLÈTE au rapprochement automatique,
+  //     et les ids archivés seulement pour qualifier.
+  assert.match(ecranPhasage, /parseDevisExcel\(\s*\n?\s*file, lots, bibliotheque, archivesBiblio\.disponible \? archivesBiblio\.ids : \[\]/,
+    "le rapprochement automatique doit recevoir la bibliothèque complète");
+  assert.equal(/parseDevisExcel\(file, lots, bibliothequePourChoix\)/.test(ecranPhasage), false,
+    "le rapprochement automatique ne doit JAMAIS recevoir la liste filtrée");
+
+  // (e) Le résultat est signalé dans l'aperçu d'import, pas avalé.
+  assert.match(devisImport, /matchArchive,/, "l'item d'import doit porter l'indicateur");
+  assert.match(devisImport, /idsArchives = \[\]/, "parseDevisExcel accepte les ids archivés");
+  assert.match(ecranPhasage, /it\.matchArchive && \(/, "l'aperçu doit afficher l'avertissement");
+  assert.match(ecranPhasage, /Ouvrage archivé — vérifiez avant d'importer/);
+
+  // (f) Les ids archivés ne RESTREIGNENT rien : même liste, même résultat.
+  assert.equal(/matchBiblio\([^)]*idsArchives/.test(devisImport), false,
+    "la liste des archivés ne doit pas entrer dans la recherche");
+}
+
+// ── 9. Le sélecteur MANUEL, lui, reste filtré ───────────────────────────────
+{
+  // La distinction tient en un mot : désigner un ouvrage à la main est un
+  // CHOIX (on ne propose pas un archivé) ; reconnaître une ligne de devis est
+  // une LECTURE (on la rattache au bon ouvrage, archivé ou non).
+  assert.match(ecranPhasage, /bibliotheque=\{bibliothequePourChoix\}/,
+    "le sélecteur manuel de la modale doit rester filtré");
+  assert.match(ecranPhasage, /const bibliothequePourChoix = useMemo\(/);
+  assert.match(ecranPhasage, /filtrerPourChoixV1\(bibliotheque, archivesBiblio\)/);
+  // Et le catalogue d'ajout de PageInfoClient aussi.
+  assert.match(ecranInfoClient, /filtrerPourChoixV1\(biblio\?\.ouvrages \|\| \[\], archivesBiblio\)/,
+    "le catalogue « Ajouter depuis la bibliothèque » doit rester filtré");
+  // Un seul point filtré dans chaque écran : pas de débordement sur une lecture.
+  assert.equal((ecranPhasage.match(/filtrerPourChoixV1\(/g) || []).length, 1);
+  assert.equal((ecranInfoClient.match(/filtrerPourChoixV1\(/g) || []).length, 1);
+}
+
+console.log("OK — archiver un ouvrage de bibliothèque : 10 blocs de vérification");

@@ -577,10 +577,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     supabase.from("planning_config").select("value").eq("key", CLE_ARCHIVES_BIBLIOTHEQUE).maybeSingle()
       .then(({ data, error }) => setArchivesBiblio(lireArchivesV1(error, data)));
   }, []);
-  // La bibliothèque telle qu'elle est PROPOSÉE : sans les archivés.
-  // Ses deux consommateurs sont des choix — le matching automatique de
-  // l'import devis, et le sélecteur manuel de la modale. Aucun des deux ne
-  // doit reproposer un ouvrage mis de côté.
+  // La bibliothèque telle qu'elle est PROPOSÉE à un choix humain : sans les
+  // archivés. Un seul consommateur — le sélecteur manuel de la modale
+  // d'import, où l'utilisateur désigne lui-même une fiche.
+  // NE PAS l'utiliser pour le rapprochement automatique : reconnaître une
+  // ligne de devis est une lecture, pas un choix, et une liste amputée y
+  // produit des liens FAUX plutôt qu'absents (voir l'appel à parseDevisExcel).
   const bibliothequePourChoix = useMemo(
     () => filtrerPourChoixV1(bibliotheque, archivesBiblio),
     [bibliotheque, archivesBiblio]
@@ -1537,7 +1539,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!file) return;
     setImportState({ items: [], unknownLotHeaders: [], parsing: true, error: null });
     try {
-      const { items, unknownLotHeaders } = await parseDevisExcel(file, lots, bibliothequePourChoix);
+      // RAPPROCHEMENT AUTOMATIQUE : bibliothèque COMPLÈTE, archivés compris.
+      // Reconnaître une ligne n'est pas un choix. Avec la liste filtrée, une
+      // ligne dont le code désigne exactement un ouvrage archivé ne le trouvait
+      // plus, et le repli par similarité de libellé la rattachait
+      // SILENCIEUSEMENT à un ouvrage voisin — pire qu'une absence de lien.
+      // Les ids archivés ne restreignent rien : ils posent `matchArchive` sur
+      // la ligne, que l'aperçu signale pour que l'utilisateur tranche.
+      const { items, unknownLotHeaders } = await parseDevisExcel(
+        file, lots, bibliotheque, archivesBiblio.disponible ? archivesBiblio.ids : []
+      );
       setImportState({ items, unknownLotHeaders, parsing: false, error: null });
     } catch (err) {
       console.error("Parsing devis:", err);
@@ -6430,6 +6441,9 @@ function ImportDevisModal({ state, lots, bibliotheque = [], T, accent, accentBor
   const nbMatchCode = items.filter(i => i.matchBy === "code").length;
   const nbMatchLbl  = items.filter(i => i.matchBy === "libelle").length;
   const nbMatchMan  = items.filter(i => i.matchBy === "manuel").length;
+  // Lignes reconnues comme appartenant à un ouvrage ARCHIVÉ : rattachées
+  // quand même, mais à vérifier avant import.
+  const nbMatchArchive = items.filter(i => i.matchArchive).length;
 
   // Bibliothèque triée par libellé pour le sélecteur de liaison manuelle
   const biblioSorted = [...bibliotheque].sort((a, b) =>
@@ -6475,7 +6489,7 @@ function ImportDevisModal({ state, lots, bibliotheque = [], T, accent, accentBor
             <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, marginTop: 2 }}>
               {parsing ? "Analyse en cours…"
                 : error ? "Erreur"
-                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatchCode} par code · ${nbMatchLbl} par similarité${nbMatchMan > 0 ? ` · ${nbMatchMan} manuel${nbMatchMan > 1 ? "s" : ""}` : ""} · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
+                : `${items.length} ouvrage${items.length > 1 ? "s" : ""} détecté${items.length > 1 ? "s" : ""} · ${nbMatchCode} par code · ${nbMatchLbl} par similarité${nbMatchMan > 0 ? ` · ${nbMatchMan} manuel${nbMatchMan > 1 ? "s" : ""}` : ""}${nbMatchArchive > 0 ? ` · ${nbMatchArchive} sur ouvrage archivé` : ""} · ${nbSel} sélectionné${nbSel > 1 ? "s" : ""}`}
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{
@@ -6567,6 +6581,19 @@ function ImportDevisModal({ state, lots, bibliotheque = [], T, accent, accentBor
                                     : <>Match par similarité ({Math.round(it.score * 100)}%)</>}
                                 {" · "}{(it.match.sous_taches || []).length} sous-tâche{(it.match.sous_taches || []).length > 1 ? "s" : ""}
                               </span>
+                              {/* L'ouvrage reconnu est archivé : la ligne reste
+                                  rattachée à LUI (c'est le bon ouvrage), mais on
+                                  le dit — c'est l'utilisateur qui tranche. */}
+                              {it.matchArchive && (
+                                <span title="Cet ouvrage a été archivé : il n'est plus proposé à l'ajout, mais la ligne a bien été reconnue comme étant la sienne. Vérifiez que c'est ce que vous voulez avant d'importer."
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4,
+                                    fontSize: FONT.xs.size, fontWeight: 700, color: "#f5a623",
+                                    background: "rgba(245,166,35,.10)", border: "1px solid rgba(245,166,35,.32)",
+                                    padding: "1px 7px", borderRadius: RADIUS.pill }}>
+                                  <Icon as={AlertTriangle} size={9}/>
+                                  Ouvrage archivé — vérifiez avant d'importer
+                                </span>
+                              )}
                             </>
                           ) : (
                             <span style={{ fontStyle: "italic" }}>
