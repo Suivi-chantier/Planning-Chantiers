@@ -22,6 +22,9 @@ import {
   libelleMotifsV1,
   MOTIF_CONSOMMATION_SANS_AVANCEMENT, MOTIF_PERTE_DE_MARGE,
 } from "../src/Renovation/pointsAttentionV1.mjs";
+import {
+  dedoublonnerSnapshotsV1, preparerSemainesAttentionV1, auditDoublonsSnapshotsV1,
+} from "../src/Renovation/pointsAttentionDonneesV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = await readFile(resolve(here, "../src/Renovation/pointsAttentionV1.mjs"), "utf8");
@@ -419,4 +422,88 @@ const motif1Seul = (courants, precedents, seuils) =>
   assert.equal(libelleMotifsV1(null), "");
 }
 
-console.log("OK — points d'attention V1 : 14 blocs de vérification");
+// ── 15. Doublons de relevé : une seule ligne retenue, la plus récente. ────
+// Le cron a tourné DEUX FOIS en 2026-W31 : 36 lignes pour 19 chantiers, soit
+// 17 doublons (seule semaine concernée sur les 20). Le suivi remontant huit
+// semaines pour les cumuls, et huit semaines avant W38 tombant précisément sur
+// W31, un rapprochement naïf y produirait une ligne en double ou une valeur
+// arbitraire. Fixture calquée sur le cas réel de TOM & CAMILLE R+1.
+{
+  const brut = [
+    { chantier_id: "R1", chantier_nom: "TOM & CAMILLE R+1", week_id: "2026-W31",
+      date_snapshot: "2026-07-31", created_at: "2026-07-31T17:02:00Z",
+      avancement: 58, heures_reelles: 300, marge: 11856 },
+    { chantier_id: "R1", chantier_nom: "TOM & CAMILLE R+1", week_id: "2026-W31",
+      date_snapshot: "2026-07-31", created_at: "2026-07-31T19:14:00Z",  // seconde exécution
+      avancement: 42, heures_reelles: 320, marge: 13781 },
+    { chantier_id: "C2", chantier_nom: "AUTRE", week_id: "2026-W31",
+      date_snapshot: "2026-07-31", created_at: "2026-07-31T17:02:00Z",
+      avancement: 50, heures_reelles: 100, marge: 900 },
+  ];
+
+  const propre = dedoublonnerSnapshotsV1(brut);
+  assert.equal(propre.length, 2, "un seul relevé par chantier et par semaine");
+  const r1 = propre.find(l => l.chantier_id === "R1");
+  assert.equal(r1.created_at, "2026-07-31T19:14:00Z", "la ligne la plus récemment écrite fait foi");
+  assert.equal(r1.marge, 13781);
+  assert.equal(r1.avancement, 42);
+  // L'ordre d'arrivée ne change pas le résultat.
+  const inverse = dedoublonnerSnapshotsV1([brut[1], brut[0], brut[2]]);
+  assert.equal(inverse.find(l => l.chantier_id === "R1").created_at, "2026-07-31T19:14:00Z");
+
+  // LE point qui compte : le total des points d'attention ne double pas.
+  const semaineSuivante = [
+    { chantier_id: "R1", chantier_nom: "TOM & CAMILLE R+1", week_id: "2026-W32",
+      date_snapshot: "2026-08-07", created_at: "2026-08-07T17:02:00Z",
+      avancement: 42, heures_reelles: 350, marge: 11000 },
+  ];
+  const avecDoublons = pointsAttentionV1({
+    snapshotsCourants: semaineSuivante, snapshotsPrecedents: brut,
+  });
+  const dedoublonne = pointsAttentionV1({
+    snapshotsCourants: preparerSemainesAttentionV1({ lignes: semaineSuivante, weekIds: ["2026-W32"] })[0],
+    snapshotsPrecedents: preparerSemainesAttentionV1({ lignes: brut, weekIds: ["2026-W31"] })[0],
+  });
+  assert.equal(dedoublonne.lignes.length, 1, "un chantier, une ligne");
+  assert.equal(dedoublonne.lignes.filter(l => l.chantier_id === "R1").length, 1,
+    "le doublon de relevé ne doit jamais produire deux points d'attention");
+  assert.equal(dedoublonne.lignes[0].margePerdue, 2781, "13 781 → 11 000, ligne la plus récente");
+  assert.equal(avecDoublons.lignes.length, dedoublonne.lignes.length,
+    "même nombre de lignes : le total ne double pas");
+
+  // Découpage par semaine, dans l'ordre demandé.
+  const semaines = preparerSemainesAttentionV1({
+    lignes: [...brut, ...semaineSuivante], weekIds: ["2026-W32", "2026-W31"],
+  });
+  assert.equal(semaines.length, 2);
+  assert.deepEqual(semaines[0].map(l => l.chantier_id), ["R1"]);
+  assert.deepEqual(semaines[1].map(l => l.chantier_id).sort(), ["C2", "R1"]);
+  // Une semaine sans relevé rend un tableau vide, pas une absence : c'est ce qui
+  // permet ensuite de dire « relevé pas encore disponible ».
+  assert.deepEqual(preparerSemainesAttentionV1({ lignes: brut, weekIds: ["2026-W39"] }), [[]]);
+
+  // Les doublons écartés sont comptés, pas masqués.
+  const audit = auditDoublonsSnapshotsV1(brut);
+  assert.equal(audit.total, 1);
+  assert.deepEqual(audit.parSemaine, [{ week_id: "2026-W31", doublons: 1 }]);
+  assert.equal(auditDoublonsSnapshotsV1(semaineSuivante).total, 0);
+
+  // Entrées malformées et lignes sans created_at.
+  assert.deepEqual(dedoublonnerSnapshotsV1(null), []);
+  assert.deepEqual(dedoublonnerSnapshotsV1([null, 42, "bruit", { chantier_id: "" }]), []);
+  const sansHorodatage = dedoublonnerSnapshotsV1([
+    { chantier_id: "X", week_id: "W", date_snapshot: "2026-07-24", marge: 1 },
+    { chantier_id: "X", week_id: "W", date_snapshot: "2026-07-31", marge: 2 },
+  ]);
+  assert.equal(sansHorodatage.length, 1);
+  assert.equal(sansHorodatage[0].marge, 2, "sans created_at, date_snapshot départage");
+  const horodateeGagne = dedoublonnerSnapshotsV1([
+    { chantier_id: "X", week_id: "W", marge: 1 },
+    { chantier_id: "X", week_id: "W", created_at: "2026-07-31T19:00:00Z", marge: 2 },
+  ]);
+  assert.equal(horodateeGagne[0].marge, 2, "une ligne horodatée l'emporte sur une ligne qui ne l'est pas");
+  // Déterminisme strict.
+  assert.deepEqual(dedoublonnerSnapshotsV1(brut), dedoublonnerSnapshotsV1(brut));
+}
+
+console.log("OK — points d'attention V1 : 15 blocs de vérification");

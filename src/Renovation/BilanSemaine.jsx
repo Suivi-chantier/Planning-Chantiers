@@ -15,6 +15,7 @@ import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
 import { libellePointAttentionV1, libelleMotifsV1, etatPointsAttentionV1, ETAT_RELEVE_ABSENT, ETAT_DERIVES } from "./pointsAttentionV1.js";
 import { suiviPointsAttentionV1, libelleSuiviV1, libelleDerivesArreteesV1 } from "./suiviPointsAttentionV1.js";
+import { preparerSemainesAttentionV1, auditDoublonsSnapshotsV1 } from "./pointsAttentionDonneesV1.js";
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
@@ -942,13 +943,23 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       // exactement le périmètre sur lequel une dérive mérite d'être remontée.
       const { data, error } = await supabase
         .from("chantier_snapshots_hebdo")
-        .select("chantier_id, chantier_nom, week_id, date_snapshot, avancement, heures_reelles, marge")
+        .select("chantier_id, chantier_nom, week_id, date_snapshot, created_at, avancement, heures_reelles, marge")
         .in("week_id", semainesAttention)
         .order("date_snapshot", { ascending: true });
       if (cancelled) return;
       if (error) { console.warn("Points d'attention : load", error.message); return; }
       setSnapshotsCharges(true);
-      setSnapshotsAttention(semainesAttention.map(w => (data || []).filter(r => r.week_id === w)));
+      // Le cron a tourné deux fois en 2026-W31 : cette semaine porte des doublons
+      // (deux états différents pour un même chantier). On ne garde que la ligne
+      // la plus récemment écrite, ICI et nulle part ailleurs — les modules de
+      // calcul reçoivent des données déjà propres et restent purs.
+      // Lecture seule : rien n'est supprimé en base.
+      const audit = auditDoublonsSnapshotsV1(data || []);
+      if (audit.total > 0) {
+        console.warn("Points d'attention : doublons de relevé écartés —",
+          audit.parSemaine.map(x => `${x.week_id}: ${x.doublons}`).join(", "));
+      }
+      setSnapshotsAttention(preparerSemainesAttentionV1({ lignes: data || [], weekIds: semainesAttention }));
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

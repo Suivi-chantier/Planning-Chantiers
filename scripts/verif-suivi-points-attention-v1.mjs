@@ -259,57 +259,84 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
   }
 }
 
-// ── 12. « Arrêtée », jamais « résolue » — et le cumul déjà perdu. ─────────
-// Un chantier qui sort de la liste n'a rien récupéré. Écrire « résolu » dans un
-// document transmis à la hiérarchie dirait le contraire de la réalité.
-// Scénario calqué sur un cas réel : marge 10 619 → 8 046 → 3 694 → 1 673, soit
-// 8 946 € perdus en trois semaines, puis stabilisation.
+// ── 12. Cumul réel : 4 semaines consécutives, 10 183 €. ────────────────
+// Série relevée en base pour TOM & CAMILLE R+1, avec le seuil de 500 € :
+//   W35 −1 237 € · W36 −2 573 € · W37 −4 352 € · W38 −2 021 €
+//   marge 11 856 € (W34) → 1 673 € (W38), soit 10 183 € sur 4 semaines.
+// Le chantier PROGRESSE tout du long : seul le motif perte_de_marge le retient,
+// et il est donc ACTIF en W38 — pas un cas de « dérive arrêtée ».
 {
-  const m = (id, marge, heures, date) => snap(id, { nom: "TOM & CAMILLE R+1", avancement: 97, heures, marge, date });
-  const N  = [m("R1", 1673, 210, "2026-09-25")];  // stabilisé : plus de perte
-  const N1 = [m("R1", 1673, 210, "2026-09-18")];
-  const N2 = [m("R1", 3694, 180, "2026-09-11")];
-  const N3 = [m("R1", 8046, 150, "2026-09-04")];
-  const N4 = [m("R1", 10619, 120, "2026-08-28")];
-  const N5 = [m("R1", 10619, 90,  "2026-08-21")]; // avant : aucune perte
+  const r1 = (marge, heures, avancement, date) => snap("R1", {
+    nom: "TOM & CAMILLE R+1", avancement, heures, marge, date,
+  });
+  const W38 = [r1(1673,  210, 97, "2026-09-18")];
+  const W37 = [r1(3694,  180, 88, "2026-09-11")];
+  const W36 = [r1(8046,  150, 76, "2026-09-04")];
+  const W35 = [r1(10619, 120, 68, "2026-08-28")];
+  const W34 = [r1(11856,  90, 60, "2026-08-21")];
+  const W33 = [r1(11856,  60, 52, "2026-08-14")]; // aucune perte : la série s'arrête là
 
   const out = suiviPointsAttentionV1({
-    snapshotsN: N, snapshotsN1: N1, snapshotsN2: N2, historiqueAnterieur: [N3, N4, N5],
+    snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36, historiqueAnterieur: [W35, W34, W33],
+  });
+  assert.equal(out.actifs.length, 1, "R+1 est encore en dérive en W38");
+  assert.deepEqual(out.resolus, [], "il n'est PAS un cas de dérive arrêtée");
+  const a = out.actifs[0];
+  assert.deepEqual(a.motifs, ["perte_de_marge"], "il progresse : seul le second motif le retient");
+  assert.equal(a.margePerdue, 2021, "perte de la seule semaine W38");
+  assert.equal(a.cumulSemaines, 4);
+  assert.equal(a.cumulMargePerdue, 10183, "1 237 + 2 573 + 4 352 + 2 021");
+  assert.equal(a.cumulComplet, true, "la série s'arrête avant le bord de l'historique");
+  // Le cumul égale exactement la marge disparue sur la période.
+  assert.equal(a.cumulMargePerdue, 11856 - 1673);
+
+  // Sans assez d'historique, on ne peut prouver que ce qu'on voit : « au moins ».
+  // Trois semaines seulement : deux comparaisons possibles, donc 2 021 + 4 352.
+  const court = suiviPointsAttentionV1({ snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36 });
+  assert.equal(court.actifs[0].cumulSemaines, 2);
+  assert.equal(court.actifs[0].cumulMargePerdue, 6373);
+  assert.equal(court.actifs[0].cumulComplet, false, "la série touche le bord : le total est un minimum");
+}
+
+// ── 13. « Arrêtée », jamais « résolue » — et le cumul déjà perdu. ─────────
+// Un chantier qui sort de la liste n'a rien récupéré. Écrire « résolu » dans un
+// document transmis à la hiérarchie dirait le contraire de la réalité.
+{
+  const b = (marge, heures, avancement, date) => snap("BR", {
+    nom: "BRIOLLAY", avancement, heures, marge, date,
+  });
+  // Dérive sur W36 et W37, puis stabilisation en W38.
+  const W38 = [b(5000, 240, 70, "2026-09-18")];  // marge identique à W37 : plus de perte
+  const W37 = [b(5000, 220, 67, "2026-09-11")];
+  const W36 = [b(6026, 190, 64, "2026-09-04")];
+  const W35 = [b(7000, 160, 61, "2026-08-28")];
+  const W34 = [b(7000, 130, 58, "2026-08-21")];  // aucune perte avant
+
+  const out = suiviPointsAttentionV1({
+    snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36, historiqueAnterieur: [W35, W34],
   });
   assert.deepEqual(out.actifs, [], "la dérive s'est arrêtée cette semaine");
   assert.equal(out.resolus.length, 1);
   const r = out.resolus[0];
   assert.equal(r.statut, STATUT_DERIVE_ARRETEE);
   assert.equal(r.statut.includes("resolu"), false, "le statut interne ne dit pas « résolu »");
-
-  // LE cumul : somme exacte des semaines consécutives signées.
-  assert.equal(r.margePerdueDerniere, 2021, "dernière semaine signée");
-  assert.equal(r.cumulMargePerdue, 8946, "2 021 + 4 352 + 2 573");
-  assert.equal(r.cumulSemaines, 3);
-  assert.equal(r.cumulComplet, true, "la série ne touche pas le bord de l'historique");
+  assert.equal(r.margePerdueDerniere, 1026, "dernière semaine signée (W37)");
+  assert.equal(r.cumulMargePerdue, 2000, "1 026 + 974");
+  assert.equal(r.cumulSemaines, 2);
+  assert.equal(r.cumulComplet, true);
 
   const phrase = libelleDerivesArreteesV1(out.resolus);
   assert.match(phrase, /La dérive signalée la semaine dernière s'est arrêtée/);
   assert.match(phrase, /la marge perdue n'est pas récupérée/);
-  assert.match(phrase, /TOM & CAMILLE R\+1 — 8 946 € perdus sur 3 semaines signées/);
+  assert.match(phrase, /BRIOLLAY — 2 000 € perdus sur 2 semaines signées/);
   // Le mot interdit, sous toutes ses formes.
-  assert.equal(/résolu|resolu|Résolu/i.test(phrase), false, "le mot « résolu » est proscrit");
+  assert.equal(/résolu|resolu/i.test(phrase), false, "le mot « résolu » est proscrit");
 
-  // Sans assez d'historique, la série touche le bord : on dit « au moins ».
-  const court = suiviPointsAttentionV1({ snapshotsN: N, snapshotsN1: N1, snapshotsN2: N2, historiqueAnterieur: [N3] });
-  assert.equal(court.resolus[0].cumulSemaines, 2);
-  assert.equal(court.resolus[0].cumulMargePerdue, 6373, "2 021 + 4 352, tout ce qu'on peut prouver");
+  // Historique tronqué : la série touche le bord, on dit « au moins ».
+  const court = suiviPointsAttentionV1({ snapshotsN: W38, snapshotsN1: W37, snapshotsN2: W36 });
+  assert.equal(court.resolus[0].cumulSemaines, 1);
   assert.equal(court.resolus[0].cumulComplet, false);
-  assert.match(libelleDerivesArreteesV1(court.resolus), /au moins 6 373 € perdus sur 2 semaines signées/);
-
-  // Les chantiers ACTIFS portent aussi leur cumul, depuis la semaine courante.
-  const encore = suiviPointsAttentionV1({
-    snapshotsN: N1, snapshotsN1: N2, snapshotsN2: N3, historiqueAnterieur: [N4, N5],
-  });
-  assert.equal(encore.actifs.length, 1);
-  assert.equal(encore.actifs[0].cumulMargePerdue, 8946);
-  assert.equal(encore.actifs[0].cumulSemaines, 3);
-  assert.equal(encore.actifs[0].cumulComplet, true);
+  assert.match(libelleDerivesArreteesV1(court.resolus), /au moins 1 026 € perdus sur 1 semaine signée/);
 
   // Liste vide : aucune phrase, donc aucune rubrique à afficher.
   assert.equal(libelleDerivesArreteesV1([]), "");
@@ -317,4 +344,4 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
   assert.equal(libelleDerivesArreteesV1("bruit"), "");
 }
 
-console.log("OK — suivi points d'attention V1 : 12 blocs de vérification");
+console.log("OK — suivi points d'attention V1 : 13 blocs de vérification");
