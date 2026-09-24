@@ -1,3 +1,9 @@
+// COPIE FIGÉE — NE PAS MODIFIER NI IMPORTER DEPUIS src/.
+// Version de src/Renovation/planningConstraintModelV1.js sur main au commit af75749 (24/09/2026),
+// avant l'indexation des contraintes et les consignes visibles. Sert uniquement
+// de référence à scripts/verif-planning-moteur-consignes-v1.mjs pour prouver que
+// les sorties du moteur sont identiques avant / après optimisation.
+
 // ─── PLANNING CONSTRAINT MODEL V1 ────────────────────────────────────────────
 // Contraintes persistantes compréhensibles par le moteur déterministe.
 // Une contrainte de planning est distincte d'un fait de calendrier ressource :
@@ -103,13 +109,7 @@ export function maturiteContraintePlanning(value) {
 }
 
 export function contrainteSapplique(value, context = {}) {
-  return contrainteNormaliseeSapplique(normaliserContraintePlanning(value), context);
-}
-
-// Même règle de portée que contrainteSapplique, sur une contrainte DÉJÀ passée
-// par normaliserContraintePlanning (la normalisation est idempotente) : évite
-// de re-normaliser dans les boucles du moteur.
-export function contrainteNormaliseeSapplique(c, context = {}) {
+  const c = normaliserContraintePlanning(value);
   if (!c.actif) return false;
   switch (c.scope) {
     case CONSTRAINT_SCOPES.GLOBAL:
@@ -135,27 +135,11 @@ export function contrainteNormaliseeSapplique(c, context = {}) {
 // optionnellement, pour une ressource candidate. Une deadline dépassée devient
 // une VIOLATION, jamais un blocage : le moteur doit continuer à planifier.
 export function evaluerContraintesPlanning({ contraintes = [], context = {}, dateISO = null, resourceId = null } = {}) {
-  const applicables = contraintesApplicablesPlanning(
-    (Array.isArray(contraintes) ? contraintes : []).map(normaliserContraintePlanning),
-    context,
-  );
-  return evaluerContraintesApplicablesPlanning({ applicables, dateISO, resourceId });
-}
-
-// Filtre de portée sur des contraintes DÉJÀ normalisées. Le moteur l'appelle une
-// seule fois par travail : la portée ne dépend que du chantier, du groupe et de
-// la tâche, jamais de la date ni de la ressource.
-export function contraintesApplicablesPlanning(contraintesNormalisees = [], context = {}) {
-  return (Array.isArray(contraintesNormalisees) ? contraintesNormalisees : [])
-    .filter(c => contrainteNormaliseeSapplique(c, context));
-}
-
-// Cœur de evaluerContraintesPlanning, sur des contraintes déjà normalisées ET
-// déjà filtrées par portée (contraintesApplicablesPlanning). Résultat identique.
-export function evaluerContraintesApplicablesPlanning({ applicables = [], dateISO = null, resourceId = null } = {}) {
   const d = date(dateISO);
   const rid = str(resourceId) || null;
-  const applicable = Array.isArray(applicables) ? applicables : [];
+  const applicable = (Array.isArray(contraintes) ? contraintes : [])
+    .map(normaliserContraintePlanning)
+    .filter(c => contrainteSapplique(c, context));
 
   const blocks = [];
   const violations = [];

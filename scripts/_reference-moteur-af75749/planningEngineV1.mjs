@@ -1,3 +1,9 @@
+// COPIE FIGÉE — NE PAS MODIFIER NI IMPORTER DEPUIS src/.
+// Version de src/Renovation/planningEngineV1.js sur main au commit af75749 (24/09/2026),
+// avant l'indexation des contraintes et les consignes visibles. Sert uniquement
+// de référence à scripts/verif-planning-moteur-consignes-v1.mjs pour prouver que
+// les sorties du moteur sont identiques avant / après optimisation.
+
 // ─── PLANNING ENGINE V1 ──────────────────────────────────────────────────────
 // Premier noyau déterministe du chantier 04 « Moteur global de planification ».
 //
@@ -11,15 +17,15 @@
 // - `duree` d'une allocation = durée écoulée pour chaque membre de l'équipe ;
 // - MO produite par une allocation = duree × nombre de ressources.
 
-import { normaliserRessource, RESOURCE_KINDS } from "./planningResourceModelV1.js";
-import { calculerCapaciteRessourcePourDate, capaciteBasePlanningPourDate } from "./planningResourceCapacityV1.js";
+import { normaliserRessource, RESOURCE_KINDS } from "../../src/Renovation/planningResourceModelV1.js";
+import { calculerCapaciteRessourcePourDate, capaciteBasePlanningPourDate } from "../../src/Renovation/planningResourceCapacityV1.js";
 import {
   CONSTRAINT_TYPES,
-  contraintesApplicablesPlanning,
-  evaluerContraintesApplicablesPlanning,
+  contrainteSapplique,
+  evaluerContraintesPlanning,
   normaliserContraintePlanning,
-} from "./planningConstraintModelV1.js";
-import { regleGroupe } from "./planningRulesV1.js";
+} from "./planningConstraintModelV1.mjs";
+import { regleGroupe } from "../../src/Renovation/planningRulesV1.js";
 
 export const PLANNING_ENGINE_VERSION = 1;
 const EPS = 0.005;
@@ -136,24 +142,25 @@ function contexteTravail(t) {
   };
 }
 
-// Index construit UNE fois par simulation : les contraintes sont normalisées
-// une seule fois, puis filtrées par portée une seule fois par travail (la
-// portée ne dépend que du chantier, du groupe et de la tâche). Les boucles
-// jour × tâche × ressource ne relisent plus que ces listes courtes.
-function indexerContraintesParTravail(constraints, jobs) {
-  const index = new Map();
-  for (const t of jobs) {
-    const applicables = contraintesApplicablesPlanning(constraints, contexteTravail(t));
-    const deadline = applicables
-      .filter(c => c.type === CONSTRAINT_TYPES.DEADLINE && c.date_fin)
-      .map(c => c.date_fin)
-      .sort()[0] || null;
-    const priorite = applicables
-      .filter(c => c.type === CONSTRAINT_TYPES.PRIORITY)
-      .reduce((s, c) => s + num(c.priority, 0), 0);
-    index.set(t.id, { applicables, deadline, priorite });
-  }
-  return index;
+function contraintesPourTravail(contraintes, travail) {
+  const ctx = contexteTravail(travail);
+  return (Array.isArray(contraintes) ? contraintes : [])
+    .map(normaliserContraintePlanning)
+    .filter(c => contrainteSapplique(c, ctx));
+}
+
+function deadlineTravail(contraintes, travail) {
+  const dates = contraintesPourTravail(contraintes, travail)
+    .filter(c => c.type === CONSTRAINT_TYPES.DEADLINE && c.date_fin)
+    .map(c => c.date_fin)
+    .sort();
+  return dates[0] || null;
+}
+
+function prioriteContrainte(contraintes, travail) {
+  return contraintesPourTravail(contraintes, travail)
+    .filter(c => c.type === CONSTRAINT_TYPES.PRIORITY)
+    .reduce((s, c) => s + num(c.priority, 0), 0);
 }
 
 function predInconnus(travail, idsTravaux, completedIds) {
@@ -184,16 +191,21 @@ function prochainDelaiTechnique(travail, etats) {
     .sort((a, b) => b.date_eligible.localeCompare(a.date_eligible))[0] || null;
 }
 
-function scorerTravail({ travail, date, contraintesTravail, dernierJourParTravail }) {
-  let score = travail.priority + contraintesTravail.priorite;
-  const last = dernierJourParTravail.get(travail.id) || null;
+function dernierJourTravail(travailId, allocationsProposees) {
+  const dates = allocationsProposees.filter(a => a.travail_id === travailId).map(a => a.date).sort();
+  return dates.at(-1) || null;
+}
+
+function scorerTravail({ travail, date, contraintes, allocationsProposees }) {
+  let score = travail.priority + prioriteContrainte(contraintes, travail);
+  const last = dernierJourTravail(travail.id, allocationsProposees);
   if (last) {
     const delta = dateDiffDays(date, last);
     if (delta === 0) score += 300;
     else if (delta <= 3) score += 180;
     else if (delta <= 7) score += 80;
   }
-  const deadline = contraintesTravail.deadline;
+  const deadline = deadlineTravail(contraintes, travail);
   if (deadline) {
     const jours = dateDiffDays(deadline, date);
     if (jours < 0) score += 1000 + Math.abs(jours) * 20;
@@ -207,7 +219,7 @@ function chargePour(charge, resourceId, date) {
   return charge.get(keyCharge(resourceId, date)) || { heures: 0, chantiers: new Set(), sites: new Set() };
 }
 
-function choisirEquipe({ travail, date, ressources, evenements, contraintesTravail, charge, requiredElapsed = null, continuiteMultiJours = false }) {
+function choisirEquipe({ travail, date, ressources, evenements, contraintes, charge, requiredElapsed = null, continuiteMultiJours = false }) {
   const candidatesSet = new Set(travail.candidate_resource_ids);
   const allCandidates = ressources.filter(r =>
     r.actif !== false
@@ -235,8 +247,9 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
     // de l'équipe. On élimine donc ici les ressources qui forceraient un split.
     if (!travail.fractionnable && requiredElapsed != null && capacite.capacite_disponible + EPS < requiredElapsed) continue;
 
-    const cEval = evaluerContraintesApplicablesPlanning({
-      applicables: contraintesTravail.applicables,
+    const cEval = evaluerContraintesPlanning({
+      contraintes,
+      context: contexteTravail(travail),
       dateISO: date,
       resourceId: r.id,
     });
@@ -305,7 +318,7 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
   return { ok: true, selected, candidates: scored, previousPlanningDate };
 }
 
-function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraintesTravail, horizonEnd }) {
+function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraintes, horizonEnd }) {
   const missing = predInconnus(travail, idsTravaux, completedIds);
   if (missing.length) return `Prédécesseur(s) introuvable(s) : ${missing.join(", ")}`;
   if (!predsTermines(travail, etats, completedIds)) return "Prédécesseur(s) non terminé(s) dans l'horizon";
@@ -313,7 +326,8 @@ function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraint
   if (delai && delai.date_eligible > horizonEnd) {
     return `Délai technique après ${delai.predecesseur_id} : tâche éligible à partir du ${delai.date_eligible}`;
   }
-  const fixedFuture = contraintesTravail.applicables
+  const applicable = contraintesPourTravail(contraintes, travail);
+  const fixedFuture = applicable
     .filter(c => [CONSTRAINT_TYPES.NOT_BEFORE, CONSTRAINT_TYPES.FIXED_DATE].includes(c.type) && c.date_debut > horizonEnd)
     .sort((a, b) => a.date_debut.localeCompare(b.date_debut))[0];
   if (fixedFuture) return `Contrainte de date hors horizon : ${fixedFuture.date_debut}`;
@@ -354,8 +368,6 @@ export function planifierPropositionV1({
 
   const duplicateIds = jobs.map(t => t.id).filter((id, i, arr) => arr.indexOf(id) !== i);
   if (duplicateIds.length) throw new Error(`IDs de travaux dupliqués : ${uniq(duplicateIds).join(", ")}`);
-  const contraintesParTravail = indexerContraintesParTravail(constraints, jobs);
-  const dernierJourParTravail = new Map();
 
   const etats = new Map(jobs.map(t => [t.id, {
     restant_mo: t.heures_mo_restantes,
@@ -386,9 +398,9 @@ export function planifierPropositionV1({
         const missing = predInconnus(t, idsTravaux, completedIds);
         if (missing.length || !predsTermines(t, etats, completedIds) || !delaisPredecesseursRespectes(t, date, etats)) continue;
 
-        const contraintesTravail = contraintesParTravail.get(t.id);
-        const dateEval = evaluerContraintesApplicablesPlanning({
-          applicables: contraintesTravail.applicables,
+        const dateEval = evaluerContraintesPlanning({
+          contraintes: constraints,
+          context: contexteTravail(t),
           dateISO: date,
         });
         if (!dateEval.eligible) {
@@ -399,7 +411,7 @@ export function planifierPropositionV1({
         eligible.push({
           travail: t,
           dateEval,
-          score: scorerTravail({ travail: t, date, contraintesTravail, dernierJourParTravail }),
+          score: scorerTravail({ travail: t, date, contraintes: constraints, allocationsProposees: allocations }),
         });
       }
 
@@ -421,7 +433,7 @@ export function planifierPropositionV1({
           date,
           ressources: resourceList,
           evenements: evenementsRessources,
-          contraintesTravail: contraintesParTravail.get(t.id),
+          contraintes: constraints,
           charge,
           requiredElapsed,
           continuiteMultiJours,
@@ -466,7 +478,7 @@ export function planifierPropositionV1({
             taille_equipe: resourceIds.length,
             score_travail: round2(candidate.score),
             priorite_metier: t.priority,
-            priorite_contraintes: contraintesParTravail.get(t.id).priorite,
+            priorite_contraintes: prioriteContrainte(constraints, t),
             contraintes_appliquees: candidate.dateEval.applied_constraint_ids,
             violations: candidate.dateEval.violations,
             site_id: t.site_id,
@@ -479,8 +491,6 @@ export function planifierPropositionV1({
           },
         };
         allocations.push(allocation);
-        const dernierJour = dernierJourParTravail.get(t.id);
-        if (!dernierJour || date > dernierJour) dernierJourParTravail.set(t.id, date);
         resourceIds.forEach(rid => ajouterCharge(charge, rid, date, elapsed, t.chantier_id, t.site_id));
         state.restant_mo = round2(Math.max(0, state.restant_mo - produced));
         state.termine = state.restant_mo <= EPS;
@@ -516,7 +526,7 @@ export function planifierPropositionV1({
       tache_id: t.tache_id,
       chantier_id: t.chantier_id,
       heures_mo_restantes: round2(etats.get(t.id)?.restant_mo || 0),
-      raison: raisonNonPlanifie({ travail: t, idsTravaux, completedIds, etats, contraintesTravail: contraintesParTravail.get(t.id), horizonEnd }),
+      raison: raisonNonPlanifie({ travail: t, idsTravaux, completedIds, etats, contraintes: constraints, horizonEnd }),
       tentatives: attempts.get(t.id),
     }));
 
