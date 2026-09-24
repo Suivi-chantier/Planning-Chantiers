@@ -44,6 +44,12 @@ import { useDirtyGuard } from "../hooks";
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
 import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches, reordonnancementPropose } from "./rang";
 import { fetchPointages } from "../pointages";
+// Archives de la bibliothèque : un ouvrage archivé n'est plus PROPOSÉ à
+// l'ajout. Les ouvrages déjà liés à ce phasage ne sont pas concernés : ils
+// sont lus par leur bibliotheque_id, pas choisis dans cette liste.
+import {
+  CLE_ARCHIVES_BIBLIOTHEQUE, lireArchivesV1, filtrerPourChoixV1,
+} from "./archivesBibliothequeV1.js";
 // SOURCE DE VÉRITÉ des calculs financiers et d'avancement : src/chantierFinance.js.
 // Ce composant ne calcule plus rien — il lit les Donnee du module et garde la présentation.
 import {
@@ -540,6 +546,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   };
   // Bibliothèque ouvrages (sert au matching à l'import devis)
   const [bibliotheque, setBibliotheque] = useState([]);
+  // Liste des ouvrages archivés. État de départ « indisponible » : tant que la
+  // lecture n'a pas répondu, on ne masque RIEN. Cacher un ouvrage actif
+  // pousserait à le recréer ; montrer un archivé ne coûte rien.
+  const [archivesBiblio, setArchivesBiblio] = useState({ disponible: false, ids: [], raison: null });
   // Bibliothèque matériaux (sert à valoriser les materiaux_liens d'un ouvrage)
   const [materiauxBiblio, setMateriauxBiblio] = useState([]);
   // État de la modale d'import (null si fermée)
@@ -562,6 +572,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     supabase.from("bibliotheque_ratios").select("*").order("libelle")
       .then(({ data }) => setBibliotheque(data || []));
   }, []);
+  // Charge la liste des archivés (planning_config, clé dédiée).
+  useEffect(() => {
+    supabase.from("planning_config").select("value").eq("key", CLE_ARCHIVES_BIBLIOTHEQUE).maybeSingle()
+      .then(({ data, error }) => setArchivesBiblio(lireArchivesV1(error, data)));
+  }, []);
+  // La bibliothèque telle qu'elle est PROPOSÉE : sans les archivés.
+  // Ses deux consommateurs sont des choix — le matching automatique de
+  // l'import devis, et le sélecteur manuel de la modale. Aucun des deux ne
+  // doit reproposer un ouvrage mis de côté.
+  const bibliothequePourChoix = useMemo(
+    () => filtrerPourChoixV1(bibliotheque, archivesBiblio),
+    [bibliotheque, archivesBiblio]
+  );
   // Charge la bibliothèque matériaux : prix unitaire pour le calcul du coût
   // matériaux à l'import devis, et — depuis l'éditeur de matériaux de la
   // modale d'ouvrage — référence, catégorie et fournisseur, sur lesquels
@@ -1514,7 +1537,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     if (!file) return;
     setImportState({ items: [], unknownLotHeaders: [], parsing: true, error: null });
     try {
-      const { items, unknownLotHeaders } = await parseDevisExcel(file, lots, bibliotheque);
+      const { items, unknownLotHeaders } = await parseDevisExcel(file, lots, bibliothequePourChoix);
       setImportState({ items, unknownLotHeaders, parsing: false, error: null });
     } catch (err) {
       console.error("Parsing devis:", err);
@@ -3459,7 +3482,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <ImportDevisModal
           state={importState}
           lots={lots}
-          bibliotheque={bibliotheque}
+          bibliotheque={bibliothequePourChoix}
           T={T} accent={acc.accent} accentBorder={acc.border} accentBg10={acc.bg10}
           onUpdateItem={updateImportItem}
           onToggleAll={toggleAllImport}

@@ -14,6 +14,14 @@ import ConditionsVenteLigne from "./ConditionsVenteLigne.jsx";
 import { lireConditionsProjet, decrireConditionsLigne, lireModesLigne, libelleSource } from "./conditionsChiffrage.mjs";
 import { expliquerPrixMainOeuvre, formaterTauxHT, diagnostiquerListe } from "./tauxHorairesVente.mjs";
 import { expliquerPrixMateriaux, formaterCoefficient, diagnostiquerCoefficients } from "./coefficientsVente.mjs";
+// Archives de la bibliothèque. ATTENTION au périmètre : on filtre UNIQUEMENT
+// le catalogue « Ajouter depuis la bibliothèque ». La requête chargerBiblio()
+// n'est PAS filtrée, parce qu'elle sert aussi à recalculer des lignes de devis
+// déjà posées (actualiserApresBiblio) : un ouvrage archivé doit continuer d'y
+// être lu normalement.
+import {
+  CLE_ARCHIVES_BIBLIOTHEQUE, lireArchivesV1, filtrerPourChoixV1,
+} from "./archivesBibliothequeV1.js";
 import {
   ZONE_DEFAUT, ZONES_SUGGEREES, TYPES_LOGEMENT, TVA_TAUX_USUELS,
   calculerOuvrage, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
@@ -175,6 +183,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // Bibliothèque d'ouvrages (page Bibliothèque) : source principale de l'onglet
   // Ouvrages — seuls les libellés codés (« D-001 : … ») sont proposés.
   const [biblio, setBiblio]           = useState(null);      // { ouvrages, lots, materiaux, coutHoraire, tvaDefaut } chargé au montage
+  // Liste des ouvrages archivés. « Indisponible » au départ : rien n'est
+  // masqué tant que la lecture n'a pas répondu.
+  const [archivesBiblio, setArchivesBiblio] = useState({ disponible: false, ids: [], raison: null });
   const [biblioBusy, setBiblioBusy]   = useState(null);
   const [showAnciens, setShowAnciens] = useState(false);     // anciens ouvrages du chiffrage (masqués par défaut)
   // Colonnes/table de la v2 absentes en base (SQL 202609_chiffrage_v2 pas encore lancé)
@@ -923,6 +934,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       supabase.from("taux_horaires_vente").select("*"),   // prix MO = cadence × taux de l'ouvrage
       supabase.from("coefficients_vente").select("*"),    // prix matériaux = coût × coefficient de l'ouvrage
     ]);
+    // Archivés : lus à part, et appliqués uniquement au catalogue d'ajout.
+    const { data: arch, error: errArch } = await supabase.from("planning_config")
+      .select("value").eq("key", CLE_ARCHIVES_BIBLIOTHEQUE).maybeSingle();
+    setArchivesBiblio(lireArchivesV1(errArch, arch));
     const taux = parseFloat((cfg || []).find(r => r.key === "taux_mo_previsionnel")?.value);
     const tva  = parseFloat((cfg || []).find(r => r.key === "chiffrage_tva_defaut")?.value);
     const b = {
@@ -1224,7 +1239,12 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const groupesBiblio = (() => {
     const lots = biblio?.lots || [];
     const map = new Map();
-    (biblio?.ouvrages || []).forEach(o => {
+    // SEUL endroit filtré de cet écran : c'est ici que l'utilisateur CHOISIT un
+    // ouvrage à ajouter au devis. Partout ailleurs (preparerActualisation,
+    // actualiserApresBiblio, calculBiblio sur une ligne existante), biblio.ouvrages
+    // reste complet — un ouvrage archivé déjà posé dans un devis doit continuer
+    // d'être lu, affiché et recalculé normalement.
+    filtrerPourChoixV1(biblio?.ouvrages || [], archivesBiblio).forEach(o => {
       const c = decoderLibelleCode(o.libelle);
       if (!c) return;
       const lot = lots.find(l => (l.code_prefixe || "").toUpperCase() === c.prefixe);

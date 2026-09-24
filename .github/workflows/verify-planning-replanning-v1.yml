@@ -70,6 +70,8 @@ jobs:
         run: node scripts/verif-echantillon-cadences-v1.mjs
       - name: Bibliotheque proteger historique
         run: node scripts/verif-bibliotheque-proteger-historique.mjs
+      - name: Bibliotheque archiver
+        run: node scripts/verif-bibliotheque-archiver.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
