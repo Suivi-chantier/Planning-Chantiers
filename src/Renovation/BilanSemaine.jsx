@@ -13,7 +13,9 @@ import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1, lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
-import { pointsAttentionV1, libellePointAttentionV1 } from "./pointsAttentionV1.js";
+import { libellePointAttentionV1 } from "./pointsAttentionV1.js";
+import { suiviPointsAttentionV1, libelleSuiviV1 } from "./suiviPointsAttentionV1.js";
+import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
@@ -35,6 +37,11 @@ const fmtDateCourte = (iso) => {
   return `${j}/${m}/${y}`;
 };
 const fmtHeuresSem = (v) => `${Math.round((Number(v || 0) + Number.EPSILON) * 10) / 10} h`;
+// "2026-W32" → "S32" : la hiérarchie parle en numéros de semaine.
+const fmtSemaineCourte = (weekId) => {
+  const m = /^(\d{4})-W(\d{1,2})$/.exec(String(weekId || ""));
+  return m ? `S${m[2]}` : String(weekId || "—");
+};
 
 // Un chantier est « en cours » par son ACTIVITÉ, pas par un statut : au moins
 // un pointage dans les JOURS_ACTIVITE derniers jours OU avancement strictement
@@ -898,15 +905,21 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   // pointsAttentionV1 : ICI on ne fait que LIRE et transmettre, jamais écrire.
   // Les chiffres affichés sont exactement ceux que le cron a écrits depuis
   // computeChantierFinance — aucun recalcul parallèle.
-  const weekIdPrecedent = useMemo(() => {
+  // Trois semaines sont nécessaires : N vs N-1 donne les dérives, N-1 vs N-2
+  // permet de dire si chacune est NOUVELLE ou déjà là. Sans la troisième,
+  // aucune étiquette n'est affichée (cf. suiviPointsAttentionV1).
+  const [weekIdPrecedent, weekIdPrecedent2] = useMemo(() => {
     const lundi = lundiSemaineISOv1(weekId);
-    if (!lundi) return null;
-    return semaineISOv1(ajouterJoursV1(lundi, -7))?.week_id || null;
+    if (!lundi) return [null, null];
+    return [
+      semaineISOv1(ajouterJoursV1(lundi, -7))?.week_id || null,
+      semaineISOv1(ajouterJoursV1(lundi, -14))?.week_id || null,
+    ];
   }, [weekId]);
 
-  const [snapshotsAttention, setSnapshotsAttention] = useState({ courants: [], precedents: [] });
+  const [snapshotsAttention, setSnapshotsAttention] = useState({ courants: [], precedents: [], precedents2: [] });
   useEffect(() => {
-    if (etape !== "bilan" || !weekId || !weekIdPrecedent) return;
+    if (etape !== "bilan" || !weekId || !weekIdPrecedent || !weekIdPrecedent2) return;
     let cancelled = false;
     (async () => {
       // La table ne contient que les chantiers ACTIFS au moment du cron : c'est
@@ -914,25 +927,70 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       const { data, error } = await supabase
         .from("chantier_snapshots_hebdo")
         .select("chantier_id, chantier_nom, week_id, date_snapshot, avancement, heures_reelles, marge")
-        .in("week_id", [weekId, weekIdPrecedent])
+        .in("week_id", [weekId, weekIdPrecedent, weekIdPrecedent2])
         .order("date_snapshot", { ascending: true });
       if (cancelled) return;
       if (error) { console.warn("Points d'attention : load", error.message); return; }
       setSnapshotsAttention({
-        courants:   (data || []).filter(r => r.week_id === weekId),
-        precedents: (data || []).filter(r => r.week_id === weekIdPrecedent),
+        courants:    (data || []).filter(r => r.week_id === weekId),
+        precedents:  (data || []).filter(r => r.week_id === weekIdPrecedent),
+        precedents2: (data || []).filter(r => r.week_id === weekIdPrecedent2),
       });
     })();
     return () => { cancelled = true; };
-  }, [etape, weekId, weekIdPrecedent]);
+  }, [etape, weekId, weekIdPrecedent, weekIdPrecedent2]);
 
-  const pointsAttentionConso = useMemo(() => pointsAttentionV1({
-    snapshotsCourants:   snapshotsAttention.courants,
-    snapshotsPrecedents: snapshotsAttention.precedents,
+  // Le suivi appelle lui-même pointsAttentionV1 deux fois : on lit `actifs`,
+  // qui SONT les points d'attention de la semaine, étiquetés quand c'est
+  // prouvable. Aucune seconde détection en parallèle ici.
+  const suiviAttention = useMemo(() => suiviPointsAttentionV1({
+    snapshotsN:  snapshotsAttention.courants,
+    snapshotsN1: snapshotsAttention.precedents,
+    snapshotsN2: snapshotsAttention.precedents2,
   }), [snapshotsAttention]);
+  const pointsAttentionConso = { seuils: suiviAttention.seuils, lignes: suiviAttention.actifs };
   // Affichage borné aux 5 dérives les plus coûteuses ; le module les a déjà
   // triées par marge perdue décroissante.
-  const pointsAttentionAffiches = pointsAttentionConso.lignes.slice(0, MAX_POINTS_ATTENTION_AFFICHES);
+  const pointsAttentionAffiches = suiviAttention.actifs.slice(0, MAX_POINTS_ATTENTION_AFFICHES);
+
+  // ── Rappel : blocages du DERNIER bilan enregistré (chantier 07) ─────────────
+  // Volontairement « le dernier bilan antérieur », pas « la semaine précédente » :
+  // bilans_hebdo est rempli de façon irrégulière, avec des trous de plusieurs
+  // semaines. Chercher W-1 ne remonterait presque jamais rien.
+  // LECTURE SEULE : on n'écrit jamais dans bilans_hebdo depuis cette section.
+  const [dernierBilan, setDernierBilan] = useState(null);
+  useEffect(() => {
+    if (etape !== "bilan" || !weekId) { setDernierBilan(null); return; }
+    let cancelled = false;
+    (async () => {
+      // week_id est au format "2026-W38" (semaine sur 2 chiffres) : l'ordre
+      // alphabétique est donc l'ordre chronologique.
+      const { data, error } = await supabase
+        .from("bilans_hebdo")
+        .select("week_id, data")
+        .lt("week_id", weekId)
+        .order("week_id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) { console.warn("Dernier bilan : load", error.message); setDernierBilan(null); return; }
+      const blocages = (data?.data?.blocages || []).filter(b => (b?.texte || "").trim());
+      // Aucun bilan antérieur, ou un bilan sans blocage : rien à rappeler.
+      setDernierBilan(data?.week_id && blocages.length ? { weekId: data.week_id, blocages } : null);
+    })();
+    return () => { cancelled = true; };
+  }, [etape, weekId]);
+
+  // Avancement ACTUEL du chantier concerné, repris tel quel de la progression
+  // déjà calculée pour le bilan (ou, à défaut, du snapshot de la semaine).
+  // Jamais recalculé, et « — » quand il est inconnu.
+  const avancementActuelDe = useCallback((chantierId) => {
+    const p = progressions[chantierId];
+    if (p && p.maintenant != null) return p.maintenant;
+    const snap = snapshotsAttention.courants.find(r => r.chantier_id === chantierId);
+    const v = snap?.avancement;
+    return v == null || v === "" || !Number.isFinite(Number(v)) ? null : Math.round(Number(v));
+  }, [progressions, snapshotsAttention]);
 
   // ── « La semaine qui vient » — proposition du moteur (chantier 07) ───────────
   // Calcul À LA DEMANDE uniquement : la simulation rejoue tout le moteur
@@ -984,6 +1042,60 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     const r = (semProchaineRef?.ressources || []).find(x => x.id === id);
     return r?.nom_planning || r?.nom || id;
   }, [semProchaineRef]);
+
+  // ── Résumé e-mail (chantier 07) ─────────────────────────────────────────────
+  // On n'envoie rien et on ne configure aucun SMTP : le texte part dans le
+  // presse-papier, le conducteur le colle dans son client mail et joint le PDF.
+  // Le module bilanSemaineEmailV1 ne fait que mettre en phrases ce qui est
+  // DÉJÀ à l'écran — on lui passe les objets tels quels, jamais des recalculs.
+  const [copieEmail, setCopieEmail] = useState(null); // null | "ok" | "erreur"
+
+  const copierResumeEmail = useCallback(async () => {
+    const lundi = lundiSemaineISOv1(weekId);
+    const { corps } = bilanSemaineEmailV1({
+      periode: {
+        weekId,
+        debut: lundi ? fmtDateCourte(lundi) : null,
+        fin:   lundi ? fmtDateCourte(ajouterJoursV1(lundi, 6)) : null,
+      },
+      indicateursPortefeuille: {
+        heures: totalHeures,
+        tachesFaites: totalFaites,
+        genereEuros: totalGenereEuros > 0 ? totalGenereEuros : null,
+        margeGenereeEuros: includeFinances && hasMargeGeneree ? totalMargeGeneree : null,
+        chantiers: chantiersBilan.length,
+      },
+      pointsAttention: pointsAttentionConso,
+      suivi: suiviAttention,
+      blocages: bilanExtras.blocages,
+      // Rubrique omise tant que la proposition n'a pas été calculée : on ne met
+      // pas dans un mail une prévision qui n'a pas été demandée.
+      semaineQuiVient: semProchaine ? {
+        debut: fmtDateCourte(semProchaine.fenetre?.debut),
+        fin:   fmtDateCourte(semProchaine.fenetre?.fin),
+        chantiers: semProchaine.par_chantier.map(c => ({
+          nom: nomChantierSem(c.chantier_id),
+          jours: c.jours.map(fmtJourCourt),
+          heures_mo: c.heures_mo,
+          personnes: c.resource_ids.map(nomRessourceSem),
+        })),
+        auDelaHorizon: semProchaine.chantiers_au_dela_horizon.map(c => ({
+          nom: nomChantierSem(c.chantier_id),
+          libelle: libelleFinPrevisionnelleV1(c, fmtDateCourte).titre,
+        })),
+      } : null,
+    });
+    try {
+      await navigator.clipboard.writeText(corps);
+      setCopieEmail("ok");
+    } catch (e) {
+      console.warn("Copie du résumé e-mail :", e?.message || e);
+      setCopieEmail("erreur");
+    }
+    setTimeout(() => setCopieEmail(null), 2500);
+  }, [weekId, totalHeures, totalFaites, totalGenereEuros, totalMargeGeneree, hasMargeGeneree,
+      includeFinances, chantiersBilan, pointsAttentionConso, suiviAttention, bilanExtras,
+      semProchaine, nomChantierSem, nomRessourceSem]);
 
   // ── HTML stylisé du bilan (utilisé par PDF et envoi mail) ─────────────────
   const buildBilanHTML = () => {
@@ -1236,12 +1348,26 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     // .no-print ici — le bloc doit être capturé par html2pdf comme par
     // window.print().
     const pointsAttentionHTML = (() => {
-      const lignes = pointsAttentionAffiches.map(l => `
+      const lignes = pointsAttentionAffiches.map(l => {
+        // Étiquette de suivi : présente seulement si trois semaines de relevés
+        // la rendent démontrable.
+        const etiquette = libelleSuiviV1(l);
+        const badge = etiquette
+          ? `<span style="margin-left:5pt;padding:0 4pt;border:0.75pt solid ${l.statut === "nouveau" ? ORANGE : RED};border-radius:2pt;color:${l.statut === "nouveau" ? ORANGE : RED};font-size:7.5pt;font-weight:800;white-space:nowrap;">${esc(etiquette)}</span>`
+          : "";
+        return `
         <div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 5pt;padding-left:16pt;position:relative;line-height:1.45;">
           <span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span>
-          <strong style="color:${INK};">${esc(l.nom)}</strong> — ${esc(libellePointAttentionV1(l).replace(`${l.nom} — `, ""))}
+          <strong style="color:${INK};">${esc(l.nom)}</strong> — ${esc(libellePointAttentionV1(l).replace(`${l.nom} — `, ""))}${badge}
           <div style="font-size:8.5pt;color:${GREY};margin-top:1pt;">${esc(l.explication)}</div>
-        </div>`).join("");
+        </div>`;
+      }).join("");
+      const resolusHTML = suiviAttention.resolus.length
+        ? `<div style="margin-top:6pt;padding-top:5pt;border-top:1pt solid ${LINE};font-size:9pt;color:#2a2f37;"><strong style="color:${GREEN};">Résolu depuis la semaine dernière :</strong> ${esc(suiviAttention.resolus.map(r => r.nom || r.chantier_id).join(", "))}.</div>`
+        : "";
+      const historiqueHTML = suiviAttention.suiviDisponible
+        ? ""
+        : `<div style="margin-top:6pt;font-size:8pt;color:${GREY};font-style:italic;">Pas encore assez d'historique pour distinguer les dérives nouvelles des dérives qui durent : trois semaines de relevés consécutifs sont nécessaires.</div>`;
       const reste = pointsAttentionConso.lignes.length - pointsAttentionAffiches.length;
       const suite = reste > 0
         ? `<div style="font-size:8.5pt;color:${GREY};font-style:italic;">+ ${reste} autre${reste > 1 ? "s" : ""} chantier${reste > 1 ? "s" : ""} dans le même cas (seules les ${MAX_POINTS_ATTENTION_AFFICHES} dérives les plus coûteuses sont détaillées).</div>`
@@ -1255,9 +1381,32 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         <div style="padding:10pt 14pt;">
           ${lignes || `<div style="font-size:9pt;color:${GREY};font-style:italic;">Aucun point d'attention détecté cette semaine.</div>`}
           ${suite}
+          ${resolusHTML}
+          ${historiqueHTML}
         </div>
       </div>`;
     })();
+
+    // ── Rappel du dernier bilan enregistré, dans le PDF ──────────────────────
+    // Absent s'il n'existe aucun bilan antérieur : le document ne porte pas de
+    // rubrique vide. Lecture seule, comme à l'écran.
+    const dernierBilanHTML = !dernierBilan ? "" : `
+      <div style="border:1pt solid ${LINE};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
+        <div style="background:#f5f6f8;padding:6pt 14pt;border-bottom:1pt solid ${LINE};">
+          <span style="font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${INK};">Signalé au dernier bilan (semaine ${esc(fmtSemaineCourte(dernierBilan.weekId))})</span>
+          <span style="font-size:8pt;color:${GREY};margin-left:8pt;">avancement d'aujourd'hui en face</span>
+        </div>
+        <div style="padding:10pt 14pt;">
+          ${dernierBilan.blocages.map(b => {
+            const av = avancementActuelDe(b.chantier_id);
+            return `<div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 4pt;line-height:1.45;">
+              <strong style="color:${INK};">${esc(b.chantier_nom || b.chantier_id || "—")}</strong>
+              <span style="color:${av == null ? GREY : INK};font-weight:700;">— ${av == null ? "avancement inconnu" : `${av} % aujourd'hui`}</span>
+              <span style="color:#2a2f37;"> · ${esc(b.texte)}</span>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>`;
 
     // ── « La semaine qui vient » dans le PDF ─────────────────────────────────
     // N'apparaît QUE si le conducteur a lancé le calcul. Sans calcul, le PDF
@@ -1365,6 +1514,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   </table>
   ${syntheseHTML}
   ${pointsAttentionHTML}
+  ${dernierBilanHTML}
   ${chantierBlocs || `<div style="text-align:center;padding:40pt;color:${GREY};">Aucun chantier sélectionné pour cette semaine.</div>`}
   ${semaineQuiVientHTML}
   ${includeFinances ? `
@@ -1777,6 +1927,15 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                 display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
               {generatingPDF ? <><Icon as={RefreshCw} size={13}/> Génération…</> : <><Icon as={FileDown} size={14}/> PDF{nbSelectionnes > 0 ? ` (${nbSelectionnes})` : ""}</>}
             </button>
+            <button onClick={copierResumeEmail}
+              title="Copier un résumé en texte à coller dans un e-mail (le PDF se joint séparément)"
+              style={{ background: copieEmail === "ok" ? "rgba(80,200,120,0.85)" : copieEmail === "erreur" ? "rgba(239,68,68,0.85)" : "rgba(255,255,255,0.10)",
+                border:"none", borderRadius:10, padding:"0 16px", height:40, cursor:"pointer",
+                fontSize:13, fontWeight:700, color:"#fff", display:"flex", alignItems:"center", gap:7, whiteSpace:"nowrap" }}>
+              {copieEmail === "ok" ? <><Icon as={Check} size={13}/> Copié</>
+                : copieEmail === "erreur" ? <><Icon as={X} size={13}/> Copie refusée</>
+                : <><Icon as={MessageSquare} size={14}/> Copier le résumé e-mail</>}
+            </button>
             <button onClick={() => { setShowEmail(true); setEmailStatus(null); }}
               disabled={nbSelectionnes === 0}
               title={nbSelectionnes === 0 ? "Coche au moins un chantier dans la liste" : "Envoyer le bilan par mail"}
@@ -1965,19 +2124,35 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-                {pointsAttentionAffiches.map(l => (
-                  <div key={l.chantier_id}
-                    onClick={() => deplierChantier(l.chantier_id)}
-                    style={{ background:"rgba(245,166,35,0.08)", border:"1px solid rgba(245,166,35,0.35)", borderRadius:10,
-                      padding:"9px 12px", cursor:"pointer" }}>
-                    <div style={{ fontSize:12.5, color:T.text, lineHeight:1.45, fontWeight:600 }}>
-                      {libellePointAttentionV1(l)}
+                {pointsAttentionAffiches.map(l => {
+                  // Étiquette seulement si le suivi est prouvable (3 semaines).
+                  const etiquette = libelleSuiviV1(l);
+                  const nouveau = l.statut === "nouveau";
+                  return (
+                    <div key={l.chantier_id}
+                      onClick={() => deplierChantier(l.chantier_id)}
+                      style={{ background:"rgba(245,166,35,0.08)", border:"1px solid rgba(245,166,35,0.35)", borderRadius:10,
+                        padding:"9px 12px", cursor:"pointer" }}>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
+                        <div style={{ flex:"1 1 260px", minWidth:0, fontSize:12.5, color:T.text, lineHeight:1.45, fontWeight:600 }}>
+                          {libellePointAttentionV1(l)}
+                        </div>
+                        {etiquette && (
+                          <span style={{ flexShrink:0, padding:"2px 8px", borderRadius:999, fontSize:10.5, fontWeight:800,
+                            whiteSpace:"nowrap",
+                            color: nouveau ? "#e0a020" : "#ef4444",
+                            background: nouveau ? "rgba(245,166,35,0.16)" : "rgba(239,68,68,0.12)",
+                            border: `1px solid ${nouveau ? "rgba(245,166,35,0.45)" : "rgba(239,68,68,0.35)"}` }}>
+                            {etiquette}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
+                        {l.explication}
+                      </div>
                     </div>
-                    <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
-                      {l.explication}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {pointsAttentionConso.lignes.length > pointsAttentionAffiches.length && (
                   <div style={{ fontSize:11.5, color:T.textMuted }}>
                     + {pointsAttentionConso.lignes.length - pointsAttentionAffiches.length} autre
@@ -1989,13 +2164,54 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </div>
             )}
 
+            {suiviAttention.resolus.length > 0 && (
+              <div style={{ marginTop:9, padding:"8px 11px", borderRadius:10, background:"rgba(34,197,94,.09)",
+                border:"1px solid rgba(34,197,94,.30)", fontSize:12, color:T.textSub, lineHeight:1.45 }}>
+                <strong style={{ color:"#22c55e" }}>Résolu depuis la semaine dernière :</strong>{" "}
+                {suiviAttention.resolus.map(r => r.nom || r.chantier_id).join(", ")}.
+              </div>
+            )}
+
             <div style={{ marginTop:9, fontSize:11, color:T.textMuted, lineHeight:1.45 }}>
+              {!suiviAttention.suiviDisponible && (
+                <><strong>Pas encore assez d'historique pour dire ce qui est nouveau</strong> — il faut trois semaines
+                de relevés consécutifs. Les dérives sont affichées, sans étiquette.<br/></>
+              )}
               Détection automatique : avancement stable (± {pointsAttentionConso.seuils.avancementStableMaxPts} pt),
               au moins {pointsAttentionConso.seuils.heuresAjouteesMin} h consommées
               et au moins {pointsAttentionConso.seuils.margePerdueMinEuros} € de marge perdue depuis la semaine précédente.
               Chiffres repris tels quels du snapshot financier hebdomadaire — aucun recalcul.
             </div>
           </div>
+
+          {/* ── Rappel du dernier bilan enregistré (lecture seule, chantier 07) ── */}
+          {/* Rien n'est affiché s'il n'existe aucun bilan antérieur : on ne
+              montre pas une section vide pour une saisie qui n'a jamais eu lieu. */}
+          {dernierBilan && (
+            <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px 18px", flexShrink:0 }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:10 }}>
+                <span style={{ fontSize:15, fontWeight:800, color:T.text }}>
+                  Signalé au dernier bilan (semaine {fmtSemaineCourte(dernierBilan.weekId)})
+                </span>
+                <span style={{ fontSize:12, color:T.textMuted }}>Lecture seule · avancement d'aujourd'hui en face</span>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {dernierBilan.blocages.map((b, i) => {
+                  const av = avancementActuelDe(b.chantier_id);
+                  return (
+                    <div key={`${b.chantier_id}-${i}`} style={{ display:"flex", gap:10, alignItems:"baseline", flexWrap:"wrap",
+                      background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"8px 12px" }}>
+                      <strong style={{ fontSize:12.5, color:T.text }}>{b.chantier_nom || b.chantier_id || "—"}</strong>
+                      <span style={{ fontSize:11.5, fontWeight:800, color:av == null ? T.textMuted : T.accent, whiteSpace:"nowrap" }}>
+                        {av == null ? "avancement inconnu" : `${av} % aujourd'hui`}
+                      </span>
+                      <span style={{ flex:"1 1 240px", minWidth:0, fontSize:12, color:T.textSub, lineHeight:1.4 }}>{b.texte}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── Blocages & arbitrages (saisie conducteur) ────────────────────── */}
           {chantierOptions.length > 0 && (
