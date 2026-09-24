@@ -13,6 +13,11 @@ import { CONSTRAINT_TYPES, normaliserContraintePlanning } from "./planningConstr
 import { calculerRangs, predecesseursEffectifs } from "./rang.js";
 import { regleGroupe } from "./planningRulesV1.js";
 import { CONFIANCE_GROUPE_V1, infererGroupeExecutionV1 } from "./planningGroupInferenceV1.js";
+import {
+  calculerCapaciteRessourcePourDate,
+  capaciteBasePlanningPourDate,
+  jourPlanningDepuisDate,
+} from "./planningResourceCapacityV1.js";
 
 export const PLANNING_ENGINE_ADAPTER_VERSION = 1;
 const EPS = 0.005;
@@ -203,6 +208,47 @@ function allocationMo(a) {
   return n > 0 ? round2(Math.max(0, num(a?.duree, 0)) * n) : 0;
 }
 
+// Une allocation verrouillée est une décision humaine : elle est CONSERVÉE telle
+// quelle, même un jour où l'équipe ne travaille pas (vendredi de semaine de
+// 4 jours, week-end) ou un jour d'absence. Mais elle ne passe jamais en silence :
+// ses heures sont comptées comme prévues alors que la capacité du jour est nulle.
+function alerteVerrouSansCapacite(a, resourcesById, evenements) {
+  const base = capaciteBasePlanningPourDate(a.date);
+  const jour = txt(jourPlanningDepuisDate(a.date)).toLocaleLowerCase("fr-FR");
+  const ids = uniq(a.resource_ids);
+  const bloquees = ids.length
+    ? ids.filter(id => calculerCapaciteRessourcePourDate({
+      resource: resourcesById.get(id) || { id },
+      dateISO: a.date,
+      evenements,
+      heuresDejaAllouees: 0,
+    }).capacite_apres_exceptions <= EPS)
+    : (base <= EPS ? ["(sans ressource)"] : []);
+  if (!bloquees.length) return null;
+  const commun = {
+    chantier_id: a.chantier_id,
+    tache_id: a.tache_id,
+    allocation_uid: a.allocation_uid,
+    date: a.date,
+    duree: round2(num(a.duree, 0)),
+    resource_ids: ids,
+    exception_conservee: true,
+  };
+  if (base <= EPS) {
+    return {
+      type: "allocation_verrouillee_jour_non_travaille",
+      ...commun,
+      explication: `Intervention hors jours travaillés (${jour} 0 h) — exception conservée : ${round2(num(a.duree, 0))} h verrouillées le ${a.date} sont comptées comme prévues.`,
+    };
+  }
+  const noms = bloquees.map(id => txt(resourcesById.get(id)?.nom_planning || resourcesById.get(id)?.nom) || id).join(", ");
+  return {
+    type: "allocation_verrouillee_ressource_indisponible",
+    ...commun,
+    explication: `Intervention verrouillée un jour où ${noms} est indisponible (absence ou indisponibilité, ${jour} ${a.date}) — exception conservée.`,
+  };
+}
+
 function comparerWarning(a, b) {
   return `${a.type || ""}|${a.chantier_id || ""}|${a.tache_id || ""}|${a.allocation_uid || ""}|${a.explication || ""}`
     .localeCompare(`${b.type || ""}|${b.chantier_id || ""}|${b.tache_id || ""}|${b.allocation_uid || ""}|${b.explication || ""}`);
@@ -263,6 +309,8 @@ export function preparerSimulationPlanningGlobalV1({
     .map(c => txt(c.allocation_id)).filter(Boolean));
 
   const allocationsCourantes = extraireAllocationsCourantes(cellules, parNomBaseline, warnings);
+  const resourcesById = new Map(resources.map(r => [r.id, r]));
+  const evenements = Array.isArray(evenementsRessources) ? evenementsRessources : [];
   const allocationsFixes = [];
   const allocationsRecalculables = [];
   const allocationsHorsHorizonPasse = [];
@@ -278,6 +326,10 @@ export function preparerSimulationPlanningGlobalV1({
     const enriched = { ...a, locked };
     if (locked || manuel) {
       allocationsFixes.push(enriched);
+      if (locked) {
+        const alerte = alerteVerrouSansCapacite(a, resourcesById, evenements);
+        if (alerte) warnings.push(alerte);
+      }
       if (locked && a.tache_id) {
         const key = cleTravailMoteurV1(a.chantier_id, a.tache_id);
         const mo = allocationMo(a);
@@ -361,7 +413,20 @@ export function preparerSimulationPlanningGlobalV1({
     const flat = [];
     ouvrages.forEach((ouvrage, ouvrageIndex) => {
       (Array.isArray(ouvrage?.taches) ? ouvrage.taches : []).forEach((tache, tacheIndex) => {
-        if (!txt(tache?.id)) return;
+        if (!txt(tache?.id)) {
+          // Sans identifiant, la tâche ne peut être ni planifiée ni reliée au
+          // planning : exclusion visible dès qu'il lui reste des heures.
+          if (clamp(tache?.avancement, 0, 100) < 100 - EPS && heuresMoRestantesTacheV1(tache) > EPS) {
+            travauxExclus.push({
+              travail_id: null,
+              chantier_id: chantierId,
+              tache_id: null,
+              type: "tache_sans_identifiant",
+              explication: `Tâche « ${txt(tache?.nom) || "sans libellé"} » sans identifiant dans le phasage : elle ne peut pas être planifiée tant qu'elle n'a pas d'identifiant.`,
+            });
+          }
+          return;
+        }
         flat.push({ ouvrage, ouvrageIndex, tache, tacheIndex });
       });
     });
