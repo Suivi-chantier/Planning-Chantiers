@@ -19,6 +19,8 @@ import {
   etatPointsAttentionV1,
   releveExploitableV1,
   ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES,
+  libelleMotifsV1,
+  MOTIF_CONSOMMATION_SANS_AVANCEMENT, MOTIF_PERTE_DE_MARGE,
 } from "../src/Renovation/pointsAttentionV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -44,7 +46,7 @@ assert.deepEqual(
 assert.match(facade, /export \* from "\.\/pointsAttentionV1\.mjs";/, "la façade .js doit ré-exporter le .mjs");
 assert.equal(POINTS_ATTENTION_VERSION, "v1");
 assert.deepEqual({ ...SEUILS_POINTS_ATTENTION_V1 }, {
-  avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50,
+  avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50, margePerdueGraveMinEuros: 500,
 });
 
 const snap = (chantierId, { nom, avancement, heures, marge, date } = {}) => ({
@@ -59,6 +61,12 @@ const avant = (id, o = {}) => snap(id, { avancement: 97, heures: 120, marge: -11
 const apres = (id, o = {}) => snap(id, { avancement: 97, heures: 150, marge: -2283, date: "2026-09-18", ...o });
 const lignesDe = (courants, precedents, seuils) =>
   pointsAttentionV1({ snapshotsCourants: courants, snapshotsPrecedents: precedents, seuils }).lignes;
+// Le fixture de référence perd 1 117 € : le motif « perte_de_marge » (seuil 500 €)
+// le retiendrait quoi qu'il arrive. Pour tester le motif 1 EN ISOLATION, on met
+// le second hors de portée — sinon ces blocs ne mesurent plus ce qu'ils annoncent.
+const SANS_MOTIF_2 = { margePerdueGraveMinEuros: 1e9 };
+const motif1Seul = (courants, precedents, seuils) =>
+  lignesDe(courants, precedents, { ...SANS_MOTIF_2, ...(seuils || {}) });
 
 // ── 1. Le cas nominal : les trois conditions réunies. ───────────────────────
 {
@@ -67,7 +75,7 @@ const lignesDe = (courants, precedents, seuils) =>
     snapshotsPrecedents: [avant("C1", { nom: "TOM & CAMILLE R+2" })],
   });
   assert.equal(out.version, "v1");
-  assert.deepEqual(out.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50 });
+  assert.deepEqual(out.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50, margePerdueGraveMinEuros: 500 });
   assert.equal(out.lignes.length, 1);
   const l = out.lignes[0];
   assert.equal(l.chantier_id, "C1");
@@ -92,30 +100,30 @@ const lignesDe = (courants, precedents, seuils) =>
 // ── 2. Condition 1 isolée : l'avancement stable. ────────────────────────────
 {
   // Le chantier a réellement avancé (+5 pts) : ce n'est plus une dérive.
-  assert.equal(lignesDe([apres("C1", { avancement: 102 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { avancement: 102 })], [avant("C1")]).length, 0);
   // Exactement au seuil (+1 pt) : retenu (la condition est un <=).
-  assert.equal(lignesDe([apres("C1", { avancement: 98 })], [avant("C1")]).length, 1);
+  assert.equal(motif1Seul([apres("C1", { avancement: 98 })], [avant("C1")]).length, 1);
   // Juste au-delà (+1,5 pt) : écarté.
-  assert.equal(lignesDe([apres("C1", { avancement: 98.5 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { avancement: 98.5 })], [avant("C1")]).length, 0);
   // Une RÉGRESSION d'avancement compte aussi : la valeur absolue est testée.
-  assert.equal(lignesDe([apres("C1", { avancement: 96 })], [avant("C1")]).length, 1);
-  assert.equal(lignesDe([apres("C1", { avancement: 90 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { avancement: 96 })], [avant("C1")]).length, 1);
+  assert.equal(motif1Seul([apres("C1", { avancement: 90 })], [avant("C1")]).length, 0);
   // Seuil desserré : le +5 pts repasse.
-  assert.equal(lignesDe([apres("C1", { avancement: 102 })], [avant("C1")], { avancementStableMaxPts: 5 }).length, 1);
+  assert.equal(motif1Seul([apres("C1", { avancement: 102 })], [avant("C1")], { avancementStableMaxPts: 5 }).length, 1);
 }
 
 // ── 3. Condition 2 isolée : les heures ajoutées. ────────────────────────────
 {
   // Aucune heure ajoutée : rien ne s'est passé, rien à signaler.
-  assert.equal(lignesDe([apres("C1", { heures: 120 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 120 })], [avant("C1")]).length, 0);
   // Sous le seuil (+1 h).
-  assert.equal(lignesDe([apres("C1", { heures: 121 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 121 })], [avant("C1")]).length, 0);
   // Exactement au seuil (+2 h) : retenu.
-  assert.equal(lignesDe([apres("C1", { heures: 122 })], [avant("C1")]).length, 1);
+  assert.equal(motif1Seul([apres("C1", { heures: 122 })], [avant("C1")]).length, 1);
   // Des heures RETIRÉES (correction de pointage) ne déclenchent rien.
-  assert.equal(lignesDe([apres("C1", { heures: 100 })], [avant("C1")]).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 100 })], [avant("C1")]).length, 0);
   // Seuil resserré.
-  assert.equal(lignesDe([apres("C1", { heures: 122 })], [avant("C1")], { heuresAjouteesMin: 10 }).length, 0);
+  assert.equal(motif1Seul([apres("C1", { heures: 122 })], [avant("C1")], { heuresAjouteesMin: 10 }).length, 0);
 }
 
 // ── 4. Condition 3 isolée : la marge perdue. ────────────────────────────────
@@ -202,7 +210,7 @@ const lignesDe = (courants, precedents, seuils) =>
     snapshotsCourants: [apres("C1")], snapshotsPrecedents: [avant("C1")],
     seuils: { avancementStableMaxPts: null, heuresAjouteesMin: "abc", margePerdueMinEuros: undefined },
   });
-  assert.deepEqual(seuilsCasses.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50 });
+  assert.deepEqual(seuilsCasses.seuils, { avancementStableMaxPts: 1, heuresAjouteesMin: 2, margePerdueMinEuros: 50, margePerdueGraveMinEuros: 500 });
   assert.equal(seuilsCasses.lignes.length, 1);
 }
 
@@ -334,4 +342,81 @@ const lignesDe = (courants, precedents, seuils) =>
   assert.equal(etatPointsAttentionV1(null).statut, ETAT_AUCUNE_DERIVE);
 }
 
-console.log("OK — points d'attention V1 : 13 blocs de vérification");
+// ── 14. Le SECOND motif : « ça avance, mais ça coûte plus cher que vendu ». ──
+// La règle d'origine exigeait un avancement stable : elle ratait exactement les
+// chantiers qui progressent en brûlant de la marge. Sur la base en 2026-W38,
+// c'était 4 050 € de perte hebdomadaire invisibles dans le PDF.
+{
+  // (i) Un chantier qui AVANCE et perd beaucoup : attrapé par le nouveau motif.
+  const avance = lignesDe(
+    [snap("R1", { nom: "TOM & CAMILLE R+1", avancement: 97, heures: 173, marge: 1673 })],
+    [snap("R1", { nom: "TOM & CAMILLE R+1", avancement: 88, heures: 120, marge: 3694, date: "2026-09-11" })]
+  );
+  assert.equal(avance.length, 1, "un chantier qui avance en perdant 2 021 € doit remonter");
+  assert.deepEqual(avance[0].motifs, [MOTIF_PERTE_DE_MARGE]);
+  assert.equal(avance[0].avancementDelta, 9);
+  assert.equal(avance[0].heuresAjoutees, 53);
+  assert.equal(avance[0].margePerdue, 2021);
+  // Le libellé doit EXPLIQUER : le « mais » porte tout le sens.
+  assert.equal(
+    libellePointAttentionV1(avance[0]),
+    "TOM & CAMILLE R+1 — avancement +9 pts mais 53 h consommées, marge en baisse de 2 021 € (3 694 € → 1 673 €)."
+  );
+  assert.match(libellePointAttentionV1(avance[0]), / mais /);
+  assert.equal(libelleMotifsV1(avance[0]), "perte de marge");
+  assert.match(avance[0].explication, /coûté nettement plus cher/);
+
+  // (ii) Un chantier STABLE qui perd PEU : ancien motif seulement.
+  const stable = lignesDe([apres("C1", { marge: -1366 })], [avant("C1")]); // 200 € perdus
+  assert.equal(stable.length, 1);
+  assert.deepEqual(stable[0].motifs, [MOTIF_CONSOMMATION_SANS_AVANCEMENT]);
+  assert.equal(stable[0].margePerdue, 200);
+  assert.equal(libelleMotifsV1(stable[0]), "consommation sans avancement");
+  // Phrase de référence inchangée par l'ajout du second motif.
+  assert.match(libellePointAttentionV1(stable[0]), /^Chantier C1 — 97 % d'avancement inchangé, \+30 h consommées, marge en baisse de 200 €/);
+
+  // (iii) Un chantier qui déclenche LES DEUX : une seule ligne, deux motifs.
+  const lesDeux = lignesDe([apres("C1", { nom: "TOM & CAMILLE R+2" })], [avant("C1", { nom: "TOM & CAMILLE R+2" })]);
+  assert.equal(lesDeux.length, 1, "un chantier ne doit jamais apparaître deux fois");
+  assert.deepEqual(lesDeux[0].motifs, [MOTIF_CONSOMMATION_SANS_AVANCEMENT, MOTIF_PERTE_DE_MARGE]);
+  assert.equal(libelleMotifsV1(lesDeux[0]), "consommation sans avancement + perte de marge");
+  // La phrase de référence reste EXACTEMENT celle d'origine : les motifs sont
+  // des étiquettes à côté, ils n'allongent pas le texte.
+  assert.equal(
+    libellePointAttentionV1(lesDeux[0]),
+    "TOM & CAMILLE R+2 — 97 % d'avancement inchangé, +30 h consommées, marge en baisse de 1 117 € (−1 166 € → −2 283 €)."
+  );
+
+  // (iv) LE SEUIL MORD : 499 € perdus avec un avancement qui bouge => rien.
+  const juste = lignesDe(
+    [snap("X", { avancement: 97, heures: 173, marge: 1 })],
+    [snap("X", { avancement: 88, heures: 120, marge: 500, date: "2026-09-11" })]
+  );
+  assert.deepEqual(juste, [], "499 € ne doivent pas déclencher le motif perte_de_marge");
+  // Exactement 500 € : retenu.
+  const pile = lignesDe(
+    [snap("X", { avancement: 97, heures: 173, marge: 0 })],
+    [snap("X", { avancement: 88, heures: 120, marge: 500, date: "2026-09-11" })]
+  );
+  assert.equal(pile.length, 1);
+  assert.deepEqual(pile[0].motifs, [MOTIF_PERTE_DE_MARGE]);
+
+  // (v) Le tri reste la marge perdue décroissante, motifs mélangés.
+  const melange = lignesDe(
+    [apres("PETIT", { marge: -1366 }), snap("GROS", { avancement: 97, heures: 173, marge: 1673 })],
+    [avant("PETIT"), snap("GROS", { avancement: 88, heures: 120, marge: 3694, date: "2026-09-11" })]
+  );
+  assert.deepEqual(melange.map(l => l.chantier_id), ["GROS", "PETIT"]);
+  assert.deepEqual(melange.map(l => l.margePerdue), [2021, 200]);
+
+  // (vi) Le seuil est paramétrable, comme les autres.
+  assert.equal(lignesDe(
+    [snap("X", { avancement: 97, heures: 173, marge: 1 })],
+    [snap("X", { avancement: 88, heures: 120, marge: 500, date: "2026-09-11" })],
+    { margePerdueGraveMinEuros: 100 }
+  ).length, 1);
+  assert.equal(libelleMotifsV1({}), "");
+  assert.equal(libelleMotifsV1(null), "");
+}
+
+console.log("OK — points d'attention V1 : 14 blocs de vérification");

@@ -9,7 +9,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bilanSemaineEmailV1, BILAN_SEMAINE_EMAIL_VERSION } from "../src/Renovation/bilanSemaineEmailV1.mjs";
-import { pointsAttentionV1, libellePointAttentionV1, etatPointsAttentionV1 } from "../src/Renovation/pointsAttentionV1.mjs";
+import { pointsAttentionV1, libellePointAttentionV1, libelleMotifsV1, etatPointsAttentionV1 } from "../src/Renovation/pointsAttentionV1.mjs";
 import { suiviPointsAttentionV1, libelleSuiviV1 } from "../src/Renovation/suiviPointsAttentionV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -101,10 +101,13 @@ const suivi = suiviPointsAttentionV1({
   const ligne = suivi.actifs[0];
   const phraseEcran = libellePointAttentionV1(ligne);
   const etiquette = libelleSuiviV1(ligne);
-  // Caractère pour caractère : aucun réarrondi, aucune reformulation.
-  assert.ok(corps.includes(`1. ${phraseEcran} (${etiquette})`), "la ligne du mail doit être la ligne de l'écran");
+  const motifs = libelleMotifsV1(ligne);
+  // Caractère pour caractère : aucun réarrondi, aucune reformulation. Les deux
+  // étiquettes (ancienneté · motifs) viennent des mêmes fonctions que l'écran.
+  assert.ok(corps.includes(`1. ${phraseEcran} (${etiquette} · ${motifs})`), "la ligne du mail doit être la ligne de l'écran");
   assert.match(corps, /97 % d'avancement inchangé, \+30 h consommées, marge en baisse de 1 117 €/);
-  assert.match(corps, /\(2e semaine consécutive\)/);
+  assert.match(corps, /2e semaine consécutive/);
+  assert.match(corps, /consommation sans avancement \+ perte de marge/);
   // Sans suivi disponible : la phrase reste, l'étiquette disparaît.
   const sansSuivi = bilanSemaineEmailV1({
     periode, pointsAttention: points,
@@ -140,7 +143,12 @@ const suivi = suiviPointsAttentionV1({
   });
   const { corps } = bilanSemaineEmailV1({ periode, pointsAttention: { lignes: [] }, suivi: suiviResolu });
   assert.match(corps, /POINTS D'ATTENTION \(0\)/);
-  assert.match(corps, /Résolu depuis la semaine dernière : VILLA NORD\./);
+  // « Arrêtée », jamais « résolue » : l'argent perdu ne revient pas, et ce mail
+  // part à la hiérarchie.
+  assert.match(corps, /La dérive signalée la semaine dernière s'est arrêtée/);
+  assert.match(corps, /la marge perdue n'est pas récupérée/);
+  assert.match(corps, /VILLA NORD — .*perdus sur 1 semaine signée/);
+  assert.equal(/résolu/i.test(corps), false, "le mot « résolu » est proscrit dans le mail");
 }
 
 // ── 8. « La semaine qui vient » : absente tant qu'elle n'a pas été calculée. ──

@@ -38,7 +38,16 @@ export const SEUILS_POINTS_ATTENTION_V1 = Object.freeze({
   avancementStableMaxPts: 1,
   heuresAjouteesMin: 2,
   margePerdueMinEuros: 50,
+  // Motif « perte_de_marge » : au-delà de ce montant perdu en une semaine, le
+  // chantier remonte QUEL QUE SOIT son avancement. Vérifié sur la base en
+  // semaine 2026-W38 : ce seuil ne retient que 4 chantiers sur 25. Il est
+  // sélectif — ne pas le baisser sans arbitrage explicite.
+  margePerdueGraveMinEuros: 500,
 });
+
+// Les deux formes de dérive. Un chantier peut porter les deux à la fois.
+export const MOTIF_CONSOMMATION_SANS_AVANCEMENT = "consommation_sans_avancement";
+export const MOTIF_PERTE_DE_MARGE = "perte_de_marge";
 
 const str = v => (v == null ? "" : String(v).trim());
 const round2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
@@ -132,6 +141,7 @@ function normaliserSeuils(seuils) {
     avancementStableMaxPts: prendre("avancementStableMaxPts"),
     heuresAjouteesMin: prendre("heuresAjouteesMin"),
     margePerdueMinEuros: prendre("margePerdueMinEuros"),
+    margePerdueGraveMinEuros: prendre("margePerdueGraveMinEuros"),
   };
 }
 
@@ -179,12 +189,29 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
     const heuresAjoutees = round2(heures - heuresAvant);
     const margePerdue = round2(margeAvant - margeApres);
 
-    if (Math.abs(avancementDelta) > seuilsUtilises.avancementStableMaxPts) continue;
-    if (heuresAjoutees < seuilsUtilises.heuresAjouteesMin) continue;
-    if (margePerdue < seuilsUtilises.margePerdueMinEuros) continue;
+    // MOTIF 1 — « ça n'avance pas et ça consomme » (règle d'origine, inchangée).
+    const consommationSansAvancement =
+      Math.abs(avancementDelta) <= seuilsUtilises.avancementStableMaxPts &&
+      heuresAjoutees >= seuilsUtilises.heuresAjouteesMin &&
+      margePerdue >= seuilsUtilises.margePerdueMinEuros;
+
+    // MOTIF 2 — « ça avance, mais ça coûte beaucoup plus cher que vendu ».
+    // Indépendant de l'avancement : un chantier qui progresse de 9 points en
+    // brûlant 2 000 € de marge est une dérive, pas une bonne semaine. C'est
+    // précisément ce que la règle d'origine laissait passer.
+    const perteDeMarge = margePerdue >= seuilsUtilises.margePerdueGraveMinEuros;
+
+    if (!consommationSansAvancement && !perteDeMarge) continue;
+
+    // Un chantier qui déclenche les deux n'apparaît QU'UNE FOIS, avec ses deux
+    // motifs : la liste compte des chantiers, pas des règles.
+    const motifs = [];
+    if (consommationSansAvancement) motifs.push(MOTIF_CONSOMMATION_SANS_AVANCEMENT);
+    if (perteDeMarge) motifs.push(MOTIF_PERTE_DE_MARGE);
 
     const nom = str(courant.chantier_nom) || str(precedent.chantier_nom) || chantierId;
     lignes.push({
+      motifs,
       chantier_id: chantierId,
       nom,
       avancement: round2(avancement),
@@ -196,7 +223,7 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
       margeAvant: round2(margeAvant),
       margeApres: round2(margeApres),
       margePerdue,
-      explication: explicationDe({ avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue }),
+      explication: explicationDe({ motifs, avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue }),
     });
   }
 
@@ -218,28 +245,89 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
 
 // Phrase d'explication : décrit l'écart réellement constaté entre les deux
 // snapshots, sans interprétation ni cause inventée.
-function explicationDe({ avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue }) {
+function explicationDe({ motifs, avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue }) {
+  const liste = Array.isArray(motifs) ? motifs : [];
+  const marche = formaterMarcheHeures(heuresAjoutees);
+
+  // « Ça avance, mais ça coûte » : l'explication doit dire que la progression
+  // ne rachète pas la perte, sinon le lecteur conclut que tout va bien.
+  if (liste.includes(MOTIF_PERTE_DE_MARGE) && !liste.includes(MOTIF_CONSOMMATION_SANS_AVANCEMENT)) {
+    const mouvement = avancementDelta > 0
+      ? `Le chantier a progressé de ${formaterPoints(avancementDelta)} (${formaterAvancement(avancementAvant)} → ${formaterAvancement(avancement)})`
+      : avancementDelta < 0
+        ? `Le chantier a reculé de ${formaterPoints(avancementDelta)} (${formaterAvancement(avancementAvant)} → ${formaterAvancement(avancement)})`
+        : `L'avancement n'a pas bougé (${formaterAvancement(avancementAvant)})`;
+    return `${mouvement}, ${marche}, et la marge recule de ${formaterEurosV1(margePerdue)} sur la semaine : ce qui a été produit a coûté nettement plus cher que ce qu'il rapporte.`;
+  }
+
   const mouvement = avancementDelta === 0
     ? `L'avancement n'a pas bougé (${formaterAvancement(avancementAvant)})`
     : `L'avancement n'a quasiment pas bougé (${formaterAvancement(avancementAvant)} → ${formaterAvancement(avancement)}, ${avancementDelta > 0 ? "+" : MOINS}${formaterPoints(avancementDelta)})`;
-  return `${mouvement} alors que ${formaterHeuresV1(heuresAjoutees)} ont été consommées ; la marge recule de ${formaterEurosV1(margePerdue)} sur la semaine.`;
+  const aggravation = liste.includes(MOTIF_PERTE_DE_MARGE)
+    ? " La perte dépasse à elle seule le seuil d'alerte financière."
+    : "";
+  return `${mouvement} alors que ${formaterHeuresV1(heuresAjoutees)} ont été consommées ; la marge recule de ${formaterEurosV1(margePerdue)} sur la semaine.${aggravation}`;
+}
+
+// Les heures ajoutées ne sont pas toujours positives : le motif perte_de_marge
+// ne les exige pas. On dit ce qui s'est réellement passé plutôt que d'annoncer
+// des heures consommées qui n'existent pas.
+function formaterMarcheHeures(heuresAjoutees) {
+  const h = Number(heuresAjoutees) || 0;
+  if (h > 0) return `${formaterHeuresV1(h)} consommées`;
+  if (h === 0) return "sans aucune heure ajoutée";
+  return `avec ${formaterHeuresV1(Math.abs(h))} retirées des pointages`;
 }
 
 /**
- * Phrase affichée à l'écran et dans le PDF, par exemple :
- * « TOM & CAMILLE R+2 — 97 % d'avancement inchangé, +30 h consommées,
- *   marge en baisse de 1 117 € (−1 166 € → −2 283 €). »
+ * Phrase affichée à l'écran, dans le PDF et dans l'e-mail.
+ *
+ * Elle doit dire CE QUI S'EST PASSÉ, pas seulement porter un chiffre. Pour le
+ * motif perte_de_marge, le « mais » est essentiel : c'est lui qui explique
+ * pourquoi un chantier qui progresse remonte quand même.
+ *
+ *   « TOM & CAMILLE R+2 — 97 % d'avancement inchangé, +30 h consommées,
+ *     marge en baisse de 1 117 € (−1 166 € → −2 283 €). »
+ *   « TOM & CAMILLE R+1 — avancement +9 pts mais 53 h consommées,
+ *     marge en baisse de 2 021 € (3 694 € → 1 673 €). »
  */
 export function libellePointAttentionV1(ligne) {
   if (!ligne || typeof ligne !== "object") return "—";
   const nom = str(ligne.nom) || str(ligne.chantier_id) || "Chantier";
   const delta = Number(ligne.avancementDelta) || 0;
+  const motifs = Array.isArray(ligne.motifs) ? ligne.motifs : [];
+  const marge = `marge en baisse de ${formaterEurosV1(ligne.margePerdue)} (${formaterEurosV1(ligne.margeAvant)} → ${formaterEurosV1(ligne.margeApres)})`;
+
+  // Perte de marge SEULE : le chantier a bougé, et c'est justement le piège.
+  if (motifs.includes(MOTIF_PERTE_DE_MARGE) && !motifs.includes(MOTIF_CONSOMMATION_SANS_AVANCEMENT)) {
+    const marche = formaterMarcheHeures(ligne.heuresAjoutees);
+    const avance = delta > 0
+      ? `avancement +${formaterPoints(delta)} mais ${marche}`
+      : delta < 0
+        ? `avancement en recul de ${formaterPoints(delta)}, ${marche}`
+        : `avancement inchangé mais ${marche}`;
+    return `${nom} — ${avance}, ${marge}.`;
+  }
+
+  // Consommation sans avancement (seule, ou cumulée avec la perte de marge).
   const avancement = delta === 0
     ? `${formaterAvancement(ligne.avancement)} d'avancement inchangé`
     : `${formaterAvancement(ligne.avancement)} d'avancement (${delta > 0 ? "+" : MOINS}${formaterPoints(delta)} seulement)`;
   const heures = `+${formaterHeuresV1(ligne.heuresAjoutees)} consommées`;
-  const marge = `marge en baisse de ${formaterEurosV1(ligne.margePerdue)} (${formaterEurosV1(ligne.margeAvant)} → ${formaterEurosV1(ligne.margeApres)})`;
   return `${nom} — ${avancement}, ${heures}, ${marge}.`;
+}
+
+// Étiquettes de motif, affichées à côté de la phrase (écran, PDF, e-mail).
+// La phrase dit les faits ; ces étiquettes disent QUELLE règle a déclenché.
+export const LIBELLES_MOTIFS_V1 = Object.freeze({
+  [MOTIF_CONSOMMATION_SANS_AVANCEMENT]: "consommation sans avancement",
+  [MOTIF_PERTE_DE_MARGE]: "perte de marge",
+});
+
+/** "consommation sans avancement + perte de marge" · "" si aucun motif connu. */
+export function libelleMotifsV1(ligne) {
+  const motifs = Array.isArray(ligne?.motifs) ? ligne.motifs : [];
+  return motifs.map(m => LIBELLES_MOTIFS_V1[m]).filter(Boolean).join(" + ");
 }
 
 // ── Les TROIS états de la section, en un seul endroit ───────────────────────

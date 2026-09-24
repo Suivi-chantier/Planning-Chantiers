@@ -20,12 +20,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   libellePointAttentionV1,
+  libelleMotifsV1,
   etatPointsAttentionV1,
   ETAT_RELEVE_ABSENT,
   formaterEurosV1,
   formaterHeuresV1,
 } from "./pointsAttentionV1.mjs";
-import { libelleSuiviV1 } from "./suiviPointsAttentionV1.mjs";
+import { libelleSuiviV1, libelleDerivesArreteesV1 } from "./suiviPointsAttentionV1.mjs";
 
 export const BILAN_SEMAINE_EMAIL_VERSION = "v1";
 
@@ -99,12 +100,14 @@ export function bilanSemaineEmailV1({
 
   // ── Points d'attention : rubrique JAMAIS omise. ───────────────────────────
   const listePoints = actifs.map((l, i) => {
-    const etiquette = libelleSuiviV1(l);
-    return `${i + 1}. ${libellePointAttentionV1(l)}${etiquette ? ` (${etiquette})` : ""}`;
+    // Deux étiquettes possibles : l'ancienneté de la dérive et le ou les motifs
+    // qui l'ont déclenchée. Elles viennent des mêmes fonctions que l'écran.
+    const marques = [libelleSuiviV1(l), libelleMotifsV1(l)].filter(Boolean).join(" · ");
+    return `${i + 1}. ${libellePointAttentionV1(l)}${marques ? ` (${marques})` : ""}`;
   });
-  const ligneResolus = resolus.length
-    ? `Résolu depuis la semaine dernière : ${resolus.map(l => nomDe(l)).join(", ")}.`
-    : "";
+  // Pas « résolu » : un chantier qui sort de la liste n'a pas récupéré son
+  // argent. Même phrase qu'à l'écran et dans le PDF, produite au même endroit.
+  const ligneResolus = libelleDerivesArreteesV1(resolus);
   const blocPoints = releveAbsent
     ? lignes("POINTS D'ATTENTION", etat.message)
     : nbPoints

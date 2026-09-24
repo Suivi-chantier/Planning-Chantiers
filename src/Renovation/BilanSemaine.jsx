@@ -13,8 +13,8 @@ import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1, lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
-import { libellePointAttentionV1, etatPointsAttentionV1, ETAT_RELEVE_ABSENT, ETAT_DERIVES } from "./pointsAttentionV1.js";
-import { suiviPointsAttentionV1, libelleSuiviV1 } from "./suiviPointsAttentionV1.js";
+import { libellePointAttentionV1, libelleMotifsV1, etatPointsAttentionV1, ETAT_RELEVE_ABSENT, ETAT_DERIVES } from "./pointsAttentionV1.js";
+import { suiviPointsAttentionV1, libelleSuiviV1, libelleDerivesArreteesV1 } from "./suiviPointsAttentionV1.js";
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
@@ -54,6 +54,10 @@ const JOURS_DEMARRAGE_LOT = 15;   // lot démarrant sous N jours sans commande p
 // N plus coûteux, écran et PDF. Au-delà, le document devient illisible et la
 // hiérarchie ne voit plus l'essentiel.
 const MAX_POINTS_ATTENTION_AFFICHES = 5;
+// Semaines de snapshots chargées : 3 suffisent à détecter et à étiqueter, les
+// suivantes servent à chiffrer le cumul perdu par une dérive qui dure (cas réel
+// observé : 3 semaines consécutives, près de 9 000 €).
+const SEMAINES_HISTORIQUE_ATTENTION = 8;
 
 // ─── PAGE BILAN SEMAINE ───────────────────────────────────────────────────────
 // Bilan hebdomadaire multi-chantiers, sorti de la modale d'Équipe (étape 3 du
@@ -908,16 +912,24 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   // Trois semaines sont nécessaires : N vs N-1 donne les dérives, N-1 vs N-2
   // permet de dire si chacune est NOUVELLE ou déjà là. Sans la troisième,
   // aucune étiquette n'est affichée (cf. suiviPointsAttentionV1).
-  const [weekIdPrecedent, weekIdPrecedent2] = useMemo(() => {
+  // N, N-1, N-2 servent à détecter et à étiqueter ; les semaines plus anciennes
+  // servent uniquement à CHIFFRER le cumul perdu par une dérive qui dure.
+  const semainesAttention = useMemo(() => {
     const lundi = lundiSemaineISOv1(weekId);
-    if (!lundi) return [null, null];
-    return [
-      semaineISOv1(ajouterJoursV1(lundi, -7))?.week_id || null,
-      semaineISOv1(ajouterJoursV1(lundi, -14))?.week_id || null,
-    ];
+    if (!lundi) return [];
+    const ids = [weekId];
+    for (let i = 1; i < SEMAINES_HISTORIQUE_ATTENTION; i++) {
+      const w = semaineISOv1(ajouterJoursV1(lundi, -7 * i))?.week_id;
+      if (!w) break;
+      ids.push(w);
+    }
+    return ids;
   }, [weekId]);
+  const weekIdPrecedent = semainesAttention[1] || null;
+  const weekIdPrecedent2 = semainesAttention[2] || null;
 
-  const [snapshotsAttention, setSnapshotsAttention] = useState({ courants: [], precedents: [], precedents2: [] });
+  // Une entrée par semaine chargée, de la plus récente à la plus ancienne.
+  const [snapshotsAttention, setSnapshotsAttention] = useState([]);
   // Avant la réponse de la requête, « aucune ligne » ne veut rien dire : on
   // n'affiche ni « pas de relevé » ni « aucune dérive » tant qu'on ne sait pas.
   const [snapshotsCharges, setSnapshotsCharges] = useState(false);
@@ -931,27 +943,25 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       const { data, error } = await supabase
         .from("chantier_snapshots_hebdo")
         .select("chantier_id, chantier_nom, week_id, date_snapshot, avancement, heures_reelles, marge")
-        .in("week_id", [weekId, weekIdPrecedent, weekIdPrecedent2])
+        .in("week_id", semainesAttention)
         .order("date_snapshot", { ascending: true });
       if (cancelled) return;
       if (error) { console.warn("Points d'attention : load", error.message); return; }
       setSnapshotsCharges(true);
-      setSnapshotsAttention({
-        courants:    (data || []).filter(r => r.week_id === weekId),
-        precedents:  (data || []).filter(r => r.week_id === weekIdPrecedent),
-        precedents2: (data || []).filter(r => r.week_id === weekIdPrecedent2),
-      });
+      setSnapshotsAttention(semainesAttention.map(w => (data || []).filter(r => r.week_id === w)));
     })();
     return () => { cancelled = true; };
-  }, [etape, weekId, weekIdPrecedent, weekIdPrecedent2]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etape, weekId, semainesAttention.join(",")]);
 
   // Le suivi appelle lui-même pointsAttentionV1 deux fois : on lit `actifs`,
   // qui SONT les points d'attention de la semaine, étiquetés quand c'est
   // prouvable. Aucune seconde détection en parallèle ici.
   const suiviAttention = useMemo(() => suiviPointsAttentionV1({
-    snapshotsN:  snapshotsAttention.courants,
-    snapshotsN1: snapshotsAttention.precedents,
-    snapshotsN2: snapshotsAttention.precedents2,
+    snapshotsN:  snapshotsAttention[0] || [],
+    snapshotsN1: snapshotsAttention[1] || [],
+    snapshotsN2: snapshotsAttention[2] || [],
+    historiqueAnterieur: snapshotsAttention.slice(3),
   }), [snapshotsAttention]);
   const pointsAttentionConso = { seuils: suiviAttention.seuils, lignes: suiviAttention.actifs };
   // Affichage borné aux 5 dérives les plus coûteuses ; le module les a déjà
@@ -996,7 +1006,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   const avancementActuelDe = useCallback((chantierId) => {
     const p = progressions[chantierId];
     if (p && p.maintenant != null) return p.maintenant;
-    const snap = snapshotsAttention.courants.find(r => r.chantier_id === chantierId);
+    const snap = (snapshotsAttention[0] || []).find(r => r.chantier_id === chantierId);
     const v = snap?.avancement;
     return v == null || v === "" || !Number.isFinite(Number(v)) ? null : Math.round(Number(v));
   }, [progressions, snapshotsAttention]);
@@ -1370,12 +1380,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         return `
         <div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 5pt;padding-left:16pt;position:relative;line-height:1.45;">
           <span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span>
-          <strong style="color:${INK};">${esc(l.nom)}</strong> — ${esc(libellePointAttentionV1(l).replace(`${l.nom} — `, ""))}${badge}
+          <strong style="color:${INK};">${esc(l.nom)}</strong> — ${esc(libellePointAttentionV1(l).replace(`${l.nom} — `, ""))}${badge}${libelleMotifsV1(l) ? `<span style="margin-left:5pt;font-size:7.5pt;color:${GREY};">[${esc(libelleMotifsV1(l))}]</span>` : ""}
           <div style="font-size:8.5pt;color:${GREY};margin-top:1pt;">${esc(l.explication)}</div>
         </div>`;
       }).join("");
       const resolusHTML = suiviAttention.resolus.length
-        ? `<div style="margin-top:6pt;padding-top:5pt;border-top:1pt solid ${LINE};font-size:9pt;color:#2a2f37;"><strong style="color:${GREEN};">Résolu depuis la semaine dernière :</strong> ${esc(suiviAttention.resolus.map(r => r.nom || r.chantier_id).join(", "))}.</div>`
+        ? `<div style="margin-top:6pt;padding-top:5pt;border-top:1pt solid ${LINE};font-size:9pt;color:#2a2f37;">${esc(libelleDerivesArreteesV1(suiviAttention.resolus))}</div>`
         : "";
       const historiqueHTML = suiviAttention.suiviDisponible
         ? ""
@@ -1387,7 +1397,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       return `
       <div style="border:1pt solid ${LINE};border-radius:3pt;margin:0 0 16pt;overflow:hidden;">
         <div style="background:#f5f6f8;padding:6pt 14pt;border-bottom:1pt solid ${LINE};">
-          <span style="font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${INK};">Points d'attention · consommation sans avancement</span>
+          <span style="font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${INK};">Points d'attention · dérives financières</span>
           <span style="font-size:8pt;color:${GREY};margin-left:8pt;">${weekIdPrecedent ? `${esc(weekId)} comparé à ${esc(weekIdPrecedent)}` : "semaine précédente indéterminée"}</span>
         </div>
         <div style="padding:10pt 14pt;">
@@ -2123,7 +2133,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8, marginBottom:10 }}>
               <span style={{ fontSize:15, fontWeight:800, color:T.text, display:"inline-flex", alignItems:"center", gap:8 }}>
                 <Icon as={AlertTriangle} size={15} color="#f5a623"/>
-                Points d'attention · consommation sans avancement
+                Points d'attention · dérives financières
               </span>
               <span style={{ fontSize:12, color:T.textMuted }}>
                 {weekIdPrecedent ? `${weekId} comparé à ${weekIdPrecedent}` : "Semaine précédente indéterminée"}
@@ -2153,6 +2163,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                 {pointsAttentionAffiches.map(l => {
                   // Étiquette seulement si le suivi est prouvable (3 semaines).
                   const etiquette = libelleSuiviV1(l);
+                  const motifs = libelleMotifsV1(l);
                   const nouveau = l.statut === "nouveau";
                   return (
                     <div key={l.chantier_id}
@@ -2170,6 +2181,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                             background: nouveau ? "rgba(245,166,35,0.16)" : "rgba(239,68,68,0.12)",
                             border: `1px solid ${nouveau ? "rgba(245,166,35,0.45)" : "rgba(239,68,68,0.35)"}` }}>
                             {etiquette}
+                          </span>
+                        )}
+                        {motifs && (
+                          <span style={{ flexShrink:0, padding:"2px 8px", borderRadius:999, fontSize:10.5, fontWeight:700,
+                            whiteSpace:"nowrap", color:T.textMuted, background:T.card, border:`1px solid ${T.border}` }}>
+                            {motifs}
                           </span>
                         )}
                       </div>
@@ -2190,11 +2207,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </div>
             )}
 
+            {/* Pas de vert ici : une dérive qui s'arrête n'est pas une bonne
+                nouvelle, l'argent perdu ne revient pas. Ton neutre. */}
             {suiviAttention.resolus.length > 0 && (
-              <div style={{ marginTop:9, padding:"8px 11px", borderRadius:10, background:"rgba(34,197,94,.09)",
-                border:"1px solid rgba(34,197,94,.30)", fontSize:12, color:T.textSub, lineHeight:1.45 }}>
-                <strong style={{ color:"#22c55e" }}>Résolu depuis la semaine dernière :</strong>{" "}
-                {suiviAttention.resolus.map(r => r.nom || r.chantier_id).join(", ")}.
+              <div style={{ marginTop:9, padding:"8px 11px", borderRadius:10, background:T.card,
+                border:`1px solid ${T.border}`, fontSize:12, color:T.textSub, lineHeight:1.45 }}>
+                {libelleDerivesArreteesV1(suiviAttention.resolus)}
               </div>
             )}
 
@@ -2205,9 +2223,11 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                 <><strong>Pas encore assez d'historique pour dire ce qui est nouveau</strong> — il faut trois semaines
                 de relevés consécutifs. Les dérives sont affichées, sans étiquette.<br/></>
               )}
-              Détection automatique : avancement stable (± {pointsAttentionConso.seuils.avancementStableMaxPts} pt),
-              au moins {pointsAttentionConso.seuils.heuresAjouteesMin} h consommées
-              et au moins {pointsAttentionConso.seuils.margePerdueMinEuros} € de marge perdue depuis la semaine précédente.
+              Deux détections automatiques, depuis la semaine précédente :
+              <strong> consommation sans avancement</strong> (avancement stable ± {pointsAttentionConso.seuils.avancementStableMaxPts} pt,
+              au moins {pointsAttentionConso.seuils.heuresAjouteesMin} h consommées et au moins {pointsAttentionConso.seuils.margePerdueMinEuros} € perdus)
+              et <strong>perte de marge</strong> (au moins {pointsAttentionConso.seuils.margePerdueGraveMinEuros} € perdus,
+              quel que soit l'avancement — un chantier qui progresse en coûtant plus cher que vendu reste une dérive).
               Chiffres repris tels quels du snapshot financier hebdomadaire — aucun recalcul.
             </div>
           </div>

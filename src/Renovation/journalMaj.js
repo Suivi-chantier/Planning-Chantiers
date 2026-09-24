@@ -25,6 +25,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
     type: "correctif",
+    titre: "Bilan de la semaine : les chantiers qui avancent en perdant de l'argent remontent enfin",
+    pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
+    quoi: "La détection des chantiers en difficulté ne connaissait qu'une seule forme de dérive : « ça n'avance pas et ça consomme des heures ». Elle ratait complètement l'autre : « ça avance, mais ça coûte beaucoup plus cher que ce qui a été vendu ». Résultat, des chantiers qui progressaient tout en brûlant plus de 1 000 € de marge par semaine n'apparaissaient nulle part dans le PDF envoyé à la direction. Une seconde règle est ajoutée : tout chantier qui perd au moins 500 € de marge en une semaine remonte, quel que soit son avancement. Un chantier peut déclencher les deux règles : il n'apparaît alors qu'une fois, avec ses deux motifs indiqués.",
+    comment: "Chaque ligne porte maintenant une étiquette disant quelle règle s'est déclenchée : « consommation sans avancement », « perte de marge », ou les deux. Et la phrase explique ce qui s'est passé, pas seulement le chiffre : « avancement +9 pts mais 53 h consommées, marge en baisse de 2 021 € » — le « mais » dit pourquoi le chantier remonte malgré sa progression. Le classement reste le même : la plus grosse perte en premier. Le seuil de 500 € est volontairement sélectif.",
+  },
+  {
+    date: "2026-09-24",
+    type: "correctif",
+    titre: "Bilan de la semaine : un chantier qui cesse de déraper n'est plus annoncé comme « résolu »",
+    pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
+    quoi: "Quand un chantier sortait de la liste des points d'attention, le bilan affichait « Résolu depuis la semaine dernière ». C'est faux, et c'était écrit noir sur blanc dans un document transmis à la direction : le chantier n'a rien récupéré, il a seulement cessé de perdre de l'argent cette semaine-là. Un chantier ayant brûlé près de 9 000 € en trois semaines avant de se stabiliser se lisait comme une bonne nouvelle.",
+    comment: "La phrase devient : « La dérive signalée la semaine dernière s'est arrêtée (la marge perdue n'est pas récupérée) », suivie du montant déjà perdu par chaque chantier et du nombre de semaines concernées. Le fond vert a disparu : ce n'est pas une bonne nouvelle. Si l'historique disponible ne permet pas de remonter au début de la dérive, le montant est annoncé comme « au moins », jamais comme un total certain. Même texte à l'écran, dans le PDF et dans le résumé e-mail.",
+  },
+  {
+    date: "2026-09-24",
+    type: "correctif",
     titre: "Bilan de la semaine : « pas encore de relevé » ne s'affiche plus comme « aucune dérive »",
     pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
     quoi: "Les points d'attention se calculent à partir du relevé financier hebdomadaire, produit automatiquement le vendredi en fin de journée. Avant ce moment, la semaine en cours n'a aucun relevé — et la section affichait alors « Aucun point d'attention détecté cette semaine ». C'était trompeur : l'application ne détectait rien parce qu'elle n'avait rien à comparer, pas parce que tout allait bien. Quelqu'un qui ouvrait le bilan un vendredi à 14 h pouvait en conclure que la semaine était saine. La section distingue désormais trois situations au lieu de deux : le relevé manque, le relevé est là et rien ne cloche, ou le relevé est là et des chantiers dérivent.",
