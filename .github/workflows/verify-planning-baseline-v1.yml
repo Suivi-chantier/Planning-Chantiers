@@ -27,5 +27,9 @@ jobs:
         run: node --experimental-default-type=module scripts/verif-planning-baseline-model-v1.mjs
       - name: Installer dépendances
         run: npm ci
+      - name: Scripts SQL historique + restauration bibliothèque (PGlite, données fictives)
+        run: |
+          npm install --no-save --no-audit --no-fund @electric-sql/pglite@0.3
+          node scripts/verif-restauration-bibliotheque.mjs
       - name: Build Vite
         run: npm run build
