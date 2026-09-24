@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-23",
     type: "nouveaute",
+    titre: "Bilan de la semaine : les chantiers qui consomment des heures sans avancer remontent tout seuls",
+    pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
+    quoi: "Un chantier qui consomme des heures sans progresser est la dérive la plus coûteuse et la plus facile à rater : chaque chiffre pris isolément paraît normal, c'est leur combinaison qui alerte. Le bilan compare maintenant tout seul la semaine en cours à la précédente et remonte les chantiers dont l'avancement n'a pas bougé alors que des heures ont été consommées et que la marge a reculé. Exemple de ce qui s'affiche : « TOM & CAMILLE R+2 — 97 % d'avancement inchangé, +30 h consommées, marge en baisse de 1 117 € ». Les chiffres ne sont pas recalculés pour l'occasion : ce sont exactement ceux du relevé financier hebdomadaire, les mêmes que partout ailleurs dans l'application.",
+    comment: "La section « Points d'attention · consommation sans avancement » se trouve juste au-dessus des « Blocages & arbitrages », et elle est reprise dans le PDF envoyé à la hiérarchie. Les cinq dérives les plus coûteuses sont détaillées, la plus grosse perte de marge en premier ; s'il y en a davantage, le nombre restant est indiqué. Cliquez sur une ligne pour ouvrir le chantier concerné. Quand rien n'est détecté, la section reste affichée et le dit : « Aucun point d'attention détecté cette semaine » — l'absence de dérive est une information, pas une section qui disparaît. Un chantier démarré cette semaine n'apparaît pas (il n'y a rien à quoi le comparer), et un chantier dont une donnée manque est écarté plutôt que compté à zéro.",
+  },
+  {
+    date: "2026-09-23",
+    type: "nouveaute",
     titre: "Bilan de la semaine : l'application peut proposer ce qui vient — qui travaille où, et quels chantiers débordent",
     pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
     quoi: "Dans le bilan, la rubrique « Semaine suivante » était entièrement à taper à la main, et plus personne n'y écrivait depuis début août. L'application, elle, connaît déjà le travail qui reste, la disponibilité réelle de chacun et, depuis peu, la date de fin prévue de chaque chantier. Une nouvelle section « La semaine qui vient » met tout ça noir sur blanc : chantier par chantier (quels jours, combien d'heures, quelles personnes), personne par personne (où elle est attendue et combien d'heures), et la liste des chantiers dont le travail déborde de la période étudiée. C'est une proposition, pas une décision : elle ne remplace pas ce que vous écrivez à la main, elle vous évite de partir de la feuille blanche.",
