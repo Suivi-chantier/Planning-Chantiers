@@ -16,6 +16,9 @@ import {
   formaterHeuresV1,
   POINTS_ATTENTION_VERSION,
   SEUILS_POINTS_ATTENTION_V1,
+  etatPointsAttentionV1,
+  releveExploitableV1,
+  ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES,
 } from "../src/Renovation/pointsAttentionV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -254,4 +257,81 @@ const lignesDe = (courants, precedents, seuils) =>
   assert.throws(() => { "use strict"; SEUILS_POINTS_ATTENTION_V1.heuresAjouteesMin = 99; });
 }
 
-console.log("OK — points d'attention V1 : 11 blocs de vérification");
+// ── 12. Relevé ABSENT ≠ aucune dérive : les trois états doivent différer. ────
+// Le cron d'alimentation tourne le vendredi en fin de journée : avant ça, la
+// semaine en cours n'a AUCUNE ligne. Un écran qui afficherait « aucune dérive »
+// à ce moment-là mentirait — il ne sait pas encore.
+{
+  // (c) Pas de relevé pour la semaine affichée.
+  const sansReleve = pointsAttentionV1({ snapshotsCourants: [], snapshotsPrecedents: [avant("C1")] });
+  // (a) Relevé présent, rien à signaler.
+  const aucuneDerive = pointsAttentionV1({
+    snapshotsCourants: [apres("C1", { marge: -1166 })], snapshotsPrecedents: [avant("C1")],
+  });
+  // (b) Relevé présent, dérives détectées.
+  const avecDerives = pointsAttentionV1({ snapshotsCourants: [apres("C1")], snapshotsPrecedents: [avant("C1")] });
+
+  // Les deux premiers ont une liste VIDE : c'est précisément le piège.
+  assert.deepEqual(sansReleve.lignes, []);
+  assert.deepEqual(aucuneDerive.lignes, []);
+  assert.equal(avecDerives.lignes.length, 1);
+
+  // Les drapeaux, eux, les distinguent.
+  assert.equal(sansReleve.releveDisponible, false);
+  assert.equal(sansReleve.comparaisonPossible, false);
+  assert.equal(aucuneDerive.releveDisponible, true);
+  assert.equal(aucuneDerive.comparaisonPossible, true);
+  assert.equal(avecDerives.releveDisponible, true);
+
+  const etats = [
+    etatPointsAttentionV1(sansReleve),
+    etatPointsAttentionV1(aucuneDerive),
+    etatPointsAttentionV1(avecDerives),
+  ];
+  assert.deepEqual(etats.map(e => e.statut), [ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES]);
+  // Ton NEUTRE quand on ne sait pas : surtout pas le vert du « tout va bien ».
+  assert.deepEqual(etats.map(e => e.ton), ["neutre", "ok", "alerte"]);
+  assert.match(etats[0].message, /pas encore disponible pour cette semaine/);
+  assert.match(etats[0].message, /vendredi en fin de journée/);
+  assert.match(etats[0].message, /Aucune comparaison possible/);
+  assert.match(etats[1].message, /^Aucun point d'attention détecté cette semaine\.$/);
+  assert.match(etats[2].message, /consomme des heures sans avancer/);
+
+  // LE test qui compte : les trois sorties doivent être deux à deux DIFFÉRENTES.
+  for (let i = 0; i < etats.length; i++) {
+    for (let j = i + 1; j < etats.length; j++) {
+      assert.notDeepEqual(etats[i], etats[j], `les états ${i} et ${j} se ressemblent`);
+      assert.notEqual(etats[i].message, etats[j].message, `messages ${i} et ${j} identiques`);
+      assert.notEqual(etats[i].statut, etats[j].statut);
+    }
+  }
+}
+
+// ── 13. Relevé de la semaine PRÉCÉDENTE absent : autre manque, autre message. ──
+{
+  const sansPrecedent = pointsAttentionV1({ snapshotsCourants: [apres("C1")], snapshotsPrecedents: [] });
+  assert.equal(sansPrecedent.releveDisponible, true);
+  assert.equal(sansPrecedent.relevePrecedentDisponible, false);
+  assert.equal(sansPrecedent.comparaisonPossible, false);
+  const etat = etatPointsAttentionV1(sansPrecedent);
+  assert.equal(etat.statut, ETAT_RELEVE_ABSENT);
+  assert.equal(etat.ton, "neutre");
+  assert.match(etat.message, /semaine précédente indisponible/);
+  // Message distinct de celui de la semaine courante manquante.
+  const autre = etatPointsAttentionV1(pointsAttentionV1({ snapshotsCourants: [], snapshotsPrecedents: [avant("C1")] }));
+  assert.notEqual(etat.message, autre.message);
+
+  // Le détecteur de relevé ne se laisse pas abuser par du bruit.
+  assert.equal(releveExploitableV1([]), false);
+  assert.equal(releveExploitableV1(null), false);
+  assert.equal(releveExploitableV1("bruit"), false);
+  assert.equal(releveExploitableV1([null, "x", { chantier_id: "" }]), false);
+  assert.equal(releveExploitableV1([{ chantier_id: "C1" }]), true);
+
+  // Un résultat sans drapeau (objet construit à la main) ne doit pas être lu
+  // comme « relevé absent » : seul un false explicite compte.
+  assert.equal(etatPointsAttentionV1({ lignes: [] }).statut, ETAT_AUCUNE_DERIVE);
+  assert.equal(etatPointsAttentionV1(null).statut, ETAT_AUCUNE_DERIVE);
+}
+
+console.log("OK — points d'attention V1 : 13 blocs de vérification");

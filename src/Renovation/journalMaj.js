@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
     type: "correctif",
+    titre: "Bilan de la semaine : « pas encore de relevé » ne s'affiche plus comme « aucune dérive »",
+    pages: [{ id: "bilan-semaine", label: "Bilan Semaine" }],
+    quoi: "Les points d'attention se calculent à partir du relevé financier hebdomadaire, produit automatiquement le vendredi en fin de journée. Avant ce moment, la semaine en cours n'a aucun relevé — et la section affichait alors « Aucun point d'attention détecté cette semaine ». C'était trompeur : l'application ne détectait rien parce qu'elle n'avait rien à comparer, pas parce que tout allait bien. Quelqu'un qui ouvrait le bilan un vendredi à 14 h pouvait en conclure que la semaine était saine. La section distingue désormais trois situations au lieu de deux : le relevé manque, le relevé est là et rien ne cloche, ou le relevé est là et des chantiers dérivent.",
+    comment: "Quand le relevé n'est pas encore disponible, un encadré neutre — gris, volontairement pas vert — l'indique : « Relevé hebdomadaire pas encore disponible pour cette semaine (il est produit le vendredi en fin de journée). Aucune comparaison possible. » Le PDF affiche exactement la même chose, et le résumé e-mail aussi : il ne dira plus « 0 point d'attention » alors qu'il n'en sait rien, ce qui aurait induit la hiérarchie en erreur. Même principe si c'est le relevé de la semaine précédente qui manque. Rien ne change quand le relevé est là : le comportement est identique à avant.",
+  },
+  {
+    date: "2026-09-24",
+    type: "correctif",
     titre: "Fiabilité : plus aucune modification ne peut passer sans être vérifiée automatiquement",
     pages: [],
     quoi: "Avant chaque mise en ligne, une batterie de contrôles automatiques rejoue les calculs de l'application pour s'assurer que rien n'a été cassé. Ces contrôles ne se déclenchaient que dans un cas précis, et on vient de découvrir une faille : quand une modification est préparée par-dessus une autre encore en cours de relecture, les contrôles ne partaient pas du tout. La modification pouvait donc suivre tout son parcours sans qu'aucune vérification ne tourne. C'est exactement ce qui s'est produit cette semaine sur le suivi des points d'attention du Bilan Semaine — sans conséquence, les contrôles ont été lancés à la main avant la mise en ligne, mais rien ne garantissait qu'on y pense la fois suivante.",

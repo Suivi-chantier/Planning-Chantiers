@@ -9,7 +9,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bilanSemaineEmailV1, BILAN_SEMAINE_EMAIL_VERSION } from "../src/Renovation/bilanSemaineEmailV1.mjs";
-import { pointsAttentionV1, libellePointAttentionV1 } from "../src/Renovation/pointsAttentionV1.mjs";
+import { pointsAttentionV1, libellePointAttentionV1, etatPointsAttentionV1 } from "../src/Renovation/pointsAttentionV1.mjs";
 import { suiviPointsAttentionV1, libelleSuiviV1 } from "../src/Renovation/suiviPointsAttentionV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -216,4 +216,54 @@ const suivi = suiviPointsAttentionV1({
   assert.deepEqual(bilanSemaineEmailV1(entrees), bilanSemaineEmailV1(entrees));
 }
 
-console.log("OK — bilan semaine e-mail V1 : 10 blocs de vérification");
+// ── 11. Relevé absent : le mail le DIT, il n'annonce pas « 0 point d'attention ». ──
+// Annoncer zéro dérive alors que le relevé du vendredi soir n'existe pas encore
+// serait un mensonge par omission envoyé à la hiérarchie.
+{
+  const sansReleve = pointsAttentionV1({ snapshotsCourants: [], snapshotsPrecedents: [S1("C1")] });
+  const aucuneDerive = pointsAttentionV1({
+    snapshotsCourants: [snap("C1", { avancement: 97, heures: 120, marge: -1166 })],
+    snapshotsPrecedents: [S1("C1")],
+  });
+  const avecDerives = points;
+
+  const mailSansReleve = bilanSemaineEmailV1({ periode, indicateursPortefeuille: indicateurs, pointsAttention: sansReleve });
+  const mailAucuneDerive = bilanSemaineEmailV1({ periode, indicateursPortefeuille: indicateurs, pointsAttention: aucuneDerive });
+  const mailAvecDerives = bilanSemaineEmailV1({ periode, indicateursPortefeuille: indicateurs, pointsAttention: avecDerives, suivi });
+
+  // (c) Relevé absent : ni « 0 », ni « aucun point d'attention détecté ».
+  assert.match(mailSansReleve.objet, /^Bilan semaine 2026-W39 — relevé hebdomadaire pas encore disponible$/);
+  assert.equal(/POINTS D'ATTENTION \(0\)/.test(mailSansReleve.corps), false,
+    "un relevé absent ne doit JAMAIS s'écrire « 0 point d'attention »");
+  assert.equal(/Aucun point d'attention détecté cette semaine/.test(mailSansReleve.corps), false);
+  assert.match(mailSansReleve.corps, /POINTS D'ATTENTION/);
+  assert.match(mailSansReleve.corps, /pas encore disponible pour cette semaine/);
+  assert.match(mailSansReleve.corps, /vendredi en fin de journée/);
+  // Le message affiché est EXACTEMENT celui de l'écran et du PDF.
+  assert.ok(mailSansReleve.corps.includes(etatPointsAttentionV1(sansReleve).message));
+
+  // (a) Relevé présent, rien à signaler : là « 0 » est vrai.
+  assert.match(mailAucuneDerive.objet, /aucun point d'attention$/);
+  assert.match(mailAucuneDerive.corps, /POINTS D'ATTENTION \(0\)/);
+  assert.match(mailAucuneDerive.corps, /Aucun point d'attention détecté cette semaine/);
+
+  // (b) Dérives détectées.
+  assert.match(mailAvecDerives.objet, /1 point d'attention$/);
+  assert.match(mailAvecDerives.corps, /POINTS D'ATTENTION \(1\)/);
+
+  // Les trois objets ET les trois corps doivent être deux à deux différents.
+  const mails = [mailSansReleve, mailAucuneDerive, mailAvecDerives];
+  for (let i = 0; i < mails.length; i++) {
+    for (let j = i + 1; j < mails.length; j++) {
+      assert.notEqual(mails[i].objet, mails[j].objet, `objets ${i} et ${j} identiques`);
+      assert.notEqual(mails[i].corps, mails[j].corps, `corps ${i} et ${j} identiques`);
+    }
+  }
+
+  // La rubrique reste présente dans les trois cas : jamais d'omission silencieuse.
+  for (const m of mails) assert.match(m.corps, /POINTS D'ATTENTION/);
+  // Et le mail se termine toujours pareil.
+  for (const m of mails) assert.match(m.corps, /Le PDF détaillé du bilan est joint séparément\.$/);
+}
+
+console.log("OK — bilan semaine e-mail V1 : 11 blocs de vérification");

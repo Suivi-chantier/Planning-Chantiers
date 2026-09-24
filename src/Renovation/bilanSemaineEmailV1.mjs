@@ -20,6 +20,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   libellePointAttentionV1,
+  etatPointsAttentionV1,
+  ETAT_RELEVE_ABSENT,
   formaterEurosV1,
   formaterHeuresV1,
 } from "./pointsAttentionV1.mjs";
@@ -60,10 +62,21 @@ export function bilanSemaineEmailV1({
   const resolus = listeSure(suivi?.resolus);
   const nbPoints = actifs.length;
 
-  // ── Objet : la semaine, et combien de points d'attention. ─────────────────
-  const objet = nbPoints
-    ? `Bilan semaine ${semaine} — ${nbPoints} point${nbPoints > 1 ? "s" : ""} d'attention`
-    : `Bilan semaine ${semaine} — aucun point d'attention`;
+  // Les trois états viennent du même service que l'écran et le PDF. On lit le
+  // drapeau, on ne le déduit pas de la longueur de la liste : un relevé absent
+  // annoncé comme « 0 point d'attention » serait un mensonge par omission
+  // envoyé à la hiérarchie.
+  const etat = etatPointsAttentionV1(suivi && typeof suivi === "object" && "releveDisponible" in suivi
+    ? { ...suivi, lignes: actifs }
+    : { ...(pointsAttention && typeof pointsAttention === "object" ? pointsAttention : {}), lignes: actifs });
+  const releveAbsent = etat.statut === ETAT_RELEVE_ABSENT;
+
+  // ── Objet : la semaine, et ce qu'on sait vraiment. ────────────────────
+  const objet = releveAbsent
+    ? `Bilan semaine ${semaine} — relevé hebdomadaire pas encore disponible`
+    : nbPoints
+      ? `Bilan semaine ${semaine} — ${nbPoints} point${nbPoints > 1 ? "s" : ""} d'attention`
+      : `Bilan semaine ${semaine} — aucun point d'attention`;
 
   // ── En-tête ───────────────────────────────────────────────────────────────
   const periodeTexte = estRenseigne(periode?.debut) && estRenseigne(periode?.fin)
@@ -92,18 +105,20 @@ export function bilanSemaineEmailV1({
   const ligneResolus = resolus.length
     ? `Résolu depuis la semaine dernière : ${resolus.map(l => nomDe(l)).join(", ")}.`
     : "";
-  const blocPoints = nbPoints
-    ? lignes(
-        `POINTS D'ATTENTION (${nbPoints})`,
-        "Chantiers qui consomment des heures sans avancer :",
-        ...listePoints,
-        ligneResolus,
-      )
-    : lignes(
-        "POINTS D'ATTENTION (0)",
-        "Aucun point d'attention détecté cette semaine : aucun chantier ne consomme des heures sans avancer.",
-        ligneResolus,
-      );
+  const blocPoints = releveAbsent
+    ? lignes("POINTS D'ATTENTION", etat.message)
+    : nbPoints
+      ? lignes(
+          `POINTS D'ATTENTION (${nbPoints})`,
+          "Chantiers qui consomment des heures sans avancer :",
+          ...listePoints,
+          ligneResolus,
+        )
+      : lignes(
+          "POINTS D'ATTENTION (0)",
+          `${etat.message} Aucun chantier ne consomme des heures sans avancer.`,
+          ligneResolus,
+        );
 
   // ── Blocages saisis par le conducteur. ────────────────────────────────────
   const listeBlocages = listeSure(blocages)

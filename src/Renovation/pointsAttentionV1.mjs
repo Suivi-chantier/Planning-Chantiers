@@ -90,6 +90,19 @@ const formaterAvancement = n => {
   return `${Number.isInteger(arrondi) ? arrondi : String(arrondi).replace(".", ",")} %`;
 };
 
+/**
+ * Une semaine est RELEVÉE si elle porte au moins une ligne de snapshot
+ * identifiable.
+ *
+ * Le cron d'alimentation tourne le VENDREDI en fin de journée : avant ce
+ * moment, la semaine en cours n'a aucune ligne. Un tableau vide ne veut donc
+ * pas dire « aucune dérive », il veut dire « on ne sait pas encore ». Les deux
+ * ne doivent jamais s'afficher pareil.
+ */
+export function releveExploitableV1(lignes) {
+  return listeSure(lignes).some(l => l && typeof l === "object" && str(l.chantier_id));
+}
+
 // ── Appariement des snapshots ───────────────────────────────────────────────
 // La table autorise plusieurs snapshots par chantier dans une même semaine
 // (unicité sur chantier_id + date_snapshot). On retient le PLUS RÉCENT : c'est
@@ -134,7 +147,12 @@ function normaliserSeuils(seuils) {
  * @param {Array} args.snapshotsCourants     lignes chantier_snapshots_hebdo de la semaine N
  * @param {Array} args.snapshotsPrecedents   lignes chantier_snapshots_hebdo de la semaine N-1
  * @param {object} [args.seuils]             surcharge de SEUILS_POINTS_ATTENTION_V1
- * @returns {{ version:string, seuils:object, lignes:Array }}
+ * @returns {{ version:string, seuils:object, lignes:Array,
+ *   releveDisponible:boolean, relevePrecedentDisponible:boolean, comparaisonPossible:boolean }}
+ *
+ * ⚠️ `lignes: []` ne suffit PAS à conclure « aucune dérive » : il faut aussi
+ * `releveDisponible`. Passer par etatPointsAttentionV1() plutôt que de tester
+ * la longueur du tableau.
  */
 export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seuils } = {}) {
   const seuilsUtilises = normaliserSeuils(seuils);
@@ -186,7 +204,16 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
   // le classement reste identique d'un calcul à l'autre.
   lignes.sort((a, b) => b.margePerdue - a.margePerdue || a.chantier_id.localeCompare(b.chantier_id));
 
-  return { version: POINTS_ATTENTION_VERSION, seuils: seuilsUtilises, lignes };
+  return {
+    version: POINTS_ATTENTION_VERSION,
+    seuils: seuilsUtilises,
+    // Sans ces trois drapeaux, une liste vide serait ambiguë : « rien à
+    // signaler » et « on n'a pas encore les données » se ressembleraient.
+    releveDisponible: releveExploitableV1(snapshotsCourants),
+    relevePrecedentDisponible: releveExploitableV1(snapshotsPrecedents),
+    comparaisonPossible: releveExploitableV1(snapshotsCourants) && releveExploitableV1(snapshotsPrecedents),
+    lignes,
+  };
 }
 
 // Phrase d'explication : décrit l'écart réellement constaté entre les deux
@@ -213,4 +240,56 @@ export function libellePointAttentionV1(ligne) {
   const heures = `+${formaterHeuresV1(ligne.heuresAjoutees)} consommées`;
   const marge = `marge en baisse de ${formaterEurosV1(ligne.margePerdue)} (${formaterEurosV1(ligne.margeAvant)} → ${formaterEurosV1(ligne.margeApres)})`;
   return `${nom} — ${avancement}, ${heures}, ${marge}.`;
+}
+
+// ── Les TROIS états de la section, en un seul endroit ───────────────────────
+// Écran, PDF et e-mail lisent tous cette fonction : impossible qu'un support
+// annonce « aucune dérive » pendant qu'un autre dit « pas encore de relevé ».
+export const ETAT_RELEVE_ABSENT = "releve_absent";
+export const ETAT_AUCUNE_DERIVE = "aucune_derive";
+export const ETAT_DERIVES = "derives";
+
+/**
+ * Qualifie le résultat de pointsAttentionV1 pour l'affichage.
+ *
+ * @returns {{ statut:string, ton:"neutre"|"ok"|"alerte", message:string, nb:number }}
+ *  - releve_absent : le relevé hebdomadaire n'existe pas encore → ton NEUTRE.
+ *    Surtout pas vert : on ne sait pas, ce n'est pas une bonne nouvelle.
+ *  - aucune_derive : relevé présent, rien à signaler → ton ok.
+ *  - derives       : relevé présent, liste non vide → ton alerte.
+ */
+export function etatPointsAttentionV1(resultat) {
+  const r = resultat && typeof resultat === "object" ? resultat : {};
+  const lignes = Array.isArray(r.lignes) ? r.lignes : [];
+
+  if (r.releveDisponible === false) {
+    return {
+      statut: ETAT_RELEVE_ABSENT,
+      ton: "neutre",
+      nb: 0,
+      message: "Relevé hebdomadaire pas encore disponible pour cette semaine (il est produit le vendredi en fin de journée). Aucune comparaison possible.",
+    };
+  }
+  if (r.relevePrecedentDisponible === false) {
+    return {
+      statut: ETAT_RELEVE_ABSENT,
+      ton: "neutre",
+      nb: 0,
+      message: "Relevé de la semaine précédente indisponible : aucune comparaison possible sur cette semaine.",
+    };
+  }
+  if (!lignes.length) {
+    return {
+      statut: ETAT_AUCUNE_DERIVE,
+      ton: "ok",
+      nb: 0,
+      message: "Aucun point d'attention détecté cette semaine.",
+    };
+  }
+  return {
+    statut: ETAT_DERIVES,
+    ton: "alerte",
+    nb: lignes.length,
+    message: `${lignes.length} chantier${lignes.length > 1 ? "s" : ""} consomme${lignes.length > 1 ? "nt" : ""} des heures sans avancer.`,
+  };
 }
