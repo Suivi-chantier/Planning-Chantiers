@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
     type: "correctif",
+    titre: "Historique du planning et de la bibliothèque activé en base le 24/09. Restauration des 59 ouvrages prévue samedi 26/09.",
+    pages: [{ id: "planning", label: "Planning semaine" }, { id: "bibliotheque", label: "Biblio. ouvrages" }],
+    quoi: "L'historique préparé dans la mise à jour « Planning et bibliothèque : chaque modification sera désormais conservée » est maintenant actif en base, depuis le 24/09. Toute modification ou suppression d'une cellule du planning ou d'un ouvrage de bibliothèque est désormais gardée, avec son état d'avant.",
+    comment: "Les changements se retrouvent dans Réglages, onglet Historique. Seuls les changements faits à partir du 24/09 y figurent : rien de plus ancien ne peut y apparaître. La remise en place des 59 ouvrages supprimés le 14/09 n'est pas encore faite ; elle est prévue samedi 26/09.",
+  },
+  {
+    date: "2026-09-24",
+    type: "correctif",
     titre: "Simulation du planning : les consignes (ouvrier imposé, préférence, intervention verrouillée) ne sont plus jamais ignorées en silence, et le calcul est beaucoup plus rapide",
     pages: [{ id: "planning", label: "Planning semaine" }],
     quoi: "Préparation de l'assistant qui recevra des consignes comme « Kev fait l'ossature placo sur ce chantier même si ce n'est pas son équipe ». Le moteur de simulation avait quatre défauts qui auraient trahi ces consignes. Un ouvrier imposé hors de l'équipe du lot n'était jamais placé, et la tâche disparaissait des propositions avec une raison vague. Une intervention verrouillée un jour non travaillé (vendredi de semaine de 4 jours) était gardée sans aucun signal. Les consignes « de préférence » et les dates posées sur une consigne d'ouvrier n'avaient aucun effet, sans que rien ne le dise. Enfin, le calcul passait l'essentiel de son temps à relire sans cesse les mêmes consignes.",
