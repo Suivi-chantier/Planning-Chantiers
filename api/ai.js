@@ -13,6 +13,9 @@
 //   POST /api/ai  { tache, entree, contexte? }  + Authorization: Bearer <jwt>
 //   → 200 { ok:true, job_id, resultat, confiance?, meta:{ modele, duree_ms, cout_eur } }
 //   → 4xx/5xx { ok:false, job_id, erreur:{ code, message } }
+//     codes : non_authentifie, non_autorise, tache_inconnue, quota_depasse,
+//     entree_invalide, sortie_invalide, modele_indisponible,
+//     credit_ia_epuise (solde du compte IA insuffisant), erreur_interne
 //
 // Variables d'env requises (Vercel, serveur uniquement — jamais VITE_) :
 //   ANTHROPIC_API_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
@@ -20,6 +23,7 @@
 const { createClient } = require("@supabase/supabase-js");
 const Anthropic = require("@anthropic-ai/sdk");
 const REGISTRE = require("./_ia/registre");
+const { estCreditEpuise, CODE_CREDIT_EPUISE, MESSAGE_CREDIT_EPUISE } = require("./_ia/erreursModele");
 
 const SUPABASE_URL =
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -342,6 +346,12 @@ module.exports = async function handler(req, res) {
       try {
         return await anthropic.messages.create(p);
       } catch (e) {
+        // Crédit du compte IA épuisé : ce n'est ni une panne ni un bug, et
+        // l'utilisateur doit le savoir pour prévenir la bonne personne. Testé
+        // AVANT le rangement générique, qui en faisait une erreur_interne.
+        if (estCreditEpuise(e)) {
+          throw { _code: 503, _erreur: CODE_CREDIT_EPUISE, _message: MESSAGE_CREDIT_EPUISE };
+        }
         if (e instanceof Anthropic.APIConnectionError || e instanceof Anthropic.RateLimitError ||
             e instanceof Anthropic.InternalServerError) {
           throw { _code: 503, _erreur: "modele_indisponible", _message: `Modèle indisponible : ${e.message}` };
@@ -462,6 +472,7 @@ module.exports = async function handler(req, res) {
           ],
         });
       } catch (e) {
+        if (estCreditEpuise(e)) return echouer(503, CODE_CREDIT_EPUISE, MESSAGE_CREDIT_EPUISE);
         return echouer(503, "modele_indisponible", `Modèle indisponible (relance) : ${e.message}`);
       }
       job.tokens_entree = (job.tokens_entree || 0) + (relance.usage?.input_tokens || 0);
