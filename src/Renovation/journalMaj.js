@@ -24,6 +24,22 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
+    type: "correctif",
+    titre: "Bibliothèque : impossible de supprimer un ouvrage déjà utilisé sur des chantiers",
+    pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }],
+    quoi: "Supprimer un ouvrage de la bibliothèque effaçait définitivement le lien entre cet ouvrage et tous les chantiers qui l'avaient utilisé — sans aucun avertissement. Le dégât est déjà fait et il est chiffré : sur les 167 ouvrages de bibliothèque utilisés par des chantiers, 63 n'existent plus, soit près de 4 sur 10. Cela laisse 153 ouvrages de chantier, répartis sur 20 chantiers, rattachés à un ouvrage introuvable. Ces liens sont perdus pour de bon : ni la référence, ni le code, ni le libellé ne permettent de les retrouver. Concrètement, les heures réellement passées sur ces chantiers ne peuvent plus servir à juger la cadence de l'ouvrage correspondant.",
+    comment: "Avant d'afficher la demande de confirmation, l'application compte désormais les chantiers qui utilisent l'ouvrage. S'il y en a au moins un, la suppression est refusée : un message indique combien d'ouvrages et combien de chantiers sont concernés, la liste des chantiers est affichée, et le bouton Supprimer n'apparaît pas du tout. Pour créer une variante, utilisez « Dupliquer » ; pour corriger un ouvrage, modifiez-le au lieu de le recréer. Si l'ouvrage n'est utilisé nulle part, rien ne change : la suppression fonctionne comme avant. Et si la vérification ne peut pas aboutir, la suppression est bloquée aussi : dans le doute, on ne détruit pas.",
+  },
+  {
+    date: "2026-09-24",
+    type: "correctif",
+    titre: "Bibliothèque : un problème de connexion ne recrée plus une bibliothèque de départ par-dessus la vôtre",
+    pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }],
+    quoi: "Quand la page n'arrivait pas à lire la bibliothèque, elle en concluait que la base était vide et réinstallait automatiquement une petite bibliothèque de départ. Or une lecture empêchée par les droits d'accès ne renvoie pas d'erreur : elle renvoie simplement une liste vide. Les deux situations étaient donc impossibles à distinguer, et un simple problème d'accès pouvait ajouter des ouvrages en double par-dessus les 119 existants — chaque doublon créant un nouvel identifiant, donc de nouveaux liens morts sur les chantiers.",
+    comment: "Cet ajout automatique est supprimé. Si la lecture échoue ou ne ramène aucun ouvrage, la page n'écrit plus rien du tout et affiche un encadré orange : « La bibliothèque n'a pas pu être lue (0 ouvrage reçu). Rien n'a été modifié. Rechargez la page ; si le problème persiste, vérifiez la connexion. » Ce message remplace l'ancien « aucun ouvrage », qui ressemblait à un résultat normal alors qu'il signalait une panne. Si l'incident survient pendant une mise à jour de fond, la liste déjà affichée reste à l'écran au lieu de se vider.",
+  },
+  {
+    date: "2026-09-24",
     type: "nouveaute",
     titre: "Bibliothèque : chaque ouvrage dit maintenant sur combien de chantiers terminés sa cadence repose",
     pages: [{ id: "bibliotheque", label: "Biblio. ouvrages" }],

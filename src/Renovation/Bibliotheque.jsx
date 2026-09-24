@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase";
-import { BIBLIOTHEQUE_INITIALE, FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes } from "../constants";
+// BIBLIOTHEQUE_INITIALE n'est plus importée ici : elle servait uniquement à
+// l'amorçage automatique retiré de loadOuvrages. La constante reste définie
+// dans src/constants.js, elle n'est simplement plus branchée sur ce chemin.
+import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes } from "../constants";
 import { Icon, InputNombre } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import {
@@ -23,6 +26,13 @@ import {
   libelleEchantillonV1, libelleEcartEchantillonV1,
   NIVEAU_INSUFFISANT, NIVEAU_INDICATIF, NIVEAU_FIABLE,
 } from "./echantillonCadencesV1.js";
+// Usage d'un ouvrage de bibliothèque : garde-fou AVANT toute suppression.
+// 63 ouvrages de bibliothèque supprimés ont déjà laissé 153 ouvrages de
+// chantier avec un lien mort, irrécupérable. Lecture seule, aucune écriture.
+import {
+  usageOuvrageBibliothequeV1, usageIndetermineV1, suppressionAutoriseeV1,
+  lectureExploitableV1, messageUsageBloquantV1,
+} from "./usageBibliothequeV1.js";
 import OuvrageProgbatSync from "./OuvrageProgbatSync";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
@@ -1109,6 +1119,14 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
   const [newCatId, setNewCatId] = useState("");
 
   const [toDelete, setToDelete] = useState(null);       // ouvrage à supprimer
+  // Usage de l'ouvrage visé : null = comptage en cours. Tant qu'il n'a pas
+  // répondu, la suppression reste interdite — on ne détruit pas sur une
+  // non-réponse.
+  const [usageToDelete, setUsageToDelete] = useState(null);
+  // Lecture de la bibliothèque en échec (erreur, ou zéro ouvrage reçu).
+  // Un état à part, parce qu'une liste vide à l'écran ne doit JAMAIS pouvoir
+  // se lire comme « il n'y a aucun ouvrage » : ici on ne sait pas.
+  const [lectureEchouee, setLectureEchouee] = useState(false);
   const [catToDelete, setCatToDelete] = useState(null); // catégorie à supprimer
   const [deleting, setDeleting] = useState(false);
   // Coût horaire chargé de référence (planning_config.taux_mo_previsionnel,
@@ -1273,20 +1291,34 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     setMateriaux(data || []);
   }
 
+  // ATTENTION — NE JAMAIS RÉINTRODUIRE D'ÉCRITURE ICI.
+  // Ce chemin amorçait autrefois la table avec BIBLIOTHEQUE_INITIALE quand la
+  // lecture revenait vide. C'était dangereux pour une raison précise : une
+  // lecture bloquée par RLS renvoie une liste VIDE **sans erreur**. Sur une
+  // base qui contient déjà 119 ouvrages, ce « vide » déclenchait un insert
+  // massif de doublons — et chaque doublon crée un nouvel id, donc de
+  // nouveaux liens morts côté phasages.
+  // L'amorçage automatique n'a plus lieu d'être : la table est pleine.
+  // Zéro ouvrage reçu = un problème de lecture, PAS une base vide. On le dit,
+  // et on ne touche à rien.
+  //
   // silencieux : rechargement de fond (temps réel) — pas d'écran de chargement,
   // qui démonterait la fiche en cours et ferait perdre le curseur.
   async function loadOuvrages({ silencieux = false } = {}) {
     if (!silencieux) setLoading(true);
-    const { data } = await supabase.from("bibliotheque_ratios").select("*").order("libelle");
-    if (data && data.length > 0) {
-      setOuvrages(data.map(o => estOuvrageV2(o) ? normaliserOuvrageV2(o, { assignIds: true }) : o));
-    } else {
-      const inserts = BIBLIOTHEQUE_INITIALE.map(o => ({
-        identifiant: o.identifiant, libelle: o.libelle, unite: o.unite || "", sous_taches: o.sous_taches,
-      }));
-      const { data: inserted } = await supabase.from("bibliotheque_ratios").insert(inserts).select();
-      setOuvrages(inserted || []);
+    const { data, error } = await supabase.from("bibliotheque_ratios").select("*").order("libelle");
+    if (error || !data || data.length === 0) {
+      setLectureEchouee(true);
+      flash("error", "La bibliothèque n'a pas pu être lue (0 ouvrage reçu). Rien n'a été modifié. "
+        + "Rechargez la page ; si le problème persiste, vérifiez la connexion.");
+      // On NE vide PAS la liste déjà affichée : sur un rechargement de fond
+      // raté, l'écran doit garder ce qu'il montrait plutôt que de se vider
+      // et de faire croire à une bibliothèque perdue.
+      if (!silencieux) setLoading(false);
+      return;
     }
+    setLectureEchouee(false);
+    setOuvrages(data.map(o => estOuvrageV2(o) ? normaliserOuvrageV2(o, { assignIds: true }) : o));
     if (!silencieux) setLoading(false);
   }
 
@@ -1419,14 +1451,45 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     flash("ok", `Copie créée : « ${clone.libelle} » — renommez-la et ajustez les différences`);
   }
 
+  // ── Suppression d'un ouvrage : compter son usage AVANT de proposer quoi
+  // que ce soit ────────────────────────────────────────────────────────────
+  // Lecture seule des phasages. Le comptage lui-même est fait par le module
+  // pur usageBibliothequeV1 ; ici on ne s'occupe que d'aller chercher les
+  // données et de traduire une lecture douteuse en « on ne sait pas ».
+  async function demanderSuppressionOuvrage(ouvrage) {
+    if (!ouvrage) return;
+    setUsageToDelete(null); // comptage en cours : la modale attend
+    setToDelete(ouvrage);
+    const { data, error } = await supabase
+      .from("phasages").select("chantier_id, chantier_nom, ouvrages");
+    // Une lecture bloquée par RLS renvoie [] SANS erreur. Zéro phasage ne
+    // peut donc pas être lu comme « cet ouvrage n'est utilisé nulle part ».
+    const lecture = lectureExploitableV1(error, data);
+    if (!lecture.exploitable) {
+      setUsageToDelete(usageIndetermineV1(lecture.raison));
+      return;
+    }
+    setUsageToDelete(usageOuvrageBibliothequeV1(data, ouvrage.id));
+  }
+
+  function annulerSuppressionOuvrage() {
+    setToDelete(null);
+    setUsageToDelete(null);
+  }
+
   async function confirmSupprimerOuvrage() {
     if (!toDelete) return;
+    // Double garde : le bouton est déjà masqué quand la suppression n'est pas
+    // autorisée, mais cette fonction ne doit pas pouvoir détruire sur la foi
+    // de l'affichage seul.
+    if (!suppressionAutoriseeV1(usageToDelete)) return;
     setDeleting(true);
     await supabase.from("bibliotheque_ratios").delete().eq("id", toDelete.id);
     setOuvrages(prev => prev.filter(o => o.id !== toDelete.id));
     if (editId === toDelete.id) setEditId(null);
     setDeleting(false);
     setToDelete(null);
+    setUsageToDelete(null);
   }
 
   async function saveOuvrage(ouvrage) {
@@ -1859,7 +1922,7 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
 
         {/* ── Modale confirmation suppression ouvrage ── */}
         {toDelete && (
-          <div onClick={() => !deleting && setToDelete(null)} style={{
+          <div onClick={() => !deleting && annulerSuppressionOuvrage()} style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 500,
             display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)",
           }}>
@@ -1868,37 +1931,96 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
               width: "100%", maxWidth: 420, border: `1px solid ${T.border}`,
               boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
-                  background: "rgba(224,92,92,0.12)", color: "#e15a5a",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <Icon as={AlertTriangle} size={20} strokeWidth={2}/>
-                </div>
-                <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Supprimer cet ouvrage&nbsp;?</div>
-              </div>
-              <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
-                L'ouvrage <strong style={{ color: T.text }}>« {toDelete.libelle} »</strong> et toutes ses sous-tâches seront définitivement supprimés.
-                <br/><span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>Cette action est irréversible.</span>
-              </div>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button onClick={() => setToDelete(null)} disabled={deleting}
-                  style={{ background: "transparent", border: `1px solid ${T.border}`,
-                    borderRadius: RADIUS.md, padding: "9px 18px", color: T.textSub,
-                    fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer", opacity: deleting ? .5 : 1 }}>
-                  Annuler
-                </button>
-                <button onClick={confirmSupprimerOuvrage} disabled={deleting}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6,
-                    background: "#e15a5a", color: "#fff", border: "none",
-                    borderRadius: RADIUS.md, padding: "9px 18px",
-                    fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
-                    cursor: "pointer", opacity: deleting ? .6 : 1 }}>
-                  <Icon as={Trash2} size={13}/>
-                  {deleting ? "Suppression…" : "Supprimer"}
-                </button>
-              </div>
+              {/* QUATRE états, jamais confondus :
+                  1. comptage en cours  -> on attend, rien n'est proposé ;
+                  2. usage indéterminé  -> suppression REFUSÉE (dans le doute) ;
+                  3. ouvrage utilisé    -> suppression REFUSÉE, avec la liste
+                                          des chantiers concernés ;
+                  4. ouvrage inutilisé  -> confirmation d'origine, inchangée. */}
+              {(() => {
+                const enCours = usageToDelete === null;
+                const autorisee = suppressionAutoriseeV1(usageToDelete);
+                const indetermine = !enCours && usageToDelete.determine === false;
+                const bloqueParUsage = !enCours && usageToDelete.determine === true && usageToDelete.nOuvrages > 0;
+                return (<>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: RADIUS.md, flexShrink: 0,
+                      background: autorisee ? "rgba(224,92,92,0.12)" : "rgba(245,166,35,0.12)",
+                      color: autorisee ? "#e15a5a" : "#f5a623",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <Icon as={AlertTriangle} size={20} strokeWidth={2}/>
+                    </div>
+                    <div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>
+                      {enCours ? "Vérification en cours…"
+                        : autorisee ? <>Supprimer cet ouvrage&nbsp;?</>
+                        : "Suppression impossible"}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: FONT.sm.size, color: T.textSub, lineHeight: 1.6, marginBottom: 20 }}>
+                    {enCours && <>Recherche des chantiers qui utilisent <strong style={{ color: T.text }}>« {toDelete.libelle} »</strong>…</>}
+
+                    {indetermine && (<>
+                      Impossible de vérifier si <strong style={{ color: T.text }}>« {toDelete.libelle} »</strong> est utilisé
+                      sur des chantiers ({usageToDelete.raison}).
+                      <br/><span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>
+                        Rien n'a été supprimé. Rechargez la page et réessayez : tant que cette
+                        vérification ne répond pas, la suppression reste bloquée.
+                      </span>
+                    </>)}
+
+                    {bloqueParUsage && (<>
+                      {messageUsageBloquantV1(usageToDelete)}
+                      <div style={{ marginTop: 12, padding: "10px 12px", background: T.card,
+                        border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
+                        <div style={{ fontSize: FONT.xs.size, fontWeight: 800, color: T.textMuted,
+                          textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                          Chantiers concernés
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {usageToDelete.chantiers.map((nom, i) => (
+                            <span key={i} style={{ fontSize: FONT.xs.size + 1, fontWeight: 600,
+                              color: T.text, background: T.surface, border: `1px solid ${T.border}`,
+                              padding: "3px 9px", borderRadius: RADIUS.pill }}>{nom}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </>)}
+
+                    {autorisee && (<>
+                      L'ouvrage <strong style={{ color: T.text }}>« {toDelete.libelle} »</strong> et toutes ses sous-tâches seront définitivement supprimés.
+                      <br/><span style={{ color: T.textMuted, fontSize: FONT.xs.size + 1 }}>
+                        Aucun chantier ne l'utilise : aucun historique ne sera perdu. Cette action est irréversible.
+                      </span>
+                    </>)}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button onClick={annulerSuppressionOuvrage} disabled={deleting}
+                      style={{ background: "transparent", border: `1px solid ${T.border}`,
+                        borderRadius: RADIUS.md, padding: "9px 18px", color: T.textSub,
+                        fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer", opacity: deleting ? .5 : 1 }}>
+                      {autorisee ? "Annuler" : "Fermer"}
+                    </button>
+                    {/* Le bouton de suppression n'existe QUE si l'usage est
+                        déterminé et nul. Ni pendant le comptage, ni sur une
+                        vérification qui n'a pas abouti. */}
+                    {autorisee && (
+                      <button onClick={confirmSupprimerOuvrage} disabled={deleting}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                          background: "#e15a5a", color: "#fff", border: "none",
+                          borderRadius: RADIUS.md, padding: "9px 18px",
+                          fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 800,
+                          cursor: "pointer", opacity: deleting ? .6 : 1 }}>
+                        <Icon as={Trash2} size={13}/>
+                        {deleting ? "Suppression…" : "Supprimer"}
+                      </button>
+                    )}
+                  </div>
+                </>);
+              })()}
             </div>
           </div>
         )}
@@ -1959,7 +2081,25 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
         {/* ── Liste ── */}
         {loading
           ? <div style={{ color: T.textMuted, textAlign: "center", padding: 60, fontSize: FONT.sm.size }}>Chargement…</div>
-          : filtered.length === 0
+          : lectureEchouee
+            ? (
+              /* Une lecture en échec n'est PAS une bibliothèque vide. Le dire
+                 explicitement, sinon « aucun ouvrage » se lit comme un résultat
+                 alors que c'est une absence de réponse. */
+              <div style={{
+                background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.35)",
+                borderRadius: RADIUS.xl, padding: "24px",
+                textAlign: "center", color: T.textSub, fontSize: FONT.sm.size, lineHeight: 1.6,
+              }}>
+                <Icon as={AlertTriangle} size={20} color="#f5a623"/>
+                <div style={{ fontWeight: 800, color: T.text, marginTop: 8, marginBottom: 6 }}>
+                  La bibliothèque n'a pas pu être lue
+                </div>
+                0 ouvrage reçu. <strong style={{ color: T.text }}>Rien n'a été modifié.</strong>
+                <br/>Rechargez la page ; si le problème persiste, vérifiez la connexion.
+              </div>
+            )
+            : filtered.length === 0
             ? (
               <div style={{
                 background: T.card, border: `1px dashed ${T.border}`,
@@ -1993,7 +2133,7 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
                       isEdit={editId === ouvrage.id}
                       onToggleEdit={id => setEditId(editId === id ? null : id)}
                       onSave={saveOuvrage}
-                      onDelete={(id) => setToDelete(ouvrages.find(o => o.id === id))}
+                      onDelete={(id) => demanderSuppressionOuvrage(ouvrages.find(o => o.id === id))}
                       onDuplicate={dupliquerOuvrage}
                       saving={saving}
                       ouvrages={ouvrages}
