@@ -23,7 +23,7 @@
 // de les étiqueter à tort. Une information qu'on ne peut pas prouver ne
 // s'affiche pas.
 // ─────────────────────────────────────────────────────────────────────────────
-import { pointsAttentionV1 } from "./pointsAttentionV1.mjs";
+import { pointsAttentionV1, releveExploitableV1 } from "./pointsAttentionV1.mjs";
 
 export const SUIVI_POINTS_ATTENTION_VERSION = "v1";
 
@@ -37,14 +37,6 @@ export const STATUT_RESOLU = "resolu";
 const SEMAINES_CONSECUTIVES_PERSISTANT = 2;
 const SEMAINES_CONSECUTIVES_NOUVEAU = 1;
 
-const listeSure = v => (Array.isArray(v) ? v : []);
-const str = v => (v == null ? "" : String(v).trim());
-
-// Une semaine est exploitable si elle contient au moins une ligne de snapshot
-// identifiable. Un tableau vide (cron qui n'a pas tourné, semaine antérieure à
-// la mise en place) rend la comparaison impossible, pas fausse.
-const semaineExploitable = lignes =>
-  listeSure(lignes).some(l => l && typeof l === "object" && str(l.chantier_id));
 
 /**
  * Compare les points d'attention de la semaine N à ceux de la semaine N-1.
@@ -71,11 +63,16 @@ export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, s
 
   // Moins de trois semaines de snapshots : on rend les points d'attention tels
   // quels, sans statut, et on le dit.
-  if (!semaineExploitable(snapshotsN2) || !semaineExploitable(snapshotsN1)) {
+  if (!releveExploitableV1(snapshotsN2) || !releveExploitableV1(snapshotsN1)) {
     return {
       version: SUIVI_POINTS_ATTENTION_VERSION,
       seuils: courant.seuils,
       suiviDisponible: false,
+      // Report des drapeaux : « pas de suivi » et « pas de relevé » sont deux
+      // manques différents, l'écran doit pouvoir les distinguer.
+      releveDisponible: courant.releveDisponible,
+      relevePrecedentDisponible: courant.relevePrecedentDisponible,
+      comparaisonPossible: courant.comparaisonPossible,
       actifs: courant.lignes,
       resolus: [],
     };
@@ -111,6 +108,9 @@ export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, s
     version: SUIVI_POINTS_ATTENTION_VERSION,
     seuils: courant.seuils,
     suiviDisponible: true,
+    releveDisponible: courant.releveDisponible,
+    relevePrecedentDisponible: courant.relevePrecedentDisponible,
+    comparaisonPossible: courant.comparaisonPossible,
     actifs,
     resolus,
   };

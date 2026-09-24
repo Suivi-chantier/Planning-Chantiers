@@ -14,7 +14,10 @@ import {
   SUIVI_POINTS_ATTENTION_VERSION,
   STATUT_NOUVEAU, STATUT_PERSISTANT, STATUT_RESOLU,
 } from "../src/Renovation/suiviPointsAttentionV1.mjs";
-import { pointsAttentionV1 } from "../src/Renovation/pointsAttentionV1.mjs";
+import {
+  pointsAttentionV1, etatPointsAttentionV1,
+  ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES,
+} from "../src/Renovation/pointsAttentionV1.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = await readFile(resolve(here, "../src/Renovation/suiviPointsAttentionV1.mjs"), "utf8");
@@ -29,7 +32,10 @@ assert.equal(/(?:\bimport\b|\bfrom\b)[^\n]*supabase/i.test(code), false, "le sui
 assert.equal(/\.insert\s*\(|\.update\s*\(|\.delete\s*\(|\.upsert\s*\(|\.rpc\s*\(|\.from\s*\(/.test(code), false, "le suivi ne doit rien lire ni persister en base");
 assert.equal(/new Date\s*\(|Date\.now\s*\(|Date\.UTC\s*\(/.test(code), false, "le suivi ne doit dépendre d'aucune horloge");
 // La détection n'est pas réimplémentée : elle est appelée.
-assert.match(code, /import \{ pointsAttentionV1 \} from "\.\/pointsAttentionV1\.mjs";/);
+assert.match(code, /import \{ pointsAttentionV1, releveExploitableV1 \} from "\.\/pointsAttentionV1\.mjs";/);
+// Le détecteur de relevé est PARTAGé, pas recopié : une seule définition de
+// « une semaine est relevée » dans tout le projet.
+assert.equal(/const semaineExploitable/.test(code), false, "pas de copie locale du détecteur de relevé");
 assert.equal((code.match(/pointsAttentionV1\s*\(/g) || []).length, 2, "pointsAttentionV1 doit être appelé exactement deux fois : N vs N-1, puis N-1 vs N-2");
 assert.equal(/heures_reelles|\bmarge\b|avancement/.test(code), false, "aucun seuil ni aucune colonne redéfinis ici : tout vient de pointsAttentionV1");
 assert.match(facade, /export \* from "\.\/suiviPointsAttentionV1\.mjs";/);
@@ -201,4 +207,47 @@ const parId = (liste, id) => liste.find(l => l.chantier_id === id);
   assert.deepEqual([n, n1, n2], copies, "les snapshots ne doivent jamais être mutés");
 }
 
-console.log("OK — suivi points d'attention V1 : 10 blocs de vérification");
+// ── 11. Le suivi reporte les drapeaux de relevé : trois états distincts. ────
+// Sans relevé pour la semaine affichée, `actifs: []` ne veut pas dire « aucune
+// dérive » — l'écran doit pouvoir le dire autrement.
+{
+  // (c) Aucun relevé pour la semaine du bilan (cron du vendredi soir pas encore passé).
+  const sansReleve = suivi([], [S1("C1")], [S2("C1")]);
+  // (a) Relevé présent, plus aucune dérive.
+  const aucuneDerive = suivi(
+    [snap("C1", { avancement: 97, heures: 120, marge: -1166, date: "2026-09-18" })],
+    [S1("C1")], [S2("C1")]
+  );
+  // (b) Relevé présent, dérive en cours.
+  const avecDerives = suivi([S0("C1")], [S1("C1")], [S2("C1")]);
+
+  // Les deux premiers ont `actifs` vide : c'est le piège à ne pas reproduire.
+  assert.deepEqual(sansReleve.actifs, []);
+  assert.deepEqual(aucuneDerive.actifs, []);
+  assert.equal(avecDerives.actifs.length, 1);
+
+  assert.equal(sansReleve.releveDisponible, false);
+  assert.equal(sansReleve.comparaisonPossible, false);
+  assert.equal(aucuneDerive.releveDisponible, true);
+  assert.equal(avecDerives.releveDisponible, true);
+  // Le report existe aussi quand le suivi n'est pas disponible (moins de 3 semaines).
+  const courtSansReleve = suivi([], [S1("C1")], []);
+  assert.equal(courtSansReleve.suiviDisponible, false);
+  assert.equal(courtSansReleve.releveDisponible, false);
+
+  const etats = [
+    etatPointsAttentionV1({ ...sansReleve, lignes: sansReleve.actifs }),
+    etatPointsAttentionV1({ ...aucuneDerive, lignes: aucuneDerive.actifs }),
+    etatPointsAttentionV1({ ...avecDerives, lignes: avecDerives.actifs }),
+  ];
+  assert.deepEqual(etats.map(e => e.statut), [ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES]);
+  // Les trois sorties doivent être deux à deux différentes.
+  for (let i = 0; i < etats.length; i++) {
+    for (let j = i + 1; j < etats.length; j++) {
+      assert.notDeepEqual(etats[i], etats[j], `les états ${i} et ${j} se ressemblent`);
+      assert.notEqual(etats[i].message, etats[j].message);
+    }
+  }
+}
+
+console.log("OK — suivi points d'attention V1 : 11 blocs de vérification");

@@ -13,7 +13,7 @@ import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1, lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
-import { libellePointAttentionV1 } from "./pointsAttentionV1.js";
+import { libellePointAttentionV1, etatPointsAttentionV1, ETAT_RELEVE_ABSENT, ETAT_DERIVES } from "./pointsAttentionV1.js";
 import { suiviPointsAttentionV1, libelleSuiviV1 } from "./suiviPointsAttentionV1.js";
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 import {
@@ -918,9 +918,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   }, [weekId]);
 
   const [snapshotsAttention, setSnapshotsAttention] = useState({ courants: [], precedents: [], precedents2: [] });
+  // Avant la réponse de la requête, « aucune ligne » ne veut rien dire : on
+  // n'affiche ni « pas de relevé » ni « aucune dérive » tant qu'on ne sait pas.
+  const [snapshotsCharges, setSnapshotsCharges] = useState(false);
   useEffect(() => {
     if (etape !== "bilan" || !weekId || !weekIdPrecedent || !weekIdPrecedent2) return;
     let cancelled = false;
+    setSnapshotsCharges(false);
     (async () => {
       // La table ne contient que les chantiers ACTIFS au moment du cron : c'est
       // exactement le périmètre sur lequel une dérive mérite d'être remontée.
@@ -931,6 +935,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         .order("date_snapshot", { ascending: true });
       if (cancelled) return;
       if (error) { console.warn("Points d'attention : load", error.message); return; }
+      setSnapshotsCharges(true);
       setSnapshotsAttention({
         courants:    (data || []).filter(r => r.week_id === weekId),
         precedents:  (data || []).filter(r => r.week_id === weekIdPrecedent),
@@ -952,6 +957,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   // Affichage borné aux 5 dérives les plus coûteuses ; le module les a déjà
   // triées par marge perdue décroissante.
   const pointsAttentionAffiches = suiviAttention.actifs.slice(0, MAX_POINTS_ATTENTION_AFFICHES);
+  // Trois états, jamais deux : relevé absent ≠ aucune dérive ≠ dérives détectées.
+  // Le cron d'alimentation tourne le vendredi en fin de journée : avant ça, la
+  // semaine en cours n'a aucune ligne et l'écran doit le DIRE.
+  const etatAttention = etatPointsAttentionV1(pointsAttentionConso);
 
   // ── Rappel : blocages du DERNIER bilan enregistré (chantier 07) ─────────────
   // Volontairement « le dernier bilan antérieur », pas « la semaine précédente » :
@@ -1348,6 +1357,9 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     // .no-print ici — le bloc doit être capturé par html2pdf comme par
     // window.print().
     const pointsAttentionHTML = (() => {
+      // Mêmes trois états qu'à l'écran, même source (etatPointsAttentionV1) :
+      // le PDF transmis à la hiérarchie ne peut pas dire autre chose que l'écran.
+      const releveAbsentPDF = etatAttention.statut === ETAT_RELEVE_ABSENT;
       const lignes = pointsAttentionAffiches.map(l => {
         // Étiquette de suivi : présente seulement si trois semaines de relevés
         // la rendent démontrable.
@@ -1379,10 +1391,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           <span style="font-size:8pt;color:${GREY};margin-left:8pt;">${weekIdPrecedent ? `${esc(weekId)} comparé à ${esc(weekIdPrecedent)}` : "semaine précédente indéterminée"}</span>
         </div>
         <div style="padding:10pt 14pt;">
-          ${lignes || `<div style="font-size:9pt;color:${GREY};font-style:italic;">Aucun point d'attention détecté cette semaine.</div>`}
-          ${suite}
-          ${resolusHTML}
-          ${historiqueHTML}
+          ${releveAbsentPDF
+            ? `<div style="padding:6pt 9pt;border:0.75pt dashed ${LINE};border-radius:2pt;font-size:9pt;color:#2a2f37;line-height:1.45;">${esc(etatAttention.message)}</div>`
+            : (lignes || `<div style="font-size:9pt;color:${GREY};font-style:italic;">${esc(etatAttention.message)}</div>`)}
+          ${releveAbsentPDF ? "" : `${suite}${resolusHTML}${historiqueHTML}`}
         </div>
       </div>`;
     })();
@@ -2118,9 +2130,23 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </span>
             </div>
 
-            {pointsAttentionAffiches.length === 0 ? (
+            {!snapshotsCharges ? (
+              /* Requête en cours : on ne conclut rien. */
+              <div style={{ fontSize:12.5, color:T.textMuted, lineHeight:1.5, fontStyle:"italic" }}>
+                Lecture du relevé hebdomadaire…
+              </div>
+            ) : etatAttention.statut === ETAT_RELEVE_ABSENT ? (
+              /* Cas c : pas encore de relevé. Ton NEUTRE, surtout pas vert —
+                 on ne sait pas, ce n'est pas une bonne nouvelle. */
+              <div style={{ display:"flex", gap:9, alignItems:"flex-start", padding:"10px 12px", borderRadius:10,
+                background:T.card, border:`1px dashed ${T.border}`, fontSize:12.5, color:T.textSub, lineHeight:1.5 }}>
+                <Icon as={Clock} size={15} color={T.textMuted} style={{ flexShrink:0, marginTop:1 }}/>
+                <span>{etatAttention.message}</span>
+              </div>
+            ) : etatAttention.statut !== ETAT_DERIVES ? (
+              /* Cas a : relevé présent, rien à signaler. */
               <div style={{ fontSize:12.5, color:T.textSub, lineHeight:1.5 }}>
-                Aucun point d'attention détecté cette semaine.
+                {etatAttention.message}
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
@@ -2173,7 +2199,9 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             )}
 
             <div style={{ marginTop:9, fontSize:11, color:T.textMuted, lineHeight:1.45 }}>
-              {!suiviAttention.suiviDisponible && (
+              {/* Message d'historique inutile quand le relevé de la semaine
+                  manque : le message neutre ci-dessus dit déjà l'essentiel. */}
+              {snapshotsCharges && etatAttention.statut !== ETAT_RELEVE_ABSENT && !suiviAttention.suiviDisponible && (
                 <><strong>Pas encore assez d'historique pour dire ce qui est nouveau</strong> — il faut trois semaines
                 de relevés consécutifs. Les dérives sont affichées, sans étiquette.<br/></>
               )}
