@@ -5,8 +5,6 @@ on:
     branches:
       - feature/planning-engine-v1
   pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
