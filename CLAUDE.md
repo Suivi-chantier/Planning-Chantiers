@@ -54,10 +54,13 @@ Pas en note de bas de page.
 - Toute fonctionnalité livrée reçoit une entrée dans `src/Renovation/journalMaj.js`,
   rédigée en langage métier.
 - Une nouvelle page bureau s'enregistre dans `src/access.js`.
-- Toute nouvelle page : les valeurs par défaut de `src/access.js` sont écrasées par
-  la configuration enregistrée en base (`planning_config.access_pages_renovation`).
-  Vérifier cette configuration en base et dire explicitement dans le compte rendu
-  qui verra réellement la page après fusion.
+- Toute nouvelle page : dans `src/access.js`, la liste enregistrée en base
+  (`planning_config.access_pages_renovation`) remplace la liste par défaut pour
+  chaque rôle, SAUF pour admin, qui reçoit automatiquement toute page de sa
+  liste par défaut (auto-grant en fin de `loadAccessConfig`). Avant d'annoncer qui
+  verra une page, vérifier la configuration en base ET lire `loadAccessConfig`
+  jusqu'au bout. Dire explicitement dans le compte rendu : visible pour admin
+  (auto-grant) ou non, et pour quels autres rôles.
 - Trois scripts échouent déjà sous Windows et ne doivent pas être « réparés » :
   `verif-composants-internes`, `verif-progbat-yards-ecran`, `verif-urbanisme`.
   Les mesurer avant et après toute modification, en comparant les sorties.

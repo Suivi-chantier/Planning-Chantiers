@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
+    type: "correctif",
+    titre: "La page Alertes est visible des administrateurs sans aucun réglage ; l'avertissement de la version précédente était erroné",
+    pages: [{ id: "alertes", label: "Alertes" }],
+    quoi: "La mise à jour précédente annonçait qu'il fallait cocher « Alertes » dans les réglages d'accès, faute de quoi la page resterait invisible. C'était faux pour les administrateurs : l'application ajoute automatiquement à ce rôle toute page nouvellement livrée, sans aucune intervention. La page était donc accessible dès la mise en ligne. Le même avertissement laissait croire que « Bilan de semaine » et « Opérations » pouvaient être inaccessibles aux administrateurs : c'était faux également.",
+    comment: "Aucun changement dans l'application : seule la documentation est corrigée. Pour être précis sur qui voit quoi aujourd'hui : les administrateurs voient « Alertes » automatiquement. Les autres rôles — conducteur de travaux, commercial, comptable — ne la voient pas tant qu'elle n'est pas cochée pour eux dans Réglages, accès aux pages ; l'ajout automatique ne concerne que le rôle administrateur.",
+  },
+  {
+    date: "2026-09-24",
     type: "nouveaute",
     titre: "Alertes : une page qui dit enfin lesquels des 25 chantiers demandent une décision cette semaine",
     pages: [{ id: "alertes", label: "Alertes" }],
