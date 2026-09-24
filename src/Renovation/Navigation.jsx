@@ -5,7 +5,7 @@ import {
   Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
-  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb,
+  Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -18,12 +18,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
+    "dashboard","chantiers","planning","bilan-semaine","alertes","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","bilan-semaine","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
+    "dashboard","chantiers","planning","bilan-semaine","alertes","planning-mensuel","notes-todo","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","journal-maj"
   ],
@@ -42,6 +42,7 @@ const ALL_NAV_ITEMS = [
   { id:"chantiers",        icon:HardHat,         label:"Chantiers",  longLabel:"Chantiers"           },
   { id:"planning",         icon:Calendar,        label:"Planning",   longLabel:"Planning semaine"    },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan",      longLabel:"Bilan de semaine"    },
+  { id:"alertes",          icon:Bell,            label:"Alertes",    longLabel:"Alertes"             },
   { id:"notes-todo",       icon:ClipboardList,   label:"Notes",      longLabel:"Notes & To-do"       },
   { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel",    longLabel:"Planning mensuel"    },
   { id:"commandes",        icon:Package,         label:"Cmd.",       longLabel:"Commandes"           },
@@ -243,6 +244,7 @@ function Sidebar({
     { id:"chantiers",        icon:HardHat,         label:"Chantiers"        },
     { id:"planning",         icon:Calendar,        label:"Planning semaine" },
     { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },
+    { id:"alertes",          icon:Bell,            label:"Alertes"          },
     { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
     { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
     { id:"commandes",        icon:Package,         label:"Commandes"        },
