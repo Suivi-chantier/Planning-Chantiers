@@ -15,9 +15,13 @@ import { normaliserRessource, RESOURCE_KINDS } from "./planningResourceModelV1.j
 import { calculerCapaciteRessourcePourDate, capaciteBasePlanningPourDate } from "./planningResourceCapacityV1.js";
 import {
   CONSTRAINT_TYPES,
+  contraintePersonneActiveLe,
   contraintesApplicablesPlanning,
+  estContraintePersonne,
   evaluerContraintesApplicablesPlanning,
   normaliserContraintePlanning,
+  porteePreciseRessourceImposee,
+  raisonContrainteSansEffetMoteur,
 } from "./planningConstraintModelV1.js";
 import { regleGroupe } from "./planningRulesV1.js";
 
@@ -151,9 +155,66 @@ function indexerContraintesParTravail(constraints, jobs) {
     const priorite = applicables
       .filter(c => c.type === CONSTRAINT_TYPES.PRIORITY)
       .reduce((s, c) => s + num(c.priority, 0), 0);
-    index.set(t.id, { applicables, deadline, priorite });
+    // Consignes de personne, triées une fois : imposées à portée précise (seules
+    // à pouvoir élargir l'équipe), imposées à portée large (restreignent
+    // seulement), souhaitées (préférence SOFT, violable avec explication).
+    const imposeesPrecises = applicables.filter(porteePreciseRessourceImposee);
+    const imposeesLarges = applicables.filter(c =>
+      c.type === CONSTRAINT_TYPES.RESOURCE_REQUIRED && c.hard === true && !porteePreciseRessourceImposee(c));
+    const souhaitees = applicables.filter(c => estContraintePersonne(c) && c.hard !== true);
+    index.set(t.id, { applicables, deadline, priorite, imposeesPrecises, imposeesLarges, souhaitees });
   }
   return index;
+}
+
+const MOTIFS_RESSOURCE_IMPOSEE = Object.freeze({
+  introuvable: "introuvable ou inactive",
+  absente: "absente ou indisponible",
+  capacite_pleine: "capacité pleine",
+  autre_chantier: "déjà sur un autre chantier",
+  creneau_insuffisant: "créneau trop court pour une tâche non fractionnable",
+  autre_consigne: "écartée par une autre consigne",
+});
+
+function nomsRessources(ids, nomParId) {
+  return ids.map(id => nomParId.get(id) || id).join(", ");
+}
+
+// Bilan d'une consigne souhaitée (hard=false) pour une allocation proposée :
+// respectée ou non, et pourquoi. Une consigne souhaitée n'élargit jamais l'équipe.
+function bilanConsignesSouhaitees({ souhaiteesDuJour, selectedIds, candidatesSet, eligiblesIds, connusIds, nomParId }) {
+  return souhaiteesDuJour.map(c => {
+    const liste = c.config.resource_ids;
+    if (c.type === CONSTRAINT_TYPES.RESOURCE_FORBIDDEN) {
+      const utilisees = selectedIds.filter(id => liste.includes(id));
+      return {
+        constraint_id: c.id,
+        type: c.type,
+        respectee: utilisees.length === 0,
+        explication: utilisees.length === 0
+          ? `Consigne souhaitée respectée : ${nomsRessources(liste, nomParId)} non utilisé(e)(s).`
+          : `Consigne souhaitée non respectée : ${nomsRessources(utilisees, nomParId)} utilisé(e)(s) faute d'autre ressource disponible ce jour.`,
+      };
+    }
+    const respectee = selectedIds.every(id => liste.includes(id));
+    if (respectee) {
+      return { constraint_id: c.id, type: c.type, respectee, explication: `Consigne souhaitée respectée : ${nomsRessources(selectedIds, nomParId)} placé(e)(s).` };
+    }
+    const details = liste.filter(id => !selectedIds.includes(id)).map(id => {
+      let motif = "non retenu(e)";
+      if (!connusIds.has(id)) motif = MOTIFS_RESSOURCE_IMPOSEE.introuvable;
+      else if (candidatesSet.size > 0 && !candidatesSet.has(id)) motif = "hors de l'équipe du lot (une consigne souhaitée n'élargit jamais l'équipe ; la rendre obligatoire pour l'imposer)";
+      else if (!eligiblesIds.has(id)) motif = "indisponible ce jour (absence, capacité pleine ou autre chantier)";
+      return `${nomParId.get(id) || id} ${motif}`;
+    });
+    const aLaPlace = selectedIds.filter(id => !liste.includes(id));
+    return {
+      constraint_id: c.id,
+      type: c.type,
+      respectee,
+      explication: `Consigne souhaitée non respectée : ${details.length ? details.join(" ; ") : `équipe de ${selectedIds.length} à compléter`} — ${nomsRessources(aLaPlace, nomParId)} placé(e)(s) à la place.`,
+    };
+  });
 }
 
 function predInconnus(travail, idsTravaux, completedIds) {
@@ -209,11 +270,24 @@ function chargePour(charge, resourceId, date) {
 
 function choisirEquipe({ travail, date, ressources, evenements, contraintesTravail, charge, requiredElapsed = null, continuiteMultiJours = false }) {
   const candidatesSet = new Set(travail.candidate_resource_ids);
+  // Exception humaine explicite : une ressource imposée (resource_required
+  // obligatoire, portée tâche ou lot + chantier, dans sa période) entre dans les
+  // candidats MÊME hors de l'équipe du lot. Rien d'autre n'élargit l'équipe.
+  const imposeesDuJour = contraintesTravail.imposeesPrecises.filter(c => contraintePersonneActiveLe(c, date));
+  const elargis = new Set(imposeesDuJour.flatMap(c => c.config.resource_ids));
+  const souhaiteesDuJour = contraintesTravail.souhaitees.filter(c => contraintePersonneActiveLe(c, date));
   const allCandidates = ressources.filter(r =>
     r.actif !== false
     && r.kind === RESOURCE_KINDS.PERSONNE
-    && (candidatesSet.size === 0 || candidatesSet.has(r.id))
+    && (candidatesSet.size === 0 || candidatesSet.has(r.id) || elargis.has(r.id))
   );
+  // Pourquoi une ressource imposée n'a pas pu être retenue ce jour-là.
+  const ecartsImposees = new Map();
+  const noterEcart = (rid, motif) => { if (elargis.has(rid)) ecartsImposees.set(rid, motif); };
+  if (elargis.size) {
+    const presents = new Set(allCandidates.map(r => r.id));
+    for (const rid of elargis) if (!presents.has(rid)) noterEcart(rid, "introuvable");
+  }
   const previousPlanningDate = continuiteMultiJours ? jourPlanifiablePrecedent(date) : null;
   const preferenceSource = str(travail?.stability_forecast?.preference_source);
 
@@ -223,24 +297,33 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
     // Contrat chantier 04 : une ressource reste sur un seul site physique par
     // journée. Deux logements/chantiers d'une même opération peuvent partager
     // le même `site_id`; un changement de site est différé au prochain jour.
-    if (load.sites.size > 0 && !load.sites.has(travail.site_id)) continue;
+    if (load.sites.size > 0 && !load.sites.has(travail.site_id)) { noterEcart(r.id, "autre_chantier"); continue; }
     const capacite = calculerCapaciteRessourcePourDate({
       resource: r,
       dateISO: date,
       evenements,
       heuresDejaAllouees: load.heures,
     });
-    if (capacite.capacite_disponible <= EPS) continue;
+    if (capacite.capacite_disponible <= EPS) {
+      noterEcart(r.id, capacite.capacite_apres_exceptions <= EPS ? "absente" : "capacite_pleine");
+      continue;
+    }
     // Une tâche non fractionnable exige un créneau complet pour chaque membre
     // de l'équipe. On élimine donc ici les ressources qui forceraient un split.
-    if (!travail.fractionnable && requiredElapsed != null && capacite.capacite_disponible + EPS < requiredElapsed) continue;
+    if (!travail.fractionnable && requiredElapsed != null && capacite.capacite_disponible + EPS < requiredElapsed) {
+      noterEcart(r.id, "creneau_insuffisant");
+      continue;
+    }
 
     const cEval = evaluerContraintesApplicablesPlanning({
       applicables: contraintesTravail.applicables,
       dateISO: date,
       resourceId: r.id,
     });
-    if (!cEval.eligible) continue;
+    if (!cEval.eligible) { noterEcart(r.id, "autre_consigne"); continue; }
+    // Consigne souhaitée : nombre de préférences SOFT qu'utiliser r violerait.
+    const souhaiteesEcartees = souhaiteesDuJour.filter(c =>
+      (c.type === CONSTRAINT_TYPES.RESOURCE_FORBIDDEN) === c.config.resource_ids.includes(r.id)).length;
 
     const preferred = travail.preferred_resource_ids.includes(r.id);
     const sameChantierToday = load.chantiers.has(travail.chantier_id);
@@ -268,6 +351,7 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
       sameSiteToday,
       previousSameSite,
       previousPlanningDate,
+      souhaiteesEcartees,
     });
   }
 
@@ -276,8 +360,10 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
     // affectation de tâche déjà communiquée > continuité aujourd'hui >
     // continuité avec le jour ouvré précédent > affinité site forecast >
     // préférence statique du groupe > capacité disponible.
+    // Une consigne souhaitée par un humain passe avant les préférences automatiques.
     scored.sort((a, b) =>
-      (Number(b.preferenceTache) - Number(a.preferenceTache))
+      (a.souhaiteesEcartees - b.souhaiteesEcartees)
+      || (Number(b.preferenceTache) - Number(a.preferenceTache))
       || (Number(b.sameChantierToday) - Number(a.sameChantierToday))
       || (Number(b.sameSiteToday) - Number(a.sameSiteToday))
       || (Number(b.previousSameSite) - Number(a.previousSameSite))
@@ -288,7 +374,8 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
     );
   } else {
     scored.sort((a, b) =>
-      (b.score - a.score)
+      (a.souhaiteesEcartees - b.souhaiteesEcartees)
+      || (b.score - a.score)
       || (b.capacite.capacite_disponible - a.capacite.capacite_disponible)
       || String(a.resource.id).localeCompare(String(b.resource.id))
     );
@@ -300,24 +387,77 @@ function choisirEquipe({ travail, date, ressources, evenements, contraintesTrava
       ok: false,
       reason: `Équipe insuffisante : ${selected.length}/${travail.crew_size} ressource(s) disponible(s)`,
       candidates: scored,
+      imposeesDuJour,
+      ecartsImposees,
     };
   }
-  return { ok: true, selected, candidates: scored, previousPlanningDate };
+  const horsEquipe = candidatesSet.size === 0 ? [] : selected.map(x => x.resource.id).filter(id => !candidatesSet.has(id));
+  return {
+    ok: true,
+    selected,
+    candidates: scored,
+    previousPlanningDate,
+    candidatesSet,
+    imposeesDuJour,
+    souhaiteesDuJour,
+    horsEquipe,
+  };
 }
 
-function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraintesTravail, horizonEnd }) {
+// Toute tâche non planifiée sort avec un code ET un libellé, jamais en silence.
+// Les libellés des cas historiques sont conservés mot pour mot.
+function raisonNonPlanifie({ travail, idsTravaux, completedIds, etats, contraintesTravail, horizonEnd, suiviImposees, connusIds, nomParId }) {
   const missing = predInconnus(travail, idsTravaux, completedIds);
-  if (missing.length) return `Prédécesseur(s) introuvable(s) : ${missing.join(", ")}`;
-  if (!predsTermines(travail, etats, completedIds)) return "Prédécesseur(s) non terminé(s) dans l'horizon";
+  if (missing.length) return { code: "predecesseur_introuvable", libelle: `Prédécesseur(s) introuvable(s) : ${missing.join(", ")}` };
+  if (!predsTermines(travail, etats, completedIds)) return { code: "predecesseur_non_termine", libelle: "Prédécesseur(s) non terminé(s) dans l'horizon" };
   const delai = prochainDelaiTechnique(travail, etats);
   if (delai && delai.date_eligible > horizonEnd) {
-    return `Délai technique après ${delai.predecesseur_id} : tâche éligible à partir du ${delai.date_eligible}`;
+    return { code: "delai_technique_hors_horizon", libelle: `Délai technique après ${delai.predecesseur_id} : tâche éligible à partir du ${delai.date_eligible}` };
   }
   const fixedFuture = contraintesTravail.applicables
     .filter(c => [CONSTRAINT_TYPES.NOT_BEFORE, CONSTRAINT_TYPES.FIXED_DATE].includes(c.type) && c.date_debut > horizonEnd)
     .sort((a, b) => a.date_debut.localeCompare(b.date_debut))[0];
-  if (fixedFuture) return `Contrainte de date hors horizon : ${fixedFuture.date_debut}`;
-  return "Capacité / ressources insuffisantes ou contraintes incompatibles dans l'horizon";
+  if (fixedFuture) return { code: "contrainte_date_hors_horizon", libelle: `Contrainte de date hors horizon : ${fixedFuture.date_debut}` };
+
+  // Ressource imposée hors équipe : la consigne a été tentée, dire pourquoi elle a échoué.
+  const suivi = suiviImposees.get(travail.id) || null;
+  if (suivi && suivi.jours > 0) {
+    const ids = [...suivi.constraint_ids];
+    const rids = [...suivi.resource_ids];
+    const consigne = { constraint_ids: ids, resource_ids: rids, jours_examines: suivi.jours, motifs: Object.fromEntries(suivi.motifs) };
+    const noms = nomsRessources(rids, nomParId);
+    if (rids.every(id => !connusIds.has(id))) {
+      return {
+        code: "ressource_imposee_introuvable",
+        libelle: `Consigne ${ids.join(", ")} : ressource imposée ${noms} introuvable ou inactive — la tâche ne peut pas être placée tant que la consigne est active.`,
+        consigne,
+      };
+    }
+    if (suivi.motifs.size === 0) {
+      return {
+        code: "ressource_imposee_equipe_incomplete",
+        libelle: `Consigne ${ids.join(", ")} : ${noms} imposé(e)(s), mais l'équipe demandée (${travail.crew_size} personne(s)) ne peut pas être complétée avec les seules ressources imposées.`,
+        consigne,
+      };
+    }
+    const detail = [...suivi.motifs].map(([motif, n]) => `${MOTIFS_RESSOURCE_IMPOSEE[motif] || motif} : ${n} j`).join(" ; ");
+    return {
+      code: "ressource_imposee_indisponible",
+      libelle: `Consigne ${ids.join(", ")} : ${noms} imposé(e)(s) mais indisponible(s) sur ${suivi.jours > 1 ? `les ${suivi.jours} jours travaillés examinés` : "le seul jour travaillé examiné"} (${detail}).`,
+      consigne,
+    };
+  }
+  const pool = new Set(travail.candidate_resource_ids);
+  const horsEquipe = pool.size === 0 ? null : contraintesTravail.imposeesLarges
+    .find(c => c.config.resource_ids.every(id => !pool.has(id)));
+  if (horsEquipe) {
+    return {
+      code: "ressource_imposee_hors_equipe",
+      libelle: `Consigne ${horsEquipe.id} : ${nomsRessources(horsEquipe.config.resource_ids, nomParId)} hors de l'équipe du lot, et la portée de la consigne est trop large pour élargir l'équipe (préciser la tâche, ou le lot et le chantier).`,
+      consigne: { constraint_ids: [horsEquipe.id], resource_ids: horsEquipe.config.resource_ids },
+    };
+  }
+  return { code: "capacite_ou_contraintes_horizon", libelle: "Capacité / ressources insuffisantes ou contraintes incompatibles dans l'horizon" };
 }
 
 /**
@@ -348,14 +488,27 @@ export function planifierPropositionV1({
     .map(normaliserRessource)
     .filter(r => r.id);
   const constraints = (Array.isArray(contraintes) ? contraintes : []).map(normaliserContraintePlanning);
+  // Consignes que le moteur ne sait pas appliquer : rejetées explicitement,
+  // listées dans `contraintes_sans_effet` ET dans `warnings`.
+  const contraintesSansEffet = [];
+  const constraintsMoteur = constraints.filter(c => {
+    const rejet = raisonContrainteSansEffetMoteur(c);
+    if (!rejet) return true;
+    contraintesSansEffet.push({ constraint_id: c.id, type: c.type, code: rejet.code, explication: rejet.explication });
+    return false;
+  });
   const existing = (Array.isArray(allocationsExistantes) ? allocationsExistantes : []).map(normaliserAllocationExistanteV1);
   const completedIds = new Set(uniq(completedTaskIds));
   const idsTravaux = new Set(jobs.map(t => t.id));
 
   const duplicateIds = jobs.map(t => t.id).filter((id, i, arr) => arr.indexOf(id) !== i);
   if (duplicateIds.length) throw new Error(`IDs de travaux dupliqués : ${uniq(duplicateIds).join(", ")}`);
-  const contraintesParTravail = indexerContraintesParTravail(constraints, jobs);
+  const contraintesParTravail = indexerContraintesParTravail(constraintsMoteur, jobs);
   const dernierJourParTravail = new Map();
+  const connusIds = new Set(resourceList.filter(r => r.actif !== false && r.kind === RESOURCE_KINDS.PERSONNE).map(r => r.id));
+  const nomParId = new Map(resourceList.map(r => [r.id, str(r.nom_planning || r.nom) || r.id]));
+  const suiviImposees = new Map();
+  const souhaiteesNonRespectees = new Map();
 
   const etats = new Map(jobs.map(t => [t.id, {
     restant_mo: t.heures_mo_restantes,
@@ -367,6 +520,40 @@ export function planifierPropositionV1({
   const warnings = [];
   const decisionTrace = [];
   const attempts = new Map(jobs.map(t => [t.id, { dates_bloquees: 0, dates_sans_equipe: 0 }]));
+
+  for (const rejet of contraintesSansEffet) {
+    warnings.push({
+      type: "consigne_sans_effet",
+      constraint_id: rejet.constraint_id,
+      contrainte_type: rejet.type,
+      code: rejet.code,
+      explication: rejet.explication,
+    });
+  }
+  for (const t of jobs) {
+    const ct = contraintesParTravail.get(t.id);
+    const pool = new Set(t.candidate_resource_ids);
+    for (const c of ct.imposeesLarges) {
+      const hors = pool.size === 0 ? [] : c.config.resource_ids.filter(id => !pool.has(id));
+      if (hors.length) warnings.push({
+        type: "consigne_ressource_hors_equipe_non_elargie",
+        constraint_id: c.id,
+        travail_id: t.id,
+        resource_ids: hors,
+        explication: `${nomsRessources(hors, nomParId)} hors de l'équipe du lot : la portée de la consigne est trop large pour élargir l'équipe (préciser la tâche, ou le lot et le chantier).`,
+      });
+    }
+    for (const c of ct.imposeesPrecises) {
+      const inconnues = c.config.resource_ids.filter(id => !connusIds.has(id));
+      if (inconnues.length) warnings.push({
+        type: "consigne_ressource_introuvable",
+        constraint_id: c.id,
+        travail_id: t.id,
+        resource_ids: inconnues,
+        explication: `Ressource imposée ${inconnues.join(", ")} introuvable ou inactive : la consigne ne peut pas être honorée par cette ressource.`,
+      });
+    }
+  }
 
   const horizon = Math.max(1, Math.min(366, Math.round(num(horizonDays, 42))));
   const horizonEnd = dateAddDays(debut, horizon - 1);
@@ -428,6 +615,17 @@ export function planifierPropositionV1({
         });
         if (!crew.ok) {
           attempts.get(t.id).dates_sans_equipe++;
+          // Suivi d'une ressource imposée, sur les seuls jours travaillés.
+          if (crew.imposeesDuJour.length && capaciteBasePlanningPourDate(date) > EPS) {
+            const suivi = suiviImposees.get(t.id) || { jours: 0, constraint_ids: new Set(), resource_ids: new Set(), motifs: new Map() };
+            suivi.jours++;
+            crew.imposeesDuJour.forEach(c => {
+              suivi.constraint_ids.add(c.id);
+              c.config.resource_ids.forEach(id => suivi.resource_ids.add(id));
+            });
+            for (const motif of new Set(crew.ecartsImposees.values())) suivi.motifs.set(motif, (suivi.motifs.get(motif) || 0) + 1);
+            suiviImposees.set(t.id, suivi);
+          }
           continue;
         }
 
@@ -478,6 +676,41 @@ export function planifierPropositionV1({
             formule: "MO produite = durée allocation × nombre de ressources ; durée plafonnée par la capacité disponible la plus faible de l'équipe",
           },
         };
+        if (crew.horsEquipe.length) {
+          allocation.exception = {
+            type: CONSTRAINT_TYPES.RESOURCE_REQUIRED,
+            constraint_ids: crew.imposeesDuJour
+              .filter(c => c.config.resource_ids.some(id => crew.horsEquipe.includes(id)))
+              .map(c => c.id),
+            resource_ids_hors_equipe: crew.horsEquipe,
+            explication: `${nomsRessources(crew.horsEquipe, nomParId)} placé(e)(s) hors de l'équipe du lot par une consigne obligatoire (ressource imposée) : exception humaine explicite, limitée à la portée et à la période de la consigne.`,
+          };
+        }
+        if (crew.souhaiteesDuJour.length) {
+          const bilan = bilanConsignesSouhaitees({
+            souhaiteesDuJour: crew.souhaiteesDuJour,
+            selectedIds: resourceIds,
+            candidatesSet: crew.candidatesSet,
+            eligiblesIds: new Set(crew.candidates.map(x => x.resource.id)),
+            connusIds,
+            nomParId,
+          });
+          allocation.explication.consignes_souhaitees = bilan;
+          for (const b of bilan.filter(x => !x.respectee)) {
+            const key = `${b.constraint_id}@@${t.id}`;
+            const prev = souhaiteesNonRespectees.get(key) || {
+              type: "consigne_souhaitee_non_respectee",
+              constraint_id: b.constraint_id,
+              travail_id: t.id,
+              chantier_id: t.chantier_id,
+              tache_id: t.tache_id,
+              dates: [],
+              explication: b.explication,
+            };
+            prev.dates.push(date);
+            souhaiteesNonRespectees.set(key, prev);
+          }
+        }
         allocations.push(allocation);
         const dernierJour = dernierJourParTravail.get(t.id);
         if (!dernierJour || date > dernierJour) dernierJourParTravail.set(t.id, date);
@@ -509,16 +742,33 @@ export function planifierPropositionV1({
     }
   }
 
+  warnings.push(...souhaiteesNonRespectees.values());
+
   const nonPlanifies = jobs
     .filter(t => !etats.get(t.id)?.termine)
-    .map(t => ({
-      travail_id: t.id,
-      tache_id: t.tache_id,
-      chantier_id: t.chantier_id,
-      heures_mo_restantes: round2(etats.get(t.id)?.restant_mo || 0),
-      raison: raisonNonPlanifie({ travail: t, idsTravaux, completedIds, etats, contraintesTravail: contraintesParTravail.get(t.id), horizonEnd }),
-      tentatives: attempts.get(t.id),
-    }));
+    .map(t => {
+      const raison = raisonNonPlanifie({
+        travail: t,
+        idsTravaux,
+        completedIds,
+        etats,
+        contraintesTravail: contraintesParTravail.get(t.id),
+        horizonEnd,
+        suiviImposees,
+        connusIds,
+        nomParId,
+      });
+      return {
+        travail_id: t.id,
+        tache_id: t.tache_id,
+        chantier_id: t.chantier_id,
+        heures_mo_restantes: round2(etats.get(t.id)?.restant_mo || 0),
+        raison: raison.libelle,
+        raison_code: raison.code,
+        ...(raison.consigne ? { consigne_bloquante: raison.consigne } : {}),
+        tentatives: attempts.get(t.id),
+      };
+    });
 
   const plannedMO = round2(allocations.reduce((s, a) => s + a.heures_mo, 0));
   const requestedMO = round2(jobs.reduce((s, t) => s + t.heures_mo_restantes, 0));
@@ -537,6 +787,7 @@ export function planifierPropositionV1({
     },
     allocations_proposees: allocations,
     non_planifies: nonPlanifies,
+    contraintes_sans_effet: contraintesSansEffet,
     warnings,
     decision_trace: decisionTrace,
     resume: {
@@ -553,6 +804,9 @@ export function planifierPropositionV1({
       moteur_deterministe_a_entrees_identiques: true,
       un_seul_site_par_ressource_et_par_jour: true,
       continuite_multi_jours_optionnelle: true,
+      toute_tache_non_planifiee_a_une_raison: nonPlanifies.every(np => str(np.raison) !== "" && str(np.raison_code) !== ""),
+      equipe_elargie_uniquement_par_ressource_imposee_ciblee: true,
+      consigne_sans_effet_toujours_signalee: true,
     },
   };
 }

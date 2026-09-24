@@ -102,6 +102,75 @@ export function maturiteContraintePlanning(value) {
   return { valide: erreurs.length === 0, erreurs, warnings, constraint: c };
 }
 
+const TYPES_PERSONNE = new Set([CONSTRAINT_TYPES.RESOURCE_REQUIRED, CONSTRAINT_TYPES.RESOURCE_FORBIDDEN]);
+
+export function estContraintePersonne(c) {
+  return TYPES_PERSONNE.has(c?.type);
+}
+
+// Période d'une consigne de personne (resource_required / resource_forbidden) :
+// bornes incluses, chacune optionnelle. Les autres types ont leur propre
+// lecture des dates (not_before, fixed_date, deadline) et ne sont pas concernés.
+export function contraintePersonneActiveLe(c, dateISO) {
+  if (!estContraintePersonne(c)) return true;
+  const d = date(dateISO);
+  if (!d) return true;
+  if (c.date_debut && d < c.date_debut) return false;
+  if (c.date_fin && d > c.date_fin) return false;
+  return true;
+}
+
+// Portée assez précise pour qu'une ressource imposée puisse être placée HORS
+// de l'équipe du lot : une tâche, ou un lot (groupe_type_id) sur UN chantier.
+// Une portée plus large (globale, chantier entier, lot sur tous les chantiers)
+// ne fait que restreindre l'équipe, jamais l'élargir.
+export function porteePreciseRessourceImposee(c) {
+  if (c?.type !== CONSTRAINT_TYPES.RESOURCE_REQUIRED || c.hard !== true) return false;
+  if (c.scope === CONSTRAINT_SCOPES.TACHE) return !!c.tache_id;
+  if (c.scope === CONSTRAINT_SCOPES.GROUPE) return !!c.groupe_type_id && !!c.chantier_id;
+  return false;
+}
+
+// Consignes que le moteur NE SAIT PAS appliquer. Elles sont rejetées
+// explicitement (code + explication), jamais ignorées en silence. Renvoie null
+// si la consigne est prise en compte par le moteur.
+export function raisonContrainteSansEffetMoteur(value) {
+  const c = normaliserContraintePlanning(value);
+  if (!c.actif) return null;
+  const m = maturiteContraintePlanning(c);
+  if (!m.valide) {
+    return {
+      code: "contrainte_invalide",
+      explication: `Consigne invalide (${m.erreurs.join(" ; ")}) : elle est rejetée et n'a aucun effet sur le planning.`,
+    };
+  }
+  if (c.type === CONSTRAINT_TYPES.ALLOCATION_LOCK) {
+    return {
+      code: "verrou_hors_adaptateur",
+      explication: "Un verrou d'allocation fige une allocation existante avant le calcul ; transmis directement au moteur, il n'a aucun effet.",
+    };
+  }
+  if (c.scope === CONSTRAINT_SCOPES.ALLOCATION) {
+    return {
+      code: "portee_allocation_non_prise_en_charge",
+      explication: "La portée « allocation » n'est prise en charge que pour un verrou : cette consigne est rejetée et n'a aucun effet.",
+    };
+  }
+  if (!c.hard && (c.type === CONSTRAINT_TYPES.NOT_BEFORE || c.type === CONSTRAINT_TYPES.FIXED_DATE)) {
+    return {
+      code: "date_souhaitee_non_prise_en_charge",
+      explication: "Consigne de date « souhaitée » (non obligatoire) : le moteur ne sait pas l'arbitrer, elle est rejetée et n'a aucun effet. La rendre obligatoire ou la retirer.",
+    };
+  }
+  if (c.type === CONSTRAINT_TYPES.PRIORITY && (c.date_debut || c.date_fin)) {
+    return {
+      code: "priorite_datee_non_prise_en_charge",
+      explication: "Priorité limitée à une période : le moteur ne sait pas borner une priorité dans le temps, elle est rejetée et n'a aucun effet. Retirer les dates pour l'appliquer à tout l'horizon.",
+    };
+  }
+  return null;
+}
+
 export function contrainteSapplique(value, context = {}) {
   return contrainteNormaliseeSapplique(normaliserContraintePlanning(value), context);
 }
@@ -155,7 +224,10 @@ export function contraintesApplicablesPlanning(contraintesNormalisees = [], cont
 export function evaluerContraintesApplicablesPlanning({ applicables = [], dateISO = null, resourceId = null } = {}) {
   const d = date(dateISO);
   const rid = str(resourceId) || null;
-  const applicable = Array.isArray(applicables) ? applicables : [];
+  // Une consigne de personne datée ne vaut qu'entre date_debut et date_fin :
+  // hors de cette période, elle n'est ni bloquante ni listée comme appliquée.
+  const applicable = (Array.isArray(applicables) ? applicables : [])
+    .filter(c => contraintePersonneActiveLe(c, d));
 
   const blocks = [];
   const violations = [];
