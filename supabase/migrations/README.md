@@ -12,10 +12,7 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
   explicitement. C'est le **seul** fichier dont la version n'est pas enregistrée
   en base.
 
-**Ajout du 24/09/2026, en attente de relecture puis d'application :**
-`20260924130000_data_history_planning_cells_bibliotheque.sql` (historique du
-planning et de la bibliothèque). Une fois appliqué, renommer le fichier au
-numéro que la base lui aura attribué (règle 3) et retirer ce paragraphe.
+20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
 ## Pourquoi cet alignement
 
