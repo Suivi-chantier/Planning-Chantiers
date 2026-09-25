@@ -89,3 +89,29 @@ export function metaHorizonMoteurV1(startDate, horizonDays = 42) {
     week_ids: semainesPourHorizonV1(debut, jours),
   };
 }
+
+/**
+ * Nom et date prévue de CHAQUE tâche des phasages, indexés par identifiant de
+ * travail moteur (`chantier_id::tache_id`, même clé que cleTravailMoteurV1).
+ * Toutes les tâches y figurent, y compris celles que le moteur n'a pas reçues
+ * (terminées, exclues) : un écran qui cite une tâche peut toujours donner son
+ * nom au lieu de son identifiant.
+ */
+export function tachesPhasageParTravailV1(phasages = []) {
+  const out = {};
+  for (const ph of Array.isArray(phasages) ? phasages : []) {
+    const chantierId = txt(ph?.chantier_id);
+    if (!chantierId) continue;
+    for (const ouvrage of Array.isArray(ph?.ouvrages) ? ph.ouvrages : []) {
+      for (const tache of Array.isArray(ouvrage?.taches) ? ouvrage.taches : []) {
+        const tacheId = txt(tache?.id);
+        if (!tacheId) continue;
+        out[`${chantierId}::${tacheId}`] = {
+          nom: txt(tache?.nom) || null,
+          date_prevue: dateISOValideV1(tache?.date_prevue),
+        };
+      }
+    }
+  }
+  return out;
+}

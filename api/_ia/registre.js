@@ -15,6 +15,8 @@
 //   sensible           true → statut "en_attente_validation" au lieu de "succes"
 //   schema_entree(e)   validation du payload reçu → true | "erreur" | [erreurs]
 //   schema_sortie(s)   validation du résultat parsé → true | "erreur" | [erreurs]
+//                      peut être ASYNC (vérification d'identifiants en base) ;
+//                      reçoit en second argument { profil }.
 //   construire_prompt(entree, contexte) → { system, messages }
 //                      peut être ASYNC : la route l'attend. Une tâche qui doit
 //                      aller chercher ce qu'elle donne à lire au modèle (un
@@ -38,6 +40,8 @@ const TACHES = [
   require("./taches/ping"),
   require("./taches/invest_copilot"),
   require("./taches/facture_client"),
+  require("./taches/renovation_copilot"),
+  require("./taches/renovation_planning_consigne"),
 ];
 
 module.exports = Object.fromEntries(TACHES.map((t) => [t.id, t]));
