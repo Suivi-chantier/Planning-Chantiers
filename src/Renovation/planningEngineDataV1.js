@@ -12,7 +12,7 @@ import { construirePlanApplicationReplanningV1 } from "./planningReplanningApply
 import { evaluerSecuriteApplicationReplanningV1 } from "./planningReplanningApplySafetyV1.js";
 import { completerGardesPhasagesApplicationV1 } from "./planningReplanningPhasageGuardsV1.js";
 import { simulerSensibiliteHorizonsReplanningDepuisSnapshotV1 } from "./planningReplanningHorizonSensitivityV1.js";
-import { metaHorizonMoteurV1, parserConfigMoteurV1 } from "./planningEngineDataHelpersV1.js";
+import { metaHorizonMoteurV1, parserConfigMoteurV1, tachesPhasageParTravailV1 } from "./planningEngineDataHelpersV1.js";
 
 const CONFIG_KEYS = ["chantiers", "groupes_types", "equipes"];
 
@@ -238,6 +238,11 @@ export async function simulerPlanningGlobalV1(options = {}) {
     referentiel: prepared.referentiel,
     forecast_courant: prepared.preparation.forecastCourant,
     travaux_exclus: prepared.preparation.travaux_exclus,
+    // Lecture seule, pour l'affichage : les travaux tels que le moteur les a
+    // reçus (nom, prédécesseurs, équipe) et le nom de chaque tâche du phasage.
+    // Une tâche non planifiée ne porte que son identifiant dans `proposition`.
+    travaux_moteur: prepared.preparation.engineInput.travaux,
+    taches_phasage: tachesPhasageParTravailV1(prepared.snapshot_application.phasages),
     warnings_adaptateur: prepared.preparation.warnings,
     warnings_etat_reel: prepared.preparation.etatReel?.warnings || [],
     proposition,

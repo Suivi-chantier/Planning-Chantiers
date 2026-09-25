@@ -26,7 +26,11 @@
 //  8. demandes simples (« fais le planning de la semaine prochaine pour
 //     fourmond ») : question à choix calculée par l'outil pour une famille de
 //     chantiers, puis aperçu « Planning actuel / Proposition du moteur » sans
-//     aucune écriture ; ton court, information réservée au hors planning.
+//     aucune écriture ; ton court, information réservée au hors planning ;
+//  9. retours de Loris sur l'aperçu : nom d'une tâche non planifiée (jamais son
+//     identifiant), tri « après la période » / « bloquée » avec la tâche racine
+//     nommée, cases « Autre chantier » / « Libre », destination des tuiles
+//     barrées.
 
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -35,9 +39,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as C from "../src/Renovation/assistantPlanningConsigneV1.mjs";
-import { construireApercuPlanningActuelV1, construireApercuRecalculV1, semainesDisponiblesV1 } from "../src/Renovation/assistantPlanningApercuV1.mjs";
+import {
+  CATEGORIES_NON_PLANIFIEE, TACHE_SANS_NOM, construireApercuPlanningActuelV1, construireApercuRecalculV1, semainesDisponiblesV1,
+} from "../src/Renovation/assistantPlanningApercuV1.mjs";
 import { getISOWeek } from "../src/rythmeSemaine.js";
-import { semaineISOv1 as semaineMoteur } from "../src/Renovation/planningEngineDataHelpersV1.js";
+import { semaineISOv1 as semaineMoteur, tachesPhasageParTravailV1 } from "../src/Renovation/planningEngineDataHelpersV1.js";
 import { capaciteBasePlanningPourDate } from "../src/Renovation/planningResourceCapacityV1.js";
 import { maturiteContraintePlanning, porteePreciseRessourceImposee } from "../src/Renovation/planningConstraintModelV1.js";
 import { normaliserEquipeLegacy } from "../src/Renovation/planningResourceModelV1.js";
@@ -402,9 +408,13 @@ function simuler({ contraintes = [], evenements = [], startDate = "2026-09-28", 
   return {
     generated_at: "2026-09-24T09:32:00.000Z",
     horizon: { start_date: startDate, end_date: C.ajouterJoursV1(startDate, horizonDays - 1), horizon_days: horizonDays },
-    referentiel: { chantiers: chantiers.map(c => ({ id: c.id, nom: c.nom })), ressources: ressources.map(r => ({ id: r.id, nom: r.nom, nom_planning: r.nom_planning })) },
+    referentiel: { chantiers: chantiers.map(c => ({ id: c.id, nom: c.nom })), ressources: ressources.filter(r => r.actif !== false).map(r => ({ id: r.id, nom: r.nom, nom_planning: r.nom_planning, kind: r.kind })) },
     warnings_adaptateur: prep.warnings,
     forecast_courant: prep.forecastCourant,
+    travaux_exclus: prep.travaux_exclus,
+    // Mêmes champs que simulerPlanningGlobalV1 (lecture seule, pour l'affichage).
+    travaux_moteur: prep.engineInput.travaux,
+    taches_phasage: tachesPhasageParTravailV1(phasagesSim),
     proposition,
   };
 }
@@ -667,6 +677,136 @@ await bloc("17. Écran : bouton rapide, clic = demande complétée, aperçu sans
   const fonction = /export async function apercuSansConsigne[\s\S]*?\r?\n}\r?\n/.exec(donnees)?.[0] || "";
   verifier(fonction && !/\.(insert|update|upsert|delete)\s*\(|enregistrerConsigne/.test(fonction), "apercuSansConsigne : aucune écriture");
   verifier(apercuJsx.includes("Application au planning : étape 3") && !/>\s*Appliquer/.test(ecran + apercuJsx), "toujours pas de bouton Appliquer");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Retours de Loris sur l'aperçu (25/09/2026) : noms, tri des non planifiées,
+// cases « Autre chantier » / « Libre », destination des tuiles barrées.
+// Données FICTIVES (seuls les noms FOURMOND sont ceux de la base).
+// ─────────────────────────────────────────────────────────────────────────────
+const phasagesRetours = [
+  ...phasages,
+  // Après la période : 400 h de doublage pour le seul Steven (équipe placo),
+  // puis une tâche qui l'attend.
+  phasage("CH-F001", [
+    tache("T-LONG", "Doublage fictif très long", 400, "CG-F1"),
+    tache("T-APRES", "Bandes fictives après doublage", 6, "CG-F1", { predecesseurs: ["T-LONG"] }),
+  ], [{ id: "CG-F1", ordre: 10, groupe_type_id: "gt_placo" }]),
+  // Bloquée : une intervention externe (exclue du calcul), puis une tâche
+  // hors chrono (chrono_ordre 1000000002) qui l'attend, puis sa suivante.
+  phasage("CH-F101", [
+    tache("T-EXT", "Raccordement fictif par un externe", 4, "CG-F2", { externe: true }),
+    tache("h2eqfict", "Pose serrure fictive du bloc-porte", 0.75, "CG-F2", { chrono_ordre: 1000000002, predecesseurs: ["T-EXT"] }),
+    tache("T-SUITE", "Réglage fictif après la serrure", 1, "CG-F2", { predecesseurs: ["h2eqfict"] }),
+  ], [{ id: "CG-F2", ordre: 10, groupe_type_id: "gt_placo" }]),
+  // Bloquée : trois personnes demandées, deux seulement dans l'équipe du lot.
+  phasage("CH-F102", [
+    tache("T-TROIS", "Tirage fictif à trois", 3, "CG-F3", { ouvriers: ["Kev", "Davy", "Steven"] }),
+  ], [{ id: "CG-F3", ordre: 10, groupe_type_id: "gt_elec" }]),
+];
+// Planning actuel fictif S40 : Davy sur CH-A mardi (hors périmètre FOURMOND),
+// sur FOURMOND 101 mercredi avec la serrure (que le moteur ne peut pas placer).
+const cellulesRetours = [
+  { id: "R1", week_id: "2026-W40", chantier_id: "CH-A", jour: "Mardi", ouvriers: ["Davy"], taches: [{ allocation_uid: "U-R1", tache_id: null, text: "Livraison fictive CH-A", duree: 2, ouvriers: ["Davy"] }] },
+  { id: "R2", week_id: "2026-W40", chantier_id: "CH-F101", jour: "Mercredi", ouvriers: ["Davy"], taches: [{ allocation_uid: "U-R2", tache_id: "h2eqfict", text: "", duree: 0.75, ouvriers: ["Davy"] }] },
+];
+const FOURMOND = ["CH-F001", "CH-F101", "CH-F102", "CH-FCOM"];
+let resultatRetours = null;
+let apercuRetours = null;
+
+await bloc("18. Noms : une tâche hors chrono non planifiée garde son nom, jamais son identifiant", () => {
+  resultatRetours = simuler({ phasagesSim: phasagesRetours, cellulesSim: cellulesRetours, horizonDays: 42 });
+  const np = resultatRetours.proposition.non_planifies.find(n => n.travail_id === "CH-F101::h2eqfict");
+  verifier(np && !("texte" in np), "le moteur renvoie la tâche non planifiée sans son nom (cause du bug)");
+  apercuRetours = construireApercuPlanningActuelV1({ resultat: resultatRetours, lundi: "2026-09-28", chantierIds: FOURMOND, capaciteBase: capaciteBasePlanningPourDate });
+  const serrure = apercuRetours.non_planifiees.find(n => n.travail_id === "CH-F101::h2eqfict");
+  verifier(serrure?.texte === "Pose serrure fictive du bloc-porte", `nom lu dans les travaux du moteur (${serrure?.texte})`);
+  const ids = new Set(resultatRetours.travaux_moteur.map(t => t.tache_id));
+  const tousLesTextes = [
+    ...apercuRetours.non_planifiees.flatMap(n => [n.texte, n.racine?.texte]),
+    ...apercuRetours.lignes.flatMap(l => l.cellules.flatMap(c => [...c.avant, ...c.apres, ...c.fantomes].map(i => i.texte))),
+  ];
+  verifier(tousLesTextes.every(t => t && !ids.has(t) && !/::/.test(t)), "aucun identifiant affiché à la place d'un nom (liste, racines, grille)");
+  const ligneVide = apercuRetours.lignes.flatMap(l => l.cellules.flatMap(c => c.avant)).find(i => i.travail_id === "CH-F101::h2eqfict");
+  verifier(ligneVide?.texte === "Pose serrure fictive du bloc-porte", "ligne du planning actuel sans texte : nom repris du phasage");
+  // Sans travaux ni phasage (ancien résultat) : « Tâche sans nom », jamais l'identifiant.
+  const sansNoms = { ...resultatRetours, travaux_moteur: undefined, taches_phasage: undefined };
+  const ap2 = construireApercuPlanningActuelV1({ resultat: sansNoms, lundi: "2026-09-28", chantierIds: ["CH-F101"], capaciteBase: capaciteBasePlanningPourDate });
+  verifier(ap2.non_planifiees.find(n => n.travail_id === "CH-F101::h2eqfict")?.texte === TACHE_SANS_NOM, "nom introuvable : « Tâche sans nom »");
+  const phasageSansNom = tachesPhasageParTravailV1([phasage("CH-X", [tache("T-X", "", 1, "CG")], [])]);
+  verifier(phasageSansNom["CH-X::T-X"]?.nom === null, "index du phasage : un nom vide reste vide (pas d'identifiant)");
+  exemple("Noms dans la liste des non planifiées", [`CH-F101::h2eqfict → « ${serrure?.texte} »`, `sans travaux ni phasage → « ${ap2.non_planifiees[0]?.texte} »`]);
+});
+
+await bloc("19. Non planifiées triées : « après la période » vs « bloquée », racine nommée, raison d'origine conservée", () => {
+  const ap = apercuRetours;
+  const par = id => ap.non_planifiees.find(n => n.travail_id === id);
+  const long = par("CH-F001::T-LONG");
+  const suite = par("CH-F001::T-APRES");
+  verifier(long?.categorie === CATEGORIES_NON_PLANIFIEE.APRES && /^Commencée le \d\d\/\d\d : .* restent à faire après le 08\/11\.$/.test(long.racine.raison), `tâche commencée non finie → après la période (${long?.racine?.raison})`);
+  verifier(suite?.categorie === CATEGORIES_NON_PLANIFIEE.APRES && suite.racine.travail_id === "CH-F001::T-LONG" && suite.racine.texte === "Doublage fictif très long", "sa suivante : après la période, retenue par le doublage (nommé)");
+  const serrure = par("CH-F101::h2eqfict");
+  const reglage = par("CH-F101::T-SUITE");
+  verifier(serrure?.categorie === CATEGORIES_NON_PLANIFIEE.BLOQUEE && serrure.racine.travail_id === "CH-F101::T-EXT", "serrure : bloquée par l'intervention externe");
+  verifier(serrure?.racine.texte === "Raccordement fictif par un externe" && serrure.racine.chantier === "FOURMOND 101" && /^Intervention externe/.test(serrure.racine.raison), `racine nommée avec son chantier et sa raison (${serrure?.racine?.texte} — ${serrure?.racine?.chantier} — ${serrure?.racine?.raison})`);
+  verifier(reglage?.categorie === CATEGORIES_NON_PLANIFIEE.BLOQUEE && reglage.racine.travail_id === "CH-F101::T-EXT", "sa suivante remonte à la même racine (prédécesseur lui-même bloqué)");
+  const trois = par("CH-F102::T-TROIS");
+  verifier(trois?.categorie === CATEGORIES_NON_PLANIFIEE.BLOQUEE && trois.racine.elle_meme && /^Équipe de 3 personnes demandée, 2 seulement dans l'équipe du lot/.test(trois.racine.raison), `équipe trop petite → bloquée (${trois?.racine?.raison})`);
+  verifier(ap.non_planifiees.every(n => n.raison && n.raison_code), "chaque tâche garde la raison et le code d'origine du moteur");
+  verifier(reglage.raison_code !== reglage.racine.raison_code && reglage.raison === resultatRetours.proposition.non_planifies.find(n => n.travail_id === "CH-F101::T-SUITE").raison, "code d'origine inchangé, même quand la racine a un autre code");
+  const tri = ap.non_planifiees_tri;
+  verifier(tri.bloquees.map(g => g.chantier).join() === "FOURMOND 101,FOURMOND 102" && tri.apres_periode.map(g => g.chantier).join() === "FOURMOND 001", "regroupées par chantier");
+  verifier(tri.bloquees[0].heures === 1.75, `heures totales par chantier (FOURMOND 101 : ${tri.bloquees[0].heures} h)`);
+  verifier(tri.synthese.texte === `${tri.synthese.bloquees} tâches bloquées, ${tri.synthese.apres_periode} prévues après le 08/11.` && tri.synthese.bloquees === 3 && tri.synthese.apres_periode === 2, `phrase de synthèse (${tri.synthese.texte})`);
+  verifier(ap.resume.bloquees === 3 && ap.resume.apres_periode === 2, "chiffres du résumé : bloquées / après la période");
+  exemple("Panneau des non planifiées", [
+    tri.synthese.texte,
+    ...tri.bloquees.map(g => `BLOQUÉES ${g.chantier} (${g.heures} h) : ${g.taches.map(t => `${t.texte} — bloquée par : ${t.racine.texte} — ${t.racine.chantier} — ${t.racine.raison}`).join(" | ")}`),
+    ...tri.apres_periode.map(g => `APRÈS ${g.chantier} (${g.heures} h) : ${g.taches.map(t => `${t.texte} — ${t.racine.raison}`).join(" | ")}`),
+  ]);
+});
+
+await bloc("20. Case vide : « Autre chantier · X h » ou « Libre · X h disponibles », tâche barrée → où elle part", () => {
+  const davy = apercuRetours.lignes.find(l => l.resource_id === "R-DAVY");
+  verifier(!!davy, "Davy affiché (ligne posée sur FOURMOND 101 mercredi)");
+  const mardi = davy.cellules[1];
+  verifier(mardi.avant.length === 0 && mardi.occupation_avant.case_vide?.type === "autre_chantier" && mardi.occupation_avant.case_vide.libelle === "Autre chantier · 2 h" && mardi.occupation_avant.case_vide.detail === "CHANTIER FICTIF A (2 h)", `planning actuel mardi : ${mardi.occupation_avant.case_vide?.libelle} (${mardi.occupation_avant.case_vide?.detail})`);
+  const lundi = davy.cellules[0];
+  const propLundi = resultatRetours.proposition.allocations_proposees.filter(a => a.date === "2026-09-28" && a.resource_ids.includes("R-DAVY"));
+  verifier(lundi.occupation_avant.case_vide?.libelle === "Libre · 7 h disponibles", `planning actuel lundi : ${lundi.occupation_avant.case_vide?.libelle}`);
+  const attenduLundi = propLundi.length ? "autre_chantier" : "libre";
+  verifier(lundi.apres.length === 0 && lundi.occupation_apres.case_vide?.type === attenduLundi, `proposition lundi : ${lundi.occupation_apres.case_vide?.libelle} (${lundi.occupation_apres.case_vide?.detail || "—"})`);
+  const mercredi = davy.cellules[2];
+  const barree = mercredi.fantomes.find(f => f.travail_id === "CH-F101::h2eqfict");
+  verifier(barree?.destination?.type === "non_planifiee" && barree.destination.libelle === "→ non planifiée (voir liste)", `serrure barrée mercredi : ${barree?.destination?.libelle}`);
+  verifier(mercredi.occupation_avant.case_vide === null && mercredi.occupation_avant.reste_libre?.libelle === "+ Libre · 6,25 h", `case en partie remplie : le reste de la journée est dit (${mercredi.occupation_avant.reste_libre?.libelle})`);
+  // Déplacée hors de la semaine (résultats construits à la main, fictifs).
+  const base = { referentiel: resultatRetours.referentiel, horizon: resultatRetours.horizon };
+  const x = { travail_id: "CH-F101::T-X", chantier_id: "CH-F101", tache_id: "T-X", texte: "Tâche fictive déplacée", resource_ids: ["R-DAVY"] };
+  const ap = construireApercuRecalculV1({
+    avant: { ...base, proposition: { allocations_proposees: [{ ...x, date: "2026-09-30", duree: 3 }], non_planifies: [] } },
+    apres: { ...base, proposition: { allocations_proposees: [{ ...x, date: "2026-10-08", duree: 3 }], non_planifies: [] } },
+    lundi: "2026-09-28", capaciteBase: capaciteBasePlanningPourDate, chantierIds: FOURMOND,
+  });
+  const f = ap.lignes.find(l => l.resource_id === "R-DAVY").cellules[2].fantomes[0];
+  verifier(f?.destination?.libelle === "→ déplacée au jeu. 08/10", `tâche barrée sans place dans la semaine : ${f?.destination?.libelle}`);
+  const ecran = lire("src/Renovation/AssistantPlanningApercu.jsx");
+  verifier(ecran.includes("occupation_apres : c.occupation_avant)?.case_vide") && ecran.includes("title={cv.detail}") && ecran.includes("onClick={() => setOuvert(o => !o)}"), "écran : case vide affichée dans les deux vues, chantier au survol et au clic");
+  verifier(ecran.indexOf("{items.map((it, k) => <Tuile") > 0 && ecran.indexOf("{items.map((it, k) => <Tuile") < ecran.indexOf("c.fantomes.map((it, k) => <Tuile"), "écran : le travail du jour s'affiche avant les anciennes places barrées");
+  verifier(/<details[\s\S]{0,200}Après la période calculée \(\{synthese\.apres_periode\}\)/.test(ecran) && !/<details open/.test(ecran), "écran : « Après la période calculée » replié par défaut, avec le nombre");
+  exemple("Cases de Davy, semaine du 28/09", [
+    `mardi, planning actuel : ${mardi.occupation_avant.case_vide.libelle} — ${mardi.occupation_avant.case_vide.detail}`,
+    `lundi, planning actuel : ${lundi.occupation_avant.case_vide.libelle}`,
+    `mercredi, tuile barrée « ${barree.texte} » ${barree.destination.libelle}`,
+    `déplacement hors semaine : ${f.destination.libelle}`,
+  ]);
+});
+
+await bloc("21. Résultat du moteur : travaux et noms des tâches exposés en lecture seule", () => {
+  const data = lire("src/Renovation/planningEngineDataV1.js");
+  verifier(data.includes("travaux_moteur: prepared.preparation.engineInput.travaux,") && data.includes("taches_phasage: tachesPhasageParTravailV1(prepared.snapshot_application.phasages),"), "simulerPlanningGlobalV1 renvoie travaux_moteur et taches_phasage");
+  const index = tachesPhasageParTravailV1(phasagesRetours);
+  verifier(index["CH-F101::h2eqfict"]?.nom === "Pose serrure fictive du bloc-porte" && index["CH-F101::T-EXT"]?.nom === "Raccordement fictif par un externe", "l'index couvre aussi les tâches exclues du calcul");
 });
 
 console.log(blocs.join("\n"));

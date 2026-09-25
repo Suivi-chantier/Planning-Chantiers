@@ -30,6 +30,8 @@ function Legende({ T, acc }) {
     [pastille({ border: `2px dashed ${T.textMuted}` }), "Ancienne place"],
     [pastille({ background: `repeating-linear-gradient(135deg, ${T.textMuted} 0 3px, transparent 3px 7px)`, border: `1px solid ${T.border}` }), "Absence"],
     [pastille({ background: T.card, border: `1px solid ${T.border}`, opacity: 0.6 }), "Inchangé"],
+    [pastille({ background: T.surface, border: `1px solid ${T.border}` }), "Autre chantier (clic : lequel)"],
+    [pastille({ border: `1px dashed ${T.border}` }), "Libre"],
   ];
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 18px", fontSize: FONT.sm.size, color: T.textSub }}>
@@ -65,7 +67,31 @@ function Tuile({ it, T, acc, mode }) {
         </div>
       )}
       {mode === "fantome" && <div style={{ fontSize: FONT.xs.size, textDecoration: "none" }}>ancienne place</div>}
+      {mode === "fantome" && it.destination && (
+        <div style={{ marginTop: 2, fontSize: FONT.xs.size, fontWeight: 800, color: T.text, textDecoration: "none", display: "inline-block" }}>{it.destination.libelle}</div>
+      )}
     </div>
+  );
+}
+
+// Case sans tâche du périmètre : la personne est ailleurs, ou vraiment libre.
+// Le nom des autres chantiers s'affiche au survol ou au clic.
+function CaseVide({ cv, T, compact = false }) {
+  const [ouvert, setOuvert] = React.useState(false);
+  if (!cv) return null;
+  const ailleurs = !!cv.detail;
+  const style = {
+    borderRadius: RADIUS.md, padding: compact ? "3px 6px" : "6px 8px", fontSize: compact ? FONT.xs.size : FONT.sm.size, lineHeight: 1.3,
+    boxSizing: "border-box", minWidth: 0, overflowWrap: "anywhere", textAlign: "left", fontFamily: "inherit",
+    color: T.textSub, background: ailleurs ? T.surface : "transparent",
+    border: ailleurs ? `1px solid ${T.border}` : `1px dashed ${T.border}`,
+  };
+  if (!ailleurs) return <div style={style}>{cv.libelle}</div>;
+  return (
+    <button type="button" title={cv.detail} aria-expanded={ouvert} onClick={() => setOuvert(o => !o)} style={{ ...style, cursor: "pointer" }}>
+      <span style={{ fontWeight: 700 }}>{cv.libelle}</span>
+      {ouvert && <span style={{ display: "block", marginTop: 3, color: T.text }}>{cv.detail}</span>}
+    </button>
   );
 }
 
@@ -127,8 +153,13 @@ export function GrilleRecalcul({ apercu, vue, setVue, semaines = [], setLundi, T
                   <div role="cell" key={c.date} style={{ ...fond, borderRadius: RADIUS.lg, padding: 5, minHeight: 58, display: "flex", flexDirection: "column", gap: 5, boxSizing: "border-box", minWidth: 0 }}>
                     {c.absent && <div style={{ fontWeight: 800, fontSize: FONT.sm.size, letterSpacing: 1, color: T.text }}>ABSENT</div>}
                     {c.absence_partielle_h ? <div style={{ fontSize: FONT.xs.size, color: T.textSub }}>−{c.absence_partielle_h} h indisponible</div> : null}
-                    {vue === "apres" && c.fantomes.map((it, k) => <Tuile key={`f${k}`} it={it} T={T} acc={acc} mode="fantome"/>)}
+                    {/* Le travail du jour d'abord, puis ce qui reste de la journée ; les
+                        anciennes places barrées ensuite, pour ne jamais cacher le travail réel. */}
                     {items.map((it, k) => <Tuile key={k} it={it} T={T} acc={acc} mode={it.change ? "change" : "inchange"}/>)}
+                    <CaseVide T={T} cv={(vue === "apres" ? c.occupation_apres : c.occupation_avant)?.case_vide}/>
+                    <CaseVide T={T} compact cv={(vue === "apres" ? c.occupation_apres : c.occupation_avant)?.en_plus}/>
+                    <CaseVide T={T} compact cv={(vue === "apres" ? c.occupation_apres : c.occupation_avant)?.reste_libre}/>
+                    {vue === "apres" && c.fantomes.map((it, k) => <Tuile key={`f${k}`} it={it} T={T} acc={acc} mode="fantome"/>)}
                   </div>
                 );
               })}
@@ -184,6 +215,96 @@ export function BandeauFins({ apercu, T }) {
   );
 }
 
+const heures = h => `${String(Math.round((Number(h) || 0) * 100) / 100).replace(".", ",")} h`;
+const jjmm = iso => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
+
+function parRacine(taches) {
+  const m = new Map();
+  taches.forEach(t => {
+    const k = t.racine?.travail_id || t.travail_id;
+    if (!m.has(k)) m.set(k, { racine: t.racine, taches: [] });
+    m.get(k).taches.push(t);
+  });
+  return [...m.values()];
+}
+
+function ListeTaches({ taches, T, max = 5 }) {
+  const [tout, setTout] = React.useState(false);
+  const vues = tout ? taches : taches.slice(0, max);
+  return (
+    <ul style={{ margin: "4px 0 0", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 2 }}>
+      {vues.map(t => (
+        <li key={t.travail_id} title={`Raison du moteur : ${t.raison}`} style={{ color: T.text }}>
+          {t.texte} <span style={{ color: T.textSub }}>({heures(t.heures_mo_restantes)}{t.date_prevue_apres_periode ? ` · date prévue le ${jjmm(t.date_prevue)}` : ""})</span>
+        </li>
+      ))}
+      {taches.length > max && (
+        <li style={{ listStyle: "none", marginLeft: -18 }}>
+          <button type="button" onClick={() => setTout(v => !v)} style={{ border: "none", background: "transparent", padding: "4px 0", cursor: "pointer", color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, textDecoration: "underline" }}>
+            {tout ? "Réduire" : `Voir les ${taches.length - max} autres`}
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+function GroupeChantier({ g, famille, T }) {
+  const bloquee = famille === "bloquee";
+  const cadre = bloquee
+    ? { background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}` }
+    : { background: T.surface, border: `1px solid ${T.border}` };
+  return (
+    <div style={{ ...cadre, borderRadius: RADIUS.lg, padding: 10, fontSize: FONT.sm.size, color: T.text, lineHeight: 1.45, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontWeight: 800 }}>{g.chantier} <span style={{ fontWeight: 400, color: T.textSub }}>— {g.taches.length} {g.taches.length > 1 ? "tâches" : "tâche"}, {heures(g.heures)}</span></div>
+      {parRacine(g.taches).map(({ racine, taches }) => {
+        const seule = taches.length === 1 && racine?.elle_meme;
+        return (
+          <div key={racine?.travail_id || taches[0].travail_id} style={{ display: "flex", gap: 8 }}>
+            {bloquee && <Icon as={CircleAlert} size={16} color={SEMANTIC.danger.color} style={{ flexShrink: 0, marginTop: 1 }}/>}
+            <div style={{ minWidth: 0 }}>
+              {seule ? (
+                <span><b>{taches[0].texte}</b> ({heures(taches[0].heures_mo_restantes)}) — {racine.raison}</span>
+              ) : (
+                <>
+                  <span>{bloquee ? "bloquée par" : "attend"} : <b>{racine?.texte}</b> — {racine?.chantier} — {racine?.raison}</span>
+                  <ListeTaches taches={taches} T={T}/>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function NonPlanifiees({ tri, T }) {
+  if (!tri) return null;
+  const { bloquees, apres_periode: apres, synthese } = tri;
+  const titre = { fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: T.textSub };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={titre}>Non planifiées</div>
+      <div style={{ fontSize: FONT.base.size, fontWeight: 700, color: T.text }}>{synthese.texte}</div>
+      {bloquees.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ ...titre, color: SEMANTIC.danger.color }}>Bloquées ({synthese.bloquees})</div>
+          {bloquees.map(g => <GroupeChantier key={g.chantier_id || g.chantier} g={g} famille="bloquee" T={T}/>)}
+        </div>
+      )}
+      {apres.length > 0 && (
+        <details style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <summary style={{ ...titre, cursor: "pointer", padding: "4px 0" }}>Après la période calculée ({synthese.apres_periode})</summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {apres.map(g => <GroupeChantier key={g.chantier_id || g.chantier} g={g} famille="apres_periode" T={T}/>)}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function Chiffre({ valeur, libelle, couleur, T }) {
   return (
     <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: 12, minWidth: 0 }}>
@@ -203,7 +324,7 @@ export function ResumeRecalcul({ apercu, T, acc }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
         <Chiffre T={T} valeur={apercu.resume.deplacees} libelle="tâches déplacées" couleur={apercu.resume.deplacees ? T.text : T.textSub}/>
-        <Chiffre T={T} valeur={apercu.resume.non_planifiees} libelle="non planifiées" couleur={apercu.resume.non_planifiees ? SEMANTIC.danger.color : T.textSub}/>
+        <Chiffre T={T} valeur={apercu.resume.bloquees} libelle={apercu.resume.apres_periode ? `bloquées · ${apercu.resume.apres_periode} après la période` : "bloquées"} couleur={apercu.resume.bloquees ? SEMANTIC.danger.color : T.textSub}/>
         <Chiffre T={T} valeur={apercu.resume.conflits} libelle={apercu.resume.conflits > 1 ? "conflits" : "conflit"} couleur={apercu.resume.conflits ? SEMANTIC.warning.color : T.textSub}/>
       </div>
 
@@ -225,17 +346,7 @@ export function ResumeRecalcul({ apercu, T, acc }) {
         </div>
       )}
 
-      {apercu.non_planifiees.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: T.textSub }}>Non planifiées — avec leur raison</div>
-          {apercu.non_planifiees.map(n => (
-            <div key={n.travail_id} style={{ display: "flex", gap: 8, padding: 10, borderRadius: RADIUS.lg, background: SEMANTIC.danger.bg, border: `1px solid ${SEMANTIC.danger.border}`, fontSize: FONT.sm.size, color: T.text, lineHeight: 1.45 }}>
-              <Icon as={CircleAlert} size={16} color={SEMANTIC.danger.color} style={{ flexShrink: 0, marginTop: 1 }}/>
-              <span><b>{n.chantier} · {n.texte}</b> ({n.heures_mo_restantes} h) — {n.raison}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {apercu.non_planifiees.length > 0 && <NonPlanifiees tri={apercu.non_planifiees_tri} T={T}/>}
 
       {apercu.conflits.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

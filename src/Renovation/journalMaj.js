@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-25",
+    type: "correctif",
+    titre: "Assistant planning : les tâches non planifiées portent leur nom et sont triées, les cases vides disent où est la personne",
+    pages: [],
+    quoi: "Dans le planning proposé, la liste des tâches qui ne trouvent pas de place affichait parfois un code (« h2eq3o1w ») au lieu du nom de la tâche. Elle mélangeait aussi, en rouge, les tâches vraiment bloquées et celles qui arrivent simplement après la période calculée. Et une case vide ne disait pas si la personne était libre ou occupée sur un autre chantier. Chaque tâche porte maintenant son nom, la liste distingue les vrais blocages, et chaque case dit la vérité.",
+    comment: "En tête de la liste, une phrase résume, par exemple « 3 tâches bloquées, 27 prévues après le 08/11 ». « Bloquées » (en rouge) regroupe les vraies impossibilités, par chantier avec les heures : pour chacune, la tâche qui bloque toute la chaîne est nommée, avec son chantier et la raison. Par exemple, une intervention confiée à une équipe externe, ou plusieurs personnes demandées ensemble qui ne sont jamais réunies le même jour. « Après la période calculée » (en gris, replié, avec le nombre) regroupe les tâches qui ne peuvent finir qu'après la fin du calcul. Dans la grille, une case vide affiche « Autre chantier · 7 h » quand la personne travaille ailleurs ce jour-là (cliquer ou survoler pour voir lequel), ou « Libre · 7 h disponibles ». Une case en partie remplie indique aussi le temps qui reste libre. Une tâche barrée qui n'a plus de place dans la semaine dit où elle part : « → déplacée au jeu. 08/10 » ou « → non planifiée (voir liste) ». C'est pareil dans la vue « Planning actuel ». Rien n'est enregistré.",
+  },
+  {
+    date: "2026-09-25",
     type: "amelioration",
     titre: "Assistant planning : « fais le planning de la semaine prochaine pour Fourmond » donne directement le planning proposé",
     pages: [],
