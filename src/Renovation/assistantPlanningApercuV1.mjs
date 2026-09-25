@@ -10,6 +10,14 @@
 //     panneau Simulation) ;
 //   - les raisons des tâches non planifiées sont celles du moteur, telles quelles.
 // Ce module ne fait que ranger ces résultats dans une grille de semaine.
+//
+// Deux comparaisons :
+//   - "consigne"        : proposition du moteur avant / après une consigne ;
+//   - "planning_actuel" : planning actuel (planning_cells, tel qu'affiché
+//     dans Planning semaine) / proposition du moteur, sans aucune consigne.
+//     Le planning actuel est lu par l'adaptateur existant du planning de
+//     référence v1 (allocationsDepuisCellules), que le moteur utilise déjà :
+//     c'est le `forecast_courant` du résultat de simulerPlanningGlobalV1.
 
 import { diffReplanningV1 } from "./planningReplanningDiffV1.js";
 import { finPrevisionnelleParChantierV1, libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
@@ -50,20 +58,36 @@ export function semainesDisponiblesV1(apres) {
   return out;
 }
 
+const COMPARAISONS = new Set(["consigne", "planning_actuel"]);
+
+function chantierDeAvertissement(w) {
+  return str(w?.chantier_id) || (str(w?.travail_id).includes("::") ? str(w.travail_id).split("::")[0] : "");
+}
+
 /**
  * @param avant, apres   résultats de simulerPlanningGlobalV1
  * @param lundi          lundi ISO de la semaine affichée
  * @param evenements     absences / indisponibilités (planning_resource_events)
  * @param capaciteBase   (iso) → heures planifiables du jour (rythmeSemaine), injectée
  * @param ressourcesConsigne  identifiants à toujours afficher (la personne de la consigne)
+ * @param chantierIds    périmètre affiché (vide = tous) : le moteur a planifié
+ *                       TOUS les chantiers ensemble, on ne filtre que l'affichage
+ * @param comparaison    "consigne" (défaut) ou "planning_actuel"
  */
-export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [], capaciteBase = null, ressourcesConsigne = [] } = {}) {
+export function construireApercuRecalculV1({
+  avant, apres, lundi, evenements = [], capaciteBase = null, ressourcesConsigne = [], chantierIds = [], comparaison = "consigne",
+} = {}) {
+  const mode = COMPARAISONS.has(comparaison) ? comparaison : "consigne";
+  const actuel = mode === "planning_actuel";
+  const perimetre = new Set(uniq(chantierIds));
+  const dansPerimetre = id => perimetre.size === 0 || perimetre.has(str(id));
+  const filtrer = xs => (Array.isArray(xs) ? xs : []).filter(x => dansPerimetre(x?.chantier_id));
   const pA = proposition(avant);
   const pB = proposition(apres);
-  const allocA = Array.isArray(pA.allocations_proposees) ? pA.allocations_proposees : [];
-  const allocB = Array.isArray(pB.allocations_proposees) ? pB.allocations_proposees : [];
-  const npA = Array.isArray(pA.non_planifies) ? pA.non_planifies : [];
-  const npB = Array.isArray(pB.non_planifies) ? pB.non_planifies : [];
+  const allocA = filtrer(pA.allocations_proposees);
+  const allocB = filtrer(pB.allocations_proposees);
+  const npA = filtrer(pA.non_planifies);
+  const npB = filtrer(pB.non_planifies);
 
   const ref = apres?.referentiel || avant?.referentiel || {};
   const nomChantier = new Map((ref.chantiers || []).map(c => [str(c.id), str(c.nom) || str(c.id)]));
@@ -74,7 +98,7 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
 
   // 1. Ce qui change : le diff du chantier 05, entre la proposition d'avant
   //    (tenue pour « courant ») et celle d'après.
-  const diff = diffReplanningV1({ forecast: allocA, proposition: pB, travaux: [] });
+  const diff = diffReplanningV1({ forecast: allocA, proposition: { ...pB, allocations_proposees: allocB, non_planifies: npB }, travaux: [] });
   const changes = diff.changements.filter(c => c.statut !== "inchangé");
   const idsChanges = new Set(changes.map(c => c.travail_id));
   const datesParTravail = (rows) => {
@@ -114,10 +138,13 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
   }));
 
   // 2. Non planifiées à cause du recalcul : absentes d'« avant », ou dont la
-  //    raison a changé. La raison est celle du moteur, jamais reformulée.
+  //    raison a changé. Face au planning actuel : TOUTES celles du périmètre
+  //    (le planning actuel ne connaît pas de « non planifiée »). La raison est
+  //    celle du moteur, jamais reformulée.
   const npAvant = new Map(npA.map(n => [str(n.travail_id), n]));
   const nonPlanifiees = npB
     .filter(n => {
+      if (actuel) return true;
       const a = npAvant.get(str(n.travail_id));
       return !a || str(a.raison_code) !== str(n.raison_code) || str(a.raison) !== str(n.raison);
     })
@@ -128,7 +155,7 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
       heures_mo_restantes: n.heures_mo_restantes,
       raison: str(n.raison) || "Raison non fournie par le moteur",
       raison_code: str(n.raison_code) || null,
-      etait_planifiee: !npAvant.has(str(n.travail_id)),
+      etait_planifiee: actuel ? datesA.has(str(n.travail_id)) : !npAvant.has(str(n.travail_id)),
     }));
   const nonPlanifieesTotal = npB.length;
 
@@ -136,23 +163,38 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
   const clesAvant = new Set(avertissementsDe(avant).map(cleAvertissement));
   const conflits = avertissementsDe(apres)
     .filter(w => !clesAvant.has(cleAvertissement(w)))
+    .filter(w => !chantierDeAvertissement(w) || dansPerimetre(chantierDeAvertissement(w)))
     .map(w => ({ type: str(w.type), explication: str(w.explication) || str(w.type) }));
 
-  // 4. Fins prévisionnelles qui bougent.
-  const finsA = new Map(finPrevisionnelleParChantierV1(pA).chantiers.map(c => [c.chantier_id, c]));
-  const finsB = finPrevisionnelleParChantierV1(pB).chantiers;
+  // 4. Fins prévisionnelles qui bougent. Face au planning actuel, toutes
+  //    celles du périmètre, et JAMAIS de fin pour le planning actuel : il ne
+  //    dit pas si tout le reste à faire est posé. Seul le dernier jour posé
+  //    est montré, comme un simple repère.
   const fmt = iso => libelleDateV1(iso, { court: true });
+  const finsA = new Map(finPrevisionnelleParChantierV1({ allocations_proposees: allocA, non_planifies: npA }).chantiers.map(c => [c.chantier_id, c]));
+  const finsB = finPrevisionnelleParChantierV1({ allocations_proposees: allocB, non_planifies: npB }).chantiers;
+  const avantActuel = a => ({
+    statut: "inconnu",
+    titre: a?.derniere_date_allouee ? `dernier jour posé ${fmt(a.derniere_date_allouee)}` : "rien de posé",
+    detail: null,
+  });
   const fins = finsB
     .map(b => ({ b, a: finsA.get(b.chantier_id) || null }))
-    .filter(({ a, b }) => !a || a.complet !== b.complet || a.fin_prevue !== b.fin_prevue || a.derniere_date_allouee !== b.derniere_date_allouee)
+    .filter(({ a, b }) => actuel || !a || a.complet !== b.complet || a.fin_prevue !== b.fin_prevue || a.derniere_date_allouee !== b.derniere_date_allouee)
     .map(({ a, b }) => ({
       chantier_id: b.chantier_id,
       chantier: nomChantier.get(b.chantier_id) || b.chantier_id,
-      avant: a ? libelleFinPrevisionnelleV1(a, fmt) : { statut: "inconnu", titre: "—", detail: null },
+      avant: actuel ? avantActuel(a) : a ? libelleFinPrevisionnelleV1(a, fmt) : { statut: "inconnu", titre: "—", detail: null },
       apres: libelleFinPrevisionnelleV1(b, fmt),
-      decalage_jours: a && a.complet && b.complet && a.fin_prevue && b.fin_prevue ? ecartJoursV1(b.fin_prevue, a.fin_prevue) : null,
+      decalage_jours: !actuel && a && a.complet && b.complet && a.fin_prevue && b.fin_prevue ? ecartJoursV1(b.fin_prevue, a.fin_prevue) : null,
     }));
   const chantiersInchanges = finsB.length - fins.length;
+  // Chantier demandé sur lequel le moteur ne propose rien : on le dit, plutôt
+  // que de le laisser disparaître du bandeau.
+  const avecFin = new Set(finsB.map(b => b.chantier_id));
+  const chantiersSansTravail = [...perimetre]
+    .filter(id => !avecFin.has(id))
+    .map(id => ({ chantier_id: id, chantier: nomChantier.get(id) || id }));
 
   // 5. Grille de la semaine demandée.
   const lun = lundiDeLaSemaineV1(lundi) || lundiDeLaSemaineV1(apres?.horizon?.start_date);
@@ -235,6 +277,8 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
 
   return {
     version: ASSISTANT_PLANNING_APERCU_VERSION,
+    comparaison: mode,
+    chantier_ids: [...perimetre],
     lundi: lun,
     jours,
     lignes,
@@ -245,6 +289,7 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
     conflits,
     fins,
     chantiers_fin_inchangee: chantiersInchanges,
+    chantiers_sans_travail: chantiersSansTravail,
     hors_semaine: horsSemaine,
     resume: {
       deplacees: deplacees.length,
@@ -256,4 +301,43 @@ export function construireApercuRecalculV1({ avant, apres, lundi, evenements = [
     horizon: apres?.horizon || null,
     calcule_le: str(apres?.generated_at) || null,
   };
+}
+
+// ─── Planning actuel ↔ proposition du moteur (sans consigne) ────────────────
+
+function heuresMoAllocationPosee(a) {
+  const taille = uniq(a?.resource_ids).length || uniq(a?.ouvriers_noms).length;
+  return Math.max(0, Number(a?.duree) || 0) * taille;
+}
+
+function travailIdPose(a) {
+  return str(a?.tache_id) ? `${str(a.chantier_id)}::${str(a.tache_id)}` : `manuel::${str(a?.allocation_uid)}`;
+}
+
+/**
+ * Aperçu « Planning actuel » / « Proposition du moteur » à partir d'UN
+ * résultat de simulerPlanningGlobalV1 :
+ *   - planning actuel = forecast_courant (lignes de planning_cells lues par
+ *     allocationsDepuisCellules, adaptateur du planning de référence v1) :
+ *     lignes recalculables + lignes figées (verrouillées ou manuelles) ;
+ *   - proposition = allocations du moteur + ces mêmes lignes figées, que le
+ *     moteur garde telles quelles (il ne les renvoie pas dans sa proposition).
+ */
+export function construireApercuPlanningActuelV1({ resultat, lundi, chantierIds = [], evenements = [], capaciteBase = null } = {}) {
+  const fc = resultat?.forecast_courant || {};
+  const recalculables = Array.isArray(fc.allocations_recalculables) ? fc.allocations_recalculables : [];
+  const figees = (Array.isArray(fc.allocations_fixes) ? fc.allocations_fixes : [])
+    .map(a => ({ ...a, travail_id: travailIdPose(a), heures_mo: heuresMoAllocationPosee(a) }));
+  const planningActuel = [...recalculables.map(a => ({ ...a, travail_id: travailIdPose(a) })), ...figees];
+  const pB = proposition(resultat);
+  const avant = {
+    referentiel: resultat?.referentiel,
+    horizon: resultat?.horizon,
+    proposition: { allocations_proposees: planningActuel, non_planifies: [], warnings: [] },
+  };
+  const apres = {
+    ...(resultat || {}),
+    proposition: { ...pB, allocations_proposees: [...(Array.isArray(pB.allocations_proposees) ? pB.allocations_proposees : []), ...figees] },
+  };
+  return construireApercuRecalculV1({ avant, apres, lundi, evenements, capaciteBase, chantierIds, comparaison: "planning_actuel" });
 }

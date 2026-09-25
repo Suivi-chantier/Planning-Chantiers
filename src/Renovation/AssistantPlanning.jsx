@@ -3,7 +3,11 @@
 // pour les seuls administrateurs (role === "admin"), sur toutes les pages
 // Rénovation. Parcours (maquette validée, 3 écrans) :
 //   1. texte libre → tâche IA serveur renovation_planning_consigne, qui TRADUIT
-//      (jamais d'écriture) : proposition, question à choix, ou information ;
+//      (jamais d'écriture) : aperçu, proposition, question à choix, ou
+//      information ;
+//   1 bis. « aperçu » (« montre le planning de la semaine prochaine pour … ») :
+//      le moteur tourne ici, RIEN n'est enregistré, et l'écran compare le
+//      planning actuel à la proposition du moteur sur le périmètre demandé ;
 //   2. fiche de consigne, revalidée ICI avec les listes réelles lues avec le
 //      compte de l'administrateur, et ses avertissements (hors équipe, 0 h…) ;
 //   3. « Enregistrer et recalculer » : moteur avant → écriture de LA ligne
@@ -21,20 +25,22 @@ import { Button, Icon } from "../ui";
 import { FONT, RADIUS, SEMANTIC, SHADOW, getBranchAccent } from "../constants";
 import { useIsMobile } from "../hooks";
 import { lundiDeLaSemaineV1 } from "./assistantPlanningConsigneV1.js";
-import { construireApercuRecalculV1, semainesDisponiblesV1 } from "./assistantPlanningApercuV1.js";
+import { construireApercuPlanningActuelV1, construireApercuRecalculV1, semainesDisponiblesV1 } from "./assistantPlanningApercuV1.js";
 import {
-  annulerConsigne, capaciteBasePlanningPourDate, chargerAbsences, chargerConsignesAssistant, chargerReferentiel,
+  annulerConsigne, apercuSansConsigne, capaciteBasePlanningPourDate, chargerAbsences, chargerConsignesAssistant, chargerReferentiel,
   enregistrerConsigne, fenetrePourFiche, recalculer, traduireConsigne, validerDansLeNavigateur,
 } from "./assistantPlanningDonnees.js";
 import { BandeauFins, GrilleRecalcul, ResumeRecalcul } from "./AssistantPlanningApercu.jsx";
 
 const LARGEUR_PANNEAU = 460;
 const RACCOURCIS = [
+  { libelle: "Planning de la semaine prochaine", texte: "Fais le planning de la semaine prochaine pour " },
   { libelle: "Déclarer une absence", texte: "… est absent " },
   { libelle: "Affecter quelqu'un", texte: "… va réaliser … sur le chantier … même si ce n'est pas son équipe" },
   { libelle: "Intervention figée", texte: "J'ai programmé une intervention le " },
 ];
 const PHASES = {
+  apercu: "Calcul du planning proposé…",
   avant: "Calcul du planning actuel par le moteur…",
   ecriture: "Enregistrement de la consigne…",
   apres: "Recalcul avec la consigne…",
@@ -132,7 +138,9 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
   const [saisie, setSaisie] = useState("");
   const [enCours, setEnCours] = useState(false);
   const [phase, setPhase] = useState(null);
-  const [resultat, setResultat] = useState(null); // { avant, apres, absences, ressources, id, table }
+  // Consigne : { avant, apres, absences, ressources, id, table } ;
+  // aperçu sans consigne : { mode: "apercu", resultat, absences, perimetre }.
+  const [resultat, setResultat] = useState(null);
   const [erreurRecalcul, setErreurRecalcul] = useState("");
   const [vue, setVue] = useState("apres");
   const [lundi, setLundi] = useState(null);
@@ -153,6 +161,23 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
   const modifier = (index, patch) => setMessages(prev => prev.map((m, i) => (i === index ? { ...m, ...patch } : m)));
   const indexActif = messages.map(m => m.type).lastIndexOf("proposition");
 
+  // Aperçu : moteur dans le navigateur, sans aucune écriture.
+  const lancerApercu = async (perimetre) => {
+    setErreurRecalcul("");
+    setResultat(null);
+    setPhase("apercu");
+    try {
+      const r = await apercuSansConsigne(perimetre);
+      setResultat({ mode: "apercu", ...r });
+      setLundi(lundiDeLaSemaineV1(r.perimetre.date_debut));
+      setVue("apres");
+    } catch (e) {
+      setErreurRecalcul(`Je n'ai pas pu calculer le planning proposé : ${e.message}. Rien n'a été enregistré.`);
+    } finally {
+      setPhase(null);
+    }
+  };
+
   const envoyer = async (texteBrut) => {
     const question = String(texteBrut ?? saisie).trim();
     if (!question || enCours) return;
@@ -167,7 +192,10 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
       if (!r.ok) { ajouter({ role: "assistant", type: "erreur", texte: r.message }); return; }
       const res = r.resultat;
       if (res.type === "question") ajouter({ role: "assistant", type: "question", texte: res.message, choix: res.choix || [] });
-      else if (res.type === "proposition") {
+      else if (res.type === "apercu") {
+        ajouter({ role: "assistant", type: "apercu", texte: res.message });
+        await lancerApercu(res.perimetre);
+      } else if (res.type === "proposition") {
         const referentiel = await chargerReferentiel(res.consigne);
         const validation = validerDansLeNavigateur(res.consigne, referentiel);
         ajouter({ role: "assistant", type: "proposition", texte: res.message, consigne: res.consigne, validation, fiche: validation.fiche, texteOrigine: question });
@@ -232,9 +260,15 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
     }
   };
 
-  const semaines = useMemo(() => (resultat ? semainesDisponiblesV1(resultat.apres) : []), [resultat]);
+  const semaines = useMemo(() => (resultat ? semainesDisponiblesV1(resultat.mode === "apercu" ? resultat.resultat : resultat.apres) : []), [resultat]);
   const apercu = useMemo(() => {
     if (!resultat) return null;
+    if (resultat.mode === "apercu") {
+      return construireApercuPlanningActuelV1({
+        resultat: resultat.resultat, lundi, evenements: resultat.absences,
+        capaciteBase: capaciteBasePlanningPourDate, chantierIds: resultat.perimetre.chantier_ids,
+      });
+    }
     return construireApercuRecalculV1({
       avant: resultat.avant, apres: resultat.apres, lundi, evenements: resultat.absences,
       capaciteBase: capaciteBasePlanningPourDate, ressourcesConsigne: resultat.ressources,
@@ -257,7 +291,9 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
   }
 
   const large = !!apercu && !isMobile;
-  const statut = phase ? PHASES[phase] : resultat ? "Consigne enregistrée · recalcul terminé" : "Consignes au moteur de planning · administrateurs";
+  const statut = phase ? PHASES[phase]
+    : resultat?.mode === "apercu" ? "Planning proposé · rien n'est enregistré"
+      : resultat ? "Consigne enregistrée · recalcul terminé" : "Planning et consignes · administrateurs";
 
   const panneau = (
     <aside role="dialog" aria-label="Assistant planning" style={{
@@ -284,20 +320,20 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
       <div style={{ flexGrow: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
         {messages.length === 0 && (
           <div style={{ fontSize: FONT.md.size, lineHeight: 1.55, color: T.textSub }}>
-            Donnez une consigne au moteur de planning, par exemple : « Steven est absent lundi prochain », « Kev va réaliser l'ossature placo sur ce chantier », « J'ai programmé une intervention le 25/09 ». Je vous montre la consigne comprise avant tout enregistrement.
+            Demandez un planning (« Montre-moi le planning de la semaine prochaine ») ou donnez une consigne (« Steven est absent lundi prochain »). Rien n'est enregistré sans votre accord.
           </div>
         )}
         {messages.map((m, i) => (
           <React.Fragment key={i}>
             {m.role === "user" && <Bulle T={T} droite>{m.texte}</Bulle>}
             {m.role === "assistant" && m.type === "erreur" && <Encart niveau="danger" T={T}>{m.texte}</Encart>}
-            {m.role === "assistant" && m.type === "information" && <Bulle T={T}>{m.texte}</Bulle>}
+            {m.role === "assistant" && (m.type === "information" || m.type === "apercu") && <Bulle T={T}>{m.texte}</Bulle>}
             {m.role === "assistant" && m.type === "question" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <Bulle T={T}>{m.texte}</Bulle>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {m.choix.map(c => (
-                    <BoutonContour key={c.libelle} T={T} disabled={enCours || i !== messages.length - 1} onClick={() => envoyer(c.libelle)}>{c.libelle}</BoutonContour>
+                    <BoutonContour key={c.libelle} T={T} disabled={enCours || i !== messages.length - 1} onClick={() => envoyer(c.demande || c.libelle)}>{c.libelle}</BoutonContour>
                   ))}
                 </div>
               </div>
@@ -316,7 +352,12 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
 
         {apercu && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: FONT.xl.size, fontWeight: 800, color: T.text, lineHeight: 1.25 }}>Voici ce que la consigne change.</div>
+            <div style={{ fontSize: FONT.xl.size, fontWeight: 800, color: T.text, lineHeight: 1.25 }}>
+              {resultat?.mode === "apercu" ? resultat.perimetre.libelle : "Voici ce que la consigne change."}
+            </div>
+            {resultat?.mode === "apercu" && (
+              <Encart T={T}>Le moteur planifie tous les chantiers ensemble (équipes partagées) ; seul le périmètre demandé est affiché.</Encart>
+            )}
             <ResumeRecalcul apercu={apercu} T={T} acc={acc}/>
             {isMobile && <GrilleRecalcul apercu={apercu} vue={vue} setVue={setVue} semaines={semaines} setLundi={setLundi} T={T} acc={acc} isMobile/>}
             {isMobile && <BandeauFins apercu={apercu} T={T}/>}
@@ -363,9 +404,9 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
           )}
         </div>
         <form onSubmit={e => { e.preventDefault(); envoyer(); }} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <label htmlFor="assistant-planning-saisie" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Consigne</label>
+          <label htmlFor="assistant-planning-saisie" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Votre demande</label>
           <input id="assistant-planning-saisie" ref={saisieRef} value={saisie} onChange={e => setSaisie(e.target.value)} disabled={enCours}
-            placeholder="Donnez une consigne…" maxLength={1000}
+            placeholder="Votre demande…" maxLength={1000}
             style={{
               flexGrow: 1, minWidth: 0, minHeight: 48, boxSizing: "border-box", padding: "0 16px", borderRadius: RADIUS.xl,
               border: `1px solid ${T.fieldBorder}`, background: T.inputBg, color: T.text, fontFamily: "inherit", fontSize: FONT.md.size, outline: "none",

@@ -13,8 +13,6 @@
 // AUCUNE ÉCRITURE : l'enregistrement d'une consigne se fait dans le navigateur,
 // avec le compte de l'administrateur connecté, après sa validation explicite.
 
-const { parNom: outilsRenovation } = require("./outils");
-
 const MAX_TACHES = 25;
 const MAX_CHANTIERS = 12;
 
@@ -49,6 +47,11 @@ async function chargerConfig(sb) {
     groupesTypes: items(parCle.get("groupes_types")),
     equipes: items(parCle.get("equipes")),
   };
+}
+
+/** Chantiers de la configuration (contrôle du périmètre d'un aperçu). */
+async function chargerChantiersPlanning(sb) {
+  return (await chargerConfig(sb)).chantiers;
 }
 
 async function chargerRessources(sb) {
@@ -107,6 +110,43 @@ async function chargerReferentielConsigne(sb, consigneProposee = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Recherche propre à l'assistant planning (l'assistant Rénovation garde la
+// sienne, dans outils.js) : chantiers EN COURS seulement, et choix prêts à
+// l'emploi quand un nom désigne une famille (« fourmond » → FOURMOND 001, 101,
+// 102, COMMUNS + « Tous les FOURMOND »). La règle vit dans le module pur.
+const chercher_chantier = {
+  nom: "chercher_chantier",
+  description:
+    "Retrouve un ou plusieurs chantiers Rénovation en cours par leur nom ou une partie du nom. " +
+    "Passer le nom SEUL, tel qu'écrit (« fourmond », pas « le chantier fourmond »). Renvoie leurs identifiants. " +
+    "Plusieurs chantiers : le champ `choix` est prêt (un par chantier + « Tous les … ») — poser la question avec " +
+    "EXACTEMENT ces libellés. Trop de chantiers : `choix` est vide, demander de préciser le nom.",
+  schema: {
+    type: "object",
+    properties: { texte: { type: "string", description: "Nom ou partie du nom du chantier, tel que l'utilisateur l'a écrit." } },
+    required: ["texte"],
+  },
+  async executer(params, ctx) {
+    const m = await consigne();
+    const f = m.familleChantiersV1(await chargerChantiersPlanning(ctx.sb), params.texte);
+    return {
+      type: "recherche_chantier",
+      texte: f.texte,
+      nb: f.nb,
+      ambigu: f.ambigu,
+      chantiers: f.chantiers.slice(0, MAX_CHANTIERS),
+      choix: f.choix,
+      consigne: f.inconnu
+        ? "Aucun chantier en cours ne correspond : le dire en une phrase, sans en proposer un au hasard."
+        : f.trop_nombreux
+          ? `${f.nb} chantiers correspondent : demander de préciser le nom, en une phrase, sans liste.`
+          : f.ambigu
+            ? "Plusieurs chantiers correspondent : poser la question avec exactement ces choix."
+            : null,
+    };
+  },
+};
 
 const chercher_ressource = {
   nom: "chercher_ressource",
@@ -220,11 +260,12 @@ const interventions_du_jour = {
   },
 };
 
-const OUTILS_PLANNING = [outilsRenovation.chercher_chantier, chercher_ressource, travaux_chantier, interventions_du_jour];
+const OUTILS_PLANNING = [chercher_chantier, chercher_ressource, travaux_chantier, interventions_du_jour];
 
 module.exports = {
   OUTILS_PLANNING,
   parNomPlanning: Object.fromEntries(OUTILS_PLANNING.map((o) => [o.nom, o])),
   chargerReferentielConsigne,
+  chargerChantiersPlanning,
   consigne,
 };

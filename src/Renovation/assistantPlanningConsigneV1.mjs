@@ -614,3 +614,104 @@ export function fenetreSimulationConsigneV1({ periode = {}, prochainJourPlanifia
   if (debut && fin) horizon = Math.max(42, Math.min(84, ecartJoursV1(fin, debut) + 15));
   return { startDate: debut, horizonDays: horizon };
 }
+
+// ── Aperçu sans consigne : « fais / montre le planning de … » ────────────────
+// Demande la plus simple : voir ce que le moteur propose sur une période, pour
+// un ou plusieurs chantiers. Rien n'est enregistré (ni consigne, ni planning).
+
+export const JOURS_CALENDRIER = 42;   // calendrier donné au modèle
+export const APERCU_JOURS_MAX = 42;   // période affichable : 6 semaines
+export const MAX_CHOIX_QUESTION = 6;  // boutons d'une question, « Tous les … » compris
+
+/**
+ * Chantiers dont le nom contient tous les mots cherchés (« fourmond » → les
+ * quatre FOURMOND). Un chantier terminé n'est jamais proposé : le moteur ne le
+ * planifie plus.
+ *   - aucun      → inconnu ;
+ *   - un seul    → unique ;
+ *   - plusieurs  → un choix par chantier + « Tous les <texte> », si le total
+ *                  tient dans MAX_CHOIX_QUESTION ; sinon trop_nombreux et
+ *                  AUCUN choix (on demande de préciser le nom).
+ */
+export function familleChantiersV1(chantiers, texte) {
+  const cle = cleTexteV1(texte);
+  const liste = (Array.isArray(chantiers) ? chantiers : [])
+    .filter(c => str(c?.id) && str(c.statut) !== "termine")
+    .map(c => ({ id: str(c.id), nom: str(c.nom) || str(c.id) }));
+  const trouves = cle
+    ? liste.filter(c => correspond(texte, c.nom, c.id)).sort((a, b) => a.nom.localeCompare(b.nom, "fr"))
+    : [];
+  const nb = trouves.length;
+  const tropNombreux = nb + 1 > MAX_CHOIX_QUESTION;
+  const choix = nb > 1 && !tropNombreux
+    ? [
+      ...trouves.map(c => ({ libelle: c.nom, chantier_ids: [c.id] })),
+      { libelle: `Tous les ${str(texte).toLocaleUpperCase("fr-FR")}`, chantier_ids: trouves.map(c => c.id) },
+    ]
+    : [];
+  return {
+    texte: str(texte),
+    nb,
+    chantiers: trouves,
+    inconnu: nb === 0,
+    unique: nb === 1,
+    ambigu: nb > 1,
+    trop_nombreux: nb > 1 && tropNombreux,
+    choix,
+  };
+}
+
+function periodeTexteApercu(debut, fin) {
+  return debut === fin ? libelleDateV1(debut) : `du ${libelleDateV1(debut, { court: true })} au ${libelleDateV1(fin, { court: true })}`;
+}
+
+/**
+ * Contrôle du périmètre d'un aperçu (serveur ET navigateur) : chantiers
+ * existants et non terminés (liste vide = tous), dates lisibles, dans le
+ * calendrier donné au modèle, non passées, période d'au plus 6 semaines.
+ */
+export function validerPerimetreApercuV1(perimetre, { chantiers = [], aujourdhui, joursCalendrier = JOURS_CALENDRIER } = {}) {
+  const erreurs = [];
+  const err = (code, message) => erreurs.push({ code, message });
+  if (!perimetre || typeof perimetre !== "object" || Array.isArray(perimetre)) {
+    err("perimetre_manquant", "Le périmètre de l'aperçu (chantiers et période) est manquant.");
+    return { ok: false, erreurs, perimetre: null };
+  }
+  const connus = new Map((Array.isArray(chantiers) ? chantiers : []).filter(c => str(c?.id)).map(c => [str(c.id), c]));
+  let ids = [];
+  if (!Array.isArray(perimetre.chantier_ids)) err("chantiers_illisibles", "chantier_ids doit être une liste (vide = tous les chantiers).");
+  else ids = uniq(perimetre.chantier_ids);
+  const retenus = [];
+  for (const id of ids) {
+    const c = connus.get(id);
+    if (!c) err("chantier_inconnu", `Aucun chantier ne porte l'identifiant ${id}.`);
+    else if (str(c.statut) === "termine") err("chantier_termine", `Le chantier ${str(c.nom) || id} est terminé : il n'y a plus rien à planifier.`);
+    else retenus.push({ id, nom: str(c.nom) || id });
+  }
+
+  const auj = dateISOv1(aujourdhui);
+  const debut = dateISOv1(perimetre.date_debut);
+  const fin = dateISOv1(perimetre.date_fin);
+  if (!debut) err("date_illisible", `Date de début illisible : ${str(perimetre.date_debut) || "absente"}.`);
+  if (!fin) err("date_illisible", `Date de fin illisible : ${str(perimetre.date_fin) || "absente"}.`);
+  if (debut && fin && auj) {
+    const derniere = ajouterJoursV1(auj, joursCalendrier - 1);
+    if (debut < auj) err("date_passee", `La période commence le ${libelleDateV1(debut)}, avant aujourd'hui.`);
+    if (debut > derniere || fin > derniere) err("hors_calendrier", `La période dépasse le calendrier fourni (jusqu'au ${libelleDateV1(derniere)}).`);
+    if (fin < debut) err("fin_avant_debut", "La date de fin est avant la date de début.");
+    else if (ecartJoursV1(fin, debut) + 1 > APERCU_JOURS_MAX) err("periode_trop_longue", "La période dépasse 6 semaines : demandez une période plus courte.");
+  }
+  const ok = erreurs.length === 0;
+  return {
+    ok,
+    erreurs,
+    perimetre: ok ? {
+      chantier_ids: retenus.map(c => c.id),
+      chantiers: retenus,
+      tous: retenus.length === 0,
+      date_debut: debut,
+      date_fin: fin,
+      libelle: `${retenus.length ? retenus.map(c => c.nom).join(", ") : "Tous les chantiers"} — ${periodeTexteApercu(debut, fin)}`,
+    } : null,
+  };
+}

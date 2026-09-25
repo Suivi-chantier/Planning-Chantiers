@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-25",
+    type: "amelioration",
+    titre: "Assistant planning : « fais le planning de la semaine prochaine pour Fourmond » donne directement le planning proposé",
+    pages: [],
+    quoi: "Demander simplement un planning ne donnait qu'un long texte d'explication. L'assistant répond maintenant oui aux demandes simples : « fais le planning de la semaine prochaine pour … », « recalcule les plannings », « quand finit … ? ». Il montre le planning actuel à côté du planning proposé, sur les chantiers demandés, sans rien enregistrer. Ses réponses tiennent en une ou deux phrases.",
+    comment: "Quand un nom correspond à plusieurs chantiers (par exemple « fourmond » : FOURMOND 001, 101, 102 et COMMUNS), l'assistant pose une question courte avec un bouton par chantier et un bouton « Tous les FOURMOND ». Un clic suffit, sans retaper la demande. Au-delà de 6 boutons, il demande de préciser le nom. La grille bascule entre « Planning actuel » (le planning tel qu'il est dans Planning semaine) et « Proposition du moteur ». On y voit aussi la fin prévue de chaque chantier et les tâches qui ne trouvent pas de place, avec leur raison. Le planning actuel ne donne jamais de date de fin, seulement le dernier jour posé : il ne dit pas si tout le reste est prévu. Le calcul prend en compte tous les chantiers ensemble, parce que les équipes sont partagées ; seul l'affichage est limité aux chantiers demandés. Rien n'est enregistré : ni consigne, ni planning. Le nouveau bouton rapide « Planning de la semaine prochaine » prépare la phrase. Une question hors planning (marge, factures…) reçoit une réponse d'une phrase avec un exemple de demande possible.",
+  },
+  {
     date: "2026-09-24",
     type: "nouveaute",
     titre: "Assistant planning : donner une consigne en une phrase et voir tout de suite ce qu'elle change (administrateurs)",

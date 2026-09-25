@@ -15,6 +15,14 @@ import { libelleDateV1 } from "./assistantPlanningConsigneV1.js";
 const court = iso => libelleDateV1(iso, { court: true });
 const jourSeul = iso => court(iso).split(" ")[0];
 
+// Libellés selon ce qui est comparé : deux calculs du moteur autour d'une
+// consigne, ou le planning actuel face à la proposition du moteur.
+export const LIBELLES_COMPARAISON = {
+  consigne: { titre: "Aperçu du recalcul", avant: "Avant", apres: "Après", vide: "Aucune tâche proposée par le moteur cette semaine, avant comme après." },
+  planning_actuel: { titre: "Planning proposé", avant: "Planning actuel", apres: "Proposition du moteur", vide: "Rien de posé ni de proposé cette semaine pour ce chantier." },
+};
+const libelles = apercu => LIBELLES_COMPARAISON[apercu?.comparaison] || LIBELLES_COMPARAISON.consigne;
+
 function Legende({ T, acc }) {
   const pastille = style => <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: RADIUS.sm, boxSizing: "border-box", flexShrink: 0, ...style }}/>;
   const items = [
@@ -62,6 +70,7 @@ function Tuile({ it, T, acc, mode }) {
 }
 
 export function GrilleRecalcul({ apercu, vue, setVue, semaines = [], setLundi, T, acc, isMobile }) {
+  const L = libelles(apercu);
   const idx = semaines.indexOf(apercu.lundi);
   const bouton = (actif) => ({
     minHeight: 36, padding: "0 16px", border: "none", borderRadius: RADIUS.md, cursor: "pointer",
@@ -76,7 +85,7 @@ export function GrilleRecalcul({ apercu, vue, setVue, semaines = [], setLundi, T
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, color: T.text, letterSpacing: 0.3 }}>Aperçu du recalcul</h2>
+        <h2 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, color: T.text, letterSpacing: 0.3 }}>{L.titre}</h2>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <button type="button" aria-label="Semaine précédente" disabled={idx <= 0} onClick={() => setLundi(semaines[idx - 1])} style={nav(idx <= 0)}><Icon as={ChevronLeft} size={16}/></button>
           <span style={{ fontSize: FONT.base.size, color: T.textSub, whiteSpace: "nowrap" }}>
@@ -85,8 +94,8 @@ export function GrilleRecalcul({ apercu, vue, setVue, semaines = [], setLundi, T
           <button type="button" aria-label="Semaine suivante" disabled={idx < 0 || idx >= semaines.length - 1} onClick={() => setLundi(semaines[idx + 1])} style={nav(idx < 0 || idx >= semaines.length - 1)}><Icon as={ChevronRight} size={16}/></button>
         </div>
         <div role="group" aria-label="Affichage" style={{ marginLeft: "auto", display: "flex", background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: 3 }}>
-          <button type="button" aria-pressed={vue === "avant"} onClick={() => setVue("avant")} style={bouton(vue === "avant")}>Avant</button>
-          <button type="button" aria-pressed={vue === "apres"} onClick={() => setVue("apres")} style={bouton(vue === "apres")}>Après</button>
+          <button type="button" aria-pressed={vue === "avant"} onClick={() => setVue("avant")} style={bouton(vue === "avant")}>{L.avant}</button>
+          <button type="button" aria-pressed={vue === "apres"} onClick={() => setVue("apres")} style={bouton(vue === "apres")}>{L.apres}</button>
         </div>
       </div>
 
@@ -102,7 +111,7 @@ export function GrilleRecalcul({ apercu, vue, setVue, semaines = [], setLundi, T
           ))}
           {apercu.lignes.length === 0 && (
             <div style={{ gridColumn: "1 / -1", padding: 16, color: T.textSub, fontSize: FONT.base.size }}>
-              Aucune tâche proposée par le moteur cette semaine, avant comme après.
+              {L.vide}
             </div>
           )}
           {apercu.lignes.map(l => (
@@ -137,12 +146,16 @@ export function GrilleRecalcul({ apercu, vue, setVue, semaines = [], setLundi, T
 }
 
 export function BandeauFins({ apercu, T }) {
+  const actuel = apercu.comparaison === "planning_actuel";
+  const sansTravail = apercu.chantiers_sans_travail || [];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg, padding: "12px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: T.textSub }}>
-        <Icon as={CalendarRange} size={14}/> Fin prévisionnelle
+        <Icon as={CalendarRange} size={14}/> {actuel ? "Fin prévisionnelle — planning actuel → proposition du moteur" : "Fin prévisionnelle"}
       </div>
-      {apercu.fins.length === 0 && <div style={{ fontSize: FONT.base.size, color: T.text }}>Aucune fin prévisionnelle ne bouge.</div>}
+      {apercu.fins.length === 0 && sansTravail.length === 0 && (
+        <div style={{ fontSize: FONT.base.size, color: T.text }}>{actuel ? "Aucun chantier à planifier sur ce périmètre." : "Aucune fin prévisionnelle ne bouge."}</div>
+      )}
       {apercu.fins.map(f => (
         <div key={f.chantier_id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: FONT.base.size }}>
           <span style={{ fontWeight: 700, color: T.text }}>{f.chantier}</span>
@@ -154,7 +167,15 @@ export function BandeauFins({ apercu, T }) {
           {f.apres.detail && <span style={{ width: "100%", fontSize: FONT.sm.size, color: T.textSub }}>{f.apres.detail}</span>}
         </div>
       ))}
-      {apercu.chantiers_fin_inchangee > 0 && (
+      {sansTravail.map(c => (
+        <div key={c.chantier_id} style={{ fontSize: FONT.base.size, color: T.text }}>
+          <b>{c.chantier}</b> <span style={{ color: T.textSub }}>— rien à planifier sur l'horizon calculé (aucun travail restant trouvé).</span>
+        </div>
+      ))}
+      {actuel && apercu.fins.length > 0 && (
+        <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>Le planning actuel ne dit pas si tout le reste est posé : seule la proposition donne une fin.</div>
+      )}
+      {!actuel && apercu.chantiers_fin_inchangee > 0 && (
         <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>
           {apercu.fins.length ? "Les autres chantiers ne bougent pas." : `${apercu.chantiers_fin_inchangee} chantier(s) calculé(s), fins inchangées.`}
         </div>
@@ -173,6 +194,7 @@ function Chiffre({ valeur, libelle, couleur, T }) {
 }
 
 export function ResumeRecalcul({ apercu, T, acc }) {
+  const actuel = apercu.comparaison === "planning_actuel";
   const heure = apercu.calcule_le ? new Date(apercu.calcule_le) : null;
   const heureTxt = heure && !Number.isNaN(heure.getTime())
     ? `${String(heure.getHours()).padStart(2, "0")} h ${String(heure.getMinutes()).padStart(2, "0")}` : null;
@@ -228,7 +250,7 @@ export function ResumeRecalcul({ apercu, T, acc }) {
 
       <div style={{ fontSize: FONT.sm.size, lineHeight: 1.5, color: T.textSub }}>
         {apercu.resume.deplacees === 0 && apercu.resume.non_planifiees === 0 && apercu.nouvelles.length === 0
-          ? "Le moteur ne déplace aucune tâche pour cette consigne sur l'horizon calculé. "
+          ? (actuel ? "La proposition est identique au planning actuel sur l'horizon calculé. " : "Le moteur ne déplace aucune tâche pour cette consigne sur l'horizon calculé. ")
           : ""}
         Chiffres issus du moteur de planning{heureTxt ? `, calculés à ${heureTxt}` : ""}
         {apercu.horizon?.start_date ? `, du ${court(apercu.horizon.start_date)} au ${court(apercu.horizon.end_date)}` : ""}.
@@ -239,7 +261,9 @@ export function ResumeRecalcul({ apercu, T, acc }) {
 
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: 12, borderRadius: RADIUS.lg, border: `1px dashed ${acc.border}`, color: T.text, fontSize: FONT.base.size, lineHeight: 1.45 }}>
         <Icon as={Info} size={16} style={{ flexShrink: 0, marginTop: 2 }}/>
-        <span><b>Application au planning : étape 3.</b> Rien n'est modifié dans le planning. La consigne reste enregistrée : annulez-la ci-dessous si elle ne convient pas.</span>
+        <span><b>Application au planning : étape 3.</b> {actuel
+          ? "Rien n'est enregistré : ni consigne, ni planning."
+          : "Rien n'est modifié dans le planning. La consigne reste enregistrée : annulez-la ci-dessous si elle ne convient pas."}</span>
       </div>
     </div>
   );

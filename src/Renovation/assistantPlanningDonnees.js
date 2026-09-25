@@ -19,7 +19,7 @@ import { capaciteBasePlanningPourDate } from "./planningResourceCapacityV1.js";
 import {
   NATURES_CONSIGNE, SOURCE_ASSISTANT, TABLE_CONTRAINTES, TABLE_EVENEMENTS, VIA_ASSISTANT,
   ajouterJoursV1, celluleDuJourV1, consignesAssistantV1, fenetreSimulationConsigneV1,
-  interventionsDuJourV1, validerConsigneV1,
+  interventionsDuJourV1, validerConsigneV1, validerPerimetreApercuV1,
 } from "./assistantPlanningConsigneV1.js";
 
 export const TACHE_IA = "renovation_planning_consigne";
@@ -167,6 +167,20 @@ export function fenetrePourFiche(fiche) {
 /** Le moteur existant, tel quel : même fonction que le panneau Simulation. */
 export async function recalculer(fenetre) {
   return simulerPlanningGlobalV1({ startDate: fenetre.startDate, horizonDays: fenetre.horizonDays });
+}
+
+/**
+ * Aperçu sans consigne (« montre le planning de la semaine prochaine pour … ») :
+ * le moteur tourne sur TOUS les chantiers (équipes partagées), rien n'est
+ * enregistré. Le périmètre est revalidé ici avec la liste des chantiers que le
+ * moteur vient de lire ; seul l'affichage est ensuite filtré.
+ */
+export async function apercuSansConsigne(perimetre) {
+  const fenetre = fenetrePourFiche({ periode: { debut: perimetre?.date_debut, fin: perimetre?.date_fin } });
+  const [resultat, absences] = await Promise.all([recalculer(fenetre), chargerAbsences()]);
+  const v = validerPerimetreApercuV1(perimetre, { chantiers: resultat?.referentiel?.chantiers || [], aujourdhui: aujourdhuiISO() });
+  if (!v.ok) throw new Error(v.erreurs.map(e => e.message).join(" "));
+  return { resultat, absences, perimetre: v.perimetre };
 }
 
 export async function chargerAbsences() {
