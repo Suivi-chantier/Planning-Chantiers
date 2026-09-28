@@ -284,7 +284,7 @@ function raisonsPourChangement({ changement, travail, proposedRows, nonPlanifie,
       raisons.push(raison(
         "non_planifiable_dans_horizon",
         nonPlanifie.raison || "La tâche ne peut pas être planifiée dans l'horizon courant.",
-        { heures_mo_restantes: nonPlanifie.heures_mo_restantes, tentatives: nonPlanifie.tentatives || null },
+        { heures_mo_restantes: nonPlanifie.heures_mo_restantes, tentatives: nonPlanifie.tentatives || null, raison_code: nonPlanifie.raison_code || null },
         "important"
       ));
     }

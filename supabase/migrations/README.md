@@ -12,6 +12,8 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
   explicitement. C'est le **seul** fichier dont la version n'est pas enregistrée
   en base.
 
+20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
+
 ## Pourquoi cet alignement
 
 Avant le 22/09/2026, les fichiers portaient des numéros que la base ne
