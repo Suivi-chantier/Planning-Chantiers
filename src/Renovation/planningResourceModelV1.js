@@ -154,13 +154,18 @@ export function normaliserEquipeLegacy(equipe, ressources = []) {
       };
     });
 
-  // Le responsable fait partie de l'effectif. On le garde séparé pour son rôle,
-  // mais `resource_ids` contient responsable + membres sans doublon.
-  const resourceIds = [responsable?.id, ...membres.map(m => m.resource_id)].filter(Boolean);
+  // Le responsable fait partie de l'effectif, SAUF si l'équipe indique qu'il
+  // encadre sans travailler (`responsable_travaille: false` ; absent = true,
+  // comportement historique). Il reste le responsable affiché (responsable_*),
+  // et reste dans l'effectif s'il est AUSSI inscrit comme membre.
+  // `resource_ids` contient responsable (s'il travaille) + membres sans doublon.
+  const responsableTravaille = eq.responsable_travaille !== false;
+  const resourceIds = [responsableTravaille ? responsable?.id : null, ...membres.map(m => m.resource_id)].filter(Boolean);
   return {
     id: str(eq.id) || null,
     nom: str(eq.nom),
     externe: !!eq.externe,
+    responsable_travaille: responsableTravaille,
     responsable_resource_id: responsable?.id || null,
     responsable_nom_planning: responsableNom || null,
     membres,
@@ -168,12 +173,33 @@ export function normaliserEquipeLegacy(equipe, ressources = []) {
   };
 }
 
+/**
+ * Prénoms proposables d'une équipe pour pré-remplir les tâches du Phasage :
+ * responsables (multi-chefs `responsables[]`, repli sur `responsable`) SAUF
+ * s'ils encadrent sans travailler (`responsable_travaille: false`), puis les
+ * membres dont la date_dispo est atteinte. Sans doublon ; un responsable aussi
+ * inscrit comme membre reste proposé. Équipe externe sans membres → [].
+ */
+export function nomsEquipeProposablesV1(equipe, aujourdhuiISO) {
+  const eq = equipe && typeof equipe === "object" ? equipe : {};
+  const aujourdhui = str(aujourdhuiISO).slice(0, 10);
+  const chefs = eq.responsable_travaille === false ? []
+    : (Array.isArray(eq.responsables) && eq.responsables.length ? eq.responsables : [eq.responsable]);
+  const list = [
+    ...chefs,
+    ...(Array.isArray(eq.membres) ? eq.membres : [])
+      .filter(m => !m?.date_dispo || String(m.date_dispo).slice(0, 10) <= aujourdhui)
+      .map(m => m?.ouvrier),
+  ].filter(Boolean);
+  return [...new Set(list)];
+}
+
 export function membresEquipeDisponibles(equipe, dateISO, ressources = []) {
   const eq = normaliserEquipeLegacy(equipe, ressources);
   if (eq.externe) return [];
   const date = str(dateISO).slice(0, 10);
   const ids = new Set();
-  if (eq.responsable_resource_id) ids.add(eq.responsable_resource_id);
+  if (eq.responsable_resource_id && eq.responsable_travaille) ids.add(eq.responsable_resource_id);
   for (const m of eq.membres) {
     if (!m.resource_id) continue;
     if (m.date_dispo && date && m.date_dispo.slice(0, 10) > date) continue;

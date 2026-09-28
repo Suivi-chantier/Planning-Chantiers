@@ -38,6 +38,7 @@ import { choisirPhasage } from "./phasageRegistre.mjs";
 import MateriauxOuvrage from "./MateriauxOuvrage";
 // État de contrôle d'un groupe (badge signalé, jamais bloquant).
 import { etatControleGroupe } from "./controles";
+import { nomsEquipeProposablesV1 } from "./planningResourceModelV1.js";
 import { confirmPerteMassive } from "../guards";
 import { useDirtyGuard } from "../hooks";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
@@ -86,23 +87,10 @@ import {
 
 const rid = () => Math.random().toString(36).slice(2, 10);
 
-// Membres proposables d'une équipe : responsables + membres, par prénom
-// (la clé de jointure de toute l'appli), sans doublon. Un membre avec une
-// date_dispo FUTURE (embauche à venir, ex : Keita en septembre) reste visible
-// dans l'Admin mais n'est ni proposé au pré-remplissage ni compté ici tant
-// que sa date n'est pas atteinte. L'équipe Externe (externe: true, sans
-// membres) renvoie donc une liste vide.
-const membresEquipe = (eq) => {
-  const aujourdhui = new Date().toISOString().slice(0, 10);
-  const list = [
-    // Multi-chefs : responsables[] avec repli sur l'ancien champ responsable.
-    ...(Array.isArray(eq?.responsables) && eq.responsables.length ? eq.responsables : [eq?.responsable]),
-    ...(eq?.membres || [])
-      .filter(m => !m.date_dispo || String(m.date_dispo).slice(0, 10) <= aujourdhui)
-      .map(m => m.ouvrier),
-  ].filter(Boolean);
-  return [...new Set(list)];
-};
+// Membres proposables d'une équipe : la règle vit dans nomsEquipeProposablesV1
+// (planningResourceModelV1.js, testée) — responsables qui travaillent avec
+// l'équipe + membres déjà disponibles, par prénom, sans doublon.
+const membresEquipe = (eq) => nomsEquipeProposablesV1(eq, new Date().toISOString().slice(0, 10));
 
 const JOURS_SEM = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 

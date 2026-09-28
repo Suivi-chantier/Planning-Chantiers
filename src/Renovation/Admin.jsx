@@ -4541,6 +4541,32 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                     </div>
                   </div>
 
+                  {/* Le responsable travaille-t-il avec l'équipe ? Absent = oui
+                      (comportement historique). Décoché : il encadre sans
+                      travailler — toujours affiché comme responsable, mais ni
+                      candidat du moteur, ni proposé dans le Phasage (sauf s'il
+                      est aussi inscrit comme membre). */}
+                  {respsDe(eq).length > 0 && (
+                    <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                      <span style={{minWidth:92}}/>
+                      <label style={{flex:"1 1 300px",display:"inline-flex",alignItems:"flex-start",gap:8,cursor:"pointer",
+                        fontSize:FONT.xs.size+1,fontWeight:600,color:T.text,userSelect:"none",lineHeight:1.4}}
+                        title="Décoché : le responsable encadre sans travailler. Il reste affiché comme responsable, mais le planning ne lui donne pas les tâches de l'équipe et le Phasage ne le propose pas.">
+                        <input type="checkbox" checked={eq.responsable_travaille !== false}
+                          onChange={e=>updEquipe(i, { responsable_travaille: e.target.checked })}
+                          style={{accentColor:T.accent,width:15,height:15,cursor:"pointer",marginTop:1,flexShrink:0}}/>
+                        <span>
+                          {respsDe(eq).length > 1 ? "Les responsables travaillent avec l'équipe" : "Le responsable travaille avec l'équipe"}
+                          {eq.responsable_travaille === false && (
+                            <span style={{display:"block",fontWeight:400,color:T.textMuted,fontSize:FONT.xs.size}}>
+                              Encadre sans travailler : ni proposé par le planning, ni pré-rempli dans le Phasage (sauf s'il est aussi membre).
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
                   {/* Membres */}
                   <div style={{display:"flex",alignItems:"flex-start",gap:8,flexWrap:"wrap"}}>
                     <span style={{fontSize:FONT.xs.size+1,fontWeight:700,color:T.textSub,minWidth:92,paddingTop:7}}>Membres</span>
