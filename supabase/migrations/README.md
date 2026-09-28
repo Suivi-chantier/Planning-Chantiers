@@ -3,10 +3,10 @@
 Ce dossier reflète **exactement** l'historique des migrations de la base de
 production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
-- **27 fichiers `.sql`**, dont **26** correspondent chacun à une migration
+- **28 fichiers `.sql`**, dont **27** correspondent chacun à une migration
   réellement appliquée : même numéro de version, même nom (vérifié en base par
-  Cowork le 26/09/2026).
-- **Le 27e n'est pas appliqué** :
+  Cowork le 26/09/2026, puis le 28/09/2026 pour la 27e).
+- **Le 28e n'est pas appliqué** :
   `20260829210000_planning_replanning_apply_rpc_v1.sql` (chantier 05), la RPC
   `apply_planning_replanning_v1`. Cette fonction **n'existe pas en base**, et
   c'est voulu — l'écriture du planning replanifié est une décision séparée, à
@@ -16,10 +16,12 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
-**20260928190000_materiaux_bibliotheque_rls_une_verification.sql : PAS ENCORE
-APPLIQUÉE** (28/09/2026). Réécriture de la règle d'accès de
-`materiaux_bibliotheque` à effet identique (2,5 s → 17 ms). À appliquer, puis
-renommer le fichier au numéro enregistré en base (règle 3).
+20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
+d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
+requête (2,5 s → 17 ms). Le fichier, d'abord préparé sous
+`20260928190000_materiaux_bibliotheque_rls_une_verification.sql`, a été renommé
+au numéro et au nom enregistrés en base (règle 3), et reprend le SQL enregistré
+mot pour mot (drop + create au lieu d'alter : même règle).
 
 ## Pourquoi cet alignement
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { InputNombre } from "../ui";
 import { useCatalogueDemande } from "./useCatalogueDemande";
+import ImageOuRepli from "./ImageOuRepli";
 import { libelleResultatsPlafonnes } from "./materiauxCatalogueV1.js";
 
 const STYLE_INJECTED = { current: false };
@@ -222,26 +223,26 @@ export default function BesoinCommandeDrawer({
                   }}>{qty}</div>
                 )}
 
-                {imageUrl ? (
-                  <img
-                    src={imageUrl}
-                    alt={article.nom}
-                    style={{
-                      width: "100%", aspectRatio: "1/1",
-                      objectFit: "contain", background: "#f8f9fc",
-                      padding: 8, borderRadius: "12px 12px 0 0",
-                      display: "block",
-                    }}
-                    loading="lazy"
-                  />
-                ) : (
-                  <div style={{
+                {/* Photo introuvable (≈ 3 articles SIDER sur 4) ⇒ même repli que sans photo. */}
+                <ImageOuRepli
+                  key={article.id}
+                  src={imageUrl}
+                  alt={article.nom}
+                  style={{
                     width: "100%", aspectRatio: "1/1",
-                    background: "linear-gradient(135deg,#f0f2f7,#e4e8f0)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 32, borderRadius: "12px 12px 0 0",
-                  }} className="bcd-img-placeholder">📦</div>
-                )}
+                    objectFit: "contain", background: "#f8f9fc",
+                    padding: 8, borderRadius: "12px 12px 0 0",
+                    display: "block",
+                  }}
+                  repli={
+                    <div style={{
+                      width: "100%", aspectRatio: "1/1",
+                      background: "linear-gradient(135deg,#f0f2f7,#e4e8f0)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 32, borderRadius: "12px 12px 0 0",
+                    }} className="bcd-img-placeholder">📦</div>
+                  }
+                />
 
                 <div style={{ padding: "8px 10px 10px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1f2e", lineHeight: 1.3 }}>

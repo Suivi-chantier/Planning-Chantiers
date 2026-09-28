@@ -185,14 +185,30 @@ const lire = f => readFile(resolve(racine, f), "utf8");
   assert.equal(MATERIAUX_CATALOGUE_VERSION, "v1");
 }
 
-// 9. Migration de la règle d'accès : même règle, évaluée une fois.
+// 9. Migration de la règle d'accès (appliquée le 28/09/2026 sous
+//    20260928191112) : même règle, évaluée une fois.
 {
-  const sql = await lire("supabase/migrations/20260928190000_materiaux_bibliotheque_rls_une_verification.sql");
+  const sql = await lire("supabase/migrations/20260928191112_materiaux_bibliotheque_rls_initplan.sql");
   const code = sql.split("\n").filter(l => !l.trim().startsWith("--")).join("\n");
-  assert.match(code, /alter policy materiaux_bibliotheque_bureau on public\.materiaux_bibliotheque/);
+  assert.match(code, /drop policy if exists materiaux_bibliotheque_bureau on public\.materiaux_bibliotheque;/);
+  assert.match(code, /create policy materiaux_bibliotheque_bureau on public\.materiaux_bibliotheque\s+for all to authenticated/,
+    "même portée que la règle d'origine : toutes les opérations, utilisateurs connectés");
   assert.equal((code.match(/\(select public\.mon_role\(\)\) is not null/g) || []).length, 2, "using + with check");
   assert.equal((code.match(/not \(select public\.est_ouvrier\(\)\)/g) || []).length, 2);
-  assert.doesNotMatch(code, /drop |grant |create /i, "aucun autre changement");
+  assert.equal((code.match(/^\s*(drop|create|alter|grant|revoke)\b/gim) || []).length, 2, "aucun autre changement");
+}
+
+// 10. Photo introuvable (≈ 3 articles SIDER sur 4 : réponse 404) ⇒ repli
+//     visible, jamais une case vide ni une image cassée.
+{
+  const composant = await lire("src/Renovation/ImageOuRepli.jsx");
+  assert.match(composant, /onError=\{\(\) => setIntrouvable\(true\)\}/);
+  assert.match(composant, /if \(!src \|\| introuvable\) return repli;/);
+  for (const f of ["src/Renovation/PageBibliothequeMateriaux.jsx", "src/Renovation/OuvrierCommande.jsx", "src/Renovation/BesoinCommandeDrawer.jsx"]) {
+    const src = await lire(f);
+    assert.match(src, /<ImageOuRepli/, `${f} : photo avec repli`);
+    assert.doesNotMatch(src, /style\.display = "none"/, `${f} : plus d'image masquée en silence`);
+  }
 }
 
 console.log("verif-materiaux-grand-catalogue : OK");
