@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { InputNombre } from "../ui";
+import { useCatalogueDemande } from "./useCatalogueDemande";
+import { libelleResultatsPlafonnes } from "./materiauxCatalogueV1.js";
 
 const STYLE_INJECTED = { current: false };
 function injectStyles() {
@@ -44,38 +46,22 @@ export default function BesoinCommandeDrawer({
 }) {
   injectStyles();
 
-  const [bibliotheque, setBibliotheque] = useState([]);
-  const [loading, setLoading]           = useState(true);
   const [search, setSearch]             = useState("");
   const [catActive, setCatActive]       = useState("Tous");
   const searchRef = useRef(null);
 
-  useEffect(() => {
-    (async () => {
-      // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
-      // id, nom, reference, categorie, photo_url, unite — jamais les prix ni
-      // les fournisseurs. Ce tiroir s'affiche AUSSI dans le formulaire public
-      // /rapport, donc sans authentification : la RPC est exécutable par anon,
-      // la table ne l'est pas. Ne PAS ajouter de repli vers la table.
-      // Le tri par nom est fait côté SQL.
-      const { data, error } = await supabase.rpc("catalogue_materiaux_demande");
-      if (error) console.error("Erreur chargement bibliothèque:", error);
-      setBibliotheque(Array.isArray(data) ? data : []);
-      setLoading(false);
-    })();
-  }, []);
-
-  const categories = ["Tous", ...Array.from(new Set((bibliotheque || []).map(a => a.categorie).filter(Boolean))).sort()];
-
-  const filtered = bibliotheque.filter(a => {
-    const matchCat = catActive === "Tous" || a.categorie === catActive;
-    const q = search.trim().toLowerCase();
-    const matchSearch = !q
-      || (a.nom || "").toLowerCase().includes(q)
-      || (a.reference || "").toLowerCase().includes(q)
-      || (a.categorie || "").toLowerCase().includes(q);
-    return matchCat && matchSearch;
-  });
+  // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
+  // id, nom, reference, categorie, photo_url, unite — jamais les prix ni
+  // les fournisseurs. Ce tiroir s'affiche AUSSI dans le formulaire public
+  // /rapport, donc sans authentification : la RPC est exécutable par anon,
+  // la table ne l'est pas. Ne PAS ajouter de repli vers la table.
+  // Plus de 23 000 articles : recherche et catégorie filtrées par la base,
+  // 50 articles affichés au plus (useCatalogueDemande.js).
+  const catalogue = useCatalogueDemande({ recherche: search.trim(), categorie: catActive });
+  const filtered = catalogue.articles;
+  const loading = catalogue.loading && filtered.length === 0;
+  const plafond = libelleResultatsPlafonnes(filtered.length, catalogue.total);
+  const categories = ["Tous", ...(catalogue.categories || [])];
 
   const panierCount = Object.values(panier).reduce((s, v) => s + (v.qty || 0), 0);
   const panierItems = Object.values(panier).filter(v => v.qty > 0);
@@ -192,7 +178,13 @@ export default function BesoinCommandeDrawer({
               Chargement…
             </div>
           )}
-          {!loading && filtered.length === 0 && (
+          {!loading && catalogue.erreur && (
+            <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "#e05c5c" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+              {catalogue.erreur}
+            </div>
+          )}
+          {!loading && !catalogue.erreur && filtered.length === 0 && (
             <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 40, color: "#8a9ab0" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
               Aucun article trouvé
@@ -305,6 +297,11 @@ export default function BesoinCommandeDrawer({
               </div>
             );
           })}
+          {!loading && !catalogue.erreur && plafond && (
+            <div style={{ gridColumn: "1/-1", textAlign: "center", fontSize: 13, color: "#8a9ab0", padding: "4px 8px 8px" }}>
+              {plafond} (nom, référence ou catégorie).
+            </div>
+          )}
         </div>
 
         {/* Barre panier */}

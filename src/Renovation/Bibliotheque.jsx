@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
 // BIBLIOTHEQUE_INITIALE n'est plus importée ici : elle servait uniquement à
 // l'amorçage automatique retiré de loadOuvrages. La constante reste définie
 // dans src/constants.js, elle n'est simplement plus branchée sur ce chemin.
@@ -1342,9 +1343,14 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
   }
 
   async function loadMateriaux() {
-    const { data } = await supabase.from("materiaux_bibliotheque")
-      .select("id,nom,reference,unite,prix_unitaire,fournisseur,categorie")
-      .order("nom");
+    // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js).
+    // Une lecture incomplète ne remplace pas la liste en place : des matériaux
+    // liés « introuvables » fausseraient les prix d'ouvrages affichés.
+    const { data, error } = await chargerTousLesMateriaux("id,nom,reference,unite,prix_unitaire,fournisseur,categorie", { tri: "nom" });
+    if (error) {
+      flash("error", "La bibliothèque matériaux n'a pas pu être lue en entier : les prix des ouvrages affichés peuvent être incomplets. Rechargez la page.");
+      return;
+    }
     setMateriaux(data || []);
   }
 

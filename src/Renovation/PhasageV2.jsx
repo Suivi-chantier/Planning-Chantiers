@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
+import ChoixMateriau from "./ChoixMateriau";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
 import { Icon, InputNombre } from "../ui";
 import {
@@ -592,9 +594,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // modale d'ouvrage — référence, catégorie et fournisseur, sur lesquels
   // porte la recherche d'ajout. Lecture directe de la table : c'est un écran
   // BUREAU, seul profil à y avoir encore accès (materiaux_bibliotheque_bureau).
+  // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js).
   useEffect(() => {
-    supabase.from("materiaux_bibliotheque")
-      .select("id,nom,unite,prix_unitaire,reference,categorie,fournisseur")
+    chargerTousLesMateriaux("id,nom,unite,prix_unitaire,reference,categorie,fournisseur")
       .then(({ data }) => setMateriauxBiblio(data || []));
   }, []);
 
@@ -3791,19 +3793,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: T.textMuted, marginBottom: 8 }}>
                   Ajouter une référence {!isLot && <span style={{ color: T.textMuted, fontWeight: 600, textTransform: "none" }}>· liée à cet ouvrage</span>}
                 </div>
-                <select value={refForm.materiau_id}
-                  onChange={e => {
-                    const m = matBiblioById[String(e.target.value)];
-                    setRefForm(f => ({ ...f, materiau_id: e.target.value,
+                {/* Recherche plutôt que liste déroulante : la bibliothèque
+                    dépasse 23 000 articles (ChoixMateriau.jsx). */}
+                <ChoixMateriau materiaux={materiauxBiblio} value={refForm.materiau_id} T={T}
+                  onChange={id => {
+                    const m = matBiblioById[String(id)];
+                    setRefForm(f => ({ ...f, materiau_id: id,
                       libelle: m ? (m.nom || "") : f.libelle,
                       unite: m?.unite || f.unite || "U",
                       prix: m?.prix_unitaire != null ? String(m.prix_unitaire) : f.prix }));
-                  }}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
-                    background: T.fieldBg || T.surface, color: T.text, fontSize: FONT.sm.size, fontFamily: "inherit", outline: "none", marginBottom: 8 }}>
-                  <option value="">— Matériau de la bibliothèque (optionnel) —</option>
-                  {materiauxBiblio.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
-                </select>
+                  }}/>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input value={refForm.libelle} onChange={e => setRefForm(f => ({ ...f, libelle: e.target.value }))}
                     placeholder="Libellé (ou saisie libre)"

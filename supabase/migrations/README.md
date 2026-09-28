@@ -16,6 +16,11 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
+**20260928190000_materiaux_bibliotheque_rls_une_verification.sql : PAS ENCORE
+APPLIQUÉE** (28/09/2026). Réécriture de la règle d'accès de
+`materiaux_bibliotheque` à effet identique (2,5 s → 17 ms). À appliquer, puis
+renommer le fichier au numéro enregistré en base (règle 3).
+
 ## Pourquoi cet alignement
 
 Avant le 22/09/2026, les fichiers portaient des numéros que la base ne

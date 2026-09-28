@@ -162,6 +162,26 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
+
+// materiaux_bibliotheque dépasse 1 000 lignes depuis l'import du catalogue
+// SIDER (28/09/2026) : l'API s'arrête à 1 000 lignes SANS erreur, et des
+// matériaux liés aux ouvrages manquaient au calcul des prix. Lecture par
+// tranches ordonnées par id ; une tranche en erreur ⇒ erreur, jamais une
+// liste partielle.
+// deno-lint-ignore no-explicit-any
+async function lireTousMateriaux(admin: any, colonnes: string) {
+  const TRANCHE = 1000
+  const data: Record<string, unknown>[] = []
+  for (let debut = 0; ; debut += TRANCHE) {
+    const { data: lot, error } = await admin.from("materiaux_bibliotheque")
+      .select(colonnes).order("id", { ascending: true }).range(debut, debut + TRANCHE - 1)
+    if (error) return { data: null, error }
+    data.push(...((lot || []) as Record<string, unknown>[]))
+    if (!lot || lot.length < TRANCHE) break
+  }
+  return { data, error: null }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
   if (req.method !== "POST" && req.method !== "GET") return json({ error: "Method not allowed" }, 405)
@@ -200,7 +220,7 @@ serve(async (req) => {
       admin.from("bibliotheque_ratios")
         .select("id, libelle, unite, cadence, materiaux_liens, main_oeuvre_seule, cout_direct_unitaire, progbat_id, taux_horaire_vente_valeur, coefficient_vente_valeur, taux_horaire_vente_id, coefficient_vente_id")
         .order("libelle"),
-      admin.from("materiaux_bibliotheque").select("id, nom, unite, prix_unitaire"),
+      lireTousMateriaux(admin, "id, nom, unite, prix_unitaire"),
       admin.from("planning_config").select("key, value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
       // Référentiels de vente : ils ne servent plus que de repli pour les ouvrages
       // antérieurs aux valeurs saisies (bibliotheque_ratios.*_vente_valeur).

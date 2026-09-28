@@ -81,6 +81,25 @@ async function getAll(path: string, token: string) {
   return { ok: true as const, status: 200, items }
 }
 
+// materiaux_bibliotheque dépasse 1 000 lignes depuis l'import du catalogue
+// SIDER (28/09/2026) : l'API s'arrête à 1 000 lignes SANS erreur, et des
+// matériaux liés aux ouvrages manquaient au calcul des prix. Lecture par
+// tranches ordonnées par id ; une tranche en erreur ⇒ erreur, jamais une
+// liste partielle.
+// deno-lint-ignore no-explicit-any
+async function lireTousMateriaux(admin: any, colonnes: string) {
+  const TRANCHE = 1000
+  const data: Record<string, unknown>[] = []
+  for (let debut = 0; ; debut += TRANCHE) {
+    const { data: lot, error } = await admin.from("materiaux_bibliotheque")
+      .select(colonnes).order("id", { ascending: true }).range(debut, debut + TRANCHE - 1)
+    if (error) return { data: null, error }
+    data.push(...((lot || []) as Record<string, unknown>[]))
+    if (!lot || lot.length < TRANCHE) break
+  }
+  return { data, error: null }
+}
+
 const hashSha256 = async (value: unknown) => {
   const bytes = new TextEncoder().encode(JSON.stringify(value))
   const digest = await crypto.subtle.digest("SHA-256", bytes)
@@ -129,7 +148,7 @@ serve(async (req) => {
 
     const [ouv, mats, cfg, tauxH, coefV, structures, familles, unites, taxes, jobs] = await Promise.all([
       admin.from("bibliotheque_ratios").select("*"),
-      admin.from("materiaux_bibliotheque").select("id,nom,reference,unite,prix_unitaire,fournisseur,categorie"),
+      lireTousMateriaux(admin, "id,nom,reference,unite,prix_unitaire,fournisseur,categorie"),
       admin.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
       // Taux horaires de VENTE : le prix synchronisé = matériaux × coef + cadence × taux de l'ouvrage
       admin.from("taux_horaires_vente").select("id,libelle,taux_ht,actif,est_defaut"),

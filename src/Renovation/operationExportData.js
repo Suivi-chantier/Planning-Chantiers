@@ -26,6 +26,7 @@
 import { supabase } from "../supabase";
 import { loadGroupesTypes, loadEquipes } from "../constants";
 import { computeChantierFinance } from "../chantierFinance";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import {
   normaliserChantier, assemblerModele, agregerOperation, texteOuNull,
 } from "./operationExportModele.mjs";
@@ -129,7 +130,8 @@ export async function chargerDonneesExportOperation({
     loadEquipes().catch((e) => { noter("équipes", e); return []; }),
     supabase.from("bibliotheque_ratios")
       .select("id, identifiant, libelle, unite, cadence, coefficient_vente_valeur, taux_horaire_vente_valeur, coef_vente"),
-    supabase.from("materiaux_bibliotheque").select("id, nom, reference, unite, fournisseur"),
+    // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js).
+    chargerTousLesMateriaux("id, nom, reference, unite, fournisseur"),
     parIds("rapports",
       "id, chantier_id, ouvrier, date_rapport, taches, remarque, submitted_at, photos_chantier, trajet_matin_min, trajet_soir_min, statut, valide_par, heures_indirectes"),
     parIds("commande_lignes",
