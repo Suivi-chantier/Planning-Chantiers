@@ -85,9 +85,12 @@ function calculerCout(modele, tokensEntree, tokensSortie) {
 
 // Normalise le retour d'un schema_entree / schema_sortie :
 // true/undefined → ok ; string → [string] ; array → array d'erreurs.
-function valider(schema, data) {
+// Le schéma peut être ASYNC : une tâche qui doit vérifier des identifiants en
+// base (renovation_planning_consigne) le fait là ; un schéma synchrone n'est
+// pas affecté par l'`await`.
+async function valider(schema, data, ctx) {
   if (typeof schema !== "function") return { ok: true, erreurs: [] };
-  const r = schema(data);
+  const r = await schema(data, ctx);
   if (r === true || r === undefined || r === null) return { ok: true, erreurs: [] };
   if (r === false) return { ok: false, erreurs: ["donnée invalide"] };
   const erreurs = Array.isArray(r) ? r : [String(r)];
@@ -272,7 +275,7 @@ module.exports = async function handler(req, res) {
     }
 
     // 5) Valider l'entrée
-    const vEntree = valider(tache.schema_entree, entree);
+    const vEntree = await valider(tache.schema_entree, entree, { profil });
     if (!vEntree.ok) {
       return echouer(400, "entree_invalide", `Entrée invalide : ${vEntree.erreurs.join(" ; ")}`);
     }
@@ -443,7 +446,7 @@ module.exports = async function handler(req, res) {
     let texte = texteDe(reponse);
     let resultat = parserSortie(tache, texte);
     job.sortie_brute = resultat;
-    let vSortie = valider(tache.schema_sortie, resultat);
+    let vSortie = await valider(tache.schema_sortie, resultat, { profil });
 
     if (!vSortie.ok) {
       let relance;
@@ -482,7 +485,7 @@ module.exports = async function handler(req, res) {
       texte = texteDe(relance);
       resultat = parserSortie(tache, texte);
       job.sortie_brute = resultat;
-      vSortie = valider(tache.schema_sortie, resultat);
+      vSortie = await valider(tache.schema_sortie, resultat, { profil });
       if (!vSortie.ok) {
         return echouer(502, "sortie_invalide", `Sortie invalide après relance : ${vSortie.erreurs.join(" ; ")}`);
       }

@@ -590,8 +590,15 @@ export function planifierPropositionV1({
         });
       }
 
+      // Les tâches à plusieurs personnes réservent leur journée d'abord : elles
+      // sont essayées AVANT les tâches à 1 personne, tant que l'équipe est
+      // encore libre et sur le même site. Sinon, les tâches à 1 personne déjà
+      // commencées (mieux notées) dispersent les membres sur d'autres sites dès
+      // le matin, et l'équipe n'est jamais réunie (diagnostic du 28/09/2026).
+      // Le score ne départage qu'ensuite, dans chacun des deux groupes.
       eligible.sort((a, b) =>
-        (b.score - a.score)
+        (Number(b.travail.crew_size > 1) - Number(a.travail.crew_size > 1))
+        || (b.score - a.score)
         || (a.travail.ordre_groupe - b.travail.ordre_groupe)
         || (a.travail.ordre_tache - b.travail.ordre_tache)
         || a.travail.id.localeCompare(b.travail.id)

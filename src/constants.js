@@ -642,6 +642,9 @@ export async function loadEquipes() {
           : [],
         externe:     !!e.externe,
         couleur:     e.couleur     || "#888888",
+        // Absent = le responsable travaille (comportement historique) : le champ
+        // n'est gardé que lorsqu'il est décoché, pour ne rien changer aux autres.
+        ...(e.responsable_travaille === false ? { responsable_travaille: false } : {}),
         };
       });
     }

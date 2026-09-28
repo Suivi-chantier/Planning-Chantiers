@@ -34,6 +34,13 @@ const TABLES_AUTORISEES = new Set([
   "chantier_snapshots_hebdo",
   // Situations ProGBat (colonne « Facturé ProGBat » des États financiers)
   "chantier_factures_client",
+  // Assistant planning (étape 2) : listes réelles pour TRADUIRE une consigne.
+  // Lecture seule, comme le reste : l'enregistrement se fait dans le
+  // navigateur, avec le compte de l'administrateur, jamais ici.
+  "planning_resources",
+  "planning_cells",
+  "planning_constraints",
+  "planning_resource_events",
 ]);
 
 let _client = null;

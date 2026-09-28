@@ -31,6 +31,11 @@ const clamp = (v, min, max) => Math.max(min, Math.min(max, num(v, min)));
 const round2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const uniq = xs => [...new Set((Array.isArray(xs) ? xs : []).map(txt).filter(Boolean))];
 const dateOnly = v => /^\d{4}-\d{2}-\d{2}$/.test(txt(v).slice(0, 10)) ? txt(v).slice(0, 10) : null;
+const ajouterJoursISO = (iso, n) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 export function cleTravailMoteurV1(chantierId, tacheId) {
   return `${txt(chantierId)}::${txt(tacheId)}`;
@@ -371,6 +376,39 @@ export function preparerSimulationPlanningGlobalV1({
     .map(g => [txt(g.id), g]));
   const prefsGroupes = construirePreferencesGroupes({ groupesTypes, equipes, ressources: resources, parNom });
 
+  // Intervention externe datée : une date imposée (fixed_date obligatoire,
+  // portée tâche) sur une tâche EXTERNE la positionne. Elle ne consomme aucun
+  // salarié Profero et n'entre pas dans le calcul ; ses successeurs démarrent
+  // au plus tôt le lendemain de sa fin. Sans date, la tâche reste exclue.
+  const datesExternes = new Map();
+  for (const c of constraints) {
+    if (c.type !== CONSTRAINT_TYPES.FIXED_DATE || c.hard !== true || c.scope !== "tache" || !txt(c.tache_id) || !dateOnly(c.date_debut)) continue;
+    const k = cleTravailMoteurV1(c.chantier_id, c.tache_id);
+    const prev = datesExternes.get(k);
+    if (!prev || dateOnly(c.date_debut) < dateOnly(prev.date_debut)) datesExternes.set(k, c);
+  }
+  const interventionsExternesDatees = [];
+  const contraintesConsommees = new Set();
+  const noterInterventionExterneDatee = ({ travailId, chantierId, tacheId, tache, restantBrut, type, predIds }) => {
+    const c = datesExternes.get(travailId);
+    if (!c) return false;
+    contraintesConsommees.add(c.id);
+    const debut = dateOnly(c.date_debut);
+    interventionsExternesDatees.push({
+      travail_id: travailId,
+      chantier_id: chantierId,
+      tache_id: tacheId,
+      texte: txt(tache?.nom) || "Tâche sans libellé",
+      type,
+      heures_prevues: restantBrut,
+      constraint_id: c.id,
+      date_debut: debut,
+      date_fin: dateOnly(c.date_fin) || debut,
+      predecesseur_ids: predIds,
+    });
+    return true;
+  };
+
   const travaux = [];
   const completedTaskIds = [];
   let phasagesUtilises = 0;
@@ -439,6 +477,9 @@ export function preparerSimulationPlanningGlobalV1({
       .filter(({ tache }) => clamp(tache?.avancement, 0, 100) >= 100 - EPS)
       .map(({ tache }) => txt(tache.id)));
 
+    const predsExterne = sp => predecesseursBloquantsAvecAncetresOuverts(sp.ids, preds, completedLocalIds)
+      .map(pid => cleTravailMoteurV1(chantierId, pid));
+
     for (const { ouvrage, tache, tacheIndex } of flat) {
       const tacheId = txt(tache.id);
       const travailId = cleTravailMoteurV1(chantierId, tacheId);
@@ -490,6 +531,7 @@ export function preparerSimulationPlanningGlobalV1({
         continue;
       }
       if (tache?.externe === true) {
+        if (noterInterventionExterneDatee({ travailId, chantierId, tacheId, tache, restantBrut, type: "intervention_externe", predIds: predsExterne(sourcePred) })) continue;
         travauxExclus.push({
           travail_id: travailId,
           chantier_id: chantierId,
@@ -533,6 +575,7 @@ export function preparerSimulationPlanningGlobalV1({
       // « n'importe quel salarié interne ». Une affectation explicite sur la
       // tâche reste un override volontaire et autorise la planification interne.
       if (prefGroupe?.equipe_externe && mappingTache.ids.length === 0) {
+        if (noterInterventionExterneDatee({ travailId, chantierId, tacheId, tache, restantBrut, type: "equipe_groupe_externe", predIds: predsExterne(sourcePred) })) continue;
         travauxExclus.push({
           travail_id: travailId,
           chantier_id: chantierId,
@@ -620,9 +663,62 @@ export function preparerSimulationPlanningGlobalV1({
     }
   }
 
+  // Successeurs d'une intervention externe datée : elle n'est plus un
+  // prédécesseur à attendre dans le calcul. Ils ne démarrent pas avant le
+  // lendemain de sa fin (ou fin + délai technique, si c'est plus tard).
+  const externesDatees = new Map(interventionsExternesDatees.map(x => [x.travail_id, x]));
+  const contraintesApresExternes = [];
+  if (externesDatees.size) {
+    for (const t of travaux) {
+      const lies = t.predecesseur_ids.filter(id => externesDatees.has(id));
+      if (!lies.length) continue;
+      const pasAvant = lies.map(id => {
+        const delai = t.delais_predecesseurs.find(d => d.predecesseur_id === id)?.delai_jours_calendaires || 0;
+        return ajouterJoursISO(externesDatees.get(id).date_fin, Math.max(1, delai));
+      }).sort().slice(-1)[0];
+      t.predecesseur_ids = t.predecesseur_ids.filter(id => !externesDatees.has(id));
+      t.delais_predecesseurs = t.delais_predecesseurs.filter(d => !externesDatees.has(d.predecesseur_id));
+      t.apres_interventions_externes = lies;
+      contraintesApresExternes.push(normaliserContraintePlanning({
+        id: `apres_intervention_externe:${t.id}`,
+        type: CONSTRAINT_TYPES.NOT_BEFORE,
+        scope: "tache",
+        chantier_id: t.chantier_id,
+        tache_id: t.tache_id,
+        hard: true,
+        date_debut: pasAvant,
+        config: { interventions_externes: lies },
+        label: `Après l'intervention externe : ${lies.map(id => externesDatees.get(id).texte).join(", ")}`,
+        source: "systeme",
+        actif: true,
+      }));
+    }
+  }
+  // Une consigne « intervention externe » qui ne vise pas une tâche externe
+  // du calcul est rejetée ET signalée : jamais un salarié Profero placé sur
+  // une intervention prévue pour un externe, jamais une consigne ignorée en silence.
+  const rejetees = new Set();
+  for (const c of constraints) {
+    if (c.type !== CONSTRAINT_TYPES.FIXED_DATE || c.config?.nature !== "intervention_externe" || contraintesConsommees.has(c.id)) continue;
+    rejetees.add(c.id);
+    const interne = travaux.some(t => t.id === cleTravailMoteurV1(c.chantier_id, c.tache_id));
+    warnings.push({
+      type: "intervention_externe_sans_effet",
+      constraint_id: c.id,
+      chantier_id: txt(c.chantier_id) || null,
+      tache_id: txt(c.tache_id) || null,
+      explication: interne
+        ? "Consigne « intervention externe » sur une tâche que le moteur planifie avec des salariés Profero (tâche non externe, ou déjà affectée dans le planning) : elle est rejetée, la tâche reste planifiée normalement."
+        : "Consigne « intervention externe » sur une tâche introuvable, terminée, sans heures prévues ou exclue pour une autre raison : elle n'a aucun effet.",
+    });
+  }
+
   // Les locks ont déjà servi à figer les allocations existantes. Ils ne doivent
   // pas être réinterprétés comme contrainte de création d'une nouvelle allocation.
-  const contraintesMoteur = constraints.filter(c => c.type !== CONSTRAINT_TYPES.ALLOCATION_LOCK);
+  const contraintesMoteur = [
+    ...constraints.filter(c => c.type !== CONSTRAINT_TYPES.ALLOCATION_LOCK && !contraintesConsommees.has(c.id) && !rejetees.has(c.id)),
+    ...contraintesApresExternes,
+  ];
   const fixedEngine = allocationsFixes
     .filter(a => a.date && a.date >= debut)
     .map(a => ({
@@ -671,7 +767,9 @@ export function preparerSimulationPlanningGlobalV1({
       completedTaskIds: uniq(completedTaskIds),
       startDate: debut,
       horizonDays,
+      interventions_externes_datees: interventionsExternesDatees,
     },
+    interventions_externes_datees: interventionsExternesDatees,
     forecastCourant: {
       allocations_recalculables: allocationsRecalculables,
       allocations_fixes: allocationsFixes,
