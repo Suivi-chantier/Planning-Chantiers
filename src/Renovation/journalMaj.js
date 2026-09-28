@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-24",
+    type: "nouveaute",
+    titre: "Assistant IA Rénovation : le moteur de questions est prêt (pas encore d'écran)",
+    pages: [],
+    quoi: "Première brique de l'assistant qui répondra en langage courant aux administrateurs sur leurs chantiers. Il sait traiter deux types de questions : « où en est tel chantier ? » (avancement, vendu, marge, marge à terminaison, heures vendues et réelles, reste à faire, situation à facturer, facturé ProGBat) et « pourquoi ce chantier est-il en alerte ? » (motifs de la page Alertes et évolution sur les huit derniers relevés hebdomadaires). Il ne calcule rien lui-même : chaque chiffre vient des mêmes calculs que la fiche chantier, le relevé du vendredi et la page Alertes — il ne peut donc pas annoncer un chiffre différent de l'application. Il cite toujours la date des données, reprend les avertissements (par exemple « marge surestimée : frais généraux non renseignés »), et répond « Je n'ai pas trouvé cette information dans Profero Rénovation » plutôt que d'inventer. Quand un nom désigne plusieurs chantiers (par exemple « BRIOLLAY »), il donne la liste et demande lequel, sans choisir à votre place. Il est en lecture seule : il ne modifie rien.",
+    comment: "Rien n'est encore visible dans l'application : l'écran de l'assistant sera conçu séparément. Accès prévu : administrateurs de la branche Rénovation uniquement ; tout autre compte reçoit un refus qui dit pourquoi. Les questions de planning (qui travaille où, quand un chantier finit) et les simulations (« et si Steven est absent lundi ? ») ne sont pas encore prises en charge : l'assistant répond qu'elles ne sont pas disponibles, sans improviser. Correctif associé, valable aussi pour le Copilote Invest : quand le compte IA n'a plus de crédit, le message affiché est désormais « Service IA indisponible : le crédit du compte IA est épuisé. Prévenez l'administrateur. » au lieu d'une erreur générique.",
+  },
+  {
+    date: "2026-09-24",
     type: "correctif",
     titre: "Historique du planning et de la bibliothèque activé en base le 24/09. Restauration des 59 ouvrages prévue samedi 26/09.",
     pages: [{ id: "planning", label: "Planning semaine" }, { id: "bibliotheque", label: "Biblio. ouvrages" }],

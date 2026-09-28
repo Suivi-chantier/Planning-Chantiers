@@ -74,6 +74,8 @@ jobs:
         run: node scripts/verif-bibliotheque-archiver.mjs
       - name: Alertes V1
         run: node scripts/verif-alertes-v1.mjs
+      - name: Renovation copilot V1 (assistant IA, lecture seule)
+        run: node scripts/verif-renovation-copilot-v1.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
