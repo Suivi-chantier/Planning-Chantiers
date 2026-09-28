@@ -41,6 +41,15 @@ const T = {
   infoBd:    SEMANTIC.info.border,
 };
 
+// Tâche « À reprendre » jamais touchée (ni statut, ni heures, ni remarque, ni
+// avancement). Le formulaire n'en ajoute plus depuis le 28/09/2026 ; seul un
+// brouillon plus ancien peut encore en contenir. On l'écarte à la reprise du
+// brouillon et à l'envoi — pas de « Non faite — 0 % » forcé qui rabaisserait
+// l'avancement du phasage. Une tâche déjà remplie est gardée et envoyée.
+const aReprendreIntacte = (t) => t.aReprendre && !t.statut
+  && !String(t.heures_reelles ?? "").trim() && !t.remarque?.trim()
+  && (t.avancement === undefined || t.avancement === null || t.avancement === "");
+
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
 // Passe par /api/send-email (Vercel serverless) au lieu d'appeler Resend
 // directement : permet d'utiliser le from vérifié (@groupe-profero.com via
@@ -428,36 +437,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       }
     });
 
-    // Tâches « À reprendre » (mêmes règles que le dashboard ouvrier) : phasage
-    // en retard (date_prevue < aujourd'hui, avancement < 100), équipe résolue
-    // par la RPC via le planning. Elles portent leur tache_id : la validation
-    // bureau et la remontée d'avancement/pointages fonctionnent tel quel.
-    // Formulaire public (anon) : la RPC est refusée par les grants → la liste
-    // reste vide, comportement inchangé.
-    // todayISO suit la date du rapport (mode rattrapage : le jour rattrapé),
-    // pour que « à reprendre » = en retard PAR RAPPORT à ce jour-là.
-    const { data: actives, error: errActives } = await supabase
-      .rpc("ouvrier_taches_actives", { p_aujourdhui: todayISO, p_prenom: nom });
-    if (errActives) console.warn("ouvrier_taches_actives (compte rendu):", errActives.message);
-    const dejaLa = new Set(tachesInit.map(t => String(t.tache_id || "")).filter(Boolean));
-    (Array.isArray(actives) ? actives : []).forEach(t => {
-      const id = String(t.tache_id || "");
-      if (!id || dejaLa.has(id)) return; // déjà planifiée aujourd'hui → pas de doublon
-      dejaLa.add(id);
-      const ch = chantiersData.find(c => c.id === t.chantier_id);
-      tachesInit.push({
-        chantier_id: t.chantier_id,
-        chantier_nom: ch?.nom || t.chantier_nom || t.chantier_id,
-        chantier_couleur: ch?.couleur || "#c8d8f0",
-        planifie: t.nom || "(sans nom)",
-        tache_id: id,
-        phase_id: null,
-        statut: null, remarque: "", pourTout: false,
-        aReprendre: true,
-        date_prevue: t.date_prevue || "",
-        avancement_actuel: Math.max(0, Math.min(100, parseInt(t.avancement) || 0)),
-      });
-    });
+    // Seules les tâches attribuées CE jour-là figurent au compte rendu. Les
+    // tâches « À reprendre » (en retard au phasage) n'y sont plus ajoutées
+    // (décision du 28/09/2026) : elles restent visibles sur le dashboard
+    // ouvrier, et le bureau les replanifie s'il le faut.
 
     if (seq !== loadSeqRef.current) return; // date changée entre-temps
     setPlanData({ chantiersData });
@@ -474,11 +457,14 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     try {
       const raw = localStorage.getItem(brouillonKey(nom, dateKey));
       const b = raw ? JSON.parse(raw) : null;
+      // Un brouillon commencé avant le 28/09/2026 peut encore contenir des
+      // tâches « À reprendre » : on retire celles que l'ouvrier n'a pas touchées.
+      const tachesBrouillon = Array.isArray(b?.taches) ? b.taches.filter(t => !aReprendreIntacte(t)) : [];
       // On ne reprend le brouillon que s'il contient réellement des tâches : un
       // brouillon vide (ex. sauvé avant le chargement du planning) ne doit pas
       // masquer les tâches du jour.
-      if (b && Array.isArray(b.taches) && b.taches.length > 0) {
-        setTaches(b.taches);
+      if (tachesBrouillon.length > 0) {
+        setTaches(tachesBrouillon);
         setTrajetMatin(b.trajetMatin || "");
         setTrajetSoir(b.trajetSoir || "");
         setHeuresIndirectes(Array.isArray(b.heuresIndirectes) ? b.heuresIndirectes : []);
@@ -639,15 +625,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
   const soumettre = async () => {
     if (preview) return; // aperçu admin : lecture seule
-    // Les tâches « À reprendre » jamais touchées (ni statut, ni heures, ni
-    // remarque, ni avancement) sont FACULTATIVES : on ne les soumet pas et
-    // elles ne bloquent pas l'envoi — pas de « Non faite — 0 % » forcé qui
-    // rabaisserait l'avancement du phasage à la validation. Elles resteront
-    // visibles demain (le phasage fait foi). Dès qu'un champ est rempli, la
-    // tâche redevient obligatoire comme les autres.
-    const aReprendreIntacte = (t) => t.aReprendre && !t.statut
-      && !String(t.heures_reelles ?? "").trim() && !t.remarque?.trim()
-      && (t.avancement === undefined || t.avancement === null || t.avancement === "");
+    // Filet pour un brouillon antérieur au 28/09/2026 (voir aReprendreIntacte).
     const tachesRemplies = taches.filter(t => t.planifie.trim() && !aReprendreIntacte(t));
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
     // Chantier obligatoire pour les tâches ajoutées manuellement
