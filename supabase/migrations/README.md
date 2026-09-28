@@ -3,14 +3,16 @@
 Ce dossier reflète **exactement** l'historique des migrations de la base de
 production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
-- **25 fichiers** correspondent chacun à une migration réellement appliquée :
-  même numéro de version, même nom.
-- **1 fichier est volontairement en attente** :
-  `20260829210000_planning_replanning_apply_rpc_v1.sql` (chantier 05). La
-  fonction `apply_planning_replanning_v1` **n'existe pas en base**, et c'est
-  voulu — l'écriture du planning replanifié est une décision séparée, à prendre
-  explicitement. C'est le **seul** fichier dont la version n'est pas enregistrée
-  en base.
+- **27 fichiers `.sql`**, dont **26** correspondent chacun à une migration
+  réellement appliquée : même numéro de version, même nom (vérifié en base par
+  Cowork le 26/09/2026).
+- **Le 27e n'est pas appliqué** :
+  `20260829210000_planning_replanning_apply_rpc_v1.sql` (chantier 05), la RPC
+  `apply_planning_replanning_v1`. Cette fonction **n'existe pas en base**, et
+  c'est voulu — l'écriture du planning replanifié est une décision séparée, à
+  prendre explicitement. Ce fichier **sera renommé avant tout déploiement**, à
+  l'étape 3. C'est le **seul** fichier dont la version n'est pas enregistrée en
+  base.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
