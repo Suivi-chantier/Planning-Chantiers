@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-28",
     type: "amelioration",
+    titre: "Compte rendu client : le PDF prend enfin la présentation Profero des autres documents",
+    pages: [{ id: "equipe", label: "Équipe" }],
+    quoi: "Le PDF « Compte rendu client » avait gardé son ancienne présentation (bandeau noir, police Arial). Il a maintenant la même présentation que le planning prévisionnel, le dossier de chiffrage et la fiche opération : en-tête sombre avec le logo, jaune Profero, même police, titres de section soulignés en jaune, pied de page « Document confidentiel ». Le client reçoit ainsi des documents qui se ressemblent tous.",
+    comment: "Rien ne change dans la façon de faire : page Équipe, bouton « Compte rendu client », puis « Générer le PDF ». L'en-tête reprend le nom du chantier, l'adresse, la date, le client, et la pastille Avancement avec une petite jauge. La pastille n'apparaît que si un avancement est renseigné : un avancement vide ne s'imprime jamais « 0 % ». Les rubriques laissées vides (résumé, prochaine étape, remarques, photos) n'apparaissent pas. Le titre « Photos du chantier » ne reste plus seul en bas d'une page. Si le navigateur bloque la fenêtre d'impression, un message le dit au lieu de ne rien faire.",
+  },
+  {
+    date: "2026-09-28",
+    type: "amelioration",
     titre: "Compte rendu ouvrier : seulement les tâches du jour",
     pages: [],
     quoi: "Le compte rendu de fin de journée ne montre plus que les tâches attribuées à l'ouvrier le jour du compte rendu. Les tâches des jours précédents non terminées (« À reprendre ») n'y sont plus ajoutées : le formulaire est plus court et chacun ne remplit que ce qu'on lui a donné ce jour-là.",

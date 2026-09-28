@@ -4,6 +4,7 @@ import { fetchPointages } from "../pointages";
 import { avancementChantier as cfAvancementChantier } from "../chantierFinance";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
+import { buildCompteRenduClientDocHTML } from "./compteRenduClientDoc";
 import AdresseInput from "../AdresseAutocomplete";
 import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
@@ -17,8 +18,9 @@ import {
 // ─── MODALE COMPTE RENDU CLIENT ───────────────────────────────────────────────
 // Génère un compte rendu PDF à destination du client à partir des rapports
 // équipe de la semaine. Le contenu est pré-rempli automatiquement depuis les
-// rapports (tâches faites + photos) puis éditable avant impression. Réutilise
-// le pipeline window.print() avec HTML stylisé (cf. PageCompteRendu d'origine).
+// rapports (tâches faites + photos) puis éditable avant impression. Pipeline
+// window.print() ; mise en page au gabarit commun des documents Profero
+// (compteRenduClientDoc.js → docClientHTML).
 function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defaultChantierId, branch }) {
   // Filtre les chantiers ayant au moins un rapport cette semaine pour le dropdown
   const chantiersAvecRapports = Array.from(new Set(rapports.map(r => r.chantier_id).filter(Boolean)));
@@ -128,30 +130,17 @@ function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defau
   // ── Génération du PDF ──
   async function genererPDF() {
     if (!chantier) return;
+    // Fenêtre ouverte AVANT le préchargement des photos : ouverte après un
+    // `await` long, elle peut être bloquée comme popup par le navigateur.
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
     setGenerating(true);
     try {
-      const dateStr = dateVisite
-        ? new Date(dateVisite).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
-        : new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
-      const fmt = (txt) => (txt || "").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
-
       // Tâches retenues + override custom
       const tachesFinales = tachesAuto
         .filter(t => tachesIncluses.has(t.key))
         .map(t => editableTaches[t.key] !== undefined ? editableTaches[t.key] : t.texte)
         .filter(Boolean);
-
-      const tachesHtml = tachesFinales.length === 0 ? "" : `
-        <div style="margin-bottom:10pt;">
-          <div style="display:flex;align-items:center;gap:6pt;margin-bottom:5pt;">
-            <div style="width:3pt;height:11pt;background:#f5c400;border-radius:2pt;"></div>
-            <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">TRAVAUX RÉALISÉS CETTE SEMAINE</span>
-          </div>
-          <div style="height:0.5pt;background:#eee;margin-bottom:8pt;"></div>
-          <ul style="font-size:9pt;color:#333;line-height:1.6;padding-left:18pt;margin:0;">
-            ${tachesFinales.map(t => `<li style="margin-bottom:3pt;">${fmt(t)}</li>`).join("")}
-          </ul>
-        </div>`;
 
       // Pré-charge les photos en base64 (sinon le popup d'impression n'a pas le
       // temps de fetch les URLs Supabase Storage avant print()).
@@ -163,82 +152,30 @@ function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defau
           .catch(() => null)
         )
       );
-      const photosHtml = photosRetenues.length === 0 ? "" : `
-        <div style="margin-bottom:10pt;">
-          <div style="display:flex;align-items:center;gap:6pt;margin-bottom:5pt;">
-            <div style="width:3pt;height:11pt;background:#f5c400;border-radius:2pt;"></div>
-            <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">PHOTOS</span>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:8pt;">
-            ${photosRetenues.map((p, i) => {
-              const src = photosBase64[i] || p.url;
-              return `<img src="${src}" style="width:120pt;height:90pt;object-fit:cover;border-radius:5pt;border:1pt solid #ddd;" />`;
-            }).join("")}
-          </div>
-        </div>`;
 
-      const section = (titre, contenu) => !contenu ? "" : `
-        <div style="margin-bottom:10pt;">
-          <div style="display:flex;align-items:center;gap:6pt;margin-bottom:5pt;">
-            <div style="width:3pt;height:11pt;background:#f5c400;border-radius:2pt;flex-shrink:0;"></div>
-            <span style="font-size:7.5pt;font-weight:700;color:#888;letter-spacing:.08em;">${titre}</span>
-          </div>
-          <div style="height:0.5pt;background:#eee;margin-bottom:8pt;"></div>
-          <div style="font-size:9pt;color:#333;line-height:1.6;">${contenu}</div>
-        </div>`;
+      // Gabarit commun des documents Profero (compteRenduClientDoc.js).
+      const html = buildCompteRenduClientDocHTML({
+        chantierNom: chantier?.nom || "",
+        clientNom, adresse,
+        dateISO: dateVisite,
+        avancement,
+        resume, prochaineEtape, remarques,
+        taches: tachesFinales,
+        photos: photosRetenues.map((p, i) => photosBase64[i] || p.url),
+        logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+      });
 
-      const logoUrl = `${window.location.origin}${LOGO_RENO_H}`;
-      const avancementBox = avancement ? `
-        <div style="width:90pt;background:#0a0a0a;border-radius:5pt;padding:10pt 12pt;text-align:center;">
-          <div style="font-size:7pt;font-weight:700;color:rgba(255,255,255,.4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Avancement</div>
-          <div style="font-size:22pt;font-weight:700;color:#f5c400;">${parseInt(avancement) || 0}%</div>
-        </div>` : "";
-
-      const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
-      <style>
-        *{box-sizing:border-box;margin:0;padding:0;}
-        body{font-family:Arial,sans-serif;background:#fff;color:#111;font-size:9pt;}
-        @page{margin:14mm 16mm;size:A4;}
-        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-      </style></head><body>
-      <div style="background:#0a0a0a;padding:16pt 20pt;display:flex;justify-content:space-between;align-items:center;margin-bottom:16pt;border-radius:5pt;">
-        <div style="display:flex;align-items:center;gap:14pt;">
-          <img src="${logoUrl}" alt="Profero" style="height:42pt;object-fit:contain;object-position:left;" />
-          <div style="color:rgba(255,255,255,.45);font-size:9pt;font-weight:600;letter-spacing:.04em;">Compte Rendu de Chantier</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="color:#fff;font-size:9pt;font-weight:600;">${fmt(clientNom) || chantier?.nom || "—"}</div>
-          <div style="color:rgba(255,255,255,.5);font-size:8pt;margin-top:2pt;">${dateStr}</div>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10pt;margin-bottom:12pt;">
-        <div style="flex:1;background:#f9f9f9;border-radius:5pt;padding:10pt 12pt;">
-          <div style="font-size:7pt;font-weight:700;color:#aaa;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6pt;">Chantier</div>
-          <div style="font-size:10pt;font-weight:600;color:#111;">${fmt(chantier?.nom || "—")}</div>
-          ${clientNom ? `<div style="font-size:9pt;color:#444;margin-top:4pt;">${fmt(clientNom)}</div>` : ""}
-          ${adresse ? `<div style="font-size:8.5pt;color:#555;margin-top:4pt;">${fmt(adresse)}</div>` : ""}
-        </div>
-        ${avancementBox}
-      </div>
-
-      ${section("RÉSUMÉ DE LA SEMAINE", fmt(resume))}
-      ${tachesHtml}
-      ${prochaineEtape ? `<div style="background:#fff9e6;border-left:3pt solid #f5c400;padding:8pt 12pt;border-radius:4pt;margin-bottom:10pt;font-size:9pt;color:#333;"><strong style="color:#9a7a00;">Prochaine étape :</strong> ${fmt(prochaineEtape)}</div>` : ""}
-      ${section("REMARQUES", fmt(remarques))}
-      ${photosHtml}
-
-      <div style="position:fixed;bottom:0;left:0;right:0;background:#0a0a0a;padding:5pt 14pt;display:flex;justify-content:space-between;">
-        <span style="color:#555;font-size:7pt;">PROFERO — Document confidentiel</span>
-        <span style="color:#555;font-size:7pt;">${new Date().toLocaleDateString("fr-FR")}</span>
-      </div>
-      </body></html>`;
-
-      const w = window.open("", "_blank", "width=900,height=700");
-      w.document.write(html); w.document.close();
-      w.onload = () => setTimeout(() => { w.focus(); w.print(); }, 300);
+      w.document.title = `CompteRendu-${chantier?.nom || "chantier"}-${dateVisite || ""}`;
+      w.document.write(html);
+      w.document.close();
+      // Attendre les polices (Barlow, Google Fonts) avant d'imprimer.
+      w.onload = () => {
+        const go = () => setTimeout(() => { w.focus(); w.print(); }, 150);
+        (w.document.fonts?.ready || Promise.resolve()).then(go, go);
+      };
     } catch (e) {
       console.error("PDF compte rendu client :", e);
+      w.close();
       alert("Erreur lors de la génération du PDF.");
     }
     setGenerating(false);
