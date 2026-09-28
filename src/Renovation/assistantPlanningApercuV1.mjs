@@ -131,7 +131,7 @@ export function trierNonPlanifieesV1({
   };
   const chantierDe = id => str(tr.get(id)?.chantier_id || exclus.get(id)?.chantier_id || np.get(id)?.chantier_id) || (id.includes("::") ? id.split("::")[0] : "");
 
-  const racine = (id, categorie, code, raison) => ({ categorie, racine_id: id, racine_code: code, racine_raison: raison });
+  const racine = (id, categorie, code, raison) => ({ categorie, racine_id: id, racine_code: code, racine_raison: raison, bloquantes: categorie === BLOQUEE ? [id] : [] });
 
   function capaciteDe(id, n, t) {
     const posees = datesPosees.get(id) || [];
@@ -180,15 +180,17 @@ export function trierNonPlanifieesV1({
       pile.add(id);
       const code = str(n.raison_code);
       const t = tr.get(id);
+      // `bloquantes` : TOUTES les racines bloquées en amont (la racine affichée
+      // n'est que la première) — pour savoir ce qu'une date débloquerait vraiment.
+      const avecToutes = (r, amont) => ({ ...r, bloquantes: uniq(amont.flatMap(x => x.bloquantes || [])) });
       if (code === "predecesseur_non_termine") {
         const amont = uniq(t?.predecesseur_ids).map(p => evaluer(p, pile)).filter(Boolean);
-        out = amont.find(r => r.categorie === BLOQUEE) || amont.find(r => r.categorie === APRES)
-          || racine(id, APRES, code, str(n.raison));
+        out = avecToutes(amont.find(r => r.categorie === BLOQUEE) || amont.find(r => r.categorie === APRES)
+          || racine(id, APRES, code, str(n.raison)), amont);
       } else if (CODES_PREDECESSEUR_EXCLU.has(code)) {
-        const b = liste(n.blocages_predecesseurs_connus).find(x => str(x?.travail_id));
-        out = b
-          ? evaluer(b.travail_id, pile) || racine(str(b.travail_id), BLOQUEE, str(b.type) || code, str(b.explication) || str(n.raison))
-          : racine(id, BLOQUEE, code, str(n.raison));
+        const amont = liste(n.blocages_predecesseurs_connus).filter(x => str(x?.travail_id))
+          .map(b => evaluer(b.travail_id, pile) || racine(str(b.travail_id), BLOQUEE, str(b.type) || code, str(b.explication) || str(n.raison)));
+        out = amont.length ? avecToutes(amont[0], amont) : racine(id, BLOQUEE, code, str(n.raison));
       } else if (CODES_APRES_PERIODE.has(code)) out = racine(id, APRES, code, str(n.raison));
       else if (code === CODE_CAPACITE) out = capaciteDe(id, n, t);
       else out = racine(id, BLOQUEE, code || "raison_inconnue", str(n.raison) || "Raison non fournie par le moteur");
@@ -209,6 +211,7 @@ export function trierNonPlanifieesV1({
       categorie: r.categorie,
       date_prevue: datePrevue,
       date_prevue_apres_periode: !!(datePrevue && fin && datePrevue > fin),
+      racines_bloquantes: r.bloquantes || [],
       racine: {
         travail_id: r.racine_id,
         elle_meme: r.racine_id === id,
@@ -221,6 +224,62 @@ export function trierNonPlanifieesV1({
     });
   }
   return out;
+}
+
+// ─── Interventions externes sans date (bouton « Externes sans date ») ──────
+const TYPES_EXTERNES = new Set(["intervention_externe", "equipe_groupe_externe"]);
+
+/** Phrase préparée par un clic : il ne reste qu'à donner la date. */
+export function phraseInterventionExterneV1({ texte, chantier } = {}) {
+  return `L'intervention externe « ${str(texte)} » sur ${str(chantier)} aura lieu le `;
+}
+
+/**
+ * Interventions externes que le moteur ne peut pas positionner faute de date,
+ * triées par impact, calculé sur la chaîne des prédécesseurs du moteur :
+ *   - `debloque`  : tâches non planifiées qui n'attendent QU'ELLE (une date
+ *                   suffit à les libérer du blocage) ;
+ *   - `derriere`  : toutes celles qui l'attendent, avec ou sans autre blocage.
+ * `debloquables_si_toutes_datees` : tâches dont TOUS les blocages sont des
+ * interventions externes sans date.
+ */
+export function interventionsExternesSansDateV1({ resultat, capaciteBase = null } = {}) {
+  const p = proposition(resultat);
+  const ref = resultat?.referentiel || {};
+  const nomChantier = new Map((ref.chantiers || []).map(c => [str(c.id), str(c.nom) || str(c.id)]));
+  const nomTache = creerNomTacheV1({ allocations: p.allocations_proposees, travaux: resultat?.travaux_moteur, tachesPhasage: resultat?.taches_phasage });
+  const externes = liste(resultat?.travaux_exclus).filter(x => TYPES_EXTERNES.has(str(x?.type)) && str(x?.travail_id));
+  const ids = new Set(externes.map(x => str(x.travail_id)));
+  const tri = trierNonPlanifieesV1({
+    nonPlanifies: p.non_planifies, travaux: resultat?.travaux_moteur, travauxExclus: resultat?.travaux_exclus,
+    allocations: p.allocations_proposees, tachesPhasage: resultat?.taches_phasage, ressources: ref.ressources || [],
+    horizon: resultat?.horizon || {}, capaciteBase, nomTache, nomChantier: id => nomChantier.get(str(id)) || null,
+  });
+  const heures = new Map(liste(p.non_planifies).map(n => [str(n.travail_id), Number(n.heures_mo_restantes) || 0]));
+  const stats = new Map([...ids].map(id => [id, { debloque: 0, heures_debloquees: 0, derriere: 0 }]));
+  let toutesDatees = 0;
+  tri.forEach((t, id) => {
+    const b = t.racines_bloquantes || [];
+    if (b.length && b.every(r => ids.has(r))) toutesDatees++;
+    b.filter(r => stats.has(r)).forEach(r => {
+      const s = stats.get(r);
+      s.derriere++;
+      if (b.length === 1) { s.debloque++; s.heures_debloquees = arrondi(s.heures_debloquees + (heures.get(id) || 0)); }
+    });
+  });
+  const interventions = externes.map(x => {
+    const id = str(x.travail_id);
+    const chantier = nomChantier.get(str(x.chantier_id)) || str(x.chantier_id);
+    const texte = nomTache(id);
+    return { travail_id: id, chantier_id: str(x.chantier_id), chantier, tache_id: str(x.tache_id), texte, type: str(x.type), ...stats.get(id), phrase: phraseInterventionExterneV1({ texte, chantier }) };
+  }).sort((a, b) => b.debloque - a.debloque || b.derriere - a.derriere || a.chantier.localeCompare(b.chantier, "fr") || a.texte.localeCompare(b.texte, "fr"));
+  return {
+    interventions,
+    impacts: Object.fromEntries(interventions.map(i => [i.travail_id, { debloque: i.debloque, derriere: i.derriere, heures_debloquees: i.heures_debloquees }])),
+    externes_moteur: [...ids, ...liste(resultat?.interventions_externes_datees).map(x => str(x.travail_id))],
+    debloquables_si_toutes_datees: toutesDatees,
+    non_planifiees: tri.size,
+  };
 }
 
 /** Regroupe les non planifiées par famille puis par chantier, avec les heures. */
@@ -409,6 +468,7 @@ export function construireApercuRecalculV1({
         raison_code: str(n.raison_code) || null,
         categorie: t?.categorie || BLOQUEE,
         racine: t?.racine || null,
+        racines_bloquantes: t?.racines_bloquantes || [],
         date_prevue: t?.date_prevue || null,
         date_prevue_apres_periode: !!t?.date_prevue_apres_periode,
         etait_planifiee: actuel ? datesA.has(str(n.travail_id)) : !npAvant.has(str(n.travail_id)),
@@ -592,6 +652,17 @@ export function construireApercuRecalculV1({
     non_planifiees: nonPlanifiees,
     non_planifiees_total: nonPlanifieesTotal,
     non_planifiees_tri: triNonPlanifiees,
+    // Interventions externes positionnées par une date : hors de la grille
+    // (aucun salarié Profero), elles sont listées pour rester visibles.
+    interventions_externes: liste(apres?.interventions_externes_datees)
+      .filter(x => dansPerimetre(x?.chantier_id))
+      .map(x => ({
+        travail_id: str(x.travail_id),
+        chantier: nomChantier.get(str(x.chantier_id)) || str(x.chantier_id),
+        texte: libelleTravail(x.travail_id, x.texte),
+        date_debut: dateISOv1(x.date_debut),
+        date_fin: dateISOv1(x.date_fin) || dateISOv1(x.date_debut),
+      })),
     conflits,
     fins,
     chantiers_fin_inchangee: chantiersInchanges,

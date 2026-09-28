@@ -26,6 +26,7 @@ export const NATURES_CONSIGNE = Object.freeze({
   RESSOURCE_IMPOSEE: "ressource_imposee",
   DATE_IMPOSEE: "date_imposee",
   INTERVENTION_VERROUILLEE: "intervention_verrouillee",
+  INTERVENTION_EXTERNE: "intervention_externe",
 });
 
 export const TABLE_EVENEMENTS = "planning_resource_events";
@@ -38,6 +39,7 @@ const ETIQUETTES = {
   ressource_imposee: "Affectation imposée",
   date_imposee: "Date imposée",
   intervention_verrouillee: "Intervention figée",
+  intervention_externe: "Intervention externe",
 };
 
 const JOURS_LONGS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
@@ -214,6 +216,52 @@ export function travauxDuChantierV1({ phasage, groupesTypes = [], texte = "" } =
     .filter(t => correspond(texte, t.nom, t.groupe_type_id ? nomLot(gtParId.get(t.groupe_type_id)) : ""))
     .map(t => ({ ...t, lot: t.groupe_type_id ? (nomLot(gtParId.get(t.groupe_type_id)) || t.groupe_type_id) : null }));
   return { chantier_id: str(phasage?.chantier_id) || null, lots, travaux: tachesTrouvees };
+}
+
+/**
+ * Tâches EXTERNES d'un phasage, avec la règle de l'adaptateur du moteur
+ * (planningEngineAdapterV1.js) : la tâche porte `externe: true`, OU son groupe
+ * d'exécution a une équipe marquée externe et aucun ouvrier inscrit sur la
+ * tâche n'est une ressource active. Seule différence : l'adaptateur devine
+ * aussi le groupe d'une tâche qui n'en a pas (inférence « certaine ») ; pas
+ * ici. Une telle tâche n'est donc pas proposée et sa consigne est refusée,
+ * jamais acceptée à tort.
+ */
+export function tachesExternesV1({ phasage, groupesTypes = [], equipes = [], ressources = [], texte = "" } = {}) {
+  const groupes = Array.isArray(phasage?.plan_travaux?.meta?.chrono_groupes) ? phasage.plan_travaux.meta.chrono_groupes : [];
+  const gtParChrono = new Map(groupes.filter(g => str(g?.id)).map(g => [str(g.id), str(g.groupe_type_id) || null]));
+  const gtParId = new Map((Array.isArray(groupesTypes) ? groupesTypes : []).filter(g => str(g?.id)).map(g => [str(g.id), g]));
+  const eqParId = new Map((Array.isArray(equipes) ? equipes : []).filter(e => str(e?.id)).map(e => [str(e.id), e]));
+  const nomsActifs = new Set((Array.isArray(ressources) ? ressources : [])
+    .filter(r => str(r?.id) && r.actif !== false).map(r => cleTexteV1(r.nom_planning || r.nom)).filter(Boolean));
+  const out = [];
+  for (const o of Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : []) {
+    for (const t of Array.isArray(o?.taches) ? o.taches : []) {
+      if (!str(t?.id)) continue;
+      const gtId = str(t.groupe_type_id) || gtParChrono.get(str(t.chrono_groupe_id)) || null;
+      const eq = eqParId.get(str(gtParId.get(gtId)?.equipe_id)) || null;
+      const ouvriersConnus = uniq(t.ouvriers).filter(n => nomsActifs.has(cleTexteV1(n))).length;
+      const parTache = t.externe === true;
+      const parEquipe = !parTache && !!eq?.externe && ouvriersConnus === 0;
+      if (!parTache && !parEquipe) continue;
+      const av = Number(t.avancement);
+      const nom = str(t.nom) || "Tâche sans nom";
+      if (!correspond(texte, nom, nomLot(gtParId.get(gtId)), str(eq?.nom))) continue;
+      // Même règle que l'adaptateur : heures vendues si renseignées, sinon estimées.
+      const vendues = Number(t.heures_vendues) || 0;
+      const prevues = vendues > 0.005 ? vendues : (Number(t.heures_estimees) || 0);
+      out.push({
+        tache_id: str(t.id),
+        nom,
+        ouverte: !(Number.isFinite(av) && av >= 100),
+        a_des_heures: prevues > 0.005,
+        motif: parTache ? "tache_externe" : "equipe_externe",
+        equipe: eq ? str(eq.nom) || str(eq.id) : null,
+        groupe_type_id: gtId,
+      });
+    }
+  }
+  return out;
 }
 
 /** Lignes du planning (planning_cells) posées un jour donné. */
@@ -500,6 +548,61 @@ export function validerConsigneV1(consigne, referentiel = {}, options = {}) {
     };
   }
 
+  if (nature === NATURES_CONSIGNE.INTERVENTION_EXTERNE) {
+    const ch = verifierChantier(str(c.chantier_id));
+    const tacheId = str(c.tache_id);
+    periode = verifierPeriode(c, aujourdhui, erreurs);
+    let t = null;
+    if (!tacheId) erreurs.push(erreur("tache_manquante", "L'intervention externe concernée manque."));
+    else if (ch) {
+      const phasage = phasageDe(str(ch.id));
+      const base = tachesDuPhasage(phasage).find(x => x.tache_id === tacheId) || null;
+      t = tachesExternesV1({ phasage, groupesTypes: referentiel.groupesTypes, equipes: referentiel.equipes, ressources: referentiel.ressources })
+        .find(x => x.tache_id === tacheId) || null;
+      const cle = `${str(ch.id)}::${tacheId}`;
+      const moteur = Array.isArray(referentiel.externesMoteur) ? new Set(referentiel.externesMoteur.map(str)) : null;
+      if (!base) erreurs.push(erreur("tache_inconnue", `Aucune tâche « ${tacheId} » sur ${str(ch.nom) || ch.id}.`));
+      else if (!t) erreurs.push(erreur("tache_non_externe", `« ${base.nom} » n'est pas une intervention externe : elle est faite par une équipe Profero. Pour la placer à une date, demandez une date imposée.`));
+      else if (!t.ouverte) erreurs.push(erreur("tache_terminee", `L'intervention « ${t.nom} » est terminée : la date n'aurait aucun effet.`));
+      else if (!t.a_des_heures) erreurs.push(erreur("externe_sans_heures", `« ${t.nom} » n'a aucune heure prévue dans le phasage : le moteur la traite comme une charge inconnue et ne peut pas la dater. Renseignez ses heures dans le phasage, puis redemandez.`));
+      else if (moteur && !moteur.has(cle)) erreurs.push(erreur("externe_planifiee_en_interne", `« ${t.nom} » est déjà affectée à des salariés Profero dans le planning actuel : le moteur la planifie en interne, une date d'intervention externe n'aurait aucun effet.`));
+    }
+    const doublon = (referentiel.contraintes || []).find(k => k?.actif !== false && k.type === "fixed_date"
+      && str(k.chantier_id) === str(c.chantier_id) && str(k.tache_id) === tacheId);
+    if (doublon) avertissements.push(avert("consigne_existante", "Une date est déjà enregistrée pour cette intervention : le moteur retiendra la plus proche des deux."));
+    const impact = t && referentiel.impactsExternes ? referentiel.impactsExternes[`${str(c.chantier_id)}::${tacheId}`] : null;
+    const reprise = periode.fin || periode.debut ? ajouterJoursV1(periode.fin || periode.debut, 1) : null;
+    lignesFiche.push({ libelle: "Intervention", valeur: t ? `${t.nom}${t.equipe ? ` (${t.equipe})` : ""}` : (tacheId || "—") });
+    lignesFiche.push({ libelle: "Chantier", valeur: str(ch?.nom) || str(c.chantier_id) || "—" });
+    lignesFiche.push({ libelle: "Quand", valeur: periodeTexte(periode.debut, periode.fin) });
+    lignesFiche.push({
+      libelle: "Débloque",
+      valeur: !impact ? "Calcul indisponible"
+        : impact.debloque ? `${impact.debloque} tâche${impact.debloque > 1 ? "s" : ""} en attente derrière elle (${String(impact.heures_debloquees).replace(".", ",")} h)${impact.derriere > impact.debloque ? ` ; ${impact.derriere - impact.debloque} autre(s) attendent aussi autre chose` : ""}`
+          : impact.derriere ? `Aucune seule : ${impact.derriere} tâche(s) l'attendent, mais aussi une autre tâche bloquée`
+            : "Aucune tâche non planifiée ne l'attend dans la période calculée",
+    });
+    effet = `Aucun salarié Profero n'est placé sur l'intervention. Les tâches qui l'attendent peuvent démarrer à partir du ${reprise ? libelleDateV1(reprise) : "lendemain"}. Le recalcul montre ensuite combien trouvent vraiment une place dans la période.`;
+    visibilite = "Visible et annulable dans l'assistant.";
+    table = TABLE_CONTRAINTES;
+    ligne = {
+      type: "fixed_date",
+      scope: "tache",
+      chantier_id: str(c.chantier_id) || null,
+      groupe_type_id: null,
+      tache_id: tacheId || null,
+      allocation_id: null,
+      hard: true,
+      priority: 0,
+      date_debut: periode.debut,
+      date_fin: periode.fin || periode.debut,
+      config: { resource_ids: [], via: VIA_ASSISTANT, nature: NATURES_CONSIGNE.INTERVENTION_EXTERNE },
+      label: `Intervention externe — ${t?.nom || tacheId} (${str(ch?.nom) || str(c.chantier_id)}) · ${periodeTexte(periode.debut, periode.fin)}`,
+      source: SOURCE_ASSISTANT,
+      actif: true,
+    };
+  }
+
   if (nature === NATURES_CONSIGNE.INTERVENTION_VERROUILLEE) {
     const uid = str(c.allocation_uid);
     const inter = (referentiel.interventions || []).find(i => str(i?.allocation_uid) === uid) || null;
@@ -583,7 +686,8 @@ export function consignesAssistantV1({ contraintes = [], evenements = [], ressou
   const NATURE_PAR_TYPE = { resource_required: "ressource_imposee", fixed_date: "date_imposee", allocation_lock: "intervention_verrouillee" };
   for (const k of Array.isArray(contraintes) ? contraintes : []) {
     if (k?.source !== SOURCE_ASSISTANT || k.actif === false) continue;
-    const nature = NATURE_PAR_TYPE[k.type] || null;
+    const nature = k.type === "fixed_date" && k.config?.nature === NATURES_CONSIGNE.INTERVENTION_EXTERNE
+      ? NATURES_CONSIGNE.INTERVENTION_EXTERNE : (NATURE_PAR_TYPE[k.type] || null);
     out.push({
       table: TABLE_CONTRAINTES,
       id: str(k.id),

@@ -21,6 +21,7 @@ import {
   ajouterJoursV1, celluleDuJourV1, consignesAssistantV1, fenetreSimulationConsigneV1,
   interventionsDuJourV1, validerConsigneV1, validerPerimetreApercuV1,
 } from "./assistantPlanningConsigneV1.js";
+import { interventionsExternesSansDateV1 } from "./assistantPlanningApercuV1.js";
 
 export const TACHE_IA = "renovation_planning_consigne";
 
@@ -84,7 +85,7 @@ export async function chargerReferentiel(consigne = {}) {
   const [config, ressources, contraintes, evenements] = await Promise.all([
     verifier(supabase.from("planning_config").select("key,value").in("key", ["chantiers", "groupes_types", "equipes"]), "Configuration"),
     verifier(supabase.from("planning_resources").select("id,nom,nom_planning,kind,actif"), "Ressources"),
-    verifier(supabase.from("planning_constraints").select("id,type,scope,chantier_id,groupe_type_id,tache_id,allocation_id,label,source,actif,created_at").eq("actif", true), "Consignes"),
+    verifier(supabase.from("planning_constraints").select("id,type,scope,chantier_id,groupe_type_id,tache_id,allocation_id,config,label,source,actif,created_at").eq("actif", true), "Consignes"),
     verifier(supabase.from("planning_resource_events").select("id,resource_id,type,date_debut,date_fin,toute_journee,heures_indisponibles,source,actif,created_at").eq("actif", true), "Absences"),
   ]);
   const cfg = parserConfigMoteurV1(config);
@@ -99,7 +100,22 @@ export async function chargerReferentiel(consigne = {}) {
       interventions = interventionsDuJourV1({ cellules, date: consigne.date, verrous: contraintes.filter(k => k.type === "allocation_lock") });
     }
   }
-  return { ressources, chantiers: cfg.chantiers, groupesTypes: cfg.groupesTypes, equipes: cfg.equipes, phasages, interventions, evenements, contraintes };
+  // Intervention externe : le moteur tourne une fois (lecture seule) pour
+  // savoir s'il traite bien la tâche comme externe, et combien de tâches
+  // attendent qu'elle soit datée (calculé, jamais deviné).
+  let externesMoteur, impactsExternes;
+  if (consigne?.nature === NATURES_CONSIGNE.INTERVENTION_EXTERNE) {
+    const e = await chargerExternesSansDate({ debut: consigne.date_debut, fin: consigne.date_fin });
+    externesMoteur = e.externes_moteur;
+    impactsExternes = e.impacts;
+  }
+  return { ressources, chantiers: cfg.chantiers, groupesTypes: cfg.groupesTypes, equipes: cfg.equipes, phasages, interventions, evenements, contraintes, externesMoteur, impactsExternes };
+}
+
+/** Interventions externes sans date, triées par impact (bouton « Externes sans date »). */
+export async function chargerExternesSansDate(periode = {}) {
+  const resultat = await recalculer(fenetrePourFiche({ periode }));
+  return interventionsExternesSansDateV1({ resultat, capaciteBase: capaciteBasePlanningPourDate });
 }
 
 // Équipe habituelle d'un lot, avec la règle même de l'adaptateur du moteur :

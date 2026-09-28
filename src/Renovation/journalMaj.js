@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-28",
+    type: "nouveaute",
+    titre: "Assistant planning : donner la date d'une intervention externe (plombier, démolition…)",
+    pages: [],
+    quoi: "Une tâche faite par un prestataire bloquait jusqu'ici toutes les tâches qui la suivent, faute de date : le moteur ne savait pas la placer. On peut maintenant dire à l'assistant quand le prestataire vient. Le moteur ne met aucun salarié Profero sur cette intervention, et fait démarrer la suite au plus tôt le lendemain.",
+    comment: "Écrivez par exemple « Le plombier vient le 06/10 sur FOURMOND 101 pour le raccordement ». L'assistant retrouve l'intervention externe ; s'il y en a plusieurs possibles, il pose la question avec un bouton par intervention. Une tâche faite par une équipe Profero est refusée, avec la raison. La fiche indique combien de tâches attendent cette intervention. Après « Enregistrer et recalculer », l'aperçu montre combien trouvent vraiment une place. Le bouton rapide « Externes sans date » liste les interventions externes encore sans date, de la plus bloquante à la moins bloquante. Un clic prépare la phrase, il ne reste qu'à donner la date. Si une tâche qui doit précéder l'intervention n'est pas finie à temps, c'est signalé. La consigne est enregistrée à votre nom et reste annulable dans l'assistant, comme les autres.",
+  },
+  {
     date: "2026-09-25",
     type: "correctif",
     titre: "Assistant planning : les tâches non planifiées portent leur nom et sont triées, les cases vides disent où est la personne",

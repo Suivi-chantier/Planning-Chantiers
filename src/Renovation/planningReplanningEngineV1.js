@@ -282,6 +282,41 @@ export function diagnostiquerRetardsCapaciteResiduelleV1({ engineInput = {}, pro
   return diagnostics.sort((a, b) => a.travail_id.localeCompare(b.travail_id));
 }
 
+/**
+ * Intervention externe datée dont une tâche qui doit la précéder n'est pas
+ * terminée avant sa date : signalée, jamais corrigée en silence (le moteur ne
+ * déplace pas une date donnée par l'administrateur).
+ */
+export function alertesInterventionsExternesDateesV1(engineInput = {}, proposition = {}) {
+  const liste = Array.isArray(engineInput?.interventions_externes_datees) ? engineInput.interventions_externes_datees : [];
+  if (!liste.length) return [];
+  const termines = new Set(uniq(engineInput?.completedTaskIds));
+  const fins = datesFinTravaux(proposition?.allocations_proposees);
+  const nonPlanifies = new Set((proposition?.non_planifies || []).map(n => txt(n?.travail_id)));
+  const datees = new Map(liste.map(x => [txt(x.travail_id), x]));
+  const noms = new Map((engineInput?.travaux || []).map(t => [txt(t?.id), txt(t?.texte)]));
+  const out = [];
+  for (const x of liste) {
+    const enRetard = [];
+    for (const pid of uniq(x.predecesseur_ids)) {
+      if (termines.has(pid)) continue;
+      const fin = datees.get(pid)?.date_fin || fins.get(pid) || null;
+      if (nonPlanifies.has(pid) || !fin || fin >= x.date_debut) enRetard.push({ travail_id: pid, fin });
+    }
+    if (!enRetard.length) continue;
+    out.push({
+      type: "intervention_externe_avant_predecesseur",
+      travail_id: x.travail_id,
+      chantier_id: x.chantier_id,
+      tache_id: x.tache_id,
+      date: x.date_debut,
+      predecesseurs: enRetard,
+      explication: `Intervention externe « ${x.texte} » prévue le ${x.date_debut} : ${enRetard.map(p => `« ${noms.get(p.travail_id) || datees.get(p.travail_id)?.texte || "une tâche hors calcul"} » ${p.fin ? `finit le ${p.fin}` : "n'est pas planifiée"}`).join(", ")}, alors qu'elle doit être terminée avant. La date est gardée telle quelle : à vérifier.`,
+    });
+  }
+  return out;
+}
+
 export function planifierReplanningPropositionV1(engineInput = {}) {
   const stability = appliquerStabiliteDatesForecastV1({
     travaux: engineInput?.travaux || [],
@@ -295,6 +330,7 @@ export function planifierReplanningPropositionV1(engineInput = {}) {
     continuiteMultiJours: true,
   });
   const nonPlanifies = enrichirNonPlanifiesAvecBlocagesConnus(propositionBase.non_planifies, engineInput);
+  const alertesExternes = alertesInterventionsExternesDateesV1(engineInput, propositionBase);
   const diagnosticsCapacite = diagnostiquerRetardsCapaciteResiduelleV1({
     engineInput: { ...engineInput, contraintes: stability.contraintes },
     proposition: propositionBase,
@@ -324,6 +360,7 @@ export function planifierReplanningPropositionV1(engineInput = {}) {
     ...propositionBase,
     allocations_proposees: allocations,
     non_planifies: nonPlanifies,
+    ...(alertesExternes.length ? { warnings: [...(propositionBase.warnings || []), ...alertesExternes] } : {}),
     replanning: {
       version: PLANNING_REPLANNING_ENGINE_VERSION,
       stabilite_dates: stability.audit,

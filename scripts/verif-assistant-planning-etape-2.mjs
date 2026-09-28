@@ -41,6 +41,7 @@ import { fileURLToPath } from "node:url";
 import * as C from "../src/Renovation/assistantPlanningConsigneV1.mjs";
 import {
   CATEGORIES_NON_PLANIFIEE, TACHE_SANS_NOM, construireApercuPlanningActuelV1, construireApercuRecalculV1, semainesDisponiblesV1,
+  interventionsExternesSansDateV1, phraseInterventionExterneV1,
 } from "../src/Renovation/assistantPlanningApercuV1.mjs";
 import { getISOWeek } from "../src/rythmeSemaine.js";
 import { semaineISOv1 as semaineMoteur, tachesPhasageParTravailV1 } from "../src/Renovation/planningEngineDataHelpersV1.js";
@@ -284,7 +285,7 @@ await bloc("2. Phrase 1 — « Steven est absent lundi prochain, recalcule » (t
   const system = modele.recus[0]?.system || "";
   verifier(system.includes("2026-09-28 = Lundi 28/09/2026 (semaine prochaine)"), "le calendrier donné au modèle place lundi 28/09 en semaine prochaine");
   verifier(system.includes("Aucun chantier n'est ouvert sur la page"), "le contexte de page est transmis");
-  verifier(modele.recus[0].tools.map(t => t.name).sort().join() === "chercher_chantier,chercher_ressource,interventions_du_jour,travaux_chantier", "quatre outils de lecture exposés");
+  verifier(modele.recus[0].tools.map(t => t.name).sort().join() === "chercher_chantier,chercher_ressource,interventions_du_jour,interventions_externes,travaux_chantier", "cinq outils de lecture exposés");
   verifier(journal().length === nbIa + 1 && journal().at(-1).statut === "succes" && journal().at(-1).tache === "renovation_planning_consigne", "journal ia_jobs : succès");
   verifier(ecritures.filter(e => e.table !== "ia_jobs").length === 0, "aucune écriture côté serveur (hors journal ia_jobs)");
   const v = C.validerConsigneV1(r.body.resultat.consigne, referentiel(), optionsNavigateur);
@@ -807,6 +808,139 @@ await bloc("21. Résultat du moteur : travaux et noms des tâches exposés en le
   verifier(data.includes("travaux_moteur: prepared.preparation.engineInput.travaux,") && data.includes("taches_phasage: tachesPhasageParTravailV1(prepared.snapshot_application.phasages),"), "simulerPlanningGlobalV1 renvoie travaux_moteur et taches_phasage");
   const index = tachesPhasageParTravailV1(phasagesRetours);
   verifier(index["CH-F101::h2eqfict"]?.nom === "Pose serrure fictive du bloc-porte" && index["CH-F101::T-EXT"]?.nom === "Raccordement fictif par un externe", "l'index couvre aussi les tâches exclues du calcul");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intervention externe datée (28/09/2026). Données FICTIVES : « Raccordement
+// fictif », « Démolition fictive »… ; seul le nom FOURMOND 101 vient de la base.
+// ─────────────────────────────────────────────────────────────────────────────
+groupesTypes.push({ id: "gt_plomb_ext", nom: "Plomberie (prestataire)", ordre: 15, equipe_id: "EQ-EXT", ouvriers_prio: [] });
+equipes.push({ id: "EQ-EXT", nom: "Plombier externe", responsable: null, membres: [], externe: true });
+const phasageExt = phasage("CH-F101", [
+  tache("T-PREP", "Préparation fictive des réseaux", 4, "CG-P", { predecesseurs: [] }),
+  tache("T-RACC", "Raccordement fictif", 2, "CG-E", { predecesseurs: ["T-PREP"] }),
+  tache("T-SUITE1", "Pose fictive après raccordement", 6, "CG-P", { predecesseurs: ["T-RACC"] }),
+  tache("T-DEMO", "Démolition fictive", 1, "CG-P", { externe: true, predecesseurs: [] }),
+  tache("T-INT", "Doublage fictif", 5, "CG-P", { predecesseurs: [] }),
+  tache("T-VIDE", "Évacuation fictive sans heures", 0, "CG-E", { predecesseurs: [] }),
+], [{ id: "CG-P", ordre: 10, groupe_type_id: "gt_placo" }, { id: "CG-E", ordre: 15, groupe_type_id: "gt_plomb_ext" }]);
+const phasagesExt = [...phasages, phasageExt];
+tables.phasages.push(phasageExt);
+const dateExterne = (tacheId, debut, extra = {}) => ({
+  id: `K-${tacheId}-${debut}`, type: "fixed_date", scope: "tache", chantier_id: "CH-F101", tache_id: tacheId, hard: true,
+  date_debut: debut, date_fin: debut, config: { resource_ids: [], nature: "intervention_externe" }, source: "assistant", actif: true, ...extra,
+});
+const allocDe = (res, id) => res.proposition.allocations_proposees.filter(a => a.travail_id === id);
+
+await bloc("22. Moteur : intervention externe datée — placée sans salarié Profero, successeurs débloqués, rien d'ignoré en silence", () => {
+  const sans = simuler({ phasagesSim: phasagesExt, horizonDays: 42 });
+  verifier(sans.travaux_exclus.some(x => x.travail_id === "CH-F101::T-RACC" && x.type === "equipe_groupe_externe"), "sans date : le raccordement (équipe externe) est exclu, comme avant");
+  verifier(sans.proposition.non_planifies.some(n => n.travail_id === "CH-F101::T-SUITE1"), "sans date : sa suite est non planifiée (bloquée)");
+  const avec = simuler({ phasagesSim: phasagesExt, horizonDays: 42, contraintes: [dateExterne("T-RACC", "2026-10-06")] });
+  const inter = avec.forecast_courant && (avec.travaux_exclus || []).find(x => x.travail_id === "CH-F101::T-RACC");
+  verifier(!inter, "avec date : le raccordement n'est plus une exclusion");
+  const prep = preparerSimulationReplanningV1({ phasages: phasagesExt, chantiers, cellules: [], ressources, evenementsRessources: [], contraintes: [dateExterne("T-RACC", "2026-10-06")], groupesTypes, equipes, startDate: "2026-09-28", horizonDays: 42 });
+  const x = prep.interventions_externes_datees.find(i => i.travail_id === "CH-F101::T-RACC");
+  verifier(x && x.date_debut === "2026-10-06" && x.date_fin === "2026-10-06" && x.predecesseur_ids.join() === "CH-F101::T-PREP", "intervention datée relevée (date, prédécesseur)");
+  verifier(allocDe(avec, "CH-F101::T-RACC").length === 0 && !prep.engineInput.travaux.some(t => t.id === "CH-F101::T-RACC"), "aucun salarié Profero placé sur l'intervention externe (hors calcul)");
+  const suite = allocDe(avec, "CH-F101::T-SUITE1").map(a => a.date).sort();
+  verifier(suite.length > 0 && suite[0] >= "2026-10-07" && !avec.proposition.non_planifies.some(n => n.travail_id === "CH-F101::T-SUITE1"), `sa suite est planifiée, à partir du lendemain de l'intervention (1er jour ${suite[0]})`);
+  const nb = prep.engineInput.contraintes.find(c => c.id === "apres_intervention_externe:CH-F101::T-SUITE1");
+  verifier(nb && nb.type === "not_before" && nb.date_debut === "2026-10-07" && nb.hard === true, "mécanisme : contrainte « pas avant » existante, posée sur la suite");
+  verifier(!prep.engineInput.contraintes.some(c => c.id === "K-T-RACC-2026-10-06"), "la date consommée ne part pas au moteur comme une date imposée à des salariés");
+  // Prédécesseur pas terminé avant l'intervention : signalé.
+  const tot = simuler({ phasagesSim: phasagesExt, horizonDays: 42, contraintes: [dateExterne("T-RACC", "2026-09-28")] });
+  const alerte = tot.proposition.warnings.find(w => w.type === "intervention_externe_avant_predecesseur" && w.travail_id === "CH-F101::T-RACC");
+  verifier(alerte && /Préparation fictive des réseaux/.test(alerte.explication), `prédécesseur pas fini avant l'intervention : signalé (${alerte?.explication})`);
+  // Consigne « intervention externe » sur une tâche faite par Profero : rejetée et signalée.
+  const interne = simuler({ phasagesSim: phasagesExt, horizonDays: 42, contraintes: [dateExterne("T-INT", "2026-10-20")] });
+  const w = interne.warnings_adaptateur.find(v => v.type === "intervention_externe_sans_effet" && v.tache_id === "T-INT");
+  const jours = allocDe(interne, "CH-F101::T-INT").map(a => a.date).sort();
+  verifier(w && /rejetée/.test(w.explication) && jours.length > 0 && jours[0] < "2026-10-20", "sur une tâche Profero : consigne rejetée, signalée, la tâche reste planifiée normalement");
+  const vide = simuler({ phasagesSim: phasagesExt, horizonDays: 42, contraintes: [dateExterne("T-VIDE", "2026-10-06")] });
+  verifier(vide.warnings_adaptateur.some(v => v.type === "intervention_externe_sans_effet" && v.tache_id === "T-VIDE" && /sans heures prévues/.test(v.explication)), "externe sans heures : consigne sans effet, signalée");
+  exemple("Intervention externe datée", [
+    `Raccordement fictif le 06/10 (externe) → suite « Pose fictive après raccordement » à partir du ${suite[0]}`,
+    `alerte : ${alerte?.explication}`,
+    `rejet : ${w?.explication}`,
+  ]);
+});
+
+await bloc("23. Consigne « intervention externe » : validation, refus si la tâche n'est pas externe, fiche avec ce qu'elle débloque", () => {
+  const resultat = simuler({ phasagesSim: phasagesExt, horizonDays: 42 });
+  const e = interventionsExternesSansDateV1({ resultat, capaciteBase: capaciteBasePlanningPourDate });
+  const racc = e.interventions.find(i => i.travail_id === "CH-F101::T-RACC");
+  verifier(racc && racc.debloque === 1 && racc.derriere === 1 && racc.texte === "Raccordement fictif" && e.interventions[0].travail_id === "CH-F101::T-RACC", `liste triée par impact, débloque calculé (${racc?.debloque})`);
+  verifier(racc.phrase === phraseInterventionExterneV1({ texte: "Raccordement fictif", chantier: "FOURMOND 101" }) && racc.phrase === "L'intervention externe « Raccordement fictif » sur FOURMOND 101 aura lieu le ", `un clic prépare la phrase (« ${racc.phrase}»)`);
+  const ref = referentiel({ phasages: phasagesExt, externesMoteur: e.externes_moteur, impactsExternes: e.impacts });
+  const ok = C.validerConsigneV1({ nature: "intervention_externe", chantier_id: "CH-F101", tache_id: "T-RACC", date_debut: "2026-10-06" }, ref, optionsNavigateur);
+  verifier(ok.ok && ok.table === "planning_constraints" && ok.ligne.type === "fixed_date" && ok.ligne.scope === "tache" && ok.ligne.config.nature === "intervention_externe" && ok.ligne.source === "assistant", "consigne valide : date imposée sur la tâche, marquée intervention externe, origine assistant");
+  verifier(passeContraintesSqlConsigne(ok.ligne), "la ligne passe les contrôles SQL de planning_constraints (aucune migration)");
+  const debloque = ok.fiche.lignes.find(l => l.libelle === "Débloque")?.valeur;
+  verifier(ok.fiche.etiquette === "Intervention externe" && debloque === "1 tâche en attente derrière elle (6 h)", `fiche « Intervention externe · date » avec ce qu'elle débloque (${debloque})`);
+  verifier(/à partir du Mercredi 07\/10\/2026/.test(ok.fiche.effet) && /Aucun salarié Profero/.test(ok.fiche.effet), `effet expliqué (${ok.fiche.effet})`);
+  const interne = C.validerConsigneV1({ nature: "intervention_externe", chantier_id: "CH-F101", tache_id: "T-INT", date_debut: "2026-10-06" }, ref, optionsNavigateur);
+  verifier(!interne.ok && interne.erreurs.some(x => x.code === "tache_non_externe" && /n'est pas une intervention externe/.test(x.message)), "refus clair : la tâche n'est pas externe");
+  const inconnue = C.validerConsigneV1({ nature: "intervention_externe", chantier_id: "CH-F101", tache_id: "T-FANTOME", date_debut: "2026-10-06" }, ref, optionsNavigateur);
+  verifier(!inconnue.ok && inconnue.erreurs.some(x => x.code === "tache_inconnue"), "refus clair : la tâche n'existe pas");
+  const vide = C.validerConsigneV1({ nature: "intervention_externe", chantier_id: "CH-F101", tache_id: "T-VIDE", date_debut: "2026-10-06" }, ref, optionsNavigateur);
+  verifier(!vide.ok && vide.erreurs.some(x => x.code === "externe_sans_heures"), "refus clair : externe sans heures prévues (le moteur ne saurait pas la dater)");
+  const enInterne = C.validerConsigneV1({ nature: "intervention_externe", chantier_id: "CH-F101", tache_id: "T-RACC", date_debut: "2026-10-06" }, referentiel({ phasages: phasagesExt, externesMoteur: [] }), optionsNavigateur);
+  verifier(!enInterne.ok && enInterne.erreurs.some(x => x.code === "externe_planifiee_en_interne"), "navigateur : refus si le moteur la planifie déjà en interne (planning actuel)");
+  const liste = C.consignesAssistantV1({ contraintes: [{ id: "k9", ...ok.ligne, created_at: "2026-09-28T09:00:00Z" }], evenements: [], ressources, chantiers });
+  verifier(liste.length === 1 && liste[0].nature === "intervention_externe" && liste[0].etiquette === "Intervention externe", "listée et annulable comme les autres consignes");
+  exemple("Fiche « Intervention externe »", [...ok.fiche.lignes.map(l => `${l.libelle} : ${l.valeur}`), `Effet : ${ok.fiche.effet}`, `Refus (tâche Profero) : ${interne.erreurs[0].message}`]);
+});
+
+await bloc("24. Serveur : « Le plombier vient le 06/10 sur FOURMOND 101 pour le raccordement » ; refus si non externe ; question si ambigu", async () => {
+  const PHRASE = "Le plombier vient le 06/10 sur FOURMOND 101 pour le raccordement";
+  modele.scenario = [
+    outil("t1", "interventions_externes", { chantier_id: "CH-F101", texte: "raccordement" }),
+    (p) => {
+      const r = dernierResultatOutil(p);
+      return fin({ type: "proposition", message: "Le 06/10 = mardi 06/10.", outils_appeles: ["interventions_externes"],
+        consigne: { nature: "intervention_externe", chantier_id: r.interventions[0].chantier_id, tache_id: r.interventions[0].tache_id, date_debut: "2026-10-06", date_fin: "2026-10-06" } });
+    },
+  ];
+  const nbEcritures = ecritures.filter(e => e.table !== "ia_jobs").length;
+  const r = await appeler({ entree: { question: PHRASE } });
+  const outilRes = r.body.blocs?.find(b => b.outil === "interventions_externes")?.resultat;
+  verifier(outilRes?.nb === 1 && outilRes.interventions[0].tache_id === "T-RACC", `l'outil trouve le seul raccordement externe (${outilRes?.nb})`);
+  verifier(r.statusCode === 200 && r.body.resultat?.consigne?.nature === "intervention_externe" && r.body.resultat.consigne.tache_id === "T-RACC", `proposition acceptée par le serveur (${r.statusCode} ${JSON.stringify(r.body?.erreur)})`);
+  verifier(ecritures.filter(e => e.table !== "ia_jobs").length === nbEcritures, "aucune écriture côté serveur");
+  const system = modele.recus[0]?.system || "";
+  verifier(system.includes("e. intervention_externe") && system.includes("Une tâche faite par Profero n'est jamais une intervention externe"), "prompt : nouvelle consigne décrite");
+  // Tâche Profero déguisée en externe : refus du contrôle serveur.
+  const mauvais = fin({ type: "proposition", message: "Le 06/10 = mardi 06/10.", outils_appeles: ["interventions_externes"],
+    consigne: { nature: "intervention_externe", chantier_id: "CH-F101", tache_id: "T-INT", date_debut: "2026-10-06", date_fin: "2026-10-06" } });
+  modele.scenario = [mauvais, mauvais];
+  const r2 = await appeler({ entree: { question: "Le plombier vient le 06/10 sur FOURMOND 101 pour le doublage" } });
+  verifier(r2.statusCode === 502 && r2.body.erreur.code === "sortie_invalide" && /n'est pas une intervention externe/.test(r2.body.erreur.message), `refus clair du serveur (${r2.statusCode} ${r2.body?.erreur?.message})`);
+  // Plusieurs externes possibles : question avec les choix de l'outil.
+  modele.scenario = [
+    outil("t1", "interventions_externes", { chantier_id: "CH-F101", texte: "entreprise" }),
+    (p) => {
+      const res = dernierResultatOutil(p);
+      return fin({ type: "question", message: "Quelle intervention ?", outils_appeles: ["interventions_externes"],
+        choix: res.choix.map(c => ({ libelle: c.libelle, demande: `L'intervention externe « ${c.libelle.split(" — ")[0]} » sur FOURMOND 101 aura lieu le 06/10` })) });
+    },
+  ];
+  const r3 = await appeler({ entree: { question: "L'entreprise vient le 06/10 sur FOURMOND 101" } });
+  const res3 = r3.body.blocs?.find(b => b.outil === "interventions_externes")?.resultat;
+  verifier(res3?.texte_sans_resultat === true && res3.nb === 2 && res3.choix.length === 2, `texte sans résultat → toutes les externes ouvertes du chantier, 2 choix (${res3?.nb})`);
+  const libelles = (r3.body.resultat?.choix || []).map(c => c.libelle).sort();
+  verifier(r3.statusCode === 200 && r3.body.resultat.type === "question" && libelles.join(" | ") === "Démolition fictive — FOURMOND 101 | Raccordement fictif — FOURMOND 101", `question avec des boutons (${libelles.join(" | ")})`);
+  exemple("Assistant, intervention externe (modèle SIMULÉ)", [`« ${PHRASE} » → ${r.body.resultat.consigne.nature} ${r.body.resultat.consigne.tache_id} le ${r.body.resultat.consigne.date_debut}`, `refus : ${r2.body.erreur.message}`, `ambigu : ${libelles.map(l => `[${l}]`).join(" ")}`]);
+});
+
+await bloc("25. Écran : bouton « Externes sans date », écriture comme les autres consignes, pas de bouton Appliquer", () => {
+  const ecran = lire("src/Renovation/AssistantPlanning.jsx");
+  const donnees = lire("src/Renovation/assistantPlanningDonnees.js");
+  verifier(ecran.includes('{ libelle: "Externes sans date", action: "externes" }') && ecran.includes("onChoisir={phrase => { setSaisie(phrase); saisieRef.current?.focus(); }}"), "bouton rapide ; un clic prépare la phrase dans la saisie");
+  verifier(/export async function chargerExternesSansDate[\s\S]{0,300}interventionsExternesSansDateV1/.test(donnees), "la liste vient du moteur (calculée, triée par impact)");
+  verifier((donnees.match(/\.(insert|update|upsert|delete)\s*\(/g) || []).length === 2, "toujours une seule écriture (et son annulation) côté navigateur");
+  verifier(!/>\s*Appliquer/.test(ecran + lire("src/Renovation/AssistantPlanningApercu.jsx")), "toujours pas de bouton Appliquer");
+  verifier(lire("src/Renovation/AssistantPlanningApercu.jsx").includes("Interventions externes datées"), "aperçu : les interventions externes datées restent visibles hors de la grille");
 });
 
 console.log(blocs.join("\n"));

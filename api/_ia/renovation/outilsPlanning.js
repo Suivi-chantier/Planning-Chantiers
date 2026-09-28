@@ -88,7 +88,7 @@ async function chargerReferentielConsigne(sb, consigneProposee = {}) {
   const [config, ressources, contraintes, evenements] = await Promise.all([
     chargerConfig(sb),
     chargerRessources(sb),
-    lire(sb.from("planning_constraints").select("id, type, scope, chantier_id, groupe_type_id, tache_id, allocation_id, source, actif").eq("actif", true), "planning_constraints"),
+    lire(sb.from("planning_constraints").select("id, type, scope, chantier_id, groupe_type_id, tache_id, allocation_id, config, source, actif").eq("actif", true), "planning_constraints"),
     lire(sb.from("planning_resource_events").select("id, resource_id, type, date_debut, date_fin, toute_journee, source, actif").eq("actif", true), "planning_resource_events"),
   ]);
   const phasages = chantierId ? await chargerPhasages(sb, chantierId) : [];
@@ -260,7 +260,58 @@ const interventions_du_jour = {
   },
 };
 
-const OUTILS_PLANNING = [chercher_chantier, chercher_ressource, travaux_chantier, interventions_du_jour];
+// Interventions faites par un prestataire (tâche marquée externe, ou groupe
+// dont l'équipe est externe sans ouvrier Profero inscrit) : la règle vit dans
+// tachesExternesV1, la même que celle de l'adaptateur du moteur.
+const interventions_externes = {
+  nom: "interventions_externes",
+  description:
+    "Interventions EXTERNES (faites par un prestataire, pas par une équipe Profero) encore ouvertes, filtrées par un texte " +
+    "(« raccordement », « démolition »…). Sans chantier_id : sur tous les chantiers en cours. Si le texte ne trouve rien, " +
+    "renvoie toutes les interventions externes ouvertes du chantier. Plusieurs possibles : `choix` est prêt, poser la question " +
+    "avec exactement ces libellés. Aucune : le dire, sans proposer une tâche Profero à la place.",
+  schema: {
+    type: "object",
+    properties: {
+      chantier_id: { type: "string", description: "Identifiant exact (champ id de chercher_chantier). Facultatif." },
+      texte: { type: "string", description: "Travaux cités par l'utilisateur (ex. « raccordement »). Facultatif." },
+    },
+    required: [],
+  },
+  async executer(params, ctx) {
+    const m = await consigne();
+    const chantierId = str(params.chantier_id) || null;
+    const [config, phasages, ressources] = await Promise.all([chargerConfig(ctx.sb), chargerPhasages(ctx.sb, chantierId), chargerRessources(ctx.sb)]);
+    const actifs = new Map(config.chantiers.filter((c) => c && str(c.id) && str(c.statut) !== "termine").map((c) => [str(c.id), c]));
+    const chercher = (texte) => phasages
+      .filter((ph) => actifs.has(str(ph.chantier_id)))
+      .flatMap((ph) => m.tachesExternesV1({ phasage: ph, groupesTypes: config.groupesTypes, equipes: config.equipes, ressources, texte })
+        .filter((t) => t.ouverte && t.a_des_heures)
+        .map((t) => ({ ...t, chantier_id: str(ph.chantier_id), chantier: str(actifs.get(str(ph.chantier_id)).nom) || str(ph.chantier_id) })));
+    let trouvees = chercher(str(params.texte));
+    const sansResultat = !trouvees.length && !!str(params.texte);
+    if (sansResultat) trouvees = chercher("");
+    const choix = trouvees.length > 1 && trouvees.length <= m.MAX_CHOIX_QUESTION
+      ? trouvees.map((t) => ({ libelle: `${t.nom} — ${t.chantier}`, chantier_id: t.chantier_id, tache_id: t.tache_id }))
+      : [];
+    return {
+      type: "interventions_externes",
+      texte: str(params.texte),
+      chantier_id: chantierId,
+      nb: trouvees.length,
+      texte_sans_resultat: sansResultat,
+      interventions: trouvees.slice(0, MAX_TACHES),
+      choix,
+      consigne: trouvees.length === 0
+        ? "Aucune intervention externe ouverte : le dire en une phrase, sans proposer une tâche Profero."
+        : trouvees.length === 1 ? null
+          : choix.length ? "Plusieurs interventions externes possibles : poser la question avec exactement ces choix."
+            : `${trouvees.length} interventions externes possibles : demander laquelle, en une phrase, sans liste.`,
+    };
+  },
+};
+
+const OUTILS_PLANNING = [chercher_chantier, chercher_ressource, travaux_chantier, interventions_du_jour, interventions_externes];
 
 module.exports = {
   OUTILS_PLANNING,

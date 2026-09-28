@@ -243,6 +243,8 @@ export async function simulerPlanningGlobalV1(options = {}) {
     // Une tâche non planifiée ne porte que son identifiant dans `proposition`.
     travaux_moteur: prepared.preparation.engineInput.travaux,
     taches_phasage: tachesPhasageParTravailV1(prepared.snapshot_application.phasages),
+    // Interventions externes positionnées par une date imposée (hors calcul).
+    interventions_externes_datees: prepared.preparation.interventions_externes_datees || [],
     warnings_adaptateur: prepared.preparation.warnings,
     warnings_etat_reel: prepared.preparation.etatReel?.warnings || [],
     proposition,

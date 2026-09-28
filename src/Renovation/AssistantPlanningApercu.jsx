@@ -346,6 +346,11 @@ export function ResumeRecalcul({ apercu, T, acc }) {
         </div>
       )}
 
+      {(apercu.interventions_externes || []).length > 0 && (
+        <div style={{ fontSize: FONT.base.size, color: T.text }}>
+          <b>Interventions externes datées</b> (aucun salarié Profero) : {apercu.interventions_externes.map(x => `${x.chantier} · ${x.texte} (${x.date_fin && x.date_fin !== x.date_debut ? `${court(x.date_debut)} → ${court(x.date_fin)}` : court(x.date_debut)})`).join(" ; ")}
+        </div>
+      )}
       {apercu.non_planifiees.length > 0 && <NonPlanifiees tri={apercu.non_planifiees_tri} T={T}/>}
 
       {apercu.conflits.length > 0 && (

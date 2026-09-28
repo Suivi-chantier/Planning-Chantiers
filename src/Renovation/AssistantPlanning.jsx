@@ -28,7 +28,7 @@ import { lundiDeLaSemaineV1 } from "./assistantPlanningConsigneV1.js";
 import { construireApercuPlanningActuelV1, construireApercuRecalculV1, semainesDisponiblesV1 } from "./assistantPlanningApercuV1.js";
 import {
   annulerConsigne, apercuSansConsigne, capaciteBasePlanningPourDate, chargerAbsences, chargerConsignesAssistant, chargerReferentiel,
-  enregistrerConsigne, fenetrePourFiche, recalculer, traduireConsigne, validerDansLeNavigateur,
+  chargerExternesSansDate, enregistrerConsigne, fenetrePourFiche, recalculer, traduireConsigne, validerDansLeNavigateur,
 } from "./assistantPlanningDonnees.js";
 import { BandeauFins, GrilleRecalcul, ResumeRecalcul } from "./AssistantPlanningApercu.jsx";
 
@@ -38,12 +38,14 @@ const RACCOURCIS = [
   { libelle: "Déclarer une absence", texte: "… est absent " },
   { libelle: "Affecter quelqu'un", texte: "… va réaliser … sur le chantier … même si ce n'est pas son équipe" },
   { libelle: "Intervention figée", texte: "J'ai programmé une intervention le " },
+  { libelle: "Externes sans date", action: "externes" },
 ];
 const PHASES = {
   apercu: "Calcul du planning proposé…",
   avant: "Calcul du planning actuel par le moteur…",
   ecriture: "Enregistrement de la consigne…",
   apres: "Recalcul avec la consigne…",
+  externes: "Recherche des interventions externes sans date…",
 };
 
 function Bulle({ children, T, droite }) {
@@ -130,6 +132,45 @@ function FicheConsigne({ msg, actif, occupe, onEnregistrer, onAnnuler, T, acc })
   );
 }
 
+function ListeExternes({ externes, onChoisir, occupe, T }) {
+  const items = externes?.interventions || [];
+  const utiles = items.filter(i => i.derriere > 0);
+  const autres = items.length - utiles.length;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <Bulle T={T}>
+        {items.length
+          ? `${items.length} intervention${items.length > 1 ? "s" : ""} externe${items.length > 1 ? "s" : ""} sans date, de la plus bloquante à la moins bloquante. Un clic prépare la phrase : il ne reste qu'à donner la date.`
+          : "Aucune intervention externe sans date : le moteur n'en attend aucune."}
+      </Bulle>
+      {utiles.map(i => <BoutonExterne key={i.travail_id} i={i} occupe={occupe} onChoisir={onChoisir} T={T}/>)}
+      {autres > 0 && (
+        <details open={utiles.length === 0}>
+          <summary style={{ cursor: "pointer", fontSize: FONT.sm.size, color: T.textSub, padding: "4px 0" }}>{autres} autre{autres > 1 ? "s" : ""}, sans tâche en attente derrière {autres > 1 ? "elles" : "elle"}</summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {items.filter(i => !i.derriere).map(i => <BoutonExterne key={i.travail_id} i={i} occupe={occupe} onChoisir={onChoisir} T={T}/>)}
+          </div>
+        </details>
+      )}
+      {externes && <div style={{ fontSize: FONT.sm.size, color: T.textSub }}>Si toutes avaient une date : {externes.debloquables_si_toutes_datees} tâche(s) non planifiée(s) ne seraient plus retenues par une intervention externe.</div>}
+    </div>
+  );
+}
+
+function BoutonExterne({ i, occupe, onChoisir, T }) {
+  return (
+        <button type="button" disabled={occupe} onClick={() => onChoisir(i.phrase)} style={{
+          textAlign: "left", padding: "10px 12px", borderRadius: RADIUS.lg, border: `1px solid ${T.fieldBorder}`, background: i.derriere ? T.card : "transparent",
+          color: T.text, fontFamily: "inherit", fontSize: FONT.base.size, cursor: occupe ? "not-allowed" : "pointer", display: "flex", flexDirection: "column", gap: 2,
+        }}>
+          <span style={{ fontWeight: 700 }}>{i.texte} <span style={{ fontWeight: 400, color: T.textSub }}>— {i.chantier}</span></span>
+          <span style={{ fontSize: FONT.sm.size, color: i.debloque ? T.text : T.textSub }}>
+            {i.debloque ? `Débloque ${i.debloque} tâche${i.debloque > 1 ? "s" : ""} (${String(i.heures_debloquees).replace(".", ",")} h)` : i.derriere ? `${i.derriere} tâche(s) l'attendent, mais aussi autre chose` : "Aucune tâche non planifiée ne l'attend"}
+          </span>
+        </button>
+  );
+}
+
 export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
   const acc = getBranchAccent("renovation");
   const isMobile = useIsMobile();
@@ -203,6 +244,23 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
     } catch (e) {
       ajouter({ role: "assistant", type: "erreur", texte: `Je n'ai pas pu préparer la consigne : ${e.message}` });
     } finally {
+      setEnCours(false);
+    }
+  };
+
+  // « Externes sans date » : le moteur tourne ici (lecture seule) ; la liste
+  // vient de interventionsExternesSansDateV1, triée par impact.
+  const listerExternes = async () => {
+    if (enCours) return;
+    setEnCours(true);
+    setPhase("externes");
+    try {
+      const e = await chargerExternesSansDate();
+      ajouter({ role: "assistant", type: "externes", externes: e });
+    } catch (err) {
+      ajouter({ role: "assistant", type: "erreur", texte: `Je n'ai pas pu lister les interventions externes : ${err.message}` });
+    } finally {
+      setPhase(null);
       setEnCours(false);
     }
   };
@@ -338,6 +396,9 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
                 </div>
               </div>
             )}
+            {m.role === "assistant" && m.type === "externes" && (
+              <ListeExternes externes={m.externes} T={T} occupe={enCours} onChoisir={phrase => { setSaisie(phrase); saisieRef.current?.focus(); }}/>
+            )}
             {m.role === "assistant" && m.type === "proposition" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <Bulle T={T}>{m.texte}</Bulle>
@@ -390,7 +451,7 @@ export default function AssistantPlanning({ T, profil, page, pageLibelle }) {
       <div style={{ padding: "14px 20px 20px", borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {RACCOURCIS.map(r => (
-            <button key={r.libelle} type="button" onClick={() => { setSaisie(r.texte); saisieRef.current?.focus(); }} style={{
+            <button key={r.libelle} type="button" disabled={r.action && enCours} onClick={() => { if (r.action === "externes") { listerExternes(); return; } setSaisie(r.texte); saisieRef.current?.focus(); }} style={{
               minHeight: 36, padding: "0 12px", borderRadius: RADIUS.pill, border: `1px solid ${T.fieldBorder}`,
               background: "transparent", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer",
             }}>{r.libelle}</button>
