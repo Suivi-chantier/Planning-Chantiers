@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-28",
+    type: "amelioration",
+    titre: "Compte rendu ouvrier : seulement les tâches du jour",
+    pages: [],
+    quoi: "Le compte rendu de fin de journée ne montre plus que les tâches attribuées à l'ouvrier le jour du compte rendu. Les tâches des jours précédents non terminées (« À reprendre ») n'y sont plus ajoutées : le formulaire est plus court et chacun ne remplit que ce qu'on lui a donné ce jour-là.",
+    comment: "Rien à faire côté ouvrier. Les tâches « À reprendre » restent visibles sur le tableau de bord de l'espace ouvrier ; pour qu'une tâche en retard apparaisse au compte rendu, il faut la replanifier sur le jour voulu dans le planning. Pour un compte rendu rattrapé (jour oublié), ce sont les tâches de ce jour-là qui s'affichent.",
+  },
+  {
     date: "2026-09-24",
     type: "nouveaute",
     titre: "Assistant IA Rénovation : le moteur de questions est prêt (pas encore d'écran)",
