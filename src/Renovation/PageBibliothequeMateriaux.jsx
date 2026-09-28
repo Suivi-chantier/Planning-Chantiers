@@ -6,6 +6,7 @@ import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import { rendreNomsUniquesV1 } from "./importNomsUniquesV1.js";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
+import ImageOuRepli from "./ImageOuRepli";
 import {
   filtreRecherche, ordreBibliotheque, categoriesDistinctes, TAILLE_PAGE_BIBLIOTHEQUE,
 } from "./materiauxCatalogueV1.js";
@@ -837,7 +838,13 @@ export function ArticleModal({ article, onClose, onSave, T, acc, fournisseurs = 
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 <input value={draft.photo_url} onChange={e => set("photo_url", e.target.value)} placeholder="https://… (lien image directe)" style={{ ...inp(), flex: 1 }} />
                 {draft.photo_url && (
-                  <img src={draft.photo_url} alt="preview" onError={e => e.target.style.display = "none"} style={{ width: 60, height: 60, borderRadius: 8, objectFit: "cover", border: "1px solid rgba(255,255,255,0.1)", flexShrink: 0 }} />
+                  <ImageOuRepli key={draft.photo_url} src={draft.photo_url} alt="preview"
+                    style={{ width: 60, height: 60, borderRadius: 8, objectFit: "cover", border: "1px solid rgba(255,255,255,0.1)", flexShrink: 0 }}
+                    repli={
+                      <div style={{ width: 60, height: 60, borderRadius: 8, border: "1px dashed rgba(224,92,92,0.5)", flexShrink: 0,
+                        display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center",
+                        fontSize: 10, color: "#e15a5a", lineHeight: 1.2 }}>Photo introuvable</div>
+                    }/>
                 )}
               </div>
             </div>
@@ -1254,17 +1261,18 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
             onMouseEnter={e => e.currentTarget.style.background = T.card}
             onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <td style={{ padding: "10px 10px", width: 60 }}>
-              {a.photo_url
-                ? <img src={a.photo_url} alt={a.nom} onError={e => { e.target.style.display = "none"; }}
-                    style={{ width: 44, height: 44, borderRadius: RADIUS.md, objectFit: "cover", border: `1px solid ${T.border}` }}/>
-                : <div style={{
+              {/* Photo introuvable (≈ 3 articles SIDER sur 4) ⇒ même repli que sans photo. */}
+              <ImageOuRepli key={a.id} src={a.photo_url} alt={a.nom}
+                style={{ width: 44, height: 44, borderRadius: RADIUS.md, objectFit: "cover", border: `1px solid ${T.border}` }}
+                repli={
+                  <div style={{
                     width: 44, height: 44, borderRadius: RADIUS.md, background: T.card,
                     border: `1px solid ${T.border}`,
                     display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted,
                   }}>
                     <Icon as={Package} size={18} strokeWidth={1.5}/>
                   </div>
-              }
+                }/>
             </td>
             <td style={{ padding: "10px 10px", maxWidth: 240 }}>
               <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text }}>{a.nom}</div>

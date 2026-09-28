@@ -5,6 +5,7 @@ import { Icon, InputNombre } from "../ui";
 import { ShoppingCart, Search, X, Plus, Minus, AlertTriangle, Clock, CheckCircle2, Ban, Building2, Send, Package, ListChecks } from "lucide-react";
 import { MobileCard, MobileEmptyState, Pill, MobileTabs } from "../mobileUI";
 import { useCatalogueDemande } from "./useCatalogueDemande";
+import ImageOuRepli from "./ImageOuRepli";
 import { libelleResultatsPlafonnes } from "./materiauxCatalogueV1.js";
 
 const NAV_H = 66; // hauteur de la bottom-nav de l'espace ouvrier
@@ -205,13 +206,14 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
                       <div style={{ position:"absolute", top:6, right:6, background:accent, color:"#1a1f2e", borderRadius:"50%",
                         width:24, height:24, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:800, zIndex:2 }}>{qty}</div>
                     )}
-                    {url ? (
-                      <img src={url} alt={article.nom} loading="lazy" style={{ width:"100%", aspectRatio:"1/1", objectFit:"contain", background:"#f8f9fc", padding:8, display:"block" }}/>
-                    ) : (
-                      <div style={{ width:"100%", aspectRatio:"1/1", background:"linear-gradient(135deg,#f0f2f7,#e4e8f0)", display:"flex", alignItems:"center", justifyContent:"center", color:T.textMuted }}>
-                        <Icon as={Package} size={30}/>
-                      </div>
-                    )}
+                    {/* Photo introuvable (≈ 3 articles SIDER sur 4) ⇒ même repli que sans photo. */}
+                    <ImageOuRepli key={article.id} src={url} alt={article.nom}
+                      style={{ width:"100%", aspectRatio:"1/1", objectFit:"contain", background:"#f8f9fc", padding:8, display:"block" }}
+                      repli={
+                        <div style={{ width:"100%", aspectRatio:"1/1", background:"linear-gradient(135deg,#f0f2f7,#e4e8f0)", display:"flex", alignItems:"center", justifyContent:"center", color:T.textMuted }}>
+                          <Icon as={Package} size={30}/>
+                        </div>
+                      }/>
                     <div style={{ padding:"8px 10px 10px", flex:1, display:"flex", flexDirection:"column", gap:3 }}>
                       <div style={{ fontSize:13, fontWeight:700, color:T.text, lineHeight:1.3 }}>{article.nom}</div>
                       {article.reference && <div style={{ fontSize:10, color:T.textMuted, letterSpacing:.5 }}>Réf. {article.reference}</div>}

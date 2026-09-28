@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-28",
     type: "correctif",
+    titre: "Bibliothèque matériaux : une photo introuvable affiche l'icône colis au lieu d'une case vide",
+    pages: [{ id: "biblio-materiaux", label: "Biblio. matériaux" }],
+    quoi: "Le catalogue SIDER donne une adresse de photo à chaque article, mais environ 3 articles sur 4 n'ont pas de photo chez SIDER à cette adresse. La page affichait alors une case vide, et l'espace ouvrier une image cassée : on pouvait croire à une image en cours de chargement ou perdue.",
+    comment: "Rien à faire. Quand la photo n'existe pas, l'icône colis s'affiche, comme pour un article sans photo : dans la Bibliothèque matériaux, dans l'onglet Commande de l'espace ouvrier et dans le formulaire de besoin. En modifiant un article, une adresse de photo qui ne mène à rien affiche « Photo introuvable ». Les adresses de photo enregistrées ne sont pas modifiées.",
+  },
+  {
+    date: "2026-09-28",
+    type: "correctif",
     titre: "Bibliothèque matériaux : les 23 000 articles du catalogue SIDER sont visibles partout, et la page reste rapide",
     pages: [
       { id: "biblio-materiaux", label: "Biblio. matériaux" },
