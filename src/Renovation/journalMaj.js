@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-28",
+    type: "correctif",
+    titre: "Import Google Sheets de la bibliothèque matériaux : les gros catalogues passent en entier",
+    pages: [{ id: "biblio-materiaux", label: "Biblio. matériaux" }],
+    quoi: "L'import du catalogue SIDER s'arrêtait après 50 articles avec le message « ON CONFLICT DO UPDATE command cannot affect row a second time ». La cause : plusieurs articles différents du catalogue portent le même nom (SIDER coupe ses désignations à 30 caractères), alors que la bibliothèque n'accepte qu'un article par nom. Tous les articles sont maintenant importés, sans en perdre ni en écraser aucun.",
+    comment: "Quand un même nom revient sur plusieurs lignes avec des références différentes, la référence est ajoutée au nom, par exemple « TETE PORCHER 18X150 (réf 143006) ». L'aperçu l'annonce avant l'import, avec le nombre d'articles concernés. Les noms qui n'apparaissent qu'une fois ne changent pas. Deux lignes strictement identiques (même nom, même référence) ne donnent qu'un article, et c'est signalé. Si un import s'arrête en route, le message dit combien d'articles sont déjà enregistrés. Relancer l'import reprend sans créer de doublon.",
+  },
+  {
+    date: "2026-09-28",
     type: "amelioration",
     titre: "Compte rendu client : le PDF prend enfin la présentation Profero des autres documents",
     pages: [{ id: "equipe", label: "Équipe" }],
