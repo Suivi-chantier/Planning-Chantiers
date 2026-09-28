@@ -72,6 +72,8 @@ jobs:
         run: node scripts/verif-bibliotheque-proteger-historique.mjs
       - name: Bibliotheque archiver
         run: node scripts/verif-bibliotheque-archiver.mjs
+      - name: Import bibliotheque materiaux (noms uniques)
+        run: node scripts/verif-import-noms-uniques.mjs
       - name: Alertes V1
         run: node scripts/verif-alertes-v1.mjs
       - name: Compte rendu client (gabarit PDF)

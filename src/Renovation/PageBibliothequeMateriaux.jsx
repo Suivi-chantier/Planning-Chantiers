@@ -4,6 +4,7 @@ import { confirmSuppressionMassive } from "../guards";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
+import { rendreNomsUniquesV1 } from "./importNomsUniquesV1.js";
 import {
   Package, Plus, Search, X, Trash2, Pencil, ExternalLink, Check,
   AlertTriangle, FileSpreadsheet, Sheet, Tag, Euro, Link2, Inbox,
@@ -94,6 +95,7 @@ function ModaleImportSheets({ onClose, onImport, T }) {
   const [step, setStep] = useState("config"); // config | loading | preview | importing | done
   const [preview, setPreview] = useState([]);
   const [warnings, setWarnings] = useState([]);
+  const [doublons, setDoublons] = useState({ renommes: [], fusionnes: [], nomsEnDouble: 0 });
   const [fetchError, setFetchError] = useState("");
   const [progress, setProgress] = useState(0);
   const [importMode, setImportMode] = useState("append");
@@ -132,10 +134,13 @@ function ModaleImportSheets({ onClose, onImport, T }) {
       });
 
       const warns = mapped.filter(r => !r.nom).map(r => `Ligne ${r._line} ignorée (colonne "nom" vide)`);
-      const valid = mapped.filter(r => r.nom);
+      // Le nom est unique en base : les noms portés par plusieurs lignes
+      // reçoivent leur référence en suffixe (voir importNomsUniquesV1.mjs).
+      const uniques = rendreNomsUniquesV1(mapped.filter(r => r.nom));
 
       setWarnings(warns);
-      setPreview(valid);
+      setDoublons(uniques);
+      setPreview(uniques.lignes);
       setStep("preview");
     } catch (e) {
       setFetchError(e.message || "Erreur de lecture du sheet.");
@@ -163,13 +168,19 @@ function ModaleImportSheets({ onClose, onImport, T }) {
 
       // UPSERT par nom — préserve les UUIDs existants donc les liens commandes ne cassent pas
       // onConflict: "nom" nécessite une contrainte UNIQUE sur nom (voir SQL ci-dessous)
-      const BATCH = 50;
+      const BATCH = 500;
       for (let i = 0; i < payload.length; i += BATCH) {
         const batch = payload.slice(i, i + BATCH);
         const { error } = await supabase
           .from("materiaux_bibliotheque")
           .upsert(batch, { onConflict: "nom", ignoreDuplicates: false });
-        if (error) throw new Error(error.message);
+        // Les lots précédents sont déjà enregistrés : on le dit, pour qu'un
+        // import partiel ne passe pas pour un import raté de bout en bout.
+        if (error) throw new Error(
+          `Import interrompu : ${i} article${i > 1 ? "s" : ""} sur ${payload.length} déjà enregistré${i > 1 ? "s" : ""}, ` +
+          `le lot suivant (lignes ${preview[i]._line}–${preview[i + batch.length - 1]._line} du tableur) a été refusé. ` +
+          `Relancer l'import reprend sans créer de doublon. Détail : ${error.message}`
+        );
         setProgress(Math.round(((i + batch.length) / payload.length) * 100));
       }
 
@@ -438,6 +449,32 @@ function ModaleImportSheets({ onClose, onImport, T }) {
                   <div key={i} style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{w}</div>
                 ))}
                 {warnings.length > 4 && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>…et {warnings.length - 4} autres</div>}
+              </div>
+            )}
+
+            {/* Noms en double dans le tableur : référence ajoutée au nom */}
+            {(doublons.renommes.length > 0 || doublons.fusionnes.length > 0) && (
+              <div style={{
+                background: "rgba(66,133,244,0.07)", border: "1px solid rgba(66,133,244,0.22)",
+                borderRadius: 10, padding: "12px 16px",
+              }}>
+                {doublons.renommes.length > 0 && (<>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#6ea1f7", marginBottom: 5 }}>
+                    ℹ️ {doublons.nomsEnDouble} nom{doublons.nomsEnDouble > 1 ? "s" : ""} porté{doublons.nomsEnDouble > 1 ? "s" : ""} par plusieurs articles différents : la référence est ajoutée au nom de ces {doublons.renommes.length} articles
+                  </div>
+                  {doublons.renommes.slice(0, 4).map((r, i) => (
+                    <div key={i} style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>Ligne {r.ligne} : {r.apres}</div>
+                  ))}
+                  {doublons.renommes.length > 4 && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>…et {doublons.renommes.length - 4} autres</div>}
+                </>)}
+                {doublons.fusionnes.length > 0 && (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#f5a623", marginTop: doublons.renommes.length > 0 ? 8 : 0 }}>
+                    ⚠️ {doublons.fusionnes.length} ligne{doublons.fusionnes.length > 1 ? "s" : ""} en double exact (même nom, même référence) : seule la dernière est importée
+                    {doublons.fusionnes.slice(0, 3).map((f, i) => (
+                      <div key={i} style={{ fontSize: 11, fontWeight: 400, color: "rgba(255,255,255,0.35)" }}>Ligne {f.ligne} écartée, ligne {f.gardee} gardée : {f.nom}</div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
