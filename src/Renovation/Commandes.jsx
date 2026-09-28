@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase, invoquerFonction } from "../supabase";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
+import { filtrerListeChoix } from "./materiauxCatalogueV1.js";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
@@ -85,10 +87,8 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
   }, [open]);
 
   const selected = value ? materiaux.find(m => m.id === value) : null;
-  const filtered = materiaux.filter(m => {
-    const q = search.toLowerCase();
-    return !q || m.nom?.toLowerCase().includes(q) || m.reference?.toLowerCase().includes(q) || m.fournisseur?.toLowerCase().includes(q);
-  });
+  // Plafonné : dérouler 23 000 articles bloquerait l'écran (materiauxCatalogueV1).
+  const { visibles: filtered, total: nbTrouves, saisieRequise } = filtrerListeChoix(materiaux, search);
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
@@ -124,7 +124,11 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
                 outline: "none", width: "100%", boxSizing: "border-box",
               }} />
           </div>
-          {filtered.length === 0 ? (
+          {saisieRequise ? (
+            <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: P.textMuted }}>
+              {nbTrouves} articles : tape un nom, une référence ou un fournisseur.
+            </div>
+          ) : filtered.length === 0 ? (
             <div style={{ padding: 16, textAlign: "center", fontSize: 12, color: P.textMuted }}>Aucun article trouvé</div>
           ) : filtered.map(m => (
             <div key={m.id} onClick={() => { onChange(m.id); setOpen(false); setSearch(""); }}
@@ -146,6 +150,11 @@ function BiblioSelector({ value, onChange, T, materiaux }) {
               </div>
             </div>
           ))}
+          {!saisieRequise && nbTrouves > filtered.length && (
+            <div style={{ padding: "8px 12px", fontSize: 11, color: P.textMuted, fontStyle: "italic" }}>
+              {filtered.length} affichés sur {nbTrouves} — précise la recherche.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -230,16 +239,34 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
   // dès qu'un fichier est chargé ou des lignes extraites, on bloque le rechargement.
   useDirtyGuard("import-commande", !!file || lignes.length > 0 || !!fournisseurGlobal);
 
+  // Mots de chaque article, calculés une fois (la bibliothèque dépasse
+  // 23 000 articles depuis l'import SIDER).
+  const motsBiblio = useMemo(() => (materiaux || []).map(m => ({
+    m, mots: (m.nom + " " + (m.reference || "")).toLowerCase().split(/\s+/).filter(w => w.length > 2),
+  })), [materiaux]);
+  const parReference = useMemo(() => {
+    const idx = new Map();
+    for (const m of materiaux) {
+      const r = String(m.reference || "").trim().toLowerCase();
+      if (!r) continue;
+      // Référence portée par plusieurs articles : ambiguë, pas de lien direct.
+      idx.set(r, idx.has(r) ? null : m);
+    }
+    return idx;
+  }, [materiaux]);
+
   // Tenter un matching automatique biblio par nom/référence
   const tryMatchBiblio = (designation, reference) => {
     if (!designation && !reference) return null;
+    // 1. Référence exacte et unique : c'est l'article.
+    const exact = parReference.get(String(reference || "").trim().toLowerCase());
+    if (exact) return exact.id;
+    // 2. Sinon, mots communs (comportement historique).
     const needle = (designation + " " + (reference || "")).toLowerCase().trim();
+    const wordsN = needle.split(/\s+/).filter(w => w.length > 2);
     let best = null, bestScore = 0;
-    for (const m of materiaux) {
-      const hay = (m.nom + " " + (m.reference || "")).toLowerCase();
+    for (const { m, mots: wordsH } of motsBiblio) {
       // Score simple : nombre de mots communs
-      const wordsN = needle.split(/\s+/).filter(w => w.length > 2);
-      const wordsH = hay.split(/\s+/).filter(w => w.length > 2);
       const common = wordsN.filter(w => wordsH.some(h => h.includes(w) || w.includes(h))).length;
       const score = wordsN.length > 0 ? common / wordsN.length : 0;
       if (score > bestScore && score >= 0.4) { bestScore = score; best = m; }
@@ -978,7 +1005,9 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   };
 
   const loadMateriaux = async () => {
-    const { data } = await supabase.from("materiaux_bibliotheque").select("*").order("nom");
+    // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js), et
+    // seulement les colonnes affichées ici (23 000 lignes).
+    const { data } = await chargerTousLesMateriaux("id, nom, reference, fournisseur, prix_unitaire, unite, lien_fournisseur", { tri: "nom" });
     setMateriaux(data || []);
   };
 

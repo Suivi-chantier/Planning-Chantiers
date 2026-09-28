@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { fetchPointages } from "../pointages";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import {
   computeChantierFinance, avancementChantier as cfAvancementChantier,
   couleurMarge, eur, METHODE_CALCUL, SEUIL_RATIO_DERIVE, fmtH as cfFmtH,
@@ -453,7 +454,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
-          supabase.from("materiaux_bibliotheque").select("id, prix_unitaire"),
+          chargerTousLesMateriaux("id, prix_unitaire"),
         ]);
         const phasages = phQ.data || [];
         const tauxHoraires = cfgTaux.data?.value || {};
@@ -463,8 +464,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           ? items.map((l, i) => ({ id: l.id || `lot_${i}`, label: l.label || `Lot ${i + 1}`, couleur: l.couleur || l.color || "#888888" }))
           : [];
         // Bibliothèque des matériaux → reste à commander (projection).
-        const materiauxById = {};
-        (matQ.data || []).forEach(mt => { materiauxById[String(mt.id)] = mt; });
+        // Lecture échouée ⇒ null : « reste à commander indisponible », jamais
+        // un reste calculé sur une bibliothèque vide.
+        let materiauxById = null;
+        if (!matQ.error) {
+          materiauxById = {};
+          (matQ.data || []).forEach(mt => { materiauxById[String(mt.id)] = mt; });
+        }
         // % facturé par NOM de chantier — logique « CA à provisionner » des
         // États financiers (période la plus récente = periods[0]).
         const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();

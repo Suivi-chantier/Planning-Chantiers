@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
 import { confirmSuppressionMassive } from "../guards";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
 import { rendreNomsUniquesV1 } from "./importNomsUniquesV1.js";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
+import {
+  filtreRecherche, ordreBibliotheque, categoriesDistinctes, TAILLE_PAGE_BIBLIOTHEQUE,
+} from "./materiauxCatalogueV1.js";
 import {
   Package, Plus, Search, X, Trash2, Pencil, ExternalLink, Check,
   AlertTriangle, FileSpreadsheet, Sheet, Tag, Euro, Link2, Inbox,
@@ -875,10 +879,21 @@ export function ArticleModal({ article, onClose, onSave, T, acc, fournisseurs = 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
 function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
   const acc = getBranchAccent(branch);
-  const [articles, setArticles] = useState([]);
+  // Plus de 23 000 articles (catalogue SIDER) : l'API n'en renvoie que 1 000
+  // par requête, et dessiner tout le catalogue figeait la page. Recherche,
+  // filtre et tri sont donc faits PAR LA BASE, et la page n'affiche qu'une
+  // tranche de TAILLE_PAGE_BIBLIOTHEQUE articles à la fois.
+  const [articles, setArticles] = useState([]);          // la page affichée
+  const [totalFiltre, setTotalFiltre] = useState(null);  // articles correspondant au filtre
+  const [stats, setStats] = useState({ total: null, avecPrix: null, avecLien: null }); // null = inconnu
+  const [catsPresentes, setCatsPresentes] = useState(null);   // null = pas encore lues
+  const [erreur, setErreur] = useState("");
+  const [page, setPage] = useState(0);
+  const [version, setVersion] = useState(0);             // +1 après chaque écriture ⇒ relecture
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [rechercheEffective, setRechercheEffective] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [modale, setModale] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -887,12 +902,63 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
   const [sortBy, setSortBy] = useState("az");           // az / za / prix-asc / prix-desc / fournisseur
   const [viewMode, setViewMode] = useState("liste");    // liste / groupe
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await supabase.from("materiaux_bibliotheque").select("*").order("categorie").order("nom");
-    if (!error) setArticles(data || []);
-    setLoading(false);
-  }, []);
+  const load = useCallback(() => setVersion(v => v + 1), []);
+  const conteneurRef = useRef(null);
+  // Changer de page ramène en haut de la liste.
+  useEffect(() => { conteneurRef.current?.scrollTo?.({ top: 0 }); }, [page]);
+
+  // La recherche part 300 ms après la dernière frappe, pas à chaque lettre.
+  useEffect(() => {
+    const t = setTimeout(() => setRechercheEffective(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  // Nouveau filtre ou nouveau tri ⇒ retour à la première page.
+  useEffect(() => { setPage(0); }, [rechercheEffective, filterCat, sortBy, viewMode]);
+
+  // La page affichée.
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      setLoading(true);
+      let q = supabase.from("materiaux_bibliotheque").select("*", { count: "exact" });
+      const filtre = filtreRecherche(rechercheEffective);
+      if (filtre) q = q.or(filtre);
+      if (filterCat !== "all") q = q.eq("categorie", filterCat);
+      for (const [colonne, sens] of ordreBibliotheque(sortBy, viewMode)) q = q.order(colonne, sens);
+      const debut = page * TAILLE_PAGE_BIBLIOTHEQUE;
+      const { data, count, error } = await q.range(debut, debut + TAILLE_PAGE_BIBLIOTHEQUE - 1);
+      if (annule) return;
+      if (error) {
+        setErreur("La bibliothèque n'a pas pu être lue : " + error.message);
+        setArticles([]);
+        setTotalFiltre(null);
+      } else {
+        setErreur("");
+        setArticles(data || []);
+        setTotalFiltre(Number.isInteger(count) ? count : null);
+      }
+      setLoading(false);
+    })();
+    return () => { annule = true; };
+  }, [rechercheEffective, filterCat, sortBy, viewMode, page, version]);
+
+  // Compteurs et liste des catégories : sur TOUTE la bibliothèque, pas sur la page.
+  useEffect(() => {
+    let annule = false;
+    const compter = () => supabase.from("materiaux_bibliotheque").select("id", { count: "exact", head: true });
+    Promise.all([
+      compter(),
+      compter().not("prix_unitaire", "is", null).neq("prix_unitaire", 0),
+      compter().not("lien_fournisseur", "is", null).neq("lien_fournisseur", ""),
+      chargerTousLesMateriaux("id, categorie"),
+    ]).then(([tous, prix, lien, cats]) => {
+      if (annule) return;
+      const n = r => (r.error || !Number.isInteger(r.count) ? null : r.count);
+      setStats({ total: n(tous), avecPrix: n(prix), avecLien: n(lien) });
+      if (!cats.error) setCatsPresentes(categoriesDistinctes(cats.data));
+    });
+    return () => { annule = true; };
+  }, [version]);
 
   const loadFournisseurs = useCallback(async () => {
     const { data } = await supabase.from("fournisseurs").select("id, nom, email").order("nom");
@@ -902,24 +968,13 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadFournisseurs(); }, [loadFournisseurs]);
 
-  const filtered = articles.filter(a => {
-    const matchCat = filterCat === "all" || a.categorie === filterCat;
-    const q = search.toLowerCase();
-    const matchSearch = !q || a.nom?.toLowerCase().includes(q) || a.reference?.toLowerCase().includes(q) || a.fournisseur?.toLowerCase().includes(q);
-    return matchCat && matchSearch;
-  });
+  // Filtre et tri déjà faits par la base (ordreBibliotheque).
+  const sorted = articles;
+  const debutPage = page * TAILLE_PAGE_BIBLIOTHEQUE;
+  const nbPages = totalFiltre == null ? null : Math.max(1, Math.ceil(totalFiltre / TAILLE_PAGE_BIBLIOTHEQUE));
+  const fmtN = n => (n == null ? "—" : n.toLocaleString("fr-FR"));
 
-  // ── Tri
-  const sortFn = {
-    "az":        (a, b) => (a.nom || "").localeCompare(b.nom || ""),
-    "za":        (a, b) => (b.nom || "").localeCompare(a.nom || ""),
-    "prix-asc":  (a, b) => (parseFloat(a.prix_unitaire) || 0) - (parseFloat(b.prix_unitaire) || 0),
-    "prix-desc": (a, b) => (parseFloat(b.prix_unitaire) || 0) - (parseFloat(a.prix_unitaire) || 0),
-    "fournisseur": (a, b) => (a.fournisseur || "~").localeCompare(b.fournisseur || "~"),
-  }[sortBy] || ((a, b) => 0);
-  const sorted = [...filtered].sort(sortFn);
-
-  // ── Groupement par catégorie pour la vue "groupé"
+  // ── Groupement par catégorie pour la vue "groupé" (sur la page affichée)
   const grouped = (() => {
     const map = {};
     sorted.forEach(a => {
@@ -930,7 +985,6 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
   })();
 
-  const catsPresentes = [...new Set(articles.map(a => a.categorie).filter(Boolean))].sort();
 
   const saveArticle = async (draft) => {
     const payload = {
@@ -964,7 +1018,7 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
   };
 
   return (
-    <div className="page-padding bm-page" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
+    <div ref={conteneurRef} className="page-padding bm-page" style={{ flex: 1, overflowY: "auto", padding: "24px 28px", background: T.bg }}>
       <style>{`
         @media(max-width:767px){
           .bm-page .bm-header{flex-direction:column;align-items:stretch!important}
@@ -1078,10 +1132,10 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
         gap: 10, marginBottom: 14,
       }}>
         {[
-          { label: "Articles",   val: articles.length,                                        icon: Package,        color: acc.accent },
-          { label: "Avec prix",  val: articles.filter(a => a.prix_unitaire).length,           icon: Euro,           color: "#22c55e" },
-          { label: "Avec lien",  val: articles.filter(a => a.lien_fournisseur).length,        icon: Link2,          color: "#5b9cf6" },
-          { label: "Catégories", val: catsPresentes.length,                                   icon: Tag,            color: "#a78bfa" },
+          { label: "Articles",   val: fmtN(stats.total),                                     icon: Package,        color: acc.accent },
+          { label: "Avec prix",  val: fmtN(stats.avecPrix),                                  icon: Euro,           color: "#22c55e" },
+          { label: "Avec lien",  val: fmtN(stats.avecLien),                                  icon: Link2,          color: "#5b9cf6" },
+          { label: "Catégories", val: catsPresentes ? catsPresentes.length : "—",            icon: Tag,            color: "#a78bfa" },
         ].map(k => (
           <div key={k.label} style={{
             background: T.surface, border: `1px solid ${T.border}`,
@@ -1104,7 +1158,7 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
       </div>
 
       {/* ── Bandeau vide ── */}
-      {articles.length === 0 && !loading && (
+      {stats.total === 0 && !loading && (
         <div style={{
           marginBottom: 18,
           background: T.card, border: `1px dashed ${T.border}`,
@@ -1135,7 +1189,7 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
       )}
 
       {/* ── Recherche + filtre + tri + vue ── */}
-      {articles.length > 0 && (
+      {stats.total !== 0 && (
         <div className="bm-search-bar" style={{
           background: T.surface, border: `1px solid ${T.border}`,
           borderRadius: RADIUS.lg, padding: "10px 12px", marginBottom: 14,
@@ -1155,7 +1209,7 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
               borderRadius: RADIUS.md, padding: "8px 12px", color: T.text,
               fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none", cursor: "pointer" }}>
             <option value="all">Toutes catégories</option>
-            {catsPresentes.map(c => <option key={c} value={c}>{c}</option>)}
+            {(catsPresentes || []).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <select value={sortBy} onChange={e => setSortBy(e.target.value)} title="Trier"
             style={{ background: T.fieldBg || T.card, border: `1px solid ${T.fieldBorder || T.border}`,
@@ -1188,13 +1242,13 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
             })}
           </div>
           <div style={{ marginLeft: "auto", fontSize: FONT.xs.size + 1, color: T.textMuted, fontWeight: 600 }}>
-            {filtered.length} / {articles.length}
+            {fmtN(totalFiltre)} / {fmtN(stats.total)}
           </div>
         </div>
       )}
 
       {/* ── Table(s) ── */}
-      {articles.length > 0 && (() => {
+      {stats.total !== 0 && (() => {
         const renderRow = (a) => (
           <tr key={a.id} style={{ borderBottom: `1px solid ${T.sectionDivider || T.border}`, transition: "background .1s" }}
             onMouseEnter={e => e.currentTarget.style.background = T.card}
@@ -1314,6 +1368,22 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
           );
         }
 
+        // Une lecture ratée n'est pas « aucun résultat » : on le dit.
+        if (erreur) {
+          return (
+            <div style={{
+              background: "rgba(224,92,92,0.08)", border: "1px solid rgba(224,92,92,0.3)", borderRadius: RADIUS.xl,
+              padding: 24, textAlign: "center", color: "#e15a5a", fontSize: FONT.sm.size,
+            }}>
+              {erreur}
+              <div style={{ marginTop: 10 }}>
+                <button onClick={load} style={{ background: "transparent", border: "1px solid rgba(224,92,92,0.4)", borderRadius: RADIUS.md,
+                  padding: "6px 14px", color: "#e15a5a", fontFamily: "inherit", fontSize: FONT.sm.size, cursor: "pointer" }}>Réessayer</button>
+              </div>
+            </div>
+          );
+        }
+
         if (sorted.length === 0) {
           return (
             <div style={{
@@ -1377,6 +1447,31 @@ function PageBibliothequeMateriaux({ T, branch = "renovation" }) {
           </div>
         );
       })()}
+
+      {/* ── Pages ── */}
+      {!erreur && totalFiltre > TAILLE_PAGE_BIBLIOTHEQUE && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap",
+          marginTop: 14, fontSize: FONT.sm.size, color: T.textSub,
+        }}>
+          {[
+            { label: "← Précédent", actif: page > 0, cible: page - 1 },
+            null,
+            { label: "Suivant →", actif: nbPages != null && page < nbPages - 1, cible: page + 1 },
+          ].map((b, i) => b === null ? (
+            <span key="pos">
+              Articles {fmtN(debutPage + 1)}–{fmtN(Math.min(debutPage + TAILLE_PAGE_BIBLIOTHEQUE, totalFiltre))} sur {fmtN(totalFiltre)}
+            </span>
+          ) : (
+            <button key={i} disabled={!b.actif || loading} onClick={() => setPage(b.cible)} style={{
+              background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
+              padding: "7px 14px", color: b.actif ? T.text : T.textMuted, fontFamily: "inherit",
+              fontSize: FONT.sm.size, fontWeight: 700, cursor: b.actif && !loading ? "pointer" : "default",
+              opacity: b.actif ? 1 : 0.5,
+            }}>{b.label}</button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

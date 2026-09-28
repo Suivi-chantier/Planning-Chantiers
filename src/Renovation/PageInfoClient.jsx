@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, getClientId } from "../supabase";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
 import { FONT, RADIUS, SHADOW, getBranchAccent, LOGO_RENO_H, loadLots } from "../constants";
 import { Icon } from "../ui";
@@ -929,7 +930,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const [{ data: ouv }, lots, { data: mats }, { data: cfg }, { data: tauxH }, { data: coefV }] = await Promise.all([
       supabase.from("bibliotheque_ratios").select("*").order("libelle"),
       loadLots(),
-      supabase.from("materiaux_bibliotheque").select("id,nom,unite,prix_unitaire"),
+      // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js).
+      chargerTousLesMateriaux("id,nom,unite,prix_unitaire"),
       supabase.from("planning_config").select("key,value").in("key", ["taux_mo_previsionnel", "chiffrage_tva_defaut"]),
       supabase.from("taux_horaires_vente").select("*"),   // prix MO = cadence × taux de l'ouvrage
       supabase.from("coefficients_vente").select("*"),    // prix matériaux = coût × coefficient de l'ouvrage

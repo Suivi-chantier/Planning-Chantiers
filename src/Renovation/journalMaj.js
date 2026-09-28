@@ -25,6 +25,19 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-28",
     type: "correctif",
+    titre: "Bibliothèque matériaux : les 23 000 articles du catalogue SIDER sont visibles partout, et la page reste rapide",
+    pages: [
+      { id: "biblio-materiaux", label: "Biblio. matériaux" },
+      { id: "commandes", label: "Commandes" },
+      { id: "bibliotheque", label: "Biblio. ouvrages" },
+      { id: "phasage-v2", label: "Phasage" },
+    ],
+    quoi: "Depuis l'import du catalogue SIDER, la bibliothèque compte plus de 23 000 articles. L'application n'en lisait que 1 000 à la fois, sans le signaler. La page Bibliothèque matériaux était lente et n'en montrait qu'une partie. Les écrans Commandes et Bibliothèque d'ouvrages ne retrouvaient plus la plupart des articles réellement utilisés, d'où des prix d'ouvrages faux à l'écran. Rien n'avait été effacé : tous les liens étaient intacts en base. Dans l'espace ouvrier, l'onglet Commande ne proposait que les articles du début de l'alphabet.",
+    comment: "Page Bibliothèque matériaux : la recherche, la catégorie et le tri portent sur toute la bibliothèque, et les articles s'affichent par pages de 100 (boutons « Précédent » / « Suivant »). Les compteurs du haut comptent toute la bibliothèque. Dans les listes de choix d'article (Commandes, Phasage), on tape un nom, une référence ou un fournisseur, et 50 résultats au plus s'affichent, avec le total trouvé. Espace ouvrier et formulaire de besoin : même principe, 50 articles affichés, « précise la recherche » au-delà. À l'import d'un bon de commande, un article dont la référence correspond exactement est désormais lié en priorité. Si la bibliothèque ne peut pas être lue en entier, l'écran le dit au lieu d'afficher des prix incomplets.",
+  },
+  {
+    date: "2026-09-28",
+    type: "correctif",
     titre: "Import Google Sheets de la bibliothèque matériaux : les gros catalogues passent en entier",
     pages: [{ id: "biblio-materiaux", label: "Biblio. matériaux" }],
     quoi: "L'import du catalogue SIDER s'arrêtait après 50 articles avec le message « ON CONFLICT DO UPDATE command cannot affect row a second time ». La cause : plusieurs articles différents du catalogue portent le même nom (SIDER coupe ses désignations à 30 caractères), alors que la bibliothèque n'accepte qu'un article par nom. Tous les articles sont maintenant importés, sans en perdre ni en écraser aucun.",

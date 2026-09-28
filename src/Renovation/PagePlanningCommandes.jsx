@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
 // Écritures versionnées : marquer « commandé » touche plusieurs phasages en
 // une seule action, d'où le lot transactionnel (tout ou rien).
 import { sauvegarderPhasage, sauvegarderPhasagesLot, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
@@ -131,8 +132,8 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       .order("nom")
       .then(({ data }) => setFournisseurs(data || []));
     loadLots().then(setLots);
-    supabase.from("materiaux_bibliotheque")
-      .select("id, nom, reference, unite, prix_unitaire, fournisseur, fournisseur_id, lien_fournisseur, photo_url")
+    // Plus de 1 000 articles : lecture par tranches (chargerMateriaux.js).
+    chargerTousLesMateriaux("id, nom, reference, unite, prix_unitaire, fournisseur, fournisseur_id, lien_fournisseur, photo_url")
       .then(({ data }) => setMateriaux(data || []));
   }, []);
 

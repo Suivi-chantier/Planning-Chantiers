@@ -4,6 +4,8 @@ import { DEFAULT_CHANTIERS } from "../constants";
 import { Icon, InputNombre } from "../ui";
 import { ShoppingCart, Search, X, Plus, Minus, AlertTriangle, Clock, CheckCircle2, Ban, Building2, Send, Package, ListChecks } from "lucide-react";
 import { MobileCard, MobileEmptyState, Pill, MobileTabs } from "../mobileUI";
+import { useCatalogueDemande } from "./useCatalogueDemande";
+import { libelleResultatsPlafonnes } from "./materiauxCatalogueV1.js";
 
 const NAV_H = 66; // hauteur de la bottom-nav de l'espace ouvrier
 const STATUTS = {
@@ -16,9 +18,7 @@ const imgOf = (a) => a.image_url || a.image || a.photo || a.photo_url || null;
 export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview = false }) {
   const [view, setView] = useState("catalogue"); // catalogue | demandes
   const [chantiers, setChantiers] = useState(DEFAULT_CHANTIERS);
-  const [biblio, setBiblio]       = useState([]);
   const [besoins, setBesoins]     = useState([]);
-  const [loadingBiblio, setLoadingBiblio]     = useState(true);
   const [loadingBesoins, setLoadingBesoins]   = useState(true);
 
   // Contexte de la commande
@@ -48,34 +48,24 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
   useEffect(() => {
     supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle()
       .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setChantiers(data.value); });
-    // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
-    // id, nom, reference, categorie, photo_url, unite — jamais les prix ni les
-    // fournisseurs. La table materiaux_bibliotheque n'est plus lisible depuis
-    // le terrain ; ne PAS ajouter de repli vers elle, ce repli rouvrirait la
-    // dépendance que cette bascule supprime. Le tri par nom est fait côté SQL.
-    supabase.rpc("catalogue_materiaux_demande")
-      .then(({ data, error }) => {
-        if (error) console.error("catalogue_materiaux_demande:", error);
-        setBiblio(Array.isArray(data) ? data : []);
-        setLoadingBiblio(false);
-      });
     chargerBesoins();
   }, []);
+
+  // Catalogue épuré, via RPC (sql/202609_catalogue_materiaux_demande.sql) :
+  // id, nom, reference, categorie, photo_url, unite — jamais les prix ni les
+  // fournisseurs. La table materiaux_bibliotheque n'est plus lisible depuis
+  // le terrain ; ne PAS ajouter de repli vers elle. Plus de 23 000 articles :
+  // recherche et catégorie filtrées par la base, 50 articles affichés au plus
+  // (useCatalogueDemande.js).
+  const catalogue = useCatalogueDemande({ recherche: search.trim(), categorie: catActive });
+  const filtered = catalogue.articles;
+  const loadingBiblio = catalogue.loading && filtered.length === 0;
+  const plafond = libelleResultatsPlafonnes(filtered.length, catalogue.total);
 
   const nomChantier = (id) => chantiers.find(c => c.id === id)?.nom || id || "—";
   const couleurChantier = (id) => chantiers.find(c => c.id === id)?.couleur || "#5b8af5";
 
-  const categories = useMemo(
-    () => ["Tous", ...Array.from(new Set(biblio.map(a => a.categorie).filter(Boolean))).sort()],
-    [biblio]
-  );
-  const filtered = useMemo(() => biblio.filter(a => {
-    const matchCat = catActive === "Tous" || a.categorie === catActive;
-    const q = search.trim().toLowerCase();
-    const matchSearch = !q || (a.nom||"").toLowerCase().includes(q)
-      || (a.reference||"").toLowerCase().includes(q) || (a.categorie||"").toLowerCase().includes(q);
-    return matchCat && matchSearch;
-  }), [biblio, catActive, search]);
+  const categories = useMemo(() => ["Tous", ...(catalogue.categories || [])], [catalogue.categories]);
 
   const setQty = (article, delta, absolute = false) => {
     setPanier(prev => {
@@ -195,6 +185,8 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
           {/* Grille articles */}
           {loadingBiblio ? (
             <div style={{ padding:"30px", textAlign:"center", color:T.textMuted, fontSize:13, letterSpacing:2 }}>CHARGEMENT…</div>
+          ) : catalogue.erreur ? (
+            <MobileCard T={T}><MobileEmptyState T={T} icon={AlertTriangle} title="Catalogue indisponible" hint={catalogue.erreur}/></MobileCard>
           ) : filtered.length === 0 ? (
             <MobileCard T={T}><MobileEmptyState T={T} icon={Search} title="Aucun article trouvé" hint="Essaie un autre mot-clé ou catégorie."/></MobileCard>
           ) : (
@@ -242,6 +234,11 @@ export default function OuvrierCommande({ prenom, T, accent = "#FFC200", preview
                   </div>
                 );
               })}
+            </div>
+          )}
+          {!catalogue.erreur && plafond && (
+            <div style={{ textAlign:"center", fontSize:12, color:T.textMuted, padding:"2px 8px" }}>
+              {plafond} (nom, référence ou catégorie).
             </div>
           )}
 

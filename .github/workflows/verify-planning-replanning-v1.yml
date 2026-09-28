@@ -74,6 +74,8 @@ jobs:
         run: node scripts/verif-bibliotheque-archiver.mjs
       - name: Import bibliotheque materiaux (noms uniques)
         run: node scripts/verif-import-noms-uniques.mjs
+      - name: Bibliotheque materiaux grand catalogue (lecture par tranches)
+        run: node scripts/verif-materiaux-grand-catalogue.mjs
       - name: Alertes V1
         run: node scripts/verif-alertes-v1.mjs
       - name: Compte rendu client (gabarit PDF)
