@@ -23,6 +23,22 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-29",
+    type: "amelioration",
+    titre: "Planning proposé : les tâches à plusieurs personnes réunissent leur équipe dès le matin",
+    pages: [],
+    quoi: "Une tâche qui demande deux ou trois personnes ensemble (Davy et Selman, ou Venceslas, Steven et Mohamed) ne trouvait presque jamais l'équipe au complet. Chacun était déjà parti sur un autre chantier pour des tâches à une personne. Tout ce qui la suivait restait bloqué. Le moteur place maintenant ces tâches d'abord, puis complète les journées avec les tâches à une personne.",
+    comment: "Rien à régler. Dans le planning proposé (assistant, simulation, « La semaine qui vient » du Bilan), les équipes travaillent plus souvent ensemble. Par exemple, sur FOURMOND 001, « Passage alimentation cuisine », à trois, est enfin placé, et plus aucune tâche du chantier ne reste bloquée derrière elle. Une tâche à plusieurs qui ne peut pas avoir son équipe, par exemple si quelqu'un est absent, ne bloque personne : les autres travaillent sur d'autres tâches.",
+  },
+  {
+    date: "2026-09-29",
+    type: "nouveaute",
+    titre: "Réglages → Équipes : indiquer qu'un responsable encadre l'équipe sans y travailler",
+    pages: [],
+    quoi: "Un responsable d'équipe comptait toujours dans l'effectif. Le planning pouvait donc lui donner les tâches d'une équipe qu'il encadre seulement, par exemple Davy pour Finitions. Une case permet maintenant de le dire, équipe par équipe.",
+    comment: "Dans Réglages → Référentiels → Équipes, chaque équipe a une case « Le responsable travaille avec l'équipe », ou « Les responsables… » s'il y en a plusieurs. Elle est cochée par défaut : rien ne change tant qu'on ne la décoche pas. Une fois décochée, le responsable reste affiché comme responsable, mais le planning proposé ne lui donne plus les tâches de cette équipe, et le Phasage ne le propose plus au pré-remplissage. S'il est aussi inscrit comme membre, il reste compté.",
+  },
+  {
     date: "2026-09-28",
     type: "nouveaute",
     titre: "Assistant planning : donner la date d'une intervention externe (plombier, démolition…)",

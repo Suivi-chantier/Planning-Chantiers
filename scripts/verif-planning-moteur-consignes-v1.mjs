@@ -480,14 +480,25 @@ const bloc = (titre, lignes) => blocs.push(`■ ${titre}\n${lignes.map(l => `   
   assert.deepEqual(rouges, [], "les jeux de test existants doivent rester verts sous le crochet");
   const appels = bilans.reduce((s, b) => s + b.appels, 0);
   const identiques = bilans.reduce((s, b) => s + b.identiques + b.erreurs_identiques, 0);
-  const differents = bilans.flatMap(b => b.differents.map(d => `${b.script.split(/[\\/]/).pop()} appel ${d.appel} : ${d.ecart}`));
+  // Écarts VOULUS avec la référence figée af75749, listés un par un. Tout autre
+  // écart fait échouer ; un écart listé qui disparaît aussi (liste périmée).
+  const ECARTS_ATTENDUS = [
+    { script: "verif-planning-equipes-reunies-v1.mjs", appel: 1, raison: "correction (A) du 29/09/2026 : la tâche à 2 personnes est placée avant la tâche à 1 personne mieux notée (la référence dispersait l'équipe)" },
+    { script: "verif-planning-equipes-reunies-v1.mjs", appel: 3, raison: "correction (A) du 29/09/2026 : le binôme est réuni dès le retour de Selman, avant la tâche à 1 personne" },
+  ];
+  const tous = bilans.flatMap(b => b.differents.map(d => ({ script: b.script.split(/[\\/]/).pop(), appel: d.appel, ecart: d.ecart })));
+  const estAttendu = d => ECARTS_ATTENDUS.some(e => e.script === d.script && e.appel === d.appel);
+  const differents = tous.filter(d => !estAttendu(d)).map(d => `${d.script} appel ${d.appel} : ${d.ecart}`);
   assert.deepEqual(differents, [], "sorties différentes de la référence");
+  const manquants = ECARTS_ATTENDUS.filter(e => !tous.some(d => d.script === e.script && d.appel === e.appel));
+  assert.deepEqual(manquants, [], "écart attendu absent : la liste ECARTS_ATTENDUS est périmée");
   assert.ok(appels >= 61, `au moins 61 appels du moteur attendus dans les jeux existants (${appels})`);
-  assert.equal(identiques, appels);
+  assert.equal(identiques + ECARTS_ATTENDUS.length, appels);
 
   bloc("7. Sorties identiques avant / après optimisation (exemple issu des tests, données fictives)", [
     `jeu calibré 42 j (${ei.travaux.length} travaux, ${stab.contraintes.length} contraintes) : ${apres.allocations_proposees.length} allocations, ${apres.non_planifies.length} non planifiés — identique à la référence af75749`,
-    `jeux de test existants : ${scripts.length} scripts rejoués, ${bilans.length} appellent le moteur, ${appels} appels, ${identiques} identiques, 0 différent`,
+    `jeux de test existants : ${scripts.length} scripts rejoués, ${bilans.length} appellent le moteur, ${appels} appels, ${identiques} identiques, ${ECARTS_ATTENDUS.length} écarts voulus, 0 autre différence`,
+    ...ECARTS_ATTENDUS.map(e => `écart voulu — ${e.script} appel ${e.appel} : ${e.raison} (${tous.find(d => d.script === e.script && d.appel === e.appel).ecart})`),
   ]);
   bloc("8. Temps mesuré avant / après (exemple issu des tests, données fictives)", [
     `avant (référence af75749) : ${Math.round(msAvant)} ms`,
