@@ -145,9 +145,31 @@ verifie("liste figée (non modifiable à l'exécution)", Object.isFrozen(email.D
   const src = lire("src/Renovation/RapportMobile.jsx");
   const m = /to:\s*\[([^\]]+)\]/.exec(src);
   const adresses = m ? [...m[1].matchAll(/"([^"]+)"/g)].map(x => x[1].toLowerCase()) : [];
-  verifie("RapportMobile n'envoie qu'à des adresses de la liste blanche",
-    adresses.length > 0 && adresses.every(a => email.DESTINATAIRES_RAPPORT.includes(a)),
+  verifie("RapportMobile envoie exactement aux 3 adresses de la liste blanche",
+    JSON.stringify([...adresses].sort()) === JSON.stringify([...email.DESTINATAIRES_RAPPORT].sort()),
     `trouvées : ${adresses.join(", ")}`);
+}
+{
+  // L'exception du compte rendu public ne doit ouvrir AUCUN autre destinataire.
+  const sujet = "CR Kevin — Chantier — 2026-09-29";
+  const tous = [...email.DESTINATAIRES_RAPPORT];
+  const ok = (to, appelant = { type: "anonyme" }) => email.evaluerEnvoi(appelant, { to, subject: sujet, html: "<p>x</p>" }).autorise;
+  verifie("compte rendu public vers les 3 adresses : autorisé", ok(tous));
+  verifie("… et vers chacune séparément", tous.every(a => ok([a])));
+  const deguisements = [
+    "matthieu.fumoleau@groupe-profero.com.evil.fr",
+    "matthieu.fumoleau@groupe-profero.co",
+    "Matthieu Fumoleau <pirate@evil.fr>",
+    "matthieu.fumoleau@groupe-profero.com, pirate@evil.fr",
+    "matthieu.fumoleau+x@groupe-profero.com",
+    "pirate@groupe-profero.com",
+    "suivi.chantier@groupe-profero.com\npirate@evil.fr",
+  ];
+  for (const d of deguisements) {
+    verifie(`refus : « ${d.replace(/\n/g, "\\n")} »`, !ok([d]) && !ok([...tous, d]));
+  }
+  verifie("les 3 adresses + une externe : refusé", !ok([...tous, "pirate@evil.fr"]));
+  verifie("même règle pour un ouvrier connecté", !ok(["pirate@evil.fr"], { type: "ouvrier" }) && ok(tous, { type: "ouvrier" }));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -369,6 +391,21 @@ section("5 bis. Ligne de journal_envois_email");
     !/\bDROP\b/i.test(sql) && !/ALTER TABLE (?!public\.journal_envois_email)/i.test(sql) && !/\bUPDATE\b/i.test(sql)
       && (sql.match(/DELETE FROM/gi) || []).length === 1);
   verifie("rollback fourni", existsSync(join(RACINE, "sql", "202609_journal_envois_email_rollback.sql")));
+  // Fonction de purge : verrouillée par construction, pas seulement par REVOKE.
+  const fn = /CREATE OR REPLACE FUNCTION public\.purger_journal_envois_email[\s\S]*?\$\$;/.exec(sql)?.[0] || "";
+  const sqlSansCommentaires = sql.replace(/--.*$/gm, "");
+  verifie("purge : SECURITY INVOKER (droits de l'appelant), aucun SECURITY DEFINER exécutable",
+    /SECURITY INVOKER/.test(fn) && !/SECURITY DEFINER/.test(sqlSansCommentaires));
+  verifie("purge : search_path vide", /SET search_path = ''/.test(fn));
+  verifie("purge : conservation par défaut 90 jours, minimum 7, NULL refusé",
+    /DEFAULT interval '90 days'/.test(fn) && /conservation IS NULL OR conservation < interval '7 days'/.test(fn));
+  verifie("purge : EXECUTE retiré à PUBLIC, anon, authenticated",
+    /REVOKE EXECUTE ON FUNCTION public\.purger_journal_envois_email\(interval\) FROM PUBLIC, anon, authenticated;/.test(sql));
+  const grants = [...sql.matchAll(/^GRANT\s+(.+?)\s+ON\s+(?:TABLE|FUNCTION)\s+\S+\s+TO\s+([a-z_, ]+);/gim)].map(m => m[2].trim());
+  verifie("seul service_role reçoit des droits (table et fonction)",
+    grants.length === 2 && grants.every(g => g === "service_role"), grants.join(" | "));
+  const tables = [...sql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)? (\S+)/gi)].map(m => m[1]);
+  verifie("une seule table créée : journal_envois_email", JSON.stringify(tables) === JSON.stringify(["public.journal_envois_email"]));
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -34,9 +34,9 @@
 --   d'envoyer (l'écriture du journal ne bloque jamais un envoi).
 --
 -- PURGE
---   Fonction public.purger_journal_envois_email(conservation) fournie, NON
---   planifiée : la durée de conservation sera validée séparément.
---   Proposition : 90 jours.
+--   Fonction public.purger_journal_envois_email(conservation), NON planifiée.
+--   Conservation par défaut : 90 jours (validée le 29/09/2026).
+--   SECURITY INVOKER, exécutable par service_role seul.
 --
 -- ROLLBACK : sql/202609_journal_envois_email_rollback.sql
 -- ============================================================================
@@ -105,27 +105,39 @@ ALTER TABLE public.journal_envois_email ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.journal_envois_email FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON TABLE public.journal_envois_email TO service_role;
 
--- ── Purge (non planifiée) ───────────────────────────────────────────────────
+-- ── Purge (non planifiée) — conservation par défaut : 90 jours ──────────────
 -- Supprime les lignes plus anciennes que `conservation`. Refuse une durée
--- inférieure à 7 jours, pour qu'une erreur de saisie ne vide pas le journal
--- en pleine observation.
+-- absente ou inférieure à 7 jours, pour qu'une erreur de saisie ne vide pas le
+-- journal en pleine observation.
+--
+-- SECURITY INVOKER, volontairement : la fonction s'exécute avec les droits de
+-- l'APPELANT, pas de son propriétaire. Seul service_role détient DELETE sur la
+-- table ; un autre rôle qui obtiendrait EXECUTE par erreur (privilèges par
+-- défaut de Supabase, GRANT oublié…) échouerait sur le DELETE. Le verrou ne
+-- repose donc pas sur le seul REVOKE. SECURITY DEFINER n'apporterait rien :
+-- service_role a déjà les droits nécessaires.
+-- search_path vide : tous les objets sont qualifiés, aucun détournement par un
+-- objet homonyme n'est possible.
 CREATE OR REPLACE FUNCTION public.purger_journal_envois_email(conservation interval DEFAULT interval '90 days')
 RETURNS integer
 LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
+SECURITY INVOKER
+SET search_path = ''
 AS $$
 DECLARE supprimees integer;
 BEGIN
-  IF conservation < interval '7 days' THEN
-    RAISE EXCEPTION 'Conservation trop courte (%) : minimum 7 jours.', conservation;
+  IF conservation IS NULL OR conservation < interval '7 days' THEN
+    RAISE EXCEPTION 'Conservation absente ou trop courte (%) : minimum 7 jours.', conservation;
   END IF;
-  DELETE FROM public.journal_envois_email WHERE cree_le < now() - conservation;
+  DELETE FROM public.journal_envois_email WHERE cree_le < pg_catalog.now() - conservation;
   GET DIAGNOSTICS supprimees = ROW_COUNT;
   RETURN supprimees;
 END;
 $$;
 
+-- EXECUTE : service_role uniquement (le propriétaire, postgres, le conserve
+-- de fait). Retiré à PUBLIC, anon et authenticated, y compris le droit que
+-- Supabase accorde par défaut sur les nouvelles fonctions de public.
 REVOKE EXECUTE ON FUNCTION public.purger_journal_envois_email(interval) FROM PUBLIC, anon, authenticated;
 GRANT  EXECUTE ON FUNCTION public.purger_journal_envois_email(interval) TO service_role;
 
@@ -138,6 +150,14 @@ COMMIT;
 -- 2) Aucun privilège pour anon / authenticated :
 --    SELECT grantee, privilege_type FROM information_schema.role_table_grants
 --    WHERE table_name = 'journal_envois_email' AND grantee IN ('anon','authenticated');     -- 0 ligne
--- 3) Depuis le poste de dev, clé anon : node scripts/verif-rls-invest.mjs ne
---    couvre pas cette table ; vérifier à la main qu'un GET REST anon renvoie
---    une erreur de permission.
+-- 3) Fonction de purge : SECURITY INVOKER, et exécutable par service_role seul :
+--    SELECT prosecdef FROM pg_proc
+--    WHERE oid = 'public.purger_journal_envois_email(interval)'::regprocedure;               -- f
+--    SELECT r AS role, has_function_privilege(r, 'public.purger_journal_envois_email(interval)', 'EXECUTE') AS execute
+--    FROM unnest(array['anon','authenticated','service_role']) AS r;
+--      → anon f, authenticated f, service_role t
+--    SELECT r AS role, has_table_privilege(r, 'public.journal_envois_email', 'DELETE') AS delete
+--    FROM unnest(array['anon','authenticated','service_role']) AS r;
+--      → anon f, authenticated f, service_role t
+-- 4) Depuis le poste de dev, clé anon : un GET REST sur
+--    /rest/v1/journal_envois_email doit renvoyer une erreur de permission.
