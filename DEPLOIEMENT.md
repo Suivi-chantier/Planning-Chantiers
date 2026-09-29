@@ -217,3 +217,25 @@ group by 1, 2, 3, 4, 5 order by envois desc;
 recevrait `index.html` (l'app collaborateurs) en naviguant vers le futur
 portail client. Diffusée **avant** le portail, parce qu'un appareil peut rester
 longtemps sur un ancien service worker (`registerType: 'prompt'`).
+
+## Liens d'invitation et de réinitialisation : relevés avant `createClient`
+
+`supabase-js` (flow implicite) lit le fragment `#access_token=…&type=invite`
+dès sa création, enregistre la session, puis **efface le fragment avant de
+prévenir l'application**. L'ancienne détection de `App.jsx` lisait l'URL
+après coup : l'invité entrait sans définir de mot de passe, et le lien de
+réinitialisation (`PASSWORD_RECOVERY`) n'était pas traité.
+
+`src/supabase.js` appelle donc `capturerLienAuth()` (`src/authLien.mjs`)
+**avant** `createClient` — ne pas inverser ces deux lignes, ne pas créer d'autre
+client Supabase côté navigateur. `App.jsx` propose `PageCreerMotDePasse`
+uniquement si la session active est celle du lien (même `access_token`) : la
+présence de `type=invite` / `type=recovery` dans l'URL ne suffit jamais. Un
+lien expiré ou forgé ouvert dans un navigateur déjà connecté ne propose donc
+pas à ce compte de changer son mot de passe.
+
+Lien valide ouvert dans un navigateur déjà connecté : la session du lien
+**remplace** la session existante (comportement de supabase-js). L'écran
+affiche le compte réellement actif et propose « Se déconnecter ».
+
+`scripts/verif-auth-lien.mjs` rejoue ces cas avec le vrai `supabase-js`.
