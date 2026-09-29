@@ -23,6 +23,7 @@ const { createClient } = require("@supabase/supabase-js");
 // Chargement des données partagé avec l'assistant IA Rénovation : une seule
 // définition de « ce qui alimente chantierFinance ».
 const { chargerDonneesFinance } = require("./_partage/donneesFinanceChantiers");
+const { verifierAppelServeur } = require("./_lib/autorisationServeur");
 
 // Nombre de jours sans pointage au-delà duquel un chantier sans avancement
 // intermédiaire n'est plus considéré comme actif.
@@ -108,14 +109,10 @@ function estActif(pointages, avancement, dateSnapshot) {
 }
 
 module.exports = async function handler(req, res) {
-  // Auth
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.authorization || "";
-    if (got !== `Bearer ${expected}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
+  // Auth — fermée par défaut : sans CRON_SECRET configuré, la route refuse
+  // (500) au lieu de s'ouvrir. Voir api/_lib/autorisationServeur.js.
+  const acces = verifierAppelServeur(req);
+  if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   const supaUrl = process.env.VITE_SUPABASE_URL;
   const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_KEY;

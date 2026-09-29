@@ -12,6 +12,7 @@
 //     terminée pour tous → on prévient les autres).
 
 import { supabase } from "./supabase";
+import { envoyerEmailApi } from "./emailApi";
 import { getISOWeek, mondayOfWeek, profilSemaine, semainesDansAnnee } from "./rythmeSemaine";
 
 // ─── MULTI-ASSIGNÉS ──────────────────────────────────────────────────────────
@@ -147,11 +148,7 @@ function wrapHtml({ badge, titre, bodyHtml, accent = "#FFC200" }) {
 
 async function envoyer(to, subject, html) {
   try {
-    const res = await fetch("/api/send-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to, subject, html }),
-    });
+    const res = await envoyerEmailApi({ to, subject, html }, { source: "todo" });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, ...data };
   } catch (e) {

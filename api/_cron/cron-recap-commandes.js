@@ -11,6 +11,7 @@
 // Idempotence : 1 mail max par jour (clé planning_config.recap_commandes_state).
 
 const { createClient } = require("@supabase/supabase-js");
+const { enTetesAppelServeur, verifierAppelServeur } = require("../_lib/autorisationServeur");
 
 function parisNow() {
   const now = new Date();
@@ -42,9 +43,10 @@ async function envoyerMail(req, to, subject, html) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const host  = req.headers["x-forwarded-host"]  || req.headers.host;
   const url   = `${proto}://${host}/api/send-email`;
+  // /api/send-email refuse les envois anonymes : on s'y présente comme serveur.
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: enTetesAppelServeur("cron:recap-commandes"),
     body: JSON.stringify({ to, subject, html }),
   });
   const data = await resp.json().catch(() => ({}));
@@ -278,14 +280,10 @@ async function runRecapCommandes(req, supabase, t) {
 }
 
 module.exports = async function handler(req, res) {
-  // Auth
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.authorization || "";
-    if (got !== `Bearer ${expected}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
+  // Auth — fermée par défaut (handler non déployé : api/_cron/ n'est pas
+  // exposé, mais la règle reste la même partout).
+  const acces = verifierAppelServeur(req);
+  if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   const t = parisNow();
 

@@ -34,6 +34,7 @@
 // └─────────────────────────────────────────────────────────────────────────┘
 
 const { createClient } = require("@supabase/supabase-js");
+const { enTetesAppelServeur, verifierAppelServeur } = require("../_lib/autorisationServeur");
 
 const JOURS_FR = [null, "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", null];
 
@@ -206,9 +207,11 @@ async function envoyerMail(req, to, subject, html) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const host  = req.headers["x-forwarded-host"] || req.headers.host;
   const url   = `${proto}://${host}/api/send-email`;
+  // /api/send-email refuse les envois anonymes : on s'y présente comme serveur.
+  // Cette fonction sert aussi la veille et le tableau de bord Invest.
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: enTetesAppelServeur("cron"),
     body: JSON.stringify({ to, subject, html }),
   });
   const data = await resp.json().catch(() => ({}));
@@ -385,14 +388,10 @@ async function runRappelRapport(req, supabase, t) {
 }
 
 module.exports = async function handler(req, res) {
-  // ── Auth : Vercel envoie Authorization: Bearer ${CRON_SECRET} ──
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.authorization || "";
-    if (got !== `Bearer ${expected}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
+  // Auth — fermée par défaut (handler non déployé : api/_cron/ n'est pas
+  // exposé, mais la règle reste la même partout).
+  const acces = verifierAppelServeur(req);
+  if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   // ── Vérification jour ouvré (Lun-Ven) ──
   const t = parisNow();

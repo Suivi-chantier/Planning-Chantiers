@@ -537,7 +537,15 @@ await bloc("15. Route /api/ai : crédit épuisé → code et message dédiés (g
 await bloc("16. Cron du relevé hebdo : même résultat après extraction du chargement", async () => {
   preparerBase();
   const res = { statusCode: 0, body: null, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } };
-  await cronHebdo({ headers: {}, query: {} }, res);
+  // Les routes cron sont fermées par défaut (api/_lib/autorisationServeur.js) :
+  // sans CRON_SECRET, elles répondent 500. Le test s'y présente donc comme
+  // GitHub Actions, avec un secret de test.
+  process.env.CRON_SECRET = "secret-verif-copilot";
+  try {
+    await cronHebdo({ headers: { authorization: "Bearer secret-verif-copilot" }, query: {} }, res);
+  } finally {
+    delete process.env.CRON_SECRET;
+  }
   verifier(res.statusCode === 200 && res.body.ok === true, `cron 200 attendu, reçu ${res.statusCode} ${JSON.stringify(res.body)}`);
   const up = ecritures.find((e) => e.table === "chantier_snapshots_hebdo" && e.op === "upsert");
   verifier(up && up.lignes.length === 2, "deux chantiers actifs relevés");

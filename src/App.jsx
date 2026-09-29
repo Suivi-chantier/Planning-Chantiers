@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "./supabase";
 import { marquerEcritureConfig, estEchoConfigLocal } from "./configSync";
+import { lienAuthInitial, modeMotDePasse, consommerLienAuth } from "./authLien.mjs";
+import { markDirty, markClean } from "./pwa";
 import { THEMES, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, getWeekId, getCurrentWeek, LOGO_GROUPE_H, LOGO_RENO_H, LOGO_INVEST_H, getBranchAccent, loginEmailFromIdentifiant, normalizeBranches } from "./constants";
 import { LayoutGrid, Sun, Moon, LogOut, Lock } from "lucide-react";
 import { Icon } from "./ui";
@@ -252,20 +254,40 @@ const CSS_BASE = `
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 `;
 
-// ─── PAGE CRÉATION MOT DE PASSE (invitation) ──────────────────────────────────
-function PageCreerMotDePasse({ onDone }) {
+// ─── PAGE CRÉATION MOT DE PASSE (invitation / réinitialisation) ──────────────
+// N'est affichée que pour la session délivrée par le lien (voir src/authLien.mjs :
+// le type de lien dans l'URL ne suffit jamais). `user` est l'utilisateur de
+// cette session ; il est revérifié avant l'enregistrement.
+function PageCreerMotDePasse({ mode = "invite", user, onDone, onAnnuler }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm]   = useState("");
   const [loading, setLoading]   = useState(false);
   const [erreur, setErreur]     = useState("");
   const [succes, setSucces]     = useState(false);
+  const reinit = mode === "recovery";
+
+  // Pas de rechargement automatique (mise à jour PWA) pendant la saisie : le
+  // lien est déjà consommé, un rechargement ferait perdre l'écran.
+  useEffect(() => {
+    markDirty("mot-de-passe");
+    return () => markClean("mot-de-passe");
+  }, []);
 
   const handleSubmit = async () => {
     if (password.length < 8) { setErreur("Le mot de passe doit contenir au moins 8 caractères."); return; }
     if (password !== confirm) { setErreur("Les mots de passe ne correspondent pas."); return; }
     setLoading(true); setErreur("");
+    // La session active doit toujours être celle du lien : si elle a expiré ou
+    // changé entre-temps (autre onglet), on n'écrit rien.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || !user || session.user?.id !== user.id) {
+      setErreur("Votre session a expiré ou a changé. Rouvrez le lien reçu par email, ou demandez-en un nouveau.");
+      setLoading(false); return;
+    }
+    // Supabase reste l'autorité : updateUser exige une session valide.
     const { error } = await supabase.auth.updateUser({ password });
     if (error) { setErreur("Erreur : " + error.message); setLoading(false); return; }
+    consommerLienAuth();
     setSucces(true);
     setTimeout(() => onDone(), 1500);
   };
@@ -277,17 +299,26 @@ function PageCreerMotDePasse({ onDone }) {
         <div style={{ textAlign:"center", marginBottom:40 }}>
           <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:64, objectFit:"contain" }}/>
           <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
-            Bienvenue chez Profero
+            {reinit ? "Espace collaborateurs" : "Bienvenue chez Profero"}
           </div>
         </div>
         <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
-          <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>Créer votre mot de passe</div>
-          <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28, lineHeight:1.6 }}>
-            Bienvenue ! Définissez votre mot de passe pour accéder à votre espace collaborateur.
+          <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>
+            {reinit ? "Définir un nouveau mot de passe" : "Créer votre mot de passe"}
+          </div>
+          <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:14, lineHeight:1.6 }}>
+            {reinit
+              ? "Choisissez un nouveau mot de passe. L'ancien ne fonctionnera plus."
+              : "Bienvenue ! Définissez votre mot de passe pour accéder à votre espace collaborateur."}
+          </div>
+          {/* Identité de la session réellement active : si le lien a été ouvert
+              dans un navigateur déjà connecté, c'est ce compte-ci qui est actif. */}
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.55)", marginBottom:24 }}>
+            Compte : <strong style={{ color:"#fff" }}>{user?.email || "—"}</strong>
           </div>
           {succes ? (
             <div style={{ background:"rgba(80,200,120,0.12)", border:"1px solid rgba(80,200,120,0.3)", borderRadius:8, padding:"14px", fontSize:15, color:"#50c878", textAlign:"center" }}>
-              ✓ Mot de passe créé ! Redirection…
+              ✓ Mot de passe enregistré ! Redirection…
             </div>
           ) : (
             <>
@@ -307,6 +338,12 @@ function PageCreerMotDePasse({ onDone }) {
               <button className="login-btn" onClick={handleSubmit} disabled={loading}>
                 {loading ? "Enregistrement…" : "Définir mon mot de passe →"}
               </button>
+              {onAnnuler && (
+                <button onClick={onAnnuler} disabled={loading}
+                  style={{ marginTop:14, width:"100%", background:"none", border:"none", color:"rgba(255,255,255,0.4)", fontSize:13, cursor:"pointer", fontFamily:"inherit", textDecoration:"underline" }}>
+                  Ce n'est pas votre compte ? Se déconnecter
+                </button>
+              )}
             </>
           )}
         </div>
@@ -884,31 +921,41 @@ export default function App() {
     return branches.length === 1 ? branches[0] : "portail";
   };
 
-  useEffect(() => {
-    // Écoute uniquement les nouvelles connexions via lien invitation
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session?.user) {
-        const hash = window.location.hash;
-        const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-        const urlType = params.get("type");
+  // Mode de l'écran de mot de passe : "invite" | "recovery".
+  const [modeMdp, setModeMdp] = useState("invite");
 
-        if (urlType === "invite") {
-          window.history.replaceState(null, "", window.location.pathname);
-          setUser(session.user);
-          setAuthState("creer-mdp");
-        }
-        // Les connexions normales sont gérées par checkSession / handleLogin
+  // Propose l'écran de mot de passe si — et seulement si — la session est celle
+  // délivrée par un lien d'invitation ou de réinitialisation (src/authLien.mjs).
+  // Le type de lien dans l'URL ne suffit jamais.
+  const ouvrirSiLienAuth = (session, evenement = null) => {
+    const mode = modeMotDePasse(lienAuthInitial(), session, evenement);
+    if (!mode) return false;
+    setUser(session.user); setProfil(null);
+    setModeMdp(mode);
+    setAuthState("creer-mdp");
+    return true;
+  };
+
+  useEffect(() => {
+    // Liens d'invitation / de réinitialisation. supabase-js peut prévenir par
+    // SIGNED_IN, PASSWORD_RECOVERY ou INITIAL_SESSION selon le moment où cet
+    // écouteur s'enregistre : les trois passent par la même décision.
+    // Les connexions normales restent gérées par checkSession / handleLogin.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session?.user) return;
+      if (event === "SIGNED_IN" || event === "PASSWORD_RECOVERY" || event === "INITIAL_SESSION") {
+        ouvrirSiLienAuth(session, event);
       }
     });
 
-    // Vérifie la session existante au chargement
+    // Vérifie la session existante au chargement. getSession() attend que
+    // supabase-js ait traité le lien éventuel : la décision est donc prise sur
+    // la session réelle, qu'il s'agisse de celle du lien ou d'une session
+    // antérieure (lien expiré : supabase-js conserve la session existante, et
+    // la comparaison de jeton empêche de l'exposer à l'écran de mot de passe).
     const checkSession = async () => {
-      // Si on arrive avec un hash d'invitation, on attend onAuthStateChange
-      const hash = window.location.hash;
-      const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-      if (params.get("type") === "invite") return;
-
       const { data: { session } } = await supabase.auth.getSession();
+      if (ouvrirSiLienAuth(session)) return;
       if (session?.user) {
         const { data: p } = await supabase
           .from("utilisateurs").select("*").eq("email", session.user.email).single();
@@ -934,12 +981,16 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    consommerLienAuth();
     await supabase.auth.signOut();
     setUser(null); setProfil(null); setAuthState("login");
   };
 
-  // Après avoir créé son mot de passe, charge le profil et redirige
+  // Après avoir créé son mot de passe, charge le profil de la session ACTIVE
+  // et redirige. Sans profil actif : déconnexion, pour ne laisser aucune
+  // session orpheline ouverte.
   const handleMotDePasseCree = async () => {
+    consommerLienAuth();
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
       const { data: p } = await supabase
@@ -949,7 +1000,8 @@ export default function App() {
         setUser(session.user); setProfil(prof);
         setAuthState(destForProfil(prof));
       } else {
-        setAuthState("login");
+        await supabase.auth.signOut();
+        setUser(null); setProfil(null); setAuthState("login");
       }
     } else {
       setAuthState("login");
@@ -979,7 +1031,7 @@ export default function App() {
     </div>
   );
 
-  if (authState === "creer-mdp") return <PageCreerMotDePasse onDone={handleMotDePasseCree} />;
+  if (authState === "creer-mdp") return <PageCreerMotDePasse mode={modeMdp} user={user} onDone={handleMotDePasseCree} onAnnuler={handleLogout} />;
   if (authState === "login")     return <PageLogin onLogin={handleLogin}/>;
   if (authState === "portail")   return <PagePortail user={user} profil={profil} onSelectBranche={handleSelectBranche} onLogout={handleLogout}/>;
 

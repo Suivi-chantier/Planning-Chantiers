@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { capturerLienAuth } from "./authLien.mjs";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
+// AVANT createClient : supabase-js efface le fragment d'URL d'un lien
+// d'invitation / de réinitialisation dès sa création (voir src/authLien.mjs).
+capturerLienAuth();
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /**
