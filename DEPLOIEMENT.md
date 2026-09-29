@@ -132,3 +132,69 @@ cela que la liste est partagée et non recopiée.
 `scripts/verif-tableau-bord.mjs` vérifie ce point explicitement, en relisant
 `Dashboard.jsx` : aucune requête `invest_*` directe, aucune redéfinition de
 `consolidateData`.
+
+## Règle : toute route est interdite par défaut
+
+Une route n'est accessible qu'après identification explicite : collaborateur
+authentifié, serveur authentifié, session portail client, ou cas public
+documenté et fortement limité. **L'absence d'une variable d'environnement ne
+doit jamais ouvrir une route** : elle la ferme.
+
+Les routes cron testaient `if (process.env.CRON_SECRET) { … }` — variable
+absente, vérification sautée, route publique. Elles passent maintenant par
+`api/_lib/autorisationServeur.js` : sans `CRON_SECRET`, elles répondent
+**500** « route fermée par défaut ». Un cron qui échoue bruyamment vaut mieux
+qu'une route sensible ouverte.
+
+`api/_lib/` est préfixé `_` : il n'est **pas** déployé en fonction.
+
+## `/api/send-email` : trois appelants possibles, pas un de plus
+
+C'était un relais ouvert (ni authentification, `from` libre, CORS `*`). Règles
+dans `api/_lib/autorisationEmail.js` :
+
+| Appelant | Identifié par | Droit |
+|---|---|---|
+| serveur (crons) | `Authorization: Bearer <CRON_SECRET>` | envoi libre |
+| collaborateur | JWT Supabase + ligne `utilisateurs` **active**, rôle ≠ ouvrier | envoi libre |
+| compte rendu | anonyme (`/rapport`) ou ouvrier connecté | uniquement vers `DESTINATAIRES_RAPPORT`, sans copie ni pièce jointe, sujet « CR … » |
+
+Tout le reste est refusé — y compris un compte Auth absent de `utilisateurs`.
+Le `from` de l'appelant est ignoré : l'expéditeur est toujours `RESEND_FROM`.
+
+Côté navigateur, **un seul point d'appel** : `src/emailApi.js`
+(`envoyerEmailApi`), qui joint le JWT de la session. Côté serveur, les
+`envoyerMail` des crons utilisent `enTetesAppelServeur()`.
+`scripts/verif-send-email.mjs` échoue si un `fetch("/api/send-email")` direct
+réapparaît, ou si un cron appelle sans en-tête.
+
+**La liste blanche du compte rendu n'existe qu'à un endroit** :
+`DESTINATAIRES_RAPPORT` dans `api/_lib/autorisationEmail.js`. Un destinataire
+ajouté dans `RapportMobile.jsx` sans l'y ajouter serait refusé en mode strict.
+
+### `EMAIL_AUTH_MODE` : observer, puis strict
+
+| Valeur | Effet |
+|---|---|
+| `observer` | rien n'est bloqué ; chaque refus est journalisé `aurait_refuse` |
+| absente, ou toute autre valeur | **strict** : les refus sont appliqués |
+
+L'absence vaut strict, par la règle ci-dessus. **Il faut donc poser
+`EMAIL_AUTH_MODE=observer` dans Vercel (Production) AVANT le premier
+déploiement**, sinon les appareils restés sur l'ancien bundle (qui appelle sans
+en-tête) verraient leurs envois refusés d'emblée. La bascule en strict se fait
+en changeant la variable puis en redéployant — **jamais automatiquement**.
+
+Le journal ne contient que des métadonnées : décision, raison, profil, source
+(`X-Profero-Source`), chemin d'origine, nombre et domaines des destinataires,
+nombre de pièces jointes. Jamais le sujet, le corps, les pièces jointes ni les
+adresses des destinataires. Un appel **sans** `source` vient d'un appareil
+resté sur un ancien bundle.
+
+## Service worker : `/espace-client` et `/api/` exclus du repli
+
+`navigateFallbackDenylist: [/^\/espace-client/, /^\/api\//]` dans
+`vite.config.js`. Sans elle, un appareil ayant l'app collaborateurs installée
+recevrait `index.html` (l'app collaborateurs) en naviguant vers le futur
+portail client. Diffusée **avant** le portail, parce qu'un appareil peut rester
+longtemps sur un ancien service worker (`registerType: 'prompt'`).

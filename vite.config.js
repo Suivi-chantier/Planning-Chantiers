@@ -58,6 +58,15 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         // index.html toujours servi via le réseau d'abord (filet de secours hors-ligne).
         navigateFallback: '/index.html',
+        // Navigations que l'app collaborateurs ne doit JAMAIS intercepter :
+        //  - /espace-client : futur portail client, servi par sa propre page.
+        //    Sans cette exclusion, un appareil ayant l'app installée recevrait
+        //    l'app collaborateurs à la place du portail. Diffusée avant
+        //    l'ouverture du portail pour que le parc ait le temps de se mettre
+        //    à jour (registerType 'prompt' : la mise à jour n'est pas immédiate).
+        //  - /api/ : une navigation directe vers une route serveur (lien de
+        //    téléchargement…) doit atteindre le serveur, pas index.html.
+        navigateFallbackDenylist: [/^\/espace-client/, /^\/api\//],
         clientsClaim: true,
         skipWaiting: false, // c'est NOUS qui décidons quand activer la MAJ
         runtimeCaching: [

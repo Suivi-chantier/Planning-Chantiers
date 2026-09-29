@@ -27,6 +27,7 @@
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
 
 const { createClient } = require("@supabase/supabase-js");
+const { verifierAppelServeur } = require("./_lib/autorisationServeur");
 // Les handlers métier vivent dans api/_cron/ (dossier NON déployé en fonctions)
 // et ne sont joignables qu'à travers ce dispatcher.
 const { runRappelRapport, parisNow, heureAttendue, envoyerMail } = require("./_cron/cron-rappel-rapport.js");
@@ -71,14 +72,10 @@ const TACHES = {
 };
 
 module.exports = async function handler(req, res) {
-  // Auth
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.authorization || "";
-    if (got !== `Bearer ${expected}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
+  // Auth — fermée par défaut : sans CRON_SECRET configuré, la route refuse
+  // (500) au lieu de s'ouvrir. Voir api/_lib/autorisationServeur.js.
+  const acces = verifierAppelServeur(req);
+  if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   const t = parisNow();
   const supaUrl = process.env.VITE_SUPABASE_URL;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
+import { envoyerEmailApi } from "../emailApi";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import {
@@ -1254,10 +1255,7 @@ function ModaleCommande({ titre, lignesInit, dateBesoinInit, fournisseurs, mater
       const corps = construireCorps(g);
       const html  = corpsVersHtml(corps, g);
       try {
-        const res = await fetch("/api/send-email", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: g.email, subject: sujetMail(g), html }),
-        });
+        const res = await envoyerEmailApi({ to: g.email, subject: sujetMail(g), html }, { source: "commandes-fournisseurs" });
         const data = await res.json().catch(() => ({}));
         return { key: g.key, status: res.ok ? "sent" : "failed", error: data?.error || (!res.ok ? `HTTP ${res.status}` : null) };
       } catch (e) { return { key: g.key, status: "failed", error: e.message }; }

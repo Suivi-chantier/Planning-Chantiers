@@ -18,6 +18,7 @@
 // Variables d'env requises : CRON_SECRET, VITE_SUPABASE_URL, VITE_SUPABASE_KEY.
 
 const { createClient } = require("@supabase/supabase-js");
+const { verifierAppelServeur } = require("./_lib/autorisationServeur");
 
 function parisNow() {
   const now = new Date();
@@ -82,14 +83,10 @@ function calcAvancementPhasage(phasage) {
 }
 
 module.exports = async function handler(req, res) {
-  // Auth
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.authorization || "";
-    if (got !== `Bearer ${expected}`) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-  }
+  // Auth — fermée par défaut : sans CRON_SECRET configuré, la route refuse
+  // (500) au lieu de s'ouvrir. Voir api/_lib/autorisationServeur.js.
+  const acces = verifierAppelServeur(req);
+  if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
 
   const supaUrl = process.env.VITE_SUPABASE_URL;
   const supaKey = process.env.VITE_SUPABASE_KEY;

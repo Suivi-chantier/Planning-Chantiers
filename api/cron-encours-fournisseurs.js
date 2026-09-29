@@ -11,6 +11,7 @@
 // Idempotence : 1 envoi max par jour (planning_config.encours_mail_state).
 
 const { createClient } = require("@supabase/supabase-js");
+const { verifierAppelServeur, enTetesAppelServeur } = require("./_lib/autorisationServeur");
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -46,9 +47,10 @@ async function envoyerMail(req, to, subject, html) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   const url = `${proto}://${host}/api/send-email`;
+  // /api/send-email refuse les envois anonymes : on s'y présente comme serveur.
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: enTetesAppelServeur("cron:encours-fournisseurs"),
     body: JSON.stringify({ to, subject, html }),
   });
   const data = await resp.json().catch(() => ({}));
@@ -204,11 +206,10 @@ async function runEncoursFournisseurs(req, supabase, t) {
 
 // Handler direct (test manuel : /api/cron-encours-fournisseurs)
 module.exports = async function handler(req, res) {
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.authorization || "";
-    if (got !== `Bearer ${expected}`) return res.status(401).json({ error: "Unauthorized" });
-  }
+  // Auth — fermée par défaut : sans CRON_SECRET configuré, la route refuse
+  // (500) au lieu de s'ouvrir. Voir api/_lib/autorisationServeur.js.
+  const acces = verifierAppelServeur(req);
+  if (!acces.ok) return res.status(acces.status).json({ error: acces.error });
   const { parisNow } = require("./_cron/cron-recap-commandes.js");
   const t = parisNow();
   const supaUrl = process.env.VITE_SUPABASE_URL;

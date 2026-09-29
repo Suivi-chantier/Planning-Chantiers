@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
+import { envoyerEmailApi } from "../emailApi";
 import { fetchPointages } from "../pointages";
 import {
   computeChantierFinance, avancementChantier as cfAvancementChantier,
@@ -1276,16 +1277,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         </p>
         <p style="color:#888;font-size:12px;margin-top:18px;">Profero Rénovation · Envoyé automatiquement depuis Profero Planning</p>
       </div>`;
-      const res = await fetch("/api/send-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: destinataires,
-          subject: `Bilan de la semaine ${weekId} — Profero Rénovation`,
-          html: intro,
-          attachments: [{ filename, content: base64 }],
-        }),
-      });
+      const res = await envoyerEmailApi({
+        to: destinataires,
+        subject: `Bilan de la semaine ${weekId} — Profero Rénovation`,
+        html: intro,
+        attachments: [{ filename, content: base64 }],
+      }, { source: "bilan-semaine" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setEmailStatus({ ok: true, msg: `Envoyé à ${destinataires.length} destinataire${destinataires.length > 1 ? "s" : ""} avec le PDF en pièce jointe.` });

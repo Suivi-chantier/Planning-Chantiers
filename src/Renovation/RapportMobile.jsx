@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "../supabase";
+import { envoyerEmailApi } from "../emailApi";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW } from "../constants";
 import { Icon } from "../ui";
 import { profilSemaine, libelleRythme, getISOWeek } from "../rythmeSemaine";
@@ -75,15 +76,14 @@ async function sendRapportEmail(rapport, chantierNom) {
       </div>`:""}
     </div>
   </div>`;
-  const res = await fetch("/api/send-email", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({
-      to:["suivi.chantier@groupe-profero.com", "loris.bessonneau@groupe-profero.com"],
-      subject:`CR ${rapport.ouvrier} — ${chantierNom} — ${rapport.date_rapport}`,
-      html,
-    })
-  });
+  // Sans session (formulaire public /rapport), le serveur n'accepte ce mail
+  // que vers sa liste blanche interne (api/_lib/autorisationEmail.js) : un
+  // destinataire ajouté ici sans l'y ajouter serait refusé.
+  const res = await envoyerEmailApi({
+    to:["suivi.chantier@groupe-profero.com", "loris.bessonneau@groupe-profero.com"],
+    subject:`CR ${rapport.ouvrier} — ${chantierNom} — ${rapport.date_rapport}`,
+    html,
+  }, { source: "rapport" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `HTTP ${res.status}`);
