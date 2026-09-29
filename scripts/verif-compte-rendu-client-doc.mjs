@@ -44,6 +44,17 @@ test("1. gabarit commun Profero (héros, Barlow, jaune marque, pied)", () => {
   assert.ok(!HTML.includes("#f5c400"), "plus de l'ancien jaune");
 });
 
+// ─── 1b. COMPATIBILITÉ APERÇU (MAC) ──────────────────────────────────────────
+// Un dégradé vers le transparent devient un masque de transparence dans le PDF
+// de Chrome, que l'Aperçu du Mac rend en disques pleins cerclés de noir.
+test("1b. aucun dégradé vers le transparent (PDF lisible sur Mac)", () => {
+  const degrades = HTML.match(/(?:linear|radial)-gradient\([^;"]*\)/g) || [];
+  assert.ok(degrades.length >= 3, "halos + filets présents");
+  degrades.forEach(d => {
+    assert.ok(!/rgba|hsla|transparent|#[0-9a-f]{8}\b|#[0-9a-f]{4}\b/i.test(d), `dégradé transparent : ${d}`);
+  });
+});
+
 // ─── 2. HÉROS ────────────────────────────────────────────────────────────────
 test("2. héros : titre, adresse, date, client, pastille avancement", () => {
   assert.ok(HTML.includes("Compte rendu de chantier"), "eyebrow");

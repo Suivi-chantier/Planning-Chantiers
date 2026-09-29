@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-29",
+    type: "correctif",
+    titre: "PDF ouverts sur Mac : l'en-tête et les titres s'affichent enfin correctement",
+    pages: [{ id: "equipe", label: "Équipe" }, { id: "operations", label: "Opérations" }, { id: "phasage-v2", label: "Phasage" }, { id: "info-client", label: "Chiffrage" }],
+    quoi: "Ouverts sur un Mac, les PDF au modèle Profero s'affichaient mal : les deux halos lumineux de l'en-tête devenaient de grands disques jaune et bleu cerclés de noir, et les traits jaunes sous les titres ne s'estompaient plus. Sur PC, tout était normal. Cela concernait tous les documents au même modèle : compte rendu client, planning prévisionnel, dossier de plans, dossier de chiffrage, fiche opération et dossier de préparation.",
+    comment: "Rien à faire : les PDF générés à partir de maintenant s'affichent de la même façon sur Mac et sur PC. Leur apparence ne change pas. Les PDF déjà enregistrés avant cette correction gardent le défaut sur Mac : il suffit de les générer à nouveau.",
+  },
+  {
     date: "2026-09-28",
     type: "correctif",
     titre: "Bibliothèque matériaux : une photo introuvable affiche l'icône colis au lieu d'une case vide",
