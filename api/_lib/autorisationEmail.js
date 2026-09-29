@@ -118,9 +118,8 @@ function evaluerEnvoi(appelant, corps = {}) {
 
 // ─── Journal ─────────────────────────────────────────────────────────────────
 // MÉTADONNÉES SEULEMENT. Jamais le sujet, le corps, ni les pièces jointes ;
-// des destinataires, seulement leur nombre et leurs domaines. L'adresse de
-// l'appelant est journalisée pour un collaborateur (c'est son identité, pas
-// le contenu de son message), jamais pour un anonyme.
+// jamais d'adresse complète : des destinataires, leur nombre et leurs
+// domaines ; de l'appelant, son type et son rôle.
 function entreeJournal({ mode, appelant, decision, corps = {}, req, envoye, statutResend }) {
   const destinataires = [
     ...listeAdresses(corps.to), ...listeAdresses(corps.cc), ...listeAdresses(corps.bcc),
@@ -139,7 +138,10 @@ function entreeJournal({ mode, appelant, decision, corps = {}, req, envoye, stat
     raison: decision.raison,
     profil: decision.profil,
     appelant: appelant.type,
-    appelant_email: appelant.type === "anonyme" ? null : (appelant.email || null),
+    appelant_role: appelant.type === "collaborateur" ? (appelant.role || null) : null,
+    // Identifiant technique Vercel de l'invocation : regroupe les événements
+    // d'une même requête avec les journaux Vercel.
+    requete_id: String(req?.headers?.["x-vercel-id"] || "").slice(0, 120) || null,
     // Étiquette posée par les appelants à jour (src/emailApi.js, crons). Son
     // absence signale un appareil resté sur un ancien bundle : c'est ce que la
     // phase d'observation doit mesurer.
@@ -153,7 +155,39 @@ function entreeJournal({ mode, appelant, decision, corps = {}, req, envoye, stat
   };
 }
 
+// Ligne de public.journal_envois_email (sql/202609_journal_envois_email.sql).
+// Liste FERMÉE de colonnes : un champ ajouté à entreeJournal n'atteint pas la
+// base sans passer par ici. Les textes sont bornés comme les CHECK de la table
+// et purgés de tout « @ », pour qu'une valeur inattendue ne fasse pas échouer
+// l'insertion — ni n'y dépose une adresse.
+const COLONNES_JOURNAL = Object.freeze([
+  "requete_id", "mode", "decision", "raison", "profil", "appelant", "appelant_role",
+  "source", "origine", "nb_destinataires", "domaines", "pieces_jointes", "envoye", "statut_resend",
+]);
+function ligneJournal(e = {}) {
+  const txt = (v, max) => (v === null || v === undefined || v === "")
+    ? null : String(v).replace(/@/g, "").slice(0, max);
+  return {
+    requete_id:       txt(e.requete_id, 120),
+    mode:             e.mode,
+    decision:         e.decision,
+    raison:           txt(e.raison, 60),
+    profil:           e.profil || null,
+    appelant:         e.appelant,
+    appelant_role:    txt(e.appelant_role, 40),
+    source:           txt(e.source, 60),
+    origine:          txt(e.origine, 200),
+    nb_destinataires: Math.max(0, Math.min(32767, Number(e.nb_destinataires) || 0)),
+    domaines:         (Array.isArray(e.domaines) ? e.domaines : []).slice(0, 50).map(d => String(d).replace(/@/g, "").slice(0, 253)),
+    pieces_jointes:   Math.max(0, Math.min(32767, Number(e.pieces_jointes) || 0)),
+    envoye:           !!e.envoye,
+    statut_resend:    txt(e.statut_resend, 20),
+  };
+}
+
 module.exports = {
+  COLONNES_JOURNAL,
+  ligneJournal,
   DESTINATAIRES_RAPPORT,
   PREFIXE_SUJET_RAPPORT,
   HTML_MAX_RAPPORT,

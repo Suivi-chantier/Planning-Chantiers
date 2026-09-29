@@ -185,11 +185,30 @@ déploiement**, sinon les appareils restés sur l'ancien bundle (qui appelle san
 en-tête) verraient leurs envois refusés d'emblée. La bascule en strict se fait
 en changeant la variable puis en redéployant — **jamais automatiquement**.
 
-Le journal ne contient que des métadonnées : décision, raison, profil, source
-(`X-Profero-Source`), chemin d'origine, nombre et domaines des destinataires,
-nombre de pièces jointes. Jamais le sujet, le corps, les pièces jointes ni les
-adresses des destinataires. Un appel **sans** `source` vient d'un appareil
-resté sur un ancien bundle.
+Le journal ne contient que des métadonnées : décision, raison, profil, type et
+rôle de l'appelant, source (`X-Profero-Source`), chemin d'origine, nombre et
+domaines des destinataires, nombre de pièces jointes, identifiant de requête
+Vercel. Jamais le sujet, le corps, les pièces jointes, un jeton, ni aucune
+adresse complète. Un appel **sans** `source` vient d'un appareil resté sur un
+ancien bundle.
+
+Il est écrit en console **et** dans `public.journal_envois_email`
+(`sql/202609_journal_envois_email.sql`) : sur Hobby, les journaux Vercel ne
+durent qu'une heure, la table est la seule trace qui permet le bilan
+d'observation. RLS sans policy, privilèges retirés à anon/authenticated :
+seul le serveur y accède. **Appliquer la migration avant le déploiement** ;
+table absente, les envois continuent mais rien n'est conservé. Purge :
+`select public.purger_journal_envois_email('90 days');` (non planifiée).
+
+Bilan d'observation :
+
+```sql
+select decision, raison, appelant, coalesce(source, '(ancien bundle)') as source,
+       origine, count(*) as envois, sum(pieces_jointes) as pj
+from public.journal_envois_email
+where cree_le >= '<date de déploiement>'
+group by 1, 2, 3, 4, 5 order by envois desc;
+```
 
 ## Service worker : `/espace-client` et `/api/` exclus du repli
 

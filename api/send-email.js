@@ -17,7 +17,7 @@
 
 const { createClient } = require("@supabase/supabase-js");
 const {
-  modeAutorisation, identifierAppelant, evaluerEnvoi, entreeJournal,
+  modeAutorisation, identifierAppelant, evaluerEnvoi, entreeJournal, ligneJournal,
 } = require("./_lib/autorisationEmail");
 
 const EXPEDITEUR_DEFAUT = "Profero Planning <onboarding@resend.dev>";
@@ -45,7 +45,16 @@ function dependancesParDefaut() {
     expediteur: process.env.RESEND_FROM || EXPEDITEUR_DEFAUT,
     mode: modeAutorisation(),
     fetch: (...args) => fetch(...args),
-    journaliser: (entree) => console.log(JSON.stringify(entree)),
+    // Console (journaux Vercel, 1 h sur Hobby) + table journal_envois_email
+    // (sql/202609_journal_envois_email.sql), seule trace durable pour le bilan
+    // d'observation. Table absente ou erreur : signalé en console, jamais
+    // bloquant.
+    journaliser: async (entree) => {
+      console.log(JSON.stringify(entree));
+      if (!url || !cleService) return;
+      const { error } = await client().from("journal_envois_email").insert(ligneJournal(entree));
+      if (error) console.warn("[send-email] journal non écrit :", error.message);
+    },
   };
 }
 
@@ -68,13 +77,15 @@ function creerHandler(surcharges = {}) {
 
     const appelant = await identifierAppelant(req, deps);
     const decision = evaluerEnvoi(appelant, corps);
-    const journal = (extra) => {
-      try { deps.journaliser(entreeJournal({ mode: deps.mode, appelant, decision, corps, req, ...extra })); }
+    // Attendu avant de répondre : une fonction Vercel peut être gelée dès la
+    // réponse envoyée, et l'écriture en base serait perdue.
+    const journal = async (extra) => {
+      try { await deps.journaliser(entreeJournal({ mode: deps.mode, appelant, decision, corps, req, ...extra })); }
       catch { /* le journal ne doit jamais bloquer un envoi */ }
     };
 
     if (!decision.autorise && deps.mode === "strict") {
-      journal({ envoye: false });
+      await journal({ envoye: false });
       const status = appelant.type === "anonyme" || decision.raison === "jeton_invalide" ? 401 : 403;
       return res.status(status).json({ error: "Envoi non autorisé", raison: decision.raison });
     }
@@ -95,13 +106,13 @@ function creerHandler(surcharges = {}) {
         body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
-      journal({ envoye: response.ok, statutResend: response.status });
+      await journal({ envoye: response.ok, statutResend: response.status });
       if (!response.ok) {
         return res.status(response.status).json({ error: data?.message || "Erreur Resend", details: data });
       }
       return res.status(200).json({ ok: true, id: data?.id });
     } catch (e) {
-      journal({ envoye: false, statutResend: "exception" });
+      await journal({ envoye: false, statutResend: "exception" });
       return res.status(500).json({ error: e.message || "Erreur inconnue" });
     }
   };

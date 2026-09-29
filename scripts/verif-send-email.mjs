@@ -295,17 +295,80 @@ section("5. Handler — mode observation");
   await appel(env, { auth: "Bearer jwt-collab", body: EXTERNE, headers: { "x-profero-source": "todo" } });
   const e = env.journal[0] || {};
   verifie("un envoi légitime est journalisé « autorise » avec sa source", e.decision === "autorise" && e.source === "todo");
-  verifie("l'identité du collaborateur est journalisée", e.appelant_email === "camille@groupe-profero.com");
+  verifie("le rôle du collaborateur est journalisé, pas son adresse",
+    e.appelant_role === "admin" && !JSON.stringify(env.journal).includes("camille@"));
 }
 {
   const env = environnement({ mode: "observer" });
   await appel(env, { body: RAPPORT_OK });
-  verifie("un anonyme n'a jamais d'adresse journalisée", env.journal[0]?.appelant_email === null);
+  verifie("un anonyme n'a ni adresse ni rôle journalisé",
+    env.journal[0]?.appelant_role === null && !JSON.stringify(env.journal).includes("suivi.chantier@"));
 }
 {
   const env = environnement({ journaliser: () => { throw new Error("journal cassé"); } });
   const r = await appel(env, { auth: "Bearer jwt-collab", body: EXTERNE });
   verifie("un journal en panne ne bloque pas un envoi légitime", r.statusCode === 200);
+}
+{
+  const env = environnement({ journaliser: async () => { throw new Error("table absente"); } });
+  const r = await appel(env, { auth: "Bearer jwt-collab", body: EXTERNE });
+  verifie("un journal asynchrone en échec (table absente) ne bloque pas l'envoi", r.statusCode === 200);
+}
+{
+  // L'écriture du journal doit être terminée AVANT la réponse : une fonction
+  // Vercel peut être gelée dès la réponse envoyée.
+  let fini = false;
+  const env = environnement({ journaliser: () => new Promise(ok => setTimeout(() => { fini = true; ok(); }, 20)) });
+  const res = fauxRes();
+  const promesse = env.handler(fauxReq({ auth: "Bearer jwt-collab", body: EXTERNE }), res);
+  await promesse;
+  verifie("le journal est écrit avant la fin du handler", fini === true);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+section("5 bis. Ligne de journal_envois_email");
+
+{
+  const env = environnement({ mode: "observer" });
+  await appel(env, { auth: `Bearer ${SECRET}`, body: { ...EXTERNE, cc: "copie@exemple.fr",
+    attachments: [{ filename: "releve-bancaire.pdf", content: "UERGLUNPTlRFTlU=" }] },
+    headers: { "x-vercel-id": "cdg1::abc123", "x-profero-source": "cron" } });
+  await appel(env, { auth: "Bearer jwt-collab", body: EXTERNE, headers: { "x-profero-source": "todo" } });
+  await appel(env, { auth: "Bearer jwt-orphelin", body: EXTERNE });
+  await appel(env, { body: RAPPORT_OK, headers: { referer: "https://x.vercel.app/rapport?nom=kevin@x.fr" } });
+  const lignes = env.journal.map(email.ligneJournal);
+  verifie("colonnes exactement celles de la table",
+    lignes.every(l => JSON.stringify(Object.keys(l).sort()) === JSON.stringify([...email.COLONNES_JOURNAL].sort())));
+  const brut = JSON.stringify(lignes);
+  verifie("aucune ligne ne contient d'« @ » (aucune adresse)", !brut.includes("@"));
+  verifie("ni secret serveur ni JWT dans le journal", !brut.includes(SECRET) && !brut.includes("jwt-"));
+  verifie("ni sujet, ni corps, ni nom ou contenu de pièce jointe",
+    !brut.includes(EXTERNE.subject) && !brut.includes("Cliquez") && !brut.includes("releve-bancaire") && !brut.includes("UERGLUNPTlRFTlU="));
+  verifie("identifiant technique de requête conservé", lignes[0].requete_id === "cdg1::abc123");
+  verifie("nombre de destinataires (to + cc) et de pièces jointes", lignes[0].nb_destinataires === 2 && lignes[0].pieces_jointes === 1);
+  verifie("origine = chemin seul (requête retirée)", lignes[3].origine === "/rapport");
+  verifie("un compte orphelin est tracé comme tel", lignes[2].raison === "compte_hors_utilisateurs" && lignes[2].appelant === "invalide");
+  const l = email.ligneJournal({ mode: "observer", decision: "autorise", appelant: "anonyme",
+    source: "x".repeat(500) + "@", origine: "/a@b", domaines: Array(80).fill("d.fr") });
+  verifie("textes bornés comme les CHECK de la table", l.source.length <= 60 && !l.source.includes("@") && l.domaines.length === 50);
+}
+{
+  // Les colonnes du SQL et celles du code ne doivent pas diverger : une colonne
+  // envoyée sans exister en base ferait échouer TOUTES les insertions.
+  const sql = lire("sql/202609_journal_envois_email.sql");
+  const bloc = /CREATE TABLE IF NOT EXISTS public\.journal_envois_email \(([\s\S]*?)\n\);/.exec(sql)?.[1] || "";
+  const colonnesSql = [...bloc.matchAll(/^\s{2}([a-z_]+)\s+(?:bigint|timestamptz|text|smallint|boolean)/gm)]
+    .map(m => m[1]).filter(c => c !== "id" && c !== "cree_le");
+  verifie("colonnes du SQL = colonnes écrites par le code",
+    JSON.stringify(colonnesSql.sort()) === JSON.stringify([...email.COLONNES_JOURNAL].sort()),
+    `SQL : ${colonnesSql.join(", ")}`);
+  verifie("SQL : RLS activée", /ENABLE ROW LEVEL SECURITY/.test(sql));
+  verifie("SQL : aucune policy créée", !/CREATE POLICY/i.test(sql));
+  verifie("SQL : privilèges retirés à anon et authenticated", /REVOKE ALL ON TABLE public\.journal_envois_email FROM PUBLIC, anon, authenticated/.test(sql));
+  verifie("SQL : migration additive (aucun DROP / ALTER d'objet existant / UPDATE / DELETE hors purge)",
+    !/\bDROP\b/i.test(sql) && !/ALTER TABLE (?!public\.journal_envois_email)/i.test(sql) && !/\bUPDATE\b/i.test(sql)
+      && (sql.match(/DELETE FROM/gi) || []).length === 1);
+  verifie("rollback fourni", existsSync(join(RACINE, "sql", "202609_journal_envois_email_rollback.sql")));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
