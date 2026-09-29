@@ -28,13 +28,13 @@ const { jetonBearer, estSecretServeur } = require("./autorisationServeur");
 
 // ─── Liste blanche du compte rendu public ────────────────────────────────────
 // SEULE définition de la liste — ne pas la recopier ailleurs.
-// Validée le 29/09/2026 : exactement les trois destinataires du compte rendu
-// envoyé par RapportMobile.jsx. scripts/verif-send-email.mjs vérifie que les
-// deux listes restent identiques.
+// Validée le 29/09/2026 : exactement les deux destinataires métier du compte
+// rendu envoyé par RapportMobile.jsx — pas une adresse de plus : chaque entrée
+// est une boîte vers laquelle un visiteur anonyme peut écrire.
+// scripts/verif-send-email.mjs vérifie que les deux listes restent identiques.
 const DESTINATAIRES_RAPPORT = Object.freeze([
   "suivi.chantier@groupe-profero.com",
   "loris.bessonneau@groupe-profero.com",
-  "matthieu.fumoleau@groupe-profero.com",
 ]);
 
 // Le compte rendu a un sujet « CR <ouvrier> — <chantier> — <date> ».

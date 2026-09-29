@@ -133,11 +133,15 @@ verifie("« OBSERVER  » → observer", email.modeAutorisation("OBSERVER  ") ===
 // ════════════════════════════════════════════════════════════════════════════
 section("3. Liste blanche du compte rendu public");
 
-verifie("exactement les 3 adresses validées", JSON.stringify(email.DESTINATAIRES_RAPPORT) === JSON.stringify([
+verifie("exactement les 2 adresses validées", JSON.stringify(email.DESTINATAIRES_RAPPORT) === JSON.stringify([
   "suivi.chantier@groupe-profero.com",
   "loris.bessonneau@groupe-profero.com",
-  "matthieu.fumoleau@groupe-profero.com",
 ]));
+// Matthieu n'est pas destinataire des comptes rendus (décision du 29/09/2026) :
+// un appel anonyme ne doit pas pouvoir lui écrire.
+verifie("compte rendu anonyme vers matthieu.fumoleau@ : refusé",
+  !email.evaluerEnvoi({ type: "anonyme" }, { to: ["matthieu.fumoleau@groupe-profero.com"],
+    subject: "CR Test — Chantier — 2026-09-29", html: "<p>x</p>" }).autorise);
 verifie("liste figée (non modifiable à l'exécution)", Object.isFrozen(email.DESTINATAIRES_RAPPORT));
 {
   // Les destinataires que RapportMobile envoie réellement doivent être dans
@@ -145,7 +149,7 @@ verifie("liste figée (non modifiable à l'exécution)", Object.isFrozen(email.D
   const src = lire("src/Renovation/RapportMobile.jsx");
   const m = /to:\s*\[([^\]]+)\]/.exec(src);
   const adresses = m ? [...m[1].matchAll(/"([^"]+)"/g)].map(x => x[1].toLowerCase()) : [];
-  verifie("RapportMobile envoie exactement aux 3 adresses de la liste blanche",
+  verifie("RapportMobile envoie exactement aux adresses de la liste blanche",
     JSON.stringify([...adresses].sort()) === JSON.stringify([...email.DESTINATAIRES_RAPPORT].sort()),
     `trouvées : ${adresses.join(", ")}`);
 }
@@ -154,7 +158,7 @@ verifie("liste figée (non modifiable à l'exécution)", Object.isFrozen(email.D
   const sujet = "CR Kevin — Chantier — 2026-09-29";
   const tous = [...email.DESTINATAIRES_RAPPORT];
   const ok = (to, appelant = { type: "anonyme" }) => email.evaluerEnvoi(appelant, { to, subject: sujet, html: "<p>x</p>" }).autorise;
-  verifie("compte rendu public vers les 3 adresses : autorisé", ok(tous));
+  verifie("compte rendu public vers les adresses de la liste : autorisé", ok(tous));
   verifie("… et vers chacune séparément", tous.every(a => ok([a])));
   const deguisements = [
     "matthieu.fumoleau@groupe-profero.com.evil.fr",
