@@ -1,0 +1,62 @@
+name: Tableau de bord Invest par mail (matin)
+
+# Envoie chaque matin ouvré, avant la prise de poste, le tableau de bord Invest
+# complet à ses pilotes : bandeau d'état, les quatre colonnes (à décider, à
+# surveiller, délégué, traité), les priorités, le plan d'action et les échéances
+# que le tableau de bord ne montre pas (urbanisme, relances, états des lieux).
+#
+# Pourquoi un créneau à part et non une ligne de plus dans cron-dispatcher.yml :
+# 05h UTC tombe dans la fenêtre horaire du récap commandes du vendredi
+# (5h-11h Paris). Le routage par heure aurait déclenché les deux ensemble.
+# D'où l'appel explicite `?job=invest_tableau_bord`, que le dispatcher honore
+# sans regarder l'heure.
+#
+# 05h UTC = 07h Paris en été, 06h en hiver. Les deux avant la prise de poste,
+# donc aucun ajustement saisonnier à faire.
+#
+# Destinataires : planning_config.invest_tableau_bord_destinataires
+#   { "emails": ["prenom.nom@groupe-profero.com"] }
+# À défaut, les utilisateurs actifs de la branche Invest dont le rôle est
+# admin ou direction.
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '0 5 * * 1-5'      # Lun-Ven 05h UTC → 07h Paris (été), 06h (hiver)
+  workflow_dispatch:           # Bouton « Run workflow » dans GitHub pour tester
+
+jobs:
+  tableau-de-bord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=invest_tableau_bord
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant — l'ajouter dans Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "Envoi du tableau de bord Invest…"
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=invest_tableau_bord")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Un envoi qui échoue renvoie tout de même 200 : le dispatcher rapporte
+          # les échecs dans son résumé plutôt que de tomber. On les fait remonter
+          # ici, sinon un mail qui ne part jamais reste invisible.
+          if echo "$body" | grep -q '"echecs":\[{'; then
+            echo "::error::Au moins un envoi a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -q '"avertissements":\["'; then
+            echo "::warning::Le cron a signalé des avertissements — voir le corps de la réponse"
+          fi

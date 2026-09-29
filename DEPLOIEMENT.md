@@ -58,3 +58,77 @@ importé par le module d'entrée : aucun élément ne portait l'erreur.
 l'application qui décide du moment du rechargement, via `src/pwa.js`. Un
 appareil peut donc rester longtemps sur une version précédente — d'où
 l'importance des deux points ci-dessus.
+
+## `api/cron-dispatcher.js` : router par `?job=`, pas par l'heure
+
+Les crons Vercel natifs sont désactivés sur le plan Hobby. Les créneaux vivent
+donc dans `.github/workflows/` et appellent tous la même fonction, qui déduisait
+la tâche à lancer de **l'heure et du jour à Paris**.
+
+Ce routage par fenêtre horaire tient tant que les fenêtres ne se recouvrent
+pas. Elles se recouvrent maintenant :
+
+| Tâche | Fenêtre Paris |
+|---|---|
+| veille échéances Invest | 3 h – 5 h, lun-ven |
+| récap commandes | 5 h – 11 h, **vendredi** |
+| rappel rapport | 13 h – 19 h, lun-ven |
+
+Le tableau de bord Invest doit partir vers 7 h. Ajouté par fenêtre, il serait
+parti **avec** le récap commandes chaque vendredi. D'où le paramètre explicite :
+
+```
+/api/cron-dispatcher?job=invest_tableau_bord
+```
+
+Quand `job` est fourni, le dispatcher lance cette tâche **sans regarder
+l'heure**. C'est aussi le seul moyen de rejouer une tâche à la main hors de son
+créneau, ce qui n'était pas possible avant.
+
+Un nom de tâche inconnu renvoie un **400** avec la liste des noms valides,
+plutôt qu'un 200 « rien à faire » : un créneau mal orthographié resterait
+sinon muet pendant des mois.
+
+Les trois créneaux historiques n'envoient pas de `job` et continuent d'être
+routés par fenêtre — ne pas les convertir sans convertir aussi leur workflow.
+
+**`maxDuration`** : le dispatcher est passé à 60 s. Le tableau de bord lit neuf
+tables, construit un mail par destinataire et les expédie ; les 10 s par défaut
+du plan Hobby ne suffisent pas.
+
+## Deux mails Invest le matin, un seul destinataire à la fois
+
+`cron-invest-echeances` (4 h) et `cron-invest-tableau-bord` (7 h) portent en
+partie les mêmes lignes : le mail de 7 h intègre les collecteurs du premier
+dans sa section « Échéances & vigilances ».
+
+Qui reçoit celui de 7 h est donc **exclu** de celui de 4 h, via
+`api/_cron/_destinataires-invest.js`. Deux mails disant à peu près la même
+chose le même matin, et on cesse de lire les deux.
+
+Ce module existe séparément parce qu'un `require` croisé entre les deux crons
+serait circulaire. Ne pas y recopier la règle dans l'un des deux fichiers.
+
+Réglage des destinataires — `planning_config` :
+
+```json
+{ "key": "invest_tableau_bord_destinataires",
+  "value": { "emails": ["prenom.nom@groupe-profero.com"] } }
+```
+
+Sans cette clé : les utilisateurs actifs de la branche `invest` dont le rôle est
+`admin` ou `direction`.
+
+## Le tableau de bord Invest n'a qu'une définition
+
+`src/Invest/tableauBord.mjs` porte la consolidation (alertes, colonnes,
+priorités) **et** la liste des tables à lire (`REQUETES_TABLEAU_BORD`).
+`Dashboard.jsx` l'affiche, `cron-invest-tableau-bord.js` l'envoie par mail.
+
+Une requête ajoutée dans l'un sans l'autre produirait un mail incomplet **sans
+erreur** — le pire cas, parce qu'un tableau de bord vide rassure. C'est pour
+cela que la liste est partagée et non recopiée.
+
+`scripts/verif-tableau-bord.mjs` vérifie ce point explicitement, en relisant
+`Dashboard.jsx` : aucune requête `invest_*` directe, aucune redéfinition de
+`consolidateData`.

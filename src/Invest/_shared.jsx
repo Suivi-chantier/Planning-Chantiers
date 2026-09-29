@@ -4,6 +4,13 @@ import {
   ROLES_EXTERNES_INVEST, ANNUAIRE_VIDE, indexerAnnuaire, normaliserCleAnnuaire,
   emailPourResponsable, responsablesInvest, estUtilisateurCourant,
 } from "./annuaire.mjs";
+// Formateurs et petits utilitaires du tableau de bord : définis dans un module
+// .mjs pour que la veille du matin (Node, CommonJS) les charge sans le build.
+// Réexportés plus bas — l'interface continue de les importer depuis _shared.
+import {
+  isoDate, normTxt, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween,
+  getClientName, getBienLabel, getBienScore,
+} from "./tableauBord.mjs";
 import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
@@ -618,7 +625,6 @@ const TYPES_PLANNING_INVEST = [
   "Autre",
 ];
 
-const isoDate = (d) => d.toISOString().slice(0, 10);
 const getWeekRange = (base = new Date()) => {
   const d = new Date(base);
   d.setHours(12, 0, 0, 0);
@@ -636,7 +642,6 @@ const isActionLateOrThisWeek = (item) => {
   return !!(item?.prochaine_action && item?.date_prochaine_action && item.date_prochaine_action <= endWeek);
 };
 
-const normTxt = (v) => String(v ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 function compareValues(a, b, direction = "asc") {
   const mult = direction === "asc" ? 1 : -1;
@@ -697,33 +702,7 @@ function KPICard({ label, value, color, icon: IconComp, onClick, sub }) {
 
 const DASH_STAGE_COLORS = ["#4db8ff", "#50c878", "#FFC200", "#c084fc", "#fb7185", "#38bdf8", "#f97316", "#a3e635", "#facc15", "#22c55e", "#60a5fa", "#e879f9", "#94a3b8"];
 
-const fmtDashboardEur = (v) => Number(v || 0) > 0
-  ? new Intl.NumberFormat("fr-FR", { maximumFractionDigits:0 }).format(Number(v || 0)) + " €"
-  : "—";
-const fmtDashboardPct = (v) => Number.isFinite(Number(v)) ? Number(v).toFixed(1).replace(".", ",") + " %" : "—";
-const safeDate = (d) => d ? new Date(d).toLocaleDateString("fr-FR", { day:"2-digit", month:"short" }) : "—";
-const daysBetween = (from, to = new Date()) => {
-  if (!from) return null;
-  const a = new Date(from); a.setHours(12,0,0,0);
-  const b = new Date(to); b.setHours(12,0,0,0);
-  return Math.round((b - a) / 86400000);
-};
 const isFilledDash = (v) => v !== null && v !== undefined && String(v).trim() !== "";
-const getClientName = (c) => `${c?.prenom || ""} ${c?.nom || ""}`.trim() || c?.nom || "Client";
-const getBienLabel = (b) => [b?.reference_interne, b?.adresse, b?.ville].filter(Boolean).join(" · ") || "Bien sans adresse";
-const getBienScore = (b) => {
-  const v = b?.visite_data || {};
-  const note = parseFloat(v?.conclusion?.note_globale || 0);
-  const rendement = parseFloat(b?.rendement_brut || v?.finance?.rendement_brut || 0);
-  const cashflow = parseFloat(b?.cashflow_estime || v?.finance?.cashflow_mensuel_estime || 0);
-  let score = 0;
-  if (note > 0) score += Math.min(10, note) * 10;
-  if (rendement > 0) score += Math.min(15, rendement) * 3;
-  if (cashflow > 0) score += Math.min(500, cashflow) / 20;
-  if (["Offre à faire", "Visité", "À analyser", "A analyser"].includes(b?.statut)) score += 12;
-  if (["Offre envoyée", "Offre acceptée"].includes(b?.statut)) score += 18;
-  return Math.round(score);
-};
 const isBienFicheComplete = (b) => {
   const v = b?.visite_data || {};
   return !!(

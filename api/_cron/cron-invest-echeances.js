@@ -43,6 +43,8 @@
 // Le dispatcher passe SUPABASE_SERVICE_ROLE_KEY en priorité ; on vérifie ici
 // que c'est bien le cas et on le signale sinon.
 
+const { destinatairesTableauBord } = require("./_destinataires-invest.js");
+
 const SEUIL_DEPOT_JOURS   = 15;  // fenêtre d'alerte avant la date maximum de dépôt
 const SEUIL_EDL_JOURS     = 7;   // au-delà, un brouillon d'état des lieux dort
 const ETAT_CONFIG_KEY     = "invest_echeances_state";
@@ -421,6 +423,36 @@ function buildEmailHtml(lignes, dateFr) {
 // la famille d'usage, pas celui du module.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Consignation des relances SORTIES, et d'elles seules.
+//
+// C'est ce qui empêche la même relance de repartir demain : relanceDue compare
+// le palier franchi à last_reminder_sent_at. Marquer avant l'envoi ferait taire
+// à jamais une relance jamais partie ; ne pas marquer du tout la ferait partir
+// chaque jour.
+//
+// Partagé avec cron-invest-tableau-bord.js : le mail du matin porte les mêmes
+// lignes de relance, il doit donc les consigner de la même façon. Deux copies
+// de cette règle, et une relance partie d'un côté repartirait de l'autre.
+async function consignerRelances(supabase, lignes, resume = {}) {
+  for (const l of lignes || []) {
+    if (!l._relance) continue;
+    const { error } = await supabase.from("invest_mission_actions").update({
+      last_reminder_sent_at: new Date().toISOString(),
+      reminder_count: l._relance.compteur,
+      reminder_error: null,
+    }).eq("id", l._relance.actionId);
+    if (error) {
+      // Non consignée : elle repartira demain. Un doublon vaut mieux qu'une
+      // relance perdue, mais il faut le savoir.
+      console.warn("[invest-echeances] relance non consignée:", error.message);
+      (resume.relances_non_consignees ||= []).push(l._relance.actionId);
+    } else {
+      resume.relances_envoyees = (resume.relances_envoyees || 0) + 1;
+    }
+  }
+  return resume;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Point d'entrée, appelé par le dispatcher
 // ─────────────────────────────────────────────────────────────────────────────
@@ -465,7 +497,19 @@ async function runInvestEcheances(req, supabase, t, envoyerMail) {
     if (!cibles.length) { resume.sans_destinataire++; continue; }
     for (const email of cibles) (parDestinataire[email] ||= []).push(l);
   }
+
+  // Ceux qui reçoivent le tableau de bord complet à 7h y trouvent déjà ces
+  // lignes, dans sa section « Échéances & vigilances ». Deux mails le même
+  // matin disant la même chose, et on cesse de les lire tous les deux.
+  const pilotes = new Set((await destinatairesTableauBord(supabase)).map(d => d.email));
+  for (const email of Object.keys(parDestinataire)) {
+    if (pilotes.has(String(email).toLowerCase())) {
+      delete parDestinataire[email];
+      (resume.dans_tableau_bord ||= []).push(email);
+    }
+  }
   resume.destinataires = Object.keys(parDestinataire).length;
+  if (!resume.destinataires) return resume;
 
   // Idempotence : même forme que le rappel rapport ({ date, emails }).
   const { data: etatRow } = await supabase.from("planning_config")
@@ -487,28 +531,7 @@ async function runInvestEcheances(req, supabase, t, envoyerMail) {
       if (r.ok) {
         resume.envoyes.push({ to: email, lignes: sesLignes.length });
         envoyesCeJour.add(email);
-        // Consignation des relances SORTIES, et d'elles seules.
-        //
-        // C'est ce qui empêche la même relance de repartir demain : relanceDue
-        // compare le palier franchi à last_reminder_sent_at. Marquer avant
-        // l'envoi ferait taire à jamais une relance jamais partie ; ne pas
-        // marquer du tout la ferait partir chaque jour.
-        for (const l of sesLignes) {
-          if (!l._relance) continue;
-          const { error } = await supabase.from("invest_mission_actions").update({
-            last_reminder_sent_at: new Date().toISOString(),
-            reminder_count: l._relance.compteur,
-            reminder_error: null,
-          }).eq("id", l._relance.actionId);
-          if (error) {
-            // Non consignée : elle repartira demain. Un doublon vaut mieux
-            // qu'une relance perdue, mais il faut le savoir.
-            console.warn("[invest-echeances] relance non consignée:", error.message);
-            (resume.relances_non_consignees ||= []).push(l._relance.actionId);
-          } else {
-            resume.relances_envoyees = (resume.relances_envoyees || 0) + 1;
-          }
-        }
+        await consignerRelances(supabase, sesLignes, resume);
       } else {
         resume.echecs.push({ to: email, status: r.status, data: r.data });
       }
@@ -536,3 +559,17 @@ module.exports.emailDe = emailDe;
 module.exports.joursEntre = joursEntre;
 module.exports.ajouterJours = ajouterJours;
 module.exports.buildEmailHtml = buildEmailHtml;
+module.exports.escapeHtml = escapeHtml;
+module.exports.fmtDateFr = fmtDateFr;
+module.exports.consignerRelances = consignerRelances;
+// Les six collecteurs, réutilisés tels quels par cron-invest-tableau-bord.js :
+// le mail du matin porte ces lignes dans sa section « Échéances & vigilances »
+// au lieu d'en refaire une version approchante.
+module.exports.collecteurs = {
+  urbanisme: collecteUrbanisme,
+  actions: collecteActions,
+  biens: collecteBiens,
+  relances: collecteRelances,
+  edl: collecteEDL,
+  notifications: collecteNotificationsEnEchec,
+};
