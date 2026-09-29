@@ -109,11 +109,20 @@ console.log("\n1 · /api/send-email (Resend) — canal des crons");
 console.log("─".repeat(52));
 
 const APP = "https://planning-chantiers.vercel.app";
+// /api/send-email refuse les envois anonymes (hors compte rendu public) : le
+// script se présente comme les crons, avec CRON_SECRET lu dans l'environnement.
+if (!env.CRON_SECRET) {
+  console.log("  ⚠ CRON_SECRET absent de l'environnement : en mode strict, l'envoi sera refusé (401).");
+}
 let resendOk = false;
 try {
   const resp = await fetch(`${APP}/api/send-email`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Profero-Source": "diag-mail-invest",
+      ...(env.CRON_SECRET ? { Authorization: `Bearer ${env.CRON_SECRET}` } : {}),
+    },
     body: JSON.stringify({
       to: destinataire,
       subject: "[Profero Invest] Diagnostic — canal Resend",

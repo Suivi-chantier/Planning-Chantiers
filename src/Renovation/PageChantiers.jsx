@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
+import { envoyerEmailApi } from "../emailApi";
 import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT, LOGO_RENO_H, loadOperations } from "../constants";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers/avancement V2 : src/chantierFinance.js
@@ -469,16 +470,12 @@ function ModaleEnvoiDocument({ envoi, chantierNom, auteur, T, onClose }) {
         </div>
         <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
       </div>`;
-      const res = await fetch("/api/send-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: [...sel],
-          subject: `Chantier ${chantierNom || ""} — ${pj.nom || "document"}`,
-          html,
-          ...(attachments ? { attachments } : {}),
-        }),
-      });
+      const res = await envoyerEmailApi({
+        to: [...sel],
+        subject: `Chantier ${chantierNom || ""} — ${pj.nom || "document"}`,
+        html,
+        ...(attachments ? { attachments } : {}),
+      }, { source: "document-chantier" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "envoi refusé");
       onClose();
@@ -2528,15 +2525,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           <div style="text-align:center;margin-top:14px;font-size:11px;color:#999">Email automatique · Ne pas répondre</div>
         </div>`;
         try {
-          const res = await fetch("/api/send-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: dests,
-              subject: `Facture à émettre — ${selectedChantier.nom} (${ligne.nom}, ${ligne.pct} %)`,
-              html,
-            }),
-          });
+          const res = await envoyerEmailApi({
+            to: dests,
+            subject: `Facture à émettre — ${selectedChantier.nom} (${ligne.nom}, ${ligne.pct} %)`,
+            html,
+          }, { source: "facture-situation" });
           if (res.ok) await saveMetaPhasage({ [`facture_mail_${ligne.id}`]: new Date().toISOString() });
         } catch { /* réessaiera à une prochaine ouverture de la fiche */ }
       }

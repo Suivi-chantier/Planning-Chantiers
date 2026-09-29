@@ -240,7 +240,14 @@ section("4. Lignes orphelines → administrateurs");
 const boite4 = [];
 const supa4 = fauxSupabase({
   utilisateurs: UTILISATEURS,
-  planning_config: [],
+  // Le tableau de bord du matin est réglé sur quelqu'un d'autre : sans cela,
+  // Matthieu (rôle admin) en serait destinataire par défaut, et la veille de 4h
+  // le sauterait pour ne pas lui envoyer deux fois les mêmes lignes. C'est le
+  // comportement voulu en production, et il est vérifié à la section 8 — mais
+  // il rendrait cette section-ci aveugle à ce qu'elle mesure.
+  planning_config: [
+    { key: "invest_tableau_bord_destinataires", value: { emails: ["personne@groupe-profero.com"] } },
+  ],
   invest_biens: [
     // conseiller inconnu de l'annuaire : la ligne ne doit pas disparaître
     { id: "b9", reference_interne: "ORPHELIN-01", ville: "Nantes", statut: "À visiter",
@@ -259,6 +266,41 @@ verifie("une ligne sans responsable identifié part à l'administrateur",
   (admin?.html || "").includes("ORPHELIN-01"));
 verifie("une notification en échec est signalée à l'administrateur",
   (admin?.html || "").includes("Notif cassée"));
+
+// ════════════════════════════════════════════════════════════════════════════
+section("4 bis. Pas deux mails le même matin");
+
+// Qui reçoit le tableau de bord complet à 7h y trouve déjà ces lignes, dans sa
+// section « Échéances & vigilances ». La veille de 4h doit donc le sauter :
+// deux mails disant la même chose et on cesse de lire les deux.
+const boite4b = [];
+const supa4b = fauxSupabase({
+  utilisateurs: UTILISATEURS,
+  planning_config: [
+    { key: "invest_tableau_bord_destinataires",
+      value: { emails: ["matthieu.fumoleau@groupe-profero.com"] } },
+  ],
+  invest_biens: [
+    { id: "b9", reference_interne: "ORPHELIN-01", ville: "Nantes", statut: "À visiter",
+      date_relance: "2026-08-01", conseiller_profero: "Quelqu'un d'Externe" },
+  ],
+  invest_mission_actions: [
+    { id: "a10", action_title: "Relancer la banque", status: "a_faire",
+      due_date: "2026-08-10", responsable: "Camille" },
+  ],
+}, {});
+
+const resume4b = await runInvestEcheances({ headers: {} }, supa4b, t, fauxMailer(boite4b));
+
+verifie("le destinataire du tableau de bord ne reçoit pas la veille de 4h",
+  !boite4b.some(m => m.to.startsWith("matthieu")),
+  `boîte : ${boite4b.map(m => m.to).join(", ") || "vide"}`);
+verifie("l'exclusion est rapportée, pas silencieuse",
+  (resume4b.dans_tableau_bord || []).includes("matthieu.fumoleau@groupe-profero.com"),
+  JSON.stringify(resume4b.dans_tableau_bord));
+verifie("les autres destinataires continuent de recevoir la veille",
+  boite4b.some(m => m.to.startsWith("camille")),
+  `boîte : ${boite4b.map(m => m.to).join(", ") || "vide"}`);
 
 // ════════════════════════════════════════════════════════════════════════════
 section("5. Idempotence");

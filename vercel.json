@@ -1,6 +1,7 @@
 {
   "functions": {
-    "api/cron-snapshot-hebdo.js": { "maxDuration": 60 }
+    "api/cron-snapshot-hebdo.js": { "maxDuration": 60 },
+    "api/cron-dispatcher.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/((?!assets/).*)", "destination": "/index.html" }

@@ -1,4 +1,5 @@
 import { supabase } from "../supabase";
+import { envoyerEmailApi } from "../emailApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // URBANISME — référentiel et persistance de la Fiche de Demande Urbanisme (FDU)
@@ -849,15 +850,11 @@ export async function urbaNotifierTransmission({ dossier, donnees, completude, a
   ].join("\n");
 
   try {
-    const resp = await fetch("/api/send-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        to: URBA_MAIL_POLE,
-        subject: `[Urbanisme] FDU transmise — ${reference}`,
-        html, text: texte,
-      }),
-    });
+    const resp = await envoyerEmailApi({
+      to: URBA_MAIL_POLE,
+      subject: `[Urbanisme] FDU transmise — ${reference}`,
+      html, text: texte,
+    }, { source: "urbanisme" });
     const corps = await resp.json().catch(() => ({}));
     if (!resp.ok || corps?.error) {
       return { ok:false, message: corps?.error || `Erreur ${resp.status}` };
