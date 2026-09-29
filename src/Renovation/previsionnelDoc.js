@@ -218,13 +218,28 @@ const OR = "#FFC200"; // jaune marque Profero
 const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
 
+// ⚠ AUCUN DÉGRADÉ VERS LE TRANSPARENT dans ces documents.
+// Chrome enregistre un dégradé dont une couleur est transparente (rgba(…, 0),
+// « transparent ») sous forme de masque de transparence dans le PDF. L'Aperçu
+// du Mac l'affiche mal : halos du héros en disques pleins cerclés de noir,
+// filets des titres jaunes d'un bout à l'autre (constaté le 29/09/2026 sur un
+// compte rendu client ; Chrome sous Windows l'affichait bien). Chaque dégradé
+// est donc écrit en couleurs PLEINES, précalculées sur le fond qu'il recouvre :
+//   filet des titres : jaune → blanc (fond de page) ;
+//   halo ambre (30 % de #FFC200) sur le héros au coin haut-droit (#292a41) ;
+//   halo bleu  (26 % de #5b8af5) sur le héros au coin bas-gauche (#1c2334).
+// Rendu identique à l'œil (écart de fond < 5/255 selon la hauteur du héros).
+// Contrôlé par scripts/verif-compte-rendu-client-doc.mjs.
+const HALO_OR = "radial-gradient(circle,#69582d 0%,#292a41 68%)";
+const HALO_BLEU = "radial-gradient(circle,#2c3e66 0%,#1c2334 68%)";
+
 // Titre de section : libellé condensé + filet dégradé jaune.
 // (exporté : sert aussi aux autres documents au gabarit commun, ex. la fiche
 // opération d'operationDoc.js)
 export const sectionTitre = (t) => `
   <div style="display:flex;align-items:center;gap:10pt;margin:20pt 0 12pt;">
     <span class="bc" style="font-size:13pt;font-weight:800;letter-spacing:1.6pt;text-transform:uppercase;color:#12151c;white-space:nowrap;">${t}</span>
-    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},rgba(255,194,0,0));"></span>
+    <span style="flex:1;height:2.5pt;border-radius:2pt;background:linear-gradient(90deg,${OR},#fff);"></span>
   </div>`;
 
 export function docClientHTML({ titreDoc, eyebrow, titre, sousTitre = "", chips = [], badgeHTML = "", logoUrl, corps, cssExtra = "" }) {
@@ -276,8 +291,8 @@ ${cssExtra}
 
   <!-- ── Héros : dégradé sombre + halos (même langage que l'app) ── -->
   <div style="position:relative;overflow:hidden;border-radius:14pt;background:linear-gradient(135deg,#161b28 0%,#232c42 55%,#2e2840 100%);padding:16pt 20pt 18pt;">
-    <div style="position:absolute;right:-45pt;top:-55pt;width:175pt;height:175pt;border-radius:50%;background:radial-gradient(circle,rgba(255,194,0,.30) 0%,rgba(255,194,0,0) 68%);"></div>
-    <div style="position:absolute;left:-35pt;bottom:-75pt;width:160pt;height:160pt;border-radius:50%;background:radial-gradient(circle,rgba(91,138,245,.26) 0%,rgba(91,138,245,0) 68%);"></div>
+    <div style="position:absolute;right:-45pt;top:-55pt;width:175pt;height:175pt;border-radius:50%;background:${HALO_OR};"></div>
+    <div style="position:absolute;left:-35pt;bottom:-75pt;width:160pt;height:160pt;border-radius:50%;background:${HALO_BLEU};"></div>
     <img src="${logoUrl}" alt="Profero" style="height:23pt;object-fit:contain;display:block;position:relative;"/>
     <table style="width:100%;border-collapse:collapse;position:relative;margin-top:16pt;">
       <tr>
