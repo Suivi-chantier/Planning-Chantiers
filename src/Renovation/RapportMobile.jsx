@@ -89,7 +89,7 @@ async function sendRapportEmail(rapport, chantierNom) {
   // que vers sa liste blanche interne (api/_lib/autorisationEmail.js) : un
   // destinataire ajouté ici sans l'y ajouter serait refusé.
   const res = await envoyerEmailApi({
-    to:["suivi.chantier@groupe-profero.com", "loris.bessonneau@groupe-profero.com", "matthieu.fumoleau@groupe-profero.com"],
+    to:["suivi.chantier@groupe-profero.com", "loris.bessonneau@groupe-profero.com"],
     subject:`CR ${rapport.ouvrier} — ${chantierNom} — ${rapport.date_rapport}`,
     html,
   }, { source: "rapport" });
