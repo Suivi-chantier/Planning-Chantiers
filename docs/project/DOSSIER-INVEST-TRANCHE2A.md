@@ -71,25 +71,63 @@ mais les règles ne seraient contrôlées que par l'écran.
 
 ## Recette
 
-**RECETTE-T1 (gestes réversibles et destructifs).** Son dossier INV-2026-0001
-est clos : la carte l'affiche en lecture seule. « Démarrer une mission » crée
-un nouveau dossier de recette. Le client restant « Inactif », la carte doit
-afficher l'incohérence de statut (jamais corrigée automatiquement). Puis, sur ce
-dossier : chaque geste une fois ; « Non applicable » et « Rouvrir » sans motif
-→ refus ; « Bloquer » sans motif → refus ; « Terminer » avec tâches ouvertes →
-choix proposé ; « Générer étape » et « Tâche collaborateur » → tâche avec
-dossier et étape ; journal dans l'ordre réel, « balle personne → … ».
-Clôture du dossier de recette ensuite (2a n'a pas de bouton pour cela) :
-mise à jour de `invest_dossiers.statut = 'clos'` avec `motif_cloture`, en
-collaborateur, comme en Tranche 1 — à décider au moment de la recette.
+Aucun client de recette n'est créé à l'avance.
 
-**Louison Pelletreau (lecture seule).** INV-2026-0010, actif : ruban avec 9
-étapes terminées et Suivi en cours (balle Profero), 11 étapes « à confirmer »,
-59 tâches rangées par étape, aucune « à classer ». Ne cliquer aucun geste.
+| Client | Usage | Ce qu'on vérifie |
+|---|---|---|
+| RECETTE-T1 | Lecture seule | Son dossier INV-2026-0001 est clos : la carte l'affiche en lecture seule, et le panneau d'étape ne propose aucun geste. Le bouton « Démarrer une mission » reste visible, puisqu'aucun dossier n'est en cours : ne pas cliquer. |
+| Louison Pelletreau | Lecture seule | INV-2026-0010, actif : 9 étapes terminées, Suivi en cours (balle Profero), 11 étapes « à confirmer », 59 tâches rangées par étape, aucune « à classer ». |
+| Raphaël Sanyas | Lecture seule | INV-2026-0009, actif : deux étapes actives (Financement et Acquisition) visibles dans le ruban et dans « Maintenant ». |
+| RECETTE-T2A / NE PAS UTILISER | Gestes modifiants | Client technique créé au moment de la recette, en « Prospect ». « Démarrer une mission » : dossier et 11 étapes créés, client passé « Actif ». Puis chaque geste une fois ; « Non applicable », « Rouvrir » et « Bloquer » sans motif → refus ; « Terminer » avec tâches ouvertes → choix proposé ; « Générer étape » et « Tâche collaborateur » → tâche avec dossier et étape ; journal dans l'ordre réel, « balle personne → … » ; statut client inchangé après les gestes. |
 
-**Raphaël Sanyas (lecture seule).** INV-2026-0009, actif : deux étapes actives
-(Financement et Acquisition, en cours) visibles dans le ruban et dans
-« Maintenant ». Ne cliquer aucun geste.
+Aucun geste sur les dossiers de Louison Pelletreau, Raphaël Sanyas et RECETTE-T1.
+
+**Statut du client.** Seule l'ouverture explicite d'une mission
+(`invest_ouvrir_dossier`, ou la conversion d'un prospect) fait passer un client
+« Prospect » en « Actif ». Aucun geste d'étape, aucune tâche, aucune balle et
+aucune clôture de dossier ne modifie `invest_clients.statut` (vérifié le
+30/09/2026 : seules ces deux fonctions écrivent ce statut ; scénario complet
+rejoué sur base de test).
+
+## Audit : droits PostgreSQL et contrôle des transitions
+
+**Défaut trouvé puis corrigé avant toute application en production.** Dans la
+première version locale de la 2a, les règles 3 à 6 étaient placées dans
+`invest_etapes_avant_ecriture`, qui est une fonction `security definer`
+appartenant à `postgres`. Dans une telle fonction, `current_user` ne désigne pas
+la personne qui agit : c'est le propriétaire de la fonction, donc toujours
+`postgres`. Le test « maintenance ? » (`current_user in ('postgres',
+'supabase_admin')`) était donc toujours vrai. Tout le monde, collaborateurs
+comme clé serveur, était traité comme la maintenance, et aucune règle n'était
+appliquée. Les tests 32 à 34 l'ont détecté (refus attendus non obtenus).
+
+**Mécanisme actuel.** Les règles sont dans un déclencheur séparé,
+`invest_etapes_regles_pilotage` (`before update`, `security invoker`). Il
+s'exécute avec le rôle réel de la requête, après `invest_etapes_avant_ecriture`
+(ordre alphabétique des déclencheurs). Seuls `postgres` et `supabase_admin` y
+échappent.
+
+| Qui | Comportement |
+|---|---|
+| `anon` | Aucun droit sur `invest_dossier_etapes` (ni lecture ni écriture ; vérifié en production). La requête est refusée avant d'atteindre les règles. |
+| `authenticated` (collaborateur) | Policy `invest_etapes_modification` (accès Invest requis), puis règles appliquées. Test 32 : 30 enchaînements. |
+| `service_role` (clé serveur) | Contourne la RLS (`bypassrls`), **pas** les règles : `current_user = service_role`. Test 33. |
+| Fonction `security definer` | `current_user` = propriétaire. Une fonction appartenant à `postgres` qui modifierait des étapes **contournerait les règles sans le dire**. Aucune n'existe aujourd'hui (vérifié en production : aucune fonction ne met à jour `invest_dossier_etapes`). |
+| API serveur actuelles | Les routes `api/` (IA Invest, cron des échéances) passent par PostgREST avec la clé `service_role` : règles appliquées. Aucune n'écrit dans `invest_dossier_etapes`. Aucune Edge Function ne touche aux dossiers. Aucune connexion directe à la base dans le code. |
+| Connexion directe `postgres` | CLI (`supabase db query --linked`), éditeur SQL, scripts de maintenance et de reprise : règles contournées. C'est le seul contournement voulu. |
+
+**Point de vigilance (non corrigé, à arbitrer).** Le contournement est
+**implicite** pour toute future fonction `security definer` appartenant à
+`postgres`. Un futur traitement serveur légitime peut contourner les règles de
+deux façons :
+
+1. **explicitement**, par un script de maintenance exécuté en connexion directe
+   `postgres` (comme la reprise de la Tranche 1), relu et journalisé ;
+2. **implicitement**, par une fonction `security definer` : à éviter. Si un tel
+   besoin apparaît, la fonction devra être `security invoker`, pour rester
+   soumise aux règles, ou le contournement devra passer par un rôle dédié
+   nommé dans le déclencheur. Un paramètre de session ne convient pas : tout
+   rôle peut le positionner.
 
 ## Retour arrière
 
