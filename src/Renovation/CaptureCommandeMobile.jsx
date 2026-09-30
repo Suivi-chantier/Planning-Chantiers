@@ -41,6 +41,9 @@ function toNum(v) {
 
 // Numéro de document normalisé pour comparaison (sans espaces, casse, ponctuation).
 // "BL-1234 / A" et "bl1234a" deviennent identiques.
+// Nombre maximum de saisies chargées sur l'écran d'accueil (383 en base au 30/09/2026).
+const LIMITE_RECENTS = 1000;
+
 const normDocNum = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 // Deux noms de fournisseur désignent-ils la même enseigne ? (réutilise la
@@ -372,12 +375,14 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
   const loadRecents = useCallback(async () => {
     setLoadingRecents(true);
     // On charge aussi les lignes : elles portent le chantier (regroupement) et
-    // alimentent la modale de détail. Plafonné pour éviter un payload énorme.
+    // alimentent la modale de détail. Plafonné pour éviter un payload énorme
+    // (un bandeau prévient quand le plafond est atteint : la recherche ne
+    // porte alors pas sur les saisies les plus anciennes).
     const { data } = await supabase
       .from("commandes")
       .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, statut_facturation, notes, saisi_par, photo_url, created_at, lignes:commande_lignes(id, libelle, reference, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
       .order("created_at", { ascending: false })
-      .limit(300);
+      .limit(LIMITE_RECENTS);
     setRecents(data || []);
     setLoadingRecents(false);
   }, []);
@@ -676,7 +681,16 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
         || (c.doc_numero || "").toLowerCase().replace(/\s+/g, "").includes(qn)
         || (c.lignes || []).some(l => (l.libelle || "").toLowerCase().includes(q));
     };
+    // Sans recherche : ordre de saisie (dernier saisi en haut). Avec recherche :
+    // ordre chronologique du document, le plus récent en haut (date du document,
+    // à défaut date de saisie ; à date égale, le dernier saisi d'abord).
+    const dateTri = (c) => c.date_doc || (c.created_at || "").slice(0, 10);
     const filtres = recents.filter(matchDoc);
+    if (q) {
+      filtres.sort((a, b) =>
+        dateTri(b).localeCompare(dateTri(a))
+        || (b.created_at || "").localeCompare(a.created_at || ""));
+    }
 
     // Vérif rapide : le texte recherché correspond-il exactement à un n° déjà saisi ?
     const rechNum = normDocNum(recherche);
@@ -778,6 +792,12 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             </button>
           )}
         </div>
+
+        {!loadingRecents && recents.length >= LIMITE_RECENTS && (
+          <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginBottom: SPACING.sm }}>
+            Seules les {LIMITE_RECENTS} dernières saisies sont affichées et cherchées ; les plus anciennes n'apparaissent pas ici.
+          </div>
+        )}
 
         {/* Vérif rapide « déjà saisi ? » sur un n° de document */}
         {numExactMatches.length > 0 && (
