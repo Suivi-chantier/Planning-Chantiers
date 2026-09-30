@@ -789,6 +789,54 @@ test("29. migration rejouable sur une base déjà migrée", async () => {
   ok(await ouvrir(db, C.prospect));
 });
 
+test("30. arbitrages : inclusion d'un prospect, exclusion, statuts d'étapes, conseiller, lettre, urbanisme", async () => {
+  const db = await nouvelleBase();
+  const arbitrages = {
+    [C.prospect]: { inclure: true, statut_dossier: "actif", lettre: { statut: "signee", date: "2026-09-17" } },
+    [C.louison]: { etapes: { acquisition: "terminee", suivi: "en_cours" }, lettre: { statut: "signee", date: null } },
+    [C.termine]: { statut_dossier: "clos", etapes: { acquisition: "terminee", suivi: "non_applicable" }, conseiller_id: U.francois },
+    [C.vide]: { exclure: true, motif: "test" },
+  };
+  const plan = planifierReprise(await exporter(db), { uuidDepuis, arbitrages, urbanismeVers: "acquisition" });
+  const d = Object.fromEntries(plan.dossiers.map((x) => [x.client_id, x]));
+  assert.ok(d[C.prospect], "prospect inclus par arbitrage");
+  assert.equal(d[C.prospect].lettre_mission_signee_le, "2026-09-17");
+  assert.equal(d[C.prospect].date_ouverture, "2026-09-17");
+  assert.equal(d[C.vide], undefined, "exclu");
+  assert.equal(d[C.termine].conseiller_id, U.francois);
+  const e = (cid, et) => plan.etapes.find((x) => x.dossier_id === d[cid].id && x.etape === et);
+  assert.equal(e(C.louison, "acquisition").statut, "terminee");
+  assert.equal(e(C.louison, "acquisition").balle, null);
+  assert.equal(e(C.louison, "suivi").statut, "en_cours");
+  assert.equal(e(C.louison, "suivi").balle, "profero");
+  assert.equal(e(C.louison, "suivi").prochaine_action, "Relancer le notaire", "prochaine action portée par l'étape active");
+  assert.equal(d[C.louison].lettre_mission_signee_le, null, "date inconnue non inventée");
+  assert.equal(e(C.termine, "suivi").statut, "non_applicable");
+  assert.equal(plan.actions.find((a) => a.id === "50000000-0000-0000-0000-000000000003").etape, "acquisition", "urbanisme → acquisition");
+  assert.ok(!plan.anomalies.some((a) => a.client_id === C.termine && a.type === "dossier_clos_avec_etape_active"));
+  const exp = await exporter(db);
+  assert.throws(() => planifierReprise(exp, { uuidDepuis, arbitrages: { [C.louison]: { etapes: { inconnue: "terminee" } } } }), /étape inconnue/);
+});
+
+test("31. SQL par groupes = SQL tâche par tâche (même état final), rejouable", async () => {
+  const arbitrages = { [C.louison]: { etapes: { acquisition: "terminee", suivi: "en_cours" } } };
+  const etat = async (db) => ({
+    dossiers: await qn(db, `select id, client_id, statut, conseiller_id, lettre_mission_statut, lettre_mission_signee_le::text, date_ouverture::text from public.invest_dossiers order by id`),
+    etapes: await qn(db, `select dossier_id, etape, statut, balle, balle_utilisateur_id, prochaine_action, echeance::text from public.invest_dossier_etapes order by dossier_id, etape`),
+    actions: await qn(db, `select id, dossier_id, etape, responsable_id from public.invest_mission_actions order by id`),
+  });
+  const a = await nouvelleBase(); const b = await nouvelleBase();
+  const planA = planifierReprise(await exporter(a), { uuidDepuis, arbitrages, urbanismeVers: "acquisition" });
+  const planB = planifierReprise(await exporter(b), { uuidDepuis, arbitrages, urbanismeVers: "acquisition" });
+  await a.exec(sqlReprise(planA));
+  const sqlG = sqlReprise(planB, { parGroupes: true, urbanismeVers: "acquisition" });
+  await b.exec(sqlG);
+  assert.deepEqual(await etat(b), await etat(a));
+  await b.exec(sqlG);
+  assert.deepEqual(await etat(b), await etat(a), "rejouable");
+  assert.ok(!/\bdelete\b|\bdrop\b|\btruncate\b/i.test(sqlG));
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 let echecs = 0;
 for (const [nom, fn] of cas) {

@@ -83,9 +83,17 @@ function etapesProposees(position, actionsParEtape) {
 /**
  * Plan de reprise.
  * @param {{clients:any[], actions:any[], prospects:any[], utilisateurs:any[], dossiers?:any[]}} donnees
- * @param {{uuidDepuis:(texte:string)=>string}} outils
+ * @param {{uuidDepuis:(texte:string)=>string, arbitrages?:object, exclure?:string[], urbanismeVers?:string|null}} outils
+ *   arbitrages : décisions métier par client (identifiant client → décision) :
+ *     { inclure, exclure, statut_dossier, motif_cloture, conseiller_id,
+ *       lettre: { statut, date }, etapes: { <etape>: <statut> }, motif }
+ *     Une décision remplace la déduction automatique et est tracée dans
+ *     reprise.arbitrage ; elle n'invente rien : chaque valeur vient de Profero.
+ *   exclure : identifiants de clients à ignorer (client de recette…).
+ *   urbanismeVers : étape canonique décidée pour les tâches « urbanisme »
+ *     (null = laissées à classer, règle A4 par défaut).
  */
-export function planifierReprise(donnees, { uuidDepuis }) {
+export function planifierReprise(donnees, { uuidDepuis, arbitrages = {}, exclure = [], urbanismeVers = null }) {
   const { clients = [], actions = [], prospects = [], utilisateurs = [], dossiers = [] } = donnees;
   const plan = { dossiers: [], etapes: [], actions: [], evenements: [], ignores: [], anomalies: [], urbanisme: [] };
   const signaler = (c, type, detail) => plan.anomalies.push({ client_id: c.id, client: nomClient(c), type, detail });
@@ -102,9 +110,16 @@ export function planifierReprise(donnees, { uuidDepuis }) {
     convertisVers.get(p.converted_client_id).push(p.id);
   }
   const dejaDossier = new Set(dossiers.map((d) => d.client_id));
+  const exclus = new Set(exclure);
+  if (urbanismeVers !== null && !CLES_ETAPES.includes(urbanismeVers)) throw new Error(`Étape inconnue : ${urbanismeVers}`);
 
   for (const c of [...clients].sort((a, b) => String(a.id).localeCompare(String(b.id)))) {
     if (!UUID.test(String(c.id))) { plan.ignores.push({ client_id: c.id, client: nomClient(c), raison: "identifiant invalide" }); continue; }
+    const arb = arbitrages[c.id] ?? null;
+    if (exclus.has(c.id) || arb?.exclure) {
+      plan.ignores.push({ client_id: c.id, client: nomClient(c), raison: arb?.motif ? `exclu par arbitrage : ${arb.motif}` : "exclu de la reprise" });
+      continue;
+    }
     const sesActions = actionsParClient.get(c.id) ?? [];
     const statut = statutClient(c.statut);
     const position = lireEtapeClient(c.etape);
@@ -120,12 +135,12 @@ export function planifierReprise(donnees, { uuidDepuis }) {
       plan.ignores.push({ client_id: c.id, client: nomClient(c), raison: "possède déjà un dossier (reprise déjà faite ou dossier saisi)" });
       continue;
     }
-    if (statut === "prospect" || statut === "vide" || statut === "inconnu") {
+    if ((statut === "prospect" || statut === "vide" || statut === "inconnu") && !arb?.inclure) {
       plan.ignores.push({ client_id: c.id, client: nomClient(c), raison: `statut client « ${c.statut ?? "vide"} »` });
       if (traces.length) signaler(c, "prospect_avec_traces_de_mission", `statut « ${c.statut ?? "vide"} » mais ${traces.join(", ")}`);
       continue;
     }
-    if (!traces.length) {
+    if (!traces.length && !arb?.inclure) {
       plan.ignores.push({ client_id: c.id, client: nomClient(c), raison: "aucune trace de mission" });
       signaler(c, "mission_non_identifiable", `statut « ${c.statut} », étape « ${c.etape ?? "vide"} », aucune tâche ni date de signature`);
       continue;
@@ -133,24 +148,31 @@ export function planifierReprise(donnees, { uuidDepuis }) {
 
     // ── Dossier ─────────────────────────────────────────────────────────────
     const dossierId = uuidDepuis(`invest-dossier-t1:${c.id}`);
-    const conseiller = rapprocherUtilisateur(utilisateurs, { nom: c.conseiller });
+    const conseiller = arb?.conseiller_id ? { id: arb.conseiller_id, par: "arbitrage" } : rapprocherUtilisateur(utilisateurs, { nom: c.conseiller });
     if (!conseiller.id) {
       signaler(c, conseiller.ambigu ? "conseiller_ambigu" : "conseiller_non_reconnu",
         c.conseiller ? `« ${c.conseiller} »` : "aucun conseiller saisi");
     }
     const signatureFaite = sesActions.some((a) => a.step_key === "signature" && a.status === "fait");
     let lettre = "inconnu";
-    if (dateSignature) lettre = "signee";
+    let dateLettre = dateSignature;
+    if (arb?.lettre) {
+      lettre = arb.lettre.statut;
+      dateLettre = dateIso(arb.lettre.date);
+    } else if (dateSignature) lettre = "signee";
     else if (signatureFaite) {
       lettre = "signee";
-      signaler(c, "lettre_mission_date_inconnue", "tâches Signature faites, date de signature absente");
-    } else {
-      signaler(c, "lettre_mission_statut_inconnu", "aucune date ni tâche Signature faite");
     }
+    if (lettre === "signee" && !dateLettre) signaler(c, "lettre_mission_date_inconnue", arb?.lettre ? "signée (arbitrage), date inconnue" : "tâches Signature faites, date de signature absente");
+    if (lettre === "inconnu") signaler(c, "lettre_mission_statut_inconnu", "aucune date ni tâche Signature faite");
     let statutDossier = "actif";
     let motif = null;
     if (statut === "termine") { statutDossier = "clos"; motif = "Reprise : statut client « Terminé »"; }
-    if (statut === "inactif") {
+    if (arb?.statut_dossier) {
+      statutDossier = arb.statut_dossier;
+      if (["clos", "abandonne"].includes(statutDossier)) motif = arb.motif_cloture ?? motif ?? "Reprise : clôture décidée par Profero";
+      else motif = null;
+    } else if (statut === "inactif") {
       statutDossier = "suspendu";
       signaler(c, "inactif_a_confirmer", "client « Inactif » repris en dossier suspendu : suspendu ou clos ?");
     }
@@ -160,16 +182,17 @@ export function planifierReprise(donnees, { uuidDepuis }) {
 
     plan.dossiers.push({
       id: dossierId, client_id: c.id,
-      libelle: dateSignature ? `Dossier Invest ${dateSignature.slice(0, 4)}` : "Dossier Invest (repris)",
+      libelle: (lettre === "signee" && dateLettre) ? `Dossier Invest ${dateLettre.slice(0, 4)}` : "Dossier Invest (repris)",
       statut: statutDossier, motif_cloture: motif,
       conseiller_id: conseiller.id ?? null,
-      lettre_mission_statut: lettre, lettre_mission_signee_le: dateSignature,
-      date_ouverture: dateSignature, // inconnue sinon : laissée vide
+      lettre_mission_statut: lettre, lettre_mission_signee_le: lettre === "signee" ? dateLettre : null,
+      date_ouverture: lettre === "signee" ? dateLettre : null, // date de signature connue, sinon vide
       origine: "reprise_existant",
       prospect_id: prospectsConvertis[0] ?? null,
       reprise: {
         source: "reprise_tranche1", client_statut: c.statut ?? null, client_etape: c.etape ?? null,
         client_date_signature: c.date_signature ?? null, conseiller_texte: c.conseiller ?? null, traces,
+        ...(arb ? { arbitrage: arb } : {}),
       },
       _client: nomClient(c),
     });
@@ -184,6 +207,10 @@ export function planifierReprise(donnees, { uuidDepuis }) {
       parEtape.set(e, s);
     }
     const { statuts, source, approximatif } = etapesProposees(position, parEtape);
+    for (const [e, st] of Object.entries(arb?.etapes ?? {})) {
+      if (!CLES_ETAPES.includes(e)) throw new Error(`Arbitrage : étape inconnue ${e}`);
+      statuts[e] = st;
+    }
     if (approximatif) signaler(c, "correspondance_etape_approximative", `« ${c.etape} » : à confirmer en priorité`);
     const actives = CLES_ETAPES.filter((e) => statuts[e] === "en_cours");
     const derniereActive = actives[actives.length - 1];
@@ -209,15 +236,15 @@ export function planifierReprise(donnees, { uuidDepuis }) {
     let aClasser = 0;
     for (const a of sesActions) {
       if (!UUID.test(String(a.id))) continue;
-      const etape = a.etape ?? etapeDepuisStepKey(a.step_key);
-      if (!etape) {
-        aClasser += 1;
-        if (a.step_key === "urbanisme") plan.urbanisme.push({ client: nomClient(c), action_title: a.action_title, status: a.status });
-      }
+      const urba = a.step_key === "urbanisme";
+      const etape = a.etape ?? etapeDepuisStepKey(a.step_key) ?? (urba ? urbanismeVers : null);
+      if (urba) plan.urbanisme.push({ client: nomClient(c), action_title: a.action_title, status: a.status, etape: etape ?? null });
+      if (!etape) aClasser += 1;
       const resp = a.responsable_id ? { id: a.responsable_id } : rapprocherUtilisateur(utilisateurs, { nom: a.responsable, email: a.responsable_email });
       plan.actions.push({
         id: a.id, client_id: c.id, dossier_id: dossierId, etape: etape ?? null,
         responsable_id: resp.id ?? null, responsable_texte: a.responsable ?? null,
+        responsable_email: a.responsable_email ?? null, step_key: a.step_key,
       });
     }
 
@@ -227,8 +254,9 @@ export function planifierReprise(donnees, { uuidDepuis }) {
         + `${sesActions.length} tâche(s) rattachée(s)${aClasser ? `, ${aClasser} à classer` : ""}`
         + `${lettre === "signee" && !dateSignature ? ", date de lettre de mission inconnue" : ""}`
         + `${lettre === "inconnu" ? ", statut de lettre de mission inconnu" : ""}`
-        + `${conseiller.id ? "" : ", conseiller non reconnu"}. Étapes à confirmer.`,
-      apres: { source, traces, taches: sesActions.length, a_classer: aClasser },
+        + `${conseiller.id ? "" : ", conseiller non reconnu"}`
+        + `${arb ? ", arbitrages Profero appliqués" : ""}. Étapes à confirmer.`,
+      apres: { source, traces, taches: sesActions.length, a_classer: aClasser, ...(arb ? { arbitrage: true } : {}) },
     });
   }
 
@@ -256,8 +284,13 @@ const uid = (v) => {
 const jsn = (o) => `${lit(JSON.stringify(o))}::jsonb`;
 const dt = (v) => (v ? `${lit(v)}::date` : "null");
 
-/** SQL rejouable : chaque instruction ne s'applique qu'une fois. */
-export function sqlReprise(plan) {
+/**
+ * SQL rejouable : chaque instruction ne s'applique qu'une fois.
+ * parGroupes : rattache les tâches par client (et le responsable par groupe
+ * client × responsable × e-mail) au lieu de les viser une par une — même
+ * résultat, sans dépendre de la liste exhaustive des identifiants de tâches.
+ */
+export function sqlReprise(plan, { parGroupes = false, urbanismeVers = null } = {}) {
   const l = [
     "-- Reprise Tranche 1 — généré par scripts/reprise-invest-dossiers-t1.mjs. Rejouable.",
     "begin;",
@@ -280,7 +313,32 @@ export function sqlReprise(plan) {
       + `where d.id = ${uid(e.dossier_id)} and d.origine = 'reprise_existant' and not exists (`
       + `select 1 from public.invest_dossier_etapes x where x.dossier_id = d.id and x.etape = ${lit(e.etape)} and x.operation_id is null);`);
   }
-  for (const a of plan.actions) {
+  if (parGroupes) {
+    for (const d of plan.dossiers) {
+      const garde = `client_id = ${uid(d.client_id)}`;
+      l.push(`update public.invest_mission_actions set dossier_id = ${uid(d.id)} where ${garde} and dossier_id is null `
+        + `and exists (select 1 from public.invest_dossiers x where x.id = ${uid(d.id)});`);
+      l.push(`update public.invest_mission_actions set etape = public.invest_etape_depuis_step_key(step_key) `
+        + `where ${garde} and etape is null and public.invest_etape_depuis_step_key(step_key) is not null;`);
+      if (urbanismeVers) {
+        l.push(`update public.invest_mission_actions set etape = ${lit(urbanismeVers)} where ${garde} and etape is null and step_key = 'urbanisme';`);
+      }
+    }
+    const groupes = new Map();
+    for (const a of plan.actions) {
+      if (!a.responsable_id) continue;
+      const cle = JSON.stringify([a.client_id, a.responsable_texte, a.responsable_email]);
+      const deja = groupes.get(cle);
+      if (deja && deja !== a.responsable_id) throw new Error(`Groupe ambigu : ${cle}`);
+      groupes.set(cle, a.responsable_id);
+    }
+    for (const [cle, rid] of groupes) {
+      const [cid, resp, email] = JSON.parse(cle);
+      l.push(`update public.invest_mission_actions set responsable_id = ${uid(rid)} where client_id = ${uid(cid)} `
+        + `and responsable is not distinct from ${lit(resp)} and responsable_email is not distinct from ${lit(email)} and responsable_id is null;`);
+    }
+  }
+  for (const a of parGroupes ? [] : plan.actions) {
     const garde = `id = ${uid(a.id)} and client_id = ${uid(a.client_id)}`;
     l.push(`update public.invest_mission_actions set dossier_id = ${uid(a.dossier_id)} where ${garde} and dossier_id is null `
       + `and exists (select 1 from public.invest_dossiers d where d.id = ${uid(a.dossier_id)});`);
