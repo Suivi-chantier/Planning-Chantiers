@@ -19,7 +19,8 @@ const COULEUR_STATUT = { brouillon: "#64748b", soumis: "#2563eb", a_verifier: "#
 const eur = (v) => (v == null || v === "" ? "—" : `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(v))} €`);
 const dateFr = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "");
 
-export default function ProjetSituationCard({ T, dossierId = null, dossierEnCoursId = null }) {
+// `integre` : affichage dans un onglet de la fiche Dossier (sans cadre ni titre de carte).
+export default function ProjetSituationCard({ T, dossierId = null, dossierEnCoursId = null, integre = false }) {
   const [dossier, setDossier] = useState(null);
   const [etat, setEtat] = useState({ chargement: false, erreur: "", absent: false });
   const [ouverte, setOuverte] = useState(null);
@@ -79,12 +80,12 @@ export default function ProjetSituationCard({ T, dossierId = null, dossierEnCour
   const qs = dossier?.questionnaire_statut || "brouillon";
 
   return (
-    <div className="inv-card" id="projet-situation">
-      <div className="inv-card-hd" style={{ justifyContent: "space-between" }}>
-        <span>Projet & situation {dossier ? `· ${dossier.reference}` : ""}</span>
+    <div className={integre ? "" : "inv-card"} id="projet-situation">
+      <div className={integre ? "" : "inv-card-hd"} style={{ display: "flex", justifyContent: integre ? "flex-end" : "space-between", alignItems: "center" }}>
+        {!integre && <span>Projet & situation {dossier ? `· ${dossier.reference}` : ""}</span>}
         <span style={{ fontSize: 10, fontWeight: 900, color: COULEUR_STATUT[qs], border: `1px solid ${COULEUR_STATUT[qs]}55`, borderRadius: 999, padding: "2px 8px" }}>{STATUTS_QUESTIONNAIRE[qs]}</span>
       </div>
-      <div className="inv-card-bd" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className={integre ? "" : "inv-card-bd"} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: integre ? 8 : 0 }}>
         <div style={{ fontSize: 11.5, color: T.textMuted }}>
           Contexte, situation et objectifs de CE dossier. Les faits durables du foyer (personnes, revenus, crédits, biens, structures) sont dans la Situation patrimoniale.{" "}
           {!modifiable && <b style={{ color: "#b45309" }}>Lecture seule{dossier && ["clos", "abandonne"].includes(dossier.statut) ? " : dossier clos" : " : ce n'est pas le dossier en cours"}.</b>}

@@ -105,7 +105,8 @@ function preparer(table, form) {
   return out;
 }
 
-export default function SituationPatrimonialeCard({ client, T, dossierEnCoursId = null, dossierReference = null }) {
+// `integre` : affichage dans un onglet de la fiche Dossier (sans cadre ni titre de carte).
+export default function SituationPatrimonialeCard({ client, T, dossierEnCoursId = null, dossierReference = null, integre = false }) {
   const [section, setSection] = useState("foyer");
   const [donnees, setDonnees] = useState({});
   const [etat, setEtat] = useState({ chargement: true, erreur: "", absent: false });
@@ -173,15 +174,15 @@ export default function SituationPatrimonialeCard({ client, T, dossierEnCoursId 
   }
 
   return (
-    <div className="inv-card" id="situation-patrimoniale">
-      <div className="inv-card-hd" style={{ justifyContent: "space-between" }}>
-        <span>Situation patrimoniale</span>
+    <div className={integre ? "" : "inv-card"} id="situation-patrimoniale">
+      <div className={integre ? "" : "inv-card-hd"} style={{ display: "flex", justifyContent: integre ? "flex-end" : "space-between", alignItems: "center", gap: 8 }}>
+        {!integre && <span>Situation patrimoniale</span>}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <label style={{ fontSize: 11, color: T.textMuted }}><input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} /> Archives</label>
           <button className="inv-btn inv-btn-sm" onClick={charger} disabled={etat.chargement}>Actualiser</button>
         </div>
       </div>
-      <div className="inv-card-bd" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className={integre ? "" : "inv-card-bd"} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: integre ? 8 : 0 }}>
         {/* La situation appartient au FOYER, pas au dossier consulté dans l'historique. */}
         <div style={{ fontSize: 11.5, color: T.textMuted }}>
           Situation actuelle du foyer, commune à tous ses dossiers.{" "}

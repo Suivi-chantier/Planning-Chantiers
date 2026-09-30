@@ -51,8 +51,8 @@ d'événements questionnaire_*, deux compléments aux fonctions 2c. Aucune
 reprise. S'applique seule, avant le front, jamais par `db push` :
 `docs/project/DOSSIER-INVEST-TRANCHE2D.md`.
 
-**`20260930235500_invest_questionnaire_2d1_catalogue.sql` n'est PAS appliquée**
-(mini-correctif 2d.1) : refuse une réponse dont la clé n'existe pas dans le
+`20260930235500_invest_questionnaire_2d1_catalogue.sql` — **appliquée en
+production le 30/09/2026** (mini-correctif 2d.1) : refuse une réponse dont la clé n'existe pas dans le
 catalogue de la version du questionnaire. La liste des clés
 (`invest_questionnaire_cles`) est générée par
 `scripts/generer-questionnaire-cles-sql.mjs` depuis `questionnaireDossier.mjs`.

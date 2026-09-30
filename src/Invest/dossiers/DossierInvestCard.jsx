@@ -61,7 +61,6 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange, 
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [panneau, setPanneau] = useState(null); // clé d'étape ouverte dans le panneau latéral
   const [demarrage, setDemarrage] = useState(null); // formulaire « Démarrer une mission »
-  const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState("");
   const aujourdhui = aujourdhuiIso();
 
@@ -127,18 +126,6 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange, 
 
   const monId = utilisateurs.find((u) => String(u.email || "").trim().toLowerCase() === String(profil?.email || "").trim().toLowerCase())?.id || "";
 
-  const demarrerMission = async () => {
-    setEnCours(true); setMessage("");
-    const { data, error } = await supabase.rpc("invest_ouvrir_dossier", {
-      p_client_id: client.id,
-      p_options: { libelle: demarrage?.libelle || "", conseiller_id: demarrage?.conseiller_id || null },
-    });
-    setEnCours(false);
-    if (error) { setMessage(`Mission non démarrée : ${error.message}`); return; }
-    setDemarrage(null); setIdChoisi(data || null); setMessage("Mission démarrée : dossier et 11 étapes créés.");
-    charger();
-  };
-
   // ── Rendu ────────────────────────────────────────────────────────────────
   const hd = (
     <div className="inv-card-hd" style={{ justifyContent: "space-between" }}>
@@ -151,7 +138,7 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange, 
           </select>
         )}
         {!etat.absent && !dossierEnCours && (
-          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setDemarrage({ libelle: `Dossier Invest ${aujourdhui.slice(0, 4)}`, conseiller_id: monId })}>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setDemarrage(true)}>
             Démarrer une mission
           </button>
         )}
@@ -173,23 +160,8 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange, 
         {message && <div style={{ padding: "8px 10px", borderRadius: 8, background: T.accentBg, border: `1px solid ${T.border}`, color: T.text, fontSize: 12 }}>{message}</div>}
 
         {demarrage && (
-          <Encadre T={T} titre="Démarrer une mission">
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 8 }}>
-              <input className="inv-inp" value={demarrage.libelle} onChange={(e) => setDemarrage((p) => ({ ...p, libelle: e.target.value }))} placeholder="Libellé du dossier" />
-              <select className="inv-sel" value={demarrage.conseiller_id || ""} onChange={(e) => setDemarrage((p) => ({ ...p, conseiller_id: e.target.value }))}>
-                <option value="">Conseiller : aucun</option>
-                {utilisateurs.filter((u) => u.actif).map((u) => <option key={u.id} value={u.id}>{u.nom || u.email}</option>)}
-              </select>
-            </div>
-            <div style={{ fontSize: 11, color: T.textMuted, marginTop: 6 }}>
-              Crée le dossier et ses 11 étapes en une seule fois. « Signature » démarre avec la balle au conseiller ; les autres étapes restent « à venir ».
-              {String(client?.statut || "").toLowerCase() === "prospect" && " Le client passera de « Prospect » à « Actif »."}
-            </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={demarrerMission} disabled={enCours}>Créer le dossier</button>
-              <button className="inv-btn inv-btn-sm" onClick={() => setDemarrage(null)} disabled={enCours}>Annuler</button>
-            </div>
-          </Encadre>
+          <DemarrerMission T={T} client={client} utilisateurs={utilisateurs} monId={monId} onAnnuler={() => setDemarrage(null)}
+            onCree={(id) => { setDemarrage(null); setIdChoisi(id || null); setMessage("Mission démarrée : dossier et 11 étapes créés."); charger(); }} />
         )}
 
         {etat.chargement && !dossier && <div style={{ fontSize: 12, color: T.textMuted }}>Chargement…</div>}
@@ -339,7 +311,45 @@ function Journal({ T, lignes, titre = "Journal du dossier", max = 12 }) {
   );
 }
 
-function PanneauEtape({ T, cle, dossier, clos, etape, taches, utilisateurs, monId, journal: lignes, aujourdhui, onFermer, onEnregistre }) {
+// Formulaire « Démarrer une mission » : invest_ouvrir_dossier (Tranche 1).
+// Partagé par cette carte et la fiche Dossier (FicheDossier.jsx).
+export function DemarrerMission({ T, client, utilisateurs = [], monId = "", onCree, onAnnuler }) {
+  const [saisie, setSaisie] = useState({ libelle: `Dossier Invest ${new Date().toISOString().slice(0, 4)}`, conseiller_id: monId });
+  const [enCours, setEnCours] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const creer = async () => {
+    setEnCours(true); setErreur("");
+    const { data, error } = await supabase.rpc("invest_ouvrir_dossier", {
+      p_client_id: client.id, p_options: { libelle: saisie.libelle || "", conseiller_id: saisie.conseiller_id || null },
+    });
+    setEnCours(false);
+    if (error) { setErreur(`Mission non démarrée : ${error.message}`); return; }
+    onCree?.(data);
+  };
+  return (
+    <Encadre T={T} titre="Démarrer une mission">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 8 }}>
+        <input className="inv-inp" value={saisie.libelle} onChange={(e) => setSaisie((p) => ({ ...p, libelle: e.target.value }))} placeholder="Libellé du dossier" />
+        <select className="inv-sel" value={saisie.conseiller_id || ""} onChange={(e) => setSaisie((p) => ({ ...p, conseiller_id: e.target.value }))}>
+          <option value="">Conseiller : aucun</option>
+          {utilisateurs.filter((u) => u.actif).map((u) => <option key={u.id} value={u.id}>{u.nom || u.email}</option>)}
+        </select>
+      </div>
+      <div style={{ fontSize: 11, color: T.textMuted, marginTop: 6 }}>
+        Crée le dossier et ses 11 étapes en une seule fois. « Signature » démarre avec la balle au conseiller ; les autres étapes restent « à venir ».
+        {String(client?.statut || "").toLowerCase() === "prospect" && " Le client passera de « Prospect » à « Actif »."}
+      </div>
+      {erreur && <div style={{ fontSize: 12, color: "#be123c", marginTop: 6 }}>{erreur}</div>}
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={creer} disabled={enCours}>Créer le dossier</button>
+        <button className="inv-btn inv-btn-sm" onClick={onAnnuler} disabled={enCours}>Annuler</button>
+      </div>
+    </Encadre>
+  );
+}
+
+// Panneau latéral d'une étape (gestes, tâches, journal) : partagé avec la fiche Dossier.
+export function PanneauEtape({ T, cle, dossier, clos, etape, taches, utilisateurs, monId, journal: lignes, aujourdhui, onFermer, onEnregistre }) {
   const ref = ETAPES_PARCOURS.find((e) => e.cle === cle);
   const [geste, setGeste] = useState(null);
   const [saisie, setSaisie] = useState({});

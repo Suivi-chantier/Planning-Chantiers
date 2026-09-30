@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "nouveaute",
+    titre: "CRM Invest : la fiche Dossier Invest devient l'espace de travail du dossier",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Pour savoir où en est un dossier, il fallait parcourir plusieurs cartes. Tout ce qui compte est désormais rassemblé en haut de la fiche client : qui suit le dossier, où il en est, qui a la main, ce qu'il faut faire maintenant et ce qui bloque.",
+    comment: "En tête de fiche : référence du dossier, client, conseiller, date d'ouverture, statut, puis le pilotage (étape principale, étapes actives, balle côté client ou Profero, prochaine action, échéance, blocage). Juste dessous, les 11 étapes du parcours en pastilles : plusieurs peuvent être actives en même temps ; un clic sur une étape ouvre son état et son pilotage. Des onglets organisent le dossier : Vue d'ensemble, Projet, Situation patrimoniale, Documents, Analyse, Stratégie, Opportunités, Financement, Acquisition. La Vue d'ensemble réunit « À faire maintenant », les actions du dossier (en retard, à faire, terminées, avec étape, responsable et échéance, et un bouton pour en ajouter une rattachée à une étape), l'activité récente, les alertes utiles (échéance dépassée, étape bloquée, action en retard, informations à corriger ou à vérifier), la synthèse du projet et celle de la situation patrimoniale. Les onglets Projet et Situation patrimoniale reprennent les cartes existantes. Documents, Analyse, Stratégie, Financement et Acquisition affichent « Module en préparation » : rien n'y est encore calculé. Opportunités montre les propositions de biens déjà faites au client. Les anciennes sections de la fiche client restent disponibles en dessous.",
+  },
+  {
+    date: "2026-09-30",
+    type: "nouveaute",
     titre: "CRM Invest : questionnaire « Projet & situation » dans chaque Dossier Invest",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Les objectifs et le contexte d'un projet (situation familiale, fiscalité, international, objectifs, banque, détention souhaitée) n'avaient pas de place structurée. Ils sont désormais recueillis dans le dossier, section par section, et vérifiables.",

@@ -7,9 +7,7 @@ import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { messageSuppressionClient } from "./dossiers/parcours";
 import { ETAPES_PARCOURS, CLES_ETAPES, etapePourNouvelleTache } from "./dossiers/parcours";
 import { A_CLASSER, champsNouvelleTache } from "./dossiers/dossierVue";
-import DossierInvestCard from "./dossiers/DossierInvestCard";
-import SituationPatrimonialeCard from "./dossiers/SituationPatrimonialeCard";
-import ProjetSituationCard from "./dossiers/ProjetSituationCard";
+import FicheDossier from "./dossiers/FicheDossier";
 import { indexerPilotage, projeterClient, resumePilotage } from "./dossiers/pilotage";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -3520,14 +3518,12 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Dossier Invest : représentation principale de l'avancement (Tranche 2a) */}
-        <DossierInvestCard client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
+        {/* Fiche Dossier Invest V1 (Chantier 1.2) : espace de travail principal de la mission.
+            Elle embarque le pilotage 2a, la Situation patrimoniale 2c et Projet & situation 2d. */}
+        <FicheDossier client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
 
-        {/* Situation patrimoniale du foyer (Tranche 2c) : collecte factuelle, modifiable dans un dossier en cours */}
-        <SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} dossierReference={dossierInfo?.referenceEnCours || null} />
-
-        {/* Projet & situation du DOSSIER affiché (Tranche 2d) : modifiable seulement s'il est en cours */}
-        <ProjetSituationCard T={T} dossierId={dossierInfo?.dossierId || null} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} />
+        {/* Sections historiques de la fiche CRM, conservées en attendant leur arbitrage. */}
+        <div style={{ fontSize:11, fontWeight:900, letterSpacing:1, textTransform:"uppercase", color:T.textMuted, marginTop:8 }}>Fiche client CRM</div>
 
         {/* Synthèse client */}
         <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>
