@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
+    type: "nouveaute",
+    titre: "CRM Invest : la situation patrimoniale du foyer se saisit dans la fiche client",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Les informations patrimoniales d'un client (personnes du foyer, revenus, charges, épargne, crédits, biens déjà détenus, sociétés) étaient dispersées dans des champs libres. Elles sont désormais structurées, vérifiables et réutilisables d'un dossier à l'autre.",
+    comment: "Dans la fiche client, la carte « Situation patrimoniale » compte cinq sections : Foyer ; Revenus, charges & épargne ; Crédits & engagements ; Patrimoine immobilier ; Structures. Chaque élément s'affiche sous forme de carte : on peut l'ajouter, le modifier, l'archiver, le marquer « vérifié » ou « à corriger ». Modifier un élément vérifié le repasse « non vérifié ». La saisie n'est possible que lorsqu'un Dossier Invest est en cours ; chaque enregistrement est inscrit au journal du dossier. Un encadré récapitule les revenus et charges du mois, les mensualités, l'épargne, la valeur et la dette immobilières et un patrimoine net simplifié. L'épargne est une valeur détenue : l'apport que le client souhaite mobiliser sera défini plus tard, dans les objectifs du dossier. Pour un foyer sans personne, l'application propose de créer la personne principale, sans jamais découper un nom comme « Tom et Camille ».",
+  },
+  {
+    date: "2026-09-30",
     type: "amelioration",
     titre: "Invest : le CRM, le tableau de bord et la routine du matin suivent le Dossier Invest",
     pages: [{ id: "crm", label: "CRM" }, { id: "dashboard", label: "Dashboard" }],
