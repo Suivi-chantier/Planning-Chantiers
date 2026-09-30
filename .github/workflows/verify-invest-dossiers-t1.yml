@@ -16,6 +16,9 @@ on:
       - 'src/Invest/Structuration.jsx'
       - 'api/_cron/cron-invest-tableau-bord.js'
       - 'scripts/verif-invest-pilotage-2b.mjs'
+      - 'scripts/verif-invest-copilote-2b.mjs'
+      - 'api/_ia/invest/**'
+      - 'api/_ia/taches/invest_copilot.js'
       - 'scripts/verif-tableau-bord.mjs'
       - 'scripts/verif-invest-dossiers-t1.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
@@ -40,3 +43,5 @@ jobs:
         run: node scripts/verif-invest-pilotage-2b.mjs
       - name: Tableau de bord Invest et mail du matin
         run: node scripts/verif-tableau-bord.mjs
+      - name: Copilote Invest sur le Dossier Invest (Tranche 2b-bis)
+        run: node scripts/verif-invest-copilote-2b.mjs
