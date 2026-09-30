@@ -9,6 +9,8 @@ on:
       - 'sql/202609_invest_dossiers_tranche2a_rollback.sql'
       - 'supabase/migrations/20260930230000_invest_situation_patrimoniale_2c.sql'
       - 'sql/202609_invest_situation_patrimoniale_2c_rollback.sql'
+      - 'supabase/migrations/20260930235000_invest_questionnaire_2d.sql'
+      - 'sql/202609_invest_questionnaire_2d_rollback.sql'
       - 'src/Invest/dossiers/**'
       - 'src/Invest/annuaire.mjs'
       - 'src/Invest/CRM.jsx'
@@ -39,7 +41,7 @@ jobs:
           node-version: '22'
       - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
         run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
-      - name: Dossier Invest — Tranches 1, 2a et 2c (dossiers, parcours, journal, reprise, pilotage, situation patrimoniale)
+      - name: Dossier Invest — Tranches 1, 2a, 2c et 2d (dossiers, parcours, journal, reprise, pilotage, situation patrimoniale, questionnaire)
         run: node scripts/verif-invest-dossiers-t1.mjs
       - name: Dossier Invest — Tranche 2b (pilotage CRM, tableau de bord, Morning Routine)
         run: node scripts/verif-invest-pilotage-2b.mjs

@@ -37,13 +37,20 @@ contrôlés, motifs obligatoires (« non applicable », réouverture). S'appliqu
 seule, jamais par `db push` : `docs/project/DOSSIER-INVEST-TRANCHE2A.md`.
 Retour arrière non destructif : `sql/202609_invest_dossiers_tranche2a_rollback.sql`.
 
-**`20260930230000_invest_situation_patrimoniale_2c.sql` n'est PAS appliquée**
-(préparée le 30/09/2026, Chantier 1.1 Tranche 2c : foyer et situation
+`20260930230000_invest_situation_patrimoniale_2c.sql` — **appliquée en
+production le 30/09/2026** (Chantier 1.1 Tranche 2c : foyer et situation
 patrimoniale). Additive : 5 tables rattachées au client (personnes, postes
 financiers, engagements, actifs patrimoniaux, structures), types d'événements
 `collecte_*`. Aucune reprise. S'applique seule, jamais par `db push` :
 `docs/project/DOSSIER-INVEST-TRANCHE2C.md`. Retour arrière (destructif pour les
 données 2c) : `sql/202609_invest_situation_patrimoniale_2c_rollback.sql`.
+
+**`20260930235000_invest_questionnaire_2d.sql` n'est PAS appliquée**
+(préparée le 30/09/2026, Chantier 1.1 Tranche 2d : questionnaire « Projet &
+situation »). Additive : colonnes questionnaire_* de invest_dossiers, types
+d'événements questionnaire_*, deux compléments aux fonctions 2c. Aucune
+reprise. S'applique seule, avant le front, jamais par `db push` :
+`docs/project/DOSSIER-INVEST-TRANCHE2D.md`.
 
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par

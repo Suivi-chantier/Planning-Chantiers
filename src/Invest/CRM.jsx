@@ -9,6 +9,7 @@ import { ETAPES_PARCOURS, CLES_ETAPES, etapePourNouvelleTache } from "./dossiers
 import { A_CLASSER, champsNouvelleTache } from "./dossiers/dossierVue";
 import DossierInvestCard from "./dossiers/DossierInvestCard";
 import SituationPatrimonialeCard from "./dossiers/SituationPatrimonialeCard";
+import ProjetSituationCard from "./dossiers/ProjetSituationCard";
 import { indexerPilotage, projeterClient, resumePilotage } from "./dossiers/pilotage";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -3524,6 +3525,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
 
         {/* Situation patrimoniale du foyer (Tranche 2c) : collecte factuelle, modifiable dans un dossier en cours */}
         <SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} dossierReference={dossierInfo?.referenceEnCours || null} />
+
+        {/* Projet & situation du DOSSIER affiché (Tranche 2d) : modifiable seulement s'il est en cours */}
+        <ProjetSituationCard T={T} dossierId={dossierInfo?.dossierId || null} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} />
 
         {/* Synthèse client */}
         <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>
