@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "amelioration",
+    titre: "Encours fournisseurs : chaque mois affiche le reste à payer, le déjà payé et le total",
+    pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "Chaque mois ne montrait que le montant restant à payer : on ne voyait pas ce qui avait déjà été réglé ce mois-là, ni combien le mois représentait en tout.",
+    comment: "Sur chaque mois, trois montants s'affichent côte à côte : « À payer » (orange), « Payé » (vert) et « Total » (la somme des deux). « Payé » compte les achats réglés comptant, comme la carte « Payé comptant » en haut de page ; les factures fournisseurs restent comptées dans « À payer », l'application n'enregistrant pas encore leur règlement. Le PDF reprend les trois montants dans le titre de chaque mois.",
+  },
+  {
+    date: "2026-09-30",
+    type: "amelioration",
     titre: "Saisie commande : les résultats d'une recherche s'affichent du plus récent au plus ancien",
     pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],
     quoi: "En cherchant un fournisseur, un n° ou un article, les documents apparaissaient dans l'ordre où ils avaient été saisis, pas dans l'ordre de leur date : un bon d'avril saisi en septembre passait devant un bon d'août. De plus, la recherche ne portait que sur les 300 dernières saisies : les plus anciennes n'apparaissaient jamais.",

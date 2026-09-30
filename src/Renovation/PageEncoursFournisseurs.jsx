@@ -125,6 +125,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
     const list = [...g.parFourn.values()];
     g.aPayer = list.reduce((s, pf) => s + aPayerOf(pf), 0);
     g.paye = list.reduce((s, pf) => s + pf.paye, 0);
+    g.total = g.aPayer + g.paye;
   }
   const moisList = [...moisMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
   const totalGlobal = moisList.reduce((s, g) => s + g.aPayer, 0);
@@ -160,7 +161,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
           <td class="r b">${aP > 0 ? eur(aP) + " €" : (pf.paye > 0 ? "payé" : "")}</td>
         </tr>`;
       }).join("");
-      return `<h2>${moisLabel(g.mois)} — ${eur(g.aPayer)} € à payer</h2>
+      return `<h2>${moisLabel(g.mois)} — ${eur(g.aPayer)} € à payer · ${eur(g.paye)} € payé · ${eur(g.total)} € au total</h2>
         <table><thead><tr><th>Fournisseur</th><th class=r>Saisi</th><th class=r>Facturé</th><th class=r>Écart</th><th class=r>Payé</th><th class=r>À payer</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join("");
     const w = window.open("", "_blank");
@@ -235,15 +236,26 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
                 background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
               }}>
                 <Icon as={ouvert ? ChevronDown : ChevronRight} size={16} color={T.textSub} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text, textTransform: "capitalize" }}>{moisLabel(g.mois)}</div>
-                  <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>
-                    {fournTries.length} fournisseur{fournTries.length > 1 ? "s" : ""}
-                    {g.aPayer > 0 && <span style={{ color: SEMANTIC.warning.color, fontWeight: 700 }}> · {eur(g.aPayer)} € à payer</span>}
+                <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: "8px 16px", flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 140px" }}>
+                    <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text, textTransform: "capitalize" }}>{moisLabel(g.mois)}</div>
+                    <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                      {fournTries.length} fournisseur{fournTries.length > 1 ? "s" : ""}
+                    </div>
                   </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: acc.accent }}>{eur(g.aPayer)} €</div>
+                  {/* À payer · Payé (comptant) · Total du mois = à payer + payé */}
+                  <div style={{ display: "flex", gap: 16, marginLeft: "auto" }}>
+                    {[
+                      { label: "À payer", val: g.aPayer, color: SEMANTIC.warning.color },
+                      { label: "Payé", val: g.paye, color: SEMANTIC.success.color },
+                      { label: "Total", val: g.total, color: T.text },
+                    ].map(s => (
+                      <div key={s.label} style={{ textAlign: "right", minWidth: 76 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: T.textSub }}>{s.label}</div>
+                        <div style={{ fontSize: FONT.md.size, fontWeight: 800, whiteSpace: "nowrap", color: s.val > 0 ? s.color : T.textMuted }}>{eur(s.val)} €</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </button>
 
