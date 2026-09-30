@@ -45,12 +45,18 @@ financiers, engagements, actifs patrimoniaux, structures), types d'événements
 `docs/project/DOSSIER-INVEST-TRANCHE2C.md`. Retour arrière (destructif pour les
 données 2c) : `sql/202609_invest_situation_patrimoniale_2c_rollback.sql`.
 
-**`20260930235000_invest_questionnaire_2d.sql` n'est PAS appliquée**
-(préparée le 30/09/2026, Chantier 1.1 Tranche 2d : questionnaire « Projet &
-situation »). Additive : colonnes questionnaire_* de invest_dossiers, types
+`20260930235000_invest_questionnaire_2d.sql` — **appliquée en production le
+30/09/2026** (Chantier 1.1 Tranche 2d : questionnaire « Projet & situation »). Additive : colonnes questionnaire_* de invest_dossiers, types
 d'événements questionnaire_*, deux compléments aux fonctions 2c. Aucune
 reprise. S'applique seule, avant le front, jamais par `db push` :
 `docs/project/DOSSIER-INVEST-TRANCHE2D.md`.
+
+**`20260930235500_invest_questionnaire_2d1_catalogue.sql` n'est PAS appliquée**
+(mini-correctif 2d.1) : refuse une réponse dont la clé n'existe pas dans le
+catalogue de la version du questionnaire. La liste des clés
+(`invest_questionnaire_cles`) est générée par
+`scripts/generer-questionnaire-cles-sql.mjs` depuis `questionnaireDossier.mjs`.
+Aucune donnée modifiée. S'applique seule, jamais par `db push`.
 
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
