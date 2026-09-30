@@ -24,6 +24,7 @@ import * as TR from "../src/Invest/dossiers/transitions.mjs";
 import * as V from "../src/Invest/dossiers/dossierVue.mjs";
 import * as SP from "../src/Invest/dossiers/situationPatrimoniale.mjs";
 import * as QS from "../src/Invest/dossiers/questionnaireDossier.mjs";
+import { sqlClesQuestionnaire } from "./generer-questionnaire-cles-sql.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (rel) => readFileSync(join(racine, rel), "utf8");
@@ -38,6 +39,8 @@ const ROLLBACK_2C = lire("sql/202609_invest_situation_patrimoniale_2c_rollback.s
 const CARTE_SP = lire("src/Invest/dossiers/SituationPatrimonialeCard.jsx");
 const MIGRATION_2D = lire("supabase/migrations/20260930235000_invest_questionnaire_2d.sql");
 const ROLLBACK_2D = lire("sql/202609_invest_questionnaire_2d_rollback.sql");
+const MIGRATION_2D1 = lire("supabase/migrations/20260930235500_invest_questionnaire_2d1_catalogue.sql");
+const ROLLBACK_2D1 = lire("sql/202609_invest_questionnaire_2d1_rollback.sql");
 const CARTE_QS = lire("src/Invest/dossiers/ProjetSituationCard.jsx");
 const CATALOGUE_QS = lire("src/Invest/dossiers/questionnaireDossier.mjs");
 
@@ -232,13 +235,14 @@ insert into public.invest_mission_actions (id, client_id, step_key, step_label, 
   ('50000000-0000-0000-0000-000000000007', '${C.prospect}', 'signature', 'Signature', 1, 'Envoyer le contrat', 'Camille', null, 'a_faire');
 `;
 
-async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true } = {}) {
+async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true, t2d1 = true } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA_PROD);
   if (migration) await db.exec(MIGRATION);
   if (migration && t2a) await db.exec(MIGRATION_2A);
   if (migration && t2a && t2c) await db.exec(MIGRATION_2C);
   if (migration && t2a && t2c && t2d) await db.exec(MIGRATION_2D);
+  if (migration && t2a && t2c && t2d && t2d1) await db.exec(MIGRATION_2D1);
   return db;
 }
 
@@ -777,6 +781,7 @@ test("26. parcours.mjs : lecture des anciennes étapes, étape courante, suggest
 test("27. retour arrière : tables et colonnes retirées, données historiques intactes", async () => {
   const db = await nouvelleBase();
   await ouvrir(db, C.louison);
+  await db.exec(ROLLBACK_2D1);
   await db.exec(ROLLBACK_2D);
   await db.exec(ROLLBACK_2C);
   await db.exec(ROLLBACK_2A);
@@ -810,6 +815,7 @@ test("29. migration rejouable sur une base déjà migrée", async () => {
   await db.exec(MIGRATION_2A);
   await db.exec(MIGRATION_2C);
   await db.exec(MIGRATION_2D);
+  await db.exec(MIGRATION_2D1);
   assert.equal((await etapes(db, id)).length, 11);
   ok(await ouvrir(db, C.prospect));
 });
@@ -1636,6 +1642,51 @@ test("62. 2d migration : additive, rejouable ; retour arrière rend les fonction
   for (const f of ["invest_collecte_journal", "invest_collecte_regles"]) assert.equal(await def(db, f), await def(avec2c, f), `${f} rendue à la 2c`);
   assert.equal(await def(db, "invest_questionnaire_avant_ecriture"), undefined);
   assert.match(CRM, /<ProjetSituationCard T=\{T\} dossierId=\{dossierInfo\?\.dossierId \|\| null\} dossierEnCoursId=\{dossierInfo\?\.dossierEnCoursId \|\| null\} \/>/);
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 12. Mini-correctif 2d.1 — intégrité du catalogue
+// ═══════════════════════════════════════════════════════════════════════════
+test("63. 2d.1 : clés du catalogue en base = catalogue .mjs (généré, versionné) ; clé inconnue refusée ; fusion inchangée", async () => {
+  // Synchronisation déterministe : le bloc SQL de la migration est exactement la sortie du générateur.
+  assert.ok(MIGRATION_2D1.includes(sqlClesQuestionnaire()), "bloc généré recopié tel quel");
+  const db = await nouvelleBase();
+  const enBase = (await q1(db, `select public.invest_questionnaire_cles(1) c`)).c;
+  assert.deepEqual(enBase, [...QS.QUESTIONS.map((q) => q.cle)].sort(), "même ensemble, même ordre");
+  assert.deepEqual([...QS.CLES_PAR_VERSION[1]], enBase);
+  assert.equal(enBase.length, 70);
+  assert.equal((await q1(db, `select public.invest_questionnaire_cles(2) c`)).c, null, "version inconnue : aucune clé");
+  const { id } = await ouvrir(db, C.nu);
+  // Toutes les clés V1 reconnues (une sauvegarde de chaque, valeur fictive).
+  const tout = Object.fromEntries(QS.QUESTIONS.map((q) => [q.cle, { valeur: q.type === "choix" ? Object.keys(q.options)[0] : q.type === "choix_multiple" ? [Object.keys(q.options)[0]] : q.type === "montant" || q.type === "pourcentage" ? 1 : q.type === "date" ? "2026-01-01" : "Texte RECETTE" }]));
+  ok(await qsEnreg(db, id, tout), "les 70 clés V1 acceptées");
+  assert.equal(Object.keys((await qsLire(db, id)).questionnaire_data).length, 70);
+  const ev = (await q1(db, `select count(*)::int n from public.invest_dossier_evenements where dossier_id = $1`, [id])).n;
+  const h = (await q1(db, `select md5(questionnaire_data::text) h from public.invest_dossiers where id = $1`, [id])).h;
+  refuse(await qsEnreg(db, id, { inconnue__cle_recette: { valeur: "x" } }), /Question inconnue du catalogue \(version 1\) : inconnue__cle_recette/);
+  refuse(await qsEnreg(db, id, { "fiscalite.tmi": { valeur: "30" } }), /Question inconnue : fiscalite\.tmi/, "clé mal formée toujours refusée");
+  refuse(await sous(db, "authenticated", COLLAB, `select public.invest_questionnaire_enregistrer($1, '{"fiscalite__tmi":{"valeur":"41"}}'::jsonb, 2)`, [id]), /Version de questionnaire inconnue : 2/);
+  assert.equal((await q1(db, `select md5(questionnaire_data::text) h from public.invest_dossiers where id = $1`, [id])).h, h, "rien d'écrit");
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_dossier_evenements where dossier_id = $1`, [id])).n, ev, "aucun événement parasite");
+  // Clé connue acceptée, sauvegarde partielle : fusion inchangée.
+  ok(await qsEnreg(db, id, { fiscalite__tmi: { valeur: "41" } }));
+  const d = (await qsLire(db, id)).questionnaire_data;
+  assert.equal(d.fiscalite__tmi.valeur, "41"); assert.equal(Object.keys(d).length, 70);
+  // Une réponse déjà stockée n'est pas re-contrôlée tant qu'elle ne change pas (compatibilité des réponses existantes).
+  // Même la maintenance ne peut plus écrire une clé hors catalogue ; on simule une réponse historique déclencheur coupé.
+  await assert.rejects(db.query(`update public.invest_dossiers set questionnaire_data = questionnaire_data || '{"ancienne__cle":{"valeur":"x"}}'::jsonb where id = $1`, [id]), /Question inconnue du catalogue/);
+  await db.exec(`alter table public.invest_dossiers disable trigger invest_questionnaire_avant_ecriture;
+    update public.invest_dossiers set questionnaire_data = questionnaire_data || '{"ancienne__cle":{"valeur":"historique"}}'::jsonb where id = '${id}';
+    alter table public.invest_dossiers enable trigger invest_questionnaire_avant_ecriture;`);
+  ok(await qsEnreg(db, id, { banque__principale: { valeur: "Banque RECETTE" } }), "une clé historique déjà présente ne bloque pas les autres sauvegardes");
+  refuse(await qsEnreg(db, id, { ancienne__cle: { valeur: "modifiée" } }), /Question inconnue du catalogue/);
+  // Retour arrière : texte 2d exact.
+  const ref = await nouvelleBase({ t2d1: false });
+  await db.exec(ROLLBACK_2D1);
+  const def = async (b, f) => (await q1(b, `select pg_get_functiondef(p.oid) d from pg_proc p where p.proname = $1`, [f]))?.d;
+  assert.equal(await def(db, "invest_questionnaire_avant_ecriture"), await def(ref, "invest_questionnaire_avant_ecriture"));
+  assert.equal(await def(db, "invest_questionnaire_cles"), undefined);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

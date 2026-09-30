@@ -150,6 +150,14 @@ export const SECTIONS_QUESTIONNAIRE = Object.freeze([
 ]);
 
 export const QUESTIONS = Object.freeze(SECTIONS_QUESTIONNAIRE.flatMap((s) => s.questions.map((q) => ({ ...q, section: s.cle }))));
+
+/**
+ * Clés autorisées par version du catalogue, triées. C'est la SEULE source :
+ * scripts/generer-questionnaire-cles-sql.mjs en tire la fonction SQL
+ * invest_questionnaire_cles(version), et un test exige que la base et ce
+ * module contiennent exactement le même ensemble.
+ */
+export const CLES_PAR_VERSION = Object.freeze({ 1: Object.freeze(QUESTIONS.map((q) => q.cle).sort()) });
 const PAR_CLE = Object.fromEntries(QUESTIONS.map((q) => [q.cle, q]));
 export const STATUTS_QUESTIONNAIRE = Object.freeze({ brouillon: "Brouillon", soumis: "Soumis", a_verifier: "À vérifier", valide: "Validé" });
 export const VERIFICATIONS = Object.freeze({ non_verifiee: "Non vérifiée", verifiee: "Vérifiée", a_corriger: "À corriger" });
