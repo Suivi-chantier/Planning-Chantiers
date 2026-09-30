@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "nouveaute",
+    titre: "CRM Invest : nouveau CRM en trois vues et vraie page Client",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le CRM mélangeait portefeuille, client, mission et anciennes sections sur une seule fiche. Il est maintenant organisé comme le métier : le CRM pour piloter le portefeuille, la page Client pour la relation durable, la mission pour le travail de la prestation.",
+    comment: "Le CRM s'ouvre sur « À traiter » : les missions en retard, bloquées, à faire aujourd'hui ou sans prochaine action, avec client, mission, offre, prochaine action, échéance, qui a la main et conseiller, et un bouton Ouvrir. Quatre compteurs en haut (En retard, Bloquées, À faire aujourd'hui, En attente client) filtrent la liste. « Clients » présente le portefeuille (conseiller, coordonnées, missions en cours, prochaine action, dernier contact). « Actions & planning » range les actions des missions en En retard, Aujourd'hui, 7 jours et 30 jours, filtrables par conseiller, mission ou client. Un clic sur un client ouvre sa page : Vue d'ensemble (missions en cours, à faire, synthèse patrimoniale, activité récente), Missions, Patrimoine (la situation patrimoniale du foyer, désormais à cet endroit), Opérations (à venir), Documents (consultation) et Historique (notes, appels et événements des missions). « Ouvrir la mission » affiche l'espace de travail de la mission. Pour l'instant, une seule mission peut être en cours par client : l'application l'explique si l'on en demande une seconde. L'ancienne interface reste disponible pendant la transition avec le bouton « Ancienne vue CRM ».",
+  },
+  {
+    date: "2026-09-30",
+    type: "nouveaute",
     titre: "CRM Invest : la fiche Dossier Invest devient l'espace de travail du dossier",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Pour savoir où en est un dossier, il fallait parcourir plusieurs cartes. Tout ce qui compte est désormais rassemblé en haut de la fiche client : qui suit le dossier, où il en est, qui a la main, ce qu'il faut faire maintenant et ce qui bloque.",

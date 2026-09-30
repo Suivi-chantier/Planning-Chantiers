@@ -48,10 +48,11 @@ const Donnee = ({ T, libelle, valeur, fort }) => (
   </div>
 );
 
-export default function FicheDossier({ client, T, profil, onDossierChange, version = 0 }) {
+// `dossierIdInitial` : mission à afficher à l'ouverture (CRM V2 → « Ouvrir la mission »).
+export default function FicheDossier({ client, T, profil, onDossierChange, version = 0, dossierIdInitial = null }) {
   const [donnees, setDonnees] = useState(null);
   const [etat, setEtat] = useState({ chargement: true, erreur: "" });
-  const [idChoisi, setIdChoisi] = useState(null);
+  const [idChoisi, setIdChoisi] = useState(dossierIdInitial);
   const [onglet, setOnglet] = useState("ensemble");
   const [panneau, setPanneau] = useState(null);
   const [demarrage, setDemarrage] = useState(false);
@@ -84,7 +85,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
     setEtat({ chargement: false, erreur: erreurs.join(" · ") });
   }, [client?.id, idChoisi, version, rev]);
   useEffect(() => { charger(); }, [charger]);
-  useEffect(() => { setIdChoisi(null); setOnglet("ensemble"); setPanneau(null); setMessage(""); }, [client?.id]);
+  useEffect(() => { setIdChoisi(dossierIdInitial); setOnglet("ensemble"); setPanneau(null); setMessage(""); }, [client?.id, dossierIdInitial]);
 
   const fiche = useMemo(() => donnees ? construireFiche({ client, idChoisi, aujourdhui, ...donnees }) : null, [donnees, client, idChoisi, aujourdhui]);
   const monId = (donnees?.utilisateurs || []).find((u) => String(u.email || "").trim().toLowerCase() === String(profil?.email || "").trim().toLowerCase())?.id || "";
@@ -329,7 +330,7 @@ function Taches({ T, fiche, utilisateurs, profil, client, onTacheCreee }) {
               <div style={{ color: vue === "enRetard" ? "#dc2626" : T.textMuted, fontSize: 11.5, whiteSpace: "nowrap" }}>{x.echeance ? dateFr(x.echeance) : "—"}</div>
             </div>
           ))}
-          {lignes.length > 8 && <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 4 }}>+ {lignes.length - 8} autre(s) — détail dans le Parcours Mission de la fiche.</div>}
+          {lignes.length > 8 && <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 4 }}>+ {lignes.length - 8} autre(s) — liste complète dans CRM › Actions & planning.</div>}
         </div>
       )}
     </Carte>
@@ -370,7 +371,7 @@ function Opportunites({ T, fiche, propositions = [], onOuvrirEtape }) {
             ))}
           </div>
         )}
-        <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 8 }}>Les propositions se gèrent dans la section « Propositions » de la fiche client.</div>
+        <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 8 }}>Les propositions se gèrent pour l'instant dans l'ancienne vue CRM (section « Biens proposés »).</div>
       </div>
     </Carte>
   );

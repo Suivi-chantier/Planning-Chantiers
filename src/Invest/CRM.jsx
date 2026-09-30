@@ -8,6 +8,7 @@ import { messageSuppressionClient } from "./dossiers/parcours";
 import { ETAPES_PARCOURS, CLES_ETAPES, etapePourNouvelleTache } from "./dossiers/parcours";
 import { A_CLASSER, champsNouvelleTache } from "./dossiers/dossierVue";
 import FicheDossier from "./dossiers/FicheDossier";
+import CrmV2 from "./crm/CrmV2";
 import { indexerPilotage, projeterClient, resumePilotage } from "./dossiers/pilotage";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -447,7 +448,42 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
   };
 }
 
-function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// CRM V2 par défaut ; l'ancienne interface reste accessible, séparée, pendant
+// la transition (« Ancienne vue CRM »). Aucun ancien composant n'est supprimé.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLE_VUE_CRM = "invest-crm-vue";
+function lireVueCrm() { try { return window.localStorage.getItem(CLE_VUE_CRM) === "ancienne"; } catch { return false; } }
+function CRM(props) {
+  const { profil, T=THEMES_INV.dark, initialFilter, onOpenStructuration } = props;
+  const [ancienne, setAncienne] = useState(lireVueCrm);
+  const choisir = (v) => {
+    setAncienne(v);
+    try { if (v) window.localStorage.setItem(CLE_VUE_CRM, "ancienne"); else window.localStorage.removeItem(CLE_VUE_CRM); } catch { /* préférence non mémorisée */ }
+  };
+  // Une fiche client demandée depuis ailleurs (tableau de bord, notification) s'ouvre dans la V2.
+  useEffect(() => {
+    const cible = readNavTarget(initialFilter);
+    if ((cible.action === "open" || cible.action === "actions") && cible.id) setAncienne(false);
+  }, [initialFilter]);
+  if (ancienne) {
+    return (
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", padding:"10px 28px", background:`${WA}18`, borderBottom:`1px solid ${WA}40`, fontSize:13, color:T.text }}>
+          <span><b>Ancienne vue CRM</b> — conservée temporairement pendant la transition vers le nouveau CRM.</span>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => choisir(false)}>Revenir au nouveau CRM</button>
+        </div>
+        <CRMAncien {...props} />
+      </div>
+    );
+  }
+  return (
+    <CrmV2 profil={profil} T={T} initialFilter={initialFilter} onOpenStructuration={onOpenStructuration} onAncienneVue={() => choisir(true)}
+      renderNouveauClient={({ onFerme, onCree }) => <FormulaireClient profil={profil} T={T} onSave={onCree} onClose={onFerme} />} />
+  );
+}
+
+function CRMAncien({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
   // Annuaire des collaborateurs. Alimente missionEmailForOwner, qui est appelé
   // depuis des helpers hors composant — d'où le point de passage partagé.
   const annuaireInvest = useAnnuaireInvest();
