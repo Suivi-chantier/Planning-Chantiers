@@ -50,7 +50,7 @@ function Encadre({ T, titre, children, style }) {
   );
 }
 
-export default function DossierInvestCard({ client, T, profil, onDossierChange }) {
+export default function DossierInvestCard({ client, T, profil, onDossierChange, version = 0 }) {
   const [etat, setEtat] = useState({ chargement: true, absent: false, erreur: "" });
   const [dossiers, setDossiers] = useState([]);
   const [idChoisi, setIdChoisi] = useState(null);
@@ -92,7 +92,7 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange }
     const erreur = [rE.error, rJ.error, rC.error, rT.error].filter(Boolean).map((e) => e.message).join(" · ");
     setEtapes(rE.data || []); setEvenements(rJ.data || []); setControle(rC.data || []); setTaches(rT.data || []);
     setEtat({ chargement: false, absent: false, erreur });
-  }, [client?.id, idChoisi]);
+  }, [client?.id, idChoisi, version]);
 
   useEffect(() => { charger(); }, [charger]);
   useEffect(() => { setIdChoisi(null); setPanneau(null); setDemarrage(null); setMessage(""); }, [client?.id]);

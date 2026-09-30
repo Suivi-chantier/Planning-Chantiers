@@ -581,7 +581,8 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
 
     const now = new Date().toISOString();
     const payloads = [
-      { ...form, etape:"1 Signature contrat", notes_rapides:"Client créé depuis l'onglet Structuration patrimoniale", updated_at:now },
+      // Tranche 2b : plus d'ancienne étape écrite ; l'avancement vit dans le Dossier Invest.
+      { ...form, notes_rapides:"Client créé depuis l'onglet Structuration patrimoniale", updated_at:now },
       { prenom:form.prenom, nom:form.nom, email:form.email, telephone:form.telephone, conseiller:form.conseiller, source:form.source, statut:form.statut, updated_at:now },
       { prenom:form.prenom, nom:form.nom, email:form.email, telephone:form.telephone, conseiller:form.conseiller },
       { prenom:form.prenom, nom:form.nom, email:form.email },

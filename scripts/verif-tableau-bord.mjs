@@ -56,6 +56,7 @@ function fauxSupabase(tables, journal = {}) {
     if (f.op === "lt")  return v != null && String(v) <  String(f.val);
     if (f.op === "lte") return v != null && String(v) <= String(f.val);
     if (f.op === "in")  return f.val.includes(v);
+    if (f.op === "is")  return f.val === null ? (v === null || v === undefined) : v === f.val;
     if (f.op === "notIsNull") return v !== null && v !== undefined;
     return true;
   }));
@@ -71,6 +72,7 @@ function fauxSupabase(tables, journal = {}) {
         lt(col, val)  { filtres.push({ col, val, op: "lt" });  return builder; },
         lte(col, val) { filtres.push({ col, val, op: "lte" }); return builder; },
         in(col, val)  { filtres.push({ col, val, op: "in" });  return builder; },
+        is(col, val)  { filtres.push({ col, val, op: "is" });  return builder; },
         not(col, op, val) { if (op === "is" && val === null) filtres.push({ col, op: "notIsNull" }); return builder; },
         order(col, opts) { tri = { col, asc: opts?.ascending !== false }; return builder; },
         limit(n) { plafond = n; return builder; },
@@ -120,10 +122,10 @@ const HIER = decale(-1);
 const t = { dateIso: AUJ, dateFr: dateFrDe(AUJ), weekday: "Jeudi", hour: 7 };
 
 const UTILISATEURS = [
-  { nom: "Matthieu Fumoleau", email: "matthieu.fumoleau@groupe-profero.com", role: "admin",      branches: ["invest", "renovation"], actif: true },
-  { nom: "Camille Landais",   email: "camille.landais@groupe-profero.com",   role: "commercial", branches: ["invest"], actif: true },
-  { nom: "Tom Fourmond",      email: "tom.fourmond@groupe-profero.com",      role: "direction",  branches: ["invest"], actif: true },
-  { nom: "Ancien Parti",      email: "ancien@groupe-profero.com",            role: "admin",      branches: ["invest"], actif: false },
+  { id: "u1", nom: "Matthieu Fumoleau", email: "matthieu.fumoleau@groupe-profero.com", role: "admin",      branches: ["invest", "renovation"], actif: true },
+  { id: "u2", nom: "Camille Landais",   email: "camille.landais@groupe-profero.com",   role: "commercial", branches: ["invest"], actif: true },
+  { id: "u3", nom: "Tom Fourmond",      email: "tom.fourmond@groupe-profero.com",      role: "direction",  branches: ["invest"], actif: true },
+  { id: "u4", nom: "Ancien Parti",      email: "ancien@groupe-profero.com",            role: "admin",      branches: ["invest"], actif: false },
 ];
 
 const PROFIL_MATTHIEU = { nom: "Matthieu Fumoleau", email: "matthieu.fumoleau@groupe-profero.com" };
@@ -152,9 +154,24 @@ const BIEN_SANS_CONSEILLER = {
   ville: "Nantes", statut: "Offre à faire", prix_vente: 210000,
 };
 
+// Tranche 2b : l'avancement vient du Dossier Invest. Chaque client a un dossier
+// en cours et une étape active qui porte balle, prochaine action et échéance
+// (les champs etape / prochaine_action du client ne sont plus lus).
+const dossierDe = (client, { etape, balleUid, action, echeance, maj }) => ({
+  dossier: { id: `d-${client.id}`, client_id: client.id, reference: `INV-T-${client.id}`, libelle: "Dossier", statut: "actif", conseiller_id: balleUid },
+  etape: { id: `e-${client.id}`, dossier_id: `d-${client.id}`, operation_id: null, etape, statut: "en_cours", balle: "profero",
+    balle_utilisateur_id: balleUid, balle_tiers_libelle: null, prochaine_action: action, echeance, blocage_motif: null,
+    bloquee_depuis: null, reprise_a_confirmer: false, updated_at: maj },
+});
+const DOSSIER_RETARD = dossierDe(CLIENT_RETARD, { etape: "financement", balleUid: "u1", action: "Relancer la banque", echeance: decale(-10), maj: decale(-1) });
+const DOSSIER_CAMILLE = dossierDe(CLIENT_CAMILLE, { etape: "acquisition", balleUid: "u2", action: "Relancer le notaire", echeance: decale(3), maj: decale(0) });
+
 const DONNEES = {
   clients: [CLIENT_RETARD, CLIENT_CAMILLE],
   crmProspects: [], biens: [BIEN_SANS_CONSEILLER], propositions: [], planning: [], actions: [],
+  dossiersInvest: [DOSSIER_RETARD.dossier, DOSSIER_CAMILLE.dossier],
+  etapesInvest: [DOSSIER_RETARD.etape, DOSSIER_CAMILLE.etape],
+  utilisateurs: UTILISATEURS,
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -266,7 +283,17 @@ const dossiersEnMasse = (n) => {
     conseiller: "Camille Landais", prochaine_action: "Relancer le notaire",
     date_prochaine_action: decale(3), updated_at: decale(0),
   }));
-  const data = consolidateData({ ...DONNEES, clients: [...miens, ...autres], profil: PROFIL_MATTHIEU, pilote: "Matthieu Fumoleau" });
+  // Mes dossiers à échéance future : sans urgence, ils vont « à surveiller ».
+  const surveilles = Array.from({ length: n }, (_, i) => ({
+    id: `z${i}`, prenom: "Suivi", nom: `Dossier${i}`, statut: "actif", conseiller: "Matthieu Fumoleau", updated_at: decale(0),
+  }));
+  const dos = [
+    ...miens.map(c => dossierDe(c, { etape: "financement", balleUid: "u1", action: "Relancer la banque", echeance: decale(-19), maj: decale(-20) })),
+    ...autres.map(c => dossierDe(c, { etape: "acquisition", balleUid: "u2", action: "Relancer le notaire", echeance: decale(3), maj: decale(0) })),
+    ...surveilles.map(c => dossierDe(c, { etape: "recherche", balleUid: "u1", action: "Préparer la visite", echeance: decale(4), maj: decale(0) })),
+  ];
+  const data = consolidateData({ ...DONNEES, clients: [...miens, ...autres, ...surveilles], dossiersInvest: dos.map(x => x.dossier), etapesInvest: dos.map(x => x.etape),
+    profil: PROFIL_MATTHIEU, pilote: "Matthieu Fumoleau" });
   return { data, colonnes: repartirEnColonnes({ dossiers: data.allDossiers, routine: routineVide, filtre: "all" }) };
 };
 const ECHEANCES_EN_MASSE = Array.from({ length: 30 }, (_, i) => ({
@@ -427,6 +454,8 @@ const tablesCron = (extra = {}) => ({
   utilisateurs: UTILISATEURS,
   planning_config: [{ key: "invest_tableau_bord_destinataires", value: { emails: ["matthieu.fumoleau@groupe-profero.com"] } }],
   invest_clients: [CLIENT_RETARD, CLIENT_CAMILLE],
+  invest_dossiers: [DOSSIER_RETARD.dossier, DOSSIER_CAMILLE.dossier],
+  invest_dossier_etapes: [DOSSIER_RETARD.etape, DOSSIER_CAMILLE.etape],
   invest_biens: [BIEN_SANS_CONSEILLER],
   invest_propositions: [], invest_planning: [], invest_mission_actions: [],
   invest_action_notifications: [], invest_suivi_financier: [], invest_prospects: [],

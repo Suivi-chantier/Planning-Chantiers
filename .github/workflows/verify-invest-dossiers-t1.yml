@@ -10,6 +10,13 @@ on:
       - 'src/Invest/dossiers/**'
       - 'src/Invest/annuaire.mjs'
       - 'src/Invest/CRM.jsx'
+      - 'src/Invest/Dashboard.jsx'
+      - 'src/Invest/tableauBord.mjs'
+      - 'src/Invest/Prospection.jsx'
+      - 'src/Invest/Structuration.jsx'
+      - 'api/_cron/cron-invest-tableau-bord.js'
+      - 'scripts/verif-invest-pilotage-2b.mjs'
+      - 'scripts/verif-tableau-bord.mjs'
       - 'scripts/verif-invest-dossiers-t1.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
       - '.github/workflows/verify-invest-dossiers-t1.yml'
@@ -29,3 +36,7 @@ jobs:
         run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
       - name: Dossier Invest — Tranche 1 et 2a (dossiers, parcours, journal, reprise, pilotage)
         run: node scripts/verif-invest-dossiers-t1.mjs
+      - name: Dossier Invest — Tranche 2b (pilotage CRM, tableau de bord, Morning Routine)
+        run: node scripts/verif-invest-pilotage-2b.mjs
+      - name: Tableau de bord Invest et mail du matin
+        run: node scripts/verif-tableau-bord.mjs
