@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-09-30",
+    type: "amelioration",
+    titre: "Saisie commande : les résultats d'une recherche s'affichent du plus récent au plus ancien",
+    pages: [{ id: "capture-cmd", label: "Saisie commande (mobile)" }],
+    quoi: "En cherchant un fournisseur, un n° ou un article, les documents apparaissaient dans l'ordre où ils avaient été saisis, pas dans l'ordre de leur date : un bon d'avril saisi en septembre passait devant un bon d'août. De plus, la recherche ne portait que sur les 300 dernières saisies : les plus anciennes n'apparaissaient jamais.",
+    comment: "Dès qu'un mot est tapé dans la recherche, les résultats sont classés par date du document, le plus récent en haut. Un document sans date est classé à sa date de saisie. Sans recherche, l'Historique reste dans l'ordre de saisie (la dernière saisie en haut). La recherche porte désormais sur toutes les saisies (jusqu'à 1 000 ; au-delà, un message le signale).",
+  },
+  {
     date: "2026-09-29",
     type: "correctif",
     titre: "PDF ouverts sur Mac : l'en-tête et les titres s'affichent enfin correctement",
