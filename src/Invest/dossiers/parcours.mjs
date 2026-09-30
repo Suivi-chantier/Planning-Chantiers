@@ -121,6 +121,18 @@ export function etapeDepuisStepKey(stepKey) {
   return Object.prototype.hasOwnProperty.call(STEP_KEY_VERS_ETAPE, cle) ? STEP_KEY_VERS_ETAPE[cle] : null;
 }
 
+/**
+ * Étape canonique portée par une NOUVELLE tâche créée depuis un ancien modèle
+ * de mission (Tranche 2a : toute nouvelle tâche porte dossier_id et etape).
+ * Urbanisme → acquisition : même règle que l'arbitrage de reprise du
+ * 30/09/2026 (autorisations obtenues avant l'acte). Clé inconnue → null.
+ */
+export function etapePourNouvelleTache(stepKey) {
+  const cle = String(stepKey ?? "").trim();
+  if (cle === "urbanisme") return "acquisition";
+  return etapeDepuisStepKey(cle);
+}
+
 // ── Anciennes étapes client (invest_clients.etape, 13 étapes) ──────────────
 // Pour chaque position : étapes terminées et étapes en cours ; le reste est à
 // venir. « approximatif » signale une correspondance à confirmer en priorité.

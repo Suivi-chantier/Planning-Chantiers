@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
+    type: "nouveaute",
+    titre: "CRM Invest : l'avancement de chaque client se pilote dans sa carte « Dossier Invest »",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "L'avancement d'un client tenait jusqu'ici dans une seule « étape » choisie à la main dans une liste, sans savoir qui devait agir ni pourquoi une étape était sautée ou rouverte. Le Dossier Invest donne une vue fiable : les 11 étapes du parcours, qui a la balle, la prochaine action, l'échéance, les blocages, et l'historique de chaque geste.",
+    comment: "En haut de la fiche client, la carte « Dossier Invest » montre le ruban des 11 étapes (toutes les étapes en cours sont visibles), la ligne « Maintenant » (étape, balle, prochaine action, échéance, blocage) et les points à vérifier. Un clic sur une étape ouvre son panneau : démarrer, mettre en attente, reprendre, bloquer (motif obligatoire), débloquer, terminer, déclarer « non applicable » (motif obligatoire), rouvrir (motif obligatoire), changer la balle, fixer la prochaine action ou l'échéance, et confirmer une étape issue de la reprise. Rien n'avance tout seul : chaque changement est un geste d'un collaborateur, inscrit au journal du dossier. Pour un client sans dossier, le bouton « Démarrer une mission » crée le dossier et ses 11 étapes. Les tâches du Parcours Mission sont désormais rangées par étape du dossier, et toute nouvelle tâche est rattachée au dossier en cours. L'ancienne « étape » du client reste affichée à titre d'historique mais ne se modifie plus (fiche, liste et formulaire du CRM).",
+  },
+  {
+    date: "2026-09-30",
     type: "amelioration",
     titre: "CRM Invest : un client suivi dans un Dossier Invest ne peut plus être supprimé par erreur",
     pages: [{ id: "crm", label: "CRM" }],
