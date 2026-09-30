@@ -1,0 +1,29 @@
+name: Verify Acces Profero Hook
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260930150000_utilisateurs_champs_sensibles.sql'
+      - 'supabase/migrations/20260930170000_acces_profero_hook_sessions.sql'
+      - 'sql/202609_acces_profero_hook_sessions_rollback.sql'
+      - 'scripts/verif-acces-profero-hook.mjs'
+      - 'src/App.jsx'
+      - '.github/workflows/verify-acces-profero-hook.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Hook d'accès — populations, fermé par défaut, sessions révoquées
+        run: node scripts/verif-acces-profero-hook.mjs
+      - name: Non-régression — champs sensibles de utilisateurs
+        run: node scripts/verif-utilisateurs-champs-sensibles.mjs

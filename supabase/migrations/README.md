@@ -22,6 +22,13 @@ sensibles de `utilisateurs` (chantier 1.0, sécurité). Elle s'applique seule,
 jamais par `supabase db push` (règle 2). Retour arrière :
 `sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
 
+**`20260930170000_acces_profero_hook_sessions.sql` n'est PAS appliquée**
+(préparée le 30/09/2026) : hook d'accès Profero et suppression des sessions à
+la désactivation. S'applique seule (`supabase db query --linked -f …` puis
+`supabase migration repair --status applied 20260930170000 --linked`), jamais
+par `db push`. Le hook s'active ENSUITE à la main :
+`docs/project/HOOK-ACCES-PROFERO.md`.
+
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
 requête (2,5 s → 17 ms). Le fichier, d'abord préparé sous

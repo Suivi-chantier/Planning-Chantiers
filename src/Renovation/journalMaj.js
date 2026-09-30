@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "correctif",
+    titre: "Sécurité : un compte désactivé n'a plus aucun accès, même sur un appareil resté connecté",
+    pages: [{ id: "admin", label: "Admin" }],
+    quoi: "Désactiver un utilisateur l'empêchait d'ouvrir l'application, mais un téléphone ou un onglet resté connecté pouvait continuer à fonctionner, parfois pendant des semaines.",
+    comment: "Quand un administrateur désactive un compte dans l'onglet Utilisateurs (Invest ou Rénovation), toutes ses connexions ouvertes sont fermées et il ne peut plus se reconnecter : l'écran de connexion lui indique que son compte est désactivé. Un appareil déjà ouvert revient à l'écran de connexion au plus tard dans l'heure. Pour rendre l'accès, il suffit de le réactiver : la personne se reconnecte avec son mot de passe habituel.",
+  },
+  {
+    date: "2026-09-30",
+    type: "correctif",
     titre: "Sécurité : un utilisateur ne peut plus modifier lui-même son rôle ou son accès",
     pages: [],
     quoi: "Un utilisateur connecté pouvait, en contournant les écrans, modifier sa propre fiche : se donner le rôle administrateur, se réactiver après une désactivation, s'ajouter une branche ou changer son adresse. Seuls les administrateurs doivent pouvoir le faire.",
