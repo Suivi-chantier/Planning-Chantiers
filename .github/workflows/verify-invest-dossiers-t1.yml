@@ -5,6 +5,8 @@ on:
     paths:
       - 'supabase/migrations/20260930190000_invest_dossiers_tranche1.sql'
       - 'sql/202609_invest_dossiers_tranche1_rollback.sql'
+      - 'supabase/migrations/20260930210000_invest_dossiers_tranche2a.sql'
+      - 'sql/202609_invest_dossiers_tranche2a_rollback.sql'
       - 'src/Invest/dossiers/**'
       - 'src/Invest/annuaire.mjs'
       - 'src/Invest/CRM.jsx'
@@ -25,5 +27,5 @@ jobs:
           node-version: '22'
       - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
         run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
-      - name: Dossier Invest — Tranche 1 (dossiers, parcours, journal, reprise)
+      - name: Dossier Invest — Tranche 1 et 2a (dossiers, parcours, journal, reprise, pilotage)
         run: node scripts/verif-invest-dossiers-t1.mjs

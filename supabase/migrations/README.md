@@ -16,17 +16,27 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
-**`20260930190000_invest_dossiers_tranche1.sql` n'est PAS appliquée**
-(préparée le 30/09/2026, Chantier 1.1 Tranche 1 : Dossier Invest). S'applique
-seule (`supabase db query --linked -f …` puis `migration repair`), jamais par
-`db push` ; la reprise des données est un script séparé :
-`docs/project/DOSSIER-INVEST-TRANCHE1.md`.
+**Mise à jour du 30/09/2026 : 31 fichiers.** 29 sont appliqués (dont les deux
+ci-dessous) ; 2 ne le sont pas : celui du chantier 05 (plus haut) et celui de
+la Tranche 2a (plus bas).
 
-**`20260930150000_utilisateurs_champs_sensibles.sql` n'est PAS appliquée**
-(préparée le 30/09/2026, en attente de validation) : protection des champs
-sensibles de `utilisateurs` (chantier 1.0, sécurité). Elle s'applique seule,
-jamais par `supabase db push` (règle 2). Retour arrière :
-`sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
+`20260930190000_invest_dossiers_tranche1.sql` **appliquée le 30/09/2026**
+(Chantier 1.1 Tranche 1 : Dossier Invest), seule (`supabase db query --linked -f …`
+puis `migration repair`), jamais par `db push` ; la reprise des données est un
+script séparé : `docs/project/DOSSIER-INVEST-TRANCHE1.md`.
+
+`20260930150000_utilisateurs_champs_sensibles.sql` **appliquée le 30/09/2026**
+: protection des champs sensibles de `utilisateurs` (chantier 1.0, sécurité).
+Retour arrière : `sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
+
+**`20260930210000_invest_dossiers_tranche2a.sql` n'est PAS appliquée**
+(préparée le 30/09/2026, Chantier 1.1 Tranche 2a : pilotage du Dossier Invest
+dans le CRM). Additive et courte : heure réelle du journal et numéro d'ordre
+technique (colonne `ordre`, IDENTITY), libellé « balle
+personne », événement « reprise confirmée », enchaînements de statut d'étape
+contrôlés, motifs obligatoires (« non applicable », réouverture). S'applique
+seule, jamais par `db push` : `docs/project/DOSSIER-INVEST-TRANCHE2A.md`.
+Retour arrière non destructif : `sql/202609_invest_dossiers_tranche2a_rollback.sql`.
 
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
