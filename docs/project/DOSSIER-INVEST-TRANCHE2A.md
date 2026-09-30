@@ -31,8 +31,18 @@
 
 **Base (`20260930210000_invest_dossiers_tranche2a.sql`)**
 
-1. `survenu_le = clock_timestamp()` : chaque événement a l'heure réelle de son
-   écriture, l'ordre du journal est fiable même dans une seule transaction.
+1. Journal : `survenu_le = clock_timestamp()` (heure réelle de l'écriture) et
+   nouvelle colonne technique `ordre` (bigint `generated always as identity`,
+   index unique) : numéro d'enregistrement attribué par PostgreSQL, jamais
+   MAX()+1. Deux événements peuvent avoir la même heure (l'horloge a une
+   précision finie : en production, 1 176 heures distinctes pour 5 000 lectures
+   consécutives), jamais le même numéro. **Tri canonique : `survenu_le desc,
+   ordre desc`**, utilisé par la carte (requête et `dossierVue.journal`).
+   À l'ajout de la colonne, PostgreSQL numérote les 59 événements existants
+   1, 2, 3… dans l'ordre de stockage. Le journal n'étant jamais modifié ni
+   supprimé, c'est l'ordre d'insertion. Aucune autre colonne n'est touchée, et
+   ce n'est pas un UPDATE : le déclencheur d'immutabilité ne s'applique pas. Les
+   nouveaux événements prennent la suite.
 2. « balle personne → Client » quand personne n'avait la balle.
 3. Événement `etape_reprise_confirmee` quand `reprise_a_confirmer` passe de
    vrai à faux ; le passage inverse est refusé. Aucune autre modification ne
@@ -116,7 +126,13 @@ s'exécute avec le rôle réel de la requête, après `invest_etapes_avant_ecrit
 | API serveur actuelles | Les routes `api/` (IA Invest, cron des échéances) passent par PostgREST avec la clé `service_role` : règles appliquées. Aucune n'écrit dans `invest_dossier_etapes`. Aucune Edge Function ne touche aux dossiers. Aucune connexion directe à la base dans le code. |
 | Connexion directe `postgres` | CLI (`supabase db query --linked`), éditeur SQL, scripts de maintenance et de reprise : règles contournées. C'est le seul contournement voulu. |
 
-**Point de vigilance (non corrigé, à arbitrer).** Le contournement est
+**Invariant technique (arbitrage du 30/09/2026) :** toute future fonction
+SECURITY DEFINER susceptible d'écrire dans `invest_dossier_etapes` doit faire
+l'objet d'un audit explicite, car une fonction appartenant à `postgres`
+contourne les règles de pilotage. Aucun rôle privilégié ni contournement
+supplémentaire n'est créé.
+
+**Contexte de l'invariant.** Le contournement est
 **implicite** pour toute future fonction `security definer` appartenant à
 `postgres`. Un futur traitement serveur légitime peut contourner les règles de
 deux façons :
@@ -135,10 +151,11 @@ deux façons :
 fonctions du journal rendues à leur texte exact de Tranche 1, déclencheur et
 fonctions 2a retirés, défaut `now()` rétabli, événements
 `etape_reprise_confirmee` conservés (contrainte Tranche 1 remise en
-« not valid »), commentaires et motifs conservés. Puis
+« not valid »), commentaires et motifs conservés, colonne `ordre` et ses index
+conservés (la retirer effacerait l'ordre d'enregistrement). Puis
 `npx supabase migration repair --status reverted 20260930210000 --linked`.
 
 ## Vérification
 
 `node scripts/verif-invest-dossiers-t1.mjs` (cas 0 à 31 : Tranche 1, rejoués
-avec la 2a appliquée ; cas 32 à 42 : Tranche 2a).
+avec la 2a appliquée ; cas 32 à 44 : Tranche 2a).

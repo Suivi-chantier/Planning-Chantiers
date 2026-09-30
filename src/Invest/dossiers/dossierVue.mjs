@@ -131,12 +131,33 @@ export function suggestions(etapes = [], taches = [], dossierId = null) {
   return suggestionsDepuisActions(etapes, taches.filter((t) => !dossierId || t.dossier_id === dossierId));
 }
 
-/** Journal : du plus récent au plus ancien ; filtré par étape si demandé. */
+// Numéro d'ordre technique (colonne bigint « ordre ») : comparé en entier exact.
+const ordreDe = (e) => { try { return BigInt(String(e?.ordre ?? "")); } catch { return null; } };
+const instant = (e) => { const t = Date.parse(e?.survenu_le ?? ""); return Number.isNaN(t) ? null : t; };
+const microsecondes = (e) => Number(/\.(\d{1,6})/.exec(String(e?.survenu_le ?? ""))?.[1]?.padEnd(6, "0") ?? 0) % 1000;
+
+/**
+ * Tri canonique du journal : survenu_le décroissant, puis ordre décroissant.
+ * Deux événements peuvent avoir la même heure ; leur numéro d'ordre, unique,
+ * les départage toujours. L'heure est comparée à la microseconde.
+ */
+export function comparerEvenements(a, b) {
+  const ta = instant(a), tb = instant(b);
+  if (ta !== tb) return (tb ?? -Infinity) - (ta ?? -Infinity);
+  const ua = microsecondes(a), ub = microsecondes(b);
+  if (ua !== ub) return ub - ua;
+  const oa = ordreDe(a), ob = ordreDe(b);
+  if (oa !== ob) return oa === null ? 1 : ob === null ? -1 : (ob > oa ? 1 : -1);
+  return 0;
+}
+
+/** Journal : du plus récent au plus ancien (tri canonique) ; filtré par étape si demandé. */
 export function journal(evenements = [], etapeId = null) {
   return [...evenements]
     .filter((e) => !etapeId || e.etape_id === etapeId)
-    .sort((a, b) => String(b.survenu_le).localeCompare(String(a.survenu_le)) || String(b.id).localeCompare(String(a.id)))
-    .map((e) => ({ id: e.id, quand: e.survenu_le, type: e.type, resume: e.resume, auteur: e.auteur_libelle, auteurType: e.auteur_type }));
+    .sort(comparerEvenements)
+    .map((e) => ({ id: e.id, ordre: e.ordre == null ? null : String(e.ordre), quand: e.survenu_le, type: e.type,
+      resume: e.resume, auteur: e.auteur_libelle, auteurType: e.auteur_type }));
 }
 
 /** En-tête : référence, libellé, statut, conseiller, lettre de mission. */

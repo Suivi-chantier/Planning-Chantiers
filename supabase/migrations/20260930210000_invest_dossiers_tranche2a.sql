@@ -5,8 +5,11 @@
 -- aucune donnée modifiée, aucune table Foyer / Patrimoine touchée.
 --
 --   1. Journal : chaque événement porte l'heure réelle de son écriture
---      (clock_timestamp) — deux événements d'une même transaction ne partagent
---      plus la même heure, l'ordre du journal est fiable.
+--      (survenu_le = clock_timestamp) ET un numéro d'ordre technique
+--      d'enregistrement (colonne « ordre », attribuée par PostgreSQL). Deux
+--      événements peuvent avoir la même heure (précision de l'horloge), jamais
+--      le même numéro : le tri canonique « survenu_le desc, ordre desc » est
+--      entièrement déterministe.
 --   2. Journal : « balle personne → Client » quand personne n'avait la balle
 --      (au lieu de « balle — → Client »).
 --   3. Nouvel événement « etape_reprise_confirmee » : seul le geste explicite
@@ -27,8 +30,23 @@
 -- VÉRIFICATION  : node scripts/verif-invest-dossiers-t1.mjs
 -- ============================================================================
 
--- ── 1. Heure réelle des événements ──────────────────────────────────────────
+-- ── 1. Heure réelle et ordre d'enregistrement des événements ─────────────────
 alter table public.invest_dossier_evenements alter column survenu_le set default clock_timestamp();
+
+-- Numéro d'ordre technique : colonne IDENTITY (séquence propre à la colonne,
+-- jamais MAX()+1). « generated always » : ni le navigateur, ni les fonctions
+-- du journal ne choisissent ce numéro ; seul PostgreSQL l'attribue.
+-- Sur la table déjà remplie, PostgreSQL attribue un numéro à chaque événement
+-- existant lors de l'ajout de la colonne (1, 2, 3… dans l'ordre de stockage,
+-- qui pour ce journal sans modification ni suppression est l'ordre
+-- d'insertion). Aucune autre colonne n'est touchée et le déclencheur
+-- d'immutabilité ne s'applique pas (ce n'est pas un UPDATE).
+alter table public.invest_dossier_evenements
+  add column if not exists ordre bigint generated always as identity;
+create unique index if not exists invest_evenements_ordre_unique
+  on public.invest_dossier_evenements (ordre);
+create index if not exists invest_evenements_dossier_ordre_idx
+  on public.invest_dossier_evenements (dossier_id, survenu_le desc, ordre desc);
 
 create or replace function public.invest_journaliser(
   p_dossier_id uuid, p_client_id uuid, p_type text, p_resume text,
@@ -79,6 +97,9 @@ $$;
 -- Déclencheur SÉPARÉ, exécuté avec les droits de l'appelant (security invoker) :
 -- dans une fonction « security definer », current_user vaut toujours le
 -- propriétaire, et la dérogation de maintenance s'appliquerait à tout le monde.
+-- INVARIANT : toute future fonction SECURITY DEFINER susceptible d'écrire dans
+-- invest_dossier_etapes doit faire l'objet d'un audit explicite, car une
+-- fonction appartenant à postgres contourne les règles de pilotage.
 -- Il s'exécute après invest_etapes_avant_ecriture (ordre alphabétique) et ne
 -- lit que le statut, le commentaire et le drapeau de reprise, que ce dernier ne
 -- modifie pas.

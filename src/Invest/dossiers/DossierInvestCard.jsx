@@ -82,8 +82,9 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange }
     const d = choisirDossier(ds || [], idChoisi);
     const [rE, rJ, rC, rT] = await Promise.all([
       d ? supabase.from("invest_dossier_etapes").select("*").eq("dossier_id", d.id).is("operation_id", null) : { data: [] },
-      d ? supabase.from("invest_dossier_evenements").select("id,survenu_le,type,resume,auteur_libelle,auteur_type,etape_id")
-            .eq("dossier_id", d.id).order("survenu_le", { ascending: false }).limit(300) : { data: [] },
+      // Tri canonique du journal : survenu_le décroissant, puis ordre décroissant.
+      d ? supabase.from("invest_dossier_evenements").select("id,ordre,survenu_le,type,resume,auteur_libelle,auteur_type,etape_id")
+            .eq("dossier_id", d.id).order("survenu_le", { ascending: false }).order("ordre", { ascending: false }).limit(300) : { data: [] },
       supabase.from("invest_controle_dossiers").select("*").eq("client_id", client.id),
       supabase.from("invest_mission_actions").select("id,action_title,status,due_date,responsable,dossier_id,etape,step_key,step_label")
         .eq("client_id", client.id),

@@ -31,7 +31,8 @@ Retour arrière : `sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
 
 **`20260930210000_invest_dossiers_tranche2a.sql` n'est PAS appliquée**
 (préparée le 30/09/2026, Chantier 1.1 Tranche 2a : pilotage du Dossier Invest
-dans le CRM). Additive et courte : heure réelle du journal, libellé « balle
+dans le CRM). Additive et courte : heure réelle du journal et numéro d'ordre
+technique (colonne `ordre`, IDENTITY), libellé « balle
 personne », événement « reprise confirmée », enchaînements de statut d'étape
 contrôlés, motifs obligatoires (« non applicable », réouverture). S'applique
 seule, jamais par `db push` : `docs/project/DOSSIER-INVEST-TRANCHE2A.md`.

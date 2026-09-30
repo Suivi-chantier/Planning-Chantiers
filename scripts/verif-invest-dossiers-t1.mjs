@@ -258,7 +258,7 @@ const ouvrir = async (db, client, options = {}, email = COLLAB) => {
 };
 const etapes = (db, dossier) => qn(db, `select * from public.invest_dossier_etapes where dossier_id = $1 order by created_at, etape`, [dossier]);
 const etape = (db, dossier, cle) => q1(db, `select * from public.invest_dossier_etapes where dossier_id = $1 and etape = $2`, [dossier, cle]);
-const evenements = (db, dossier) => qn(db, `select * from public.invest_dossier_evenements where dossier_id = $1 order by survenu_le, type`, [dossier]);
+const evenements = (db, dossier) => qn(db, `select * from public.invest_dossier_evenements where dossier_id = $1 order by survenu_le, ordre`, [dossier]);
 const aujourdhui = async (db) => (await q1(db, `select current_date::text d`)).d;
 
 const cas = [];
@@ -936,30 +936,58 @@ test("34. 2a : reprise à confirmer — jamais implicite, confirmée seulement p
   assert.match(anomalie.detail, /10 étape\(s\) à confirmer/);
 });
 
-test("35. 2a : journal — heure réelle de chaque événement, ordre fiable, « personne », motif et commentaire", async () => {
+test("35. 2a : journal — heure réelle, numéro d'ordre unique, tri canonique entièrement déterministe", async () => {
   const db = await nouvelleBase();
   const { id } = await ouvrir(db, C.nu);
-  // Une seule modification produit trois événements : trois heures distinctes, dans l'ordre d'écriture.
+  // Une seule modification produit trois événements ; puis plusieurs gestes dans UNE transaction.
   ok(await majEtape(db, id, "collecte", `statut = 'en_cours', balle = 'client', echeance = '2026-10-20'`));
-  // Plusieurs gestes dans UNE transaction : heures croissantes (now() donnait la même heure à tous).
   ok(await sous(db, "authenticated", COLLAB, [
     `update public.invest_dossier_etapes set balle = 'banque', balle_tiers_libelle = 'Banque A' where dossier_id = '${id}' and etape = 'collecte'`,
     `update public.invest_dossier_etapes set statut = 'en_attente' where dossier_id = '${id}' and etape = 'collecte'`,
     `update public.invest_dossier_etapes set statut = 'non_applicable', commentaire = '30/09/2026 · Non applicable : pas de SCI' where dossier_id = '${id}' and etape = 'structuration'`,
   ]));
-  const ev = await qn(db, `select type, resume, avant, apres, survenu_le, extract(epoch from survenu_le) t from public.invest_dossier_evenements
-    where dossier_id = $1 order by survenu_le`, [id]);
-  const t = ev.map((e) => Number(e.t));
-  assert.equal(new Set(t).size, t.length, "aucune heure partagée");
+  // Ordre d'écriture = ordre croissant des numéros ; aucune heure ne recule.
+  const ev = await qn(db, `select id, ordre, type, resume, avant, apres, survenu_le, to_char(survenu_le, 'YYYY-MM-DD"T"HH24:MI:SS.US') t
+    from public.invest_dossier_evenements where dossier_id = $1 order by ordre`, [id]);
   assert.deepEqual(ev.map((e) => e.type), ["dossier_cree", "etape_statut_change", "etape_balle_change", "etape_echeance_change",
-    "etape_balle_change", "etape_statut_change", "etape_statut_change"]);
+    "etape_balle_change", "etape_statut_change", "etape_statut_change"], "numéros attribués dans l'ordre d'écriture");
+  for (let i = 1; i < ev.length; i++) {
+    assert.ok(BigInt(ev[i].ordre) > BigInt(ev[i - 1].ordre), "numéro strictement croissant");
+    assert.ok(ev[i].t >= ev[i - 1].t, "l'heure ne recule jamais");
+  }
+  assert.equal(new Set(ev.map((e) => String(e.ordre))).size, ev.length, "numéros uniques");
   assert.equal(ev[2].resume, "Collecte : balle personne → Client.", "plus de « balle — → Client »");
   assert.equal(ev[4].resume, "Collecte : balle Client → Banque (Banque A).");
   assert.equal(ev[6].resume, "Structuration : À venir → Non applicable. Motif : 30/09/2026 · Non applicable : pas de SCI");
   assert.equal(ev[6].apres.commentaire, "30/09/2026 · Non applicable : pas de SCI", "le commentaire est dans le journal");
-  // L'ordre d'affichage (dossierVue.journal) suit l'heure réelle, du plus récent au plus ancien.
-  const affiche = V.journal(ev.map((e, i) => ({ ...e, id: String(i), survenu_le: e.survenu_le.toISOString() })));
-  assert.deepEqual(affiche.map((e) => e.type), [...ev].reverse().map((e) => e.type));
+
+  // Même heure possible (précision de l'horloge) : démontré par des événements
+  // de maintenance écrits à la MÊME heure exacte. Le numéro les départage.
+  const meme = "2026-09-30 10:00:00.123456+00";
+  await db.query(`insert into public.invest_dossier_evenements (dossier_id, client_id, type, resume, auteur_type, auteur_libelle, survenu_le)
+    select $1, $2, 'dossier_modifie', 'Maintenance ' || g, 'systeme', 'Test', $3::timestamptz from generate_series(1, 4) g`, [id, C.nu, meme]);
+  const ex = await qn(db, `select id, ordre, resume, survenu_le, to_char(survenu_le, 'YYYY-MM-DD"T"HH24:MI:SS.USTZH:TZM') t
+    from public.invest_dossier_evenements where dossier_id = $1 and auteur_libelle = 'Test' order by ordre`, [id]);
+  assert.equal(new Set(ex.map((e) => e.t)).size, 1, "quatre événements, une seule heure");
+  assert.equal(new Set(ex.map((e) => String(e.ordre))).size, 4, "quatre numéros distincts");
+  // Tri SQL canonique = tri de l'écran (dossierVue.journal), quel que soit l'ordre de lecture.
+  const canon = (await qn(db, `select id from public.invest_dossier_evenements where dossier_id = $1 order by survenu_le desc, ordre desc`, [id])).map((e) => e.id);
+  const tous = await qn(db, `select id, ordre, type, resume, auteur_libelle, auteur_type, etape_id,
+    to_char(survenu_le, 'YYYY-MM-DD"T"HH24:MI:SS.USTZH:TZM') survenu_le from public.invest_dossier_evenements where dossier_id = $1`, [id]);
+  for (const melange of [tous, [...tous].reverse(), [...tous].sort((a, b) => String(a.id).localeCompare(String(b.id)))]) {
+    assert.deepEqual(V.journal(melange).map((e) => e.id), canon, "affichage identique, quel que soit l'ordre reçu");
+  }
+  assert.deepEqual(V.journal(ex.map((e) => ({ ...e, survenu_le: e.t }))).map((e) => e.resume),
+    ["Maintenance 4", "Maintenance 3", "Maintenance 2", "Maintenance 1"], "à heure égale : le dernier enregistré en premier");
+  // Deux événements consécutifs ne sont jamais indiscernables : (survenu_le, ordre) est unique,
+  // le numéro ne se choisit pas, et l'écran ne rend jamais deux clés égales.
+  assert.equal((await q1(db, `select count(*)::int n from (select survenu_le, ordre from public.invest_dossier_evenements
+    group by 1, 2 having count(*) > 1) x`)).n, 0);
+  await assert.rejects(db.query(`insert into public.invest_dossier_evenements (dossier_id, client_id, type, resume, auteur_type, auteur_libelle, ordre)
+    values ($1, $2, 'dossier_modifie', 'x', 'systeme', 'x', 1)`, [id, C.nu]), /ordre|generated|identity|GENERATED/i, "numéro jamais saisi à la main");
+  const cles = V.journal(tous).map((e) => `${e.quand}|${e.ordre}`);
+  assert.equal(new Set(cles).size, cles.length);
+  assert.ok(V.comparerEvenements({ survenu_le: meme, ordre: "10" }, { survenu_le: meme, ordre: "9" }) < 0, "comparaison numérique, pas alphabétique");
   // Défaut de colonne : heure réelle aussi.
   assert.match((await q1(db, `select column_default d from information_schema.columns where table_name = 'invest_dossier_evenements' and column_name = 'survenu_le'`)).d, /clock_timestamp/);
 });
@@ -1122,6 +1150,7 @@ test("40. 2a : CRM.jsx et la carte — plus d'écriture de l'ancienne étape, t�
   // Carte : n'écrit jamais invest_clients, démarre par invest_ouvrir_dossier, gestes via preparerGeste.
   assert.ok(!/from\("invest_clients"\)/.test(CARTE), "la carte ne touche pas au client");
   assert.match(CARTE, /supabase\.rpc\("invest_ouvrir_dossier"/);
+  assert.match(CARTE, /\.order\("survenu_le", \{ ascending: false \}\)\.order\("ordre", \{ ascending: false \}\)/, "tri canonique du journal");
   assert.match(CARTE, /preparerGeste\(etape, geste\.cle, saisie, aujourdhui\)/);
   assert.ok(!/reprise_a_confirmer\s*:/.test(CARTE), "le drapeau de reprise n'est écrit que par le geste préparé");
   assert.ok(!/invest_dossier_evenements"\)\.(insert|update|delete)/.test(CARTE), "journal en lecture seule");
@@ -1160,11 +1189,78 @@ test("42. 2a : rejouable, et retour arrière non destructif vers le texte exact 
   for (const f of ["invest_transition_etape_autorisee", "invest_derniere_ligne", "invest_etapes_regles_pilotage"]) assert.equal(await def(db, f), undefined);
   assert.equal((await q1(db, `select count(*)::int n from pg_trigger where tgname = 'invest_etapes_regles_pilotage'`)).n, 0);
   assert.equal((await q1(db, `select count(*)::int n from public.invest_dossier_evenements where type = 'etape_reprise_confirmee'`)).n, 1, "historique conservé");
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_dossier_evenements where ordre is null`)).n, 0, "colonne d'ordre conservée et remplie");
   assert.match((await q1(db, `select column_default d from information_schema.columns where table_name = 'invest_dossier_evenements' and column_name = 'survenu_le'`)).d, /now\(\)/);
   ok(await majEtape(db, id, "documents", `statut = 'en_cours', balle = 'client'`), "fonctionnement Tranche 1 retrouvé");
   // Et on peut réappliquer la 2a après le retour arrière.
   await db.exec(MIGRATION_2A);
   refuse(await majEtape(db, id, "analyse", `statut = 'terminee'`), /Enchaînement interdit/);
+});
+
+test("43. 2a : colonne d'ordre ajoutée sur un journal DÉJÀ rempli — un numéro unique par événement, contenu inchangé", async () => {
+  // État de production avant la 2a : Tranche 1 + reprise (événements écrits avec now(), heures partagées).
+  const db = await nouvelleBase({ t2a: false });
+  await db.exec(sqlReprise(planifierReprise(await exporter(db), { uuidDepuis })));
+  const { id } = await ouvrir(db, C.nu);
+  ok(await majEtape(db, id, "collecte", `statut = 'en_cours', balle = 'client', echeance = '2026-10-20'`));
+  const empreinte = `select id, dossier_id, client_id, etape_id, mission_action_id, type, avant, apres, resume, auteur_type,
+    auteur_utilisateur_id, auteur_libelle, visible_client, survenu_le from public.invest_dossier_evenements order by id`;
+  const avant = await qn(db, empreinte);
+  assert.ok(avant.length >= 9);
+  assert.ok((await q1(db, `select count(*)::int n from (select survenu_le from public.invest_dossier_evenements group by 1 having count(*) > 1) x`)).n > 0,
+    "cas réel : des événements historiques partagent la même heure");
+  const insertion = (await qn(db, `select id from public.invest_dossier_evenements order by ctid`)).map((e) => e.id);
+  await db.exec(MIGRATION_2A);
+  const lignes = await qn(db, `select id, ordre from public.invest_dossier_evenements`);
+  assert.equal(lignes.length, avant.length);
+  assert.ok(lignes.every((l) => l.ordre !== null), "chaque événement historique reçoit un numéro");
+  assert.equal(new Set(lignes.map((l) => String(l.ordre))).size, lignes.length, "numéros uniques");
+  assert.deepEqual(lignes.map((l) => Number(l.ordre)).sort((a, b) => a - b), lignes.map((_, i) => i + 1), "1, 2, 3… sans trou");
+  assert.deepEqual((await qn(db, `select id from public.invest_dossier_evenements order by ordre`)).map((e) => e.id), insertion,
+    "numéros attribués dans l'ordre de stockage (= ordre d'insertion d'un journal jamais modifié)");
+  assert.deepEqual(await qn(db, empreinte), avant, "aucun contenu métier modifié");
+  // Les nouveaux événements prennent la suite, jamais un numéro déjà utilisé.
+  ok(await majEtape(db, id, "collecte", `balle = 'profero'`));
+  const dernier = await q1(db, `select ordre from public.invest_dossier_evenements order by ordre desc limit 1`);
+  assert.equal(Number(dernier.ordre), avant.length + 1);
+  assert.match((await q1(db, `select pg_get_serial_sequence('public.invest_dossier_evenements', 'ordre') s`)).s, /invest_dossier_evenements_ordre_seq/, "séquence IDENTITY, pas MAX()+1");
+  assert.equal((await q1(db, `select attidentity a from pg_attribute where attrelid = 'public.invest_dossier_evenements'::regclass and attname = 'ordre'`)).a, "a", "generated always");
+});
+
+test("44. 2a : statut du client — seule l'ouverture explicite d'une mission le modifie", async () => {
+  const db = await nouvelleBase();
+  const statuts = async () => (await qn(db, `select id, statut from public.invest_clients order by id`)).map((r) => `${r.id}:${r.statut}`);
+  const avant = await statuts();
+  const { id } = await ouvrir(db, C.prospect);
+  const apresOuverture = await statuts();
+  assert.deepEqual(apresOuverture.filter((x) => !avant.includes(x)), [`${C.prospect}:Actif`], "ouverture : Prospect → Actif, rien d'autre");
+  await db.query(`update public.invest_dossier_etapes set reprise_a_confirmer = true where dossier_id = $1`, [id]);
+  for (const [cle, geste, saisie] of [
+    ["collecte", "demarrer", { balle: "client" }], ["collecte", "mettre_en_attente", { balle: "client" }],
+    ["collecte", "reprendre", { balle: "profero" }], ["collecte", "changer_balle", { balle: "notaire", balle_tiers_libelle: "Étude" }],
+    ["collecte", "prochaine_action", { prochaine_action: "Relancer" }], ["collecte", "echeance", { echeance: "2026-12-01" }],
+    ["collecte", "bloquer", { balle: "client", motif: "CNI" }], ["collecte", "debloquer", { balle: "profero" }],
+    ["collecte", "terminer", {}], ["collecte", "rouvrir", { balle: "profero", motif: "pièce à refaire" }],
+    ["collecte", "confirmer_reprise", {}], ["structuration", "non_applicable", { motif: "nom propre" }],
+    ["signature", "terminer", {}], ["suivi", "demarrer", { balle: "client" }], ["suivi", "terminer", {}],
+  ]) {
+    const { patch, erreurs } = TR.preparerGeste(await etape(db, id, cle), geste, saisie, "2026-09-30");
+    assert.deepEqual(erreurs, [], `${cle}/${geste}`);
+    const sets = Object.entries(patch).map(([k, v]) => `${k} = ${v === null ? "null" : typeof v === "boolean" ? v : `'${String(v).replace(/'/g, "''")}'`}`).join(", ");
+    ok(await majEtape(db, id, cle, sets), `${cle}/${geste}`);
+    assert.deepEqual(await statuts(), apresOuverture, `${cle}/${geste} ne touche pas au statut client`);
+  }
+  assert.equal((await etape(db, id, "collecte")).reprise_a_confirmer, false, "la confirmation de reprise a bien eu lieu");
+  const t = V.champsNouvelleTache(id, "analyse");
+  ok(await collab(db, `insert into public.invest_mission_actions (client_id, dossier_id, etape, step_key, step_label, step_index, action_title)
+    values ('${C.prospect}', '${t.dossier_id}', '${t.etape}', '${t.step_key}', '${t.step_label}', ${t.step_index}, 'Préparer l''analyse')`));
+  assert.deepEqual(await statuts(), apresOuverture, "création de tâche");
+  ok(await collab(db, `update public.invest_mission_actions set status = 'fait', completed_at = now() where client_id = '${C.prospect}'`));
+  assert.deepEqual(await statuts(), apresOuverture, "achèvement de tâches");
+  // Un client déjà « Terminé » : ouvrir une mission ne change pas son statut (seul « Prospect » est activé).
+  const avantT = await statuts();
+  ok(await ouvrir(db, C.termine));
+  assert.deepEqual(await statuts(), avantT);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

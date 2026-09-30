@@ -9,6 +9,9 @@
 -- contrainte de type de la Tranche 1 est remise en « not valid » (elle refuse
 -- toute nouvelle écriture de ce type sans rejeter l'historique).
 -- Les commentaires/motifs saisis restent dans les étapes.
+-- La colonne technique « ordre » (et ses index) est CONSERVÉE : elle est
+-- attribuée par PostgreSQL, sans effet sur les fonctions de la Tranche 1, et la
+-- retirer effacerait l'ordre d'enregistrement des événements.
 -- ============================================================================
 
 alter table public.invest_dossier_evenements alter column survenu_le set default now();
