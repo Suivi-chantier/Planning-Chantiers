@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, LOGO_RENO_H } from "../constants";
+import { buildEncoursDocHTML } from "./encoursDoc";
 import { Icon } from "../ui";
 import { Wallet, Loader2, ChevronDown, ChevronRight, Printer } from "lucide-react";
 
@@ -128,7 +129,6 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
     g.total = g.aPayer + g.paye;
   }
   const moisList = [...moisMap.values()].sort((a, b) => b.mois.localeCompare(a.mois));
-  const totalGlobal = moisList.reduce((s, g) => s + g.aPayer, 0);
   // Cartes "ce mois" : uniquement l'échéance / le paiement du mois calendaire en cours.
   const moisCourantKey = new Date().toLocaleDateString("sv-SE").slice(0, 7);
   const moisCourantLabel = moisLabel(moisCourantKey);
@@ -145,41 +145,45 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
 
   const toggle = (m) => setOuverts(o => ({ ...o, [m]: !o[m] }));
 
-  const escapeHtml = (s) => String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const exporterPDF = () => {
-    const sections = moisList.map(g => {
-      const list = [...g.parFourn.values()].sort((a, b) => aPayerOf(b) - aPayerOf(a));
-      const rows = list.map(pf => {
-        const aP = aPayerOf(pf);
-        const ecart = (pf.facture > 0 && pf.saisi > 0) ? (pf.facture - pf.saisi) : null;
-        return `<tr>
-          <td>${escapeHtml(pf.nom)}</td>
-          <td class=r>${pf.saisi > 0 ? eur(pf.saisi) + " €" : ""}</td>
-          <td class=r>${pf.facture > 0 ? eur(pf.facture) + " €" : ""}</td>
-          <td class=r>${ecart != null ? (ecart > 0 ? "+" : "") + eur(ecart) + " €" : ""}</td>
-          <td class=r>${pf.paye > 0 ? eur(pf.paye) + " €" : ""}</td>
-          <td class="r b">${aP > 0 ? eur(aP) + " €" : (pf.paye > 0 ? "payé" : "")}</td>
-        </tr>`;
-      }).join("");
-      return `<h2>${moisLabel(g.mois)} — ${eur(g.aPayer)} € à payer · ${eur(g.paye)} € payé · ${eur(g.total)} € au total</h2>
-        <table><thead><tr><th>Fournisseur</th><th class=r>Saisi</th><th class=r>Facturé</th><th class=r>Écart</th><th class=r>Payé</th><th class=r>À payer</th></tr></thead><tbody>${rows}</tbody></table>`;
-    }).join("");
-    const w = window.open("", "_blank");
-    if (!w) return;
-    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Encours fournisseurs</title>
-      <style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif;font-size:11px;color:#1a1f2e}
-      h1{font-size:18px;margin:0 0 2px}.sub{color:#666;font-size:11px;margin-bottom:14px}
-      h2{font-size:13px;margin:16px 0 6px;border-bottom:2px solid #1a1f2e;padding-bottom:3px}
-      table{width:100%;border-collapse:collapse;margin-bottom:8px}
-      th{background:#1a1f2e;color:#fff;padding:5px 8px;text-align:left;font-size:10px}
-      td{padding:4px 8px;border-bottom:1px solid #eee}.r{text-align:right}.b{font-weight:700}
-      </style></head><body>
-      <h1>Encours fournisseurs</h1>
-      <div class="sub">${fFilter !== "all" ? `Fournisseur : ${escapeHtml(fFilter)} · ` : ""}Total à payer : ${eur(totalGlobal)} € · imprimé le ${new Date().toLocaleDateString("fr-FR")}</div>
-      ${sections || "<div>Aucune donnée</div>"}
-      </body></html>`);
+  // PDF au gabarit Profero (encoursDoc.js) : mêmes montants qu'à l'écran,
+  // le module ne fait que la mise en page.
+  const exporterPDF = async () => {
+    // Fenêtre ouverte SYNCHRONEMENT dans le geste du clic : après un await,
+    // Safari (et Chrome en mode strict) la bloquerait.
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorise les popups pour ce site."); return; }
+    const mois = moisList.map(g => ({
+      label: moisLabel(g.mois),
+      nbFournisseurs: g.parFourn.size,
+      aPayer: g.aPayer, paye: g.paye, total: g.total,
+      fournisseurs: [...g.parFourn.values()]
+        .sort((a, b) => aPayerOf(b) - aPayerOf(a))
+        .map(pf => ({ nom: pf.nom, saisi: pf.saisi, facture: pf.facture, paye: pf.paye, aPayer: aPayerOf(pf), total: aPayerOf(pf) + pf.paye })),
+    }));
+    const html = buildEncoursDocHTML({
+      mois,
+      moisCourant: { label: moisCourantLabel, aPayer: aPayerMoisCourant, paye: payeMoisCourant, total: aPayerMoisCourant + payeMoisCourant },
+      filtreFournisseur: fFilter !== "all" ? fFilter : "",
+      logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
+      dateGen: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+        + " à " + new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+    });
+    w.document.open();
+    w.document.write(html);
     w.document.close();
-    setTimeout(() => w.print(), 400);
+    w.document.title = `EncoursFournisseurs-${new Date().toLocaleDateString("sv-SE")}`;
+    // Attendre le logo + les polices Google (Barlow) avant d'imprimer.
+    await new Promise((res) => {
+      const debut = Date.now();
+      const tick = () => {
+        const imgs = Array.from(w.document.images || []);
+        if ((w.document.readyState === "complete" && imgs.every(i => i.complete)) || Date.now() - debut > 8000) res();
+        else setTimeout(tick, 150);
+      };
+      tick();
+    });
+    try { await (w.document.fonts?.ready || Promise.resolve()); } catch { /* repli Arial */ }
+    setTimeout(() => { w.focus(); w.print(); }, 200);
   };
 
   return (
