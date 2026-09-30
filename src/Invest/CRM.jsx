@@ -4,6 +4,7 @@ import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranc
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
+import { messageSuppressionClient } from "./dossiers/parcours";
 import { OngletAcces } from "../Renovation/Admin";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
@@ -3556,9 +3557,12 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
         )}
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
-          await supabase.from("invest_notes").delete().eq("client_id", id);
-          await supabase.from("invest_propositions").delete().eq("client_id", id);
-          await supabase.from("invest_clients").delete().eq("id", id);
+          // Une seule suppression : notes, propositions et tâches suivent en
+          // cascade (clés étrangères). Un client qui possède un Dossier Invest
+          // est refusé par la base, et rien n'est supprimé.
+          const { data: supprimes, error } = await supabase.from("invest_clients").delete().eq("id", id).select("id");
+          const refus = messageSuppressionClient(error, supprimes?.length ?? 0);
+          if (refus) { window.alert(refus); return; }
           onRetour();
         }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>

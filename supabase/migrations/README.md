@@ -16,6 +16,12 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
+**`20260930190000_invest_dossiers_tranche1.sql` n'est PAS appliquée**
+(préparée le 30/09/2026, Chantier 1.1 Tranche 1 : Dossier Invest). S'applique
+seule (`supabase db query --linked -f …` puis `migration repair`), jamais par
+`db push` ; la reprise des données est un script séparé :
+`docs/project/DOSSIER-INVEST-TRANCHE1.md`.
+
 **`20260930150000_utilisateurs_champs_sensibles.sql` n'est PAS appliquée**
 (préparée le 30/09/2026, en attente de validation) : protection des champs
 sensibles de `utilisateurs` (chantier 1.0, sécurité). Elle s'applique seule,
