@@ -19,7 +19,7 @@ const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engag
 const TYPES_NOTE = [["commentaire", "Note"], ["appel", "Appel"], ["rendez-vous", "Rendez-vous"], ["relance", "Relance"], ["document", "Document"], ["autre", "Autre"]];
 const ETAT_DOCUMENT = { recu: ["Reçu", VERT], na: ["Non applicable", GRIS] };
 
-export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRetour, onOuvrirMission, onOpenStructuration }) {
+export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRetour, onOuvrirMission }) {
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
   const [onglet, setOnglet] = useState(ongletInitial || "ensemble");
@@ -61,11 +61,11 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
     <>
       <FilAriane T={T} elements={[{ libelle: "CRM", onClick: onRetour }, { libelle: e.nom }]} />
       {/* En-tête compact : qui est le client, qui le suit, comment le joindre. */}
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
+      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>Client</div>
-          <h1 style={{ margin: "2px 0 0", fontSize: 28, fontWeight: 900, color: T.text, letterSpacing: -0.4 }}>{e.nom}</h1>
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginTop: 8, fontSize: 13, color: T.textSub }}>
+          <h1 style={{ margin: "2px 0 0", fontSize: 24, fontWeight: 900, color: T.text, letterSpacing: -0.4 }}>{e.nom}</h1>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginTop: 5, fontSize: 13, color: T.textSub }}>
             <Pastille couleur={BLEU}>{e.statutRelation}</Pastille>
             <span>Conseiller : <b style={{ color: T.text }}>{e.conseiller || "non défini"}</b></span>
             {e.telephone && <a href={`tel:${e.telephone}`} style={{ color: T.textSub }}>{e.telephone}</a>}
@@ -74,11 +74,10 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="inv-btn inv-btn-sm" onClick={() => setOnglet("historique")}>Ajouter une note</button>
-          {onOpenStructuration && <button className="inv-btn inv-btn-sm" onClick={() => onOpenStructuration(client.id)}>Structuration</button>}
           <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setOnglet("missions")}>＋ Nouvelle mission</button>
         </div>
       </header>
-      <Onglets T={T} onglets={ONGLETS_CLIENT} actif={onglet} onChange={setOnglet}
+      <Onglets T={T} compact onglets={ONGLETS_CLIENT} actif={onglet} onChange={setOnglet}
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
@@ -105,19 +104,20 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
   );
 }
 
+/** Mission en cours, en carte compacte : offre, référence, jalon, action, échéance, balle. */
 function CarteMission({ T, m, onOuvrir }) {
   return (
-    <Carte T={T} accent={m.priorite <= 1 ? ROUGE : m.priorite <= 4 ? ORANGE : BLEU}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: T.accent }}>{m.offre.court ? `${m.offre.court} · ${m.offre.libelle}` : m.offre.libelle}</div>
-          <div style={{ fontSize: 16, fontWeight: 900, color: T.text, marginTop: 2 }}>{m.reference}</div>
-          <div style={{ fontSize: 12.5, color: T.textMuted, marginTop: 2 }}>{m.statutLibelle} · Jalon actuel : <b style={{ color: T.textSub }}>{m.jalon}</b></div>
+    <Carte T={T} accent={m.priorite <= 1 ? ROUGE : m.priorite <= 4 ? ORANGE : BLEU} style={{ padding: "11px 14px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+        <div style={{ minWidth: 0, fontSize: 12.5, color: T.textMuted }}>
+          <b style={{ fontSize: 14.5, color: T.text }}>{m.reference}</b>
+          <span style={{ color: T.accent, fontWeight: 800 }}> · {m.offre.court || m.offre.libelle}</span>
+          {" "}· {m.statutLibelle} · Jalon : <b style={{ color: T.textSub }}>{m.jalon}</b>
         </div>
         <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOuvrir(m.dossierId)}>Ouvrir la mission</button>
       </div>
-      <div style={{ marginTop: 14, fontSize: 14, fontWeight: 800, color: T.text }}>{m.action}</div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+      <div style={{ marginTop: 6, fontSize: 13.5, fontWeight: 800, color: T.text }}>{m.action}</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 5 }}>
         <Pastille couleur={m.retardJours ? ROUGE : m.echeance ? GRIS : ORANGE}>{m.echeance ? `Échéance ${dateFr(m.echeance)}${m.retardJours ? ` · ${m.retardJours} j de retard` : ""}` : "Sans échéance"}</Pastille>
         {m.balle && <Pastille couleur={m.balleType === "profero" ? BLEU : ORANGE}>Balle : {m.balle}</Pastille>}
         {m.blocages.map((b) => <Pastille key={b.etape} couleur={ROUGE}>Bloquée : {b.etape}</Pastille>)}
@@ -126,58 +126,78 @@ function CarteMission({ T, m, onOuvrir }) {
   );
 }
 
+const GRILLE_2 = { display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 20, alignItems: "start" };
+
 function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission }) {
   const p = vue.patrimoine;
   return (
     <>
-      <Section T={T} titre="Missions en cours">
-        {illisible ? <Vide T={T} titre="Missions illisibles" texte="Les missions du client n'ont pas pu être lues : leur avancement ne peut pas être affiché." />
-          : vue.missionsEnCours.length === 0
-            ? <Vide T={T} titre="Aucune mission en cours" texte={vue.missionsTerminees.length ? `${vue.missionsTerminees.length} mission(s) terminée(s), consultables dans l'onglet Missions.` : "Démarrez une mission pour suivre une prestation."}
-                action={<button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOnglet("missions")}>＋ Nouvelle mission</button>} />
-            : <div className="crm-v2-grille" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
-      </Section>
-      <div className="crm-v2-grille" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,1fr)", gap: 28 }}>
-        <Section T={T} titre="À faire">
-          {vue.aFaire.length === 0 ? <Discret T={T}>{illisible ? "Indisponible." : "Aucune action en cours pour ce client."}</Discret> : (
+      <div className="crm-v2-grille" style={GRILLE_2}>
+        <Section T={T} compact titre={`Missions en cours · ${illisible ? "—" : vue.missionsEnCours.length}`}>
+          {illisible ? <Vide T={T} compact titre="Missions illisibles" texte="avancement indisponible" />
+            : vue.missionsEnCours.length === 0
+              ? <Vide T={T} compact titre="Aucune mission en cours" texte={vue.missionsTerminees.length ? `${vue.missionsTerminees.length} terminée(s)` : null}
+                  action={<button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOnglet("missions")}>＋ Nouvelle mission</button>} />
+              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
+        </Section>
+        <Section T={T} compact titre="À faire">
+          {vue.aFaire.length === 0 ? <Vide T={T} compact titre={illisible ? "Indisponible" : "Aucune action en cours"} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {vue.aFaire.map((a) => (
-                <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.rowBorder || T.border}` }}>
+                <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "6px 0", borderBottom: `1px solid ${T.rowBorder || T.border}` }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>{a.titre}</div>
-                    <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>{a.mission}{a.etape ? ` · ${a.etape}` : ""} · {a.responsable || "responsable non défini"}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{a.titre}</div>
+                    <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 1 }}>{a.mission}{a.etape ? ` · ${a.etape}` : ""} · {a.responsable || "responsable non défini"}</div>
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 800, color: a.enRetard ? ROUGE : T.textSub, whiteSpace: "nowrap" }}>{a.echeance ? dateFr(a.echeance) : "Sans échéance"}</div>
                 </div>
               ))}
-              {vue.aFaireTotal > vue.aFaire.length && <Discret T={T} style={{ marginTop: 8 }}>+ {vue.aFaireTotal - vue.aFaire.length} autre(s) dans les missions.</Discret>}
+              {vue.aFaireTotal > vue.aFaire.length && <Discret T={T} style={{ marginTop: 6 }}>+ {vue.aFaireTotal - vue.aFaire.length} autre(s) dans les missions.</Discret>}
             </div>
           )}
         </Section>
-        <Section T={T} titre="Synthèse patrimoniale" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("patrimoine")}>Ouvrir le patrimoine</button>}>
-          {p.vide ? <Discret T={T}>Aucune donnée patrimoniale saisie.</Discret> : (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 14 }}>
+      </div>
+      <div className="crm-v2-grille" style={GRILLE_2}>
+        <Section T={T} compact titre="Synthèse patrimoniale" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("patrimoine")}>Ouvrir le patrimoine</button>}>
+          {p.vide ? <Vide T={T} compact titre="Aucune donnée patrimoniale saisie" /> : (
+            <Carte T={T} style={{ padding: "11px 14px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}>
                 <Chiffre T={T} libelle="Revenus mensuels" valeur={eur(p.revenusMensuels)} />
                 <Chiffre T={T} libelle="Épargne disponible" valeur={eur(p.epargneDisponible)} />
                 <Chiffre T={T} libelle="Patrimoine net simplifié (biens à 100 %)" valeur={eur(p.patrimoineNetSimplifie)} fort />
               </div>
-              <Discret T={T} style={{ marginTop: 10 }}>
+              <Discret T={T} style={{ marginTop: 8 }}>
                 {p.verifiees} élément{p.verifiees > 1 ? "s" : ""} vérifié{p.verifiees > 1 ? "s" : ""} sur {p.total}
                 {p.aCorriger ? <span style={{ color: ORANGE }}> · {p.aCorriger} à corriger</span> : null}
                 {p.incomplet ? <span style={{ color: ORANGE }}> · totaux incomplets</span> : null}
               </Discret>
-            </>
+            </Carte>
           )}
         </Section>
-        <Section T={T} titre="Opérations">
-          <Discret T={T}>Les acquisitions du client apparaîtront ici lorsque le suivi des opérations sera disponible.</Discret>
-        </Section>
-        <Section T={T} titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("historique")}>Voir tout l'historique</button>}>
-          {vue.activite.length === 0 ? <Discret T={T}>Aucune activité enregistrée.</Discret> : <ListeHistorique T={T} items={vue.activite} />}
+        <Section T={T} compact titre="Opérations">
+          <Vide T={T} compact titre="Bientôt disponible" texte="les acquisitions du client apparaîtront ici" />
         </Section>
       </div>
+      <Section T={T} compact titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("historique")}>Voir tout l'historique</button>}>
+        {vue.activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeHistorique T={T} items={vue.activite} />}
+      </Section>
     </>
+  );
+}
+
+/** Ligne compacte d'une mission : référence, offre, statut, conseiller, dates, motif de clôture, Consulter. */
+function LigneMission({ T, m, onConsulter }) {
+  const details = [m.statutLibelle, m.conseiller ? `Conseiller : ${m.conseiller}` : null, m.ouverture ? `ouverte le ${dateFr(m.ouverture)}` : null,
+    m.cloture ? `close le ${dateFr(m.cloture)}` : null].filter(Boolean).join(" · ");
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "8px 0", borderBottom: `1px solid ${T.rowBorder || T.border}`, alignItems: "center" }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: T.text }}>{m.reference} <span style={{ fontWeight: 700, color: T.accent, fontSize: 12.5 }}>· {m.offre.court ? `${m.offre.court} — ${m.offre.libelle}` : m.offre.libelle}</span></div>
+        <div style={{ fontSize: 12, color: T.textMuted, marginTop: 1 }}>{details}{m.jalon ? ` · Jalon : ${m.jalon}` : ""}</div>
+        {m.motif && <div style={{ fontSize: 12, color: T.textSub, marginTop: 1 }}>Motif de clôture : {m.motif}</div>}
+      </div>
+      <button className="inv-btn inv-btn-sm" onClick={() => onConsulter(m.dossierId)}>Consulter</button>
+    </div>
   );
 }
 
@@ -186,29 +206,18 @@ function Missions({ T, vue, donnees, profil, illisible, onOuvrirMission, onCree 
   const [refus, setRefus] = useState("");
   const monId = donnees.utilisateurs.find((u) => String(u.email || "").trim().toLowerCase() === String(profil?.email || "").trim().toLowerCase())?.id || "";
   const nouvelle = () => { if (vue.nouvelleMission.possible) { setRefus(""); setDemarrage(true); } else setRefus(vue.nouvelleMission.raison); };
-  if (illisible) return <Vide T={T} titre="Missions illisibles" texte="Les missions du client n'ont pas pu être lues." />;
+  if (illisible) return <Vide T={T} compact titre="Missions illisibles" texte="les missions du client n'ont pas pu être lues" />;
   return (
     <>
-      <Section T={T} titre={`En cours · ${vue.missionsEnCours.length}`} action={!demarrage && <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={nouvelle}>＋ Nouvelle mission</button>}>
-        {refus && <div role="status" style={{ fontSize: 13, color: T.text, background: `${ORANGE}12`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>{refus}</div>}
-        {demarrage && <Carte T={T} style={{ marginBottom: 14 }}><DemarrerMission T={T} client={donnees.client} utilisateurs={donnees.utilisateurs} monId={monId} onAnnuler={() => setDemarrage(false)} onCree={(id) => { setDemarrage(false); onCree(id); }} /></Carte>}
-        {vue.missionsEnCours.length === 0 ? <Discret T={T}>Aucune mission en cours.</Discret>
-          : <div className="crm-v2-grille" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
+      <Section T={T} compact titre={`En cours · ${vue.missionsEnCours.length}`} action={!demarrage && <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={nouvelle}>＋ Nouvelle mission</button>}>
+        {refus && <div role="status" style={{ fontSize: 13, color: T.text, background: `${ORANGE}12`, borderRadius: 10, padding: "9px 12px", marginBottom: 10 }}>{refus}</div>}
+        {demarrage && <Carte T={T} style={{ marginBottom: 10 }}><DemarrerMission T={T} client={donnees.client} utilisateurs={donnees.utilisateurs} monId={monId} onAnnuler={() => setDemarrage(false)} onCree={(id) => { setDemarrage(false); onCree(id); }} /></Carte>}
+        {vue.missionsEnCours.length === 0 ? <Vide T={T} compact titre="Aucune mission en cours" />
+          : vue.missionsEnCours.map((m) => <LigneMission key={m.dossierId} T={T} m={m} onConsulter={onOuvrirMission} />)}
       </Section>
-      <Section T={T} titre={`Terminées · ${vue.missionsTerminees.length}`}>
-        {vue.missionsTerminees.length === 0 ? <Discret T={T}>Aucune mission terminée.</Discret> : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {vue.missionsTerminees.map((m) => (
-              <div key={m.dossierId} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "12px 0", borderBottom: `1px solid ${T.rowBorder || T.border}`, alignItems: "center" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{m.reference} <span style={{ fontWeight: 700, color: T.textMuted, fontSize: 12.5 }}>· {m.offre.court || m.offre.libelle}</span></div>
-                  <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>{m.statutLibelle} · ouverte le {dateFr(m.ouverture)}{m.cloture ? ` · close le ${dateFr(m.cloture)}` : ""}{m.motif ? ` · ${m.motif}` : ""}</div>
-                </div>
-                <button className="inv-btn inv-btn-sm" onClick={() => onOuvrirMission(m.dossierId)}>Consulter</button>
-              </div>
-            ))}
-          </div>
-        )}
+      <Section T={T} compact titre={`Terminées · ${vue.missionsTerminees.length}`}>
+        {vue.missionsTerminees.length === 0 ? <Vide T={T} compact titre="Aucune mission terminée" />
+          : vue.missionsTerminees.map((m) => <LigneMission key={m.dossierId} T={T} m={m} onConsulter={onOuvrirMission} />)}
       </Section>
     </>
   );
@@ -242,12 +251,11 @@ function ListeHistorique({ T, items }) {
   return (
     <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column" }}>
       {items.map((h) => (
-        <li key={h.id} style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: 14, padding: "10px 0", borderBottom: `1px solid ${T.rowBorder || T.border}` }}>
+        <li key={h.id} style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: 14, padding: "6px 0", borderBottom: `1px solid ${T.rowBorder || T.border}` }}>
           <span style={{ fontSize: 12, color: T.textMuted }}>{dateCourte(h.quand) || "Date inconnue"}</span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 11.5, fontWeight: 800, color: h.genre === "note" ? VERT : BLEU }}>{h.type}{h.mission ? ` · ${h.mission}` : ""}</div>
-            <div style={{ fontSize: 13, color: T.text, marginTop: 2, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{h.texte || "—"}</div>
-            {h.auteur && <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 2 }}>{h.auteur}</div>}
+            <div style={{ fontSize: 13, color: T.text, marginTop: 1, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{h.texte || "—"}{h.auteur && <span style={{ fontSize: 11.5, color: T.textMuted }}> · {h.auteur}</span>}</div>
           </div>
         </li>
       ))}
@@ -272,7 +280,7 @@ function Historique({ T, vue, client, profil, onAjoute }) {
   };
   return (
     <>
-      <Section T={T} titre="Ajouter une note">
+      <Section T={T} compact titre="Ajouter une note">
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
           <select className="inv-sel" value={note.type} onChange={(e) => setNote((n) => ({ ...n, type: e.target.value }))} aria-label="Type de note">{TYPES_NOTE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           <textarea className="inv-inp" rows={2} style={{ textAlign: "left", flex: "1 1 320px", minHeight: 44 }} placeholder="Compte rendu d'appel, échange, remarque…" value={note.contenu} onChange={(e) => setNote((n) => ({ ...n, contenu: e.target.value }))} />
@@ -280,7 +288,7 @@ function Historique({ T, vue, client, profil, onAjoute }) {
         </div>
         {erreur && <Discret T={T} style={{ color: ROUGE, marginTop: 6 }}>{erreur}</Discret>}
       </Section>
-      <Section T={T} titre={`Historique · ${items.length}`} action={
+      <Section T={T} compact titre={`Historique · ${items.length}`} action={
         <div style={{ display: "flex", gap: 4 }}>
           {[["tous", "Tout"], ["note", "Notes & appels"], ["mission", "Missions"]].map(([k, l]) => (
             <button key={k} onClick={() => setFiltre(k)} className="inv-btn inv-btn-sm" style={filtre === k ? { background: T.accentBg, color: T.accent } : undefined}>{l}</button>

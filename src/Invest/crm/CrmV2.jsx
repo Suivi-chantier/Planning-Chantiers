@@ -58,7 +58,7 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   const ouvrirMission = (clientId, dossierId) => setEcran({ type: "mission", clientId, dossierId });
 
   const cadre = (contenu) => (
-    <div style={{ padding: "26px 28px 60px", maxWidth: 1320, margin: "0 auto" }} className="crm-v2">
+    <div style={{ padding: "18px 28px 40px", maxWidth: 1320, margin: "0 auto" }} className="crm-v2">
       <style>{`@media (max-width: 900px){ .crm-v2{ padding: 18px 16px 50px !important; } .crm-v2-grille{ grid-template-columns: 1fr !important; } .crm-v2-ligne{ grid-template-columns: 1fr !important; } .crm-v2-entete-liste{ display:none !important; } }`}</style>
       {contenu}
     </div>

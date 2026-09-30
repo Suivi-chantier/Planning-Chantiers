@@ -28,9 +28,9 @@ export function FilAriane({ T, elements }) {
 }
 
 /** Onglets en soulignement, sans cadre. */
-export function Onglets({ T, onglets, actif, onChange, compteurs = {} }) {
+export function Onglets({ T, onglets, actif, onChange, compteurs = {}, compact = false }) {
   return (
-    <div role="tablist" style={{ display: "flex", gap: 22, borderBottom: `1px solid ${T.border}`, marginBottom: 22, overflowX: "auto" }}>
+    <div role="tablist" style={{ display: "flex", gap: 22, borderBottom: `1px solid ${T.border}`, marginBottom: compact ? 14 : 22, overflowX: "auto" }}>
       {onglets.map((o) => {
         const on = o.cle === actif;
         return (
@@ -46,10 +46,10 @@ export function Onglets({ T, onglets, actif, onChange, compteurs = {} }) {
 }
 
 /** Titre de section : texte seul, pas de bandeau. */
-export function Section({ T, titre, action, children, style }) {
+export function Section({ T, titre, action, children, style, compact = false }) {
   return (
-    <section style={{ marginBottom: 30, minWidth: 0, ...style }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 12 }}>
+    <section style={{ marginBottom: compact ? 16 : 30, minWidth: 0, ...style }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: compact ? 8 : 12 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 900, color: T.text }}>{titre}</h3>
         {action}
       </div>
@@ -97,7 +97,13 @@ export function Chiffre({ T, libelle, valeur, fort }) {
   );
 }
 
-export function Vide({ T, titre, texte, action }) {
+export function Vide({ T, titre, texte, action, compact = false }) {
+  if (compact) return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "9px 12px", borderRadius: 10, border: `1px dashed ${T.border}` }}>
+      <div style={{ minWidth: 0 }}><span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{titre}</span>{texte && <span style={{ fontSize: 12, color: T.textMuted }}> — {texte}</span>}</div>
+      {action}
+    </div>
+  );
   return (
     <div style={{ padding: "26px 20px", textAlign: "center", borderRadius: 14, border: `1px dashed ${T.border}` }}>
       <div style={{ fontSize: 14.5, fontWeight: 900, color: T.text }}>{titre}</div>

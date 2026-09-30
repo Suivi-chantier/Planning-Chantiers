@@ -111,6 +111,7 @@ export function missionPilotee({ dossier, client = null, etapes = [], taches = [
     dossierId: dossier.id, clientId: dossier.client_id, client: client ? nomClient(client) : "Client introuvable",
     reference: dossier.reference, libelle: dossier.libelle || null,
     offre: offreDe(dossier.type_mission), statut: dossier.statut, statutLibelle: STATUTS_DOSSIER[dossier.statut] ?? dossier.statut,
+    ouverture: jour(dossier.date_ouverture),
     jalon: jalonDe(dossier.type_mission, p.principale?.etape) ?? "Aucune étape active",
     etapesActives: p.actives.map((a) => a.libelle),
     action: ajd.action, responsable: ajd.responsable, etape: e?.libelle ?? null,
@@ -250,6 +251,7 @@ export function construireClient({ client, dossiers = [], etapes = [], taches = 
   const missions = missionsAPiloter({ dossiers: siens, clients: [client], etapes, taches, utilisateurs, aujourdhui });
   const terminees = siens.filter((d) => !enCours(d)).sort((a, b) => String(b.date_cloture || b.created_at || "").localeCompare(String(a.date_cloture || a.created_at || "")))
     .map((d) => ({ dossierId: d.id, reference: d.reference, libelle: d.libelle || null, offre: offreDe(d.type_mission), statutLibelle: STATUTS_DOSSIER[d.statut] ?? d.statut,
+      conseiller: utilisateurs.find((u) => u.id === d.conseiller_id)?.nom ?? null,
       ouverture: jour(d.date_ouverture), cloture: jour(d.date_cloture), motif: d.motif_cloture || null }));
   const refs = new Map(siens.map((d) => [d.id, d.reference]));
 
