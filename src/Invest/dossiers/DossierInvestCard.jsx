@@ -118,6 +118,8 @@ export default function DossierInvestCard({ client, T, profil, onDossierChange, 
     const afficheEnCours = !!dossier && dossier.id === dossierEnCours?.id;
     onDossierChange?.(dossier ? {
       dossierId: dossier.id, dossierEnCoursId: dossierEnCours?.id ?? null, reference: dossier.reference,
+      // Référence du dossier EN COURS (≠ dossier consulté dans l'historique).
+      referenceEnCours: dossierEnCours?.reference ?? null,
       etapeCourante: afficheEnCours && !vue.maintenant.aucune ? vue.maintenant.etape : null,
       etapeCouranteLibelle: !vue.maintenant.aucune ? vue.maintenant.libelle : null,
     } : null);

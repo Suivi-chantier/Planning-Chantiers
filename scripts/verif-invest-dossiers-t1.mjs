@@ -22,6 +22,7 @@ import { planifierReprise, sqlReprise, rapportReprise, rapprocherUtilisateur } f
 import { uuidDepuis } from "./reprise-invest-dossiers-t1.mjs";
 import * as TR from "../src/Invest/dossiers/transitions.mjs";
 import * as V from "../src/Invest/dossiers/dossierVue.mjs";
+import * as SP from "../src/Invest/dossiers/situationPatrimoniale.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (rel) => readFileSync(join(racine, rel), "utf8");
@@ -31,6 +32,9 @@ const CRM = lire("src/Invest/CRM.jsx");
 const MIGRATION_2A = lire("supabase/migrations/20260930210000_invest_dossiers_tranche2a.sql");
 const ROLLBACK_2A = lire("sql/202609_invest_dossiers_tranche2a_rollback.sql");
 const CARTE = lire("src/Invest/dossiers/DossierInvestCard.jsx");
+const MIGRATION_2C = lire("supabase/migrations/20260930230000_invest_situation_patrimoniale_2c.sql");
+const ROLLBACK_2C = lire("sql/202609_invest_situation_patrimoniale_2c_rollback.sql");
+const CARTE_SP = lire("src/Invest/dossiers/SituationPatrimonialeCard.jsx");
 
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -223,11 +227,12 @@ insert into public.invest_mission_actions (id, client_id, step_key, step_label, 
   ('50000000-0000-0000-0000-000000000007', '${C.prospect}', 'signature', 'Signature', 1, 'Envoyer le contrat', 'Camille', null, 'a_faire');
 `;
 
-async function nouvelleBase({ migration = true, t2a = true } = {}) {
+async function nouvelleBase({ migration = true, t2a = true, t2c = true } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA_PROD);
   if (migration) await db.exec(MIGRATION);
   if (migration && t2a) await db.exec(MIGRATION_2A);
+  if (migration && t2a && t2c) await db.exec(MIGRATION_2C);
   return db;
 }
 
@@ -766,6 +771,7 @@ test("26. parcours.mjs : lecture des anciennes étapes, étape courante, suggest
 test("27. retour arrière : tables et colonnes retirées, données historiques intactes", async () => {
   const db = await nouvelleBase();
   await ouvrir(db, C.louison);
+  await db.exec(ROLLBACK_2C);
   await db.exec(ROLLBACK_2A);
   await db.exec(ROLLBACK);
   assert.equal((await q1(db, `select to_regclass('public.invest_dossiers') t`)).t, null);
@@ -795,6 +801,7 @@ test("29. migration rejouable sur une base déjà migrée", async () => {
   // Les policies ne sont pas « create or replace » : on rejoue tout le reste.
   await db.exec(MIGRATION.replace(/create policy[\s\S]*?;/g, ""));
   await db.exec(MIGRATION_2A);
+  await db.exec(MIGRATION_2C);
   assert.equal((await etapes(db, id)).length, 11);
   ok(await ouvrir(db, C.prospect));
 });
@@ -1261,6 +1268,189 @@ test("44. 2a : statut du client — seule l'ouverture explicite d'une mission le
   const avantT = await statuts();
   ok(await ouvrir(db, C.termine));
   assert.deepEqual(await statuts(), avantT);
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. Tranche 2c — Foyer & situation patrimoniale
+// ═══════════════════════════════════════════════════════════════════════════
+const ins = (db, table, obj, email = COLLAB) => sous(db, "authenticated", email,
+  `insert into public.${table} (${Object.keys(obj).join(", ")}) values (${Object.keys(obj).map((_, i) => `$${i + 1}`).join(", ")}) returning *`,
+  Object.values(obj).map((v) => (v !== null && typeof v === "object" && !Array.isArray(v) ? JSON.stringify(v) : Array.isArray(v) && v.length && typeof v[0] === "object" ? JSON.stringify(v) : v)));
+const majSP = (db, table, id, set, email = COLLAB) => sous(db, "authenticated", email, `update public.${table} set ${set} where id = '${id}' returning *`);
+const baseSP = async () => { const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu); return { db, dossier: id }; };
+
+test("45. 2c foyer : un principal et un conjoint actifs au plus, plusieurs enfants, archivage, aucune personne déduite du nom", async () => {
+  const { db } = await baseSP();
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_personnes`)).n, 0, "ouvrir un dossier ne crée aucune personne");
+  const p1 = await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina", nom: "Nu" }); ok(p1);
+  refuse(await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Autre" }), /invest_personnes_un_principal|unique|duplicate/i);
+  ok(await ins(db, "invest_personnes", { client_id: C.nu, lien: "conjoint", prenom: "Paul" }));
+  refuse(await ins(db, "invest_personnes", { client_id: C.nu, lien: "conjoint", prenom: "Pierre" }), /un_conjoint|unique|duplicate/i);
+  for (const prenom of ["Léo", "Léa", "Lou"]) ok(await ins(db, "invest_personnes", { client_id: C.nu, lien: "enfant", prenom, a_charge: true }));
+  refuse(await ins(db, "invest_personnes", { client_id: C.nu, lien: "autre" }), /invest_personnes_identite/);
+  ok(await majSP(db, "invest_personnes", p1.rows[0].id, `archive_le = now()`));
+  ok(await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina", nom: "Nouvelle" }), "archivé : un nouveau principal est possible");
+  refuse(await majSP(db, "invest_personnes", p1.rows[0].id, `profession = 'x'`), /archivée ne se modifie plus/);
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_personnes where client_id = $1 and lien = 'enfant'`, [C.nu])).n, 3);
+  // Préremplissage : jamais de découpage d'un nom de foyer.
+  const foyer = SP.personnePrincipaleProposee({ nom: "TOM ET CAMILLE", email: "tc@test.fr", telephone: "06" });
+  assert.deepEqual([foyer.prenom, foyer.nom, foyer.email], ["", "", "tc@test.fr"]); assert.match(foyer.avertissement, /désigne un foyer/);
+  assert.deepEqual([SP.personnePrincipaleProposee({ prenom: "LEO et LEA", nom: "MARTIN" }).prenom, SP.personnePrincipaleProposee({ prenom: "Nina", nom: "Nu" }).prenom], ["", "Nina"]);
+  assert.equal(SP.personnePrincipaleProposee({ nom: "Dupont & Durand" }).nom, "");
+});
+
+test("46. 2c revenus, charges, épargne : périodicité des flux, stocks sans périodicité, base du revenu, cohérence des catégories", async () => {
+  const { db } = await baseSP();
+  const nina = (await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina" })).rows[0].id;
+  ok(await ins(db, "invest_postes_financiers", { client_id: C.nu, personne_id: nina, famille: "revenu", categorie: "salaire", montant: 3000, periodicite: "mensuelle", base_revenu: "net_avant_impot" }));
+  ok(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "revenu", categorie: "dividendes", montant: 12000, periodicite: "annuelle", base_revenu: "non_precisee" }), "revenu historique : base non précisée");
+  ok(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "actif_financier", categorie: "assurance_vie", montant: 50000, date_valeur: "2026-06-30" }), "stock sans périodicité");
+  refuse(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "actif_financier", categorie: "pea", montant: 1, periodicite: "mensuelle" }), /invest_postes_periodicite/);
+  refuse(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "charge", categorie: "impot", montant: 100 }), /invest_postes_periodicite/);
+  refuse(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "revenu", categorie: "salaire", montant: 1, periodicite: "mensuelle" }), /invest_postes_base/);
+  refuse(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "charge", categorie: "salaire", montant: 1, periodicite: "mensuelle" }), /invest_postes_categorie/);
+  await ouvrir(db, C.prospect);
+  const autre = (await ins(db, "invest_personnes", { client_id: C.prospect, lien: "principal", prenom: "Paul" })).rows[0].id;
+  refuse(await ins(db, "invest_postes_financiers", { client_id: C.nu, personne_id: autre, famille: "charge", categorie: "impot", montant: 1, periodicite: "annuelle" }), /autre foyer/);
+});
+
+test("47. 2c crédits, patrimoine, structures : CRD daté, crédit lié à un bien, bien détenu via une SCI, associés incomplets acceptés", async () => {
+  const { db } = await baseSP();
+  const nina = (await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina" })).rows[0].id;
+  const sci = await ins(db, "invest_structures", { client_id: C.nu, type: "sci", denomination: "SCI Nu", regime_fiscal: "ir", associes: [{ personne_id: nina, pourcentage: 60, role: "gérante" }] });
+  ok(sci, "associés à 60 % : accepté"); assert.deepEqual(SP.avertissements("invest_structures", sci.rows[0]), ["Associés : 60 % renseignés sur 100 %."]);
+  refuse(await ins(db, "invest_actifs_patrimoniaux", { client_id: C.nu, usage: "locatif", mode_detention: "structure" }), /invest_actifs_structure/);
+  const bien = await ins(db, "invest_actifs_patrimoniaux", { client_id: C.nu, usage: "locatif", typologie: "appartement", mode_detention: "structure",
+    structure_id: sci.rows[0].id, valeur_estimee: 200000, date_valeur: "2026-09-01", loyer_mensuel: 800 });
+  ok(bien);
+  const credit = await ins(db, "invest_engagements", { client_id: C.nu, type: "credit_immobilier", preteur_beneficiaire: "Banque A", mensualite: 900,
+    assurance_mensuelle: 30, capital_restant_du: 120000, crd_date: "2026-09-01", taux: 1.5, type_taux: "fixe", personne_id: nina, asset_id: bien.rows[0].id });
+  ok(credit); assert.equal(credit.rows[0].asset_id, bien.rows[0].id);
+  assert.deepEqual(SP.avertissements("invest_engagements", { ...credit.rows[0], crd_date: null }), ["Date du capital restant dû manquante."]);
+  await ouvrir(db, C.prospect);
+  const autre = (await ins(db, "invest_personnes", { client_id: C.prospect, lien: "principal", prenom: "Paul" })).rows[0].id;
+  refuse(await ins(db, "invest_engagements", { client_id: C.nu, type: "pret_personnel", co_emprunteurs: `{${autre}}` }), /autre foyer/);
+  refuse(await ins(db, "invest_structures", { client_id: C.nu, type: "sci", denomination: "X", associes: [{ personne_id: autre, pourcentage: 100 }] }), /autre foyer/);
+  refuse(await ins(db, "invest_structures", { client_id: C.nu, type: "sci", denomination: "X", siren: "123" }), /siren/);
+  // Patrimoine détenu ≠ biens recherchés : aucune ligne invest_biens créée, lien facultatif possible.
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_biens`)).n, 1);
+  ok(await ins(db, "invest_actifs_patrimoniaux", { client_id: C.nu, usage: "residence_principale", bien_id: "40000000-0000-0000-0000-000000000001" }));
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_biens`)).n, 1);
+});
+
+test("48. 2c vérification : collaborateur seulement, modifier une donnée vérifiée la repasse non vérifiée, « à corriger » motivé", async () => {
+  const { db } = await baseSP();
+  const r = (await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "charge", categorie: "impot", montant: 1200, periodicite: "annuelle" })).rows[0];
+  assert.equal(r.verification_statut, "non_verifiee"); assert.equal(r.cree_par_id, U.matthieu); assert.equal(r.source, "profero");
+  const v = await majSP(db, "invest_postes_financiers", r.id, `verification_statut = 'verifiee'`); ok(v);
+  assert.equal(v.rows[0].verifie_par_id, U.matthieu); assert.ok(v.rows[0].verifie_le);
+  const m = await majSP(db, "invest_postes_financiers", r.id, `montant = 1300`); ok(m);
+  assert.equal(m.rows[0].verification_statut, "non_verifiee", "donnée métier modifiée : à revérifier"); assert.equal(m.rows[0].verifie_par_id, null);
+  ok(await majSP(db, "invest_postes_financiers", r.id, `verification_statut = 'verifiee'`));
+  const c = await majSP(db, "invest_postes_financiers", r.id, `verification_commentaire = 'vu avec le client'`); ok(c);
+  assert.equal(c.rows[0].verification_statut, "verifiee", "un champ technique ne dévérifie pas");
+  refuse(await majSP(db, "invest_postes_financiers", r.id, `verification_statut = 'a_corriger', verification_commentaire = null`), /à corriger/);
+  ok(await majSP(db, "invest_postes_financiers", r.id, `verification_statut = 'a_corriger', verification_commentaire = 'Montant 2025 ?'`));
+  refuse(await sous(db, "service_role", null, `update public.invest_postes_financiers set verification_statut = 'verifiee' where id = '${r.id}'`), /Seul un collaborateur/);
+  refuse(await sous(db, "authenticated", COLLAB, `delete from public.invest_postes_financiers where id = '${r.id}'`), /permission|42501/);
+  refuse(await sous(db, "anon", null, `select * from public.invest_personnes`), /permission|42501/);
+});
+
+test("49. 2c journal : ajout, modification (champs), archivage, vérification — dans le dossier en cours, pas pour un champ technique", async () => {
+  const { db, dossier } = await baseSP();
+  const r = (await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina", nom: "Nu" })).rows[0];
+  assert.equal(r.dossier_id, dossier, "contexte de collecte : le dossier en cours");
+  ok(await majSP(db, "invest_personnes", r.id, `profession = 'Ingénieure', employeur = 'X'`));
+  ok(await majSP(db, "invest_personnes", r.id, `verification_statut = 'verifiee'`));
+  ok(await majSP(db, "invest_personnes", r.id, `verification_commentaire = 'ok'`));
+  ok(await majSP(db, "invest_personnes", r.id, `archive_le = now()`));
+  const ev = (await qn(db, `select type, resume from public.invest_dossier_evenements where dossier_id = $1 and type like 'collecte_%' order by ordre`, [dossier]));
+  assert.deepEqual(ev.map((e) => e.type), ["collecte_ajout", "collecte_modification", "collecte_verification", "collecte_modification"]);
+  assert.equal(ev[0].resume, "Situation patrimoniale — ajout : Foyer : Nina Nu (principal).");
+  assert.equal(ev[1].resume, "Situation patrimoniale — modification : Foyer : Nina Nu (principal) (employeur, profession).");
+  assert.equal(ev[2].resume, "Situation patrimoniale — vérification : Foyer : Nina Nu (principal) → vérifiée.");
+  assert.equal(ev[3].resume, "Situation patrimoniale — archivage : Foyer : Nina Nu (principal).");
+  assert.equal((await q1(db, `select auteur_libelle a from public.invest_dossier_evenements where dossier_id = $1 and type = 'collecte_ajout'`, [dossier])).a, "Matthieu");
+});
+
+test("50. 2c dossier clos : collecte lisible mais non modifiable ; pas de collecte sans dossier ; maintenance (reprise) possible", async () => {
+  const { db, dossier } = await baseSP();
+  const r = (await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina" })).rows[0];
+  ok(await collab(db, `update public.invest_dossiers set statut = 'clos', motif_cloture = 'Fin' where id = '${dossier}'`));
+  refuse(await majSP(db, "invest_personnes", r.id, `profession = 'x'`), /Dossier Invest en cours/);
+  refuse(await ins(db, "invest_personnes", { client_id: C.nu, lien: "enfant", prenom: "Léo" }), /Dossier Invest en cours/);
+  const lu = await sous(db, "authenticated", COLLAB, `select prenom from public.invest_personnes where client_id = '${C.nu}'`);
+  ok(lu); assert.equal(lu.rows[0].prenom, "Nina", "lecture conservée");
+  refuse(await ins(db, "invest_personnes", { client_id: C.vide, lien: "principal", prenom: "Victor" }), /Dossier Invest en cours/);
+  // Nouveau dossier : la même donnée du foyer redevient modifiable, journalisée dans CE dossier.
+  const nouveau = await ouvrir(db, C.nu); ok(nouveau);
+  const m = await majSP(db, "invest_personnes", r.id, `profession = 'Architecte'`); ok(m);
+  assert.equal(m.rows[0].dossier_id, nouveau.id);
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_dossier_evenements where dossier_id = $1 and type = 'collecte_modification'`, [nouveau.id])).n, 1);
+  await db.query(`insert into public.invest_personnes (client_id, lien, prenom, source) values ($1, 'enfant', 'Reprise', 'reprise')`, [C.vide]);
+  assert.equal((await q1(db, `select source from public.invest_personnes where client_id = $1`, [C.vide])).source, "reprise");
+});
+
+test("51. 2c calculs : flux mensualisés, stocks, crédits, immobilier, patrimoine net, trous signalés", () => {
+  const c = SP.calculerSituation({
+    postes: [
+      { famille: "revenu", categorie: "salaire", montant: 3000, periodicite: "mensuelle", base_revenu: "net_avant_impot" },
+      { famille: "revenu", categorie: "dividendes", montant: 12000, periodicite: "annuelle", base_revenu: "non_precisee" },
+      { famille: "revenu", categorie: "salaire", montant: 9999, periodicite: "mensuelle", base_revenu: "net_avant_impot", archive_le: "2026-01-01" },
+      { famille: "charge", categorie: "impot", montant: 2400, periodicite: "annuelle" },
+      { famille: "actif_financier", categorie: "epargne_disponible", montant: 15000 },
+      { famille: "actif_financier", categorie: "assurance_vie", montant: 50000 },
+    ],
+    engagements: [
+      { type: "credit_immobilier", mensualite: 900, assurance_mensuelle: 30, capital_restant_du: 120000 },
+      { type: "credit_consommation", mensualite: 200, capital_restant_du: 5000 },
+      { type: "credit_immobilier", mensualite: 500, capital_restant_du: 1, solde: true },
+      { type: "pension_versee", mensualite: 300 },
+      { type: "caution", montant_garanti: 50000 },
+      { type: "pret_personnel", mensualite: null, capital_restant_du: null },
+    ],
+    actifsImmo: [{ statut: "detenu", valeur_estimee: 200000 }, { statut: "vendu", valeur_estimee: 999999 }, { statut: "detenu", valeur_estimee: null }],
+  });
+  assert.equal(c.revenusMensuels, 4000); assert.deepEqual(c.revenusParBase, { net_avant_impot: 3000, net_apres_impot: 0, non_precisee: 1000 });
+  assert.equal(c.chargesMensuelles, 500, "200 d'impôt mensualisé + 300 de pension versée");
+  assert.equal(c.mensualitesCredits, 1100); assert.equal(c.assuranceCredits, 30);
+  assert.equal(c.epargneDisponible, 15000); assert.equal(c.actifsFinanciers, 65000);
+  assert.equal(c.valeurImmobiliereBrute, 200000); assert.equal(c.detteImmobiliereRestante, 120000); assert.equal(c.patrimoineImmobilierNet, 80000);
+  assert.equal(c.patrimoineNetSimplifie, 65000 + 200000 - 125000, "caution hors bilan exclue, crédit soldé exclu");
+  assert.deepEqual(c.incomplets, { actifsSansValeur: 1, creditsSansCrd: 1, creditsSansMensualite: 1, revenusBaseNonPrecisee: 1 });
+  assert.equal(SP.mensualiser(1200, "annuelle"), 100); assert.equal(SP.mensualiser(1200, null), null, "un stock ne se mensualise pas");
+});
+
+test("52. 2c migration : additive, rejouable, sans reprise ; retour arrière sans toucher T1/2a ni le journal ; écran sans confusion avec invest_biens", async () => {
+  const code = MIGRATION_2C.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  const horsCorps = code.replace(/\$\$[\s\S]*?\$\$/g, "$$…$$").replace(/\$f\$[\s\S]*?\$f\$/g, "").replace(/\$p\$[\s\S]*?\$p\$/g, "");
+  assert.ok(!/\bupdate\s+(public\.)?\w+\s+set\b|\bdelete\s+from\b|\binsert\s+into\b|\btruncate\b/i.test(horsCorps), "aucun DML, aucune reprise");
+  assert.ok(!/invest_structuration_patrimoniale|invest_foyers/.test(code), "ancienne structuration intacte, pas de table foyer");
+  const altered = [...code.matchAll(/alter table public\.(\w+)/g)].map((m) => m[1]).filter((t) => t !== "%1$I");
+  assert.deepEqual([...new Set(altered)], ["invest_dossier_evenements"], "seule table existante touchée : la liste des types du journal");
+  const db = await nouvelleBase();
+  const { id } = await ouvrir(db, C.nu);
+  ok(await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina" }));
+  await db.exec(MIGRATION_2C); // rejouable
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_personnes`)).n, 1);
+  await db.exec(ROLLBACK_2C);
+  assert.equal((await q1(db, `select to_regclass('public.invest_personnes') t`)).t, null);
+  assert.equal((await etapes(db, id)).length, 11, "dossier et étapes intacts");
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_dossier_evenements where type = 'collecte_ajout'`)).n, 1, "journal conservé");
+  ok(await majEtape(db, id, "collecte", `statut = 'en_cours', balle = 'client'`), "2a toujours active");
+  // Écran : patrimoine détenu ≠ biens recherchés ; pas de suppression ; jamais invest_clients.
+  assert.ok(!/invest_biens/.test(CARTE_SP) && !/from\("invest_clients"\)/.test(CARTE_SP) && !/\.delete\(/.test(CARTE_SP));
+  assert.equal((CARTE_SP.match(/table: "invest_[a-z_]+"/g) || []).length >= 0, true);
+  assert.deepEqual(SP.SECTIONS.map((s) => s.libelle), ["Foyer", "Revenus, charges & épargne", "Crédits & engagements", "Patrimoine immobilier", "Structures"]);
+  assert.match(CARTE_SP, /Valeur détenue/); assert.match(CARTE_SP, /mobiliser comme apport ne se saisit pas ici/);
+  assert.match(CRM, /<SituationPatrimonialeCard client=\{client\}/);
+  // Référence : celle du dossier EN COURS, jamais celle d'un ancien dossier consulté.
+  assert.match(CRM, /dossierReference=\{dossierInfo\?\.referenceEnCours \|\| null\}/);
+  assert.match(CARTE, /referenceEnCours: dossierEnCours\?\.reference \?\? null/);
+  assert.match(CARTE_SP, /Modifications rattachées à/);
+  assert.match(CARTE_SP, /Patrimoine net simplifié \(biens à 100 %\)/);
+  assert.match(CARTE_SP, /PAS la part patrimoniale personnelle exacte/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
