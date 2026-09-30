@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "amelioration",
+    titre: "Encours fournisseurs : un PDF au modèle Profero, avec à payer, payé et total",
+    pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "Le PDF de l'encours avait une présentation brute, différente de tous les autres documents de l'application, et ne donnait ni le déjà payé ni le total de chaque mois de façon lisible.",
+    comment: "Le bouton « PDF » produit maintenant un document au même modèle que les autres (en-tête Profero, polices et couleurs habituelles). Il contient : les chiffres du mois en cours (à payer, payé comptant, total) et le total à payer de tous les mois ; un tableau récapitulatif avec, pour chaque mois, l'à payer, le payé et le total ; puis le détail de chaque mois, fournisseur par fournisseur (saisi, facturé, écart, à payer, payé, total), avec sous chaque fournisseur la liste de ses documents : bons de commande, BL, tickets et factures, avec leur date et leur montant, les achats payés comptant signalés, et pour chaque facture les BL qui lui sont rapprochés (un écart y est signalé). Si un fournisseur est choisi dans le filtre, le PDF ne porte que sur lui et son nom figure dans le titre.",
+  },
+  {
+    date: "2026-09-30",
+    type: "amelioration",
     titre: "Encours fournisseurs : chaque mois affiche le reste à payer, le déjà payé et le total",
     pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
     quoi: "Chaque mois ne montrait que le montant restant à payer : on ne voyait pas ce qui avait déjà été réglé ce mois-là, ni combien le mois représentait en tout.",
