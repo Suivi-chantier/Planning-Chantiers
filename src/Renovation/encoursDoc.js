@@ -46,8 +46,31 @@ const tuile = ({ label, valeur, sous = "", accent = C_TOTAL }) => `
 const tdMontant = (n, couleur, gras = false) =>
   `<td class="num" style="color:${Number(n) > 0 ? couleur : GRIS};${gras ? "font-weight:800;" : ""}">${esc(eur(n))}</td>`;
 
+// Documents d'un fournisseur (bons, BL, tickets, factures et leurs BL
+// rapprochés), sous sa ligne. Libellés et dates déjà formatés par la page.
+// Un BL sans montant affiche « — », jamais 0,00 €.
+function docsHTML(docs = []) {
+  if (!docs.length) return "";
+  const items = docs.map(d => `
+        <div class="en-doc">
+          <span class="en-doc-lib">${esc(d.libelle)}</span>
+          ${d.date ? `<span class="en-doc-date">${esc(d.date)}</span>` : ""}
+          ${d.payeComptant ? `<span class="en-doc-tag" style="color:${C_PAYE};">payé comptant</span>` : ""}
+          <span class="en-doc-val">${esc(eur(d.montant))}</span>
+        </div>${(d.bls || []).map(b => `
+        <div class="en-doc en-bl">
+          <span class="en-doc-lib">BL n° ${esc(b.numero)}</span>
+          ${b.ecart ? `<span class="en-doc-tag" style="color:${C_A_PAYER};">écart</span>` : ""}
+          <span class="en-doc-val">${esc(b.montant != null && b.montant !== "" ? eur(b.montant) : "—")}</span>
+        </div>`).join("")}`).join("");
+  return `
+      <tr class="en-docs"><td colspan="7"><div class="en-docs-liste">${items}</div></td></tr>`;
+}
+
 // mois : [{ label, nbFournisseurs, aPayer, paye, total,
-//           fournisseurs: [{ nom, saisi, facture, paye, aPayer, total }] }]
+//           fournisseurs: [{ nom, saisi, facture, paye, aPayer, total,
+//             docs: [{ libelle, date, montant, payeComptant,
+//                      bls: [{ numero, montant, ecart }] }] }] }]
 //        triés du plus récent au plus ancien, comme à l'écran.
 // moisCourant : { label, aPayer, paye, total }
 export function buildEncoursDocHTML({ mois = [], moisCourant, filtreFournisseur = "", logoUrl, dateGen = "" }) {
@@ -101,7 +124,7 @@ export function buildEncoursDocHTML({ mois = [], moisCourant, filtreFournisseur 
       const ecartTxt = ecart == null ? "—" : `${ecart > 0 ? "+" : ""}${eur(ecart)}`;
       const ecartCol = ecart == null ? GRIS : (Math.abs(ecart) < 1 ? C_PAYE : C_A_PAYER);
       return `
-      <tr>
+      <tr${(pf.docs || []).length ? ' class="en-f-docs"' : ""}>
         <td class="en-lib">${esc(pf.nom)}</td>
         <td class="num">${esc(eurOuTiret(pf.saisi))}</td>
         <td class="num">${esc(eurOuTiret(pf.facture))}</td>
@@ -109,7 +132,7 @@ export function buildEncoursDocHTML({ mois = [], moisCourant, filtreFournisseur 
         <td class="num" style="color:${pf.aPayer > 0 ? C_A_PAYER : GRIS};">${esc(eurOuTiret(pf.aPayer))}</td>
         <td class="num" style="color:${pf.paye > 0 ? C_PAYE : GRIS};">${esc(eurOuTiret(pf.paye))}</td>
         <td class="num" style="font-weight:800;color:${pf.total > 0 ? C_TOTAL : GRIS};">${esc(eurOuTiret(pf.total))}</td>
-      </tr>`;
+      </tr>${docsHTML(pf.docs)}`;
     }).join("");
     return `
   <div class="en-mois">
@@ -166,6 +189,18 @@ export function buildEncoursDocHTML({ mois = [], moisCourant, filtreFournisseur 
   .en-cap{text-transform:capitalize;}
   .en-total td{font-weight:800;color:#12151c;border-top:1.5pt solid #d8dbe2;background:#fafbfd;}
   .en-note{font-size:8pt;color:#7c8291;line-height:1.5;margin-top:7pt;}
+
+  .en-f-docs td{border-bottom:none;}
+  .en-tab tr.en-docs{break-inside:auto;page-break-inside:auto;}
+  .en-tab tr.en-docs td{padding:0 7pt 6pt;}
+  .en-docs-liste{margin-left:10pt;padding-left:9pt;border-left:2pt solid #eceef2;}
+  .en-doc{display:flex;align-items:baseline;gap:7pt;padding:1.2pt 0;font-size:7.5pt;color:#4a4f5b;break-inside:avoid;page-break-inside:avoid;}
+  .en-doc-lib{font-weight:700;}
+  .en-doc-date{color:#9aa0ab;}
+  .en-doc-tag{font-size:6.5pt;font-weight:800;letter-spacing:.5pt;text-transform:uppercase;}
+  .en-doc-val{margin-left:auto;font-weight:600;white-space:nowrap;}
+  .en-bl{padding-left:12pt;color:#7c8291;}
+  .en-bl .en-doc-lib{font-weight:500;}
 
   .en-mois{margin-bottom:14pt;}
   .en-mois-head{display:flex;align-items:baseline;gap:10pt;flex-wrap:wrap;padding:0 0 5pt;break-after:avoid;page-break-after:avoid;}

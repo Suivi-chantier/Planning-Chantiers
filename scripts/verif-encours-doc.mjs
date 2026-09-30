@@ -19,7 +19,13 @@ const MOIS = [
   {
     label: "octobre 2026", nbFournisseurs: 2, aPayer: 1500, paye: 0, total: 1500,
     fournisseurs: [
-      { nom: "FOURNISSEUR A", saisi: 1000, facture: 1200, paye: 0, aPayer: 1200, total: 1200 },
+      { nom: "FOURNISSEUR A", saisi: 1000, facture: 1200, paye: 0, aPayer: 1200, total: 1200, docs: [
+        { libelle: "Bon de commande n° BC-1", date: "02/09/2026", montant: 1000, payeComptant: false, bls: [] },
+        { libelle: "Facture n° F-77", date: "30/09/2026", montant: 1200, payeComptant: false, bls: [
+          { numero: "BL-9", montant: 700, ecart: false },
+          { numero: "BL-10", montant: null, ecart: true },
+        ] },
+      ] },
       { nom: "FOURNISSEUR B", saisi: 300, facture: 0, paye: 0, aPayer: 300, total: 300 },
     ],
   },
@@ -27,7 +33,9 @@ const MOIS = [
     label: "septembre 2026", nbFournisseurs: 2, aPayer: 250, paye: 4000, total: 4250,
     fournisseurs: [
       { nom: 'Dupont & Fils <"test">', saisi: 250, facture: 0, paye: 1000, aPayer: 250, total: 1250 },
-      { nom: "FOURNISSEUR C", saisi: 0, facture: 0, paye: 3000, aPayer: 0, total: 3000 },
+      { nom: "FOURNISSEUR C", saisi: 0, facture: 0, paye: 3000, aPayer: 0, total: 3000, docs: [
+        { libelle: 'Ticket n° <b>T&1</b>', date: "", montant: 3000, payeComptant: true, bls: [] },
+      ] },
     ],
   },
 ];
@@ -81,10 +89,42 @@ test("écart facture − saisi affiché signé, tiret quand non applicable", () 
   assert.ok(ligneB.includes(">—<"));
 });
 
+test("documents listés sous leur fournisseur, dans l'ordre reçu", () => {
+  const h = buildEncoursDocHTML(base);
+  const a = pos(h, ">FOURNISSEUR A<"), b = pos(h, ">FOURNISSEUR B<");
+  const bc = pos(h, "Bon de commande n° BC-1"), fa = pos(h, "Facture n° F-77");
+  assert.ok(a < bc && bc < fa && fa < b);
+  assert.ok(h.includes("02/09/2026"));
+});
+
+test("BL rapprochés sous leur facture ; BL sans montant = tiret, jamais 0,00 €", () => {
+  const h = buildEncoursDocHTML(base);
+  const bl9 = pos(h, "BL n° BL-9"), bl10 = pos(h, "BL n° BL-10");
+  assert.ok(pos(h, "Facture n° F-77") < bl9 && bl9 < bl10);
+  assert.ok(h.slice(bl9, bl10).includes(nb(700)));
+  const apres10 = h.slice(bl10, bl10 + 400);
+  assert.ok(apres10.includes(">écart<"));
+  assert.ok(apres10.includes('class="en-doc-val">—<'));
+});
+
+test("achat réglé comptant marqué, sans date quand elle manque", () => {
+  const h = buildEncoursDocHTML(base);
+  const t = h.slice(pos(h, "Ticket n°"), pos(h, "Ticket n°") + 300);
+  assert.ok(t.includes("payé comptant"));
+  assert.ok(!t.includes("en-doc-date"));
+});
+
+test("fournisseur sans document : pas de ligne de documents vide", () => {
+  const h = buildEncoursDocHTML(base);
+  const b = h.slice(pos(h, ">FOURNISSEUR B<"), pos(h, "Total octobre 2026"));
+  assert.ok(!b.includes("en-docs"));
+});
+
 test("noms échappés (pas d'injection HTML)", () => {
   const h = buildEncoursDocHTML(base);
   assert.ok(h.includes("Dupont &amp; Fils &lt;&quot;test&quot;&gt;"));
   assert.ok(!h.includes('<"test">'));
+  assert.ok(h.includes("Ticket n° &lt;b&gt;T&amp;1&lt;/b&gt;"));
 });
 
 test("filtre fournisseur : repris dans le titre et les chips", () => {

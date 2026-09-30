@@ -158,7 +158,15 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
       aPayer: g.aPayer, paye: g.paye, total: g.total,
       fournisseurs: [...g.parFourn.values()]
         .sort((a, b) => aPayerOf(b) - aPayerOf(a))
-        .map(pf => ({ nom: pf.nom, saisi: pf.saisi, facture: pf.facture, paye: pf.paye, aPayer: aPayerOf(pf), total: aPayerOf(pf) + pf.paye })),
+        .map(pf => ({
+          nom: pf.nom, saisi: pf.saisi, facture: pf.facture, paye: pf.paye, aPayer: aPayerOf(pf), total: aPayerOf(pf) + pf.paye,
+          // Documents dans le même ordre et avec les mêmes libellés qu'à l'écran.
+          docs: [...pf.docs].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(d => ({
+            libelle: docLabel(d), date: dateFR(d.date), montant: d.montant,
+            payeComptant: d.kind === "cmd" && !!d.paye,
+            bls: d.kind === "fact" ? (d.bls || []).map(b => ({ numero: b.bl_numero || "?", montant: b.montant_ht, ecart: b.statut === "ecart" })) : [],
+          })),
+        })),
     }));
     const html = buildEncoursDocHTML({
       mois,
