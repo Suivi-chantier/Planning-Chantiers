@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
+    type: "correctif",
+    titre: "Sécurité : seuls les administrateurs peuvent inviter un utilisateur ou lancer une réinitialisation",
+    pages: [{ id: "admin", label: "Admin" }],
+    quoi: "Le service qui envoie les invitations et les réinitialisations de mot de passe ne vérifiait pas qui le sollicitait : une personne extérieure connaissant l'adresse technique de l'application pouvait créer un compte ou en supprimer un, sans passer par l'écran Admin.",
+    comment: "Rien ne change pour un administrateur connecté : les boutons « Inviter » et « Réinitialiser » de l'onglet Utilisateurs (Invest et Rénovation) fonctionnent comme avant. Toute autre demande est désormais refusée : sans connexion, avec un compte qui n'est pas administrateur, ou avec un compte désactivé. La suppression de compte, qu'aucun écran n'utilisait, n'est plus possible par ce service.",
+  },
+  {
+    date: "2026-09-30",
     type: "amelioration",
     titre: "Encours fournisseurs : un PDF au modèle Profero, avec à payer, payé et total",
     pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
