@@ -16,9 +16,9 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
-**Mise à jour du 30/09/2026 : 31 fichiers.** 29 sont appliqués (dont les deux
-ci-dessous) ; 2 ne le sont pas : celui du chantier 05 (plus haut) et celui de
-la Tranche 2a (plus bas).
+**Mise à jour du 30/09/2026 : 31 fichiers.** 30 sont appliqués (dont les trois
+ci-dessous) ; 1 ne l'est pas : celui du chantier 05 (plus haut). La migration
+de la PR #46 (20260930170000) n'est pas encore dans ce dossier.
 
 `20260930190000_invest_dossiers_tranche1.sql` **appliquée le 30/09/2026**
 (Chantier 1.1 Tranche 1 : Dossier Invest), seule (`supabase db query --linked -f …`
@@ -29,9 +29,8 @@ script séparé : `docs/project/DOSSIER-INVEST-TRANCHE1.md`.
 : protection des champs sensibles de `utilisateurs` (chantier 1.0, sécurité).
 Retour arrière : `sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
 
-**`20260930210000_invest_dossiers_tranche2a.sql` n'est PAS appliquée**
-(préparée le 30/09/2026, Chantier 1.1 Tranche 2a : pilotage du Dossier Invest
-dans le CRM). Additive et courte : heure réelle du journal et numéro d'ordre
+`20260930210000_invest_dossiers_tranche2a.sql` — **appliquée en production le
+30/09/2026** (Chantier 1.1 Tranche 2a : pilotage du Dossier Invest dans le CRM). Additive et courte : heure réelle du journal et numéro d'ordre
 technique (colonne `ordre`, IDENTITY), libellé « balle
 personne », événement « reprise confirmée », enchaînements de statut d'étape
 contrôlés, motifs obligatoires (« non applicable », réouverture). S'applique

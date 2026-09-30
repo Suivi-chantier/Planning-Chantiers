@@ -8,6 +8,7 @@ import { messageSuppressionClient } from "./dossiers/parcours";
 import { ETAPES_PARCOURS, CLES_ETAPES, etapePourNouvelleTache } from "./dossiers/parcours";
 import { A_CLASSER, champsNouvelleTache } from "./dossiers/dossierVue";
 import DossierInvestCard from "./dossiers/DossierInvestCard";
+import { indexerPilotage, projeterClient, resumePilotage } from "./dossiers/pilotage";
 import { OngletAcces } from "../Renovation/Admin";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
@@ -376,178 +377,73 @@ function clientStatutMeta(statut) {
 }
 
 
+// Tranche 2b : la frise suit les 11 étapes du Dossier Invest. Un client est
+// placé sur l'étape principale de son dossier en cours (etapeCourante) ; ses
+// autres étapes actives restent visibles sur sa ligne. Dernière colonne : les
+// clients sans Dossier Invest en cours. L'ancienne étape (invest_clients.etape,
+// 13 étapes) n'est plus lue : elle est historique.
 const CRM_CLIENT_TIMELINE_STEPS = [
-  { n:1, label:"Signature contrat", short:"Signature", hints:["signature contrat", "signature"] },
-  { n:2, label:"Envoi des documents d'analyse", short:"Documents", hints:["envoi des documents", "documents d'analyse", "document analyse", "pièces client"] },
-  { n:3, label:"Définition de la stratégie d'investissement", short:"Stratégie", hints:["définition de la stratégie", "strategie", "stratégie", "cahier des charges"] },
-  { n:4, label:"Recherche du projet (visites et analyse)", short:"Recherche", hints:["recherche", "visites", "analyse"] },
-  { n:5, label:"Présentation des projets", short:"Présentation", hints:["présentation", "presentation", "projets", "bien présenté"] },
-  { n:6, label:"Offre d'achat", short:"Offre", hints:["offre d'achat", "offre"] },
-  { n:7, label:"Réalisation des devis précis", short:"Devis", hints:["devis précis", "devis"] },
-  { n:8, label:"Signature du compromis", short:"Compromis", hints:["signature du compromis", "compromis"] },
-  { n:9, label:"Réalisation du dossier bancaire", short:"Dossier bancaire", hints:["dossier bancaire", "banque", "bancaire"] },
-  { n:10, label:"Obtention du financement", short:"Financement", hints:["obtention du financement", "financement obtenu", "accord financement", "prêt obtenu"] },
-  { n:11, label:"Réalisation des dossiers d'urbanismes", short:"Urbanisme", hints:["urbanisme", "dossiers d'urbanismes", "dossier urbanisme", "dp", "déclaration préalable"] },
-  { n:12, label:"Validation des conditions suspensives d'achat", short:"Conditions", hints:["conditions suspensives", "validation conditions", "conditions d'achat"] },
-  { n:13, label:"Signature Notaire", short:"Notaire", hints:["signature notaire", "notaire", "signature définitive", "acte authentique"] },
+  ...ETAPES_PARCOURS.map(e => ({ n:e.numero, cle:e.cle, label:e.libelle, short:e.libelle })),
+  { n:ETAPES_PARCOURS.length + 1, cle:null, label:"Sans Dossier Invest en cours", short:"Sans dossier" },
 ];
+const CRM_TIMELINE_SANS_DOSSIER = ETAPES_PARCOURS.length + 1;
 
 const CRM_CLIENT_TIMELINE_PHASES = [
-  { key:"entree", label:"Entrée client", helper:"contrat, documents, stratégie", steps:[1,2,3], color:"#60A5FA" },
-  { key:"opportunite", label:"Recherche & opportunité", helper:"recherche, présentation, offre, devis", steps:[4,5,6,7], color:"#C9A34A" },
-  { key:"securisation", label:"Sécurisation achat", helper:"compromis, banque, financement", steps:[8,9,10], color:"#8B5CF6" },
-  { key:"finalisation", label:"Finalisation", helper:"urbanisme, conditions, notaire", steps:[11,12,13], color:"#16A34A" },
+  { key:"entree", label:"Entrée client", helper:"signature, collecte, documents", steps:[1,2,3], color:"#60A5FA" },
+  { key:"conseil", label:"Analyse & stratégie", helper:"analyse, stratégie", steps:[4,5], color:"#0EA5E9" },
+  { key:"opportunite", label:"Recherche & opportunités", helper:"recherche, opportunités", steps:[6,7], color:"#C9A34A" },
+  { key:"securisation", label:"Sécurisation achat", helper:"financement, structuration, acquisition", steps:[8,9,10], color:"#8B5CF6" },
+  { key:"suivi", label:"Suivi", helper:"après acquisition", steps:[11], color:"#16A34A" },
+  { key:"hors", label:"Hors dossier", helper:"sans Dossier Invest en cours", steps:[CRM_TIMELINE_SANS_DOSSIER], color:"#94A3B8" },
 ];
 
-const crmTimelineStepOptionValue = (step = {}) => step?.n ? `${step.n} ${step.label}` : "";
-
-const CRM_MISSION_STEP_TO_TIMELINE = {
-  signature: 1,
-  lancement: 3,
-  recherche: 4,
-  presentation_bien: 5,
-  acquisition: 8,
-  financement: 9,
-  urbanisme: 11,
-  enedis: 11,
-  signature_definitive: 13,
-  travaux: 13,
-  apres_travaux: 13,
-};
-
-function crmTimelineStepFromText(value = "") {
-  const clean = normTxt(value);
-  if (!clean) return 0;
-  const directNumber = clean.match(/^\s*(\d{1,2})\b/);
-  if (directNumber) {
-    const n = Number(directNumber[1]);
-    if (n >= 1 && n <= CRM_CLIENT_TIMELINE_STEPS.length) return n;
-  }
-  const found = CRM_CLIENT_TIMELINE_STEPS.find(step => {
-    const label = normTxt(step.label);
-    return clean.includes(label) || (step.hints || []).some(h => clean.includes(normTxt(h)));
-  });
-  return found?.n || 0;
-}
-
-function crmTimelineStepFromFreeText(value = "") {
-  const t = normTxt(value);
-  if (!t) return 0;
-  if (t.includes("signature notaire") || t.includes("acte authentique") || t.includes("signature definitive") || t.includes("signature définitive")) return 13;
-  if (t.includes("conditions suspensives")) return 12;
-  if (t.includes("urbanisme") || t.includes("declaration prealable") || t.includes("déclaration préalable") || t.includes(" dp ")) return 11;
-  if ((t.includes("financement") || t.includes("pret") || t.includes("prêt")) && (t.includes("obten") || t.includes("accord"))) return 10;
-  if (t.includes("dossier bancaire") || t.includes("banque") || t.includes("bancaire")) return 9;
-  if (t.includes("compromis")) return 8;
-  if (t.includes("devis")) return 7;
-  if (t.includes("offre")) return 6;
-  if (t.includes("presentation") || t.includes("présentation") || t.includes("dossier de presentation") || t.includes("dossier de présentation")) return 5;
-  if (t.includes("recherche") || t.includes("visite") || t.includes("analyse")) return 4;
-  if (t.includes("strategie") || t.includes("stratégie") || t.includes("cahier des charges")) return 3;
-  if (t.includes("document")) return 2;
-  if (t.includes("signature") || t.includes("contrat")) return 1;
-  return 0;
-}
-
 function computeCRMClientTimeline(client = {}, missionActions = [], propositions = [], today = new Date().toISOString().slice(0,10)) {
-  const reasons = [];
-  const autoReasons = [];
-  const declaredStepNumber = crmTimelineStepFromText(client.etape);
-
-  // Règle métier V20.3 : l'étape renseignée dans la fiche client est prioritaire.
-  // Si un compromis n'aboutit pas et que l'on rétrograde manuellement le client,
-  // la frise doit suivre cette décision humaine et ne pas le replacer automatiquement
-  // plus loin à cause d'anciennes propositions, tâches mission ou notes.
-  let detectedStepNumber = 0;
-
-  if (client.date_signature || client.statut === "Actif" || client.statut === "Terminé") {
-    detectedStepNumber = Math.max(detectedStepNumber, 1);
-    autoReasons.push("Contrat / client actif détecté");
-  }
-
-  const textStage = crmTimelineStepFromFreeText(`${client.etape || ""} ${client.prochaine_action || ""} ${client.notes_rapides || ""}`);
-  if (textStage > detectedStepNumber) {
-    detectedStepNumber = textStage;
-    autoReasons.push("Indice CRM détecté");
-  }
-
-  const actionStage = (missionActions || []).reduce((max, a) => {
-    const fromKey = CRM_MISSION_STEP_TO_TIMELINE[a.step_key] || 0;
-    const fromText = Math.max(crmTimelineStepFromText(a.step_label), crmTimelineStepFromFreeText(`${a.step_label || ""} ${a.action_title || ""}`));
-    return Math.max(max, fromKey, fromText);
-  }, 0);
-  if (actionStage > detectedStepNumber) {
-    detectedStepNumber = actionStage;
-    autoReasons.push("Parcours mission déjà avancé");
-  }
-
-  if ((propositions || []).length > 0 && detectedStepNumber < 5) {
-    detectedStepNumber = 5;
-    autoReasons.push("Bien / projet déjà proposé");
-  }
-  const propText = (propositions || []).map(p => `${p.statut || ""} ${p.commentaire || ""}`).join(" ");
-  const propStage = crmTimelineStepFromFreeText(propText);
-  if (propStage > detectedStepNumber) {
-    detectedStepNumber = propStage;
-    autoReasons.push("Indice proposition détecté");
-  }
-
-  if (client.statut === "Terminé") {
-    detectedStepNumber = Math.max(detectedStepNumber, 13);
-    autoReasons.push("Dossier terminé");
-  }
-
-  detectedStepNumber = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, detectedStepNumber || 1));
-
-  let n = declaredStepNumber || detectedStepNumber || 1;
-  if (client.statut === "Terminé") n = CRM_CLIENT_TIMELINE_STEPS.length;
-  n = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, n));
-
-  if (declaredStepNumber) {
-    reasons.push(`Étape CRM manuelle : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || client.etape}`);
-  } else {
-    reasons.push(`Étape déduite : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || "Signature"}`);
-  }
-
-  const step = CRM_CLIENT_TIMELINE_STEPS[n - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
-  const detectedStep = CRM_CLIENT_TIMELINE_STEPS[detectedStepNumber - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
-  const isLate = !!(client.date_prochaine_action && client.date_prochaine_action < today && client.statut !== "Terminé");
-  const dueToday = !!(client.date_prochaine_action && client.date_prochaine_action === today && client.statut !== "Terminé");
+  // `client` est la projection du Dossier Invest (projeterClient) : prochaine
+  // action et échéance sont celles de l'étape principale ACTIVE.
+  const p = client._pilotage || null;
+  const e = p?.principale || null;
+  const n = e ? e.numero : CRM_TIMELINE_SANS_DOSSIER;
+  const step = CRM_CLIENT_TIMELINE_STEPS[n - 1];
+  const prospect = String(client.statut || "").trim().toLowerCase() === "prospect";
+  const isLate = !!(client.date_prochaine_action && client.date_prochaine_action < today);
+  const dueToday = !!(client.date_prochaine_action && client.date_prochaine_action === today);
   const hasAction = !!(client.prochaine_action || client.date_prochaine_action);
-  const waitingActions = (missionActions || []).filter(a => !["fait", "non_concerne"].includes(a?.status));
-  const lateMissionActions = waitingActions.filter(a => a.due_date && a.due_date < today).length;
-  const referenceDate = client.etape_updated_at || client.updated_at || client.date_premier_contact || client.created_at;
-  const daysSinceStageReference = referenceDate ? daysBetween(referenceDate) : null;
-  const noAction = client.statut !== "Terminé" && !hasAction && n < CRM_CLIENT_TIMELINE_STEPS.length;
-  const isStuck = client.statut !== "Terminé" && n < CRM_CLIENT_TIMELINE_STEPS.length && daysSinceStageReference !== null && daysSinceStageReference >= 21 && !isLate && !dueToday;
-
-  // Conservé uniquement comme information discrète : cela ne positionne plus le client
-  // et n'entre plus dans les priorités. Une rétrogradation manuelle reste volontaire.
-  const historicalAhead = !!declaredStepNumber && detectedStepNumber > declaredStepNumber;
-  const inferredAhead = false;
-
+  const waitingActions = p ? [] : (missionActions || []).filter(a => !["fait", "non_concerne"].includes(a?.status));
+  const lateMissionActions = p ? p.tachesEnRetard.length : waitingActions.filter(a => a.due_date && a.due_date < today).length;
+  // Attention requise : dossier sans prochaine action sur ses étapes actives,
+  // client « Actif » sans dossier en cours, prospect sans relance.
+  const noAction = client._pilotageInconnu ? false : p
+    ? (!p.actives.length || !p.actives.some(a => a.prochaineAction))
+    : (prospect ? !hasAction : String(client.statut || "").trim().toLowerCase() === "actif");
+  const joursSansEvolution = p?.joursSansEvolution ?? null;
+  const isStuck = !!p && joursSansEvolution !== null && joursSansEvolution >= 21 && !isLate && !dueToday;
+  const reasons = p
+    ? [`Dossier ${p.reference}`, ...(p.actives.length > 1 ? [`${p.actives.length} étapes actives : ${p.actives.map(a => a.libelle).join(", ")}`] : []),
+       ...(e ? [`Balle : ${e.balle.libelle}`] : ["Aucune étape active"])]
+    : [client._pilotageInconnu ? "Avancement indisponible (Dossiers Invest non chargés)" : "Aucun Dossier Invest en cours"];
   return {
     stepNumber: n,
-    declaredStepNumber,
-    detectedStepNumber,
-    detectedStepLabel: detectedStep.label,
-    detectedStepShort: detectedStep.short,
-    manualStepLocked: !!declaredStepNumber,
-    historicalAhead,
+    declaredStepNumber: 0,
+    detectedStepNumber: n,
+    detectedStepLabel: step.label,
+    detectedStepShort: step.short,
+    manualStepLocked: false,
+    historicalAhead: false,
     stepLabel: step.label,
     stepShort: step.short,
-    progressPct: Math.round((n / CRM_CLIENT_TIMELINE_STEPS.length) * 100),
-    remainingSteps: Math.max(0, CRM_CLIENT_TIMELINE_STEPS.length - n),
-    reasons:[...reasons, ...autoReasons.slice(0,2)],
+    progressPct: e ? Math.round((e.numero / ETAPES_PARCOURS.length) * 100) : 0,
+    remainingSteps: e ? Math.max(0, ETAPES_PARCOURS.length - e.numero) : 0,
+    reasons,
     isLate,
     dueToday,
     hasAction,
     noAction,
     isStuck,
-    inferredAhead,
-    daysSinceStageReference,
-    waitingMissionActions: waitingActions.length,
+    inferredAhead: false,
+    daysSinceStageReference: joursSansEvolution,
+    waitingMissionActions: p ? p.tachesOuvertes : waitingActions.length,
     lateMissionActions,
+    pilotage: p,
   };
 }
 
@@ -556,7 +452,11 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
   // depuis des helpers hors composant — d'où le point de passage partagé.
   const annuaireInvest = useAnnuaireInvest();
   useEffect(() => { missionSetAnnuaire(annuaireInvest); }, [annuaireInvest]);
-  const [clients, setClients]     = useState([]);
+  // Tranche 2b : `clientsBruts` = lignes invest_clients ; `clients` = leur
+  // projection sur le Dossier Invest (étape principale, prochaine action,
+  // échéance), utilisée par toute la liste, la frise, le planning et les stats.
+  const [clientsBruts, setClients] = useState([]);
+  const [pilotageDonnees, setPilotageDonnees] = useState({ dossiers:[], etapes:[], utilisateurs:[] });
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
   const [showForm, setShowForm]   = useState(false);
@@ -586,12 +486,22 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
 
   const charger = async () => {
     setLoading(true);
-    const [clientsRes, actionsRes, propsRes] = await Promise.all([
+    const [clientsRes, actionsRes, propsRes, dossiersRes, etapesRes, usersRes] = await Promise.all([
       supabase.from("invest_clients").select("*").order("created_at", { ascending: false }),
-      supabase.from("invest_mission_actions").select("id,client_id,step_key,step_label,action_title,status,due_date,completed_at,updated_at").limit(4000),
+      supabase.from("invest_mission_actions").select("id,client_id,dossier_id,etape,step_key,step_label,action_title,status,due_date,completed_at,updated_at").limit(4000),
       supabase.from("invest_propositions").select("id,client_id,bien_id,statut,commentaire,date_proposition,created_at").limit(4000),
+      supabase.from("invest_dossiers").select("id,client_id,reference,libelle,statut,conseiller_id").in("statut", ["ouvert", "actif", "suspendu"]),
+      supabase.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,echeance,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(5000),
+      supabase.from("utilisateurs").select("id,nom,email"),
     ]);
     setClients(clientsRes.data || []);
+    if (dossiersRes.error || etapesRes.error) {
+      const e = dossiersRes.error || etapesRes.error;
+      setCrmSaveError(`Dossiers Invest illisibles : l'avancement ne peut pas être affiché (${e.message}).`);
+      setPilotageDonnees(null); // inconnu, pas « aucun dossier »
+    } else {
+      setPilotageDonnees({ dossiers:dossiersRes.data || [], etapes:etapesRes.data || [], utilisateurs:usersRes.data || [] });
+    }
     setCrmMissionActions(actionsRes.error ? [] : (actionsRes.data || []));
     setCrmPropositions(propsRes.error ? [] : (propsRes.data || []));
     if (actionsRes.error && actionsRes.error.code !== "42P01") console.warn("Frise CRM / actions mission:", actionsRes.error);
@@ -633,9 +543,14 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
     setFicheId(clientId);
   }, []);
 
+  const today = new Date().toISOString().slice(0,10);
+  const pilotagesParClient = useMemo(() => pilotageDonnees ? indexerPilotage({
+    dossiers:pilotageDonnees.dossiers, etapes:pilotageDonnees.etapes, taches:crmMissionActions,
+    utilisateurs:pilotageDonnees.utilisateurs, aujourdhui:today,
+  }) : null, [pilotageDonnees, crmMissionActions, today]);
+  const clients = useMemo(() => clientsBruts.map(c => projeterClient(c, pilotagesParClient?.get(c.id) || null, { inconnu:!pilotagesParClient })), [clientsBruts, pilotagesParClient]);
   const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
   const sources = [...new Set([...SOURCES_CLIENT, ...clients.map(c => c.source).filter(Boolean)])];
-  const today = new Date().toISOString().slice(0,10);
   const addDays = (n) => {
     const d = new Date();
     d.setDate(d.getDate() + n);
@@ -794,7 +709,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
   };
 
   const timelineDraftForClient = (client = {}) => ({
-    prochaine_action: client.prochaine_action || "",
+    prochaine_action: (client._etapeAction ? client._etapeAction.prochaineAction : client.prochaine_action) || "",
     date_prochaine_action: String(client.date_prochaine_action || "").slice(0,10),
     ...(timelineDrafts[client.id] || {}),
   });
@@ -846,7 +761,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
       else if (cleanPatch[k] === "") cleanPatch[k] = null;
     });
 
-    const previousClients = clients;
+    const previousClients = clientsBruts;
     setClients(prev => prev.map(c => c.id === client.id ? { ...c, ...cleanPatch, updated_at:nowIso } : c));
 
     const { error } = await crmSafeUpdateClient(client.id, cleanPatch);
@@ -874,18 +789,44 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
     return true;
   };
 
+  // Tranche 2b : prochaine action et échéance = celles de l'étape principale
+  // du Dossier Invest (geste journalisé par la base). Un prospect sans dossier
+  // garde sa relance historique ; un autre client sans dossier n'a rien à
+  // modifier ici (démarrer une mission depuis sa fiche).
+  const majActionPilotage = async (client = {}, { action, date } = {}, noteContent = "") => {
+    const p = client._pilotage;
+    if (p) {
+      // Même étape que celle affichée pour l'action (etapeAAgir), sinon la principale.
+      const e = client._etapeAction || p.principale;
+      if (!e?.id) { alert(`Le dossier ${p.reference} n'a aucune étape active : ouvrez la fiche pour démarrer une étape.`); return false; }
+      const patch = {};
+      if (action !== undefined) { patch.prochaine_action = String(action || "").trim() || null; if (!patch.prochaine_action) patch.prochaine_action_id = null; }
+      if (date !== undefined) patch.echeance = String(date || "").trim() || null;
+      setCrmSaveError("");
+      const { data, error } = await supabase.from("invest_dossier_etapes").update(patch).eq("id", e.id).select("id");
+      if (error || !data?.length) {
+        const msg = error ? crmErrorMessage(error) : "modification refusée (droits insuffisants)";
+        setCrmSaveError(msg); alert(`Impossible de mettre à jour l'étape ${e.libelle} : ${msg}`); return false;
+      }
+      await charger();
+      return true;
+    }
+    if (String(client.statut || "").trim().toLowerCase() !== "prospect") {
+      alert("Ce client n'a pas de Dossier Invest en cours : ouvrez sa fiche et démarrez une mission.");
+      return false;
+    }
+    const patch = {};
+    if (action !== undefined) patch.prochaine_action = String(action || "").trim() || null;
+    if (date !== undefined) patch.date_prochaine_action = String(date || "").trim() || null;
+    return updateClientFromTimeline(client._historique ? { ...client, ...client._historique } : client, patch, noteContent);
+  };
+
   const saveTimelineDraft = async (client = {}) => {
     const draft = timelineDraftForClient(client);
-    // Tranche 2a : l'ancienne étape n'est plus écrite depuis la frise (lecture seule).
-    const patch = {
-      prochaine_action: String(draft.prochaine_action || "").trim() || null,
-      date_prochaine_action: draft.date_prochaine_action || null,
-    };
-    const ok = await updateClientFromTimeline(
-      client,
-      patch,
-      `Mise à jour depuis la frise CRM : action "${patch.prochaine_action || "—"}"${patch.date_prochaine_action ? ` · échéance ${missionFormatDateFr(patch.date_prochaine_action)}` : ""}.`,
-    );
+    const action = String(draft.prochaine_action || "").trim() || null;
+    const date = draft.date_prochaine_action || null;
+    const ok = await majActionPilotage(client, { action, date },
+      `Mise à jour depuis la frise CRM : action "${action || "—"}"${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`);
     if (!ok) return;
     setTimelineDrafts(prev => {
       const next = { ...prev };
@@ -1001,37 +942,30 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
       const action = String(client.prochaine_action || "").trim();
       if (!client?.id || !action) return;
       const due = String(client.date_prochaine_action || "").slice(0,10);
-      await updateClientFromTimeline(
-        client,
-        { prochaine_action:null, date_prochaine_action:null },
-        `Action CRM validée depuis le pilotage immédiat : ${action}${due ? ` · échéance initiale ${missionFormatDateFr(due)}` : ""}.`,
-      );
+      // Dossier : la prochaine action de l'étape est effacée (l'échéance de
+      // l'étape reste) ; prospect : relance historique effacée comme avant.
+      await majActionPilotage(client, client._pilotage ? { action:null } : { action:null, date:null },
+        `Action CRM validée depuis le pilotage immédiat : ${action}${due ? ` · échéance initiale ${missionFormatDateFr(due)}` : ""}.`);
     };
 
     const replanClientActionFromTimeline = async (client = {}, days = 2) => {
       if (!client?.id) return;
       const nextDate = missionAddDaysIso(days);
-      await updateClientFromTimeline(
-        client,
-        { date_prochaine_action:nextDate },
-        `Action CRM replanifiée depuis le pilotage immédiat au ${missionFormatDateFr(nextDate)}${client.prochaine_action ? ` : ${client.prochaine_action}` : ""}.`,
-      );
+      await majActionPilotage(client, { date:nextDate },
+        `Action CRM replanifiée depuis le pilotage immédiat au ${missionFormatDateFr(nextDate)}${client.prochaine_action ? ` : ${client.prochaine_action}` : ""}.`);
     };
 
     const addQuickActionFromTimeline = async (client = {}) => {
       if (!client?.id) return;
       const fullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "ce client";
-      const action = window.prompt(`Prochaine action CRM pour ${fullName} :`, client.prochaine_action || "Relancer le client");
+      const action = window.prompt(`Prochaine action${client._etapeAction ? ` (étape ${client._etapeAction.libelle})` : " CRM"} pour ${fullName} :`, (client._etapeAction ? client._etapeAction.prochaineAction : client.prochaine_action) || "Relancer le client");
       if (action === null) return;
       const cleanAction = String(action || "").trim();
       if (!cleanAction) return;
       const date = window.prompt("Date d'échéance au format AAAA-MM-JJ :", String(client.date_prochaine_action || missionAddDaysIso(2)).slice(0,10));
       if (date === null) return;
-      await updateClientFromTimeline(
-        client,
-        { prochaine_action:cleanAction, date_prochaine_action:String(date || "").trim() || null },
-        `Action CRM ajoutée depuis le pilotage immédiat : ${cleanAction}${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`,
-      );
+      await majActionPilotage(client, { action:cleanAction, date:String(date || "").trim() || null },
+        `Action CRM ajoutée depuis le pilotage immédiat : ${cleanAction}${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`);
     };
 
     const clientLine = ({ client, info }, compact = false) => {
@@ -1068,7 +1002,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
               <span style={{fontSize:10,fontWeight:950,color:status.color,background:`${status.color}12`,border:`1px solid ${status.color}28`,borderRadius:999,padding:"3px 7px",whiteSpace:"nowrap"}}>{status.label}</span>
             </div>
             <div style={{fontSize:10.5,color:T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"} · étape {info.stepNumber}/13 · {status.tone}
+              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"} · {info.pilotage ? (info.pilotage.principale ? `étape ${info.stepNumber}/${ETAPES_PARCOURS.length}` : "aucune étape active") : "sans Dossier Invest"} · {status.tone}
             </div>
             <div style={{fontSize:10.5,color:info.isLate || info.lateMissionActions > 0 || info.noAction ? DA : T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:info.isLate || info.lateMissionActions > 0 || info.noAction ? 850 : 500}}>
               {info.isLate || info.lateMissionActions > 0 || info.noAction ? "⚠ " : info.dueToday ? "● " : ""}{actionText}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}
@@ -1088,8 +1022,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
               </div>
             ) : (
               <div style={{marginTop:9,display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(180px,1.15fr) 135px auto",gap:7,alignItems:"center"}}>
-                <div title="Ancienne étape, lecture seule : l'avancement se pilote dans la carte Dossier Invest" style={{fontSize:11,padding:"6px 7px",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  Ancienne étape : {info.stepNumber} — {CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1]?.short || "—"}
+                <div title="Dossier Invest : étape principale · balle · prochaine action · échéance" style={{fontSize:11,padding:"6px 7px",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {resumePilotage(info.pilotage)}
                 </div>
                 <input
                   className="inv-inp"
@@ -2225,7 +2159,7 @@ function missionEtapeInitiale(etapeCourante, initialStepKey, client) {
   if (etapeCourante && CLES_ETAPES.includes(etapeCourante)) return etapeCourante;
   return etapePourNouvelleTache(missionDetectStepKey(client)) || "signature";
 }
-function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange, initialStepKey="", initialActionId="", dossierId=null, etapeCourante=null }) {
+function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange, initialStepKey="", initialActionId="", dossierId=null, etapeCourante=null, onDossierModifie }) {
   const [actions, setActions] = useState([]);
   const [selectedStep, setSelectedStep] = useState(() => missionEtapeInitiale(etapeCourante, initialStepKey, client));
   const [loading, setLoading] = useState(true);
@@ -2895,11 +2829,17 @@ Laisse vide pour créer un événement en journée entière.`,
     if (donePatch.calendar_html_link) window.open(donePatch.calendar_html_link, "_blank");
   };
 
+  // Tranche 2b : la tâche ouverte la plus proche de l'onglet devient la
+  // prochaine action de l'ÉTAPE correspondante du Dossier Invest (lien
+  // prochaine_action_id). L'ancienne prochaine action du client n'est plus écrite.
   const syncNextAction = async () => {
-    const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
-    if (!next) return;
-    const { error } = await supabase.from("invest_clients").update({ prochaine_action: next.action_title, date_prochaine_action: next.due_date || null }).eq("id", client.id);
-    if (error) setError(error.message); else onClientUpdated?.();
+    const next = actionsStep.filter(a => !missionActionDone(a) && a.dossier_id === dossierId).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
+    if (!next || !dossierId || selected.key === A_CLASSER) return;
+    const { data, error } = await supabase.from("invest_dossier_etapes")
+      .update({ prochaine_action: next.action_title, prochaine_action_id: next.id })
+      .eq("dossier_id", dossierId).eq("etape", selected.key).is("operation_id", null).select("id");
+    if (error || !data?.length) setError(error?.message || "Étape du dossier introuvable ou non modifiable.");
+    else onDossierModifie?.();
   };
 
   return (
@@ -2934,7 +2874,7 @@ Laisse vide pour créer un événement en journée entière.`,
             {stats.next && <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{stats.next.responsable || "—"} · échéance {stats.next.due_date ? new Date(stats.next.due_date).toLocaleDateString("fr-FR") : "—"}</div>}
           </div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexWrap:"wrap",padding:"9px 10px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb"}}>
-            <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
+            <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!dossierId || selected.key === A_CLASSER || !actionsStep.some(a => !missionActionDone(a) && a.dossier_id === dossierId)} title="Fait de la tâche ouverte la plus proche de cet onglet la prochaine action de l'étape du Dossier Invest">Prochaine action de l'étape</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:6,paddingBottom:8,marginBottom:8,maxWidth:"100%"}}>
@@ -3007,7 +2947,7 @@ Laisse vide pour créer un événement en journée entière.`,
                 <div style={{fontSize:12,fontWeight:950,color:T.text}}>Lecture rapide des actions</div>
                 <div style={{fontSize:10.5,color:T.textMuted,marginTop:2}}>Filtrer l'étape pour voir uniquement ce qui reste à traiter.</div>
               </div>
-              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
+              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!dossierId || selected.key === A_CLASSER || !actionsStep.some(a => !missionActionDone(a) && a.dossier_id === dossierId)} title="Fait de la tâche ouverte la plus proche de cet onglet la prochaine action de l'étape du Dossier Invest">Prochaine action de l'étape</button>
             </div>
             <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
               {[
@@ -3160,6 +3100,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
   const [missionStageInfo, setMissionStageInfo] = useState({ key:"", label:"" });
   // Tranche 2a : dossier affiché par la carte Dossier Invest (dossier en cours, étape courante).
   const [dossierInfo, setDossierInfo] = useState(null);
+  const [versionDossier, setVersionDossier] = useState(0);
 
   // Brouillons localStorage par client : note, tâche collaborateur et proposition
   // ne partent en base qu'au clic — un reload perdait la saisie. La fiche n'est
@@ -3542,8 +3483,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
   const clientFullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "Client";
   const notesAffichees = noteFilter === "tous" ? notes : notes.filter(n => n.type === noteFilter);
   const derniereNote = notes[0] || null;
-  const prochaineActionLate = client.date_prochaine_action && client.date_prochaine_action < ficheToday;
-  const prochaineActionToday = client.date_prochaine_action && client.date_prochaine_action === ficheToday;
+  // Tranche 2b : l'ancienne date de prochaine action n'alerte plus quand un Dossier Invest est en cours.
+  const prochaineActionLate = !dossierInfo?.dossierEnCoursId && client.date_prochaine_action && client.date_prochaine_action < ficheToday;
+  const prochaineActionToday = !dossierInfo?.dossierEnCoursId && client.date_prochaine_action && client.date_prochaine_action === ficheToday;
   const clientContact = [client.email, client.telephone].filter(Boolean).join(" · ") || "Coordonnées à compléter";
   const clientSourceOptions = Array.from(new Set([...SOURCES_CLIENT, client.source].filter(Boolean)));
   const clientConseillerOptions = Array.from(new Set([profil?.nom, client.conseiller, ...missionResponsables()].filter(Boolean)));
@@ -3577,7 +3519,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
         {/* Dossier Invest : représentation principale de l'avancement (Tranche 2a) */}
-        <DossierInvestCard client={client} T={T} profil={profil} onDossierChange={setDossierInfo} />
+        <DossierInvestCard client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
 
         {/* Synthèse client */}
         <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>
@@ -3716,7 +3658,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
         </div>
 
         {/* Parcours Mission en pleine largeur */}
-        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} dossierId={dossierInfo?.dossierEnCoursId || null} etapeCourante={dossierInfo?.etapeCourante || null} />
+        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} dossierId={dossierInfo?.dossierEnCoursId || null} etapeCourante={dossierInfo?.etapeCourante || null} onDossierModifie={() => setVersionDossier(v => v + 1)} />
 
         {/* Suivi des actions CRM sous le parcours mission */}
           <div id="suivi-actions" className="inv-card" style={{overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 18px 42px rgba(15,23,42,.06)",background:"linear-gradient(135deg,#ffffff,#f8fafc)"}}>
@@ -3735,6 +3677,19 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
 
             <div className="inv-card-bd" style={{paddingTop:12}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(280px,1fr))",gap:12,overflowX:"auto",paddingBottom:2}}>
+                {/* Tranche 2b : client avec Dossier Invest en cours → la prochaine
+                    action se pilote dans l'étape du dossier ; l'ancienne reste
+                    affichée comme historique. Sans dossier (prospect), inchangé. */}
+                {dossierInfo?.dossierEnCoursId ? (
+                <div style={{border:"1px solid #fed7aa",borderRadius:16,padding:12,background:"linear-gradient(135deg,#fff7ed,#ffffff)",minWidth:220}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+                    <Icon as={Bell} size={13} color="#92400e" strokeWidth={2.3}/>
+                    <div style={{fontSize:13,fontWeight:950,color:T.text}}>Prochaine action</div>
+                  </div>
+                  <div style={{fontSize:12,color:T.text,lineHeight:1.45}}>Pilotée dans le Dossier Invest <b>{dossierInfo.reference}</b>{dossierInfo.etapeCouranteLibelle ? <> (étape <b>{dossierInfo.etapeCouranteLibelle}</b>)</> : null} : ouvrez l'étape dans la carte ci-dessus pour la modifier.</div>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:8}}>Ancienne prochaine action (historique, lecture seule) : {client.prochaine_action || "aucune"}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}</div>
+                </div>
+                ) : (
                 <div style={{border:"1px solid #fed7aa",borderRadius:16,padding:12,background:"linear-gradient(135deg,#fff7ed,#ffffff)",minWidth:220}}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
                     <Icon as={Bell} size={13} color="#92400e" strokeWidth={2.3}/>
@@ -3791,6 +3746,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                     </button>
                   </div>
                 </div>
+                )}
 
                 <div style={{border:"1px solid #c4b5fd",borderRadius:16,padding:12,background:"linear-gradient(135deg,#f5f3ff,#ffffff)",minWidth:220}}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>

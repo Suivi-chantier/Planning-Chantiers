@@ -4291,7 +4291,7 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
         email: cleanProspect.email || "",
         source: cleanProspect.source || "CRM Prospection",
         statut: "actif",
-        etape: "1. Signature contrat",
+        // Tranche 2b : plus d'ancienne étape écrite ; l'avancement vit dans le Dossier Invest.
         budget: cleanProspect.budget_global || null,
         date_signature: todayIso(),
         strategie_data: {

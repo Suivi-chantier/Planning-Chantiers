@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
+    type: "amelioration",
+    titre: "Invest : le CRM, le tableau de bord et la routine du matin suivent le Dossier Invest",
+    pages: [{ id: "crm", label: "CRM" }, { id: "dashboard", label: "Dashboard" }],
+    quoi: "Le suivi quotidien reposait encore sur l'ancienne « étape » et l'ancienne « prochaine action » saisies à la main sur le client. Un dossier peut avoir plusieurs étapes en cours en même temps, avec à chaque fois quelqu'un qui a la balle : c'est désormais cette réalité qui est affichée, partout de la même façon.",
+    comment: "Liste et frise du CRM : chaque client est placé sur l'étape principale de son Dossier Invest (les 11 étapes), avec qui a la balle, la prochaine action et l'échéance ; les clients sans dossier en cours sont regroupés à part. Tableau de bord : nouveau bloc « Suivi des Dossiers Invest » (dossiers actifs, étapes en cours, qui a la balle, dossiers bloqués, échéances dépassées ou proches, tâches en retard, dossiers sans prochaine action) ; un clic ouvre la fiche. Routine du matin : chaque dossier indique qui doit agir, sur quelle étape, pourquoi et avant quand ; valider une décision met à jour la prochaine action de cette étape, et une tâche créée depuis la routine est rattachée au dossier. L'ancienne étape et l'ancienne prochaine action restent visibles comme historique mais ne se modifient plus pour un client suivi par un dossier.",
+  },
+  {
+    date: "2026-09-30",
     type: "nouveaute",
     titre: "CRM Invest : l'avancement de chaque client se pilote dans sa carte « Dossier Invest »",
     pages: [{ id: "crm", label: "CRM" }],

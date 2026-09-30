@@ -28,6 +28,8 @@
 // besoin du jour Paris exact le passent explicitement via `jour`.
 
 import { estUtilisateurCourant } from "./annuaire.mjs";
+// Tranche 2b : l'avancement d'un client vient de son Dossier Invest.
+import { indexerPilotage, alertesPilotage, actionDuJour, resumePilotage, syntheseDossiers } from "./dossiers/pilotage.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Formateurs et petits utilitaires purs
@@ -156,11 +158,15 @@ export function isActiveProspectRecord(c = {}) {
   const prospectWords = ["prospect", "nouveau", "qualifie", "qualifié", "rdv", "proposition", "relance", "chaud", "tiede", "tiède", "froid", "a qualifier", "à qualifier"];
   return prospectWords.some(k => txt.includes(k)) || (!txt || txt === "nouveau");
 }
-export function isClientRecord(c = {}) {
+// Tranche 2b : un client est « métier » s'il a un Dossier Invest en cours, ou
+// si son statut le dit. L'ancienne étape (invest_clients.etape) n'entre plus en
+// compte : elle est historique.
+export function isClientRecord(c = {}, aUnDossierEnCours = false) {
   if (!c || !c.id || isDeletedLike(c)) return false;
-  const txt = normTxt(`${c.statut || ""} ${c.status || ""} ${c.etape || ""}`);
+  if (aUnDossierEnCours) return true;
+  const txt = normTxt(`${c.statut || ""} ${c.status || ""}`);
   if (V9_CLIENT_INACTIVE.some(k => txt.includes(k))) return false;
-  return c.date_signature || txt.includes("actif") || txt.includes("contrat") || txt.includes("financement") || txt.includes("compromis") || txt.includes("travaux") || txt.includes("location") || Boolean(c.etape);
+  return Boolean(c.date_signature) || txt.includes("actif") || txt.includes("contrat") || txt.includes("financement") || txt.includes("compromis") || txt.includes("travaux") || txt.includes("location");
 }
 export function isActiveBien(b = {}) {
   if (!b || !b.id || isDeletedLike(b)) return false;
@@ -369,35 +375,38 @@ export function buildProspectDossier(c, pilote = "") {
   };
 }
 
-export function buildClientDossier(c, actions = [], pilote = "") {
+// Tranche 2b : un client se pilote par son Dossier Invest (étapes actives,
+// balle, prochaine action, échéance, blocage, tâches du dossier). L'ancienne
+// étape et l'ancienne prochaine action du client ne sont plus lues.
+export function buildClientDossier(c, actions = [], pilote = "", pilotage = null, { avancementInconnu = false } = {}) {
   const alerts = [];
-  const nextAction = c.prochaine_action;
-  const nextDate = c.date_prochaine_action;
-  const owner = firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to"]);
-  const lastDays = daysSince(clientLastActivity(c));
   const relatedActions = safeArr(actions).filter(a => String(a.client_id || linkedEntityId(a) || "") === String(c.id));
-  const blocked = relatedActions.filter(isBlockedAction);
-  const late = relatedActions.filter(a => isOpenAction(a) && a.due_date && isDueTodayOrPast(a.due_date));
-  const docs = relatedActions.filter(isDocumentSensitive);
-  const partner = relatedActions.filter(isPartnerSensitive);
-  if (!c.etape) alerts.push(makeAlert({ code: "no_stage", label: "Étape client non renseignée", level: "danger" }));
-  if (!owner) alerts.push(makeAlert({ code: "no_owner", label: "Responsable non renseigné", level: "danger" }));
-  if (!nextAction) alerts.push(makeAlert({ code: "no_next_action", label: "Sans prochaine action", level: "danger" }));
-  if (!nextDate) alerts.push(makeAlert({ code: "no_next_date", label: "Sans date de prochaine action", level: "danger" }));
-  if (nextDate && isDueTodayOrPast(nextDate)) alerts.push(makeAlert({ code: "late_action", label: `Action à traiter (${safeDate(nextDate)})`, level: "danger", due_date: nextDate }));
-  if (nextDate && isFuture(nextDate) && isWithinNextDays(nextDate, 7)) alerts.push(makeAlert({ code: "future_action", label: `Échéance sous 7 jours (${safeDate(nextDate)})`, level: "warning", due_date: nextDate }));
-  if (lastDays !== null && lastDays >= 10) alerts.push(makeAlert({ code: "stale_red", label: `Aucune avancée depuis ${lastDays} jours`, level: "danger" }));
-  else if (lastDays !== null && lastDays >= 7) alerts.push(makeAlert({ code: "stale_orange", label: `À vérifier : ${lastDays} jours sans avancée`, level: "warning" }));
-  blocked.forEach(a => alerts.push(makeAlert({ code: `blocked_${a.id}`, label: `Action bloquée : ${actionTitle(a)}`, level: "danger", due_date: a.due_date })));
-  late.forEach(a => alerts.push(makeAlert({ code: `late_${a.id}`, label: `Tâche en retard : ${actionTitle(a)}`, level: "danger", due_date: a.due_date })));
-  docs.forEach(a => alerts.push(makeAlert({ code: `doc_${a.id}`, label: `Document à suivre : ${actionTitle(a)}`, level: isDueTodayOrPast(a.due_date) ? "danger" : "warning", due_date: a.due_date })));
-  partner.forEach(a => alerts.push(makeAlert({ code: `partner_${a.id}`, label: `Partenaire à suivre : ${actionTitle(a)}`, level: isDueTodayOrPast(a.due_date) ? "danger" : "warning", due_date: a.due_date })));
+  const openActions = relatedActions.filter(isOpenAction);
+  if (pilotage) {
+    alertesPilotage(pilotage).forEach(a => alerts.push(a));
+    // Tâches bloquées / pièces / partenaires : tâches du dossier uniquement.
+    const duDossier = openActions.filter(a => String(a.dossier_id || "") === String(pilotage.dossierId));
+    duDossier.filter(isBlockedAction).forEach(a => alerts.push(makeAlert({ code: `blocked_${a.id}`, label: `Action bloquée : ${actionTitle(a)}`, level: "danger", due_date: a.due_date })));
+    duDossier.filter(isDocumentSensitive).forEach(a => alerts.push(makeAlert({ code: `doc_${a.id}`, label: `Document à suivre : ${actionTitle(a)}`, level: isDueTodayOrPast(a.due_date) ? "danger" : "warning", due_date: a.due_date })));
+    duDossier.filter(isPartnerSensitive).forEach(a => alerts.push(makeAlert({ code: `partner_${a.id}`, label: `Partenaire à suivre : ${actionTitle(a)}`, level: isDueTodayOrPast(a.due_date) ? "danger" : "warning", due_date: a.due_date })));
+  } else if (avancementInconnu) {
+    // Dossiers Invest non chargés : l'avancement est INCONNU, pas absent.
+    alerts.push(makeAlert({ code: "avancement_inconnu", label: "Avancement indisponible : Dossiers Invest non chargés", level: "warning" }));
+  } else {
+    alerts.push(makeAlert({ code: "sans_dossier_invest", label: "Client sans Dossier Invest en cours : démarrer une mission ou mettre à jour son statut", level: normTxt(c.statut).includes("actif") ? "danger" : "warning" }));
+  }
   const level = worstLevel(alerts);
+  const ajd = actionDuJour(pilotage);
+  const owner = ajd.responsable || firstFilled(c, ["conseiller", "responsable", "owner", "assigned_to"]);
+  const due = ajd.echeance;
   return {
-    key: entityKey("client", c.id), type: "client", id: c.id, sourceTable: "invest_clients", label: getClientName(c), subtitle: joinNonEmpty([c.etape, c.statut, fmtDashboardEur(c.budget)]),
+    key: entityKey("client", c.id), type: "client", id: c.id, sourceTable: "invest_clients", label: getClientName(c),
+    subtitle: avancementInconnu && !pilotage ? "Avancement indisponible" : joinNonEmpty([pilotage?.reference, resumePilotage(pilotage)]),
     level, alerts, primaryAlert: alerts[0]?.label || "Sous contrôle", responsable: owner || pilote,
-    next_action: nextAction || "Définir la prochaine action client", due_date: nextDate || todayIso(), readOnly: level !== "danger" && nextDate && isFuture(nextDate), raw: c,
-    meta: { step: c.etape, status: c.statut, budget: c.budget, lastActivity: clientLastActivity(c), relatedActions },
+    next_action: ajd.action || (avancementInconnu ? "Vérifier le Dossier Invest (non chargé)" : "Démarrer une mission (carte Dossier Invest)"), due_date: due || todayIso(),
+    readOnly: level !== "danger" && Boolean(due) && isFuture(due), raw: c,
+    // etapeAction : l'étape que vise l'action du jour (et que la décision de routine met à jour).
+    meta: { dossier: pilotage, etapeAction: ajd.etape || null, step: pilotage?.principale?.libelle ?? null, status: c.statut, budget: c.budget, relatedActions },
   };
 }
 
@@ -443,12 +452,19 @@ export function buildTeamDossiers(actions = [], pilote = "") {
   });
 }
 
-export function consolidateData({ clients = [], crmProspects = [], biens = [], propositions = [], planning = [], actions = [], profil = null, pilote = "" }) {
-  const prospects = uniqueRows([...safeArr(clients).filter(isActiveProspectRecord), ...safeArr(crmProspects).filter(isActiveProspectRecord)]);
-  const clientsMetier = safeArr(clients).filter(isClientRecord);
+export function consolidateData({ clients = [], crmProspects = [], biens = [], propositions = [], planning = [], actions = [],
+  dossiersInvest, etapesInvest, utilisateurs = [], jour = todayIso(), profil = null, pilote = "" }) {
+  // Dossier Invest : un pilotage par client ayant un dossier non clos.
+  // Données non fournies ou illisibles (null/undefined) = avancement INCONNU,
+  // jamais confondu avec « aucun dossier ».
+  const avancementInconnu = !Array.isArray(dossiersInvest) || !Array.isArray(etapesInvest);
+  const pilotages = avancementInconnu ? new Map()
+    : indexerPilotage({ dossiers: dossiersInvest, etapes: etapesInvest, taches: safeArr(actions), utilisateurs: safeArr(utilisateurs), aujourdhui: jour });
+  const prospects = uniqueRows([...safeArr(clients).filter(c => !pilotages.has(c.id) && isActiveProspectRecord(c)), ...safeArr(crmProspects).filter(isActiveProspectRecord)]);
+  const clientsMetier = safeArr(clients).filter(c => isClientRecord(c, pilotages.has(c.id)));
   const biensActifs = safeArr(biens).filter(isActiveBien);
   const prospectDossiers = prospects.map(c => buildProspectDossier(c, pilote));
-  const clientDossiers = clientsMetier.map(c => buildClientDossier(c, actions, pilote));
+  const clientDossiers = clientsMetier.map(c => buildClientDossier(c, actions, pilote, pilotages.get(c.id) || null, { avancementInconnu }));
   const bienDossiers = biensActifs.map(b => buildBienDossier(b, actions, propositions, pilote));
   const teamDossiers = buildTeamDossiers(actions, pilote);
   const allDossiers = [...prospectDossiers, ...clientDossiers, ...bienDossiers, ...teamDossiers];
@@ -463,6 +479,8 @@ export function consolidateData({ clients = [], crmProspects = [], biens = [], p
   });
   return {
     prospects, clientsMetier, biensActifs, prospectDossiers, clientDossiers, bienDossiers, teamDossiers, allDossiers, planning, actions, propositions,
+    pilotages: [...pilotages.values()], avancementInconnu,
+    suiviInvest: syntheseDossiers([...pilotages.values()]),
     stats: {
       prospects: prospects.length, clients: clientsMetier.length, biens: biensActifs.length,
       decision: allDossiers.filter(d => d.category === "decision").length,
@@ -530,7 +548,15 @@ export const REQUETES_TABLEAU_BORD = [
   { cle: "planning",      label: "planning",
     requete: (sb) => sb.from("invest_planning").select("*").order("date_rdv", { ascending: false }).limit(500) },
   { cle: "actions",       label: "actions équipe",
-    requete: (sb) => sb.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut,etape)").order("due_date", { ascending: true, nullsFirst: false }).limit(700) },
+    requete: (sb) => sb.from("invest_mission_actions").select("*, client:invest_clients(id,nom,prenom,statut)").order("due_date", { ascending: true, nullsFirst: false }).limit(700) },
+  // Tranche 2b : Dossier Invest, source de vérité du suivi.
+  // `inconnuSiErreur` : en cas d'échec la clé vaut null (inconnu), pas [] (vide).
+  { cle: "dossiersInvest", label: "dossiers Invest", requis: true, inconnuSiErreur: true,
+    requete: (sb) => sb.from("invest_dossiers").select("id,client_id,reference,libelle,statut,conseiller_id,created_at").in("statut", ["ouvert", "actif", "suspendu"]) },
+  { cle: "etapesInvest",   label: "étapes des dossiers", requis: true, inconnuSiErreur: true,
+    requete: (sb) => sb.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,prochaine_action_id,echeance,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(5000) },
+  { cle: "utilisateurs",   label: "annuaire",
+    requete: (sb) => sb.from("utilisateurs").select("id,nom,email") },
   { cle: "notifications", label: "notifications",
     requete: (sb) => sb.from("invest_action_notifications").select("*").order("created_at", { ascending: false }).limit(100) },
   { cle: "finance",       label: "finance",
@@ -555,11 +581,11 @@ export async function chargerTableauBord(sb, { jour = todayIso(), onErreur = nul
   const resultats = await Promise.all(REQUETES_TABLEAU_BORD.map(async (r) => {
     try {
       const { data, error } = await r.requete(sb, { jour });
-      if (error) { onErreur?.(r.label, error, Boolean(r.requis)); return [r.cle, []]; }
+      if (error) { onErreur?.(r.label, error, Boolean(r.requis)); return [r.cle, r.inconnuSiErreur ? null : []]; }
       return [r.cle, r.apres ? r.apres(data || []) : (data || [])];
     } catch (e) {
       onErreur?.(r.label, e, Boolean(r.requis));
-      return [r.cle, []];
+      return [r.cle, r.inconnuSiErreur ? null : []];
     }
   }));
   return Object.fromEntries(resultats);

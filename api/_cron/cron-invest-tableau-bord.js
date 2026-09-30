@@ -482,7 +482,7 @@ async function runInvestTableauBord(req, supabase, t, envoyerMail) {
     const profil = { nom: cible.nom, email: cible.email };
     const pilote = cible.nom || String(cible.email || "").split("@")[0] || "";
 
-    const data = consolidateData({ ...donnees, profil, pilote });
+    const data = consolidateData({ ...donnees, jour, profil, pilote });
 
     // Les trois colonnes vivantes se calculent sur la routine DU JOUR : seul un
     // arbitrage rendu aujourd'hui doit faire sortir un dossier du flux.
