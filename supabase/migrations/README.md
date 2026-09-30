@@ -16,6 +16,12 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
+**`20260930150000_utilisateurs_champs_sensibles.sql` n'est PAS appliquée**
+(préparée le 30/09/2026, en attente de validation) : protection des champs
+sensibles de `utilisateurs` (chantier 1.0, sécurité). Elle s'applique seule,
+jamais par `supabase db push` (règle 2). Retour arrière :
+`sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
+
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
 requête (2,5 s → 17 ms). Le fichier, d'abord préparé sous

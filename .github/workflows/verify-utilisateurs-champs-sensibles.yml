@@ -1,0 +1,28 @@
+name: Verify Utilisateurs Champs Sensibles
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260930150000_utilisateurs_champs_sensibles.sql'
+      - 'sql/202609_utilisateurs_champs_sensibles_rollback.sql'
+      - 'scripts/verif-utilisateurs-champs-sensibles.mjs'
+      - 'src/**'
+      - 'api/**'
+      - 'supabase/functions/**'
+      - '.github/workflows/verify-utilisateurs-champs-sensibles.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: utilisateurs — champs sensibles protégés, nav_order libre
+        run: node scripts/verif-utilisateurs-champs-sensibles.mjs

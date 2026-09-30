@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "correctif",
+    titre: "Sécurité : un utilisateur ne peut plus modifier lui-même son rôle ou son accès",
+    pages: [],
+    quoi: "Un utilisateur connecté pouvait, en contournant les écrans, modifier sa propre fiche : se donner le rôle administrateur, se réactiver après une désactivation, s'ajouter une branche ou changer son adresse. Seuls les administrateurs doivent pouvoir le faire.",
+    comment: "Rien ne change à l'écran. Chacun peut toujours réorganiser l'ordre de ses onglets dans la barre de navigation. Le rôle, le statut actif, les branches, l'adresse email et le nom d'un compte ne peuvent désormais être modifiés que par un administrateur actif, depuis l'onglet Utilisateurs, ou par les services de l'application.",
+  },
+  {
+    date: "2026-09-30",
+    type: "correctif",
     titre: "Sécurité : seuls les administrateurs peuvent inviter un utilisateur ou lancer une réinitialisation",
     pages: [{ id: "admin", label: "Admin" }],
     quoi: "Le service qui envoie les invitations et les réinitialisations de mot de passe ne vérifiait pas qui le sollicitait : une personne extérieure connaissant l'adresse technique de l'application pouvait créer un compte ou en supprimer un, sans passer par l'écran Admin.",
