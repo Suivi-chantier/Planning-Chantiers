@@ -1,0 +1,29 @@
+name: Verify Invest Dossiers T1
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260930190000_invest_dossiers_tranche1.sql'
+      - 'sql/202609_invest_dossiers_tranche1_rollback.sql'
+      - 'src/Invest/dossiers/**'
+      - 'src/Invest/annuaire.mjs'
+      - 'src/Invest/CRM.jsx'
+      - 'scripts/verif-invest-dossiers-t1.mjs'
+      - 'scripts/reprise-invest-dossiers-t1.mjs'
+      - '.github/workflows/verify-invest-dossiers-t1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Dossier Invest — Tranche 1 (dossiers, parcours, journal, reprise)
+        run: node scripts/verif-invest-dossiers-t1.mjs

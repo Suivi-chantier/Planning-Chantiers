@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
+    type: "amelioration",
+    titre: "CRM Invest : un client suivi dans un Dossier Invest ne peut plus être supprimé par erreur",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Supprimer un client effaçait d'abord ses notes et ses propositions, même quand la suppression du client échouait ensuite : on pouvait perdre l'historique sans s'en rendre compte.",
+    comment: "Le bouton « Supprimer » de la fiche client supprime désormais tout en une seule fois, ou rien. Un client qui possède un Dossier Invest ne peut plus être supprimé : un message invite à le passer en « Inactif » ou à clôturer son dossier. Un client sans dossier se supprime comme avant.",
+  },
+  {
+    date: "2026-09-30",
     type: "correctif",
     titre: "Sécurité : un utilisateur ne peut plus modifier lui-même son rôle ou son accès",
     pages: [],
