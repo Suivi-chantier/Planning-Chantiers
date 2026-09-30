@@ -23,6 +23,7 @@ import { uuidDepuis } from "./reprise-invest-dossiers-t1.mjs";
 import * as TR from "../src/Invest/dossiers/transitions.mjs";
 import * as V from "../src/Invest/dossiers/dossierVue.mjs";
 import * as SP from "../src/Invest/dossiers/situationPatrimoniale.mjs";
+import * as QS from "../src/Invest/dossiers/questionnaireDossier.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (rel) => readFileSync(join(racine, rel), "utf8");
@@ -35,6 +36,10 @@ const CARTE = lire("src/Invest/dossiers/DossierInvestCard.jsx");
 const MIGRATION_2C = lire("supabase/migrations/20260930230000_invest_situation_patrimoniale_2c.sql");
 const ROLLBACK_2C = lire("sql/202609_invest_situation_patrimoniale_2c_rollback.sql");
 const CARTE_SP = lire("src/Invest/dossiers/SituationPatrimonialeCard.jsx");
+const MIGRATION_2D = lire("supabase/migrations/20260930235000_invest_questionnaire_2d.sql");
+const ROLLBACK_2D = lire("sql/202609_invest_questionnaire_2d_rollback.sql");
+const CARTE_QS = lire("src/Invest/dossiers/ProjetSituationCard.jsx");
+const CATALOGUE_QS = lire("src/Invest/dossiers/questionnaireDossier.mjs");
 
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -227,12 +232,13 @@ insert into public.invest_mission_actions (id, client_id, step_key, step_label, 
   ('50000000-0000-0000-0000-000000000007', '${C.prospect}', 'signature', 'Signature', 1, 'Envoyer le contrat', 'Camille', null, 'a_faire');
 `;
 
-async function nouvelleBase({ migration = true, t2a = true, t2c = true } = {}) {
+async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA_PROD);
   if (migration) await db.exec(MIGRATION);
   if (migration && t2a) await db.exec(MIGRATION_2A);
   if (migration && t2a && t2c) await db.exec(MIGRATION_2C);
+  if (migration && t2a && t2c && t2d) await db.exec(MIGRATION_2D);
   return db;
 }
 
@@ -771,6 +777,7 @@ test("26. parcours.mjs : lecture des anciennes étapes, étape courante, suggest
 test("27. retour arrière : tables et colonnes retirées, données historiques intactes", async () => {
   const db = await nouvelleBase();
   await ouvrir(db, C.louison);
+  await db.exec(ROLLBACK_2D);
   await db.exec(ROLLBACK_2C);
   await db.exec(ROLLBACK_2A);
   await db.exec(ROLLBACK);
@@ -802,6 +809,7 @@ test("29. migration rejouable sur une base déjà migrée", async () => {
   await db.exec(MIGRATION.replace(/create policy[\s\S]*?;/g, ""));
   await db.exec(MIGRATION_2A);
   await db.exec(MIGRATION_2C);
+  await db.exec(MIGRATION_2D);
   assert.equal((await etapes(db, id)).length, 11);
   ok(await ouvrir(db, C.prospect));
 });
@@ -1433,7 +1441,9 @@ test("52. 2c migration : additive, rejouable, sans reprise ; retour arrière san
   const { id } = await ouvrir(db, C.nu);
   ok(await ins(db, "invest_personnes", { client_id: C.nu, lien: "principal", prenom: "Nina" }));
   await db.exec(MIGRATION_2C); // rejouable
+  await db.exec(MIGRATION_2D);
   assert.equal((await q1(db, `select count(*)::int n from public.invest_personnes`)).n, 1);
+  await db.exec(ROLLBACK_2D);
   await db.exec(ROLLBACK_2C);
   assert.equal((await q1(db, `select to_regclass('public.invest_personnes') t`)).t, null);
   assert.equal((await etapes(db, id)).length, 11, "dossier et étapes intacts");
@@ -1451,6 +1461,181 @@ test("52. 2c migration : additive, rejouable, sans reprise ; retour arrière san
   assert.match(CARTE_SP, /Modifications rattachées à/);
   assert.match(CARTE_SP, /Patrimoine net simplifié \(biens à 100 %\)/);
   assert.match(CARTE_SP, /PAS la part patrimoniale personnelle exacte/);
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11. Tranche 2d — Projet & situation (questionnaire du dossier)
+// ═══════════════════════════════════════════════════════════════════════════
+const qsEnreg = (db, dossier, reponses, email = COLLAB, role = "authenticated") => sous(db, role, email,
+  `select public.invest_questionnaire_enregistrer($1, $2::jsonb, $3) as r`, [dossier, JSON.stringify(reponses), QS.QUESTIONNAIRE_VERSION]);
+const qsVerif = (db, dossier, cles, statut, commentaire = null, email = COLLAB, role = "authenticated") => sous(db, role, email,
+  `select public.invest_questionnaire_verifier($1, $2::text[], $3, $4) as r`, [dossier, `{${cles.join(",")}}`, statut, commentaire]);
+const qsStatut = (db, dossier, statut, email = COLLAB, role = "authenticated") => sous(db, role, email,
+  `select public.invest_questionnaire_statut($1, $2) as r`, [dossier, statut]);
+const qsLire = (db, dossier) => q1(db, `select * from public.invest_dossiers where id = $1`, [dossier]);
+const qsEv = (db, dossier) => qn(db, `select type, resume from public.invest_dossier_evenements where dossier_id = $1 and type like 'questionnaire_%' order by ordre`, [dossier]);
+
+test("53. 2d catalogue : version, clés, sections identiques en base, aucune valeur par défaut ni reprise", async () => {
+  assert.equal(QS.QUESTIONNAIRE_VERSION, 1);
+  const cles = QS.QUESTIONS.map((q) => q.cle);
+  assert.equal(new Set(cles).size, cles.length, "clés uniques");
+  assert.ok(cles.every((k) => /^[a-z]+__[a-z0-9_]+$/.test(k)), "format accepté par la base");
+  assert.deepEqual(QS.SECTIONS_QUESTIONNAIRE.map((s) => s.lettre).join(""), "ABCDEFG");
+  const db = await nouvelleBase();
+  for (const s of QS.SECTIONS_QUESTIONNAIRE) assert.equal((await q1(db, `select public.invest_questionnaire_section($1) l`, [s.cle])).l, s.libelle);
+  assert.ok(QS.QUESTIONS.every((q) => !("defaut" in q) && !("valeurParDefaut" in q)), "aucune valeur par défaut");
+  const { id } = await ouvrir(db, C.louison);
+  const d = await qsLire(db, id);
+  assert.deepEqual(d.questionnaire_data, {}, "questionnaire vide à l'ouverture : jamais « France », « 15 ans »…");
+  assert.equal(d.questionnaire_statut, "brouillon");
+  assert.ok(!/strategie_data|structuration_patrimoniale|invest_clients/.test(CATALOGUE_QS + CARTE_QS), "aucune lecture des anciennes données");
+  assert.equal((await q1(db, `select strategie_data s from public.invest_clients where id = $1`, [C.louison])).s.objectif, "patrimoine", "strategie_data intact");
+});
+
+test("54. 2d conditions : mariage, international, transmission ; une réponse masquée est conservée", () => {
+  const rep = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { valeur: v }]));
+  const foyer = QS.SECTIONS_QUESTIONNAIRE.find((s) => s.cle === "foyer");
+  const vis = (s, r) => QS.questionsVisibles(QS.SECTIONS_QUESTIONNAIRE.find((x) => x.cle === s), r).map((q) => q.cle);
+  assert.ok(!vis("foyer", {}).includes("foyer__regime_matrimonial"));
+  assert.ok(vis("foyer", rep({ foyer__situation_familiale: "marie" })).includes("foyer__regime_matrimonial"));
+  assert.ok(vis("foyer", rep({ foyer__situation_familiale: "pacse" })).includes("foyer__regime_pacs"));
+  assert.deepEqual(vis("international", {}), ["international__concerne"], "international : une seule question tant que non concerné");
+  assert.ok(vis("international", rep({ international__concerne: "oui" })).length >= 7);
+  assert.ok(!vis("detention", {}).includes("detention__objectifs_successoraux"));
+  assert.ok(vis("detention", rep({ objectifs__objectif_principal: "transmission" })).includes("detention__objectifs_successoraux"));
+  assert.ok(vis("detention", rep({ objectifs__objectifs_secondaires: ["transmission"] })).includes("detention__objectifs_successoraux"));
+  assert.ok(!vis("banque", {}).includes("banque__financement_detail"));
+  // Masquée ≠ supprimée ; la progression ne compte que ce qui est affiché.
+  const r = rep({ foyer__situation_familiale: "celibataire", foyer__regime_matrimonial: "separation_biens" });
+  const p = QS.progression(r);
+  assert.equal(p.masqueesConservees, 1);
+  assert.equal(p.sections.find((x) => x.cle === "foyer").repondues, 1);
+  assert.equal(QS.progression({}).pourcentage, 0);
+  assert.ok(foyer.questions.length > 5);
+});
+
+test("55. 2d réponses : provenance, dates et auteur posés par la base ; métadonnées envoyées ignorées ; fusion sans écrasement", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  ok(await qsEnreg(db, id, { fiscalite__residence_foyer: { valeur: "mixte" }, fiscalite__pays: { valeur: "France, Suisse", source: "client" } }));
+  ok(await qsEnreg(db, id, { objectifs__budget: { valeur: 300000, verification: "verifiee", verifie_par_id: U.camille, saisi_par_id: U.camille } }));
+  const d = (await qsLire(db, id)).questionnaire_data;
+  assert.deepEqual(Object.keys(d).sort(), ["fiscalite__pays", "fiscalite__residence_foyer", "objectifs__budget"], "fusion : rien d'écrasé");
+  assert.equal(d.fiscalite__residence_foyer.source, "profero"); assert.equal(d.fiscalite__pays.source, "client");
+  assert.equal(d.objectifs__budget.saisi_par_id, U.matthieu, "auteur = session, pas la valeur envoyée");
+  assert.equal(d.objectifs__budget.verification, "non_verifiee", "une réponse ne s'auto-vérifie pas");
+  assert.equal(d.objectifs__budget.verifie_par_id, null);
+  assert.ok(d.objectifs__budget.saisi_le && d.objectifs__budget.modifie_le);
+  refuse(await qsEnreg(db, id, { "fiscalite.tmi": { valeur: "30" } }), /Question inconnue/);
+  assert.equal((await qsLire(db, id)).questionnaire_version, 1);
+  // L'écran n'envoie que les valeurs changées.
+  assert.deepEqual(QS.reponsesModifiees(d, { fiscalite__residence_foyer: "mixte", objectifs__budget: 350000 }), { objectifs__budget: { valeur: 350000, source: "profero" } });
+  assert.throws(() => QS.reponsesModifiees(d, { inconnue__x: 1 }), /Question inconnue/);
+});
+
+test("56. 2d vérification : par réponse, collaborateur seulement ; modifier une réponse vérifiée la repasse non vérifiée", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  ok(await qsEnreg(db, id, { fiscalite__tmi: { valeur: "30" }, fiscalite__ifi: { valeur: "non" } }));
+  ok(await qsVerif(db, id, ["fiscalite__tmi", "fiscalite__ifi"], "verifiee"));
+  let d = (await qsLire(db, id)).questionnaire_data;
+  assert.equal(d.fiscalite__tmi.verification, "verifiee"); assert.equal(d.fiscalite__tmi.verifie_par_id, U.matthieu); assert.ok(d.fiscalite__tmi.verifie_le);
+  ok(await qsEnreg(db, id, { fiscalite__tmi: { valeur: "41" } }));
+  d = (await qsLire(db, id)).questionnaire_data;
+  assert.equal(d.fiscalite__tmi.verification, "non_verifiee"); assert.equal(d.fiscalite__tmi.verifie_par_id, null);
+  assert.equal(d.fiscalite__ifi.verification, "verifiee", "les autres réponses gardent leur vérification");
+  refuse(await qsVerif(db, id, ["fiscalite__ifi"], "a_corriger", null), /à corriger/);
+  ok(await qsVerif(db, id, ["fiscalite__ifi"], "a_corriger", "Montant IFI à confirmer"));
+  refuse(await qsVerif(db, id, ["fiscalite__tmi"], "verifiee", null, null, "service_role"), /Seul un collaborateur/);
+  refuse(await qsVerif(db, id, ["fiscalite__tmi"], "verifiee", null, HORS_INVEST), /introuvable ou non modifiable/);
+});
+
+test("57. 2d cycle : soumission, validation (collaborateur, sans réponse à corriger), correction après validation → à vérifier", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  ok(await qsEnreg(db, id, { objectifs__objectif_principal: { valeur: "rendement" }, objectifs__horizon: { valeur: "10_15" } }));
+  ok(await qsStatut(db, id, "soumis"));
+  let d = await qsLire(db, id); assert.equal(d.questionnaire_statut, "soumis"); assert.ok(d.questionnaire_soumis_le);
+  ok(await qsVerif(db, id, ["objectifs__horizon"], "a_corriger", "Horizon à préciser"));
+  refuse(await qsStatut(db, id, "valide"), /à corriger : validation impossible/);
+  ok(await qsVerif(db, id, ["objectifs__horizon"], "verifiee"));
+  refuse(await qsStatut(db, id, "valide", null, "service_role"), /Seul un collaborateur/);
+  ok(await qsStatut(db, id, "valide"));
+  d = await qsLire(db, id); assert.equal(d.questionnaire_statut, "valide"); assert.equal(d.questionnaire_valide_par_id, U.matthieu); assert.ok(d.questionnaire_valide_le);
+  ok(await qsEnreg(db, id, { objectifs__horizon: { valeur: "plus_15" } }), "la validation n'empêche pas une correction");
+  d = await qsLire(db, id);
+  assert.equal(d.questionnaire_statut, "a_verifier"); assert.equal(d.questionnaire_valide_par_id, U.matthieu, "historique de validation conservé");
+  const ev = await qsEv(db, id);
+  assert.ok(ev.some((e) => e.type === "questionnaire_soumis" && e.resume === "Projet & situation : questionnaire soumis."));
+  assert.ok(ev.some((e) => e.type === "questionnaire_valide" && e.resume === "Projet & situation : questionnaire validé."));
+  assert.equal(ev[ev.length - 1].resume, "Projet & situation : section Objectifs d'investissement mise à jour (1 réponse). 1 réponse vérifiée à revérifier. Questionnaire validé : à revérifier.");
+});
+
+test("58. 2d dossier clos : Projet & situation en lecture seule", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  ok(await qsEnreg(db, id, { banque__principale: { valeur: "Banque A" } }));
+  ok(await collab(db, `update public.invest_dossiers set statut = 'clos', motif_cloture = 'Fin' where id = '${id}'`));
+  refuse(await qsEnreg(db, id, { banque__principale: { valeur: "Banque B" } }), /lecture seule/);
+  refuse(await qsStatut(db, id, "soumis"), /lecture seule/);
+  const lu = await sous(db, "authenticated", COLLAB, `select questionnaire_data from public.invest_dossiers where id = '${id}'`);
+  ok(lu); assert.equal(lu.rows[0].questionnaire_data.banque__principale.valeur, "Banque A");
+});
+
+test("59. 2d journal : un événement par enregistrement, lisible par section, jamais de clé technique", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  ok(await qsEnreg(db, id, { fiscalite__tmi: { valeur: "30" }, fiscalite__impot_revenu: { valeur: 8000 } }));
+  ok(await qsEnreg(db, id, { fiscalite__ifi: { valeur: "non" }, objectifs__zones: { valeur: "Nantes" } }));
+  ok(await qsVerif(db, id, ["fiscalite__tmi", "fiscalite__ifi"], "verifiee"));
+  const ev = await qsEv(db, id);
+  assert.deepEqual(ev.map((e) => e.resume), [
+    "Projet & situation : section Fiscalité mise à jour (2 réponses).",
+    "Projet & situation : sections Fiscalité, Objectifs d'investissement mises à jour (2 réponses).",
+    "Projet & situation : 2 réponses vérifiées (Fiscalité).",
+  ]);
+  assert.ok(ev.every((e) => !/__|questionnaire_data/.test(e.resume)));
+  assert.equal((await q1(db, `select count(*)::int n from public.invest_dossier_evenements where dossier_id = $1 and type = 'dossier_modifie'`, [id])).n, 0, "pas d'événement « dossier modifié » en double");
+});
+
+test("60. 2d apport souhaité ≠ épargne détenue ; aucune capacité d'emprunt ; international déclaratif", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  ok(await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "actif_financier", categorie: "epargne_disponible", montant: 50000 }));
+  ok(await qsEnreg(db, id, { objectifs__apport_souhaite: { valeur: 20000 }, objectifs__budget: { valeur: 250000 }, international__concerne: { valeur: "oui" }, international__pays: { valeur: "Suisse" } }));
+  const r = (await qsLire(db, id)).questionnaire_data;
+  assert.deepEqual(QS.syntheseObjectifs(r), { budget: 250000, apport: 20000, zones: null, objectif: null, horizon: null });
+  assert.equal(SP.calculerSituation({ postes: await qn(db, `select * from public.invest_postes_financiers`) }).epargneDisponible, 50000, "l'épargne 2c reste 50 000 : aucune confusion");
+  assert.ok(!QS.QUESTIONS.some((q) => /capacite|endettement|mensualite_max/.test(q.cle)), "aucune capacité d'emprunt dans le questionnaire");
+  assert.ok(!/capaciteEmprunt|tauxEndettement/.test(CATALOGUE_QS + CARTE_QS));
+  assert.ok(QS.SECTIONS_QUESTIONNAIRE.find((s) => s.cle === "international").aide.includes("Aucune conclusion fiscale"));
+  assert.equal(QS.questionsVisibles(QS.SECTIONS_QUESTIONNAIRE.find((s) => s.cle === "fiscalite"), {}).find((q) => q.cle === "fiscalite__residence_foyer").defaut, undefined, "jamais France par défaut");
+});
+
+test("61. suites 2c : perte de vérification dite dans le résumé (un seul événement) ; désarchivage réservé au collaborateur", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  const r = (await ins(db, "invest_postes_financiers", { client_id: C.nu, famille: "charge", categorie: "impot", montant: 1200, periodicite: "annuelle" })).rows[0];
+  ok(await majSP(db, "invest_postes_financiers", r.id, `verification_statut = 'verifiee'`));
+  const avant = (await q1(db, `select count(*)::int n from public.invest_dossier_evenements where dossier_id = $1`, [id])).n;
+  ok(await majSP(db, "invest_postes_financiers", r.id, `montant = 1300`));
+  const ev = await qn(db, `select type, resume from public.invest_dossier_evenements where dossier_id = $1 order by ordre offset $2`, [id, avant]);
+  assert.equal(ev.length, 1, "un seul événement");
+  assert.equal(ev[0].resume, "Situation patrimoniale — modification : Charge : impot 1300.00 €/an (montant). Donnée auparavant vérifiée : à revérifier.");
+  ok(await majSP(db, "invest_postes_financiers", r.id, `archive_le = now()`));
+  refuse(await sous(db, "service_role", null, `update public.invest_postes_financiers set archive_le = null where id = '${r.id}'`), /Seul un collaborateur Profero peut désarchiver/);
+  ok(await majSP(db, "invest_postes_financiers", r.id, `archive_le = null`), "collaborateur : désarchivage autorisé");
+  assert.ok((await qn(db, `select resume from public.invest_dossier_evenements where dossier_id = $1 and resume like '%désarchivage%'`, [id])).length === 1);
+});
+
+test("62. 2d migration : additive, rejouable ; retour arrière rend les fonctions 2c à l'identique", async () => {
+  const code = MIGRATION_2D.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  const horsCorps = code.replace(/\$\$[\s\S]*?\$\$/g, "$$…$$");
+  assert.ok(!/\bupdate\s+(public\.)?\w+\s+set\b|\bdelete\s+from\b|\binsert\s+into\b|\btruncate\b/i.test(horsCorps), "aucun DML : aucune reprise");
+  assert.ok(!/\bdrop\s+(table|column)\b/i.test(code));
+  assert.ok(!/strategie_data|invest_structuration_patrimoniale/.test(code));
+  const avec2c = await nouvelleBase({ t2d: false });
+  const db = await nouvelleBase();
+  await db.exec(MIGRATION_2D); // rejouable
+  const def = async (b, f) => (await q1(b, `select pg_get_functiondef(p.oid) d from pg_proc p where p.proname = $1`, [f]))?.d;
+  await db.exec(ROLLBACK_2D);
+  for (const f of ["invest_collecte_journal", "invest_collecte_regles"]) assert.equal(await def(db, f), await def(avec2c, f), `${f} rendue à la 2c`);
+  assert.equal(await def(db, "invest_questionnaire_avant_ecriture"), undefined);
+  assert.match(CRM, /<ProjetSituationCard T=\{T\} dossierId=\{dossierInfo\?\.dossierId \|\| null\} dossierEnCoursId=\{dossierInfo\?\.dossierEnCoursId \|\| null\} \/>/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

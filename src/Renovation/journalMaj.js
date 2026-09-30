@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-09-30",
     type: "nouveaute",
+    titre: "CRM Invest : questionnaire « Projet & situation » dans chaque Dossier Invest",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Les objectifs et le contexte d'un projet (situation familiale, fiscalité, international, objectifs, banque, détention souhaitée) n'avaient pas de place structurée. Ils sont désormais recueillis dans le dossier, section par section, et vérifiables.",
+    comment: "Dans la fiche client, la carte « Projet & situation » présente sept sections : Foyer & situation familiale, Situation professionnelle, Fiscalité, International, Objectifs d'investissement, Banque & financement déclaré, Détention & structuration. Seules les questions utiles s'affichent (par exemple le régime matrimonial pour un couple marié, la section internationale si le foyer est concerné). Chaque section s'enregistre séparément ; chaque réponse indique sa provenance et peut être vérifiée ou signalée « à corriger ». Une synthèse affiche budget, apport souhaité, zones, objectif et horizon. Le questionnaire peut être soumis puis validé ; une correction après validation le repasse « à vérifier ». Dossier clos : lecture seule. Les informations patrimoniales du foyer restent dans la Situation patrimoniale.",
+  },
+  {
+    date: "2026-09-30",
+    type: "nouveaute",
     titre: "CRM Invest : la situation patrimoniale du foyer se saisit dans la fiche client",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Les informations patrimoniales d'un client (personnes du foyer, revenus, charges, épargne, crédits, biens déjà détenus, sociétés) étaient dispersées dans des champs libres. Elles sont désormais structurées, vérifiables et réutilisables d'un dossier à l'autre.",
