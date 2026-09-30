@@ -3523,7 +3523,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
         <DossierInvestCard client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
 
         {/* Situation patrimoniale du foyer (Tranche 2c) : collecte factuelle, modifiable dans un dossier en cours */}
-        <SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} dossierReference={dossierInfo?.reference || null} />
+        <SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} dossierReference={dossierInfo?.referenceEnCours || null} />
 
         {/* Synthèse client */}
         <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>

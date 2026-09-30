@@ -182,9 +182,10 @@ export default function SituationPatrimonialeCard({ client, T, dossierEnCoursId 
         </div>
       </div>
       <div className="inv-card-bd" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* La situation appartient au FOYER, pas au dossier consulté dans l'historique. */}
         <div style={{ fontSize: 11.5, color: T.textMuted }}>
-          Collecte factuelle du foyer, réutilisable d'un dossier à l'autre.{" "}
-          {modifiable ? <>Les ajouts et modifications sont journalisés dans le dossier <b>{dossierReference}</b>.</>
+          Situation actuelle du foyer, commune à tous ses dossiers.{" "}
+          {modifiable ? <>Modifications rattachées à <b>{dossierReference || "son dossier en cours"}</b> (dossier en cours).</>
             : <b style={{ color: "#b45309" }}>Lecture seule : aucun Dossier Invest en cours pour ce client.</b>}
         </div>
         {etat.erreur && <div style={{ fontSize: 12, color: "#be123c" }}>⚠ Lecture impossible : {etat.erreur}</div>}
@@ -244,7 +245,7 @@ function Synthese({ T, c }) {
     ["Mensualités de crédits", `${eur(c.mensualitesCredits)} /mois`], ["Assurance des crédits", `${eur(c.assuranceCredits)} /mois`],
     ["Épargne disponible", eur(c.epargneDisponible)], ["Actifs financiers", eur(c.actifsFinanciers)],
     ["Immobilier (valeur brute)", eur(c.valeurImmobiliereBrute)], ["Dette immobilière restante", eur(c.detteImmobiliereRestante)],
-    ["Patrimoine immobilier net", eur(c.patrimoineImmobilierNet)], ["Patrimoine net simplifié", eur(c.patrimoineNetSimplifie)],
+    ["Patrimoine immobilier net", eur(c.patrimoineImmobilierNet)], ["Patrimoine net simplifié (biens à 100 %)", eur(c.patrimoineNetSimplifie)],
   ];
   const i = c.incomplets;
   const trous = [i.actifsSansValeur && `${i.actifsSansValeur} bien(s) sans valeur`, i.creditsSansCrd && `${i.creditsSansCrd} crédit(s) sans capital restant dû`,
@@ -254,7 +255,7 @@ function Synthese({ T, c }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 6 }}>
         {cases.map(([l, v]) => <div key={l}><div style={{ fontSize: 10, color: T.textMuted, fontWeight: 800, textTransform: "uppercase" }}>{l}</div><div style={{ fontSize: 13, fontWeight: 900, color: T.text }}>{v}</div></div>)}
       </div>
-      <div style={{ fontSize: 10.5, color: T.textMuted, marginTop: 6 }}>Flux ramenés au mois ; stocks à leur dernière valeur connue ; biens et dettes comptés à 100 %, sans quote-part. Aucune analyse ni capacité d'emprunt ici.</div>
+      <div style={{ fontSize: 10.5, color: T.textMuted, marginTop: 6 }}>Flux ramenés au mois ; stocks à leur dernière valeur connue. Biens et dettes sont comptés à 100 %, même détenus en partie (indivision, SCI) : ce n'est PAS la part patrimoniale personnelle exacte, qui relèvera de l'Analyse patrimoniale. Aucune capacité d'emprunt ici.</div>
       {trous.length > 0 && <div style={{ fontSize: 11, color: "#b45309", marginTop: 4 }}>Totaux incomplets : {trous.join(" · ")}.</div>}
     </div>
   );

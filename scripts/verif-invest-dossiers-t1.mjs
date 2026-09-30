@@ -1445,6 +1445,12 @@ test("52. 2c migration : additive, rejouable, sans reprise ; retour arrière san
   assert.deepEqual(SP.SECTIONS.map((s) => s.libelle), ["Foyer", "Revenus, charges & épargne", "Crédits & engagements", "Patrimoine immobilier", "Structures"]);
   assert.match(CARTE_SP, /Valeur détenue/); assert.match(CARTE_SP, /mobiliser comme apport ne se saisit pas ici/);
   assert.match(CRM, /<SituationPatrimonialeCard client=\{client\}/);
+  // Référence : celle du dossier EN COURS, jamais celle d'un ancien dossier consulté.
+  assert.match(CRM, /dossierReference=\{dossierInfo\?\.referenceEnCours \|\| null\}/);
+  assert.match(CARTE, /referenceEnCours: dossierEnCours\?\.reference \?\? null/);
+  assert.match(CARTE_SP, /Modifications rattachées à/);
+  assert.match(CARTE_SP, /Patrimoine net simplifié \(biens à 100 %\)/);
+  assert.match(CARTE_SP, /PAS la part patrimoniale personnelle exacte/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

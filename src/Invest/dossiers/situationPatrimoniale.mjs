@@ -96,7 +96,8 @@ export function calculerSituation({ postes = [], engagements = [], actifsImmo = 
     valeurImmobiliereBrute: arrondi(valeurImmo),
     detteImmobiliereRestante: arrondi(detteImmo),
     patrimoineImmobilierNet: arrondi(valeurImmo - detteImmo),
-    // Simplifié : actifs financiers + immobilier (valeurs à 100 %, sans quote-part) − capital restant dû des crédits.
+    // Simplifié : actifs financiers + immobilier à 100 % (même détenu en partie : indivision, SCI) − capital
+    // restant dû des crédits. Ce n'est PAS la quote-part patrimoniale personnelle (future Analyse patrimoniale).
     patrimoineNetSimplifie: arrondi(actifsFinanciers + valeurImmo - detteTotale),
     incomplets: {
       actifsSansValeur: a.filter((x) => x.valeur_estimee == null).length,
