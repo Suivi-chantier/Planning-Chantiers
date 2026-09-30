@@ -18,21 +18,13 @@
 const { construirePortee } = require("../invest/portee");
 const { outilsAutorises, parNom } = require("../invest/outils");
 
-const ETAPES_CLIENT = [
-  "1 Signature contrat",
-  "2 Envoi des documents d'analyse",
-  "3 Définition de la stratégie d'investissement",
-  "4 Recherche du projet (visites et analyse)",
-  "5 Présentation des projets",
-  "6 Offre d'achat",
-  "7 Réalisation des devis précis",
-  "8 Signature du compromis",
-  "9 Réalisation du dossier bancaire",
-  "10 Obtention du financement",
-  "11 Réalisation des dossiers d'urbanismes",
-  "12 Validation des conditions suspensives d'achat",
-  "13 Signature Notaire",
-];
+// Tranche 2b-bis : le parcours est celui du Dossier Invest (11 étapes), lu dans
+// le catalogue commun — plus les 13 anciennes étapes client, historiques.
+let _parcours = null;
+async function etapesParcours() {
+  if (!_parcours) _parcours = await import("../../../src/Invest/dossiers/parcours.mjs");
+  return _parcours.ETAPES_PARCOURS;
+}
 
 const PHRASE_ABSENCE = "Je n'ai pas trouvé cette information dans Profero Invest.";
 
@@ -92,7 +84,8 @@ module.exports = {
     return true;
   },
 
-  construire_prompt(entree, contexte) {
+  async construire_prompt(entree, contexte) {
+    const etapes = await etapesParcours();
     const ctx = contexte && typeof contexte === "object" ? contexte : {};
     const lignesContexte = [];
 
@@ -137,12 +130,18 @@ module.exports = {
       "Tu peux citer un chiffre ou un nom pour situer, pas réciter un tableau.",
       "",
       "VOCABULAIRE MÉTIER",
-      "Le parcours d'un dossier client suit 13 étapes, dans cet ordre :",
-      ...ETAPES_CLIENT.map((e) => `  ${e}`),
-      "« Financement » désigne les étapes 9 et 10. « Notaire » désigne l'étape 13.",
-      "Un dossier est bloqué quand l'équipe l'a saisi comme tel, ou qu'il n'a ni prochaine action,",
-      "ni responsable, ni avancée depuis plus de dix jours. Tu ne diagnostiques pas un blocage :",
-      "tu rapportes ce que l'équipe a saisi.",
+      "Un client en mission a un Dossier Invest. Son parcours compte 11 étapes, dans cet ordre :",
+      ...etapes.map((e) => `  ${e.numero} ${e.libelle}`),
+      "Plusieurs étapes peuvent être en cours EN MÊME TEMPS (par exemple Financement et Acquisition) :",
+      "le dossier est alors concerné par chacune. L'étape principale n'est qu'un repère d'affichage.",
+      "Pour chaque étape active, les outils donnent qui a la balle (Profero, client, banque, notaire,",
+      "tiers), la prochaine action, l'échéance et un éventuel blocage. L'« action du jour » dit qui doit",
+      "agir, quoi et avant quand. Une étape terminée ou non applicable n'a pas d'action en cours.",
+      "Distingue toujours « Aucun Dossier Invest en cours » (le client n'a pas de mission ouverte) de",
+      "« Avancement indisponible » (les données n'ont pas pu être lues) : ne confonds jamais les deux.",
+      "Un dossier est bloqué quand une étape a été bloquée par l'équipe, qu'une tâche est bloquée, ou",
+      "que les alertes calculées le signalent (échéance dépassée, sans prochaine action, sans évolution).",
+      "Tu ne diagnostiques pas un blocage : tu rapportes ce que les outils renvoient.",
       "",
       lignesContexte.length ? "CONTEXTE DE LA PAGE" : "",
       ...lignesContexte,

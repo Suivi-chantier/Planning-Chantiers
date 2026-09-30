@@ -227,3 +227,17 @@ export function projeterClient(client, p, { inconnu = false } = {}) {
     prochaine_action: prospect ? historique.prochaine_action : null,
     date_prochaine_action: prospect ? historique.date_prochaine_action : null };
 }
+
+const normaliser = (v) => String(v ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+
+/**
+ * Le dossier a-t-il une étape ACTIVE qui correspond à `motif` (clé, libellé ou
+ * qui a la balle : « financement », « acquisition », « notaire », « banque »…) ?
+ * Toutes les étapes actives comptent, pas seulement l'étape principale : un
+ * dossier en Financement ET en Acquisition répond aux deux.
+ */
+export function correspondEtapeActive(p, motif) {
+  const m = normaliser(motif);
+  if (!p || !m) return false;
+  return p.actives.some((a) => normaliser(`${a.etape} ${a.libelle} ${a.balle.libelle} ${a.balle.type || ""}`).includes(m));
+}

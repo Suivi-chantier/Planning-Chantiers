@@ -19,7 +19,7 @@
 // un outil tentait de la lire.
 
 const { table, borner } = require("./donnees");
-const { chargerDossiers, exposerDossier, lienDossier } = require("./moteur");
+const { chargerDossiers, exposerDossier, lienDossier, pilotagesClients, exposerPilotage } = require("./moteur");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trois vues sur le moteur du tableau de bord
@@ -42,10 +42,11 @@ const dossiers_bloques = {
   nom: "dossiers_bloques",
   pages: ["dashboard", "crm"],
   description:
-    "Liste les dossiers clients ou biens qui demandent une intervention : blocage saisi par " +
-    "l'équipe, absence de prochaine action, absence de responsable, ou dossier sans avancée " +
-    "depuis plus de dix jours. Utiliser pour « quels dossiers sont bloqués ? », « qu'est-ce " +
-    "qui coince ? », « quels dossiers attendent le financement ? ».",
+    "Liste les dossiers clients ou biens qui demandent une intervention : étape bloquée du " +
+    "Dossier Invest ou tâche bloquée, étapes actives sans prochaine action, absence de " +
+    "responsable, ou dossier sans évolution. « financement » = dossiers dont l'étape Financement " +
+    "est ACTIVE (même si une autre étape l'est aussi). Utiliser pour « quels dossiers sont " +
+    "bloqués ? », « qu'est-ce qui coince ? », « quels dossiers attendent le financement ? ».",
   schema: {
     type: "object",
     properties: {
@@ -62,12 +63,15 @@ const dossiers_bloques = {
     const limite = borner(params.limite, 20, 50);
     const { consolide, moteur: m, avertissements } = await chargerDossiers({ profil: ctx.profil });
 
+    // Codes d'alerte produits par le moteur (tableauBord.mjs / pilotage.mjs) :
+    // aucune règle recalculée ici.
     const CODES = {
-      bloque: (a) => a.code.startsWith("blocked") || /bloqu|compliqu/i.test(a.label),
-      sans_action: (a) => a.code === "no_next_action",
+      bloque: (a) => a.code.startsWith("bloquee_") || a.code.startsWith("blocked") || /bloqu|compliqu/i.test(a.label),
+      sans_action: (a) => a.code === "sans_prochaine_action" || a.code === "aucune_etape_active" || a.code === "no_next_action",
       sans_responsable: (a) => a.code === "no_owner",
-      sans_avancee: (a) => a.code === "stale_red" || a.code === "stale_orange",
+      sans_avancee: (a) => a.code === "sans_evolution" || a.code === "stale_red" || a.code === "stale_orange",
     };
+    const P = await require("./moteur").pilotage();
 
     let retenus = (consolide.allDossiers || []).filter((d) => {
       const alertes = d.alerts || [];
@@ -77,10 +81,8 @@ const dossiers_bloques = {
         );
       }
       if (motif === "financement") {
-        // Étapes 9 et 10 de l'échelle client : dossier bancaire et obtention
-        // du financement. Le libellé porte le numéro en préfixe.
-        const etape = String((d.meta && d.meta.step) || "");
-        return /^\s*(9|10)\b/.test(etape);
+        // Étape Financement ACTIVE dans le Dossier Invest, principale ou non.
+        return P.correspondEtapeActive(d.meta && d.meta.dossier, "financement");
       }
       const test = CODES[motif];
       return test ? alertes.some(test) : false;
@@ -142,7 +144,8 @@ const echeances_a_venir = {
         const enRetard = date < aujourdhui;
         if (enRetard && !inclureRetards) continue;
         if (!enRetard && date > limiteHaute) continue;
-        if (motif && !`${a.label} ${d.meta && d.meta.step ? d.meta.step : ""} ${d.next_action}`.toLowerCase().includes(motif)) {
+        const actives = ((d.meta && d.meta.dossier && d.meta.dossier.actives) || []).map((x) => `${x.libelle} ${x.balle.libelle}`).join(" ");
+        if (motif && !`${a.label} ${d.meta && d.meta.step ? d.meta.step : ""} ${actives} ${d.next_action}`.toLowerCase().includes(motif)) {
           continue;
         }
         lignes.push({
@@ -240,21 +243,25 @@ const priorites_du_jour = {
 // Colonnes remontées pour une liste de clients. Jamais select("*") :
 // invest_clients porte strategie_data, un jsonb volumineux qui n'a rien à
 // faire dans une liste de résultats.
+// Tranche 2b-bis : ni etape, ni prochaine_action, ni date_prochaine_action —
+// historiques ; l'avancement vient du Dossier Invest (pilotagesClients).
 const COLONNES_CLIENT_LISTE =
-  "id,nom,prenom,email,telephone,statut,etape,conseiller,responsable,prochaine_action,date_prochaine_action,created_at";
+  "id,nom,prenom,email,telephone,statut,conseiller,responsable,created_at";
 
 const recherche_clients = {
   nom: "recherche_clients",
   pages: ["crm"],
   description:
     "Retrouve des dossiers clients Invest par nom, prénom, e-mail ou téléphone, ou les filtre " +
-    "par étape et responsable. Utiliser pour retrouver un client avant d'en demander le résumé. " +
+    "par étape ACTIVE du Dossier Invest (toutes les étapes en cours comptent, pas seulement la " +
+    "principale), par qui a la balle (« banque », « notaire », « client ») et par responsable. " +
+    "Utiliser pour retrouver un client avant d'en demander le résumé. " +
     "Ne concerne QUE les clients : les prospects sont hors périmètre.",
   schema: {
     type: "object",
     properties: {
       recherche: { type: "string", description: "Nom, prénom, e-mail ou téléphone, même partiel." },
-      etape: { type: "string", description: "Étape du dossier, même partielle : « notaire », « financement »…" },
+      etape: { type: "string", description: "Étape active du Dossier Invest ou qui a la balle, même partiel : « financement », « acquisition », « notaire », « banque »…" },
       statut: { type: "string", description: "Statut du dossier." },
       responsable: { type: "string", description: "Nom du conseiller ou du responsable." },
       sans_prochaine_action: { type: "boolean", description: "Ne garder que les dossiers sans prochaine action définie." },
@@ -275,19 +282,36 @@ const recherche_clients = {
         [`nom.ilike.%${v}%`, `prenom.ilike.%${v}%`, `email.ilike.%${v}%`, `telephone.ilike.%${v}%`].join(",")
       );
     }
-    if (params.etape) q = q.ilike("etape", `%${String(params.etape).replace(/[,()]/g, " ")}%`);
+    // Étape : dossiers dont une étape ACTIVE correspond (Financement ET
+    // Acquisition en cours → trouvé par les deux).
+    let pilotagesTous = null;
+    if (params.etape) {
+      pilotagesTous = await pilotagesClients(null);
+      if (pilotagesTous.inconnu) {
+        return { type: "absence", titre: "Avancement indisponible : Dossiers Invest non chargés", avertissements: pilotagesTous.avertissements };
+      }
+      const ids = [...pilotagesTous.parClient.entries()]
+        .filter(([, p]) => pilotagesTous.P.correspondEtapeActive(p, params.etape)).map(([id]) => id);
+      if (!ids.length) {
+        return { type: "liste_clients", titre: `Aucun dossier avec une étape « ${params.etape} » en cours`, total: 0, tronque: false, clients: [] };
+      }
+      q = q.in("id", ids);
+    }
     if (params.statut) q = q.eq("statut", String(params.statut));
     if (params.responsable) {
       const v = String(params.responsable).replace(/[,()]/g, " ");
       q = q.or([`conseiller.ilike.%${v}%`, `responsable.ilike.%${v}%`].join(","));
     }
 
-    const { data, error } = await q.order("date_prochaine_action", { ascending: true, nullsFirst: false }).limit(limite + 1);
+    const plafondLecture = params.sans_prochaine_action ? 200 : limite + 1;
+    const { data, error } = await q.order("nom", { ascending: true }).limit(plafondLecture);
     if (error) throw new Error(`recherche_clients : ${error.message}`);
 
     let lignes = data || [];
+    const pil = pilotagesTous || await pilotagesClients(lignes.map((c) => c.id));
     if (params.sans_prochaine_action) {
-      lignes = lignes.filter((c) => !c.prochaine_action && !c.date_prochaine_action);
+      // Dossier en cours dont aucune étape active n'a de prochaine action.
+      lignes = lignes.filter((c) => { const p = pil.parClient.get(c.id); return p && !p.actives.some((a) => a.prochaineAction); });
     }
     const tronque = lignes.length > limite;
     lignes = lignes.slice(0, limite);
@@ -300,18 +324,25 @@ const recherche_clients = {
           : `${lignes.length} client${lignes.length > 1 ? "s" : ""}${tronque ? " (liste tronquée)" : ""}`,
       total: lignes.length,
       tronque,
-      clients: lignes.map((c) => ({
-        id: c.id,
-        nom: `${c.prenom || ""} ${c.nom || ""}`.trim() || c.nom || "Client",
-        email: c.email || null,
-        telephone: c.telephone || null,
-        etape: c.etape || null,
-        statut: c.statut || null,
-        responsable: c.conseiller || c.responsable || null,
-        prochaine_action: c.prochaine_action || null,
-        echeance: c.date_prochaine_action || null,
-        lien: { libelle: "Ouvrir le dossier", params: { client_id: c.id } },
-      })),
+      clients: lignes.map((c) => {
+        const p = pil.parClient.get(c.id) || null;
+        const ajd = p ? pil.P.actionDuJour(p) : null;
+        return {
+          id: c.id,
+          nom: `${c.prenom || ""} ${c.nom || ""}`.trim() || c.nom || "Client",
+          email: c.email || null,
+          telephone: c.telephone || null,
+          statut: c.statut || null,
+          responsable: c.conseiller || c.responsable || null,
+          // Dossier Invest : étape principale, étapes actives, action du jour.
+          dossier_invest: exposerPilotage(p, pil.P, { inconnu: pil.inconnu }),
+          etape: p && p.principale ? p.principale.libelle : null,
+          prochaine_action: ajd ? ajd.action : null,
+          echeance: ajd ? ajd.echeance : null,
+          lien: { libelle: "Ouvrir le dossier", params: { client_id: c.id } },
+        };
+      }),
+      avertissements: pil.avertissements,
     };
   },
 };
@@ -320,8 +351,9 @@ const resume_client = {
   nom: "resume_client",
   pages: ["crm"],
   description:
-    "Fiche consolidée d'un dossier client : étape en cours, progression des actions de mission, " +
-    "prochaines actions, points bloquants, biens proposés et dernières notes. C'est l'outil de " +
+    "Fiche consolidée d'un dossier client : Dossier Invest (étape principale, toutes les étapes " +
+    "actives, qui a la balle, prochaine action, échéance, blocages, alertes), progression des " +
+    "tâches de mission, tâches en retard, biens proposés et dernières notes. C'est l'outil de " +
     "« où en est le dossier de X ? » et de « résume-moi ce dossier ». Demande un client_id — " +
     "utiliser recherche_clients d'abord si l'on n'a qu'un nom.",
   schema: {
@@ -350,10 +382,17 @@ const resume_client = {
     // le corps des notifications, ni les identifiants Calendar, ni les pièces
     // jointes — rien de tout cela n'éclaire « où en est le dossier ».
     const { data: actions } = await table("invest_mission_actions")
-      .select("id,step_index,step_key,step_label,action_title,status,due_date,completed_at,responsable,commentaire")
+      .select("id,dossier_id,etape,step_index,step_key,step_label,action_title,status,due_date,completed_at,responsable,commentaire")
       .eq("client_id", id)
       .order("step_index", { ascending: true })
       .limit(40);
+    const pil = await pilotagesClients([id]);
+    const p = pil.parClient.get(id) || null;
+    const ajd = p ? pil.P.actionDuJour(p) : null;
+    const libelleEtape = (a) => {
+      const ref = a.etape && p ? [p.principale, ...p.actives].find((x) => x && x.etape === a.etape) : null;
+      return (ref && ref.libelle) || a.etape || a.step_label || a.step_key;
+    };
 
     const lignes = actions || [];
     const faites = lignes.filter((a) => /fait|termin|non_concern/i.test(String(a.status || ""))).length;
@@ -372,32 +411,32 @@ const resume_client = {
         nom: `${client.prenom || ""} ${client.nom || ""}`.trim() || client.nom || "Client",
         email: client.email || null,
         telephone: client.telephone || null,
-        etape: client.etape || null,
         statut: client.statut || null,
         responsable: client.conseiller || client.responsable || null,
         budget: client.budget ?? null,
         date_signature: client.date_signature || null,
       },
+      // Tranche 2b-bis : source de vérité = Dossier Invest (moteur 2b).
+      dossier_invest: exposerPilotage(p, pil.P, { inconnu: pil.inconnu }),
       progression: { faites, total: lignes.length },
-      prochaine_action: {
-        libelle: client.prochaine_action || (ouvertes[0] && ouvertes[0].action_title) || null,
-        echeance: client.date_prochaine_action || (ouvertes[0] && ouvertes[0].due_date) || null,
-        responsable: client.conseiller || client.responsable || null,
-      },
+      prochaine_action: ajd
+        ? { libelle: ajd.action, echeance: ajd.echeance, responsable: ajd.responsable, etape: ajd.etape ? ajd.etape.libelle : null }
+        : { libelle: null, echeance: null, responsable: null, etape: null },
       points_bloquants: bloquees.map((a) => ({
-        etape: a.step_label || a.step_key,
+        etape: libelleEtape(a),
         action: a.action_title,
         statut: a.status,
         echeance: a.due_date || null,
         responsable: a.responsable || null,
       })),
       actions_en_retard: enRetard.slice(0, 10).map((a) => ({
-        etape: a.step_label || a.step_key,
+        etape: libelleEtape(a),
         action: a.action_title,
         echeance: a.due_date,
         responsable: a.responsable || null,
       })),
       lien: { libelle: "Ouvrir le dossier", params: { client_id: client.id } },
+      avertissements: pil.avertissements,
     };
 
     if (avecBiens) {
