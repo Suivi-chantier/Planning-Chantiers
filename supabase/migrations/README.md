@@ -58,6 +58,15 @@ catalogue de la version du questionnaire. La liste des clés
 `scripts/generer-questionnaire-cles-sql.mjs` depuis `questionnaireDossier.mjs`.
 Aucune donnée modifiée. S'applique seule, jamais par `db push`.
 
+`20261001100000_invest_missions_offres.sql` — **NON appliquée** (Invest V2,
+chantier 9 : Missions Offre 2 / Offre 3). Additive : colonnes `restitution_le`,
+`cadrage_statut`, `cadrage_le` de invest_dossiers (réservées à l'Offre 3),
+types d'événements `offre_change`, `restitution_change`, `cadrage_change`,
+journal du forfait et de la lettre de mission rédigé en français. Aucune donnée
+modifiée. S'applique seule, AVANT le front, jamais par `db push` :
+`docs/project/MISSIONS-OFFRES-V2.md`. Retour arrière :
+`sql/202610_invest_missions_offres_rollback.sql`.
+
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
 requête (2,5 s → 17 ms). Le fichier, d'abord préparé sous

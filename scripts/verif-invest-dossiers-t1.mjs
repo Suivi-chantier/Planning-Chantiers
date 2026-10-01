@@ -25,6 +25,7 @@ import * as V from "../src/Invest/dossiers/dossierVue.mjs";
 import * as SP from "../src/Invest/dossiers/situationPatrimoniale.mjs";
 import * as QS from "../src/Invest/dossiers/questionnaireDossier.mjs";
 import { sqlClesQuestionnaire } from "./generer-questionnaire-cles-sql.mjs";
+import * as OF from "../src/Invest/dossiers/offres.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (rel) => readFileSync(join(racine, rel), "utf8");
@@ -44,6 +45,8 @@ const ROLLBACK_2D1 = lire("sql/202609_invest_questionnaire_2d1_rollback.sql");
 const CARTE_QS = lire("src/Invest/dossiers/ProjetSituationCard.jsx");
 const CATALOGUE_QS = lire("src/Invest/dossiers/questionnaireDossier.mjs");
 const FICHE = lire("src/Invest/dossiers/FicheDossier.jsx");
+const MIGRATION_OFFRES = lire("supabase/migrations/20261001100000_invest_missions_offres.sql");
+const ROLLBACK_OFFRES = lire("sql/202610_invest_missions_offres_rollback.sql");
 
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -236,7 +239,7 @@ insert into public.invest_mission_actions (id, client_id, step_key, step_label, 
   ('50000000-0000-0000-0000-000000000007', '${C.prospect}', 'signature', 'Signature', 1, 'Envoyer le contrat', 'Camille', null, 'a_faire');
 `;
 
-async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true, t2d1 = true } = {}) {
+async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true, t2d1 = true, offres = true } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA_PROD);
   if (migration) await db.exec(MIGRATION);
@@ -244,6 +247,7 @@ async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = tr
   if (migration && t2a && t2c) await db.exec(MIGRATION_2C);
   if (migration && t2a && t2c && t2d) await db.exec(MIGRATION_2D);
   if (migration && t2a && t2c && t2d && t2d1) await db.exec(MIGRATION_2D1);
+  if (migration && t2a && t2c && t2d && t2d1 && offres) await db.exec(MIGRATION_OFFRES);
   return db;
 }
 
@@ -782,6 +786,7 @@ test("26. parcours.mjs : lecture des anciennes étapes, étape courante, suggest
 test("27. retour arrière : tables et colonnes retirées, données historiques intactes", async () => {
   const db = await nouvelleBase();
   await ouvrir(db, C.louison);
+  await db.exec(ROLLBACK_OFFRES);
   await db.exec(ROLLBACK_2D1);
   await db.exec(ROLLBACK_2D);
   await db.exec(ROLLBACK_2C);
@@ -817,6 +822,7 @@ test("29. migration rejouable sur une base déjà migrée", async () => {
   await db.exec(MIGRATION_2C);
   await db.exec(MIGRATION_2D);
   await db.exec(MIGRATION_2D1);
+  await db.exec(MIGRATION_OFFRES);
   assert.equal((await etapes(db, id)).length, 11);
   ok(await ouvrir(db, C.prospect));
 });
@@ -1686,10 +1692,121 @@ test("63. 2d.1 : clés du catalogue en base = catalogue .mjs (généré, version
   refuse(await qsEnreg(db, id, { ancienne__cle: { valeur: "modifiée" } }), /Question inconnue du catalogue/);
   // Retour arrière : texte 2d exact.
   const ref = await nouvelleBase({ t2d1: false });
+  await db.exec(ROLLBACK_OFFRES);
   await db.exec(ROLLBACK_2D1);
   const def = async (b, f) => (await q1(b, `select pg_get_functiondef(p.oid) d from pg_proc p where p.proname = $1`, [f]))?.d;
   assert.equal(await def(db, "invest_questionnaire_avant_ecriture"), await def(ref, "invest_questionnaire_avant_ecriture"));
   assert.equal(await def(db, "invest_questionnaire_cles"), undefined);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 13. Invest V2 — chantier 9 : Missions Offre 2 / Offre 3
+// ═══════════════════════════════════════════════════════════════════════════
+const majDossier = (db, id, set, email = COLLAB) => sous(db, "authenticated", email, `update public.invest_dossiers set ${set} where id = '${id}' returning *`);
+const resumes = async (db, id, depuis = 0) => (await qn(db, `select type, resume from public.invest_dossier_evenements where dossier_id = $1 order by ordre offset $2`, [id, depuis]));
+const nbEv = async (db, id) => (await q1(db, `select count(*)::int n from public.invest_dossier_evenements where dossier_id = $1`, [id])).n;
+
+test("64. offre : passage Offre 2 → Offre 3 journalisé en clair (un seul événement) ; retour possible tant que rien n'est enregistré", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  const d0 = await qsLire(db, id);
+  assert.equal(d0.type_mission, "accompagnement_acquisition", "Offre 2 par défaut");
+  assert.deepEqual([d0.restitution_le, d0.cadrage_statut, d0.cadrage_le], [null, null, null]);
+  const avant = await nbEv(db, id);
+  ok(await majDossier(db, id, `type_mission = '${OF.patchOffre(d0, "audit_patrimonial").type_mission}'`));
+  assert.deepEqual(await resumes(db, id, avant), [{ type: "offre_change", resume: "Offre : Offre 2 → Offre 3." }], "pas de « Dossier modifié : type_mission »");
+  const d1 = await qsLire(db, id);
+  assert.equal(OF.offreCible(d1), "accompagnement_acquisition");
+  ok(await majDossier(db, id, `type_mission = 'accompagnement_acquisition'`), "retour en Offre 2 (correction)");
+  assert.equal((await resumes(db, id, avant + 1))[0].resume, "Offre : Offre 3 → Offre 2.");
+});
+
+test("65. rapport & restitution, cadrage : réservés à l'Offre 3, dans l'ordre, jamais dans le futur ; mission close en lecture seule", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  const ajd = await aujourdhui(db);
+  refuse(await majDossier(db, id, `restitution_le = '${ajd}'`), /invest_dossiers_phase_patrimoine_offre3/, "Offre 2 : pas de restitution");
+  ok(await majDossier(db, id, `type_mission = 'audit_patrimonial'`));
+  refuse(await majDossier(db, id, `cadrage_statut = 'non_necessaire'`), /invest_dossiers_cadrage_apres_restitution/, "cadrage avant restitution");
+  refuse(await majDossier(db, id, `restitution_le = current_date + 1`), /restitution ne peut pas être datée dans le futur/);
+  const avant = await nbEv(db, id);
+  ok(await majDossier(db, id, `restitution_le = '2026-09-15'`));
+  assert.deepEqual(await resumes(db, id, avant), [{ type: "restitution_change", resume: "Rapport patrimonial remis et restitué le 15/09/2026." }]);
+  refuse(await majDossier(db, id, `cadrage_statut = 'fait'`), /invest_dossiers_cadrage_date_check/, "cadrage fait sans date");
+  refuse(await majDossier(db, id, `cadrage_le = '2026-09-20'`), /invest_dossiers_cadrage_date_check/, "date sans cadrage fait");
+  refuse(await majDossier(db, id, `cadrage_statut = 'fait', cadrage_le = '2026-09-10'`), /invest_dossiers_cadrage_date_apres_restitution/);
+  refuse(await majDossier(db, id, `cadrage_statut = 'fait', cadrage_le = current_date + 1`), /cadrage ne peut pas être daté dans le futur/);
+  ok(await majDossier(db, id, `cadrage_statut = 'fait', cadrage_le = '2026-09-20'`));
+  ok(await majDossier(db, id, `cadrage_statut = 'non_necessaire', cadrage_le = null`));
+  ok(await majDossier(db, id, `cadrage_statut = null`));
+  assert.deepEqual((await resumes(db, id, avant + 1)).map((e) => e.resume),
+    ["Cadrage du projet fait le 20/09/2026.", "Cadrage du projet : non nécessaire.", "Cadrage du projet : remis à faire."]);
+  ok(await majDossier(db, id, `restitution_le = '2026-09-16'`));
+  assert.equal((await resumes(db, id, avant + 4))[0].resume, "Rapport & restitution : date corrigée, 15/09/2026 → 16/09/2026.");
+  refuse(await majDossier(db, id, `type_mission = 'accompagnement_acquisition'`), /invest_dossiers_phase_patrimoine_offre3/, "retour en Offre 2 avec restitution");
+  assert.throws(() => OF.patchOffre({ statut: "actif", type_mission: "audit_patrimonial", restitution_le: "2026-09-16" }, "accompagnement_acquisition"), /retirez d'abord/);
+  ok(await majDossier(db, id, `statut = 'clos', motif_cloture = 'Fin de mission (banc)'`));
+  refuse(await majDossier(db, id, `restitution_le = null`), /Dossier clos : l'offre, la restitution et le cadrage sont en lecture seule/);
+  refuse(await majDossier(db, id, `type_mission = 'accompagnement_acquisition'`), /Dossier clos/);
+  assert.notEqual((await qsLire(db, id)).restitution_le, null, "date conservée sur la mission close");
+});
+
+test("66. journal lisible : forfait en euros, lettre de mission en français, aucune clé technique", async () => {
+  const db = await nouvelleBase(); const { id } = await ouvrir(db, C.nu);
+  const avant = await nbEv(db, id);
+  ok(await majDossier(db, id, `honoraires_prevus_ht = 3000`));
+  ok(await majDossier(db, id, `honoraires_prevus_ht = 1234.5`));
+  ok(await majDossier(db, id, `honoraires_prevus_ht = null`));
+  ok(await majDossier(db, id, `lettre_mission_statut = 'signee', lettre_mission_signee_le = '2026-09-01'`));
+  const ev = await resumes(db, id, avant);
+  assert.deepEqual(ev.map((e) => e.resume), [
+    "Forfait de mission : non renseigné → 3 000 € HT.",
+    "Forfait de mission : 3 000 € HT → 1 234,50 € HT.",
+    "Forfait de mission : 1 234,50 € HT → non renseigné.",
+    "Lettre de mission : à émettre → signée (signée le 01/09/2026).",
+  ]);
+  assert.ok(ev.every((e) => !/_/.test(e.resume)), "aucune clé technique");
+  ok(await majDossier(db, id, `libelle = 'Mission renommée'`));
+  assert.equal((await resumes(db, id, avant + 4))[0].resume, "Dossier modifié : libelle.", "les autres champs gardent le comportement T1");
+});
+
+test("67. libellés SQL = offres.mjs / parcours.mjs ; montants ; aucune fonction SECURITY DEFINER du chantier n'écrit les étapes", async () => {
+  const db = await nouvelleBase();
+  for (const [k, o] of Object.entries(OF.OFFRES)) assert.equal((await q1(db, `select public.invest_libelle_offre($1) l`, [k])).l, o.court);
+  for (const [k, l] of Object.entries(P.STATUTS_LETTRE_MISSION)) assert.equal((await q1(db, `select public.invest_libelle_lettre_mission($1) l`, [k])).l, l.toLowerCase());
+  for (const [v, attendu] of [[0, "0 € HT"], [999, "999 € HT"], [1000, "1 000 € HT"], [1234567.8, "1 234 567,80 € HT"], [null, "non renseigné"]]) {
+    assert.equal((await q1(db, `select public.invest_montant_ht($1::numeric) l`, [v])).l, attendu);
+  }
+  // Invariant CLAUDE.md : toute SECURITY DEFINER pouvant écrire invest_dossier_etapes doit être auditée.
+  const definers = await qn(db, `select p.proname, pg_get_functiondef(p.oid) d from pg_proc p
+    where p.prosecdef and p.proname in ('invest_offre_journal','invest_dossiers_journal','invest_offre_regles')`);
+  assert.deepEqual(definers.map((x) => x.proname).sort(), ["invest_dossiers_journal", "invest_offre_journal"], "règles en security invoker");
+  for (const f of definers) assert.ok(!/invest_dossier_etapes/.test(f.d), `${f.proname} n'écrit pas les étapes`);
+  const corps = [...MIGRATION_OFFRES.matchAll(/security definer[\s\S]*?\$\$([\s\S]*?)\$\$/g)].map((m) => m[1]);
+  assert.equal(corps.length, 2);
+  assert.ok(corps.every((c) => !/invest_dossier_etapes/.test(c)));
+});
+
+test("68. migration chantier 9 : additive, rejouable ; retour arrière = journal T1 exact, données conservées", async () => {
+  const code = MIGRATION_OFFRES.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  const horsCorps = code.replace(/\$\$[\s\S]*?\$\$/g, "$$…$$");
+  assert.ok(!/\bupdate\s+(public\.)?\w+\s+set\b|\bdelete\s+from\b|\binsert\s+into\b|\btruncate\b/i.test(horsCorps), "aucun DML : aucune donnée existante touchée");
+  assert.ok(!/\bdrop\s+(table|column|policy|function)\b/i.test(code));
+  assert.ok(!/\bgrant\b/i.test(code), "aucun droit nouveau");
+  const ref = await nouvelleBase({ offres: false });
+  const db = await nouvelleBase();
+  const { id } = await ouvrir(db, C.nu);
+  await db.exec(MIGRATION_OFFRES); // rejouable
+  ok(await majDossier(db, id, `type_mission = 'audit_patrimonial'`));
+  ok(await majDossier(db, id, `restitution_le = '2026-09-15'`));
+  const ev = await nbEv(db, id);
+  const def = async (b, f) => (await q1(b, `select pg_get_functiondef(p.oid) d from pg_proc p where p.proname = $1`, [f]))?.d;
+  await db.exec(ROLLBACK_OFFRES);
+  assert.equal(await def(db, "invest_dossiers_journal"), await def(ref, "invest_dossiers_journal"), "texte T1 exact");
+  assert.equal(await def(db, "invest_offre_journal"), undefined);
+  assert.equal((await qn(db, `select 1 from information_schema.columns where table_name = 'invest_dossiers' and column_name in ('restitution_le','cadrage_statut','cadrage_le')`)).length, 0);
+  assert.equal(await nbEv(db, id), ev, "journal conservé");
+  assert.equal((await qsLire(db, id)).type_mission, "audit_patrimonial", "l'offre (antérieure au chantier) est conservée");
+  assert.match(FICHE, /<MissionHonoraires T=\{T\} fiche=\{fiche\} onGeste=\{onGeste\} \/>/, "carte intégrée à la fiche Dossier");
+  assert.match(FICHE, /from\("invest_dossiers"\)\.update\(patch\)/, "gestes = patch préparé par offres.mjs");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

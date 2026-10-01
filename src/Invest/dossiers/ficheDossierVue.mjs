@@ -7,7 +7,8 @@
 // AUCUNE règle nouvelle : tout vient des moteurs existants —
 //   pilotage.mjs (étapes actives, étape à agir, balle, échéances, alertes),
 //   dossierVue.mjs (choix du dossier, ruban, journal, en-tête),
-//   situationPatrimoniale.mjs (calculs 2c), questionnaireDossier.mjs (2d).
+//   situationPatrimoniale.mjs (calculs 2c), questionnaireDossier.mjs (2d),
+//   offres.mjs (phases et jalons Offre 2 / Offre 3, honoraires — chantier 9).
 // Module PUR : données en paramètre, date du jour en paramètre.
 
 import { ETAPES_PARCOURS, STATUTS_DOSSIER_NON_CLOS } from "./parcours.mjs";
@@ -15,6 +16,7 @@ import { choisirDossier, listeDossiers, ruban, journal, entete, libelleBalle } f
 import { pilotageDossier, alertesPilotage, actionDuJour, resumePilotage } from "./pilotage.mjs";
 import { calculerSituation, SECTIONS as SECTIONS_2C } from "./situationPatrimoniale.mjs";
 import { syntheseObjectifs, progression, STATUTS_QUESTIONNAIRE } from "./questionnaireDossier.mjs";
+import { parcoursOffre, honorairesMission, offreCible, offreDe } from "./offres.mjs";
 
 /** Navigation de la fiche. `etapes` : étapes du parcours auxquelles l'onglet se rattache. */
 export const ONGLETS_FICHE = Object.freeze([
@@ -52,10 +54,11 @@ export function tachesFiche(taches = [], dossierId, aujourdhui) {
 }
 
 /** Alertes utiles : celles du moteur de pilotage + éléments à corriger (2c) et à revérifier (2d). */
-export function alertesFiche({ pilotage = null, collecte = {}, questionnaire = null }) {
+export function alertesFiche({ pilotage = null, collecte = {}, questionnaire = null, offre = null }) {
   const utiles = /^(echeance_depassee_|echeance_jour_|bloquee_|tache_retard_|sans_prochaine_action|aucune_etape_active)/;
   const out = alertesPilotage(pilotage).filter((a) => utiles.test(a.code))
     .map((a) => ({ code: a.code, libelle: a.label, niveau: a.level, echeance: a.due_date || null, onglet: "ensemble" }));
+  for (const a of offre?.alertes || []) out.push({ ...a, onglet: "ensemble" });
   const aCorriger2c = SECTIONS_2C.reduce((n, s) => n + actifs(collecte[s.table]).filter((r) => r.verification_statut === "a_corriger").length, 0);
   if (aCorriger2c) out.push({ code: "situation_a_corriger", libelle: `Situation patrimoniale : ${aCorriger2c} élément${aCorriger2c > 1 ? "s" : ""} à corriger`, niveau: "warning", onglet: "situation" });
   if (questionnaire) {
@@ -89,12 +92,17 @@ export function construireFiche({ client, dossiers = [], idChoisi = null, etapes
   const questionnaire = { data: dossier.questionnaire_data || {}, statut: dossier.questionnaire_statut || "brouillon" };
   const prog = progression(questionnaire.data);
   const t = tachesFiche(taches, dossier.id, aujourdhui);
+  const parcours = ruban(siennes, utilisateurs);
+  const offre = parcoursOffre(dossier, parcours);
 
   return {
     ...base,
     vide: false,
     modifiable: !ent.clos,
-    entete: { ...ent, dateOuverture: jour(dossier.date_ouverture) },
+    entete: { ...ent, dateOuverture: jour(dossier.date_ouverture), offre: offreDe(dossier.type_mission) },
+    offre,
+    offreCible: offreCible(dossier),
+    honoraires: honorairesMission(dossier),
     pilotage: p ? {
       principale: p.principale ? { cle: p.principale.etape, libelle: p.principale.libelle, statut: p.principale.statutLibelle, balle: p.principale.balle.libelle, balleType: p.principale.balle.type } : null,
       actives: p.actives.map((a) => ({ cle: a.etape, libelle: a.libelle, statut: a.statutLibelle, balle: a.balle.libelle, balleType: a.balle.type })),
@@ -111,14 +119,14 @@ export function construireFiche({ client, dossiers = [], idChoisi = null, etapes
       retardJours: ajd.echeance && ajd.echeance < aujourdhui ? joursEntre(ajd.echeance, aujourdhui) : 0,
       blocage: etapeAgir?.blocage ? etapeAgir.blocage.motif : null,
     } : null,
-    parcours: ruban(siennes, utilisateurs),
+    parcours,
     projet: { ...syntheseObjectifs(questionnaire.data), statut: questionnaire.statut, statutLibelle: STATUTS_QUESTIONNAIRE[questionnaire.statut],
       pourcentage: prog.pourcentage, repondues: prog.repondues, visibles: prog.visibles, aCorriger: prog.aCorriger },
     situation: {
       ...calculerSituation({ postes: collecte.invest_postes_financiers, engagements: collecte.invest_engagements, actifsImmo: collecte.invest_actifs_patrimoniaux }),
       lignes: Object.fromEntries(SECTIONS_2C.map((s) => [s.cle, actifs(collecte[s.table]).length])),
     },
-    alertes: alertesFiche({ pilotage: p, collecte, questionnaire }),
+    alertes: alertesFiche({ pilotage: p, collecte, questionnaire, offre }),
     activite: journal(evenements.filter((e) => e.dossier_id === undefined || e.dossier_id === dossier.id)).slice(0, 8),
     taches: t,
     etapesParCle: Object.fromEntries(siennes.map((e) => [e.etape, { ...e, balleLibelle: libelleBalle(e, utilisateurs) }])),

@@ -97,6 +97,9 @@ export const TYPES_EVENEMENT = Object.freeze({
   etape_bloquee:                 "Étape bloquée",
   etape_debloquee:               "Étape débloquée",
   reprise_importee:              "Reprise de l'existant",
+  offre_change:                  "Offre modifiée",
+  restitution_change:            "Rapport & restitution",
+  cadrage_change:                "Cadrage du projet",
 });
 
 // ── Correspondance des anciennes étapes de mission (step_key) ──────────────

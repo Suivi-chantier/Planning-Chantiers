@@ -8,9 +8,12 @@
 // moteurs existants (pilotage 2b, dossierVue 2a, situation 2c, questionnaire
 // 2d). Les onglets Projet et Situation patrimoniale embarquent les cartes 2d et
 // 2c telles quelles ; le panneau d'étape est celui de la Tranche 2a.
+// Chantier 9 : parcours par phases et jalons de l'offre (Offre 2 / Offre 3),
+// carte « Mission & honoraires » ; gestes préparés par offres.mjs.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../supabase";
-import { ETAPES_PARCOURS } from "./parcours";
+import { ETAPES_PARCOURS, STATUTS_LETTRE_MISSION } from "./parcours";
+import { patchOffre, patchRestitution, patchCadrage, patchForfait, patchLettre, offreDe, STATUTS_CADRAGE } from "./offres";
 import { tachesParEtape, journal as journalVue, champsNouvelleTache } from "./dossierVue";
 import { construireFiche, ONGLETS_FICHE } from "./ficheDossierVue";
 import { PanneauEtape, DemarrerMission } from "./DossierInvestCard";
@@ -19,6 +22,7 @@ import ProjetSituationCard from "./ProjetSituationCard";
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
 const COULEUR_ETAPE = { a_venir: "#94a3b8", en_cours: "#2563eb", en_attente: "#d97706", bloquee: "#dc2626", terminee: "#16a34a", non_applicable: "#cbd5e1" };
+const COULEUR_JALON = { a_venir: "#94a3b8", a_faire: "#d97706", en_cours: "#2563eb", bloque: "#dc2626", termine: "#16a34a", sans_objet: "#cbd5e1", absent: "#cbd5e1" };
 const COULEUR_NIVEAU = { danger: "#dc2626", warning: "#d97706", info: "#2563eb" };
 const eur = (v) => (v == null || v === "" ? "—" : `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Number(v))} €`);
 const dateFr = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "—");
@@ -55,6 +59,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
   const [idChoisi, setIdChoisi] = useState(dossierIdInitial);
   const [onglet, setOnglet] = useState("ensemble");
   const [panneau, setPanneau] = useState(null);
+  const [geste, setGeste] = useState(null); // offre | restitution | cadrage | forfait | lettre
   const [demarrage, setDemarrage] = useState(false);
   const [message, setMessage] = useState("");
   const [rev, setRev] = useState(0);
@@ -85,7 +90,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
     setEtat({ chargement: false, erreur: erreurs.join(" · ") });
   }, [client?.id, idChoisi, version, rev]);
   useEffect(() => { charger(); }, [charger]);
-  useEffect(() => { setIdChoisi(dossierIdInitial); setOnglet("ensemble"); setPanneau(null); setMessage(""); }, [client?.id, dossierIdInitial]);
+  useEffect(() => { setIdChoisi(dossierIdInitial); setOnglet("ensemble"); setPanneau(null); setGeste(null); setMessage(""); }, [client?.id, dossierIdInitial]);
 
   const fiche = useMemo(() => donnees ? construireFiche({ client, idChoisi, aujourdhui, ...donnees }) : null, [donnees, client, idChoisi, aujourdhui]);
   const monId = (donnees?.utilisateurs || []).find((u) => String(u.email || "").trim().toLowerCase() === String(profil?.email || "").trim().toLowerCase())?.id || "";
@@ -129,7 +134,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
             <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", color: T.accent }}>Dossier Invest · {e.reference}</div>
             <div style={{ fontSize: 22, fontWeight: 900, color: T.text, marginTop: 2 }}>{fiche.client.nom}</div>
             <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 3 }}>
-              {e.libelle} · Conseiller : {e.conseiller} · Ouvert le {dateFr(e.dateOuverture)} · Lettre de mission : {e.lettre}
+              {e.offre.court ? `${e.offre.court} — ${e.offre.libelle}` : e.offre.libelle} · {e.libelle} · Conseiller : {e.conseiller} · Ouvert le {dateFr(e.dateOuverture)} · Lettre de mission : {e.lettre}
             </div>
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -155,7 +160,9 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
             {p.blocages.length > 0 && <Donnee T={T} libelle="Blocage" valeur={p.blocages.map((b) => `${b.etape} : ${b.motif || "bloquée"}`).join(" · ")} />}
           </div>
         )}
-        <Parcours T={T} parcours={fiche.parcours} onOuvrir={setPanneau} />
+        {fiche.offre
+          ? <ParcoursOffre T={T} offre={fiche.offre} parcours={fiche.parcours} modifiable={fiche.modifiable} onOuvrir={setPanneau} onGeste={setGeste} />
+          : <Parcours T={T} parcours={fiche.parcours} onOuvrir={setPanneau} />}
       </section>
 
       {/* ── Navigation ── */}
@@ -170,7 +177,9 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
       {message && <div style={{ fontSize: 12.5, padding: "8px 12px", borderRadius: 10, background: T.accentBg, color: T.text }}>{message}</div>}
       {etat.erreur && <div style={{ fontSize: 12, color: "#be123c" }}>Lecture incomplète : {etat.erreur}</div>}
 
-      {onglet === "ensemble" && <VueEnsemble T={T} fiche={fiche} onOnglet={setOnglet} onOuvrirEtape={setPanneau} utilisateurs={donnees.utilisateurs} profil={profil} client={client} onTacheCreee={(txt) => { setMessage(txt); rafraichir(); }} />}
+      {geste && <GesteMission T={T} geste={geste} fiche={fiche} aujourdhui={aujourdhui} onFermer={() => setGeste(null)}
+        onEnregistre={(txt) => { setGeste(null); setMessage(txt); rafraichir(); }} />}
+      {onglet === "ensemble" && <VueEnsemble T={T} fiche={fiche} onGeste={setGeste} onOnglet={setOnglet} onOuvrirEtape={setPanneau} utilisateurs={donnees.utilisateurs} profil={profil} client={client} onTacheCreee={(txt) => { setMessage(txt); rafraichir(); }} />}
       {onglet === "projet" && <Carte T={T}><ProjetSituationCard T={T} dossierId={fiche.dossier.id} dossierEnCoursId={fiche.dossierEnCours?.id ?? null} integre /></Carte>}
       {onglet === "situation" && <Carte T={T}><SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={fiche.dossierEnCours?.id ?? null} dossierReference={fiche.dossierEnCours?.reference ?? null} integre /></Carte>}
       {onglet === "opportunites" && <Opportunites T={T} fiche={fiche} propositions={donnees.propositions} onOuvrirEtape={setPanneau} />}
@@ -208,7 +217,7 @@ function Parcours({ T, parcours, onOuvrir }) {
   );
 }
 
-function VueEnsemble({ T, fiche, onOnglet, onOuvrirEtape, utilisateurs, profil, client, onTacheCreee }) {
+function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs, profil, client, onTacheCreee }) {
   const a = fiche.aFaire, pj = fiche.projet, s = fiche.situation;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.35fr) minmax(0,1fr)", gap: 14 }} className="fiche-dossier-grille">
@@ -252,6 +261,7 @@ function VueEnsemble({ T, fiche, onOnglet, onOuvrirEtape, utilisateurs, profil, 
             </div>
           )}
         </Carte>
+        <MissionHonoraires T={T} fiche={fiche} onGeste={onGeste} />
         <Carte T={T} titre="Projet" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("projet")}>Ouvrir</button>}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Donnee T={T} libelle="Objectif" valeur={pj.objectif || "Non renseigné"} />
@@ -372,6 +382,178 @@ function Opportunites({ T, fiche, propositions = [], onOuvrirEtape }) {
           </div>
         )}
         <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 8 }}>Les propositions se gèrent pour l'instant dans l'ancienne vue CRM (section « Biens proposés »).</div>
+      </div>
+    </Carte>
+  );
+}
+
+// ── Chantier 9 : parcours de l'offre, honoraires, gestes sur la mission ─────
+
+function ParcoursOffre({ T, offre, parcours, modifiable, onOuvrir, onGeste }) {
+  const parCle = Object.fromEntries(parcours.map((e) => [e.cle, e]));
+  const plusieurs = offre.phases.length > 1;
+  return (
+    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }} aria-label={`Parcours ${offre.offre.court}`}>
+      {offre.phases.map((ph, i) => (
+        <div key={ph.cle} style={{ opacity: ph.nonCommencee ? 0.75 : 1 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: 0.8, textTransform: "uppercase", color: T.textMuted, marginBottom: 6 }}>
+            {plusieurs ? `Phase ${i + 1} · ${ph.libelle}` : `Parcours ${offre.offre.court}`} <span style={{ fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>— {ph.etatLibelle}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(132px,1fr))", gap: 6 }}>
+            {ph.jalons.map((j) => {
+              const c = COULEUR_JALON[j.etat] || "#94a3b8";
+              const actif = ["en_cours", "bloque", "a_faire"].includes(j.etat);
+              return (
+                <div key={j.cle} style={{ borderRadius: 12, padding: "7px 8px", border: `${actif ? 2 : 1}px solid ${actif ? c : T.border}`, background: actif ? `${c}10` : "transparent", minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11.5, fontWeight: 900, color: T.text, lineHeight: 1.15 }}>{j.libelle}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: actif ? c : T.textMuted, fontWeight: 700, marginTop: 2 }}>{j.detail || j.etatLibelle}</div>
+                  <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 5 }}>
+                    {j.etapes.map((cle) => { const e = parCle[cle]; if (!e) return null; const ce = COULEUR_ETAPE[e.statut] || "#cbd5e1";
+                      return (
+                        <button key={cle} onClick={() => e.present && onOuvrir(cle)} disabled={!e.present} title={`${e.libelle} — ${e.statutLibelle}${e.balle ? ` · balle ${e.balle}` : ""}`}
+                          style={{ cursor: e.present ? "pointer" : "default", border: `1px solid ${e.active ? ce : T.border}`, background: "transparent", borderRadius: 999, padding: "1px 6px", fontSize: 9.5, fontWeight: 800, color: e.active ? ce : T.textSub }}>
+                          {e.numero}. {e.libelle}{e.aConfirmer ? " ·?" : ""}
+                        </button>
+                      ); })}
+                    {j.special && modifiable && (j.special === "restitution" || j.etat !== "a_venir") && (
+                      <button onClick={() => onGeste(j.special)} style={{ cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", borderRadius: 999, padding: "1px 7px", fontSize: 9.5, fontWeight: 800, color: T.accent }}>
+                        {j.etat === "termine" || j.etat === "sans_objet" ? "Modifier" : "Enregistrer"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MissionHonoraires({ T, fiche, onGeste }) {
+  const o = fiche.entete.offre, h = fiche.honoraires, f = h.forfait, cible = fiche.offreCible;
+  const m = fiche.modifiable;
+  const eurHT = (v) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(v))} € HT`;
+  const lien = (cle, txt) => m && <button className="inv-btn inv-btn-sm" onClick={() => onGeste(cle)}>{txt}</button>;
+  return (
+    <Carte T={T} titre="Mission & honoraires">
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <Donnee T={T} libelle="Offre" valeur={o.court ? `${o.court} — ${o.libelle}` : o.libelle} />
+          {cible && lien("offre", cible === "audit_patrimonial" ? "Passer en Offre 3" : "Revenir en Offre 2")}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <div style={{ minWidth: 0 }}>
+            <Donnee T={T} libelle="Forfait de mission" valeur={f.renseigne ? eurHT(f.montant) : "Non renseigné"} fort={f.renseigne} />
+            <div style={{ fontSize: 11.5, color: f.etat === "du" ? T.textSub : "#b45309", marginTop: 2 }}>{f.exigibilite}</div>
+          </div>
+          {lien("forfait", f.renseigne ? "Modifier" : "Renseigner")}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <Donnee T={T} libelle="Lettre de mission" valeur={fiche.entete.lettre} />
+          {lien("lettre", "Modifier")}
+        </div>
+        <div>
+          <Donnee T={T} libelle="Honoraires d'accompagnement" valeur={h.accompagnement.regle} />
+          <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 2 }}>{h.accompagnement.calcul}</div>
+        </div>
+      </div>
+    </Carte>
+  );
+}
+
+const TITRES_GESTE = { offre: "Changer d'offre", restitution: "Rapport & restitution", cadrage: "Cadrage du projet", forfait: "Forfait de mission", lettre: "Lettre de mission" };
+
+function GesteMission({ T, geste, fiche, aujourdhui, onFermer, onEnregistre }) {
+  const d = fiche.dossier;
+  const [v, setV] = useState(() => ({
+    restitution: d.restitution_le ? String(d.restitution_le).slice(0, 10) : aujourdhui,
+    cadrageStatut: d.cadrage_statut || "fait", cadrage: d.cadrage_le ? String(d.cadrage_le).slice(0, 10) : aujourdhui,
+    forfait: d.honoraires_prevus_ht == null ? "" : String(d.honoraires_prevus_ht).replace(".", ","),
+    lettre: d.lettre_mission_statut === "inconnu" ? "a_emettre" : d.lettre_mission_statut,
+    signee: d.lettre_mission_signee_le ? String(d.lettre_mission_signee_le).slice(0, 10) : aujourdhui,
+  }));
+  const [erreur, setErreur] = useState("");
+  const [envoi, setEnvoi] = useState(false);
+  const maj = (k) => (ev) => setV((x) => ({ ...x, [k]: ev.target.value }));
+  const cible = fiche.offreCible;
+
+  const envoyer = async (fabriquer, texte) => {
+    setErreur("");
+    let patch;
+    try { patch = fabriquer(); } catch (e) { setErreur(e.message); return; }
+    setEnvoi(true);
+    const { data, error } = await supabase.from("invest_dossiers").update(patch).eq("id", d.id).select("id");
+    setEnvoi(false);
+    if (error) { setErreur(error.message); return; }
+    if (!data?.length) { setErreur("Modification refusée : droits insuffisants sur cette mission."); return; }
+    onEnregistre(texte);
+  };
+
+  let corps;
+  if (geste === "offre") {
+    const vers = offreDe(cible);
+    corps = (
+      <>
+        <div style={{ fontSize: 12.5, color: T.text }}>
+          {cible === "audit_patrimonial"
+            ? "La mission passe en Offre 3 : une phase Patrimoine (Collecte → Analyse → Stratégie → Rapport & restitution) précède la phase Investissement. Les étapes déjà faites ne sont pas modifiées : si la collecte, l'analyse ou la stratégie doivent être reprises, rouvrez-les depuis le parcours."
+            : "La mission revient en Offre 2 (correction d'erreur). Possible uniquement si aucune restitution ni cadrage n'est enregistré."}
+        </div>
+        <button className="inv-btn inv-btn-blue inv-btn-sm" disabled={envoi || !cible} onClick={() => envoyer(() => patchOffre(d, cible), `Mission passée en ${vers.court}.`)}>Passer en {vers.court}</button>
+      </>
+    );
+  } else if (geste === "restitution") {
+    corps = (
+      <>
+        <label style={{ fontSize: 12, color: T.textSub }}>Rapport remis et restitué le <input className="inv-inp" type="date" max={aujourdhui} value={v.restitution} onChange={maj("restitution")} /></label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" disabled={envoi} onClick={() => envoyer(() => patchRestitution(d, v.restitution, aujourdhui), "Rapport & restitution enregistrés.")}>Enregistrer</button>
+          {d.restitution_le && <button className="inv-btn inv-btn-sm" disabled={envoi} onClick={() => envoyer(() => patchRestitution(d, null, aujourdhui), "Date de restitution retirée.")}>Retirer la date</button>}
+        </div>
+      </>
+    );
+  } else if (geste === "cadrage") {
+    corps = (
+      <>
+        <select className="inv-sel" value={v.cadrageStatut} onChange={maj("cadrageStatut")} aria-label="Cadrage">
+          {Object.entries(STATUTS_CADRAGE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        {v.cadrageStatut === "fait" && <label style={{ fontSize: 12, color: T.textSub }}>Fait le <input className="inv-inp" type="date" max={aujourdhui} value={v.cadrage} onChange={maj("cadrage")} /></label>}
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" disabled={envoi} onClick={() => envoyer(() => patchCadrage(d, v.cadrageStatut, v.cadrage, aujourdhui), "Cadrage enregistré.")}>Enregistrer</button>
+          {d.cadrage_statut && <button className="inv-btn inv-btn-sm" disabled={envoi} onClick={() => envoyer(() => patchCadrage(d, null, null, aujourdhui), "Cadrage remis à faire.")}>Remettre à faire</button>}
+        </div>
+      </>
+    );
+  } else if (geste === "forfait") {
+    corps = (
+      <>
+        <label style={{ fontSize: 12, color: T.textSub }}>Montant HT (€) <input className="inv-inp" inputMode="decimal" placeholder="Non renseigné" value={v.forfait} onChange={maj("forfait")} /></label>
+        <div style={{ fontSize: 11.5, color: T.textMuted }}>Laisser vide si le montant n'est pas connu : il s'affichera « non renseigné », jamais 0 €.</div>
+        <button className="inv-btn inv-btn-blue inv-btn-sm" disabled={envoi} onClick={() => envoyer(() => patchForfait(d, v.forfait), "Forfait de mission enregistré.")}>Enregistrer</button>
+      </>
+    );
+  } else if (geste === "lettre") {
+    corps = (
+      <>
+        <select className="inv-sel" value={v.lettre} onChange={maj("lettre")} aria-label="Statut de la lettre">
+          {Object.entries(STATUTS_LETTRE_MISSION).filter(([k]) => k !== "inconnu").map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        {v.lettre === "signee" && <label style={{ fontSize: 12, color: T.textSub }}>Signée le <input className="inv-inp" type="date" max={aujourdhui} value={v.signee} onChange={maj("signee")} /></label>}
+        <button className="inv-btn inv-btn-blue inv-btn-sm" disabled={envoi} onClick={() => envoyer(() => patchLettre(d, v.lettre, v.signee, aujourdhui), "Lettre de mission enregistrée.")}>Enregistrer</button>
+      </>
+    );
+  }
+  return (
+    <Carte T={T} titre={TITRES_GESTE[geste]} action={<button className="inv-btn inv-btn-sm" onClick={onFermer}>Fermer</button>}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+        {corps}
+        {erreur && <div style={{ fontSize: 12, color: "#be123c" }}>{erreur}</div>}
       </div>
     </Carte>
   );
