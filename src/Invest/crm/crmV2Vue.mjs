@@ -13,7 +13,8 @@
 // ouvertes par client : tout est calculé par mission, jamais « une par client ».
 // Module PUR : données en paramètre, date du jour en paramètre.
 
-import { ETAPES_PARCOURS, TYPES_MISSION, STATUTS_DOSSIER, STATUTS_DOSSIER_NON_CLOS } from "../dossiers/parcours.mjs";
+import { ETAPES_PARCOURS, STATUTS_DOSSIER, STATUTS_DOSSIER_NON_CLOS } from "../dossiers/parcours.mjs";
+import { offreDe, jalonActuel } from "../dossiers/offres.mjs";
 import { pilotageDossier, actionDuJour } from "../dossiers/pilotage.mjs";
 import { calculerSituation, SECTIONS as SECTIONS_2C } from "../dossiers/situationPatrimoniale.mjs";
 
@@ -32,32 +33,8 @@ export const ONGLETS_CLIENT = Object.freeze([
   { cle: "historique", libelle: "Historique" },
 ]);
 
-/**
- * Offres commerciales. Lecture du type de mission existant, sans nouvelle
- * donnée : accompagnement à l'acquisition = Offre 2, audit patrimonial = Offre 3.
- * Les autres types gardent leur libellé et n'ont pas encore de jalons.
- */
-export const OFFRES = Object.freeze({
-  accompagnement_acquisition: { code: "offre2", court: "Offre 2", libelle: "Accompagnement à l'investissement" },
-  audit_patrimonial: { code: "offre3", court: "Offre 3", libelle: "Accompagnement patrimonial global" },
-});
-
-/** Jalons visibles par offre : simple lecture des 11 étapes internes. */
-export const JALONS_OFFRE = Object.freeze({
-  offre2: [
-    { libelle: "Projet", etapes: ["signature", "collecte", "analyse", "strategie"] },
-    { libelle: "Documents", etapes: ["documents"] },
-    { libelle: "Recherche", etapes: ["recherche"] },
-    { libelle: "Opportunités", etapes: ["opportunites"] },
-    { libelle: "Financement", etapes: ["financement"] },
-    { libelle: "Acquisition", etapes: ["structuration", "acquisition", "suivi"] },
-  ],
-  offre3: [
-    { libelle: "Collecte", etapes: ["signature", "collecte", "documents"] },
-    { libelle: "Analyse", etapes: ["analyse"] },
-    { libelle: "Stratégie", etapes: ["strategie"] },
-  ],
-});
+// Offres (Offre 2 / Offre 3) : source unique dans dossiers/offres.mjs (chantier 9).
+export { OFFRES, JALONS_OFFRE, offreDe, jalonDe } from "../dossiers/offres.mjs";
 
 const TACHE_OUVERTE = new Set(["a_faire", "en_cours", "bloque"]);
 const TYPES_CONTACT = new Set(["appel", "rendez-vous", "relance"]);
@@ -69,19 +46,6 @@ const libelleEtape = (cle) => ETAPES_PARCOURS.find((e) => e.cle === cle)?.libell
 const enCours = (d) => STATUTS_DOSSIER_NON_CLOS.includes(d?.statut);
 
 export const nomClient = (c) => [c?.prenom, c?.nom].filter(Boolean).join(" ").trim() || "Client sans nom";
-
-export function offreDe(typeMission) {
-  const o = OFFRES[typeMission];
-  if (o) return { ...o, type: typeMission };
-  return { code: null, court: null, libelle: TYPES_MISSION[typeMission] ?? "Type de mission non précisé", type: typeMission ?? null };
-}
-
-/** Jalon visible de l'étape principale selon l'offre ; à défaut, le libellé de l'étape. */
-export function jalonDe(typeMission, cleEtape) {
-  if (!cleEtape) return null;
-  const jalons = JALONS_OFFRE[OFFRES[typeMission]?.code] || [];
-  return jalons.find((j) => j.etapes.includes(cleEtape))?.libelle ?? libelleEtape(cleEtape);
-}
 
 /**
  * Une mission en cours, lue par le moteur de pilotage.
@@ -112,7 +76,7 @@ export function missionPilotee({ dossier, client = null, etapes = [], taches = [
     reference: dossier.reference, libelle: dossier.libelle || null,
     offre: offreDe(dossier.type_mission), statut: dossier.statut, statutLibelle: STATUTS_DOSSIER[dossier.statut] ?? dossier.statut,
     ouverture: jour(dossier.date_ouverture),
-    jalon: jalonDe(dossier.type_mission, p.principale?.etape) ?? "Aucune étape active",
+    jalon: jalonActuel(dossier, p.principale?.etape ?? null, etapes) ?? "Aucune étape active",
     etapesActives: p.actives.map((a) => a.libelle),
     action: ajd.action, responsable: ajd.responsable, etape: e?.libelle ?? null,
     echeance: ajd.echeance, balle: e?.balle.libelle ?? null, balleType: e?.balle.type ?? null,

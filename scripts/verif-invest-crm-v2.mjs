@@ -70,7 +70,10 @@ test("1. offre et jalon : lecture du type de mission et des 11 étapes, sans nou
   assert.equal(V.offreDe(null).libelle, "Type de mission non précisé", "absence visible, jamais une offre inventée");
   assert.equal(V.jalonDe("accompagnement_acquisition", "collecte"), "Projet");
   assert.equal(V.jalonDe("accompagnement_acquisition", "suivi"), "Acquisition");
-  assert.equal(V.jalonDe("audit_patrimonial", "documents"), "Collecte");
+  // Chantier 9 : l'Offre 3 contient l'Offre 2 (Documents relève de la phase Investissement).
+  assert.equal(V.jalonDe("audit_patrimonial", "documents"), "Documents");
+  assert.equal(V.jalonDe("audit_patrimonial", "collecte"), "Collecte");
+  assert.equal(V.jalonDe("audit_patrimonial", "suivi"), "Acquisition");
   assert.equal(V.jalonDe("conseil", "analyse"), "Analyse", "sans jalons : libellé de l'étape");
   assert.ok(!JSON.stringify(V.JALONS_OFFRE.offre3).includes("Plan d'action"), "le plan d'action n'est pas une étape");
 });
@@ -83,7 +86,7 @@ test("2. À traiter : une ligne par mission (deux missions ouvertes du même cli
     { retard: 4, action: "Relancer la banque", etape: "Financement", balle: "Profero (Conseiller A)", echeance: "2026-10-01", conseiller: "Conseiller A", offre: "Offre 2", jalon: "Financement" });
   assert.equal(d1.signaux.aujourdhui, true, "tâche du jour");
   assert.deepEqual(d2.blocages, [{ etape: "Analyse", motif: "Avis d'imposition manquant" }]);
-  assert.equal(d2.offre.court, "Offre 3"); assert.equal(d2.conseiller, "Conseiller B");
+  assert.equal(d2.offre.court, "Offre 3"); assert.equal(d2.conseiller, "Conseiller B"); assert.equal(d2.jalon, "Analyse");
   assert.equal(d3.signaux.attenteClient, true); assert.equal(d3.urgent, false, "attente client sans échéance proche : suit son cours");
 });
 

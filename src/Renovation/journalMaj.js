@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-01",
+    type: "nouveaute",
+    titre: "Missions Invest : parcours Offre 2 et Offre 3, honoraires de la mission",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Chaque mission suit maintenant le parcours de l'offre réellement vendue. Offre 2 : Projet, Documents, Recherche, Opportunités, Financement, Acquisition. Offre 3 : d'abord une phase Patrimoine (Collecte, Analyse, Stratégie, puis Rapport & restitution), ensuite la phase Investissement de l'Offre 2, avec un cadrage du projet si nécessaire. La mission affiche aussi son forfait (dû à la signature de la lettre de mission) et la règle des honoraires d'accompagnement (50 % de la remise obtenue, par acquisition).",
+    comment: "Dans la fiche de la mission, le parcours est présenté par phases et par jalons ; les étapes de chaque jalon restent cliquables comme avant. En Offre 3, le jalon « Rapport & restitution » se renseigne avec une seule date (rapport remis et restitué le même jour), puis le cadrage (fait, ou non nécessaire). Tant que la restitution n'est pas enregistrée, la phase Investissement s'affiche « pas encore commencée », jamais en retard. La carte « Mission & honoraires » permet de passer une mission d'Offre 2 en Offre 3, de renseigner le forfait et la lettre de mission ; un forfait vide s'affiche « non renseigné », jamais 0 €. Chaque changement est noté en clair dans l'historique de la mission.",
+  },
+  {
     date: "2026-09-30",
     type: "nouveaute",
     titre: "CRM Invest : nouveau CRM en trois vues et vraie page Client",

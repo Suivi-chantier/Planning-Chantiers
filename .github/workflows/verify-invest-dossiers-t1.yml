@@ -13,6 +13,8 @@ on:
       - 'sql/202609_invest_questionnaire_2d_rollback.sql'
       - 'supabase/migrations/20260930235500_invest_questionnaire_2d1_catalogue.sql'
       - 'sql/202609_invest_questionnaire_2d1_rollback.sql'
+      - 'supabase/migrations/20261001100000_invest_missions_offres.sql'
+      - 'sql/202610_invest_missions_offres_rollback.sql'
       - 'scripts/generer-questionnaire-cles-sql.mjs'
       - 'src/Invest/dossiers/**'
       - 'src/Invest/crm/**'
@@ -31,6 +33,7 @@ on:
       - 'scripts/verif-invest-dossiers-t1.mjs'
       - 'scripts/verif-invest-fiche-dossier.mjs'
       - 'scripts/verif-invest-crm-v2.mjs'
+      - 'scripts/verif-invest-missions-offres.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
       - '.github/workflows/verify-invest-dossiers-t1.yml'
 
@@ -59,3 +62,5 @@ jobs:
         run: node scripts/verif-invest-fiche-dossier.mjs
       - name: CRM V2 et fiche Client V2 (à traiter, clients, planning, page client)
         run: node scripts/verif-invest-crm-v2.mjs
+      - name: Missions Offre 2 / Offre 3 (phases, jalons, honoraires, gestes)
+        run: node scripts/verif-invest-missions-offres.mjs
