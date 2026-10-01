@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-01",
     type: "nouveaute",
+    titre: "CRM Invest : inviter un client à son espace client",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Les administrateurs et les commerciaux peuvent ouvrir à un client son espace en ligne. Le client reçoit un e-mail, choisit son mot de passe, puis suit l'avancement de son accompagnement et télécharge les documents que vous lui avez partagés. Il ne voit que ce que vous avez choisi de lui montrer.",
+    comment: "Dans la fiche d'un client, onglet Vue d'ensemble, le bloc « Accès au portail client » propose « Inviter au portail » (une confirmation est demandée). Ensuite, « Renvoyer le lien » si le client a perdu son e-mail, et « Révoquer l'accès » pour le fermer immédiatement. Le client doit avoir une adresse e-mail sur sa fiche.",
+  },
+  {
+    date: "2026-10-01",
+    type: "nouveaute",
     titre: "Missions Invest : choisir les documents partagés avec le client (préparation du portail client)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Vous décidez, fichier par fichier, quels documents un client pourra télécharger plus tard depuis son espace. Par défaut, aucun document n'est partagé. Le portail client n'est pas encore ouvert : ce choix est simplement préparé.",

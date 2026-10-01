@@ -13,6 +13,7 @@ import { CLIENT_DOCUMENT_CHECKLIST, clientStrategy, DocumentsSection } from "../
 import { DemarrerMission } from "../dossiers/DossierInvestCard";
 import SituationPatrimonialeCard from "../dossiers/SituationPatrimonialeCard";
 import { ONGLETS_CLIENT, construireClient } from "./crmV2Vue";
+import AccesPortail from "./AccesPortail";
 import { FilAriane, Onglets, Section, Carte, Pastille, Discret, Chiffre, Vide, dateFr, dateCourte, eur, aujourdhuiIso, ROUGE, ORANGE, BLEU, VERT, GRIS } from "./ui";
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
@@ -81,7 +82,7 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
-      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} />}
+      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} />}
       {onglet === "missions" && <Missions T={T} vue={vue} donnees={donnees} profil={profil} illisible={donnees.dossiersIllisibles} onOuvrirMission={onOuvrirMission} onCree={(id) => { rafraichir(); onOuvrirMission(id); }} />}
       {onglet === "patrimoine" && (
         <Section T={T} titre="Patrimoine du foyer">
@@ -128,7 +129,7 @@ function CarteMission({ T, m, onOuvrir }) {
 
 const GRILLE_2 = { display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 20, alignItems: "start" };
 
-function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission }) {
+function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil }) {
   const p = vue.patrimoine;
   return (
     <>
@@ -178,6 +179,7 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission }) {
           <Vide T={T} compact titre="Bientôt disponible" texte="les acquisitions du client apparaîtront ici" />
         </Section>
       </div>
+      <AccesPortail T={T} client={client} profil={profil} />
       <Section T={T} compact titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("historique")}>Voir tout l'historique</button>}>
         {vue.activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeHistorique T={T} items={vue.activite} />}
       </Section>

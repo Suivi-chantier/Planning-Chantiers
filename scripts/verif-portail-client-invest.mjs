@@ -28,6 +28,8 @@ const DOCUMENTS = lire("supabase/migrations/20261001210000_portail_client_invest
 const DOCUMENTS_ROLLBACK = lire("sql/202610_portail_client_invest_documents_rollback.sql");
 const ECRAN = lire("supabase/migrations/20261001220000_portail_client_invest_ecran.sql");
 const ECRAN_ROLLBACK = lire("sql/202610_portail_client_invest_ecran_rollback.sql");
+const INVITATION = lire("supabase/migrations/20261001230000_portail_client_invest_invitation.sql");
+const INVITATION_ROLLBACK = lire("sql/202610_portail_client_invest_invitation_rollback.sql");
 const FONCTION_DOC = lire("supabase/functions/portail-document-url/index.ts");
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -109,7 +111,7 @@ insert into public.invest_clients (id, prenom, nom, email, telephone, notes_rapi
 insert into auth.sessions (user_id) select id from auth.users;
 `;
 
-async function base({ migration = true, lecture = false, documents = false, ecran = false } = {}) {
+async function base({ migration = true, lecture = false, documents = false, ecran = false, invitation = false } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA);
   await db.exec(HOOK);
@@ -128,6 +130,7 @@ async function base({ migration = true, lecture = false, documents = false, ecra
     await db.exec(DOCUMENTS);
   }
   if (ecran) await db.exec(ECRAN);
+  if (invitation) await db.exec(INVITATION);
   return db;
 }
 // Jetons tels que le hook les pose : sub, email, role, profero_population.
@@ -226,7 +229,7 @@ test("2.4 anon : aucun accès à la table", async () => {
   const db = await base(); await lier(db, ID.clientA, ID.cA1);
   assert.ok((await sous(db, "anon", null, `select * from public.invest_portail_comptes`)).erreur);
 });
-test("2.5 seul un administrateur gère les liens (un commercial non)", async () => {
+test("2.5 [avant l'invitation] seul un administrateur gère les liens (un commercial non)", async () => {
   const db = await base();
   const adm = await sous(db, "authenticated", J.admin, `insert into public.invest_portail_comptes (client_id, auth_user_id) values ('${ID.clientA}','${ID.cA1}') returning id`);
   assert.equal(adm.erreur, null);
@@ -494,6 +497,61 @@ test("7.4 retour arrière : portail_client retirée, portail_etapes d'avant", as
   await db.exec(ECRAN_ROLLBACK);
   assert.equal((await db.query(`select count(*)::int n from pg_class where relname='portail_client'`)).rows[0].n, 0);
   assert.ok(!/operation_id/.test((await db.query(`select pg_get_viewdef('public.portail_etapes'::regclass) d`)).rows[0].d));
+});
+
+// ── 8. Qui gère les accès clients : administrateurs et commerciaux ───────
+test("8.1 portail_gestionnaire : admin et commercial actifs oui ; comptable, ouvrier, sans fiche, client non", async () => {
+  const db = await base({ invitation: true });
+  await db.exec(`insert into public.utilisateurs (email, nom, role, actif) values ('compta@test.fr','Compta','comptable',true), ('inactif@test.fr','Inactif','commercial',false)`);
+  const q = (j) => sous(db, "authenticated", j, `select public.portail_gestionnaire() as g`).then((r) => r.rows[0]?.g);
+  assert.equal(await q(J.admin), true);
+  assert.equal(await q(J.commercial), true);
+  assert.equal(await q(jeton(ID.admin, "compta@test.fr", "collaborateur")), false, "comptable");
+  assert.equal(await q(J.ouvrier), false);
+  assert.equal(await q(J.libre), false);
+  assert.equal(await q(jeton(ID.admin, "inactif@test.fr", "collaborateur")), false, "commercial désactivé");
+  assert.equal(await q({ ...J.commercial, profero_population: "client_invest" }), false, "jeton étiqueté client");
+  assert.ok((await sous(db, "anon", null, `select public.portail_gestionnaire()`)).erreur, "anon n'exécute pas la fonction");
+});
+test("8.2 administrateurs et commerciaux lisent les accès ; les autres n'en voient aucun", async () => {
+  const db = await base({ invitation: true }); await lier(db, ID.clientA, ID.cA1);
+  const n = async (j) => (await sous(db, "authenticated", j, `select * from public.invest_portail_comptes`)).rows.length;
+  assert.equal(await n(J.admin), 1);
+  assert.equal(await n(J.commercial), 1);
+  assert.equal(await n(J.ouvrier), 0);
+  assert.equal(await n(J.libre), 0);
+  assert.equal(await n(J.cA1), 0, "le client lui-même ne lit pas la table");
+});
+test("8.3 un commercial révoque un accès : sessions coupées, hook refuse ; un ouvrier ne le peut pas", async () => {
+  const db = await base({ invitation: true }); await lier(db, ID.clientA, ID.cA1); await lier(db, ID.clientB, ID.cB1);
+  const refus = await sous(db, "authenticated", J.ouvrier, `update public.invest_portail_comptes set statut='revoque'`);
+  assert.equal(refus.rows.length, 0);
+  assert.equal(await sessions(db, ID.cA1), 1, "rien n'a changé");
+  const ok = await sous(db, "authenticated", J.commercial, `update public.invest_portail_comptes set statut='revoque', revoque_le=now(), revoque_par='commercial@test.fr' where client_id='${ID.clientA}' returning id`);
+  assert.equal(ok.erreur, null);
+  assert.equal(ok.rows.length, 1);
+  assert.equal(await sessions(db, ID.cA1), 0);
+  assert.equal(await sessions(db, ID.cB1), 1, "l'autre client n'est pas touché");
+  assert.equal((await hook(db, ID.cA1)).error?.http_code, 403);
+  assert.equal((await hook(db, ID.cB1)).claims.profero_population, "client_invest");
+});
+test("8.4 aucun gestionnaire ne peut créer, supprimer ni relier un accès à un autre client/compte", async () => {
+  const db = await base({ invitation: true }); await lier(db, ID.clientA, ID.cA1);
+  for (const j of [J.admin, J.commercial]) {
+    assert.ok((await sous(db, "authenticated", j, `insert into public.invest_portail_comptes (client_id, auth_user_id) values ('${ID.clientB}','${ID.libre}')`)).erreur, "insertion");
+    assert.ok((await sous(db, "authenticated", j, `update public.invest_portail_comptes set client_id='${ID.clientB}'`)).erreur, "changer le client");
+    assert.ok((await sous(db, "authenticated", j, `update public.invest_portail_comptes set auth_user_id='${ID.libre}'`)).erreur, "changer le compte");
+    assert.ok((await sous(db, "authenticated", j, `delete from public.invest_portail_comptes`)).erreur, "suppression");
+  }
+  const r = (await db.query(`select client_id, auth_user_id, statut from public.invest_portail_comptes`)).rows;
+  assert.deepEqual(r, [{ client_id: ID.clientA, auth_user_id: ID.cA1, statut: "actif" }], "inchangé");
+});
+test("8.5 retour arrière : retour à « administrateurs seuls »", async () => {
+  const db = await base({ invitation: true });
+  await db.exec(INVITATION_ROLLBACK);
+  assert.equal((await sous(db, "authenticated", J.admin, `insert into public.invest_portail_comptes (client_id, auth_user_id) values ('${ID.clientA}','${ID.cA1}') returning id`)).erreur, null);
+  assert.ok((await sous(db, "authenticated", J.commercial, `insert into public.invest_portail_comptes (client_id, auth_user_id) values ('${ID.clientB}','${ID.cB1}')`)).erreur);
+  assert.equal((await db.query(`select count(*)::int n from pg_proc where proname='portail_gestionnaire'`)).rows[0].n, 0);
 });
 
 let echecs = 0;
