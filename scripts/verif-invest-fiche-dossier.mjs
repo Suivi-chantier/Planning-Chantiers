@@ -153,6 +153,17 @@ test("10. intégration : cartes 2c/2d et panneau 2a réutilisés, pas de doublon
   for (const imp of ["pilotageDossier", "alertesPilotage", "actionDuJour", "calculerSituation", "syntheseObjectifs", "progression", "ruban", "choisirDossier"]) assert.match(VUE, new RegExp(`\\b${imp}\\b`));
 });
 
+test("11. refonte : la situation de la mission est affichée UNE fois (bandeau), alertes cliquables, parcours conservé", () => {
+  assert.ok(!/titre="À faire maintenant"|titre="Alertes"/.test(FICHE), "plus de cartes qui répètent le bandeau");
+  for (const libelle of ["Étape principale", "Prochaine action", "Échéance", "Balle"]) assert.equal((FICHE.match(new RegExp(`libelle="${libelle}"`, "g")) || []).length, 1, `${libelle} : un seul emplacement`);
+  assert.match(FICHE, /fiche\.alertes\.map\(\(al\) => \(\s*<button key=\{al\.code\} onClick=\{\(\) => setOnglet\(al\.onglet\)\}/, "les alertes restent cliquables");
+  assert.match(FICHE, /p\.blocages\.map\(\(b\) => <Badge/, "les blocages restent visibles");
+  assert.match(FICHE, /valeur=\{aFaire\?\.balle \|\| aFaire\?\.responsable \|\| "Personne"\}/, "balle sans répéter le responsable");
+  assert.match(FICHE, /<ParcoursOffre T=\{T\} offre=\{fiche\.offre\}/, "le parcours reste, cliquable");
+  assert.match(FICHE, /onClick=\{\(\) => e\.present && onOuvrir\(cle\)\}/, "les étapes ouvrent toujours leur panneau");
+  assert.match(FICHE, /ONGLETS_FICHE\.map\(\(o\) =>/, "tous les onglets de la fiche restent");
+});
+
 let echecs = 0;
 for (const [n, f] of cas) {
   try { await f(); console.log(`  ✓ ${n}`); }

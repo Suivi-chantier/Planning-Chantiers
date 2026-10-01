@@ -280,6 +280,17 @@ test("18. structuration : la case n'écrit que invest_clients.sujet_structuratio
   for (const id of ["simulateur", "finance", "suivi_financier", "sourcing", "biens", "etat_des_lieux", "urbanisme", "admin"]) assert.match(PAGEINVEST, new RegExp(`\\{ id: "${id}",`), `${id} toujours dans le menu`);
 });
 
+test("19. refonte fiche Client : l'action d'une mission n'est plus répétée dans la liste d'actions", () => {
+  assert.match(FICHE, /const autres = vue\.aFaire\.filter\(\(a\) => !String\(a\.id\)\.startsWith\("m-"\)\);/);
+  assert.match(FICHE, /titre="Autres actions à venir"/);
+  const ensemble = FICHE.slice(FICHE.indexOf("function VueEnsemble"), FICHE.indexOf("function LigneMission"));
+  assert.ok(ensemble.length > 500 && !/titre="Opérations"/.test(ensemble), "bloc vide « Opérations » retiré de la vue d'ensemble");
+  assert.match(FICHE, /onglet === "operations"/, "l'onglet Opérations, lui, reste");
+  // les données ne changent pas : le modèle de la page Client produit toujours les mêmes actions
+  const m = V.construireClient({ client: CLIENTS[0], dossiers: DOSSIERS, etapes: ETAPES, taches: TACHES, utilisateurs: U, aujourdhui: AUJ });
+  assert.ok(m.aFaire.some((a) => String(a.id).startsWith("m-")) && m.aFaire.some((a) => !String(a.id).startsWith("m-")));
+});
+
 let echecs = 0;
 for (const [n, f] of cas) {
   try { await f(); console.log(`  ✓ ${n}`); }

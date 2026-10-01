@@ -141,6 +141,9 @@ const GRILLE_2 = { display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0
 
 function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil }) {
   const p = vue.patrimoine;
+  // L'action principale de chaque mission est déjà dans sa carte : on ne la répète pas dans la liste.
+  const autres = vue.aFaire.filter((a) => !String(a.id).startsWith("m-"));
+  const reste = Math.max(0, vue.aFaireTotal - vue.missionsEnCours.length - autres.length);
   return (
     <>
       <div className="crm-v2-grille" style={GRILLE_2}>
@@ -151,10 +154,10 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
                   action={<button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOnglet("missions")}>＋ Nouvelle mission</button>} />
               : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
         </Section>
-        <Section T={T} compact titre="À faire">
-          {vue.aFaire.length === 0 ? <Vide T={T} compact titre={illisible ? "Indisponible" : "Aucune action en cours"} /> : (
+        <Section T={T} compact titre="Autres actions à venir">
+          {autres.length === 0 ? <Vide T={T} compact titre={illisible ? "Indisponible" : "Aucune autre action dans les 7 jours"} texte={illisible ? null : "l'action principale de chaque mission est dans sa carte"} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
-              {vue.aFaire.map((a) => (
+              {autres.map((a) => (
                 <div key={a.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, padding: "6px 0", borderBottom: `1px solid ${T.rowBorder || T.border}` }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{a.titre}</div>
@@ -163,12 +166,12 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
                   <div style={{ fontSize: 12, fontWeight: 800, color: a.enRetard ? ROUGE : T.textSub, whiteSpace: "nowrap" }}>{a.echeance ? dateFr(a.echeance) : "Sans échéance"}</div>
                 </div>
               ))}
-              {vue.aFaireTotal > vue.aFaire.length && <Discret T={T} style={{ marginTop: 6 }}>+ {vue.aFaireTotal - vue.aFaire.length} autre(s) dans les missions.</Discret>}
+              {reste > 0 && <Discret T={T} style={{ marginTop: 6 }}>+ {reste} autre(s) dans les missions.</Discret>}
             </div>
           )}
         </Section>
       </div>
-      <div className="crm-v2-grille" style={GRILLE_2}>
+      <div>
         <Section T={T} compact titre="Synthèse patrimoniale" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("patrimoine")}>Ouvrir le patrimoine</button>}>
           {p.vide ? <Vide T={T} compact titre="Aucune donnée patrimoniale saisie" /> : (
             <Carte T={T} style={{ padding: "11px 14px" }}>
@@ -184,9 +187,6 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
               </Discret>
             </Carte>
           )}
-        </Section>
-        <Section T={T} compact titre="Opérations">
-          <Vide T={T} compact titre="Bientôt disponible" texte="les acquisitions du client apparaîtront ici" />
         </Section>
       </div>
       <AccesPortail T={T} client={client} profil={profil} />
