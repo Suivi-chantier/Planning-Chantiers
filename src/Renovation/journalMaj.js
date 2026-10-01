@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-01",
     type: "nouveaute",
+    titre: "Missions Invest : choisir ce que le client pourra voir (préparation du portail client)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Avant d'ouvrir un espace aux clients, vous décidez vous-même, dossier par dossier et tâche par tâche, ce qui sera visible. Par défaut, rien n'est visible. Le portail client lui-même n'est pas encore ouvert : ces choix sont simplement préparés.",
+    comment: "Dans la fiche de la mission, la carte « Mission & honoraires » a une ligne « Portail client » avec un bouton « Montrer au client » (une confirmation est demandée). Dans « Tâches du dossier », chaque tâche a un bouton « Masquée / Visible client » : cliquez pour la montrer ou la masquer. Un client ne verra jamais les honoraires ni les notes internes, et une tâche cochée reste cachée tant que son dossier n'est pas montré.",
+  },
+  {
+    date: "2026-10-01",
+    type: "nouveaute",
     titre: "Missions Invest : parcours Offre 2 et Offre 3, honoraires de la mission",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Chaque mission suit maintenant le parcours de l'offre réellement vendue. Offre 2 : Projet, Documents, Recherche, Opportunités, Financement, Acquisition. Offre 3 : d'abord une phase Patrimoine (Collecte, Analyse, Stratégie, puis Rapport & restitution), ensuite la phase Investissement de l'Offre 2, avec un cadrage du projet si nécessaire. La mission affiche aussi son forfait (dû à la signature de la lettre de mission) et la règle des honoraires d'accompagnement (50 % de la remise obtenue, par acquisition).",

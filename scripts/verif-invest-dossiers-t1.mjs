@@ -1808,7 +1808,7 @@ test("68. migration chantier 9 : additive, rejouable ; retour arrière = journal
   assert.equal((await qn(db, `select 1 from information_schema.columns where table_name = 'invest_dossiers' and column_name in ('restitution_le','cadrage_statut','cadrage_le')`)).length, 0);
   assert.equal(await nbEv(db, id), ev, "journal conservé");
   assert.equal((await qsLire(db, id)).type_mission, "audit_patrimonial", "l'offre (antérieure au chantier) est conservée");
-  assert.match(FICHE, /<MissionHonoraires T=\{T\} fiche=\{fiche\} onGeste=\{onGeste\} \/>/, "carte intégrée à la fiche Dossier");
+  assert.match(FICHE, /<MissionHonoraires T=\{T\} fiche=\{fiche\} onGeste=\{onGeste\}( onPortail=\{basculerPortail\})? \/>/, "carte intégrée à la fiche Dossier");
   assert.match(FICHE, /from\("invest_dossiers"\)\.update\(patch\)/, "gestes = patch préparé par offres.mjs");
 });
 

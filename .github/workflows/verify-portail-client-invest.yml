@@ -1,0 +1,32 @@
+name: Verify Portail client Invest (liaison compte ↔ client)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261001190000_portail_client_invest_liaison.sql'
+      - 'sql/202610_portail_client_invest_liaison_rollback.sql'
+      - 'supabase/migrations/20261001200000_portail_client_invest_lecture.sql'
+      - 'sql/202610_portail_client_invest_lecture_rollback.sql'
+      - 'scripts/verif-portail-client-invest.mjs'
+      - 'scripts/verif-portail-visibilite-crm.mjs'
+      - 'src/Invest/dossiers/FicheDossier.jsx'
+      - 'src/Invest/dossiers/ficheDossierVue.mjs'
+      - '.github/workflows/verify-portail-client-invest.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Hook client_invest, étanchéité entre clients, révocation, retour arrière
+        run: node scripts/verif-portail-client-invest.mjs
+      - name: Cases « visible par le client » de la fiche dossier
+        run: node scripts/verif-portail-visibilite-crm.mjs
