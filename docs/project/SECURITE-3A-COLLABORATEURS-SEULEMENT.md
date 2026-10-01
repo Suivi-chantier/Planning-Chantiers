@@ -4,18 +4,22 @@ Chantier 22 (sécurité avant ouverture clients), TRANSVERSE. Principe validé p
 Matthieu le 01/10/2026. Migration
 `supabase/migrations/20261001150000_profero_collaborateurs_seulement.sql`.
 
-**État (01/10/2026)** : NON appliquée.
-- 10:46:55 UTC : appliquée par Matthieu. Contrôle structurel conforme
-  (102 policies restrictives, 0 table non couverte, 162 policies métier
-  d'empreinte identique — md5 e0bbbb27…, corps de la fonction = fichier).
-- 10:48:47 UTC : retour arrière exécuté par Matthieu (précaution). Contrôle :
-  état d'avant exactement (162 policies, même empreinte, plus de fonction).
-- Pendant la fenêtre : un seul utilisateur actif (ouvrier, iPhone, planning) —
-  réponses identiques à ses consultations précédentes (8 cellules, 7 lignes de
-  configuration, 1 rapport), aucune erreur PostgreSQL, aucun refus. Fenêtre
-  trop courte pour conclure sur les autres profils.
-- À refaire : réapplication pendant une période d'activité, puis contrôle des
-  journaux par profil.
+**État (01/10/2026)** : EN PRODUCTION depuis 10:57:19 UTC.
+- 10:46:55 : première application ; 10:48:47 : retour arrière par précaution
+  (aucun écart : un ouvrier, réponses identiques). État d'avant vérifié.
+- 10:57:19 : réapplication par Matthieu. Contrôle structurel conforme
+  (37 migrations, 102 policies restrictives, 0 table non couverte, 162
+  policies métier md5 e0bbbb27… identiques, fonction = fichier).
+- Journaux 10:57 → 11:07 : 38 requêtes d'un administrateur, toutes 200, et 6
+  requêtes serveur, toutes 200 ; aucune erreur PostgreSQL. Les 17 requêtes
+  refaites à l'identique renvoient le même nombre de lignes qu'à 10:30
+  (prospects 132, clients 24, biens 91, propositions 14, notifications 78,
+  tâches 300, missions en cours 19, étapes 264, utilisateurs 20…). Fiche
+  client ouverte après application : 0 ligne de situation patrimoniale, 0
+  note, 0 tâche, 3 événements, 11 étapes = valeurs de la base.
+- Profils observés : administrateur (cette fenêtre), ouvrier (fenêtre du
+  premier essai). Non encore observés en production : commercial, comptable,
+  agent EDL (couverts par le banc, 18/18).
 
 ## Pourquoi
 

@@ -75,11 +75,9 @@ modifiée ; les leads Fluidify passent par la clé service_role. S'applique
 seule, jamais par `db push`. Retour arrière (rouvre la table) :
 `sql/202610_invest_prospects_fermeture_rollback.sql`.
 
-`20261001150000_profero_collaborateurs_seulement.sql` — **NON appliquée**
-(appliquée le 01/10/2026 à 10:46:55 UTC puis retirée par le retour arrière à
-10:48:47 UTC, par précaution ; aucun refus ni écart constaté pendant la
-fenêtre)
-(chantier 22, étape 3a, TRANSVERSE) : policy restrictive « réservé aux
+`20261001150000_profero_collaborateurs_seulement.sql` — **appliquée en
+production le 01/10/2026 à 10:57:19 UTC** (une première application à 10:46:55
+avait été retirée par précaution à 10:48:47, sans écart constaté) (chantier 22, étape 3a, TRANSVERSE) : policy restrictive « réservé aux
 collaborateurs » sur les 101 tables de public et storage.objects. Aucune policy
 métier modifiée, aucune donnée. S'applique seule, jamais par `db push` :
 `docs/project/SECURITE-3A-COLLABORATEURS-SEULEMENT.md`. Retour arrière :
