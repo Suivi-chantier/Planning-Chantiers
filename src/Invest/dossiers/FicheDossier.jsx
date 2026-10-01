@@ -128,11 +128,11 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
   return (
     <div id="fiche-dossier" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* ── En-tête ── */}
-      <section style={{ background: T.surface || T.card, border: `1px solid ${T.border}`, borderRadius: 18, padding: "18px 20px", boxShadow: T.shadowMd }}>
+      <section style={{ background: T.surface || T.card, border: `1px solid ${T.border}`, borderRadius: 18, padding: "14px 18px", boxShadow: T.shadowMd }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", color: T.accent }}>Dossier Invest · {e.reference}</div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: T.text, marginTop: 2 }}>{fiche.client.nom}</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: T.text, marginTop: 1 }}>{fiche.client.nom}</div>
             <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 3 }}>
               {e.offre.court ? `${e.offre.court} — ${e.offre.libelle}` : e.offre.libelle} · {e.libelle} · Conseiller : {e.conseiller} · Ouvert le {dateFr(e.dateOuverture)} · Lettre de mission : {e.lettre}
             </div>
@@ -151,13 +151,22 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
         {demarrage && <div style={{ marginTop: 10 }}><DemarrerMission T={T} client={client} utilisateurs={donnees.utilisateurs} monId={monId} onAnnuler={() => setDemarrage(false)} onCree={(id) => { setDemarrage(false); setIdChoisi(id); rafraichir(); }} /></div>}
         {e.clos && <div style={{ marginTop: 10, fontSize: 12.5, color: T.textMuted }}>Dossier clos{e.motifCloture ? ` : ${e.motifCloture}` : ""}. Consultation seule.</div>}
         {p && (
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}`, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
-            <Donnee T={T} libelle="Étape principale" valeur={p.principale ? `${p.principale.libelle} · ${p.principale.statut}` : "Aucune étape active"} fort />
-            <Donnee T={T} libelle="Étapes actives" valeur={p.actives.length ? p.actives.map((a) => a.libelle).join(", ") : "Aucune"} />
-            <Donnee T={T} libelle="Balle" valeur={aFaire?.balle || "Personne"} />
-            <Donnee T={T} libelle="Prochaine action" valeur={aFaire?.action} />
-            <Donnee T={T} libelle="Échéance" valeur={aFaire?.echeance ? `${dateFr(aFaire.echeance)}${aFaire.retardJours ? ` · ${aFaire.retardJours} j de retard` : ""}` : "Non fixée"} />
-            {p.blocages.length > 0 && <Donnee T={T} libelle="Blocage" valeur={p.blocages.map((b) => `${b.etape} : ${b.motif || "bloquée"}`).join(" · ")} />}
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.8fr) minmax(0,1fr) minmax(0,1fr)", gap: 14, alignItems: "start" }} className="fiche-dossier-bandeau">
+              <Donnee T={T} libelle="Étape principale" valeur={p.principale ? `${p.principale.libelle} · ${p.principale.statut}` : "Aucune étape active"} fort />
+              <Donnee T={T} libelle="Prochaine action" valeur={aFaire?.action} fort />
+              <Donnee T={T} libelle="Échéance" valeur={aFaire?.echeance ? `${dateFr(aFaire.echeance)}${aFaire.retardJours ? ` · ${aFaire.retardJours} j de retard` : ""}` : "Non fixée"} fort />
+              <Donnee T={T} libelle="Balle" valeur={aFaire?.balle || aFaire?.responsable || "Personne"} fort />
+            </div>
+            {(fiche.alertes.length > 0 || p.blocages.length > 0) && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                {p.blocages.map((b) => <Badge key={b.etape} couleur={COULEUR_NIVEAU.danger} titre="Étape bloquée">Bloquée : {b.etape}{b.motif ? ` — ${b.motif}` : ""}</Badge>)}
+                {fiche.alertes.map((al) => (
+                  <button key={al.code} onClick={() => setOnglet(al.onglet)} title="Voir dans la fiche"
+                    style={{ cursor: "pointer", border: `1px solid ${COULEUR_NIVEAU[al.niveau]}40`, background: `${COULEUR_NIVEAU[al.niveau]}12`, color: COULEUR_NIVEAU[al.niveau], borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 800 }}>{al.libelle}</button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {fiche.offre
@@ -226,24 +235,10 @@ function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs,
     if (!data?.length) { onTacheCreee?.("Portail client : modification refusée (droits insuffisants)."); return; }
     onTacheCreee?.(voulu ? "Dossier visible par le client." : "Dossier masqué au client.");
   };
-  const a = fiche.aFaire, pj = fiche.projet, s = fiche.situation;
+  const pj = fiche.projet, s = fiche.situation;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.35fr) minmax(0,1fr)", gap: 14 }} className="fiche-dossier-grille">
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-        <Carte T={T} titre="À faire maintenant">
-          {!a ? <div style={{ fontSize: 13, color: T.textMuted }}>Dossier clos : aucune action en cours.</div> : (
-            <>
-              <div style={{ fontSize: 17, fontWeight: 900, color: T.text }}>{a.action}</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                {a.etape && <Badge couleur={T.accent}>{a.etape}</Badge>}
-                {a.balle && <Badge couleur={a.balleType === "profero" ? "#2563eb" : "#d97706"}>Balle : {a.balle}</Badge>}
-                <Badge couleur={a.retardJours ? "#dc2626" : "#64748b"}>{a.echeance ? `Échéance ${dateFr(a.echeance)}${a.retardJours ? ` · ${a.retardJours} j de retard` : ""}` : "Sans échéance"}</Badge>
-                {a.blocage && <Badge couleur="#dc2626">Bloquée : {a.blocage}</Badge>}
-              </div>
-              <div style={{ fontSize: 12, color: T.textMuted, marginTop: 8 }}>Qui agit : <b style={{ color: T.text }}>{a.responsable || "non défini"}</b></div>
-            </>
-          )}
-        </Carte>
         <Taches T={T} fiche={fiche} utilisateurs={utilisateurs} profil={profil} client={client} onTacheCreee={onTacheCreee} />
         <Carte T={T} titre="Activité récente">
           {fiche.activite.length === 0 ? <div style={{ fontSize: 12.5, color: T.textMuted }}>Aucun événement.</div> : (
@@ -259,19 +254,9 @@ function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs,
         </Carte>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-        <Carte T={T} titre="Alertes">
-          {fiche.alertes.length === 0 ? <div style={{ fontSize: 12.5, color: T.textMuted }}>Rien ne demande votre attention.</div> : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {fiche.alertes.map((al) => (
-                <button key={al.code} onClick={() => onOnglet(al.onglet)} style={{ textAlign: "left", cursor: "pointer", border: `1px solid ${COULEUR_NIVEAU[al.niveau]}30`, borderLeft: `3px solid ${COULEUR_NIVEAU[al.niveau]}`,
-                  background: `${COULEUR_NIVEAU[al.niveau]}08`, borderRadius: 10, padding: "7px 10px", fontSize: 12.5, color: T.text }}>{al.libelle}</button>
-              ))}
-            </div>
-          )}
-        </Carte>
         <MissionHonoraires T={T} fiche={fiche} onGeste={onGeste} onPortail={basculerPortail} />
         <Carte T={T} titre="Projet" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("projet")}>Ouvrir</button>}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10 }}>
             <Donnee T={T} libelle="Objectif" valeur={pj.objectif || "Non renseigné"} />
             <Donnee T={T} libelle="Horizon" valeur={pj.horizon || "Non renseigné"} />
             <Donnee T={T} libelle="Budget" valeur={eur(pj.budget)} fort />
@@ -281,7 +266,7 @@ function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs,
           <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 8 }}>Questionnaire {pj.statutLibelle?.toLowerCase()} · {pj.pourcentage} % des questions affichées renseignées{pj.aCorriger ? ` · ${pj.aCorriger} à corriger` : ""}</div>
         </Carte>
         <Carte T={T} titre="Situation patrimoniale" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("situation")}>Ouvrir</button>}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10 }}>
             <Donnee T={T} libelle="Revenus" valeur={`${eur(s.revenusMensuels)} /mois`} />
             <Donnee T={T} libelle="Charges" valeur={`${eur(s.chargesMensuelles)} /mois`} />
             <Donnee T={T} libelle="Mensualités de crédits" valeur={`${eur(s.mensualitesCredits)} /mois`} />
@@ -295,7 +280,7 @@ function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs,
           {Object.values(s.lignes).every((n) => n === 0) && <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 8 }}>Aucune donnée patrimoniale saisie.</div>}
         </Carte>
       </div>
-      <style>{`@media (max-width: 1100px){ .fiche-dossier-grille{ grid-template-columns: 1fr !important; } }`}</style>
+      <style>{`@media (max-width: 1100px){ .fiche-dossier-grille{ grid-template-columns: 1fr !important; } .fiche-dossier-bandeau{ grid-template-columns: 1fr 1fr !important; } }`}</style>
     </div>
   );
 }
@@ -417,24 +402,24 @@ function ParcoursOffre({ T, offre, parcours, modifiable, onOuvrir, onGeste }) {
   const parCle = Object.fromEntries(parcours.map((e) => [e.cle, e]));
   const plusieurs = offre.phases.length > 1;
   return (
-    <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }} aria-label={`Parcours ${offre.offre.court}`}>
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }} aria-label={`Parcours ${offre.offre.court}`}>
       {offre.phases.map((ph, i) => (
         <div key={ph.cle} style={{ opacity: ph.nonCommencee ? 0.75 : 1 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: 0.8, textTransform: "uppercase", color: T.textMuted, marginBottom: 6 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: 0.8, textTransform: "uppercase", color: T.textMuted, marginBottom: 4 }}>
             {plusieurs ? `Phase ${i + 1} · ${ph.libelle}` : `Parcours ${offre.offre.court}`} <span style={{ fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>— {ph.etatLibelle}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(132px,1fr))", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 6 }}>
             {ph.jalons.map((j) => {
               const c = COULEUR_JALON[j.etat] || "#94a3b8";
               const actif = ["en_cours", "bloque", "a_faire"].includes(j.etat);
               return (
-                <div key={j.cle} style={{ borderRadius: 12, padding: "7px 8px", border: `${actif ? 2 : 1}px solid ${actif ? c : T.border}`, background: actif ? `${c}10` : "transparent", minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11.5, fontWeight: 900, color: T.text, lineHeight: 1.15 }}>{j.libelle}</span>
+                <div key={j.cle} style={{ borderRadius: 10, padding: "5px 8px", border: `${actif ? 2 : 1}px solid ${actif ? c : T.border}`, background: actif ? `${c}10` : "transparent", minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 99, background: c, flexShrink: 0, alignSelf: "center" }} />
+                    <span style={{ fontSize: 12, fontWeight: 900, color: T.text, lineHeight: 1.15 }}>{j.libelle}</span>
+                    <span style={{ fontSize: 10, color: actif ? c : T.textMuted, fontWeight: 700 }}>{j.detail || j.etatLibelle}</span>
                   </div>
-                  <div style={{ fontSize: 10, color: actif ? c : T.textMuted, fontWeight: 700, marginTop: 2 }}>{j.detail || j.etatLibelle}</div>
-                  <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 5 }}>
+                  <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 4 }}>
                     {j.etapes.map((cle) => { const e = parCle[cle]; if (!e) return null; const ce = COULEUR_ETAPE[e.statut] || "#cbd5e1";
                       return (
                         <button key={cle} onClick={() => e.present && onOuvrir(cle)} disabled={!e.present} title={`${e.libelle} — ${e.statutLibelle}${e.balle ? ` · balle ${e.balle}` : ""}`}
@@ -484,7 +469,7 @@ function MissionHonoraires({ T, fiche, onGeste, onPortail }) {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <div style={{ minWidth: 0 }}>
             <Donnee T={T} libelle="Portail client" valeur={fiche.dossier.portail_visible === true ? "Dossier visible par le client" : "Non visible par le client"} />
-            <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 2 }}>Le client voit le titre, le statut et la progression des étapes, puis seulement les tâches et événements que vous cochez. Jamais les honoraires ni les notes internes.</div>
+            
           </div>
           {m && <button className="inv-btn inv-btn-sm" onClick={() => onPortail(fiche.dossier.portail_visible !== true)}>{fiche.dossier.portail_visible === true ? "Masquer" : "Montrer au client"}</button>}
         </div>
