@@ -1,7 +1,8 @@
 # Invest V2 — Chantier 9 : Missions Offre 2 / Offre 3
 
-État : **développé, migration non appliquée** (01/10/2026). Spécification
-validée par Matthieu le 01/10/2026.
+État : **en production** (01/10/2026). Spécification validée par Matthieu le
+01/10/2026. Migration appliquée par Matthieu (`db query -f` + `migration
+repair`), PR #56 fusionnée, Vercel production OK, recette conforme.
 
 ## Définition métier (validée)
 
@@ -92,3 +93,26 @@ les dates de restitution et de cadrage ; conserve l'offre et le journal).
 `node scripts/verif-invest-dossiers-t1.mjs` (cas 64 à 68, PostgreSQL embarqué)
 et `node scripts/verif-invest-missions-offres.mjs` (module pur, données
 fictives).
+
+## Recette production — 01/10/2026 : CONFORME
+
+Mission technique RECETTE-T2A (INV-2026-0023), gestes exécutés sous le compte
+de Matthieu (rôle authenticated), patchs préparés par `offres.mjs` :
+
+| Geste | Attendu | Résultat |
+|---|---|---|
+| Passer en Offre 3 | accepté | accepté — « Offre : Offre 2 → Offre 3. » (#126) |
+| Restitution datée de demain | refusé | refusé, aucune trace |
+| Restitution du jour | accepté | accepté — « Rapport patrimonial remis et restitué le 01/10/2026. » (#127) |
+| Cadrage fait avant la restitution | refusé | refusé, aucune trace |
+| Cadrage non nécessaire | accepté | accepté — « Cadrage du projet : non nécessaire. » (#128) |
+| Retour en Offre 2 avec restitution | refusé | refusé, aucune trace |
+| Forfait 3 000 | accepté | accepté — « Forfait de mission : non renseigné → 3 000 € HT. » (#129) |
+
+Les refus sont établis par l'absence d'événement et l'état final de la
+mission ; le code d'erreur exact n'a pas été capturé (sortie limitée au dernier
+résultat). Non-régression : empreintes identiques avant / après pour les
+étapes, les 122 événements antérieurs, les clients, les tâches ; 78
+notifications ; aucune autre mission modifiée. État laissé : RECETTE-T2A en
+Offre 3, restitution 01/10/2026, cadrage non nécessaire, forfait 3 000 € HT.
+Contrôle visuel authentifié : non réalisé.

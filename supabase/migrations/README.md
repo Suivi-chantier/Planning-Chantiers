@@ -58,7 +58,8 @@ catalogue de la version du questionnaire. La liste des clés
 `scripts/generer-questionnaire-cles-sql.mjs` depuis `questionnaireDossier.mjs`.
 Aucune donnée modifiée. S'applique seule, jamais par `db push`.
 
-`20261001100000_invest_missions_offres.sql` — **NON appliquée** (Invest V2,
+`20261001100000_invest_missions_offres.sql` — **appliquée en production le
+01/10/2026** (Invest V2,
 chantier 9 : Missions Offre 2 / Offre 3). Additive : colonnes `restitution_le`,
 `cadrage_statut`, `cadrage_le` de invest_dossiers (réservées à l'Offre 3),
 types d'événements `offre_change`, `restitution_change`, `cadrage_change`,
