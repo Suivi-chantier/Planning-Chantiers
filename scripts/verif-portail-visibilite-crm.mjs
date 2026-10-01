@@ -10,6 +10,7 @@ import { tachesFiche } from "../src/Invest/dossiers/ficheDossierVue.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const FICHE = readFileSync(join(racine, "src/Invest/dossiers/FicheDossier.jsx"), "utf8");
+const DOCS = readFileSync(join(racine, "src/Invest/_shared.jsx"), "utf8");
 const D = "d1";
 const base = (o) => ({ id: o.id, dossier_id: D, action_title: o.id, status: "a_faire", due_date: "2027-01-01", etape: "recherche", ...o });
 let n = 0;
@@ -43,4 +44,17 @@ test("7. le texte d'information promet seulement titre, statut, progression, jam
   assert.match(FICHE, /Jamais les honoraires ni les notes internes/);
 });
 
-console.log(`\n${n}/7 contrôles conformes`);
+test("8. partage de documents : proposé seulement pour un dossier « clients/<id> » (jamais un bien)", () => {
+  assert.match(DOCS, /const clientPartageId = String\(folder \|\| ""\)\.match\(\/\^clients\\\//);
+  assert.match(DOCS, /\{clientPartageId && \(\(\) => \{ const actif/);
+});
+test("9. partager demande confirmation ; retirer non ; seul le statut ou une nouvelle ligne est écrit", () => {
+  assert.match(DOCS, /if \(!partageActif && !window\.confirm\(/);
+  assert.match(DOCS, /from\("invest_documents_partages"\)\s*\.update\(partageActif \? \{ statut: "retire"/);
+  assert.match(DOCS, /\.insert\(\{ client_id: clientPartageId, chemin, libelle, partage_par/);
+});
+test("10. supprimer un fichier partagé le retire aussi du partage", () => {
+  assert.match(DOCS, /Un fichier supprimé ne doit plus rester partagé avec le client/);
+});
+
+console.log(`\n${n}/10 contrôles conformes`);

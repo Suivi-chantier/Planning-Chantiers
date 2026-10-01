@@ -1705,13 +1705,44 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null, lect
 
   const BUCKET = "invest-documents";
 
+  // Portail client : un document n'est visible par le client que si on l'a partagé ici.
+  // Uniquement pour les dossiers « clients/<id> » (jamais les biens).
+  const clientPartageId = String(folder || "").match(/^clients\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i)?.[1] || null;
+  const [partages, setPartages] = useState({}); // chemin -> { id, statut }
+
   const charger = async () => {
     setLoading(true);
     const { data, error } = await supabase.storage.from(BUCKET).list(currentFolder, { sortBy: { column: "created_at", order: "desc" } });
     if (error) { setErreur("Bucket introuvable. Voir instructions ci-dessous."); setLoading(false); return; }
     setFichiers(data || []);
+    if (clientPartageId) {
+      const r = await supabase.from("invest_documents_partages").select("id,chemin,statut").eq("client_id", clientPartageId);
+      setPartages(Object.fromEntries((r.data || []).map((x) => [x.chemin, { id: x.id, statut: x.statut }])));
+    }
     setLoading(false);
     setErreur("");
+  };
+
+  const basculerPartage = async (nom) => {
+    const chemin = `${currentFolder}/${nom}`;
+    const libelle = nom.replace(/_\d{13}(\.\w+)$/, "$1");
+    const existant = partages[chemin];
+    const partageActif = existant?.statut === "partage";
+    if (!partageActif && !window.confirm(`Partager « ${libelle} » avec le client ?\n\nIl pourra le télécharger depuis son espace client. Vous pourrez le retirer à tout moment.`)) return;
+    setErreur("");
+    let res;
+    if (existant) {
+      res = await supabase.from("invest_documents_partages")
+        .update(partageActif ? { statut: "retire", retire_le: new Date().toISOString() } : { statut: "partage", retire_le: null, partage_le: new Date().toISOString() })
+        .eq("id", existant.id).select("id");
+    } else {
+      const { data: u } = await supabase.auth.getUser();
+      res = await supabase.from("invest_documents_partages")
+        .insert({ client_id: clientPartageId, chemin, libelle, partage_par: u?.user?.email || null }).select("id");
+    }
+    if (res.error) { setErreur(`Partage : ${res.error.message}`); return; }
+    if (!res.data?.length) { setErreur("Partage refusé : droits insuffisants."); return; }
+    charger();
   };
 
   useEffect(() => { charger(); }, [currentFolder]);
@@ -1743,6 +1774,10 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null, lect
   const supprimer = async (nom) => {
     if (!window.confirm(`Supprimer "${nom}" ?`)) return;
     await supabase.storage.from(BUCKET).remove([`${currentFolder}/${nom}`]);
+    // Un fichier supprimé ne doit plus rester partagé avec le client.
+    if (clientPartageId && partages[`${currentFolder}/${nom}`]?.statut === "partage") {
+      await supabase.from("invest_documents_partages").update({ statut: "retire", retire_le: new Date().toISOString() }).eq("id", partages[`${currentFolder}/${nom}`].id);
+    }
     charger();
   };
 
@@ -1858,6 +1893,12 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null, lect
                     {f.created_at && ` · ${new Date(f.created_at).toLocaleDateString("fr-FR", { day:"2-digit", month:"short", year:"numeric" })}`}
                   </div>
                 </div>
+                {clientPartageId && (() => { const actif = partages[`${currentFolder}/${f.name}`]?.statut === "partage"; return (
+                  <button type="button" onClick={() => basculerPartage(f.name)} aria-pressed={actif}
+                    title={actif ? "Partagé avec le client. Cliquer pour le retirer." : "Non partagé. Cliquer pour le partager avec le client."}
+                    style={{ cursor: "pointer", fontSize: 11, fontWeight: 800, padding: "3px 8px", borderRadius: 999, whiteSpace: "nowrap",
+                      border: `1px solid ${actif ? "#86efac" : border}`, background: actif ? "#dcfce7" : "transparent", color: actif ? "#166534" : textSub }}>
+                    {actif ? "👁 Partagé client" : "Partager"}</button>); })()}
                 <button
                   onClick={() => telecharger(f.name)}
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: 17, color: accent, padding: "2px 4px" }}

@@ -63,3 +63,18 @@ client n'est ouverte.
   (recommandé : non, lecture seule d'abord) ?
 - Les fonctions d'envoi d'e-mails du bureau restent réservées aux
   collaborateurs (décidé en 3d).
+
+## Étape 3 — documents partagés (écrite, NON appliquée ni déployée)
+- Migration `20261001210000_portail_client_invest_documents.sql` : table
+  `invest_documents_partages` (le chemin DOIT être dans `clients/<client_id>/`),
+  vue `portail_documents` (nom, date ; jamais le chemin), restrictive 3a.
+- Edge Function `portail-document-url` : jeton, droit vérifié par la vue avec le
+  jeton du client, puis seulement lien signé de 60 s par le service_role.
+  Le stockage reste fermé : le client n'a aucun droit direct sur les fichiers.
+- CRM : bouton « Partager » / « Partagé client » sur chaque fichier d'un dossier
+  `clients/<id>` (confirmation avant de partager) ; supprimer un fichier retire son partage.
+- Banc : `verif-portail-client-invest` 35/35 (3 casses volontaires détectées) ;
+  `verif-portail-visibilite-crm` 10/10. La fonction Edge n'a pas pu être exécutée
+  (pas de Deno sur le poste) : ordre des vérifications contrôlé sur le texte, test réel
+  à faire après déploiement avec un compte client de test.
+- Hors périmètre de cette étape : documents des biens, EDL, urbanisme ; dépôt par le client.
