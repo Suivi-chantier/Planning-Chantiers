@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-01",
     type: "nouveaute",
+    titre: "Missions Invest : choisir les documents partagés avec le client (préparation du portail client)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Vous décidez, fichier par fichier, quels documents un client pourra télécharger plus tard depuis son espace. Par défaut, aucun document n'est partagé. Le portail client n'est pas encore ouvert : ce choix est simplement préparé.",
+    comment: "Dans la liste des documents d'un client, chaque fichier a un bouton « Partager » (une confirmation est demandée). Il devient « Partagé client » : cliquez dessus pour retirer le partage. Supprimer un fichier retire aussi son partage. Seuls les fichiers du dossier du client peuvent être partagés, jamais ceux d'un bien ou d'un autre client.",
+  },
+  {
+    date: "2026-10-01",
+    type: "nouveaute",
     titre: "Missions Invest : choisir ce que le client pourra voir (préparation du portail client)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Avant d'ouvrir un espace aux clients, vous décidez vous-même, dossier par dossier et tâche par tâche, ce qui sera visible. Par défaut, rien n'est visible. Le portail client lui-même n'est pas encore ouvert : ces choix sont simplement préparés.",

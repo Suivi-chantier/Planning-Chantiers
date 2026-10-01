@@ -24,6 +24,9 @@ const MIGRATION = lire("supabase/migrations/20261001190000_portail_client_invest
 const ROLLBACK = lire("sql/202610_portail_client_invest_liaison_rollback.sql");
 const LECTURE = lire("supabase/migrations/20261001200000_portail_client_invest_lecture.sql");
 const LECTURE_ROLLBACK = lire("sql/202610_portail_client_invest_lecture_rollback.sql");
+const DOCUMENTS = lire("supabase/migrations/20261001210000_portail_client_invest_documents.sql");
+const DOCUMENTS_ROLLBACK = lire("sql/202610_portail_client_invest_documents_rollback.sql");
+const FONCTION_DOC = lire("supabase/functions/portail-document-url/index.ts");
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
 );
@@ -39,6 +42,7 @@ const ID = {
   cA2: "00000000-0000-0000-0000-0000000000b2",   // compte client A (2e du couple)
   cB1: "00000000-0000-0000-0000-0000000000b3",   // compte client B
   libre: "00000000-0000-0000-0000-0000000000c1", // compte Auth sans fiche ni lien
+  ouvrier: "00000000-0000-0000-0000-0000000000d1",
   clientA: "11111111-1111-1111-1111-1111111111a1",
   clientB: "11111111-1111-1111-1111-1111111111b1",
 };
@@ -71,6 +75,9 @@ grant all on public.utilisateurs to anon, authenticated, service_role, supabase_
 create function public.is_admin() returns boolean language sql stable security definer as $$
   select exists (select 1 from utilisateurs where email = auth.email() and role = 'admin' and actif = true) $$;
 grant execute on function public.is_admin() to anon, authenticated, service_role;
+create function public.invest_peut_voir(p text) returns boolean language sql stable security definer as $$
+  select exists (select 1 from utilisateurs where email = auth.email() and actif and role in ('admin','commercial')) $$;
+grant execute on function public.invest_peut_voir(text) to authenticated;
 create table public.invest_clients (id uuid primary key, nom text, email text);
 grant all on public.invest_clients to anon, authenticated, service_role;
 create table public.invest_dossiers (id uuid primary key, client_id uuid, reference text, libelle text, type_mission text,
@@ -93,14 +100,14 @@ do $$ declare t text; begin
 insert into auth.users (id, email) values
   ('${ID.admin}','admin@test.fr'), ('${ID.commercial}','commercial@test.fr'),
   ('${ID.cA1}','a1@exemple.fr'), ('${ID.cA2}','a2@exemple.fr'), ('${ID.cB1}','b1@exemple.fr'),
-  ('${ID.libre}','libre@exemple.fr');
+  ('${ID.libre}','libre@exemple.fr'), ('${ID.ouvrier}','ouvrier@test.fr');
 insert into public.utilisateurs (email, nom, role, actif) values
-  ('admin@test.fr','Admin','admin',true), ('commercial@test.fr','Commercial','commercial',true);
+  ('admin@test.fr','Admin','admin',true), ('commercial@test.fr','Commercial','commercial',true), ('ouvrier@test.fr','Ouvrier','ouvrier',true);
 insert into public.invest_clients values ('${ID.clientA}','Client A','a1@exemple.fr'), ('${ID.clientB}','Client B','b1@exemple.fr');
 insert into auth.sessions (user_id) select id from auth.users;
 `;
 
-async function base({ migration = true, lecture = false } = {}) {
+async function base({ migration = true, lecture = false, documents = false } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA);
   await db.exec(HOOK);
@@ -114,6 +121,10 @@ async function base({ migration = true, lecture = false } = {}) {
       end loop; end $$;`);
     await db.exec(LECTURE);
   }
+  if (documents) {
+    await db.exec(`create policy profero_collaborateurs_seulement on public.invest_dossiers as restrictive for all to authenticated using (true)`).catch(() => {});
+    await db.exec(DOCUMENTS);
+  }
   return db;
 }
 // Jetons tels que le hook les pose : sub, email, role, profero_population.
@@ -125,6 +136,7 @@ const J = {
   cA2: jeton(ID.cA2, "a2@exemple.fr", "client_invest"),
   cB1: jeton(ID.cB1, "b1@exemple.fr", "client_invest"),
   libre: jeton(ID.libre, "libre@exemple.fr", null),
+  ouvrier: jeton(ID.ouvrier, "ouvrier@test.fr", "collaborateur"),
 };
 async function sous(db, role, claims, sql, params = []) {
   try {
@@ -350,6 +362,102 @@ test("5.8 la colonne visible_client ajoutée à la volée : défaut faux sur l'e
   await db.exec(LECTURE_ROLLBACK);
   assert.equal((await db.query(`select count(*)::int n from pg_class where relname like 'portail\\_%' and relkind='v'`)).rows[0].n, 0);
   assert.equal((await db.query(`select count(*)::int n from information_schema.columns where table_name='invest_mission_actions' and column_name='visible_client'`)).rows[0].n, 0);
+});
+
+// ── 6. Documents partagés ──────────────────────────────────────────────
+const CH_A = `clients/${ID.clientA}/contrat_1700000000000.pdf`;
+const CH_A2 = `clients/${ID.clientA}/interne_1700000000001.pdf`;
+const CH_B = `clients/${ID.clientB}/contrat_B_1700000000002.pdf`;
+const partager = (db, j, client, chemin, extra = "") => sous(db, "authenticated", j,
+  `insert into public.invest_documents_partages (client_id, chemin, libelle ${extra ? ", " + extra.split("=")[0] : ""}) values ('${client}','${chemin}','Contrat' ${extra ? ", " + extra.split("=")[1] : ""}) returning id`);
+const docsVue = async (db, j) => (await sous(db, "authenticated", j, `select * from public.portail_documents`)).rows;
+
+test("6.1 rien n'est partagé par défaut : le client ne voit aucun document", async () => {
+  const db = await base({ lecture: true, documents: true }); await lier(db, ID.clientA, ID.cA1);
+  assert.equal((await docsVue(db, J.cA1)).length, 0);
+});
+test("6.2 le client ne voit que les documents PARTAGÉS de SON client, jamais le chemin", async () => {
+  const db = await base({ lecture: true, documents: true }); await lier(db, ID.clientA, ID.cA1); await lier(db, ID.clientB, ID.cB1);
+  assert.equal((await partager(db, J.commercial, ID.clientA, CH_A)).erreur, null);
+  assert.equal((await partager(db, J.commercial, ID.clientB, CH_B)).erreur, null);
+  const vuA = await docsVue(db, J.cA1);
+  assert.equal(vuA.length, 1);
+  assert.deepEqual(Object.keys(vuA[0]).sort(), ["dossier_id", "id", "libelle", "partage_le"], "aucun chemin, aucun client_id");
+  const vuB = await docsVue(db, J.cB1);
+  assert.equal(vuB.length, 1);
+  assert.notEqual(vuA[0].id, vuB[0].id);
+  const interneA = await docsVue(db, J.cA2);
+  assert.equal(interneA.length, 0, "un compte non lié ne voit rien");
+});
+test("6.3 impossible de partager le fichier d'un autre client, d'un bien, ou de sortir du dossier", async () => {
+  const db = await base({ lecture: true, documents: true });
+  for (const chemin of [CH_B, "biens/x/contrat.pdf", `clients/${ID.clientA}/../${ID.clientB}/x.pdf`, `clients/${ID.clientA}`, "edl/x/photo.jpg"]) {
+    const r = await partager(db, J.commercial, ID.clientA, chemin);
+    assert.ok(r.erreur, `refusé : ${chemin}`);
+  }
+});
+test("6.4 retirer un partage le masque ; le re-partager le réaffiche", async () => {
+  const db = await base({ lecture: true, documents: true }); await lier(db, ID.clientA, ID.cA1);
+  await partager(db, J.commercial, ID.clientA, CH_A);
+  await sous(db, "authenticated", J.commercial, `update public.invest_documents_partages set statut='retire', retire_le=now()`);
+  assert.equal((await docsVue(db, J.cA1)).length, 0);
+  await sous(db, "authenticated", J.commercial, `update public.invest_documents_partages set statut='partage', retire_le=null`);
+  assert.equal((await docsVue(db, J.cA1)).length, 1);
+});
+test("6.5 un document rattaché à un dossier NON montré reste caché", async () => {
+  const db = await base({ lecture: true, documents: true }); await lier(db, ID.clientA, ID.cA1);
+  await db.exec(`insert into public.invest_dossiers (id, client_id, reference, portail_visible) values ('${DA}','${ID.clientA}','INV-A',false)`);
+  await partager(db, J.commercial, ID.clientA, CH_A, `dossier_id='${DA}'`);
+  assert.equal((await docsVue(db, J.cA1)).length, 0);
+  await db.exec(`update public.invest_dossiers set portail_visible = true where id = '${DA}'`);
+  assert.equal((await docsVue(db, J.cA1)).length, 1);
+});
+test("6.6 un client ne crée, ne modifie, ne supprime aucun partage ; ni via la vue ; anon aucun accès", async () => {
+  const db = await base({ lecture: true, documents: true }); await lier(db, ID.clientA, ID.cA1);
+  await partager(db, J.commercial, ID.clientA, CH_A);
+  assert.ok((await partager(db, J.cA1, ID.clientA, CH_A2)).erreur, "insertion");
+  assert.equal((await sous(db, "authenticated", J.cA1, `update public.invest_documents_partages set statut='retire'`)).rows.length, 0);
+  assert.equal((await sous(db, "authenticated", J.cA1, `select * from public.invest_documents_partages`)).rows.length, 0, "table illisible");
+  assert.ok((await sous(db, "authenticated", J.cA1, `update public.portail_documents set libelle='x'`)).erreur);
+  assert.ok((await sous(db, "authenticated", J.cA1, `delete from public.portail_documents`)).erreur);
+  assert.ok((await sous(db, "anon", null, `select * from public.portail_documents`)).erreur);
+  assert.ok((await sous(db, "anon", null, `select * from public.invest_documents_partages`)).erreur);
+  assert.equal((await db.query(`select count(*)::int n from public.invest_documents_partages`)).rows[0].n, 1);
+});
+test("6.7 qui peut partager : CRM (admin, commercial) oui ; ouvrier et compte sans fiche non", async () => {
+  const db = await base({ lecture: true, documents: true });
+  assert.equal((await partager(db, J.admin, ID.clientA, CH_A)).erreur, null);
+  assert.ok((await partager(db, J.ouvrier, ID.clientA, CH_A2)).erreur);
+  assert.ok((await partager(db, J.libre, ID.clientA, CH_A2)).erreur);
+});
+test("6.8 compte révoqué ou jeton falsifié : aucun document", async () => {
+  const db = await base({ lecture: true, documents: true }); await lier(db, ID.clientA, ID.cA1);
+  await partager(db, J.commercial, ID.clientA, CH_A);
+  assert.equal((await docsVue(db, { ...J.cA1, profero_population: "collaborateur" })).length, 0);
+  await db.query(`update public.invest_portail_comptes set statut='revoque'`);
+  assert.equal((await docsVue(db, J.cA1)).length, 0);
+});
+test("6.9 règles du dépôt : restrictive 3a, aucun droit anon, vue en lecture seule, retour arrière propre", async () => {
+  const db = await base({ lecture: true, documents: true });
+  const pol = (await db.query(`select policyname, permissive from pg_policies where tablename='invest_documents_partages' order by 1`)).rows.map((r) => `${r.policyname}:${r.permissive}`);
+  assert.deepEqual(pol, ["invest_documents_partages_crm:PERMISSIVE", "profero_collaborateurs_seulement:RESTRICTIVE"]);
+  const droit = async (r, o, d) => (await db.query(`select has_table_privilege('${r}','${o}','${d}') a`)).rows[0].a;
+  assert.equal(await droit("anon", "public.invest_documents_partages", "select"), false);
+  assert.equal(await droit("authenticated", "public.portail_documents", "select"), true);
+  for (const d of ["insert", "update", "delete"]) assert.equal(await droit("authenticated", "public.portail_documents", d), false, d);
+  await db.exec(DOCUMENTS_ROLLBACK);
+  assert.equal((await db.query(`select count(*)::int n from pg_class where relname in ('invest_documents_partages','portail_documents')`)).rows[0].n, 0);
+});
+test("6.10 fonction de lien : jeton → droit par la vue → ensuite seulement le service_role ; chemin jamais renvoyé", async () => {
+  const f = FONCTION_DOC;
+  const i = (t) => f.indexOf(t);
+  assert.ok(i("auth.getUser") > 0 && i("auth.getUser") < i('.from("portail_documents")'), "authentification avant le droit");
+  assert.ok(i('.from("portail_documents")') < i("createClient(url, cleService"), "le service_role n'est créé qu'après la vérification par la vue");
+  assert.ok(i("createClient(url, cleService") < i("createSignedUrl"), "signature en dernier");
+  assert.match(f, /TTL_SECONDES = (\d+)/);
+  assert.ok(Number(f.match(/TTL_SECONDES = (\d+)/)[1]) <= 120, "lien de courte durée");
+  assert.ok(!/json\(\{[^}]*chemin/.test(f), "le chemin n'est jamais renvoyé");
+  assert.match(f, /UUID\.test\(documentId\)/, "identifiant validé");
 });
 
 let echecs = 0;
