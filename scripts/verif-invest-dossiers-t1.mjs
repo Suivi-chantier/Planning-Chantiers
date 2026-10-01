@@ -43,6 +43,7 @@ const MIGRATION_2D1 = lire("supabase/migrations/20260930235500_invest_questionna
 const ROLLBACK_2D1 = lire("sql/202609_invest_questionnaire_2d1_rollback.sql");
 const CARTE_QS = lire("src/Invest/dossiers/ProjetSituationCard.jsx");
 const CATALOGUE_QS = lire("src/Invest/dossiers/questionnaireDossier.mjs");
+const FICHE = lire("src/Invest/dossiers/FicheDossier.jsx");
 
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -1167,7 +1168,9 @@ test("40. 2a : CRM.jsx et la carte — plus d'écriture de l'ancienne étape, t�
   const assign = code.slice(code.indexOf("const assignerTacheCollaborateur"), code.indexOf("const assignerTacheCollaborateur") + 4000);
   assert.match(assign, /champsNouvelleTache\(dossierInfo\?\.dossierEnCoursId/);
   assert.match(assign, /\.\.\.champsEtape,/);
-  assert.match(code, /<DossierInvestCard client=\{client\}/);
+  // Chantier 1.2 : la carte 2a est remplacée par la fiche Dossier, qui en reprend le panneau d'étape.
+  assert.match(code, /<FicheDossier client=\{client\}/);
+  assert.match(FICHE, /import \{ PanneauEtape, DemarrerMission \} from "\.\/DossierInvestCard";/);
   // Carte : n'écrit jamais invest_clients, démarre par invest_ouvrir_dossier, gestes via preparerGeste.
   assert.ok(!/from\("invest_clients"\)/.test(CARTE), "la carte ne touche pas au client");
   assert.match(CARTE, /supabase\.rpc\("invest_ouvrir_dossier"/);
@@ -1460,9 +1463,9 @@ test("52. 2c migration : additive, rejouable, sans reprise ; retour arrière san
   assert.equal((CARTE_SP.match(/table: "invest_[a-z_]+"/g) || []).length >= 0, true);
   assert.deepEqual(SP.SECTIONS.map((s) => s.libelle), ["Foyer", "Revenus, charges & épargne", "Crédits & engagements", "Patrimoine immobilier", "Structures"]);
   assert.match(CARTE_SP, /Valeur détenue/); assert.match(CARTE_SP, /mobiliser comme apport ne se saisit pas ici/);
-  assert.match(CRM, /<SituationPatrimonialeCard client=\{client\}/);
+  assert.match(FICHE, /<SituationPatrimonialeCard client=\{client\}/, "intégrée à la fiche Dossier (Chantier 1.2)");
   // Référence : celle du dossier EN COURS, jamais celle d'un ancien dossier consulté.
-  assert.match(CRM, /dossierReference=\{dossierInfo\?\.referenceEnCours \|\| null\}/);
+  assert.match(FICHE, /dossierReference=\{fiche\.dossierEnCours\?\.reference \?\? null\}/, "référence du dossier EN COURS");
   assert.match(CARTE, /referenceEnCours: dossierEnCours\?\.reference \?\? null/);
   assert.match(CARTE_SP, /Modifications rattachées à/);
   assert.match(CARTE_SP, /Patrimoine net simplifié \(biens à 100 %\)/);
@@ -1641,7 +1644,7 @@ test("62. 2d migration : additive, rejouable ; retour arrière rend les fonction
   await db.exec(ROLLBACK_2D);
   for (const f of ["invest_collecte_journal", "invest_collecte_regles"]) assert.equal(await def(db, f), await def(avec2c, f), `${f} rendue à la 2c`);
   assert.equal(await def(db, "invest_questionnaire_avant_ecriture"), undefined);
-  assert.match(CRM, /<ProjetSituationCard T=\{T\} dossierId=\{dossierInfo\?\.dossierId \|\| null\} dossierEnCoursId=\{dossierInfo\?\.dossierEnCoursId \|\| null\} \/>/);
+  assert.match(FICHE, /<ProjetSituationCard T=\{T\} dossierId=\{fiche\.dossier\.id\} dossierEnCoursId=\{fiche\.dossierEnCours\?\.id \?\? null\} integre \/>/, "intégrée à la fiche Dossier (Chantier 1.2)");
 });
 
 

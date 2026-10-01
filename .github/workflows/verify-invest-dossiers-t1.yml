@@ -15,6 +15,7 @@ on:
       - 'sql/202609_invest_questionnaire_2d1_rollback.sql'
       - 'scripts/generer-questionnaire-cles-sql.mjs'
       - 'src/Invest/dossiers/**'
+      - 'src/Invest/crm/**'
       - 'src/Invest/annuaire.mjs'
       - 'src/Invest/CRM.jsx'
       - 'src/Invest/Dashboard.jsx'
@@ -28,6 +29,8 @@ on:
       - 'api/_ia/taches/invest_copilot.js'
       - 'scripts/verif-tableau-bord.mjs'
       - 'scripts/verif-invest-dossiers-t1.mjs'
+      - 'scripts/verif-invest-fiche-dossier.mjs'
+      - 'scripts/verif-invest-crm-v2.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
       - '.github/workflows/verify-invest-dossiers-t1.yml'
 
@@ -52,3 +55,7 @@ jobs:
         run: node scripts/verif-tableau-bord.mjs
       - name: Copilote Invest sur le Dossier Invest (Tranche 2b-bis)
         run: node scripts/verif-invest-copilote-2b.mjs
+      - name: Fiche Dossier Invest V1 (vue d'ensemble, parcours, alertes, tâches)
+        run: node scripts/verif-invest-fiche-dossier.mjs
+      - name: CRM V2 et fiche Client V2 (à traiter, clients, planning, page client)
+        run: node scripts/verif-invest-crm-v2.mjs

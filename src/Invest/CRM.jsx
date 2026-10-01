@@ -7,9 +7,8 @@ import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { messageSuppressionClient } from "./dossiers/parcours";
 import { ETAPES_PARCOURS, CLES_ETAPES, etapePourNouvelleTache } from "./dossiers/parcours";
 import { A_CLASSER, champsNouvelleTache } from "./dossiers/dossierVue";
-import DossierInvestCard from "./dossiers/DossierInvestCard";
-import SituationPatrimonialeCard from "./dossiers/SituationPatrimonialeCard";
-import ProjetSituationCard from "./dossiers/ProjetSituationCard";
+import FicheDossier from "./dossiers/FicheDossier";
+import CrmV2 from "./crm/CrmV2";
 import { indexerPilotage, projeterClient, resumePilotage } from "./dossiers/pilotage";
 import { OngletAcces } from "../Renovation/Admin";
 import {
@@ -449,7 +448,42 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
   };
 }
 
-function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// CRM V2 par défaut ; l'ancienne interface reste accessible, séparée, pendant
+// la transition (« Ancienne vue CRM »). Aucun ancien composant n'est supprimé.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLE_VUE_CRM = "invest-crm-vue";
+function lireVueCrm() { try { return window.localStorage.getItem(CLE_VUE_CRM) === "ancienne"; } catch { return false; } }
+function CRM(props) {
+  const { profil, T=THEMES_INV.dark, initialFilter, onOpenStructuration } = props;
+  const [ancienne, setAncienne] = useState(lireVueCrm);
+  const choisir = (v) => {
+    setAncienne(v);
+    try { if (v) window.localStorage.setItem(CLE_VUE_CRM, "ancienne"); else window.localStorage.removeItem(CLE_VUE_CRM); } catch { /* préférence non mémorisée */ }
+  };
+  // Une fiche client demandée depuis ailleurs (tableau de bord, notification) s'ouvre dans la V2.
+  useEffect(() => {
+    const cible = readNavTarget(initialFilter);
+    if ((cible.action === "open" || cible.action === "actions") && cible.id) setAncienne(false);
+  }, [initialFilter]);
+  if (ancienne) {
+    return (
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", padding:"10px 28px", background:`${WA}18`, borderBottom:`1px solid ${WA}40`, fontSize:13, color:T.text }}>
+          <span><b>Ancienne vue CRM</b> — conservée temporairement pendant la transition vers le nouveau CRM.</span>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => choisir(false)}>Revenir au nouveau CRM</button>
+        </div>
+        <CRMAncien {...props} />
+      </div>
+    );
+  }
+  return (
+    <CrmV2 profil={profil} T={T} initialFilter={initialFilter} onOpenStructuration={onOpenStructuration} onAncienneVue={() => choisir(true)}
+      renderNouveauClient={({ onFerme, onCree }) => <FormulaireClient profil={profil} T={T} onSave={onCree} onClose={onFerme} />} />
+  );
+}
+
+function CRMAncien({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
   // Annuaire des collaborateurs. Alimente missionEmailForOwner, qui est appelé
   // depuis des helpers hors composant — d'où le point de passage partagé.
   const annuaireInvest = useAnnuaireInvest();
@@ -3520,14 +3554,12 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
-        {/* Dossier Invest : représentation principale de l'avancement (Tranche 2a) */}
-        <DossierInvestCard client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
+        {/* Fiche Dossier Invest V1 (Chantier 1.2) : espace de travail principal de la mission.
+            Elle embarque le pilotage 2a, la Situation patrimoniale 2c et Projet & situation 2d. */}
+        <FicheDossier client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
 
-        {/* Situation patrimoniale du foyer (Tranche 2c) : collecte factuelle, modifiable dans un dossier en cours */}
-        <SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} dossierReference={dossierInfo?.referenceEnCours || null} />
-
-        {/* Projet & situation du DOSSIER affiché (Tranche 2d) : modifiable seulement s'il est en cours */}
-        <ProjetSituationCard T={T} dossierId={dossierInfo?.dossierId || null} dossierEnCoursId={dossierInfo?.dossierEnCoursId || null} />
+        {/* Sections historiques de la fiche CRM, conservées en attendant leur arbitrage. */}
+        <div style={{ fontSize:11, fontWeight:900, letterSpacing:1, textTransform:"uppercase", color:T.textMuted, marginTop:8 }}>Fiche client CRM</div>
 
         {/* Synthèse client */}
         <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>
