@@ -54,14 +54,14 @@ export function construireCourriel({ prenom, nom, lien, renvoi }) {
     : "Votre conseiller Profero Invest vous ouvre votre espace client : vous y suivrez l'avancement de votre accompagnement et retrouverez les documents qu'il partage avec vous.";
   const consigne = "Cliquez sur le bouton ci-dessous pour choisir votre mot de passe. Ce lien est à usage unique et valable peu de temps ; s'il a expiré, demandez simplement un nouvel envoi à votre conseiller.";
   const texte = [bonjour, "", intro, "", consigne, "", lien, "", "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.", "", "L'équipe Profero Invest"].join("\n");
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;background:#f5f6f8;padding:24px;color:#111827;">
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;background:#f7f1e5;padding:24px;color:#111827;">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
-    <div style="background:#0b1220;color:#fff;padding:18px 22px;"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#c9a34a;font-weight:700;">Profero Invest</div><div style="font-size:20px;font-weight:800;margin-top:4px;">Votre espace client</div></div>
+    <div style="background:#071426;color:#fff;padding:18px 22px;"><div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#d6a84c;font-weight:700;">Profero Invest</div><div style="font-size:20px;font-weight:800;margin-top:4px;">Votre espace client</div></div>
     <div style="padding:22px;line-height:1.55;font-size:15px;">
       <p style="margin:0 0 12px;">${echapper(bonjour)}</p>
       <p style="margin:0 0 12px;">${echapper(intro)}</p>
       <p style="margin:0 0 18px;">${echapper(consigne)}</p>
-      <p style="margin:0 0 18px;"><a href="${echapper(lien)}" style="display:inline-block;background:#c9a34a;color:#111827;text-decoration:none;font-weight:800;padding:12px 20px;border-radius:10px;">Choisir mon mot de passe</a></p>
+      <p style="margin:0 0 18px;"><a href="${echapper(lien)}" style="display:inline-block;background:#d6a84c;color:#071426;text-decoration:none;font-weight:800;padding:12px 20px;border-radius:10px;">Choisir mon mot de passe</a></p>
       <p style="margin:0;color:#6b7280;font-size:13px;">Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.</p>
     </div></div></div>`;
   return { sujet, texte, html };

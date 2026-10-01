@@ -77,7 +77,7 @@ export const ROLES_DEFAULT_RENOVATION = [
 ];
 
 export const ROLES_DEFAULT_INVEST = [
-  { id: "admin",      label: "Administrateur", color: "#4070E8" },
+  { id: "admin",      label: "Administrateur", color: "#d6a84c" },
   { id: "direction",  label: "Direction",      color: "#C9A84C" },
   { id: "commercial", label: "Commercial",     color: "#50c878" },
   { id: "conseiller", label: "Conseiller",     color: "#8B5CF6" },

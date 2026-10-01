@@ -195,7 +195,7 @@ class ErrorBoundary extends React.Component {
         </div>
         {/* Cible tactile large : ce bouton est parfois la seule issue. */}
         <button onClick={reinitialiserEtRecharger}
-          style={{background:"#4070e8",color:"#fff",border:"none",borderRadius:10,
+          style={{background:"#d6a84c",color:"#071426",border:"none",borderRadius:10,
             padding:"15px 28px",fontSize:16,fontWeight:800,cursor:"pointer",
             fontFamily:"inherit",minWidth:220,marginTop:4}}>
           Vider le cache et recharger
@@ -218,38 +218,41 @@ class ErrorBoundary extends React.Component {
 }
 
 // ─── CSS COMMUN ───────────────────────────────────────────────────────────────
+// Fond des écrans de connexion : dégradé bleu nuit de www.groupe-profero.com
+const FOND_MARQUE = "linear-gradient(145deg, #030712 0%, #071426 58%, #0c1f3a 100%)";
+
 const CSS_BASE = `
   @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Barlow Condensed','Arial Narrow',sans-serif; }
   .login-input {
-    width: 100%; background: #1a1d24; border: 1.5px solid #2a2d3a;
+    width: 100%; background: #071426; border: 1.5px solid rgba(214,168,76,0.22);
     border-radius: 10px; padding: 14px 16px; font-size: 16px;
     font-family: inherit; color: #fff; outline: none; transition: border-color .15s;
   }
-  .login-input:focus { border-color: #FFC200; }
+  .login-input:focus { border-color: #d6a84c; }
   .login-btn {
     width: 100%; padding: 15px; border: none; border-radius: 10px;
-    background: #FFC200; color: #111; font-family: inherit;
+    background: linear-gradient(135deg, #fff0c8, #d6a84c); color: #071426; font-family: inherit;
     font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: .5px;
     transition: opacity .15s;
   }
   .login-btn:disabled { opacity: .5; cursor: not-allowed; }
   .login-btn:hover:not(:disabled) { opacity: .9; }
   .portal-card {
-    background: #111318; border: 1px solid #2a2d3a; border-radius: 20px;
+    background: #0c1f3a; border: 1px solid rgba(214,168,76,0.22); border-radius: 20px;
     padding: 36px 32px; cursor: pointer; transition: all .2s; position: relative; overflow: hidden;
     display: flex; flex-direction: column; gap: 16px;
   }
   .portal-card:hover:not(.disabled) {
-    border-color: rgba(255,194,0,0.5);
+    border-color: rgba(214,168,76,0.6);
     transform: translateY(-4px);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,194,0,0.2);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(214,168,76,0.25);
   }
   .portal-card.disabled { cursor: not-allowed; opacity: .55; }
   .portal-card-invest:hover:not(.disabled) {
-    border-color: rgba(100,180,255,0.4) !important;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(100,180,255,0.15) !important;
+    border-color: rgba(214,168,76,0.6) !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4), 0 0 0 1px rgba(214,168,76,0.25) !important;
   }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 `;
@@ -293,16 +296,16 @@ function PageCreerMotDePasse({ mode = "invite", user, onDone, onAnnuler }) {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
+    <div style={{ minHeight:"100vh", background:FOND_MARQUE, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
       <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
           <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:64, objectFit:"contain" }}/>
-          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
+          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(214,168,76,0.5)" }}>
             {reinit ? "Espace collaborateurs" : "Bienvenue chez Profero"}
           </div>
         </div>
-        <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ background:"#0c1f3a", border:"1px solid rgba(214,168,76,0.22)", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
           <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>
             {reinit ? "Définir un nouveau mot de passe" : "Créer votre mot de passe"}
           </div>
@@ -392,16 +395,16 @@ function PageLogin({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
+    <div style={{ minHeight:"100vh", background:FOND_MARQUE, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif", padding:"20px" }}>
       <style>{CSS_BASE}</style>
       <div style={{ width:"100%", maxWidth:420 }}>
         <div style={{ textAlign:"center", marginBottom:40 }}>
           <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:64, objectFit:"contain" }}/>
-          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(255,194,0,0.5)" }}>
+          <div style={{ marginTop:12, fontSize:13, letterSpacing:3, textTransform:"uppercase", color:"rgba(214,168,76,0.5)" }}>
             Espace collaborateurs
           </div>
         </div>
-        <div style={{ background:"#111318", border:"1px solid #2a2d3a", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ background:"#0c1f3a", border:"1px solid rgba(214,168,76,0.22)", borderRadius:16, padding:"32px 28px", boxShadow:"0 20px 60px rgba(0,0,0,0.5)" }}>
           <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:6 }}>Connexion</div>
           <div style={{ fontSize:14, color:"rgba(255,255,255,0.35)", marginBottom:28 }}>Accès réservé aux collaborateurs Profero</div>
           <div style={{ marginBottom:16 }}>
@@ -437,14 +440,14 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
   const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#1e2128", display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
+    <div style={{ minHeight:"100vh", background:FOND_MARQUE, display:"flex", flexDirection:"column", fontFamily:"'Barlow Condensed','Arial Narrow',sans-serif" }}>
       <style>{CSS_BASE}</style>
       <div style={{ padding:"20px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid #1a1d24" }}>
         <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:48, objectFit:"contain" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ textAlign:"right" }}>
             <div style={{ fontSize:14, fontWeight:700, color:"#fff" }}>{profil?.nom || user?.email}</div>
-            <div style={{ fontSize:10, letterSpacing:1.5, textTransform:"uppercase", color:"rgba(255,194,0,0.6)" }}>
+            <div style={{ fontSize:10, letterSpacing:1.5, textTransform:"uppercase", color:"rgba(214,168,76,0.8)" }}>
               {ROLE_LABELS[profil?.role] || profil?.role}
             </div>
           </div>
@@ -482,16 +485,18 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
             }
           </div>
           <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
-            <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#4db8ff,#0077cc)", borderRadius:"20px 20px 0 0" }}/>
+            <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#fff0c8,#d6a84c)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", minHeight:56 }}>
-              <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:56, objectFit:"contain", objectPosition:"left" }}/>
+              <div style={{ background:"#f7f1e5", borderRadius:12, padding:"8px 16px", display:"inline-flex" }}>
+                <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:40, objectFit:"contain" }}/>
+              </div>
             </div>
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.
             </div>
-            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"rgba(77,184,255,0.08)", border:"1px solid rgba(77,184,255,0.2)", borderRadius:8, padding:"8px 14px", alignSelf:"flex-start" }}>
-              <span style={{ width:7, height:7, borderRadius:"50%", background:"#4db8ff", display:"inline-block", animation:"pulse 2s infinite" }}/>
-              <span style={{ fontSize:12, color:"rgba(77,184,255,0.8)", fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>En cours de développement</span>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"rgba(214,168,76,0.08)", border:"1px solid rgba(214,168,76,0.25)", borderRadius:8, padding:"8px 14px", alignSelf:"flex-start" }}>
+              <span style={{ width:7, height:7, borderRadius:"50%", background:"#d6a84c", display:"inline-block", animation:"pulse 2s infinite" }}/>
+              <span style={{ fontSize:12, color:"rgba(214,168,76,0.9)", fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>En cours de développement</span>
             </div>
             {!hasInvest && <div style={{ fontSize:12, color:"rgba(255,255,255,0.25)" }}>Accès non autorisé</div>}
           </div>

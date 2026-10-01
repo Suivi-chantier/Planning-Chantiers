@@ -1083,7 +1083,7 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
           <div><strong>Rendement :</strong> ${b.rendement_brut ? `${Number(b.rendement_brut).toFixed(1)} %` : "—"}</div>
           <div><strong>Cash-flow :</strong> ${escapeHtml(fmtEur(b.cashflow_estime))}</div>
         </div>
-        <a href="${googleMapsSearchUrl(point.address)}" target="_blank" rel="noreferrer" style="display:inline-block;margin-top:9px;color:#4070e8;text-decoration:none;font-weight:700;font-size:12px">Ouvrir dans Google Maps →</a>
+        <a href="${googleMapsSearchUrl(point.address)}" target="_blank" rel="noreferrer" style="display:inline-block;margin-top:9px;color:#1f48a0;text-decoration:none;font-weight:700;font-size:12px">Ouvrir dans Google Maps →</a>
       </div>`;
     infoWindowRef.current.setContent(html);
     if (marker) infoWindowRef.current.open({ anchor: marker, map: mapInstanceRef.current, shouldFocus: false });
@@ -1101,7 +1101,7 @@ function CarteBiens({ biens, T=THEMES_INV.dark, onOpenBien }) {
 
     const bounds = new maps.LatLngBounds();
     points.forEach((point, idx) => {
-      const color = STATUT_BIEN_COLORS[point.b.statut] || "#4070e8";
+      const color = STATUT_BIEN_COLORS[point.b.statut] || "#d6a84c";
       const marker = new maps.Marker({
         position: { lat: point.lat, lng: point.lng },
         map,

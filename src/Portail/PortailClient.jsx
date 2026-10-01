@@ -15,7 +15,7 @@ import {
 } from "./portailVue";
 
 const LOGO = "/logos/profero-invest-h.png";
-const C = { fond: "#f5f6f8", carte: "#ffffff", texte: "#111827", doux: "#6b7280", bord: "#e5e7eb", marine: "#0b1220", or: "#c9a34a",
+const C = { fond: "#f7f1e5", carte: "#ffffff", texte: "#111827", doux: "#667085", bord: "rgba(15,23,42,.12)", marine: "#071426", or: "#d6a84c", orFonce: "#b8872c",
   vert: "#16a34a", bleu: "#2563eb", ambre: "#b45309", rouge: "#b91c1c" };
 const TON = { fait: C.vert, actif: C.bleu, attente: C.ambre, neutre: C.doux };
 const aujourdhui = () => new Date().toISOString().slice(0, 10);
@@ -31,7 +31,7 @@ const CSS = `
   .pc-h2{margin:0 0 10px;font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${C.doux}}
   .pc-btn{font:inherit;font-weight:700;font-size:14px;border-radius:10px;border:1px solid ${C.bord};background:#fff;color:${C.texte};padding:9px 14px;cursor:pointer;min-height:40px}
   .pc-btn:disabled{opacity:.6;cursor:default}
-  .pc-btn-or{background:${C.or};border-color:${C.or};color:${C.marine}}
+  .pc-btn-or{background:linear-gradient(135deg,#fff0c8,${C.or});border-color:${C.or};color:${C.marine}}
   .pc-input{font:inherit;font-size:16px;width:100%;padding:11px 12px;border:1px solid ${C.bord};border-radius:10px;background:#fff;color:${C.texte}}
   .pc-ligne{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid ${C.bord}}
   .pc-ligne:first-of-type{border-top:0}

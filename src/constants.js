@@ -314,6 +314,16 @@ export const NEUTRAL = {
   900: "#16181d",
 };
 
+// Palette de la marque Groupe Profero, relevée sur www.groupe-profero.com (01/10/2026).
+// Bleu nuit + or ; c'est la direction artistique du groupe. Source unique : ne pas dupliquer ces valeurs.
+export const MARQUE = Object.freeze({
+  marine950: "#030712", marine900: "#071426", marine850: "#0c1f3a", marine800: "#11294d",
+  bleu700: "#133477", bleu600: "#1f48a0", bleu100: "#e9eef9",
+  or200: "#f3deb2", or500: "#d6a84c", or600: "#b8872c",
+  creme: "#f7f1e5", papier: "#f3eadb", encre: "#111827", discret: "#667085",
+  degradeOr: "linear-gradient(135deg, #fff0c8, #d6a84c)",
+});
+
 // Couleurs d'accentuation par branche.
 // Utiliser via getBranchAccent(branch) plutôt que d'accéder direct au map.
 export const BRANCH_ACCENTS = {
@@ -329,24 +339,26 @@ export const BRANCH_ACCENTS = {
   },
   invest: {
     name: "Profero Invest",
-    accent:      "#4070e8",
-    accentDark:  "#3060d0",
-    accentLight: "#6a90f5",
-    bg10:        "rgba(64,112,232,0.10)",
-    bg20:        "rgba(64,112,232,0.20)",
-    border:      "rgba(64,112,232,0.35)",
-    onAccent:    "#ffffff",
+    // Direction artistique du groupe (www.groupe-profero.com) : bleu nuit et or.
+    accent:      "#d6a84c",   // or (--gold-500)
+    accentDark:  "#b8872c",   // or foncé (--gold-600) : texte d'accent sur fond clair
+    accentLight: "#f3deb2",   // or clair (--gold-200)
+    bg10:        "rgba(214,168,76,0.10)",
+    bg20:        "rgba(214,168,76,0.20)",
+    border:      "rgba(214,168,76,0.35)",
+    onAccent:    "#071426",   // bleu nuit sur fond or
   },
   groupe: {
     name: "Groupe Profero",
-    accent:      "#c9a14f",
-    accentDark:  "#a8843e",
-    accentLight: "#dbb96d",
-    bg10:        "rgba(201,161,79,0.10)",
-    bg20:        "rgba(201,161,79,0.20)",
-    border:      "rgba(201,161,79,0.35)",
-    onAccent:    "#1a1f2e",
+    accent:      "#d6a84c",
+    accentDark:  "#b8872c",
+    accentLight: "#f3deb2",
+    bg10:        "rgba(214,168,76,0.10)",
+    bg20:        "rgba(214,168,76,0.20)",
+    border:      "rgba(214,168,76,0.35)",
+    onAccent:    "#071426",
   },
+
 };
 
 export function getBranchAccent(branch = "renovation") {

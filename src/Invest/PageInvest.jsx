@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "../supabase";
-import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { LOGO_INVEST_H, LOGO_INVEST_V, LOGO_GROUPE_H, LOGO_GROUPE_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { useIsMobile } from "../hooks";
@@ -363,8 +363,11 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
         justifyContent: collapsed ? "center" : "space-between", gap:SPACING.sm, flexShrink:0,
       }}>
         {!collapsed
-          ? <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:44, objectFit:"contain", objectPosition:"left" }}/>
-          : <img src={LOGO_INVEST_V} alt="P" style={{ width:44, height:44, objectFit:"contain", borderRadius:RADIUS.sm }}/>
+          ? <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0 }}>
+              <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:36, objectFit:"contain", objectPosition:"left" }}/>
+              <span style={{ fontSize:10.5, fontWeight:800, letterSpacing:3.2, textTransform:"uppercase", color:T.accent, paddingLeft:2 }}>Invest</span>
+            </div>
+          : <img src={LOGO_GROUPE_V} alt="Profero Invest" style={{ width:40, height:40, objectFit:"contain", borderRadius:RADIUS.sm }}/>
         }
         <button onClick={toggle} title={collapsed ? "Agrandir" : "Réduire"} style={{
           background:"rgba(255,255,255,0.06)", border:"none", borderRadius:RADIUS.md,
@@ -440,7 +443,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
           padding:`${SPACING.sm+2}px ${SPACING.md+2}px`, borderTop:`1px solid ${T.sidebarBorder}`,
           display:"flex", flexDirection:"column", gap:1, flexShrink:0,
         }}>
-          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:T.text, letterSpacing:0.1,
+          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:"#f7f1e5" /* menu toujours bleu nuit : texte crème, même en thème clair */, letterSpacing:0.1,
             overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
           }}>{profil?.nom || profil?.email}</span>
           <span style={{ fontSize:FONT.xs.size, letterSpacing:0.8, textTransform:"uppercase",
