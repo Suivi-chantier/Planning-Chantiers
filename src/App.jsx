@@ -487,9 +487,7 @@ function PagePortail({ user, profil, onSelectBranche, onLogout }) {
           <div className={`portal-card portal-card-invest${!hasInvest?" disabled":""}`} onClick={()=>hasInvest&&onSelectBranche("invest")}>
             <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:"linear-gradient(90deg,#fff0c8,#d6a84c)", borderRadius:"20px 20px 0 0" }}/>
             <div style={{ display:"flex", alignItems:"center", minHeight:56 }}>
-              <div style={{ background:"#f7f1e5", borderRadius:12, padding:"8px 16px", display:"inline-flex" }}>
-                <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:40, objectFit:"contain" }}/>
-              </div>
+              <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:56, objectFit:"contain", objectPosition:"left" }}/>
             </div>
             <div style={{ fontSize:14, color:"rgba(255,255,255,0.4)", lineHeight:1.6 }}>
               Gestion des investissements immobiliers, suivi de portefeuille et reporting financier.
