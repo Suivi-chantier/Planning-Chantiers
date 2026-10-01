@@ -368,7 +368,14 @@ function PageLogin({ onLogin }) {
       const saisie = email.trim().toLowerCase();
       const loginEmail = saisie.includes("@") ? saisie : loginEmailFromIdentifiant(saisie);
       const { data, error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
-      if (error) { setErreur("Email/identifiant ou mot de passe incorrect."); setLoading(false); return; }
+      if (error) {
+        // Refus du hook d'accès (supabase/migrations/20260930170000_…) : il ne
+        // survient qu'APRÈS un mot de passe correct, le dire ne révèle rien.
+        setErreur(/Accès Profero refusé/.test(error.message || "")
+          ? "Votre compte a été désactivé ou n'est pas autorisé. Contactez l'administrateur."
+          : "Email/identifiant ou mot de passe incorrect.");
+        setLoading(false); return;
+      }
       const { data: profil, error: profilErr } = await supabase
         .from("utilisateurs").select("*").eq("email", data.user.email).single();
       if (profilErr || !profil) {
@@ -942,6 +949,12 @@ export default function App() {
     // écouteur s'enregistre : les trois passent par la même décision.
     // Les connexions normales restent gérées par checkSession / handleLogin.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Session retirée par Supabase (renouvellement refusé : compte désactivé,
+      // session révoquée) : retour à l'écran de connexion, sans rien garder.
+      if (event === "SIGNED_OUT") {
+        setUser(null); setProfil(null); setAuthState("login");
+        return;
+      }
       if (!session?.user) return;
       if (event === "SIGNED_IN" || event === "PASSWORD_RECOVERY" || event === "INITIAL_SESSION") {
         ouvrirSiLienAuth(session, event);

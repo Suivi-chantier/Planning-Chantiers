@@ -18,7 +18,7 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 **Mise à jour du 30/09/2026 : 31 fichiers.** 30 sont appliqués (dont les trois
 ci-dessous) ; 1 ne l'est pas : celui du chantier 05 (plus haut). La migration
-de la PR #46 (20260930170000) n'est pas encore dans ce dossier.
+de la PR #46 (20260930170000) a été appliquée le 01/10/2026 (voir plus bas).
 
 `20260930190000_invest_dossiers_tranche1.sql` **appliquée le 30/09/2026**
 (Chantier 1.1 Tranche 1 : Dossier Invest), seule (`supabase db query --linked -f …`
@@ -74,6 +74,14 @@ création, modification et suppression avec la clé publique). Aucune donnée
 modifiée ; les leads Fluidify passent par la clé service_role. S'applique
 seule, jamais par `db push`. Retour arrière (rouvre la table) :
 `sql/202610_invest_prospects_fermeture_rollback.sql`.
+
+**`20260930170000_acces_profero_hook_sessions.sql` — appliquée en production
+le 01/10/2026, hook ACTIVÉ le 01/10/2026 vers 10:30 UTC** (préparée le
+30/09/2026) : hook d'accès Profero et suppression des sessions à
+la désactivation. S'applique seule (`supabase db query --linked -f …` puis
+`supabase migration repair --status applied 20260930170000 --linked`), jamais
+par `db push`. Le hook s'active ENSUITE à la main :
+`docs/project/HOOK-ACCES-PROFERO.md`.
 
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
