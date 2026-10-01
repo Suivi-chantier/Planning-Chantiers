@@ -3,6 +3,15 @@
 Chantier 1.0 — TRANSVERSE / sécurité. Migration
 `supabase/migrations/20260930170000_acces_profero_hook_sessions.sql`.
 
+**État (01/10/2026)** : migration appliquée (corps des 4 fonctions = fichier),
+fonction appelée à blanc sur les 18 comptes Auth avant activation (15
+collaborateurs actifs acceptés, 3 comptes désactivés refusés en 403), hook
+activé dans le tableau de bord vers 10:30 UTC, reconnexion administrateur OK
+(journal Auth : « Hook ran successfully »). Sessions des comptes déjà
+désactivés : non supprimées (le hook refuse leur renouvellement).
+Recette restante : collaborateur non admin après plus d'une heure ; compte
+désactivé refusé à l'écran.
+
 ## Ce que ça garantit
 
 `public.utilisateurs.actif` est la **seule** source de vérité de l'accès d'un
