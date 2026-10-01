@@ -4,7 +4,7 @@
 // (information principale → action → synthèse → détail).
 import React from "react";
 
-export const ROUGE = "#dc2626", ORANGE = "#d97706", BLEU = "#2563eb", VERT = "#16a34a", GRIS = "#64748b";
+export const ROUGE = "#dc2626", ORANGE = "#d97706", BLEU = "#3f6fd1", VERT = "#16a34a", GRIS = "#64748b";
 
 export const dateFr = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "—");
 export const dateCourte = (ts) => { if (!ts) return ""; const d = new Date(ts); return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }); };

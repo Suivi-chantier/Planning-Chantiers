@@ -33,10 +33,19 @@ export const ONGLETS_CLIENT = Object.freeze([
   { cle: "historique", libelle: "Historique" },
 ]);
 
+/** Onglet affiché seulement pour les clients cochés « sujet de structuration » (après Patrimoine). */
+export const ONGLET_STRUCTURATION = Object.freeze({ cle: "structuration", libelle: "Structuration" });
+export function ongletsClient(client) {
+  if (client?.sujet_structuration !== true) return ONGLETS_CLIENT;
+  const i = ONGLETS_CLIENT.findIndex((o) => o.cle === "patrimoine");
+  return Object.freeze([...ONGLETS_CLIENT.slice(0, i + 1), ONGLET_STRUCTURATION, ...ONGLETS_CLIENT.slice(i + 1)]);
+}
+
 // Offres (Offre 2 / Offre 3) : source unique dans dossiers/offres.mjs (chantier 9).
 export { OFFRES, JALONS_OFFRE, offreDe, jalonDe } from "../dossiers/offres.mjs";
 
 const TACHE_OUVERTE = new Set(["a_faire", "en_cours", "bloque"]);
+const STATUT_ACTION = Object.freeze({ a_faire: "À faire", en_cours: "En cours", bloque: "Bloquée" });
 const TYPES_CONTACT = new Set(["appel", "rendez-vous", "relance"]);
 const LIBELLES_NOTE = Object.freeze({ appel: "Appel", "rendez-vous": "Rendez-vous", relance: "Relance", commentaire: "Note", document: "Document", autre: "Note" });
 const jour = (v) => (v ? String(v).slice(0, 10) : null);
@@ -140,8 +149,9 @@ export function portefeuille({ clients = [], dossiers = [], missions = [], notes
       id: c.id, nom: nomClient(c), statutRelation: c.statut || "Non renseigné",
       conseiller: premiere?.conseiller || c.conseiller || null,
       telephone: c.telephone || null, email: c.email || null,
-      missions: siennes.map((m) => ({ dossierId: m.dossierId, reference: m.reference, offre: m.offre.court || m.offre.libelle, jalon: m.jalon })),
+      missions: siennes.map((m) => ({ dossierId: m.dossierId, reference: m.reference, offre: m.offre.court || m.offre.libelle, jalon: m.jalon, etape: m.etape })),
       missionsTerminees: terminees,
+      structuration: c.sujet_structuration === true,
       prochaineAction: inconnu ? "Avancement indisponible" : premiere ? premiere.action : null,
       echeance: premiere?.echeance ?? null,
       urgent: siennes.some((m) => m.priorite <= 1),
@@ -169,6 +179,7 @@ export function planningActions({ taches = [], dossiers = [], clients = [], util
       dossierId: d?.id ?? null, mission: d ? d.reference : "Hors mission",
       etape: libelleEtape(t.etape) ?? "À classer", responsable: t.responsable || null,
       conseiller: (d && nomUtilisateur(d.conseiller_id)) || c?.conseiller || null,
+      statut: STATUT_ACTION[t.status] ?? t.status,
     };
   }).filter((x) => (!filtres.conseiller || x.conseiller === filtres.conseiller)
     && (!filtres.clientId || x.clientId === filtres.clientId)
@@ -182,6 +193,7 @@ export function planningActions({ taches = [], dossiers = [], clients = [], util
     mois: datees.filter((x) => x.echeance > j7 && x.echeance <= j30),
     auDela: datees.filter((x) => x.echeance > j30).length,
     sansEcheance: items.filter((x) => !x.echeance).length,
+    sansEcheanceListe: items.filter((x) => !x.echeance).sort((a, b) => a.client.localeCompare(b.client, "fr") || a.titre.localeCompare(b.titre, "fr")),
     options: {
       conseillers: [...new Set(items.map((x) => x.conseiller).filter(Boolean))].sort(),
     },
@@ -256,4 +268,53 @@ export function construireClient({ client, dossiers = [], etapes = [], taches = 
     activite: historique.slice(0, 5),
     historique,
   };
+}
+
+
+// ── Refonte UX du CRM (lecture seule, aucune règle de pilotage nouvelle) ─────────
+
+/**
+ * Alertes d'une mission, de la plus grave à la moins grave. Elles ne font que LIRE les
+ * signaux déjà calculés par missionPilotee (pilotage.mjs) ; seule « échéance proche »
+ * (dans les 3 jours) est une lecture de la date déjà calculée.
+ * ton : "rouge" (retard, blocage) · "orange" (à faire / à décider) · "violet" (attente client).
+ */
+export function alertesMission(m, aujourdhui) {
+  const r = [];
+  if (m.signaux.enRetard) r.push({ code: "retard", libelle: "En retard", ton: "rouge" });
+  if (m.signaux.bloquee) r.push({ code: "bloquee", libelle: "Bloquée", ton: "rouge", detail: m.blocages.map((b) => `${b.etape}${b.motif ? ` — ${b.motif}` : ""}`).join(" · ") });
+  if (m.signaux.aujourdhui) r.push({ code: "aujourdhui", libelle: "Aujourd'hui", ton: "orange" });
+  else if (!m.signaux.enRetard && m.echeance) {
+    const n = joursEntre(aujourdhui, m.echeance);
+    if (n >= 1 && n <= 3) r.push({ code: "proche", libelle: "Échéance proche", ton: "orange" });
+  }
+  if (m.signaux.sansAction) r.push({ code: "sans_action", libelle: "Sans action prévue", ton: "orange" });
+  if (m.signaux.attenteClient) r.push({ code: "attente_client", libelle: "Attente client", ton: "violet" });
+  return r;
+}
+
+/** Échéance lisible : date courte + écart. Rouge si dépassée, orange si aujourd'hui ou sous 3 jours. */
+export function echeanceCourte(iso, aujourdhui) {
+  const d = jour(iso);
+  if (!d) return { texte: "—", ton: "neutre", vide: true };
+  const jj = d.slice(8, 10), mm = d.slice(5, 7);
+  const n = joursEntre(aujourdhui, d);
+  if (n < 0) return { texte: `${jj}/${mm} · ${-n} j de retard`, ton: "rouge" };
+  if (n === 0) return { texte: "Aujourd'hui", ton: "orange" };
+  if (n <= 3) return { texte: `${jj}/${mm} · dans ${n} j`, ton: "orange" };
+  if (n <= 30) return { texte: `${jj}/${mm} · dans ${n} j`, ton: "neutre" };
+  return { texte: `${jj}/${mm}/${d.slice(0, 4)}`, ton: "neutre" };
+}
+
+/** Filtres de la liste Clients : recherche, conseiller, statut, avec/sans mission active, offre. */
+export function filtrerPortefeuille(lignes = [], { q = "", conseiller = "", statut = "", mission = "", offre = "", structuration = "" } = {}) {
+  const t = String(q || "").trim().toLowerCase();
+  return lignes.filter((l) => (!t || l.recherche.toLowerCase().includes(t))
+    && (!conseiller || l.conseiller === conseiller)
+    && (!statut || l.statutRelation === statut)
+    && (mission !== "avec" || l.missions.length > 0)
+    && (mission !== "sans" || l.missions.length === 0)
+    && (!offre || l.missions.some((m) => m.offre === offre))
+    && (structuration !== "oui" || l.structuration === true)
+    && (structuration !== "non" || l.structuration !== true));
 }

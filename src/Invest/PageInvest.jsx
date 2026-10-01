@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useImperativeHandle, useMemo } from "react";
 import { supabase } from "../supabase";
-import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { LOGO_INVEST_H, LOGO_INVEST_V, LOGO_GROUPE_H, LOGO_GROUPE_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { useIsMobile } from "../hooks";
@@ -25,7 +25,6 @@ import CRM from "./CRM";
 import StockBiens from "./Biens";
 import DashboardFinancier from "./Finance";
 import SuiviFinancier from "./SuiviFinancier";
-import StructurationPatrimoniale from "./Structuration";
 import AdminInvest from "./Admin";
 import Simulateur, { ListeProjets } from "./Simulateur";
 import Sourcing from "./Sourcing";
@@ -40,14 +39,21 @@ const INVEST_PAGES_BASE = [
   { id: "crm", label: "CRM Clients" },
   { id: "sourcing", label: "Sourcing" },
   { id: "biens", label: "Biens" },
-  { id: "simulateur", label: "Simulateur" },
   { id: "etat_des_lieux", label: "État des lieux" },
   { id: "urbanisme", label: "Urbanisme" },
-  { id: "structuration", label: "Structuration" },
+  { id: "simulateur", label: "Simulateur" },
   { id: "finance", label: "Finance" },
   { id: "suivi_financier", label: "Suivi financier" },
   { id: "admin", label: "Admin" },
 ];
+// Blocs du menu latéral (titre affiché au-dessus du premier élément du bloc).
+// La Structuration n'est plus une page : c'est un onglet de la fiche client (CRM),
+// réservé aux clients qui ont un sujet de structuration.
+const INVEST_GROUPES = {
+  dashboard: "Pilotage", prospection: "Pilotage", crm: "Pilotage",
+  sourcing: "Biens", biens: "Biens", etat_des_lieux: "Biens", urbanisme: "Biens",
+  simulateur: "Finance", finance: "Finance", suivi_financier: "Finance",
+};
 
 const INVEST_PAGES_FALLBACK = INVEST_PAGES_BASE.map(p => p.id);
 // Ordre de priorité pour la barre du bas sur téléphone.
@@ -323,7 +329,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
   const allowed = getInvestAllowedPages(rolePages, role);
   const navItems = getInvestPagesList()
     .filter(p => p?.id && allowed.includes(p.id))
-    .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard }));
+    .map(p => ({ id: p.id, label: p.label, icon: ICONS[p.id] || LayoutDashboard, groupe: INVEST_GROUPES[p.id] || null }));
 
   // La barre du bas a besoin de la même liste, déjà filtrée par les droits.
   // On la remonte plutôt que de recalculer les accès à deux endroits.
@@ -357,8 +363,11 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
         justifyContent: collapsed ? "center" : "space-between", gap:SPACING.sm, flexShrink:0,
       }}>
         {!collapsed
-          ? <img src={LOGO_INVEST_H} alt="Profero Invest" style={{ height:44, objectFit:"contain", objectPosition:"left" }}/>
-          : <img src={LOGO_INVEST_V} alt="P" style={{ width:44, height:44, objectFit:"contain", borderRadius:RADIUS.sm }}/>
+          ? <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0 }}>
+              <img src={LOGO_GROUPE_H} alt="Groupe Profero" style={{ height:36, objectFit:"contain", objectPosition:"left" }}/>
+              <span style={{ fontSize:10.5, fontWeight:800, letterSpacing:3.2, textTransform:"uppercase", color:T.accent, paddingLeft:2 }}>Invest</span>
+            </div>
+          : <img src={LOGO_GROUPE_V} alt="Profero Invest" style={{ width:40, height:40, objectFit:"contain", borderRadius:RADIUS.sm }}/>
         }
         <button onClick={toggle} title={collapsed ? "Agrandir" : "Réduire"} style={{
           background:"rgba(255,255,255,0.06)", border:"none", borderRadius:RADIUS.md,
@@ -376,10 +385,15 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
       {/* Sur téléphone, la navigation vit dans BarreBasInvest : la rendre ici
           aussi doublerait les onglets et volerait la hauteur du bandeau. */}
       {!etroit && <nav style={{ flex:1, padding: collapsed ? `${SPACING.sm}px ${SPACING.xs+2}px` : `${SPACING.sm}px`, overflowY:"auto" }}>
-        {navItems.map(n => {
+        {navItems.map((n, i) => {
           const active = page === n.id;
+          const nouveauBloc = i > 0 && n.groupe !== navItems[i - 1].groupe;
+          const titreBloc = n.groupe && (i === 0 || n.groupe !== navItems[i - 1].groupe) ? n.groupe : null;
           return (
-            <button key={n.id} onClick={() => setPage(n.id)}
+            <React.Fragment key={n.id}>
+              {titreBloc && !collapsed && <div style={{ padding:`${i === 0 ? 2 : SPACING.md}px ${SPACING.md}px ${SPACING.xs}px`, fontSize:10.5, fontWeight:800, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, opacity:.7 }}>{titreBloc}</div>}
+              {nouveauBloc && collapsed && <div aria-hidden style={{ height:1, margin:`${SPACING.sm}px ${SPACING.sm}px`, background:T.sidebarBorder }}/>}
+            <button onClick={() => setPage(n.id)}
               title={collapsed ? n.label : ""}
               style={{
                 width:"100%", display:"flex", alignItems:"center",
@@ -398,6 +412,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
               {!collapsed && <span className="inv-nav-label" style={{ flex:1 }}>{n.label}</span>}
               {!collapsed && active && <span style={{ width:4, height:18, borderRadius:2, background:T.accent, flexShrink:0 }}/>}
             </button>
+            </React.Fragment>
           );
         })}
       </nav>}
@@ -428,7 +443,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
           padding:`${SPACING.sm+2}px ${SPACING.md+2}px`, borderTop:`1px solid ${T.sidebarBorder}`,
           display:"flex", flexDirection:"column", gap:1, flexShrink:0,
         }}>
-          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:T.text, letterSpacing:0.1,
+          <span style={{ fontSize:FONT.sm.size, fontWeight:700, color:"#f7f1e5" /* menu toujours bleu nuit : texte crème, même en thème clair */, letterSpacing:0.1,
             overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
           }}>{profil?.nom || profil?.email}</span>
           <span style={{ fontSize:FONT.xs.size, letterSpacing:0.8, textTransform:"uppercase",
@@ -527,7 +542,6 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const estMobile = useIsMobile();
   const [urbanismeInitialFilter, setUrbanismeInitialFilter] = useState(null);
   const [edlInitialFilter, setEdlInitialFilter] = useState(null);
-  const [structInitialClientId, setStructInitialClientId] = useState(null);
   const [aiOuvert, setAiOuvert] = useState(false);
 
   // Config d'accès Invest (chargée depuis planning_config, fallback hardcodé)
@@ -560,9 +574,10 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
 
   const ouvrirProjet  = (p) => { setProjetOuvert(p); setVueSim("simulateur"); };
   const nouveauProjet = ()  => { setProjetOuvert(null); setVueSim("simulateur"); };
+  // Ancien bouton « Structuration » de la fiche client : ouvre l'onglet Structuration de la fiche client du CRM.
   const ouvrirStructurationDepuisClient = (clientId) => {
-    setStructInitialClientId(clientId);
-    setPage("structuration");
+    setCrmInitialFilter({ tab: "crm", action: "open", id: clientId, onglet: "structuration" });
+    setPage("crm");
   };
   const ouvrirBienDepuisClient = (bienId) => {
     if (!bienId) return;
@@ -583,7 +598,9 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   // signalée en console plutôt qu'ignorée — c'est ce qui rendra visible le
   // prochain onglet branché de travers.
   const naviguer = (target, filter) => {
-    const cible = normalizeNavTarget(target, filter);
+    let cible = normalizeNavTarget(target, filter);
+    // La Structuration n'est plus une page : les anciens liens ouvrent la fiche client (onglet Structuration).
+    if (cible?.tab === "structuration") cible = { ...cible, tab: "crm", action: cible.id ? "open" : cible.action, onglet: "structuration" };
     if (!cible) {
       console.warn("[Invest] Navigation impossible : onglet inconnu", target, filter);
       return;
@@ -598,7 +615,6 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       case "prospection":   setProspectionInitialFilter(cible); break;
       case "urbanisme":     setUrbanismeInitialFilter(cible); break;
       case "etat_des_lieux":setEdlInitialFilter(cible); break;
-      case "structuration": if (cible.id) setStructInitialClientId(cible.id); break;
       default: break; // onglets sans cible profonde : on bascule seulement
     }
     setPage(cible.tab);
@@ -658,7 +674,6 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     if (p !== "prospection") setProspectionInitialFilter(null);
     if (p !== "urbanisme") setUrbanismeInitialFilter(null);
     if (p !== "etat_des_lieux") setEdlInitialFilter(null);
-    if (p !== "structuration") setStructInitialClientId(null);
   };
 
   // ⌘K sur Mac, Ctrl K ailleurs. Écouteur global : le raccourci doit répondre
@@ -697,12 +712,9 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     if (cible && (cible.action === "open" || cible.action === "actions") && cible.id) {
       ctx.entite_type = page === "crm" ? "client" : "bien";
       ctx.entite_id = cible.id;
-    } else if (page === "structuration" && structInitialClientId) {
-      ctx.entite_type = "client";
-      ctx.entite_id = structInitialClientId;
     }
     return ctx;
-  }, [page, crmInitialFilter, biensInitialFilter, structInitialClientId]);
+  }, [page, crmInitialFilter, biensInitialFilter]);
 
   // Simulateur plein écran — uniquement quand une fiche projet est ouverte
   if (page === "simulateur" && vueSim === "simulateur") {
@@ -727,7 +739,6 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
         {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
         {page === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} initialFilter={edlInitialFilter} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
         {page === "urbanisme" && (canSee("urbanisme") ? <Urbanisme profil={profil} T={T} initialFilter={urbanismeInitialFilter} /> : <AccesRefuseInvest T={T} page="urbanisme"/>)}
-        {page === "structuration" && (canSee("structuration") ? <StructurationPatrimoniale profil={profil} T={T} initialClientId={structInitialClientId} /> : <AccesRefuseInvest T={T} page="structuration"/>)}
         {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
         {page === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}
         {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}

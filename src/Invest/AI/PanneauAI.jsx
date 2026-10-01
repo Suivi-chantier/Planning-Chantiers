@@ -332,7 +332,7 @@ export default function PanneauAI({ ouvert, onFermer, T, profil, contexte, onNav
         <span style={{
           width: 26, height: 26, borderRadius: 8, display: "inline-flex",
           alignItems: "center", justifyContent: "center",
-          background: "rgba(64,112,232,.14)", color: T.accent,
+          background: T.accentBg, color: T.accent,
         }}><Icon as={Sparkles} size={14} /></span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: T.text, letterSpacing: .3 }}>Profero AI</div>

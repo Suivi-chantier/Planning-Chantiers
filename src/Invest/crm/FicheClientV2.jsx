@@ -12,8 +12,10 @@ import { supabase } from "../../supabase";
 import { CLIENT_DOCUMENT_CHECKLIST, clientStrategy, DocumentsSection } from "../_shared";
 import { DemarrerMission } from "../dossiers/DossierInvestCard";
 import SituationPatrimonialeCard from "../dossiers/SituationPatrimonialeCard";
-import { ONGLETS_CLIENT, construireClient } from "./crmV2Vue";
+import { ONGLETS_CLIENT, ongletsClient, construireClient } from "./crmV2Vue";
 import AccesPortail from "./AccesPortail";
+import SujetStructuration from "./SujetStructuration";
+import StructurationPatrimoniale from "../Structuration";
 import { FilAriane, Onglets, Section, Carte, Pastille, Discret, Chiffre, Vide, dateFr, dateCourte, eur, aujourdhuiIso, ROUGE, ORANGE, BLEU, VERT, GRIS } from "./ui";
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
@@ -74,15 +76,23 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <SujetStructuration T={T} client={client} onChange={() => { if (client.sujet_structuration === true && onglet === "structuration") setOnglet("ensemble"); rafraichir(); }} />
           <button className="inv-btn inv-btn-sm" onClick={() => setOnglet("historique")}>Ajouter une note</button>
           <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setOnglet("missions")}>＋ Nouvelle mission</button>
         </div>
       </header>
-      <Onglets T={T} compact onglets={ONGLETS_CLIENT} actif={onglet} onChange={setOnglet}
+      <Onglets T={T} compact onglets={ongletsClient(client)} actif={onglet} onChange={setOnglet}
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
       {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} />}
+      {onglet === "structuration" && client.sujet_structuration === true && (
+        <StructurationPatrimoniale key={client.id} profil={profil} T={T} clientIdFixe={client.id} />
+      )}
+      {onglet === "structuration" && client.sujet_structuration !== true && (
+        <Vide T={T} titre="Pas de sujet de structuration pour ce client" texte="Cochez « Sujet de structuration » pour faire apparaître l'onglet et ouvrir le dossier de structuration."
+          action={<SujetStructuration T={T} client={client} onChange={rafraichir} />} />
+      )}
       {onglet === "missions" && <Missions T={T} vue={vue} donnees={donnees} profil={profil} illisible={donnees.dossiersIllisibles} onOuvrirMission={onOuvrirMission} onCree={(id) => { rafraichir(); onOuvrirMission(id); }} />}
       {onglet === "patrimoine" && (
         <Section T={T} titre="Patrimoine du foyer">

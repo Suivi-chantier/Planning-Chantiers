@@ -11,7 +11,7 @@ import {
   isoDate, normTxt, fmtDashboardEur, fmtDashboardPct, safeDate, daysBetween,
   getClientName, getBienLabel, getBienScore,
 } from "./tableauBord.mjs";
-import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent } from "../constants";
+import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, MARQUE } from "../constants";
 import { Icon, InputNombre } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { OngletAcces } from "../Renovation/Admin";
@@ -73,26 +73,9 @@ Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
   }
 });
 
-// Page Structuration Patrimoniale — liée aux clients Invest.
-if (Array.isArray(PAGES_INVEST) && !PAGES_INVEST.some(p => p.id === "structuration")) {
-  const financeIndex = PAGES_INVEST.findIndex(p => p.id === "finance");
-  const biensIndex = PAGES_INVEST.findIndex(p => p.id === "biens");
-  const structPage = { id: "structuration", label: "Structuration Patrimoniale" };
-  if (financeIndex >= 0) PAGES_INVEST.splice(financeIndex, 0, structPage);
-  else if (biensIndex >= 0) PAGES_INVEST.splice(biensIndex + 1, 0, structPage);
-  else PAGES_INVEST.push(structPage);
-}
-Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
-  const pages = ROLE_PAGES_DEFAULT_INVEST[roleKey];
-  if (!Array.isArray(pages) || pages.includes("structuration")) return;
-  if (pages.includes("admin") || pages.includes("crm") || pages.includes("finance") || pages.includes("dashboard")) {
-    const financeIndex = pages.indexOf("finance");
-    const adminIndex = pages.indexOf("admin");
-    if (financeIndex >= 0) pages.splice(financeIndex, 0, "structuration");
-    else if (adminIndex >= 0) pages.splice(adminIndex, 0, "structuration");
-    else pages.push("structuration");
-  }
-});
+// Structuration : ce n'était plus une page du menu. C'est un onglet de la fiche client du CRM,
+// visible pour les clients cochés « sujet de structuration ». "structuration" reste dans NAV_TABS
+// uniquement pour que les anciens liens (tableau de bord, notifications) soient redirigés vers la fiche client.
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const LOT_TYPES  = ["Sélectionner","Studio","T1","T2","T3","T4","T5","T6","Commerce"];
@@ -284,74 +267,66 @@ function openFicheClientInvestisseurPDF(data = {}) {
 // ─── THÈMES INVEST ────────────────────────────────────────────────────────────
 // Aligné sur Profero Rénovation (THEMES.dark / THEMES.light dans constants.js)
 // pour cohérence visuelle, avec l'accent bleu Profero Invest comme différence.
+// Thèmes Invest : direction artistique du groupe (www.groupe-profero.com) — bleu nuit et or.
+// Sombre = fonds bleu nuit, texte crème, accents or. Clair = fonds crème/blanc, texte encre, menu bleu nuit.
 const THEMES_INV = {
   dark: {
-    // Surfaces — alignées sur THEMES.dark de constants.js
-    // ATTENTION : .inv-card et .inv-kpi utilisent T.card. On met donc card=surface
-    // pour que les cards soient bien visibles (pas transparentes).
-    bg:        "#1e2128",
-    surface:   "#262a32",
-    card:      "#262a32",
-    cardHover: "rgba(64,112,232,0.07)",
-    cardActive:"rgba(64,112,232,0.12)",
-    // Borders
-    border:    "rgba(255,255,255,0.07)",
+    bg:        MARQUE.marine900,
+    surface:   MARQUE.marine850,
+    card:      MARQUE.marine850,        // .inv-card et .inv-kpi utilisent T.card : visibles, jamais transparentes
+    cardHover: "rgba(214,168,76,0.07)",
+    cardActive:"rgba(214,168,76,0.12)",
+    border:    "rgba(255,255,255,0.09)",
     borderHover: INVEST_ACC.border,
-    rowBorder: "rgba(255,255,255,0.05)",
-    // Texte
-    text:      "#f0f0f0",
-    textSub:   "#9aa5c0",
-    textMuted: "#5b6a8a",
-    // Accent (bleu officiel Profero Invest)
+    rowBorder: "rgba(255,255,255,0.06)",
+    text:      "#f7f1e5",
+    textSub:   "rgba(247,241,229,0.74)",
+    textMuted: "#8f9bb3",
     accent:       INVEST_ACC.accent,
     accentHover:  INVEST_ACC.accentLight,
     accentBg:     INVEST_ACC.bg10,
     accentBg20:   INVEST_ACC.bg20,
     accentBorder: INVEST_ACC.border,
     onAccent:     INVEST_ACC.onAccent,
-    // Sidebar / nav
-    sidebar:   "#16181d",
-    sidebarBorder: "rgba(255,255,255,0.06)",
+    sidebar:   MARQUE.marine950,
+    sidebarBorder: "rgba(214,168,76,0.16)",
     sectionHd: "rgba(255,255,255,0.03)",
-    tabNav:    "#1a1d24",
-    // Inputs
+    tabNav:    "#0a1a31",
     input:        "rgba(255,255,255,0.05)",
-    inputBorder:  "rgba(255,255,255,0.10)",
+    inputBorder:  "rgba(255,255,255,0.12)",
     inputBorderHover: INVEST_ACC.border,
-    scrollThumb: "#3a4060",
-    // Shadows
-    shadowSm:  "0 1px 2px rgba(0,0,0,0.3)",
-    shadowMd:  "0 4px 12px rgba(0,0,0,0.25)",
+    scrollThumb: "#2a3f63",
+    shadowSm:  "0 1px 2px rgba(0,0,0,0.35)",
+    shadowMd:  "0 4px 12px rgba(0,0,0,0.30)",
   },
   light: {
-    // Aligné sur THEMES.light de constants.js
-    bg:        "#f7f7f7",
+    bg:        MARQUE.creme,
     surface:   "#ffffff",
     card:      "#ffffff",
-    cardHover: "rgba(64,112,232,0.05)",
-    cardActive:"rgba(64,112,232,0.10)",
-    border:    "rgba(0,0,0,0.09)",
-    borderHover: INVEST_ACC.border,
-    rowBorder: "rgba(0,0,0,0.06)",
-    text:      "#1a1f2e",
-    textSub:   "#4a5568",
-    textMuted: "#8a9ab0",
-    accent:       INVEST_ACC.accent,
-    accentHover:  INVEST_ACC.accentDark,
-    accentBg:     INVEST_ACC.bg10,
-    accentBg20:   INVEST_ACC.bg20,
-    accentBorder: INVEST_ACC.border,
-    onAccent:     INVEST_ACC.onAccent,
-    sidebar:   "#1a1f2e",
-    sidebarBorder: "rgba(255,255,255,0.08)",
-    sectionHd: "rgba(0,0,0,0.03)",
+    cardHover: "rgba(184,135,44,0.07)",
+    cardActive:"rgba(184,135,44,0.12)",
+    border:    "rgba(15,23,42,0.12)",
+    borderHover: "rgba(184,135,44,0.45)",
+    rowBorder: "rgba(15,23,42,0.07)",
+    text:      MARQUE.encre,
+    textSub:   "#475467",
+    textMuted: MARQUE.discret,
+    accent:       INVEST_ACC.accentDark,        // or foncé : lisible sur fond clair
+    accentHover:  "#9a6f20",
+    accentBg:     "rgba(184,135,44,0.10)",
+    accentBg20:   "rgba(184,135,44,0.20)",
+    accentBorder: "rgba(184,135,44,0.40)",
+    onAccent:     MARQUE.marine900,
+    sidebar:   MARQUE.marine900,
+    sidebarBorder: "rgba(214,168,76,0.18)",
+    sectionHd: "rgba(15,23,42,0.03)",
     tabNav:    "#ffffff",
-    input:        "rgba(0,0,0,0.04)",
-    inputBorder:  "rgba(0,0,0,0.10)",
-    inputBorderHover: INVEST_ACC.border,
-    scrollThumb: "#c0c8d8",
-    shadowSm:  "0 1px 2px rgba(0,0,0,0.06)",
-    shadowMd:  "0 4px 12px rgba(0,0,0,0.10)",
+    input:        "rgba(15,23,42,0.04)",
+    inputBorder:  "rgba(15,23,42,0.14)",
+    inputBorderHover: "rgba(184,135,44,0.45)",
+    scrollThumb: "#c9bfa9",
+    shadowSm:  "0 1px 2px rgba(15,23,42,0.07)",
+    shadowMd:  "0 4px 12px rgba(15,23,42,0.10)",
   },
 };
 
@@ -382,9 +357,11 @@ const getCSS = (T) => `
 .inv-card-hd.accent{background:${T.accentBg};color:${T.accent};border-bottom-color:${T.accentBorder};}
 .inv-card-hd.danger{background:${SEMANTIC.danger.bg};color:${DA};border-bottom-color:${SEMANTIC.danger.border};}
 .inv-card-hd.green{background:${SEMANTIC.success.bg};color:${SU};border-bottom-color:${SEMANTIC.success.border};}
-.inv-card-hd.blue{background:${SEMANTIC.info.bg};color:${IN};border-bottom-color:${SEMANTIC.info.border};}
+/* « blue » est l'en-tête de carte par défaut : il prend l'accent de la marque (or sur bleu nuit) ; le bleu « info » reste réservé aux statuts. */
+.inv-card-hd.blue{background:${T.accentBg};color:${T.accent};border-bottom-color:${T.accentBorder};}
+.inv-card-hd.info{background:${SEMANTIC.info.bg};color:${IN};border-bottom-color:${SEMANTIC.info.border};}
 .inv-card-hd.mid{background:rgba(168,85,247,0.10);color:#c084fc;border-bottom-color:rgba(168,85,247,0.25);}
-.inv-card-hd.gold{background:rgba(255,194,0,0.10);color:#FFC200;border-bottom-color:rgba(255,194,0,0.25);}
+.inv-card-hd.gold{background:${T.accentBg};color:${T.accent};border-bottom-color:${T.accentBorder};}
 .inv-card-bd{padding:${SPACING.md+2}px ${SPACING.lg}px;}
 
 /* ─── ROWS ─────────────────────────────────────────────────────────────── */
@@ -672,7 +649,7 @@ function SortableHeader({ label, sortKey, sortConfig, onSort, T, align="left" })
 }
 
 function KPICard({ label, value, color, icon: IconComp, onClick, sub }) {
-  const c = color || "#FFC200";
+  const c = color || "#d6a84c";
   return (
     <div className="inv-kpi" onClick={onClick} style={{
       display:"flex", flexDirection:"row", alignItems:"center", gap:SPACING.md,
