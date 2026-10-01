@@ -4,6 +4,12 @@ import { LOGO_INVEST_H, LOGO_INVEST_V, FONT, RADIUS, SPACING, SEMANTIC, getBranc
 import { Icon } from "../ui";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
+import { messageSuppressionClient } from "./dossiers/parcours";
+import { ETAPES_PARCOURS, CLES_ETAPES, etapePourNouvelleTache } from "./dossiers/parcours";
+import { A_CLASSER, champsNouvelleTache } from "./dossiers/dossierVue";
+import FicheDossier from "./dossiers/FicheDossier";
+import CrmV2 from "./crm/CrmV2";
+import { indexerPilotage, projeterClient, resumePilotage } from "./dossiers/pilotage";
 import { OngletAcces } from "../Renovation/Admin";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
@@ -372,187 +378,121 @@ function clientStatutMeta(statut) {
 }
 
 
+// Tranche 2b : la frise suit les 11 étapes du Dossier Invest. Un client est
+// placé sur l'étape principale de son dossier en cours (etapeCourante) ; ses
+// autres étapes actives restent visibles sur sa ligne. Dernière colonne : les
+// clients sans Dossier Invest en cours. L'ancienne étape (invest_clients.etape,
+// 13 étapes) n'est plus lue : elle est historique.
 const CRM_CLIENT_TIMELINE_STEPS = [
-  { n:1, label:"Signature contrat", short:"Signature", hints:["signature contrat", "signature"] },
-  { n:2, label:"Envoi des documents d'analyse", short:"Documents", hints:["envoi des documents", "documents d'analyse", "document analyse", "pièces client"] },
-  { n:3, label:"Définition de la stratégie d'investissement", short:"Stratégie", hints:["définition de la stratégie", "strategie", "stratégie", "cahier des charges"] },
-  { n:4, label:"Recherche du projet (visites et analyse)", short:"Recherche", hints:["recherche", "visites", "analyse"] },
-  { n:5, label:"Présentation des projets", short:"Présentation", hints:["présentation", "presentation", "projets", "bien présenté"] },
-  { n:6, label:"Offre d'achat", short:"Offre", hints:["offre d'achat", "offre"] },
-  { n:7, label:"Réalisation des devis précis", short:"Devis", hints:["devis précis", "devis"] },
-  { n:8, label:"Signature du compromis", short:"Compromis", hints:["signature du compromis", "compromis"] },
-  { n:9, label:"Réalisation du dossier bancaire", short:"Dossier bancaire", hints:["dossier bancaire", "banque", "bancaire"] },
-  { n:10, label:"Obtention du financement", short:"Financement", hints:["obtention du financement", "financement obtenu", "accord financement", "prêt obtenu"] },
-  { n:11, label:"Réalisation des dossiers d'urbanismes", short:"Urbanisme", hints:["urbanisme", "dossiers d'urbanismes", "dossier urbanisme", "dp", "déclaration préalable"] },
-  { n:12, label:"Validation des conditions suspensives d'achat", short:"Conditions", hints:["conditions suspensives", "validation conditions", "conditions d'achat"] },
-  { n:13, label:"Signature Notaire", short:"Notaire", hints:["signature notaire", "notaire", "signature définitive", "acte authentique"] },
+  ...ETAPES_PARCOURS.map(e => ({ n:e.numero, cle:e.cle, label:e.libelle, short:e.libelle })),
+  { n:ETAPES_PARCOURS.length + 1, cle:null, label:"Sans Dossier Invest en cours", short:"Sans dossier" },
 ];
+const CRM_TIMELINE_SANS_DOSSIER = ETAPES_PARCOURS.length + 1;
 
 const CRM_CLIENT_TIMELINE_PHASES = [
-  { key:"entree", label:"Entrée client", helper:"contrat, documents, stratégie", steps:[1,2,3], color:"#60A5FA" },
-  { key:"opportunite", label:"Recherche & opportunité", helper:"recherche, présentation, offre, devis", steps:[4,5,6,7], color:"#C9A34A" },
-  { key:"securisation", label:"Sécurisation achat", helper:"compromis, banque, financement", steps:[8,9,10], color:"#8B5CF6" },
-  { key:"finalisation", label:"Finalisation", helper:"urbanisme, conditions, notaire", steps:[11,12,13], color:"#16A34A" },
+  { key:"entree", label:"Entrée client", helper:"signature, collecte, documents", steps:[1,2,3], color:"#60A5FA" },
+  { key:"conseil", label:"Analyse & stratégie", helper:"analyse, stratégie", steps:[4,5], color:"#0EA5E9" },
+  { key:"opportunite", label:"Recherche & opportunités", helper:"recherche, opportunités", steps:[6,7], color:"#C9A34A" },
+  { key:"securisation", label:"Sécurisation achat", helper:"financement, structuration, acquisition", steps:[8,9,10], color:"#8B5CF6" },
+  { key:"suivi", label:"Suivi", helper:"après acquisition", steps:[11], color:"#16A34A" },
+  { key:"hors", label:"Hors dossier", helper:"sans Dossier Invest en cours", steps:[CRM_TIMELINE_SANS_DOSSIER], color:"#94A3B8" },
 ];
 
-const crmTimelineStepOptionValue = (step = {}) => step?.n ? `${step.n} ${step.label}` : "";
-
-const CRM_MISSION_STEP_TO_TIMELINE = {
-  signature: 1,
-  lancement: 3,
-  recherche: 4,
-  presentation_bien: 5,
-  acquisition: 8,
-  financement: 9,
-  urbanisme: 11,
-  enedis: 11,
-  signature_definitive: 13,
-  travaux: 13,
-  apres_travaux: 13,
-};
-
-function crmTimelineStepFromText(value = "") {
-  const clean = normTxt(value);
-  if (!clean) return 0;
-  const directNumber = clean.match(/^\s*(\d{1,2})\b/);
-  if (directNumber) {
-    const n = Number(directNumber[1]);
-    if (n >= 1 && n <= CRM_CLIENT_TIMELINE_STEPS.length) return n;
-  }
-  const found = CRM_CLIENT_TIMELINE_STEPS.find(step => {
-    const label = normTxt(step.label);
-    return clean.includes(label) || (step.hints || []).some(h => clean.includes(normTxt(h)));
-  });
-  return found?.n || 0;
-}
-
-function crmTimelineStepFromFreeText(value = "") {
-  const t = normTxt(value);
-  if (!t) return 0;
-  if (t.includes("signature notaire") || t.includes("acte authentique") || t.includes("signature definitive") || t.includes("signature définitive")) return 13;
-  if (t.includes("conditions suspensives")) return 12;
-  if (t.includes("urbanisme") || t.includes("declaration prealable") || t.includes("déclaration préalable") || t.includes(" dp ")) return 11;
-  if ((t.includes("financement") || t.includes("pret") || t.includes("prêt")) && (t.includes("obten") || t.includes("accord"))) return 10;
-  if (t.includes("dossier bancaire") || t.includes("banque") || t.includes("bancaire")) return 9;
-  if (t.includes("compromis")) return 8;
-  if (t.includes("devis")) return 7;
-  if (t.includes("offre")) return 6;
-  if (t.includes("presentation") || t.includes("présentation") || t.includes("dossier de presentation") || t.includes("dossier de présentation")) return 5;
-  if (t.includes("recherche") || t.includes("visite") || t.includes("analyse")) return 4;
-  if (t.includes("strategie") || t.includes("stratégie") || t.includes("cahier des charges")) return 3;
-  if (t.includes("document")) return 2;
-  if (t.includes("signature") || t.includes("contrat")) return 1;
-  return 0;
-}
-
 function computeCRMClientTimeline(client = {}, missionActions = [], propositions = [], today = new Date().toISOString().slice(0,10)) {
-  const reasons = [];
-  const autoReasons = [];
-  const declaredStepNumber = crmTimelineStepFromText(client.etape);
-
-  // Règle métier V20.3 : l'étape renseignée dans la fiche client est prioritaire.
-  // Si un compromis n'aboutit pas et que l'on rétrograde manuellement le client,
-  // la frise doit suivre cette décision humaine et ne pas le replacer automatiquement
-  // plus loin à cause d'anciennes propositions, tâches mission ou notes.
-  let detectedStepNumber = 0;
-
-  if (client.date_signature || client.statut === "Actif" || client.statut === "Terminé") {
-    detectedStepNumber = Math.max(detectedStepNumber, 1);
-    autoReasons.push("Contrat / client actif détecté");
-  }
-
-  const textStage = crmTimelineStepFromFreeText(`${client.etape || ""} ${client.prochaine_action || ""} ${client.notes_rapides || ""}`);
-  if (textStage > detectedStepNumber) {
-    detectedStepNumber = textStage;
-    autoReasons.push("Indice CRM détecté");
-  }
-
-  const actionStage = (missionActions || []).reduce((max, a) => {
-    const fromKey = CRM_MISSION_STEP_TO_TIMELINE[a.step_key] || 0;
-    const fromText = Math.max(crmTimelineStepFromText(a.step_label), crmTimelineStepFromFreeText(`${a.step_label || ""} ${a.action_title || ""}`));
-    return Math.max(max, fromKey, fromText);
-  }, 0);
-  if (actionStage > detectedStepNumber) {
-    detectedStepNumber = actionStage;
-    autoReasons.push("Parcours mission déjà avancé");
-  }
-
-  if ((propositions || []).length > 0 && detectedStepNumber < 5) {
-    detectedStepNumber = 5;
-    autoReasons.push("Bien / projet déjà proposé");
-  }
-  const propText = (propositions || []).map(p => `${p.statut || ""} ${p.commentaire || ""}`).join(" ");
-  const propStage = crmTimelineStepFromFreeText(propText);
-  if (propStage > detectedStepNumber) {
-    detectedStepNumber = propStage;
-    autoReasons.push("Indice proposition détecté");
-  }
-
-  if (client.statut === "Terminé") {
-    detectedStepNumber = Math.max(detectedStepNumber, 13);
-    autoReasons.push("Dossier terminé");
-  }
-
-  detectedStepNumber = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, detectedStepNumber || 1));
-
-  let n = declaredStepNumber || detectedStepNumber || 1;
-  if (client.statut === "Terminé") n = CRM_CLIENT_TIMELINE_STEPS.length;
-  n = Math.max(1, Math.min(CRM_CLIENT_TIMELINE_STEPS.length, n));
-
-  if (declaredStepNumber) {
-    reasons.push(`Étape CRM manuelle : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || client.etape}`);
-  } else {
-    reasons.push(`Étape déduite : ${CRM_CLIENT_TIMELINE_STEPS[n-1]?.short || "Signature"}`);
-  }
-
-  const step = CRM_CLIENT_TIMELINE_STEPS[n - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
-  const detectedStep = CRM_CLIENT_TIMELINE_STEPS[detectedStepNumber - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
-  const isLate = !!(client.date_prochaine_action && client.date_prochaine_action < today && client.statut !== "Terminé");
-  const dueToday = !!(client.date_prochaine_action && client.date_prochaine_action === today && client.statut !== "Terminé");
+  // `client` est la projection du Dossier Invest (projeterClient) : prochaine
+  // action et échéance sont celles de l'étape principale ACTIVE.
+  const p = client._pilotage || null;
+  const e = p?.principale || null;
+  const n = e ? e.numero : CRM_TIMELINE_SANS_DOSSIER;
+  const step = CRM_CLIENT_TIMELINE_STEPS[n - 1];
+  const prospect = String(client.statut || "").trim().toLowerCase() === "prospect";
+  const isLate = !!(client.date_prochaine_action && client.date_prochaine_action < today);
+  const dueToday = !!(client.date_prochaine_action && client.date_prochaine_action === today);
   const hasAction = !!(client.prochaine_action || client.date_prochaine_action);
-  const waitingActions = (missionActions || []).filter(a => !["fait", "non_concerne"].includes(a?.status));
-  const lateMissionActions = waitingActions.filter(a => a.due_date && a.due_date < today).length;
-  const referenceDate = client.etape_updated_at || client.updated_at || client.date_premier_contact || client.created_at;
-  const daysSinceStageReference = referenceDate ? daysBetween(referenceDate) : null;
-  const noAction = client.statut !== "Terminé" && !hasAction && n < CRM_CLIENT_TIMELINE_STEPS.length;
-  const isStuck = client.statut !== "Terminé" && n < CRM_CLIENT_TIMELINE_STEPS.length && daysSinceStageReference !== null && daysSinceStageReference >= 21 && !isLate && !dueToday;
-
-  // Conservé uniquement comme information discrète : cela ne positionne plus le client
-  // et n'entre plus dans les priorités. Une rétrogradation manuelle reste volontaire.
-  const historicalAhead = !!declaredStepNumber && detectedStepNumber > declaredStepNumber;
-  const inferredAhead = false;
-
+  const waitingActions = p ? [] : (missionActions || []).filter(a => !["fait", "non_concerne"].includes(a?.status));
+  const lateMissionActions = p ? p.tachesEnRetard.length : waitingActions.filter(a => a.due_date && a.due_date < today).length;
+  // Attention requise : dossier sans prochaine action sur ses étapes actives,
+  // client « Actif » sans dossier en cours, prospect sans relance.
+  const noAction = client._pilotageInconnu ? false : p
+    ? (!p.actives.length || !p.actives.some(a => a.prochaineAction))
+    : (prospect ? !hasAction : String(client.statut || "").trim().toLowerCase() === "actif");
+  const joursSansEvolution = p?.joursSansEvolution ?? null;
+  const isStuck = !!p && joursSansEvolution !== null && joursSansEvolution >= 21 && !isLate && !dueToday;
+  const reasons = p
+    ? [`Dossier ${p.reference}`, ...(p.actives.length > 1 ? [`${p.actives.length} étapes actives : ${p.actives.map(a => a.libelle).join(", ")}`] : []),
+       ...(e ? [`Balle : ${e.balle.libelle}`] : ["Aucune étape active"])]
+    : [client._pilotageInconnu ? "Avancement indisponible (Dossiers Invest non chargés)" : "Aucun Dossier Invest en cours"];
   return {
     stepNumber: n,
-    declaredStepNumber,
-    detectedStepNumber,
-    detectedStepLabel: detectedStep.label,
-    detectedStepShort: detectedStep.short,
-    manualStepLocked: !!declaredStepNumber,
-    historicalAhead,
+    declaredStepNumber: 0,
+    detectedStepNumber: n,
+    detectedStepLabel: step.label,
+    detectedStepShort: step.short,
+    manualStepLocked: false,
+    historicalAhead: false,
     stepLabel: step.label,
     stepShort: step.short,
-    progressPct: Math.round((n / CRM_CLIENT_TIMELINE_STEPS.length) * 100),
-    remainingSteps: Math.max(0, CRM_CLIENT_TIMELINE_STEPS.length - n),
-    reasons:[...reasons, ...autoReasons.slice(0,2)],
+    progressPct: e ? Math.round((e.numero / ETAPES_PARCOURS.length) * 100) : 0,
+    remainingSteps: e ? Math.max(0, ETAPES_PARCOURS.length - e.numero) : 0,
+    reasons,
     isLate,
     dueToday,
     hasAction,
     noAction,
     isStuck,
-    inferredAhead,
-    daysSinceStageReference,
-    waitingMissionActions: waitingActions.length,
+    inferredAhead: false,
+    daysSinceStageReference: joursSansEvolution,
+    waitingMissionActions: p ? p.tachesOuvertes : waitingActions.length,
     lateMissionActions,
+    pilotage: p,
   };
 }
 
-function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// CRM V2 par défaut ; l'ancienne interface reste accessible, séparée, pendant
+// la transition (« Ancienne vue CRM »). Aucun ancien composant n'est supprimé.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLE_VUE_CRM = "invest-crm-vue";
+function lireVueCrm() { try { return window.localStorage.getItem(CLE_VUE_CRM) === "ancienne"; } catch { return false; } }
+function CRM(props) {
+  const { profil, T=THEMES_INV.dark, initialFilter, onOpenStructuration } = props;
+  const [ancienne, setAncienne] = useState(lireVueCrm);
+  const choisir = (v) => {
+    setAncienne(v);
+    try { if (v) window.localStorage.setItem(CLE_VUE_CRM, "ancienne"); else window.localStorage.removeItem(CLE_VUE_CRM); } catch { /* préférence non mémorisée */ }
+  };
+  // Une fiche client demandée depuis ailleurs (tableau de bord, notification) s'ouvre dans la V2.
+  useEffect(() => {
+    const cible = readNavTarget(initialFilter);
+    if ((cible.action === "open" || cible.action === "actions") && cible.id) setAncienne(false);
+  }, [initialFilter]);
+  if (ancienne) {
+    return (
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap", padding:"10px 28px", background:`${WA}18`, borderBottom:`1px solid ${WA}40`, fontSize:13, color:T.text }}>
+          <span><b>Ancienne vue CRM</b> — conservée temporairement pendant la transition vers le nouveau CRM.</span>
+          <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => choisir(false)}>Revenir au nouveau CRM</button>
+        </div>
+        <CRMAncien {...props} />
+      </div>
+    );
+  }
+  return (
+    <CrmV2 profil={profil} T={T} initialFilter={initialFilter} onOpenStructuration={onOpenStructuration} onAncienneVue={() => choisir(true)}
+      renderNouveauClient={({ onFerme, onCree }) => <FormulaireClient profil={profil} T={T} onSave={onCree} onClose={onFerme} />} />
+  );
+}
+
+function CRMAncien({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initialFilter }) {
   // Annuaire des collaborateurs. Alimente missionEmailForOwner, qui est appelé
   // depuis des helpers hors composant — d'où le point de passage partagé.
   const annuaireInvest = useAnnuaireInvest();
   useEffect(() => { missionSetAnnuaire(annuaireInvest); }, [annuaireInvest]);
-  const [clients, setClients]     = useState([]);
+  // Tranche 2b : `clientsBruts` = lignes invest_clients ; `clients` = leur
+  // projection sur le Dossier Invest (étape principale, prochaine action,
+  // échéance), utilisée par toute la liste, la frise, le planning et les stats.
+  const [clientsBruts, setClients] = useState([]);
+  const [pilotageDonnees, setPilotageDonnees] = useState({ dossiers:[], etapes:[], utilisateurs:[] });
   const [loading, setLoading]     = useState(true);
   const [ficheId, setFicheId]     = useState(null);
   const [showForm, setShowForm]   = useState(false);
@@ -582,12 +522,22 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
 
   const charger = async () => {
     setLoading(true);
-    const [clientsRes, actionsRes, propsRes] = await Promise.all([
+    const [clientsRes, actionsRes, propsRes, dossiersRes, etapesRes, usersRes] = await Promise.all([
       supabase.from("invest_clients").select("*").order("created_at", { ascending: false }),
-      supabase.from("invest_mission_actions").select("id,client_id,step_key,step_label,action_title,status,due_date,completed_at,updated_at").limit(4000),
+      supabase.from("invest_mission_actions").select("id,client_id,dossier_id,etape,step_key,step_label,action_title,status,due_date,completed_at,updated_at").limit(4000),
       supabase.from("invest_propositions").select("id,client_id,bien_id,statut,commentaire,date_proposition,created_at").limit(4000),
+      supabase.from("invest_dossiers").select("id,client_id,reference,libelle,statut,conseiller_id").in("statut", ["ouvert", "actif", "suspendu"]),
+      supabase.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,echeance,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(5000),
+      supabase.from("utilisateurs").select("id,nom,email"),
     ]);
     setClients(clientsRes.data || []);
+    if (dossiersRes.error || etapesRes.error) {
+      const e = dossiersRes.error || etapesRes.error;
+      setCrmSaveError(`Dossiers Invest illisibles : l'avancement ne peut pas être affiché (${e.message}).`);
+      setPilotageDonnees(null); // inconnu, pas « aucun dossier »
+    } else {
+      setPilotageDonnees({ dossiers:dossiersRes.data || [], etapes:etapesRes.data || [], utilisateurs:usersRes.data || [] });
+    }
     setCrmMissionActions(actionsRes.error ? [] : (actionsRes.data || []));
     setCrmPropositions(propsRes.error ? [] : (propsRes.data || []));
     if (actionsRes.error && actionsRes.error.code !== "42P01") console.warn("Frise CRM / actions mission:", actionsRes.error);
@@ -629,9 +579,14 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
     setFicheId(clientId);
   }, []);
 
+  const today = new Date().toISOString().slice(0,10);
+  const pilotagesParClient = useMemo(() => pilotageDonnees ? indexerPilotage({
+    dossiers:pilotageDonnees.dossiers, etapes:pilotageDonnees.etapes, taches:crmMissionActions,
+    utilisateurs:pilotageDonnees.utilisateurs, aujourdhui:today,
+  }) : null, [pilotageDonnees, crmMissionActions, today]);
+  const clients = useMemo(() => clientsBruts.map(c => projeterClient(c, pilotagesParClient?.get(c.id) || null, { inconnu:!pilotagesParClient })), [clientsBruts, pilotagesParClient]);
   const conseillers = [...new Set(clients.map(c => c.conseiller).filter(Boolean))];
   const sources = [...new Set([...SOURCES_CLIENT, ...clients.map(c => c.source).filter(Boolean)])];
-  const today = new Date().toISOString().slice(0,10);
   const addDays = (n) => {
     const d = new Date();
     d.setDate(d.getDate() + n);
@@ -790,8 +745,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
   };
 
   const timelineDraftForClient = (client = {}) => ({
-    etape: client.etape || "",
-    prochaine_action: client.prochaine_action || "",
+    prochaine_action: (client._etapeAction ? client._etapeAction.prochaineAction : client.prochaine_action) || "",
     date_prochaine_action: String(client.date_prochaine_action || "").slice(0,10),
     ...(timelineDrafts[client.id] || {}),
   });
@@ -843,7 +797,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
       else if (cleanPatch[k] === "") cleanPatch[k] = null;
     });
 
-    const previousClients = clients;
+    const previousClients = clientsBruts;
     setClients(prev => prev.map(c => c.id === client.id ? { ...c, ...cleanPatch, updated_at:nowIso } : c));
 
     const { error } = await crmSafeUpdateClient(client.id, cleanPatch);
@@ -871,18 +825,44 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
     return true;
   };
 
+  // Tranche 2b : prochaine action et échéance = celles de l'étape principale
+  // du Dossier Invest (geste journalisé par la base). Un prospect sans dossier
+  // garde sa relance historique ; un autre client sans dossier n'a rien à
+  // modifier ici (démarrer une mission depuis sa fiche).
+  const majActionPilotage = async (client = {}, { action, date } = {}, noteContent = "") => {
+    const p = client._pilotage;
+    if (p) {
+      // Même étape que celle affichée pour l'action (etapeAAgir), sinon la principale.
+      const e = client._etapeAction || p.principale;
+      if (!e?.id) { alert(`Le dossier ${p.reference} n'a aucune étape active : ouvrez la fiche pour démarrer une étape.`); return false; }
+      const patch = {};
+      if (action !== undefined) { patch.prochaine_action = String(action || "").trim() || null; if (!patch.prochaine_action) patch.prochaine_action_id = null; }
+      if (date !== undefined) patch.echeance = String(date || "").trim() || null;
+      setCrmSaveError("");
+      const { data, error } = await supabase.from("invest_dossier_etapes").update(patch).eq("id", e.id).select("id");
+      if (error || !data?.length) {
+        const msg = error ? crmErrorMessage(error) : "modification refusée (droits insuffisants)";
+        setCrmSaveError(msg); alert(`Impossible de mettre à jour l'étape ${e.libelle} : ${msg}`); return false;
+      }
+      await charger();
+      return true;
+    }
+    if (String(client.statut || "").trim().toLowerCase() !== "prospect") {
+      alert("Ce client n'a pas de Dossier Invest en cours : ouvrez sa fiche et démarrez une mission.");
+      return false;
+    }
+    const patch = {};
+    if (action !== undefined) patch.prochaine_action = String(action || "").trim() || null;
+    if (date !== undefined) patch.date_prochaine_action = String(date || "").trim() || null;
+    return updateClientFromTimeline(client._historique ? { ...client, ...client._historique } : client, patch, noteContent);
+  };
+
   const saveTimelineDraft = async (client = {}) => {
     const draft = timelineDraftForClient(client);
-    const patch = {
-      etape: draft.etape || null,
-      prochaine_action: String(draft.prochaine_action || "").trim() || null,
-      date_prochaine_action: draft.date_prochaine_action || null,
-    };
-    const ok = await updateClientFromTimeline(
-      client,
-      patch,
-      `Mise à jour depuis la frise CRM : étape "${patch.etape || "—"}" · action "${patch.prochaine_action || "—"}"${patch.date_prochaine_action ? ` · échéance ${missionFormatDateFr(patch.date_prochaine_action)}` : ""}.`,
-    );
+    const action = String(draft.prochaine_action || "").trim() || null;
+    const date = draft.date_prochaine_action || null;
+    const ok = await majActionPilotage(client, { action, date },
+      `Mise à jour depuis la frise CRM : action "${action || "—"}"${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`);
     if (!ok) return;
     setTimelineDrafts(prev => {
       const next = { ...prev };
@@ -891,31 +871,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
     });
   };
 
-  const advanceClientTimelineStep = async (client = {}) => {
-    const info = getClientTimelineInfo(client);
-    const nextStep = CRM_CLIENT_TIMELINE_STEPS[Math.min(CRM_CLIENT_TIMELINE_STEPS.length - 1, info.stepNumber)] || CRM_CLIENT_TIMELINE_STEPS[CRM_CLIENT_TIMELINE_STEPS.length - 1];
-    const currentStep = CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1] || CRM_CLIENT_TIMELINE_STEPS[0];
-    const ok = await updateClientFromTimeline(
-      client,
-      { etape: crmTimelineStepOptionValue(nextStep) },
-      `Étape validée depuis la frise CRM : ${info.stepNumber} ${currentStep.label}. Passage à l'étape ${nextStep.n} ${nextStep.label}.`,
-    );
-    if (!ok) return;
-    setTimelineSelectedStep(String(nextStep.n));
-  };
-
-  const applyInferredTimelineStep = async (client = {}) => {
-    const info = getClientTimelineInfo(client);
-    const step = CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1];
-    if (!step) return;
-    const ok = await updateClientFromTimeline(
-      client,
-      { etape: crmTimelineStepOptionValue(step) },
-      `Étape CRM alignée avec l'avancement réel détecté : ${step.n} ${step.label}.`,
-    );
-    if (!ok) return;
-    setTimelineSelectedStep(String(step.n));
-  };
+  // Tranche 2a : « Valider étape » et l'alignement automatique de l'ancienne
+  // étape sont retirés — l'avancement se pilote dans le Dossier Invest.
 
   const timelineRows = CRM_CLIENT_TIMELINE_STEPS.map(step => {
     const positioned = timelineBaseClients
@@ -1021,37 +978,30 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
       const action = String(client.prochaine_action || "").trim();
       if (!client?.id || !action) return;
       const due = String(client.date_prochaine_action || "").slice(0,10);
-      await updateClientFromTimeline(
-        client,
-        { prochaine_action:null, date_prochaine_action:null },
-        `Action CRM validée depuis le pilotage immédiat : ${action}${due ? ` · échéance initiale ${missionFormatDateFr(due)}` : ""}.`,
-      );
+      // Dossier : la prochaine action de l'étape est effacée (l'échéance de
+      // l'étape reste) ; prospect : relance historique effacée comme avant.
+      await majActionPilotage(client, client._pilotage ? { action:null } : { action:null, date:null },
+        `Action CRM validée depuis le pilotage immédiat : ${action}${due ? ` · échéance initiale ${missionFormatDateFr(due)}` : ""}.`);
     };
 
     const replanClientActionFromTimeline = async (client = {}, days = 2) => {
       if (!client?.id) return;
       const nextDate = missionAddDaysIso(days);
-      await updateClientFromTimeline(
-        client,
-        { date_prochaine_action:nextDate },
-        `Action CRM replanifiée depuis le pilotage immédiat au ${missionFormatDateFr(nextDate)}${client.prochaine_action ? ` : ${client.prochaine_action}` : ""}.`,
-      );
+      await majActionPilotage(client, { date:nextDate },
+        `Action CRM replanifiée depuis le pilotage immédiat au ${missionFormatDateFr(nextDate)}${client.prochaine_action ? ` : ${client.prochaine_action}` : ""}.`);
     };
 
     const addQuickActionFromTimeline = async (client = {}) => {
       if (!client?.id) return;
       const fullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "ce client";
-      const action = window.prompt(`Prochaine action CRM pour ${fullName} :`, client.prochaine_action || "Relancer le client");
+      const action = window.prompt(`Prochaine action${client._etapeAction ? ` (étape ${client._etapeAction.libelle})` : " CRM"} pour ${fullName} :`, (client._etapeAction ? client._etapeAction.prochaineAction : client.prochaine_action) || "Relancer le client");
       if (action === null) return;
       const cleanAction = String(action || "").trim();
       if (!cleanAction) return;
       const date = window.prompt("Date d'échéance au format AAAA-MM-JJ :", String(client.date_prochaine_action || missionAddDaysIso(2)).slice(0,10));
       if (date === null) return;
-      await updateClientFromTimeline(
-        client,
-        { prochaine_action:cleanAction, date_prochaine_action:String(date || "").trim() || null },
-        `Action CRM ajoutée depuis le pilotage immédiat : ${cleanAction}${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`,
-      );
+      await majActionPilotage(client, { action:cleanAction, date:String(date || "").trim() || null },
+        `Action CRM ajoutée depuis le pilotage immédiat : ${cleanAction}${date ? ` · échéance ${missionFormatDateFr(date)}` : ""}.`);
     };
 
     const clientLine = ({ client, info }, compact = false) => {
@@ -1060,8 +1010,6 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
       const status = attentionLabel(info);
       const draft = timelineDraftForClient(client);
       const actionText = client.prochaine_action || (info.waitingMissionActions ? `${info.waitingMissionActions} tâche(s) mission en attente` : "Aucune action CRM");
-      const currentStepValue = crmTimelineStepOptionValue(CRM_CLIENT_TIMELINE_STEPS[info.stepNumber - 1]);
-      const currentDraftKnown = !draft.etape || CRM_CLIENT_TIMELINE_STEPS.some(step => crmTimelineStepOptionValue(step) === draft.etape);
       const canValidate = !!String(client.prochaine_action || "").trim();
 
       return (
@@ -1090,7 +1038,7 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
               <span style={{fontSize:10,fontWeight:950,color:status.color,background:`${status.color}12`,border:`1px solid ${status.color}28`,borderRadius:999,padding:"3px 7px",whiteSpace:"nowrap"}}>{status.label}</span>
             </div>
             <div style={{fontSize:10.5,color:T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"} · étape {info.stepNumber}/13 · {status.tone}
+              {client.conseiller || "Non affecté"} · {client.budget ? fmtBudget(client.budget) : "budget —"} · {info.pilotage ? (info.pilotage.principale ? `étape ${info.stepNumber}/${ETAPES_PARCOURS.length}` : "aucune étape active") : "sans Dossier Invest"} · {status.tone}
             </div>
             <div style={{fontSize:10.5,color:info.isLate || info.lateMissionActions > 0 || info.noAction ? DA : T.textMuted,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:info.isLate || info.lateMissionActions > 0 || info.noAction ? 850 : 500}}>
               {info.isLate || info.lateMissionActions > 0 || info.noAction ? "⚠ " : info.dueToday ? "● " : ""}{actionText}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}
@@ -1110,15 +1058,9 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
               </div>
             ) : (
               <div style={{marginTop:9,display:"grid",gridTemplateColumns:"minmax(180px,1fr) minmax(180px,1.15fr) 135px auto",gap:7,alignItems:"center"}}>
-                <select
-                  className="inv-sel"
-                  value={draft.etape || currentStepValue}
-                  onChange={e => setTimelineDraft(client.id, { etape:e.target.value })}
-                  style={{fontSize:11,padding:"6px 7px",width:"100%"}}
-                >
-                  {!currentDraftKnown && <option value={draft.etape}>{draft.etape}</option>}
-                  {CRM_CLIENT_TIMELINE_STEPS.map(step => <option key={step.n} value={crmTimelineStepOptionValue(step)}>{step.n} — {step.short}</option>)}
-                </select>
+                <div title="Dossier Invest : étape principale · balle · prochaine action · échéance" style={{fontSize:11,padding:"6px 7px",color:T.textMuted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {resumePilotage(info.pilotage)}
+                </div>
                 <input
                   className="inv-inp"
                   value={draft.prochaine_action || ""}
@@ -1134,9 +1076,8 @@ function CRM({ profil, T=THEMES_INV.dark, onOpenStructuration, onOpenBien, initi
                   style={{fontSize:11,padding:"6px 7px",width:"100%",textAlign:"left"}}
                 />
                 <div style={{display:"flex",gap:5,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                  <button type="button" className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => saveTimelineDraft(client)} title="Enregistrer l'étape et la prochaine action" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Save} size={12}/> Maj</button>
+                  <button type="button" className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => saveTimelineDraft(client)} title="Enregistrer la prochaine action" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Save} size={12}/> Maj</button>
                   {canValidate && <button className="inv-btn inv-btn-sm" onClick={() => validateClientActionFromTimeline(client)} title="Valider l'action CRM et l'ajouter à l'historique" style={{fontSize:11,padding:"6px 8px",background:"#dcfce7",border:"1px solid #86efac",color:"#166534"}}><Icon as={Check} size={12}/> Valider action</button>}
-                  {info.stepNumber < CRM_CLIENT_TIMELINE_STEPS.length && <button type="button" className="inv-btn inv-btn-out inv-btn-sm" onClick={() => advanceClientTimelineStep(client)} title="Valider l'étape actuelle et passer à la suivante" style={{fontSize:11,padding:"6px 8px"}}><Icon as={Check} size={12}/> Valider étape</button>}
                 </div>
               </div>
             )}
@@ -1693,7 +1634,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
     email: client?.email||"", telephone: client?.telephone||"",
     conseiller: client?.conseiller || profil?.nom||"",
     source: client?.source||"Autre", statut: client?.statut||"Prospect",
-    budget: client?.budget||0, etape: client?.etape||"",
+    budget: client?.budget||0,
     date_premier_contact: client?.date_premier_contact||"",
     prochaine_action: client?.prochaine_action||"",
     date_prochaine_action: client?.date_prochaine_action||"",
@@ -1720,7 +1661,7 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
       source:                form.source || "Autre",
       statut:                form.statut || "Prospect",
       budget:                parseFloat(form.budget) || 0,
-      etape:                 form.etape || null,
+      // Tranche 2a : invest_clients.etape n'est plus écrite (historique en lecture seule).
       date_premier_contact:  form.date_premier_contact || null,
       prochaine_action:      form.prochaine_action.trim() || null,
       date_prochaine_action: form.date_prochaine_action || null,
@@ -1763,12 +1704,9 @@ function FormulaireClient({ client, profil, onSave, onClose, T=THEMES_INV.dark }
             </select>
           </div>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Budget (€)</label><input className="inv-inp" type="number" value={form.budget} style={{ width:"100%" }} onChange={e=>setForm({...form,budget:e.target.value})}/></div>
-          <div style={{ marginBottom:14, gridColumn:"1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Étape en cours</label>
-            <select className="inv-sel" value={form.etape} style={{ width:"100%" }} onChange={e=>setForm({...form,etape:e.target.value})}>
-              <option value="">Sélectionner une étape…</option>
-              {ETAPES_CLIENT.map(e=><option key={e} value={e}>{e}</option>)}
-            </select>
-          </div>
+          {isEdit && <div style={{ marginBottom:14, gridColumn:"1 / 3" }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Ancienne étape (historique, lecture seule)</label>
+            <div style={{ fontSize:13, color:client?.etape ? T.text : T.textMuted }}>{client?.etape || "non renseignée"} — l'avancement se pilote dans la carte Dossier Invest de la fiche.</div>
+          </div>}
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Date avant contact</label><input className="inv-inp" type="date" value={form.date_premier_contact} style={{ width:"100%" }} onChange={e=>setForm({...form,date_premier_contact:e.target.value})}/></div>
           <div style={{ marginBottom:14 }}><label style={{ fontSize:10, fontWeight:700, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, display:"block", marginBottom:5 }}>Date prochaine action</label><input className="inv-inp" type="date" value={form.date_prochaine_action} style={{ width:"100%" }} onChange={e=>setForm({...form,date_prochaine_action:e.target.value})}/></div>
         </div>
@@ -2234,9 +2172,32 @@ function missionCurrentStepLabelFromActions(actions = [], client = {}) {
   const key = missionCurrentStepKeyFromActions(actions, client);
   return MISSION_STEPS_INVEST.find(s => s.key === key)?.label || client?.etape || "—";
 }
-function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange, initialStepKey="", initialActionId="" }) {
+// Tranche 2a : les tâches se rangent par étape canonique du Dossier Invest
+// (colonne etape). Les anciens modèles de tâches (MISSION_STEPS_INVEST) sont
+// rattachés à l'étape canonique qui les accueille ; une tâche sans étape
+// connue est « à classer ».
+const MISSION_MODELES_PAR_ETAPE = Object.fromEntries(ETAPES_PARCOURS.map(e =>
+  [e.cle, MISSION_STEPS_INVEST.filter(s => etapePourNouvelleTache(s.key) === e.cle)]));
+const missionEtapeDeTache = (a) => (a?.etape && CLES_ETAPES.includes(a.etape) ? a.etape : A_CLASSER);
+function missionOngletEtape(cle) {
+  if (cle === A_CLASSER) {
+    return { key:A_CLASSER, label:"À classer", actions:[], modeles:[],
+      objectif:"Tâches anciennes dont l'étape n'a pas pu être déterminée avec certitude (par exemple Urbanisme). Elles restent visibles ici." };
+  }
+  const ref = ETAPES_PARCOURS.find(e => e.cle === cle) || ETAPES_PARCOURS[0];
+  const modeles = MISSION_MODELES_PAR_ETAPE[ref.cle] || [];
+  return { key:ref.cle, label:ref.libelle, modeles, actions:modeles.flatMap(m => m.actions),
+    objectif:modeles.map(m => m.objectif).filter(Boolean).join(" ") || "Aucun modèle de tâches pour cette étape : ajoutez les tâches au cas par cas." };
+}
+function missionEtapeInitiale(etapeCourante, initialStepKey, client) {
+  if (initialStepKey && (CLES_ETAPES.includes(initialStepKey) || initialStepKey === A_CLASSER)) return initialStepKey;
+  if (initialStepKey) return etapePourNouvelleTache(initialStepKey) || A_CLASSER;
+  if (etapeCourante && CLES_ETAPES.includes(etapeCourante)) return etapeCourante;
+  return etapePourNouvelleTache(missionDetectStepKey(client)) || "signature";
+}
+function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClientUpdated, onMissionStageChange, initialStepKey="", initialActionId="", dossierId=null, etapeCourante=null, onDossierModifie }) {
   const [actions, setActions] = useState([]);
-  const [selectedStep, setSelectedStep] = useState(initialStepKey || missionDetectStepKey(client));
+  const [selectedStep, setSelectedStep] = useState(() => missionEtapeInitiale(etapeCourante, initialStepKey, client));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2265,10 +2226,16 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     }
     setLoading(false);
   }, [client?.id]);
-  useEffect(() => { setSelectedStep(initialStepKey || missionDetectStepKey(client)); }, [client?.id, client?.etape, client?.statut, initialStepKey]);
+  useEffect(() => { setSelectedStep(missionEtapeInitiale(etapeCourante, initialStepKey, client)); }, [client?.id, etapeCourante, initialStepKey]);
+  // Lien direct vers une tâche : ouvrir l'onglet de SON étape.
+  useEffect(() => {
+    const cible = initialActionId && actions.find(a => a.id === initialActionId);
+    if (cible) setSelectedStep(missionEtapeDeTache(cible));
+  }, [initialActionId, actions]);
   useEffect(() => { charger(); }, [charger]);
 
-  const selected = MISSION_STEPS_INVEST.find(s => s.key === selectedStep) || MISSION_STEPS_INVEST[0];
+  const selected = missionOngletEtape(selectedStep);
+  const ongletsEtapes = [...CLES_ETAPES, ...(actions.some(a => missionEtapeDeTache(a) === A_CLASSER) ? [A_CLASSER] : [])];
   const stats = useMemo(() => {
     const total = actions.length;
     const done = actions.filter(missionActionDone).length;
@@ -2294,10 +2261,10 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
   }, [initialActionId, loading, actions.length]);
 
   const stepProgress = (key) => {
-    const list = actions.filter(a => a.step_key === key);
+    const list = actions.filter(a => missionEtapeDeTache(a) === key);
     return { total:list.length, done:list.filter(missionActionDone).length, pct:list.length ? Math.round(list.filter(missionActionDone).length/list.length*100) : 0 };
   };
-  const actionsStep = actions.filter(a => a.step_key === selected.key);
+  const actionsStep = actions.filter(a => missionEtapeDeTache(a) === selected.key);
   const responsablesStep = [...new Set(actionsStep.map(a => a.responsable).filter(Boolean))];
   const actionsStepTodo = actionsStep.filter(a => !missionActionDone(a));
   const actionsStepLate = actionsStepTodo.filter(a => a.due_date && a.due_date < today);
@@ -2322,15 +2289,20 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
       return String(a.due_date || "9999-99-99").localeCompare(String(b.due_date || "9999-99-99"));
     });
 
-  const genererActions = async (stepKey = selected.key) => {
-    const step = MISSION_STEPS_INVEST.find(s => s.key === stepKey);
-    if (!step || !client?.id) return;
+  // Toute nouvelle tâche porte explicitement son dossier et son étape.
+  const MSG_SANS_DOSSIER = "Démarrez d'abord une mission (carte Dossier Invest) : une nouvelle tâche appartient à un dossier en cours.";
+  const genererActions = async (cle = selected.key) => {
+    const onglet = missionOngletEtape(cle);
+    if (!client?.id || !onglet.modeles.length) return;
+    if (!dossierId) { setError(MSG_SANS_DOSSIER); return; }
     setSaving(true); setError("");
-    const existing = new Set(actions.filter(a => a.step_key === step.key).map(a => a.action_title));
-    const payload = step.actions
-      .filter(a => !existing.has(a.title))
+    const existing = new Set(actions.map(a => `${a.step_key}|||${a.action_title}`));
+    const payload = onglet.modeles.flatMap(step => step.actions
+      .filter(a => !existing.has(`${step.key}|||${a.title}`))
       .map((a, idx) => ({
         client_id: client.id,
+        dossier_id: dossierId,
+        etape: onglet.key,
         step_key: step.key,
         step_label: step.label,
         step_index: missionStepIndex(step.key) + 1,
@@ -2346,7 +2318,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         drive_folder: `clients/${client.id}`,
         created_by: profil?.email || profil?.nom || null,
         metadata: { objectif: step.objectif || "" },
-      }));
+      })));
     if (!payload.length) { setSaving(false); return; }
     const { error } = await supabase.from("invest_mission_actions").insert(payload);
     setSaving(false);
@@ -2354,6 +2326,7 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
     charger();
   };
   const genererTout = async () => {
+    if (!dossierId) { setError(MSG_SANS_DOSSIER); return; }
     setSaving(true); setError("");
     const existingKeys = new Set(actions.map(a => `${a.step_key}|||${a.action_title}`));
     const payload = [];
@@ -2362,6 +2335,8 @@ function MissionParcoursClientCard({ client, T=THEMES_INV.dark, profil, onClient
         const k = `${step.key}|||${a.title}`;
         if (!existingKeys.has(k)) payload.push({
           client_id: client.id,
+          dossier_id: dossierId,
+          etape: etapePourNouvelleTache(step.key),
           step_key: step.key,
           step_label: step.label,
           step_index: missionStepIndex(step.key) + 1,
@@ -2890,11 +2865,17 @@ Laisse vide pour créer un événement en journée entière.`,
     if (donePatch.calendar_html_link) window.open(donePatch.calendar_html_link, "_blank");
   };
 
+  // Tranche 2b : la tâche ouverte la plus proche de l'onglet devient la
+  // prochaine action de l'ÉTAPE correspondante du Dossier Invest (lien
+  // prochaine_action_id). L'ancienne prochaine action du client n'est plus écrite.
   const syncNextAction = async () => {
-    const next = actions.filter(a => !missionActionDone(a)).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
-    if (!next) return;
-    const { error } = await supabase.from("invest_clients").update({ prochaine_action: next.action_title, date_prochaine_action: next.due_date || null }).eq("id", client.id);
-    if (error) setError(error.message); else onClientUpdated?.();
+    const next = actionsStep.filter(a => !missionActionDone(a) && a.dossier_id === dossierId).sort((a,b)=>String(a.due_date||"9999").localeCompare(String(b.due_date||"9999")))[0];
+    if (!next || !dossierId || selected.key === A_CLASSER) return;
+    const { data, error } = await supabase.from("invest_dossier_etapes")
+      .update({ prochaine_action: next.action_title, prochaine_action_id: next.id })
+      .eq("dossier_id", dossierId).eq("etape", selected.key).is("operation_id", null).select("id");
+    if (error || !data?.length) setError(error?.message || "Étape du dossier introuvable ou non modifiable.");
+    else onDossierModifie?.();
   };
 
   return (
@@ -2908,8 +2889,8 @@ Laisse vide pour créer un événement en journée entière.`,
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Briefcase} size={13} strokeWidth={2.2}/>Parcours Mission & automatisations <span style={{fontSize:10,fontWeight:900,letterSpacing:.6,background:"rgba(37,99,235,.12)",color:"#2563eb",border:"1px solid rgba(37,99,235,.25)",borderRadius:99,padding:"2px 6px"}}>V12.15 validation action CRM + historique prospect</span></span>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving}>＋ Générer étape</button>
-          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving}>Tout générer</button>
+          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={() => genererActions(selected.key)} disabled={saving || !dossierId || !selected.modeles.length} title={!dossierId ? MSG_SANS_DOSSIER : !selected.modeles.length ? "Aucun modèle de tâches pour cette étape" : ""}>＋ Générer étape</button>
+          <button className="inv-btn inv-btn-sm" style={{background:"rgba(255,255,255,.65)",color:"black",border:`1px solid ${T.border}`}} onClick={genererTout} disabled={saving || !dossierId} title={!dossierId ? MSG_SANS_DOSSIER : ""}>Tout générer</button>
         </div>
       </div>
       <div className="inv-card-bd">
@@ -2929,11 +2910,11 @@ Laisse vide pour créer un événement en journée entière.`,
             {stats.next && <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>{stats.next.responsable || "—"} · échéance {stats.next.due_date ? new Date(stats.next.due_date).toLocaleDateString("fr-FR") : "—"}</div>}
           </div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexWrap:"wrap",padding:"9px 10px",borderRadius:10,background:"#f8fafc",border:"1px solid #e5e7eb"}}>
-            <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
+            <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!dossierId || selected.key === A_CLASSER || !actionsStep.some(a => !missionActionDone(a) && a.dossier_id === dossierId)} title="Fait de la tâche ouverte la plus proche de cet onglet la prochaine action de l'étape du Dossier Invest">Prochaine action de l'étape</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:6,paddingBottom:8,marginBottom:8,maxWidth:"100%"}}>
-          {MISSION_STEPS_INVEST.map((s, idx) => {
+          {ongletsEtapes.map(missionOngletEtape).map((s, idx) => {
             const p = stepProgress(s.key);
             const active = selected.key === s.key;
             const notGenerated = p.total === 0;
@@ -2955,9 +2936,9 @@ Laisse vide pour créer un événement en journée entière.`,
                 boxShadow:"none",
               }}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
-                  <div style={{fontSize:10,fontWeight:950,color:stepNumberColor}}>#{idx+1}</div>
+                  <div style={{fontSize:10,fontWeight:950,color:stepNumberColor}}>{s.key === A_CLASSER ? "?" : `#${idx+1}`}</div>
                   <div style={{fontSize:9.5,fontWeight:950,color:badgeColor,border:`1px solid ${badgeColor}33`,background:"#fff",borderRadius:999,padding:"1px 6px",whiteSpace:"nowrap"}}>
-                    {isComplete ? "OK" : notGenerated ? "à générer" : `${remaining} tâche${remaining > 1 ? "s" : ""}`}
+                    {isComplete ? "OK" : notGenerated ? (s.modeles.length ? "à générer" : "aucune") : `${remaining} tâche${remaining > 1 ? "s" : ""}`}
                   </div>
                 </div>
                 <div style={{fontSize:11,fontWeight:950,color:labelColor,whiteSpace:"normal",overflow:"visible",textOverflow:"clip",lineHeight:1.2,minHeight:26,marginTop:3}}>{s.label}</div>
@@ -2977,7 +2958,7 @@ Laisse vide pour créer un événement en journée entière.`,
                 <div style={{fontSize:11,color:T.textMuted,lineHeight:1.55,marginTop:4}}>{selected.objectif}</div>
               </div>
               <span style={{fontSize:11,fontWeight:950,color:actionsStepTodo.length ? "#dc2626" : "#16a34a",background:actionsStepTodo.length ? "#fff1f2" : "#dcfce7",border:`1px solid ${actionsStepTodo.length ? "#fecdd3" : "#86efac"}`,borderRadius:999,padding:"4px 9px",whiteSpace:"nowrap"}}>
-                {actionsStepTodo.length ? `${actionsStepTodo.length} à faire` : actionsStep.length ? "Étape OK" : "À générer"}
+                {actionsStepTodo.length ? `${actionsStepTodo.length} à faire` : actionsStep.length ? "Tâches faites" : selected.modeles?.length ? "À générer" : "Aucune tâche"}
               </span>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginTop:10}}>
@@ -3002,7 +2983,7 @@ Laisse vide pour créer un événement en journée entière.`,
                 <div style={{fontSize:12,fontWeight:950,color:T.text}}>Lecture rapide des actions</div>
                 <div style={{fontSize:10.5,color:T.textMuted,marginTop:2}}>Filtrer l'étape pour voir uniquement ce qui reste à traiter.</div>
               </div>
-              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!stats.next}>Synchroniser prochaine action</button>
+              <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={syncNextAction} disabled={!dossierId || selected.key === A_CLASSER || !actionsStep.some(a => !missionActionDone(a) && a.dossier_id === dossierId)} title="Fait de la tâche ouverte la plus proche de cet onglet la prochaine action de l'étape du Dossier Invest">Prochaine action de l'étape</button>
             </div>
             <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
               {[
@@ -3153,6 +3134,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
   const [newProp, setNewProp] = useState(() => loadDraft("invest-client-prop-" + id) || { bien_id:"", statut:"proposé", commentaire:"", lien_dossier:"" });
   const [savingProp, setSavingProp] = useState(false);
   const [missionStageInfo, setMissionStageInfo] = useState({ key:"", label:"" });
+  // Tranche 2a : dossier affiché par la carte Dossier Invest (dossier en cours, étape courante).
+  const [dossierInfo, setDossierInfo] = useState(null);
+  const [versionDossier, setVersionDossier] = useState(0);
 
   // Brouillons localStorage par client : note, tâche collaborateur et proposition
   // ne partent en base qu'au clic — un reload perdait la saisie. La fiche n'est
@@ -3191,7 +3175,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
     });
 
   };
-  useEffect(() => { charger(); setMissionStageInfo({ key:"", label:"" }); }, [id]);
+  useEffect(() => { charger(); setMissionStageInfo({ key:"", label:"" }); setDossierInfo(null); }, [id]);
 
   const updateClientPatch = async (patch) => {
     setClient(prev => prev ? { ...prev, ...patch } : prev);
@@ -3239,10 +3223,14 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
     if (!title) { alert("Indique l'objet de la tâche collaborateur."); return; }
     if (!email || !missionLooksLikeEmail(email)) { alert("Indique un email collaborateur valide."); return; }
 
+    // Tranche 2a : la tâche porte explicitement le dossier en cours et son étape.
+    let champsEtape;
+    try {
+      champsEtape = champsNouvelleTache(dossierInfo?.dossierEnCoursId, collaboratorTask.etape || dossierInfo?.etapeCourante);
+    } catch (err) { alert(err.message); return; }
     setAssigningCollaboratorTask(true);
     const auteur = profil?.nom || profil?.email || "Profero";
-    const assignedStepKey = missionStageInfo?.key || missionDetectStepKey(client);
-    const assignedStep = MISSION_STEPS_INVEST.find(s => s.key === assignedStepKey) || MISSION_STEPS_INVEST[0];
+    const assignedStep = { key: champsEtape.step_key, label: champsEtape.step_label };
     const nowIso = new Date().toISOString();
 
     const buildFallbackClientUrl = (actionId = "") => {
@@ -3265,9 +3253,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
         .from("invest_mission_actions")
         .insert({
           client_id: id,
-          step_key: assignedStep.key,
-          step_label: assignedStep.label,
-          step_index: missionStepIndex(assignedStep.key) + 1,
+          ...champsEtape,
           sort_order: 999,
           action_title: title,
           responsable: owner || null,
@@ -3440,7 +3426,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
 
     if (owner) missionRememberOwnerEmail(owner, email);
     setAssigningCollaboratorTask(false);
-    setCollaboratorTask({ title:"", owner:"", email:"", due_date:"" });
+    setCollaboratorTask({ title:"", owner:"", email:"", due_date:"", etape:"" });
     setNoteFilter("tous");
     charger();
   };
@@ -3533,8 +3519,9 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
   const clientFullName = `${client.prenom || ""} ${client.nom || ""}`.trim() || "Client";
   const notesAffichees = noteFilter === "tous" ? notes : notes.filter(n => n.type === noteFilter);
   const derniereNote = notes[0] || null;
-  const prochaineActionLate = client.date_prochaine_action && client.date_prochaine_action < ficheToday;
-  const prochaineActionToday = client.date_prochaine_action && client.date_prochaine_action === ficheToday;
+  // Tranche 2b : l'ancienne date de prochaine action n'alerte plus quand un Dossier Invest est en cours.
+  const prochaineActionLate = !dossierInfo?.dossierEnCoursId && client.date_prochaine_action && client.date_prochaine_action < ficheToday;
+  const prochaineActionToday = !dossierInfo?.dossierEnCoursId && client.date_prochaine_action && client.date_prochaine_action === ficheToday;
   const clientContact = [client.email, client.telephone].filter(Boolean).join(" · ") || "Coordonnées à compléter";
   const clientSourceOptions = Array.from(new Set([...SOURCES_CLIENT, client.source].filter(Boolean)));
   const clientConseillerOptions = Array.from(new Set([profil?.nom, client.conseiller, ...missionResponsables()].filter(Boolean)));
@@ -3556,20 +3543,30 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
         )}
         <button className="inv-btn inv-btn-danger inv-btn-sm" onClick={async () => {
           if (!window.confirm(`Supprimer ${client.prenom} ${client.nom} ? Cette action est irréversible.`)) return;
-          await supabase.from("invest_notes").delete().eq("client_id", id);
-          await supabase.from("invest_propositions").delete().eq("client_id", id);
-          await supabase.from("invest_clients").delete().eq("id", id);
+          // Une seule suppression : notes, propositions et tâches suivent en
+          // cascade (clés étrangères). Un client qui possède un Dossier Invest
+          // est refusé par la base, et rien n'est supprimé.
+          const { data: supprimes, error } = await supabase.from("invest_clients").delete().eq("id", id).select("id");
+          const refus = messageSuppressionClient(error, supprimes?.length ?? 0);
+          if (refus) { window.alert(refus); return; }
           onRetour();
         }}><Icon as={Trash2} size={12} strokeWidth={2.2}/> Supprimer</button>
       </div>
 
       <div className="inv-page-safe" style={{ display:"flex", flexDirection:"column", gap:16, maxWidth:"100%", overflowX:"hidden" }}>
+        {/* Fiche Dossier Invest V1 (Chantier 1.2) : espace de travail principal de la mission.
+            Elle embarque le pilotage 2a, la Situation patrimoniale 2c et Projet & situation 2d. */}
+        <FicheDossier client={client} T={T} profil={profil} onDossierChange={setDossierInfo} version={versionDossier} />
+
+        {/* Sections historiques de la fiche CRM, conservées en attendant leur arbitrage. */}
+        <div style={{ fontSize:11, fontWeight:900, letterSpacing:1, textTransform:"uppercase", color:T.textMuted, marginTop:8 }}>Fiche client CRM</div>
+
         {/* Synthèse client */}
         <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12,maxWidth:"100%"}}>
           <div className="inv-card" style={{overflow:"hidden"}}>
             <div className="inv-card-hd blue" style={{justifyContent:"space-between"}}>
               <span style={{display:"inline-flex",alignItems:"center",gap:6}}><Icon as={Users} size={13} strokeWidth={2.2}/>Synthèse client</span>
-              <span style={{fontSize:10,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accent}33`,borderRadius:999,padding:"2px 7px"}}>{missionStageInfo.label || missionCurrentStepLabelFromActions([], client)}</span>
+              <span style={{fontSize:10,fontWeight:900,color:T.accent,background:T.accentBg,border:`1px solid ${T.accent}33`,borderRadius:999,padding:"2px 7px"}}>{dossierInfo?.etapeCouranteLibelle ? `${dossierInfo.reference} · ${dossierInfo.etapeCouranteLibelle}` : dossierInfo?.reference || "Aucun Dossier Invest"}</span>
             </div>
             <div className="inv-card-bd">
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))",gap:10,maxWidth:"100%"}}>
@@ -3660,16 +3657,8 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                   </select>
                 </InlineClientField>
 
-                <InlineClientField T={T} label="Étape en cours" helper="Cette étape est reprise dans la liste, les filtres et le suivi Kanban.">
-                  <select
-                    className="inv-sel"
-                    value={client.etape || ""}
-                    onChange={e => updateClientPatch({ etape:e.target.value || null })}
-                    style={inlineSelectStyle}
-                  >
-                    <option value="">Sélectionner une étape…</option>
-                    {ETAPES_CLIENT.map(e => <option key={e} value={e}>{e}</option>)}
-                  </select>
+                <InlineClientField T={T} label="Ancienne étape (historique)" helper="Lecture seule : l'avancement se pilote désormais dans la carte Dossier Invest.">
+                  <div style={{fontSize:12.5,padding:"7px 8px",color:client.etape ? T.text : T.textMuted}}>{client.etape || "non renseignée"}</div>
                 </InlineClientField>
 
                 <InlineClientField T={T} label="Date signature contrat">
@@ -3709,7 +3698,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
         </div>
 
         {/* Parcours Mission en pleine largeur */}
-        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} />
+        <MissionParcoursClientCard client={client} T={T} profil={profil} onClientUpdated={charger} onMissionStageChange={setMissionStageInfo} initialStepKey={initialMissionStep} initialActionId={initialMissionActionId} dossierId={dossierInfo?.dossierEnCoursId || null} etapeCourante={dossierInfo?.etapeCourante || null} onDossierModifie={() => setVersionDossier(v => v + 1)} />
 
         {/* Suivi des actions CRM sous le parcours mission */}
           <div id="suivi-actions" className="inv-card" style={{overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 18px 42px rgba(15,23,42,.06)",background:"linear-gradient(135deg,#ffffff,#f8fafc)"}}>
@@ -3728,6 +3717,19 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
 
             <div className="inv-card-bd" style={{paddingTop:12}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(280px,1fr))",gap:12,overflowX:"auto",paddingBottom:2}}>
+                {/* Tranche 2b : client avec Dossier Invest en cours → la prochaine
+                    action se pilote dans l'étape du dossier ; l'ancienne reste
+                    affichée comme historique. Sans dossier (prospect), inchangé. */}
+                {dossierInfo?.dossierEnCoursId ? (
+                <div style={{border:"1px solid #fed7aa",borderRadius:16,padding:12,background:"linear-gradient(135deg,#fff7ed,#ffffff)",minWidth:220}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+                    <Icon as={Bell} size={13} color="#92400e" strokeWidth={2.3}/>
+                    <div style={{fontSize:13,fontWeight:950,color:T.text}}>Prochaine action</div>
+                  </div>
+                  <div style={{fontSize:12,color:T.text,lineHeight:1.45}}>Pilotée dans le Dossier Invest <b>{dossierInfo.reference}</b>{dossierInfo.etapeCouranteLibelle ? <> (étape <b>{dossierInfo.etapeCouranteLibelle}</b>)</> : null} : ouvrez l'étape dans la carte ci-dessus pour la modifier.</div>
+                  <div style={{fontSize:11,color:T.textMuted,marginTop:8}}>Ancienne prochaine action (historique, lecture seule) : {client.prochaine_action || "aucune"}{client.date_prochaine_action ? ` · ${fmtDate(client.date_prochaine_action)}` : ""}</div>
+                </div>
+                ) : (
                 <div style={{border:"1px solid #fed7aa",borderRadius:16,padding:12,background:"linear-gradient(135deg,#fff7ed,#ffffff)",minWidth:220}}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
                     <Icon as={Bell} size={13} color="#92400e" strokeWidth={2.3}/>
@@ -3784,6 +3786,7 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                     </button>
                   </div>
                 </div>
+                )}
 
                 <div style={{border:"1px solid #c4b5fd",borderRadius:16,padding:12,background:"linear-gradient(135deg,#f5f3ff,#ffffff)",minWidth:220}}>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
@@ -3861,6 +3864,17 @@ function FicheClient({ id, profil, onRetour, T=THEMES_INV.dark, onOpenStructurat
                         style={{width:"100%",textAlign:"left",fontSize:12,background:"#fff"}}
                       />
                     </div>
+                    <select
+                      className="inv-sel"
+                      value={collaboratorTask.etape || dossierInfo?.etapeCourante || ""}
+                      onChange={e => setCollaboratorTask(prev => ({...prev,etape:e.target.value}))}
+                      style={{width:"100%",fontSize:12,background:"#fff"}}
+                      disabled={!dossierInfo?.dossierEnCoursId}
+                      aria-label="Étape du dossier"
+                    >
+                      <option value="">{dossierInfo?.dossierEnCoursId ? "Étape du dossier…" : "Aucun dossier en cours : démarrez une mission"}</option>
+                      {ETAPES_PARCOURS.map(e => <option key={e.cle} value={e.cle}>{e.numero}. {e.libelle}</option>)}
+                    </select>
                     <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
                       <input
                         className="inv-inp"

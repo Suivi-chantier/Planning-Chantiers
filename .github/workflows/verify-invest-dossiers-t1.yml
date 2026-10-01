@@ -1,0 +1,66 @@
+name: Verify Invest Dossiers T1
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260930190000_invest_dossiers_tranche1.sql'
+      - 'sql/202609_invest_dossiers_tranche1_rollback.sql'
+      - 'supabase/migrations/20260930210000_invest_dossiers_tranche2a.sql'
+      - 'sql/202609_invest_dossiers_tranche2a_rollback.sql'
+      - 'supabase/migrations/20260930230000_invest_situation_patrimoniale_2c.sql'
+      - 'sql/202609_invest_situation_patrimoniale_2c_rollback.sql'
+      - 'supabase/migrations/20260930235000_invest_questionnaire_2d.sql'
+      - 'sql/202609_invest_questionnaire_2d_rollback.sql'
+      - 'supabase/migrations/20260930235500_invest_questionnaire_2d1_catalogue.sql'
+      - 'sql/202609_invest_questionnaire_2d1_rollback.sql'
+      - 'supabase/migrations/20261001100000_invest_missions_offres.sql'
+      - 'sql/202610_invest_missions_offres_rollback.sql'
+      - 'scripts/generer-questionnaire-cles-sql.mjs'
+      - 'src/Invest/dossiers/**'
+      - 'src/Invest/crm/**'
+      - 'src/Invest/annuaire.mjs'
+      - 'src/Invest/CRM.jsx'
+      - 'src/Invest/Dashboard.jsx'
+      - 'src/Invest/tableauBord.mjs'
+      - 'src/Invest/Prospection.jsx'
+      - 'src/Invest/Structuration.jsx'
+      - 'api/_cron/cron-invest-tableau-bord.js'
+      - 'scripts/verif-invest-pilotage-2b.mjs'
+      - 'scripts/verif-invest-copilote-2b.mjs'
+      - 'api/_ia/invest/**'
+      - 'api/_ia/taches/invest_copilot.js'
+      - 'scripts/verif-tableau-bord.mjs'
+      - 'scripts/verif-invest-dossiers-t1.mjs'
+      - 'scripts/verif-invest-fiche-dossier.mjs'
+      - 'scripts/verif-invest-crm-v2.mjs'
+      - 'scripts/verif-invest-missions-offres.mjs'
+      - 'scripts/reprise-invest-dossiers-t1.mjs'
+      - '.github/workflows/verify-invest-dossiers-t1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Dossier Invest — Tranches 1, 2a, 2c et 2d (dossiers, parcours, journal, reprise, pilotage, situation patrimoniale, questionnaire)
+        run: node scripts/verif-invest-dossiers-t1.mjs
+      - name: Dossier Invest — Tranche 2b (pilotage CRM, tableau de bord, Morning Routine)
+        run: node scripts/verif-invest-pilotage-2b.mjs
+      - name: Tableau de bord Invest et mail du matin
+        run: node scripts/verif-tableau-bord.mjs
+      - name: Copilote Invest sur le Dossier Invest (Tranche 2b-bis)
+        run: node scripts/verif-invest-copilote-2b.mjs
+      - name: Fiche Dossier Invest V1 (vue d'ensemble, parcours, alertes, tâches)
+        run: node scripts/verif-invest-fiche-dossier.mjs
+      - name: CRM V2 et fiche Client V2 (à traiter, clients, planning, page client)
+        run: node scripts/verif-invest-crm-v2.mjs
+      - name: Missions Offre 2 / Offre 3 (phases, jalons, honoraires, gestes)
+        run: node scripts/verif-invest-missions-offres.mjs

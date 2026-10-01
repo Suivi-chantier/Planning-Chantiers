@@ -18,6 +18,8 @@ import {
   useAnnuaireInvest, responsablesInvest, estUtilisateurCourant,
 } from "./_shared";
 import { creerNotificationInvest } from "./notifications";
+import { champsNouvelleTache } from "./dossiers/dossierVue";
+import { resumePilotage, actionDuJour, alertesPilotage } from "./dossiers/pilotage";
 
 // ─────────────────────────────────────────────────────────────
 // TABLEAU DE BORD V9 — Pilotage par dossier consolidé
@@ -130,6 +132,34 @@ function printPlan(plan=[]) {
   const w = window.open("", "_blank"); if (!w) return; w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
 }
 
+// Tranche 2b : suivi des Dossiers Invest (source de vérité). Chaque ligne mène
+// à la fiche client, où la carte Dossier Invest porte le pilotage.
+function SuiviDossiersInvest({ data, nomsClients, T=THEMES_INV.dark, onOpenClient }) {
+  if (data.avancementInconnu) return <SectionCard title="Suivi des Dossiers Invest" icon={Briefcase} T={T}><div style={{ padding:SPACING.md, border:`1px solid ${WA}55`, borderRadius:RADIUS.md, color:WA, fontWeight:800 }}>Avancement indisponible : les Dossiers Invest n'ont pas pu être chargés. Aucun chiffre n'est affiché plutôt qu'un chiffre faux.</div></SectionCard>;
+  const s = data.suiviInvest || {};
+  const balles = s.balles || {};
+  const tuiles = [
+    { label:"Dossiers actifs", value:s.dossiers ?? 0, color:T.accent },
+    { label:"Étapes actives", value:s.etapesActives ?? 0, color:T.accent, hint:`${s.dossiersPlusieursEtapes ?? 0} dossier(s) sur plusieurs étapes` },
+    { label:"Balle Profero", value:balles.profero ?? 0, color:WA, hint:`Client ${balles.client ?? 0} · Banque ${balles.banque ?? 0} · Notaire ${balles.notaire ?? 0} · Tiers ${balles.tiers ?? 0}` },
+    { label:"Bloqués", value:s.bloques ?? 0, color:(s.bloques ? DA : SU) },
+    { label:"Échéances dépassées", value:s.echeancesDepassees ?? 0, color:(s.echeancesDepassees ? DA : SU), hint:`${s.echeancesProches ?? 0} sous 7 jours` },
+    { label:"Tâches en retard", value:s.tachesEnRetard ?? 0, color:(s.tachesEnRetard ? DA : SU) },
+    { label:"Sans prochaine action", value:s.sansProchaineAction ?? 0, color:(s.sansProchaineAction ? WA : SU), hint:`${s.prochainesActions ?? 0} prochaine(s) action(s) définie(s)` },
+  ];
+  const rang = (p) => { const a = alertesPilotage(p); return a.some(x => x.level === "danger") ? 0 : a.some(x => x.level === "warning") ? 1 : 2; };
+  const lignes = [...safeArr(data.pilotages)].sort((a, b) => rang(a) - rang(b) || String(a.prochaineEcheance || "9999").localeCompare(String(b.prochaineEcheance || "9999")));
+  return <SectionCard title="Suivi des Dossiers Invest" icon={Briefcase} subtitle="Étapes actives, balle, prochaine action, échéance" T={T}>
+    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:SPACING.sm, marginBottom:SPACING.md }}>{tuiles.map(t => <div key={t.label} style={{ border:`1px solid ${t.color}44`, background:T.input, borderRadius:RADIUS.md, padding:"8px 10px" }}><div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.lg.size, fontWeight:900, color:t.color }}>{t.value}</div><div style={{ fontSize:FONT.xs.size + 1, fontWeight:900, color:T.text }}>{t.label}</div>{t.hint && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2 }}>{t.hint}</div>}</div>)}</div>
+    {lignes.length === 0 ? <div style={{ padding:SPACING.md, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>Aucun Dossier Invest en cours.</div> :
+    <div style={{ display:"grid", gap:6 }}>{lignes.map(p => { const al = alertesPilotage(p); const niveau = al.some(x => x.level === "danger") ? "danger" : al.some(x => x.level === "warning") ? "warning" : "info"; const ajd = actionDuJour(p); return <button key={p.dossierId} type="button" onClick={() => onOpenClient?.(p.clientId)} style={{ textAlign:"left", border:`1px solid ${levelColor(niveau, T)}40`, borderLeft:`4px solid ${levelColor(niveau, T)}`, background:T.input, borderRadius:RADIUS.md, padding:"8px 10px", cursor:"pointer", fontFamily:"inherit", display:"grid", gridTemplateColumns:"minmax(160px,1fr) minmax(220px,2fr) minmax(140px,1fr)", gap:8, alignItems:"center" }}>
+      <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:T.text, fontSize:FONT.sm.size + 1 }}>{nomsClients.get(p.clientId) || "Client"}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{p.reference}{p.actives.length > 1 ? ` · ${p.actives.length} étapes actives : ${p.actives.map(a => a.libelle).join(", ")}` : ""}</div></div>
+      <div style={{ color:T.textSub, fontSize:FONT.xs.size + 1 }}>{resumePilotage(p)}{al[0] && <div style={{ color:levelColor(al[0].level, T), fontWeight:800, marginTop:2 }}>{al[0].label}{al.length > 1 ? ` (+${al.length - 1})` : ""}</div>}</div>
+      <div style={{ color:T.textMuted, fontSize:FONT.xs.size }}><strong style={{ color:T.textSub }}>Qui agit :</strong> {ajd.responsable || "—"}{ajd.echeance && <div>avant le {safeDate(ajd.echeance)}</div>}</div>
+    </button>; })}</div>}
+  </SectionCard>;
+}
+
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -146,6 +176,11 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [actions, setActions] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [finance, setFinance] = useState([]);
+  // Tranche 2b : Dossier Invest (dossiers non clos, étapes, annuaire).
+  // null = pas encore chargé ou illisible (avancement inconnu, signalé comme tel).
+  const [dossiersInvest, setDossiersInvest] = useState(null);
+  const [etapesInvest, setEtapesInvest] = useState(null);
+  const [utilisateursInvest, setUtilisateursInvest] = useState([]);
   // La routine du jour est chargée depuis la base par loadDashboard : elle doit
   // suivre l'utilisateur d'un appareil à l'autre, pas rester dans un navigateur.
   const [routine, setRoutine] = useState(() => emptyRoutine());
@@ -215,13 +250,17 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     setClients(d.clients); setBiens(d.biens); setPropositions(d.propositions);
     setPlanning(d.planning); setActions(d.actions); setNotifications(d.notifications);
     setFinance(d.finance); setCrmProspects(d.crmProspects);
+    setDossiersInvest(d.dossiersInvest); setEtapesInvest(d.etapesInvest); setUtilisateursInvest(d.utilisateurs);
     setRoutine(routineDepuisLignes(d.routineRows));
     setRoutineChargee(true);
     setLoading(false);
   }, []);
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
 
-  const data = useMemo(() => consolidateData({ clients, crmProspects, biens, propositions, planning, actions, profil, pilote }), [clients, crmProspects, biens, propositions, planning, actions, profil, pilote]);
+  const data = useMemo(() => consolidateData({ clients, crmProspects, biens, propositions, planning, actions,
+    dossiersInvest, etapesInvest, utilisateurs:utilisateursInvest, jour:todayIso(), profil, pilote }),
+    [clients, crmProspects, biens, propositions, planning, actions, dossiersInvest, etapesInvest, utilisateursInvest, profil, pilote]);
+  const nomsClients = useMemo(() => new Map(safeArr(clients).map(c => [c.id, `${c.prenom || ""} ${c.nom || ""}`.trim() || c.nom || "Client"])), [clients]);
   const doneItems = useMemo(() => safeArr(data.allDossiers).filter(d => isResolvedToday(routine, d)), [data.allDossiers, routine]);
   // Même répartition que celle du mail du matin, au même endroit du code.
   const byColumn = useMemo(
@@ -263,18 +302,26 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       source: "dashboard_v9",
       profil,
     });
+  // Tranche 2b : une tâche créée depuis la routine appartient au Dossier Invest
+  // du client (dossier + étape à agir). Sans dossier en cours, aucune tâche
+  // n'est créée (règle 2a) ; la notification au responsable part quand même.
   const createMissionAction = async (item, d) => {
     if (!d?.create_task || !d?.responsable || !d?.next_action) return null;
     // Idem : pas de tâche déléguée à soi-même.
     if (estUtilisateurCourant(d.responsable, profil)) return null;
-    const base = { responsable:d.responsable, action_title:d.next_action, due_date:d.due_date || null, status:"a_faire", step_label:`Dashboard V9 — ${item.type}`, client_id:item.type === "client" || (item.type === "prospect" && item.sourceTable === "invest_clients") ? item.id : null };
-    const linked = { ...base, linked_entity_type:item.type, linked_entity_id:String(item.id), source_module:"dashboard_v9", source_context:{ comment:d.comment, decision:d.decision, routine_date:todayIso() } };
+    const pil = item.type === "client" ? item.meta?.dossier : null;
     let created = null;
-    const first = await supabase.from("invest_mission_actions").insert(linked).select("id").single();
-    if (first.error) {
-      const fallback = await supabase.from("invest_mission_actions").insert(base).select("id").single();
-      if (!fallback.error) created = fallback.data;
-    } else created = first.data;
+    if (pil) {
+      const etape = item.meta?.etapeAction?.etape || pil.principale?.etape || pil.actives?.[0]?.etape || "suivi";
+      const { data: ins, error: errIns } = await supabase.from("invest_mission_actions").insert({
+        client_id:item.id, ...champsNouvelleTache(pil.dossierId, etape), sort_order:999,
+        responsable:d.responsable, action_title:d.next_action, due_date:d.due_date || null, status:"a_faire",
+        linked_entity_type:item.type, linked_entity_id:String(item.id), source_module:"dashboard_v9",
+        source_context:{ comment:d.comment, decision:d.decision, routine_date:todayIso() },
+      }).select("id").single();
+      if (errIns) throw new Error(`Tâche non créée : ${errIns.message}`);
+      created = ins;
+    }
     await createNotification({ actionId:created?.id, responsable:d.responsable, title:d.next_action, message:d.comment, item });
     return created?.id || null;
   };
@@ -287,7 +334,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
       if (normTxt(d.decision).includes("archiver")) payload.statut = "Archivé";
       await supabase.from(table).update(payload).eq("id", item.id);
     } else if (item.type === "client") {
-      await supabase.from("invest_clients").update({ prochaine_action:d.next_action, date_prochaine_action:d.due_date, conseiller:d.responsable }).eq("id", item.id);
+      // Tranche 2b : la décision devient la prochaine action et l’échéance de
+      // l'étape à agir du Dossier Invest (geste journalisé). L'ancienne
+      // prochaine action du client n'est plus écrite.
+      // Étape visée par l'action du jour (plusieurs étapes peuvent être actives).
+      const cible = item.meta?.etapeAction || item.meta?.dossier?.principale;
+      if (cible?.id) {
+        const { data: maj, error: errMaj } = await supabase.from("invest_dossier_etapes")
+          .update({ prochaine_action:d.next_action || null, echeance:d.due_date || null }).eq("id", cible.id).select("id");
+        if (errMaj || !maj?.length) throw new Error(`Étape ${cible.libelle} non mise à jour : ${errMaj?.message || "droits insuffisants"}`);
+      }
     } else if (item.type === "bien") {
       const dn = normTxt(d.decision);
       const statut = dn.includes("archiver") ? "Archivé" : dn.includes("visite") ? "À visiter" : dn.includes("proposer") ? "Proposé à client" : dn.includes("matcher") ? "À matcher" : dn.includes("offre") ? "Offre à faire" : dn.includes("attente") ? "À trier" : dn.includes("analyser") ? "À analyser" : item.raw?.statut;
@@ -310,6 +366,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const printPdf = () => printPlan(plan);
 
   const renderPilotage = () => <>
+    <SuiviDossiersInvest data={data} nomsClients={nomsClients} T={T} onOpenClient={(id) => onNavigate?.("crm", NAV.ficheClient(id))}/>
     <StateBar data={data} doneCount={doneItems.length} T={T} onSelect={(k) => { if (k === "done") setActiveView("plan"); }} />
     <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"space-between", alignItems:"center", marginBottom:SPACING.md }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{V9_ENTITY_FILTERS.map(f => { const active = filter === f.key; return <button key={f.key} className={`inv-btn ${active ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setFilter(f.key)}><Icon as={f.icon} size={12}/>{f.label}</button> })}</div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={printPdf}><Icon as={Download} size={12}/>Plan PDF</button></div></div>
     <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:SPACING.md, alignItems:"start" }} className="v9-board-grid"><BoardColumn column={V9_COLUMNS[0]} items={byColumn.decision} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[1]} items={byColumn.watch} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[2]} items={byColumn.delegated} T={T} onOpen={openDetail} onDecide={openDecision}/></div>

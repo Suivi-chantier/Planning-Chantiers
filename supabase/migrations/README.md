@@ -16,11 +16,64 @@ production (`supabase_migrations.schema_migrations`). Aligné le 22/09/2026.
 
 20260924130000 appliquée par Cowork le 24/09/2026, contenu identique au fichier.
 
-**`20260930150000_utilisateurs_champs_sensibles.sql` n'est PAS appliquée**
-(préparée le 30/09/2026, en attente de validation) : protection des champs
-sensibles de `utilisateurs` (chantier 1.0, sécurité). Elle s'applique seule,
-jamais par `supabase db push` (règle 2). Retour arrière :
-`sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
+**Mise à jour du 30/09/2026 : 31 fichiers.** 30 sont appliqués (dont les trois
+ci-dessous) ; 1 ne l'est pas : celui du chantier 05 (plus haut). La migration
+de la PR #46 (20260930170000) n'est pas encore dans ce dossier.
+
+`20260930190000_invest_dossiers_tranche1.sql` **appliquée le 30/09/2026**
+(Chantier 1.1 Tranche 1 : Dossier Invest), seule (`supabase db query --linked -f …`
+puis `migration repair`), jamais par `db push` ; la reprise des données est un
+script séparé : `docs/project/DOSSIER-INVEST-TRANCHE1.md`.
+
+`20260930150000_utilisateurs_champs_sensibles.sql` **appliquée le 30/09/2026**
+: protection des champs sensibles de `utilisateurs` (chantier 1.0, sécurité).
+Retour arrière : `sql/202609_utilisateurs_champs_sensibles_rollback.sql`.
+
+`20260930210000_invest_dossiers_tranche2a.sql` — **appliquée en production le
+30/09/2026** (Chantier 1.1 Tranche 2a : pilotage du Dossier Invest dans le CRM). Additive et courte : heure réelle du journal et numéro d'ordre
+technique (colonne `ordre`, IDENTITY), libellé « balle
+personne », événement « reprise confirmée », enchaînements de statut d'étape
+contrôlés, motifs obligatoires (« non applicable », réouverture). S'applique
+seule, jamais par `db push` : `docs/project/DOSSIER-INVEST-TRANCHE2A.md`.
+Retour arrière non destructif : `sql/202609_invest_dossiers_tranche2a_rollback.sql`.
+
+`20260930230000_invest_situation_patrimoniale_2c.sql` — **appliquée en
+production le 30/09/2026** (Chantier 1.1 Tranche 2c : foyer et situation
+patrimoniale). Additive : 5 tables rattachées au client (personnes, postes
+financiers, engagements, actifs patrimoniaux, structures), types d'événements
+`collecte_*`. Aucune reprise. S'applique seule, jamais par `db push` :
+`docs/project/DOSSIER-INVEST-TRANCHE2C.md`. Retour arrière (destructif pour les
+données 2c) : `sql/202609_invest_situation_patrimoniale_2c_rollback.sql`.
+
+`20260930235000_invest_questionnaire_2d.sql` — **appliquée en production le
+30/09/2026** (Chantier 1.1 Tranche 2d : questionnaire « Projet & situation »). Additive : colonnes questionnaire_* de invest_dossiers, types
+d'événements questionnaire_*, deux compléments aux fonctions 2c. Aucune
+reprise. S'applique seule, avant le front, jamais par `db push` :
+`docs/project/DOSSIER-INVEST-TRANCHE2D.md`.
+
+`20260930235500_invest_questionnaire_2d1_catalogue.sql` — **appliquée en
+production le 30/09/2026** (mini-correctif 2d.1) : refuse une réponse dont la clé n'existe pas dans le
+catalogue de la version du questionnaire. La liste des clés
+(`invest_questionnaire_cles`) est générée par
+`scripts/generer-questionnaire-cles-sql.mjs` depuis `questionnaireDossier.mjs`.
+Aucune donnée modifiée. S'applique seule, jamais par `db push`.
+
+`20261001100000_invest_missions_offres.sql` — **NON appliquée** (Invest V2,
+chantier 9 : Missions Offre 2 / Offre 3). Additive : colonnes `restitution_le`,
+`cadrage_statut`, `cadrage_le` de invest_dossiers (réservées à l'Offre 3),
+types d'événements `offre_change`, `restitution_change`, `cadrage_change`,
+journal du forfait et de la lettre de mission rédigé en français. Aucune donnée
+modifiée. S'applique seule, AVANT le front, jamais par `db push` :
+`docs/project/MISSIONS-OFFRES-V2.md`. Retour arrière :
+`sql/202610_invest_missions_offres_rollback.sql`.
+
+`20261001130000_invest_prospects_fermeture.sql` — **appliquée en production
+le 01/10/2026 à 10:12 UTC** (chantier
+22, sécurité) : ferme `invest_prospects` aux non-connectés (avant : lecture,
+création, modification et suppression avec la clé publique). Aucune donnée
+modifiée ; les leads Fluidify passent par la clé service_role. S'applique
+seule, jamais par `db push`. Retour arrière (rouvre la table) :
+`sql/202610_invest_prospects_fermeture_rollback.sql`.
 
 **`20260930170000_acces_profero_hook_sessions.sql` n'est PAS appliquée**
 (préparée le 30/09/2026) : hook d'accès Profero et suppression des sessions à

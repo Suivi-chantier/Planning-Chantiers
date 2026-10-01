@@ -39,6 +39,9 @@ const TABLES_AUTORISEES = new Set([
   "invest_notes",
   "invest_propositions",
   "invest_mission_actions",
+  // Tranche 2b-bis : état courant des Dossiers Invest (pas le journal complet).
+  "invest_dossiers",
+  "invest_dossier_etapes",
   "invest_action_notifications",
   "invest_planning",
   "invest_morning_routine_items",
@@ -107,6 +110,19 @@ function borner(limite, defaut, max) {
 // a besoin d'UNE clé pour rejouer canAccess(), et il vaut mieux une porte
 // nommée, en lecture seule et sur une clé unique, qu'un client Supabase brut
 // exporté dans la nature.
+// Noms des collaborateurs (id, nom) : c'est ce qui permet au moteur de dire QUI
+// a la balle et ce qui est « à moi » plutôt que « délégué ». utilisateurs n'est
+// PAS dans la liste blanche (table partagée avec Rénovation : e-mails, rôles,
+// branches) ; cette porte nommée ne lit que deux colonnes, en lecture seule.
+async function lireNomsCollaborateurs() {
+  const { data, error } = await client().from("utilisateurs").select("id,nom");
+  if (error) {
+    console.warn(`[copilote] noms des collaborateurs illisibles : ${error.message}`);
+    return null;
+  }
+  return data || [];
+}
+
 async function lireMatriceAcces() {
   const { data, error } = await client()
     .from("planning_config")
@@ -124,6 +140,7 @@ module.exports = {
   table,
   borner,
   lireMatriceAcces,
+  lireNomsCollaborateurs,
   TABLES_AUTORISEES,
   TABLES_INTERDITES,
 };

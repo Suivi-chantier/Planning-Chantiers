@@ -43,6 +43,11 @@ Pas en note de bas de page.
 - **Même chiffre = même service + même explication.** Un montant affiché deux
   fois dans l'application vient du même module et porte la même explication.
   Aucun recalcul parallèle : on lit les colonnes déjà écrites.
+- **Dossier Invest — fonctions SECURITY DEFINER.** Toute future fonction
+  SECURITY DEFINER susceptible d'écrire dans `invest_dossier_etapes` doit faire
+  l'objet d'un audit explicite, car une fonction appartenant à postgres
+  contourne les règles de pilotage (`invest_etapes_regles_pilotage`).
+  Détail : `docs/project/DOSSIER-INVEST-TRANCHE2A.md`.
 - **Modules de calcul purs** : extension `.mjs`, aucun accès Supabase, aucune
   horloge, aucun effet de bord, façade `.js` (`export * from "./x.mjs"`) pour le
   front. Les données arrivent en paramètre.

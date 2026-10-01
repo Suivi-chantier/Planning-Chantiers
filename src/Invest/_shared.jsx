@@ -1689,8 +1689,9 @@ function GoogleDriveLinksSection({ folder, T = THEMES_INV.dark, profil = null })
   );
 }
 
-function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
+function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null, lectureSeule = false }) {
   // folder = "clients/uuid" ou "biens/uuid"
+  // lectureSeule : consultation et téléchargement uniquement (fiche Client V2).
   const [fichiers, setFichiers]     = useState([]);
   const [loading, setLoading]       = useState(true);
   const [uploading, setUploading]   = useState(false);
@@ -1755,14 +1756,14 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
     <div className="inv-card">
       <div className="inv-card-hd" style={{ justifyContent:"space-between" }}>
         <span>📎 Documents ({fichiers.length})</span>
-        <button
+        {!lectureSeule && <button
           className="inv-btn inv-btn-sm"
           style={{ background:"rgba(255,255,255,0.65)", color:"black", border:`1px solid ${T.border}` }}
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
         >
           {uploading ? "Upload…" : "＋ Ajouter"}
-        </button>
+        </button>}
         <input
           ref={fileRef} type="file" multiple style={{ display:"none" }}
           onChange={e => uploader(e.target.files)}
@@ -1793,7 +1794,7 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
         )}
 
         {/* Zone drag & drop */}
-        <div
+        {!lectureSeule && <div
           style={{
             border: `2px dashed ${dragOver ? accent : border}`,
             borderRadius: 8, padding: "14px 12px", textAlign: "center",
@@ -1813,7 +1814,7 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
               <div style={{ fontSize: 11, marginTop: 4, opacity: .6 }}>PDF, images, Word, Excel… · max 50 Mo</div>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Erreur */}
         {erreur && (
@@ -1862,13 +1863,13 @@ function DocumentsSection({ folder, T = THEMES_INV.dark, categories = null }) {
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: 17, color: accent, padding: "2px 4px" }}
                   title="Télécharger / Ouvrir"
                 >⬇️</button>
-                <button
+                {!lectureSeule && <button
                   onClick={() => supprimer(f.name)}
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: 17, color: "#e05c5c", padding: "2px 4px", opacity: .6 }}
                   title="Supprimer"
                   onMouseEnter={e => e.currentTarget.style.opacity = "1"}
                   onMouseLeave={e => e.currentTarget.style.opacity = ".6"}
-                >🗑️</button>
+                >🗑️</button>}
               </div>
             ))}
           </div>
