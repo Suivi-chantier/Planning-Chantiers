@@ -78,3 +78,20 @@ client n'est ouverte.
   (pas de Deno sur le poste) : ordre des vérifications contrôlé sur le texte, test réel
   à faire après déploiement avec un compte client de test.
 - Hors périmètre de cette étape : documents des biens, EDL, urbanisme ; dépôt par le client.
+
+## Étape 4 — écran client `/espace-client` (écrite, NON appliquée ni déployée)
+- Page `src/Portail/PortailClient.jsx`, servie à `/espace-client` (chemin déjà réservé dans
+  `vite.config.js` : le service worker du bureau ne l'intercepte pas). `main.jsx` charge le
+  portail ou le bureau à la demande : un client ne télécharge pas le code du bureau.
+- Contenu : accueil par prénom, dossier(s) montrés avec progression des étapes, « Ce qui vous
+  concerne » (tâches cochées), documents partagés (téléchargement par `portail-document-url`),
+  dernières nouvelles (événements cochés). Vocabulaire client (« En attente », jamais « bloquée »).
+- Lecture seule : ne lit que les vues `portail_*`. Une erreur de chargement s'affiche comme une
+  erreur, jamais comme « rien à afficher ».
+- Migration `20261001220000` : `portail_etapes` limitée aux étapes du dossier (pas d'opération)
+  et vue `portail_client` (prénom, nom du seul client de la connexion).
+- Un compte collaborateur qui ouvre `/espace-client` voit « Accès non autorisé » (sans être déconnecté).
+  Un compte client qui ouvre le bureau est refusé (« Compte non trouvé ») : comportement inchangé.
+- Banc : `verif-portail-client-invest` 39/39, `verif-portail-ecran` 10/10 (casses volontaires détectées).
+- Non vérifié : rendu à l'écran et téléphone ; connexion réelle d'un client (aucun compte n'existe
+  encore) ; mot de passe oublié / création du mot de passe par lien d'invitation = étape suivante.
