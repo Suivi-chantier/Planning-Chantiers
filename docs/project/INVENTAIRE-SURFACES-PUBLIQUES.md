@@ -57,7 +57,7 @@ Récupération (sans modification) :
 | Surface | Accès anon | Risque | Correction |
 |---|---|---|---|
 | Tables Invest | fermées — `scripts/verif-rls-invest.mjs` « Conforme » au 29/09/2026 | 🟢 | — |
-| `invest_prospects` | fermée le 01/10/2026 (migration 20261001130000) ; leads Fluidify par Edge Function + service_role | ✅ après application | voir `sql/README-securite-invest.md` |
+| `invest_prospects` | fermée le 01/10/2026 (migration 20261001130000) ; leads Fluidify par Edge Function + service_role | ✅ fermée (contrôlée en base le 01/10) | voir `sql/README-securite-invest.md` |
 | `planning_config` | SELECT anon `using (true)` : **toute** la configuration (matrice d'accès, destinataires de mails, états des crons) | 🟡 | restreindre aux clés du formulaire `/rapport` |
 | `planning_cells` | SELECT anon | 🟡 | restreindre |
 | `rapports`, `besoins` | INSERT anon `with check (true)` | 🟡 (formulaire public voulu) | contrôles de forme |
