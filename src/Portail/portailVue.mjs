@@ -75,3 +75,21 @@ export function etatSection(reponse) {
 }
 
 export const dateFr = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("/") : "");
+
+/** Lien d'invitation / de réinitialisation : ?token_hash=…&type=invite|recovery. null sinon. */
+export function lireLienInvitation(search) {
+  try {
+    const p = new URLSearchParams(search || "");
+    const tokenHash = p.get("token_hash");
+    const type = p.get("type");
+    return tokenHash && (type === "invite" || type === "recovery") ? { tokenHash, type } : null;
+  } catch { return null; }
+}
+
+export const MOT_DE_PASSE_MIN = 8;
+/** Message d'erreur du choix du mot de passe, ou "" s'il est valide. */
+export function validerMotDePasse(mdp, confirmation) {
+  if (String(mdp || "").length < MOT_DE_PASSE_MIN) return `Le mot de passe doit contenir au moins ${MOT_DE_PASSE_MIN} caractères.`;
+  if (mdp !== confirmation) return "Les deux mots de passe ne sont pas identiques.";
+  return "";
+}

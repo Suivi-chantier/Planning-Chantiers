@@ -17,6 +17,12 @@ on:
       - 'src/main.jsx'
       - 'vite.config.js'
       - 'scripts/verif-portail-ecran.mjs'
+      - 'supabase/migrations/20261001230000_portail_client_invest_invitation.sql'
+      - 'sql/202610_portail_client_invest_invitation_rollback.sql'
+      - 'supabase/functions/portail-inviter-client/**'
+      - 'src/Invest/crm/AccesPortail.jsx'
+      - 'src/Invest/crm/FicheClientV2.jsx'
+      - 'scripts/verif-portail-invitation.mjs'
       - 'scripts/verif-portail-client-invest.mjs'
       - 'scripts/verif-portail-visibilite-crm.mjs'
       - 'src/Invest/dossiers/FicheDossier.jsx'
@@ -42,3 +48,5 @@ jobs:
         run: node scripts/verif-portail-visibilite-crm.mjs
       - name: Écran client /espace-client (logique, lecture seule, isolement du bureau)
         run: node scripts/verif-portail-ecran.mjs
+      - name: Invitation d'un client (droit, ordre des contrôles, courriel, écran)
+        run: node scripts/verif-portail-invitation.mjs

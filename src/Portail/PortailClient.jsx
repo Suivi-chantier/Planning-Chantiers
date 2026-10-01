@@ -7,11 +7,11 @@
 // les tables, lien signé de 60 s pour les documents) ; cet écran ne fait que l'afficher.
 //
 // Une erreur de chargement n'est JAMAIS présentée comme « rien à afficher ».
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import {
   POPULATION_CLIENT, populationDuJeton, bonjour, etapesTriees, tachesClient, etatSection,
-  dateFr, LETTRE, STATUT_DOSSIER,
+  dateFr, LETTRE, STATUT_DOSSIER, lireLienInvitation, validerMotDePasse,
 } from "./portailVue";
 
 const LOGO = "/logos/profero-invest-h.png";
@@ -92,7 +92,38 @@ function Connexion({ onConnecte }) {
         <input id="pc-mdp" className="pc-input" type="password" autoComplete="current-password" value={mdp} onChange={(e) => setMdp(e.target.value)} />
         {erreur && <div style={{ marginTop: 12 }}><Erreur>{erreur}</Erreur></div>}
         <button className="pc-btn pc-btn-or" type="submit" disabled={envoi} style={{ width: "100%", marginTop: 16 }}>{envoi ? "Connexion…" : "Se connecter"}</button>
-        <p style={{ margin: "14px 0 0", color: C.doux, fontSize: 13 }}>Un problème d'accès ? Contactez votre conseiller Profero.</p>
+        <p style={{ margin: "14px 0 0", color: C.doux, fontSize: 13 }}>Mot de passe oublié ou problème d'accès ? Contactez votre conseiller Profero : il vous enverra un nouveau lien.</p>
+      </form>
+    </main>
+  );
+}
+
+function ChoixMotDePasse({ onTermine }) {
+  const [mdp, setMdp] = useState("");
+  const [conf, setConf] = useState("");
+  const [erreur, setErreur] = useState("");
+  const [envoi, setEnvoi] = useState(false);
+  const valider = async (ev) => {
+    ev.preventDefault();
+    const probleme = validerMotDePasse(mdp, conf);
+    if (probleme) { setErreur(probleme); return; }
+    setEnvoi(true); setErreur("");
+    const { error } = await supabase.auth.updateUser({ password: mdp });
+    if (error) { setEnvoi(false); setErreur("Votre mot de passe n'a pas pu être enregistré. Réessayez ou demandez un nouveau lien à votre conseiller."); return; }
+    const { data } = await supabase.auth.getSession();
+    onTermine(data.session);
+  };
+  return (
+    <main className="pc-main" style={{ maxWidth: 440 }}>
+      <form className="pc-carte" onSubmit={valider} noValidate>
+        <h1 style={{ margin: "0 0 4px", fontSize: 24 }}>Choisissez votre mot de passe</h1>
+        <p style={{ margin: "0 0 16px", color: C.doux, fontSize: 14 }}>Il vous servira à vous reconnecter à votre espace client.</p>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 700, marginBottom: 6 }} htmlFor="pc-nmdp">Nouveau mot de passe (8 caractères minimum)</label>
+        <input id="pc-nmdp" className="pc-input" type="password" autoComplete="new-password" value={mdp} onChange={(e) => setMdp(e.target.value)} />
+        <label style={{ display: "block", fontSize: 13, fontWeight: 700, margin: "14px 0 6px" }} htmlFor="pc-cmdp">Confirmez le mot de passe</label>
+        <input id="pc-cmdp" className="pc-input" type="password" autoComplete="new-password" value={conf} onChange={(e) => setConf(e.target.value)} />
+        {erreur && <div style={{ marginTop: 12 }}><Erreur>{erreur}</Erreur></div>}
+        <button className="pc-btn pc-btn-or" type="submit" disabled={envoi} style={{ width: "100%", marginTop: 16 }}>{envoi ? "Enregistrement…" : "Enregistrer et accéder à mon espace"}</button>
       </form>
     </main>
   );
@@ -203,8 +234,12 @@ function Espace() {
 }
 
 export default function PortailClient() {
-  const [phase, setPhase] = useState("chargement"); // chargement | connexion | refuse | espace
+  const [phase, setPhase] = useState("chargement"); // chargement | connexion | refuse | espace | motdepasse | lieninvalide
   useEffect(() => { document.title = "Espace client · Profero Invest"; }, []);
+  // Le lien est lu UNE fois (état initial) et validé UNE fois (le jeton est à usage unique,
+  // même si React rejoue l'effet en développement).
+  const [lienInitial] = useState(() => lireLienInvitation(window.location.search));
+  const lienTraite = useRef(false);
 
   const decider = useCallback((session) => {
     if (!session) { setPhase("connexion"); return; }
@@ -212,15 +247,42 @@ export default function PortailClient() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => decider(data.session));
+    // Lien reçu par courriel (?token_hash=…&type=invite|recovery) : retiré de l'adresse AVANT
+    // toute vérification (à usage unique, jamais gardé dans l'historique du navigateur), puis
+    // validé par Supabase. Le hook d'accès refuse tout compte qui n'est pas un client lié.
+    if (lienInitial) {
+      if (!lienTraite.current) {
+        lienTraite.current = true;
+        window.history.replaceState({}, "", window.location.pathname);
+        supabase.auth.verifyOtp({ token_hash: lienInitial.tokenHash, type: lienInitial.type }).then(({ data, error }) => {
+          if (error || !data?.session) { setPhase("lieninvalide"); return; }
+          setPhase(populationDuJeton(data.session.access_token) === POPULATION_CLIENT ? "motdepasse" : "refuse");
+        });
+      }
+    } else {
+      supabase.auth.getSession().then(({ data }) => decider(data.session));
+    }
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => { if (event === "SIGNED_OUT") setPhase("connexion"); });
     return () => subscription.unsubscribe();
-  }, [decider]);
+  }, [decider, lienInitial]);
 
   const deconnexion = async () => { await supabase.auth.signOut(); setPhase("connexion"); };
 
   if (phase === "chargement") return <Cadre><main className="pc-main"><Info>Chargement…</Info></main></Cadre>;
   if (phase === "connexion") return <Cadre><Connexion onConnecte={decider} /></Cadre>;
+  if (phase === "motdepasse") return <Cadre><ChoixMotDePasse onTermine={decider} /></Cadre>;
+  if (phase === "lieninvalide") {
+    return (
+      <Cadre>
+        <main className="pc-main" style={{ maxWidth: 520 }}>
+          <Carte titre="Lien non valide">
+            <p style={{ margin: "0 0 14px" }}>Ce lien n'est plus valide : il a peut-être déjà été utilisé ou a expiré. Contactez votre conseiller Profero, qui vous enverra un nouveau lien.</p>
+            <button className="pc-btn pc-btn-or" onClick={() => setPhase("connexion")}>Aller à la connexion</button>
+          </Carte>
+        </main>
+      </Cadre>
+    );
+  }
   if (phase === "refuse") {
     return (
       <Cadre>

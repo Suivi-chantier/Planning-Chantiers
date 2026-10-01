@@ -95,3 +95,23 @@ client n'est ouverte.
 - Banc : `verif-portail-client-invest` 39/39, `verif-portail-ecran` 10/10 (casses volontaires détectées).
 - Non vérifié : rendu à l'écran et téléphone ; connexion réelle d'un client (aucun compte n'existe
   encore) ; mot de passe oublié / création du mot de passe par lien d'invitation = étape suivante.
+
+## Étape 5 — invitation d'un client (écrite, NON appliquée ni déployée)
+Décision de Matthieu (01/10/2026) : bouton réservé aux **administrateurs et aux commerciaux**.
+- Base (`20261001230000`) : `portail_gestionnaire()` (admin / commercial actif). Sur
+  `invest_portail_comptes`, les gestionnaires LISENT et RÉVOQUENT (colonnes statut, qui, quand) ;
+  plus personne ne crée, supprime ni relie un compte à un autre client en direct.
+- Fonction `portail-inviter-client` : jeton, droit par `portail_gestionnaire()`, puis service_role.
+  Adresse prise sur la fiche CLIENT, refus si c'est celle d'un collaborateur, aucun compte
+  existant « repris » (sauf essai interrompu), accès enregistré AVANT le courriel (le hook
+  d'accès l'exige), courriel en français par la messagerie Profero (Apps Script, og@).
+  Lien à usage unique `/espace-client?token_hash=…` validé par le portail lui-même : aucune
+  dépendance à la liste de redirections ni au modèle de courriel de Supabase.
+- CRM : bloc « Accès au portail client » dans la vue d'ensemble de la fiche client : Inviter,
+  Renvoyer le lien, Révoquer (confirmations). Invisible pour les autres rôles.
+- Portail : écran « Choisissez votre mot de passe » (8 caractères minimum), écran « Lien non valide ».
+  Pas de « mot de passe oublié » libre (évite un envoi d'e-mails à n'importe qui) : le conseiller
+  renvoie le lien.
+- Banc : `verif-portail-client-invest` 44/44, `verif-portail-invitation` 13/13 (casses volontaires détectées).
+- Non vérifié : envoi réel du courriel par la messagerie Profero avec ce contenu ; ouverture du
+  lien par un vrai client ; durée de validité du lien (réglage Supabase, 1 h par défaut).
