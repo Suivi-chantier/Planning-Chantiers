@@ -48,6 +48,12 @@ Pas en note de bas de page.
   l'objet d'un audit explicite, car une fonction appartenant à postgres
   contourne les règles de pilotage (`invest_etapes_regles_pilotage`).
   Détail : `docs/project/DOSSIER-INVEST-TRANCHE2A.md`.
+- **Réservé aux collaborateurs (deny by default).** Toute table de `public` et
+  tout bucket Storage portent la policy RESTRICTIVE
+  `profero_collaborateurs_seulement` (`est_collaborateur_actif()`). Une
+  nouvelle table ou un nouveau bucket doit la recevoir dans sa migration ;
+  l'ouverture au portail client se fait table par table, explicitement.
+  Détail : `docs/project/SECURITE-3A-COLLABORATEURS-SEULEMENT.md`.
 - **Modules de calcul purs** : extension `.mjs`, aucun accès Supabase, aucune
   horloge, aucun effet de bord, façade `.js` (`export * from "./x.mjs"`) pour le
   front. Les données arrivent en paramètre.

@@ -1,0 +1,9513 @@
+{
+ "access_pages_invest": {
+  "Admin": [
+   "dashboard",
+   "crm",
+   "biens",
+   "simulateur",
+   "admin",
+   "finance",
+   "suivi_financier",
+   "structuration",
+   "prospection",
+   "sourcing",
+   "etat_des_lieux",
+   "urbanisme"
+  ],
+  "Commercial": [
+   "dashboard",
+   "prospection",
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "finance",
+   "suivi_financier"
+  ],
+  "Conseiller": [
+   "dashboard",
+   "prospection",
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "finance",
+   "suivi_financier"
+  ],
+  "Direction": [
+   "dashboard",
+   "prospection",
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "finance",
+   "suivi_financier"
+  ],
+  "Super Admin": [
+   "dashboard",
+   "crm",
+   "biens",
+   "simulateur",
+   "admin",
+   "finance",
+   "suivi_financier",
+   "structuration",
+   "prospection",
+   "sourcing",
+   "etat_des_lieux",
+   "urbanisme"
+  ],
+  "admin": [
+   "dashboard",
+   "crm",
+   "biens",
+   "simulateur",
+   "admin",
+   "finance",
+   "suivi_financier",
+   "structuration",
+   "prospection",
+   "sourcing",
+   "etat_des_lieux",
+   "urbanisme"
+  ],
+  "agent_edl": [
+   "etat_des_lieux"
+  ],
+  "commercial": [
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "prospection",
+   "urbanisme"
+  ],
+  "conseiller": [
+   "dashboard",
+   "prospection",
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "finance",
+   "suivi_financier"
+  ],
+  "direction": [
+   "dashboard",
+   "prospection",
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "finance",
+   "suivi_financier"
+  ],
+  "super_admin": [
+   "dashboard",
+   "prospection",
+   "crm",
+   "biens",
+   "simulateur",
+   "structuration",
+   "sourcing",
+   "etat_des_lieux",
+   "urbanisme",
+   "finance",
+   "suivi_financier",
+   "admin"
+  ]
+ },
+ "fonctions": [
+  {
+   "acl": "{postgres=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.acces_collaborateur_autorise(p_email text)\n RETURNS boolean\n LANGUAGE sql\n STABLE\n SET search_path TO ''\nAS $function$\n  select coalesce(p_email, '') <> ''\n     and exists (\n       select 1 from public.utilisateurs u\n       where lower(btrim(u.email)) = p_email and u.actif is true)\n     and not exists (\n       select 1 from public.utilisateurs u\n       where lower(btrim(u.email)) = p_email and u.actif is not true);\n$function$\n",
+   "nom": "acces_collaborateur_autorise"
+  },
+  {
+   "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.est_ouvrier()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select public.mon_role() = 'ouvrier';\n$function$\n",
+   "nom": "est_ouvrier"
+  },
+  {
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.est_responsable()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select coalesce(\r\n    exists (\r\n      select 1\r\n      from public.planning_config pc\r\n      cross join lateral jsonb_array_elements(\r\n        case when jsonb_typeof(pc.value->'items') = 'array'\r\n             then pc.value->'items' else '[]'::jsonb end\r\n      ) e\r\n      cross join lateral (\r\n        select jsonb_array_elements_text(\r\n          case when jsonb_typeof(e->'responsables') = 'array'\r\n               then e->'responsables' else '[]'::jsonb end\r\n        ) as prenom\r\n        union\r\n        select e->>'responsable'\r\n      ) resp\r\n      where pc.key = 'equipes'\r\n        and public.norm_prenom(resp.prenom) <> ''\r\n        and public.norm_prenom(resp.prenom)\r\n            = public.norm_prenom(public.mon_prenom_planning())\r\n    ),\r\n    false\r\n  );\r\n$function$\n",
+   "nom": "est_responsable"
+  },
+  {
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.invest_est_membre()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select exists (\n    select 1\n    from public.utilisateurs u\n    where lower(u.email) = lower(auth.email())\n      and coalesce(u.actif, false) = true\n      and u.branches::text ilike '%invest%'\n  );\n$function$\n",
+   "nom": "invest_est_membre"
+  },
+  {
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.invest_peut_voir(page text)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  with r as (\n    select public.invest_role_courant() as role\n  ),\n  cfg as (\n    select value::jsonb as value\n    from public.planning_config\n    where key = 'access_pages_invest'\n    limit 1\n  )\n  select\n    case\n\n      -- Pas de rôle Invest = aucun accès\n      when (select role from r) is null\n        then false\n\n      -- Si la configuration est absente :\n      -- sécurité de secours admin / super_admin\n      when (select value from cfg) is null\n        then (select role from r) in ('admin', 'super_admin')\n\n      -- Correspondance exacte du rôle\n      when (select value from cfg) ? (select role from r)\n        then coalesce(\n          (select value from cfg)\n            -> (select role from r)\n            ? page,\n          false\n        )\n\n      -- Correspondance normalisée\n      when (select value from cfg)\n        ? lower(replace((select role from r), ' ', '_'))\n        then coalesce(\n          (select value from cfg)\n            -> lower(replace((select role from r), ' ', '_'))\n            ? page,\n          false\n        )\n\n      -- Sécurité de secours\n      else (select role from r) in ('admin', 'super_admin')\n\n    end;\n$function$\n",
+   "nom": "invest_peut_voir"
+  },
+  {
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.invest_role_courant()\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select u.role\n  from public.utilisateurs u\n  where lower(u.email) = lower(auth.email())\n    and coalesce(u.actif, false) = true\n    and u.branches::text ilike '%invest%'\n  limit 1;\n$function$\n",
+   "nom": "invest_role_courant"
+  },
+  {
+   "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.is_admin()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\r\n  SELECT EXISTS (\r\n    SELECT 1 FROM utilisateurs\r\n    WHERE email = auth.email() AND role = 'admin' AND actif = true\r\n  );\r\n$function$\n",
+   "nom": "is_admin"
+  },
+  {
+   "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.mon_prenom_planning()\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  select prenom_planning from public.utilisateurs where email = auth.email() limit 1;\r\n$function$\n",
+   "nom": "mon_prenom_planning"
+  },
+  {
+   "acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.mon_role()\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select u.role\n  from public.utilisateurs u\n  where u.email = auth.email()\n    and u.actif is true\n  limit 1;\n$function$\n",
+   "nom": "mon_role"
+  },
+  {
+   "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+   "def": "CREATE OR REPLACE FUNCTION public.norm_prenom(t text)\n RETURNS text\n LANGUAGE sql\n STABLE\n SET search_path TO 'public', 'extensions'\nAS $function$\r\n  select lower(regexp_replace(trim(unaccent(coalesce(t, ''))), '\\s+', ' ', 'g'));\r\n$function$\n",
+   "nom": "norm_prenom"
+  }
+ ],
+ "policies": [
+  {
+   "cmd": "INSERT",
+   "nom": "besoins_anon_ins",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "anon"
+   ],
+   "schema": "public",
+   "table": "besoins",
+   "with_check": "true"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "besoins_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "besoins",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "besoins_ouvrier_ins",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "besoins",
+   "with_check": "(est_ouvrier() AND (ouvrier_demandeur = mon_prenom_planning()))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "besoins_ouvrier_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(est_ouvrier() AND (ouvrier_demandeur = mon_prenom_planning()))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "besoins",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "bibliotheque_ratios",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "public_all",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "bilans_hebdo",
+   "with_check": "true"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_avancement_history",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "factures client bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_factures_client",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "reglements lecture bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_factures_reglements",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_notes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "chantier_progbat_yards bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_progbat_yards",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "chantier_projets bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_projets",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_reference_financiere",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chantier_snapshots_hebdo",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "chiffrage_conditions_historique_bureau_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chiffrage_conditions_historique",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "chiffrage_conditions_historique_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chiffrage_conditions_historique",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "chiffrage_ligne_conditions_historique_bureau_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chiffrage_ligne_conditions_historique",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "chiffrage_ligne_conditions_historique_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "chiffrage_ligne_conditions_historique",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "clotures_journee",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "coefficients_vente_admin_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "coefficients_vente",
+   "with_check": "is_admin()"
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "coefficients_vente_admin_update",
+   "permissive": "PERMISSIVE",
+   "qual": "is_admin()",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "coefficients_vente",
+   "with_check": "is_admin()"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "coefficients_vente_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "coefficients_vente",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "commande_lignes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "commandes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "commandes_detail",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "commandes_passees",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "controles_groupe bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "controles_groupe",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "cr_comptes_rendus_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "cr_comptes_rendus",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "cr_observations_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "cr_observations",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "Public delete cr_photos",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "cr_photos",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "Public insert cr_photos",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "cr_photos",
+   "with_check": "true"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "Public read cr_photos",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "cr_photos",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "cr_photos_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "cr_photos",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "data_history",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "facture_bl",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "factures",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "fournisseurs",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "ia_jobs_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "((mon_role() = 'admin'::text) OR (utilisateur_email = auth.email()))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "ia_jobs",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_actifs_patrimoniaux_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_actifs_patrimoniaux",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_actifs_patrimoniaux_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_actifs_patrimoniaux",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_actifs_patrimoniaux_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_actifs_patrimoniaux",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_action_notifications_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_action_notifications",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_biens_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('biens'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('simulateur'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('etat_des_lieux'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('urbanisme'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_biens",
+   "with_check": "(( SELECT invest_peut_voir('biens'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('simulateur'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_clients_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('suivi_financier'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_clients",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_dashboard_action_links_all_app",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = ANY (ARRAY['authenticated'::text, 'anon'::text]))",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "invest_dashboard_action_links",
+   "with_check": "(auth.role() = ANY (ARRAY['authenticated'::text, 'anon'::text]))"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_etapes_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossier_etapes",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_etapes_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('suivi_financier'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossier_etapes",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_etapes_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossier_etapes",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_evenements_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('suivi_financier'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossier_evenements",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_dossiers_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossiers",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_dossiers_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('suivi_financier'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossiers",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_dossiers_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_dossiers",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_drive_links_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_est_membre() AS invest_est_membre)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_drive_links",
+   "with_check": "( SELECT invest_est_membre() AS invest_est_membre)"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_engagements_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_engagements",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_engagements_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_engagements",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_engagements_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_engagements",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_edl_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('etat_des_lieux'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_etats_des_lieux",
+   "with_check": "( SELECT invest_peut_voir('etat_des_lieux'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "auth_all",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_events",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_mission_actions_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_mission_actions",
+   "with_check": "( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_morning_routine_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_morning_routine_items",
+   "with_check": "( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "Authenticated can manage morning routine logs",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_morning_routine_logs",
+   "with_check": "true"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_morning_routine_recurrences_all_auth",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "invest_morning_routine_recurrences",
+   "with_check": "(auth.role() = 'authenticated'::text)"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "Authenticated can read morning routine reminders",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_morning_routine_reminders",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_morning_routines_all_auth",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "invest_morning_routines",
+   "with_check": "(auth.role() = 'authenticated'::text)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_notes_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_notes",
+   "with_check": "( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_personnes_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_personnes",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_personnes_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_personnes",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_personnes_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_personnes",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_planning_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_planning",
+   "with_check": "(( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_postes_financiers_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_postes_financiers",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_postes_financiers_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_postes_financiers",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_postes_financiers_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_postes_financiers",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_projets_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "invest_projets_archive",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_propositions_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('biens'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_propositions",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('biens'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_prospect_actions_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_prospect_actions",
+   "with_check": "( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_prospects_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_prospects",
+   "with_check": "(( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_prospects_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_prospects",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_prospects_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_prospects",
+   "with_check": "(( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "invest_prospects_suppression",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('prospection'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_prospects",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_structuration_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_structuration_patrimoniale",
+   "with_check": "( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_structures_creation",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_structures",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_structures_lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('dashboard'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_structures",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "invest_structures_modification",
+   "permissive": "PERMISSIVE",
+   "qual": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_structures",
+   "with_check": "(( SELECT invest_peut_voir('crm'::text) AS invest_peut_voir) OR ( SELECT invest_peut_voir('structuration'::text) AS invest_peut_voir))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_suivi_financier_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('suivi_financier'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_suivi_financier",
+   "with_check": "( SELECT invest_peut_voir('suivi_financier'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "invest_urbanisme_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('urbanisme'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "invest_urbanisme_dossiers",
+   "with_check": "( SELECT invest_peut_voir('urbanisme'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "materiaux_bibliotheque_bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "((( SELECT mon_role() AS mon_role) IS NOT NULL) AND (NOT ( SELECT est_ouvrier() AS est_ouvrier)))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "materiaux_bibliotheque",
+   "with_check": "((( SELECT mon_role() AS mon_role) IS NOT NULL) AND (NOT ( SELECT est_ouvrier() AS est_ouvrier)))"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "materiel_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "materiel",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "materiel_ouvrier_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(est_ouvrier() AND (ouvrier_prenom = mon_prenom_planning()))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "materiel",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "materiel_audit_lignes_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "materiel_audit_lignes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "materiel_audits_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "materiel_audits",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "phasages",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "phasages_backup_premig_v2",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "phasages_history",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "planning_baselines_bureau_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_baselines",
+   "with_check": "((NOT est_ouvrier()) AND ((created_by IS NULL) OR (created_by = ( SELECT auth.uid() AS uid))))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "planning_baselines_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_baselines",
+   "with_check": null
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "cells_anon_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "true",
+   "roles": [
+    "anon"
+   ],
+   "schema": "public",
+   "table": "planning_cells",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "cells_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_cells",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "cells_ouvrier_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(est_ouvrier() AND (mon_prenom_planning() = ANY (ouvriers)))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_cells",
+   "with_check": null
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "cells_responsable_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(est_ouvrier() AND est_responsable())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_cells",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_chantiers",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_commandes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "config_anon_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(key = ANY (ARRAY['chantiers'::text, 'ouvriers'::text, 'heures_par_jour'::text, 'espace_ouvrier_actif'::text]))",
+   "roles": [
+    "anon"
+   ],
+   "schema": "public",
+   "table": "planning_config",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "config_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_config",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "config_ouvrier_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(est_ouvrier() AND (key = ANY (ARRAY['chantiers'::text, 'chantier_adresses'::text, 'ouvriers'::text, 'heures_par_jour'::text, 'espace_ouvrier_actif'::text, 'equipes'::text, 'operations'::text])))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_config",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "planning_constraints_bureau_delete",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_constraints",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "planning_constraints_bureau_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_constraints",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "planning_constraints_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_constraints",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "planning_constraints_bureau_update",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_constraints",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_mensuel",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_notes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "planning_resource_events_bureau_delete",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resource_events",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "planning_resource_events_bureau_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resource_events",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "planning_resource_events_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resource_events",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "planning_resource_events_bureau_update",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resource_events",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "planning_resource_events_ouvrier_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(EXISTS ( SELECT 1\n   FROM planning_resources r\n  WHERE ((r.id = planning_resource_events.resource_id) AND (r.auth_user_id = auth.uid()))))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resource_events",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "planning_resources_bureau_delete",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resources",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "planning_resources_bureau_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resources",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "planning_resources_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resources",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "planning_resources_bureau_update",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resources",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "planning_resources_ouvrier_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(auth_user_id = auth.uid())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "planning_resources",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "plans",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "pointages",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "profero_categories_ouvrages",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "profero_cotes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "profero_dessins",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "profero_ouvrages_selectionnes",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "profero_plans",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "profero_projets",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "progbat_cadence_import_items_lecture_bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "progbat_cadence_import_items",
+   "with_check": null
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "progbat_cadence_import_runs_lecture_bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "progbat_cadence_import_runs",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "rapports_anon_ins",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "anon"
+   ],
+   "schema": "public",
+   "table": "rapports",
+   "with_check": "true"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "rapports_bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "rapports",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "rapports_ouvrier_ins",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "rapports",
+   "with_check": "(est_ouvrier() AND (ouvrier = mon_prenom_planning()))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "rapports_ouvrier_sel",
+   "permissive": "PERMISSIVE",
+   "qual": "(est_ouvrier() AND (ouvrier = mon_prenom_planning()))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "rapports",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "reserves bureau",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "reserves",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "sourcing_annonces_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "sourcing_annonces",
+   "with_check": "( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "sourcing_criteres_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "sourcing_criteres",
+   "with_check": "( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "sourcing_logs_membres",
+   "permissive": "PERMISSIVE",
+   "qual": "( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "sourcing_logs",
+   "with_check": "( SELECT invest_peut_voir('sourcing'::text) AS invest_peut_voir)"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "taux_horaires_vente_admin_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "taux_horaires_vente",
+   "with_check": "is_admin()"
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "taux_horaires_vente_admin_update",
+   "permissive": "PERMISSIVE",
+   "qual": "is_admin()",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "taux_horaires_vente",
+   "with_check": "is_admin()"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "taux_horaires_vente_bureau_select",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "taux_horaires_vente",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "utilisateurs_delete",
+   "permissive": "PERMISSIVE",
+   "qual": "is_admin()",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "utilisateurs",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "utilisateurs_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "utilisateurs",
+   "with_check": "is_admin()"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "utilisateurs_select",
+   "permissive": "PERMISSIVE",
+   "qual": "((auth.email() = email) OR is_admin())",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "utilisateurs",
+   "with_check": null
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "utilisateurs_update",
+   "permissive": "PERMISSIVE",
+   "qual": "((auth.email() = email) OR is_admin())",
+   "roles": [
+    "public"
+   ],
+   "schema": "public",
+   "table": "utilisateurs",
+   "with_check": null
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "vehicules",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "ALL",
+   "nom": "bureau_all",
+   "permissive": "PERMISSIVE",
+   "qual": "(NOT est_ouvrier())",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "public",
+   "table": "visites_chantier",
+   "with_check": "(NOT est_ouvrier())"
+  },
+  {
+   "cmd": "UPDATE",
+   "nom": "Authenticated update chantiers photos",
+   "permissive": "PERMISSIVE",
+   "qual": "((bucket_id = 'photos'::text) AND ((storage.foldername(name))[1] = 'chantiers'::text))",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": "((bucket_id = 'photos'::text) AND ((storage.foldername(name))[1] = 'chantiers'::text))"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "Authenticated upload chantiers photos",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": "((bucket_id = 'photos'::text) AND ((storage.foldername(name))[1] = 'chantiers'::text))"
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "Public delete photos bucket",
+   "permissive": "PERMISSIVE",
+   "qual": "(bucket_id = 'photos'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "Public read chantiers photos",
+   "permissive": "PERMISSIVE",
+   "qual": "((bucket_id = 'photos'::text) AND ((storage.foldername(name))[1] = 'chantiers'::text))",
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "Public read photos bucket",
+   "permissive": "PERMISSIVE",
+   "qual": "(bucket_id = 'photos'::text)",
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "Public upload photos bucket",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": "(bucket_id = 'photos'::text)"
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "chantier-documents ecriture",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": "(bucket_id = 'chantier-documents'::text)"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "chantier-documents lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(bucket_id = 'chantier-documents'::text)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "chantier-documents suppression",
+   "permissive": "PERMISSIVE",
+   "qual": "(bucket_id = 'chantier-documents'::text)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest-documents ecriture",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": "(bucket_id = 'invest-documents'::text)"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest-documents lecture",
+   "permissive": "PERMISSIVE",
+   "qual": "(bucket_id = 'invest-documents'::text)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "invest-documents suppression",
+   "permissive": "PERMISSIVE",
+   "qual": "(bucket_id = 'invest-documents'::text)",
+   "roles": [
+    "authenticated"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "DELETE",
+   "nom": "invest_docs_delete",
+   "permissive": "PERMISSIVE",
+   "qual": "((bucket_id = 'invest-documents'::text) AND (auth.role() = 'authenticated'::text))",
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  },
+  {
+   "cmd": "INSERT",
+   "nom": "invest_docs_insert",
+   "permissive": "PERMISSIVE",
+   "qual": null,
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": "((bucket_id = 'invest-documents'::text) AND (auth.role() = 'authenticated'::text))"
+  },
+  {
+   "cmd": "SELECT",
+   "nom": "invest_docs_select",
+   "permissive": "PERMISSIVE",
+   "qual": "((bucket_id = 'invest-documents'::text) AND (auth.role() = 'authenticated'::text))",
+   "roles": [
+    "public"
+   ],
+   "schema": "storage",
+   "table": "objects",
+   "with_check": null
+  }
+ ],
+ "storage_fonctions": [
+  "CREATE OR REPLACE FUNCTION storage.foldername(name text)\n RETURNS text[]\n LANGUAGE plpgsql\n IMMUTABLE\nAS $function$\nDECLARE\n    _parts text[];\nBEGIN\n    -- Split on \"/\" to get path segments\n    SELECT string_to_array(name, '/') INTO _parts;\n    -- Return everything except the last segment\n    RETURN _parts[1 : array_length(_parts,1) - 1];\nEND\n$function$\n"
+ ],
+ "tables": [
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "materiau_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "article",
+     "type": "text"
+    },
+    {
+     "nom": "quantite",
+     "type": "text"
+    },
+    {
+     "nom": "unite",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrier_demandeur",
+     "type": "text"
+    },
+    {
+     "nom": "origine",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "priorite",
+     "type": "text"
+    },
+    {
+     "nom": "photo_url",
+     "type": "text"
+    },
+    {
+     "nom": "panier_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "besoins",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "identifiant",
+     "type": "text"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "unite",
+     "type": "text"
+    },
+    {
+     "nom": "sous_taches",
+     "type": "jsonb"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "cadence",
+     "type": "double precision"
+    },
+    {
+     "nom": "materiaux_liens",
+     "type": "jsonb"
+    },
+    {
+     "nom": "taux_marge_pct",
+     "type": "numeric"
+    },
+    {
+     "nom": "main_oeuvre_seule",
+     "type": "boolean"
+    },
+    {
+     "nom": "cout_direct_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "progbat_id",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_sync_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "coef_vente",
+     "type": "numeric"
+    },
+    {
+     "nom": "taux_horaire_vente_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "coefficient_vente_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cadence_source",
+     "type": "text"
+    },
+    {
+     "nom": "cadence_imported_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "cadence_import_run_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "coefficient_vente_valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "taux_horaire_vente_valeur",
+     "type": "numeric(10,2)"
+    }
+   ],
+   "nom": "bibliotheque_ratios",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "week_id",
+     "type": "text"
+    },
+    {
+     "nom": "data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "bilans_hebdo",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "avancement",
+     "type": "integer"
+    },
+    {
+     "nom": "taches_terminees",
+     "type": "integer"
+    },
+    {
+     "nom": "taches_total",
+     "type": "integer"
+    },
+    {
+     "nom": "date_snapshot",
+     "type": "date"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_avancement_history",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ligne_id",
+     "type": "text"
+    },
+    {
+     "nom": "ligne_nom",
+     "type": "text"
+    },
+    {
+     "nom": "numero",
+     "type": "text"
+    },
+    {
+     "nom": "date_facture",
+     "type": "date"
+    },
+    {
+     "nom": "montant_ht",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "montant_tva",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "montant_ttc",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "pct_du_marche",
+     "type": "numeric(6,2)"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "date_encaissement",
+     "type": "date"
+    },
+    {
+     "nom": "montant_encaisse",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "document_path",
+     "type": "text"
+    },
+    {
+     "nom": "document_nom",
+     "type": "text"
+    },
+    {
+     "nom": "extraction",
+     "type": "jsonb"
+    },
+    {
+     "nom": "confiance",
+     "type": "numeric(4,2)"
+    },
+    {
+     "nom": "rapprochement",
+     "type": "text"
+    },
+    {
+     "nom": "raison",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_bill_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_bill_code",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_quote_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_yard_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_business_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_type",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_situation_number",
+     "type": "integer"
+    },
+    {
+     "nom": "progbat_status",
+     "type": "integer"
+    },
+    {
+     "nom": "progbat_validated",
+     "type": "integer"
+    },
+    {
+     "nom": "progbat_revision_number",
+     "type": "integer"
+    },
+    {
+     "nom": "progbat_document_date",
+     "type": "date"
+    },
+    {
+     "nom": "progbat_due_date",
+     "type": "date"
+    },
+    {
+     "nom": "progbat_deal_net_total",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_deal_taxes",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_deal_ati_total",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_achievement",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_previous_achievement",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_net_total",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_taxes",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_ati_total",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_holdback",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_deducted_advance",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_to_be_paid",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_ati_deductions",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "progbat_tax_details",
+     "type": "jsonb"
+    },
+    {
+     "nom": "progbat_deductions",
+     "type": "jsonb"
+    },
+    {
+     "nom": "progbat_dgd",
+     "type": "boolean"
+    },
+    {
+     "nom": "progbat_synced_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "progbat_pdf_synced_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "ligne_id_verrouille",
+     "type": "boolean"
+    },
+    {
+     "nom": "ligne_id_modifie_par",
+     "type": "uuid"
+    },
+    {
+     "nom": "ligne_id_modifie_le",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_factures_client",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "facture_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_transaction_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_doc_type",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_canceled",
+     "type": "integer"
+    },
+    {
+     "nom": "date_reglement",
+     "type": "date"
+    },
+    {
+     "nom": "montant",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "mode",
+     "type": "text"
+    },
+    {
+     "nom": "annule",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_factures_reglements",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "contenu",
+     "type": "text"
+    },
+    {
+     "nom": "last_client_id",
+     "type": "text"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_notes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_yard_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_yard_label",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_public_yard_number",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_progbat_yards",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par_email",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_projets",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "auteur",
+     "type": "text"
+    },
+    {
+     "nom": "date_prise",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "series",
+     "type": "jsonb"
+    },
+    {
+     "nom": "recap",
+     "type": "jsonb"
+    },
+    {
+     "nom": "warnings",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_reference_financiere",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "week_id",
+     "type": "text"
+    },
+    {
+     "nom": "date_snapshot",
+     "type": "date"
+    },
+    {
+     "nom": "vendu_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "mo_prev",
+     "type": "numeric"
+    },
+    {
+     "nom": "mat_prev",
+     "type": "numeric"
+    },
+    {
+     "nom": "mo_reel",
+     "type": "numeric"
+    },
+    {
+     "nom": "mat_reel",
+     "type": "numeric"
+    },
+    {
+     "nom": "fg",
+     "type": "numeric"
+    },
+    {
+     "nom": "marge",
+     "type": "numeric"
+    },
+    {
+     "nom": "marge_pct",
+     "type": "numeric"
+    },
+    {
+     "nom": "avancement",
+     "type": "numeric"
+    },
+    {
+     "nom": "heures_vendues",
+     "type": "numeric"
+    },
+    {
+     "nom": "heures_reelles",
+     "type": "numeric"
+    },
+    {
+     "nom": "marge_terminaison",
+     "type": "numeric"
+    },
+    {
+     "nom": "reste_a_faire_h",
+     "type": "numeric"
+    },
+    {
+     "nom": "reste_a_faire_eur",
+     "type": "numeric"
+    },
+    {
+     "nom": "situation_a_facturer",
+     "type": "numeric"
+    },
+    {
+     "nom": "reste_a_commander",
+     "type": "numeric"
+    },
+    {
+     "nom": "lots",
+     "type": "jsonb"
+    },
+    {
+     "nom": "warnings",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "chantier_snapshots_hebdo",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "utilisateur_email",
+     "type": "text"
+    },
+    {
+     "nom": "date",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "ancien_mode_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_coefficient_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ancien_coefficient_valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "ancien_coefficient_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_mode_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_coefficient_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nouveau_coefficient_valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "nouveau_coefficient_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_mode_taux",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_taux_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ancien_taux_valeur",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "ancien_taux_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_mode_taux",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_taux_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nouveau_taux_valeur",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "nouveau_taux_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "nb_lignes_recalculees",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_lignes_ignorees",
+     "type": "integer"
+    },
+    {
+     "nom": "ancien_total_ht",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "nouveau_total_ht",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "ancienne_marge",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "nouvelle_marge",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "ancienne_marge_pct",
+     "type": "numeric(8,2)"
+    },
+    {
+     "nom": "nouvelle_marge_pct",
+     "type": "numeric(8,2)"
+    },
+    {
+     "nom": "version_avant",
+     "type": "integer"
+    },
+    {
+     "nom": "version_apres",
+     "type": "integer"
+    }
+   ],
+   "nom": "chiffrage_conditions_historique",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ligne_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "bibliotheque_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "item",
+     "type": "text"
+    },
+    {
+     "nom": "zone",
+     "type": "text"
+    },
+    {
+     "nom": "utilisateur_email",
+     "type": "text"
+    },
+    {
+     "nom": "date",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "ancien_mode_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_mode_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_coefficient_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nouveau_coefficient_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ancien_coefficient",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "nouveau_coefficient",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "ancien_coefficient_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_coefficient_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "ancienne_source_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "nouvelle_source_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_mode_taux",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_mode_taux",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_taux_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nouveau_taux_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ancien_taux",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "nouveau_taux",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "ancien_taux_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "nouveau_taux_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "ancienne_source_taux",
+     "type": "text"
+    },
+    {
+     "nom": "nouvelle_source_taux",
+     "type": "text"
+    },
+    {
+     "nom": "ancien_prix_unitaire",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "nouveau_prix_unitaire",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "ancienne_marge_pct",
+     "type": "numeric(8,2)"
+    },
+    {
+     "nom": "nouvelle_marge_pct",
+     "type": "numeric(8,2)"
+    },
+    {
+     "nom": "ancienne_marge_unitaire",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "nouvelle_marge_unitaire",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "prix_manuel_remplace",
+     "type": "boolean"
+    },
+    {
+     "nom": "conversion_v1",
+     "type": "boolean"
+    },
+    {
+     "nom": "ancienne_calcul_version",
+     "type": "text"
+    },
+    {
+     "nom": "nouvelle_calcul_version",
+     "type": "text"
+    },
+    {
+     "nom": "version_avant",
+     "type": "integer"
+    },
+    {
+     "nom": "version_apres",
+     "type": "integer"
+    }
+   ],
+   "nom": "chiffrage_ligne_conditions_historique",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "date",
+     "type": "date"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "historique",
+     "type": "jsonb"
+    },
+    {
+     "nom": "cloture_par",
+     "type": "text"
+    },
+    {
+     "nom": "cloture_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "clotures_journee",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "est_defaut",
+     "type": "boolean"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "updated_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "coefficients_vente",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "commande_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "reference",
+     "type": "text"
+    },
+    {
+     "nom": "quantite",
+     "type": "numeric"
+    },
+    {
+     "nom": "unite",
+     "type": "text"
+    },
+    {
+     "nom": "prix_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "prix_total",
+     "type": "numeric"
+    },
+    {
+     "nom": "prix_verrouille",
+     "type": "boolean"
+    },
+    {
+     "nom": "materiau_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "phase_id",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "lot_id",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrage_id",
+     "type": "text"
+    }
+   ],
+   "nom": "commande_lignes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type_evenement",
+     "type": "text"
+    },
+    {
+     "nom": "doc_type",
+     "type": "text"
+    },
+    {
+     "nom": "doc_numero",
+     "type": "text"
+    },
+    {
+     "nom": "numero_en_attente",
+     "type": "boolean"
+    },
+    {
+     "nom": "fournisseur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "fournisseur_nom",
+     "type": "text"
+    },
+    {
+     "nom": "date_doc",
+     "type": "date"
+    },
+    {
+     "nom": "montant_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "photo_url",
+     "type": "text"
+    },
+    {
+     "nom": "saisi_par",
+     "type": "text"
+    },
+    {
+     "nom": "statut_completude",
+     "type": "text"
+    },
+    {
+     "nom": "statut_facturation",
+     "type": "text"
+    },
+    {
+     "nom": "facture_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "commandes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "article",
+     "type": "text"
+    },
+    {
+     "nom": "fournisseur",
+     "type": "text"
+    },
+    {
+     "nom": "quantite",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "priorite",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrier_demandeur",
+     "type": "text"
+    },
+    {
+     "nom": "prix_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "text"
+    },
+    {
+     "nom": "materiau_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "phase_id",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrage_libelle",
+     "type": "text"
+    }
+   ],
+   "nom": "commandes_detail",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "phase_id",
+     "type": "text"
+    },
+    {
+     "nom": "phase_label",
+     "type": "text"
+    },
+    {
+     "nom": "date_commande",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "fournisseur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "fournisseur_nom",
+     "type": "text"
+    },
+    {
+     "nom": "articles",
+     "type": "jsonb"
+    },
+    {
+     "nom": "total_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "mail_envoye",
+     "type": "boolean"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    }
+   ],
+   "nom": "commandes_passees",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "groupe_id",
+     "type": "text"
+    },
+    {
+     "nom": "groupe_nom",
+     "type": "text"
+    },
+    {
+     "nom": "date_controle",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "auteur",
+     "type": "text"
+    },
+    {
+     "nom": "nb_taches",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_conformes",
+     "type": "integer"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "controles_groupe",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "client_prenom1",
+     "type": "text"
+    },
+    {
+     "nom": "client_nom1",
+     "type": "text"
+    },
+    {
+     "nom": "client_prenom2",
+     "type": "text"
+    },
+    {
+     "nom": "client_nom2",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "date_visite",
+     "type": "date"
+    },
+    {
+     "nom": "heure_visite",
+     "type": "text"
+    },
+    {
+     "nom": "type_visite",
+     "type": "text"
+    },
+    {
+     "nom": "participants",
+     "type": "text"
+    },
+    {
+     "nom": "resume",
+     "type": "text"
+    },
+    {
+     "nom": "avancement",
+     "type": "integer"
+    },
+    {
+     "nom": "prochaine_etape",
+     "type": "text"
+    },
+    {
+     "nom": "travaux",
+     "type": "text"
+    },
+    {
+     "nom": "remarques",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "validateur",
+     "type": "text"
+    }
+   ],
+   "nom": "cr_comptes_rendus",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cr_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "texte",
+     "type": "text"
+    },
+    {
+     "nom": "ordre",
+     "type": "integer"
+    }
+   ],
+   "nom": "cr_observations",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cr_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "data",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    }
+   ],
+   "nom": "cr_photos",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "table_name",
+     "type": "text"
+    },
+    {
+     "nom": "row_id",
+     "type": "text"
+    },
+    {
+     "nom": "op",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "row_data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "changed_by",
+     "type": "text"
+    },
+    {
+     "nom": "prev_updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "saved_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "data_history",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "facture_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "commande_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "bl_numero",
+     "type": "text"
+    },
+    {
+     "nom": "montant_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "facture_bl",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "fournisseur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "fournisseur_nom",
+     "type": "text"
+    },
+    {
+     "nom": "numero",
+     "type": "text"
+    },
+    {
+     "nom": "date_facture",
+     "type": "date"
+    },
+    {
+     "nom": "periode",
+     "type": "text"
+    },
+    {
+     "nom": "montant_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "photo_url",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "saisi_par",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "factures",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "email",
+     "type": "text"
+    },
+    {
+     "nom": "mail_type",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "mode_paiement",
+     "type": "text"
+    }
+   ],
+   "nom": "fournisseurs",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "utilisateur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "utilisateur_email",
+     "type": "text"
+    },
+    {
+     "nom": "role",
+     "type": "text"
+    },
+    {
+     "nom": "branche",
+     "type": "text"
+    },
+    {
+     "nom": "tache",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "entite_type",
+     "type": "text"
+    },
+    {
+     "nom": "entite_id",
+     "type": "text"
+    },
+    {
+     "nom": "entree",
+     "type": "jsonb"
+    },
+    {
+     "nom": "sortie_brute",
+     "type": "jsonb"
+    },
+    {
+     "nom": "sortie_validee",
+     "type": "jsonb"
+    },
+    {
+     "nom": "corrige",
+     "type": "boolean"
+    },
+    {
+     "nom": "valide_par",
+     "type": "text"
+    },
+    {
+     "nom": "valide_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "erreur_code",
+     "type": "text"
+    },
+    {
+     "nom": "erreur_message",
+     "type": "text"
+    },
+    {
+     "nom": "modele",
+     "type": "text"
+    },
+    {
+     "nom": "tokens_entree",
+     "type": "integer"
+    },
+    {
+     "nom": "tokens_sortie",
+     "type": "integer"
+    },
+    {
+     "nom": "cout_eur",
+     "type": "numeric(10,5)"
+    },
+    {
+     "nom": "duree_ms",
+     "type": "integer"
+    }
+   ],
+   "nom": "ia_jobs",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "usage",
+     "type": "text"
+    },
+    {
+     "nom": "typologie",
+     "type": "text"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "date_acquisition",
+     "type": "date"
+    },
+    {
+     "nom": "prix_acquisition",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "valeur_estimee",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "date_valeur",
+     "type": "date"
+    },
+    {
+     "nom": "source_valorisation",
+     "type": "text"
+    },
+    {
+     "nom": "loyer_mensuel",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "charges_annuelles",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "taxe_fonciere_annuelle",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "regime_fiscal",
+     "type": "text"
+    },
+    {
+     "nom": "mode_detention",
+     "type": "text"
+    },
+    {
+     "nom": "structure_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "detenteurs",
+     "type": "jsonb"
+    },
+    {
+     "nom": "travaux",
+     "type": "text"
+    },
+    {
+     "nom": "travaux_montant",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "date_vente",
+     "type": "date"
+    },
+    {
+     "nom": "prix_vente",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "bien_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "operation_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_statut",
+     "type": "text"
+    },
+    {
+     "nom": "verifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "verifie_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "archive_le",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_actifs_patrimoniaux",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "action_id",
+     "type": "text"
+    },
+    {
+     "nom": "recipient",
+     "type": "text"
+    },
+    {
+     "nom": "title",
+     "type": "text"
+    },
+    {
+     "nom": "message",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_type",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_id",
+     "type": "text"
+    },
+    {
+     "nom": "source_module",
+     "type": "text"
+    },
+    {
+     "nom": "priority",
+     "type": "text"
+    },
+    {
+     "nom": "status",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "read_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "resolved_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_action_notifications",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "ville",
+     "type": "text"
+    },
+    {
+     "nom": "code_postal",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "date_visite",
+     "type": "date"
+    },
+    {
+     "nom": "interlocuteur",
+     "type": "text"
+    },
+    {
+     "nom": "telephone_interlocuteur",
+     "type": "text"
+    },
+    {
+     "nom": "agence",
+     "type": "text"
+    },
+    {
+     "nom": "lien_annonce",
+     "type": "text"
+    },
+    {
+     "nom": "prix_vente",
+     "type": "numeric"
+    },
+    {
+     "nom": "prix_travaux",
+     "type": "numeric"
+    },
+    {
+     "nom": "cout_total",
+     "type": "numeric"
+    },
+    {
+     "nom": "rendement_brut",
+     "type": "numeric"
+    },
+    {
+     "nom": "cashflow_estime",
+     "type": "numeric"
+    },
+    {
+     "nom": "lien_drive",
+     "type": "text"
+    },
+    {
+     "nom": "lien_rentabilite",
+     "type": "text"
+    },
+    {
+     "nom": "montant_offre",
+     "type": "numeric"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "date_relance",
+     "type": "date"
+    },
+    {
+     "nom": "statut_relance",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "latitude",
+     "type": "numeric"
+    },
+    {
+     "nom": "longitude",
+     "type": "numeric"
+    },
+    {
+     "nom": "reference_interne",
+     "type": "text"
+    },
+    {
+     "nom": "conseiller_profero",
+     "type": "text"
+    },
+    {
+     "nom": "source_bien",
+     "type": "text"
+    },
+    {
+     "nom": "visite_data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "annonce_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "invest_biens",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "prenom",
+     "type": "text"
+    },
+    {
+     "nom": "conseiller",
+     "type": "text"
+    },
+    {
+     "nom": "email",
+     "type": "text"
+    },
+    {
+     "nom": "telephone",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "budget",
+     "type": "numeric"
+    },
+    {
+     "nom": "etape_num",
+     "type": "integer"
+    },
+    {
+     "nom": "etape",
+     "type": "text"
+    },
+    {
+     "nom": "avancement",
+     "type": "integer"
+    },
+    {
+     "nom": "niveau",
+     "type": "text"
+    },
+    {
+     "nom": "prochaine_action",
+     "type": "text"
+    },
+    {
+     "nom": "date_prochaine_action",
+     "type": "date"
+    },
+    {
+     "nom": "date_creation",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "date_signature",
+     "type": "date"
+    },
+    {
+     "nom": "notes_rapides",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "date_avant_contact",
+     "type": "date"
+    },
+    {
+     "nom": "date_premier_contact",
+     "type": "date"
+    },
+    {
+     "nom": "strategie_data",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "invest_clients",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "routine_date",
+     "type": "date"
+    },
+    {
+     "nom": "action_id",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_type",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_id",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_label",
+     "type": "text"
+    },
+    {
+     "nom": "responsable",
+     "type": "text"
+    },
+    {
+     "nom": "decision",
+     "type": "text"
+    },
+    {
+     "nom": "next_action",
+     "type": "text"
+    },
+    {
+     "nom": "due_date",
+     "type": "date"
+    },
+    {
+     "nom": "comment",
+     "type": "text"
+    },
+    {
+     "nom": "source_module",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_dashboard_action_links",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "operation_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "etape",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "balle",
+     "type": "text"
+    },
+    {
+     "nom": "balle_utilisateur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "balle_tiers_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "prochaine_action",
+     "type": "text"
+    },
+    {
+     "nom": "prochaine_action_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "echeance",
+     "type": "date"
+    },
+    {
+     "nom": "date_debut",
+     "type": "date"
+    },
+    {
+     "nom": "date_fin",
+     "type": "date"
+    },
+    {
+     "nom": "blocage_motif",
+     "type": "text"
+    },
+    {
+     "nom": "bloquee_depuis",
+     "type": "date"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "reprise_a_confirmer",
+     "type": "boolean"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_dossier_etapes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=rm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "operation_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "etape_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "mission_action_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "objet_type",
+     "type": "text"
+    },
+    {
+     "nom": "objet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "avant",
+     "type": "jsonb"
+    },
+    {
+     "nom": "apres",
+     "type": "jsonb"
+    },
+    {
+     "nom": "resume",
+     "type": "text"
+    },
+    {
+     "nom": "auteur_type",
+     "type": "text"
+    },
+    {
+     "nom": "auteur_utilisateur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "auteur_auth_user_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "auteur_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "visible_client",
+     "type": "boolean"
+    },
+    {
+     "nom": "survenu_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "ordre",
+     "type": "bigint"
+    }
+   ],
+   "nom": "invest_dossier_evenements",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "reference",
+     "type": "text"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "type_mission",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "motif_cloture",
+     "type": "text"
+    },
+    {
+     "nom": "conseiller_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "lettre_mission_statut",
+     "type": "text"
+    },
+    {
+     "nom": "lettre_mission_signee_le",
+     "type": "date"
+    },
+    {
+     "nom": "honoraires_prevus_ht",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "date_ouverture",
+     "type": "date"
+    },
+    {
+     "nom": "date_cloture",
+     "type": "date"
+    },
+    {
+     "nom": "origine",
+     "type": "text"
+    },
+    {
+     "nom": "prospect_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "portail_visible",
+     "type": "boolean"
+    },
+    {
+     "nom": "reprise",
+     "type": "jsonb"
+    },
+    {
+     "nom": "cree_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "questionnaire_version",
+     "type": "integer"
+    },
+    {
+     "nom": "questionnaire_data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "questionnaire_statut",
+     "type": "text"
+    },
+    {
+     "nom": "questionnaire_modifie_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "questionnaire_soumis_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "questionnaire_valide_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "questionnaire_valide_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "restitution_le",
+     "type": "date"
+    },
+    {
+     "nom": "cadrage_statut",
+     "type": "text"
+    },
+    {
+     "nom": "cadrage_le",
+     "type": "date"
+    }
+   ],
+   "nom": "invest_dossiers",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "folder",
+     "type": "text"
+    },
+    {
+     "nom": "file_id",
+     "type": "text"
+    },
+    {
+     "nom": "name",
+     "type": "text"
+    },
+    {
+     "nom": "mime_type",
+     "type": "text"
+    },
+    {
+     "nom": "url",
+     "type": "text"
+    },
+    {
+     "nom": "icon_url",
+     "type": "text"
+    },
+    {
+     "nom": "size_bytes",
+     "type": "bigint"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "metadata",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_drive_links",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "preteur_beneficiaire",
+     "type": "text"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "mensualite",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "assurance_mensuelle",
+     "type": "numeric(12,2)"
+    },
+    {
+     "nom": "capital_initial",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "capital_restant_du",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "crd_date",
+     "type": "date"
+    },
+    {
+     "nom": "taux",
+     "type": "numeric(6,3)"
+    },
+    {
+     "nom": "type_taux",
+     "type": "text"
+    },
+    {
+     "nom": "duree_mois",
+     "type": "integer"
+    },
+    {
+     "nom": "date_debut",
+     "type": "date"
+    },
+    {
+     "nom": "date_fin",
+     "type": "date"
+    },
+    {
+     "nom": "montant_garanti",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "personne_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "co_emprunteurs",
+     "type": "uuid[]"
+    },
+    {
+     "nom": "asset_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "solde",
+     "type": "boolean"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_statut",
+     "type": "text"
+    },
+    {
+     "nom": "verifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "verifie_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "archive_le",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_engagements",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "titre",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "date_edl",
+     "type": "date"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "donnees",
+     "type": "jsonb"
+    },
+    {
+     "nom": "nb_elements",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_renseignes",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_photos",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_reserves",
+     "type": "integer"
+    },
+    {
+     "nom": "auteur",
+     "type": "text"
+    },
+    {
+     "nom": "archive_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "bien_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "invest_etats_des_lieux",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "titre",
+     "type": "text"
+    },
+    {
+     "nom": "date",
+     "type": "date"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_events",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "step_key",
+     "type": "text"
+    },
+    {
+     "nom": "step_label",
+     "type": "text"
+    },
+    {
+     "nom": "step_index",
+     "type": "integer"
+    },
+    {
+     "nom": "sort_order",
+     "type": "integer"
+    },
+    {
+     "nom": "action_title",
+     "type": "text"
+    },
+    {
+     "nom": "responsable",
+     "type": "text"
+    },
+    {
+     "nom": "status",
+     "type": "text"
+    },
+    {
+     "nom": "due_date",
+     "type": "date"
+    },
+    {
+     "nom": "completed_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "relance_rule",
+     "type": "text"
+    },
+    {
+     "nom": "document_drive_attendu",
+     "type": "boolean"
+    },
+    {
+     "nom": "drive_folder",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "metadata",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "responsable_email",
+     "type": "text"
+    },
+    {
+     "nom": "notification_status",
+     "type": "text"
+    },
+    {
+     "nom": "notification_subject",
+     "type": "text"
+    },
+    {
+     "nom": "notification_body",
+     "type": "text"
+    },
+    {
+     "nom": "notification_prepared_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "notification_count",
+     "type": "integer"
+    },
+    {
+     "nom": "notification_sent_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "notification_error",
+     "type": "text"
+    },
+    {
+     "nom": "notification_mode",
+     "type": "text"
+    },
+    {
+     "nom": "gmail_message_id",
+     "type": "text"
+    },
+    {
+     "nom": "notification_last_recipient",
+     "type": "text"
+    },
+    {
+     "nom": "due_reminder_enabled",
+     "type": "boolean"
+    },
+    {
+     "nom": "last_reminder_sent_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "reminder_count",
+     "type": "integer"
+    },
+    {
+     "nom": "reminder_error",
+     "type": "text"
+    },
+    {
+     "nom": "justificatif_drive_file_id",
+     "type": "text"
+    },
+    {
+     "nom": "justificatif_drive_name",
+     "type": "text"
+    },
+    {
+     "nom": "justificatif_drive_url",
+     "type": "text"
+    },
+    {
+     "nom": "justificatif_drive_mime_type",
+     "type": "text"
+    },
+    {
+     "nom": "justificatif_drive_linked_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "calendar_status",
+     "type": "text"
+    },
+    {
+     "nom": "calendar_prepared_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "calendar_created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "calendar_event_id",
+     "type": "text"
+    },
+    {
+     "nom": "calendar_html_link",
+     "type": "text"
+    },
+    {
+     "nom": "calendar_error",
+     "type": "text"
+    },
+    {
+     "nom": "calendar_date",
+     "type": "date"
+    },
+    {
+     "nom": "calendar_time",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_type",
+     "type": "text"
+    },
+    {
+     "nom": "linked_entity_id",
+     "type": "text"
+    },
+    {
+     "nom": "source_module",
+     "type": "text"
+    },
+    {
+     "nom": "source_context",
+     "type": "jsonb"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "operation_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "etape",
+     "type": "text"
+    },
+    {
+     "nom": "nature",
+     "type": "text"
+    },
+    {
+     "nom": "acteur_type",
+     "type": "text"
+    },
+    {
+     "nom": "responsable_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "invest_mission_actions",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "routine_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "routine_date",
+     "type": "date"
+    },
+    {
+     "nom": "step_key",
+     "type": "text"
+    },
+    {
+     "nom": "item_type",
+     "type": "text"
+    },
+    {
+     "nom": "item_id",
+     "type": "text"
+    },
+    {
+     "nom": "item_label",
+     "type": "text"
+    },
+    {
+     "nom": "alert_level",
+     "type": "text"
+    },
+    {
+     "nom": "decision",
+     "type": "text"
+    },
+    {
+     "nom": "comment",
+     "type": "text"
+    },
+    {
+     "nom": "responsable",
+     "type": "text"
+    },
+    {
+     "nom": "next_action",
+     "type": "text"
+    },
+    {
+     "nom": "due_date",
+     "type": "date"
+    },
+    {
+     "nom": "force_validated",
+     "type": "boolean"
+    },
+    {
+     "nom": "force_reason",
+     "type": "text"
+    },
+    {
+     "nom": "status",
+     "type": "text"
+    },
+    {
+     "nom": "created_task_id",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_morning_routine_items",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "routine_date",
+     "type": "date"
+    },
+    {
+     "nom": "step_key",
+     "type": "text"
+    },
+    {
+     "nom": "item_type",
+     "type": "text"
+    },
+    {
+     "nom": "item_id",
+     "type": "text"
+    },
+    {
+     "nom": "item_label",
+     "type": "text"
+    },
+    {
+     "nom": "decision",
+     "type": "text"
+    },
+    {
+     "nom": "comment",
+     "type": "text"
+    },
+    {
+     "nom": "responsable",
+     "type": "text"
+    },
+    {
+     "nom": "due_date",
+     "type": "date"
+    },
+    {
+     "nom": "checked_items",
+     "type": "jsonb"
+    },
+    {
+     "nom": "status",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_morning_routine_logs",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "item_type",
+     "type": "text"
+    },
+    {
+     "nom": "item_id",
+     "type": "text"
+    },
+    {
+     "nom": "item_label",
+     "type": "text"
+    },
+    {
+     "nom": "first_seen_date",
+     "type": "date"
+    },
+    {
+     "nom": "last_seen_date",
+     "type": "date"
+    },
+    {
+     "nom": "report_count",
+     "type": "integer"
+    },
+    {
+     "nom": "block_count",
+     "type": "integer"
+    },
+    {
+     "nom": "last_decision",
+     "type": "text"
+    },
+    {
+     "nom": "last_comment",
+     "type": "text"
+    },
+    {
+     "nom": "is_recurring_alert",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_morning_routine_recurrences",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "routine_date",
+     "type": "date"
+    },
+    {
+     "nom": "recipient",
+     "type": "text"
+    },
+    {
+     "nom": "sent_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "status",
+     "type": "text"
+    },
+    {
+     "nom": "response",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_morning_routine_reminders",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "routine_date",
+     "type": "date"
+    },
+    {
+     "nom": "status",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "completed_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "completion_forced",
+     "type": "boolean"
+    },
+    {
+     "nom": "force_reason",
+     "type": "text"
+    },
+    {
+     "nom": "priorite_1",
+     "type": "text"
+    },
+    {
+     "nom": "priorite_2",
+     "type": "text"
+    },
+    {
+     "nom": "priorite_3",
+     "type": "text"
+    },
+    {
+     "nom": "summary",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_morning_routines",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "date",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "auteur",
+     "type": "text"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "contenu",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_notes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "lien",
+     "type": "text"
+    },
+    {
+     "nom": "co_emprunteur",
+     "type": "boolean"
+    },
+    {
+     "nom": "a_charge",
+     "type": "boolean"
+    },
+    {
+     "nom": "garde_alternee",
+     "type": "boolean"
+    },
+    {
+     "nom": "civilite",
+     "type": "text"
+    },
+    {
+     "nom": "prenom",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "nom_naissance",
+     "type": "text"
+    },
+    {
+     "nom": "date_naissance",
+     "type": "date"
+    },
+    {
+     "nom": "nationalite",
+     "type": "text"
+    },
+    {
+     "nom": "pays_residence_fiscale",
+     "type": "text"
+    },
+    {
+     "nom": "email",
+     "type": "text"
+    },
+    {
+     "nom": "telephone",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "statut_professionnel",
+     "type": "text"
+    },
+    {
+     "nom": "profession",
+     "type": "text"
+    },
+    {
+     "nom": "employeur",
+     "type": "text"
+    },
+    {
+     "nom": "date_debut_activite",
+     "type": "date"
+    },
+    {
+     "nom": "ordre",
+     "type": "integer"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_statut",
+     "type": "text"
+    },
+    {
+     "nom": "verifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "verifie_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "archive_le",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_personnes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "titre",
+     "type": "text"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "date_rdv",
+     "type": "date"
+    },
+    {
+     "nom": "heure_debut",
+     "type": "time without time zone"
+    },
+    {
+     "nom": "heure_fin",
+     "type": "time without time zone"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "bien_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "lieu",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_planning",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "personne_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "famille",
+     "type": "text"
+    },
+    {
+     "nom": "categorie",
+     "type": "text"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "montant",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "periodicite",
+     "type": "text"
+    },
+    {
+     "nom": "base_revenu",
+     "type": "text"
+    },
+    {
+     "nom": "etablissement",
+     "type": "text"
+    },
+    {
+     "nom": "date_valeur",
+     "type": "date"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_statut",
+     "type": "text"
+    },
+    {
+     "nom": "verifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "verifie_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "archive_le",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_postes_financiers",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "donnees",
+     "type": "jsonb"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "invest_projets_archive",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "bien_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "date_proposition",
+     "type": "date"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "lien_dossier",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_propositions",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "prospect_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "date_action",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "type_action",
+     "type": "text"
+    },
+    {
+     "nom": "resume",
+     "type": "text"
+    },
+    {
+     "nom": "resultat",
+     "type": "text"
+    },
+    {
+     "nom": "prochaine_action",
+     "type": "text"
+    },
+    {
+     "nom": "date_prochaine_action",
+     "type": "date"
+    },
+    {
+     "nom": "donnees",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "invest_prospect_actions",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "updated_by",
+     "type": "text"
+    },
+    {
+     "nom": "is_deleted",
+     "type": "boolean"
+    },
+    {
+     "nom": "civilite",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "prenom",
+     "type": "text"
+    },
+    {
+     "nom": "societe",
+     "type": "text"
+    },
+    {
+     "nom": "telephone",
+     "type": "text"
+    },
+    {
+     "nom": "email",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "ville",
+     "type": "text"
+    },
+    {
+     "nom": "code_postal",
+     "type": "text"
+    },
+    {
+     "nom": "pays",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "responsable",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "priorite",
+     "type": "text"
+    },
+    {
+     "nom": "score",
+     "type": "text"
+    },
+    {
+     "nom": "profil_investisseur",
+     "type": "text"
+    },
+    {
+     "nom": "experience",
+     "type": "text"
+    },
+    {
+     "nom": "nb_biens",
+     "type": "integer"
+    },
+    {
+     "nom": "situation_professionnelle",
+     "type": "text"
+    },
+    {
+     "nom": "objectif",
+     "type": "text"
+    },
+    {
+     "nom": "zone_recherche",
+     "type": "text"
+    },
+    {
+     "nom": "type_bien",
+     "type": "text"
+    },
+    {
+     "nom": "strategie",
+     "type": "text"
+    },
+    {
+     "nom": "budget_global",
+     "type": "numeric"
+    },
+    {
+     "nom": "budget_travaux",
+     "type": "numeric"
+    },
+    {
+     "nom": "apport",
+     "type": "numeric"
+    },
+    {
+     "nom": "capacite_emprunt",
+     "type": "numeric"
+    },
+    {
+     "nom": "delai_achat",
+     "type": "text"
+    },
+    {
+     "nom": "motivation",
+     "type": "text"
+    },
+    {
+     "nom": "maturite",
+     "type": "text"
+    },
+    {
+     "nom": "probabilite_signature",
+     "type": "numeric"
+    },
+    {
+     "nom": "offre_recommandee",
+     "type": "text"
+    },
+    {
+     "nom": "honoraires_estimes_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "honoraires_estimes_ttc",
+     "type": "numeric"
+    },
+    {
+     "nom": "ca_potentiel_ht",
+     "type": "numeric"
+    },
+    {
+     "nom": "objections",
+     "type": "text"
+    },
+    {
+     "nom": "besoins",
+     "type": "text"
+    },
+    {
+     "nom": "prochaine_action",
+     "type": "text"
+    },
+    {
+     "nom": "date_prochaine_action",
+     "type": "date"
+    },
+    {
+     "nom": "date_relance",
+     "type": "date"
+    },
+    {
+     "nom": "date_premier_contact",
+     "type": "date"
+    },
+    {
+     "nom": "date_rdv",
+     "type": "date"
+    },
+    {
+     "nom": "heure_rdv",
+     "type": "text"
+    },
+    {
+     "nom": "type_rdv",
+     "type": "text"
+    },
+    {
+     "nom": "lieu_rdv",
+     "type": "text"
+    },
+    {
+     "nom": "statut_rdv",
+     "type": "text"
+    },
+    {
+     "nom": "compte_rendu_rdv",
+     "type": "text"
+    },
+    {
+     "nom": "date_proposition",
+     "type": "date"
+    },
+    {
+     "nom": "statut_proposition",
+     "type": "text"
+    },
+    {
+     "nom": "date_signature",
+     "type": "date"
+    },
+    {
+     "nom": "date_perte",
+     "type": "date"
+    },
+    {
+     "nom": "raison_perte",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "donnees",
+     "type": "jsonb"
+    },
+    {
+     "nom": "converted_client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "converted_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_prospects",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "titre",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "phase",
+     "type": "text"
+    },
+    {
+     "nom": "conseiller",
+     "type": "text"
+    },
+    {
+     "nom": "donnees",
+     "type": "jsonb"
+    },
+    {
+     "nom": "analyse_data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_by",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_structuration_patrimoniale",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "forme_juridique",
+     "type": "text"
+    },
+    {
+     "nom": "denomination",
+     "type": "text"
+    },
+    {
+     "nom": "siren",
+     "type": "text"
+    },
+    {
+     "nom": "regime_fiscal",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "date_creation",
+     "type": "date"
+    },
+    {
+     "nom": "capital",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "activite",
+     "type": "text"
+    },
+    {
+     "nom": "gerant",
+     "type": "text"
+    },
+    {
+     "nom": "associes",
+     "type": "jsonb"
+    },
+    {
+     "nom": "dernier_resultat",
+     "type": "numeric(14,2)"
+    },
+    {
+     "nom": "dernier_exercice",
+     "type": "integer"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "dossier_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "cree_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "modifie_par_auth_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_statut",
+     "type": "text"
+    },
+    {
+     "nom": "verifie_par_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "verifie_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "archive_le",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_structures",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "text"
+    },
+    {
+     "nom": "data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_by",
+     "type": "text"
+    }
+   ],
+   "nom": "invest_suivi_financier",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "reference",
+     "type": "text"
+    },
+    {
+     "nom": "entite",
+     "type": "text"
+    },
+    {
+     "nom": "commercial",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "code_postal",
+     "type": "text"
+    },
+    {
+     "nom": "commune",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "natures",
+     "type": "jsonb"
+    },
+    {
+     "nom": "autorisation",
+     "type": "text"
+    },
+    {
+     "nom": "abf",
+     "type": "text"
+    },
+    {
+     "nom": "date_demande",
+     "type": "date"
+    },
+    {
+     "nom": "date_max_depot",
+     "type": "date"
+    },
+    {
+     "nom": "date_depot",
+     "type": "date"
+    },
+    {
+     "nom": "date_fin_instruction",
+     "type": "date"
+    },
+    {
+     "nom": "donnees",
+     "type": "jsonb"
+    },
+    {
+     "nom": "completude",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_menuiseries",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_pieces_manquantes",
+     "type": "integer"
+    },
+    {
+     "nom": "bien_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "client_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "auteur",
+     "type": "text"
+    },
+    {
+     "nom": "transmis_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "invest_urbanisme_dossiers",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "bigint"
+    },
+    {
+     "nom": "cree_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "requete_id",
+     "type": "text"
+    },
+    {
+     "nom": "mode",
+     "type": "text"
+    },
+    {
+     "nom": "decision",
+     "type": "text"
+    },
+    {
+     "nom": "raison",
+     "type": "text"
+    },
+    {
+     "nom": "profil",
+     "type": "text"
+    },
+    {
+     "nom": "appelant",
+     "type": "text"
+    },
+    {
+     "nom": "appelant_role",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "origine",
+     "type": "text"
+    },
+    {
+     "nom": "nb_destinataires",
+     "type": "smallint"
+    },
+    {
+     "nom": "domaines",
+     "type": "text[]"
+    },
+    {
+     "nom": "pieces_jointes",
+     "type": "smallint"
+    },
+    {
+     "nom": "envoye",
+     "type": "boolean"
+    },
+    {
+     "nom": "statut_resend",
+     "type": "text"
+    }
+   ],
+   "nom": "journal_envois_email",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "reference",
+     "type": "text"
+    },
+    {
+     "nom": "fournisseur",
+     "type": "text"
+    },
+    {
+     "nom": "categorie",
+     "type": "text"
+    },
+    {
+     "nom": "prix_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "unite",
+     "type": "text"
+    },
+    {
+     "nom": "stock_min",
+     "type": "integer"
+    },
+    {
+     "nom": "lien_fournisseur",
+     "type": "text"
+    },
+    {
+     "nom": "photo_url",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp without time zone"
+    },
+    {
+     "nom": "fournisseur_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "materiaux_bibliotheque",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "code",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "categorie",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrier_prenom",
+     "type": "text"
+    },
+    {
+     "nom": "date_remise",
+     "type": "date"
+    },
+    {
+     "nom": "etat",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "saisi_par",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "manquant",
+     "type": "boolean"
+    }
+   ],
+   "nom": "materiel",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "audit_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "materiel_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "code",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "present",
+     "type": "boolean"
+    },
+    {
+     "nom": "etat_constate",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    }
+   ],
+   "nom": "materiel_audit_lignes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrier_prenom",
+     "type": "text"
+    },
+    {
+     "nom": "date_audit",
+     "type": "date"
+    },
+    {
+     "nom": "audite_par",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "nb_total",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_manquants",
+     "type": "integer"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "materiel_audits",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrages",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "plan_travaux",
+     "type": "jsonb"
+    },
+    {
+     "nom": "photo_batiment",
+     "type": "text"
+    },
+    {
+     "nom": "revision",
+     "type": "bigint"
+    }
+   ],
+   "nom": "phasages",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrages",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "plan_travaux",
+     "type": "jsonb"
+    },
+    {
+     "nom": "photo_batiment",
+     "type": "text"
+    }
+   ],
+   "nom": "phasages_backup_premig_v2",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrages",
+     "type": "jsonb"
+    },
+    {
+     "nom": "plan_travaux",
+     "type": "jsonb"
+    },
+    {
+     "nom": "client_id",
+     "type": "text"
+    },
+    {
+     "nom": "prev_updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "saved_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "phasages_history",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=ar/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "version",
+     "type": "integer"
+    },
+    {
+     "nom": "label",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "note",
+     "type": "text"
+    },
+    {
+     "nom": "snapshot",
+     "type": "jsonb"
+    },
+    {
+     "nom": "allocation_count",
+     "type": "integer"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_baselines",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "week_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "jour",
+     "type": "text"
+    },
+    {
+     "nom": "planifie",
+     "type": "text"
+    },
+    {
+     "nom": "reel",
+     "type": "text"
+    },
+    {
+     "nom": "ouvriers",
+     "type": "text[]"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "taches",
+     "type": "jsonb"
+    },
+    {
+     "nom": "vehicules",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "planning_cells",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "couleur",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_chantiers",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "week_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "contenu",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_commandes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "key",
+     "type": "text"
+    },
+    {
+     "nom": "value",
+     "type": "jsonb"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_config",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "scope",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "groupe_type_id",
+     "type": "text"
+    },
+    {
+     "nom": "tache_id",
+     "type": "text"
+    },
+    {
+     "nom": "allocation_id",
+     "type": "text"
+    },
+    {
+     "nom": "hard",
+     "type": "boolean"
+    },
+    {
+     "nom": "priority",
+     "type": "numeric"
+    },
+    {
+     "nom": "date_debut",
+     "type": "date"
+    },
+    {
+     "nom": "date_fin",
+     "type": "date"
+    },
+    {
+     "nom": "config",
+     "type": "jsonb"
+    },
+    {
+     "nom": "label",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_constraints",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "date",
+     "type": "date"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "texte",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_couleur",
+     "type": "text"
+    },
+    {
+     "nom": "date_fin",
+     "type": "date"
+    }
+   ],
+   "nom": "planning_mensuel",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "contenu",
+     "type": "text"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_notes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=arwd/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "resource_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "date_debut",
+     "type": "date"
+    },
+    {
+     "nom": "date_fin",
+     "type": "date"
+    },
+    {
+     "nom": "toute_journee",
+     "type": "boolean"
+    },
+    {
+     "nom": "heures_indisponibles",
+     "type": "numeric(5,2)"
+    },
+    {
+     "nom": "capacite_heures",
+     "type": "numeric(5,2)"
+    },
+    {
+     "nom": "motif",
+     "type": "text"
+    },
+    {
+     "nom": "motif_code",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "details",
+     "type": "jsonb"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_by_auth_user_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_resource_events",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=arwd/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "nom_planning",
+     "type": "text"
+    },
+    {
+     "nom": "kind",
+     "type": "text"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "capacite_facteur",
+     "type": "numeric(5,2)"
+    },
+    {
+     "nom": "utilisateur_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "auth_user_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "metadata",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "planning_resources",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "name",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "data",
+     "type": "jsonb"
+    },
+    {
+     "nom": "thumbnail",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    }
+   ],
+   "nom": "plans",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "phase_id",
+     "type": "text"
+    },
+    {
+     "nom": "tache_id",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrier",
+     "type": "text"
+    },
+    {
+     "nom": "date",
+     "type": "date"
+    },
+    {
+     "nom": "heures",
+     "type": "numeric(6,2)"
+    },
+    {
+     "nom": "taux_horaire",
+     "type": "numeric(8,2)"
+    },
+    {
+     "nom": "rapport_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "avancement_declare",
+     "type": "integer"
+    },
+    {
+     "nom": "valide_par",
+     "type": "text"
+    },
+    {
+     "nom": "type_pointage",
+     "type": "text"
+    },
+    {
+     "nom": "motif_indirect",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "pointages",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "ouvrages",
+     "type": "jsonb"
+    },
+    {
+     "nom": "ordre",
+     "type": "integer"
+    }
+   ],
+   "nom": "profero_categories_ouvrages",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "largeur",
+     "type": "text"
+    },
+    {
+     "nom": "hauteur",
+     "type": "text"
+    },
+    {
+     "nom": "localisation",
+     "type": "text"
+    }
+   ],
+   "nom": "profero_cotes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "type",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "ordre",
+     "type": "integer"
+    },
+    {
+     "nom": "largeur",
+     "type": "integer"
+    },
+    {
+     "nom": "hauteur",
+     "type": "integer"
+    },
+    {
+     "nom": "fond",
+     "type": "text"
+    },
+    {
+     "nom": "strokes",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "profero_dessins",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "category",
+     "type": "text"
+    },
+    {
+     "nom": "item",
+     "type": "text"
+    },
+    {
+     "nom": "quantite",
+     "type": "text"
+    },
+    {
+     "nom": "unite",
+     "type": "text"
+    },
+    {
+     "nom": "prix_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "bibliotheque_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "zone",
+     "type": "text"
+    },
+    {
+     "nom": "code_ouvrage",
+     "type": "text"
+    },
+    {
+     "nom": "cout_materiaux_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "cout_main_oeuvre_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "cout_direct_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "cout_total_unitaire",
+     "type": "numeric"
+    },
+    {
+     "nom": "taux_marge_pct",
+     "type": "numeric"
+    },
+    {
+     "nom": "tva_pct",
+     "type": "numeric"
+    },
+    {
+     "nom": "calcul_version",
+     "type": "text"
+    },
+    {
+     "nom": "calcul_detail",
+     "type": "jsonb"
+    },
+    {
+     "nom": "ordre",
+     "type": "integer"
+    },
+    {
+     "nom": "progbat_ligne_id",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "coef_vente",
+     "type": "numeric"
+    },
+    {
+     "nom": "taux_horaire_vente_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "taux_horaire_vente",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "coefficient_vente_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "coefficient_source",
+     "type": "text"
+    },
+    {
+     "nom": "coefficient_origine_valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "coefficient_origine_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "coefficient_global_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "taux_horaire_source",
+     "type": "text"
+    },
+    {
+     "nom": "taux_horaire_origine_valeur",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "taux_horaire_origine_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "taux_horaire_global_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "mode_coefficient_ligne",
+     "type": "text"
+    },
+    {
+     "nom": "coefficient_ligne_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "coefficient_ligne_valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "coefficient_ligne_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "mode_taux_horaire_ligne",
+     "type": "text"
+    },
+    {
+     "nom": "taux_horaire_ligne_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "taux_horaire_ligne_valeur",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "taux_horaire_ligne_libelle",
+     "type": "text"
+    }
+   ],
+   "nom": "profero_ouvrages_selectionnes",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "projet_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "data",
+     "type": "text"
+    }
+   ],
+   "nom": "profero_plans",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "client_nom",
+     "type": "text"
+    },
+    {
+     "nom": "client_prenom",
+     "type": "text"
+    },
+    {
+     "nom": "adresse_bien",
+     "type": "text"
+    },
+    {
+     "nom": "description_projet",
+     "type": "text"
+    },
+    {
+     "nom": "date_visite",
+     "type": "date"
+    },
+    {
+     "nom": "observations",
+     "type": "text"
+    },
+    {
+     "nom": "logements",
+     "type": "jsonb"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "photos",
+     "type": "jsonb"
+    },
+    {
+     "nom": "last_client_id",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "budget_client",
+     "type": "numeric"
+    },
+    {
+     "nom": "delai_souhaite",
+     "type": "text"
+    },
+    {
+     "nom": "client_societe",
+     "type": "text"
+    },
+    {
+     "nom": "client_email",
+     "type": "text"
+    },
+    {
+     "nom": "client_telephone",
+     "type": "text"
+    },
+    {
+     "nom": "client_adresse",
+     "type": "text"
+    },
+    {
+     "nom": "client_adresse_complement",
+     "type": "text"
+    },
+    {
+     "nom": "client_code_postal",
+     "type": "text"
+    },
+    {
+     "nom": "client_ville",
+     "type": "text"
+    },
+    {
+     "nom": "client_pays",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_adresse",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_adresse_complement",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_code_postal",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_ville",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_pays",
+     "type": "text"
+    },
+    {
+     "nom": "logement_reference",
+     "type": "text"
+    },
+    {
+     "nom": "type_logement",
+     "type": "text"
+    },
+    {
+     "nom": "devis_objet",
+     "type": "text"
+    },
+    {
+     "nom": "devis_date",
+     "type": "date"
+    },
+    {
+     "nom": "devis_validite",
+     "type": "date"
+    },
+    {
+     "nom": "tva_pct",
+     "type": "numeric"
+    },
+    {
+     "nom": "devis_num_commande_client",
+     "type": "text"
+    },
+    {
+     "nom": "devis_conditions",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_devis_id",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_client_id",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_sync_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "mode_coefficient",
+     "type": "text"
+    },
+    {
+     "nom": "coefficient_global_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "coefficient_global_valeur",
+     "type": "numeric(8,4)"
+    },
+    {
+     "nom": "coefficient_global_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "mode_taux_horaire",
+     "type": "text"
+    },
+    {
+     "nom": "taux_horaire_global_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "taux_horaire_global_valeur",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "taux_horaire_global_libelle",
+     "type": "text"
+    },
+    {
+     "nom": "conditions_version",
+     "type": "integer"
+    }
+   ],
+   "nom": "profero_projets",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "run_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "code",
+     "type": "text"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_id",
+     "type": "text"
+    },
+    {
+     "nom": "cadence_avant",
+     "type": "double precision"
+    },
+    {
+     "nom": "cadence_apres",
+     "type": "double precision"
+    },
+    {
+     "nom": "methode",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "avertissements",
+     "type": "jsonb"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "plan_hash",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "progbat_cadence_import_items",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "plan_hash",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "methode",
+     "type": "text"
+    },
+    {
+     "nom": "prepared_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "prepared_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "prepared_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "applied_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "run_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nb_a_importer",
+     "type": "integer"
+    },
+    {
+     "nom": "compteurs",
+     "type": "jsonb"
+    },
+    {
+     "nom": "synthese",
+     "type": "jsonb"
+    },
+    {
+     "nom": "items",
+     "type": "jsonb"
+    },
+    {
+     "nom": "error_code",
+     "type": "text"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "progbat_cadence_import_plans",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "plan_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "plan_hash",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "methode",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "finished_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "nb_modifies",
+     "type": "integer"
+    },
+    {
+     "nom": "error_code",
+     "type": "text"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "progbat_cadence_import_runs",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrage_ids",
+     "type": "uuid[]"
+    },
+    {
+     "nom": "progbat_structure_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "family_label",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_family_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "previous_family_ids",
+     "type": "bigint[]"
+    },
+    {
+     "nom": "plan_hash",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "finished_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "http_status",
+     "type": "integer"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "progbat_library_category_sync_items",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "family_label",
+     "type": "text"
+    },
+    {
+     "nom": "plan_hash",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_family_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "finished_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "http_status",
+     "type": "integer"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "progbat_library_family_sync_items",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "action",
+     "type": "text"
+    },
+    {
+     "nom": "plan_hash",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_target_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_code",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "finished_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "http_status",
+     "type": "integer"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "progbat_library_sync_items",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "project_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "payload_hash",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "progbat_quote_id",
+     "type": "bigint"
+    },
+    {
+     "nom": "progbat_quote_code",
+     "type": "text"
+    },
+    {
+     "nom": "created_by",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "finished_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "http_status",
+     "type": "integer"
+    },
+    {
+     "nom": "error_message",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "logement_reference",
+     "type": "text"
+    },
+    {
+     "nom": "verified_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "verification_http_status",
+     "type": "integer"
+    }
+   ],
+   "nom": "progbat_quote_exports",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrier",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_nom",
+     "type": "text"
+    },
+    {
+     "nom": "date_rapport",
+     "type": "text"
+    },
+    {
+     "nom": "semaine",
+     "type": "text"
+    },
+    {
+     "nom": "taches",
+     "type": "jsonb"
+    },
+    {
+     "nom": "remarque",
+     "type": "text"
+    },
+    {
+     "nom": "submitted_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "photos_chantier",
+     "type": "jsonb"
+    },
+    {
+     "nom": "trajet_matin_min",
+     "type": "integer"
+    },
+    {
+     "nom": "trajet_soir_min",
+     "type": "integer"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "valide_par",
+     "type": "text"
+    },
+    {
+     "nom": "valide_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "heures_indirectes",
+     "type": "jsonb"
+    },
+    {
+     "nom": "exception_heures",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "rapports",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "groupe_id",
+     "type": "text"
+    },
+    {
+     "nom": "controle_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "tache_id",
+     "type": "text"
+    },
+    {
+     "nom": "tache_nom",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "photos",
+     "type": "jsonb"
+    },
+    {
+     "nom": "auteur",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "levee_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "levee_par",
+     "type": "text"
+    },
+    {
+     "nom": "levee_commentaire",
+     "type": "text"
+    },
+    {
+     "nom": "levee_photos",
+     "type": "jsonb"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "reserves",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "source_url",
+     "type": "text"
+    },
+    {
+     "nom": "external_id",
+     "type": "text"
+    },
+    {
+     "nom": "titre",
+     "type": "text"
+    },
+    {
+     "nom": "description",
+     "type": "text"
+    },
+    {
+     "nom": "prix",
+     "type": "numeric"
+    },
+    {
+     "nom": "surface_m2",
+     "type": "numeric"
+    },
+    {
+     "nom": "ville",
+     "type": "text"
+    },
+    {
+     "nom": "code_postal",
+     "type": "text"
+    },
+    {
+     "nom": "adresse",
+     "type": "text"
+    },
+    {
+     "nom": "type_bien",
+     "type": "text"
+    },
+    {
+     "nom": "nb_pieces",
+     "type": "numeric"
+    },
+    {
+     "nom": "nb_chambres",
+     "type": "numeric"
+    },
+    {
+     "nom": "dpe",
+     "type": "text"
+    },
+    {
+     "nom": "ges",
+     "type": "text"
+    },
+    {
+     "nom": "vendeur_type",
+     "type": "text"
+    },
+    {
+     "nom": "url_photo",
+     "type": "text"
+    },
+    {
+     "nom": "date_publication",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "premiere_detection",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "derniere_detection",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "prix_historique",
+     "type": "jsonb"
+    },
+    {
+     "nom": "mots_cles_detectes",
+     "type": "jsonb"
+    },
+    {
+     "nom": "points_forts",
+     "type": "jsonb"
+    },
+    {
+     "nom": "points_faibles",
+     "type": "jsonb"
+    },
+    {
+     "nom": "commentaire_analyse",
+     "type": "text"
+    },
+    {
+     "nom": "score_opportunite",
+     "type": "numeric"
+    },
+    {
+     "nom": "categorie",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "responsable",
+     "type": "text"
+    },
+    {
+     "nom": "notes",
+     "type": "text"
+    },
+    {
+     "nom": "bien_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "is_archived",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "property_fingerprint",
+     "type": "text"
+    },
+    {
+     "nom": "photo_signature",
+     "type": "text"
+    },
+    {
+     "nom": "first_seen_property_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "first_seen_listing_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "last_seen_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "relist_count",
+     "type": "integer"
+    },
+    {
+     "nom": "previous_urls",
+     "type": "jsonb"
+    },
+    {
+     "nom": "matching_confidence",
+     "type": "numeric"
+    },
+    {
+     "nom": "possible_duplicate_of",
+     "type": "uuid"
+    },
+    {
+     "nom": "similarity_notes",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "sourcing_annonces",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "zones",
+     "type": "jsonb"
+    },
+    {
+     "nom": "types_biens",
+     "type": "jsonb"
+    },
+    {
+     "nom": "prix_min",
+     "type": "numeric"
+    },
+    {
+     "nom": "prix_max",
+     "type": "numeric"
+    },
+    {
+     "nom": "surface_min",
+     "type": "numeric"
+    },
+    {
+     "nom": "surface_max",
+     "type": "numeric"
+    },
+    {
+     "nom": "pieces_min",
+     "type": "numeric"
+    },
+    {
+     "nom": "mots_cles_inclus",
+     "type": "jsonb"
+    },
+    {
+     "nom": "mots_cles_exclus",
+     "type": "jsonb"
+    },
+    {
+     "nom": "vendeur_type",
+     "type": "text"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "frequence",
+     "type": "text"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "score_min_alerte",
+     "type": "numeric"
+    },
+    {
+     "nom": "derniere_execution",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "dernier_resultat",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "sourcing_criteres",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "critere_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "source",
+     "type": "text"
+    },
+    {
+     "nom": "started_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "ended_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "nb_detectees",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_nouvelles",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_mises_a_jour",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_doublons",
+     "type": "integer"
+    },
+    {
+     "nom": "nb_erreurs",
+     "type": "integer"
+    },
+    {
+     "nom": "message",
+     "type": "text"
+    },
+    {
+     "nom": "details",
+     "type": "jsonb"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "sourcing_logs",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "phasage_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "ouvrage_id",
+     "type": "text"
+    },
+    {
+     "nom": "materiau_id",
+     "type": "uuid"
+    },
+    {
+     "nom": "designation_libre",
+     "type": "text"
+    },
+    {
+     "nom": "unite",
+     "type": "text"
+    },
+    {
+     "nom": "quantite_totale",
+     "type": "numeric"
+    },
+    {
+     "nom": "precision_ouvrier",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "propose_par",
+     "type": "uuid"
+    },
+    {
+     "nom": "cree_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "traite_par",
+     "type": "uuid"
+    },
+    {
+     "nom": "traite_le",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "motif_refus",
+     "type": "text"
+    }
+   ],
+   "nom": "suggestions_materiaux_ouvriers",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "libelle",
+     "type": "text"
+    },
+    {
+     "nom": "taux_ht",
+     "type": "numeric(10,2)"
+    },
+    {
+     "nom": "est_defaut",
+     "type": "boolean"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "updated_by_email",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "taux_horaires_vente",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdm/postgres,authenticated=arwdm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "email",
+     "type": "text"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "role",
+     "type": "text"
+    },
+    {
+     "nom": "actif",
+     "type": "boolean"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "branches",
+     "type": "jsonb"
+    },
+    {
+     "nom": "prenom_planning",
+     "type": "text"
+    },
+    {
+     "nom": "nav_order",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "utilisateurs",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "nom",
+     "type": "text"
+    },
+    {
+     "nom": "immatriculation",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    }
+   ],
+   "nom": "vehicules",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "text"
+    },
+    {
+     "nom": "chantier_id",
+     "type": "text"
+    },
+    {
+     "nom": "date",
+     "type": "date"
+    },
+    {
+     "nom": "intervenant",
+     "type": "text"
+    },
+    {
+     "nom": "meteo",
+     "type": "text"
+    },
+    {
+     "nom": "statut",
+     "type": "text"
+    },
+    {
+     "nom": "lots_selectionnes",
+     "type": "jsonb"
+    },
+    {
+     "nom": "points_controle",
+     "type": "jsonb"
+    },
+    {
+     "nom": "observations",
+     "type": "jsonb"
+    },
+    {
+     "nom": "note_generale",
+     "type": "text"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "audit",
+     "type": "jsonb"
+    },
+    {
+     "nom": "phases_auditees",
+     "type": "jsonb"
+    },
+    {
+     "nom": "checklist",
+     "type": "jsonb"
+    },
+    {
+     "nom": "lots_audites",
+     "type": "jsonb"
+    }
+   ],
+   "nom": "visites_chantier",
+   "rls": true,
+   "schema": "public"
+  },
+  {
+   "acl": "{supabase_storage_admin=a*r*w*d*D*x*t*m*/supabase_storage_admin,service_role=arwdDxtm/supabase_storage_admin,authenticated=arwdDxtm/supabase_storage_admin,anon=arwdDxtm/supabase_storage_admin,postgres=a*r*w*d*D*x*t*m*/supabase_storage_admin}",
+   "colonnes": [
+    {
+     "nom": "id",
+     "type": "uuid"
+    },
+    {
+     "nom": "bucket_id",
+     "type": "text"
+    },
+    {
+     "nom": "name",
+     "type": "text"
+    },
+    {
+     "nom": "owner",
+     "type": "uuid"
+    },
+    {
+     "nom": "created_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "updated_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "last_accessed_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "metadata",
+     "type": "jsonb"
+    },
+    {
+     "nom": "version",
+     "type": "text"
+    },
+    {
+     "nom": "owner_id",
+     "type": "text"
+    },
+    {
+     "nom": "user_metadata",
+     "type": "jsonb"
+    },
+    {
+     "nom": "archived_at",
+     "type": "timestamp with time zone"
+    },
+    {
+     "nom": "is_delete_marker",
+     "type": "boolean"
+    },
+    {
+     "nom": "is_versioned",
+     "type": "boolean"
+    }
+   ],
+   "nom": "objects",
+   "rls": true,
+   "schema": "storage"
+  }
+ ],
+ "vues": [
+  {
+   "acl": "{postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+   "def": " SELECT 'client_actif_sans_dossier'::text AS anomalie,\n    c.id AS client_id,\n    NULL::uuid AS dossier_id,\n    NULL::uuid AS mission_action_id,\n    (COALESCE((c.prenom || ' '::text), ''::text) || c.nom) AS detail\n   FROM invest_clients c\n  WHERE ((lower(COALESCE(c.statut, ''::text)) = 'actif'::text) AND (NOT (EXISTS ( SELECT 1\n           FROM invest_dossiers d\n          WHERE ((d.client_id = c.id) AND (d.statut = ANY (ARRAY['ouvert'::text, 'actif'::text, 'suspendu'::text])))))))\nUNION ALL\n SELECT 'prospect_converti_sans_dossier'::text AS anomalie,\n    p.converted_client_id AS client_id,\n    NULL::uuid AS dossier_id,\n    NULL::uuid AS mission_action_id,\n    (COALESCE((p.prenom || ' '::text), ''::text) || p.nom) AS detail\n   FROM invest_prospects p\n  WHERE ((p.converted_client_id IS NOT NULL) AND (EXISTS ( SELECT 1\n           FROM invest_clients c\n          WHERE (c.id = p.converted_client_id))) AND (NOT (EXISTS ( SELECT 1\n           FROM invest_dossiers d\n          WHERE (d.client_id = p.converted_client_id)))))\nUNION ALL\n SELECT 'action_sans_dossier'::text AS anomalie,\n    a.client_id,\n    NULL::uuid AS dossier_id,\n    a.id AS mission_action_id,\n    ((a.step_key || ' — '::text) || a.action_title) AS detail\n   FROM invest_mission_actions a\n  WHERE (a.dossier_id IS NULL)\nUNION ALL\n SELECT 'action_etape_a_classer'::text AS anomalie,\n    a.client_id,\n    a.dossier_id,\n    a.id AS mission_action_id,\n    ((a.step_key || ' — '::text) || a.action_title) AS detail\n   FROM invest_mission_actions a\n  WHERE (a.etape IS NULL)\nUNION ALL\n SELECT 'dossier_parcours_incomplet'::text AS anomalie,\n    d.client_id,\n    d.id AS dossier_id,\n    NULL::uuid AS mission_action_id,\n    (((d.reference || ' : '::text) || ( SELECT count(*) AS count\n           FROM invest_dossier_etapes e\n          WHERE ((e.dossier_id = d.id) AND (e.operation_id IS NULL)))) || ' étape(s) sur 11'::text) AS detail\n   FROM invest_dossiers d\n  WHERE (( SELECT count(*) AS count\n           FROM invest_dossier_etapes e\n          WHERE ((e.dossier_id = d.id) AND (e.operation_id IS NULL))) <> 11)\nUNION ALL\n SELECT 'dossier_sans_conseiller'::text AS anomalie,\n    d.client_id,\n    d.id AS dossier_id,\n    NULL::uuid AS mission_action_id,\n    d.reference AS detail\n   FROM invest_dossiers d\n  WHERE ((d.statut = ANY (ARRAY['ouvert'::text, 'actif'::text])) AND (d.conseiller_id IS NULL))\nUNION ALL\n SELECT ('lettre_mission_'::text ||\n        CASE\n            WHEN (d.lettre_mission_statut = 'inconnu'::text) THEN 'statut_inconnu'::text\n            ELSE 'signee_sans_date'::text\n        END) AS anomalie,\n    d.client_id,\n    d.id AS dossier_id,\n    NULL::uuid AS mission_action_id,\n    d.reference AS detail\n   FROM invest_dossiers d\n  WHERE ((d.lettre_mission_statut = 'inconnu'::text) OR ((d.lettre_mission_statut = 'signee'::text) AND (d.lettre_mission_signee_le IS NULL)))\nUNION ALL\n SELECT 'etapes_reprise_a_confirmer'::text AS anomalie,\n    d.client_id,\n    d.id AS dossier_id,\n    NULL::uuid AS mission_action_id,\n    (((d.reference || ' : '::text) || count(*)) || ' étape(s) à confirmer'::text) AS detail\n   FROM (invest_dossiers d\n     JOIN invest_dossier_etapes e ON ((e.dossier_id = d.id)))\n  WHERE e.reprise_a_confirmer\n  GROUP BY d.id, d.client_id, d.reference;",
+   "nom": "invest_controle_dossiers"
+  }
+ ],
+ "extrait_le": "2026-10-01",
+ "source": "production yooksnzhlffqgpzkcjhl — structure seule (catalogue PostgreSQL), aucune ligne de données"
+}

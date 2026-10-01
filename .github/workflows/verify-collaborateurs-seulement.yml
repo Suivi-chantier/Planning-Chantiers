@@ -1,0 +1,26 @@
+name: Verify Collaborateurs seulement (deny by default)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261001150000_profero_collaborateurs_seulement.sql'
+      - 'sql/202610_profero_collaborateurs_seulement_rollback.sql'
+      - 'scripts/verif-collaborateurs-seulement.mjs'
+      - 'scripts/fixtures/catalogue-prod-20261001.json'
+      - '.github/workflows/verify-collaborateurs-seulement.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Réplique de la structure de production — droits identiques pour les collaborateurs, refus pour tout autre compte
+        run: node scripts/verif-collaborateurs-seulement.mjs
