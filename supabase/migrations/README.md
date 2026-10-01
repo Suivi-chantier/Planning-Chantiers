@@ -67,6 +67,13 @@ modifiée. S'applique seule, AVANT le front, jamais par `db push` :
 `docs/project/MISSIONS-OFFRES-V2.md`. Retour arrière :
 `sql/202610_invest_missions_offres_rollback.sql`.
 
+`20261001130000_invest_prospects_fermeture.sql` — **NON appliquée** (chantier
+22, sécurité) : ferme `invest_prospects` aux non-connectés (avant : lecture,
+création, modification et suppression avec la clé publique). Aucune donnée
+modifiée ; les leads Fluidify passent par la clé service_role. S'applique
+seule, jamais par `db push`. Retour arrière (rouvre la table) :
+`sql/202610_invest_prospects_fermeture_rollback.sql`.
+
 20260928191112 appliquée le 28/09/2026 depuis une autre session : règle
 d'accès de `materiaux_bibliotheque` à effet identique, évaluée une fois par
 requête (2,5 s → 17 ms). Le fichier, d'abord préparé sous
