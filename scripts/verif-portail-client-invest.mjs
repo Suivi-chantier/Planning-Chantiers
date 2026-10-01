@@ -26,6 +26,8 @@ const LECTURE = lire("supabase/migrations/20261001200000_portail_client_invest_l
 const LECTURE_ROLLBACK = lire("sql/202610_portail_client_invest_lecture_rollback.sql");
 const DOCUMENTS = lire("supabase/migrations/20261001210000_portail_client_invest_documents.sql");
 const DOCUMENTS_ROLLBACK = lire("sql/202610_portail_client_invest_documents_rollback.sql");
+const ECRAN = lire("supabase/migrations/20261001220000_portail_client_invest_ecran.sql");
+const ECRAN_ROLLBACK = lire("sql/202610_portail_client_invest_ecran_rollback.sql");
 const FONCTION_DOC = lire("supabase/functions/portail-document-url/index.ts");
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -78,12 +80,12 @@ grant execute on function public.is_admin() to anon, authenticated, service_role
 create function public.invest_peut_voir(p text) returns boolean language sql stable security definer as $$
   select exists (select 1 from utilisateurs where email = auth.email() and actif and role in ('admin','commercial')) $$;
 grant execute on function public.invest_peut_voir(text) to authenticated;
-create table public.invest_clients (id uuid primary key, nom text, email text);
+create table public.invest_clients (id uuid primary key, prenom text, nom text, email text, telephone text, notes_rapides text);
 grant all on public.invest_clients to anon, authenticated, service_role;
 create table public.invest_dossiers (id uuid primary key, client_id uuid, reference text, libelle text, type_mission text,
   statut text, date_ouverture date, lettre_mission_statut text, lettre_mission_signee_le date,
   honoraires_prevus_ht numeric, questionnaire_data jsonb, portail_visible boolean not null default false);
-create table public.invest_dossier_etapes (id uuid primary key default gen_random_uuid(), dossier_id uuid, etape text, statut text,
+create table public.invest_dossier_etapes (id uuid primary key default gen_random_uuid(), dossier_id uuid, operation_id uuid, etape text, statut text,
   date_debut date, date_fin date, commentaire text, blocage_motif text, balle text);
 create table public.invest_dossier_evenements (id uuid primary key default gen_random_uuid(), dossier_id uuid, client_id uuid,
   type text, resume text, avant jsonb, apres jsonb, survenu_le timestamptz default now(), visible_client boolean not null default false);
@@ -103,11 +105,11 @@ insert into auth.users (id, email) values
   ('${ID.libre}','libre@exemple.fr'), ('${ID.ouvrier}','ouvrier@test.fr');
 insert into public.utilisateurs (email, nom, role, actif) values
   ('admin@test.fr','Admin','admin',true), ('commercial@test.fr','Commercial','commercial',true), ('ouvrier@test.fr','Ouvrier','ouvrier',true);
-insert into public.invest_clients values ('${ID.clientA}','Client A','a1@exemple.fr'), ('${ID.clientB}','Client B','b1@exemple.fr');
+insert into public.invest_clients (id, prenom, nom, email, telephone, notes_rapides) values ('${ID.clientA}','Alice','Client A','a1@exemple.fr','0600000001','note interne A'), ('${ID.clientB}','','Client B','b1@exemple.fr','0600000002','note interne B');
 insert into auth.sessions (user_id) select id from auth.users;
 `;
 
-async function base({ migration = true, lecture = false, documents = false } = {}) {
+async function base({ migration = true, lecture = false, documents = false, ecran = false } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA);
   await db.exec(HOOK);
@@ -125,6 +127,7 @@ async function base({ migration = true, lecture = false, documents = false } = {
     await db.exec(`create policy profero_collaborateurs_seulement on public.invest_dossiers as restrictive for all to authenticated using (true)`).catch(() => {});
     await db.exec(DOCUMENTS);
   }
+  if (ecran) await db.exec(ECRAN);
   return db;
 }
 // Jetons tels que le hook les pose : sub, email, role, profero_population.
@@ -458,6 +461,39 @@ test("6.10 fonction de lien : jeton → droit par la vue → ensuite seulement l
   assert.ok(Number(f.match(/TTL_SECONDES = (\d+)/)[1]) <= 120, "lien de courte durée");
   assert.ok(!/json\(\{[^}]*chemin/.test(f), "le chemin n'est jamais renvoyé");
   assert.match(f, /UUID\.test\(documentId\)/, "identifiant validé");
+});
+
+// ── 7. Données de l'écran client ───────────────────────────────────────
+test("7.1 portail_client : prénom et nom du SEUL client de l'appelant, rien d'autre", async () => {
+  const db = await base({ lecture: true, ecran: true }); await lier(db, ID.clientA, ID.cA1); await lier(db, ID.clientB, ID.cB1);
+  const a = (await sous(db, "authenticated", J.cA1, `select * from public.portail_client`)).rows;
+  assert.deepEqual(a, [{ prenom: "Alice", nom: "Client A" }], "ni e-mail, ni téléphone, ni notes internes");
+  assert.deepEqual((await sous(db, "authenticated", J.cB1, `select nom from public.portail_client`)).rows, [{ nom: "Client B" }]);
+  assert.equal((await sous(db, "authenticated", J.libre, `select * from public.portail_client`)).rows.length, 0, "compte non lié");
+  assert.equal((await sous(db, "authenticated", J.admin, `select * from public.portail_client`)).rows.length, 0, "collaborateur");
+  assert.equal((await sous(db, "authenticated", { ...J.cA1, profero_population: "collaborateur" }, `select * from public.portail_client`)).rows.length, 0, "jeton falsifié");
+});
+test("7.2 portail_client : lecture seule, aucun accès anon", async () => {
+  const db = await base({ lecture: true, ecran: true }); await lier(db, ID.clientA, ID.cA1);
+  assert.ok((await sous(db, "authenticated", J.cA1, `update public.portail_client set nom = 'x'`)).erreur);
+  assert.ok((await sous(db, "anon", null, `select * from public.portail_client`)).erreur);
+  for (const d of ["insert", "update", "delete"]) assert.equal((await db.query(`select has_table_privilege('authenticated','public.portail_client','${d}') a`)).rows[0].a, false, d);
+});
+test("7.3 portail_etapes : seulement les étapes du dossier (pas d'opération), droits conservés", async () => {
+  const db = await base({ lecture: true, ecran: true }); await lier(db, ID.clientA, ID.cA1);
+  await db.exec(`insert into public.invest_dossiers (id, client_id, reference, portail_visible) values ('${DA}','${ID.clientA}','INV-A',true);
+    insert into public.invest_dossier_etapes (dossier_id, operation_id, etape, statut) values
+      ('${DA}', null, 'financement', 'en_cours'), ('${DA}', '33333333-3333-3333-3333-333333333333', 'financement', 'terminee');`);
+  const r = (await sous(db, "authenticated", J.cA1, `select etape, statut from public.portail_etapes`)).rows;
+  assert.deepEqual(r, [{ etape: "financement", statut: "en_cours" }]);
+  for (const d of ["insert", "update", "delete"]) assert.equal((await db.query(`select has_table_privilege('authenticated','public.portail_etapes','${d}') a`)).rows[0].a, false, d);
+  assert.equal((await db.query(`select has_table_privilege('anon','public.portail_etapes','select') a`)).rows[0].a, false);
+});
+test("7.4 retour arrière : portail_client retirée, portail_etapes d'avant", async () => {
+  const db = await base({ lecture: true, ecran: true });
+  await db.exec(ECRAN_ROLLBACK);
+  assert.equal((await db.query(`select count(*)::int n from pg_class where relname='portail_client'`)).rows[0].n, 0);
+  assert.ok(!/operation_id/.test((await db.query(`select pg_get_viewdef('public.portail_etapes'::regclass) d`)).rows[0].d));
 });
 
 let echecs = 0;

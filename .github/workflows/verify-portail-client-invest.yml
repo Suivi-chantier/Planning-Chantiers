@@ -11,6 +11,12 @@ on:
       - 'sql/202610_portail_client_invest_documents_rollback.sql'
       - 'supabase/functions/portail-document-url/index.ts'
       - 'src/Invest/_shared.jsx'
+      - 'supabase/migrations/20261001220000_portail_client_invest_ecran.sql'
+      - 'sql/202610_portail_client_invest_ecran_rollback.sql'
+      - 'src/Portail/**'
+      - 'src/main.jsx'
+      - 'vite.config.js'
+      - 'scripts/verif-portail-ecran.mjs'
       - 'scripts/verif-portail-client-invest.mjs'
       - 'scripts/verif-portail-visibilite-crm.mjs'
       - 'src/Invest/dossiers/FicheDossier.jsx'
@@ -34,3 +40,5 @@ jobs:
         run: node scripts/verif-portail-client-invest.mjs
       - name: Cases « visible par le client » de la fiche dossier
         run: node scripts/verif-portail-visibilite-crm.mjs
+      - name: Écran client /espace-client (logique, lecture seule, isolement du bureau)
+        run: node scripts/verif-portail-ecran.mjs
