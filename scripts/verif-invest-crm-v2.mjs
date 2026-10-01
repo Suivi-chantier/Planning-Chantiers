@@ -179,6 +179,61 @@ test("10. intégration : V2 par défaut, ancienne vue séparée, aucun ancien co
   for (const imp of ["pilotageDossier", "actionDuJour", "calculerSituation"]) assert.match(VUE, new RegExp(`\\b${imp}\\b`));
 });
 
+test("11. refonte : alertes d'une mission, de la plus grave à la moins grave, sans règle de pilotage nouvelle", () => {
+  const m = V.missionsAPiloter(donnees);
+  const d1 = m.find((x) => x.reference === "INV-T-d1"), d2 = m.find((x) => x.reference === "INV-T-d2"), d3 = m.find((x) => x.reference === "INV-T-d3");
+  assert.deepEqual(V.alertesMission(d1, AUJ).map((a) => a.code), ["retard", "aujourdhui"], "retard d'abord, puis ce qui est dû aujourd'hui");
+  assert.equal(V.alertesMission(d1, AUJ)[0].code, "retard"); assert.equal(V.alertesMission(d1, AUJ)[0].ton, "rouge");
+  assert.equal(V.alertesMission(d2, AUJ)[0].code, "bloquee"); assert.match(V.alertesMission(d2, AUJ)[0].detail, /Avis d'imposition manquant/);
+  assert.deepEqual(V.alertesMission(d3, AUJ).map((a) => [a.code, a.ton]), [["attente_client", "violet"]], "attente client : une couleur distincte, rien d'autre");
+  const proche = { ...d3, signaux: { ...d3.signaux, attenteClient: false }, echeance: "2026-10-07" };
+  assert.deepEqual(V.alertesMission(proche, AUJ).map((a) => a.code), ["proche"], "échéance dans 2 jours");
+  const loin = { ...d3, signaux: { ...d3.signaux, attenteClient: false }, echeance: "2026-10-20" };
+  assert.deepEqual(V.alertesMission(loin, AUJ), [], "rien à signaler : aucune alerte inventée");
+  assert.equal(JSON.stringify(m.map((x) => [x.reference, x.priorite, x.urgent, x.retardJours])), JSON.stringify(V.missionsAPiloter(donnees).map((x) => [x.reference, x.priorite, x.urgent, x.retardJours])), "calcul de pilotage inchangé");
+});
+
+test("12. refonte : échéance lisible (retard rouge, proche orange) et filtres de la liste Clients", () => {
+  assert.deepEqual(V.echeanceCourte("2026-10-01", AUJ), { texte: "01/10 · 4 j de retard", ton: "rouge" });
+  assert.deepEqual(V.echeanceCourte(AUJ, AUJ), { texte: "Aujourd'hui", ton: "orange" });
+  assert.deepEqual(V.echeanceCourte("2026-10-07", AUJ), { texte: "07/10 · dans 2 j", ton: "orange" });
+  assert.equal(V.echeanceCourte("2026-10-20", AUJ).ton, "neutre");
+  assert.equal(V.echeanceCourte("2027-02-03", AUJ).texte, "03/02/2027");
+  assert.equal(V.echeanceCourte(null, AUJ).vide, true);
+  const lignes = V.portefeuille({ clients: CLIENTS, dossiers: DOSSIERS, missions: V.missionsAPiloter(donnees), notes: NOTES });
+  const ids = (f) => V.filtrerPortefeuille(lignes, f).map((l) => l.id).sort();
+  assert.deepEqual(ids({}), ["c1", "c2", "c3"]);
+  assert.deepEqual(ids({ mission: "avec" }), ["c1", "c2"]);
+  assert.deepEqual(ids({ mission: "sans" }), ["c3"]);
+  assert.deepEqual(ids({ q: "alpha" }), ["c1"]);
+  assert.deepEqual(ids({ q: "0600000002" }), ["c2"], "la recherche couvre le téléphone même s'il n'est plus affiché");
+  assert.deepEqual(ids({ statut: "Prospect" }), ["c3"]);
+  assert.deepEqual(ids({ conseiller: "Conseiller A" }), ["c1", "c2"], "le conseiller affiché est celui de la mission en cours");
+  assert.deepEqual(ids({ conseiller: "Conseiller B" }), [], "aucune mission en cours chez B pour ces clients");
+  const offreC1 = lignes.find((l) => l.id === "c1").missions[0].offre;
+  assert.ok(ids({ offre: offreC1 }).includes("c1") && !ids({ offre: offreC1 }).includes("c3"));
+  assert.deepEqual(ids({ offre: "Offre inexistante" }), []);
+});
+
+test("13. refonte : planning — statut par action, liste sans échéance, comptes d'origine inchangés", () => {
+  const p = V.planningActions(donnees);
+  assert.equal(p.enRetard[0].statut, "À faire"); assert.equal(p.semaine[0].statut, "En cours");
+  assert.deepEqual(p.sansEcheanceListe.map((x) => x.id), ["t6"]);
+  assert.equal(p.sansEcheance, p.sansEcheanceListe.length);
+});
+
+test("14. refonte : écran CRM — trois vues compactes, aucune écriture, pilotage seulement par le moteur Dossier", () => {
+  assert.match(CRMV2, /alertesMission, echeanceCourte, filtrerPortefeuille/);
+  assert.ok(!/etape_num|invest_clients\.etape|\.etape_num|c\.etape\b/.test(CRMV2), "aucun retour aux anciennes étapes client");
+  assert.ok(!/\.(update|insert|delete|upsert)\(/.test(CRMV2), "le CRM ne modifie rien");
+  assert.ok(!/maxWidth: 1320/.test(CRMV2), "l'espace horizontal est utilisé");
+  for (const vue of ["a_traiter", "clients", "planning"]) assert.match(CRMV2, new RegExp(`vue === "${vue}"`));
+  assert.match(CRMV2, /onMission\(m\.clientId, m\.dossierId\)/, "ligne À traiter -> mission");
+  assert.match(CRMV2, /onClient\(m\.clientId\)/, "nom du client -> page Client");
+  assert.match(CRMV2, /onClient\(l\.id\)/, "ligne Clients -> page Client");
+  assert.ok(!/Missions qui suivent leur cours|Ce que l'équipe doit traiter, les clients suivis/.test(CRMV2), "blocs et textes explicatifs supprimés");
+});
+
 let echecs = 0;
 for (const [n, f] of cas) {
   try { await f(); console.log(`  ✓ ${n}`); }
