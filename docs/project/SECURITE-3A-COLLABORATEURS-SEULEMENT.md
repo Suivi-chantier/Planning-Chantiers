@@ -4,11 +4,18 @@ Chantier 22 (sécurité avant ouverture clients), TRANSVERSE. Principe validé p
 Matthieu le 01/10/2026. Migration
 `supabase/migrations/20261001150000_profero_collaborateurs_seulement.sql`.
 
-**État (01/10/2026)** : appliquée par Matthieu à 10:46:55 UTC (37 migrations).
-Contrôle structurel conforme : 102 policies restrictives (101 tables + storage),
-0 table non couverte, 162 policies métier d'empreinte identique à l'avant
-(md5 e0bbbb27…), corps de est_collaborateur_actif() = fichier, exécutable par
-authenticated seulement. Contrôle des journaux : voir plus bas.
+**État (01/10/2026)** : NON appliquée.
+- 10:46:55 UTC : appliquée par Matthieu. Contrôle structurel conforme
+  (102 policies restrictives, 0 table non couverte, 162 policies métier
+  d'empreinte identique — md5 e0bbbb27…, corps de la fonction = fichier).
+- 10:48:47 UTC : retour arrière exécuté par Matthieu (précaution). Contrôle :
+  état d'avant exactement (162 policies, même empreinte, plus de fonction).
+- Pendant la fenêtre : un seul utilisateur actif (ouvrier, iPhone, planning) —
+  réponses identiques à ses consultations précédentes (8 cellules, 7 lignes de
+  configuration, 1 rapport), aucune erreur PostgreSQL, aucun refus. Fenêtre
+  trop courte pour conclure sur les autres profils.
+- À refaire : réapplication pendant une période d'activité, puis contrôle des
+  journaux par profil.
 
 ## Pourquoi
 
