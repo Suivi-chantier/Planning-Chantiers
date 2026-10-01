@@ -4,6 +4,12 @@ Chantier 22 (sécurité avant ouverture clients), TRANSVERSE. Principe validé p
 Matthieu le 01/10/2026. Migration
 `supabase/migrations/20261001150000_profero_collaborateurs_seulement.sql`.
 
+**État (01/10/2026)** : appliquée par Matthieu à 10:46:55 UTC (37 migrations).
+Contrôle structurel conforme : 102 policies restrictives (101 tables + storage),
+0 table non couverte, 162 policies métier d'empreinte identique à l'avant
+(md5 e0bbbb27…), corps de est_collaborateur_actif() = fichier, exécutable par
+authenticated seulement. Contrôle des journaux : voir plus bas.
+
 ## Pourquoi
 
 Les policies existantes disent ce que peut faire *tel* collaborateur, pas si
