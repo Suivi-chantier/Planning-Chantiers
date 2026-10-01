@@ -19,16 +19,12 @@
 // Aucune dépendance. Lit VITE_SUPABASE_URL / VITE_SUPABASE_KEY dans .env puis
 // ID.env, comme les autres scripts du dossier.
 //
-// ── L'EXCEPTION invest_prospects, TEMPORAIRE ET VOLONTAIRE ──────────────────
-// Cette table n'a PAS été sécurisée par le chantier 1C, et c'est assumé : 83
-// de ses 123 lignes arrivent d'une API Fluidify externe dont on n'a pas encore
-// identifié la clé d'accès (rapport § N, statut FLUIDIFY : NO-GO). La fermer
-// à l'aveugle couperait l'acquisition de leads.
-//
-// Le script la traite donc à part : il la signale comme DETTE à chaque
-// exécution, sans faire échouer le contrôle. Le jour où l'API sera identifiée
-// et la table fermée, il suffira de la retirer de EXCEPTIONS ci-dessous — et
-// le script se mettra à exiger sa fermeture comme pour les autres.
+// ── invest_prospects : exception LEVÉE le 01/10/2026 ───────────────────────
+// La table était tolérée comme dette tant que l'arrivée des leads Fluidify
+// n'était pas identifiée. Identifiée dans les journaux : n8n → Edge Function
+// fluidify-import-prospect → clé service_role (ignore la RLS). Fermée par
+// supabase/migrations/20261001130000_invest_prospects_fermeture.sql : le
+// script exige désormais sa fermeture comme pour les autres tables.
 //
 // La règle qui compte : cette exception ne doit jamais devenir silencieuse.
 
@@ -97,11 +93,7 @@ const TABLES_INVEST = [
 
 // Exceptions temporaires : signalées comme dette, sans faire échouer le run.
 // À VIDER dès que la dette est résorbée.
-const EXCEPTIONS = {
-  invest_prospects:
-    "API Fluidify externe non identifiée (rapport § N — FLUIDIFY : NO-GO). " +
-    "Fermer cette table couperait l'ingestion des leads.",
-};
+const EXCEPTIONS = {};
 
 const H = { apikey: CLE_ANON, Authorization: `Bearer ${CLE_ANON}` };
 

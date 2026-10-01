@@ -45,7 +45,17 @@ Ordre recommandé : **00, 01, puis 05** — le suivi financier d'abord, gain
 maximal pour un risque minimal et une régression immédiatement visible —
 **puis 02a, 03, 04, 06**.
 
-## `invest_prospects` n'est pas dans la liste
+## `invest_prospects` — dette LEVÉE le 01/10/2026
+
+L'API Fluidify est identifiée (journaux Supabase du 01/10/2026) : n8n →
+Edge Function `fluidify-import-prospect` (secret `x-profero-api-key`) →
+écriture avec la clé **service_role**, qui ignore la RLS. La table est fermée
+par `supabase/migrations/20261001130000_invest_prospects_fermeture.sql`
+(lecture prospection/crm/dashboard, écriture prospection/crm, suppression
+prospection, anon sans droit, plus de TRUNCATE pour authenticated).
+`scripts/verif-rls-invest.mjs` n'a plus d'exception. Historique ci-dessous.
+
+### Historique : pourquoi elle n'était pas dans la liste
 
 C'est volontaire, et documenté comme dette. 83 de ses 123 lignes arrivent
 d'une API Fluidify externe qui n'est **pas hébergée par ce projet** : ni dans
@@ -243,7 +253,7 @@ Aucun fichier de ce lot ne modifie Profero Rénovation :
 
 ## Restes connus, non traités
 
-- **`invest_prospects`** — dette ci-dessus.
+- ~~**`invest_prospects`**~~ — fermée le 01/10/2026 (voir plus haut).
 - **Bucket `invest-documents`** — ses policies ouvrent la lecture à tout compte
   `authenticated`, sans distinction de rôle ni de branche. À resserrer sur
   `invest_est_membre()` dans un second temps, après avoir vérifié que les URL

@@ -47,6 +47,8 @@ const CATALOGUE_QS = lire("src/Invest/dossiers/questionnaireDossier.mjs");
 const FICHE = lire("src/Invest/dossiers/FicheDossier.jsx");
 const MIGRATION_OFFRES = lire("supabase/migrations/20261001100000_invest_missions_offres.sql");
 const ROLLBACK_OFFRES = lire("sql/202610_invest_missions_offres_rollback.sql");
+const MIGRATION_PROSPECTS = lire("supabase/migrations/20261001130000_invest_prospects_fermeture.sql");
+const ROLLBACK_PROSPECTS = lire("sql/202610_invest_prospects_fermeture_rollback.sql");
 
 const { PGlite } = await import(
   process.env.PGLITE_MODULE ? pathToFileURL(process.env.PGLITE_MODULE).href : "@electric-sql/pglite"
@@ -195,7 +197,7 @@ create policy invest_clients_membres on public.invest_clients for all to authent
   with check ((select invest_peut_voir('crm')) or (select invest_peut_voir('structuration')) or (select invest_peut_voir('prospection')));
 create policy invest_prospects_select_all on public.invest_prospects for select to anon, authenticated using (true);
 create policy invest_prospects_insert_all on public.invest_prospects for insert to anon, authenticated with check (true);
-create policy invest_prospects_update_all on public.invest_prospects for update to anon, authenticated using (true);
+create policy invest_prospects_update_all on public.invest_prospects for update to anon, authenticated using (true) with check (true);
 create policy invest_prospects_delete_all on public.invest_prospects for delete to anon, authenticated using (true);
 create policy invest_notes_membres on public.invest_notes for all to authenticated
   using ((select invest_peut_voir('crm'))) with check ((select invest_peut_voir('crm')));
@@ -239,7 +241,7 @@ insert into public.invest_mission_actions (id, client_id, step_key, step_label, 
   ('50000000-0000-0000-0000-000000000007', '${C.prospect}', 'signature', 'Signature', 1, 'Envoyer le contrat', 'Camille', null, 'a_faire');
 `;
 
-async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true, t2d1 = true, offres = true } = {}) {
+async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = true, t2d1 = true, offres = true, prospects = true } = {}) {
   const db = new PGlite();
   await db.exec(SCHEMA_PROD);
   if (migration) await db.exec(MIGRATION);
@@ -248,6 +250,7 @@ async function nouvelleBase({ migration = true, t2a = true, t2c = true, t2d = tr
   if (migration && t2a && t2c && t2d) await db.exec(MIGRATION_2D);
   if (migration && t2a && t2c && t2d && t2d1) await db.exec(MIGRATION_2D1);
   if (migration && t2a && t2c && t2d && t2d1 && offres) await db.exec(MIGRATION_OFFRES);
+  if (migration && prospects) await db.exec(MIGRATION_PROSPECTS);
   return db;
 }
 
@@ -1807,6 +1810,42 @@ test("68. migration chantier 9 : additive, rejouable ; retour arrière = journal
   assert.equal((await qsLire(db, id)).type_mission, "audit_patrimonial", "l'offre (antérieure au chantier) est conservée");
   assert.match(FICHE, /<MissionHonoraires T=\{T\} fiche=\{fiche\} onGeste=\{onGeste\} \/>/, "carte intégrée à la fiche Dossier");
   assert.match(FICHE, /from\("invest_dossiers"\)\.update\(patch\)/, "gestes = patch préparé par offres.mjs");
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 14. Chantier 22 — invest_prospects fermée aux non-connectés
+// ═══════════════════════════════════════════════════════════════════════════
+test("69. prospects : anon sans aucun droit ; commercial et admin conservés ; hors Invest refusé ; conversion CRM intacte ; rollback exact", async () => {
+  const ouvert = await nouvelleBase({ prospects: false });
+  assert.equal((await sous(ouvert, "anon", null, `select count(*)::int n from public.invest_prospects`)).rows[0].n, 2, "témoin : AVANT, anon lit tout");
+  const db = await nouvelleBase();
+  const anonLit = await sous(db, "anon", null, `select count(*)::int n from public.invest_prospects`);
+  refuse(anonLit, /permission denied/);
+  refuse(await sous(db, "anon", null, `insert into public.invest_prospects (nom, prenom) values ('intrus', 'x')`), /permission denied/);
+  refuse(await sous(db, "anon", null, `update public.invest_prospects set nom = 'x'`), /permission denied/);
+  refuse(await sous(db, "anon", null, `delete from public.invest_prospects`), /permission denied/);
+  refuse(await sous(db, "authenticated", COMMERCIAL, `truncate public.invest_prospects`), /permission denied/, "TRUNCATE contournait la RLS");
+  assert.equal((await sous(db, "authenticated", HORS_INVEST, `select count(*)::int n from public.invest_prospects`)).rows[0].n, 0, "compte hors Invest : rien");
+  refuse(await sous(db, "authenticated", HORS_INVEST, `insert into public.invest_prospects (nom, prenom) values ('x', 'x')`), /row-level security/);
+  assert.equal((await sous(db, "authenticated", CLIENT_AUTH, `select count(*)::int n from public.invest_prospects`)).rows[0].n, 0, "futur client : rien");
+  assert.equal((await sous(db, "authenticated", COMMERCIAL, `select count(*)::int n from public.invest_prospects`)).rows[0].n, 2, "commercial (prospection) : lit");
+  ok(await sous(db, "authenticated", COMMERCIAL, `insert into public.invest_prospects (nom, prenom) values ('Nouveau RECETTE', 'Test')`), "commercial : crée");
+  ok(await sous(db, "authenticated", COMMERCIAL, `update public.invest_prospects set statut = 'rdv' where nom = 'Nouveau RECETTE'`));
+  ok(await sous(db, "authenticated", COMMERCIAL, `delete from public.invest_prospects where nom = 'Nouveau RECETTE'`), "commercial : supprime (page Prospection)");
+  const conv = await sous(db, "authenticated", COMMERCIAL, `select public.invest_convertir_prospect($1, $2::jsonb) r`,
+    [PR.neuf, JSON.stringify({ nom: "Neuf", prenom: "Nadia" })]);
+  ok(conv, "conversion prospect → client par un commercial (droits de l'appelant)");
+  assert.notEqual((await q1(db, `select converted_client_id from public.invest_prospects where id = $1`, [PR.neuf])).converted_client_id, null);
+  // Retour arrière : exactement l'état d'avant (mêmes policies, mêmes droits).
+  const etat = async (b) => ({
+    pol: (await qn(b, `select policyname, roles::text, cmd, qual, with_check from pg_policies where tablename = 'invest_prospects' order by policyname`)),
+    acl: (await q1(b, `select array_agg(x::text order by x::text)::text a from pg_class, unnest(relacl) x where oid = 'public.invest_prospects'::regclass`)).a });
+  await db.exec(ROLLBACK_PROSPECTS);
+  assert.deepEqual(await etat(db), await etat(ouvert));
+  await db.exec(MIGRATION_PROSPECTS); await db.exec(MIGRATION_PROSPECTS); // rejouable
+  refuse(await sous(db, "anon", null, `select 1 from public.invest_prospects`), /permission denied/);
+  const code = MIGRATION_PROSPECTS.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+  assert.ok(!/\b(update|delete from|insert into|truncate)\s+public\.invest_prospects\b(?!\s+from)/i.test(code.replace(/revoke[^;]*;/gi, "")), "aucune donnée touchée");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
