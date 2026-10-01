@@ -21,9 +21,10 @@ const TON = { fait: C.vert, actif: C.bleu, attente: C.ambre, neutre: C.doux };
 const aujourdhui = () => new Date().toISOString().slice(0, 10);
 
 const CSS = `
+  html,body{margin:0}
   .pc-racine{min-height:100vh;background:${C.fond};color:${C.texte};font-family:'Barlow',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-text-size-adjust:100%}
   .pc-racine *{box-sizing:border-box}
-  .pc-entete{background:${C.marine};color:#fff}
+  .pc-entete{background:#fff;color:${C.texte};border-bottom:3px solid ${C.or}}
   .pc-entete-in{max-width:960px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
   .pc-main{max-width:960px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:16px}
   .pc-carte{background:${C.carte};border:1px solid ${C.bord};border-radius:16px;padding:16px 18px}
@@ -52,7 +53,7 @@ function Cadre({ children, onDeconnexion }) {
       <header className="pc-entete"><div className="pc-entete-in">
         <img src={LOGO} alt="Profero Invest" style={{ height: 34, objectFit: "contain" }} />
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
-          <span style={{ color: C.or, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase" }}>Espace client</span>
+          <span style={{ color: C.marine, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase" }}>Espace client</span>
           {onDeconnexion && <button className="pc-btn" onClick={onDeconnexion} style={{ minHeight: 34, padding: "5px 11px", fontSize: 13 }}>Se déconnecter</button>}
         </div>
       </div></header>
