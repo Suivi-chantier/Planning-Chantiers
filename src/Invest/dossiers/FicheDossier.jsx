@@ -71,7 +71,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
     const [rd, ru, rt, rp, ...r2c] = await Promise.all([
       supabase.from("invest_dossiers").select("*").eq("client_id", client.id).order("created_at", { ascending: false }),
       supabase.from("utilisateurs").select("id,nom,email,actif"),
-      supabase.from("invest_mission_actions").select("id,action_title,status,due_date,responsable,dossier_id,etape,step_key").eq("client_id", client.id),
+      supabase.from("invest_mission_actions").select("id,action_title,status,due_date,responsable,dossier_id,etape,step_key,visible_client").eq("client_id", client.id),
       supabase.from("invest_propositions").select("id,statut,date_proposition,created_at,bien:invest_biens(adresse,ville,statut)").eq("client_id", client.id).order("created_at", { ascending: false }),
       ...TABLES_2C.map((t) => supabase.from(t).select("*").eq("client_id", client.id)),
     ]);
@@ -218,6 +218,14 @@ function Parcours({ T, parcours, onOuvrir }) {
 }
 
 function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs, profil, client, onTacheCreee }) {
+  // Portail client : montrer / masquer le dossier. Rien n'est visible tant que ce n'est pas fait.
+  const basculerPortail = async (voulu) => {
+    if (voulu && !window.confirm("Montrer ce dossier au client ?\n\nIl verra le titre, le statut et la progression des étapes. Les tâches et événements restent masqués tant que vous ne les cochez pas. Jamais les honoraires ni les notes internes.")) return;
+    const { data, error } = await supabase.from("invest_dossiers").update({ portail_visible: voulu }).eq("id", fiche.dossier.id).select("id");
+    if (error) { onTacheCreee?.(`Portail client : ${error.message}`); return; }
+    if (!data?.length) { onTacheCreee?.("Portail client : modification refusée (droits insuffisants)."); return; }
+    onTacheCreee?.(voulu ? "Dossier visible par le client." : "Dossier masqué au client.");
+  };
   const a = fiche.aFaire, pj = fiche.projet, s = fiche.situation;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.35fr) minmax(0,1fr)", gap: 14 }} className="fiche-dossier-grille">
@@ -261,7 +269,7 @@ function VueEnsemble({ T, fiche, onGeste, onOnglet, onOuvrirEtape, utilisateurs,
             </div>
           )}
         </Carte>
-        <MissionHonoraires T={T} fiche={fiche} onGeste={onGeste} />
+        <MissionHonoraires T={T} fiche={fiche} onGeste={onGeste} onPortail={basculerPortail} />
         <Carte T={T} titre="Projet" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("projet")}>Ouvrir</button>}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Donnee T={T} libelle="Objectif" valeur={pj.objectif || "Non renseigné"} />
@@ -297,7 +305,17 @@ function Taches({ T, fiche, utilisateurs, profil, client, onTacheCreee }) {
   const [vue, setVue] = useState(t.enRetard.length ? "enRetard" : "aFaire");
   const [form, setForm] = useState(null);
   const [erreur, setErreur] = useState("");
+  const [toutVoir, setToutVoir] = useState(false);
   const lignes = t[vue] || [];
+  const peutMontrer = fiche.modifiable && fiche.dossier.id === fiche.dossierEnCours?.id;
+  // Portail client : le client ne voit que les tâches cochées ici, et seulement si le dossier est lui-même montré.
+  const basculerClient = async (x) => {
+    setErreur("");
+    const { data, error } = await supabase.from("invest_mission_actions").update({ visible_client: !x.visibleClient }).eq("id", x.id).select("id");
+    if (error) { setErreur(error.message); return; }
+    if (!data?.length) { setErreur("Modification refusée : droits insuffisants sur cette tâche."); return; }
+    onTacheCreee?.(x.visibleClient ? "Tâche masquée au client." : "Tâche visible par le client.");
+  };
   const etapeDefaut = fiche.pilotage?.principale?.cle || "signature";
   const creer = async () => {
     setErreur("");
@@ -334,13 +352,19 @@ function Taches({ T, fiche, utilisateurs, profil, client, onTacheCreee }) {
       )}
       {lignes.length === 0 ? <div style={{ fontSize: 12.5, color: T.textMuted }}>Aucune tâche.</div> : (
         <div style={{ display: "flex", flexDirection: "column" }}>
-          {lignes.slice(0, 8).map((x) => (
-            <div key={x.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, padding: "6px 0", borderTop: `1px solid ${T.rowBorder || T.border}`, fontSize: 12.5 }}>
+          {(toutVoir ? lignes : lignes.slice(0, 8)).map((x) => (
+            <div key={x.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, alignItems: "center", padding: "6px 0", borderTop: `1px solid ${T.rowBorder || T.border}`, fontSize: 12.5 }}>
               <div style={{ minWidth: 0 }}><div style={{ color: T.text, fontWeight: 700 }}>{x.titre}</div><div style={{ color: T.textMuted, fontSize: 11.5 }}>{x.etape} · {x.responsable || "sans responsable"}</div></div>
               <div style={{ color: vue === "enRetard" ? "#dc2626" : T.textMuted, fontSize: 11.5, whiteSpace: "nowrap" }}>{x.echeance ? dateFr(x.echeance) : "—"}</div>
+              {peutMontrer
+                ? <button className="inv-btn inv-btn-sm" onClick={() => basculerClient(x)} aria-pressed={x.visibleClient}
+                    title={x.visibleClient ? "Le client voit cette tâche (titre, étape, statut, échéance). Cliquer pour la masquer." : "Non visible par le client. Cliquer pour la lui montrer."}
+                    style={{ fontSize: 11, padding: "3px 8px", whiteSpace: "nowrap", ...(x.visibleClient ? { background: "#dcfce7", border: "1px solid #86efac", color: "#166534" } : { color: T.textMuted }) }}>
+                    {x.visibleClient ? "👁 Visible client" : "Masquée"}</button>
+                : (x.visibleClient ? <Badge couleur="#16a34a" titre="Le client voit cette tâche">Visible client</Badge> : <span />)}
             </div>
           ))}
-          {lignes.length > 8 && <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 4 }}>+ {lignes.length - 8} autre(s) — liste complète dans CRM › Actions & planning.</div>}
+          {lignes.length > 8 && <button className="inv-btn inv-btn-sm" style={{ marginTop: 6, alignSelf: "flex-start" }} onClick={() => setToutVoir((v) => !v)}>{toutVoir ? "Réduire la liste" : `Afficher les ${lignes.length - 8} autre(s)`}</button>}
         </div>
       )}
     </Carte>
@@ -434,7 +458,7 @@ function ParcoursOffre({ T, offre, parcours, modifiable, onOuvrir, onGeste }) {
   );
 }
 
-function MissionHonoraires({ T, fiche, onGeste }) {
+function MissionHonoraires({ T, fiche, onGeste, onPortail }) {
   const o = fiche.entete.offre, h = fiche.honoraires, f = h.forfait, cible = fiche.offreCible;
   const m = fiche.modifiable;
   const eurHT = (v) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(v))} € HT`;
@@ -456,6 +480,13 @@ function MissionHonoraires({ T, fiche, onGeste }) {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
           <Donnee T={T} libelle="Lettre de mission" valeur={fiche.entete.lettre} />
           {lien("lettre", "Modifier")}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <div style={{ minWidth: 0 }}>
+            <Donnee T={T} libelle="Portail client" valeur={fiche.dossier.portail_visible === true ? "Dossier visible par le client" : "Non visible par le client"} />
+            <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 2 }}>Le client voit le titre, le statut et la progression des étapes, puis seulement les tâches et événements que vous cochez. Jamais les honoraires ni les notes internes.</div>
+          </div>
+          {m && <button className="inv-btn inv-btn-sm" onClick={() => onPortail(fiche.dossier.portail_visible !== true)}>{fiche.dossier.portail_visible === true ? "Masquer" : "Montrer au client"}</button>}
         </div>
         <div>
           <Donnee T={T} libelle="Honoraires d'accompagnement" valeur={h.accompagnement.regle} />

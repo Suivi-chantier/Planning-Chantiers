@@ -42,7 +42,9 @@ const actifs = (rows = []) => rows.filter((r) => r && !r.archive_le);
 export function tachesFiche(taches = [], dossierId, aujourdhui) {
   const du = taches.filter((t) => t.dossier_id === dossierId);
   const vue = (t) => ({ id: t.id, titre: t.action_title || "Tâche", etape: libelleEtape(t.etape) ?? "À classer",
-    responsable: t.responsable || null, echeance: jour(t.due_date), statut: t.status });
+    responsable: t.responsable || null, echeance: jour(t.due_date), statut: t.status,
+    // Portail client : seul `true` montre la tâche au client (absent / null = non).
+    visibleClient: t.visible_client === true });
   const ouvertes = du.filter((t) => TACHE_OUVERTE.has(t.status));
   const retard = ouvertes.filter((t) => jour(t.due_date) && jour(t.due_date) < aujourdhui);
   const parDate = (a, b) => String(a.echeance || "9999").localeCompare(String(b.echeance || "9999"));
