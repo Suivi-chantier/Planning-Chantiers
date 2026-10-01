@@ -250,7 +250,10 @@ function StructField({ T=THEMES_INV.dark, label, value, onChange, type="text", p
   );
 }
 
-function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId }) {
+// `clientIdFixe` : mode intégré à la fiche d'UN client (onglet Structuration du CRM). L'écran ne montre
+// alors que le dossier de structuration de ce client, sans liste ni retour, et ne crée rien tout seul :
+// un bouton explicite propose de créer le dossier s'il n'existe pas.
+function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId, clientIdFixe = null }) {
   const [clients, setClients] = useState([]);
   const [dossiers, setDossiers] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -397,7 +400,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       setError("Table invest_structuration_patrimoniale introuvable ou non accessible. Lancez la migration SQL fournie.");
       setDossiers([]);
     } else {
-      const list = dossiersRes.data || [];
+      const list = (dossiersRes.data || []).filter(d => !clientIdFixe || d.client_id === clientIdFixe);
       setDossiers(list);
       if (!selectedId && list.length) setSelectedId(list[0].id);
     }
@@ -647,7 +650,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   };
 
   useEffect(() => {
-    if (!initialClientId || initialHandledRef.current || loading) return;
+    if (clientIdFixe || !initialClientId || initialHandledRef.current || loading) return;
     initialHandledRef.current = true;
     const existing = dossiers.find(d => d.client_id === initialClientId);
     if (existing) setSelectedId(existing.id);
@@ -952,7 +955,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
   const renderDossierHeader = () => (
     <div style={{ ...cardStyle, overflow:"hidden" }}>
       <div style={{ background:T.sidebar, padding:"16px 18px", display:"flex", alignItems:"center", gap:SPACING.md, borderBottom:`1px solid ${T.sidebarBorder}` }}>
-        <button className="inv-btn inv-btn-sm" onClick={()=>setSelectedId(null)} style={{ background:"rgba(255,255,255,0.06)", color:T.textSub, border:`1px solid ${T.sidebarBorder}` }}><Icon as={ArrowLeft} size={13}/> Dossiers</button>
+        {!clientIdFixe && <button className="inv-btn inv-btn-sm" onClick={()=>setSelectedId(null)} style={{ background:"rgba(255,255,255,0.06)", color:T.textSub, border:`1px solid ${T.sidebarBorder}` }}><Icon as={ArrowLeft} size={13}/> Dossiers</button>}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:25, fontWeight:500, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentClient ? clientFullName(currentClient) : (dossier?.titre || "Dossier structuration")}</div>
           <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, marginTop:2 }}>{dossier?.phase || "Phase 1"} · Créé le {dossier?.created_at ? new Date(dossier.created_at).toLocaleDateString("fr-FR") : "—"}</div>
@@ -1485,17 +1488,30 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
     </div>;
   };
 
+  // Mode intégré : aucun dossier de structuration pour ce client. Rien n'est créé sans clic.
+  const renderCreerPourClient = () => (
+    <div style={{ ...cardStyle, padding:"22px 20px", textAlign:"center" }}>
+      {loading ? <div style={{ color:T.textMuted }}>Chargement…</div> : (
+        <>
+          <div style={{ color:T.text, fontWeight:800, fontSize:15 }}>Aucun dossier de structuration pour ce client</div>
+          <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, margin:"6px auto 14px", maxWidth:520 }}>Le dossier regroupe le profil, le patrimoine, les pièces et l'analyse de structuration du client.</div>
+          <button className="inv-btn inv-btn-blue" onClick={() => creerDossier(clientIdFixe)}>Créer le dossier de structuration</button>
+        </>
+      )}
+    </div>
+  );
+
   const renderContent = () => {
-    if (!selectedId || !dossier) return renderListView();
+    if (!selectedId || !dossier) return clientIdFixe ? renderCreerPourClient() : renderListView();
     const map = { audit:renderAudit, profil:renderProfil, patrimoine:renderPatrimoine, documents:renderDocuments, analyse:renderAnalyse };
-    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.sm, minHeight:0, height:"100%" }}>
+    return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.sm, minHeight:0, height: clientIdFixe ? "auto" : "100%" }}>
       <div style={{ flexShrink:0 }}>{renderDossierHeader()}</div>
       <div style={{ flexShrink:0 }}>{renderTabs()}</div>
-      <div style={{ minHeight:0, overflowY:"auto", paddingRight:4, maxHeight:"calc(100vh - 335px)" }}>{map[tab]?.()}</div>
+      <div style={{ minHeight:0, overflowY: clientIdFixe ? "visible" : "auto", paddingRight:4, maxHeight: clientIdFixe ? "none" : "calc(100vh - 335px)" }}>{map[tab]?.()}</div>
     </div>;
   };
 
-  return <div style={{ padding:`${SPACING.md}px ${SPACING.xl}px`, maxWidth:1800, margin:"0 auto", height:"calc(100vh - 24px)", overflow:"hidden" }}>
+  return <div style={clientIdFixe ? { padding:0 } : { padding:`${SPACING.md}px ${SPACING.xl}px`, maxWidth:1800, margin:"0 auto", height:"calc(100vh - 24px)", overflow:"hidden" }}>
     <style>{`
       .structuration-compact{font-size:14px;line-height:1.45}
       .structuration-compact .inv-inp,
@@ -1529,9 +1545,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId 
       .structuration-compact ::placeholder{color:${T.textMuted}!important;opacity:.9}
     `}</style>
     {renderClientCreator()}
-    <div className="structuration-compact" style={{ display:"grid", gridTemplateColumns:"360px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
-      <div style={{ height:"100%", minHeight:0 }}>{renderSidebarDossiers()}</div>
-      <div style={{ minWidth:0, height:"100%", minHeight:0, overflow:"hidden" }}>
+    <div className="structuration-compact" style={clientIdFixe ? { display:"block" } : { display:"grid", gridTemplateColumns:"360px minmax(0,1fr)", gap:SPACING.md, alignItems:"start", height:"100%", minHeight:0 }}>
+      {!clientIdFixe && <div style={{ height:"100%", minHeight:0 }}>{renderSidebarDossiers()}</div>}
+      <div style={clientIdFixe ? { minWidth:0 } : { minWidth:0, height:"100%", minHeight:0, overflow:"hidden" }}>
         {error && <div style={{ marginBottom:SPACING.sm, padding:"10px 12px", background:SEMANTIC.warning.bg, border:`1px solid ${SEMANTIC.warning.border}`, color:WA, borderRadius:RADIUS.md }}>{error}</div>}
         {renderContent()}
       </div>

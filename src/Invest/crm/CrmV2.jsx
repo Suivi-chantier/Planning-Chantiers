@@ -45,7 +45,7 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   const charger = useCallback(async () => {
     setChargement(true);
     const [rc, rd, re, rt, ru, rn] = await Promise.all([
-      supabase.from("invest_clients").select("id,nom,prenom,email,telephone,statut,conseiller,created_at").order("nom"),
+      supabase.from("invest_clients").select("id,nom,prenom,email,telephone,statut,conseiller,created_at,sujet_structuration").order("nom"),
       supabase.from("invest_dossiers").select("id,client_id,reference,libelle,statut,type_mission,conseiller_id,date_ouverture,date_cloture,motif_cloture,created_at"),
       supabase.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,echeance,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(10000),
       supabase.from("invest_mission_actions").select("id,client_id,dossier_id,etape,action_title,status,due_date,responsable").limit(10000),
@@ -62,7 +62,7 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   // Cibles de navigation (Dashboard, notifications ; PageInvest traduit aussi le lien direct ?crm_client=).
   useEffect(() => {
     const cible = readNavTarget(initialFilter);
-    if ((cible.action === "open" || cible.action === "actions") && cible.id) setEcran({ type: "client", clientId: cible.id });
+    if ((cible.action === "open" || cible.action === "actions") && cible.id) setEcran({ type: "client", clientId: cible.id, onglet: initialFilter?.onglet });
     else if (cible.action === "filter" && cible.key === "statut") { setVue("clients"); setEcran({ type: "crm" }); }
   }, [initialFilter]);
 
@@ -183,7 +183,7 @@ function LigneMission({ T, m, aujourdhui, onMission, onClient }) {
 const COL_CLIENTS = "minmax(0,1.3fr) minmax(0,.8fr) minmax(0,.7fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.6fr) minmax(0,.9fr) minmax(0,.7fr)";
 
 function Clients({ T, donnees, missions, erreur, aujourdhui, onClient }) {
-  const [f, setF] = useState({ q: "", conseiller: "", statut: "", mission: "", offre: "" });
+  const [f, setF] = useState({ q: "", conseiller: "", statut: "", mission: "", offre: "", structuration: "" });
   const lignes = useMemo(() => portefeuille({ clients: donnees.clients, dossiers: donnees.dossiers, missions, notes: donnees.notes }), [donnees, missions]);
   const conseillers = [...new Set(lignes.map((l) => l.conseiller).filter(Boolean))].sort();
   const statuts = [...new Set(lignes.map((l) => l.statutRelation))].sort();
@@ -198,6 +198,7 @@ function Clients({ T, donnees, missions, erreur, aujourdhui, onClient }) {
         <select className="inv-sel" value={f.conseiller} onChange={maj("conseiller")} aria-label="Conseiller"><option value="">Tous les conseillers</option>{conseillers.map((c) => <option key={c}>{c}</option>)}</select>
         <select className="inv-sel" value={f.statut} onChange={maj("statut")} aria-label="Statut de la relation"><option value="">Tous les statuts</option>{statuts.map((x) => <option key={x}>{x}</option>)}</select>
         <select className="inv-sel" value={f.mission} onChange={maj("mission")} aria-label="Mission active"><option value="">Avec ou sans mission</option><option value="avec">Avec mission active</option><option value="sans">Sans mission active</option></select>
+        <select className="inv-sel" value={f.structuration} onChange={maj("structuration")} aria-label="Sujet de structuration"><option value="">Recherche et structuration</option><option value="oui">Avec sujet de structuration</option><option value="non">Recherche seule</option></select>
         {offres.length > 1 && <select className="inv-sel" value={f.offre} onChange={maj("offre")} aria-label="Offre"><option value="">Toutes les offres</option>{offres.map((o) => <option key={o}>{o}</option>)}</select>}
         <Discret T={T} style={{ marginLeft: "auto" }}>{visibles.length} client{visibles.length > 1 ? "s" : ""}</Discret>
       </div>
@@ -211,7 +212,7 @@ function Clients({ T, donnees, missions, erreur, aujourdhui, onClient }) {
           const m0 = l.missions[0];
           return (
             <div key={l.id} className="crm-lig crm-clic" role="button" tabIndex={0} onClick={() => onClient(l.id)} onKeyDown={(e) => { if (e.key === "Enter") onClient(l.id); }} style={{ gridTemplateColumns: COL_CLIENTS }}>
-              <div className="crm-cel" style={{ fontWeight: 900, color: T.text, fontSize: 14 }}>{l.nom}</div>
+              <div className="crm-cel" style={{ fontWeight: 900, color: T.text, fontSize: 14 }}>{l.nom}{l.structuration && <span title="Sujet de structuration" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 800, color: "#7c3aed", background: "#7c3aed14", borderRadius: 5, padding: "1px 6px", verticalAlign: "middle" }}>Structuration</span>}</div>
               <div className="crm-cel" style={{ color: T.textSub }}>{l.conseiller || "—"}</div>
               <div className="crm-cel" style={{ color: T.textSub }}>{l.statutRelation}</div>
               <div className="crm-cel" style={{ color: T.textSub }} title={l.missions.map((m) => `${m.reference} · ${m.offre}`).join("\n")}>

@@ -73,26 +73,9 @@ Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
   }
 });
 
-// Page Structuration Patrimoniale — liée aux clients Invest.
-if (Array.isArray(PAGES_INVEST) && !PAGES_INVEST.some(p => p.id === "structuration")) {
-  const financeIndex = PAGES_INVEST.findIndex(p => p.id === "finance");
-  const biensIndex = PAGES_INVEST.findIndex(p => p.id === "biens");
-  const structPage = { id: "structuration", label: "Structuration Patrimoniale" };
-  if (financeIndex >= 0) PAGES_INVEST.splice(financeIndex, 0, structPage);
-  else if (biensIndex >= 0) PAGES_INVEST.splice(biensIndex + 1, 0, structPage);
-  else PAGES_INVEST.push(structPage);
-}
-Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
-  const pages = ROLE_PAGES_DEFAULT_INVEST[roleKey];
-  if (!Array.isArray(pages) || pages.includes("structuration")) return;
-  if (pages.includes("admin") || pages.includes("crm") || pages.includes("finance") || pages.includes("dashboard")) {
-    const financeIndex = pages.indexOf("finance");
-    const adminIndex = pages.indexOf("admin");
-    if (financeIndex >= 0) pages.splice(financeIndex, 0, "structuration");
-    else if (adminIndex >= 0) pages.splice(adminIndex, 0, "structuration");
-    else pages.push("structuration");
-  }
-});
+// Structuration : ce n'était plus une page du menu. C'est un onglet de la fiche client du CRM,
+// visible pour les clients cochés « sujet de structuration ». "structuration" reste dans NAV_TABS
+// uniquement pour que les anciens liens (tableau de bord, notifications) soient redirigés vers la fiche client.
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const LOT_TYPES  = ["Sélectionner","Studio","T1","T2","T3","T4","T5","T6","Commerce"];

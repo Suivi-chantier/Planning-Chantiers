@@ -19,6 +19,10 @@ const CRMV2 = lire("src/Invest/crm/CrmV2.jsx");
 const FICHE = lire("src/Invest/crm/FicheClientV2.jsx");
 const VUE = lire("src/Invest/crm/crmV2Vue.mjs");
 const SHARED = lire("src/Invest/_shared.jsx");
+const PAGEINVEST = lire("src/Invest/PageInvest.jsx");
+const ACCESS = lire("src/access.js");
+const STRUCT = lire("src/Invest/Structuration.jsx");
+const CASE = lire("src/Invest/crm/SujetStructuration.jsx");
 
 const AUJ = "2026-10-05";
 const U = [{ id: "u1", nom: "Conseiller A", email: "a@test.fr", actif: true }, { id: "u2", nom: "Conseiller B", email: "b@test.fr", actif: true }];
@@ -232,6 +236,48 @@ test("14. refonte : écran CRM — trois vues compactes, aucune écriture, pilot
   assert.match(CRMV2, /onClient\(m\.clientId\)/, "nom du client -> page Client");
   assert.match(CRMV2, /onClient\(l\.id\)/, "ligne Clients -> page Client");
   assert.ok(!/Missions qui suivent leur cours|Ce que l'équipe doit traiter, les clients suivis/.test(CRMV2), "blocs et textes explicatifs supprimés");
+});
+
+test("15. structuration : l'onglet n'existe que pour les clients cochés, juste après Patrimoine", () => {
+  assert.deepEqual(V.ongletsClient({ sujet_structuration: false }).map((o) => o.cle), V.ONGLETS_CLIENT.map((o) => o.cle));
+  assert.deepEqual(V.ongletsClient(null).map((o) => o.cle), V.ONGLETS_CLIENT.map((o) => o.cle));
+  assert.deepEqual(V.ongletsClient({ sujet_structuration: "true" }).map((o) => o.cle), V.ONGLETS_CLIENT.map((o) => o.cle), "seul true compte");
+  const avec = V.ongletsClient({ sujet_structuration: true }).map((o) => o.cle);
+  assert.deepEqual(avec, ["ensemble", "missions", "patrimoine", "structuration", "operations", "documents", "historique"]);
+});
+
+test("16. structuration : liste Clients — marqueur et filtre « avec sujet » / « recherche seule »", () => {
+  const clients = CLIENTS.map((c) => (c.id === "c2" ? { ...c, sujet_structuration: true } : c));
+  const lignes = V.portefeuille({ clients, dossiers: DOSSIERS, missions: V.missionsAPiloter({ ...donnees, clients }), notes: NOTES });
+  assert.deepEqual(lignes.filter((l) => l.structuration).map((l) => l.id), ["c2"]);
+  const ids = (f) => V.filtrerPortefeuille(lignes, f).map((l) => l.id).sort();
+  assert.deepEqual(ids({ structuration: "oui" }), ["c2"]);
+  assert.deepEqual(ids({ structuration: "non" }), ["c1", "c3"]);
+  assert.deepEqual(ids({ structuration: "" }), ["c1", "c2", "c3"]);
+  assert.deepEqual(ids({ structuration: "oui", mission: "sans" }), [], "les filtres se cumulent");
+});
+
+test("17. structuration : plus de page dans le menu, anciens liens redirigés vers la fiche client, rien d'auto-créé", () => {
+  assert.ok(!/id: "structuration"/.test(PAGEINVEST + ACCESS + SHARED), "plus d'entrée de menu ni de page injectée");
+  assert.ok(!/"structuration",?\s*$/m.test(ACCESS), "retirée des droits par défaut");
+  assert.ok(!/<StructurationPatrimoniale|from "\.\/Structuration"/.test(PAGEINVEST), "PageInvest n'affiche plus l'ancien écran");
+  assert.match(PAGEINVEST, /cible\?\.tab === "structuration"\) cible = \{ \.\.\.cible, tab: "crm"/);
+  assert.match(PAGEINVEST, /setCrmInitialFilter\(\{ tab: "crm", action: "open", id: clientId, onglet: "structuration" \}\)/);
+  assert.match(CRMV2, /onglet: initialFilter\?\.onglet/);
+  // mode intégré : un seul client, aucune création automatique
+  assert.match(STRUCT, /filter\(d => !clientIdFixe \|\| d\.client_id === clientIdFixe\)/);
+  assert.match(STRUCT, /if \(clientIdFixe \|\| !initialClientId \|\| initialHandledRef\.current \|\| loading\) return;/);
+  assert.match(STRUCT, /onClick=\{\(\) => creerDossier\(clientIdFixe\)\}>Créer le dossier de structuration/);
+  assert.match(FICHE, /<StructurationPatrimoniale key=\{client\.id\} profil=\{profil\} T=\{T\} clientIdFixe=\{client\.id\} \/>/);
+});
+
+test("18. structuration : la case n'écrit que invest_clients.sujet_structuration, et les blocs du menu sont posés", () => {
+  assert.match(CASE, /\.update\(\{ sujet_structuration: !actif \}\)\.eq\("id", client\.id\)/);
+  assert.ok(!/\.(insert|delete|upsert)\(/.test(CASE));
+  assert.ok(!/from\("invest_clients"\)\.(update|insert|delete|upsert)/.test(CRMV2 + FICHE), "l'écriture reste hors du CRM et de la page Client");
+  for (const [id, g] of [["dashboard", "Pilotage"], ["crm", "Pilotage"], ["biens", "Biens"], ["urbanisme", "Biens"], ["simulateur", "Finance"], ["suivi_financier", "Finance"]])
+    assert.match(PAGEINVEST, new RegExp(`${id}: "${g}"`));
+  for (const id of ["simulateur", "finance", "suivi_financier", "sourcing", "biens", "etat_des_lieux", "urbanisme", "admin"]) assert.match(PAGEINVEST, new RegExp(`\\{ id: "${id}",`), `${id} toujours dans le menu`);
 });
 
 let echecs = 0;

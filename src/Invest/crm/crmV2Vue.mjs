@@ -33,6 +33,14 @@ export const ONGLETS_CLIENT = Object.freeze([
   { cle: "historique", libelle: "Historique" },
 ]);
 
+/** Onglet affiché seulement pour les clients cochés « sujet de structuration » (après Patrimoine). */
+export const ONGLET_STRUCTURATION = Object.freeze({ cle: "structuration", libelle: "Structuration" });
+export function ongletsClient(client) {
+  if (client?.sujet_structuration !== true) return ONGLETS_CLIENT;
+  const i = ONGLETS_CLIENT.findIndex((o) => o.cle === "patrimoine");
+  return Object.freeze([...ONGLETS_CLIENT.slice(0, i + 1), ONGLET_STRUCTURATION, ...ONGLETS_CLIENT.slice(i + 1)]);
+}
+
 // Offres (Offre 2 / Offre 3) : source unique dans dossiers/offres.mjs (chantier 9).
 export { OFFRES, JALONS_OFFRE, offreDe, jalonDe } from "../dossiers/offres.mjs";
 
@@ -143,6 +151,7 @@ export function portefeuille({ clients = [], dossiers = [], missions = [], notes
       telephone: c.telephone || null, email: c.email || null,
       missions: siennes.map((m) => ({ dossierId: m.dossierId, reference: m.reference, offre: m.offre.court || m.offre.libelle, jalon: m.jalon, etape: m.etape })),
       missionsTerminees: terminees,
+      structuration: c.sujet_structuration === true,
       prochaineAction: inconnu ? "Avancement indisponible" : premiere ? premiere.action : null,
       echeance: premiere?.echeance ?? null,
       urgent: siennes.some((m) => m.priorite <= 1),
@@ -298,12 +307,14 @@ export function echeanceCourte(iso, aujourdhui) {
 }
 
 /** Filtres de la liste Clients : recherche, conseiller, statut, avec/sans mission active, offre. */
-export function filtrerPortefeuille(lignes = [], { q = "", conseiller = "", statut = "", mission = "", offre = "" } = {}) {
+export function filtrerPortefeuille(lignes = [], { q = "", conseiller = "", statut = "", mission = "", offre = "", structuration = "" } = {}) {
   const t = String(q || "").trim().toLowerCase();
   return lignes.filter((l) => (!t || l.recherche.toLowerCase().includes(t))
     && (!conseiller || l.conseiller === conseiller)
     && (!statut || l.statutRelation === statut)
     && (mission !== "avec" || l.missions.length > 0)
     && (mission !== "sans" || l.missions.length === 0)
-    && (!offre || l.missions.some((m) => m.offre === offre)));
+    && (!offre || l.missions.some((m) => m.offre === offre))
+    && (structuration !== "oui" || l.structuration === true)
+    && (structuration !== "non" || l.structuration !== true));
 }

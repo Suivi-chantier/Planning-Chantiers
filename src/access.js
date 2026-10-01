@@ -59,7 +59,6 @@ export const PAGES_INVEST = [
   { id: "simulateur",      label: "Simulateur" },
   { id: "etat_des_lieux",  label: "État des lieux" },
   { id: "urbanisme",       label: "Urbanisme" },
-  { id: "structuration",   label: "Structuration" },
   { id: "finance",         label: "Finance" },
   { id: "suivi_financier", label: "Suivi financier" },
   { id: "admin",           label: "Admin" },
@@ -202,7 +201,6 @@ const INVEST_ADMIN_PAGES = [
   "simulateur",
   "etat_des_lieux",
   "urbanisme",
-  "structuration",
   "finance",
   "suivi_financier",
   "admin",
@@ -217,7 +215,6 @@ const INVEST_DIRECTION_PAGES = [
   "simulateur",
   "etat_des_lieux",
   "urbanisme",
-  "structuration",
   "finance",
   "suivi_financier",
 ];
@@ -230,7 +227,6 @@ const INVEST_COMMERCIAL_PAGES = [
   "simulateur",
   "etat_des_lieux",
   "urbanisme",
-  "structuration",
 ];
 
 const INVEST_CONSEILLER_PAGES = [
@@ -241,7 +237,6 @@ const INVEST_CONSEILLER_PAGES = [
   "simulateur",
   "etat_des_lieux",
   "urbanisme",
-  "structuration",
 ];
 
 export const ROLE_PAGES_DEFAULT_INVEST = {
