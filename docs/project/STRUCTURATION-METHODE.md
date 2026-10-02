@@ -10,7 +10,7 @@ Recherche en ligne le 02/10/2026 sur la pratique des conseillers en gestion de p
 - les documents qu'un conseiller doit pouvoir produire, datés et signés : document d'entrée en relation (DER), lettre de mission, questionnaire de connaissance du client, déclaration / rapport d'adéquation, information sur les frais ;
 - les leviers de structuration immobilière les plus courants : SCI à l'IR ou à l'IS, holding, démembrement, donation de parts avec décote d'illiquidité, pacte Dutreil, toujours en coordination avec le notaire, l'expert-comptable et l'avocat fiscaliste.
 
-Sources : gestion-de-patrimoine-du-chef-d-entreprise.com (démarche en sept étapes), garonne-patrimoine.com (documents obligatoires), cgpp.fr (lettre de mission), noun-partners.com et odincapital.fr (holding / SCI), hr-associes.fr (démembrement). Ce sont des sites de cabinets, pas des textes de loi : ils décrivent la pratique, ils ne remplacent ni un juriste ni la réglementation de l'AMF et de l'ORIAS. À faire valider par votre conformité avant de présenter le parcours comme « conforme ».
+Sources : gestion-de-patrimoine-du-chef-d-entreprise.com (démarche en sept étapes), garonne-patrimoine.com (documents obligatoires), cgpp.fr (lettre de mission), noun-partners.com et odincapital.fr (holding / SCI), hr-associes.fr (démembrement). Ce sont des sites de cabinets, pas des textes de loi : ils décrivent la pratique, ils ne remplacent ni un juriste ni la réglementation de l'AMF et de l'ORIAS. Profero n'étant pas soumis à cette réglementation, le parcours est une référence de métier, pas une grille de conformité.
 
 ## Ce que la page faisait déjà bien
 
@@ -33,6 +33,6 @@ Les règles de calcul sont dans `src/Invest/structurationParcours.mjs`, vérifi�
 
 ## Ce qui reste à décider avec vous
 
-- Le dossier de structuration est-il une activité réglementée chez Profero (statut CIF / courtage) ? Si oui, des points obligatoires manquent peut-être (questionnaire de risque détaillé, information sur les frais). La liste de l'onglet Cadrage est un point de départ, pas un avis juridique.
+- Profero n'est pas soumis à la réglementation des conseillers en investissements financiers (confirmé par Matthieu le 02/10/2026). Les points de l'onglet Cadrage sont donc des bonnes pratiques de métier, pas des obligations : ils protègent le client et Profero, et peuvent être allégés. Le questionnaire de risque détaillé et l'information sur les frais ne sont pas ajoutés.
 - Les points sont-ils les bons pour vos missions ? Chaque point est une ligne de `structurationParcours.mjs`, facile à retirer ou ajouter.
 - Une simulation chiffrée IR / IS / holding / démembrement (comparaison de fiscalité et de transmission) n'existe pas : c'est la vraie suite, à cadrer ensemble.
