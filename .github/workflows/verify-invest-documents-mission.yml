@@ -1,0 +1,32 @@
+name: Verify Documents de mission Invest (pièces du client et documents Profero)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261002100000_invest_dossier_pieces.sql'
+      - 'sql/202610_invest_dossier_pieces_rollback.sql'
+      - 'src/Invest/dossiers/DocumentsMission.jsx'
+      - 'src/Invest/dossiers/piecesMission.mjs'
+      - 'src/Invest/dossiers/FicheDossier.jsx'
+      - 'src/Invest/dossiers/ficheDossierVue.mjs'
+      - 'scripts/verif-invest-documents-mission.mjs'
+      - 'scripts/verif-invest-documents-ecran.mjs'
+      - '.github/workflows/verify-invest-documents-mission.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Base — liste préparée, accès CRM seulement, fichier dans la mission, retour arrière
+        run: node scripts/verif-invest-documents-mission.mjs
+      - name: Écran — avancement, statuts, chemins, rapport de restitution
+        run: node scripts/verif-invest-documents-ecran.mjs

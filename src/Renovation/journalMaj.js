@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-02",
+    type: "nouveaute",
+    titre: "Missions Invest : l'onglet Documents (pièces du client, rapport de restitution)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Chaque mission suit désormais les pièces à fournir par le client (demandée, reçue, validée) et les documents que Profero produit pour lui : lettre de mission, rapport de restitution, comptes rendus. Une mission neuve reçoit automatiquement sa liste standard ; pour une mission déjà ouverte, un bouton la prépare.",
+    comment: "Dans la fiche de la mission, onglet Documents. Pour chaque pièce : changer le statut, déposer le fichier, le remplacer ou le retirer. Les documents Profero peuvent être partagés avec le client (bouton « Partager », confirmation demandée). Quand le rapport de restitution est déposé, un bouton propose d'enregistrer la date de restitution : elle n'est jamais posée toute seule. Le client ne dépose rien pour l'instant.",
+  },
+  {
     date: "2026-10-01",
     type: "nouveaute",
     titre: "CRM Invest : inviter un client à son espace client",

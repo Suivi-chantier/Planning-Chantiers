@@ -23,7 +23,7 @@ export const ONGLETS_FICHE = Object.freeze([
   { cle: "ensemble", libelle: "Vue d'ensemble" },
   { cle: "projet", libelle: "Projet", etapes: ["collecte"] },
   { cle: "situation", libelle: "Situation patrimoniale", etapes: ["collecte"] },
-  { cle: "documents", libelle: "Documents", etapes: ["documents"], enPreparation: true },
+  { cle: "documents", libelle: "Documents", etapes: ["documents"] },
   { cle: "analyse", libelle: "Analyse", etapes: ["analyse"], enPreparation: true },
   { cle: "strategie", libelle: "Stratégie", etapes: ["strategie"], enPreparation: true },
   { cle: "opportunites", libelle: "Opportunités", etapes: ["recherche", "opportunites"] },
