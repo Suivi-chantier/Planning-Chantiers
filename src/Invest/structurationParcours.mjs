@@ -11,6 +11,7 @@
 // « à faire », jamais « fait par défaut ».
 
 import { analyserObjectifs, analyserProfilImmo, num } from "./structurationDonnees.mjs";
+import { operationComplete } from "./structurationProjection.mjs";
 
 const plein = (v) => v !== undefined && v !== null && String(v).trim() !== "";
 const nb = (arr) => (Array.isArray(arr) ? arr : []);
@@ -90,6 +91,7 @@ export function calculerParcours(data) {
     strategies: [
       pt("Au moins deux scénarios étudiés", scenariosTraites >= 2, "analyse", `${scenariosTraites} étudié(s)`),
       pt("Stratégie recommandée", plein(a.strategie_recommandee), "analyse"),
+      pt("Au moins un scénario chiffré (opérations, projection, tests de résistance)", nb(data?.scenarios_chiffres).some((s) => nb(s.operations).some(operationComplete)), "analyse"),
     ],
     preconisation: [
       // Les trois préconisations modèles d'un nouveau dossier portent déjà une action : sans stratégie

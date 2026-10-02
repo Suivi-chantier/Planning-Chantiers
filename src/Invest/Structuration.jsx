@@ -10,6 +10,7 @@ import { BarreParcours, CadrageConformite, MiseEnOeuvreSuivi } from "./Structura
 import { ObjectifsMesures, EnfantsFoyer, ProfilInvestisseurImmo, FichesBiens, ChargesFoyer, DettesListe } from "./StructurationSaisies";
 import { analyserDettes } from "./structurationDonnees.mjs";
 import { DiagnosticAuto } from "./StructurationDiagnosticVue";
+import { ScenariosProjection } from "./StructurationScenariosVue";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
@@ -1475,6 +1476,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     const insererSynthese = (texte) => mutateData(prev => ({ ...prev, analyse:{ ...(prev.analyse || {}), diagnostic: [String(prev.analyse?.diagnostic || "").trim(), texte].filter(Boolean).join("\n\n") } }));
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
       <DiagnosticAuto T={T} data={data} onChange={updateBloc} onInsererSynthese={insererSynthese} diagnosticRedige={data.analyse?.diagnostic}/>
+      <ScenariosProjection T={T} data={data} onChange={updateBloc}/>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:SPACING.md }}>
         {kpi("Patrimoine net", fmtEur(c.patrimoineNet), `Brut ${fmtEur(c.patrimoineBrut)}`, "gold")}
         {kpi("Endettement", fmtPct(c.tauxEndettement), c.tauxEndettement > .35 ? "Vigilance" : "À valider", c.tauxEndettement > .35 ? "red" : "green")}

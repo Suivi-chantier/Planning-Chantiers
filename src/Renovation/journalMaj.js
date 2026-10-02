@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Structuration : scénarios chiffrés, projection sur 20 ans et tests de résistance",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "On ne présente plus une seule recommandation : on compare plusieurs trajectoires d'acquisitions, on voit où elles mènent à 5, 10 et 20 ans dans trois cas (prudent, central, dégradé), et on teste si le foyer tient quand les hypothèses ne se réalisent pas.",
+    comment: "Onglet Diagnostic, sous le diagnostic automatique : ajoutez des scénarios, chacun avec ses opérations (année, prix, apport, travaux, taux, durée, loyer attendu). Le tableau de comparaison met la situation actuelle et chaque scénario côte à côte (patrimoine net, dettes, capital remboursé, loyers, cash-flow, liquidités, effort d'épargne) avec une ligne « Tenable ? » qui dit si la trésorerie devient négative et en quelle année. La projection trace le patrimoine net dans les trois cas. Les tests de résistance appliquent travaux +20 %, 3 mois de vacance, loyers −10 %, valeur −10 %, charges +20 %, perte d'un revenu pendant 6 mois, et un cumul. Les hypothèses sont affichées et modifiables : ce sont des valeurs de départ prudentes, pas des données de marché. Tout est avant impôt ; la fiscalité des structures vient ensuite. Corrigé au passage : le prêt de la résidence principale ne se saisit plus dans « Autres dettes » (il est dans le bilan), pour ne pas être compté deux fois.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Structuration : diagnostic automatique et capacité d'emprunt en trajectoire",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Dès que les données sont saisies, le dossier calcule sa propre photographie (patrimoine brut, dettes, net, composition, flux), en déduit forces, faiblesses, risques et opportunités avec le chiffre qui les justifie, et montre comment la capacité bancaire évolue opération après opération.",
