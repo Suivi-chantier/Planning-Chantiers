@@ -116,6 +116,17 @@ test("16. une opération sans prix est ignorée et signalée", () => {
   assert.equal(P.operationComplete({ prix: "1", annee: "2026" }), true); assert.equal(P.operationComplete({ prix: "1" }), false);
 });
 
+test("17. l'apport se paie à l'achat : la trésorerie est jugée au plus bas de l'année, pas seulement à sa fin", () => {
+  // 20 000 € de liquidités, ~2 000 € d'épargne par mois : l'apport de 30 000 € ne peut pas être payé au 1er jour de 2026,
+  // même si l'épargne de l'année rétablit un solde positif au 31 décembre.
+  const d = { collecte: { profil: { revenus_nets_mois: "4000" }, patrimoine: { lots: [] }, patrimoine_financier: { liquidites: "20000" }, charges: { logement: "1000", courantes: "1000" } } };
+  const p = P.projeter(d, { anneeDepart: AN, horizon: 2, operations: [{ annee: 2026, prix: "100000", apport: "30000", loyer_mois: "600" }] });
+  assert.ok(p.annees[1].liquidites > 0, "positif en fin d'année");
+  assert.equal(p.anneeInsuffisance, 2026); assert.ok(p.liquiditesMin < 0);
+  const ok = P.projeter(d, { anneeDepart: AN, horizon: 2, operations: [{ annee: 2026, prix: "100000", apport: "15000", loyer_mois: "600" }] });
+  assert.equal(ok.anneeInsuffisance, null);
+});
+
 let echecs = 0;
 for (const [n, f] of cas) { try { await f(); console.log(`  ✓ ${n}`); } catch (e) { echecs++; console.log(`  ✗ ${n}\n      ${e.message}`); } }
 console.log(`\n${cas.length - echecs}/${cas.length} vérifications réussies`);

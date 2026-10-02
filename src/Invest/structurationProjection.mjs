@@ -133,6 +133,7 @@ export function projeter(data, { operations = [], cas = "central", anneeDepart, 
     dettes: biens.reduce((s, b) => s + b.pret.crd, 0) + rpCrd0 + autres.reduce((s, d) => s + d.crd, 0),
     loyersEncaisses: null, charges: null, mensualites: null, cashflow: null, capitalRembourse: 0,
   });
+  annees[0].liquiditesPlusBas = annees[0].liquidites;
   annees[0].patrimoineNet = annees[0].valeurImmobilier + annees[0].financier + annees[0].liquidites - annees[0].dettes;
 
   const g = (pct, k) => Math.pow(1 + pct / 100, k);
@@ -174,6 +175,9 @@ export function projeter(data, { operations = [], cas = "central", anneeDepart, 
       const revenus = revenusProAn * g(h.revenus, k) - (k === 1 ? revenusProAn * (choc.perteRevenuMois / 12) : 0);
       epargneFoyer = revenus - chargesFoyerAn * g(h.charges, k) * (1 + choc.chargesPct / 100);
     }
+    // L'apport et les travaux se paient le jour de l'achat : la trésorerie doit les couvrir AVANT d'avoir encaissé
+    // l'épargne de l'année. On retient donc le point le plus bas de l'année, pas seulement sa fin.
+    const liquiditesDebut = liquidites;
     liquidites += epargneFoyer + cashflowBiens - paiementsAutres - sorties;
     cumulCapital += capitalAnnee;
     const financier = financier0 * g(h.rendementFinancier, k);
@@ -181,13 +185,14 @@ export function projeter(data, { operations = [], cas = "central", anneeDepart, 
       k, annee: anneeDepart + k - 1, valeurImmobilier: valeurImmo, financier, liquidites, dettes,
       loyersEncaisses: loyers, charges, mensualites: mensualites + paiementsAutres, cashflow: cashflowBiens - paiementsAutres + epargneFoyer,
       cashflowBiens, capitalRembourse: cumulCapital,
+      liquiditesPlusBas: sorties > 0 ? Math.min(liquidites, liquiditesDebut - sorties) : liquidites,
     };
     a.patrimoineNet = valeurImmo + financier + liquidites - dettes;
     annees.push(a);
   }
-  const premiereNegative = annees.find((a) => a.liquidites < 0);
+  const premiereNegative = annees.find((a) => a.liquiditesPlusBas < 0);
   if (premiereNegative) alertes.push(`Liquidités négatives dès ${premiereNegative.annee} : les apports et le cash-flow ne sont pas financés.`);
-  const liquiditesMin = Math.min(...annees.map((a) => a.liquidites));
+  const liquiditesMin = Math.min(...annees.map((a) => a.liquiditesPlusBas));
   return { cas, hypotheses: h, annees, alertes, limites: [...new Set(limites)], liquiditesMin, anneeInsuffisance: premiereNegative?.annee ?? null };
 }
 
@@ -234,8 +239,8 @@ export function testsResistance(data, { operations = [], anneeDepart, surcharges
   const base = projeter(data, { operations, cas, anneeDepart, surcharges, horizon: horizonTest });
   const lecture = (p) => {
     const fenetre = p.annees.slice(1, horizonTest + 1);
-    const min = Math.min(...fenetre.map((a) => a.liquidites));
-    const neg = fenetre.find((a) => a.liquidites < 0);
+    const min = Math.min(...fenetre.map((a) => a.liquiditesPlusBas));
+    const neg = fenetre.find((a) => a.liquiditesPlusBas < 0);
     return {
       liquiditesMin: min, anneeInsuffisance: neg?.annee ?? null,
       pireCashflow: Math.min(...fenetre.map((a) => a.cashflow)),

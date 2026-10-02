@@ -19,6 +19,7 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&a
 const ND = "non calculable", AP = "À préciser";
 const eur = (v) => (v === null || v === undefined || !Number.isFinite(v) ? ND : `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(v))} €`);
 const pc = (v) => (v === null || v === undefined || !Number.isFinite(v) ? ND : `${Math.round(v * 100)} %`);
+const pc1 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? ND : `${(v * 100).toFixed(1).replace(".", ",")} %`);
 const texte = (v) => (String(v ?? "").trim() === "" ? AP : esc(v));
 const arr = (a) => (Array.isArray(a) ? a : []);
 
@@ -103,7 +104,7 @@ export function construireRapportHtml(data, { niveau = "synthese", clientNom = "
     (objectifs.incomplets ? `<p class="warn">${objectifs.incomplets} objectif(s) sans montant, échéance ou priorité : ils ne peuvent pas être pris en compte dans la trajectoire.</p>` : "") +
     kv([["Objectif principal", texte(c.objectifs?.objectif_principal)], ["Horizon", texte(c.objectifs?.horizon)], ["Zones souhaitées", texte(c.objectifs?.zones)]]));
 
-  const lignesBiens = arr(c.patrimoine?.lots).map((l, i) => { const b = analyserBien(l); return [esc(l.adresse || `Bien ${i + 1}`), esc(l.structure || "—"), eur(num(l.valeur)), eur(num(l.crd)), pc(b.rendementBrut), b.cashflowMois === null ? ND : `${eur(b.cashflowMois)}/mois`]; });
+  const lignesBiens = arr(c.patrimoine?.lots).map((l, i) => { const b = analyserBien(l); return [esc(l.adresse || `Bien ${i + 1}`), esc(l.structure || "—"), eur(num(l.valeur)), eur(num(l.crd)), pc1(b.rendementBrut), b.cashflowMois === null ? ND : `${eur(b.cashflowMois)}/mois`]; });
   const p3 = page("03 — Ce que vous avez bâti", "Votre patrimoine actuel", `<h3>Composition</h3>` + table(["Poste", "Montant", "Part"], [
     ["Immobilier (biens locatifs et résidence principale)", eur(s.composition.immobilier), pc(s.composition.partImmobilier)],
     ["Placements financiers", eur(s.composition.financier), pc(s.composition.partFinancier)], ["Liquidités", eur(s.composition.liquidites), pc(s.composition.partLiquidites)],
@@ -168,7 +169,7 @@ export function construireRapportHtml(data, { niveau = "synthese", clientNom = "
     kv([["Capacité d'épargne théorique par mois", eur(flux.capaciteEpargneTheorique)], ["Épargne réellement constatée par mois", eur(flux.epargneReelle)]])));
   annexes.push(page("Annexe C — Patrimoine", "Patrimoine financier, immobilier et passif", `<h3>Patrimoine financier</h3>` + table(["Poste", "Montant"], Object.entries(fin).map(([k, v]) => [esc(k.replace(/_/g, " ")), eur(num(v))]), [1]) +
     `<h3>Fiche économique des biens (avant impôt)</h3>` + table(["Bien", "Prix d'achat", "Valeur", "Rendement net", "Fonds propres", "Valeur nette", "Plus-value latente", "Effort d'épargne"],
-      arr(pat.lots).map((l, i) => { const b = analyserBien(l); return [esc(l.adresse || `Bien ${i + 1}`), eur(num(l.valeur_acquisition)), eur(num(l.valeur)), pc(b.rendementNet), pc(b.rentabiliteFondsPropres), eur(b.valeurNette), eur(b.plusValueLatente), eur(b.effortEpargneMois)]; }), [1, 2, 3, 4, 5, 6, 7]) +
+      arr(pat.lots).map((l, i) => { const b = analyserBien(l); return [esc(l.adresse || `Bien ${i + 1}`), eur(num(l.valeur_acquisition)), eur(num(l.valeur)), pc1(b.rendementNet), pc1(b.rentabiliteFondsPropres), eur(b.valeurNette), eur(b.plusValueLatente), eur(b.effortEpargneMois)]; }), [1, 2, 3, 4, 5, 6, 7]) +
     `<h3>Autres dettes</h3>` + table(["Type", "Capital restant", "Mensualité", "Taux", "Garantie"], arr(c.dettes).map((d) => [esc(d.type || "—"), eur(num(d.capital_restant)), eur(num(d.mensualite)), d.taux ? `${esc(d.taux)} %` : "—", esc(d.garantie || "—")]), [1, 2]) +
     `<p class="muted">Résidence principale : valeur ${eur(num(pat.rp_valeur))}, capital restant dû ${eur(num(pat.rp_crd))}. Dettes hors immobilier locatif : ${eur(analyserDettes(c.dettes).capitalRestant)}.</p>`));
   annexes.push(page("Annexe D — Fiscalité et banque", "Situation fiscale et bancaire", kv([
