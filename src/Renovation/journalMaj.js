@@ -25,6 +25,10 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "amelioration",
+    titre: "Structuration : un parcours en sept étapes, comme le conduisent les conseillers en gestion de patrimoine",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "La page est organisée dans l'ordre de la démarche des professionnels : on voit où en est le dossier et ce qu'il reste à faire, et il couvre maintenant le début (conformité) et la fin (mise en œuvre et suivi) qui manquaient.",
+    comment: "Une barre en haut montre les sept étapes (cadrage et conformité, recueil, diagnostic, stratégies comparées, préconisation et restitution, mise en œuvre, suivi) avec leur avancement, le prochain point à traiter, et un bouton pour y aller. Nouvel onglet « Cadrage & conformité » : document d'entrée en relation, lettre de mission, RGPD, vérification d'identité et d'origine des fonds, rémunération expliquée, déclaration d'adéquation. Nouvel onglet « Mise en œuvre & suivi » : rapport remis, notaire / expert-comptable / banque à coordonner, actions avec échéances, prochaine revue. Les onglets existants sont conservés. Ces points reprennent les bonnes pratiques du métier (Profero n'est pas soumis à la réglementation des conseillers en investissements financiers) : voir docs/project/STRUCTURATION-METHODE.md.",
     titre: "Fiche client : vue d'ensemble plus claire, mission ouverte dans l'onglet Missions, pièces à demander au client",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Le parcours de la fiche client se lit maintenant de haut en bas, et on n'est plus envoyé sur une autre page pour voir une mission. Les pièces du client se suivent et se demandent directement.",
