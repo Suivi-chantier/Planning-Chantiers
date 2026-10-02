@@ -1,0 +1,34 @@
+name: Verify Stratégie de mission Invest (blocs, scénarios comparés, validation)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261002120000_invest_dossier_strategies.sql'
+      - 'sql/202610_invest_dossier_strategies_rollback.sql'
+      - 'src/Invest/dossiers/StrategieMission.jsx'
+      - 'src/Invest/dossiers/calculStrategie.mjs'
+      - 'src/Invest/dossiers/calculAnalyse.mjs'
+      - 'src/Invest/dossiers/FicheDossier.jsx'
+      - 'src/Invest/dossiers/ficheDossierVue.mjs'
+      - 'scripts/lib/banc-invest.mjs'
+      - 'scripts/verif-invest-strategie-mission.mjs'
+      - 'scripts/verif-invest-strategie-ecran.mjs'
+      - '.github/workflows/verify-invest-strategie-mission.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Base — une stratégie par mission, 4 scénarios au plus, un seul recommandé, validation, accès CRM seulement
+        run: node scripts/verif-invest-strategie-mission.mjs
+      - name: Écran — indicateurs vérifiés par amortissement, données absentes, validation, présentation
+        run: node scripts/verif-invest-strategie-ecran.mjs

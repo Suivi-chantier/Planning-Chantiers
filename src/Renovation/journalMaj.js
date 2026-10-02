@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Missions Invest : l'onglet Stratégie (scénarios comparés, blocs au choix selon le client)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Pour chaque mission, vous construisez la démonstration de la stratégie avec les seuls blocs utiles à ce client : objectifs, point de départ chiffré, scénarios comparés (jusqu'à 4), cadre fiscal et juridique, risques, feuille de route, recommandation. Les scénarios affichent mensualité, rendement, cash-flow et effort d'épargne, et disent s'ils tiennent dans la capacité du client.",
+    comment: "Dans la fiche de la mission, onglet Stratégie : cochez les blocs à afficher, ajoutez vos scénarios, désignez le scénario recommandé, rédigez la recommandation, enregistrez puis validez (la recommandation est obligatoire). Valider fige les chiffres du moment ; si la situation du client ou les scénarios changent ensuite, l'écran le signale. Une fois validée, vous pouvez la marquer comme présentée au client à la date voulue : ce n'est jamais automatique. Les chiffres sont indicatifs (hors fiscalité, assurance emprunteur et vacance locative) et un chiffre « non évaluable » signale une donnée manquante.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Missions Invest : l'onglet Analyse (situation du foyer, capacité d'investissement indicative)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Pour chaque mission, l'analyse reprend la situation du foyer déjà saisie (revenus, charges, crédits, endettement, reste mensuel), estime une capacité d'investissement indicative et la compare au budget du projet. L'analyste y ajoute ses points forts, ses points de vigilance et sa conclusion, puis valide.",
