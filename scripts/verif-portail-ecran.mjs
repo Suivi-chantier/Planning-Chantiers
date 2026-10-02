@@ -59,20 +59,25 @@ test("5. une erreur n'est JAMAIS présentée comme « vide »", () => {
   assert.equal(dateFr("2026-10-01T10:00:00Z"), "01/10/2026");
   assert.equal(dateFr(null), "");
 });
-test("6. l'écran ne lit QUE les vues portail_* : aucune table de base, aucune écriture, aucun rpc", () => {
+test("6. l'écran lit QUE les vues portail_* et n'écrit rien lui-même ; la saisie du client passe par MonDossier et par des fonctions de la base", () => {
   const lectures = [...JSX.matchAll(/lire\("([a-z_]+)"/g)].map((m) => m[1]);
   assert.deepEqual(lectures.sort(), ["portail_client", "portail_documents", "portail_dossier", "portail_etapes", "portail_evenements", "portail_taches"]);
   assert.ok(!/\.from\("(?!portail_)/.test(JSX), "aucun .from() hors vues portail_");
-  assert.ok(!/\.(insert|update|upsert|delete|rpc)\(/.test(JSX), "lecture seule");
+  assert.ok(!/\.(insert|update|upsert|delete|rpc)\(/.test(JSX), "PortailClient.jsx : lecture seule");
   assert.ok(!/service_role|SERVICE_ROLE/.test(JSX));
+  const MON = lire("src/Portail/MonDossier.jsx");
+  assert.deepEqual([...MON.matchAll(/\.from\("([a-z_]+)"\)/g)].map((m) => m[1]), ["portail_reponses"], "une seule vue lue");
+  assert.deepEqual([...MON.matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort(), ["portail_donnees_dossier", "portail_enregistrer_reponse", "portail_maj_telephone"]);
+  assert.ok(!/\.(insert|update|upsert|delete)\(/.test(MON), "aucune écriture directe en table");
+  assert.ok(!/service_role|SERVICE_ROLE|client_id/.test(MON), "le client n'envoie jamais d'identifiant de client");
 });
 test("7. le téléchargement passe uniquement par la fonction portail-document-url (jamais le stockage)", () => {
   assert.match(JSX, /functions\.invoke\("portail-document-url"/);
   assert.ok(!/storage\.from|createSignedUrl|invest-documents/.test(JSX));
 });
 test("8. aucun module du bureau n'est importé par le portail", () => {
-  const imports = [...(JSX + lire("src/Portail/portailVue.mjs")).matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(imports.filter((i) => i.startsWith(".")).sort(), ["../supabase", "./portailVue"]);
+  const imports = [...(JSX + lire("src/Portail/portailVue.mjs") + lire("src/Portail/MonDossier.jsx") + lire("src/Portail/portailChamps.mjs")).matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(imports.filter((i) => i.startsWith(".")))].sort(), ["../supabase", "./MonDossier", "./portailChamps", "./portailVue"]);
   assert.ok(!/Invest|Renovation|App\.jsx|constants/.test(imports.join(" ")));
 });
 test("9. main.jsx : /espace-client charge le portail, le reste le bureau ; PWA bureau non enregistrée sur le portail", () => {

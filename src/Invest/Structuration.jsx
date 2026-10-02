@@ -8,6 +8,8 @@ import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
 import { CadrageConformite, MiseEnOeuvreSuivi } from "./StructurationEcrans";
 import { NavigationDossier, PorteDiagnostic, CollecteEssentielle } from "./StructurationCollecteVue";
+import ReponsesClient from "./StructurationReponsesClient";
+import { appliquerSection } from "../Portail/portailChamps.mjs";
 import { documentsPertinents, estPertinent } from "./structurationCollecte.mjs";
 import { ObjectifsMesures, EnfantsFoyer, ProfilInvestisseurImmo, FichesBiens, ChargesFoyer, DettesListe } from "./StructurationSaisies";
 import { analyserDettes } from "./structurationDonnees.mjs";
@@ -1541,8 +1543,8 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const renderContent = () => {
     if (!selectedId || !dossier) return clientIdFixe ? renderCreerPourClient() : renderListView();
     const map = {
-      collecte:() => <CollecteEssentielle data={data} T={T} updateSection={updateSection} updateLot={updateLot} addLot={addLot} removeLot={removeLot}
-        onBloc={(cle, v, dansCollecte) => dansCollecte ? setCollecte(cle, v) : updateBloc(cle, v)} onOnglet={setTab} />,
+      collecte:() => <div style={{ display:"grid", gap:SPACING.md }}><ReponsesClient T={T} clientId={dossier?.client_id} data={data} profil={profil} onAppliquer={(section, reponse) => mutateData(prev => appliquerSection(prev, section, reponse))}/><CollecteEssentielle data={data} T={T} updateSection={updateSection} updateLot={updateLot} addLot={addLot} removeLot={removeLot}
+        onBloc={(cle, v, dansCollecte) => dansCollecte ? setCollecte(cle, v) : updateBloc(cle, v)} onOnglet={setTab} /></div>,
       cadrage:() => <CadrageConformite data={data} T={T} onChange={updateBloc} qualification={data.collecte?.qualification} onQualification={(k, v) => updateSection("qualification", k, v)} />,
       audit:renderAudit, profil:renderProfil, patrimoine:renderPatrimoine, documents:renderDocuments, analyse:renderAnalyse,
       mise_en_oeuvre:() => <div style={{ display:"grid", gap:SPACING.md }}><FeuilleDeRouteEtRapports T={T} data={data} onChange={updateBloc} onRapport={ouvrirRapport} anneeDepart={new Date().getFullYear()}/><MiseEnOeuvreSuivi data={data} T={T} onChange={updateBloc} /></div>,
