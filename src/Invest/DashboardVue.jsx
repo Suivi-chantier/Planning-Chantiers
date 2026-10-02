@@ -27,10 +27,10 @@ export function levelColor(level, T) {
 }
 
 const TYPES = {
-  prospect: { label: "Prospect", icon: Phone },
-  client: { label: "Client", icon: Briefcase },
-  bien: { label: "Bien", icon: Home },
-  team: { label: "Équipe", icon: Users },
+  prospect: { label: "Prospect", pluriel: "Prospects", icon: Phone },
+  client: { label: "Client", pluriel: "Clients", icon: Briefcase },
+  bien: { label: "Bien", pluriel: "Biens", icon: Home },
+  team: { label: "Équipe", pluriel: "Tâches équipe", icon: Users },
 };
 
 const ONGLETS = [
@@ -40,7 +40,7 @@ const ONGLETS = [
   { key: "done", label: "Traité aujourd'hui", icon: ShieldCheck, color: SU, vide: "Rien n'a encore été traité aujourd'hui." },
 ];
 
-const PAGE = 20;
+const PAR_GROUPE = 6; // lignes montrées par type avant « Voir les autres » : 160 lignes d'un coup ne se lisent pas
 
 export function BandeOnglets({ onglet, setOnglet, byColumn, stats, T }) {
   return (
@@ -111,11 +111,33 @@ function Ligne({ item, T, onOpen, onDecide }) {
   );
 }
 
-export function ListeATraiter({ onglet, items, T, onOpen, onDecide }) {
+function GroupeType({ type, items, T, onOpen, onDecide }) {
   const [tout, setTout] = useState(false);
+  const meta = TYPES[type] || TYPES.team;
+  const visibles = tout ? items : items.slice(0, PAR_GROUPE);
+  const rouges = items.filter(i => i.level === "danger").length;
+  return (
+    <section style={{ marginBottom: SPACING.lg }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, color: T.text }}>
+        <Icon as={meta.icon} size={15} style={{ color: T.accent }} />
+        <h3 style={{ margin: 0, fontSize: FONT.base.size + 1, fontWeight: 900 }}>{meta.pluriel} <span style={{ color: T.textMuted }}>{items.length}</span></h3>
+        {rouges > 0 && <span style={{ fontSize: FONT.xs.size + 1, color: DA, fontWeight: 800 }}>{rouges} urgent{rouges > 1 ? "s" : ""}</span>}
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {visibles.map(item => <Ligne key={item.key} item={item} T={T} onOpen={onOpen} onDecide={onDecide} />)}
+      </div>
+      {items.length > PAR_GROUPE && (
+        <button className="inv-btn inv-btn-out inv-btn-sm" style={{ marginTop: 8 }} onClick={() => setTout(t => !t)}>
+          <Icon as={tout ? ChevronDown : ChevronRight} size={12} />{tout ? "Réduire" : `Voir les ${items.length - PAR_GROUPE} autres ${meta.pluriel.toLowerCase()}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+export function ListeATraiter({ onglet, items, T, onOpen, onDecide }) {
   const meta = ONGLETS.find(o => o.key === onglet) || ONGLETS[0];
   const liste = safeArr(items);
-  const visibles = tout ? liste : liste.slice(0, PAGE);
   if (!liste.length) {
     return (
       <div style={{ padding: SPACING.xl, border: `1px dashed ${T.border}`, borderRadius: RADIUS.lg, textAlign: "center", color: T.textMuted }}>
@@ -124,16 +146,13 @@ export function ListeATraiter({ onglet, items, T, onOpen, onDecide }) {
       </div>
     );
   }
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      {visibles.map(item => <Ligne key={item.key} item={item} T={T} onOpen={onOpen} onDecide={onDecide} />)}
-      {liste.length > PAGE && (
-        <button className="inv-btn inv-btn-out inv-btn-sm" style={{ justifySelf: "center" }} onClick={() => setTout(t => !t)}>
-          {tout ? "Réduire" : `Afficher les ${liste.length - PAGE} autres`}
-        </button>
-      )}
-    </div>
-  );
+  // Les éléments arrivent déjà triés du plus urgent au moins urgent (tableauBord.mjs) :
+  // on les range par type en gardant cet ordre, et les types les plus chargés d'urgences passent devant.
+  const parType = ["client", "bien", "prospect", "team"]
+    .map(type => ({ type, items: liste.filter(i => (TYPES[i.type] ? i.type : "team") === type) }))
+    .filter(g => g.items.length)
+    .sort((a, b) => b.items.filter(i => i.level === "danger").length - a.items.filter(i => i.level === "danger").length);
+  return <div>{parType.map(g => <GroupeType key={g.type} type={g.type} items={g.items} T={T} onOpen={onOpen} onDecide={onDecide} />)}</div>;
 }
 
 function Panneau({ titre, icon, sous, children, T, action }) {

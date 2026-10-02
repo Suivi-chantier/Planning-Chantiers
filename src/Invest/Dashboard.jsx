@@ -120,6 +120,7 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [filter, setFilter] = useState("all");
   const [activeView, setActiveView] = useState("pilotage");
   const [onglet, setOnglet] = useState("decision");
+  const [mesDossiers, setMesDossiers] = useState(false);
   const [planOuvert, setPlanOuvert] = useState(false);
   const [selected, setSelected] = useState(null);
   const [decisionItem, setDecisionItem] = useState(null);
@@ -218,9 +219,16 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const nomsClients = useMemo(() => new Map(safeArr(clients).map(c => [c.id, `${c.prenom || ""} ${c.nom || ""}`.trim() || c.nom || "Client"])), [clients]);
   const doneItems = useMemo(() => safeArr(data.allDossiers).filter(d => isResolvedToday(routine, d)), [data.allDossiers, routine]);
   // Même répartition que celle du mail du matin, au même endroit du code.
-  const byColumn = useMemo(
+  const byColumnTous = useMemo(
     () => repartirEnColonnes({ dossiers:data.allDossiers, routine, filtre:filter }),
     [data.allDossiers, routine, filter]);
+  // « Mes dossiers » : ne garde que ceux dont je suis le responsable. Pure vue : le classement
+  // partagé avec le mail du matin n'est pas touché.
+  const byColumn = useMemo(() => {
+    if (!mesDossiers) return byColumnTous;
+    const miens = (l) => safeArr(l).filter(d => estUtilisateurCourant(d.responsable, profil));
+    return { decision:miens(byColumnTous.decision), watch:miens(byColumnTous.watch), delegated:miens(byColumnTous.delegated), done:miens(byColumnTous.done) };
+  }, [byColumnTous, mesDossiers, profil]);
   const plan = useMemo(() => planFromRoutine(routine, data.allDossiers), [routine, data.allDossiers]);
   const currentDecision = decisionItem ? (routine.decisions?.[decisionKey(decisionItem)] || defaultDecision(decisionItem)) : null;
   const openDetail = item => setSelected(item);
@@ -324,6 +332,8 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
     <BandeOnglets onglet={onglet} setOnglet={setOnglet} byColumn={byColumn} stats={data.stats} T={T} />
     <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.md }}>
       {V9_ENTITY_FILTERS.map(f => { const active = filter === f.key; return <button key={f.key} className={`inv-btn ${active ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setFilter(f.key)}><Icon as={f.icon} size={12}/>{f.label}</button>; })}
+      <span style={{ width:1, height:22, background:T.border, alignSelf:"center" }}/>
+      <button className={`inv-btn ${mesDossiers ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setMesDossiers(m => !m)}><Icon as={UserCheck} size={12}/>Mes dossiers</button>
     </div>
     <div className="dbv-corps">
       <div>
