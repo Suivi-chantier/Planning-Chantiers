@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "amelioration",
+    titre: "Tableau de bord Invest refondu : une liste claire de ce qu'il faut faire aujourd'hui",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "L'écran empilait cinq blocs et trois colonnes de grosses cartes. Il répond maintenant à une seule question : qu'est-ce que je dois traiter maintenant ?",
+    comment: "Quatre onglets en haut (À décider, À surveiller, Délégué, Traité aujourd'hui) avec leur nombre : cliquez pour afficher la liste correspondante. Chaque dossier tient sur une ligne : qui, pourquoi (l'alerte principale), qui agit et avant quand, avec les boutons Voir et Décider. Les filtres Prospects / Clients / Biens / Équipe restent. À droite : vos 3 priorités du jour et l'avancement des Dossiers Invest (les 5 plus urgents, « Voir les autres » pour le reste). Le plan d'action du jour s'affiche à la demande. Les décisions, le classement et le mail du matin sont inchangés.",
+  },
+  {
+    date: "2026-10-02",
     type: "nouveaute",
     titre: "Prospection : une vue « Par conseiller » avec une colonne « À attribuer » pour les contacts entrants",
     pages: [{ id: "prospection", label: "Prospection" }],
