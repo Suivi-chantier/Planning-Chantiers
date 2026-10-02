@@ -55,10 +55,13 @@ export const daysBetween = (from, to = new Date()) => {
 export const getClientName = (c) => `${c?.prenom || ""} ${c?.nom || ""}`.trim() || c?.nom || "Client";
 export const getBienLabel = (b) => [b?.reference_interne, b?.adresse, b?.ville].filter(Boolean).join(" · ") || "Bien sans adresse";
 export const getBienScore = (b) => {
+  // Le chargement n'amène plus visite_data (19 Mo pour 91 biens) : il en extrait
+  // les trois valeurs utiles sous visite_note / visite_rendement / visite_cashflow.
+  // Une ligne qui porte encore visite_data (autre source) donne le même résultat.
   const v = b?.visite_data || {};
-  const note = parseFloat(v?.conclusion?.note_globale || 0);
-  const rendement = parseFloat(b?.rendement_brut || v?.finance?.rendement_brut || 0);
-  const cashflow = parseFloat(b?.cashflow_estime || v?.finance?.cashflow_mensuel_estime || 0);
+  const note = parseFloat(b?.visite_note ?? v?.conclusion?.note_globale ?? 0);
+  const rendement = parseFloat(b?.rendement_brut || b?.visite_rendement || v?.finance?.rendement_brut || 0);
+  const cashflow = parseFloat(b?.cashflow_estime || b?.visite_cashflow || v?.finance?.cashflow_mensuel_estime || 0);
   let score = 0;
   if (note > 0) score += Math.min(10, note) * 10;
   if (rendement > 0) score += Math.min(15, rendement) * 3;
@@ -538,11 +541,24 @@ export function planFromRoutine(routine, dossiers) {
 // interrogeait sept tables de prospects inexistantes, et personne ne le voyait.
 // ─────────────────────────────────────────────────────────────────────────────
 
+const COLONNES_BIENS_TABLEAU_BORD = [
+  "id", "adresse", "ville", "code_postal", "commentaire", "date_visite", "interlocuteur", "telephone_interlocuteur", "agence",
+  "lien_annonce", "prix_vente", "prix_travaux", "cout_total", "rendement_brut", "cashflow_estime", "lien_drive", "lien_rentabilite",
+  "montant_offre", "statut", "date_relance", "statut_relance", "created_at", "updated_at", "latitude", "longitude",
+  "reference_interne", "conseiller_profero", "source_bien", "annonce_id",
+  "visite_note:visite_data->conclusion->>note_globale",
+  "visite_rendement:visite_data->finance->>rendement_brut",
+  "visite_cashflow:visite_data->finance->>cashflow_mensuel_estime",
+].join(",");
+
 export const REQUETES_TABLEAU_BORD = [
   { cle: "clients",       label: "clients",          requis: true,
     requete: (sb) => sb.from("invest_clients").select("*").order("created_at", { ascending: false }) },
   { cle: "biens",         label: "biens",            requis: true,
-    requete: (sb) => sb.from("invest_biens").select("*").order("created_at", { ascending: false }) },
+    // Colonnes explicites : « * » ramenait visite_data, le compte rendu de visite complet
+    // (19 Mo pour 91 biens, soit l'essentiel du temps de chargement). On n'en garde que
+    // trois valeurs. Une colonne ajoutée à invest_biens et lue ici doit être ajoutée à cette liste.
+    requete: (sb) => sb.from("invest_biens").select(COLONNES_BIENS_TABLEAU_BORD).order("created_at", { ascending: false }) },
   { cle: "propositions",  label: "propositions",
     requete: (sb) => sb.from("invest_propositions").select("*").limit(500) },
   { cle: "planning",      label: "planning",

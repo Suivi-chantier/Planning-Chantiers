@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "correctif",
+    titre: "Tableau de bord : chargement beaucoup plus rapide et liste rangée par type",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "La page mettait longtemps à s'ouvrir parce qu'elle téléchargeait en entier le compte rendu de visite de chaque bien (environ 19 Mo). Elle n'en prend plus que les trois chiffres utiles au score. Et avec plus de 160 dossiers à décider, la liste était interminable.",
+    comment: "Les dossiers sont maintenant rangés par type (Clients, Biens, Prospects, Tâches équipe) : les 6 plus urgents de chaque type s'affichent, « Voir les autres » déplie le reste. Le bouton « Mes dossiers » ne garde que ceux dont vous êtes le responsable. Le score des biens et le mail du matin sont inchangés.",
+  },
+  {
+    date: "2026-10-02",
     type: "amelioration",
     titre: "CRM : « À traiter » et « Clients » en cartes, avec l'invitation au portail depuis la liste",
     pages: [{ id: "crm", label: "CRM" }],
