@@ -25,10 +25,10 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "correctif",
-    titre: "CRM : bouton « Modifier la fiche » sur la page du client (e-mail, téléphone, conseiller…)",
+    titre: "CRM : coordonnées du client et « Modifier la fiche » directement sur sa page",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "La nouvelle page client ne permettait pas de corriger l'e-mail ou le téléphone : il fallait repasser par l'ancienne vue du CRM.",
-    comment: "Sur la page d'un client, en haut à droite, « Modifier la fiche » ouvre le formulaire de contact (nom, e-mail, téléphone, conseiller, source, statut, budget, prochaine action, notes). À savoir : si le client a déjà reçu une invitation au portail, son identifiant de connexion reste l'ancienne adresse ; changez l'e-mail avant d'inviter un client, ou demandez de révoquer puis réinviter.",
+    comment: "La vue d'ensemble de la page client commence par un bloc Coordonnées (téléphone, e-mail, conseiller, statut, origine, budget, notes) ; l'en-tête signale en orange un téléphone ou un e-mail manquant. « Modifier la fiche » (en haut à droite et dans le bloc) ouvre le formulaire de contact (nom, e-mail, téléphone, conseiller, source, statut, budget, prochaine action, notes). À savoir : si le client a déjà reçu une invitation au portail, son identifiant de connexion reste l'ancienne adresse ; changez l'e-mail avant d'inviter un client, ou demandez de révoquer puis réinviter.",
   },
   {
     date: "2026-10-02",

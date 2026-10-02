@@ -77,8 +77,8 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginTop: 5, fontSize: 13, color: T.textSub }}>
             <Pastille couleur={BLEU}>{e.statutRelation}</Pastille>
             <span>Conseiller : <b style={{ color: T.text }}>{e.conseiller || "non défini"}</b></span>
-            {e.telephone && <a href={`tel:${e.telephone}`} style={{ color: T.textSub }}>{e.telephone}</a>}
-            {e.email && <a href={`mailto:${e.email}`} style={{ color: T.textSub }}>{e.email}</a>}
+            {e.telephone ? <a href={`tel:${e.telephone}`} style={{ color: T.textSub }}>{e.telephone}</a> : <span style={{ color: ORANGE }}>Téléphone non renseigné</span>}
+            {e.email ? <a href={`mailto:${e.email}`} style={{ color: T.textSub }}>{e.email}</a> : <span style={{ color: ORANGE }}>E-mail non renseigné</span>}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -93,7 +93,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
-      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} donnees={donnees} />}
+      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} donnees={donnees} onModifier={renderModifierClient ? () => setModifie(true) : null} />}
       {onglet === "structuration" && client.sujet_structuration === true && (
         <StructurationPatrimoniale key={client.id} profil={profil} T={T} clientIdFixe={client.id} />
       )}
@@ -167,15 +167,29 @@ function Tuile({ T, titre, valeur, detail, couleur, bouton, onClick }) {
 //   1. Où en est-on ?        les missions en cours et LA prochaine action de chacune
 //   2. Ce qui reste à voir   documents, patrimoine, espace client : une tuile chacun, un clic pour agir
 //   3. Ce qui vient          les autres actions, puis l'activité récente
-function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil, donnees }) {
+function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil, donnees, onModifier }) {
   const p = vue.patrimoine;
   const autres = vue.aFaire.filter((a) => !String(a.id).startsWith("m-"));
   const reste = Math.max(0, vue.aFaireTotal - vue.missionsEnCours.length - autres.length);
   const liste = clientStrategy(client).documents_checklist || {};
   const nbRecus = CLIENT_DOCUMENT_CHECKLIST.filter(([k]) => liste[k] === "recu" || liste[k] === true || liste[k] === "na").length;
   const aDemander = CLIENT_DOCUMENT_CHECKLIST.filter(([k]) => !liste[k]).length;
+  const coord = [
+    ["Téléphone", client.telephone ? <a href={`tel:${client.telephone}`} style={{ color: T.text, fontWeight: 800 }}>{client.telephone}</a> : null],
+    ["E-mail", client.email ? <a href={`mailto:${client.email}`} style={{ color: T.text, fontWeight: 800, overflowWrap: "anywhere" }}>{client.email}</a> : null],
+    ["Conseiller", client.conseiller || null], ["Statut", client.statut || null], ["Origine", client.source || null],
+    ["Budget", client.budget ? eur(client.budget) : null],
+  ];
   return (
     <>
+      <Section T={T} compact titre="Coordonnées" action={onModifier && <button className="inv-btn inv-btn-sm" onClick={onModifier}>Modifier la fiche</button>}>
+        <Carte T={T} style={{ padding: "11px 14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12 }}>
+            {coord.map(([l, v]) => <div key={l} style={{ minWidth: 0 }}><div style={{ fontSize: 12, color: T.textMuted, fontWeight: 700 }}>{l}</div><div style={{ fontSize: 14, color: T.text, marginTop: 2 }}>{v || <span style={{ color: ORANGE }}>Non renseigné</span>}</div></div>)}
+          </div>
+          {client.notes_rapides && <Discret T={T} style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{client.notes_rapides}</Discret>}
+        </Carte>
+      </Section>
       <Section T={T} compact titre={`1 · Où en est-on ? ${illisible ? "" : `(${vue.missionsEnCours.length} mission${vue.missionsEnCours.length > 1 ? "s" : ""} en cours)`}`}>
         {illisible ? <Vide T={T} compact titre="Missions illisibles" texte="avancement indisponible" />
           : vue.missionsEnCours.length === 0
