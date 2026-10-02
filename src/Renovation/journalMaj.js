@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Structuration : comparer la détention d'une acquisition (nom propre, meublé, SCI à l'IR, SCI à l'IS)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Pour une acquisition d'un scénario, on met côte à côte quatre façons de la détenir, sur tout le cycle de vie : frais à l'entrée, impôt de chaque année, trésorerie réellement disponible, impôt à la revente, et gain net total. Plus de « la SCI à l'IS est meilleure » sans chiffres.",
+    comment: "Onglet Diagnostic, sous les scénarios chiffrés : choisissez l'acquisition, vérifiez la tranche d'imposition du foyer, et lisez le tableau. Le régime le plus favorable (micro ou réel) est retenu automatiquement pour la location nue et le meublé. Le tableau donne aussi la complexité de chaque structure, les alertes (par exemple bascule possible en loueur meublé professionnel) et l'impôt de sortie : plus-value des particuliers avec abattements de durée, amortissements réintégrés pour le meublé au réel, plus-value sur valeur comptable puis impôt de distribution pour la SCI à l'IS. Aucune structure n'est désignée comme la meilleure : ce sont des estimations à valider par l'expert-comptable et le notaire. La transmission (donation de parts, démembrement) n'est pas calculée : elle est signalée au notaire, et la décote de parts n'est pas modélisée car elle n'a pas de taux légal. Les règles appliquées sont affichées dans « Hypothèses et règles ».",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Structuration : scénarios chiffrés, projection sur 20 ans et tests de résistance",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "On ne présente plus une seule recommandation : on compare plusieurs trajectoires d'acquisitions, on voit où elles mènent à 5, 10 et 20 ans dans trois cas (prudent, central, dégradé), et on teste si le foyer tient quand les hypothèses ne se réalisent pas.",
