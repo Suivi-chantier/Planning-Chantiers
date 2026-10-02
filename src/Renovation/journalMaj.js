@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Structuration : feuille de route et rapport en deux niveaux (synthèse de 10 pages, rapport complet)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "L'étude débouche sur ce qui compte pour le client : l'ordre des opérations à réaliser, présenté dans un document qu'il lira, sans PDF de 80 pages. Une synthèse exécutive de 10 pages, et un rapport complet avec les annexes pour ceux qui veulent le détail.",
+    comment: "Onglet Mise en œuvre & suivi, en haut : choisissez le scénario retenu ; la feuille de route par année se construit toute seule à partir des opérations du scénario (avec un point bancaire avant chacune), des objectifs chiffrés, de la réserve de sécurité à constituer si elle est trop faible, des actions de mise en œuvre (nouvelle colonne « Dépend de »), des intervenants à contacter et de la prochaine revue. Deux boutons génèrent les PDF : Synthèse exécutive (situation, objectifs, patrimoine, flux et capacité, diagnostic, stratégies étudiées, stratégie retenue, projection 5/10/20 ans, tests de résistance, plan d'action) et Rapport complet (la synthèse + annexes famille, flux, patrimoine, fiscalité et banque, analyses, structures comparées, hypothèses, points à valider par le notaire, l'expert-comptable ou la banque). Rien n'est ressaisi, une donnée absente s'écrit « À préciser » ou « non calculable », et chaque chiffre de projection est présenté comme une estimation avant impôt. Le rapport historique reste disponible.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Structuration : comparer la détention d'une acquisition (nom propre, meublé, SCI à l'IR, SCI à l'IS)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Pour une acquisition d'un scénario, on met côte à côte quatre façons de la détenir, sur tout le cycle de vie : frais à l'entrée, impôt de chaque année, trésorerie réellement disponible, impôt à la revente, et gain net total. Plus de « la SCI à l'IS est meilleure » sans chiffres.",

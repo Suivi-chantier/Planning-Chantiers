@@ -88,6 +88,13 @@ test("12. stratégies : un scénario chiffré exige au moins une opération avec
   assert.equal(pt({ scenarios_chiffres: [{ operations: [{ prix: "150000", annee: "2027" }] }] }).ok, true);
 });
 
+test("13. préconisation : le scénario retenu doit exister dans les scénarios chiffrés", () => {
+  const pt = (d) => P.calculerParcours(d).etapes[4].points.find((x) => x.libelle.startsWith("Scénario retenu"));
+  assert.equal(pt({}).ok, false);
+  assert.equal(pt({ scenario_retenu_id: "zz", scenarios_chiffres: [{ id: "s1" }] }).ok, false, "identifiant orphelin");
+  assert.equal(pt({ scenario_retenu_id: "s1", scenarios_chiffres: [{ id: "s1" }] }).ok, true);
+});
+
 let echecs = 0;
 for (const [n, f] of cas) { try { await f(); console.log(`  ✓ ${n}`); } catch (e) { echecs++; console.log(`  ✗ ${n}\n      ${e.message}`); } }
 console.log(`\n${cas.length - echecs}/${cas.length} vérifications réussies`);

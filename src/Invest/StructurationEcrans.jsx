@@ -143,9 +143,10 @@ export function MiseEnOeuvreSuivi({ data, T, onChange }) {
         {m.actions.map((a, i) => {
           const retard = a.statut !== "Fait" && a.echeance && a.echeance < jour;
           return (
-            <div key={a.id || i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr) 150px 120px auto", gap: 8, padding: "6px 0", alignItems: "center" }}>
+            <div key={a.id || i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) 150px 120px auto", gap: 8, padding: "6px 0", alignItems: "center" }}>
               <input className="inv-inp" style={{ textAlign: "left" }} placeholder="Acte ou démarche" value={a.titre} onChange={(e) => maj("actions", i, { titre: e.target.value })} />
               <input className="inv-inp" style={{ textAlign: "left" }} placeholder="Responsable" value={a.responsable} onChange={(e) => maj("actions", i, { responsable: e.target.value })} />
+              <input className="inv-inp" style={{ textAlign: "left" }} placeholder="Dépend de…" value={a.dependance || ""} onChange={(e) => maj("actions", i, { dependance: e.target.value })} />
               <input className="inv-inp" type="date" value={a.echeance} onChange={(e) => maj("actions", i, { echeance: e.target.value })} style={retard ? { borderColor: DA } : undefined} title={retard ? "Échéance dépassée" : ""} />
               <select className="inv-sel" value={a.statut} onChange={(e) => maj("actions", i, { statut: e.target.value })}>{STATUTS_ACTION.map((s) => <option key={s}>{s}</option>)}</select>
               <button className="inv-btn inv-btn-sm inv-btn-danger" onClick={() => retire("actions", i)} aria-label="Retirer"><Icon as={Trash2} size={11} /></button>
