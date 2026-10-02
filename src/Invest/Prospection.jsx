@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { Icon } from "../ui";
 import { FONT, RADIUS } from "../constants";
-import { THEMES_INV, SU, WA, DA, fmtDashboardEur, readNavTarget } from "./_shared";
+import { THEMES_INV, SU, WA, DA, fmtDashboardEur, readNavTarget, useAnnuaireInvest } from "./_shared";
 import {
   UserPlus,
   Search,
@@ -1797,7 +1797,7 @@ function QuickFilterButton({ active, icon, label, count, color, onClick, T }) {
   );
 }
 
-function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
+function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T, showStatus = false }) {
   const temp = temperature(p);
   const late = isLate(p.date_prochaine_action);
 
@@ -1808,7 +1808,7 @@ function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
       onDragStart={(e) => onDragStart(e, p)}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      title="Glisser-déposer dans une autre colonne pour changer le statut"
+      title={showStatus ? "Glisser-déposer dans la colonne d'un conseiller pour lui attribuer ce prospect" : "Glisser-déposer dans une autre colonne pour changer le statut"}
       style={{
         width: "100%",
         border: `1px solid ${selected ? T.accent : T.border}`,
@@ -1839,6 +1839,12 @@ function ProspectDragCard({ p, selected, onClick, onDragStart, onDragEnd, T }) {
           >
             {prospectName(p)}
           </div>
+
+          {showStatus && (
+            <div style={{ marginTop: 4 }}>
+              <Badge color={statusOf(p.statut).color} T={T}>{statusOf(p.statut).label}</Badge>
+            </div>
+          )}
 
           <div
             style={{
@@ -2402,6 +2408,79 @@ function PipelineView({
           T={T}
         />
       ))}
+    </div>
+  );
+}
+
+// Vue « Par conseiller » : une colonne par conseiller, plus « À attribuer » en
+// tête pour les contacts entrants que personne n'a encore pris. Glisser une
+// carte dans la colonne d'un conseiller la lui attribue. On ne peut pas
+// déposer dans « À attribuer » : seul un contact entrant y reste, jamais
+// l'inverse.
+function ConseillerBoardView({
+  columns, selectedId, dragOverKey, onSelect, onDragStart, onDragEnd, onDragOverKey, onDragLeave, onDropKey, T,
+}) {
+  return (
+    <div
+      className="inv-prospection-kanban"
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${columns.length}, minmax(270px, 1fr))`,
+        gap: 12,
+        overflowX: "auto",
+        padding: "2px 2px 12px",
+      }}
+    >
+      {columns.map((col) => {
+        const accepte = !col.aAttribuer;
+        const activeDrop = accepte && dragOverKey === col.key;
+        const color = col.aAttribuer ? "#F59E0B" : T.accent;
+        return (
+          <div
+            key={col.key}
+            onDragOver={accepte ? (e) => onDragOverKey(e, col.key) : undefined}
+            onDragLeave={accepte ? onDragLeave : undefined}
+            onDrop={accepte ? (e) => onDropKey(e, col) : undefined}
+            style={{
+              background: activeDrop ? `${color}18` : "rgba(255,255,255,.032)",
+              border: `1px solid ${activeDrop ? color : T.border}`,
+              borderTop: `3px solid ${color}`,
+              borderRadius: 22,
+              padding: 10,
+              minHeight: 420,
+              transition: "all .12s ease",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12, padding: "10px 10px 11px", borderRadius: 16, border: `1px solid ${color}35`, background: `${color}12` }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: T.text, fontSize: 13, fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.label}</div>
+                <div style={{ color: T.textMuted, fontSize: 10.5, marginTop: 1 }}>
+                  {col.aAttribuer ? "Contacts entrants à attribuer" : `${col.actifs} en cours`}
+                </div>
+              </div>
+              <div style={{ color: T.text, fontSize: 15, fontWeight: 950 }}>{col.prospects.length}</div>
+            </div>
+            {col.prospects.length === 0 ? (
+              <div style={{ border: `1px dashed ${T.border}`, borderRadius: RADIUS.md, color: T.textMuted, fontSize: 11, textAlign: "center", padding: "34px 8px" }}>
+                {col.aAttribuer ? "Aucun contact en attente d'attribution" : "Déposer ici pour attribuer"}
+              </div>
+            ) : (
+              col.prospects.map((p) => (
+                <ProspectDragCard
+                  key={p.id}
+                  p={p}
+                  showStatus
+                  selected={selectedId === p.id}
+                  onClick={() => onSelect(p)}
+                  onDragStart={onDragStart}
+                  onDragEnd={onDragEnd}
+                  T={T}
+                />
+              ))
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -3478,6 +3557,68 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
       prospects: filtered.filter((p) => p.statut === s.id || (s.id === "signe" && p.statut === "converti")),
     }));
   }, [filtered]);
+
+  // Colonnes de la vue « Par conseiller ». L'annuaire fournit l'équipe (pour
+  // pouvoir attribuer à quelqu'un qui n'a encore aucun prospect) ; les
+  // responsables saisis à la main (« Matthieu », « Camille ») sont rattachés à
+  // la personne de l'annuaire dont le nom commence par ce prénom.
+  const annuaireProspection = useAnnuaireInvest();
+  const conseillerColumns = useMemo(() => {
+    const equipe = (annuaireProspection?.personnes || []).map((pe) => pe.nom).filter(Boolean);
+    const colonnes = [];
+    const trouver = (clef) => colonnes.find((c) =>
+      c.key === clef || c.key.startsWith(clef + " ") || clef.startsWith(c.key + " "));
+    equipe.forEach((nom) => {
+      const clef = conseillerKey(nom);
+      if (clef && !trouver(clef)) colonnes.push({ key: clef, label: conseillerDisplayName(nom), prospects: [] });
+    });
+    const aAttribuer = { key: "__a_attribuer__", label: "À attribuer", aAttribuer: true, prospects: [] };
+    filtered.forEach((p) => {
+      const clef = conseillerKey(p.responsable);
+      if (!clef) { aAttribuer.prospects.push(p); return; }
+      let col = trouver(clef);
+      if (!col) { col = { key: clef, label: conseillerDisplayName(p.responsable), prospects: [] }; colonnes.push(col); }
+      col.prospects.push(p);
+    });
+    const ordre = (p) => STATUTS.findIndex((st) => st.id === (p.statut === "converti" ? "signe" : p.statut));
+    const trier = (a, b) => ordre(a) - ordre(b)
+      || String(a.date_prochaine_action || "9999").localeCompare(String(b.date_prochaine_action || "9999"));
+    const termine = (p) => ["perdu", "converti", "signe"].includes(p.statut);
+    colonnes.forEach((c) => { c.prospects.sort(trier); c.actifs = c.prospects.filter((p) => !termine(p)).length; });
+    aAttribuer.prospects.sort(trier);
+    colonnes.sort((a, b) => b.prospects.length - a.prospects.length || a.label.localeCompare(b.label, "fr"));
+    return [aAttribuer, ...colonnes];
+  }, [filtered, annuaireProspection]);
+
+  const [dragOverKey, setDragOverKey] = useState(null);
+  const handleDropConseiller = async (e, col) => {
+    e.preventDefault();
+    const prospectId = e.dataTransfer.getData("text/plain") || draggingId;
+    setDraggingId(null);
+    setDragOverKey(null);
+    const prospect = prospects.find((p) => p.id === prospectId);
+    if (!prospect || conseillerKey(prospect.responsable) === col.key) return;
+    setError("");
+    setProspects((prev) => prev.map((p) => (p.id === prospectId ? { ...p, responsable: col.label } : p)));
+    const { error: err } = await supabase
+      .from("invest_prospects")
+      .update({ responsable: col.label, updated_by: auteur(profil) })
+      .eq("id", prospectId);
+    if (err) {
+      setError(err.message || "Impossible d'attribuer le prospect.");
+      await loadProspects();
+      return;
+    }
+    await addHistoryEntry({
+      prospectId,
+      type_action: "attribution",
+      resume: `Prospect attribué à ${col.label}${prospect.responsable ? ` (avant : ${conseillerDisplayName(prospect.responsable)})` : ""}`,
+      resultat: "Conseiller modifié",
+      donnees: { attribution: true, ancien_responsable: prospect.responsable || "", nouveau_responsable: col.label },
+    });
+    setMsg(`Prospect attribué à ${col.label}.`);
+    setTimeout(() => setMsg(""), 1600);
+  };
 
   const selectProspect = (p) => {
     setIsCreating(false);
@@ -4671,6 +4812,14 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
             T={T}
           />
           <ViewButton
+            active={viewMode === "conseillers"}
+            icon={Users}
+            label="Par conseiller"
+            helper="Une colonne par conseiller, entrants à attribuer"
+            onClick={() => setViewMode("conseillers")}
+            T={T}
+          />
+          <ViewButton
             active={viewMode === "liste"}
             icon={ListChecks}
             label="Liste"
@@ -4709,6 +4858,19 @@ export default function Prospection({ profil, T = THEMES_INV.dark, initialFilter
               buckets={planningBuckets}
               onSelect={selectProspect}
               selectedId={selected?.id}
+              T={T}
+            />
+          ) : viewMode === "conseillers" ? (
+            <ConseillerBoardView
+              columns={conseillerColumns}
+              selectedId={selected?.id}
+              dragOverKey={dragOverKey}
+              onSelect={selectProspect}
+              onDragStart={handleDragStart}
+              onDragEnd={() => { handleDragEnd(); setDragOverKey(null); }}
+              onDragOverKey={(e, key) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverKey(key); }}
+              onDragLeave={() => setDragOverKey(null)}
+              onDropKey={handleDropConseiller}
               T={T}
             />
           ) : viewMode === "liste" ? (
