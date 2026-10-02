@@ -10,6 +10,8 @@
 // Une étape n'est « faite » que si TOUS ses points le sont. Un point dont la donnée manque est
 // « à faire », jamais « fait par défaut ».
 
+import { analyserObjectifs, analyserProfilImmo, num } from "./structurationDonnees.mjs";
+
 const plein = (v) => v !== undefined && v !== null && String(v).trim() !== "";
 const nb = (arr) => (Array.isArray(arr) ? arr : []);
 
@@ -52,6 +54,8 @@ export function calculerParcours(data) {
   const moe = { ...miseEnOeuvreVide(), ...(data?.mise_en_oeuvre || {}) };
   const p = c.profil || {};
   const docs = docsRequisRecus(data);
+  const objectifs = analyserObjectifs(c.objectifs_mesures);
+  const profilImmo = analyserProfilImmo(c.profil_immo);
   const analyses = ["analyse_performance", "analyse_bancaire", "analyse_fiscale", "analyse_structure", "analyse_transmission", "analyse_risques"].filter((k) => plein(a[k])).length;
   const scenariosTraites = nb(a.scenarios).filter((s) => s.statut && s.statut !== "À étudier").length;
   const recos = nb(a.preconisations).filter((r) => plein(r.titre) && plein(r.action));
@@ -74,6 +78,9 @@ export function calculerParcours(data) {
       pt("Objectif principal et horizon", plein(c.objectifs?.objectif_principal) && plein(c.objectifs?.horizon), "profil"),
       pt("Patrimoine immobilier inventorié", nb(c.patrimoine?.lots).some((l) => plein(l.valeur) || plein(l.adresse)), "patrimoine"),
       pt("Patrimoine financier renseigné", Object.values(c.patrimoine_financier || {}).some(plein), "patrimoine"),
+      pt("Objectifs chiffrés (montant, échéance, priorité)", objectifs.exploitables >= 1 && objectifs.incomplets === 0, "profil", `${objectifs.exploitables} / ${objectifs.total}`),
+      pt("Charges du foyer et épargne réelle", ["logement", "courantes"].some((k) => num(c.charges?.[k]) !== null) && num(c.charges?.epargne_reelle_mois) !== null, "patrimoine"),
+      pt("Profil investisseur immobilier complet", profilImmo.complet, "profil", `${profilImmo.renseignees} / ${profilImmo.total}`),
       pt("Pièces obligatoires reçues", docs.requis > 0 && docs.recus === docs.requis, "documents", docs.requis ? `${docs.recus} / ${docs.requis}` : null),
     ],
     diagnostic: [

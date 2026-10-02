@@ -7,6 +7,8 @@ import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVE
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
 import { BarreParcours, CadrageConformite, MiseEnOeuvreSuivi } from "./StructurationEcrans";
+import { ObjectifsMesures, EnfantsFoyer, ProfilInvestisseurImmo, FichesBiens, ChargesFoyer, DettesListe } from "./StructurationSaisies";
+import { analyserDettes } from "./structurationDonnees.mjs";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
@@ -329,12 +331,14 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     const rpCrd = toN(d.collecte?.patrimoine?.rp_crd);
     const patrimoineFinancier = Object.values(d.collecte?.patrimoine_financier || {}).reduce((s,v)=>s+toN(v),0);
     const patrimoineBrut = valeurLots + rpVal + patrimoineFinancier;
-    const crdTotal = crdLots + rpCrd;
+    const autresDettes = analyserDettes(d.collecte?.dettes);
+    const crdTotal = crdLots + rpCrd + autresDettes.capitalRestant;
     const patrimoineNet = patrimoineBrut - crdTotal;
     const revenusPro = toN(d.collecte?.profil?.revenus_nets_mois);
     const autresRevMois = (toN(d.collecte?.profil?.dividendes_an)+toN(d.collecte?.profil?.autres_revenus_an))/12;
     const revenusRetenus = revenusPro + autresRevMois + loyers * 0.70;
-    const mensualitesTotal = toN(d.collecte?.financement?.mensualites_total) || mensualitesLots;
+    // Le total saisi à la main prime ; sinon : mensualités des biens + celles des autres dettes (saisies une seule fois).
+    const mensualitesTotal = toN(d.collecte?.financement?.mensualites_total) || (mensualitesLots + autresDettes.mensualites);
     const tauxEndettement = revenusRetenus ? mensualitesTotal / revenusRetenus : 0;
     const cashflowMois = loyers - mensualitesLots;
     const rendementBrut = valeurLots ? (loyers*12)/valeurLots : 0;
@@ -483,6 +487,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
       collecte: { ...prev.collecte, [section]: { ...(prev.collecte?.[section] || {}), [key]: value } }
     }));
   };
+  const setCollecte = (cle, valeur) => mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, [cle]:valeur } }));
   const updateAnalyse = (key, value) => mutateData(prev => ({ ...prev, analyse:{ ...(prev.analyse || {}), [key]:value } }));
   const updateLot = (idx, key, value) => mutateData(prev => {
     const lots = [...(prev.collecte?.patrimoine?.lots || [])];
@@ -1326,6 +1331,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
         </div></div>
       </div>
     </div>
+    <ObjectifsMesures T={T} objectifs={data.collecte?.objectifs_mesures} onChange={v=>setCollecte("objectifs_mesures", v)}/>
+    <EnfantsFoyer T={T} enfants={data.collecte?.enfants_liste} onChange={v=>setCollecte("enfants_liste", v)}/>
+    <ProfilInvestisseurImmo T={T} profilImmo={data.collecte?.profil_immo} onChange={v=>setCollecte("profil_immo", v)}/>
   </div>;
 
   const renderPatrimoine = () => <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
@@ -1360,6 +1368,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const renderFinancement = () => <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>
     <div style={cardStyle}>{cardHd("Situation bancaire", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:SPACING.md }}><StructField T={T} label="Banque principale" value={fin.banque_principale} onChange={v=>updateSection("financement","banque_principale",v)}/><StructField T={T} label="Relation bancaire" value={fin.relation_bancaire} onChange={v=>updateSection("financement","relation_bancaire",v)} options={["4 banques en concurrence","Banque unique","Via courtier","Mix banques + courtier"]}/><StructField T={T} label="Mensualités totales" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)}/><StructField T={T} label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)}/><StructField T={T} label="Capacité avec revente" type="number" value={fin.capacite_avec_revente} onChange={v=>updateSection("financement","capacite_avec_revente",v)}/><StructField T={T} label="Finançable sans revente" value={fin.financable_sans_revente} onChange={v=>updateSection("financement","financable_sans_revente",v)} options={["Oui","Non — bloqué","Partiellement","À confirmer"]}/><StructField T={T} label="Taux moyen" type="number" value={fin.taux_moyen} onChange={v=>updateSection("financement","taux_moyen",v)}/><StructField T={T} label="Durée initiale" value={fin.duree_initiale} onChange={v=>updateSection("financement","duree_initiale",v)} options={["15 ans","20 ans","25 ans","Mix"]}/></div></div>
     <div style={cardStyle}>{cardHd("Objectifs & structures", "gold")}<div style={{ padding:16, display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:SPACING.md }}><StructField T={T} label="Objectif principal" value={obj.objectif_principal} onChange={v=>updateSection("objectifs","objectif_principal",v)} options={["Cash-flow","Capitalisation","Transmission","Défiscalisation","Accélération patrimoniale","Mix"]}/><StructField T={T} label="Horizon" value={obj.horizon} onChange={v=>updateSection("objectifs","horizon",v)} options={["5 ans","10 ans","15 ans","20 ans","20 ans +"]}/><StructField T={T} label="Rendement cible" type="number" value={obj.rendement_cible} onChange={v=>updateSection("objectifs","rendement_cible",v)}/><StructField T={T} label="Rythme d'achat" value={obj.rythme_achat} onChange={v=>updateSection("objectifs","rythme_achat",v)} options={["1 bien / an","2 biens / an","1 bien / 2 ans","Opportuniste"]}/><StructField T={T} label="Zones" value={obj.zones} onChange={v=>updateSection("objectifs","zones",v)} /><StructField T={T} label="Gestion locative" value={obj.gestion_locative} onChange={v=>updateSection("objectifs","gestion_locative",v)} options={["Lui-même","Agence","Mix","À déléguer"]}/><StructField T={T} label="SCI existante" value={st.sci_existante} onChange={v=>updateSection("structures","sci_existante",v)} /><StructField T={T} label="Régime SCI" value={st.sci_regime} onChange={v=>updateSection("structures","sci_regime",v)} options={["IR","IS","Non défini","Pas de SCI"]}/><StructField T={T} label="Holding envisagée" value={st.holding_envisagee} onChange={v=>updateSection("structures","holding_envisagee",v)} options={["Oui","Non","À étudier"]}/><StructField T={T} label="Transmission" value={st.transmission} onChange={v=>updateSection("structures","transmission",v)} /></div></div>
+    <FichesBiens T={T} lots={data.collecte?.patrimoine?.lots} onUpdateLot={updateLot}/>
+    <ChargesFoyer T={T} collecte={data.collecte} onChange={v=>setCollecte("charges", v)}/>
+    <DettesListe T={T} dettes={data.collecte?.dettes} onChange={v=>setCollecte("dettes", v)}/>
   </div>;
 
   const renderDocuments = () => <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 370px", gap:SPACING.md, alignItems:"start" }}>
