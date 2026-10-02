@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Structuration : diagnostic automatique et capacité d'emprunt en trajectoire",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Dès que les données sont saisies, le dossier calcule sa propre photographie (patrimoine brut, dettes, net, composition, flux), en déduit forces, faiblesses, risques et opportunités avec le chiffre qui les justifie, et montre comment la capacité bancaire évolue opération après opération.",
+    comment: "Onglet Diagnostic, en haut : situation actuelle avec barres de composition du patrimoine et des dettes ; quatre colonnes Forces / Faiblesses / Risques / Opportunités (ex. « patrimoine concentré sur l'immobilier : 88 % », « effort d'épargne sur tel bien », « plus-value latente en SCI à l'IS : à valider avec le notaire »). Le bouton « Recopier dans le diagnostic rédigé » reprend ce texte pour le compléter à la main. Capacité d'emprunt : ajoutez vos opérations envisagées (prix, apport, taux, durée, loyer attendu) et lisez l'endettement et la marge d'emprunt aujourd'hui, après l'opération 1, après la 2… Les hypothèses (plafond d'endettement 35 %, taux, durée, assurance, part des loyers retenue par la banque) sont modifiables. Tout est avant impôt et indicatif ; une donnée manquante donne « non calculable », et aucune conclusion n'est inventée sur un dossier vide.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Structuration : objectifs chiffrés, fiche économique de chaque bien, charges et dettes saisies une seule fois",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Le dossier de structuration passe de champs de texte à des données structurées dont les chiffres se calculent tout seuls : rendement et cash-flow de chaque bien, capacité d'épargne du foyer comparée à l'épargne réelle, patrimoine net qui tient compte de toutes les dettes.",
