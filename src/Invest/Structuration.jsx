@@ -856,7 +856,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const renderClientCreator = () => !showClientCreator ? null : (
     <div style={{ position:"fixed", inset:0, zIndex:9999, background:"rgba(0,0,0,0.58)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
       <div style={{ ...cardStyle, width:"min(720px, 96vw)", background:T.card, boxShadow:"0 24px 80px rgba(0,0,0,0.45)" }}>
-        <div style={{ padding:"18px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:16, alignItems:"flex-start", background:T.sidebar }}>
+        <div className="struct-sur-sombre" style={{ padding:"18px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:16, alignItems:"flex-start", background:T.sidebar }}>
           <div>
             <div style={{ color:"#F5F0E8", fontSize:FONT.xl.size, fontWeight:950, lineHeight:1.15 }}>Créer un nouveau client</div>
             <div style={{ color:"rgba(245,240,232,0.78)", fontSize:FONT.sm.size, marginTop:4 }}>Le client sera ajouté au CRM puis un dossier de structuration sera ouvert automatiquement.</div>
@@ -883,7 +883,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   );
 
   const renderSidebarDossiers = () => (
-    <div style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, height:"100%", minHeight:0, display:"flex", flexDirection:"column" }}>
+    <div className="struct-sur-sombre" style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, height:"100%", minHeight:0, display:"flex", flexDirection:"column" }}>
       <div style={{ padding:"20px 18px 16px", borderBottom:`1px solid ${T.sidebarBorder}` }}>
         <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:"#F5F0E8", fontWeight:500 }}>Profero Invest</div>
         <div style={{ fontSize:FONT.xs.size, letterSpacing:2.4, textTransform:"uppercase", color:T.accent, marginTop:2 }}>Gestion des dossiers</div>
@@ -971,7 +971,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
 
   const renderDossierHeader = () => (
     <div style={{ ...cardStyle, overflow:"hidden" }}>
-      <div style={{ background:T.sidebar, padding:"16px 18px", display:"flex", alignItems:"center", gap:SPACING.md, borderBottom:`1px solid ${T.sidebarBorder}` }}>
+      <div className="struct-sur-sombre" style={{ background:T.sidebar, padding:"16px 18px", display:"flex", alignItems:"center", gap:SPACING.md, borderBottom:`1px solid ${T.sidebarBorder}` }}>
         {!clientIdFixe && <button className="inv-btn inv-btn-sm" onClick={()=>setSelectedId(null)} style={{ background:"rgba(255,255,255,0.06)", color:"rgba(245,240,232,0.78)", border:`1px solid ${T.sidebarBorder}` }}><Icon as={ArrowLeft} size={13}/> Dossiers</button>}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:25, fontWeight:500, color:"#F5F0E8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentClient ? clientFullName(currentClient) : (dossier?.titre || "Dossier structuration")}</div>
@@ -1590,6 +1590,14 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
         line-height:1.35!important;
       }
       .structuration-compact option{color:#0D1B2A;background:#fff}
+      /* Bandeaux sombres : les champs gardent un texte clair sur fond translucide (sinon texte sombre sur fond sombre en thème clair). */
+      .structuration-compact .struct-sur-sombre .inv-sel,
+      .structuration-compact .struct-sur-sombre .inv-inp{
+        color:#F5F0E8!important;
+        background:rgba(255,255,255,0.08)!important;
+        border-color:rgba(255,255,255,0.2)!important;
+      }
+      .structuration-compact .struct-sur-sombre ::placeholder{color:rgba(245,240,232,0.55)!important}
       .structuration-compact ::placeholder{color:${T.textMuted}!important;opacity:.9}
     `}</style>
     {renderClientCreator()}
