@@ -10,9 +10,10 @@ const test = (n, f) => cas.push([n, f]);
 test("1. un dossier vide : sept étapes, aucune faite, la première est la courante", () => {
   const r = P.calculerParcours({});
   assert.equal(r.etapes.length, 7);
-  assert.ok(r.etapes.every((e) => e.etat === "a_faire"));
+  // Seule la question « régime matrimonial » est sans objet pour un dossier vide : le recueil compte 1 point fait sur 15.
+  assert.ok(r.etapes.every((e) => e.etat !== "fait")); assert.equal(r.etapes[1].faits, 1);
   assert.equal(r.courante.cle, "cadrage");
-  assert.equal(r.pourcentage, 0);
+  assert.ok(r.pourcentage < 5);
   assert.equal(r.prochainPoint.libelle, "Document d'entrée en relation remis au client");
 });
 test("2. le cadrage n'est fait que lorsque les six points le sont", () => {
@@ -35,10 +36,10 @@ test("5. pièces obligatoires : reçues ou validées comptent, non applicables s
     { required: true, statut: "Reçu" }, { required: true, statut: "Validé" },
     { required: true, statut: "Non applicable" }, { required: false, statut: "À demander" },
   ];
-  const pt = P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[8];
+  const pt = P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[14];
   assert.equal(pt.ok, true); assert.equal(pt.detail, "2 / 2");
   docs.push({ required: true, statut: "À demander" });
-  assert.equal(P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[8].ok, false);
+  assert.equal(P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[14].ok, false);
 });
 test("6. stratégies : deux scénarios sortis de « À étudier » sont nécessaires", () => {
   const sc = [{ statut: "À étudier" }, { statut: "Recommandé" }, { statut: "À écarter" }];
@@ -66,21 +67,20 @@ test("9. les valeurs par défaut des nouveaux blocs sont vides et distinctes à 
   assert.equal(P.conformiteVide().lettre_statut, "À envoyer");
 });
 test("10. les onglets visés par chaque point existent dans l'écran", () => {
-  const surfaces = new Set(["cadrage", "audit", "profil", "patrimoine", "documents", "analyse", "mise_en_oeuvre"]);
+  const surfaces = new Set(["cadrage", "collecte", "audit", "documents", "analyse", "mise_en_oeuvre"]);
   for (const e of P.calculerParcours({}).etapes) { assert.ok(surfaces.has(e.onglet)); e.points.forEach((x) => assert.ok(surfaces.has(x.onglet), x.libelle)); }
 });
 
-test("11. recueil : objectifs chiffrés, charges avec épargne réelle et profil immobilier complet sont exigés", () => {
+test("11. recueil : les quatorze questions du socle puis les pièces ; un objectif incomplet ou un profil partiel bloquent", () => {
   const pts = (d) => P.calculerParcours(d).etapes[1].points;
+  assert.equal(pts({}).length, 15);
   const lib = (d, l) => pts(d).find((x) => x.libelle.startsWith(l));
-  assert.equal(lib({}, "Objectifs chiffrés").ok, false);
-  assert.equal(lib({ collecte: { objectifs_mesures: [{ montant: "2500", echeance: "2036", priorite: "1" }] } }, "Objectifs chiffrés").ok, true);
-  assert.equal(lib({ collecte: { objectifs_mesures: [{ montant: "2500", echeance: "2036", priorite: "1" }, { libelle: "vague" }] } }, "Objectifs chiffrés").ok, false, "un objectif incomplet bloque");
-  assert.equal(lib({ collecte: { charges: { logement: "1200" } } }, "Charges du foyer").ok, false, "sans épargne réelle");
-  assert.equal(lib({ collecte: { charges: { logement: "1200", epargne_reelle_mois: "800" } } }, "Charges du foyer").ok, true);
-  assert.equal(lib({}, "Profil investisseur").ok, false);
+  assert.equal(lib({}, "Au moins un objectif chiffré").ok, false);
+  assert.equal(lib({ collecte: { objectifs_mesures: [{ montant: "2500", echeance: "2036", priorite: "1" }] } }, "Au moins un objectif chiffré").ok, true);
+  assert.equal(lib({ collecte: { objectifs_mesures: [{ montant: "2500", echeance: "2036", priorite: "1" }, { libelle: "vague" }] } }, "Au moins un objectif chiffré").ok, false, "un objectif incomplet bloque");
+  assert.equal(lib({ collecte: { charges: { logement: "1200" } } }, "Charges du foyer").ok, true);
+  assert.equal(lib({ collecte: { profil_immo: { tolerance_endettement: "Faible" } } }, "Profil investisseur").ok, false, "les quatre critères clés sont exigés");
 });
-
 test("12. stratégies : un scénario chiffré exige au moins une opération avec prix et année", () => {
   const pt = (d) => P.calculerParcours(d).etapes[3].points.find((x) => x.libelle.startsWith("Au moins un scénario chiffré"));
   assert.equal(pt({}).ok, false);

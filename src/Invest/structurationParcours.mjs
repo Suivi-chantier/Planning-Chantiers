@@ -10,7 +10,7 @@
 // Une étape n'est « faite » que si TOUS ses points le sont. Un point dont la donnée manque est
 // « à faire », jamais « fait par défaut ».
 
-import { analyserObjectifs, analyserProfilImmo, num } from "./structurationDonnees.mjs";
+import { avancementCollecte, documentsPertinents, estPertinent } from "./structurationCollecte.mjs";
 import { operationComplete } from "./structurationProjection.mjs";
 
 const plein = (v) => v !== undefined && v !== null && String(v).trim() !== "";
@@ -18,7 +18,7 @@ const nb = (arr) => (Array.isArray(arr) ? arr : []);
 
 export const ETAPES_STRUCTURATION = Object.freeze([
   { cle: "cadrage", numero: 1, libelle: "Cadrage & conformité", onglet: "cadrage", aide: "Entrée en relation : document remis au client, lettre de mission signée, vérification d'identité et origine des fonds." },
-  { cle: "collecte", numero: 2, libelle: "Recueil", onglet: "audit", aide: "Situation familiale, revenus, patrimoine, dettes, objectifs et pièces justificatives." },
+  { cle: "collecte", numero: 2, libelle: "Recueil", onglet: "collecte", aide: "Situation familiale, revenus, patrimoine, dettes, objectifs et pièces justificatives." },
   { cle: "diagnostic", numero: 3, libelle: "Diagnostic", onglet: "analyse", aide: "Bilan patrimonial : performance, endettement, fiscalité, détention, transmission, risques." },
   { cle: "strategies", numero: 4, libelle: "Stratégies comparées", onglet: "analyse", aide: "Au moins deux scénarios chiffrés et comparés (conserver, arbitrer, structurer en société…)." },
   { cle: "preconisation", numero: 5, libelle: "Préconisation & restitution", onglet: "analyse", aide: "Préconisations argumentées, rapport remis au client, rendez-vous de restitution." },
@@ -39,7 +39,8 @@ export function miseEnOeuvreVide() {
 }
 
 function docsRequisRecus(data) {
-  const requis = nb(data?.collecte?.documents).filter((d) => d.required && d.statut !== "Non applicable");
+  const pertinents = documentsPertinents(data);
+  const requis = nb(data?.collecte?.documents).filter((d) => d.required && d.statut !== "Non applicable" && estPertinent(pertinents, d));
   const recus = requis.filter((d) => d.statut === "Reçu" || d.statut === "Validé");
   return { requis: requis.length, recus: recus.length };
 }
@@ -55,8 +56,7 @@ export function calculerParcours(data) {
   const moe = { ...miseEnOeuvreVide(), ...(data?.mise_en_oeuvre || {}) };
   const p = c.profil || {};
   const docs = docsRequisRecus(data);
-  const objectifs = analyserObjectifs(c.objectifs_mesures);
-  const profilImmo = analyserProfilImmo(c.profil_immo);
+  const socle = avancementCollecte(data);
   const analyses = ["analyse_performance", "analyse_bancaire", "analyse_fiscale", "analyse_structure", "analyse_transmission", "analyse_risques"].filter((k) => plein(a[k])).length;
   const scenariosTraites = nb(a.scenarios).filter((s) => s.statut && s.statut !== "À étudier").length;
   const recos = nb(a.preconisations).filter((r) => plein(r.titre) && plein(r.action));
@@ -73,15 +73,9 @@ export function calculerParcours(data) {
       pt("Origine des fonds vérifiée", conf.origine_fonds_verifiee, "cadrage"),
       pt("Rémunération expliquée au client", conf.remuneration_expliquee, "cadrage"),
     ],
+    // Le socle de quatorze questions (voir structurationCollecte.mjs) puis les pièces obligatoires du client.
     collecte: [
-      pt("Situation familiale et régime matrimonial", plein(p.situation_familiale) && plein(p.regime_matrimonial), "profil"),
-      pt("Revenus du foyer", plein(p.revenus_nets_mois), "profil"),
-      pt("Objectif principal et horizon", plein(c.objectifs?.objectif_principal) && plein(c.objectifs?.horizon), "profil"),
-      pt("Patrimoine immobilier inventorié", nb(c.patrimoine?.lots).some((l) => plein(l.valeur) || plein(l.adresse)), "patrimoine"),
-      pt("Patrimoine financier renseigné", Object.values(c.patrimoine_financier || {}).some(plein), "patrimoine"),
-      pt("Objectifs chiffrés (montant, échéance, priorité)", objectifs.exploitables >= 1 && objectifs.incomplets === 0, "profil", `${objectifs.exploitables} / ${objectifs.total}`),
-      pt("Charges du foyer et épargne réelle", ["logement", "courantes"].some((k) => num(c.charges?.[k]) !== null) && num(c.charges?.epargne_reelle_mois) !== null, "patrimoine"),
-      pt("Profil investisseur immobilier complet", profilImmo.complet, "profil", `${profilImmo.renseignees} / ${profilImmo.total}`),
+      ...socle.questions.map((q) => pt(q.libelle, q.ok, "collecte")),
       pt("Pièces obligatoires reçues", docs.requis > 0 && docs.recus === docs.requis, "documents", docs.requis ? `${docs.recus} / ${docs.requis}` : null),
     ],
     diagnostic: [
