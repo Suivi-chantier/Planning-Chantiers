@@ -80,6 +80,20 @@ test("10. module pur : ni horloge, ni base de données", () => {
   assert.ok(!/new Date\(|Date\.now|supabase|fetch\(|window\.(?!print)/.test(src));
 });
 
+test("11. graphiques : anneaux, barres et frise présents, aucun graphique ne s'affiche sur un dossier vide", () => {
+  const plein = R.construireRapportHtml(DOSSIER(), { ...opts, niveau: "synthese" });
+  assert.ok((plein.match(/<svg /g) || []).length >= 7, "anneaux, barres, courbe et frise");
+  for (const t of ["Composition du patrimoine", "Répartition des dettes", "Où va chaque mois", "Patrimoine net à 10 ans, par trajectoire", "Frise des échéances"]) assert.ok(plein.includes(t), t);
+  const vide = R.construireRapportHtml({ collecte: {} }, { ...opts, niveau: "synthese" });
+  assert.ok(!/NaN|undefined|Infinity/.test(vide));
+  assert.ok(vide.includes("rien à représenter"));
+});
+test("12. impression : format A4 sans marge et saut de page unique (plus de page blanche)", () => {
+  const h = R.construireRapportHtml(DOSSIER(), { ...opts });
+  assert.ok(h.includes("@page{size:A4;margin:0}"));
+  assert.ok(/\.page\{[^}]*break-after:page/.test(h) && h.includes(".page:last-of-type"));
+});
+
 let echecs = 0;
 for (const [n, f] of cas) { try { await f(); console.log(`  ✓ ${n}`); } catch (e) { echecs++; console.log(`  ✗ ${n}\n      ${e.message}`); } }
 console.log(`\n${cas.length - echecs}/${cas.length} vérifications réussies`);

@@ -25,7 +25,7 @@ const arr = (a) => (Array.isArray(a) ? a : []);
 
 const CSS = `
 *{box-sizing:border-box}body{margin:0;background:#eef1f4;color:#0D1B2A;font-family:'DM Sans',Arial,sans-serif;font-size:11.5px;line-height:1.45}
-.page{width:210mm;min-height:297mm;margin:0 auto 8mm;background:#fff;padding:16mm 14mm 20mm;position:relative;page-break-after:always}
+.page{width:210mm;min-height:297mm;margin:0 auto 8mm;background:#fff;padding:16mm 14mm 20mm;position:relative}
 .cover{background:#0D1B2A;color:#F5F0E8}.cover h1{font-family:Georgia,serif;font-weight:400;font-size:40px;line-height:1.05;margin:28mm 0 6mm}.cover .k{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C}.cover .v{font-size:15px;font-weight:700;margin:3px 0 8mm}
 .sec{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:800;margin-bottom:2mm}h2{font-family:Georgia,serif;font-weight:400;font-size:25px;margin:0 0 5mm}h3{font-size:12.5px;margin:5mm 0 2mm}
 .line{height:1px;background:#e3e3e3;margin-bottom:5mm}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;margin-bottom:5mm}.card{border:1px solid #e1e5ea;border-radius:6px;padding:3mm 3.5mm}.card b{display:block;font-size:15px}.card span{font-size:9.5px;color:#667}
@@ -36,8 +36,42 @@ table{width:100%;border-collapse:collapse;margin-bottom:4mm}th{text-align:left;f
 .note{border-left:3px solid #C9A84C;background:#fdfbf6;padding:3mm 4mm;margin:4mm 0;color:#445}.warn{color:#b45309;font-weight:700}.muted{color:#778}
 .footer{position:absolute;left:14mm;right:14mm;bottom:8mm;border-top:1px solid #dde;padding-top:3mm;font-size:8px;color:#8a96a3;display:flex;justify-content:space-between}
 .no-print{text-align:center;padding:10px}.btn{background:#0D1B2A;color:#fff;border:0;padding:9px 18px;border-radius:6px;font-weight:700;cursor:pointer}
-@media print{body{background:#fff}.no-print{display:none}.page{margin:0;box-shadow:none}}
+@page{size:A4;margin:0}
+.graph{margin:2mm 0 5mm}.duo{display:grid;grid-template-columns:1fr 1fr;gap:6mm;align-items:start}.leg{font-size:9.5px;color:#556;margin-top:2px}.leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
+@media print{body{background:#fff}.no-print{display:none}.page{margin:0;box-shadow:none;break-after:page;page-break-after:always}.page:last-of-type{break-after:auto;page-break-after:auto}}
 `;
+
+const PALETTE = ["#C9A84C", "#2563eb", "#15803d", "#b42318", "#7c3aed", "#0891b2"];
+const eurC = (v) => (Math.abs(v) >= 1e6 ? `${(v / 1e6).toFixed(1).replace(".", ",")} M€` : Math.abs(v) >= 1e5 ? `${Math.round(v / 1e3)} k€` : `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(v))} €`);
+/** Anneau de répartition. Les segments à zéro ne sont pas tracés ; sans total, un message remplace le graphique. */
+const donut = (segments, titre) => {
+  const seg = segments.filter((x) => x.valeur > 0), total = seg.reduce((a, x) => a + x.valeur, 0);
+  if (total <= 0) return `<div class="graph muted">${esc(titre)} : rien à représenter.</div>`;
+  const R = 52, C = 2 * Math.PI * R; let off = 0;
+  const arcs = seg.map((x, i) => { const len = (x.valeur / total) * C; const a = `<circle cx="70" cy="70" r="${R}" fill="none" stroke="${x.couleur || PALETTE[i % PALETTE.length]}" stroke-width="22" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-off}" transform="rotate(-90 70 70)"/>`; off += len; return a; }).join("");
+  return `<div class="graph"><b style="font-size:11px">${esc(titre)}</b><div style="display:flex;gap:8px;align-items:center"><svg viewBox="0 0 140 140" width="130" height="130" role="img" aria-label="${esc(titre)}">${arcs}<text x="70" y="67" text-anchor="middle" font-size="11" font-weight="700" fill="#0D1B2A">${esc(eurC(total))}</text><text x="70" y="81" text-anchor="middle" font-size="8" fill="#778">total</text></svg>
+    <div>${seg.map((x, i) => `<div class="leg"><i style="background:${x.couleur || PALETTE[i % PALETTE.length]}"></i>${esc(x.libelle)} — ${esc(eurC(x.valeur))} (${Math.round((x.valeur / total) * 100)} %)</div>`).join("")}</div></div></div>`;
+};
+/** Barres horizontales (valeurs positives ou négatives, négatif en rouge). */
+const barres = (items, titre, couleur = "#2563eb") => {
+  const lignes = items.filter((x) => x.valeur !== null && x.valeur !== undefined && Number.isFinite(x.valeur));
+  if (!lignes.length) return `<div class="graph muted">${esc(titre)} : données insuffisantes.</div>`;
+  const max = Math.max(1, ...lignes.map((x) => Math.abs(x.valeur))), W = 330, L = 128, h = 22;
+  return `<div class="graph"><b style="font-size:11px">${esc(titre)}</b><svg viewBox="0 0 ${L + W + 60} ${lignes.length * h + 6}" width="100%" role="img" aria-label="${esc(titre)}">${
+    lignes.map((x, i) => { const w = Math.max(2, (Math.abs(x.valeur) / max) * W); const y = i * h + 3;
+      return `<text x="${L - 6}" y="${y + 13}" text-anchor="end" font-size="9.5" fill="#334">${esc(String(x.libelle).slice(0, 26))}</text><rect x="${L}" y="${y + 3}" width="${w}" height="13" rx="2" fill="${x.valeur < 0 ? "#b42318" : (x.couleur || couleur)}"/><text x="${L + w + 5}" y="${y + 13}" font-size="9.5" font-weight="700" fill="#0D1B2A">${esc(eurC(x.valeur))}</text>`; }).join("")}</svg></div>`;
+};
+/** Frise des échéances : acquisitions, objectifs, revues, par année. */
+const frise = (parAnnee) => {
+  const g = parAnnee.filter((x) => x.items.length); if (!g.length) return "";
+  const a0 = g[0].annee, a1 = Math.max(g[g.length - 1].annee, a0 + 1), W = 620, x = (a) => 30 + ((a - a0) / (a1 - a0)) * (W - 60);
+  const couleurs = { operation: "#15803d", objectif: "#7c3aed", revue: "#64748b", action: "#2563eb", reserve: "#d97706" };
+  return `<div class="graph"><b style="font-size:11px">Frise des échéances</b><svg viewBox="0 0 ${W} 96" width="100%" role="img" aria-label="Frise des échéances"><line x1="30" y1="46" x2="${W - 30}" y2="46" stroke="#ccd"/>${
+    g.map((an) => { const ops = an.items.filter((i) => i.type === "operation"), obj = an.items.filter((i) => i.type === "objectif");
+      const types = [...new Set(an.items.map((i) => i.type))];
+      return `<g><text x="${x(an.annee)}" y="82" text-anchor="middle" font-size="9.5" fill="#445">${an.annee}</text>${types.map((t, k) => `<circle cx="${x(an.annee)}" cy="${46 - k * 0}" r="${t === "operation" ? 7 : 5}" fill="${couleurs[t]}" opacity="${k ? .55 : 1}" transform="translate(${k * 6},0)"/>`).join("")}${ops.length ? `<text x="${x(an.annee)}" y="28" text-anchor="middle" font-size="9" font-weight="700" fill="#15803d">${esc((ops[0].titre || "").replace("Acquisition — ", "").slice(0, 22))}</text>` : ""}${obj.length && !ops.length ? `<text x="${x(an.annee)}" y="28" text-anchor="middle" font-size="9" fill="#7c3aed">${esc((obj[0].titre || "").slice(0, 22))}</text>` : ""}</g>`; }).join("")}</svg>
+    <div class="leg">${Object.entries({ operation: "Acquisition", objectif: "Objectif", action: "Action", revue: "Revue", reserve: "Réserve" }).map(([k, l]) => `<span style="margin-right:10px"><i style="background:${couleurs[k]}"></i>${l}</span>`).join("")}</div></div>`;
+};
 
 const table = (entetes, lignes, num_ = []) => `<table><thead><tr>${entetes.map((e, i) => `<th class="${num_.includes(i) ? "n" : ""}">${esc(e)}</th>`).join("")}</tr></thead><tbody>${
   lignes.length ? lignes.map((l) => `<tr>${l.map((c, i) => `<td class="${num_.includes(i) ? "n" : ""}">${c}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${entetes.length}" class="muted">Aucune donnée saisie.</td></tr>`}</tbody></table>`;
@@ -96,7 +130,7 @@ export function construireRapportHtml(data, { niveau = "synthese", clientNom = "
     ["Patrimoine brut", eur(s.patrimoineBrut)], ["Dettes", eur(s.dettes), "red"], ["Patrimoine net", eur(s.patrimoineNet), s.patrimoineNet < 0 ? "red" : "green"],
     ["Liquidités", eur(s.liquidites)], ["Part de l'immobilier", pc(s.composition.partImmobilier)], ["Revenus récurrents par an", eur(s.revenusAnnuelsRecurrents)],
     ["Épargne réelle par an", eur(s.epargneAnnuelle)], ["Cash-flow immobilier par mois", eur(s.cashflowImmobilierMois)], ["Tranche d'imposition", esc(s.tmi || "non renseignée")],
-  ]) + `<div class="note">${esc(a.diagnostic ? String(a.diagnostic).split("\n")[0] : "Le diagnostic rédigé du conseiller figure page 5 et en annexe.")}</div>` +
+  ]) + `<div class="duo">${donut([{ libelle: "Immobilier", valeur: s.composition.immobilier, couleur: "#C9A84C" }, { libelle: "Placements", valeur: s.composition.financier, couleur: "#2563eb" }, { libelle: "Liquidités", valeur: s.composition.liquidites, couleur: "#15803d" }], "Composition du patrimoine")}${donut(s.repartitionDettes.map((d, i) => ({ libelle: d.libelle, valeur: d.montant, couleur: ["#b42318", "#d97706", "#7c3aed"][i % 3] })), "Répartition des dettes")}</div><div class="note">${esc(a.diagnostic ? String(a.diagnostic).split("\n")[0] : "Le diagnostic rédigé du conseiller figure page 5 et en annexe.")}</div>` +
     (s.nonCompte.length ? `<p class="warn">Non compté dans le patrimoine brut : ${esc(s.nonCompte.join(", "))}.</p>` : ""));
 
   const p2 = page("02 — Où vous voulez aller", "Vos objectifs", table(["Priorité", "Objectif", "Montant", "Échéance", "Souplesse"],
@@ -115,7 +149,7 @@ export function construireRapportHtml(data, { niveau = "synthese", clientNom = "
   const p4 = page("04 — Ce que vous pouvez faire", "Vos flux et votre capacité d'investissement", cartes([
     ["Revenus récurrents par mois", eur(flux.revenusRecurrentsMois)], ["Charges du foyer par mois", eur(flux.chargesFoyerMois)], ["Capacité d'épargne théorique par mois", eur(flux.capaciteEpargneTheorique)],
     ["Épargne réellement constatée par mois", eur(flux.epargneReelle)], ["Écart", flux.ecart === null ? ND : `${flux.ecart >= 0 ? "+" : ""}${eur(flux.ecart)}`, flux.ecart !== null && flux.ecart < 0 ? "red" : ""], ["Mensualités de dettes par mois", eur(s.mensualitesTotal)],
-  ]) + `<h3>Capacité d'emprunt : aujourd'hui, puis après chaque opération</h3>` + table(["Étape", "Endettement", "Marge mensuelle", "Capital empruntable", "Lecture"],
+  ]) + barres([{ libelle: "Revenus récurrents", valeur: flux.revenusRecurrentsMois, couleur: "#15803d" }, { libelle: "Charges du foyer", valeur: flux.chargesFoyerMois, couleur: "#d97706" }, { libelle: "Mensualités de dettes", valeur: s.mensualitesTotal, couleur: "#b42318" }, { libelle: "Épargne théorique", valeur: flux.capaciteEpargneTheorique, couleur: "#2563eb" }, { libelle: "Épargne réelle", valeur: flux.epargneReelle, couleur: "#7c3aed" }], "Où va chaque mois (€ par mois)") + `<h3>Capacité d'emprunt : aujourd'hui, puis après chaque opération</h3>` + table(["Étape", "Endettement", "Marge mensuelle", "Capital empruntable", "Lecture"],
     trajectoire.etapes.map((e) => [esc(e.libelle), pc(e.tauxEndettement), eur(e.mensualiteDisponible), eur(e.capitalEmpruntable), esc(e.lecture)]), [1, 2, 3]) +
     `<p class="muted">Hypothèses : plafond d'endettement ${esc(trajectoire.hypotheses.plafondEndettement)} %, crédit à ${esc(trajectoire.hypotheses.tauxCredit)} % sur ${esc(trajectoire.hypotheses.dureeCredit)} ans, ${esc(trajectoire.hypotheses.loyersRetenusBanque)} % des loyers retenus. Estimation : la décision appartient à la banque.</p>`);
 
@@ -127,6 +161,8 @@ export function construireRapportHtml(data, { niveau = "synthese", clientNom = "
   const p6 = page("06 — Les trajectoires possibles", "Les stratégies étudiées", comparaison.length > 1
     ? table(["", ...comparaison.map((x) => x.nom)], [...lignesCmp.map(([t, k]) => [esc(t), ...comparaison.map((x) => eur(x[k]))]),
       ["<b>Tenable ?</b>", ...comparaison.map((x) => (x.anneeInsuffisance ? `<span class="warn">Non, dès ${esc(x.anneeInsuffisance)}</span>` : "Oui"))]], comparaison.map((_, i) => i + 1))
+      + barres(comparaison.map((x, i) => ({ libelle: x.nom, valeur: x.patrimoineNet, couleur: PALETTE[i % PALETTE.length] })), "Patrimoine net à 10 ans, par trajectoire")
+      + barres(comparaison.map((x) => ({ libelle: x.nom, valeur: x.liquiditesMin, couleur: "#0891b2" })), "Trésorerie au plus bas, par trajectoire")
       + `<p class="muted">Cas central, à 10 ans, avant impôt.</p>`
     : `<p class="muted">Aucun scénario chiffré n'a été construit pour ce dossier. La situation actuelle est la seule trajectoire projetée.</p>` +
       table(["", "Situation actuelle"], lignesCmp.map(([t, k]) => [esc(t), eur(comparaison[0][k])])));
@@ -145,11 +181,11 @@ export function construireRapportHtml(data, { niveau = "synthese", clientNom = "
     `<p class="muted">Le cas prudent, le cas central et le cas dégradé encadrent le résultat. Hypothèses détaillées en dernière page.</p>`);
 
   const p9 = page("09 — Si les choses tournent mal", "Risques et tests de résistance", `<p>Pour le scénario ${esc(retenu ? retenu.nom : "actuel")}, cas central, sur 5 ans : liquidités au plus bas <b>${eur(tests.reference.liquiditesMin)}</b>, pire cash-flow annuel <b>${eur(tests.reference.pireCashflow)}</b>.</p>` +
-    table(["Choc", "Liquidités au plus bas", "La trésorerie tient-elle ?"], tests.chocs.map((x) => [esc(x.libelle), eur(x.liquiditesMin), x.tient ? "Oui" : `<span class="warn">Non, dès ${esc(x.anneeInsuffisance)}</span>`]), [1]) +
+    barres(tests.chocs.map((x) => ({ libelle: x.libelle.replace(/ \(.*\)/, "").slice(0, 26), valeur: x.liquiditesMin })), "Trésorerie au plus bas selon le choc (5 premières années)", "#0891b2") + table(["Choc", "Liquidités au plus bas", "La trésorerie tient-elle ?"], tests.chocs.map((x) => [esc(x.libelle), eur(x.liquiditesMin), x.tient ? "Oui" : `<span class="warn">Non, dès ${esc(x.anneeInsuffisance)}</span>`]), [1]) +
     (sw.risques.length ? `<h3>Risques identifiés</h3><ul>${sw.risques.map((x) => `<li><b>${esc(x.titre)}</b> — ${esc(x.detail)}</li>`).join("")}</ul>` : ""));
 
   const lignesRoute = route.parAnnee.flatMap((g) => g.items.map((it, i) => [i === 0 ? `<b>${esc(g.annee)}</b>` : "", esc(LIBELLES_TYPES[it.type]), `<b>${esc(it.titre)}</b>${it.detail ? `<br><span class="muted">${esc(it.detail)}</span>` : ""}`, esc(it.responsable || "—"), esc(it.statut), esc(it.dependance || "—")]));
-  const p10 = page("10 — Ce que nous faisons maintenant", "Votre plan d'action", table(["Année", "Nature", "Action", "Responsable", "Statut", "Dépend de"], lignesRoute) +
+  const p10 = page("10 — Ce que nous faisons maintenant", "Votre plan d'action", frise(route.parAnnee) + table(["Année", "Nature", "Action", "Responsable", "Statut", "Dépend de"], lignesRoute) +
     route.manquants.map((m) => `<p class="warn">À compléter : ${esc(m)}.</p>`).join("") + route.alertes.map((m) => `<p class="warn">${esc(m)}</p>`).join(""));
 
   const synthese = [couverture, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10];
