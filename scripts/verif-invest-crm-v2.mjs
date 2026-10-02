@@ -15,6 +15,9 @@ import * as V from "../src/Invest/crm/crmV2Vue.mjs";
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (rel) => readFileSync(join(racine, rel), "utf8");
 const CRM = lire("src/Invest/CRM.jsx");
+// Seule écriture permise sur invest_clients depuis la page Client : le statut des pièces demandées
+// (strategie_data.documents_checklist), même emplacement que l'ancienne vue CRM.
+const sansSuiviDocuments = (src) => src.replace(/from\("invest_clients"\)\.update\(\{ strategie_data: strat \}\)/g, "");
 const CRMV2 = lire("src/Invest/crm/CrmV2.jsx") + lire("src/Invest/crm/CrmCartes.jsx");
 const FICHE = lire("src/Invest/crm/FicheClientV2.jsx");
 const VUE = lire("src/Invest/crm/crmV2Vue.mjs");
@@ -176,8 +179,8 @@ test("10. intégration : V2 par défaut, ancienne vue séparée, aucun ancien co
   assert.match(FICHE, /<SituationPatrimonialeCard client=\{client\} T=\{T\} dossierEnCoursId=\{dossierEnCours\?\.id \?\? null\} dossierReference=\{dossierEnCours\?\.reference \?\? null\} integre \/>/);
   assert.match(FICHE, /<DocumentsSection folder=\{`clients\/\$\{client\.id\}`\} T=\{T\} lectureSeule \/>/);
   assert.match(SHARED, /\{!lectureSeule && <button\s+onClick=\{\(\) => supprimer/);
-  assert.match(CRMV2, /<FicheDossier client=\{client\} T=\{T\} profil=\{profil\} dossierIdInitial=\{dossierId\}/);
-  assert.ok(!/from\("invest_clients"\)\.(update|insert|delete|upsert)/.test(CRMV2 + FICHE), "la V2 ne modifie pas la fiche client");
+  assert.match(FICHE, /<FicheDossier client=\{client\} T=\{T\} profil=\{profil\} dossierIdInitial=\{missionOuverte\}/, "la mission s'ouvre dans l'onglet Missions");
+  assert.ok(!/from\("invest_clients"\)\.(update|insert|delete|upsert)/.test(sansSuiviDocuments(CRMV2 + FICHE)), "la V2 ne modifie pas la fiche client, hors suivi des pièces");
   assert.ok(!/from\("invest_dossiers"\)\.(update|insert|delete|upsert)|from\("invest_dossier_etapes"\)\.(update|insert|delete|upsert)/.test(CRMV2 + FICHE));
   assert.ok(!/supabase|Date\.now|new Date\(\)/.test(VUE.replace(/^\/\/.*$/gm, "")), "module pur : ni base ni horloge");
   for (const imp of ["pilotageDossier", "actionDuJour", "calculerSituation"]) assert.match(VUE, new RegExp(`\\b${imp}\\b`));
@@ -274,7 +277,7 @@ test("17. structuration : plus de page dans le menu, anciens liens redirigés ve
 test("18. structuration : la case n'écrit que invest_clients.sujet_structuration, et les blocs du menu sont posés", () => {
   assert.match(CASE, /\.update\(\{ sujet_structuration: !actif \}\)\.eq\("id", client\.id\)/);
   assert.ok(!/\.(insert|delete|upsert)\(/.test(CASE));
-  assert.ok(!/from\("invest_clients"\)\.(update|insert|delete|upsert)/.test(CRMV2 + FICHE), "l'écriture reste hors du CRM et de la page Client");
+  assert.ok(!/from\("invest_clients"\)\.(update|insert|delete|upsert)/.test(sansSuiviDocuments(CRMV2 + FICHE)), "l'écriture reste hors du CRM et de la page Client, hors suivi des pièces");
   for (const [id, g] of [["dashboard", "Pilotage"], ["crm", "Pilotage"], ["biens", "Biens"], ["urbanisme", "Biens"], ["simulateur", "Finance"], ["suivi_financier", "Finance"]])
     assert.match(PAGEINVEST, new RegExp(`${id}: "${g}"`));
   for (const id of ["simulateur", "finance", "suivi_financier", "sourcing", "biens", "etat_des_lieux", "urbanisme", "admin"]) assert.match(PAGEINVEST, new RegExp(`\\{ id: "${id}",`), `${id} toujours dans le menu`);
@@ -282,7 +285,7 @@ test("18. structuration : la case n'écrit que invest_clients.sujet_structuratio
 
 test("19. refonte fiche Client : l'action d'une mission n'est plus répétée dans la liste d'actions", () => {
   assert.match(FICHE, /const autres = vue\.aFaire\.filter\(\(a\) => !String\(a\.id\)\.startsWith\("m-"\)\);/);
-  assert.match(FICHE, /titre="Autres actions à venir"/);
+  assert.match(FICHE, /titre="3 · Autres actions à venir"/);
   const ensemble = FICHE.slice(FICHE.indexOf("function VueEnsemble"), FICHE.indexOf("function LigneMission"));
   assert.ok(ensemble.length > 500 && !/titre="Opérations"/.test(ensemble), "bloc vide « Opérations » retiré de la vue d'ensemble");
   assert.match(FICHE, /onglet === "operations"/, "l'onglet Opérations, lui, reste");

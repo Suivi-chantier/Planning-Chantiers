@@ -99,7 +99,7 @@ test("11. écran : la révocation n'écrit que statut / qui / quand, et seulemen
 test("12. fiche client : le bloc est dans la vue d'ensemble, avec le client et le profil", () => {
   assert.match(FICHE, /import AccesPortail from "\.\/AccesPortail";/);
   assert.match(FICHE, /<AccesPortail T=\{T\} client=\{client\} profil=\{profil\} \/>/);
-  assert.match(FICHE, /client=\{client\} profil=\{profil\} \/>\}/);
+  assert.match(FICHE, /<VueEnsemble [^>]*client=\{client\} profil=\{profil\}/);
 });
 test("13. portail : lien lu une seule fois, retiré de l'adresse avant validation, mot de passe 8 caractères", () => {
   assert.match(PORTAIL, /const \[lienInitial\] = useState\(\(\) => lireLienInvitation\(window\.location\.search\)\)/);
