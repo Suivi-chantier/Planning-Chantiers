@@ -11,6 +11,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../supabase";
 import { CLIENT_DOCUMENT_CHECKLIST, clientStrategy, DocumentsSection } from "../_shared";
 import { DemarrerMission } from "../dossiers/DossierInvestCard";
+import FicheDossier from "../dossiers/FicheDossier";
+import { envoyerEmailApi } from "../../emailApi";
 import SituationPatrimonialeCard from "../dossiers/SituationPatrimonialeCard";
 import { ONGLETS_CLIENT, ongletsClient, construireClient } from "./crmV2Vue";
 import AccesPortail from "./AccesPortail";
@@ -20,12 +22,15 @@ import { FilAriane, Onglets, Section, Carte, Pastille, Discret, Chiffre, Vide, d
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
 const TYPES_NOTE = [["commentaire", "Note"], ["appel", "Appel"], ["rendez-vous", "Rendez-vous"], ["relance", "Relance"], ["document", "Document"], ["autre", "Autre"]];
-const ETAT_DOCUMENT = { recu: ["Reçu", VERT], na: ["Non applicable", GRIS] };
+const ETAT_DOCUMENT = { recu: ["Reçu", VERT], na: ["Non applicable", GRIS], demande: ["Demandé au client", BLEU] };
 
-export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRetour, onOuvrirMission }) {
+export default function FicheClientV2({ clientId, ongletInitial, missionInitiale = null, profil, T, onRetour }) {
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
-  const [onglet, setOnglet] = useState(ongletInitial || "ensemble");
+  const [onglet, setOnglet] = useState(missionInitiale ? "missions" : (ongletInitial || "ensemble"));
+  // Mission ouverte DANS l'onglet Missions (plus de page séparée).
+  const [missionOuverte, setMissionOuverte] = useState(missionInitiale);
+  const onOuvrirMission = (dossierId) => { setMissionOuverte(dossierId); setOnglet("missions"); };
   const [rev, setRev] = useState(0);
   const aujourdhui = aujourdhuiIso();
 
@@ -81,11 +86,11 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
           <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setOnglet("missions")}>＋ Nouvelle mission</button>
         </div>
       </header>
-      <Onglets T={T} compact onglets={ongletsClient(client)} actif={onglet} onChange={setOnglet}
+      <Onglets T={T} compact onglets={ongletsClient(client)} actif={onglet} onChange={(o) => { setOnglet(o); if (o !== "missions") setMissionOuverte(null); }}
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
-      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} />}
+      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} donnees={donnees} />}
       {onglet === "structuration" && client.sujet_structuration === true && (
         <StructurationPatrimoniale key={client.id} profil={profil} T={T} clientIdFixe={client.id} />
       )}
@@ -93,7 +98,12 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
         <Vide T={T} titre="Pas de sujet de structuration pour ce client" texte="Cochez « Sujet de structuration » pour faire apparaître l'onglet et ouvrir le dossier de structuration."
           action={<SujetStructuration T={T} client={client} onChange={rafraichir} />} />
       )}
-      {onglet === "missions" && <Missions T={T} vue={vue} donnees={donnees} profil={profil} illisible={donnees.dossiersIllisibles} onOuvrirMission={onOuvrirMission} onCree={(id) => { rafraichir(); onOuvrirMission(id); }} />}
+      {onglet === "missions" && (missionOuverte
+        ? <>
+            <button className="inv-btn inv-btn-sm" style={{ marginBottom: 12 }} onClick={() => { setMissionOuverte(null); rafraichir(); }}>← Toutes les missions de {e.nom}</button>
+            <FicheDossier client={client} T={T} profil={profil} dossierIdInitial={missionOuverte} />
+          </>
+        : <Missions T={T} vue={vue} donnees={donnees} profil={profil} illisible={donnees.dossiersIllisibles} onOuvrirMission={onOuvrirMission} onCree={(id) => { rafraichir(); onOuvrirMission(id); }} />)}
       {onglet === "patrimoine" && (
         <Section T={T} titre="Patrimoine du foyer">
           <Discret T={T} style={{ marginBottom: 14, maxWidth: 760 }}>
@@ -109,7 +119,7 @@ export default function FicheClientV2({ clientId, ongletInitial, profil, T, onRe
             texte="Une opération correspondra à une acquisition précise (bien, offre, financement, détention, notaire, travaux et location), créée lorsqu'une opportunité est acceptée. Rien n'est encore enregistré à ce niveau." />
         </Section>
       )}
-      {onglet === "documents" && <Documents T={T} client={client} />}
+      {onglet === "documents" && <Documents T={T} client={client} profil={profil} onChange={rafraichir} />}
       {onglet === "historique" && <Historique T={T} vue={vue} client={client} profil={profil} onAjoute={rafraichir} />}
     </>
   );
@@ -139,22 +149,52 @@ function CarteMission({ T, m, onOuvrir }) {
 
 const GRILLE_2 = { display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 20, alignItems: "start" };
 
-function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil }) {
+function Tuile({ T, titre, valeur, detail, couleur, bouton, onClick }) {
+  return (
+    <Carte T={T} accent={couleur} style={{ padding: "12px 14px" }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted }}>{titre}</div>
+      <div style={{ fontSize: 20, fontWeight: 900, color: T.text, marginTop: 2 }}>{valeur}</div>
+      {detail && <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>{detail}</div>}
+      <button className="inv-btn inv-btn-sm" style={{ marginTop: 8 }} onClick={onClick}>{bouton}</button>
+    </Carte>
+  );
+}
+
+// Vue d'ensemble : lue de haut en bas comme on prépare un rendez-vous.
+//   1. Où en est-on ?        les missions en cours et LA prochaine action de chacune
+//   2. Ce qui reste à voir   documents, patrimoine, espace client : une tuile chacun, un clic pour agir
+//   3. Ce qui vient          les autres actions, puis l'activité récente
+function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil, donnees }) {
   const p = vue.patrimoine;
-  // L'action principale de chaque mission est déjà dans sa carte : on ne la répète pas dans la liste.
   const autres = vue.aFaire.filter((a) => !String(a.id).startsWith("m-"));
   const reste = Math.max(0, vue.aFaireTotal - vue.missionsEnCours.length - autres.length);
+  const liste = clientStrategy(client).documents_checklist || {};
+  const nbRecus = CLIENT_DOCUMENT_CHECKLIST.filter(([k]) => liste[k] === "recu" || liste[k] === true || liste[k] === "na").length;
+  const aDemander = CLIENT_DOCUMENT_CHECKLIST.filter(([k]) => !liste[k]).length;
   return (
     <>
+      <Section T={T} compact titre={`1 · Où en est-on ? ${illisible ? "" : `(${vue.missionsEnCours.length} mission${vue.missionsEnCours.length > 1 ? "s" : ""} en cours)`}`}>
+        {illisible ? <Vide T={T} compact titre="Missions illisibles" texte="avancement indisponible" />
+          : vue.missionsEnCours.length === 0
+            ? <Vide T={T} compact titre="Aucune mission en cours" texte={vue.missionsTerminees.length ? `${vue.missionsTerminees.length} terminée(s)` : "Démarrez une mission pour suivre ce client étape par étape."}
+                action={<button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOnglet("missions")}>＋ Nouvelle mission</button>} />
+            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
+      </Section>
+
+      <Section T={T} compact titre="2 · Ce qu'il reste à voir">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 12 }}>
+          <Tuile T={T} titre="Documents du client" valeur={`${nbRecus} / ${CLIENT_DOCUMENT_CHECKLIST.length} reçus`}
+            detail={aDemander ? `${aDemander} pièce${aDemander > 1 ? "s" : ""} pas encore demandée${aDemander > 1 ? "s" : ""}` : "Toutes les pièces sont demandées ou reçues"}
+            couleur={aDemander ? ORANGE : VERT} bouton={aDemander ? "Demander les pièces" : "Voir les documents"} onClick={() => onOnglet("documents")} />
+          <Tuile T={T} titre="Situation patrimoniale" valeur={p.vide ? "Non renseignée" : eur(p.patrimoineNetSimplifie)}
+            detail={p.vide ? "Aucune donnée saisie" : `${p.verifiees} / ${p.total} éléments vérifiés${p.aCorriger ? ` · ${p.aCorriger} à corriger` : ""}${p.incomplet ? " · totaux incomplets" : ""}`}
+            couleur={p.vide || p.aCorriger || p.incomplet ? ORANGE : VERT} bouton="Ouvrir le patrimoine" onClick={() => onOnglet("patrimoine")} />
+        </div>
+        <div style={{ marginTop: 12 }}><AccesPortail T={T} client={client} profil={profil} /></div>
+      </Section>
+
       <div className="crm-v2-grille" style={GRILLE_2}>
-        <Section T={T} compact titre={`Missions en cours · ${illisible ? "—" : vue.missionsEnCours.length}`}>
-          {illisible ? <Vide T={T} compact titre="Missions illisibles" texte="avancement indisponible" />
-            : vue.missionsEnCours.length === 0
-              ? <Vide T={T} compact titre="Aucune mission en cours" texte={vue.missionsTerminees.length ? `${vue.missionsTerminees.length} terminée(s)` : null}
-                  action={<button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOnglet("missions")}>＋ Nouvelle mission</button>} />
-              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
-        </Section>
-        <Section T={T} compact titre="Autres actions à venir">
+        <Section T={T} compact titre="3 · Autres actions à venir">
           {autres.length === 0 ? <Vide T={T} compact titre={illisible ? "Indisponible" : "Aucune autre action dans les 7 jours"} texte={illisible ? null : "l'action principale de chaque mission est dans sa carte"} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {autres.map((a) => (
@@ -170,29 +210,10 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
             </div>
           )}
         </Section>
-      </div>
-      <div>
-        <Section T={T} compact titre="Synthèse patrimoniale" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("patrimoine")}>Ouvrir le patrimoine</button>}>
-          {p.vide ? <Vide T={T} compact titre="Aucune donnée patrimoniale saisie" /> : (
-            <Carte T={T} style={{ padding: "11px 14px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 }}>
-                <Chiffre T={T} libelle="Revenus mensuels" valeur={eur(p.revenusMensuels)} />
-                <Chiffre T={T} libelle="Épargne disponible" valeur={eur(p.epargneDisponible)} />
-                <Chiffre T={T} libelle="Patrimoine net simplifié (biens à 100 %)" valeur={eur(p.patrimoineNetSimplifie)} fort />
-              </div>
-              <Discret T={T} style={{ marginTop: 8 }}>
-                {p.verifiees} élément{p.verifiees > 1 ? "s" : ""} vérifié{p.verifiees > 1 ? "s" : ""} sur {p.total}
-                {p.aCorriger ? <span style={{ color: ORANGE }}> · {p.aCorriger} à corriger</span> : null}
-                {p.incomplet ? <span style={{ color: ORANGE }}> · totaux incomplets</span> : null}
-              </Discret>
-            </Carte>
-          )}
+        <Section T={T} compact titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("historique")}>Tout l'historique</button>}>
+          {vue.activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeHistorique T={T} items={vue.activite} />}
         </Section>
       </div>
-      <AccesPortail T={T} client={client} profil={profil} />
-      <Section T={T} compact titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("historique")}>Voir tout l'historique</button>}>
-        {vue.activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeHistorique T={T} items={vue.activite} />}
-      </Section>
     </>
   );
 }
@@ -235,18 +256,74 @@ function Missions({ T, vue, donnees, profil, illisible, onOuvrirMission, onCree 
   );
 }
 
-function Documents({ T, client }) {
-  const liste = clientStrategy(client).documents_checklist || {};
+function Documents({ T, client, profil, onChange }) {
+  const [liste, setListe] = useState(() => clientStrategy(client).documents_checklist || {});
+  const [demandes, setDemandes] = useState(() => clientStrategy(client).documents_demandes || {});
+  const [occupe, setOccupe] = useState(false);
+  const [message, setMessage] = useState("");
+  const [erreur, setErreur] = useState("");
+  const email = String(client.email || "").trim();
+  const manquantes = CLIENT_DOCUMENT_CHECKLIST.filter(([k]) => !liste[k]);
+
+  // Écrit la checklist dans strategie_data (même emplacement que l'ancienne vue CRM).
+  const enregistrer = async (nextListe, nextDemandes) => {
+    const strat = { ...clientStrategy(client), documents_checklist: nextListe, documents_demandes: nextDemandes };
+    const r = await supabase.from("invest_clients").update({ strategie_data: strat }).eq("id", client.id).select("id");
+    if (r.error) throw new Error(r.error.message);
+    if (!r.data?.length) throw new Error("Modification refusée : droits insuffisants.");
+    setListe(nextListe); setDemandes(nextDemandes); onChange?.();
+  };
+  const changer = async (cle, valeur) => {
+    setErreur(""); setMessage("");
+    try { await enregistrer({ ...liste, [cle]: valeur }, demandes); } catch (e) { setErreur(e.message); }
+  };
+  const demander = async (cles) => {
+    if (!email) { setErreur("Aucune adresse e-mail sur la fiche : renseignez-la pour demander les pièces."); return; }
+    const libelles = CLIENT_DOCUMENT_CHECKLIST.filter(([k]) => cles.includes(k)).map(([, l]) => l);
+    if (!window.confirm(`Envoyer à ${email} une demande pour :\n\n- ${libelles.join("\n- ")}\n\nLe client recevra un e-mail de votre part.`)) return;
+    setOccupe(true); setErreur(""); setMessage("");
+    try {
+      const prenom = client.prenom || "";
+      const signature = profil?.nom || "L'équipe Profero Invest";
+      const texte = `Bonjour${prenom ? " " + prenom : ""},\n\nPour faire avancer votre dossier, pourriez-vous nous transmettre les pièces suivantes :\n\n- ${libelles.join("\n- ")}\n\nVous pouvez simplement répondre à ce message avec les documents en pièce jointe.\n\nMerci d'avance,\n${signature}\nProfero Invest`;
+      const echap = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;color:#1a1f2e;font-size:14px"><p>Bonjour${prenom ? " " + echap(prenom) : ""},</p><p>Pour faire avancer votre dossier, pourriez-vous nous transmettre les pièces suivantes :</p><ul>${libelles.map((l) => `<li>${echap(l)}</li>`).join("")}</ul><p>Vous pouvez simplement répondre à ce message avec les documents en pièce jointe.</p><p>Merci d'avance,<br>${echap(signature)}<br>Profero Invest</p></div>`;
+      const resp = await envoyerEmailApi({ to: email, subject: "Profero Invest — pièces à nous transmettre", html, text: texte }, { source: "crm-documents" });
+      const corps = await resp.json().catch(() => ({}));
+      if (!resp.ok || corps?.error) throw new Error(corps?.error || `Envoi refusé (erreur ${resp.status})`);
+      const jour = aujourdhuiIso();
+      const nextListe = { ...liste }, nextDem = { ...demandes };
+      cles.forEach((k) => { if (!nextListe[k]) nextListe[k] = "demande"; nextDem[k] = jour; });
+      await enregistrer(nextListe, nextDem);
+      await supabase.from("invest_notes").insert({ client_id: client.id, auteur: profil?.nom || "", type: "document", contenu: `Demande de pièces envoyée à ${email} : ${libelles.join(", ")}.` });
+      setMessage(`Demande envoyée à ${email}.`);
+    } catch (e) { setErreur(e.message); }
+    setOccupe(false);
+  };
+
   return (
     <>
-      <Section T={T} titre="Pièces suivies">
-        <Discret T={T} style={{ marginBottom: 12 }}>Consultation de la liste existante. Le nouveau suivi des documents par mission arrivera dans une prochaine version.</Discret>
+      <Section T={T} titre="Pièces suivies" action={
+        <button className="inv-btn inv-btn-blue inv-btn-sm" disabled={occupe || manquantes.length === 0 || !email} onClick={() => demander(manquantes.map(([k]) => k))}>
+          {manquantes.length ? `Demander les ${manquantes.length} pièce${manquantes.length > 1 ? "s" : ""} manquante${manquantes.length > 1 ? "s" : ""}` : "Aucune pièce à demander"}
+        </button>}>
+        <Discret T={T} style={{ marginBottom: 12 }}>
+          Changez le statut de chaque pièce, ou demandez-la au client par e-mail ({email || "pas d'adresse e-mail sur la fiche"}). Rien n'est envoyé sans votre confirmation.
+        </Discret>
+        {message && <Discret T={T} style={{ color: VERT, marginBottom: 8 }}>{message}</Discret>}
+        {erreur && <Discret T={T} style={{ color: ROUGE, marginBottom: 8 }}>{erreur}</Discret>}
         <div style={{ display: "flex", flexDirection: "column" }}>
           {CLIENT_DOCUMENT_CHECKLIST.map(([cle, libelle]) => {
-            const [etat, couleur] = ETAT_DOCUMENT[liste[cle] === true ? "recu" : liste[cle]] || ["À demander", ORANGE];
+            const valeur = liste[cle] === true ? "recu" : (liste[cle] || "");
+            const [etat, couleur] = ETAT_DOCUMENT[valeur] || ["À demander", ORANGE];
             return (
-              <div key={cle} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.rowBorder || T.border}`, fontSize: 13.5, color: T.text }}>
-                <span>{libelle}</span><Pastille couleur={couleur}>{etat}</Pastille>
+              <div key={cle} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto auto", gap: 10, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${T.rowBorder || T.border}`, fontSize: 13.5, color: T.text }}>
+                <span>{libelle}{demandes[cle] && valeur === "demande" && <span style={{ color: T.textMuted, fontSize: 12 }}> · demandé le {dateFr(demandes[cle])}</span>}</span>
+                <Pastille couleur={couleur}>{etat}</Pastille>
+                <select className="inv-sel" value={valeur} onChange={(e) => changer(cle, e.target.value)} aria-label={`Statut : ${libelle}`}>
+                  <option value="">À demander</option><option value="demande">Demandé</option><option value="recu">Reçu</option><option value="na">Non applicable</option>
+                </select>
+                <button className="inv-btn inv-btn-sm" disabled={occupe || !email || valeur === "recu" || valeur === "na"} onClick={() => demander([cle])}>{valeur === "demande" ? "Relancer" : "Demander"}</button>
               </div>
             );
           })}

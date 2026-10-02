@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "amelioration",
+    titre: "Fiche client : vue d'ensemble plus claire, mission ouverte dans l'onglet Missions, pièces à demander au client",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le parcours de la fiche client se lit maintenant de haut en bas, et on n'est plus envoyé sur une autre page pour voir une mission. Les pièces du client se suivent et se demandent directement.",
+    comment: "Vue d'ensemble en trois temps : 1) où en est-on (missions en cours et la prochaine action de chacune), 2) ce qu'il reste à voir (documents reçus, situation patrimoniale, accès à l'espace client), 3) autres actions à venir et activité récente. Cliquer sur une mission l'ouvre dans l'onglet Missions de la fiche, avec un bouton pour revenir à toutes les missions. Onglet Documents : chaque pièce a un statut modifiable (À demander, Demandé, Reçu, Non applicable) et un bouton Demander / Relancer qui envoie un e-mail au client après votre confirmation, avec « Demander les pièces manquantes » pour tout d'un coup. La demande est notée dans l'historique du client.",
+  },
+  {
+    date: "2026-10-02",
     type: "correctif",
     titre: "Tableau de bord : chargement beaucoup plus rapide et liste rangée par type",
     pages: [{ id: "dashboard", label: "Tableau de bord" }],
