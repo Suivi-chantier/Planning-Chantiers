@@ -1,0 +1,33 @@
+name: Verify Analyse de mission Invest (capacité d'investissement indicative, lecture de l'analyste)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261002110000_invest_dossier_analyses.sql'
+      - 'sql/202610_invest_dossier_analyses_rollback.sql'
+      - 'src/Invest/dossiers/AnalyseMission.jsx'
+      - 'src/Invest/dossiers/calculAnalyse.mjs'
+      - 'src/Invest/dossiers/FicheDossier.jsx'
+      - 'src/Invest/dossiers/ficheDossierVue.mjs'
+      - 'scripts/lib/banc-invest.mjs'
+      - 'scripts/verif-invest-analyse-mission.mjs'
+      - 'scripts/verif-invest-analyse-ecran.mjs'
+      - '.github/workflows/verify-invest-analyse-mission.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Base — une analyse par mission, bornes, validation, accès CRM seulement, retour arrière
+        run: node scripts/verif-invest-analyse-mission.mjs
+      - name: Écran — calculs vérifiés par amortissement, données absentes, validation
+        run: node scripts/verif-invest-analyse-ecran.mjs
