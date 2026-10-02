@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Missions Invest : l'onglet Analyse (situation du foyer, capacité d'investissement indicative)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Pour chaque mission, l'analyse reprend la situation du foyer déjà saisie (revenus, charges, crédits, endettement, reste mensuel), estime une capacité d'investissement indicative et la compare au budget du projet. L'analyste y ajoute ses points forts, ses points de vigilance et sa conclusion, puis valide.",
+    comment: "Dans la fiche de la mission, onglet Analyse. Les hypothèses (taux du crédit, durée, endettement maximal) se modifient : par défaut 3,8 %, 25 ans, 35 %. Le résultat est indicatif : il ne tient pas compte des frais de notaire, des garanties ni des revenus locatifs futurs. Quand une donnée manque, l'écran écrit « non évaluable » au lieu d'un chiffre. Valider l'analyse fige les chiffres du moment et exige une conclusion ; si la situation change ensuite, l'écran le signale.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Missions Invest : l'onglet Documents (pièces du client, rapport de restitution)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Chaque mission suit désormais les pièces à fournir par le client (demandée, reçue, validée) et les documents que Profero produit pour lui : lettre de mission, rapport de restitution, comptes rendus. Une mission neuve reçoit automatiquement sa liste standard ; pour une mission déjà ouverte, un bouton la prépare.",

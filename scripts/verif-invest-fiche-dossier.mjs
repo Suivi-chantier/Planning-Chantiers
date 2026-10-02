@@ -138,7 +138,7 @@ test("8. tâches : en retard / à faire / terminées, avec étape, responsable e
 
 test("9. navigation : 9 onglets ; modules non développés « en préparation », sans faux contenu", () => {
   assert.deepEqual(F.ONGLETS_FICHE.map((o) => o.libelle), ["Vue d'ensemble", "Projet", "Situation patrimoniale", "Documents", "Analyse", "Stratégie", "Opportunités", "Financement", "Acquisition"]);
-  assert.deepEqual(F.ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["analyse", "strategie", "financement", "acquisition"]);
+  assert.deepEqual(F.ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["strategie", "financement", "acquisition"]);
   assert.match(FICHE, /Module en préparation/);
 });
 
