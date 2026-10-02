@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "amelioration",
+    titre: "Structuration : une collecte simple en cinq étapes, une seule navigation, et plus de zéros trompeurs",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le dossier demandait plus de 130 champs répartis sur trois onglets, à tout le monde, avec deux barres d'avancement et sept onglets : on ne savait plus par où commencer ni quand on en avait assez. Il y a maintenant un socle de 14 questions, des questions supplémentaires seulement si elles concernent le client, et une seule barre de navigation.",
+    comment: "Cinq sections en haut : Cadrage, Collecte, Pièces, Diagnostic et stratégie, Plan d'action et rapports, chacune avec son avancement et une ligne « Prochaine étape ». La Collecte se fait en cinq écrans courts (le foyer, revenus et charges, patrimoine, dettes, objectifs et profil) : quatre chiffres par bien suffisent pour démarrer, le reste est facultatif. Les « situations particulières » (dirigeant, étranger, société déjà en place, meublé, famille recomposée, IFI) se cochent seulement si besoin : elles ouvrent les questions et les pièces correspondantes. Les pièces demandées se limitent à celles qui ont un sens pour ce client (un salarié locataire sans bien n'a plus à fournir des bilans de société ni des actes de propriété) ; les autres restent consultables d'un clic. Tant que l'essentiel n'est pas saisi, le diagnostic n'affiche plus des zéros qui ressemblent à des résultats : il dit ce qu'il manque. La saisie détaillée existante reste disponible depuis la Collecte, dans les mêmes données : rien n'est perdu. Corrigé : le champ « revenus exceptionnels » que les calculs lisaient n'avait pas de case de saisie.",
+  },
+  {
+    date: "2026-10-02",
     type: "nouveaute",
     titre: "Structuration : feuille de route et rapport en deux niveaux (synthèse de 10 pages, rapport complet)",
     pages: [{ id: "crm", label: "CRM" }],

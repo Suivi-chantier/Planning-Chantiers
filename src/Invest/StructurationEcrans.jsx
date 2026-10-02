@@ -1,50 +1,14 @@
-// src/Invest/StructurationEcrans.jsx — Barre de parcours, « Cadrage & conformité » et « Mise en œuvre & suivi »
+// src/Invest/StructurationEcrans.jsx — « Cadrage & conformité » et « Mise en œuvre & suivi »
 // de la page Structuration. Les points viennent de structurationParcours.mjs (module pur) ; ici on n'affiche
 // que, et on remonte chaque saisie par `onChange(bloc, patch)` (la sauvegarde reste celle de la page).
 import React from "react";
 import { FONT, RADIUS, SPACING } from "../constants";
 import { Icon } from "../ui";
-import { Check, Plus, Trash2, ArrowRight } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { SU, WA, DA } from "./_shared";
 import {
-  calculerParcours, conformiteVide, miseEnOeuvreVide, INTERVENANTS_TYPES, STATUTS_INTERVENANT, STATUTS_ACTION, STATUTS_LETTRE,
+  conformiteVide, miseEnOeuvreVide, INTERVENANTS_TYPES, STATUTS_INTERVENANT, STATUTS_ACTION, STATUTS_LETTRE,
 } from "./structurationParcours.mjs";
-
-const COULEUR = { fait: SU, en_cours: WA, a_faire: "#94a3b8" };
-
-export function BarreParcours({ data, T, onOnglet }) {
-  const p = calculerParcours(data);
-  return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: "12px 14px" }}>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
-        {p.etapes.map((e) => {
-          const couleur = COULEUR[e.etat];
-          const courante = p.courante?.cle === e.cle;
-          return (
-            <button key={e.cle} type="button" title={e.aide} onClick={() => onOnglet(e.onglet)}
-              style={{ flex: "1 0 120px", textAlign: "left", cursor: "pointer", fontFamily: "inherit", padding: "8px 10px", borderRadius: RADIUS.md,
-                border: `1px solid ${courante ? couleur : T.border}`, borderTop: `3px solid ${couleur}`, background: courante ? `${couleur}12` : "transparent" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: FONT.xs.size, color: couleur, fontWeight: 900 }}>
-                {e.etat === "fait" ? <Icon as={Check} size={12} /> : <span>{e.numero}</span>}
-                <span style={{ color: T.textMuted, fontWeight: 700 }}>{e.faits}/{e.total}</span>
-              </div>
-              <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: T.text, marginTop: 2 }}>{e.libelle}</div>
-            </button>
-          );
-        })}
-      </div>
-      <div style={{ marginTop: 8, fontSize: FONT.sm.size, color: T.textSub, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {p.courante ? (
-          <>
-            <span><b style={{ color: T.text }}>Étape {p.courante.numero} — {p.courante.libelle}</b> · prochain point : {p.prochainPoint.libelle}{p.prochainPoint.detail ? ` (${p.prochainPoint.detail})` : ""}</span>
-            <button className="inv-btn inv-btn-sm" onClick={() => onOnglet(p.prochainPoint.onglet)}>Y aller <Icon as={ArrowRight} size={11} /></button>
-          </>
-        ) : <b style={{ color: SU }}>Parcours terminé : pensez à la prochaine revue.</b>}
-        <span style={{ marginLeft: "auto", color: T.textMuted }}>{p.pourcentage} % du parcours</span>
-      </div>
-    </div>
-  );
-}
 
 function Carte({ T, titre, aide, children, action }) {
   return (

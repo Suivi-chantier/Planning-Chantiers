@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Collecte essentielle (socle, modules, pièces pertinentes)
+        run: node scripts/verif-structuration-collecte.mjs
       - name: Parcours en sept étapes
         run: node scripts/verif-structuration-parcours.mjs
       - name: Données structurées (biens, charges, dettes, objectifs, profil)

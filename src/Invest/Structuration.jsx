@@ -6,7 +6,9 @@ import AdresseInput from "../AdresseAutocomplete";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
-import { BarreParcours, CadrageConformite, MiseEnOeuvreSuivi } from "./StructurationEcrans";
+import { CadrageConformite, MiseEnOeuvreSuivi } from "./StructurationEcrans";
+import { NavigationDossier, PorteDiagnostic, CollecteEssentielle } from "./StructurationCollecteVue";
+import { documentsPertinents, estPertinent } from "./structurationCollecte.mjs";
 import { ObjectifsMesures, EnfantsFoyer, ProfilInvestisseurImmo, FichesBiens, ChargesFoyer, DettesListe } from "./StructurationSaisies";
 import { analyserDettes } from "./structurationDonnees.mjs";
 import { DiagnosticAuto } from "./StructurationDiagnosticVue";
@@ -42,6 +44,7 @@ const STRUCT_DOC_CATEGORIES = [
 const STRUCT_DOCS_DEFAULT = [
   { id:"piece_identite", categorie:"identite", label:"Pièce d'identité valide", required:true, statut:"À demander", commentaire:"" },
   { id:"justificatif_domicile", categorie:"identite", label:"Justificatif de domicile de moins de 3 mois", required:true, statut:"À demander", commentaire:"" },
+  { id:"donations_anterieures", categorie:"identite", label:"Actes de donations antérieures et testament", required:false, statut:"À demander", commentaire:"Famille recomposée, donations passées" },
   { id:"situation_familiale", categorie:"identite", label:"Livret de famille / justificatif de situation familiale", required:false, statut:"À demander", commentaire:"" },
   { id:"contrat_mariage", categorie:"identite", label:"Contrat de mariage / PACS / jugement de divorce", required:false, statut:"À demander", commentaire:"" },
 
@@ -90,6 +93,7 @@ const STRUCT_DOCS_DEFAULT = [
   { id:"kbis_sci", categorie:"structures", label:"Kbis / RIB / PV d'AG des SCI", required:false, statut:"À demander", commentaire:"" },
   { id:"bilans_sci", categorie:"structures", label:"Bilans et liasses fiscales des SCI / holdings", required:false, statut:"À demander", commentaire:"" },
   { id:"organigramme_detention", categorie:"structures", label:"Organigramme de détention actuel", required:false, statut:"À demander", commentaire:"" },
+  { id:"declarations_etrangeres", categorie:"structures", label:"Déclarations fiscales étrangères, résidence fiscale, actifs à l'étranger", required:false, statut:"À demander", commentaire:"Revenus ou résidence à l'étranger" },
   { id:"declaration_ifi", categorie:"structures", label:"Déclaration IFI / éléments d'assiette", required:false, statut:"À demander", commentaire:"Si concerné" },
   { id:"deficits_reportables", categorie:"structures", label:"Déficits fonciers / amortissements reportables", required:false, statut:"À demander", commentaire:"" },
 
@@ -270,6 +274,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const [tab, setTab] = useState("cadrage");
   const [activeCollecteSection, setActiveCollecteSection] = useState("cadrage");
   const [filter, setFilter] = useState("Tous");
+  const [toutesPieces, setToutesPieces] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -350,8 +355,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     const ltv = patrimoineBrut ? crdTotal / patrimoineBrut : 0;
     const ifiBase = Math.max(0, valeurLots + rpVal * 0.70 - crdTotal);
     const docs = d.collecte?.documents || [];
+    const pertinentes = documentsPertinents(d);
     const docsRecus = docs.filter(x=>["Reçu", "Validé", "À vérifier", "Non applicable"].includes(x.statut)).length;
-    const docsObligatoires = docs.filter(x=>x.required);
+    const docsObligatoires = docs.filter(x=>x.required && estPertinent(pertinentes, x));
     const docsObligatoiresOk = docsObligatoires.filter(x=>["Reçu", "Validé", "Non applicable"].includes(x.statut)).length;
     const required = [
       d.collecte?.profil?.nom, d.collecte?.profil?.prenom, d.collecte?.profil?.situation_familiale,
@@ -573,7 +579,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     setDossiers(prev => [created, ...prev]);
     loadedDossierIdRef.current = null;
     setSelectedId(created.id);
-    setTab("audit");
+    setTab("cadrage");
   };
 
   const creerClientEtDossier = async () => {
@@ -988,26 +994,10 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
         {kpi("Endettement indicatif", fmtPct(c.tauxEndettement), "Lecture bancaire à qualifier", c.tauxEndettement > 0.35 ? "red" : "green")}
         {kpi("Mission Phase 1", fmtEur(c.tarif.phase1), `Phase 2 ${fmtEur(c.tarif.phase2)}/mois`, "gold")}
       </div>
-      <div style={{ padding:"0 18px 16px" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", color:T.textMuted, fontSize:FONT.xs.size, marginBottom:6, fontWeight:800 }}><span>Progression du dossier</span><span>{c.completion} %</span></div>
-        {renderProgress(c.completion, 6)}
-      </div>
     </div>
   );
 
-  // Onglets dans l'ordre où un conseiller en gestion de patrimoine conduit la mission
-  // (voir structurationParcours.mjs et docs/project/STRUCTURATION-METHODE.md).
-  const tabItems = [
-    { id:"cadrage", label:"1 · Cadrage & conformité" },
-    { id:"audit", label:"2 · Recueil guidé" },
-    { id:"profil", label:"Profil patrimonial" },
-    { id:"patrimoine", label:"Bilan patrimonial" },
-    { id:"documents", label:"Pièces" },
-    { id:"analyse", label:"3-5 · Diagnostic, stratégies, préconisations" },
-    { id:"mise_en_oeuvre", label:"6-7 · Mise en œuvre & suivi" },
-  ];
   const updateBloc = (bloc, valeur) => mutateData(prev => ({ ...prev, [bloc]: valeur }));
-  const renderTabs = () => <div style={{ ...cardStyle, display:"flex", gap:0, padding:"0 14px", overflowX:"auto", flexShrink:0 }}>{tabItems.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"12px 14px", border:"none", borderBottom:`2px solid ${tab === t.id ? T.accent : "transparent"}`, background:tab === t.id ? T.accentBg : "transparent", color:tab === t.id ? T.text : T.textSub, cursor:"pointer", fontFamily:"inherit", fontWeight:900, fontSize:FONT.sm.size, whiteSpace:"nowrap" }}>{t.label}</button>)}</div>;
 
   const renderAudit = () => {
     const fieldProps = { T, compact:true };
@@ -1378,6 +1368,9 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     <DettesListe T={T} dettes={data.collecte?.dettes} onChange={v=>setCollecte("dettes", v)}/>
   </div>;
 
+  const pertinentesDocs = documentsPertinents(data);
+  const docsAffiches = toutesPieces ? docs : docs.filter(d => estPertinent(pertinentesDocs, d));
+  const nbComplementaires = docs.length - docs.filter(d => estPertinent(pertinentesDocs, d)).length;
   const renderDocuments = () => <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 370px", gap:SPACING.md, alignItems:"start" }}>
     <div style={cardStyle}>{cardHd("Liste des documents à fournir — audit & stratégie", "gold")}<div style={{ padding:14 }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10, marginBottom:14 }}>
@@ -1385,7 +1378,8 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
         <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>REÇUS / TRAITÉS</div><div style={{color:SU,fontWeight:900,fontSize:FONT.xl.size}}>{c.docsRecus}</div></div>
         <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>OBLIGATOIRES VALIDÉS</div><div style={{color:T.accent,fontWeight:900,fontSize:FONT.xl.size}}>{c.docsObligatoiresOk}/{c.docsObligatoires}</div></div>
       </div>
-      {STRUCT_DOC_CATEGORIES.map(cat => { const catDocs = docs.filter(doc => doc.categorie === cat.id); const complete = catDocs.filter(doc => ["Reçu","Validé","Non applicable"].includes(doc.statut)).length; return <div key={cat.id} style={{ marginBottom:14, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:12, flexWrap:"wrap" }}><span style={{ color:T.textSub, fontSize:FONT.sm.size }}>Pièces utiles pour CE client ({docsAffiches.length}). Cochez les « situations particulières » dans la collecte pour en faire apparaître d’autres.</span><button className="inv-btn inv-btn-sm" onClick={()=>setToutesPieces(t=>!t)}>{toutesPieces ? "Masquer" : "Afficher"} les {nbComplementaires} pièces complémentaires</button></div>
+      {STRUCT_DOC_CATEGORIES.map(cat => { const catDocs = docsAffiches.filter(doc => doc.categorie === cat.id); if (!catDocs.length) return null; const complete = catDocs.filter(doc => ["Reçu","Validé","Non applicable"].includes(doc.statut)).length; return <div key={cat.id} style={{ marginBottom:14, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, overflow:"hidden" }}>
         <div style={{ padding:"9px 10px", display:"flex", justifyContent:"space-between", gap:8, background:T.input, borderBottom:`1px solid ${T.border}` }}><div><div style={{color:T.text,fontSize:FONT.sm.size,fontWeight:900}}>{cat.label}</div><div style={{color:T.textMuted,fontSize:FONT.xs.size+1}}>{cat.description}</div></div><div style={{color:T.accent,fontWeight:900,fontSize:FONT.sm.size,whiteSpace:"nowrap"}}>{complete}/{catDocs.length}</div></div>
         <div style={{ padding:8, display:"flex", flexDirection:"column", gap:6 }}>{catDocs.map(doc => { const idx = docs.findIndex(x=>x.id===doc.id); return <div key={doc.id} style={{ display:"grid", gridTemplateColumns:"minmax(180px,1fr) 128px minmax(180px,.8fr)", gap:8, alignItems:"center", padding:"6px 8px", borderRadius:RADIUS.md, background:doc.required ? T.accentBg : "transparent" }}><div style={{color:T.text,fontSize:FONT.xs.size+1,fontWeight:doc.required ? 900 : 700}}>{doc.label}{doc.required && <span style={{color:DA,marginLeft:4}}>*</span>}</div><select className="inv-sel" value={doc.statut || "À demander"} onChange={e=>updateDoc(idx,"statut",e.target.value)} style={{fontSize:FONT.xs.size+1}}>{STRUCT_DOC_STATUTS.map(o=><option key={o}>{o}</option>)}</select><input className="inv-inp" value={doc.commentaire || ""} onChange={e=>updateDoc(idx,"commentaire",e.target.value)} placeholder="Commentaire" style={{fontSize:FONT.xs.size+1}}/></div>})}</div>
       </div> })}
@@ -1393,7 +1387,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     </div></div>
     <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
       <div style={cardStyle}>{cardHd("Fichiers transmis")}<div style={{ padding:14 }}><div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginBottom:10 }}>Déposez les documents reçus dans le dossier sécurisé du client.</div>{selectedId ? <DocumentsSection folder={`structuration/${selectedId}`} T={T} /> : <div style={{ color:T.textMuted }}>Créez d'abord un dossier.</div>}</div></div>
-      <div style={{ ...cardStyle, padding:14, borderLeft:`4px solid ${T.accent}` }}><div style={{color:T.text,fontWeight:900,marginBottom:8}}>À demander prioritairement</div>{docs.filter(d=>d.required && !["Reçu","Validé","Non applicable"].includes(d.statut)).slice(0,8).map(d=><div key={d.id} style={{color:T.textSub,fontSize:FONT.xs.size+1,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>• {d.label}</div>)}</div>
+      <div style={{ ...cardStyle, padding:14, borderLeft:`4px solid ${T.accent}` }}><div style={{color:T.text,fontWeight:900,marginBottom:8}}>À demander prioritairement</div>{docsAffiches.filter(d=>d.required && !["Reçu","Validé","Non applicable"].includes(d.statut)).slice(0,8).map(d=><div key={d.id} style={{color:T.textSub,fontSize:FONT.xs.size+1,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>• {d.label}</div>)}</div>
     </div>
   </div>;
 
@@ -1478,9 +1472,11 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     const readiness = Math.round((c.completion * .7) + ((c.docsObligatoires ? c.docsObligatoiresOk/c.docsObligatoires : 0) * 30));
     const insererSynthese = (texte) => mutateData(prev => ({ ...prev, analyse:{ ...(prev.analyse || {}), diagnostic: [String(prev.analyse?.diagnostic || "").trim(), texte].filter(Boolean).join("\n\n") } }));
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-      <DiagnosticAuto T={T} data={data} onChange={updateBloc} onInsererSynthese={insererSynthese} diagnosticRedige={data.analyse?.diagnostic}/>
-      <ScenariosProjection T={T} data={data} onChange={updateBloc}/>
-      <ComparaisonStructures T={T} data={data} onChange={updateBloc}/>
+      <PorteDiagnostic data={data} T={T} onOnglet={setTab} enfant={<>
+        <DiagnosticAuto T={T} data={data} onChange={updateBloc} onInsererSynthese={insererSynthese} diagnosticRedige={data.analyse?.diagnostic}/>
+        <ScenariosProjection T={T} data={data} onChange={updateBloc}/>
+        <ComparaisonStructures T={T} data={data} onChange={updateBloc}/>
+      </>}/>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:SPACING.md }}>
         {kpi("Patrimoine net", fmtEur(c.patrimoineNet), `Brut ${fmtEur(c.patrimoineBrut)}`, "gold")}
         {kpi("Endettement", fmtPct(c.tauxEndettement), c.tauxEndettement > .35 ? "Vigilance" : "À valider", c.tauxEndettement > .35 ? "red" : "green")}
@@ -1545,14 +1541,20 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const renderContent = () => {
     if (!selectedId || !dossier) return clientIdFixe ? renderCreerPourClient() : renderListView();
     const map = {
+      collecte:() => <CollecteEssentielle data={data} T={T} updateSection={updateSection} updateLot={updateLot} addLot={addLot} removeLot={removeLot}
+        onBloc={(cle, v, dansCollecte) => dansCollecte ? setCollecte(cle, v) : updateBloc(cle, v)} onOnglet={setTab} />,
       cadrage:() => <CadrageConformite data={data} T={T} onChange={updateBloc} qualification={data.collecte?.qualification} onQualification={(k, v) => updateSection("qualification", k, v)} />,
       audit:renderAudit, profil:renderProfil, patrimoine:renderPatrimoine, documents:renderDocuments, analyse:renderAnalyse,
       mise_en_oeuvre:() => <div style={{ display:"grid", gap:SPACING.md }}><FeuilleDeRouteEtRapports T={T} data={data} onChange={updateBloc} onRapport={ouvrirRapport} anneeDepart={new Date().getFullYear()}/><MiseEnOeuvreSuivi data={data} T={T} onChange={updateBloc} /></div>,
     };
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.sm, minHeight:0, height: clientIdFixe ? "auto" : "100%" }}>
       <div style={{ flexShrink:0 }}>{renderDossierHeader()}</div>
-      <div style={{ flexShrink:0 }}><BarreParcours data={data} T={T} onOnglet={setTab} /></div>
-      <div style={{ flexShrink:0 }}>{renderTabs()}</div>
+      <div style={{ flexShrink:0 }}><NavigationDossier data={data} T={T} tab={tab} onOnglet={setTab} /></div>
+      {["audit","profil","patrimoine"].includes(tab) && <div style={{ flexShrink:0, ...cardStyle, padding:"8px 12px", display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+        <button className="inv-btn inv-btn-sm" onClick={()=>setTab("collecte")}>← Retour à la collecte essentielle</button>
+        <span style={{ color:T.textMuted, fontSize:FONT.xs.size+1 }}>Saisie détaillée :</span>
+        {[["audit","Entretien guidé"],["profil","Profil détaillé"],["patrimoine","Bilan détaillé"]].map(([id,l])=><button key={id} className={`inv-btn inv-btn-sm ${tab===id?"inv-btn-gold":""}`} onClick={()=>setTab(id)}>{l}</button>)}
+      </div>}
       <div style={{ minHeight:0, overflowY: clientIdFixe ? "visible" : "auto", paddingRight:4, maxHeight: clientIdFixe ? "none" : "calc(100vh - 335px)" }}>{map[tab]?.()}</div>
     </div>;
   };
