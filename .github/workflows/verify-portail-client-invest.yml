@@ -24,6 +24,10 @@ on:
       - 'src/Invest/crm/FicheClientV2.jsx'
       - 'scripts/verif-portail-invitation.mjs'
       - 'scripts/verif-portail-client-invest.mjs'
+      - 'supabase/migrations/20261002180000_portail_client_invest_reponses.sql'
+      - 'sql/202610_portail_client_invest_reponses_rollback.sql'
+      - 'scripts/verif-portail-reponses.mjs'
+      - 'src/Invest/StructurationReponsesClient.jsx'
       - 'scripts/verif-portail-visibilite-crm.mjs'
       - 'src/Invest/dossiers/FicheDossier.jsx'
       - 'src/Invest/dossiers/ficheDossierVue.mjs'
@@ -50,3 +54,5 @@ jobs:
         run: node scripts/verif-portail-ecran.mjs
       - name: Invitation d'un client (droit, ordre des contrôles, courriel, écran)
         run: node scripts/verif-portail-invitation.mjs
+      - name: Saisie du client (nettoyage côté base, étanchéité, validation par Profero, retour arrière)
+        run: node scripts/verif-portail-reponses.mjs

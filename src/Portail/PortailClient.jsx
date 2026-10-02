@@ -1,7 +1,7 @@
 // src/Portail/PortailClient.jsx — Espace client Profero Invest (/espace-client).
 //
-// LECTURE SEULE. L'écran ne lit QUE les vues portail_* (jamais une table de base),
-// n'écrit rien, et ne charge aucun module du bureau : le client ne reçoit pas le
+// L'écran ne lit QUE les vues portail_* (jamais une table de base) ; la seule écriture est la saisie du client
+// (MonDossier.jsx), qui passe par des fonctions de la base et arrive en attente de validation. Il ne charge aucun module du bureau : le client ne reçoit pas le
 // code de l'application collaborateurs. La protection réelle est en base (vues
 // filtrées sur le client de la connexion, règle « collaborateurs seulement » sur
 // les tables, lien signé de 60 s pour les documents) ; cet écran ne fait que l'afficher.
@@ -9,6 +9,7 @@
 // Une erreur de chargement n'est JAMAIS présentée comme « rien à afficher ».
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
+import MonDossier from "./MonDossier";
 import {
   POPULATION_CLIENT, populationDuJeton, bonjour, etapesTriees, tachesClient, etatSection,
   dateFr, LETTRE, STATUT_DOSSIER, lireLienInvitation, validerMotDePasse,
@@ -160,7 +161,7 @@ function Espace() {
   const charger = useCallback(async () => {
     const lire = (v, colonnes) => supabase.from(v).select(colonnes);
     const [cl, dos, et, ta, dc, ev] = await Promise.all([
-      lire("portail_client", "prenom,nom"),
+      lire("portail_client", "prenom,nom,telephone"),
       lire("portail_dossier", "id,reference,libelle,statut,date_ouverture,lettre_mission_statut,lettre_mission_signee_le"),
       lire("portail_etapes", "id,dossier_id,etape,statut,date_debut,date_fin"),
       lire("portail_taches", "id,dossier_id,step_label,action_title,status,due_date,completed_at"),
@@ -202,6 +203,8 @@ function Espace() {
                 </div>))}</div>}
         </Carte>
       ))}
+
+      <Carte titre="Mes informations"><MonDossier telephoneActuel={donnees.client?.telephone || ""} /></Carte>
 
       <Carte titre="Ce qui vous concerne">
         {taches.etat === "erreur" ? <Erreur>Impossible d'afficher vos tâches pour le moment.</Erreur>

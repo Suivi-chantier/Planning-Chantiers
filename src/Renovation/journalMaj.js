@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "nouveaute",
+    titre: "Espace client : le client renseigne et corrige ses informations, vous les vérifiez avant de les intégrer",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le client n'est plus limité à la lecture : il remplit lui-même son foyer, ses revenus et charges, son patrimoine, ses dettes et ses objectifs, et corrige son téléphone. Ce qu'il envoie n'entre jamais directement dans son dossier : vous le vérifiez d'abord.",
+    comment: "Côté client, un bloc « Mes informations » en cinq parties, avec brouillon enregistrable et bouton « Envoyer à mon conseiller » ; les valeurs que vous connaissez déjà sont préremplies pour qu'il les relise. Côté Profero, un bandeau sur la fiche client signale « le client a envoyé N parties », et la Collecte du dossier de structuration les affiche avec les différences par rapport au dossier : « Intégrer au dossier » applique les changements (un bien retiré par le client est retiré, les détails que le client ne voit pas, comme le prix d'achat, sont conservés), « Renvoyer au client » lui laisse un message. La base nettoie chaque saisie (champs prévus uniquement, listes de choix, longueurs et nombres d'éléments plafonnés) et le client ne peut ni lire ni écrire en direct dans les tables. À mettre en service : appliquer la migration 20261002180000 (voir docs/project/PORTAIL-CLIENT-INVEST-PLAN.md, étape 6). Le dépôt de pièces par le client viendra ensuite.",
+  },
+  {
+    date: "2026-10-02",
     type: "correctif",
     titre: "CRM : coordonnées du client et « Modifier la fiche » directement sur sa page",
     pages: [{ id: "crm", label: "CRM" }],

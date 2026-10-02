@@ -115,3 +115,23 @@ Décision de Matthieu (01/10/2026) : bouton réservé aux **administrateurs et a
 - Banc : `verif-portail-client-invest` 44/44, `verif-portail-invitation` 13/13 (casses volontaires détectées).
 - Non vérifié : envoi réel du courriel par la messagerie Profero avec ce contenu ; ouverture du
   lien par un vrai client ; durée de validité du lien (réglage Supabase, 1 h par défaut).
+
+## Étape 6 — le client renseigne et corrige ses données (écrite, NON appliquée ni déployée)
+Décision de Matthieu (02/10/2026), après avoir vécu l'espace client avec un compte de démonstration : fin du
+« lecture seule d'abord » pour la collecte. Principe retenu : **le client n'écrit jamais dans le dossier**.
+- Base (`20261002180000`) : table d'attente `invest_portail_reponses` (brouillon, soumis, valide, refuse, remplace) sans AUCUN accès
+  direct pour le client (règle 3a). Il passe par `portail_enregistrer_reponse(section, donnees, soumettre)` : le client est celui de
+  la connexion (aucun identifiant en paramètre), et la saisie est NETTOYÉE côté base d'après `portail_schema_reponses()` (clés
+  connues seulement, types et listes de choix contrôlés, textes et listes plafonnés). Lecture : vue `portail_reponses`, et
+  `portail_donnees_dossier()` (valeurs déjà connues de Profero, limitées aux champs du schéma : jamais analyses, notes, conformité).
+  `portail_maj_telephone()` ; l'e-mail (identifiant de connexion) ne se modifie pas.
+- Client : bloc « Mes informations » (`src/Portail/MonDossier.jsx`), cinq parties (foyer, revenus et charges, patrimoine, dettes,
+  objectifs), brouillon puis « Envoyer à mon conseiller ».
+- Profero : panneau « Le client a envoyé N parties à vérifier » en tête de la Collecte du dossier de structuration, avec les écarts
+  avec le dossier ; « Intégrer au dossier » (le dossier est modifié par la sauvegarde habituelle de la page) ou « Renvoyer au client »
+  avec une note. Bandeau d'alerte sur la fiche client.
+- Hors périmètre de cette étape : dépôt de pièces par le client.
+- Banc : `verif-portail-reponses` 22/22, `verif-portail-ecran` 10/10 (adapté : la lecture seule est remplacée par « seule écriture =
+  fonctions de la base »).
+- À appliquer par Matthieu : `supabase db query --linked -f supabase/migrations/20261002180000_portail_client_invest_reponses.sql`,
+  puis `supabase migration repair` (jamais `db push`).
