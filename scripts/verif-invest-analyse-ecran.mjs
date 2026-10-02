@@ -96,7 +96,7 @@ test("10. composant : situation vide ou revenus absents expliqués, jamais un r�
 test("11. composants stables et fiche Mission : l'onglet Analyse affiche le composant ; seuls les modules restants sont « en préparation »", () => {
   assert.ok(COMP.indexOf("function Carte({ T,") < COMP.indexOf("export default function AnalyseMission") && !/const (Carte|Chiffre) = \(/.test(COMP));
   assert.match(FICHE, /\{onglet === "analyse" && <AnalyseMission T=\{T\} fiche=\{fiche\} client=\{client\} dossier=\{fiche\.dossier\} profil=\{profil\} modifiable=\{fiche\.modifiable\} onOuvrirEtape=\{setPanneau\} onOnglet=\{setOnglet\} \/>\}/);
-  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["acquisition"]);
+  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), []);
 });
 
 console.log(`\n${n}/${total} contrôles conformes`);

@@ -48,6 +48,7 @@ create function public.invest_peut_voir(p text) returns boolean language sql sta
   select exists (select 1 from utilisateurs where email = auth.email() and actif and role in ('admin','commercial')) $$;
 grant execute on function public.invest_peut_voir(text) to authenticated;
 create table public.invest_clients (id uuid primary key, prenom text, nom text);
+create table public.invest_biens (id uuid primary key, adresse text, ville text);
 create table public.invest_dossiers (id uuid primary key, client_id uuid not null references public.invest_clients(id), reference text,
   type_mission text, statut text default 'actif', restitution_le date);
 insert into auth.users (id, email) values ('${ID.admin}','admin@test.fr'), ('${ID.commercial}','commercial@test.fr'), ('${ID.ouvrier}','ouvrier@test.fr'),

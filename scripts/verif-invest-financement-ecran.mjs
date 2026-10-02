@@ -123,7 +123,7 @@ test("12bis. cartes à champs : les champs restent dans leur carte (pas de débo
 test("13. composants stables et fiche Mission : l'onglet Financement affiche le composant ; seule l'Acquisition reste « en préparation »", () => {
   assert.ok(COMP.indexOf("function Carte({ T,") < COMP.indexOf("export default function FinancementMission") && !/const (Carte|Chiffre) = \(/.test(COMP));
   assert.match(FICHE, /\{onglet === "financement" && <FinancementMission T=\{T\} fiche=\{fiche\} client=\{client\} dossier=\{fiche\.dossier\} profil=\{profil\} modifiable=\{fiche\.modifiable\} onOnglet=\{setOnglet\} \/>\}/);
-  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["acquisition"]);
+  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), []);
 });
 
 console.log(`\n${n}/${total} contrôles conformes`);

@@ -28,7 +28,7 @@ export const ONGLETS_FICHE = Object.freeze([
   { cle: "strategie", libelle: "Stratégie", etapes: ["strategie"] },
   { cle: "opportunites", libelle: "Opportunités", etapes: ["recherche", "opportunites"] },
   { cle: "financement", libelle: "Financement", etapes: ["financement"] },
-  { cle: "acquisition", libelle: "Acquisition", etapes: ["structuration", "acquisition", "suivi"], enPreparation: true },
+  { cle: "acquisition", libelle: "Acquisition", etapes: ["structuration", "acquisition", "suivi"] },
 ]);
 
 const TACHE_OUVERTE = new Set(["a_faire", "en_cours", "bloque"]);
