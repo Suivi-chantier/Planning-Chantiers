@@ -1,0 +1,33 @@
+name: Verify Acquisition de mission Invest (compromis, conditions suspensives, acte, travaux, location)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261002140000_invest_dossier_acquisitions.sql'
+      - 'sql/202610_invest_dossier_acquisitions_rollback.sql'
+      - 'src/Invest/dossiers/AcquisitionMission.jsx'
+      - 'src/Invest/dossiers/calculAcquisition.mjs'
+      - 'src/Invest/dossiers/FicheDossier.jsx'
+      - 'src/Invest/dossiers/ficheDossierVue.mjs'
+      - 'scripts/lib/banc-invest.mjs'
+      - 'scripts/verif-invest-acquisition-mission.mjs'
+      - 'scripts/verif-invest-acquisition-ecran.mjs'
+      - '.github/workflows/verify-invest-acquisition-mission.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Base — chaîne compromis → acte, dates ordonnées, six acquisitions au plus, accès CRM seulement
+        run: node scripts/verif-invest-acquisition-mission.mjs
+      - name: Écran — stade déduit des dates, conditions suspensives, alertes, coût d'acquisition
+        run: node scripts/verif-invest-acquisition-ecran.mjs

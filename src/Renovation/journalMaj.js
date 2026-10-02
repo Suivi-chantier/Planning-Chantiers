@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Missions Invest : l'onglet Acquisition (compromis, conditions suspensives, notaire, acte, travaux, mise en location)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Pour chaque mission, vous suivez chaque acquisition de A à Z : offre acceptée, compromis, conditions suspensives avec leurs échéances, notaire, signature de l'acte, remise des clés, travaux et mise en location. Le stade (« sous compromis », « en travaux »…) se déduit des dates, il n'y a rien à tenir à jour en double. L'écran signale une condition suspensive dont l'échéance approche ou est dépassée et une signature d'acte en retard.",
+    comment: "Dans la fiche de la mission, onglet Acquisition : « Ajouter une acquisition » (six au plus), renseignez les dates au fur et à mesure, ajoutez les conditions suspensives (prêt, urbanisme…) et cochez-les « levées » avec leur date. L'écran refuse les dates incohérentes (acte avant compromis, travaux avant acte…). Le prix signé et le budget travaux donnent le coût d'acquisition ; « non évaluable » signale un prix manquant. La fin du délai de rétractation (10 jours) est indicative, à confirmer avec le notaire. Une acquisition abandonnée garde sa date et son motif.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Missions Invest : l'onglet Financement (dossier, plan de financement, banques consultées)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Pour chaque mission, vous suivez le dossier de financement (avancement, pièces obligatoires reçues du client, conditions générales), le plan de financement du scénario retenu (ce qu'il faut payer contre ce qui finance, avec l'écart) et les banques consultées (statut, montants, taux, durée, assurance, frais, garantie, conditions, dates). Les prêts retenus donnent la mensualité totale, comparée à la capacité du client.",
