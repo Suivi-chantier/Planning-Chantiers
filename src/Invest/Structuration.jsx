@@ -848,7 +848,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   };
   const chipStyle = (status) => ({ fontSize:FONT.xs.size, fontWeight:900, padding:"4px 9px", borderRadius:999, background:statusColors[status]?.bg || T.input, color:statusColors[status]?.color || T.textSub, border:`1px solid ${statusColors[status]?.border || T.border}`, display:"inline-flex", alignItems:"center", gap:4, whiteSpace:"nowrap" });
   const cardStyle = { background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.xl, boxShadow:T.shadow, overflow:"hidden" };
-  const cardHd = (label, tone="") => <div style={{ padding:"15px 17px", borderBottom:`1px solid ${T.border}`, borderLeft:`4px solid ${tone === "gold" ? T.accent : T.accentBorder}`, background:tone === "gold" ? (T.sidebar || "#0D1B2A") : "rgba(255,255,255,0.055)", color:T.text || "#F5F0E8", fontWeight:950, letterSpacing:.05, textTransform:"none", fontSize:FONT.md.size + 1, lineHeight:1.22 }}>{label}</div>;
+  const cardHd = (label, tone="") => <div style={{ padding:"15px 17px", borderBottom:`1px solid ${T.border}`, borderLeft:`4px solid ${tone === "gold" ? T.accent : T.accentBorder}`, background:tone === "gold" ? (T.sidebar || "#0D1B2A") : T.input, color:tone === "gold" ? "#F5F0E8" : T.text, fontWeight:950, letterSpacing:.05, textTransform:"none", fontSize:FONT.md.size + 1, lineHeight:1.22 }}>{label}</div>;
   const kpi = (label, value, sub, tone="") => <div style={{ ...cardStyle, padding:"15px 16px", borderLeft:`4px solid ${tone === "gold" ? T.accent : tone === "red" ? DA : tone === "green" ? SU : T.accentBorder}` }}><div style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.h2.size, fontWeight:850, color:T.text, lineHeight:1.05 }}>{value}</div><div style={{ color:T.textSub || T.textMuted, fontSize:FONT.xs.size+1, textTransform:"none", letterSpacing:.2, fontWeight:900, marginTop:4 }}>{label}</div>{sub && <div style={{ color:T.textSub, fontSize:FONT.xs.size+2, marginTop:5, lineHeight:1.35 }}>{sub}</div>}</div>;
 
   const renderProgress = (pct, height=5) => <div style={{ width:"100%", height, background:T.input, borderRadius:999, overflow:"hidden" }}><div style={{ width:`${Math.max(0, Math.min(100, pct || 0))}%`, height:"100%", background:T.accent, borderRadius:999 }}/></div>;
@@ -858,10 +858,10 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
       <div style={{ ...cardStyle, width:"min(720px, 96vw)", background:T.card, boxShadow:"0 24px 80px rgba(0,0,0,0.45)" }}>
         <div style={{ padding:"18px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:16, alignItems:"flex-start", background:T.sidebar }}>
           <div>
-            <div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:950, lineHeight:1.15 }}>Créer un nouveau client</div>
-            <div style={{ color:T.textSub, fontSize:FONT.sm.size, marginTop:4 }}>Le client sera ajouté au CRM puis un dossier de structuration sera ouvert automatiquement.</div>
+            <div style={{ color:"#F5F0E8", fontSize:FONT.xl.size, fontWeight:950, lineHeight:1.15 }}>Créer un nouveau client</div>
+            <div style={{ color:"rgba(245,240,232,0.78)", fontSize:FONT.sm.size, marginTop:4 }}>Le client sera ajouté au CRM puis un dossier de structuration sera ouvert automatiquement.</div>
           </div>
-          <button className="inv-btn inv-btn-sm" onClick={()=>setShowClientCreator(false)} style={{ background:"rgba(255,255,255,0.06)", color:T.textSub, border:`1px solid ${T.border}` }}><Icon as={X} size={14}/></button>
+          <button className="inv-btn inv-btn-sm" onClick={()=>setShowClientCreator(false)} style={{ background:"rgba(255,255,255,0.06)", color:"rgba(245,240,232,0.78)", border:`1px solid ${T.border}` }}><Icon as={X} size={14}/></button>
         </div>
         <div style={{ padding:20, display:"grid", gridTemplateColumns:"repeat(2,minmax(0,1fr))", gap:14 }}>
           <StructField T={T} label="Prénom" value={newClientForm.prenom} onChange={v=>setNewClientForm(prev=>({...prev, prenom:v}))} />
@@ -885,7 +885,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const renderSidebarDossiers = () => (
     <div style={{ background:T.sidebar, borderRadius:RADIUS.xl, overflow:"hidden", border:`1px solid ${T.sidebarBorder}`, height:"100%", minHeight:0, display:"flex", flexDirection:"column" }}>
       <div style={{ padding:"20px 18px 16px", borderBottom:`1px solid ${T.sidebarBorder}` }}>
-        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:T.text, fontWeight:500 }}>Profero Invest</div>
+        <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:"#F5F0E8", fontWeight:500 }}>Profero Invest</div>
         <div style={{ fontSize:FONT.xs.size, letterSpacing:2.4, textTransform:"uppercase", color:T.accent, marginTop:2 }}>Gestion des dossiers</div>
       </div>
       <div style={{ padding:14, borderBottom:`1px solid ${T.sidebarBorder}` }}>
@@ -902,7 +902,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
         </div>
       </div>
       <div style={{ padding:12, overflowY:"auto", flex:1 }}>
-        {loading ? <div style={{ color:T.textMuted, padding:18, textAlign:"center" }}>Chargement…</div> : filteredDossiers.length === 0 ? <div style={{ color:T.textMuted, textAlign:"center", padding:24, lineHeight:1.6 }}>Aucun dossier<br/>dans ce filtre</div> : filteredDossiers.map(d => {
+        {loading ? <div style={{ color:"rgba(245,240,232,0.55)", padding:18, textAlign:"center" }}>Chargement…</div> : filteredDossiers.length === 0 ? <div style={{ color:"rgba(245,240,232,0.55)", textAlign:"center", padding:24, lineHeight:1.6 }}>Aucun dossier<br/>dans ce filtre</div> : filteredDossiers.map(d => {
           const active = d.id === selectedId;
           const metaData = mergeStructData(d);
           const cc = calc(metaData);
@@ -972,10 +972,10 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const renderDossierHeader = () => (
     <div style={{ ...cardStyle, overflow:"hidden" }}>
       <div style={{ background:T.sidebar, padding:"16px 18px", display:"flex", alignItems:"center", gap:SPACING.md, borderBottom:`1px solid ${T.sidebarBorder}` }}>
-        {!clientIdFixe && <button className="inv-btn inv-btn-sm" onClick={()=>setSelectedId(null)} style={{ background:"rgba(255,255,255,0.06)", color:T.textSub, border:`1px solid ${T.sidebarBorder}` }}><Icon as={ArrowLeft} size={13}/> Dossiers</button>}
+        {!clientIdFixe && <button className="inv-btn inv-btn-sm" onClick={()=>setSelectedId(null)} style={{ background:"rgba(255,255,255,0.06)", color:"rgba(245,240,232,0.78)", border:`1px solid ${T.sidebarBorder}` }}><Icon as={ArrowLeft} size={13}/> Dossiers</button>}
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:25, fontWeight:500, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentClient ? clientFullName(currentClient) : (dossier?.titre || "Dossier structuration")}</div>
-          <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, marginTop:2 }}>{dossier?.phase || "Phase 1"} · Créé le {dossier?.created_at ? new Date(dossier.created_at).toLocaleDateString("fr-FR") : "—"}</div>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:25, fontWeight:500, color:"#F5F0E8", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{currentClient ? clientFullName(currentClient) : (dossier?.titre || "Dossier structuration")}</div>
+          <div style={{ color:"rgba(245,240,232,0.55)", fontSize:FONT.xs.size+1, marginTop:2 }}>{dossier?.phase || "Phase 1"} · Créé le {dossier?.created_at ? new Date(dossier.created_at).toLocaleDateString("fr-FR") : "—"}</div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end" }}>
           {saving && <span style={{ color:T.accent, fontSize:FONT.xs.size, fontWeight:800 }}><Icon as={RefreshCw} size={12} style={{animation:"spin 1s linear infinite"}}/> Enregistrement…</span>}
@@ -1051,13 +1051,13 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Pays précédents / statut fiscal" type="textarea" value={sf.statut_pays_precedents} onChange={v=>updateSection("statut_fiscal","statut_pays_precedents",v)} placeholder="Pays, résident/non-résident, convention fiscale à vérifier" wide />
               <StructField {...fieldProps} label="Revenus déjà déclarés en France" value={sf.revenus_declares_france} onChange={v=>updateSection("statut_fiscal","revenus_declares_france",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Expert-comptable / fiscaliste" value={sf.expert_comptable_specialise} onChange={v=>updateSection("statut_fiscal","expert_comptable_specialise",v)} options={boolOptions} />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
             {formPanel("Nouveau départ à l’étranger", formGrid(<>
               <StructField {...fieldProps} label="Futur contrat étranger signé" value={sf.futur_contrat_signe} onChange={v=>updateSection("statut_fiscal","futur_contrat_signe",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Date de départ prévue" type="date" value={sf.date_depart_prevue} onChange={v=>updateSection("statut_fiscal","date_depart_prevue",v)} />
               <StructField {...fieldProps} label="Pays / employeur / club futur" value={sf.pays_futur_contrat} onChange={v=>updateSection("statut_fiscal","pays_futur_contrat",v)} placeholder="Pays, club, société, mission..." />
               <StructField {...fieldProps} label="Fenêtre de financement estimée" value={sf.fenetre_financement} onChange={v=>updateSection("statut_fiscal","fenetre_financement",v)} placeholder="Ex : 3 mois avant départ" />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
           </div>;
         case "revenus":
           return <div style={{ display:"grid", gap:SPACING.md }}>
@@ -1071,13 +1071,13 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Régularité / modalités" value={q.modalites_versement} onChange={v=>updateSection("qualification","modalites_versement",v)} placeholder="Mensuel, primes, compte français/étranger..." />
               <StructField {...fieldProps} label="Commission agent / manager" value={q.commission_agent} onChange={v=>updateSection("qualification","commission_agent",v)} placeholder="Montant ou % à préciser" />
               <StructField {...fieldProps} label="Primes / indemnités mobilisables" type="number" value={q.primes_indemnites_apport} onChange={v=>updateSection("qualification","primes_indemnites_apport",v)} />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
             {formPanel("Charges et effort d’épargne", formGrid(<>
               <StructField {...fieldProps} label="Charges fixes mensuelles" type="number" value={q.charges_fixes_mois} onChange={v=>updateSection("qualification","charges_fixes_mois",v)} />
               <StructField {...fieldProps} label="Crédits conso / pensions" type="number" value={q.credits_conso_mois} onChange={v=>updateSection("qualification","credits_conso_mois",v)} />
               <StructField {...fieldProps} label="Épargne constituée" type="number" value={pf.liquidites} onChange={v=>updateSection("patrimoine_financier","liquidites",v)} />
               <StructField {...fieldProps} label="Apport disponible" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)} />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
           </div>;
         case "patrimoine":
           return <div style={{ display:"grid", gap:SPACING.md }}>
@@ -1089,7 +1089,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Mensualités crédits en cours" type="number" value={fin.mensualites_total} onChange={v=>updateSection("financement","mensualites_total",v)} />
               <StructField {...fieldProps} label="Résidence principale" value={pat.residence_principale_statut} onChange={v=>updateSection("patrimoine","residence_principale_statut",v)} options={["Propriétaire — crédit en cours","Propriétaire — crédit soldé","Locataire","Hébergé(e)"]} />
               <StructField {...fieldProps} label="Valeur RP" type="number" value={pat.rp_valeur} onChange={v=>updateSection("patrimoine","rp_valeur",v)} />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
             {formPanel("Lecture rapide", <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10 }}>
               {miniMetric("Patrimoine brut", fmtEur(c.patrimoineBrut), "Déclaratif")}
               {miniMetric("Patrimoine net", fmtEur(c.patrimoineNet), `CRD ${fmtEur(c.crdTotal)}`, "green")}
@@ -1110,13 +1110,13 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Enfants reconnus par les deux parents" value={fam.enfants_reconnus} onChange={v=>updateSection("situation_familiale_detail","enfants_reconnus",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Droits sociaux conjoint à jour" value={fam.droits_sociaux_conjoint} onChange={v=>updateSection("situation_familiale_detail","droits_sociaux_conjoint",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Détail enfants / autorité parentale" type="textarea" value={p.enfants_details} onChange={v=>updateSection("profil","enfants_details",v)} wide />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
             {formPanel("Transmission et protection patrimoniale", formGrid(<>
               <StructField {...fieldProps} label="Assurance-vie avec clause bénéficiaire" value={fam.assurance_vie_clause_beneficiaire} onChange={v=>updateSection("situation_familiale_detail","assurance_vie_clause_beneficiaire",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Risque succession connu" value={fam.conscience_risque_succession} onChange={v=>updateSection("situation_familiale_detail","conscience_risque_succession",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Testament / donation envisagé" value={fam.testament_donation} onChange={v=>updateSection("situation_familiale_detail","testament_donation",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Protection famille à traiter" type="textarea" value={fam.notes_protection} onChange={v=>updateSection("situation_familiale_detail","notes_protection",v)} placeholder="Noter sans orienter vers une solution définitive" wide />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
           </div>;
         case "prevoyance":
           return <div style={{ display:"grid", gap:SPACING.md }}>
@@ -1128,7 +1128,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Prévoyance décès famille" value={prevoyance.prevoyance_deces} onChange={v=>updateSection("prevoyance","prevoyance_deces",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Garantie accidents de la vie" value={prevoyance.gav} onChange={v=>updateSection("prevoyance","gav",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Contrats / assureurs à collecter" type="textarea" value={prevoyance.notes_contrats} onChange={v=>updateSection("prevoyance","notes_contrats",v)} wide />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
           </div>;
         case "objectifs":
           return <div style={{ display:"grid", gap:SPACING.md }}>
@@ -1142,7 +1142,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Zone géographique visée" value={obj.zones} onChange={v=>updateSection("objectifs","zones",v)} />
               <StructField {...fieldProps} label="Niveau d’implication" value={q.niveau_implication} onChange={v=>updateSection("qualification","niveau_implication",v)} options={["Autonome","Accompagné","Clé-en-main"]} />
               <StructField {...fieldProps} label="Apport court terme" type="number" value={fin.apport_disponible} onChange={v=>updateSection("financement","apport_disponible",v)} />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
           </div>;
         case "banque":
           return <div style={{ display:"grid", gap:SPACING.md }}>
@@ -1155,7 +1155,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
               <StructField {...fieldProps} label="Refus antérieur ou contact bancaire" value={fb.refus_anterieur} onChange={v=>updateSection("financement_bancaire","refus_anterieur",v)} options={boolOptions} />
               <StructField {...fieldProps} label="Situation bancaire / conformité" value={q.situation_bancaire} onChange={v=>updateSection("qualification","situation_bancaire",v)} options={["RAS","Incident récent","FICP","Surendettement","À vérifier"]} />
               <StructField {...fieldProps} label="Documents prioritaires banque" type="textarea" value={rdv.documents_prioritaires} onChange={v=>updateSection("rdv","documents_prioritaires",v)} wide />
-            </>), "repeat(2,minmax(0,1fr))")}
+            </>))}
             {formPanel("Pièces prioritaires à obtenir", <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
               {criticalDocs.map((doc)=><div key={doc.id} style={{ display:"grid", gridTemplateColumns:"1fr 130px", gap:8, alignItems:"center", padding:"8px 9px", background:T.input, borderRadius:RADIUS.md }}><div style={{ color:T.text, fontSize:FONT.xs.size+2, fontWeight:850 }}>{doc.label}</div><select className="inv-sel" value={doc.statut || "À demander"} onChange={e=>updateDoc(docs.findIndex(x=>x.id===doc.id),"statut",e.target.value)} style={{ fontSize:FONT.xs.size+1 }}>{STRUCT_DOC_STATUTS.map(x=><option key={x}>{x}</option>)}</select></div>)}
             </div>)}
@@ -1187,7 +1187,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     };
 
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md }}>
-      <div style={{ ...advisorCard, background:`linear-gradient(135deg, ${T.sidebar} 0%, ${T.card} 62%, ${T.accentBg} 100%)`, border:`1px solid ${T.accentBorder}` }}>
+      <div style={{ ...advisorCard, background:T.card, border:`1px solid ${T.accentBorder}` }}>
         <div style={{ padding:"18px 20px", display:"grid", gridTemplateColumns:"minmax(0,1fr) auto", gap:16, alignItems:"center" }}>
           <div style={{ minWidth:0 }}>
             <div style={{ color:T.accent, fontSize:FONT.xs.size+2, fontWeight:950, textTransform:"uppercase", letterSpacing:2 }}>Collecte patrimoniale guidée</div>
@@ -1240,7 +1240,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
 
         <div style={{ display:"flex", flexDirection:"column", gap:SPACING.md, minWidth:0 }}>
           <div style={{ ...advisorCard, overflow:"hidden" }}>
-            <div style={{ padding:"15px 17px", background:T.sidebar, borderBottom:`1px solid ${T.sidebarBorder}`, display:"flex", justifyContent:"space-between", gap:12, alignItems:"center" }}>
+            <div style={{ padding:"15px 17px", background:T.input, borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between", gap:12, alignItems:"center" }}>
               <div style={{ minWidth:0 }}>
                 <div style={{ color:T.accent, fontSize:FONT.xs.size+1, fontWeight:950, letterSpacing:1.5, textTransform:"uppercase" }}>Section {activeSection.number}</div>
                 <div style={{ color:T.text, fontSize:FONT.xl.size, fontWeight:950, marginTop:2 }}>{activeSection.title}</div>
