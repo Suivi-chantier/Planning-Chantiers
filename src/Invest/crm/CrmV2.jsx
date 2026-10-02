@@ -12,7 +12,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../supabase";
 import { readNavTarget } from "../_shared";
-import FicheDossier from "../dossiers/FicheDossier";
 import FicheClientV2 from "./FicheClientV2";
 import { VUES_CRM, FILTRES_A_TRAITER, missionsAPiloter, compteursATraiter, filtrerMissions, portefeuille, planningActions, nomClient, alertesMission, echeanceCourte, filtrerPortefeuille } from "./crmV2Vue";
 import { ATraiterCartes, ClientsCartes } from "./CrmCartes";
@@ -75,7 +74,8 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
 
   const retourCrm = () => { setEcran({ type: "crm" }); charger(); };
   const ouvrirClient = (clientId, onglet) => setEcran({ type: "client", clientId, onglet });
-  const ouvrirMission = (clientId, dossierId) => setEcran({ type: "mission", clientId, dossierId });
+  // La mission s'ouvre dans l'onglet Missions de la fiche client (plus de page séparée).
+  const ouvrirMission = (clientId, dossierId) => setEcran({ type: "client", clientId, missionInitiale: dossierId });
 
   const cadre = (contenu) => (
     <div className="crm-v2" style={{ "--crm-bord": T.rowBorder || T.border, "--crm-survol": T.cardHover || "rgba(127,127,127,.06)", "--crm-doux": T.textMuted }}>
@@ -85,14 +85,9 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
   );
 
   if (ecran.type === "client") {
-    return cadre(<FicheClientV2 key={ecran.clientId} clientId={ecran.clientId} ongletInitial={ecran.onglet} profil={profil} T={T}
-      onRetour={retourCrm} onOuvrirMission={(dossierId) => ouvrirMission(ecran.clientId, dossierId)} onOpenStructuration={onOpenStructuration} />);
+    return cadre(<FicheClientV2 key={ecran.clientId + (ecran.missionInitiale || "")} clientId={ecran.clientId} ongletInitial={ecran.onglet} missionInitiale={ecran.missionInitiale || null} profil={profil} T={T}
+      onRetour={retourCrm} />);
   }
-  if (ecran.type === "mission") {
-    return cadre(<PageMission clientId={ecran.clientId} dossierId={ecran.dossierId} profil={profil} T={T}
-      onCrm={retourCrm} onClient={() => ouvrirClient(ecran.clientId, "ensemble")} />);
-  }
-
   return cadre(
     <>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
@@ -170,24 +165,6 @@ function Planning({ T, donnees, erreur, aujourdhui, onMission, onClient }) {
           : <div style={{ padding: "8px 12px" }}><button className="inv-btn inv-btn-sm" onClick={() => setVoirSans(true)}>Afficher les {p.sansEcheance} actions sans échéance</button></div>}
       </section>
       {p.auDela > 0 && <Discret T={T} style={{ marginTop: 14, padding: "0 12px" }}>{p.auDela} autre{p.auDela > 1 ? "s" : ""} action{p.auDela > 1 ? "s" : ""} au-delà de 30 jours.</Discret>}
-    </>
-  );
-}
-
-// ── Mission (Fiche Dossier V1, en attendant les espaces Mission par offre) ───
-function PageMission({ clientId, dossierId, profil, T, onCrm, onClient }) {
-  const [client, setClient] = useState(null);
-  const [erreur, setErreur] = useState("");
-  const [reference, setReference] = useState(null);
-  useEffect(() => {
-    supabase.from("invest_clients").select("*").eq("id", clientId).single().then(({ data, error }) => { if (error) setErreur(error.message); else setClient(data); });
-  }, [clientId]);
-  return (
-    <>
-      <FilAriane T={T} elements={[{ libelle: "CRM", onClick: onCrm }, { libelle: client ? nomClient(client) : "Client", onClick: onClient }, { libelle: `Mission ${reference || ""}`.trim() }]} />
-      {erreur ? <Vide T={T} titre="Client illisible" texte={erreur} />
-        : !client ? <Discret T={T}>Chargement de la mission…</Discret>
-        : <FicheDossier client={client} T={T} profil={profil} dossierIdInitial={dossierId} onDossierChange={(d) => setReference(d?.reference ?? null)} />}
     </>
   );
 }
