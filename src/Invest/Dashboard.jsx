@@ -19,7 +19,7 @@ import {
 } from "./_shared";
 import { creerNotificationInvest } from "./notifications";
 import { champsNouvelleTache } from "./dossiers/dossierVue";
-import { resumePilotage, actionDuJour, alertesPilotage } from "./dossiers/pilotage";
+import { BandeOnglets, ListeATraiter, PrioritesCompact, SuiviDossiersCompact, levelColor, DASHBOARD_VUE_CSS } from "./DashboardVue";
 
 // ─────────────────────────────────────────────────────────────
 // TABLEAU DE BORD V9 — Pilotage par dossier consolidé
@@ -65,8 +65,6 @@ const V9_COLUMN_STYLE = {
 };
 const V9_COLUMNS = V9_COLONNES.map(c => ({ ...c, ...V9_COLUMN_STYLE[c.key] }));
 
-function levelColor(level, T) { return level === "danger" ? DA : level === "warning" ? WA : level === "success" ? SU : T.accent; }
-
 function AlertBadge({ level="info", children, T=THEMES_INV.dark, icon=null }) {
   const color = levelColor(level, T);
   const IconComp = icon || (level === "danger" ? AlertTriangle : level === "success" ? Check : Bell);
@@ -74,16 +72,6 @@ function AlertBadge({ level="info", children, T=THEMES_INV.dark, icon=null }) {
 }
 function SectionCard({ title, icon, subtitle, children, T=THEMES_INV.dark, action=null }) {
   return <section className="inv-card" style={{ marginBottom:SPACING.md }}><div className="inv-card-hd blue" style={{ alignItems:"center", justifyContent:"space-between" }}><span style={{ display:"inline-flex", alignItems:"center", gap:7 }}><Icon as={icon || LayoutDashboard} size={14}/>{title}</span>{action || (subtitle && <span style={{ color:T.textMuted, fontSize:FONT.xs.size, letterSpacing:0, textTransform:"none" }}>{subtitle}</span>)}</div><div className="inv-card-bd">{children}</div></section>;
-}
-function StateBar({ data, doneCount=0, T=THEMES_INV.dark, onSelect }) {
-  const cards = [
-    { key:"decision", label:"À décider", value:data.stats.decision, icon:AlertTriangle, color:data.stats.decision ? DA : SU, hint:"Dossiers à arbitrer aujourd'hui" },
-    { key:"blocked", label:"Bloqués", value:data.stats.blocked, icon:ShieldCheck, color:data.stats.blocked ? DA : SU, hint:"Points compliqués / bloquants" },
-    { key:"relances", label:"Relances retard", value:data.stats.relancesLate, icon:Bell, color:data.stats.relancesLate ? DA : SU, hint:"Prospects, clients, biens" },
-    { key:"delegated", label:"Délégué", value:data.stats.delegated, icon:UserCheck, color:data.stats.delegated ? "#4db8ff" : SU, hint:"Actions à suivre à distance" },
-    { key:"done", label:"Traité aujourd'hui", value:doneCount, icon:Check, color:SU, hint:"Dossiers sortis du flux" },
-  ];
-  return <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md, marginBottom:SPACING.xl }}>{cards.map(c => <button key={c.key} type="button" onClick={() => onSelect?.(c.key)} style={{ border:`1px solid ${c.color}55`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md, textAlign:"left", cursor:"pointer", fontFamily:"inherit", boxShadow:T.shadowSm }}><div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}><span style={{ width:34, height:34, borderRadius:RADIUS.md, display:"inline-flex", alignItems:"center", justifyContent:"center", color:c.color, background:`${c.color}14` }}><Icon as={c.icon} size={17}/></span><span style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.xl.size, fontWeight:900, color:c.color }}>{c.value}</span></div><div style={{ fontSize:FONT.sm.size+1, fontWeight:900, color:T.text, marginTop:9 }}>{c.label}</div><div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:3 }}>{c.hint}</div></button>)}</div>;
 }
 function DossierCard({ item, T=THEMES_INV.dark, onOpen, onDecide, compact=false }) {
   const color = levelColor(item.level, T);
@@ -99,13 +87,6 @@ function DossierCard({ item, T=THEMES_INV.dark, onOpen, onDecide, compact=false 
     <div style={{ display:"grid", gap:6, marginTop:SPACING.sm }}>{safeArr(item.alerts).slice(0, compact ? 2 : 4).map(a => <div key={a.code} style={{ display:"flex", justifyContent:"space-between", gap:8, border:`1px solid ${levelColor(a.level, T)}30`, background:T.card, borderRadius:RADIUS.md, padding:"7px 8px" }}><span style={{ fontSize:FONT.xs.size + 1, color:T.textSub, fontWeight:800 }}>{a.label}</span>{a.due_date && <span style={{ color:levelColor(a.level, T), fontFamily:"'DM Mono',monospace", fontSize:FONT.xs.size }}>{safeDate(a.due_date)}</span>}</div>)}</div>
     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:SPACING.sm, fontSize:FONT.xs.size + 1, color:T.textMuted }}><div><strong style={{ color:T.textSub }}>Resp.</strong> {item.responsable || "—"}</div><div><strong style={{ color:T.textSub }}>Échéance</strong> {safeDate(item.due_date)}</div><div style={{ gridColumn:"1 / -1" }}><strong style={{ color:T.textSub }}>Action</strong> {item.next_action || "—"}</div></div>
   </article>;
-}
-function BoardColumn({ column, items=[], T=THEMES_INV.dark, onOpen, onDecide }) {
-  return <section style={{ minWidth:0, border:`1px solid ${T.border}`, borderRadius:RADIUS.lg, background:T.card, overflow:"hidden" }}><div style={{ padding:SPACING.md, borderBottom:`1px solid ${T.border}`, background:T.sectionHd }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center" }}><div style={{ display:"inline-flex", alignItems:"center", gap:7, fontWeight:900, color:column.color }}><Icon as={column.icon} size={15}/>{column.label}</div><span style={{ fontFamily:"'DM Mono',monospace", color:column.color, fontWeight:900 }}>{items.length}</span></div><div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:4 }}>{column.help}</div></div><div style={{ padding:SPACING.md, display:"grid", gap:SPACING.md }}>{items.length ? items.map(item => <DossierCard key={item.key} item={item} T={T} onOpen={onOpen} onDecide={onDecide} compact />) : <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted, fontSize:FONT.sm.size }}>Aucun dossier dans cette colonne.</div>}</div></section>;
-}
-function PrioritiesPanel({ routine, setRoutine, responsables, T=THEMES_INV.dark }) {
-  const update = (idx, patch) => setRoutine(prev => { const list = [...safeArr(prev.priorities)]; list[idx] = { ...(list[idx] || {}), ...patch }; return { ...prev, priorities:list }; });
-  return <SectionCard title="3 priorités du jour" icon={Sparkles} subtitle="À définir après lecture des dossiers à piloter" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{[0,1,2].map(idx => { const p = routine.priorities?.[idx] || {}; return <div key={idx} style={{ border:`1px solid ${priorityComplete(p) ? SU : WA}44`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ fontWeight:900, color:T.text, marginBottom:8 }}>Priorité n°{idx + 1}</div><input className="inv-inp" placeholder="Titre de la priorité" value={p.title || ""} onChange={e => update(idx, { title:e.target.value })} style={{ width:"100%", textAlign:"left", marginBottom:8 }}/><select className="inv-sel" value={p.responsable || ""} onChange={e => update(idx, { responsable:e.target.value })} style={{ width:"100%", marginBottom:8 }}><option value="">Responsable</option>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => <option key={r}>{r}</option>)}</select><input className="inv-inp" type="date" value={p.due_date || ""} onChange={e => update(idx, { due_date:e.target.value })} style={{ width:"100%", marginBottom:8 }}/><textarea className="inv-inp" placeholder="Commentaire / objectif précis" value={p.comment || ""} onChange={e => update(idx, { comment:e.target.value })} style={{ width:"100%", minHeight:70, textAlign:"left" }}/></div> })}</div></SectionCard>;
 }
 function ActionPlanPDF({ plan=[], T=THEMES_INV.dark, onPrint }) {
   const owners = Array.from(new Set(plan.map(p => p.responsable || "À définir")));
@@ -132,40 +113,14 @@ function printPlan(plan=[]) {
   const w = window.open("", "_blank"); if (!w) return; w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
 }
 
-// Tranche 2b : suivi des Dossiers Invest (source de vérité). Chaque ligne mène
-// à la fiche client, où la carte Dossier Invest porte le pilotage.
-function SuiviDossiersInvest({ data, nomsClients, T=THEMES_INV.dark, onOpenClient }) {
-  if (data.avancementInconnu) return <SectionCard title="Suivi des Dossiers Invest" icon={Briefcase} T={T}><div style={{ padding:SPACING.md, border:`1px solid ${WA}55`, borderRadius:RADIUS.md, color:WA, fontWeight:800 }}>Avancement indisponible : les Dossiers Invest n'ont pas pu être chargés. Aucun chiffre n'est affiché plutôt qu'un chiffre faux.</div></SectionCard>;
-  const s = data.suiviInvest || {};
-  const balles = s.balles || {};
-  const tuiles = [
-    { label:"Dossiers actifs", value:s.dossiers ?? 0, color:T.accent },
-    { label:"Étapes actives", value:s.etapesActives ?? 0, color:T.accent, hint:`${s.dossiersPlusieursEtapes ?? 0} dossier(s) sur plusieurs étapes` },
-    { label:"Balle Profero", value:balles.profero ?? 0, color:WA, hint:`Client ${balles.client ?? 0} · Banque ${balles.banque ?? 0} · Notaire ${balles.notaire ?? 0} · Tiers ${balles.tiers ?? 0}` },
-    { label:"Bloqués", value:s.bloques ?? 0, color:(s.bloques ? DA : SU) },
-    { label:"Échéances dépassées", value:s.echeancesDepassees ?? 0, color:(s.echeancesDepassees ? DA : SU), hint:`${s.echeancesProches ?? 0} sous 7 jours` },
-    { label:"Tâches en retard", value:s.tachesEnRetard ?? 0, color:(s.tachesEnRetard ? DA : SU) },
-    { label:"Sans prochaine action", value:s.sansProchaineAction ?? 0, color:(s.sansProchaineAction ? WA : SU), hint:`${s.prochainesActions ?? 0} prochaine(s) action(s) définie(s)` },
-  ];
-  const rang = (p) => { const a = alertesPilotage(p); return a.some(x => x.level === "danger") ? 0 : a.some(x => x.level === "warning") ? 1 : 2; };
-  const lignes = [...safeArr(data.pilotages)].sort((a, b) => rang(a) - rang(b) || String(a.prochaineEcheance || "9999").localeCompare(String(b.prochaineEcheance || "9999")));
-  return <SectionCard title="Suivi des Dossiers Invest" icon={Briefcase} subtitle="Étapes actives, balle, prochaine action, échéance" T={T}>
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:SPACING.sm, marginBottom:SPACING.md }}>{tuiles.map(t => <div key={t.label} style={{ border:`1px solid ${t.color}44`, background:T.input, borderRadius:RADIUS.md, padding:"8px 10px" }}><div style={{ fontFamily:"'DM Mono',monospace", fontSize:FONT.lg.size, fontWeight:900, color:t.color }}>{t.value}</div><div style={{ fontSize:FONT.xs.size + 1, fontWeight:900, color:T.text }}>{t.label}</div>{t.hint && <div style={{ fontSize:FONT.xs.size, color:T.textMuted, marginTop:2 }}>{t.hint}</div>}</div>)}</div>
-    {lignes.length === 0 ? <div style={{ padding:SPACING.md, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, color:T.textMuted, textAlign:"center" }}>Aucun Dossier Invest en cours.</div> :
-    <div style={{ display:"grid", gap:6 }}>{lignes.map(p => { const al = alertesPilotage(p); const niveau = al.some(x => x.level === "danger") ? "danger" : al.some(x => x.level === "warning") ? "warning" : "info"; const ajd = actionDuJour(p); return <button key={p.dossierId} type="button" onClick={() => onOpenClient?.(p.clientId)} style={{ textAlign:"left", border:`1px solid ${levelColor(niveau, T)}40`, borderLeft:`4px solid ${levelColor(niveau, T)}`, background:T.input, borderRadius:RADIUS.md, padding:"8px 10px", cursor:"pointer", fontFamily:"inherit", display:"grid", gridTemplateColumns:"minmax(160px,1fr) minmax(220px,2fr) minmax(140px,1fr)", gap:8, alignItems:"center" }}>
-      <div style={{ minWidth:0 }}><div style={{ fontWeight:900, color:T.text, fontSize:FONT.sm.size + 1 }}>{nomsClients.get(p.clientId) || "Client"}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{p.reference}{p.actives.length > 1 ? ` · ${p.actives.length} étapes actives : ${p.actives.map(a => a.libelle).join(", ")}` : ""}</div></div>
-      <div style={{ color:T.textSub, fontSize:FONT.xs.size + 1 }}>{resumePilotage(p)}{al[0] && <div style={{ color:levelColor(al[0].level, T), fontWeight:800, marginTop:2 }}>{al[0].label}{al.length > 1 ? ` (+${al.length - 1})` : ""}</div>}</div>
-      <div style={{ color:T.textMuted, fontSize:FONT.xs.size }}><strong style={{ color:T.textSub }}>Qui agit :</strong> {ajd.responsable || "—"}{ajd.echeance && <div>avant le {safeDate(ajd.echeance)}</div>}</div>
-    </button>; })}</div>}
-  </SectionCard>;
-}
-
 function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
   const [activeView, setActiveView] = useState("pilotage");
+  const [onglet, setOnglet] = useState("decision");
+  const [planOuvert, setPlanOuvert] = useState(false);
   const [selected, setSelected] = useState(null);
   const [decisionItem, setDecisionItem] = useState(null);
   const [clients, setClients] = useState([]);
@@ -366,13 +321,23 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const printPdf = () => printPlan(plan);
 
   const renderPilotage = () => <>
-    <SuiviDossiersInvest data={data} nomsClients={nomsClients} T={T} onOpenClient={(id) => onNavigate?.("crm", NAV.ficheClient(id))}/>
-    <StateBar data={data} doneCount={doneItems.length} T={T} onSelect={(k) => { if (k === "done") setActiveView("plan"); }} />
-    <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"space-between", alignItems:"center", marginBottom:SPACING.md }}><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>{V9_ENTITY_FILTERS.map(f => { const active = filter === f.key; return <button key={f.key} className={`inv-btn ${active ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setFilter(f.key)}><Icon as={f.icon} size={12}/>{f.label}</button> })}</div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button><button className="inv-btn inv-btn-gold inv-btn-sm" onClick={printPdf}><Icon as={Download} size={12}/>Plan PDF</button></div></div>
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:SPACING.md, alignItems:"start" }} className="v9-board-grid"><BoardColumn column={V9_COLUMNS[0]} items={byColumn.decision} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[1]} items={byColumn.watch} T={T} onOpen={openDetail} onDecide={openDecision}/><BoardColumn column={V9_COLUMNS[2]} items={byColumn.delegated} T={T} onOpen={openDetail} onDecide={openDecision}/></div>
-    <SectionCard title="Traité aujourd’hui" icon={Check} subtitle="Dossiers consolidés validés dans la journée" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{byColumn.done.length ? byColumn.done.map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact/>) : <div style={{ padding:SPACING.lg, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md, textAlign:"center", color:T.textMuted }}>Aucun dossier traité aujourd'hui.</div>}</div></SectionCard>
-    <PrioritiesPanel routine={routine} setRoutine={setRoutine} responsables={responsables} T={T}/>
-    <ActionPlanPDF plan={plan} T={T} onPrint={printPdf}/>
+    <BandeOnglets onglet={onglet} setOnglet={setOnglet} byColumn={byColumn} stats={data.stats} T={T} />
+    <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:SPACING.md }}>
+      {V9_ENTITY_FILTERS.map(f => { const active = filter === f.key; return <button key={f.key} className={`inv-btn ${active ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setFilter(f.key)}><Icon as={f.icon} size={12}/>{f.label}</button>; })}
+    </div>
+    <div className="dbv-corps">
+      <div>
+        <ListeATraiter key={onglet + filter} onglet={onglet} items={byColumn[onglet]} T={T} onOpen={openDetail} onDecide={openDecision}/>
+      </div>
+      <aside>
+        <PrioritesCompact routine={routine} setRoutine={setRoutine} responsables={responsables} T={T}/>
+        <SuiviDossiersCompact data={data} nomsClients={nomsClients} T={T} onOpenClient={(id) => onNavigate?.("crm", NAV.ficheClient(id))}/>
+      </aside>
+    </div>
+    <div style={{ marginTop:SPACING.lg }}>
+      <button className="inv-btn inv-btn-out inv-btn-sm" onClick={() => setPlanOuvert(o => !o)}><Icon as={Send} size={12}/>{planOuvert ? "Masquer" : "Afficher"} le plan d'action du jour ({plan.length})</button>
+      {planOuvert && <div style={{ marginTop:SPACING.md }}><ActionPlanPDF plan={plan} T={T} onPrint={printPdf}/></div>}
+    </div>
   </>;
   const renderMetier = () => <div style={{ display:"grid", gap:SPACING.md }}><SectionCard title="Prospects actifs" icon={Phone} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(filterDossiers(data.prospectDossiers, "all")).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Clients actifs" icon={Briefcase} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.clientDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard><SectionCard title="Stock de biens" icon={Home} T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:SPACING.md }}>{sortDossiers(data.bienDossiers).map(item => <DossierCard key={item.key} item={item} T={T} onOpen={openDetail} onDecide={openDecision} compact />)}</div></SectionCard></div>;
   // Notifications non lues, PAR destinataire.
@@ -396,11 +361,22 @@ function TableauBord({ profil, T=THEMES_INV.dark, onNavigate }) {
   const renderEquipe = () => <SectionCard title="Pilotage équipe à distance" icon={Users} subtitle="Actions déléguées et notifications collaborateurs" T={T}><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:SPACING.md }}>{(responsables || V9_RESPONSABLES_FALLBACK).map(r => { const list = data.allDossiers.filter(d => d.responsable === r && (d.category === "delegated" || d.type === "team")); return <div key={r} style={{ border:`1px solid ${T.border}`, background:T.input, borderRadius:RADIUS.lg, padding:SPACING.md }}><div style={{ display:"flex", justifyContent:"space-between", gap:8, marginBottom:8 }}><strong style={{ color:T.text }}>{r}</strong><AlertBadge level={list.some(x => x.level === "danger") ? "danger" : "info"} T={T}>{list.length}</AlertBadge></div>{list.slice(0,8).map(item => <button key={item.key} onClick={() => openDetail(item)} style={{ width:"100%", textAlign:"left", border:"none", background:"transparent", padding:"7px 0", borderTop:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit" }}><div style={{ color:T.text, fontWeight:800, fontSize:FONT.sm.size }}>{item.next_action || item.label}</div><div style={{ color:T.textMuted, fontSize:FONT.xs.size }}>{item.label} · {safeDate(item.due_date)}</div></button>)}</div> })}</div>{notifsParDestinataire.length > 0 && <div style={{ marginTop:SPACING.md, paddingTop:SPACING.sm, borderTop:`1px solid ${T.border}`, color:T.textMuted, fontSize:FONT.sm.size, display:"flex", gap:SPACING.md, flexWrap:"wrap" }}>{notifsParDestinataire.map(([qui, n]) => <span key={qui}><strong style={{ color:T.textSub }}>{qui}</strong> : {n} non lue{n > 1 ? "s" : ""}</span>)}</div>}</SectionCard>;
 
   return <div style={{ padding:`${SPACING.xl}px ${SPACING.xl + 4}px`, maxWidth:1500, margin:"0 auto" }}>
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:SPACING.md, flexWrap:"wrap", marginBottom:SPACING.xl }}><div style={{ display:"flex", gap:SPACING.md, alignItems:"center" }}><div style={{ width:50, height:50, borderRadius:RADIUS.lg, background:T.accentBg, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon as={LayoutDashboard} size={24}/></div><div><div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Dashboard pilotage quotidien</div><div style={{ fontSize:FONT.sm.size + 1, color:T.textSub }}>V9 — 1 dossier = 1 carte consolidée. Pilotable à distance, sans doublons.</div></div></div><div style={{ display:"flex", gap:8, flexWrap:"wrap" }}><button className={`inv-btn ${activeView === "pilotage" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("pilotage")}><Icon as={LayoutGrid} size={12}/>Pilotage</button><button className={`inv-btn ${activeView === "metier" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("metier")}><Icon as={ListChecks} size={12}/>Vue métier</button><button className={`inv-btn ${activeView === "equipe" ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView("equipe")}><Icon as={Users} size={12}/>Équipe</button></div></div>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:SPACING.md, flexWrap:"wrap", marginBottom:SPACING.lg }}>
+      <div>
+        <div style={{ fontSize:FONT.h2.size, fontWeight:900, color:T.text }}>Tableau de bord</div>
+        <div style={{ fontSize:FONT.sm.size + 1, color:T.textSub, marginTop:2 }}>{new Date().toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" })}{pilote ? ` · ${pilote}` : ""} — un dossier = une ligne, sans doublon.</div>
+      </div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+        {[["pilotage", LayoutGrid, "Pilotage"], ["metier", ListChecks, "Vue métier"], ["equipe", Users, "Équipe"]].map(([k, ic, lb]) => <button key={k} className={`inv-btn ${activeView === k ? "inv-btn-gold" : "inv-btn-out"} inv-btn-sm`} onClick={() => setActiveView(k)}><Icon as={ic} size={12}/>{lb}</button>)}
+        <span style={{ width:1, height:22, background:T.border }}/>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={loadDashboard}><Icon as={RefreshCw} size={12}/>Actualiser</button>
+        <button className="inv-btn inv-btn-out inv-btn-sm" onClick={printPdf}><Icon as={Download} size={12}/>Plan PDF</button>
+      </div>
+    </div>
     {error && <div style={{ marginBottom:SPACING.md, padding:SPACING.md, border:`1px solid ${SEMANTIC?.danger?.border || "#fecdd3"}`, background:SEMANTIC?.danger?.bg || "#fff1f2", borderRadius:RADIUS.md, color:DA }}>{error}</div>}
     {loading ? <div style={{ padding:SPACING.xxxl, textAlign:"center", color:T.textMuted }}><Icon as={RefreshCw} size={15} style={{ animation:"spin 1s linear infinite" }}/> Chargement du pilotage consolidé…</div> : activeView === "pilotage" ? renderPilotage() : activeView === "metier" ? renderMetier() : renderEquipe()}
     <DecisionDrawer item={decisionItem || selected} decision={decisionItem ? currentDecision : null} setDecision={decisionItem ? updateDecision : null} responsables={responsables} T={T} onClose={() => { setDecisionItem(null); setSelected(null); }} onSave={decisionItem ? saveDecision : null} onOpenFull={openFullRecord} saving={saving}/>
-    <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @media(max-width:1180px){.v9-board-grid{grid-template-columns:1fr!important}}`}</style>
+    <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} ${DASHBOARD_VUE_CSS}`}</style>
   </div>;
 }
 

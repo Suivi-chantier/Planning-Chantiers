@@ -24,6 +24,38 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "amelioration",
+    titre: "Tableau de bord Invest refondu : une liste claire de ce qu'il faut faire aujourd'hui",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "L'écran empilait cinq blocs et trois colonnes de grosses cartes. Il répond maintenant à une seule question : qu'est-ce que je dois traiter maintenant ?",
+    comment: "Quatre onglets en haut (À décider, À surveiller, Délégué, Traité aujourd'hui) avec leur nombre : cliquez pour afficher la liste correspondante. Chaque dossier tient sur une ligne : qui, pourquoi (l'alerte principale), qui agit et avant quand, avec les boutons Voir et Décider. Les filtres Prospects / Clients / Biens / Équipe restent. À droite : vos 3 priorités du jour et l'avancement des Dossiers Invest (les 5 plus urgents, « Voir les autres » pour le reste). Le plan d'action du jour s'affiche à la demande. Les décisions, le classement et le mail du matin sont inchangés.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
+    titre: "Prospection : une vue « Par conseiller » avec une colonne « À attribuer » pour les contacts entrants",
+    pages: [{ id: "prospection", label: "Prospection" }],
+    quoi: "Plus lisible : chaque conseiller a sa colonne avec ses prospects, et les contacts entrants que personne n'a encore pris restent à part, dans « À attribuer », jusqu'à ce que quelqu'un les prenne.",
+    comment: "Dans Prospection, bouton « Par conseiller ». Chaque carte montre son statut. Glissez une carte dans la colonne d'un conseiller pour la lui attribuer (l'attribution est notée dans l'historique du prospect). On ne peut pas remettre un prospect dans « À attribuer ». Les recherches et filtres existants s'appliquent. La vue Pipeline par statut reste disponible.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
+    titre: "Urbanisme : relancer un conseiller sur une demande en attente, par notification ou par e-mail",
+    pages: [{ id: "urbanisme", label: "Urbanisme" }],
+    quoi: "Quand une demande d'urbanisme attend le conseiller (brouillon, pièces à fournir) ou que sa date maximum de dépôt est dépassée, vous le relancez en un clic au lieu de perdre du temps à le chercher.",
+    comment: "Dans la liste Urbanisme, le bouton « Relancer » apparaît sur les demandes concernées. Un message prérempli (modifiable) rappelle la demande et l'échéance. Vous cochez Notification dans l'application, E-mail, ou les deux : le conseiller (le « commercial demandeur » de la demande) reçoit la notification dans sa cloche, qui ouvre directement la demande, et/ou un e-mail avec le lien. L'écran dit pour chaque canal s'il est bien parti ; si le conseiller n'a pas d'adresse e-mail connue, il le signale. Rien ne part sans votre clic.",
+  },
+  {
+    date: "2026-10-02",
+    type: "amelioration",
+    titre: "Suivi financier : choisir librement sa période (mois, trimestres, années, année de bilan)",
+    pages: [{ id: "suivi_financier", label: "Suivi financier" }],
+    quoi: "Vous n'êtes plus limité à un seul mois, trimestre ou année : vous composez la période que vous voulez, par exemple janvier-février-mars puis juin, ou tout l'exercice comptable.",
+    comment: "Dans « Période d'analyse » : cliquez sur un mois pour le sélectionner ou le désélectionner (au moins un reste toujours actif), ou utilisez les boutons Trimestres, Années civiles et Années de bilan pour ajouter/retirer un groupe de mois d'un clic. Les raccourcis proposent Mois en cours, Trimestre en cours, Exercice en cours et Début d'exercice à ce jour. Le mois de clôture de l'exercice se règle dans la liste « Clôture » (décembre par défaut : à ajuster si votre bilan ne se clôt pas en décembre). Les chiffres, tableaux et l'export CSV suivent la période choisie.",
+  },
+  {
+    date: "2026-10-02",
     type: "nouveaute",
     titre: "Prospection : une vue « Par conseiller » avec une colonne « À attribuer » pour les contacts entrants",
     pages: [{ id: "prospection", label: "Prospection" }],
