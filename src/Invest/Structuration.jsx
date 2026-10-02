@@ -6,6 +6,7 @@ import AdresseInput from "../AdresseAutocomplete";
 import { loadAccessConfig, canAccess as canAccessInvest, ROLE_PAGES_DEFAULT_INVEST, PAGES_INVEST } from "../access";
 import { loadDraft, saveDraft, clearDraft } from "../hooks";
 import { OngletAcces } from "../Renovation/Admin";
+import { BarreParcours, CadrageConformite, MiseEnOeuvreSuivi } from "./StructurationEcrans";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
@@ -259,7 +260,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const [selectedId, setSelectedId] = useState(null);
   const [dossier, setDossier] = useState(null);
   const [data, setData] = useState(buildStructDefault(null));
-  const [tab, setTab] = useState("audit");
+  const [tab, setTab] = useState("cadrage");
   const [activeCollecteSection, setActiveCollecteSection] = useState("cadrage");
   const [filter, setFilter] = useState("Tous");
   const [loading, setLoading] = useState(true);
@@ -984,13 +985,18 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     </div>
   );
 
+  // Onglets dans l'ordre où un conseiller en gestion de patrimoine conduit la mission
+  // (voir structurationParcours.mjs et docs/project/STRUCTURATION-METHODE.md).
   const tabItems = [
-    { id:"audit", label:"Collecte guidée" },
+    { id:"cadrage", label:"1 · Cadrage & conformité" },
+    { id:"audit", label:"2 · Recueil guidé" },
     { id:"profil", label:"Profil patrimonial" },
-    { id:"patrimoine", label:"Patrimoine & financement" },
-    { id:"documents", label:"Documents" },
-    { id:"analyse", label:"Analyse & préconisations" },
+    { id:"patrimoine", label:"Bilan patrimonial" },
+    { id:"documents", label:"Pièces" },
+    { id:"analyse", label:"3-5 · Diagnostic, stratégies, préconisations" },
+    { id:"mise_en_oeuvre", label:"6-7 · Mise en œuvre & suivi" },
   ];
+  const updateBloc = (bloc, valeur) => mutateData(prev => ({ ...prev, [bloc]: valeur }));
   const renderTabs = () => <div style={{ ...cardStyle, display:"flex", gap:0, padding:"0 14px", overflowX:"auto", flexShrink:0 }}>{tabItems.map(t => <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"12px 14px", border:"none", borderBottom:`2px solid ${tab === t.id ? T.accent : "transparent"}`, background:tab === t.id ? T.accentBg : "transparent", color:tab === t.id ? T.text : T.textSub, cursor:"pointer", fontFamily:"inherit", fontWeight:900, fontSize:FONT.sm.size, whiteSpace:"nowrap" }}>{t.label}</button>)}</div>;
 
   const renderAudit = () => {
@@ -1503,9 +1509,14 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
 
   const renderContent = () => {
     if (!selectedId || !dossier) return clientIdFixe ? renderCreerPourClient() : renderListView();
-    const map = { audit:renderAudit, profil:renderProfil, patrimoine:renderPatrimoine, documents:renderDocuments, analyse:renderAnalyse };
+    const map = {
+      cadrage:() => <CadrageConformite data={data} T={T} onChange={updateBloc} qualification={data.collecte?.qualification} onQualification={(k, v) => updateSection("qualification", k, v)} />,
+      audit:renderAudit, profil:renderProfil, patrimoine:renderPatrimoine, documents:renderDocuments, analyse:renderAnalyse,
+      mise_en_oeuvre:() => <MiseEnOeuvreSuivi data={data} T={T} onChange={updateBloc} />,
+    };
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.sm, minHeight:0, height: clientIdFixe ? "auto" : "100%" }}>
       <div style={{ flexShrink:0 }}>{renderDossierHeader()}</div>
+      <div style={{ flexShrink:0 }}><BarreParcours data={data} T={T} onOnglet={setTab} /></div>
       <div style={{ flexShrink:0 }}>{renderTabs()}</div>
       <div style={{ minHeight:0, overflowY: clientIdFixe ? "visible" : "auto", paddingRight:4, maxHeight: clientIdFixe ? "none" : "calc(100vh - 335px)" }}>{map[tab]?.()}</div>
     </div>;
