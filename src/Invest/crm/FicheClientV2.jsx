@@ -24,7 +24,7 @@ const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engag
 const TYPES_NOTE = [["commentaire", "Note"], ["appel", "Appel"], ["rendez-vous", "Rendez-vous"], ["relance", "Relance"], ["document", "Document"], ["autre", "Autre"]];
 const ETAT_DOCUMENT = { recu: ["Reçu", VERT], na: ["Non applicable", GRIS], demande: ["Demandé au client", BLEU] };
 
-export default function FicheClientV2({ clientId, ongletInitial, missionInitiale = null, profil, T, onRetour }) {
+export default function FicheClientV2({ clientId, ongletInitial, missionInitiale = null, profil, T, onRetour, renderModifierClient }) {
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
   const [onglet, setOnglet] = useState(missionInitiale ? "missions" : (ongletInitial || "ensemble"));
@@ -32,6 +32,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
   const [missionOuverte, setMissionOuverte] = useState(missionInitiale);
   const onOuvrirMission = (dossierId) => { setMissionOuverte(dossierId); setOnglet("missions"); };
   const [rev, setRev] = useState(0);
+  const [modifie, setModifie] = useState(false);
   const aujourdhui = aujourdhuiIso();
 
   const charger = useCallback(async () => {
@@ -82,10 +83,12 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <SujetStructuration T={T} client={client} onChange={() => { if (client.sujet_structuration === true && onglet === "structuration") setOnglet("ensemble"); rafraichir(); }} />
+          {renderModifierClient && <button className="inv-btn inv-btn-sm" onClick={() => setModifie(true)}>Modifier la fiche</button>}
           <button className="inv-btn inv-btn-sm" onClick={() => setOnglet("historique")}>Ajouter une note</button>
           <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => setOnglet("missions")}>＋ Nouvelle mission</button>
         </div>
       </header>
+      {modifie && renderModifierClient && renderModifierClient({ client, onFerme: () => setModifie(false), onSauve: () => { setModifie(false); rafraichir(); } })}
       <Onglets T={T} compact onglets={ongletsClient(client)} actif={onglet} onChange={(o) => { setOnglet(o); if (o !== "missions") setMissionOuverte(null); }}
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}

@@ -33,7 +33,7 @@ const Alerte = ({ ton, children, titre }) => (
   <span title={titre} style={{ fontSize: 11.5, fontWeight: 800, color: TON[ton], background: `${TON[ton]}14`, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap" }}>{children}</span>
 );
 
-export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenStructuration, renderNouveauClient }) {
+export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenStructuration, renderNouveauClient, renderModifierClient }) {
   const [donnees, setDonnees] = useState(null);
   const [erreurs, setErreurs] = useState({});
   const [chargement, setChargement] = useState(true);
@@ -86,7 +86,7 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
 
   if (ecran.type === "client") {
     return cadre(<FicheClientV2 key={ecran.clientId + (ecran.missionInitiale || "")} clientId={ecran.clientId} ongletInitial={ecran.onglet} missionInitiale={ecran.missionInitiale || null} profil={profil} T={T}
-      onRetour={retourCrm} />);
+      onRetour={retourCrm} renderModifierClient={renderModifierClient} />);
   }
   return cadre(
     <>

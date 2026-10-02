@@ -479,7 +479,8 @@ function CRM(props) {
   }
   return (
     <CrmV2 profil={profil} T={T} initialFilter={initialFilter} onOpenStructuration={onOpenStructuration} onAncienneVue={() => choisir(true)}
-      renderNouveauClient={({ onFerme, onCree }) => <FormulaireClient profil={profil} T={T} onSave={onCree} onClose={onFerme} />} />
+      renderNouveauClient={({ onFerme, onCree }) => <FormulaireClient profil={profil} T={T} onSave={onCree} onClose={onFerme} />}
+      renderModifierClient={({ client, onFerme, onSauve }) => <FormulaireClient client={client} profil={profil} T={T} onSave={onSauve} onClose={onFerme} />} />
   );
 }
 

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "correctif",
+    titre: "CRM : bouton « Modifier la fiche » sur la page du client (e-mail, téléphone, conseiller…)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "La nouvelle page client ne permettait pas de corriger l'e-mail ou le téléphone : il fallait repasser par l'ancienne vue du CRM.",
+    comment: "Sur la page d'un client, en haut à droite, « Modifier la fiche » ouvre le formulaire de contact (nom, e-mail, téléphone, conseiller, source, statut, budget, prochaine action, notes). À savoir : si le client a déjà reçu une invitation au portail, son identifiant de connexion reste l'ancienne adresse ; changez l'e-mail avant d'inviter un client, ou demandez de révoquer puis réinviter.",
+  },
+  {
+    date: "2026-10-02",
+    type: "correctif",
     titre: "Structuration : textes illisibles en thème clair et libellé parasite corrigés",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Dans le thème clair, plusieurs bandeaux de la page de structuration affichaient un texte sombre sur fond sombre (nom du client, « Qualifier avant de structurer », titre de la section en cours, liste des dossiers). Et chaque bloc de l'entretien guidé affichait par erreur le texte « repeat(2,minmax(0,1fr)) » sous son titre.",
