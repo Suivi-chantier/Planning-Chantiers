@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "nouveaute",
+    titre: "Structuration : objectifs chiffrés, fiche économique de chaque bien, charges et dettes saisies une seule fois",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le dossier de structuration passe de champs de texte à des données structurées dont les chiffres se calculent tout seuls : rendement et cash-flow de chaque bien, capacité d'épargne du foyer comparée à l'épargne réelle, patrimoine net qui tient compte de toutes les dettes.",
+    comment: "Onglet Profil patrimonial : objectifs chiffrés (montant, échéance, priorité, souplesse), enfants du foyer, profil investisseur immobilier (13 critères : tolérance à l'endettement, au cash-flow négatif, aux travaux, à la gestion locative…). Onglet Bilan patrimonial : pour chaque bien, une fiche avec rendement brut et net, rentabilité des fonds propres, valeur nette, plus-value latente et effort d'épargne ; les charges du foyer et l'épargne réelle ; les autres dettes (les prêts des biens se saisissent sur le bien, jamais deux fois). Tous les chiffres sont avant impôt, et un chiffre « non calculable » indique ce qui manque au lieu d'afficher zéro. Les anciens dossiers restent lisibles. Le parcours du dossier exige maintenant ces trois éléments dans l'étape Recueil.",
+  },
+  {
+    date: "2026-10-02",
     type: "amelioration",
     titre: "Structuration : un parcours en sept étapes, comme le conduisent les conseillers en gestion de patrimoine",
     pages: [{ id: "crm", label: "CRM" }],

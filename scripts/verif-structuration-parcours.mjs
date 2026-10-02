@@ -35,10 +35,10 @@ test("5. pièces obligatoires : reçues ou validées comptent, non applicables s
     { required: true, statut: "Reçu" }, { required: true, statut: "Validé" },
     { required: true, statut: "Non applicable" }, { required: false, statut: "À demander" },
   ];
-  const pt = P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[5];
+  const pt = P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[8];
   assert.equal(pt.ok, true); assert.equal(pt.detail, "2 / 2");
   docs.push({ required: true, statut: "À demander" });
-  assert.equal(P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[5].ok, false);
+  assert.equal(P.calculerParcours({ collecte: { documents: docs } }).etapes[1].points[8].ok, false);
 });
 test("6. stratégies : deux scénarios sortis de « À étudier » sont nécessaires", () => {
   const sc = [{ statut: "À étudier" }, { statut: "Recommandé" }, { statut: "À écarter" }];
@@ -68,6 +68,17 @@ test("9. les valeurs par défaut des nouveaux blocs sont vides et distinctes à 
 test("10. les onglets visés par chaque point existent dans l'écran", () => {
   const surfaces = new Set(["cadrage", "audit", "profil", "patrimoine", "documents", "analyse", "mise_en_oeuvre"]);
   for (const e of P.calculerParcours({}).etapes) { assert.ok(surfaces.has(e.onglet)); e.points.forEach((x) => assert.ok(surfaces.has(x.onglet), x.libelle)); }
+});
+
+test("11. recueil : objectifs chiffrés, charges avec épargne réelle et profil immobilier complet sont exigés", () => {
+  const pts = (d) => P.calculerParcours(d).etapes[1].points;
+  const lib = (d, l) => pts(d).find((x) => x.libelle.startsWith(l));
+  assert.equal(lib({}, "Objectifs chiffrés").ok, false);
+  assert.equal(lib({ collecte: { objectifs_mesures: [{ montant: "2500", echeance: "2036", priorite: "1" }] } }, "Objectifs chiffrés").ok, true);
+  assert.equal(lib({ collecte: { objectifs_mesures: [{ montant: "2500", echeance: "2036", priorite: "1" }, { libelle: "vague" }] } }, "Objectifs chiffrés").ok, false, "un objectif incomplet bloque");
+  assert.equal(lib({ collecte: { charges: { logement: "1200" } } }, "Charges du foyer").ok, false, "sans épargne réelle");
+  assert.equal(lib({ collecte: { charges: { logement: "1200", epargne_reelle_mois: "800" } } }, "Charges du foyer").ok, true);
+  assert.equal(lib({}, "Profil investisseur").ok, false);
 });
 
 let echecs = 0;
