@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "amelioration",
+    titre: "CRM : « À traiter » et « Clients » en cartes, avec l'invitation au portail depuis la liste",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "« À traiter » dit maintenant POURQUOI chaque mission est là et ce qu'il y a à faire, au lieu d'un tableau à six colonnes. Les clients se parcourent en cartes, et vous voyez d'un coup d'œil qui a déjà accès à son espace client.",
+    comment: "À traiter : les missions sont rangées par raison (En retard, Bloquées, À faire aujourd'hui, À faire par Profero, Sans prochaine action) ; chaque carte indique l'action, la date, chez qui est la balle, avec les boutons Ouvrir la mission et Fiche client. Les missions en attente du client sont repliées en bas. Clients : vue Cartes (par défaut) ou Liste ; chaque carte affiche la mission en cours, la prochaine action et l'état du portail (ouvert, révoqué, pas invité). Pour inviter un client à son accès, cliquez « Inviter au portail » sur sa carte (réservé aux administrateurs et aux commerciaux) : une fenêtre explique ce que le client verra et envoie l'invitation après confirmation. Rien n'est envoyé sans votre accord.",
+  },
+  {
+    date: "2026-10-02",
+    type: "amelioration",
     titre: "Tableau de bord Invest refondu : une liste claire de ce qu'il faut faire aujourd'hui",
     pages: [{ id: "dashboard", label: "Tableau de bord" }],
     quoi: "L'écran empilait cinq blocs et trois colonnes de grosses cartes. Il répond maintenant à une seule question : qu'est-ce que je dois traiter maintenant ?",

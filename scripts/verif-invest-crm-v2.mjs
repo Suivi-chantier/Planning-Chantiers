@@ -15,7 +15,7 @@ import * as V from "../src/Invest/crm/crmV2Vue.mjs";
 const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (rel) => readFileSync(join(racine, rel), "utf8");
 const CRM = lire("src/Invest/CRM.jsx");
-const CRMV2 = lire("src/Invest/crm/CrmV2.jsx");
+const CRMV2 = lire("src/Invest/crm/CrmV2.jsx") + lire("src/Invest/crm/CrmCartes.jsx");
 const FICHE = lire("src/Invest/crm/FicheClientV2.jsx");
 const VUE = lire("src/Invest/crm/crmV2Vue.mjs");
 const SHARED = lire("src/Invest/_shared.jsx");
