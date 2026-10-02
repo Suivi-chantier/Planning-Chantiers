@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
+    type: "correctif",
+    titre: "Structuration : textes illisibles en thème clair et libellé parasite corrigés",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Dans le thème clair, plusieurs bandeaux de la page de structuration affichaient un texte sombre sur fond sombre (nom du client, « Qualifier avant de structurer », titre de la section en cours, liste des dossiers). Et chaque bloc de l'entretien guidé affichait par erreur le texte « repeat(2,minmax(0,1fr)) » sous son titre.",
+    comment: "Les bandeaux sombres gardent un texte clair, les autres passent sur fond clair, et le libellé parasite a disparu des dix blocs concernés. Si vous voyez encore l'ancien affichage (sept onglets), rechargez la page et acceptez la mise à jour proposée : l'application se met à jour à la demande.",
+  },
+  {
+    date: "2026-10-02",
     type: "amelioration",
     titre: "Structuration : une collecte simple en cinq étapes, une seule navigation, et plus de zéros trompeurs",
     pages: [{ id: "crm", label: "CRM" }],
