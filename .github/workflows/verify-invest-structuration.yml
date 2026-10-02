@@ -1,0 +1,35 @@
+name: Verify Structuration patrimoniale Invest (parcours, données, diagnostic, projection, structures, rapport)
+
+on:
+  pull_request:
+    paths:
+      - 'src/Invest/structuration*.mjs'
+      - 'src/Invest/Structuration*.jsx'
+      - 'scripts/verif-structuration-*.mjs'
+      - '.github/workflows/verify-invest-structuration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parcours en sept étapes
+        run: node scripts/verif-structuration-parcours.mjs
+      - name: Données structurées (biens, charges, dettes, objectifs, profil)
+        run: node scripts/verif-structuration-donnees.mjs
+      - name: Diagnostic et capacité d'emprunt en trajectoire
+        run: node scripts/verif-structuration-diagnostic.mjs
+      - name: Projection, scénarios et tests de résistance
+        run: node scripts/verif-structuration-projection.mjs
+      - name: Comparaison des structures de détention
+        run: node scripts/verif-structuration-structures.mjs
+      - name: Feuille de route
+        run: node scripts/verif-structuration-feuille-route.mjs
+      - name: Rapport à deux niveaux
+        run: node scripts/verif-structuration-rapport.mjs

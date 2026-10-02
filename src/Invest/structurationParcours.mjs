@@ -97,6 +97,7 @@ export function calculerParcours(data) {
       // Les trois préconisations modèles d'un nouveau dossier portent déjà une action : sans stratégie
       // recommandée rédigée, elles ne comptent pas.
       pt("Préconisations avec action associée", recos.length >= 1 && plein(a.strategie_recommandee), "analyse", `${recos.length}`),
+      pt("Scénario retenu désigné", plein(data?.scenario_retenu_id) && nb(data?.scenarios_chiffres).some((x) => x.id === data.scenario_retenu_id), "mise_en_oeuvre"),
       pt("Rapport remis au client", plein(moe.rapport_remis_le), "mise_en_oeuvre"),
       pt("Déclaration d'adéquation remise", plein(conf.adequation_remise_le), "cadrage"),
       pt("Rendez-vous de restitution tenu", plein(c.rdv?.date_r2), "audit"),

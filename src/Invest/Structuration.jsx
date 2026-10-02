@@ -12,6 +12,8 @@ import { analyserDettes } from "./structurationDonnees.mjs";
 import { DiagnosticAuto } from "./StructurationDiagnosticVue";
 import { ScenariosProjection } from "./StructurationScenariosVue";
 import { ComparaisonStructures } from "./StructurationStructuresVue";
+import { FeuilleDeRouteEtRapports } from "./StructurationRouteVue";
+import { construireRapportHtml } from "./structurationRapport.mjs";
 import {
   LayoutDashboard, Users, Building2, BarChart3, Settings, Plus, Trash2,
   Pencil, ChevronRight, ChevronLeft, Search, RefreshCw, Save, Download,
@@ -1525,12 +1527,27 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
     </div>
   );
 
+  // Rapports à deux niveaux (synthèse exécutive / rapport complet), générés par structurationRapport.mjs.
+  const ouvrirRapport = (niveau) => {
+    const win = window.open("", "_blank", "width=1080,height=900");
+    if (!win) { alert("Autorisez les pop-ups pour générer le rapport."); return; }
+    const html = construireRapportHtml(data, {
+      niveau,
+      clientNom: currentClient ? clientFullName(currentClient) : [data.collecte?.profil?.prenom, data.collecte?.profil?.nom].filter(Boolean).join(" ") || dossier?.titre || "Client",
+      titre: dossier?.titre || "",
+      conseiller: dossier?.conseiller || profil?.nom || "",
+      dateLongue: new Date().toLocaleDateString("fr-FR", { day:"numeric", month:"long", year:"numeric" }),
+      anneeDepart: new Date().getFullYear(),
+    });
+    win.document.write(html); win.document.close(); win.focus();
+  };
+
   const renderContent = () => {
     if (!selectedId || !dossier) return clientIdFixe ? renderCreerPourClient() : renderListView();
     const map = {
       cadrage:() => <CadrageConformite data={data} T={T} onChange={updateBloc} qualification={data.collecte?.qualification} onQualification={(k, v) => updateSection("qualification", k, v)} />,
       audit:renderAudit, profil:renderProfil, patrimoine:renderPatrimoine, documents:renderDocuments, analyse:renderAnalyse,
-      mise_en_oeuvre:() => <MiseEnOeuvreSuivi data={data} T={T} onChange={updateBloc} />,
+      mise_en_oeuvre:() => <div style={{ display:"grid", gap:SPACING.md }}><FeuilleDeRouteEtRapports T={T} data={data} onChange={updateBloc} onRapport={ouvrirRapport} anneeDepart={new Date().getFullYear()}/><MiseEnOeuvreSuivi data={data} T={T} onChange={updateBloc} /></div>,
     };
     return <div style={{ display:"flex", flexDirection:"column", gap:SPACING.sm, minHeight:0, height: clientIdFixe ? "auto" : "100%" }}>
       <div style={{ flexShrink:0 }}>{renderDossierHeader()}</div>
