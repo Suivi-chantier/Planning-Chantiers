@@ -197,12 +197,12 @@ export function DettesListe({ T, dettes, onChange }) {
   const maj = (i, p) => onChange(liste.map((d, j) => (j === i ? { ...d, ...p } : d)));
   return (
     <Carte T={T} titre={`Autres dettes · ${eur(t.capitalRestant)} restant dû, ${eur(t.mensualites)} par mois`}
-      aide="Les prêts des biens locatifs sont saisis sur chaque bien : ne les ressaisissez pas ici. Ici : résidence principale, consommation, auto, étudiant, professionnel, découvert, dette familiale, caution."
-      action={<button className="inv-btn inv-btn-sm" onClick={() => onChange([...liste, { id: nouvelId(), type: "Prêt résidence principale", capital_restant: "", mensualite: "", taux: "", echeance: "", garantie: "" }])}><Icon as={Plus} size={12} />Ajouter</button>}>
+      aide="Les prêts des biens locatifs sont saisis sur chaque bien : ne les ressaisissez pas ici. Ici : consommation, auto, étudiant, professionnel, découvert, dette familiale, caution."
+      action={<button className="inv-btn inv-btn-sm" onClick={() => onChange([...liste, { id: nouvelId(), type: "Crédit consommation", capital_restant: "", mensualite: "", taux: "", echeance: "", garantie: "" }])}><Icon as={Plus} size={12} />Ajouter</button>}>
       {liste.length === 0 && <div style={{ color: T.textMuted, fontSize: FONT.sm.size }}>Aucune autre dette renseignée.</div>}
       {liste.map((d, i) => (
         <div key={d.id || i} style={{ ...GRILLE, gridTemplateColumns: "190px 130px 120px 90px 130px minmax(0,1fr) auto", alignItems: "end", padding: "6px 0" }}>
-          <Liste T={T} label="Type" value={d.type} onChange={(v) => maj(i, { type: v })} options={["Prêt résidence principale", "Prêt étudiant", "Crédit auto", "Crédit consommation", "Prêt professionnel", "Découvert", "Dette familiale", "Caution personnelle", "Autre"]} />
+          <Liste T={T} label="Type" value={d.type} onChange={(v) => maj(i, { type: v })} options={["Prêt étudiant", "Crédit auto", "Crédit consommation", "Prêt professionnel", "Découvert", "Dette familiale", "Caution personnelle", "Autre"]} />
           <Saisie T={T} label="Capital restant (€)" type="number" value={d.capital_restant} onChange={(v) => maj(i, { capital_restant: v })} />
           <Saisie T={T} label="Mensualité (€)" type="number" value={d.mensualite} onChange={(v) => maj(i, { mensualite: v })} />
           <Saisie T={T} label="Taux (%)" type="number" value={d.taux} onChange={(v) => maj(i, { taux: v })} />

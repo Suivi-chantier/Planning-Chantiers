@@ -81,6 +81,13 @@ test("11. recueil : objectifs chiffrés, charges avec épargne réelle et profil
   assert.equal(lib({}, "Profil investisseur").ok, false);
 });
 
+test("12. stratégies : un scénario chiffré exige au moins une opération avec prix et année", () => {
+  const pt = (d) => P.calculerParcours(d).etapes[3].points.find((x) => x.libelle.startsWith("Au moins un scénario chiffré"));
+  assert.equal(pt({}).ok, false);
+  assert.equal(pt({ scenarios_chiffres: [{ operations: [{ libelle: "x" }] }] }).ok, false);
+  assert.equal(pt({ scenarios_chiffres: [{ operations: [{ prix: "150000", annee: "2027" }] }] }).ok, true);
+});
+
 let echecs = 0;
 for (const [n, f] of cas) { try { await f(); console.log(`  ✓ ${n}`); } catch (e) { echecs++; console.log(`  ✗ ${n}\n      ${e.message}`); } }
 console.log(`\n${cas.length - echecs}/${cas.length} vérifications réussies`);
