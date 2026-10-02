@@ -3,13 +3,14 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS, SPACING } from "../constants";
 import { Icon } from "../ui";
 import AdresseInput from "../AdresseAutocomplete";
-import { THEMES_INV, SU, WA, DA, IN, KPICard, CompletionBar, readNavTarget } from "./_shared";
+import { THEMES_INV, SU, WA, DA, IN, KPICard, CompletionBar, readNavTarget, useAnnuaireInvest } from "./_shared";
+import { urbaRelancerConseiller, urbaRelanceMessageParDefaut, URBA_STATUTS_ATTENTE_CONSEILLER } from "./urbanismeRelance";
 import {
   FileText, Plus, Trash2, ArrowLeft, RefreshCw, Search, AlertTriangle, Check,
   CalendarClock, ClipboardList, ListChecks, Printer, Send, Building2, Landmark,
   Home, Ruler, Car, Camera, ChevronRight, ChevronDown, Info, Link as LinkIcon,
   MapPin, ShieldAlert, UserCheck, Clock, Layers,
-  Paperclip,
+  Paperclip, BellRing,
   Image as ImageIcon,
   X,
 } from "lucide-react";
@@ -191,6 +192,56 @@ const NOUVEAU_VIDE = () => ({
   date_max_depot:"",
 });
 
+function RelanceConseiller({ dossier, profil, annuaire, T = T_DEFAUT, onFermer }) {
+  const [message, setMessage] = useState(() => urbaRelanceMessageParDefaut(dossier, dossier.reste));
+  const [canaux, setCanaux] = useState({ notification:true, email:true });
+  const [envoi, setEnvoi] = useState(false);
+  const [issue, setIssue] = useState(null);
+  const conseiller = txt(dossier.commercial);
+  const peutEnvoyer = conseiller && (canaux.notification || canaux.email) && txt(message) && !envoi;
+
+  const envoyer = async () => {
+    setEnvoi(true);
+    const r = await urbaRelancerConseiller({ dossier, message, canaux, annuaire, profil });
+    setIssue(r);
+    setEnvoi(false);
+  };
+
+  return (
+    <div onClick={onFermer} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:1000,
+      display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:T.card, border:`1px solid ${T.border}`,
+        borderRadius:RADIUS.lg, padding:SPACING.lg, width:"100%", maxWidth:520 }}>
+        <div style={{ fontSize:FONT.h3?.size || 18, fontWeight:800, color:T.text }}>Relancer {conseiller || "le conseiller"}</div>
+        <div style={{ fontSize:FONT.sm.size + 1, color:T.textMuted, margin:"4px 0 12px" }}>Demande {dossier.reference}</div>
+        {!conseiller && <Bandeau level="danger" T={T}>Aucun conseiller n'est renseigné sur cette demande : ouvrez-la et complétez le « commercial demandeur ».</Bandeau>}
+        <textarea className="inv-inp" rows={5} value={message} onChange={e => setMessage(e.target.value)}
+          style={{ width:"100%", textAlign:"left", resize:"vertical" }}/>
+        <div style={{ display:"flex", gap:SPACING.lg, margin:"10px 0" }}>
+          <Chk label="Notification dans l'application" checked={canaux.notification} T={T}
+            onChange={v => setCanaux(c => ({ ...c, notification:v }))}/>
+          <Chk label="E-mail" checked={canaux.email} T={T} onChange={v => setCanaux(c => ({ ...c, email:v }))}/>
+        </div>
+        {issue && (
+          <div style={{ display:"grid", gap:6, marginBottom:10 }}>
+            {["notification", "email"].map(k => issue[k] && (
+              <Bandeau key={k} level={issue[k].ok ? "success" : "danger"} T={T}>{issue[k].message}</Bandeau>
+            ))}
+          </div>
+        )}
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <button className="inv-btn inv-btn-out" onClick={onFermer}>{issue ? "Fermer" : "Annuler"}</button>
+          {!issue && (
+            <button className="inv-btn inv-btn-accent" disabled={!peutEnvoyer} onClick={envoyer}>
+              <Icon as={BellRing} size={14}/>{envoi ? "Envoi…" : "Envoyer la relance"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ListeUrbanisme({ profil, T = T_DEFAUT, onOuvrir }) {
   const [rows, setRows] = useState(null);
   const [erreur, setErreur] = useState("");
@@ -202,6 +253,8 @@ function ListeUrbanisme({ profil, T = T_DEFAUT, onOuvrir }) {
   const [fCommercial, setFCommercial] = useState("");
   const [fAbf, setFAbf] = useState(false);
   const [memo, setMemo] = useState(false);
+  const [aRelancer, setARelancer] = useState(null);
+  const annuaire = useAnnuaireInvest();
 
   const recharger = useCallback(() => {
     listerDossiers()
@@ -318,6 +371,7 @@ function ListeUrbanisme({ profil, T = T_DEFAUT, onOuvrir }) {
       </div>
 
       {erreur && <div style={{ marginBottom:SPACING.lg }}><Bandeau level="danger" T={T}>{erreur}</Bandeau></div>}
+      {aRelancer && <RelanceConseiller dossier={aRelancer} profil={profil} annuaire={annuaire} T={T} onFermer={() => setARelancer(null)}/>}
 
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:SPACING.md, marginBottom:SPACING.lg }}>
         <KPICard label="Chez le commercial" value={stats.commercial} icon={ClipboardList} color={stats.commercial ? WA : SU} sub="Brouillons + retours pour pièces" onClick={() => setFStatut("commercial")}/>
@@ -470,7 +524,13 @@ function ListeUrbanisme({ profil, T = T_DEFAUT, onOuvrir }) {
                       </td>
                       <td style={{ ...cellule, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>{urbaFmtDate(r.date_fin_instruction)}</td>
                       <td style={cellule}><BadgeStatut statut={r.statut} T={T}/></td>
-                      <td style={{ ...cellule, textAlign:"right" }}>
+                      <td style={{ ...cellule, textAlign:"right", whiteSpace:"nowrap" }}>
+                        {(URBA_STATUTS_ATTENTE_CONSEILLER.includes(r.statut) || r.retard) && (
+                          <button className="inv-btn inv-btn-sm inv-btn-out" style={{ marginRight:6 }} title="Relancer le conseiller"
+                            onClick={e => { e.stopPropagation(); setARelancer(r); }}>
+                            <Icon as={BellRing} size={11}/> Relancer
+                          </button>
+                        )}
                         <button className="inv-btn inv-btn-sm inv-btn-danger" onClick={e => supprimer(r, e)}>
                           <Icon as={Trash2} size={11}/>
                         </button>

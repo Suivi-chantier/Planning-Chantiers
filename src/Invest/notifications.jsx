@@ -148,6 +148,7 @@ function cibleDe(n) {
     case "bien":     return NAV.ficheBien(id);
     case "prospect": return NAV.ficheProspect(id);
     case "team":     return NAV.actionsClient(id, n.action_id);
+    case "urbanisme": return NAV.ficheUrbanisme(id);
     default:         return null;
   }
 }

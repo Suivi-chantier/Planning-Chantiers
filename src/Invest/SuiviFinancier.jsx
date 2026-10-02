@@ -1307,6 +1307,25 @@ const finPeriodLabel = (type = "all", value = "all") => {
   if (type === "year") return FIN_PERIOD_OPTIONS.years.find(o => o.value === String(value))?.label || "Année sélectionnée";
   return "Toute la période";
 };
+const FIN_MOIS_NOMS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+// Année de bilan : l'exercice est identifié par l'année où il se termine.
+// moisCloture = mois (1-12) de la dernière période de l'exercice (12 = année civile).
+const finExerciceFin = (meta, moisCloture) => (meta.month <= moisCloture ? meta.year : meta.year + 1);
+const finExerciceOptions = (moisCloture) => finUniquePeriodOptions(
+  FIN_MONTH_META, m => String(finExerciceFin(m, moisCloture)),
+  m => `Exercice clos ${FIN_MOIS_NOMS[moisCloture - 1].toLowerCase()} ${finExerciceFin(m, moisCloture)}`,
+);
+const finIndicesExercice = (fin, moisCloture) => FIN_MONTH_META.filter(m => String(finExerciceFin(m, moisCloture)) === String(fin)).map(m => m.index);
+const finSelectionLabel = (indices) => {
+  const sel = [...(indices || [])].sort((a, b) => a - b);
+  if (!sel.length) return "Aucun mois sélectionné";
+  if (sel.length === FIN_ALL_MONTH_INDICES.length) return "Toute la période";
+  if (sel.length === 1) return SUIVI_FIN_MONTHS[sel[0]];
+  const contigu = sel.every((v, i) => i === 0 || v === sel[i - 1] + 1);
+  return contigu
+    ? `${SUIVI_FIN_MONTHS[sel[0]]} → ${SUIVI_FIN_MONTHS[sel[sel.length - 1]]} (${sel.length} mois)`
+    : `${sel.length} mois sélectionnés`;
+};
 const finSumForIndices = (arr, indices = FIN_ALL_MONTH_INDICES) => finSum((indices || []).map(i => arr?.[i] ?? 0));
 const finValuesForIndices = (arr, indices = FIN_ALL_MONTH_INDICES) => (indices || []).map(i => arr?.[i] ?? 0);
 const finSafeFilePart = (value) => String(value || "periode")
@@ -1674,8 +1693,7 @@ function SuiviTvaAutoTable({ rows, T, validatedMonths=null, visibleMonthIndices=
 function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
   const [data, setData] = useState(() => cloneSuiviFinancier());
   const [tab, setTab] = useState("synthese");
-  const [periodType, setPeriodType] = useState("all");
-  const [periodValue, setPeriodValue] = useState("all");
+  const [selectedMonthIndices, setSelectedMonthIndices] = useState(FIN_ALL_MONTH_INDICES);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1683,8 +1701,8 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
   const saveRef = useRef(null);
   const calc = calcSuiviFinancier(data);
   const params = data.params || {};
-  const selectedMonthIndices = useMemo(() => finPeriodIndices(periodType, periodValue), [periodType, periodValue]);
-  const selectedPeriodLabel = useMemo(() => finPeriodLabel(periodType, periodValue), [periodType, periodValue]);
+  const moisCloture = Math.min(12, Math.max(1, Math.round(finNum(params.moisClotureExercice)) || 12));
+  const selectedPeriodLabel = useMemo(() => finSelectionLabel(selectedMonthIndices), [selectedMonthIndices]);
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
@@ -1745,10 +1763,16 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
     setData(next); scheduleSave(next);
   };
 
-  const handlePeriodTypeChange = (value) => {
-    setPeriodType(value);
-    setPeriodValue(finDefaultPeriodValue(value));
-  };
+  const toggleMonth = (i) => setSelectedMonthIndices(prev => {
+    if (!prev.includes(i)) return [...prev, i].sort((a, b) => a - b);
+    return prev.length > 1 ? prev.filter(v => v !== i) : prev; // on garde au moins un mois
+  });
+  const setPreset = (indices) => setSelectedMonthIndices(indices.length ? indices : FIN_ALL_MONTH_INDICES);
+  const toggleGroup = (indices) => setSelectedMonthIndices(prev => {
+    const toutes = indices.every(i => prev.includes(i));
+    const next = toutes ? prev.filter(i => !indices.includes(i)) : [...new Set([...prev, ...indices])];
+    return next.length ? next.sort((a, b) => a - b) : prev;
+  });
 
   const toggleDecaissementValidation = (monthIdx) => {
     const next = JSON.parse(JSON.stringify(data));
@@ -1810,44 +1834,82 @@ function SuiviFinancier({ profil, T=THEMES_INV.dark }) {
   const tauxMargePeriode = finPct(periodSum(calc.margeBrute), totalCA);
   const tauxRNPeriode = finPct(totalRN, totalCA);
   const lastPeriodIndex = selectedMonthIndices[selectedMonthIndices.length - 1] ?? SUIVI_FIN_MONTHS.length - 1;
-  const tresoFinPeriode = periodType === "all" ? finLastNonZero(calc.treso) : finNum(calc.treso?.[lastPeriodIndex]);
+  const tresoFinPeriode = selectedMonthIndices.length === FIN_ALL_MONTH_INDICES.length ? finLastNonZero(calc.treso) : finNum(calc.treso?.[lastPeriodIndex]);
   const objectifCA = finNum(params.objectifCA || 100000);
   const objectifTreso = finNum(params.objectifTreso || 30000);
   const tauxEncaissementProjete = finPct(totalCA, totalCAProjete);
 
-  const periodOptionsForType = periodType === "month" ? FIN_PERIOD_OPTIONS.months : periodType === "quarter" ? FIN_PERIOD_OPTIONS.quarters : periodType === "year" ? FIN_PERIOD_OPTIONS.years : [];
 
+  const nowMeta = FIN_MONTH_META.find(m => m.index === finMonthIndexFromDate(new Date())) || FIN_MONTH_META[0];
+  const exercices = finExerciceOptions(moisCloture);
+  const chip = (actif) => ({ justifyContent:"center", background:actif ? T.accentBg : T.input, color:actif ? T.accent : T.textSub, border:`1px solid ${actif ? T.accentBorder : T.border}`, fontWeight:actif ? 800 : 600 });
+  const labelStyle = { fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, fontWeight:800, display:"block", marginBottom:5 };
   const PeriodFilterCard = () => (
     <div className="inv-card" style={{ marginBottom:SPACING.lg }}>
       <div className="inv-card-hd" style={{ justifyContent:"space-between", gap:SPACING.md, flexWrap:"wrap" }}>
         <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Icon as={Filter} size={13}/> Période d'analyse</span>
         <span style={{ fontSize:FONT.xs.size, color:T.textMuted }}>Les KPI, la synthèse, les tableaux et l'export suivent ce filtre.</span>
       </div>
-      <div className="inv-card-bd" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md, alignItems:"end" }}>
+      <div className="inv-card-bd" style={{ display:"grid", gap:SPACING.md }}>
         <div>
-          <label style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, fontWeight:800, display:"block", marginBottom:5 }}>Vue</label>
-          <select className="inv-sel" value={periodType} onChange={e=>handlePeriodTypeChange(e.target.value)} style={{ width:"100%" }}>
-            <option value="all">Toute la période</option>
-            <option value="month">Par mois</option>
-            <option value="quarter">Par trimestre</option>
-            <option value="year">Par année</option>
-          </select>
-        </div>
-        {periodType !== "all" && (
-          <div>
-            <label style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.2, fontWeight:800, display:"block", marginBottom:5 }}>Période</label>
-            <select className="inv-sel" value={periodValue} onChange={e=>setPeriodValue(e.target.value)} style={{ width:"100%" }}>
-              {periodOptionsForType.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+          <label style={labelStyle}>Raccourcis</label>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            <button className="inv-btn inv-btn-sm" style={chip(selectedMonthIndices.length === FIN_ALL_MONTH_INDICES.length)} onClick={() => setPreset(FIN_ALL_MONTH_INDICES)}>Tout</button>
+            <button className="inv-btn inv-btn-sm" style={chip(selectedMonthIndices.length === 1 && selectedMonthIndices[0] === nowMeta.index)} onClick={() => setPreset([nowMeta.index])}>Mois en cours</button>
+            <button className="inv-btn inv-btn-sm" style={chip(false)} onClick={() => setPreset(FIN_MONTH_META.filter(m => m.quarterKey === nowMeta.quarterKey).map(m => m.index))}>Trimestre en cours</button>
+            <button className="inv-btn inv-btn-sm" style={chip(false)} onClick={() => setPreset(finIndicesExercice(finExerciceFin(nowMeta, moisCloture), moisCloture))}>Exercice en cours</button>
+            <button className="inv-btn inv-btn-sm" style={chip(false)} onClick={() => setPreset(FIN_MONTH_META.filter(m => m.index <= nowMeta.index && finExerciceFin(m, moisCloture) === finExerciceFin(nowMeta, moisCloture)).map(m => m.index))}>Début d'exercice à ce jour</button>
           </div>
-        )}
-        <div style={{ padding:"10px 12px", borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}` }}>
-          <div style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:800 }}>Période active</div>
-          <div style={{ color:T.accent, fontWeight:900, marginTop:3 }}>{selectedPeriodLabel}</div>
         </div>
-        <div style={{ padding:"10px 12px", borderRadius:RADIUS.md, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.25)" }}>
-          <div style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:800 }}>CA projeté période</div>
-          <div style={{ color:WA, fontWeight:900, marginTop:3 }}>{finEur(totalCAProjete)}</div>
+        <div>
+          <label style={labelStyle}>Mois (clique pour sélectionner / désélectionner)</label>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(78px,1fr))", gap:6 }}>
+            {FIN_MONTH_META.map(m => (
+              <button key={m.index} className="inv-btn inv-btn-sm" style={chip(selectedMonthIndices.includes(m.index))} onClick={() => toggleMonth(m.index)}>{m.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:SPACING.md }}>
+          <div>
+            <label style={labelStyle}>Trimestres</label>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {FIN_PERIOD_OPTIONS.quarters.map(q => {
+                const idx = FIN_MONTH_META.filter(m => m.quarterKey === q.value).map(m => m.index);
+                return <button key={q.value} className="inv-btn inv-btn-sm" style={chip(idx.every(i => selectedMonthIndices.includes(i)))} onClick={() => toggleGroup(idx)}>{q.label}</button>;
+              })}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Années civiles</label>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+              {FIN_PERIOD_OPTIONS.years.map(y => {
+                const idx = finPeriodIndices("year", y.value);
+                return <button key={y.value} className="inv-btn inv-btn-sm" style={chip(idx.every(i => selectedMonthIndices.includes(i)))} onClick={() => toggleGroup(idx)}>{y.label}</button>;
+              })}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Années de bilan (clôture en {FIN_MOIS_NOMS[moisCloture - 1].toLowerCase()})</label>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, alignItems:"center" }}>
+              {exercices.map(ex => {
+                const idx = finIndicesExercice(ex.value, moisCloture);
+                return <button key={ex.value} className="inv-btn inv-btn-sm" style={chip(idx.every(i => selectedMonthIndices.includes(i)))} onClick={() => toggleGroup(idx)}>Bilan {ex.value}</button>;
+              })}
+              <select className="inv-sel" value={moisCloture} onChange={e => updateParam("moisClotureExercice", e.target.value)} title="Mois de clôture de l'exercice comptable">
+                {FIN_MOIS_NOMS.map((n, i) => <option key={n} value={i + 1}>Clôture : {n}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))", gap:SPACING.md }}>
+          <div style={{ padding:"10px 12px", borderRadius:RADIUS.md, background:T.accentBg, border:`1px solid ${T.accentBorder}` }}>
+            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:800 }}>Période active</div>
+            <div style={{ color:T.accent, fontWeight:900, marginTop:3 }}>{selectedPeriodLabel}</div>
+          </div>
+          <div style={{ padding:"10px 12px", borderRadius:RADIUS.md, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.25)" }}>
+            <div style={{ fontSize:FONT.xs.size, color:T.textMuted, textTransform:"uppercase", letterSpacing:1.1, fontWeight:800 }}>CA projeté période</div>
+            <div style={{ color:WA, fontWeight:900, marginTop:3 }}>{finEur(totalCAProjete)}</div>
+          </div>
         </div>
       </div>
     </div>
