@@ -120,10 +120,14 @@ test("12. composant : en cas d'erreur la saisie est conservée ; un seul scénar
   assert.match(COMP, /scenarios\.length < MAX_SCENARIOS/); assert.equal(S.MAX_SCENARIOS, 4);
   assert.match(COMP, /update\(\{ recommande: false \}\)\.eq\("dossier_id", dossier\.id\)/, "libère l'ancien recommandé avant d'écrire");
 });
+test("12bis. cartes à champs : les champs restent dans leur carte (pas de débordement sur la carte voisine)", () => {
+  assert.match(COMP, /\.mod-carte input,\.mod-carte select,\.mod-carte textarea\{width:100%;min-width:0;box-sizing:border-box\}/);
+  assert.match(COMP, /className="mod-carte"/);
+});
 test("13. composants stables et fiche Mission : l'onglet Stratégie affiche le composant ; seuls Financement et Acquisition sont « en préparation »", () => {
   assert.ok(COMP.indexOf("function Carte({ T,") < COMP.indexOf("export default function StrategieMission") && !/const (Carte|Chiffre) = \(/.test(COMP));
   assert.match(FICHE, /\{onglet === "strategie" && <StrategieMission T=\{T\} fiche=\{fiche\} client=\{client\} dossier=\{fiche\.dossier\} profil=\{profil\} modifiable=\{fiche\.modifiable\} onOnglet=\{setOnglet\} \/>\}/);
-  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["financement", "acquisition"]);
+  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["acquisition"]);
 });
 
 console.log(`\n${n}/${total} contrôles conformes`);

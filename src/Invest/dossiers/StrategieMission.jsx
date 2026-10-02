@@ -158,6 +158,7 @@ export default function StrategieMission({ T, fiche, client, dossier, profil, mo
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <style>{`.mod-carte input,.mod-carte select,.mod-carte textarea{width:100%;min-width:0;box-sizing:border-box}`}</style>
       {message && <div style={{ fontSize: 12.5, padding: "8px 12px", borderRadius: 10, background: T.accentBg, color: T.text }}>{message}</div>}
       {erreur && <div style={{ fontSize: 12.5, color: ROUGE }}>{erreur}</div>}
       {lecture && <div style={{ fontSize: 12.5, color: ROUGE }}>Lecture incomplète : {lecture}.</div>}
@@ -215,11 +216,11 @@ export default function StrategieMission({ T, fiche, client, dossier, profil, mo
       {actif("scenarios") && (
         <Carte T={T} titre={`Scénarios comparés · ${scenarios.length}`} droite={peutEditer && scenarios.length < MAX_SCENARIOS && <button className="inv-btn inv-btn-sm" onClick={ajouterScenario}>＋ Ajouter un scénario</button>}>
           {scenarios.length === 0 ? <div style={{ fontSize: 13, color: T.textMuted }}>Aucun scénario. Comparez 2 à 4 options (par exemple : acheter ancien et rénover, acheter neuf, acheter en SCI…).</div> : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(310px,1fr))", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 12 }}>
               {scenarios.map((s, i) => {
                 const ind = indicateurs[s.id];
                 return (
-                  <div key={s.id} style={{ border: `${s.recommande ? 2 : 1}px solid ${s.recommande ? VERT : T.border}`, borderRadius: 14, padding: 12, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+                  <div key={s.id} className="mod-carte" style={{ border: `${s.recommande ? 2 : 1}px solid ${s.recommande ? VERT : T.border}`, borderRadius: 14, padding: 12, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, fontWeight: 900, color: T.textMuted }}>#{i + 1}</span>
                       <input className="inv-inp" style={{ textAlign: "left", flex: 1, fontWeight: 800 }} placeholder="Intitulé du scénario" aria-label="Intitulé du scénario" value={s.libelle} disabled={!peutEditer} onChange={(e) => majScenario(s.id, { libelle: e.target.value })} />

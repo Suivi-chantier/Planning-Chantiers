@@ -1,0 +1,34 @@
+name: Verify Financement de mission Invest (dossier, plan de financement, banques)
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261002130000_invest_dossier_financements.sql'
+      - 'sql/202610_invest_dossier_financements_rollback.sql'
+      - 'src/Invest/dossiers/FinancementMission.jsx'
+      - 'src/Invest/dossiers/calculFinancement.mjs'
+      - 'src/Invest/dossiers/calculStrategie.mjs'
+      - 'src/Invest/dossiers/FicheDossier.jsx'
+      - 'src/Invest/dossiers/ficheDossierVue.mjs'
+      - 'scripts/lib/banc-invest.mjs'
+      - 'scripts/verif-invest-financement-mission.mjs'
+      - 'scripts/verif-invest-financement-ecran.mjs'
+      - '.github/workflows/verify-invest-financement-mission.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: PostgreSQL embarqué (PGlite, sans modifier package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Base — scénario de la mission, banque retenue, 12 banques au plus, accès CRM seulement
+        run: node scripts/verif-invest-financement-mission.mjs
+      - name: Écran — plan de financement, prêts retenus, alertes sur les offres, dossier du client
+        run: node scripts/verif-invest-financement-ecran.mjs
