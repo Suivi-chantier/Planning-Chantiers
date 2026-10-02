@@ -22,6 +22,7 @@ import ProjetSituationCard from "./ProjetSituationCard";
 import DocumentsMission from "./DocumentsMission";
 import AnalyseMission from "./AnalyseMission";
 import StrategieMission from "./StrategieMission";
+import FinancementMission from "./FinancementMission";
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
 const COULEUR_ETAPE = { a_venir: "#94a3b8", en_cours: "#2563eb", en_attente: "#d97706", bloquee: "#dc2626", terminee: "#16a34a", non_applicable: "#cbd5e1" };
@@ -197,6 +198,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
       {onglet === "documents" && <DocumentsMission T={T} client={client} dossier={fiche.dossier} profil={profil} modifiable={fiche.modifiable} onRestitution={() => setGeste("restitution")} />}
       {onglet === "analyse" && <AnalyseMission T={T} fiche={fiche} client={client} dossier={fiche.dossier} profil={profil} modifiable={fiche.modifiable} onOuvrirEtape={setPanneau} onOnglet={setOnglet} />}
       {onglet === "strategie" && <StrategieMission T={T} fiche={fiche} client={client} dossier={fiche.dossier} profil={profil} modifiable={fiche.modifiable} onOnglet={setOnglet} />}
+      {onglet === "financement" && <FinancementMission T={T} fiche={fiche} client={client} dossier={fiche.dossier} profil={profil} modifiable={fiche.modifiable} onOnglet={setOnglet} />}
       {onglet === "opportunites" && <Opportunites T={T} fiche={fiche} propositions={donnees.propositions} onOuvrirEtape={setPanneau} />}
       {ONGLETS_FICHE.find((o) => o.cle === onglet)?.enPreparation && <EnPreparation T={T} onglet={ONGLETS_FICHE.find((o) => o.cle === onglet)} fiche={fiche} onOuvrirEtape={setPanneau} />}
 

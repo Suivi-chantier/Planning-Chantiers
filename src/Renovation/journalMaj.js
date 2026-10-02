@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-02",
     type: "nouveaute",
+    titre: "Missions Invest : l'onglet Financement (dossier, plan de financement, banques consultées)",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Pour chaque mission, vous suivez le dossier de financement (avancement, pièces obligatoires reçues du client, conditions générales), le plan de financement du scénario retenu (ce qu'il faut payer contre ce qui finance, avec l'écart) et les banques consultées (statut, montants, taux, durée, assurance, frais, garantie, conditions, dates). Les prêts retenus donnent la mensualité totale, comparée à la capacité du client.",
+    comment: "Dans la fiche de la mission, onglet Financement. Le plan reprend le scénario recommandé dans la Stratégie (vous pouvez en choisir un autre) et se complète des banques que vous cochez « Retenue » : une banque ne peut être retenue qu'avec un accord de principe ou une offre, et un montant accordé. Vous pouvez ajouter des lignes libres (subvention, prêt familial, mobilier). L'écran signale une offre qui expire bientôt ou expirée, et un dossier déposé sans réponse depuis trois semaines. « Transmis aux banques » se marque d'un geste explicite avec sa date. Les chiffres sont indicatifs ; « non évaluable » signale une donnée manquante.",
+  },
+  {
+    date: "2026-10-02",
+    type: "nouveaute",
     titre: "Missions Invest : l'onglet Stratégie (scénarios comparés, blocs au choix selon le client)",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "Pour chaque mission, vous construisez la démonstration de la stratégie avec les seuls blocs utiles à ce client : objectifs, point de départ chiffré, scénarios comparés (jusqu'à 4), cadre fiscal et juridique, risques, feuille de route, recommandation. Les scénarios affichent mensualité, rendement, cash-flow et effort d'épargne, et disent s'ils tiennent dans la capacité du client.",

@@ -98,7 +98,7 @@ test("12. composants stables : Carte hors du composant principal (le curseur ne 
 test("13. fiche Mission : l'onglet Documents affiche le composant, n'est plus « en préparation », les autres modules le restent", () => {
   assert.match(FICHE, /\{onglet === "documents" && <DocumentsMission T=\{T\} client=\{client\} dossier=\{fiche\.dossier\} profil=\{profil\} modifiable=\{fiche\.modifiable\} onRestitution=\{\(\) => setGeste\("restitution"\)\} \/>\}/);
   assert.equal(ONGLETS_FICHE.find((o) => o.cle === "documents").enPreparation, undefined);
-  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["financement", "acquisition"]);
+  assert.deepEqual(ONGLETS_FICHE.filter((o) => o.enPreparation).map((o) => o.cle), ["acquisition"]);
 });
 
 console.log(`\n${n}/${total} contrôles conformes`);
