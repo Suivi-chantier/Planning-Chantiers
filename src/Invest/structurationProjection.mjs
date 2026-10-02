@@ -41,7 +41,7 @@ export const HYPOTHESES_GLOBALES_PAR_DEFAUT = Object.freeze({
   tauxCredit: 3.6, assuranceEmprunteur: 0.30, chargesOperationPct: 25, dureeResiduelleRP: 15, horizon: 20,
 });
 
-function hypothesesDe(cas, surcharges = {}) {
+export function hypothesesDe(cas, surcharges = {}) {
   const base = HYPOTHESES_CAS_PAR_DEFAUT[cas] || HYPOTHESES_CAS_PAR_DEFAUT.central;
   const cle = surcharges.parCas?.[cas] || {};
   const h = { ...base };
@@ -52,7 +52,7 @@ function hypothesesDe(cas, surcharges = {}) {
 }
 
 /** Amortit un prêt sur 12 mois. Renvoie l'état fin d'année. */
-function amortirAnnee(pret) {
+export function amortirAnnee(pret) {
   let { crd } = pret, interets = 0, capital = 0, paye = 0;
   if (!(crd > 0) || !(pret.mensualite > 0)) return { crd: Math.max(0, crd), interets, capital, paye };
   const r = (pret.taux || 0) / 100 / 12;
