@@ -19,6 +19,7 @@ import { construireFiche, ONGLETS_FICHE } from "./ficheDossierVue";
 import { PanneauEtape, DemarrerMission } from "./DossierInvestCard";
 import SituationPatrimonialeCard from "./SituationPatrimonialeCard";
 import ProjetSituationCard from "./ProjetSituationCard";
+import DocumentsMission from "./DocumentsMission";
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
 const COULEUR_ETAPE = { a_venir: "#94a3b8", en_cours: "#2563eb", en_attente: "#d97706", bloquee: "#dc2626", terminee: "#16a34a", non_applicable: "#cbd5e1" };
@@ -191,6 +192,7 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
       {onglet === "ensemble" && <VueEnsemble T={T} fiche={fiche} onGeste={setGeste} onOnglet={setOnglet} onOuvrirEtape={setPanneau} utilisateurs={donnees.utilisateurs} profil={profil} client={client} onTacheCreee={(txt) => { setMessage(txt); rafraichir(); }} />}
       {onglet === "projet" && <Carte T={T}><ProjetSituationCard T={T} dossierId={fiche.dossier.id} dossierEnCoursId={fiche.dossierEnCours?.id ?? null} integre /></Carte>}
       {onglet === "situation" && <Carte T={T}><SituationPatrimonialeCard client={client} T={T} dossierEnCoursId={fiche.dossierEnCours?.id ?? null} dossierReference={fiche.dossierEnCours?.reference ?? null} integre /></Carte>}
+      {onglet === "documents" && <DocumentsMission T={T} client={client} dossier={fiche.dossier} profil={profil} modifiable={fiche.modifiable} onRestitution={() => setGeste("restitution")} />}
       {onglet === "opportunites" && <Opportunites T={T} fiche={fiche} propositions={donnees.propositions} onOuvrirEtape={setPanneau} />}
       {ONGLETS_FICHE.find((o) => o.cle === onglet)?.enPreparation && <EnPreparation T={T} onglet={ONGLETS_FICHE.find((o) => o.cle === onglet)} fiche={fiche} onOuvrirEtape={setPanneau} />}
 
