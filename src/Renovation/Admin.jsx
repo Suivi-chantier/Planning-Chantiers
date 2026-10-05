@@ -247,6 +247,11 @@ function OngletUtilisateurs({ T, acc }) {
   // Bascule : afficher un bandeau "connectez-vous" sur le formulaire public.
   const [espaceActif, setEspaceActif] = useState(false);
   const [bascLoading, setBascLoading] = useState(false);
+  // Fonctionnalités bêta de l'espace ouvrier : planning_config/fonctionnalites_beta,
+  // { code: [prénoms-planning] }. Lu et écrit par le bureau seulement ;
+  // l'ouvrier ne lit que SES codes via la RPC mes_fonctionnalites_beta.
+  const [betaConfig, setBetaConfig]   = useState({});
+  const [betaLoading, setBetaLoading] = useState(null); // prénom en cours d'enregistrement
   // Aperçu "vue collaborateur"
   const [previewSel, setPreviewSel]       = useState("");
   const [previewOuvrier, setPreviewOuvrier] = useState(null);
@@ -312,7 +317,32 @@ function OngletUtilisateurs({ T, acc }) {
       .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setOuvriersConfig(data.value); });
     supabase.from("planning_config").select("value").eq("key", "espace_ouvrier_actif").maybeSingle()
       .then(({ data }) => setEspaceActif(data?.value === true));
+    supabase.from("planning_config").select("value").eq("key", "fonctionnalites_beta").maybeSingle()
+      .then(({ data }) => setBetaConfig(data?.value && typeof data.value === "object" && !Array.isArray(data.value) ? data.value : {}));
   }, []);
+
+  // Coche / décoche une fonctionnalité bêta pour un prénom-planning. On relit
+  // la clé juste avant d'écrire pour ne pas écraser une modification faite
+  // entre-temps (autre code bêta, autre ouvrier).
+  const toggleBeta = async (code, prenom) => {
+    if (!prenom) return;
+    setBetaLoading(prenom);
+    const { data: frais, error: errLecture } = await supabase.from("planning_config")
+      .select("value").eq("key", "fonctionnalites_beta").maybeSingle();
+    if (errLecture) { setBetaLoading(null); flash("err", "Erreur : " + errLecture.message); return; }
+    const base = frais?.value && typeof frais.value === "object" && !Array.isArray(frais.value) ? frais.value : {};
+    const liste = Array.isArray(base[code]) ? base[code] : [];
+    const actif = liste.includes(prenom);
+    const next = { ...base, [code]: actif ? liste.filter(p => p !== prenom) : [...liste, prenom] };
+    const { error } = await supabase.from("planning_config")
+      .upsert({ key: "fonctionnalites_beta", value: next }, { onConflict: "key" });
+    setBetaLoading(null);
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    setBetaConfig(next);
+    flash("ok", actif
+      ? `${prenom} ne voit plus l'onglet bêta « Phases ».`
+      : `${prenom} voit désormais l'onglet bêta « Phases » (à sa prochaine ouverture de l'espace ouvrier).`);
+  };
 
   // Active/désactive le bandeau d'invitation sur le formulaire public.
   const toggleEspace = async () => {
@@ -847,6 +877,22 @@ function OngletUtilisateurs({ T, acc }) {
                         </span>
                       ))}
                     </div>
+                    {/* Bêta de l'espace ouvrier — un ouvrier relié au planning seulement */}
+                    {u.role === "ouvrier" && u.prenom_planning && (
+                      <label title="Onglet « Phases » de l'espace ouvrier : phasage du chantier, heures vendues, validées et en attente, sans aucun montant. Lecture seule."
+                        style={{
+                          display:"inline-flex", alignItems:"center", gap:7, marginTop:8, cursor: betaLoading ? "wait" : "pointer",
+                          fontSize:12, fontWeight:700, color:T.textSub, userSelect:"none",
+                        }}>
+                        <input type="checkbox"
+                          checked={(betaConfig.mes_phases || []).includes(u.prenom_planning)}
+                          disabled={betaLoading === u.prenom_planning}
+                          onChange={() => toggleBeta("mes_phases", u.prenom_planning)}
+                          style={{ width:16, height:16, accentColor:"#FFC200", cursor:"inherit" }}/>
+                        Bêta : Mes phases
+                        <span style={{ fontWeight:500, color:T.textMuted }}>({u.prenom_planning})</span>
+                      </label>
+                    )}
                   </div>
 
                   {/* Actions */}

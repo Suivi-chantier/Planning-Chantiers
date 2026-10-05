@@ -19,8 +19,9 @@ export const CARD_SHADOW = "0 1px 2px rgba(16,24,40,0.04), 0 6px 18px rgba(16,24
 
 // ─── HERO ─────────────────────────────────────────────────────────────────────
 // eyebrow : petite ligne au-dessus (date, contexte) ; title : titre principal ;
-// right : élément à droite (météo, action…) ; chips : [{icon,value,label,color}].
-export function MobileHero({ eyebrow, title, right, chips, accent = "#FFC200", logo }) {
+// right : élément à droite (météo, action…) ; chips : [{icon,value,label,color}] ;
+// children : contenu facultatif sous le titre (ex. sélecteur de chantier).
+export function MobileHero({ eyebrow, title, right, chips, accent = "#FFC200", logo, children }) {
   return (
     <div style={{
       borderRadius: 18, padding: "17px 18px 18px", position: "relative", overflow: "hidden",
@@ -49,6 +50,7 @@ export function MobileHero({ eyebrow, title, right, chips, accent = "#FFC200", l
             ))}
           </div>
         )}
+        {children}
       </div>
     </div>
   );

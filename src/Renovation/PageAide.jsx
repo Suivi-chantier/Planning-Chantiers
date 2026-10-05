@@ -356,6 +356,7 @@ export const AIDE_CONTENU = {
     intro: "Le centre de configuration : collaborateurs et droits d'accès, ouvriers et taux horaires, lots de travaux, fournisseurs et modèles d'e-mails.",
     etapes: [
       "« Collaborateurs » : invitez des membres et donnez-leur un rôle et des accès.",
+      "« Collaborateurs » → case « Bêta : Mes phases » sur la fiche d'un ouvrier : lui ouvre l'onglet d'essai « Phases » de l'espace ouvrier (phasage et heures du chantier, sans montant). Vérifiez le rendu avec « Voir la vue d'un collaborateur ».",
       "« Ouvriers » / « Lots » : définissez les ressources de base (noms, taux horaires, catégories de travaux).",
       "« Fournisseurs » : listez vos fournisseurs et créez des modèles d'e-mail de commande.",
     ],
