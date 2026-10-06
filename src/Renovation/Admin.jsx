@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
 import AdresseInput from "../AdresseAutocomplete";
-import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, getISOWeek, libelleRythme } from "../rythmeSemaine";
+import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, HORAIRES_DATE_DEBUT, HORAIRES_JOUR, HORAIRES_VENDREDI_5J, getISOWeek, libelleRythme, fmtHeures } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
 import {
   Settings, Users, HardHat, Euro, Building2, Palette,
@@ -4926,15 +4926,18 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             Depuis le {new Date(RYTHME_DATE_DEBUT + "T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})},
             l'entreprise alterne une semaine sur deux selon le numéro de semaine du calendrier :
             {" "}<strong style={{color:T.text}}>semaines impaires → 4 jours</strong> (lundi à jeudi),
-            {" "}<strong style={{color:T.text}}>semaines paires → 5 jours</strong>. 39 h travaillées dans les deux cas —
-            c'est la cible exacte des comptes rendus de fin de journée (tâches + trajets + heures indirectes).
+            {" "}<strong style={{color:T.text}}>semaines paires → 5 jours</strong>.
+            Depuis le {new Date(HORAIRES_DATE_DEBUT + "T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})},
+            horaires {HORAIRES_JOUR} (le vendredi des semaines de 5 jours : {HORAIRES_VENDREDI_5J}) —
+            soit <strong style={{color:T.text}}>35 h</strong> en semaine de 4 jours et <strong style={{color:T.text}}>43 h</strong> en semaine de 5 jours.
+            C'est la cible exacte des comptes rendus de fin de journée (tâches + trajets + heures indirectes).
           </div>
 
           {/* Profils du rythme alterné (source : src/rythmeSemaine.js, lecture seule) */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:10,marginBottom:14}}>
             {[
-              { titre:"Semaines impaires — 4 jours", profil:PROFIL_4J, note:"vendredi non travaillé" },
-              { titre:"Semaines paires — 5 jours",   profil:PROFIL_5J, note:"" },
+              { titre:"Semaines impaires — 4 jours", profil:PROFIL_4J, note:`${HORAIRES_JOUR} · vendredi non travaillé` },
+              { titre:"Semaines paires — 5 jours",   profil:PROFIL_5J, note:`${HORAIRES_JOUR} · vendredi fin 16h15` },
             ].map(({titre, profil, note}) => {
               const cur = getISOWeek(new Date());
               const active = libelleRythme(cur.year, cur.week) !== "" &&
@@ -4964,14 +4967,14 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
                         }}>
                           <div style={{fontSize:FONT.xs.size-1,color:T.textMuted,fontWeight:700,letterSpacing:.8,textTransform:"uppercase"}}>{j.slice(0,3)}</div>
                           <div style={{fontSize:FONT.md.size,fontWeight:800,color:h > 0 ? acc.accent : T.textMuted,marginTop:2}}>
-                            {h > 0 ? `${h}h` : "repos"}
+                            {h > 0 ? fmtHeures(h) : "repos"}
                           </div>
                         </div>
                       );
                     })}
                   </div>
                   <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:8}}>
-                    Total : <strong style={{color:T.text}}>{JOURS.reduce((s,j) => s + (parseFloat(profil[j])||0), 0)}h</strong>
+                    Total : <strong style={{color:T.text}}>{fmtHeures(JOURS.reduce((s,j) => s + (parseFloat(profil[j])||0), 0))}</strong>
                     {note ? ` · ${note}` : ""}
                   </div>
                 </div>
