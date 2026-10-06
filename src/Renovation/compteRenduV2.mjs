@@ -27,6 +27,9 @@
 //   depassement        { tache_id, heures_vendues, heures_avant, heures_jour }
 //                      relevé figé à la saisie — la Validation ne l'affiche
 //                      que tant que la ligne n'a été ni réaffectée ni découpée.
+//   origine            "phasage" : tâche choisie dans le phasage (« J'ai fait
+//                      autre chose ») ; "libre" : tâche décrite en texte libre.
+//                      Absent sur les tâches venues du planning.
 // La « précision » est écrite dans le champ remarque existant.
 // ─────────────────────────────────────────────────────────────────────────────
 import { etatHeures } from "./mesPhasesV1.mjs";
@@ -34,6 +37,8 @@ import { CODE_MOTIF_AUTRE, explicationLigne } from "./motifsCompteRendu.mjs";
 import { serialiserLigneV1, totalJournee } from "./compteRenduEnvoi.mjs";
 
 export const FORMULAIRE_V2 = "v2";
+export const ORIGINE_PHASAGE = "phasage";
+export const ORIGINE_LIBRE = "libre";
 export const CODE_BETA_CR_V2 = "cr_v2";
 export const PAS_MINUTES = 15;
 
@@ -245,18 +250,64 @@ export function serialiserLigneV2(t) {
   if (t.motif_depassement) out.motif_depassement = t.motif_depassement;
   if (t.heures_prevues != null && t.heures_prevues !== "") out.heures_prevues = num(t.heures_prevues);
   if (t.motif_depassement && t.depassement) out.depassement = t.depassement;
+  // Tâche ajoutée par l'ouvrier : choisie dans le phasage, ou décrite en texte
+  // libre (une carte libre sans origine, d'un brouillon plus ancien, compte
+  // comme libre). Les tâches du planning ne portent pas ce champ.
+  const origine = t.origine === ORIGINE_PHASAGE ? ORIGINE_PHASAGE : (t.libre || t.origine === ORIGINE_LIBRE ? ORIGINE_LIBRE : null);
+  if (origine) out.origine = origine;
   return out;
 }
+
+// ── « J'ai fait autre chose » : une tâche choisie dans le phasage ──────────
+// Crée une carte IDENTIQUE à une tâche venue du planning : même tache_id,
+// phase_id vide (les lignes du planning n'en portent pas : la phase chrono
+// n'est pas la phase des rapports — la mettre changerait les pointages),
+// 0 h, aucun statut, avancement prérempli depuis le phasage. Seul ajout :
+// origine = "phasage".
+export function ligneDepuisPhasage(tache, chantier) {
+  return {
+    chantier_id: chantier?.id || "",
+    chantier_nom: chantier?.nom || chantier?.id || "",
+    chantier_couleur: chantier?.couleur || "#c8d8f0",
+    planifie: String(tache?.nom ?? "").trim() || "(sans nom)",
+    tache_id: tache?.id || null,
+    phase_id: null,
+    statut: null,
+    remarque: "",
+    heures_reelles: "",
+    avancement: String(Math.round(num(tache?.avancement))),
+    photos: [],
+    origine: ORIGINE_PHASAGE,
+  };
+}
+
+// Une tâche du phasage est-elle déjà dans la journée (planifiée ou ajoutée) ?
+export const tacheDejaDansJournee = (taches, tacheId) =>
+  !!tacheId && (taches || []).some(t => String(t.tache_id ?? "") === String(tacheId));
+
+// Ajoute la carte si la tâche n'y est pas déjà (jamais de doublon).
+export function ajouterDepuisPhasage(taches, tache, chantier) {
+  if (!tache?.id || tacheDejaDansJournee(taches, tache.id)) return taches;
+  return [...(taches || []), ligneDepuisPhasage(tache, chantier)];
+}
+
+// Une carte ajoutée par l'ouvrier (phasage ou texte libre) peut être retirée
+// avant l'envoi ; une tâche du planning, non.
+export const carteRetirable = (t) => !!t?.libre || t?.origine === ORIGINE_PHASAGE;
 
 // ── Brouillons (case décochée / cochée en cours de journée) ────────────────
 // Un brouillon v2 relu par l'ANCIEN formulaire : le motif devient du texte
 // dans la remarque (« Attente de matériel — précision »), rien n'est perdu ;
 // les champs propres au v2 sont retirés, l'ancien formulaire ne les connaît pas.
+// Une carte ajoutée depuis le phasage devient, dans l'ancien formulaire, une
+// tâche ajoutée (libre: true) : l'ouvrier peut encore la retirer, et elle
+// garde son tache_id (la Validation la rattache à sa tâche).
 export function brouillonV2VersV1(taches) {
   return (taches || []).map(t => {
-    const { bloque, motif, motif_depassement, depassement, ...reste } = t;
+    const { bloque, motif, motif_depassement, depassement, origine, ...reste } = t;
     const remarque = explicationLigne(t);
-    return motif ? { ...reste, remarque } : { ...reste };
+    const base = origine === ORIGINE_PHASAGE ? { ...reste, libre: true } : { ...reste };
+    return motif ? { ...base, remarque } : base;
   });
 }
 // Un brouillon de l'ancien formulaire relu par le v2 : la remarque devient la

@@ -1861,6 +1861,14 @@ function LigneEditable({
               Tâche libre
             </span>
           )}
+          {ligne.origine === "phasage" && (
+            <span title="Tâche non prévue au planning, choisie par l'ouvrier dans le phasage du chantier (nouveau compte rendu)" style={{
+              fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
+              background: "rgba(139,92,246,0.14)", color: "#7c3aed", textTransform: "uppercase", letterSpacing: .3,
+            }}>
+              Ajoutée par l'ouvrier
+            </span>
+          )}
           {ligne._autoMatched && (
             <span title={`Auto-détecté (similarité ${Math.round((ligne._autoMatchScore || 0) * 100)}%) — vérifie et corrige si besoin`} style={{
               fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,

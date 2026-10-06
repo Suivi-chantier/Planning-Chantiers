@@ -126,7 +126,10 @@ function HeuresVendues({ consommees, vendues, T, taille = 14 }) {
 }
 
 // ── Ligne de tâche ──────────────────────────────────────────────────────────
-function LigneTache({ t, prenom, T }) {
+// action : facultatif, (tâche) → élément affiché sous la ligne. Sert au panneau
+// « J'ai fait autre chose » du compte rendu (bouton Ajouter) ; l'onglet Phases
+// n'en passe pas et reste inchangé.
+function LigneTache({ t, prenom, T, action = null }) {
   const qui = libellePersonnes(t.ouvriers, prenom);
   const sous = [qui || "Personne n'est affecté", STATUTS[t.statut]];
   if (t.date_prevue) sous.push(`prévue ${jourCourt(t.date_prevue)}`);
@@ -153,6 +156,7 @@ function LigneTache({ t, prenom, T }) {
         <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>Heures de l'ancien suivi (avant le registre de pointage).</div>
       )}
       <LigneAttente validees={t.validees} attente={t.attente} miennes={t.miennes} T={T}/>
+      {action && action(t)}
     </div>
   );
 }
@@ -184,7 +188,9 @@ function BandeauOuvrage({ o, T }) {
 }
 
 // ── Carte de phase ──────────────────────────────────────────────────────────
-function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent }) {
+// Exportée pour le panneau « J'ai fait autre chose » du compte rendu (mêmes
+// données, mêmes calculs, même affichage). actionTache : voir LigneTache.
+export function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent, actionTache = null }) {
   const qui = libellePersonnes(p.personnes, prenom);
   return (
     <div style={{
@@ -242,7 +248,7 @@ function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent }) {
                   <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub, fontStyle: "italic" }}>
                     Aucune tâche dans cet ouvrage.
                   </div>
-                ) : o.taches.map(t => <LigneTache key={t.id} t={t} prenom={prenom} T={T}/>)}
+                ) : o.taches.map(t => <LigneTache key={t.id} t={t} prenom={prenom} T={T} action={actionTache}/>)}
               </div>
             ))}
           </div>

@@ -123,6 +123,11 @@ export default function TacheCarteV2({
       ) : (
         <div style={{ fontSize: 19, fontWeight: 800, color: T.text, lineHeight: 1.25 }}>{t.planifie}</div>
       )}
+      {t.origine === "phasage" && (
+        <div style={{ display: "inline-flex", marginTop: 4, fontSize: 12, fontWeight: 800, color: "#7c3aed", background: "rgba(139,92,246,0.12)", borderRadius: 999, padding: "3px 9px" }}>
+          Ajoutée à ta journée
+        </div>
+      )}
       {t.heures_prevues > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, color: T.textSub, marginTop: 3 }}>
           <Icon as={Hourglass} size={13}/> Prévu au planning : {fmtH(t.heures_prevues)}
@@ -285,7 +290,7 @@ export default function TacheCarteV2({
         </div>
       )}
 
-      {t.libre && onSupprimer && (
+      {onSupprimer && (
         <button onClick={onSupprimer} style={{
           marginTop: 10, minHeight: 44, padding: "0 14px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
           border: `1.5px solid ${T.dangerBd}`, background: T.dangerBg, color: T.danger, fontSize: 14, fontWeight: 700,

@@ -213,6 +213,7 @@ export const AIDE_CONTENU = {
       "Tant qu'un rapport n'est pas validé, ses heures ne comptent pas dans le coût du chantier.",
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
       "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h vendues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
+      "Une ligne marquée « Ajoutée par l'ouvrier » est une tâche non prévue au planning, choisie par l'ouvrier dans le phasage (« J'ai fait autre chose ») : elle est déjà rattachée à sa tâche et se valide comme les autres.",
     ],
   },
   "heures-salaries": {

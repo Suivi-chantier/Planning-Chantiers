@@ -22,6 +22,10 @@
 //   5. VALIDATION (B) : le relevé de dépassement disparaît dès que la ligne est
 //      réaffectée, découpée ou corrigée ; le motif de l'ouvrier reste.
 //   6. MESURE (C) : heures_prevues est gardé sur chaque ligne v2.
+//   7. « J'AI FAIT AUTRE CHOSE » (étape 3a) : une tâche choisie dans le phasage
+//      donne les mêmes pointages qu'une tâche planifiée ; pas de doublon ;
+//      retrait ; 2e chantier ; hors devis ; terminée ; repli texte libre ;
+//      brouillon repris et relu par l'ancien formulaire ; recherche.
 //
 //   node scripts/verif-compte-rendu-v2.mjs
 import assert from "node:assert/strict";
@@ -33,7 +37,9 @@ import {
   appliquerChoix, changerMinutes, minutesDe, serialiserLigneV2, finaliserLignesV2, etatEnvoi,
   problemesLigne, motifDepassementRequis, resteJournee, ajustementPossible, poserReste,
   brouillonV2VersV1, preremplirDurees, colonnesRapportV2, choixDeLigne, fmtMinutes, PAS_MINUTES,
+  ligneDepuisPhasage, ajouterDepuisPhasage, tacheDejaDansJournee, carteRetirable, ORIGINE_PHASAGE, ORIGINE_LIBRE,
 } from "../src/Renovation/compteRenduV2.mjs";
+import { construireMesPhases, rechercherDansPhases } from "../src/Renovation/mesPhasesV1.mjs";
 import {
   lignesDepuisRapport, taskLinesPourPointages, depassementAffichable, decouperLigne, ligneBasculee,
 } from "../src/Renovation/lignesValidation.mjs";
@@ -151,7 +157,7 @@ for (const j of journeesV1) {
   eq(nouveau, ancien.rapports, "ancien formulaire : mêmes rapports qu'avant l'extraction (champ par champ)");
   proche(totalJournee(j).totalH, ancien.totalSubmit, "total contrôlé à l'envoi identique");
   for (const r of ancien.rapports) {
-    const lignesNouv = lignesDepuisRapport(r).map(({ bloque, motif, motif_depassement, heures_prevues, depassement, ...rest }) => rest);
+    const lignesNouv = lignesDepuisRapport(r).map(({ bloque, motif, motif_depassement, heures_prevues, depassement, origine, ...rest }) => rest);
     eq(lignesNouv, ANCIEN_initValidation(r), "Validation : lignes d'un rapport de l'ancien formulaire inchangées");
     ok(lignesDepuisRapport(r).every(l => l.bloque === false && l.motif === null), "ligne v1 : ni Bloqué ni motif");
   }
@@ -349,5 +355,94 @@ eq(MOTIFS_DEPASSEMENT.map(m => m.code), ["imprevu", "demande_client", "support_d
 eq(libelleMotifStatut("code_inconnu"), "Motif « code_inconnu »", "code inconnu : reste visible");
 eq(explicationLigne({ remarque: "texte libre" }), "texte libre", "ligne de l'ancien formulaire : la remarque, inchangée");
 eq(choixDeLigne({ statut: "non_faite", bloque: true }), "bloque", "choix relu depuis les champs stockés");
+
+// ── 7. « J'AI FAIT AUTRE CHOSE » (étape 3a) ───────────────────────────────
+{
+  // Phasage fictif tel que le renvoie ouvrier_mes_phases.
+  const PAYLOAD = { modele: "v2", prenom: "Paul", phases: [
+    { id: "g1", nom: "Cloisons & doublage", ordre: 10, couleur: "#f59e0b", synthetique: false, ouvrages: [
+      { id: "o1", libelle: "Doublage murs", heures_vendues_ouvrage: 22, ouvrage_complet: true, taches: [
+        { id: "t2", nom: "Plaques", avancement: 40, heures_vendues: 16, heures_validees: 2, heures_en_attente: 0, ouvriers: ["Paul"], est_mienne: true, mes_heures: 0, hors_devis: false },
+        { id: "t9", nom: "Ossature terminée", avancement: 100, heures_vendues: 6, heures_validees: 6, heures_en_attente: 0, ouvriers: [], est_mienne: false, mes_heures: 0, hors_devis: false },
+      ] },
+      { id: "o2", libelle: "Électricité générale", heures_vendues_ouvrage: 8, ouvrage_complet: true, taches: [
+        { id: "t4", nom: "Saignées", avancement: 70, heures_vendues: 8, heures_validees: 7, heures_en_attente: 0.5, ouvriers: [], est_mienne: false, mes_heures: 0, hors_devis: false },
+      ] },
+    ] },
+    { id: "_a_organiser", nom: "À organiser", ordre: 999999, couleur: "#94a3b8", synthetique: true, ouvrages: [
+      { id: "o3", libelle: "Divers / hors devis", heures_vendues_ouvrage: 0, ouvrage_complet: true, taches: [
+        { id: "t6", nom: "Reprise imprévue", avancement: 0, heures_vendues: 0, heures_validees: 5, heures_en_attente: 0, ouvriers: [], est_mienne: false, mes_heures: 0, hors_devis: true },
+      ] },
+    ] },
+  ] };
+  const phasesP = construireMesPhases(PAYLOAD).phases;
+  const tacheP = (id) => phasesP.flatMap(p => p.ouvrages.flatMap(o => o.taches)).find(t => t.id === id);
+  const idsDe = (phases) => phases.flatMap(p => p.ouvrages.flatMap(o => o.taches.map(t => t.id)));
+  const chA = { id: "chA", nom: "Chantier A", couleur: "#f00" }, chB = { id: "chB", nom: "Chantier B", couleur: "#0f0" };
+
+  // Recherche (accents et casse ignorés ; ouvrage trouvé = toutes ses tâches)
+  eq(idsDe(rechercherDansPhases(phasesP, "plaq")), ["t2"], "recherche par nom de tâche");
+  eq(idsDe(rechercherDansPhases(phasesP, "ELECTRICITE")), ["t4"], "recherche par ouvrage, sans accent");
+  eq(idsDe(rechercherDansPhases(phasesP, "doublage")), ["t2", "t9"], "ouvrage trouvé : toutes ses tâches");
+  eq(rechercherDansPhases(phasesP, "zzz"), [], "aucun résultat");
+  eq(rechercherDansPhases(phasesP, "  ").length, phasesP.length, "recherche vide : tout");
+
+  // Carte créée = tâche planifiée + origine
+  const lig = ligneDepuisPhasage(tacheP("t2"), chA);
+  eq(lig, { chantier_id: "chA", chantier_nom: "Chantier A", chantier_couleur: "#f00", planifie: "Plaques", tache_id: "t2",
+    phase_id: null, statut: null, remarque: "", heures_reelles: "", avancement: "40", photos: [], origine: ORIGINE_PHASAGE },
+    "carte ajoutée : tache_id, phase_id vide (comme le planning), 0 h, aucun statut, avancement du phasage, origine");
+  eq(problemesLigne(lig, {}), ["statut"], "carte ajoutée : l'ouvrier doit choisir le statut");
+
+  // Mêmes pointages qu'une tâche planifiée avec les mêmes heures
+  const jourA = { trajetMatin: "30", trajetSoir: "30", heuresIndirectes: [] };
+  const remplir = (t) => ({ ...changerMinutes(appliquerChoix(t, "en_cours", { avancementActuel: 40 }), 180), avancement: "50" });
+  const planifiee = remplir({ ...CH_A, planifie: "Plaques", tache_id: "t2", phase_id: null, statut: null, remarque: "" });
+  const ajoutee = remplir(ajouterDepuisPhasage([], tacheP("t2"), chA)[0]);
+  const autre = { ...CH_A, planifie: "Pose", tache_id: "t1", statut: "faite", heures_reelles: "6", avancement: "100", remarque: "" };
+  const ptsPlan = pointagesJournee(construireRapports({ ...base, ...jourA, taches: [autre, planifiee], planData, serialiser: serialiserLigneV2 }));
+  const ptsAjout = pointagesJournee(construireRapports({ ...base, ...jourA, taches: [autre, ajoutee], planData, serialiser: serialiserLigneV2 }));
+  eq(ptsAjout, ptsPlan, "tâche ajoutée depuis le phasage : mêmes pointages qu'une tâche planifiée");
+  const serAjout = serialiserLigneV2(ajoutee);
+  eq([serAjout.origine, "origine" in serialiserLigneV2(planifiee)], [ORIGINE_PHASAGE, false], "origine écrite sur la ligne ajoutée seulement");
+  ok(!("origine" in serialiserLigneV1(ajoutee)), "ancien formulaire : aucune origine écrite (rapports v1 inchangés)");
+  eq(lignesDepuisRapport({ taches: [serAjout] })[0].origine, ORIGINE_PHASAGE, "Validation : repère « Ajoutée par l'ouvrier »");
+  eq(lignesDepuisRapport({ taches: [serAjout] })[0].tache_id, "t2", "Validation : ligne rattachée à sa tâche");
+
+  // Pas de doublon
+  let jourT = [planifiee];
+  ok(tacheDejaDansJournee(jourT, "t2"), "tâche planifiée : « Déjà dans ta journée »");
+  eq(ajouterDepuisPhasage(jourT, tacheP("t2"), chA), jourT, "ajout d'une tâche déjà planifiée : refusé");
+  jourT = ajouterDepuisPhasage(jourT, tacheP("t4"), chA);
+  eq(ajouterDepuisPhasage(jourT, tacheP("t4"), chA).length, 2, "deuxième ajout de la même tâche : refusé");
+  // Retrait
+  eq([carteRetirable(jourT[0]), carteRetirable(jourT[1]), carteRetirable({ libre: true })], [false, true, true], "seules les cartes ajoutées sont retirables");
+  // Deuxième chantier du jour
+  const surB = ajouterDepuisPhasage([planifiee], tacheP("t4"), chB);
+  const surBRemplie = [surB[0], { ...changerMinutes(appliquerChoix(surB[1], "en_cours", {}), 60), avancement: "75" }];
+  const rapB = construireRapports({ ...base, ...jourA, taches: surBRemplie, planData, serialiser: serialiserLigneV2 });
+  eq(rapB.map(r => [r.chantier_id, r.taches.map(l => l.tache_id)]), [["chA", ["t2"]], ["chB", ["t4"]]], "ajout sur un 2e chantier : un rapport de plus");
+  // Hors devis : ajoutable, ni jauge ni motif de dépassement
+  const hd = changerMinutes(appliquerChoix(ajouterDepuisPhasage([], tacheP("t6"), chA)[0], "en_cours", {}), 120);
+  ok(!motifDepassementRequis(tacheP("t6"), hd), "tâche hors devis ajoutée : aucun motif de dépassement");
+  // Terminée : ajoutable, avancement 100 prérempli
+  const term = ajouterDepuisPhasage([], tacheP("t9"), chA);
+  eq([term.length, term[0].avancement, tacheP("t9").statut], [1, "100", "terminee"], "tâche terminée : ajoutable, mention « Terminée »");
+  // Dépassement sur une tâche ajoutée : même règle que les tâches planifiées
+  const t4aj = changerMinutes(appliquerChoix(ajouterDepuisPhasage([], tacheP("t4"), chA)[0], "en_cours", {}), 120);
+  ok(motifDepassementRequis(tacheP("t4"), t4aj), "tâche ajoutée en dépassement : motif demandé");
+  // Repli en texte libre (fonction indisponible)
+  const libreL = { chantier_id: "chA", chantier_nom: "Chantier A", planifie: "Nettoyage du garage", statut: "faite", heures_reelles: "1", avancement: "100", remarque: "", libre: true, origine: ORIGINE_LIBRE };
+  eq(serialiserLigneV2(libreL).origine, ORIGINE_LIBRE, "texte libre : origine « libre »");
+  eq(serialiserLigneV2({ ...libreL, origine: undefined }).origine, ORIGINE_LIBRE, "carte libre d'un brouillon plus ancien : origine « libre »");
+  // Brouillon : repris tel quel (stockage JSON), puis relu par l'ancien formulaire
+  const brouillon = JSON.parse(JSON.stringify({ version: "v2", taches: [planifiee, ajoutee] }));
+  eq(brouillon.taches[1], ajoutee, "brouillon v2 : la carte ajoutée est reprise à l'identique");
+  const enV1 = brouillonV2VersV1(brouillon.taches);
+  eq([enV1[1].libre, enV1[1].tache_id, "origine" in enV1[1]], [true, "t2", false], "case décochée : la carte ajoutée devient une tâche ajoutée de l'ancien formulaire (retirable, rattachée)");
+  const cles = "avancement,heures_reelles,phase_id,photos,planifie,remarque,statut,tache_id";
+  eq(construireRapports({ ...base, ...jourA, taches: enV1, planData, serialiser: serialiserLigneV1 }).flatMap(r => r.taches).map(l => Object.keys(l).sort().join(",")),
+    [cles, cles], "ancien formulaire : lignes au format v1 strict, aucun champ v2");
+}
 
 console.log(`verif-compte-rendu-v2 : ${nbOk} contrôles OK (dont ${essais} journées « quart d'heure »)`);
