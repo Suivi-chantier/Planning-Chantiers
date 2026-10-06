@@ -185,10 +185,13 @@ revoke all on public.invest_portail_reponses from anon;
 grant select, update on public.invest_portail_reponses to authenticated;
 
 -- Les collaborateurs lisent et traitent (valider / refuser) ; personne n'insère ni ne supprime en direct.
+-- Comme les autres tables Invest : seuls les rôles qui voient le CRM ou la structuration (jamais un ouvrier).
 create policy invest_portail_reponses_collaborateurs on public.invest_portail_reponses
-  for select to authenticated using ((select public.est_collaborateur_actif()));
+  for select to authenticated using ((select public.invest_peut_voir('crm')) or (select public.invest_peut_voir('structuration')));
 create policy invest_portail_reponses_traitement on public.invest_portail_reponses
-  for update to authenticated using ((select public.est_collaborateur_actif())) with check ((select public.est_collaborateur_actif()));
+  for update to authenticated
+  using ((select public.invest_peut_voir('crm')) or (select public.invest_peut_voir('structuration')))
+  with check ((select public.invest_peut_voir('crm')) or (select public.invest_peut_voir('structuration')));
 create policy profero_collaborateurs_seulement on public.invest_portail_reponses
   as restrictive for all to authenticated
   using ((select public.est_collaborateur_actif()))

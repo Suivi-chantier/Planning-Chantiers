@@ -70,3 +70,7 @@ verify_jwt = true
 
 [functions.list-team-calendar-events]
 verify_jwt = true
+
+# ── Portail client : dépôt de pièces (le client est identifié par son jeton, dans le code) ──
+[functions.portail-depot-document]
+verify_jwt = true

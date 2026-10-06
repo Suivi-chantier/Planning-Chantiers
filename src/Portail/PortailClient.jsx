@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import MonDossier from "./MonDossier";
+import MesPieces from "./MesPieces";
 import {
   POPULATION_CLIENT, populationDuJeton, bonjour, etapesTriees, tachesClient, etatSection,
   dateFr, LETTRE, STATUT_DOSSIER, lireLienInvitation, validerMotDePasse,
@@ -205,6 +206,8 @@ function Espace() {
       ))}
 
       <Carte titre="Mes informations"><MonDossier telephoneActuel={donnees.client?.telephone || ""} /></Carte>
+
+      <Carte titre="Pièces à nous transmettre"><MesPieces /></Carte>
 
       <Carte titre="Ce qui vous concerne">
         {taches.etat === "erreur" ? <Erreur>Impossible d'afficher vos tâches pour le moment.</Erreur>
