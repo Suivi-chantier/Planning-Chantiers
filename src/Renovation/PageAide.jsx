@@ -214,6 +214,7 @@ export const AIDE_CONTENU = {
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
       "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h vendues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
       "Une ligne marquée « Ajoutée par l'ouvrier » est une tâche non prévue au planning, choisie par l'ouvrier dans le phasage (« J'ai fait autre chose ») : elle est déjà rattachée à sa tâche et se valide comme les autres.",
+      "Un bloc « Nouvelle tâche proposée » signale un travail absent du phasage, proposé par l'ouvrier dans un ouvrage avec sa nature. Par défaut la tâche est créée à la validation du rapport (sans heures vendues, « Hors devis » prérempli selon la nature) ; vous pouvez changer l'ouvrage, la nature, la case, la rattacher à une tâche existante ou la laisser en tâche libre. Revalider le même rapport ne la recrée pas.",
     ],
   },
   "heures-salaries": {

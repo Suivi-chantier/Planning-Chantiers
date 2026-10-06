@@ -82,6 +82,9 @@
 --       d'AFFICHAGE (marquée OU sans heures vendues dans Divers / un ouvrage
 --       sans heures vendues). nature et cree_par : tâche ajoutée hors devis
 --       initial (« Ajoutée par … · nature »).
+--   code de l'ouvrage (ajout du 06/10/2026, étape 3b livraison 2)
+--       ouvrages[].code_ouvrage (bibliothèque), null s'il n'y en a pas :
+--       aide à reconnaître un ouvrage dans l'écran « Nouvelle tâche ».
 --
 -- QUI PEUT APPELER (ouvrier) : les bêta-testeurs de « mes_phases » (onglet
 -- Phases) OU de « cr_v2 » (nouveau compte rendu, qui en lit les heures
@@ -499,6 +502,7 @@ begin
       jsonb_build_object(
         'id',            ouv.data->>'id',
         'libelle',       coalesce(nullif(trim(ouv.data->>'libelle'), ''), '(sans nom)'),
+        'code',          nullif(trim(ouv.data->>'code_ouvrage'), ''),
         'quantite',      ouv.quantite,
         'unite',         nullif(trim(ouv.data->>'unite'), ''),
         -- Heures vendues de l'OUVRAGE ENTIER (heures_devis), toutes phases.
