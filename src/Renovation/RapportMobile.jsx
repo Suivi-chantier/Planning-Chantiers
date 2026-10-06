@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW } from "../constants";
 import { Icon } from "../ui";
-import { profilSemaine, libelleRythme, getISOWeek } from "../rythmeSemaine";
+import { profilSemaine, libelleRythme, getISOWeek, fmtHeures } from "../rythmeSemaine";
 import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
   ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
@@ -804,13 +804,12 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     const totalSubmit = totalJournee({ taches, trajetMatin, trajetSoir, heuresIndirectes }).totalH;
     if (!cibleAtteinte(totalSubmit, cibleHeures)) {
       const ecart = totalSubmit - cibleHeures;
-      const fmtH = (n) => n.toFixed(2).replace(/\.?0+$/, "");
       alert(
-        `⏱ Total : ${fmtH(totalSubmit)}h / ${cibleHeures}h attendues\n\n` +
-        `Le total (tâches + trajets + heures indirectes) doit faire exactement ${cibleHeures}h ce ${todayJour}.\n\n` +
+        `⏱ Total : ${fmtHeures(totalSubmit)} / ${fmtHeures(cibleHeures)} attendues\n\n` +
+        `Le total (tâches + trajets + heures indirectes) doit faire exactement ${fmtHeures(cibleHeures)} ce ${todayJour}.\n\n` +
         (ecart < 0
-          ? `Il manque ${fmtH(-ecart)}h — ajoute du temps de tâche, de trajet ou indirect.`
-          : `Tu dépasses de ${fmtH(ecart)}h — réduis tes heures.`)
+          ? `Il manque ${fmtHeures(-ecart)} — ajoute du temps de tâche, de trajet ou indirect.`
+          : `Tu dépasses de ${fmtHeures(ecart)} — réduis tes heures.`)
       );
       return;
     }
@@ -1268,7 +1267,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           <li style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:FONT.base.size,color:T.text,lineHeight:1.45}}>
             <Icon as={Clock} size={16} color="#b88800" strokeWidth={2} style={{flexShrink:0,marginTop:1}}/>
             <span>
-              Le total de tes heures (tâches + trajets) doit faire <strong style={{color:"#b88800"}}>{cibleHeures}h</strong>
+              Le total de tes heures (tâches + trajets) doit faire <strong style={{color:"#b88800"}}>{fmtHeures(cibleHeures)}</strong>
               {" "}aujourd'hui{libelleRythme(year, week) ? ` (${libelleRythme(year, week).toLowerCase()})` : ""}.
             </span>
           </li>
@@ -1341,8 +1340,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
                 </div>
               ) : (
               <div style={{fontSize:FONT.h2.size,fontWeight:800,color:col,letterSpacing:-0.5,lineHeight:1}}>
-                {fmtH(totalJourneeH)}h
-                <span style={{fontSize:FONT.base.size,color:T.textMuted,fontWeight:600,marginLeft:4}}>/ {cibleHeures}h</span>
+                {fmtHeures(totalJourneeH)}
+                <span style={{fontSize:FONT.base.size,color:T.textMuted,fontWeight:600,marginLeft:4}}>/ {fmtHeures(cibleHeures)}</span>
               </div>
               )}
             </div>
@@ -1357,8 +1356,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
                 : matchCible
                 ? <><Icon as={Check} size={13} strokeWidth={2.5}/> Tu peux soumettre ton compte rendu</>
                 : ecartH < 0
-                  ? `Il manque ${fmtH(-ecartH)}h pour atteindre la cible`
-                  : `Tu dépasses de ${fmtH(ecartH)}h — réduis tes heures de tâches ou de trajet`}
+                  ? `Il manque ${fmtHeures(-ecartH)} pour atteindre la cible`
+                  : `Tu dépasses de ${fmtHeures(ecartH)} — réduis tes heures de tâches ou de trajet`}
             </div>
             <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:4}}>
               {fmtH(totalTachesH)}h de tâches

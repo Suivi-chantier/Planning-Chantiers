@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
+    type: "amelioration",
+    titre: "Nouveaux horaires : 35 h en semaine de 4 jours, 43 h en semaine de 5 jours",
+    pages: [{ id: "planning", label: "Planning semaine" }, { id: "validation", label: "Validation" }, { id: "bilan-semaine", label: "Bilan Semaine" }, { id: "admin", label: "Admin" }],
+    quoi: "Depuis le lundi 5 octobre 2026 (semaine 41), les journées sont de 7h30 à 12h puis de 12h45 à 17h, soit 8h45. Semaine impaire (4 jours, du lundi au jeudi) : 4 × 8h45 = 35 h. Semaine paire (5 jours) : même horaire du lundi au jeudi, fin à 16h15 le vendredi (8 h), soit 43 h. Les semaines d'avant gardent leur ancien barème : rien n'est recalculé dans l'historique.",
+    comment: "Le compte rendu de fin de journée demande désormais 8h45 (8 h le vendredi des semaines paires), affiché « 8h45 » et non plus en décimales. La validation compare à ces mêmes heures. Le planning compte 7h45 de tâches posables par jour (7 h le vendredi des semaines paires), une heure étant laissée aux trajets et heures indirectes comme avant. Admin → Heures par jour affiche les nouveaux horaires ; les exceptions par date (férié, pont) restent prioritaires.",
+  },
+  {
+    date: "2026-10-06",
     type: "nouveaute",
     titre: "Compte rendu (bêta) : l'ouvrier propose une nouvelle tâche, le conducteur la crée à la validation",
     pages: [{ id: "validation", label: "Validation" }],
