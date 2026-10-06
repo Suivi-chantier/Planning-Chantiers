@@ -70,6 +70,15 @@
 --       tâche dans planning_cells dont la date <= p_aujourdhui (ouvriers de
 --       la ligne, sinon de la cellule), repli sur taches[].ouvriers du
 --       phasage. Comparaison exacte du prénom, comme là-bas.
+--   dernier motif de dépassement (ajout du 06/10/2026, étape 2 « cr_v2 »)
+--       la ligne de compte rendu la plus récente (submitted_at) du chantier
+--       qui porte un motif_depassement pour cette tâche, QUEL QUE SOIT
+--       l'ouvrier : { code, date } — jamais le nom de qui l'a donné. Le
+--       nouveau compte rendu propose de le reprendre (visible, changeable).
+--
+-- QUI PEUT APPELER (ouvrier) : les bêta-testeurs de « mes_phases » (onglet
+-- Phases) OU de « cr_v2 » (nouveau compte rendu, qui en lit les heures
+-- vendues / validées / en attente pour la jauge de dépassement).
 --
 -- Les totaux par ouvrage et par phase, l'avancement pondéré et les statuts
 -- ne sont PAS calculés ici : le module pur src/Renovation/mesPhasesV1.mjs
@@ -210,7 +219,8 @@ begin
     v_prenom := public.mon_prenom_planning();
     -- Bêta : un ouvrier hors liste n'obtient rien, même en appelant la RPC
     -- directement. Le bureau n'est pas filtré (aperçu, contrôle).
-    if not public._beta_autorise('mes_phases', v_prenom) then
+    if not (public._beta_autorise('mes_phases', v_prenom)
+            or public._beta_autorise('cr_v2', v_prenom)) then
       return jsonb_build_object('chantier_id', p_chantier_id, 'acces_refuse', true);
     end if;
   else
@@ -392,6 +402,26 @@ begin
       and dd.d <= p_aujourdhui
     order by lt->>'tache_id', dd.d desc
   ),
+  -- Dernier motif de dépassement donné pour chaque tâche (tout ouvrier,
+  -- aucun nom en sortie). date_rapport est stockée au format FR ou ISO.
+  dernier_motif as (
+    select distinct on (l.value->>'tache_id')
+      l.value->>'tache_id'          as tache_id,
+      l.value->>'motif_depassement' as code,
+      case
+        when r.date_rapport ~ '^\d{4}-\d{2}-\d{2}' then left(r.date_rapport, 10)
+        when r.date_rapport ~ '^\d{1,2}/\d{1,2}/\d{4}$'
+          then to_char(to_date(r.date_rapport, 'DD/MM/YYYY'), 'YYYY-MM-DD')
+        else null end               as date
+    from public.rapports r
+    cross join lateral jsonb_array_elements(
+      case when jsonb_typeof(r.taches) = 'array' then r.taches else '[]'::jsonb end
+    ) l(value)
+    where r.chantier_id = p_chantier_id
+      and coalesce(l.value->>'tache_id', '') <> ''
+      and coalesce(l.value->>'motif_depassement', '') <> ''
+    order by l.value->>'tache_id', r.submitted_at desc nulls last
+  ),
   -- Une tâche, telle qu'elle sort : champs choisis un par un.
   tache_json as (
     select
@@ -423,13 +453,16 @@ begin
         -- Hors devis : ni heures vendues sur la tâche, ni sur son ouvrage —
         -- ou ouvrage « Divers / hors devis » explicitement.
         'hors_devis',  (t.heures_vendues = 0 and (ouv.heures_devis = 0
-                         or ouv.data->>'libelle' ilike 'divers%hors devis%'))
+                         or ouv.data->>'libelle' ilike 'divers%hors devis%')),
+        'dernier_motif_depassement', case when dm.code is null then null
+                                          else jsonb_build_object('code', dm.code, 'date', dm.date) end
       ) as data
     from tache t
     join ouv on ouv.rang_ouvrage = t.rang_ouvrage
     left join reg     on reg.tache_id = t.tache_id
     left join attente att on att.tache_id = t.tache_id
     left join occ     on occ.tache_id = t.tache_id
+    left join dernier_motif dm on dm.tache_id = t.tache_id
     cross join lateral (
       select case
                when occ.ouvriers_eff is not null then occ.ouvriers_eff
@@ -512,7 +545,7 @@ revoke all on function public.ouvrier_mes_phases(text, text, date) from anon;
 grant execute on function public.ouvrier_mes_phases(text, text, date) to authenticated;
 
 comment on function public.ouvrier_mes_phases(text, text, date) is
-  'Bêta « Mes phases » (espace ouvrier) : phases → ouvrages → tâches avec heures vendues / validées / en attente / miennes. Aucune donnée financière. Ouvrier : réservé aux bêta-testeurs (planning_config/fonctionnalites_beta.mes_phases).';
+  'Bêta « Mes phases » (espace ouvrier) : phases → ouvrages → tâches avec heures vendues / validées / en attente / miennes. Aucune donnée financière. Ouvrier : réservé aux bêta-testeurs mes_phases ou cr_v2 (planning_config/fonctionnalites_beta).';
 
 -- =====================================================================
 -- VÉRIFICATION — voir scripts/verif-ouvrier-mes-phases.sql

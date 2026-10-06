@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-06",
+    type: "nouveaute",
+    titre: "Espace ouvrier (bêta) : nouveau compte rendu du soir — temps au quart d'heure, statut en un tap, motifs au lieu de phrases",
+    pages: [{ id: "validation", label: "Validation" }, { id: "admin", label: "Réglages" }],
+    quoi: "Pour les ouvriers bêta-testeurs, le compte rendu se remplit en quelques taps : une carte par tâche avec le chemin « Phase › Ouvrage », la durée prévue au planning déjà posée, des boutons − / + par quart d'heure, quatre statuts (Terminé, En cours, Pas commencé, Bloqué) et des motifs à choisir au lieu d'une remarque à écrire. L'ouvrier voit aussi « Avec aujourd'hui : X h / Y h vendues » et doit dire pourquoi s'il dépasse. Les rapports restent lus, validés et transformés en pointages exactement comme les autres.",
+    comment: "Réglages → Collaborateurs : cocher « Bêta : Nouveau compte rendu » sur la fiche de l'ouvrier (effet à sa prochaine ouverture de l'espace). En haut du formulaire, « X h placées sur Y h · reste Z » : le bouton d'envoi reste grisé tant que le total n'est pas exact ; quand il reste moins d'un quart d'heure (trajets saisis à la minute), chaque carte propose « Mettre les X min restantes ici ». « Pas commencé » ne fait plus baisser l'avancement en Validation. Un motif de dépassement déjà donné sur la tâche est repris, avec la phrase « Déjà indiqué le … » et un tap pour le changer. Côté Validation, le repère « Formulaire bêta », le statut « Bloqué », les motifs et la précision s'affichent ; le relevé de dépassement disparaît si la ligne est réaffectée, découpée ou corrigée. Le bilan de semaine, l'équipe, le planning, le phasage et l'export d'opération affichent le motif quand il n'y a pas de remarque. Au passage, le compteur de l'ancien formulaire compte désormais les heures indirectes, comme son contrôle à l'envoi. À mettre en service : lancer sql/202610_compte_rendu_v2.sql puis sql/202610_ouvrier_mes_phases.sql dans Supabase.",
+  },
+  {
     date: "2026-10-05",
     type: "nouveaute",
     titre: "Espace ouvrier (bêta) : onglet « Phases » — le phasage du chantier et les heures, phase par phase",

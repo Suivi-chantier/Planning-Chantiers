@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne } from "./motifsCompteRendu";
 import ChoixMateriau from "./ChoixMateriau";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
 import { Icon, InputNombre } from "../ui";
@@ -3896,7 +3898,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               {x.heures_reelles != null && x.heures_reelles !== "" && <span>{x.heures_reelles}h réelles</span>}
                               {x.avancement != null && x.avancement !== "" && <span>{x.avancement}%</span>}
                             </div>
-                            {x.remarque && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {x.remarque} »</div>}
+                            {explicationLigne(x) && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {explicationLigne(x)} »</div>}
                           </div>
                         ))}
                         {r.remarque && (

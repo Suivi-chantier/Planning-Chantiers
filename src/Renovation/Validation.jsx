@@ -41,6 +41,26 @@ import {
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
 import { getISOWeek, profilSemaine } from "../rythmeSemaine";
+// Lignes d'un rapport (module pur, testé par scripts/verif-compte-rendu-v2.mjs)
+// et motifs du formulaire bêta « cr_v2 » (liste unique partagée avec l'ouvrier).
+import {
+  lignesDepuisRapport, taskLinesPourPointages, depassementAffichable, decouperLigne, ligneBasculee,
+} from "./lignesValidation";
+import {
+  explicationLigne, libelleMotifDepassement,
+} from "./motifsCompteRendu";
+
+// Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
+const estRapportBeta = (r) => r?.formulaire_version === "v2";
+function BadgeBeta() {
+  return (
+    <span title="Rapport envoyé avec le nouveau formulaire de compte rendu (bêta)" style={{
+      display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 999,
+      background: "rgba(139,92,246,0.14)", color: "#7c3aed", fontSize: 10.5, fontWeight: 700,
+      textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap",
+    }}>Formulaire bêta</span>
+  );
+}
 
 // ─── Helpers date ────────────────────────────────────────────────────────────
 
@@ -176,7 +196,17 @@ function StatutBadge({ statut }) {
   );
 }
 
-function StatutTacheLabel({ statut }) {
+function StatutTacheLabel({ statut, bloque = false }) {
+  if (bloque) {
+    // Formulaire bêta : statut stocké en_cours (heures > 0) ou non_faite (0 h),
+    // drapeau « bloque » — on affiche le choix de l'ouvrier.
+    return (
+      <span title={`Choisi par l'ouvrier : Bloqué (enregistré « ${statut === "en_cours" ? "en cours" : "pas faite"} »)`}
+        style={{ fontSize: 11, fontWeight: 700, color: "#c0392b", letterSpacing: .3 }}>
+        ⛔ Bloqué ({statut === "en_cours" ? "en cours" : "pas fait"})
+      </span>
+    );
+  }
   const label = statut === "faite" ? "Faite"
               : statut === "en_cours" ? "En cours"
               : statut === "non_faite" ? "Pas faite"
@@ -671,12 +701,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       phasage_id,
       rapport_id: rapport.id,
       valide_par: valideur,
-      taskLines: lignes.map(li => ({
-        tache_id: li.tache_id || null,
-        phase_id: li.phase_id || null,
-        heures: li.heures,
-        avancement_declare: li.avancement_declare,
-      })),
+      taskLines: taskLinesPourPointages(lignes),
       indirectLines: indirectes,
       trajetMinTotal: (parseInt(rapport.trajet_matin_min) || 0) + (parseInt(rapport.trajet_soir_min) || 0),
       nbChantiersDuJour: Math.max(1, rapportsMemeJour.length),
@@ -911,19 +936,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       return false;
     }
     const le = new Date().toISOString();
-    const tacheDeplacee = {
-      planifie: ligne.planifie || "",
-      tache_id: null, phase_id: null,           // à rattacher au plan du chantier cible à sa validation
-      statut: ligne.statut || "non_faite",
-      remarque: ligne.remarque || "",
-      heures_reelles: h,
-      avancement: ligne.avancement_declare != null ? ligne.avancement_declare : 0,
-      photos: [],
-      bascule_depuis: {
-        rapport_id: rapport.id, chantier_id: rapport.chantier_id,
-        chantier_nom: rapport.chantier_nom || null, heures: h, par: valideur, le,
-      },
-    };
+    const tacheDeplacee = ligneBasculee(ligne, { heures: h, rapport, valideur, le });
     // Source : retire les heures de la tâche d'origine (les index des lignes de
     // la modale pointent sur rapport.taches[] — on ne supprime jamais l'entrée).
     const tachesSrc = [...(rapport.taches || [])];
@@ -1167,7 +1180,10 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
                         cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: T.text,
                       }}
                     >
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>{r.chantier_nom || r.chantier_id}</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {r.chantier_nom || r.chantier_id}
+                        {estRapportBeta(r) && <BadgeBeta/>}
+                      </span>
                       <span style={{ fontSize: 12, color: T.textSub }}>{fmtH(totalH)}h</span>
                       {alerts.length > 0 && (
                         <span title={alerts.map(a => a.text).join("\n")} style={{
@@ -1344,24 +1360,7 @@ function ModaleRapport({
   const verrouille = valide || journeeCloturee;
 
   useEffect(() => {
-    const init = (rapport.taches || []).map((t, i) => ({
-      rowId: `o${i}`,
-      origineIdx: i,
-      _origine: true,
-      tache_id: t.tache_id || null,
-      phase_id: t.phase_id || null,
-      planifie: t.planifie || "",
-      heures: parseFloat(t.heures_reelles) || 0,
-      heures_origine: parseFloat(t.heures_reelles) || 0,
-      statut: t.statut || null,
-      avancement_declare: t.avancement != null ? parseInt(t.avancement) : null,
-      avancement_arbitre: t.avancement != null ? parseInt(t.avancement) : "",  // pré-rempli avec déclaré
-      remarque: t.remarque || "",
-      photos: t.photos || [],
-      bascules: Array.isArray(t.bascules) ? t.bascules : [],
-      bascule_depuis: t.bascule_depuis || null,
-      _autoMatched: false,
-    }));
+    const init = lignesDepuisRapport(rapport);
     setLignes(init);
     // Pré-remplit la zone heures indirectes avec ce que l'ouvrier a déclaré
     // (P7). Le conducteur peut compléter/corriger/supprimer avant validation.
@@ -1418,10 +1417,7 @@ function ModaleRapport({
   const splitLigne = (rowId) => setLignes(prev => {
     const i = prev.findIndex(l => l.rowId === rowId);
     if (i < 0) return prev;
-    const src = prev[i];
-    const moitie = (parseFloat(src.heures) || 0) / 2;
-    const nouvelle = { ...src, rowId: `s${genId()}`, _origine: false, heures: moitie };
-    const modif = { ...src, heures: moitie };
+    const [modif, nouvelle] = decouperLigne(prev[i], `s${genId()}`);
     return [...prev.slice(0, i), modif, nouvelle, ...prev.slice(i + 1)];
   });
   const removeLigne = (rowId) => setLignes(prev => prev.filter(l => l.rowId !== rowId));
@@ -1519,8 +1515,9 @@ function ModaleRapport({
           position: "sticky", top: 0, background: T.surface, zIndex: 2,
         }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               {rapport.ouvrier} — {rapport.chantier_nom || rapport.chantier_id}
+              {estRapportBeta(rapport) && <BadgeBeta/>}
             </div>
             {/* Correction : l'ouvrier s'est trompé de chantier sur son CR */}
             {!verrouille && chantiers.length > 0 && (
@@ -1852,7 +1849,7 @@ function LigneEditable({
             })}
             <option value="__creer__">+ Créer nouvelle tâche…</option>
           </select>
-          <StatutTacheLabel statut={ligne.statut}/>
+          <StatutTacheLabel statut={ligne.statut} bloque={ligne.bloque}/>
         </div>
         {/* Sous-info : badge libre, badge auto-match, autres propositions */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1901,11 +1898,26 @@ function LigneEditable({
               ))}
             </span>
           )}
-          {ligne.remarque && (
+          {/* Explication : la remarque (ancien formulaire) ou le motif choisi +
+              la précision (formulaire bêta). Une ligne avec un motif et sans
+              remarque est complète. */}
+          {explicationLigne(ligne) && (
             <span style={{ fontSize: 11, color: T.text, fontStyle: "italic" }}>
-              💬 {ligne.remarque}
+              💬 {explicationLigne(ligne)}
             </span>
           )}
+          {ligne.motif_depassement && (() => {
+            const d = depassementAffichable(ligne);
+            return (
+              <span title={d ? "Relevé au moment de la saisie de l'ouvrier" : "La ligne a été réaffectée, découpée ou ses heures corrigées : le relevé d'origine ne s'applique plus, seul le motif de l'ouvrier est conservé."} style={{
+                fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 999,
+                background: "rgba(225,90,90,0.12)", color: "#c0392b",
+              }}>
+                {d ? `${fmtH(d.heures_avant + d.heures_jour)}h sur ${fmtH(d.heures_vendues)}h vendues : ` : "Motif de dépassement : "}
+                {libelleMotifDepassement(ligne.motif_depassement)}
+              </span>
+            );
+          })()}
         </div>
         {/* Photos déclarées par l'ouvrier pour cette tâche (clic = ouvre en plein) */}
         {Array.isArray(ligne.photos) && ligne.photos.length > 0 && (

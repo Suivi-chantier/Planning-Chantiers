@@ -27,6 +27,8 @@ import { CYCLE_VIE_PHASES, CYCLE_VIE_ETAPES, lireEtatsEtapes, lirePhaseDeclaree 
 // Détecteur unique de code d'ouvrage (« MU-001 : Fourniture… » → « MU-001 »).
 // Prudent par construction : « Pose 3 prises » ou « Bac 3 » n'en sont pas.
 import { codeOuvrage } from "./codeOuvrage.mjs";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne } from "./motifsCompteRendu.mjs";
 // Règles d'affichage des factures ProGBat — réutilisées telles quelles pour ne
 // pas inventer une seconde arithmétique de facturation.
 import {
@@ -330,7 +332,7 @@ export function normaliserChantier({
           statut: texteOuNull(t?.statut),
           avancement: nombreOuNull(t?.avancement),
           heures: nombreOuNull(t?.heures_reelles),
-          remarque: texteOuNull(t?.remarque),
+          remarque: texteOuNull(explicationLigne(t)),
         })),
       };
     });

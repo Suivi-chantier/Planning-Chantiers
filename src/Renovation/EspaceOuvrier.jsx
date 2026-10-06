@@ -15,6 +15,7 @@ import OuvrierCommande from "./OuvrierCommande";
 import PageRapportMobile from "./RapportMobile";
 import OuvrierMesPhases from "./OuvrierMesPhases";
 import { CODE_BETA_MES_PHASES } from "./mesPhasesV1";
+import { CODE_BETA_CR_V2, FORMULAIRE_V2 } from "./compteRenduV2";
 
 // Météo (Open-Meteo) — même mapping que Dashboard/Planning.
 function weatherInfo(code) {
@@ -94,7 +95,9 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
   // mes_fonctionnalites_beta : l'ouvrier ne lit que SES codes ; en aperçu
   // Admin, le compte bureau passe le prénom prévisualisé. En cas d'échec
   // (migration pas encore appliquée, réseau) : aucun code, espace inchangé.
-  const [codesBeta, setCodesBeta] = useState([]);
+  // null = pas encore lu : le compte rendu attend la réponse pour ne pas
+  // s'ouvrir dans un formulaire puis basculer dans l'autre.
+  const [codesBeta, setCodesBeta] = useState(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -107,7 +110,10 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
     })();
     return () => { cancelled = true; };
   }, [preview, prenom]);
-  const tabs = ongletsPour(codesBeta);
+  const tabs = ongletsPour(codesBeta || []);
+  // Formulaire du compte rendu : le nouveau (bêta « cr_v2 ») pour les ouvriers
+  // cochés, l'ancien pour tous les autres — inchangé.
+  const varianteCR = (codesBeta || []).includes(CODE_BETA_CR_V2) ? FORMULAIRE_V2 : "v1";
   const current = tabs.find(t => t.id === tab) || tabs[0];
 
   // Qualité de chef d'équipe : capacité DÉRIVÉE (jamais un rôle), calculée
@@ -216,7 +222,12 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
         // RapportMobile embarqué : formulaire plein écran avec son propre en-tête,
         // on ne superpose donc pas le hero. Le padding bas (nav) est géré dans le
         // composant (mode embedded).
-        <PageRapportMobile prenomFige={prenom} embedded preview={preview} />
+        codesBeta === null ? (
+          <div style={{ padding:"60px 24px", textAlign:"center", color:T.textMuted, fontSize:13, letterSpacing:2 }}>CHARGEMENT…</div>
+        ) : (
+          <PageRapportMobile key={varianteCR} prenomFige={prenom} embedded preview={preview}
+            variante={varianteCR} onOuvrirCommande={() => setTab("demande-commande")}/>
+        )
       ) : (
         <div style={{
           padding:"14px 12px", display:"flex", flexDirection:"column", gap:12,

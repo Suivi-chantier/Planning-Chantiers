@@ -218,6 +218,15 @@ function OngletMailEncours({ T, acc }) {
 }
 
 // ─── ONGLET UTILISATEURS ──────────────────────────────────────────────────────
+// Fonctionnalités bêta de l'espace ouvrier, cochables par ouvrier
+// (planning_config/fonctionnalites_beta, { code: [prénoms-planning] }).
+const BETAS_OUVRIER = [
+  { code: "mes_phases", label: "Bêta : Mes phases", quoi: "l'onglet bêta « Phases »",
+    aide: "Onglet « Phases » de l'espace ouvrier : phasage du chantier, heures vendues, validées et en attente, sans aucun montant. Lecture seule." },
+  { code: "cr_v2", label: "Bêta : Nouveau compte rendu", quoi: "le nouveau compte rendu (bêta)",
+    aide: "Nouveau formulaire de compte rendu du soir : temps au quart d'heure, statuts Terminé / En cours / Pas commencé / Bloqué, motifs en un tap, dépassement des heures vendues. Les rapports restent lus et validés comme les autres." },
+];
+
 function OngletUtilisateurs({ T, acc }) {
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -339,9 +348,10 @@ function OngletUtilisateurs({ T, acc }) {
     setBetaLoading(null);
     if (error) { flash("err", "Erreur : " + error.message); return; }
     setBetaConfig(next);
+    const quoi = BETAS_OUVRIER.find(b => b.code === code)?.quoi || code;
     flash("ok", actif
-      ? `${prenom} ne voit plus l'onglet bêta « Phases ».`
-      : `${prenom} voit désormais l'onglet bêta « Phases » (à sa prochaine ouverture de l'espace ouvrier).`);
+      ? `${prenom} n'a plus ${quoi} (à sa prochaine ouverture de l'espace ouvrier).`
+      : `${prenom} a désormais ${quoi} (à sa prochaine ouverture de l'espace ouvrier).`);
   };
 
   // Active/désactive le bandeau d'invitation sur le formulaire public.
@@ -879,19 +889,23 @@ function OngletUtilisateurs({ T, acc }) {
                     </div>
                     {/* Bêta de l'espace ouvrier — un ouvrier relié au planning seulement */}
                     {u.role === "ouvrier" && u.prenom_planning && (
-                      <label title="Onglet « Phases » de l'espace ouvrier : phasage du chantier, heures vendues, validées et en attente, sans aucun montant. Lecture seule."
-                        style={{
-                          display:"inline-flex", alignItems:"center", gap:7, marginTop:8, cursor: betaLoading ? "wait" : "pointer",
-                          fontSize:12, fontWeight:700, color:T.textSub, userSelect:"none",
-                        }}>
-                        <input type="checkbox"
-                          checked={(betaConfig.mes_phases || []).includes(u.prenom_planning)}
-                          disabled={betaLoading === u.prenom_planning}
-                          onChange={() => toggleBeta("mes_phases", u.prenom_planning)}
-                          style={{ width:16, height:16, accentColor:"#FFC200", cursor:"inherit" }}/>
-                        Bêta : Mes phases
-                        <span style={{ fontWeight:500, color:T.textMuted }}>({u.prenom_planning})</span>
-                      </label>
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:"4px 16px", marginTop:8 }}>
+                        {BETAS_OUVRIER.map(b => (
+                          <label key={b.code} title={b.aide}
+                            style={{
+                              display:"inline-flex", alignItems:"center", gap:7, cursor: betaLoading ? "wait" : "pointer",
+                              fontSize:12, fontWeight:700, color:T.textSub, userSelect:"none",
+                            }}>
+                            <input type="checkbox"
+                              checked={(betaConfig[b.code] || []).includes(u.prenom_planning)}
+                              disabled={betaLoading === u.prenom_planning}
+                              onChange={() => toggleBeta(b.code, u.prenom_planning)}
+                              style={{ width:16, height:16, accentColor:"#FFC200", cursor:"inherit" }}/>
+                            {b.label}
+                          </label>
+                        ))}
+                        <span style={{ fontSize:12, fontWeight:500, color:T.textMuted }}>({u.prenom_planning})</span>
+                      </div>
                     )}
                   </div>
 
