@@ -132,6 +132,8 @@ test("11. le collaborateur lit les réponses et les valide ; il n'insère ni ne 
   assert.deepEqual(lu.rows.map((r) => r.v), ["5000"]);
   const maj = await sous(db, "authenticated", J.commercial, `update public.invest_portail_reponses set statut='valide', traite_par='Commercial', traite_le=now() returning statut`);
   assert.equal(maj.rows[0].statut, "valide");
+  assert.equal((await sous(db, "authenticated", J.ouvrier, `select * from public.invest_portail_reponses`)).rows.length, 0, "un ouvrier ne voit pas les réponses des clients");
+  assert.equal((await sous(db, "authenticated", J.ouvrier, `update public.invest_portail_reponses set statut='valide' returning id`)).rows.length, 0, "ni ne les valide");
   const ins = await sous(db, "authenticated", J.commercial, `insert into public.invest_portail_reponses (client_id, section, donnees) values ('${ID.cA}','flux','{}')`);
   assert.ok(ins.erreur, "pas d'insertion directe");
   const sup = await sous(db, "authenticated", J.commercial, `delete from public.invest_portail_reponses returning id`);

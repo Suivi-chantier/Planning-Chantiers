@@ -27,6 +27,11 @@ on:
       - 'supabase/migrations/20261002180000_portail_client_invest_reponses.sql'
       - 'sql/202610_portail_client_invest_reponses_rollback.sql'
       - 'scripts/verif-portail-reponses.mjs'
+      - 'supabase/migrations/20261002200000_portail_client_invest_depots.sql'
+      - 'sql/202610_portail_client_invest_depots_rollback.sql'
+      - 'supabase/functions/portail-depot-document/**'
+      - 'scripts/verif-portail-depots.mjs'
+      - 'src/Invest/StructurationDepotsClient.jsx'
       - 'src/Invest/StructurationReponsesClient.jsx'
       - 'scripts/verif-portail-visibilite-crm.mjs'
       - 'src/Invest/dossiers/FicheDossier.jsx'
@@ -56,3 +61,5 @@ jobs:
         run: node scripts/verif-portail-invitation.mjs
       - name: Saisie du client (nettoyage côté base, étanchéité, validation par Profero, retour arrière)
         run: node scripts/verif-portail-reponses.mjs
+      - name: Dépôt de pièces par le client (règles, ordre des contrôles de la fonction, base, retour arrière)
+        run: node scripts/verif-portail-depots.mjs
