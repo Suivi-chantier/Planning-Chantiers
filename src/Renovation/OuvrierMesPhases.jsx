@@ -25,7 +25,7 @@ import {
 import { MobileHero, MobileCard, MobileEmptyState, CARD_SHADOW } from "../mobileUI";
 import { fmtH } from "../chantierFinance";
 import {
-  construireMesPhases, filtrerPhases, choisirChantierParDefaut, libellePersonnes, STATUTS,
+  construireMesPhases, filtrerPhases, choisirChantierParDefaut, libellePersonnes, STATUTS, texteAjoutee,
 } from "./mesPhasesV1";
 
 // Pastilles : couleur ET icône ET texte — la couleur seule ne porte jamais
@@ -140,6 +140,9 @@ function LigneTache({ t, prenom, T, action = null }) {
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: T.text, lineHeight: 1.25 }}>{t.nom}</div>
+          {texteAjoutee(t) && (
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#7c3aed", marginTop: 2 }}>{texteAjoutee(t)}</div>
+          )}
           <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 2 }}>{sous.join(" · ")}</div>
         </div>
         <Pastille etat={t.etat}/>
@@ -193,7 +196,9 @@ function BandeauOuvrage({ o, T }) {
 // ── Carte de phase ──────────────────────────────────────────────────────────
 // Exportée pour le panneau « J'ai fait autre chose » du compte rendu (mêmes
 // données, mêmes calculs, même affichage). actionTache : voir LigneTache.
-export function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent, actionTache = null }) {
+// actionOuvrage : facultatif, (ouvrage) → élément affiché sous les tâches de
+// l'ouvrage (« + Nouvelle tâche dans cet ouvrage » du compte rendu).
+export function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent, actionTache = null, actionOuvrage = null }) {
   const qui = libellePersonnes(p.personnes, prenom);
   return (
     <div style={{
@@ -255,6 +260,7 @@ export function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent, a
                     Aucune tâche dans cet ouvrage.
                   </div>
                 ) : o.taches.map(t => <LigneTache key={t.id} t={t} prenom={prenom} T={T} action={actionTache}/>)}
+                {actionOuvrage && actionOuvrage(o)}
               </div>
             ))}
           </div>

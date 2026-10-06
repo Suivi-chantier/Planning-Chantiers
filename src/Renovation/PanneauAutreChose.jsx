@@ -12,24 +12,36 @@
 //
 // Lecture seule : « Ajouter » ne crée qu'une carte dans le compte rendu. Si le
 // phasage ne peut pas être lu, le panneau le dit et propose le texte libre.
+//
+// Tâche absente du phasage : « + Nouvelle tâche dans cet ouvrage » (sous
+// chaque ouvrage) ou « Tâche introuvable ? » ouvrent l'écran NouvelleTacheV2,
+// qui produit une carte « proposée » (créée à la validation). Sans phasage
+// lisible, on retombe sur le texte libre, comme avant.
+// `edition` : { idx, chantierId, ligne } — rouvre directement l'écran pour
+// modifier une nouvelle tâche déjà dans la journée.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { Icon } from "../ui";
 import { X, Search, Plus, Check, PenLine, WifiOff } from "lucide-react";
 import { CartePhase } from "./OuvrierMesPhases";
+import NouvelleTacheV2 from "./NouvelleTacheV2";
 import { construireMesPhases, filtrerPhases, rechercherDansPhases } from "./mesPhasesV1";
-import { tacheDejaDansJournee } from "./compteRenduV2";
+import { tacheDejaDansJournee, ouvragesProposables, saisieDepuisLigne } from "./compteRenduV2";
 
 const SOMBRE = "#1a1f2e";
+const PHASAGE_LISIBLE = ["ok", "sans_groupes"];
 
 export default function PanneauAutreChose({
   taches, chantiersDuJour = [], tousChantiers = [], prenom, aujourdhuiISO, T, accent = "#FFC200",
   onAjouter, onDecrireLibre, onFermer,
+  champPhotos = null, onAjouterNouvelle = null, edition = null, onModifierNouvelle = null,
 }) {
   // Le kit de l'onglet Phases attend un fond de piste (T.card) gris clair.
   const TP = useMemo(() => ({ ...T, card: "#eef1f7" }), [T]);
-  const [chantierId, setChantierId] = useState(chantiersDuJour[0]?.id || "");
+  const [chantierId, setChantierId] = useState(edition?.chantierId || chantiersDuJour[0]?.id || "");
+  // Écran « Nouvelle tâche » ouvert : { saisieInitiale } (null = liste des phases)
+  const [nouvelle, setNouvelle] = useState(null);
   const [charges, setCharges] = useState({});     // { chantier_id: { etat, data } }
   const [essai, setEssai] = useState(0);
   const [vue, setVue] = useState(null);           // null = choisie au chargement
@@ -72,6 +84,29 @@ export default function PanneauAutreChose({
   });
   const changerChantier = (id) => { setChantierId(id); setVue(null); setOuvertes(null); setRecherche(""); };
 
+  // ── Nouvelle tâche ────────────────────────────────────────────────────────
+  const lisible = !!resultat && PHASAGE_LISIBLE.includes(resultat.etat);
+  const ouvrages = useMemo(() => (lisible ? ouvragesProposables(resultat.phases) : []), [lisible, resultat]);
+  const nouvellePossible = lisible && !!onAjouterNouvelle;
+  const ouvrirNouvelle = (ouvrageId) => setNouvelle({
+    saisieInitiale: ouvrageId ? { ouvrage: ouvrages.find(o => o.id === ouvrageId) || null } : null,
+  });
+  // Modification d'une carte existante : l'écran s'ouvre dès le phasage lu.
+  useEffect(() => {
+    if (edition && lisible && !nouvelle) setNouvelle({ saisieInitiale: saisieDepuisLigne(edition.ligne, ouvrages) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edition, lisible]);
+
+  const actionOuvrage = nouvellePossible ? (o) => (
+    <div style={{ padding: "6px 14px 12px", borderTop: `1px dashed ${T.border}` }}>
+      <button onClick={() => ouvrirNouvelle(o.id)} style={{
+        width: "100%", minHeight: 48, borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+        border: `1.5px dashed ${T.borderHover || T.border}`, background: T.surface, color: T.text, fontSize: 15, fontWeight: 800,
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+      }}><Icon as={Plus} size={16} strokeWidth={2.6}/> Nouvelle tâche dans cet ouvrage</button>
+    </div>
+  ) : null;
+
   // Bouton sous chaque tâche : « Ajouter », ou « Déjà dans ta journée ».
   const actionTache = (t) => (
     <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
@@ -89,8 +124,10 @@ export default function PanneauAutreChose({
     </div>
   );
 
+  // « Tâche introuvable ? » : l'écran Nouvelle tâche (ouvrage à choisir) quand
+  // le phasage est lisible ; sinon le texte libre, comme avant.
   const boutonLibre = (gros = false) => (
-    <button onClick={() => onDecrireLibre(chantier)} style={gros ? {
+    <button onClick={() => (!gros && nouvellePossible ? ouvrirNouvelle(null) : onDecrireLibre(chantier))} style={gros ? {
       width: "100%", minHeight: 56, borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
       border: `2px solid ${SOMBRE}`, background: accent, color: SOMBRE, fontSize: 16, fontWeight: 800,
       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
@@ -99,7 +136,7 @@ export default function PanneauAutreChose({
       color: T.textSub, fontSize: 14.5, fontWeight: 700, textDecoration: "underline",
     }}>
       {gros && <Icon as={PenLine} size={17}/>}
-      {gros ? "Décrire la tâche en texte libre" : "Tâche introuvable ? La décrire"}
+      {gros ? "Décrire la tâche en texte libre" : nouvellePossible ? "Tâche introuvable ? La proposer" : "Tâche introuvable ? La décrire"}
     </button>
   );
 
@@ -110,7 +147,7 @@ export default function PanneauAutreChose({
       </div>
       <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{titre}</div>
       <div style={{ fontSize: 13.5, color: T.textSub, marginTop: 6, lineHeight: 1.45 }}>{texte}</div>
-      <div style={{ marginTop: 16 }}>{boutonLibre(true)}</div>
+      {!edition && <div style={{ marginTop: 16 }}>{boutonLibre(true)}</div>}
       {charge?.etat === "erreur" && (
         <button onClick={() => { setCharges(c => { const n = { ...c }; delete n[chantierId]; return n; }); setEssai(n => n + 1); }} style={{
           marginTop: 8, minHeight: 44, border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit",
@@ -154,7 +191,7 @@ export default function PanneauAutreChose({
             {phases.map(p => (
               <CartePhase key={p.id} p={p} prenom={resultat.prenom || prenom} T={TP} accent={accent}
                 ouverte={enRecherche || ouvertesEff.has(p.id)} enAvant={p.id === resultat.phaseEnCoursId}
-                onToggle={() => basculer(p.id)} actionTache={actionTache}/>
+                onToggle={() => basculer(p.id)} actionTache={actionTache} actionOuvrage={actionOuvrage}/>
             ))}
           </div>
         )}
@@ -171,6 +208,14 @@ export default function PanneauAutreChose({
         display: "flex", flexDirection: "column", boxShadow: "0 -10px 30px rgba(16,24,40,0.25)",
         fontFamily: "'Barlow Condensed','Arial Narrow',sans-serif",
       }}>
+        {nouvelle ? (
+          <NouvelleTacheV2 key={chantierId} ouvrages={ouvrages} saisieInitiale={nouvelle.saisieInitiale}
+            chantierNom={chantier?.nom || ""} enEdition={!!edition} T={T} accent={accent} champPhotos={champPhotos}
+            onValider={(saisie) => (edition ? onModifierNouvelle?.(edition.idx, saisie) : onAjouterNouvelle(saisie, chantier))}
+            onLibre={() => onDecrireLibre(chantier)}
+            onRetour={edition ? onFermer : () => setNouvelle(null)}
+            onFermer={onFermer}/>
+        ) : (<>
         {/* En-tête : titre, fermer, chantier, recherche */}
         <div style={{ padding: "10px 14px 12px", borderBottom: `1px solid ${T.border}`, background: T.surface, borderRadius: "20px 20px 0 0" }}>
           <div style={{ width: 44, height: 5, borderRadius: 3, background: "#cbd2de", margin: "0 auto 10px" }}/>
@@ -181,7 +226,7 @@ export default function PanneauAutreChose({
               display: "flex", alignItems: "center", justifyContent: "center", color: T.text,
             }}><Icon as={X} size={22}/></button>
           </div>
-          {(chantiersDuJour.length !== 1 || autres.length > 0) && (
+          {!edition && (chantiersDuJour.length !== 1 || autres.length > 0) && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
               {chantiersDuJour.map(c => {
                 const sel = c.id === chantierId;
@@ -223,8 +268,9 @@ export default function PanneauAutreChose({
         <div style={{ overflowY: "auto", padding: "12px 12px 4px", flex: 1 }}>{corps}</div>
 
         <div style={{ padding: "4px 14px calc(8px + env(safe-area-inset-bottom))", borderTop: `1px solid ${T.border}`, background: T.surface }}>
-          {boutonLibre(false)}
+          {!edition && boutonLibre(false)}
         </div>
+        </>)}
       </div>
     </div>
   );

@@ -1,10 +1,12 @@
 // ─── RYTHME DE SEMAINE 4 JOURS / 5 JOURS ─────────────────────────────────────
 // À partir du lundi 24/08/2026 (rentrée), l'entreprise alterne une semaine sur
-// deux, selon la parité du NUMÉRO DE SEMAINE ISO (celui des calendriers) :
-//   - semaine IMPAIRE → 4 jours : lun 10h, mar 10h, mer 10h, jeu 9h, ven repos
-//   - semaine PAIRE   → 5 jours : lun 8h,  mar 8h,  mer 8h,  jeu 8h,  ven 7h
-// Total identique dans les deux cas : 39 h travaillées.
-// Avant cette date, les anciens barèmes restent servis (cible CR 10/10/10/9/9,
+// deux, selon la parité du NUMÉRO DE SEMAINE ISO (celui des calendriers).
+// Depuis le lundi 05/10/2026 (semaine 41), horaires 7h30–12h / 12h45–17h :
+//   - semaine IMPAIRE → 4 jours : lun→jeu 8h45, ven repos            = 35 h
+//   - semaine PAIRE   → 5 jours : lun→jeu 8h45, ven 8h (fin 16h15)   = 43 h
+// Du 24/08 au 04/10/2026, le premier rythme (39 h dans les deux cas) reste
+// servi : impaire 10/10/10/9/repos, paire 8/8/8/8/7.
+// Avant le 24/08/2026, les anciens barèmes restent servis (cible CR 10/10/10/9/9,
 // capacité planning 9/9/9/8/8) pour ne pas réécrire l'historique.
 // Ce module est LA source unique des heures par jour : cible des comptes
 // rendus ouvriers (RapportMobile), capacité du planning (Planning, CellModal)
@@ -13,11 +15,20 @@
 const JOURS_SEMAINE = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
 export const RYTHME_DATE_DEBUT = "2026-08-24"; // lundi de la semaine ISO 35 (impaire → 4 jours)
+export const HORAIRES_DATE_DEBUT = "2026-10-05"; // lundi de la semaine ISO 41 : horaires 35 h / 43 h
 
 // Heures TRAVAILLÉES par jour (cible des comptes rendus : tâches + trajets
-// + heures indirectes). 0 = jour non travaillé.
-export const PROFIL_4J = { Lundi: 10, Mardi: 10, Mercredi: 10, Jeudi: 9, Vendredi: 0 }; // semaines impaires
-export const PROFIL_5J = { Lundi: 8,  Mardi: 8,  Mercredi: 8,  Jeudi: 8, Vendredi: 7 }; // semaines paires
+// + heures indirectes). 0 = jour non travaillé. 8.75 = 8h45 (7h30–12h + 12h45–17h).
+export const PROFIL_4J = { Lundi: 8.75, Mardi: 8.75, Mercredi: 8.75, Jeudi: 8.75, Vendredi: 0 }; // semaines impaires : 35 h
+export const PROFIL_5J = { Lundi: 8.75, Mardi: 8.75, Mercredi: 8.75, Jeudi: 8.75, Vendredi: 8 }; // semaines paires : 43 h (vendredi fin 16h15)
+
+// Horaires affichés (Admin) — les heures ci-dessus en découlent.
+export const HORAIRES_JOUR = "7h30–12h / 12h45–17h";
+export const HORAIRES_VENDREDI_5J = "7h30–12h / 12h45–16h15";
+
+// Premier rythme alterné (24/08 → 04/10/2026), 39 h dans les deux cas.
+const PROFIL_4J_39H = { Lundi: 10, Mardi: 10, Mercredi: 10, Jeudi: 9, Vendredi: 0 };
+const PROFIL_5J_39H = { Lundi: 8,  Mardi: 8,  Mercredi: 8,  Jeudi: 8, Vendredi: 7 };
 
 // Barèmes HISTORIQUES (avant le 24/08/2026).
 export const PROFIL_LEGACY   = { Lundi: 10, Mardi: 10, Mercredi: 10, Jeudi: 9, Vendredi: 9 }; // cible CR (48 h)
@@ -54,19 +65,29 @@ export function semainesDansAnnee(year) {
 }
 
 // ─── PROFILS D'HEURES ────────────────────────────────────────────────────────
+// Lundi de la semaine au format "AAAA-MM-JJ" ("" si semaine invalide).
+function lundiISO(year, week) {
+  const mon = mondayOfWeek(year, week);
+  if (isNaN(mon)) return "";
+  return `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, "0")}-${String(mon.getDate()).padStart(2, "0")}`;
+}
+
 // Le rythme alterné s'applique-t-il à cette semaine ? (lundi >= date de début)
 export function rythmeActif(year, week) {
-  const mon = mondayOfWeek(year, week);
-  if (isNaN(mon)) return false;
-  const iso = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, "0")}-${String(mon.getDate()).padStart(2, "0")}`;
-  return iso >= RYTHME_DATE_DEBUT;
+  const iso = lundiISO(year, week);
+  return iso !== "" && iso >= RYTHME_DATE_DEBUT;
 }
 
 // Heures TRAVAILLÉES par jour pour une semaine donnée : { Lundi: h, …, Vendredi: h }.
-// Rythme actif → profil selon la parité ISO. Avant la rentrée → `legacy`
+// Rythme actif → profil selon la parité ISO (horaires 35 h / 43 h depuis le
+// 05/10/2026, 39 h / 39 h avant). Avant la rentrée → `legacy`
 // (l'ancienne config Admin heures_par_jour, si fournie), sinon PROFIL_LEGACY.
 export function profilSemaine(year, week, legacy) {
-  if (rythmeActif(year, week)) return week % 2 === 0 ? { ...PROFIL_5J } : { ...PROFIL_4J };
+  if (rythmeActif(year, week)) {
+    const nouveaux = lundiISO(year, week) >= HORAIRES_DATE_DEBUT;
+    if (week % 2 === 0) return nouveaux ? { ...PROFIL_5J } : { ...PROFIL_5J_39H };
+    return nouveaux ? { ...PROFIL_4J } : { ...PROFIL_4J_39H };
+  }
   const out = { ...PROFIL_LEGACY };
   if (legacy) JOURS_SEMAINE.forEach(j => {
     const v = parseFloat(legacy[j]);
@@ -82,6 +103,13 @@ export function capaciteJour(jour, year, week) {
   if (!rythmeActif(year, week)) return CAPACITE_LEGACY[jour] ?? 9;
   const h = profilSemaine(year, week)[jour] ?? 0;
   return h > 0 ? h - 1 : 0;
+}
+
+// Durée lisible : 8.75 → "8h45", 8 → "8h", 0 → "0h".
+export function fmtHeures(h) {
+  const min = Math.round((parseFloat(h) || 0) * 60);
+  const hh = Math.floor(min / 60), mm = min % 60;
+  return mm ? `${hh}h${String(mm).padStart(2, "0")}` : `${hh}h`;
 }
 
 export function estJourNonTravaille(jour, year, week) {

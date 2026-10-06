@@ -11,7 +11,7 @@
 import React, { useEffect } from "react";
 import { Icon } from "../ui";
 import {
-  Check, RotateCw, Pause, Ban, Minus, Plus, Trash2, ShoppingCart, ChevronRight, Hourglass, History,
+  Check, RotateCw, Pause, Ban, Minus, Plus, Trash2, ShoppingCart, ChevronRight, Hourglass, History, PenLine,
 } from "lucide-react";
 import {
   CHOIX, PAS_MINUTES, choixDeLigne, appliquerChoix, changerMinutes, minutesDe, fmtMinutes,
@@ -19,7 +19,7 @@ import {
   LIBELLES_PROBLEMES,
 } from "./compteRenduV2";
 import {
-  MOTIFS_STATUT, MOTIFS_DEPASSEMENT, CODE_MOTIF_AUTRE, libelleMotifDepassement,
+  MOTIFS_STATUT, MOTIFS_DEPASSEMENT, CODE_MOTIF_AUTRE, libelleMotifDepassement, libelleNature,
 } from "./motifsCompteRendu";
 import { Pastille } from "./OuvrierMesPhases";
 
@@ -61,6 +61,7 @@ function Pastilles({ options, valeur, onChoisir, T }) {
 
 export default function TacheCarteV2({
   t, info, infosEtat, resteMin, onMaj, onSupprimer, chantiers = [], onOuvrirCommande, T, photos,
+  onModifierNouvelle = null,
 }) {
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -126,6 +127,29 @@ export default function TacheCarteV2({
       {t.origine === "phasage" && (
         <div style={{ display: "inline-flex", marginTop: 4, fontSize: 12, fontWeight: 800, color: "#7c3aed", background: "rgba(139,92,246,0.12)", borderRadius: 999, padding: "3px 9px" }}>
           Ajoutée à ta journée
+        </div>
+      )}
+      {/* Nouvelle tâche proposée : pas encore dans le phasage (pas de jauge,
+          pas de motif de dépassement) ; créée par le conducteur à la validation. */}
+      {t.origine === "nouvelle" && t.proposition && (
+        <div style={{ marginTop: 6, padding: "8px 10px", borderRadius: 12, background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.3)" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: 0.3 }}>
+            Nouvelle tâche · {libelleNature(t.proposition.nature) || "nature à préciser"}
+          </div>
+          <div title={t.proposition.ouvrage_libelle} style={{
+            fontSize: 13, color: T.text, marginTop: 2, lineHeight: 1.35,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+          }}>Dans « {t.proposition.ouvrage_libelle} »</div>
+          {t.proposition.demandeur && (
+            <div style={{ fontSize: 13, color: T.textSub, marginTop: 2 }}>Demandée par {t.proposition.demandeur}</div>
+          )}
+          {onModifierNouvelle && (
+            <button onClick={onModifierNouvelle} style={{
+              marginTop: 6, minHeight: 40, padding: "0 12px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit",
+              border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontWeight: 700,
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}><Icon as={PenLine} size={14}/> Modifier</button>
+          )}
         </div>
       )}
       {t.heures_prevues > 0 && (
