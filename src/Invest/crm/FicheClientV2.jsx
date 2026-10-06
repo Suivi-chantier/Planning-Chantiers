@@ -94,7 +94,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
         </div>
       </header>
       {modifie && renderModifierClient && renderModifierClient({ client, onFerme: () => setModifie(false), onSauve: () => { setModifie(false); rafraichir(); } })}
-      <Onglets T={T} compact onglets={ongletsClient(client)} actif={onglet} onChange={(o) => { setOnglet(o); if (o !== "missions") setMissionOuverte(null); }}
+      <Onglets T={T} compact onglets={ongletsClient(client).filter((o) => o.cle !== "operations")} actif={onglet} onChange={(o) => { setOnglet(o); if (o !== "missions") setMissionOuverte(null); }}
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
@@ -196,15 +196,7 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
           </div>
         </Carte>
       )}
-      <Section T={T} compact titre="Coordonnées" action={onModifier && <button className="inv-btn inv-btn-sm" onClick={onModifier}>Modifier la fiche</button>}>
-        <Carte T={T} style={{ padding: "11px 14px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12 }}>
-            {coord.map(([l, v]) => <div key={l} style={{ minWidth: 0 }}><div style={{ fontSize: 12, color: T.textMuted, fontWeight: 700 }}>{l}</div><div style={{ fontSize: 14, color: T.text, marginTop: 2 }}>{v || <span style={{ color: ORANGE }}>Non renseigné</span>}</div></div>)}
-          </div>
-          {client.notes_rapides && <Discret T={T} style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{client.notes_rapides}</Discret>}
-        </Carte>
-      </Section>
-      <Section T={T} compact titre={`1 · Où en est-on ? ${illisible ? "" : `(${vue.missionsEnCours.length} mission${vue.missionsEnCours.length > 1 ? "s" : ""} en cours)`}`}>
+      <Section T={T} compact titre={illisible ? "Missions" : `Missions en cours · ${vue.missionsEnCours.length}`}>
         {illisible ? <Vide T={T} compact titre="Missions illisibles" texte="avancement indisponible" />
           : vue.missionsEnCours.length === 0
             ? <Vide T={T} compact titre="Aucune mission en cours" texte={vue.missionsTerminees.length ? `${vue.missionsTerminees.length} terminée(s)` : "Démarrez une mission pour suivre ce client étape par étape."}
@@ -212,20 +204,9 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
             : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{vue.missionsEnCours.map((m) => <CarteMission key={m.dossierId} T={T} m={m} onOuvrir={onOuvrirMission} />)}</div>}
       </Section>
 
-      <Section T={T} compact titre="2 · Ce qu'il reste à voir">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 12 }}>
-          <Tuile T={T} titre="Documents du client" valeur={`${nbRecus} / ${CLIENT_DOCUMENT_CHECKLIST.length} reçus`}
-            detail={aDemander ? `${aDemander} pièce${aDemander > 1 ? "s" : ""} pas encore demandée${aDemander > 1 ? "s" : ""}` : "Toutes les pièces sont demandées ou reçues"}
-            couleur={aDemander ? ORANGE : VERT} bouton={aDemander ? "Demander les pièces" : "Voir les documents"} onClick={() => onOnglet("documents")} />
-          <Tuile T={T} titre="Situation patrimoniale" valeur={p.vide ? "Non renseignée" : eur(p.patrimoineNetSimplifie)}
-            detail={p.vide ? "Aucune donnée saisie" : `${p.verifiees} / ${p.total} éléments vérifiés${p.aCorriger ? ` · ${p.aCorriger} à corriger` : ""}${p.incomplet ? " · totaux incomplets" : ""}`}
-            couleur={p.vide || p.aCorriger || p.incomplet ? ORANGE : VERT} bouton="Ouvrir le patrimoine" onClick={() => onOnglet("patrimoine")} />
-        </div>
-        <div style={{ marginTop: 12 }}><AccesPortail T={T} client={client} profil={profil} /></div>
-      </Section>
 
       <div className="crm-v2-grille" style={GRILLE_2}>
-        <Section T={T} compact titre="3 · Autres actions à venir">
+        <Section T={T} compact titre="Autres actions à venir">
           {autres.length === 0 ? <Vide T={T} compact titre={illisible ? "Indisponible" : "Aucune autre action dans les 7 jours"} texte={illisible ? null : "l'action principale de chaque mission est dans sa carte"} /> : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {autres.map((a) => (
@@ -242,9 +223,36 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
           )}
         </Section>
         <Section T={T} compact titre="Activité récente" action={<button className="inv-btn inv-btn-sm" onClick={() => onOnglet("historique")}>Tout l'historique</button>}>
-          {vue.activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeHistorique T={T} items={vue.activite} />}
+          {vue.activite.length === 0 ? <Vide T={T} compact titre="Aucune activité enregistrée" /> : <ListeHistorique T={T} items={vue.activite.slice(0, 5)} />}
         </Section>
       </div>
+
+      {/* Le détail qui sert rarement (coordonnées complètes, documents, patrimoine, portail) est replié : la vue d'ensemble reste courte. */}
+      <details style={{ marginTop: 6 }}>
+        <summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 14, color: T.textSub, padding: "8px 0" }}>Plus d'informations : coordonnées, documents, patrimoine, accès au portail</summary>
+        <div style={{ marginTop: 10 }}>
+      <Section T={T} compact titre="Coordonnées" action={onModifier && <button className="inv-btn inv-btn-sm" onClick={onModifier}>Modifier la fiche</button>}>
+        <Carte T={T} style={{ padding: "11px 14px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 12 }}>
+            {coord.map(([l, v]) => <div key={l} style={{ minWidth: 0 }}><div style={{ fontSize: 12, color: T.textMuted, fontWeight: 700 }}>{l}</div><div style={{ fontSize: 14, color: T.text, marginTop: 2 }}>{v || <span style={{ color: ORANGE }}>Non renseigné</span>}</div></div>)}
+          </div>
+          {client.notes_rapides && <Discret T={T} style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{client.notes_rapides}</Discret>}
+        </Carte>
+      </Section>
+      <Section T={T} compact titre="Documents et patrimoine">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 12 }}>
+          <Tuile T={T} titre="Documents du client" valeur={`${nbRecus} / ${CLIENT_DOCUMENT_CHECKLIST.length} reçus`}
+            detail={aDemander ? `${aDemander} pièce${aDemander > 1 ? "s" : ""} pas encore demandée${aDemander > 1 ? "s" : ""}` : "Toutes les pièces sont demandées ou reçues"}
+            couleur={aDemander ? ORANGE : VERT} bouton={aDemander ? "Demander les pièces" : "Voir les documents"} onClick={() => onOnglet("documents")} />
+          <Tuile T={T} titre="Situation patrimoniale" valeur={p.vide ? "Non renseignée" : eur(p.patrimoineNetSimplifie)}
+            detail={p.vide ? "Aucune donnée saisie" : `${p.verifiees} / ${p.total} éléments vérifiés${p.aCorriger ? ` · ${p.aCorriger} à corriger` : ""}${p.incomplet ? " · totaux incomplets" : ""}`}
+            couleur={p.vide || p.aCorriger || p.incomplet ? ORANGE : VERT} bouton="Ouvrir le patrimoine" onClick={() => onOnglet("patrimoine")} />
+        </div>
+        <div style={{ marginTop: 12 }}><AccesPortail T={T} client={client} profil={profil} /></div>
+      </Section>
+
+        </div>
+      </details>
     </>
   );
 }

@@ -33,6 +33,8 @@ on:
       - 'scripts/verif-invest-dossiers-t1.mjs'
       - 'scripts/verif-invest-fiche-dossier.mjs'
       - 'scripts/verif-invest-crm-v2.mjs'
+      - 'scripts/verif-crm-quotidien.mjs'
+      - 'src/Invest/crm/**'
       - 'scripts/verif-invest-missions-offres.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
       - '.github/workflows/verify-invest-dossiers-t1.yml'
@@ -62,5 +64,7 @@ jobs:
         run: node scripts/verif-invest-fiche-dossier.mjs
       - name: CRM V2 et fiche Client V2 (à traiter, clients, planning, page client)
         run: node scripts/verif-invest-crm-v2.mjs
+      - name: CRM du suivi quotidien (mes missions, groupes, fiche client allégée)
+        run: node scripts/verif-crm-quotidien.mjs
       - name: Missions Offre 2 / Offre 3 (phases, jalons, honoraires, gestes)
         run: node scripts/verif-invest-missions-offres.mjs
