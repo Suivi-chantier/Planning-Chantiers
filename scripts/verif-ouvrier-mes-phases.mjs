@@ -73,7 +73,7 @@ await db.exec(`
   create table public.planning_config (key text primary key, value jsonb);
   create table public.phasages (id uuid primary key default gen_random_uuid(), chantier_id text, chantier_nom text, ouvrages jsonb, plan_travaux jsonb);
   create table public.pointages (id uuid primary key default gen_random_uuid(), chantier_id text, tache_id text, ouvrier text, date date, heures numeric, taux_horaire numeric, rapport_id uuid, type_pointage text);
-  create table public.rapports (id uuid primary key, ouvrier text, chantier_id text, date_rapport text, taches jsonb, statut text);
+  create table public.rapports (id uuid primary key, ouvrier text, chantier_id text, date_rapport text, taches jsonb, statut text, submitted_at timestamptz);
   create table public.planning_cells (week_id text, jour text, chantier_id text, ouvriers text[], taches jsonb);
   alter table public.phasages enable row level security;
   alter table public.pointages enable row level security;
@@ -102,6 +102,7 @@ await db.exec(`
     ('paul@test.fr',   'ouvrier',    true,  'Paul'),
     ('marc@test.fr',   'ouvrier',    true,  'Marc'),
     ('ines@test.fr',   'ouvrier',    false, 'Inès'),
+    ('hugo@test.fr',   'ouvrier',    true,  'Hugo'),
     ('bureau@test.fr', 'conducteur', true,  null);
   insert into public.planning_config values
     ('chantiers', ${js([
@@ -109,7 +110,7 @@ await db.exec(`
       { id: "ch3", nom: "Homonyme" }, { id: "ch4", nom: "Ancien modèle" }, { id: "ch5", nom: "Sans groupes" },
     ])}),
     -- « PAUL » avec espaces et casse différente : la comparaison normalise.
-    ('fonctionnalites_beta', ${js({ mes_phases: ["  PAUL ", "Ines"], compte_rendu_v2: ["Marc"] })});
+    ('fonctionnalites_beta', ${js({ mes_phases: ["  PAUL ", "Ines"], compte_rendu_v2: ["Marc"], cr_v2: ["Hugo"] })});
 `);
 
 // Phasage du chantier test — porte VOLONTAIREMENT des champs financiers
@@ -173,6 +174,15 @@ await db.exec(`
     (${lit(R_VALIDE)},   'Paul', 'ch1', '2026-10-02', 'valide', ${js([{ tache_id: "t1", heures_reelles: 5 }])}),
     (${lit(R_DEVALIDE)}, 'Hamed','ch1', '2026-10-03', 'en_attente', ${js([{ tache_id: "t3", heures_reelles: 2 }])}),
     (${lit(R_ATT_MARC)}, 'Marc', 'ch1', '2026-10-05', 'en_attente', ${js([{ tache_id: "t4", heures_reelles: 3 }])});
+  -- Motifs de dépassement déjà donnés sur t4 (comptes rendus v2 validés, 0 h pour ne
+  -- rien changer aux heures) : le plus RÉCENT (envoyé le 03/10) doit ressortir.
+  insert into public.rapports (id, ouvrier, chantier_id, date_rapport, statut, submitted_at, taches) values
+    ('00000000-0000-0000-0000-0000000000b1', 'Marc', 'ch1', '01/10/2026', 'valide', '2026-10-01 18:00+02',
+       ${js([{ tache_id: "t4", heures_reelles: 0, motif_depassement: "imprevu" }])}),
+    ('00000000-0000-0000-0000-0000000000b2', 'Davy', 'ch1', '2026-10-03', 'valide', '2026-10-03 18:00+02',
+       ${js([{ tache_id: "t4", heures_reelles: 0, motif_depassement: "reprise" }])}),
+    ('00000000-0000-0000-0000-0000000000b3', 'Marc', 'ch9', '2026-10-04', 'valide', '2026-10-04 18:00+02',
+       ${js([{ tache_id: "t4", heures_reelles: 0, motif_depassement: "autre" }])});  -- autre chantier : ignoré
   insert into public.planning_cells values
     -- 2026-W41 Lundi = 05/10 : la ligne t2 porte Paul + Davy (prioritaire sur le phasage).
     ('2026-W41', 'Lundi', 'ch1', array['Davy'], ${js([{ tache_id: "t2", text: "Plaques", ouvriers: ["Paul", "Davy"] }])}),
@@ -231,6 +241,9 @@ ok(/permission denied/i.test((await appel("paul@test.fr", `select public._beta_a
 const betaPaul = (await appel("paul@test.fr", `select public.mes_fonctionnalites_beta('Marc') as v`)).val;
 eq(betaPaul, ["mes_phases"], "Paul lit SES codes bêta (p_prenom ignoré), jamais ceux des autres");
 eq((await appel("marc@test.fr", `select public.mes_fonctionnalites_beta() as v`)).val, ["compte_rendu_v2"], "Marc : son seul code");
+eq((await appel("hugo@test.fr", `select public.mes_fonctionnalites_beta() as v`)).val, ["cr_v2"], "Hugo : bêta nouveau compte rendu seulement");
+const hugo = (await appel("hugo@test.fr", RPC(`'ch1', null, '2026-10-05'`))).val;
+ok(hugo && hugo.modele === "v2" && hugo.prenom === "Hugo", "testeur cr_v2 seul : la RPC lui répond (jauge du compte rendu)");
 eq((await appel("bureau@test.fr", `select public.mes_fonctionnalites_beta('Paul') as v`)).val, ["mes_phases"], "bureau : aperçu de Paul");
 eq((await appel("bureau@test.fr", `select public.mes_fonctionnalites_beta() as v`)).val, [], "bureau sans prénom : aucun code");
 eq((await appel("ines@test.fr", `select public.mes_fonctionnalites_beta() as v`)).val, [], "inactif : aucun code");
@@ -266,6 +279,8 @@ eq(taches.t6.heures_validees_source, "ancien_suivi", "t6 : heures de l'ancien su
 eq([taches.t6.hors_devis, taches.t7.hors_devis, taches.t1.hors_devis], [true, false, false], "hors devis : t6 oui ; t7 non (l'ouvrage porte les heures)");
 eq(taches.t6.phase_id, "_a_organiser", "tâche sans groupe → « À organiser »");
 eq(taches.t3.date_prevue, "2026-10-08", "date prévue au format ISO");
+eq(taches.t4.dernier_motif_depassement, { code: "reprise", date: "2026-10-03" }, "dernier motif de dépassement : le plus récent du chantier, sans nom");
+eq(taches.t1.dernier_motif_depassement, null, "aucun motif donné → null");
 eq(bureauMarc.phases.flatMap(p => p.ouvrages.flatMap(o => o.taches)).filter(t => t.est_mienne).map(t => t.id).sort(),
   ["t4", "t7", "t8"], "aperçu de Marc : ses tâches (t5 est passée à Paul par le planning)");
 

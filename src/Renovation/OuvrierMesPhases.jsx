@@ -59,7 +59,7 @@ function plageDates(min, max) {
 const h = (n) => `${fmtH(n)} h`;
 
 // ── Petits composants ────────────────────────────────────────────────────────
-function Pastille({ etat }) {
+export function Pastille({ etat }) {
   const ton = TONS[etat.ton] || TONS.gris;
   return (
     <span style={{

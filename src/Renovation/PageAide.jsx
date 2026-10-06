@@ -212,6 +212,7 @@ export const AIDE_CONTENU = {
     savoir: [
       "Tant qu'un rapport n'est pas validé, ses heures ne comptent pas dans le coût du chantier.",
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
+      "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h vendues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
     ],
   },
   "heures-salaries": {
@@ -357,6 +358,7 @@ export const AIDE_CONTENU = {
     etapes: [
       "« Collaborateurs » : invitez des membres et donnez-leur un rôle et des accès.",
       "« Collaborateurs » → case « Bêta : Mes phases » sur la fiche d'un ouvrier : lui ouvre l'onglet d'essai « Phases » de l'espace ouvrier (phasage et heures du chantier, sans montant). Vérifiez le rendu avec « Voir la vue d'un collaborateur ».",
+      "« Collaborateurs » → case « Bêta : Nouveau compte rendu » : l'ouvrier passe au nouveau formulaire du soir (temps au quart d'heure, Terminé / En cours / Pas commencé / Bloqué, motifs en un tap). Ses rapports sont validés comme les autres et donnent les mêmes pointages.",
       "« Ouvriers » / « Lots » : définissez les ressources de base (noms, taux horaires, catégories de travaux).",
       "« Fournisseurs » : listez vos fournisseurs et créez des modèles d'e-mail de commande.",
     ],
