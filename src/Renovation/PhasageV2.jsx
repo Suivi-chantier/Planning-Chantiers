@@ -3,6 +3,12 @@ import { supabase } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
 // Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
 import { explicationLigne, NATURES_TACHE, horsDevisParDefaut } from "./motifsCompteRendu";
+// Suivi en quantité (m², ml, m³, U) : règle unique, partagée avec le compte
+// rendu, l'onglet Phases et la Validation.
+import {
+  etatSuivi, avancementRecalcule, sommeQuantitesValidees, libelleQuantite, fmtQuantite, normaliserUnite,
+  quantiteValide, MODE_QUANTITE,
+} from "./suiviQuantite";
 // Répartition des heures vendues d'un ouvrage sur ses tâches : module pur
 // (testé par scripts/verif-hors-devis.mjs), déplacé tel quel d'ici.
 import { repartirHeuresVendues } from "./repartitionHeuresVendues.mjs";
@@ -1228,6 +1234,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     updateOuvrages(ouvrages.map(o => o.id === ouvrageId
       ? { ...o, taches: (o.taches || []).map(t => t.id === tacheId ? { ...t, ...patch } : t) }
       : o));
+  };
+
+  // Tâche suivie en quantité : suivi (cumul = point de départ + quantités
+  // validées du registre) et modification qui recalcule l'avancement d'une
+  // tâche déjà « allumée » (sinon l'avancement reste saisi en %).
+  const suiviQte = (t, o) => etatSuivi(t, o, { validee: sommeQuantitesValidees(tachePointages(t)) });
+  const updateTacheQte = (o, t, patch) => {
+    const av = avancementRecalcule({ ...t, ...patch }, o, sommeQuantitesValidees(tachePointages(t)));
+    updateTache(o.id, t.id, av == null ? patch : { ...patch, avancement: av });
   };
 
   const deleteTache = (ouvrageId, tacheId) => {
@@ -3385,6 +3400,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, marginLeft: 8 }}>
                                 Avanc.
                               </span>
+                              {(() => {
+                                const sq = suiviQte(t, selectedOuvrage);
+                                return sq.mode === MODE_QUANTITE && sq.allumee ? (
+                                  <span title="Avancement calculé depuis les quantités posées (cumul / quantité prévue)" style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
+                                    {libelleQuantite(sq.cumul, sq.quantite, sq.unite)} · {sq.avancement} %
+                                  </span>
+                                ) : null;
+                              })()}
+                              {!(suiviQte(t, selectedOuvrage).mode === MODE_QUANTITE && suiviQte(t, selectedOuvrage).allumee) && (<>
                               <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
                                 onClick={e => e.stopPropagation()}
                                 entier onValeur={n => updateTache(selectedOuvrage.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
@@ -3396,6 +3420,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                   outline: "none", textAlign: "right",
                                 }}/>
                               <span style={{ fontSize: 10, color: T.textMuted }}>%</span>
+                              </>)}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, minWidth: 70 }}>
@@ -4055,6 +4080,71 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 <span><strong>Hors devis</strong> : ne consomme pas les heures vendues de l'ouvrage</span>
               </label>
             </div>
+            {/* Suivi en quantité (étape 4) : automatique selon l'unité et la
+                quantité de l'ouvrage ; « Suivi en % » le force en pourcentage ;
+                « Quantité de la tâche » remplace celle de l'ouvrage pour cette
+                tâche. Une fois la première quantité validée (tâche « allumée »),
+                l'avancement est calculé : cumul / quantité prévue. */}
+            {(() => {
+              const sq = suiviQte(t, o);
+              const uo = normaliserUnite(o.unite);
+              return (
+                <>
+                  {uo && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "end" }}>
+                      <ModalField label={`Quantité de la tâche (${uo})`}>
+                        <InputNombre min="0" valeur={t.quantite ?? ""}
+                          onValeur={n => updateTacheQte(o, t, { quantite: n != null && n > 0 ? n : null })}
+                          placeholder={o.quantite != null && o.quantite !== "" ? `${fmtQuantite(o.quantite)} (ouvrage)` : "—"}
+                          style={modalInp(T)}/>
+                      </ModalField>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.sm.size, color: T.text, cursor: "pointer", paddingBottom: 10 }}>
+                        <input type="checkbox" checked={t.suivi_pourcent === true}
+                          onChange={e => updateTacheQte(o, t, { suivi_pourcent: e.target.checked })}
+                          style={{ width: 16, height: 16, accentColor: "#2563eb" }}/>
+                        <span><strong>Suivi en %</strong> (approvisionnement, protection…)</span>
+                      </label>
+                    </div>
+                  )}
+                  {sq.mode === MODE_QUANTITE && (
+                    <div style={{ background: T.fieldBg || T.card, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, padding: "10px 12px" }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: .8, textTransform: "uppercase", color: T.textMuted, marginBottom: 6 }}>
+                        Suivi en quantité
+                      </div>
+                      {sq.allumee ? (
+                        <>
+                          <div style={{ fontSize: FONT.sm.size, color: T.text }}>
+                            Posé : <strong>{libelleQuantite(sq.cumul, sq.quantite, sq.unite)}</strong> → <strong>{sq.avancement} %</strong>
+                            {sq.ecart ? <span style={{ color: T.textSub }}> · {sq.ecart}</span> : null}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "end", marginTop: 8 }}>
+                            <ModalField label={`Déjà posé hors comptes rendus (${sq.unite})`}>
+                              <InputNombre min="0" valeur={t.quantite_reprise ?? 0}
+                                onValeur={n => updateTacheQte(o, t, { quantite_reprise: quantiteValide(n) })}
+                                style={modalInp(T)}/>
+                            </ModalField>
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.sm.size, color: T.text, cursor: "pointer", paddingBottom: 10 }}>
+                              <input type="checkbox" checked={!!t.quantite_terminee}
+                                onChange={e => updateTacheQte(o, t, { quantite_terminee: e.target.checked ? true : null })}
+                                style={{ width: 16, height: 16, accentColor: "#166534" }}/>
+                              <span><strong>Tâche terminée</strong> (100 %)</span>
+                            </label>
+                          </div>
+                          <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 4 }}>
+                            Dont {fmtQuantite(sq.validee)} {sq.unite} validés dans les comptes rendus. L'avancement se calcule : il ne se saisit plus ici.
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub }}>
+                          Prévu : {fmtQuantite(sq.quantite)} {sq.unite}. Aucune quantité validée encore : l'avancement se saisit en %.
+                          À la première quantité validée, le point de départ sera fixé à {fmtQuantite(sq.depart)} {sq.unite} (avancement actuel × quantité).
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures estimées">
                 <InputNombre min="0" valeur={t.heures_estimees ?? ""}
@@ -4075,9 +4165,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 )}
               </ModalField>
               <ModalField label="Avancement (%)">
+                {suiviQte(t, o).mode === MODE_QUANTITE && suiviQte(t, o).allumee ? (
+                  <div title="Calculé depuis les quantités posées" style={{ ...modalInp(T), opacity: 0.7, cursor: "not-allowed" }}>
+                    {suiviQte(t, o).avancement} % (calculé)
+                  </div>
+                ) : (
                 <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
                   entier onValeur={n => updateTache(o.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
                   placeholder="0" style={modalInp(T)}/>
+                )}
               </ModalField>
             </div>
             {/* Ventilation du coût MO réel depuis le registre de pointage :

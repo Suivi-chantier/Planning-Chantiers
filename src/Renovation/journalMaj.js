@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
+    type: "nouveaute",
+    titre: "Compte rendu (bêta) : quantités posées au lieu d'un pourcentage, et photo « après » sur les tâches terminées",
+    pages: [{ id: "validation", label: "Validation" }, { id: "phasage-v2", label: "Phasage" }],
+    quoi: "Sur une tâche qui se mesure (m², ml, m³, ou plusieurs unités), l'ouvrier dit ce qu'il a posé dans la journée au lieu d'estimer un pourcentage : « 12 m² ». L'avancement se calcule tout seul depuis le total posé, et les quantités validées serviront plus tard à mesurer les cadences réelles (heures par m²). Une tâche terminée doit être accompagnée d'une photo « après ».",
+    comment: "Règle automatique, à partir de l'ouvrage : unité m² (ou « m2 »), ml, m³ (ou « m3 ») ou U, avec une quantité supérieure à 1. Sinon, comme avant, en pourcentage (quantité de 1 ou moins, tâche hors devis, « Divers / hors devis »). Phasage → « Modifier la tâche » : case « Suivi en % » pour forcer le pourcentage, et « Quantité de la tâche » si elle diffère de l'ouvrage (ex. bandes sur 60 m² d'un doublage de 85 m²). Côté ouvrier (nouveau compte rendu, bêta) : « Posé aujourd'hui : [ 12 ] m² » avec « Total : 51 / 85 m² → 60 % » ; « Terminé » préremplit ce qui reste à poser ; poser plus que prévu est permis (message « Plus que prévu au devis : c'est normal ? »). « Terminé » demande une photo « après » ; hors connexion, ou avec « Je ne peux pas envoyer la photo », la tâche part quand même et la Validation affiche « Photo « après » manquante ». Validation : quantité déclarée, quantité validée préremplie (jamais négative), cumul avant → après, avancement résultant, case « Tâche terminée » (100 %, même si le total reste sous la quantité prévue : l'écart reste affiché, « terminée à 70 / 85 m² »). Le suivi en quantité s'allume tâche par tâche, à la première quantité validée : le point de départ est alors fixé à avancement actuel × quantité, une seule fois ; jusque-là rien ne change pour la tâche. Ensuite un pourcentage de l'ancien formulaire est converti en quantité, et dans Phasage l'avancement se calcule (correction par « Déjà posé hors comptes rendus »). « Corriger » sur un rapport fait redescendre le cumul et recalcule l'avancement. L'onglet Phases affiche « Posé : 51 / 85 m² ». À mettre en service : passer sql/202610_quantites_posees.sql puis sql/202610_ouvrier_mes_phases.sql dans Supabase.",
+  },
+  {
+    date: "2026-10-06",
     type: "amelioration",
     titre: "Nouveaux horaires : 35 h en semaine de 4 jours, 43 h en semaine de 5 jours",
     pages: [{ id: "planning", label: "Planning semaine" }, { id: "validation", label: "Validation" }, { id: "bilan-semaine", label: "Bilan Semaine" }, { id: "admin", label: "Admin" }],

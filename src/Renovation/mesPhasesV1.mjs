@@ -42,6 +42,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { avancementOuvrage, statsGroupeChrono, SEUIL_RATIO_DERIVE, fmtH } from "../chantierFinance.mjs";
 import { libelleNature } from "./motifsCompteRendu.mjs";
+import { etatSuivi, MODE_QUANTITE } from "./suiviQuantite.mjs";
+
+// Suivi en quantité d'une tâche (null : en pourcentage, ou RPC d'avant
+// l'étape 4 qui ne renvoie pas les quantités). Règle : suiviQuantite.mjs.
+function suiviTache(t, ouvrage) {
+  if (t.quantite_validee === undefined) return null;
+  const s = etatSuivi(
+    { quantite: t.quantite, suivi_pourcent: t.suivi_pourcent === true, hors_devis: t.hors_devis_marque === true,
+      quantite_reprise: t.quantite_reprise, quantite_terminee: t.quantite_terminee, avancement: t.avancement },
+    { unite: ouvrage?.unite, quantite: ouvrage?.quantite, libelle: ouvrage?.libelle },
+    { validee: t.quantite_validee, attente: t.quantite_en_attente },
+  );
+  return s.mode === MODE_QUANTITE ? s : null;
+}
 
 export const MES_PHASES_VERSION = "v1";
 export const PHASE_A_ORGANISER = "_a_organiser";
@@ -142,6 +156,7 @@ export function enrichirTache(t, ouvrage) {
     statut: statutDesTaches([t]),
     venduesAilleurs,
     marqueHorsDevis: t.hors_devis_marque === true,
+    suivi: suiviTache(t, ouvrage),
     etat,
   };
 }

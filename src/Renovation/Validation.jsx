@@ -47,7 +47,11 @@ import {
   lignesDepuisRapport, taskLinesPourPointages, depassementAffichable, decouperLigne, ligneBasculee,
   enregistrerCreationsProposees, propositionACreer, tacheCreeeEnValidation, ajouterTacheDansOuvrage,
   idTacheProposee, trouverTache, creationParDefaut,
+  suiviPourValidation, quantiteEffective, apresValidation, majTachesQuantite, majTachesApresDevalidation,
+  appliquerPatchTache, appliquerPatches,
 } from "./lignesValidation";
+// Quantités posées : règle unique (mode de suivi, cumul, avancement).
+import { sommesParTache, libelleQuantite, fmtQuantite, quantiteValide, ecartTerminee } from "./suiviQuantite";
 import {
   explicationLigne, libelleMotifDepassement, NATURES_TACHE, horsDevisParDefaut, libelleNature,
 } from "./motifsCompteRendu";
@@ -438,7 +442,11 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         if (t.tache_id != null && t.avancement != null) {
           const key = String(t.tache_id);
           if (!m[key]) m[key] = [];
-          m[key].push({ ouvrier: rOther.ouvrier, avancement: parseInt(t.avancement) || 0 });
+          m[key].push({
+            ouvrier: rOther.ouvrier, avancement: parseInt(t.avancement) || 0,
+            ...(t.quantite_jour != null && t.quantite_jour !== "" ? { quantite: t.quantite_jour, unite: t.unite || "" } : {}),
+            valide: rOther.statut === "valide",
+          });
         }
       });
     });
@@ -817,6 +825,27 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       }
     }
 
+    // 1-bis) QUANTITÉS POSÉES : l'avancement d'une tâche suivie en quantité
+    //   résulte du cumul (point de départ + quantités validées) RELU EN BASE
+    //   après l'écriture des pointages — une validation simultanée d'un autre
+    //   rapport sur la même tâche est donc comptée. Point de départ posé à la
+    //   première quantité, marqueur « terminée » si la case est cochée.
+    let patchesQuantite = {};
+    const tachesQte = [...new Set(lignes.filter(li => li.qte && li.tache_id).map(li => String(li.tache_id)))];
+    if (tachesQte.length > 0 && Array.isArray(phCourant?.ouvrages)) {
+      const { data: pq, error: pqErr } = await supabase.from("pointages")
+        .select("tache_id, quantite_validee").eq("chantier_id", rapport.chantier_id).in("tache_id", tachesQte);
+      if (pqErr) {
+        console.error("Relecture des quantités validées:", pqErr);
+        alert("Les heures et les quantités sont enregistrées, mais l'avancement des tâches suivies en quantité "
+          + "n'a pas pu être recalculé.\n\nRouvre ce rapport (« Corriger ») puis revalide-le.");
+      } else {
+        patchesQuantite = majTachesQuantite({
+          ouvrages: phCourant.ouvrages, lignes, sommes: sommesParTache(pq), rapportId: rapport.id, le: new Date().toISOString(),
+        });
+      }
+    }
+
     // 2) Avancement arbitré → update plan_travaux. On regroupe par tache_id
     //    (si plusieurs lignes pointent la même tâche, on prend la valeur la
     //    plus haute parmi les arbitrés saisis — cohérent avec le garde-fou
@@ -881,7 +910,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         if (arbitresParNom[nom] == null || av > arbitresParNom[nom]) arbitresParNom[nom] = av;
       }
     });
-    if (Object.keys(arbitresParId).length > 0 || Object.keys(arbitresParNom).length > 0) {
+    if (Object.keys(arbitresParId).length > 0 || Object.keys(arbitresParNom).length > 0
+        || Object.keys(patchesQuantite).length > 0) {
       const phV2 = phCourant;
       if (phV2 && Array.isArray(phV2.ouvrages)) {
         let touchedO = false;
@@ -889,6 +919,11 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           ...o,
           taches: (o.taches || []).map(t => {
             const tid = String(t.id || "");
+            // Tâche suivie en quantité : l'avancement vient du cumul (1-bis).
+            if (tid && patchesQuantite[tid]) {
+              touchedO = true;
+              return appliquerPatchTache(t, patchesQuantite[tid]);
+            }
             if (tid && arbitresParId[tid] != null) {
               touchedO = true;
               return { ...t, avancement: arbitresParId[tid] };
@@ -1091,6 +1126,13 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       + "d'origine de l'ouvrier."
     )) return;
     setValidating(true);
+    // 0) Tâches suivies en quantité touchées par ce rapport (lecture avant
+    //    suppression ; en échec — colonnes absentes — il n'y en a pas).
+    const { data: ptsQte } = await supabase.from("pointages")
+      .select("tache_id, quantite_validee").eq("rapport_id", rapport.id);
+    const tachesQte = [...new Set((ptsQte || [])
+      .filter(p => p.tache_id && p.quantite_validee !== null && p.quantite_validee !== undefined)
+      .map(p => String(p.tache_id)))];
     // 1) Supprime les pointages issus de ce rapport.
     const { error: delErr } = await supabase.from("pointages").delete().eq("rapport_id", rapport.id);
     if (delErr) {
@@ -1105,6 +1147,33 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       .eq("id", rapport.id);
     if (upErr && /statut|valide_par|valide_le/.test(upErr.message || "")) upErr = null;
     if (upErr) console.error("Update rapport statut (dévalidation):", upErr);
+    // 2-bis) Quantités posées : le cumul a baissé avec les pointages supprimés.
+    //   L'avancement des tâches touchées est recalculé, et le marqueur
+    //   « terminée » posé par CE rapport retiré. En cas d'échec, la prochaine
+    //   validation d'une ligne de la tâche le recalcule.
+    if (tachesQte.length > 0) {
+      const ph = phasages.find(p => p.chantier_id === rapport.chantier_id);
+      if (ph && Array.isArray(ph.ouvrages)) {
+        const { data: pq, error: pqErr } = await supabase.from("pointages")
+          .select("tache_id, quantite_validee").eq("chantier_id", rapport.chantier_id).in("tache_id", tachesQte);
+        const patches = pqErr ? {} : majTachesApresDevalidation({
+          ouvrages: ph.ouvrages, tacheIds: tachesQte, sommes: sommesParTache(pq), rapportId: rapport.id,
+        });
+        if (Object.keys(patches).length > 0) {
+          const next = appliquerPatches(ph.ouvrages, patches);
+          const resQ = await sauvegarderPhasage({ phasageId: ph.id, revision: ph.revision ?? 0, ouvrages: next });
+          if (resQ.ok) {
+            setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next, revision: resQ.revision } : p));
+          } else {
+            if (resQ.code === "conflit") setConflitPhasage(true);
+            alert("Rapport rouvert. L'avancement des tâches suivies en quantité n'a pas pu être recalculé tout de suite "
+              + "(le phasage a été modifié ailleurs) : il le sera à la prochaine validation de ces tâches.");
+          }
+        } else if (pqErr) {
+          console.error("Relecture des quantités (dévalidation):", pqErr);
+        }
+      }
+    }
     // 3) Met à jour l'état local : la modale (opened dérivé de rapports)
     //    redevient éditable sans se fermer.
     setRapports(prev => prev.map(r => r.id === rapport.id
@@ -1292,6 +1361,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           autresPropositions={autresPropositionsPourRapport(opened)}
           tachesPlan={tachesPlanParChantier[opened.chantier_id] || []}
           ouvragesPlan={ouvragesPlanParChantier[opened.chantier_id] || []}
+          phasageOuvrages={(phasages.find(p => p.chantier_id === opened.chantier_id)?.ouvrages) || []}
           tacheExistante={(id) => {
             const ph = phasages.find(p => p.chantier_id === opened.chantier_id);
             return ph && Array.isArray(ph.ouvrages) ? trouverTache(ph.ouvrages, id) : null;
@@ -1417,7 +1487,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
-  ouvragesPlan = [], tacheExistante = () => null,
+  ouvragesPlan = [], tacheExistante = () => null, phasageOuvrages = [],
   chantiers = [], onChangerChantier, onBasculerLigne,
   nbChantiersDuJour = 1,
   autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
@@ -1434,6 +1504,46 @@ function ModaleRapport({
   // P6 : verrouille toute action si la journée est clôturée (sauf consultation).
   const valide = rapport.statut === "valide";
   const verrouille = valide || journeeCloturee;
+
+  // Quantités posées : somme des quantités validées par tâche, HORS ce
+  // rapport (cumul « avant »). Indisponible (colonnes absentes, réseau) :
+  // les lignes restent en pourcentage, comme avant.
+  const [sommesAvant, setSommesAvant] = useState({});
+  const [quantitesEtat, setQuantitesEtat] = useState("chargement");
+  useEffect(() => {
+    let annule = false;
+    setQuantitesEtat("chargement");
+    (async () => {
+      const { data, error } = await supabase.from("pointages")
+        .select("tache_id, rapport_id, quantite_validee").eq("chantier_id", rapport.chantier_id).not("quantite_validee", "is", null);
+      if (annule) return;
+      if (error) { setSommesAvant({}); setQuantitesEtat("indisponible"); return; }
+      setSommesAvant(sommesParTache((data || []).filter(p => String(p.rapport_id) !== String(rapport.id))));
+      setQuantitesEtat("ok");
+    })();
+    return () => { annule = true; };
+  }, [rapport.id, rapport.chantier_id, rapport.statut]);
+  const suiviDe = (li) => (quantitesEtat === "ok" && li?.tache_id
+    ? suiviPourValidation(phasageOuvrages, li.tache_id, sommesAvant[String(li.tache_id)] || 0) : null);
+  // Lignes avec leur décision de quantité (null = ligne en pourcentage).
+  const lignesQte = lignes.map(li => ({ ...li, qte: quantiteEffective(li, suiviDe(li)) }));
+  // Quantité validée de CE rapport par tâche (toutes ses lignes).
+  const qteRapportParTache = {};
+  lignesQte.forEach(li => {
+    if (!li.qte) return;
+    const k = String(li.tache_id);
+    qteRapportParTache[k] = (qteRapportParTache[k] || 0) + quantiteValide(li.qte.validee);
+  });
+  // Ce qui part à la validation : la décision, et l'avancement estimé en guise
+  // d'« arbitré » (garde-fou anti-régression) ; l'avancement écrit est
+  // recalculé depuis la base après les pointages.
+  const lignesPourValidation = () => lignesQte.map(li => {
+    if (!li.qte) return li;
+    const s = suiviDe(li);
+    const termineeTache = lignesQte.some(x => x.qte && String(x.tache_id) === String(li.tache_id) && x.qte.terminee);
+    const apres = apresValidation(s, qteRapportParTache[String(li.tache_id)], termineeTache);
+    return { ...li, avancement_arbitre: apres.avancement };
+  });
 
   useEffect(() => {
     const init = lignesDepuisRapport(rapport);
@@ -1560,7 +1670,7 @@ function ModaleRapport({
       return;
     }
     const t = tachesPlan.find(x => String(x.id) === String(value));
-    if (t) updateLigne(rowId, { tache_id: t.id, phase_id: t.phase_id || null, ouvrage_id: t.ouvrage_id || null, planifie: t.nom, _autoMatched: false });
+    if (t) updateLigne(rowId, { tache_id: t.id, phase_id: t.phase_id || null, ouvrage_id: t.ouvrage_id || null, planifie: t.nom, _autoMatched: false, qte_edit: null });
   };
 
   const validerCreation = async () => {
@@ -1705,6 +1815,11 @@ function ModaleRapport({
                 <LigneEditable
                   key={li.rowId}
                   ligne={li}
+                  qte={quantiteEffective(li, suiviDe(li))}
+                  suiviQte={suiviDe(li)}
+                  qteRapport={li.tache_id ? (qteRapportParTache[String(li.tache_id)] || 0) : 0}
+                  termineeRapport={lignesQte.some(x => x.qte && li.tache_id && String(x.tache_id) === String(li.tache_id) && x.qte.terminee)}
+                  onQte={(patch) => updateLigne(li.rowId, { qte_edit: { ...(li.qte_edit || {}), ...patch } })}
                   T={T} acc={acc}
                   valide={verrouille}
                   tachesPlan={tachesPlan}
@@ -1852,7 +1967,7 @@ function ModaleRapport({
               </span>
             ) : (
               <button
-                onClick={() => onValider({ lignes, indirectes })}
+                onClick={() => onValider({ lignes: lignesPourValidation(), indirectes })}
                 disabled={validating}
                 style={{
                   padding: "8px 16px", borderRadius: RADIUS.md,
@@ -1907,6 +2022,7 @@ function ModaleRapport({
 function LigneEditable({
   ligne, T, acc, valide, tachesPlan, phases,
   ouvragesPlan = [], ouvrier = null, dejaCreee = null, suggestion = null,
+  qte = null, suiviQte = null, qteRapport = 0, termineeRapport = false, onQte = () => {},
   avancementActuel, autres, onChange, onChangeTache, onSplit, onRemove, onBasculer,
 }) {
   const phasesById = useMemo(() => Object.fromEntries((phases || []).map(p => [p.id, p])), [phases]);
@@ -2026,7 +2142,7 @@ function LigneEditable({
               Aussi pointée par : {autres.map((a, i) => (
                 <span key={i}>
                   {i > 0 && " · "}
-                  <strong>{a.ouvrier}</strong> {a.avancement}%
+                  <strong>{a.ouvrier}</strong> {a.quantite != null ? `${fmtQuantite(a.quantite)} ${a.unite}` : `${a.avancement}%`}{a.quantite != null && !a.valide ? " (en attente)" : ""}
                 </span>
               ))}
             </span>
@@ -2057,17 +2173,42 @@ function LigneEditable({
             ouvrier={ouvrier} dejaCreee={dejaCreee} suggestion={suggestion}
             onChange={onChange} onChangeTache={onChangeTache}/>
         )}
+        {qte && suiviQte && (
+          <BlocQuantite qte={qte} suivi={suiviQte} qteRapport={qteRapport} termineeRapport={termineeRapport}
+            heures={ligne.heures} valide={valide} T={T} onQte={onQte}/>
+        )}
+        {!qte && ligne.quantite_declaree != null && (
+          <span style={{ fontSize: 11, color: T.textSub }}>
+            Posé déclaré : {fmtQuantite(ligne.quantite_declaree)} {ligne.unite_declaree || ""} — non utilisé : cette tâche se suit en pourcentage.
+          </span>
+        )}
+        {ligne.photo_apres_manquante && (
+          <span title={ligne.photo_apres_raison === "hors_connexion" ? "Le téléphone de l'ouvrier était hors connexion à l'envoi"
+            : ligne.photo_apres_raison === "bouton" ? "L'ouvrier a indiqué ne pas pouvoir envoyer la photo" : ""} style={{
+            alignSelf: "flex-start", fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+            background: "rgba(245,166,35,0.15)", color: "#b27416",
+          }}>
+            Photo « après » manquante{ligne.photo_apres_raison === "hors_connexion" ? " (hors connexion)" : ligne.photo_apres_raison === "bouton" ? " (signalé par l'ouvrier)" : ""}
+          </span>
+        )}
         {/* Photos déclarées par l'ouvrier pour cette tâche (clic = ouvre en plein) */}
         {Array.isArray(ligne.photos) && ligne.photos.length > 0 && (
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
-            {ligne.photos.map((url, i) => (
-              <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{
-                width: 48, height: 48, borderRadius: 6, overflow: "hidden",
-                border: `1px solid ${T.border}`, background: T.bg, flexShrink: 0,
-              }}>
-                <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
-              </a>
-            ))}
+            {ligne.photos.map((url, i) => {
+              const apres = Array.isArray(ligne.photos_apres) && ligne.photos_apres.includes(url);
+              return (
+                <a key={i} href={url} target="_blank" rel="noopener noreferrer" title={apres ? "Photo « après »" : ""} style={{
+                  position: "relative", width: 48, height: 48, borderRadius: 6, overflow: "hidden",
+                  border: apres ? "2px solid #166534" : `1px solid ${T.border}`, background: T.bg, flexShrink: 0,
+                }}>
+                  <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}/>
+                  {apres && (
+                    <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#166534", color: "#fff",
+                      fontSize: 8.5, fontWeight: 800, textAlign: "center", textTransform: "uppercase", letterSpacing: .3 }}>après</span>
+                  )}
+                </a>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2105,7 +2246,7 @@ function LigneEditable({
             min="0" max="100"
             valeur={ligne.avancement_arbitre ?? ""}
             entier onValeur={n => onChange({ avancement_arbitre: n === null ? "" : Math.max(0, Math.min(100, n)) })} vide={""}
-            disabled={valide || (!ligne.tache_id && !aCreer)}
+            disabled={valide || (!ligne.tache_id && !aCreer) || !!qte}
             style={{
               ...inputStyle(T), textAlign: "right",
               borderColor: baisse ? "#e05c5c" : T.border,
@@ -2134,6 +2275,68 @@ function LigneEditable({
           <Icon as={Trash2} size={14}/>
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Bloc « Quantité posée » (tâche suivie en quantité) ─────────────────────
+// Quantité déclarée (ou % de l'ancien formulaire converti), quantité validée
+// préremplie et modifiable (>= 0), cumul avant → après, avancement résultant,
+// case « Tâche terminée » (100 %, prime sur le cumul) et alertes.
+function BlocQuantite({ qte, suivi, qteRapport, termineeRapport, heures, valide, T, onQte }) {
+  const bleu = "#1d4ed8";
+  const apres = apresValidation(suivi, qteRapport, termineeRapport);
+  const u = suivi.unite;
+  const ecart = ecartTerminee({ terminee: apres.terminee, cumul: apres.cumul, quantite: suivi.quantite, unite: u });
+  return (
+    <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: RADIUS.md, background: "rgba(37,99,235,0.06)", border: "1px solid rgba(37,99,235,0.3)" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 800, color: bleu, textTransform: "uppercase", letterSpacing: .4 }}>
+        Suivi en quantité · {u}
+      </div>
+      <div style={{ fontSize: 12, color: T.text, marginTop: 3 }}>
+        {qte.source === "declaree"
+          ? <>Posé déclaré : <strong>{fmtQuantite(qte.declaree)} {u}</strong></>
+          : <>Déclaré en % : <strong>{Math.round(Number(qte.pourcent) || 0)} %</strong>, soit {fmtQuantite((Math.max(0, Math.min(100, Number(qte.pourcent) || 0)) / 100) * suivi.quantite)} {u} au total
+              (cumul déjà à {fmtQuantite(suivi.cumul)} {u}) : quantité ajoutée préremplie ci-dessous.</>}
+      </div>
+      {qte.uniteDifferente && (
+        <div style={{ fontSize: 11, color: "#e05c5c", fontWeight: 700 }}>
+          Déclaré dans une autre unité que celle de la tâche ({u}) : vérifie la quantité validée.
+        </div>
+      )}
+      {!suivi.allumee && (
+        <div style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>
+          Premier relevé en quantité sur cette tâche : point de départ fixé à {fmtQuantite(suivi.depart)} {u}
+          {" "}({Math.round(Number(suivi.tache?.avancement) || 0)} % × {fmtQuantite(suivi.quantite)} {u}).
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+        <label style={{ ...miniLabel(T), margin: 0 }}>Quantité validée</label>
+        <InputNombre min="0" valeur={qte.validee ?? ""}
+          onValeur={n => onQte({ validee: n === null ? 0 : Math.max(0, n) })} vide={""}
+          onWheel={e => e.currentTarget.blur()} disabled={valide}
+          style={{ ...inputStyle(T), width: 90, textAlign: "right", padding: "4px 8px" }}/>
+        <span style={{ fontSize: 12, color: T.textSub }}>{u}</span>
+      </div>
+      <div style={{ fontSize: 12, color: T.text, marginTop: 6 }}>
+        Cumul : {fmtQuantite(suivi.cumul)} → <strong>{libelleQuantite(apres.cumul, suivi.quantite, u)}</strong> · <strong>{apres.avancement} %</strong>
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, marginTop: 4 }}>
+        <input type="checkbox" checked={!!qte.terminee || suivi.terminee} disabled={valide || suivi.terminee}
+          onChange={e => onQte({ terminee: e.target.checked })}/>
+        Tâche terminée (100 %){suivi.terminee ? " — déjà marquée terminée" : ""}
+      </label>
+      {ecart && <div style={{ fontSize: 11.5, color: T.textSub, marginTop: 2 }}>La tâche sera {ecart}.</div>}
+      {apres.cumul > suivi.quantite + 1e-9 && (
+        <div style={{ fontSize: 11.5, color: "#b27416", fontWeight: 700, marginTop: 2 }}>
+          Cumul au-delà de la quantité prévue au devis ({fmtQuantite(suivi.quantite)} {u}).
+        </div>
+      )}
+      {(parseFloat(heures) || 0) <= 0 && quantiteValide(qte.validee) > 0 && (
+        <div style={{ fontSize: 11.5, color: "#e05c5c", fontWeight: 700, marginTop: 2 }}>
+          0 h sur cette ligne : la quantité ne sera pas enregistrée (une quantité suit les heures).
+        </div>
+      )}
     </div>
   );
 }

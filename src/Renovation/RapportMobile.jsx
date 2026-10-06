@@ -21,9 +21,10 @@ import {
 import {
   FORMULAIRE_V2, serialiserLigneV2, finaliserLignesV2, brouillonV2VersV1, preremplirDurees,
   colonnesRapportV2, etatEnvoi, fmtMinutes, ajouterDepuisPhasage, carteRetirable, ORIGINE_LIBRE,
-  ORIGINE_NOUVELLE, ligneNouvelleTache, modifierNouvelleTache, texteProposition,
+  ORIGINE_NOUVELLE, ligneNouvelleTache, modifierNouvelleTache, texteProposition, photosAutres, majPhotosAutres,
 } from "./compteRenduV2";
 import { explicationComplete } from "./motifsCompteRendu";
+import { fmtQuantite } from "./suiviQuantite";
 import TacheCarteV2 from "./TacheCarteV2";
 import PanneauAutreChose from "./PanneauAutreChose";
 
@@ -74,7 +75,7 @@ async function sendRapportEmail(rapport, chantierNom) {
       <td style="padding:8px;border-bottom:1px solid #eee">${icon} <strong>${t.planifie}</strong></td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;color:#5b8af5;font-weight:700">${t.heures_reelles||0}h</td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;color:#8b5cf6;font-weight:700">${t.avancement||0}%</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;color:#666">${[t.origine === ORIGINE_NOUVELLE ? texteProposition(t.proposition) : "", explicationComplete(t)].filter(Boolean).join(" — ")||"—"}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;color:#666">${[t.origine === ORIGINE_NOUVELLE ? texteProposition(t.proposition) : "", t.quantite_jour != null && t.unite ? `Posé : ${fmtQuantite(t.quantite_jour)} ${t.unite}` : "", t.photo_apres_manquante ? "Photo « après » manquante" : "", explicationComplete(t)].filter(Boolean).join(" — ")||"—"}</td>
     </tr>`;
   }).join("");
   const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
@@ -323,6 +324,15 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // dépassement), par tache_id. infosEtat : chargement | ok | indisponible.
   const [infosParTache, setInfosParTache] = useState({});
   const [infosEtat, setInfosEtat] = useState("chargement");
+  // v2 : téléphone hors ligne ? (photo « après » non exigée : la ligne part
+  // marquée photo_apres_manquante / photo_apres_hors_connexion).
+  const [horsConnexion, setHorsConnexion] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
+  useEffect(() => {
+    const maj = () => setHorsConnexion(typeof navigator !== "undefined" && navigator.onLine === false);
+    window.addEventListener("online", maj);
+    window.addEventListener("offline", maj);
+    return () => { window.removeEventListener("online", maj); window.removeEventListener("offline", maj); };
+  }, []);
   // Heures attendues par jour — config Admin (clé planning_config "heures_par_jour").
   // Le défaut local sert de fallback tant que la config n'est pas chargée.
   const HEURES_PAR_JOUR_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
@@ -657,7 +667,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           });
           if (error || !data || data.acces_refuse) { echec = true; continue; }
           (data.phases || []).forEach(ph => (ph.ouvrages || []).forEach(o => (o.taches || []).forEach(x => {
-            if (x.id) infos[String(x.id)] = { ...x, phase_nom: ph.synthetique ? null : ph.nom, ouvrage_libelle: o.libelle };
+            if (x.id) infos[String(x.id)] = {
+              ...x, phase_nom: ph.synthetique ? null : ph.nom, ouvrage_libelle: o.libelle,
+              ouvrage_unite: o.unite ?? null, ouvrage_quantite: o.quantite ?? null,
+            };
           })));
         } catch { echec = true; }
       }
@@ -750,10 +763,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // Formulaire v2 : le bouton n'est actif que si tout est complet et le
     // total exact ; on refait le même contrôle ici (filet), puis on saute
     // directement à l'envoi — les contrôles ci-dessous sont ceux de l'ancien.
-    const tachesEnvoi = estV2 ? finaliserLignesV2(taches, infosParTache) : taches;
+    const tachesEnvoi = estV2 ? finaliserLignesV2(taches, infosParTache, { horsConnexion }) : taches;
     if (estV2) {
       const e = etatEnvoi({
-        taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache,
+        taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache, horsConnexion,
         indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
       });
       if (!e.peutEnvoyer) { alert(e.phrase || "Ton compte rendu n'est pas complet."); return; }
@@ -1055,7 +1068,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const ecartH = totalJourneeH - cibleHeures; // négatif si manque, positif si dépasse
   // v2 : état du bouton d'envoi (total exact + lignes complètes) et reste en minutes.
   const envoiV2 = estV2 ? etatEnvoi({
-    taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache,
+    taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache, horsConnexion,
     indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
   }) : null;
 
@@ -1623,11 +1636,18 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               onModifierNouvelle={t.origine === ORIGINE_NOUVELLE ? () => setEditionNouvelle({ idx, chantierId: t.chantier_id, ligne: t }) : null}
               chantiers={chantiers}
               onOuvrirCommande={embedded && onOuvrirCommande ? onOuvrirCommande : null}
+              horsConnexion={horsConnexion}
+              champPhotosApres={(apres, onChange) => (
+                <PhotosPicker photos={apres} onChange={onChange}
+                  pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}-apres`}
+                  color={t.chantier_couleur || T.info} label="Photo après"/>
+              )}
               photos={(
                 <div style={{marginTop:12,paddingTop:12,borderTop:`1px dashed ${T.border}`}}>
+                  {/* Les photos « après » ont leur propre bloc : ici, les autres. */}
                   <PhotosPicker
-                    photos={t.photos || []}
-                    onChange={(arr)=>{ touche(); setTachePhotos(idx, arr); }}
+                    photos={photosAutres(t)}
+                    onChange={(arr)=>{ maj(x => majPhotosAutres(x, arr)); }}
                     pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}`}
                     color={t.chantier_couleur || T.info}
                     label="Photos de la tâche"

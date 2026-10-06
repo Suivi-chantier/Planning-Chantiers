@@ -94,6 +94,8 @@ jobs:
         run: node scripts/verif-hors-devis.mjs
       - name: Nouvelle tache proposee par l'ouvrier (creation a la validation, pointages, conflit de revision)
         run: node scripts/verif-nouvelle-tache.mjs
+      - name: Quantites posees et photo apres (suivi en quantite, cumul, validation, SQL)
+        run: node scripts/verif-quantites-posees.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression

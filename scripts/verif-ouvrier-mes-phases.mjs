@@ -72,7 +72,7 @@ await db.exec(`
   create table public.utilisateurs (email text, role text, actif boolean, prenom_planning text);
   create table public.planning_config (key text primary key, value jsonb);
   create table public.phasages (id uuid primary key default gen_random_uuid(), chantier_id text, chantier_nom text, ouvrages jsonb, plan_travaux jsonb);
-  create table public.pointages (id uuid primary key default gen_random_uuid(), chantier_id text, tache_id text, ouvrier text, date date, heures numeric, taux_horaire numeric, rapport_id uuid, type_pointage text);
+  create table public.pointages (id uuid primary key default gen_random_uuid(), chantier_id text, tache_id text, ouvrier text, date date, heures numeric, taux_horaire numeric, rapport_id uuid, type_pointage text, quantite_declaree numeric, quantite_validee numeric, quantite_unite text);
   create table public.rapports (id uuid primary key, ouvrier text, chantier_id text, date_rapport text, taches jsonb, statut text, submitted_at timestamptz);
   create table public.planning_cells (week_id text, jour text, chantier_id text, ouvriers text[], taches jsonb);
   alter table public.phasages enable row level security;
@@ -122,8 +122,9 @@ const T = (id, nom, g, hv, he, av, ouvriers, extra = {}) => ({
 const OUVRAGES = [
   { id: "o1", libelle: "Doublage murs", code_ouvrage: " DBL-01 ", quantite: 85, unite: "m²", heures_devis: 40, prix_ht: 5000, cout_materiaux: 800,
     taches: [
-      T("t1", "Ossature", "g1", 14, 14, 100, ["Paul", "Davy"], { chrono_ordre: 1, date_prevue: "2026-10-01" }),
-      T("t2", "Plaques", "g1", 16, 16, 50, ["Davy"], { chrono_ordre: 2, date_prevue: "2026-10-05" }),
+      T("t1", "Ossature", "g1", 14, 14, 100, ["Paul", "Davy"], { chrono_ordre: 1, date_prevue: "2026-10-01", suivi_pourcent: true }),
+      T("t2", "Plaques", "g1", 16, 16, 50, ["Davy"], { chrono_ordre: 2, date_prevue: "2026-10-05",
+        quantite: 60, quantite_reprise: 5, quantite_terminee: { rapport_id: "r-x", le: "2026-10-04" } }),
       T("t3", "Bandes", "g1", 6, 6, 0, ["Hamed"], { chrono_ordre: 3, date_prevue: "2026-10-08" }),
     ] },
   { id: "o2", libelle: "Électricité", heures_devis: 30, prix_ht: 3000,
@@ -154,9 +155,9 @@ const POINTAGES = [
   { tache_id: "t1", ouvrier: "Paul",  heures: 7, type_pointage: "tache" },
   { tache_id: "t1", ouvrier: "Davy",  heures: 7, type_pointage: "tache" },
   { tache_id: "t1", ouvrier: "Paul",  heures: 2, type_pointage: "indirect" },     // exclu : indirect
-  { tache_id: "t2", ouvrier: "Paul",  heures: 5, type_pointage: "tache" },
-  { tache_id: "t2", ouvrier: "Davy",  heures: 4, type_pointage: "tache" },
-  { tache_id: "t3", ouvrier: "Hamed", heures: 2, type_pointage: "tache", rapport_id: R_DEVALIDE },
+  { tache_id: "t2", ouvrier: "Paul",  heures: 5, type_pointage: "tache", q: 20 },
+  { tache_id: "t2", ouvrier: "Davy",  heures: 4, type_pointage: "tache", q: 10 },
+  { tache_id: "t3", ouvrier: "Hamed", heures: 2, type_pointage: "tache", rapport_id: R_DEVALIDE, q: 3 },
   { tache_id: "t4", ouvrier: "Marc",  heures: 6, type_pointage: "tache" },
   { tache_id: "t8", ouvrier: "Marc",  heures: 4, type_pointage: "tache" },
 ];
@@ -167,15 +168,15 @@ await db.exec(`
     (null, 'Homonyme', ${js([{ id: "y", libelle: "y", taches: [] }])}, '{}'::jsonb),
     ('ch4', 'Ancien modèle', '[]'::jsonb, ${js({ meta: {}, demolition: [{ id: "v1", nom: "Vieille" }] })}),
     ('ch5', 'Sans groupes', ${js([{ id: "z", libelle: "Z", heures_devis: 4, taches: [{ id: "tz", nom: "Seule", heures_vendues: 4, avancement: 10 }] }])}, '{}'::jsonb);
-  insert into public.pointages (chantier_id, tache_id, ouvrier, heures, taux_horaire, type_pointage, rapport_id) values
-    ${POINTAGES.map(p => `('ch1', ${lit(p.tache_id)}, ${lit(p.ouvrier)}, ${p.heures}, 30, ${lit(p.type_pointage)}, ${p.rapport_id ? lit(p.rapport_id) : "null"})`).join(",\n    ")},
-    ('ch9', 't1', 'Paul', 3, 30, 'tache', null);  -- autre chantier : exclu
+  insert into public.pointages (chantier_id, tache_id, ouvrier, heures, taux_horaire, type_pointage, rapport_id, quantite_validee) values
+    ${POINTAGES.map(p => `('ch1', ${lit(p.tache_id)}, ${lit(p.ouvrier)}, ${p.heures}, 30, ${lit(p.type_pointage)}, ${p.rapport_id ? lit(p.rapport_id) : "null"}, ${p.q ?? "null"})`).join(",\n    ")},
+    ('ch9', 't2', 'Paul', 3, 30, 'tache', null, 40);  -- autre chantier : exclu
   insert into public.rapports (id, ouvrier, chantier_id, date_rapport, statut, taches) values
     (${lit(R_ATT_PAUL)}, 'Paul', 'ch1', '2026-10-05', 'en_attente',
-       ${js([{ tache_id: "t2", heures_reelles: 3 }, { tache_id: null, heures_reelles: 4 }])}),
-    (${lit(R_ATT_DAVY)}, 'Davy', 'ch1', '2026-10-05', null, ${js([{ tache_id: "t2", heures_reelles: "1" }])}),
+       ${js([{ tache_id: "t2", heures_reelles: 3, quantite_jour: 6, unite: "m²" }, { tache_id: null, heures_reelles: 4 }])}),
+    (${lit(R_ATT_DAVY)}, 'Davy', 'ch1', '2026-10-05', null, ${js([{ tache_id: "t2", heures_reelles: "1", quantite_jour: "2,5", unite: "m²" }])}),
     (${lit(R_VALIDE)},   'Paul', 'ch1', '2026-10-02', 'valide', ${js([{ tache_id: "t1", heures_reelles: 5 }])}),
-    (${lit(R_DEVALIDE)}, 'Hamed','ch1', '2026-10-03', 'en_attente', ${js([{ tache_id: "t3", heures_reelles: 2 }])}),
+    (${lit(R_DEVALIDE)}, 'Hamed','ch1', '2026-10-03', 'en_attente', ${js([{ tache_id: "t3", heures_reelles: 2, quantite_jour: 3 }])}),
     (${lit(R_ATT_MARC)}, 'Marc', 'ch1', '2026-10-05', 'en_attente', ${js([{ tache_id: "t4", heures_reelles: 3 }])});
   -- Motifs de dépassement déjà donnés sur t4 (comptes rendus v2 validés, 0 h pour ne
   -- rien changer aux heures) : le plus RÉCENT (envoyé le 03/10) doit ressortir.
@@ -266,6 +267,15 @@ eq([taches.t7.hors_devis, taches.t7.hors_devis_marque], [false, false], "t7 (ven
 // Code d'ouvrage (écran « Nouvelle tâche ») : nettoyé, null s'il manque.
 const ouvragesPaul = Object.fromEntries(paul.phases.flatMap(p => p.ouvrages).map(o => [o.id, o]));
 eq([ouvragesPaul.o1.code, ouvragesPaul.o2.code], ["DBL-01", null], "code d'ouvrage exposé (espaces retirés), null sans code");
+// Quantités posées (étape 4) : données brutes par tâche.
+const q = (t) => [t.quantite, t.suivi_pourcent, t.quantite_reprise, t.quantite_terminee, Number(t.quantite_validee), Number(t.quantite_en_attente)];
+eq(q(taches.t2), [60, false, 5, true, 30, 8.5], "t2 : quantité de tâche, point de départ, terminée, 30 validés (autre chantier exclu), 8,5 en attente (« 2,5 » lu)");
+eq(q(taches.t1), [null, true, null, false, 0, 0], "t1 : suivi forcé en %, aucune quantité");
+eq(q(taches.t3), [null, false, null, false, 3, 0], "t3 : rapport dévalidé déjà au registre → pas compté deux fois en attente");
+const t2Suivi = construireMesPhases(paul).phases.flatMap(p => p.ouvrages.flatMap(o => o.taches)).find(t => t.id === "t2").suivi;
+eq([t2Suivi.unite, t2Suivi.quantite, t2Suivi.cumul, t2Suivi.attente, t2Suivi.avancement, t2Suivi.ecart],
+  ["m²", 60, 35, 8.5, 100, "terminée à 35 / 60 m²"], "onglet Phases : 35 / 60 m², terminée (100 %), écart lisible");
+eq(construireMesPhases(paul).phases.flatMap(p => p.ouvrages.flatMap(o => o.taches)).find(t => t.id === "t1").suivi, null, "t1 forcée en % : pas de suivi en quantité");
 
 const attendu = {
   //     vendues validées attente mes   mienne

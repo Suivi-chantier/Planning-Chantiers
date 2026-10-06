@@ -85,6 +85,16 @@
 --   code de l'ouvrage (ajout du 06/10/2026, étape 3b livraison 2)
 --       ouvrages[].code_ouvrage (bibliothèque), null s'il n'y en a pas :
 --       aide à reconnaître un ouvrage dans l'écran « Nouvelle tâche ».
+--   quantités posées (ajout du 06/10/2026, étape 4) — À APPLIQUER APRÈS
+--   sql/202610_quantites_posees.sql (colonnes lues ici)
+--       par tâche : quantite (« Quantité de la tâche »), suivi_pourcent,
+--       quantite_reprise (point de départ figé), quantite_terminee,
+--       quantite_validee = somme des pointages.quantite_validee,
+--       quantite_en_attente = somme des quantite_jour des comptes rendus
+--       pas encore validés (même périmètre que heures_en_attente).
+--       Données BRUTES seulement : le mode de suivi (quantité ou %), le
+--       cumul et l'avancement sont décidés par src/Renovation/suiviQuantite.mjs,
+--       règle unique de l'application.
 --
 -- QUI PEUT APPELER (ouvrier) : les bêta-testeurs de « mes_phases » (onglet
 -- Phases) OU de « cr_v2 » (nouveau compte rendu, qui en lit les heures
@@ -358,7 +368,8 @@ begin
     select p.tache_id,
            sum(coalesce(p.heures, 0))                                         as heures,
            sum(coalesce(p.heures, 0)) filter (where p.ouvrier = v_prenom)     as miennes,
-           count(*)                                                           as nb
+           count(*)                                                           as nb,
+           coalesce(sum(p.quantite_validee), 0)                               as quantite
     from public.pointages p
     where p.chantier_id = p_chantier_id
       and p.type_pointage = 'tache'
@@ -369,14 +380,17 @@ begin
   attente as (
     select l.value->>'tache_id' as tache_id,
            sum(h.v)                                        as heures,
-           sum(h.v) filter (where r.ouvrier = v_prenom)    as miennes
+           sum(h.v) filter (where r.ouvrier = v_prenom)    as miennes,
+           sum(h.q)                                        as quantite
     from public.rapports r
     cross join lateral jsonb_array_elements(
       case when jsonb_typeof(r.taches) = 'array' then r.taches else '[]'::jsonb end
     ) l(value)
     cross join lateral (
       select case when (l.value->>'heures_reelles') ~ '^-?[0-9]+([.,][0-9]+)?$'
-                  then replace(l.value->>'heures_reelles', ',', '.')::numeric else 0 end as v
+                  then replace(l.value->>'heures_reelles', ',', '.')::numeric else 0 end as v,
+             case when (l.value->>'quantite_jour') ~ '^[0-9]+([.,][0-9]+)?$'
+                  then replace(l.value->>'quantite_jour', ',', '.')::numeric else 0 end as q
     ) h
     where r.chantier_id = p_chantier_id
       and coalesce(r.statut, 'en_attente') <> 'valide'
@@ -472,6 +486,18 @@ begin
         -- Nature et auteur d'une tâche ajoutée hors du devis initial.
         'nature',      nullif(trim(t.data->>'nature'), ''),
         'cree_par',    nullif(trim(t.data->>'cree_par'), ''),
+        -- Quantités posées (données brutes ; règle dans suiviQuantite.mjs).
+        'quantite',    case when (t.data->>'quantite') ~ '^[0-9]+([.,][0-9]+)?$'
+                            then replace(t.data->>'quantite', ',', '.')::numeric else null end,
+        'suivi_pourcent', coalesce(t.data->'suivi_pourcent' = 'true'::jsonb, false),
+        'quantite_reprise', case when (t.data->>'quantite_reprise') ~ '^[0-9]+([.,][0-9]+)?$'
+                                 then replace(t.data->>'quantite_reprise', ',', '.')::numeric else null end,
+        -- Marqueur « terminée » : objet { rapport_id, le } posé à la
+        -- validation, ou true posé dans Phasage V2.
+        'quantite_terminee', coalesce(jsonb_typeof(t.data->'quantite_terminee') = 'object'
+                                      or t.data->'quantite_terminee' = 'true'::jsonb, false),
+        'quantite_validee',    coalesce(reg.quantite, 0),
+        'quantite_en_attente', coalesce(att.quantite, 0),
         'dernier_motif_depassement', case when dm.code is null then null
                                           else jsonb_build_object('code', dm.code, 'date', dm.date) end
       ) as data

@@ -106,7 +106,7 @@ export function coutMOEff(tache, pointagesParTache, tauxHoraires) {
 // ── Construction des lignes de pointages d'un rapport ─────────────────────
 // Le code vit dans le module pur src/pointagesRapport.mjs (testable sous Node) ;
 // réexporté ici pour garder les imports historiques valides.
-export { buildPointagesRapport, repartTrajetCents, heuresDeclareesRapport, rangRapportDuJour } from "./pointagesRapport.mjs";
+export { buildPointagesRapport, repartTrajetCents, heuresDeclareesRapport, rangRapportDuJour, reporterQuantites } from "./pointagesRapport.mjs";
 
 // ── Stats composées (récupération + agrégation en un appel) ───────────────
 

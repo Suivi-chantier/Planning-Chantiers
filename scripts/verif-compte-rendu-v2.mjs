@@ -38,6 +38,7 @@ import {
   problemesLigne, motifDepassementRequis, resteJournee, ajustementPossible, poserReste,
   brouillonV2VersV1, preremplirDurees, colonnesRapportV2, choixDeLigne, fmtMinutes, PAS_MINUTES,
   ligneDepuisPhasage, ajouterDepuisPhasage, tacheDejaDansJournee, carteRetirable, ORIGINE_PHASAGE, ORIGINE_LIBRE,
+  majPhotosApres,
 } from "../src/Renovation/compteRenduV2.mjs";
 import { construireMesPhases, rechercherDansPhases } from "../src/Renovation/mesPhasesV1.mjs";
 import {
@@ -186,7 +187,7 @@ const planning = () => preremplirDurees([
 const maj = (arr, i, f) => arr.map((x, k) => (k === i ? f(x) : x));
 let v2 = planning();
 eq(v2.map(t => t.heures_reelles), [String(3), String(2), undefined, String(2), undefined], "durée prévue préremplie quand elle existe");
-v2 = maj(v2, 0, t => appliquerChoix(t, "termine", { avancementActuel: 60 }));                     // Terminé 3 h
+v2 = maj(v2, 0, t => majPhotosApres(appliquerChoix(t, "termine", { avancementActuel: 60 }), ["https://exemple.test/apres-t1.jpg"])); // Terminé 3 h, photo « après » (étape 4)
 v2 = maj(v2, 1, t => ({ ...appliquerChoix(t, "en_cours", { avancementActuel: 40 }), avancement: "50" })); // En cours 2 h, 50 %
 v2 = maj(v2, 2, t => ({ ...appliquerChoix(t, "pas_commence", { avancementActuel: 40 }), motif: "attente_materiel" })); // Pas commencé
 v2 = maj(v2, 3, t => ({ ...appliquerChoix(t, "bloque", { avancementActuel: 70 }), motif: "acces_impossible" })); // Bloqué après 2 h
@@ -265,7 +266,7 @@ let b2 = changerMinutes(b0, 120);
 eq([b2.statut, b2.bloque], ["en_cours", true], "Bloqué + 2 h → en_cours");
 eq([changerMinutes(b2, 0).statut], ["non_faite"], "Bloqué remis à 0 h → non_faite");
 // En cours / Terminé exigent du temps ; Pas commencé n'en a pas
-eq(problemesLigne(appliquerChoix({ planifie: "Y", heures_reelles: "", statut: null }, "termine"), {}), ["temps"], "Terminé sans temps : refusé");
+eq(problemesLigne(appliquerChoix({ planifie: "Y", heures_reelles: "", statut: null }, "termine"), {}), ["temps", "photo_apres"], "Terminé sans temps (ni photo « après ») : refusé");
 const pc = changerMinutes(appliquerChoix({ planifie: "Y", heures_reelles: "2", statut: null }, "pas_commence", {}), 30);
 eq([pc.statut, minutesDe(pc)], ["en_cours", 30], "temps ajouté à un Pas commencé → En cours");
 eq(appliquerChoix({ planifie: "Y", statut: null }, "pas_commence", {}).avancement, "0", "Pas commencé sans tâche du phasage → 0 (comme avant)");

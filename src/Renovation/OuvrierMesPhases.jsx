@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { MobileHero, MobileCard, MobileEmptyState, CARD_SHADOW } from "../mobileUI";
 import { fmtH } from "../chantierFinance";
+import { libelleQuantite, fmtQuantite } from "./suiviQuantite";
 import {
   construireMesPhases, filtrerPhases, choisirChantierParDefaut, libellePersonnes, STATUTS, texteAjoutee,
 } from "./mesPhasesV1";
@@ -152,6 +153,14 @@ function LigneTache({ t, prenom, T, action = null }) {
         <span style={{ fontSize: 13, color: T.textSub, whiteSpace: "nowrap" }}>{droite.join(" · ")}</span>
       </div>
       <DoubleBarre avancement={t.avancement} validees={t.validees} attente={t.attente} vendues={t.vendues} etat={t.etat} T={T}/>
+      {/* Tâche suivie en quantité : « Posé : 51 / 85 m² » */}
+      {t.suivi && (
+        <div style={{ fontSize: 14, color: T.text, marginTop: 6 }}>
+          Posé : <strong>{libelleQuantite(t.suivi.cumul, t.suivi.quantite, t.suivi.unite)}</strong>
+          {t.suivi.attente > 0 && <span style={{ color: T.textSub }}> · + {fmtQuantite(t.suivi.attente)} {t.suivi.unite} en attente</span>}
+          {t.suivi.ecart && <span style={{ color: T.textSub }}> · {t.suivi.ecart}</span>}
+        </div>
+      )}
       {t.venduesAilleurs && (
         <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>Heures vendues comptées sur l'ouvrage, pas sur la tâche.</div>
       )}
