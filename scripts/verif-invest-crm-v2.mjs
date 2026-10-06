@@ -285,7 +285,7 @@ test("18. structuration : la case n'écrit que invest_clients.sujet_structuratio
 
 test("19. refonte fiche Client : l'action d'une mission n'est plus répétée dans la liste d'actions", () => {
   assert.match(FICHE, /const autres = vue\.aFaire\.filter\(\(a\) => !String\(a\.id\)\.startsWith\("m-"\)\);/);
-  assert.match(FICHE, /titre="3 · Autres actions à venir"/);
+  assert.match(FICHE, /titre="Autres actions à venir"/);
   const ensemble = FICHE.slice(FICHE.indexOf("function VueEnsemble"), FICHE.indexOf("function LigneMission"));
   assert.ok(ensemble.length > 500 && !/titre="Opérations"/.test(ensemble), "bloc vide « Opérations » retiré de la vue d'ensemble");
   assert.match(FICHE, /onglet === "operations"/, "l'onglet Opérations, lui, reste");

@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
+    type: "amelioration",
+    titre: "CRM : plus simple pour le suivi quotidien, vos missions d'abord et moins d'informations à l'écran",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le CRM est l'outil de suivi de tous les jours : il montre maintenant d'abord ce qui vous concerne, une ligne par mission, avec seulement le client, la prochaine action et la date.",
+    comment: "À traiter : par défaut « Mes missions » (celles dont vous êtes conseiller ou responsable de la prochaine action), avec un bouton pour voir toute l'équipe. Trois groupes seulement : Urgent (retard ou blocage), Aujourd'hui, À faire ; les missions qui attendent le client sont repliées. Clients : « Mes clients » ou tous, une ligne par client (mission en cours, prochaine action et date), recherche et un seul filtre. L'invitation au portail se fait depuis la fiche du client. Fiche client : la vue d'ensemble commence par ce qui est en cours et ce qui vient ; les coordonnées complètes, les documents, le patrimoine et l'accès au portail sont dans « Plus d'informations », replié. L'onglet Opérations, encore vide, a disparu de la barre. Rien n'est supprimé : l'ancienne vue du CRM reste accessible.",
+  },
+  {
+    date: "2026-10-06",
     type: "nouveaute",
     titre: "Espace client : le client dépose lui-même les pièces que vous lui demandez",
     pages: [{ id: "crm", label: "CRM" }],
