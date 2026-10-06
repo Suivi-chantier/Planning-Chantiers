@@ -70,14 +70,20 @@ test("6. l'écran lit QUE les vues portail_* et n'écrit rien lui-même ; la sai
   assert.deepEqual([...MON.matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort(), ["portail_donnees_dossier", "portail_enregistrer_reponse", "portail_maj_telephone"]);
   assert.ok(!/\.(insert|update|upsert|delete)\(/.test(MON), "aucune écriture directe en table");
   assert.ok(!/service_role|SERVICE_ROLE|client_id/.test(MON), "le client n'envoie jamais d'identifiant de client");
+  const PIE = lire("src/Portail/MesPieces.jsx");
+  assert.deepEqual([...PIE.matchAll(/\.from\("([a-z_-]+)"\)/g)].map((m) => m[1]).sort(), ["invest-documents", "portail_depots"], "une vue lue, et le stockage seulement pour déposer");
+  assert.deepEqual([...PIE.matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]), ["portail_pieces_demandees"]);
+  assert.ok(!/\.(insert|update|upsert|delete|download|createSignedUrl|list|remove)\(/.test(PIE), "dépôt seulement : ni lecture, ni suppression de fichier");
+  assert.match(PIE, /uploadToSignedUrl\(chemin, token, fichier/, "dépôt par adresse à usage unique fournie par le serveur");
+  assert.ok(!/service_role|SERVICE_ROLE|client_id/.test(PIE));
 });
 test("7. le téléchargement passe uniquement par la fonction portail-document-url (jamais le stockage)", () => {
   assert.match(JSX, /functions\.invoke\("portail-document-url"/);
   assert.ok(!/storage\.from|createSignedUrl|invest-documents/.test(JSX));
 });
 test("8. aucun module du bureau n'est importé par le portail", () => {
-  const imports = [...(JSX + lire("src/Portail/portailVue.mjs") + lire("src/Portail/MonDossier.jsx") + lire("src/Portail/portailChamps.mjs")).matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(imports.filter((i) => i.startsWith(".")))].sort(), ["../supabase", "./MonDossier", "./portailChamps", "./portailVue"]);
+  const imports = [...(JSX + lire("src/Portail/portailVue.mjs") + lire("src/Portail/MonDossier.jsx") + lire("src/Portail/MesPieces.jsx") + lire("src/Portail/portailChamps.mjs")).matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(imports.filter((i) => i.startsWith(".")))].sort(), ["../supabase", "./MesPieces", "./MonDossier", "./portailChamps", "./portailVue"]);
   assert.ok(!/Invest|Renovation|App\.jsx|constants/.test(imports.join(" ")));
 });
 test("9. main.jsx : /espace-client charge le portail, le reste le bureau ; PWA bureau non enregistrée sur le portail", () => {

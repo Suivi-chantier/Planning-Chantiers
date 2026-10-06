@@ -135,3 +135,20 @@ Décision de Matthieu (02/10/2026), après avoir vécu l'espace client avec un c
   fonctions de la base »).
 - À appliquer par Matthieu : `supabase db query --linked -f supabase/migrations/20261002180000_portail_client_invest_reponses.sql`,
   puis `supabase migration repair` (jamais `db push`).
+
+## Étape 7 — le client dépose ses pièces (écrite, NON appliquée ni déployée)
+Suite de l'étape 6, même principe : le client ne touche à rien en direct, tout arrive « à vérifier ».
+- Pièces demandées : celles du dossier de structuration au statut « Demandé » (`portail_pieces_demandees()` : identifiant et libellé
+  seulement). Le client peut aussi déposer un « autre document » avec un libellé.
+- Fonction `portail-depot-document` (à déployer, `verify_jwt = true`) en deux temps : **préparer** (contrôle PDF/JPG/PNG, 10 Mo, 25 pièces
+  en attente au plus, pièce réellement demandée ; le chemin `clients/<client>/depots-client/<dépôt>-<nom>` est fabriqué par le serveur ;
+  adresse de dépôt à usage unique) puis **confirmer** (relit le fichier : taille et premiers octets doivent correspondre au type annoncé,
+  sinon il est SUPPRIMÉ). Le client est celui de la connexion (`portail_client_id()` appelée avec son jeton), jamais un identifiant du corps.
+- Base (`20261002200000`) : `invest_portail_depots` (aucun accès direct pour le client), vue `portail_depots` (sans le chemin du fichier),
+  `portail_pieces_demandees()`. Droits des collaborateurs : comme les autres tables Invest (`invest_peut_voir('crm')` ou `('structuration')`),
+  donc jamais un ouvrier — corrigé aussi pour `invest_portail_reponses`.
+- Profero : panneau « Le client a déposé N pièces à vérifier » en tête de l'onglet Pièces (Ouvrir, Accepter = la pièce passe à « Reçu » dans
+  le dossier, Refuser avec un motif que le client voit) ; le bandeau de la fiche client compte aussi les pièces.
+- Banc : `verif-portail-depots` (règles pures, ordre des contrôles de la fonction, base PGlite, retour arrière) ; `verif-portail-ecran` adapté.
+- À faire par Matthieu : appliquer la migration `20261002200000` ET déployer la fonction (`supabase functions deploy portail-depot-document`).
+  Non testé : le téléversement réel vers le stockage (aucun accès au stockage depuis les tests), à essayer avec le compte de démonstration.

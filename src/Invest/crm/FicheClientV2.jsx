@@ -33,6 +33,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
   const onOuvrirMission = (dossierId) => { setMissionOuverte(dossierId); setOnglet("missions"); };
   const [rev, setRev] = useState(0);
   const [modifie, setModifie] = useState(false);
+  const [depotsClient, setDepotsClient] = useState(0);        // pièces déposées par le client, à vérifier
   const [reponsesClient, setReponsesClient] = useState(0);   // parties envoyées par le client depuis son espace, à vérifier
   const aujourdhui = aujourdhuiIso();
 
@@ -50,6 +51,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
     if (rc.error) { setErreur(rc.error.message); return; }
     // Table absente (migration non appliquée) ou illisible : on n'affiche rien, ce n'est pas une erreur de la fiche.
     supabase.from("invest_portail_reponses").select("id").eq("client_id", clientId).eq("statut", "soumis").then((r) => setReponsesClient(r.error ? 0 : (r.data || []).length));
+    supabase.from("invest_portail_depots").select("id").eq("client_id", clientId).eq("statut", "a_verifier").then((r) => setDepotsClient(r.error ? 0 : (r.data || []).length));
     const dossiers = rd.data || [];
     const re = dossiers.length
       ? await supabase.from("invest_dossier_etapes").select("*").in("dossier_id", dossiers.map((d) => d.id)).is("operation_id", null)
@@ -96,7 +98,7 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
         compteurs={{ missions: donnees.dossiersIllisibles ? null : vue.missionsEnCours.length + vue.missionsTerminees.length }} />
       {donnees.lectureIncomplete && <Discret T={T} style={{ color: ROUGE, marginBottom: 14 }}>Lecture incomplète : {donnees.lectureIncomplete}</Discret>}
 
-      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} donnees={donnees} onModifier={renderModifierClient ? () => setModifie(true) : null} reponsesClient={reponsesClient} onModifierStructuration={client.sujet_structuration === true ? () => setOnglet("structuration") : null} />}
+      {onglet === "ensemble" && <VueEnsemble T={T} vue={vue} illisible={donnees.dossiersIllisibles} onOnglet={setOnglet} onOuvrirMission={onOuvrirMission} client={client} profil={profil} donnees={donnees} onModifier={renderModifierClient ? () => setModifie(true) : null} reponsesClient={reponsesClient} depotsClient={depotsClient} onModifierStructuration={client.sujet_structuration === true ? () => setOnglet("structuration") : null} />}
       {onglet === "structuration" && client.sujet_structuration === true && (
         <StructurationPatrimoniale key={client.id} profil={profil} T={T} clientIdFixe={client.id} />
       )}
@@ -170,7 +172,7 @@ function Tuile({ T, titre, valeur, detail, couleur, bouton, onClick }) {
 //   1. Où en est-on ?        les missions en cours et LA prochaine action de chacune
 //   2. Ce qui reste à voir   documents, patrimoine, espace client : une tuile chacun, un clic pour agir
 //   3. Ce qui vient          les autres actions, puis l'activité récente
-function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil, donnees, onModifier, reponsesClient, onModifierStructuration }) {
+function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, profil, donnees, onModifier, reponsesClient, depotsClient, onModifierStructuration }) {
   const p = vue.patrimoine;
   const autres = vue.aFaire.filter((a) => !String(a.id).startsWith("m-"));
   const reste = Math.max(0, vue.aFaireTotal - vue.missionsEnCours.length - autres.length);
@@ -185,10 +187,10 @@ function VueEnsemble({ T, vue, illisible, onOnglet, onOuvrirMission, client, pro
   ];
   return (
     <>
-      {reponsesClient > 0 && (
+      {(reponsesClient > 0 || depotsClient > 0) && (
         <Carte T={T} accent={ORANGE} style={{ marginBottom: 16, padding: "11px 14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <div><b style={{ color: T.text }}>Le client a envoyé {reponsesClient} partie{reponsesClient > 1 ? "s" : ""} de son dossier à vérifier.</b>
+            <div><b style={{ color: T.text }}>{[reponsesClient > 0 ? `Le client a envoyé ${reponsesClient} partie${reponsesClient > 1 ? "s" : ""} de son dossier` : null, depotsClient > 0 ? `${reponsesClient > 0 ? "et" : "Le client a"} déposé ${depotsClient} pièce${depotsClient > 1 ? "s" : ""}` : null].filter(Boolean).join(" ")} à vérifier.</b>
               <Discret T={T}>{onModifierStructuration ? "Comparez avec le dossier et intégrez ce qui est juste." : "Cochez « Sujet de structuration » pour pouvoir les intégrer à un dossier."}</Discret></div>
             {onModifierStructuration && <button className="inv-btn inv-btn-blue inv-btn-sm" onClick={onModifierStructuration}>Vérifier et intégrer</button>}
           </div>

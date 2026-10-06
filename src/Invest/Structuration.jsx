@@ -9,6 +9,7 @@ import { OngletAcces } from "../Renovation/Admin";
 import { CadrageConformite, MiseEnOeuvreSuivi } from "./StructurationEcrans";
 import { NavigationDossier, PorteDiagnostic, CollecteEssentielle } from "./StructurationCollecteVue";
 import ReponsesClient from "./StructurationReponsesClient";
+import DepotsClient from "./StructurationDepotsClient";
 import { appliquerSection } from "../Portail/portailChamps.mjs";
 import { documentsPertinents, estPertinent } from "./structurationCollecte.mjs";
 import { ObjectifsMesures, EnfantsFoyer, ProfilInvestisseurImmo, FichesBiens, ChargesFoyer, DettesListe } from "./StructurationSaisies";
@@ -1373,7 +1374,7 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
   const pertinentesDocs = documentsPertinents(data);
   const docsAffiches = toutesPieces ? docs : docs.filter(d => estPertinent(pertinentesDocs, d));
   const nbComplementaires = docs.length - docs.filter(d => estPertinent(pertinentesDocs, d)).length;
-  const renderDocuments = () => <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 370px", gap:SPACING.md, alignItems:"start" }}>
+  const renderDocumentsListe = () => <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 370px", gap:SPACING.md, alignItems:"start" }}>
     <div style={cardStyle}>{cardHd("Liste des documents à fournir — audit & stratégie", "gold")}<div style={{ padding:14 }}>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:10, marginBottom:14 }}>
         <div style={{ ...cardStyle, padding:10 }}><div style={{color:T.textMuted,fontSize:FONT.xs.size,fontWeight:900}}>TOTAL</div><div style={{color:T.text,fontWeight:900,fontSize:FONT.xl.size}}>{docs.length}</div></div>
@@ -1391,6 +1392,12 @@ function StructurationPatrimoniale({ profil, T=THEMES_INV.dark, initialClientId,
       <div style={cardStyle}>{cardHd("Fichiers transmis")}<div style={{ padding:14 }}><div style={{ color:T.textSub, fontSize:FONT.xs.size+1, marginBottom:10 }}>Déposez les documents reçus dans le dossier sécurisé du client.</div>{selectedId ? <DocumentsSection folder={`structuration/${selectedId}`} T={T} /> : <div style={{ color:T.textMuted }}>Créez d'abord un dossier.</div>}</div></div>
       <div style={{ ...cardStyle, padding:14, borderLeft:`4px solid ${T.accent}` }}><div style={{color:T.text,fontWeight:900,marginBottom:8}}>À demander prioritairement</div>{docsAffiches.filter(d=>d.required && !["Reçu","Validé","Non applicable"].includes(d.statut)).slice(0,8).map(d=><div key={d.id} style={{color:T.textSub,fontSize:FONT.xs.size+1,padding:"5px 0",borderBottom:`1px solid ${T.border}`}}>• {d.label}</div>)}</div>
     </div>
+  </div>;
+
+  // Pièces déposées par le client dans son espace : à vérifier avant d'être comptées « Reçues ».
+  const renderDocuments = () => <div style={{ display:"grid", gap:SPACING.md }}>
+    <DepotsClient T={T} clientId={dossier?.client_id} profil={profil} onAccepter={(pieceCle) => mutateData(prev => ({ ...prev, collecte:{ ...prev.collecte, documents:(prev.collecte?.documents || []).map(d => d.id === pieceCle ? { ...d, statut:"Reçu" } : d) } }))}/>
+    {renderDocumentsListe()}
   </div>;
 
   const renderNotes = () => <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:SPACING.md }}>

@@ -25,6 +25,10 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
     type: "nouveaute",
+    titre: "Espace client : le client dépose lui-même les pièces que vous lui demandez",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Plus besoin d'échanger les bulletins de salaire ou les tableaux d'amortissement par e-mail : le client les dépose dans son espace, vous les vérifiez avant de les compter comme reçus.",
+    comment: "Passez une pièce au statut « Demandé » dans l'onglet Pièces du dossier de structuration : elle apparaît chez le client, dans « Pièces à nous transmettre », avec un bouton Déposer (PDF, JPG ou PNG, 10 Mo au plus). Il peut aussi déposer un autre document en précisant lequel. Chaque dépôt arrive en haut de l'onglet Pièces (« Le client a déposé N pièces à vérifier ») et dans le bandeau de sa fiche : Ouvrir le fichier, puis Accepter (la pièce passe à « Reçu » dans le dossier) ou Refuser avec un motif que le client verra pour qu'il renvoie une version correcte. Un fichier qui n'est pas vraiment un PDF ou une image est supprimé automatiquement. À mettre en service : appliquer la migration 20261002200000 et déployer la fonction portail-depot-document (voir docs/project/PORTAIL-CLIENT-INVEST-PLAN.md, étape 7). Correctif au passage : les réponses et dépôts des clients ne sont lisibles que par les rôles qui voient le CRM ou la structuration, jamais par un ouvrier.",
     titre: "Tâches « hors devis » : leurs heures comptent dans le coût, plus dans les heures vendues",
     pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "chantiers", label: "Chantiers" }],
     quoi: "Une tâche faite en plus du devis (demande du client, imprévu) ne doit pas faire croire qu'un ouvrage vendu dérive. Une tâche cochée « Hors devis » garde ses heures dans le coût de main-d'œuvre et la marge, mais n'est plus comparée aux heures vendues : ni dérive, ni dépassement, ni couleur, ni avancement. Ses heures s'affichent à part : « + X h hors devis ». Rien ne change tant que personne ne coche la case : toutes les tâches existantes, y compris celles de « Divers / hors devis », gardent exactement leurs chiffres.",
