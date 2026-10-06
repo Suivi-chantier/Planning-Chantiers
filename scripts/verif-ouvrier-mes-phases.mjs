@@ -120,7 +120,7 @@ const T = (id, nom, g, hv, he, av, ouvriers, extra = {}) => ({
   prix_ht: 999, ratio: 1.2, ...extra,
 });
 const OUVRAGES = [
-  { id: "o1", libelle: "Doublage murs", quantite: 85, unite: "m²", heures_devis: 40, prix_ht: 5000, cout_materiaux: 800,
+  { id: "o1", libelle: "Doublage murs", code_ouvrage: " DBL-01 ", quantite: 85, unite: "m²", heures_devis: 40, prix_ht: 5000, cout_materiaux: 800,
     taches: [
       T("t1", "Ossature", "g1", 14, 14, 100, ["Paul", "Davy"], { chrono_ordre: 1, date_prevue: "2026-10-01" }),
       T("t2", "Plaques", "g1", 16, 16, 50, ["Davy"], { chrono_ordre: 2, date_prevue: "2026-10-05" }),
@@ -263,6 +263,9 @@ eq(Object.keys(taches).sort(), ["t1", "t10", "t2", "t3", "t4", "t5", "t6", "t7",
 eq([taches.t10.hors_devis, taches.t10.hors_devis_marque, taches.t10.nature, taches.t10.cree_par], [true, true, "demande_client", "Marc"], "t10 marquée hors devis : nature et auteur exposés");
 eq([taches.t6.hors_devis, taches.t6.hors_devis_marque, taches.t6.nature], [true, false, null], "t6 (Divers, deviné) : affichage hors devis, pas marquée");
 eq([taches.t7.hors_devis, taches.t7.hors_devis_marque], [false, false], "t7 (vendue sur l'ouvrage) : ni l'un ni l'autre");
+// Code d'ouvrage (écran « Nouvelle tâche ») : nettoyé, null s'il manque.
+const ouvragesPaul = Object.fromEntries(paul.phases.flatMap(p => p.ouvrages).map(o => [o.id, o]));
+eq([ouvragesPaul.o1.code, ouvragesPaul.o2.code], ["DBL-01", null], "code d'ouvrage exposé (espaces retirés), null sans code");
 
 const attendu = {
   //     vendues validées attente mes   mienne

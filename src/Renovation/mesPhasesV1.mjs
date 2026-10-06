@@ -41,6 +41,7 @@
 //   dépasse le vendu, c'est un fait.
 // ─────────────────────────────────────────────────────────────────────────────
 import { avancementOuvrage, statsGroupeChrono, SEUIL_RATIO_DERIVE, fmtH } from "../chantierFinance.mjs";
+import { libelleNature } from "./motifsCompteRendu.mjs";
 
 export const MES_PHASES_VERSION = "v1";
 export const PHASE_A_ORGANISER = "_a_organiser";
@@ -172,7 +173,7 @@ export function agregerOuvrage(o) {
   const avancement = taches.length ? avancementOuvrage({ taches: taches.map(pourAvancement) }) : 0;
   const horsDevis = taches.length > 0 && taches.every(t => t.hors_devis);
   return {
-    id: o.id, libelle: o.libelle, quantite: o.quantite, unite: o.unite,
+    id: o.id, libelle: o.libelle, code: o.code ?? null, quantite: o.quantite, unite: o.unite,
     ouvrageComplet: !!o.ouvrage_complet,
     taches,
     vendues: arrondi(vendues), venduesOuvrageEntier,
@@ -317,4 +318,11 @@ export function rechercherDansPhases(phases, texte) {
     }).filter(Boolean);
     return ouvrages.length ? { ...p, ouvrages } : null;
   }).filter(Boolean);
+}
+
+// « Ajoutée par Marc · Demande du client » : tâche ajoutée en cours de
+// chantier (proposée par un ouvrier, créée à la validation). Vide sinon.
+export function texteAjoutee(t) {
+  if (!t?.cree_par && !t?.nature) return "";
+  return [t.cree_par ? `Ajoutée par ${t.cree_par}` : "Ajoutée en cours de chantier", libelleNature(t.nature)].filter(Boolean).join(" · ");
 }

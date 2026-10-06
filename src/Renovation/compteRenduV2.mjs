@@ -28,17 +28,25 @@
 //                      relevé figé à la saisie — la Validation ne l'affiche
 //                      que tant que la ligne n'a été ni réaffectée ni découpée.
 //   origine            "phasage" : tâche choisie dans le phasage (« J'ai fait
-//                      autre chose ») ; "libre" : tâche décrite en texte libre.
+//                      autre chose ») ; "libre" : tâche décrite en texte libre ;
+//                      "nouvelle" : tâche absente du phasage, PROPOSÉE par
+//                      l'ouvrier dans un ouvrage (créée à la validation).
 //                      Absent sur les tâches venues du planning.
+//   proposition        (origine "nouvelle") { ouvrage_id, ouvrage_libelle,
+//                      nature, demandeur? } — ouvrage_id null = « Divers /
+//                      hors devis » (créé à la validation s'il n'existe pas).
 // La « précision » est écrite dans le champ remarque existant.
 // ─────────────────────────────────────────────────────────────────────────────
 import { etatHeures } from "./mesPhasesV1.mjs";
-import { CODE_MOTIF_AUTRE, explicationLigne } from "./motifsCompteRendu.mjs";
+import { CODE_MOTIF_AUTRE, explicationLigne, NATURES_TACHE, libelleNature } from "./motifsCompteRendu.mjs";
 import { serialiserLigneV1, totalJournee } from "./compteRenduEnvoi.mjs";
 
 export const FORMULAIRE_V2 = "v2";
 export const ORIGINE_PHASAGE = "phasage";
 export const ORIGINE_LIBRE = "libre";
+export const ORIGINE_NOUVELLE = "nouvelle";
+// Nature pour laquelle une photo est obligatoire (preuve de la demande).
+export const NATURE_PHOTO_OBLIGATOIRE = "demande_client";
 export const CODE_BETA_CR_V2 = "cr_v2";
 export const PAS_MINUTES = 15;
 
@@ -185,8 +193,14 @@ export function problemesLigne(t, infosParTache = {}) {
   const autre = t.motif === CODE_MOTIF_AUTRE
     || (t.motif_depassement === CODE_MOTIF_AUTRE && motifDepassementRequis(info, t));
   if (autre && !String(t.remarque ?? "").trim()) p.push("precision");
+  if (photoManquante(t)) p.push("photo");
   return p;
 }
+
+// Nouvelle tâche « demandée par le client » sans aucune photo.
+const photoManquante = (t) => t?.origine === ORIGINE_NOUVELLE
+  && t.proposition?.nature === NATURE_PHOTO_OBLIGATOIRE
+  && !(Array.isArray(t.photos) && t.photos.length > 0);
 
 export const LIBELLES_PROBLEMES = Object.freeze({
   chantier: "choisis le chantier",
@@ -197,6 +211,7 @@ export const LIBELLES_PROBLEMES = Object.freeze({
   motif: "choisis un motif",
   motif_depassement: "dis pourquoi les heures vendues sont dépassées",
   precision: "précise le motif « Autre »",
+  photo: "ajoute une photo (demande du client)",
 });
 
 // État du bouton d'envoi : on n'envoie que si toutes les lignes sont complètes
@@ -253,9 +268,123 @@ export function serialiserLigneV2(t) {
   // Tâche ajoutée par l'ouvrier : choisie dans le phasage, ou décrite en texte
   // libre (une carte libre sans origine, d'un brouillon plus ancien, compte
   // comme libre). Les tâches du planning ne portent pas ce champ.
-  const origine = t.origine === ORIGINE_PHASAGE ? ORIGINE_PHASAGE : (t.libre || t.origine === ORIGINE_LIBRE ? ORIGINE_LIBRE : null);
+  const origine = t.origine === ORIGINE_PHASAGE ? ORIGINE_PHASAGE
+    : t.origine === ORIGINE_NOUVELLE && t.proposition ? ORIGINE_NOUVELLE
+    : (t.libre || t.origine === ORIGINE_LIBRE ? ORIGINE_LIBRE : null);
   if (origine) out.origine = origine;
+  // Nouvelle tâche proposée : tache_id et phase_id restent vides (comme une
+  // ligne libre) ; la Validation crée la tâche puis rattache la ligne.
+  if (origine === ORIGINE_NOUVELLE) out.proposition = propositionPropre(t.proposition);
   return out;
+}
+
+const texte = (v) => String(v ?? "").trim();
+function propositionPropre(p) {
+  const out = {
+    ouvrage_id: p?.ouvrage_id || null,
+    ouvrage_libelle: texte(p?.ouvrage_libelle) || DIVERS_HORS_DEVIS,
+    nature: p?.nature || null,
+  };
+  if (texte(p?.demandeur)) out.demandeur = texte(p.demandeur);
+  return out;
+}
+
+// ── « Nouvelle tâche » : une tâche absente du phasage, proposée par l'ouvrier ─
+// Libellé de l'ouvrage fourre-tout, tel que la Validation le crée depuis
+// toujours (même comparaison : casse et espaces ignorés).
+export const DIVERS_HORS_DEVIS = "Divers / hors devis";
+export const estOuvrageDivers = (libelle) => texte(libelle).toLowerCase() === DIVERS_HORS_DEVIS.toLowerCase();
+
+// Ouvrages du chantier proposés dans l'écran « Nouvelle tâche », depuis les
+// phases de l'onglet Phases (construireMesPhases) : un ouvrage par id, avec
+// son code et les noms des phases où il apparaît. « Divers / hors devis » en
+// dernier ; s'il n'existe pas encore, une entrée sans id le représente (la
+// Validation le créera, comme elle le fait déjà pour les tâches libres).
+export function ouvragesProposables(phases) {
+  const parId = new Map();
+  (phases || []).forEach(p => (p.ouvrages || []).forEach(o => {
+    if (!o?.id) return;
+    const e = parId.get(o.id) || { id: o.id, libelle: texte(o.libelle) || "(sans nom)", code: texte(o.code) || null, phases: [] };
+    if (p.nom && !p.synthetique && !e.phases.includes(p.nom)) e.phases.push(p.nom);
+    parId.set(o.id, e);
+  }));
+  const tous = [...parId.values()].map(o => ({ ...o, divers: estOuvrageDivers(o.libelle) }));
+  const divers = tous.filter(o => o.divers);
+  return [
+    ...tous.filter(o => !o.divers),
+    ...(divers.length ? divers : [{ id: null, libelle: DIVERS_HORS_DEVIS, code: null, phases: [], divers: true }]),
+  ];
+}
+
+const normRecherche = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "")
+  .toLowerCase().replace(/\s+/g, " ").trim();
+// Recherche sur le libellé, le code et les phases (accents et casse ignorés).
+export function rechercherOuvrages(liste, q) {
+  const n = normRecherche(q);
+  if (!n) return liste || [];
+  return (liste || []).filter(o => normRecherche([o.libelle, o.code, ...(o.phases || [])].join(" ")).includes(n));
+}
+
+// Ce qui manque encore sur l'écran « Nouvelle tâche ».
+//   saisie : { nom, ouvrage (entrée d'ouvragesProposables), nature, demandeur, photos }
+export function problemesNouvelleTache(saisie) {
+  const p = [];
+  if (!saisie?.ouvrage) p.push("ouvrage");
+  if (!texte(saisie?.nom)) p.push("nom");
+  if (!NATURES_TACHE.some(n => n.code === saisie?.nature)) p.push("nature");
+  else if (saisie.nature === NATURE_PHOTO_OBLIGATOIRE && !(Array.isArray(saisie.photos) && saisie.photos.length > 0)) p.push("photo");
+  return p;
+}
+export const LIBELLES_NOUVELLE_TACHE = Object.freeze({
+  ouvrage: "choisis l'ouvrage",
+  nom: "dis ce que tu as fait",
+  nature: "dis pourquoi cette tâche",
+  photo: "ajoute au moins une photo",
+});
+
+// La carte de la journée : une carte v2 normale (temps, statut, avancement),
+// sans tâche du phasage — donc sans jauge ni motif de dépassement.
+export function ligneNouvelleTache(saisie, chantier) {
+  const o = saisie?.ouvrage || null;
+  return {
+    chantier_id: chantier?.id || "",
+    chantier_nom: chantier?.nom || chantier?.id || "",
+    chantier_couleur: chantier?.couleur || "#c8d8f0",
+    planifie: texte(saisie?.nom),
+    tache_id: null,
+    phase_id: null,
+    statut: null,
+    remarque: "",
+    heures_reelles: "",
+    avancement: "0",
+    photos: Array.isArray(saisie?.photos) ? saisie.photos : [],
+    origine: ORIGINE_NOUVELLE,
+    proposition: propositionPropre({
+      ouvrage_id: o?.id || null, ouvrage_libelle: o?.libelle, nature: saisie?.nature, demandeur: saisie?.demandeur,
+    }),
+  };
+}
+
+// « Modifier » depuis la carte : on garde temps, statut, avancement, précision.
+export function modifierNouvelleTache(ligne, saisie) {
+  const neuve = ligneNouvelleTache(saisie, { id: ligne.chantier_id, nom: ligne.chantier_nom, couleur: ligne.chantier_couleur });
+  return { ...ligne, planifie: neuve.planifie, photos: neuve.photos, proposition: neuve.proposition };
+}
+
+// Saisie de l'écran reconstituée depuis une carte (pour « Modifier »).
+export function saisieDepuisLigne(ligne, ouvrages) {
+  const p = ligne?.proposition || {};
+  const ouvrage = (ouvrages || []).find(o => (p.ouvrage_id ? o.id === p.ouvrage_id : o.divers && !o.id))
+    || (p.ouvrage_id ? { id: p.ouvrage_id, libelle: p.ouvrage_libelle, code: null, phases: [], divers: false } : null);
+  return { nom: ligne?.planifie || "", ouvrage, nature: p.nature || null, demandeur: p.demandeur || "", photos: ligne?.photos || [] };
+}
+
+// « Nouvelle tâche dans « Cuisine » — Demande du client (demandée par M. X) »
+export function texteProposition(p) {
+  if (!p) return "";
+  const nature = libelleNature(p.nature);
+  const qui = texte(p.demandeur) ? ` (demandée par ${texte(p.demandeur)})` : "";
+  return `Nouvelle tâche dans « ${texte(p.ouvrage_libelle) || DIVERS_HORS_DEVIS} »${nature ? ` — ${nature}` : ""}${qui}`;
 }
 
 // ── « J'ai fait autre chose » : une tâche choisie dans le phasage ──────────
@@ -293,7 +422,7 @@ export function ajouterDepuisPhasage(taches, tache, chantier) {
 
 // Une carte ajoutée par l'ouvrier (phasage ou texte libre) peut être retirée
 // avant l'envoi ; une tâche du planning, non.
-export const carteRetirable = (t) => !!t?.libre || t?.origine === ORIGINE_PHASAGE;
+export const carteRetirable = (t) => !!t?.libre || t?.origine === ORIGINE_PHASAGE || t?.origine === ORIGINE_NOUVELLE;
 
 // ── Brouillons (case décochée / cochée en cours de journée) ────────────────
 // Un brouillon v2 relu par l'ANCIEN formulaire : le motif devient du texte
@@ -302,10 +431,15 @@ export const carteRetirable = (t) => !!t?.libre || t?.origine === ORIGINE_PHASAG
 // Une carte ajoutée depuis le phasage devient, dans l'ancien formulaire, une
 // tâche ajoutée (libre: true) : l'ouvrier peut encore la retirer, et elle
 // garde son tache_id (la Validation la rattache à sa tâche).
+// Une nouvelle tâche proposée devient une tâche libre ; l'ouvrage et la
+// nature passent en tête de la remarque (« Nouvelle tâche dans « … » — … »).
 export function brouillonV2VersV1(taches) {
   return (taches || []).map(t => {
-    const { bloque, motif, motif_depassement, depassement, origine, ...reste } = t;
+    const { bloque, motif, motif_depassement, depassement, origine, proposition, ...reste } = t;
     const remarque = explicationLigne(t);
+    if (origine === ORIGINE_NOUVELLE) {
+      return { ...reste, libre: true, remarque: [texteProposition(proposition), remarque].filter(Boolean).join(" — ") };
+    }
     const base = origine === ORIGINE_PHASAGE ? { ...reste, libre: true } : { ...reste };
     return motif ? { ...base, remarque } : base;
   });

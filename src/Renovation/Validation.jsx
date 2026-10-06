@@ -45,10 +45,13 @@ import { getISOWeek, profilSemaine } from "../rythmeSemaine";
 // et motifs du formulaire bêta « cr_v2 » (liste unique partagée avec l'ouvrier).
 import {
   lignesDepuisRapport, taskLinesPourPointages, depassementAffichable, decouperLigne, ligneBasculee,
+  enregistrerCreationsProposees, propositionACreer, tacheCreeeEnValidation, ajouterTacheDansOuvrage,
+  idTacheProposee, trouverTache, creationParDefaut,
 } from "./lignesValidation";
 import {
-  explicationLigne, libelleMotifDepassement,
+  explicationLigne, libelleMotifDepassement, NATURES_TACHE, horsDevisParDefaut, libelleNature,
 } from "./motifsCompteRendu";
+import { DIVERS_HORS_DEVIS, estOuvrageDivers } from "./compteRenduV2";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -370,6 +373,27 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     return m;
   }, [phasages]);
 
+  // Map: chantier_id → ouvrages du phasage V2 (choix de l'ouvrage d'une
+  // nouvelle tâche). « Divers / hors devis » en dernier ; s'il n'existe pas,
+  // une entrée sans id le représente (créé avec la tâche).
+  const ouvragesPlanParChantier = useMemo(() => {
+    const m = {};
+    phasages.forEach(ph => {
+      const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+      if (ouvrages.length === 0) return;
+      const liste = ouvrages.map(o => ({
+        id: o.id, libelle: String(o.libelle || "").trim() || "(sans libellé)",
+        code: String(o.code_ouvrage || "").trim() || null, divers: estOuvrageDivers(o.libelle),
+      }));
+      const divers = liste.filter(o => o.divers);
+      m[ph.chantier_id] = [
+        ...liste.filter(o => !o.divers),
+        ...(divers.length ? divers : [{ id: null, libelle: DIVERS_HORS_DEVIS, code: null, divers: true }]),
+      ];
+    });
+    return m;
+  }, [phasages]);
+
   // Map: chantier_id → liste des tâches du plan (pour le dropdown de réaffectation)
   const tachesPlanParChantier = useMemo(() => {
     const m = {};
@@ -515,10 +539,13 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   }
 
   // ── Création d'une nouvelle tâche ─────────────────────────────────────────
-  // V2 : crée la tâche dans l'ouvrage « Divers / hors devis » (créé si absent).
+  // Fenêtre « + Créer nouvelle tâche » (ligne libre) : création immédiate.
+  // V2 : dans l'ouvrage choisi (ouvrage_id), ou « Divers / hors devis » (null,
+  // créé si absent), avec nature et « Hors devis ». Pas d'heures vendues.
   // V1 (repli, chantier sans ouvrages) : crée dans plan_travaux[phase_id].
   // Retourne { tache_id, ouvrage_id?, phase_id? }.
-  async function creerTacheDansPlan({ chantier_id, phase_id, nom, heures_vendues, ouvriers: ouvriersList }) {
+  async function creerTacheDansPlan({ chantier_id, phase_id, nom, heures_vendues, ouvriers: ouvriersList,
+    ouvrage_id = null, nature = null, hors_devis = null, cree_par = null, rapport_id = null }) {
     const ph = phasages.find(p => p.chantier_id === chantier_id);
     if (!ph) {
       alert(`Aucun phasage existant pour le chantier ${chantier_id}. Crée-le d'abord depuis la page Phasage.`);
@@ -526,23 +553,18 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     }
     const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
 
-    // ── V2 : tâche dans l'ouvrage « Divers / hors devis »
+    // ── V2 : tâche dans un ouvrage du chantier
     if (ouvrages.length > 0) {
       const newTache = {
-        id: genId(), nom: nom.trim(),
-        heures_estimees: null, heures_reelles: null, avancement: 0,
+        ...tacheCreeeEnValidation({ id: genId(), nom, nature, hors_devis, ouvrier: cree_par, rapportId: rapport_id }),
         ouvriers: Array.isArray(ouvriersList) ? ouvriersList : [],
-        date_prevue: null, _cree_depuis_validation: true,
       };
-      let next = ouvrages.map(o => ({ ...o }));
-      let divers = next.find(o => (o.libelle || "").trim().toLowerCase() === "divers / hors devis");
-      if (divers) {
-        divers.taches = [...(divers.taches || []), newTache];
-      } else {
-        divers = { id: genId(), libelle: "Divers / hors devis", lot_id: null, heures_devis: null,
-          quantite: null, unite: "U", prix_ht: null, cout_materiaux: null, taches: [newTache] };
-        next = [...next, divers];
+      const ajout = ajouterTacheDansOuvrage(ouvrages, ouvrage_id, newTache, genId);
+      if (ajout.erreur) {
+        alert("L'ouvrage choisi n'existe plus dans le phasage de ce chantier. Recharge la page et choisis-en un autre.");
+        return null;
       }
+      const next = ajout.ouvrages;
       const res = await sauvegarderPhasage({
         phasageId: ph.id, revision: ph.revision ?? 0, ouvrages: next,
       });
@@ -553,7 +575,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         return null;
       }
       setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next, revision: res.revision } : p));
-      return { tache_id: newTache.id, ouvrage_id: divers.id, phase_id: null };
+      return { tache_id: newTache.id, ouvrage_id: ajout.ouvrage.id, phase_id: null };
     }
 
     // ── V1 (repli) : plan_travaux
@@ -576,14 +598,18 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       alert(MESSAGE_ERREUR_ECRITURE);
       return null;
     }
-    setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan } : p));
+    // La révision suit l'écriture : sans elle, l'enregistrement suivant de ce
+    // phasage (avancement à la validation) partait d'une révision périmée et
+    // tombait en conflit.
+    setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan, revision: resPlan.revision } : p));
     return { tache_id: newTache.id, phase_id };
   }
 
   // ── Validation (P3 + P4 corrections + P5 avancement arbitré) ──────────────
   // Reçoit l'état corrigé de la modale : `lignes` (liste éditée) + `indirectes`.
-  async function validerRapport({ rapport, lignes, indirectes }) {
+  async function validerRapport({ rapport, lignes: lignesSaisies, indirectes }) {
     if (!rapport || rapport.statut === "valide") return;
+    let lignes = lignesSaisies;
 
     // Garde-fou anti-régression P5 : repérer toute ligne avec tache_id dont
     // l'avancement arbitré est INFÉRIEUR à l'avancement actuel du plan.
@@ -670,6 +696,50 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     }
 
     setValidating(true);
+
+    // Phasage du chantier, tenu à jour au fil des écritures de CETTE
+    // validation : chaque enregistrement repart de la dernière révision
+    // (sinon le second tombait en conflit avec le premier).
+    let phCourant = phasages.find(p => p.chantier_id === rapport.chantier_id) || null;
+    const majPhCourant = (patch) => {
+      phCourant = { ...phCourant, ...patch };
+      const id = phCourant.id;
+      setPhasages(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+    };
+
+    // 0) NOUVELLES TÂCHES PROPOSÉES par l'ouvrier : créées AVANT les pointages,
+    //    dans l'ouvrage retenu, avec un identifiant dérivé du rapport et de la
+    //    ligne (une validation relancée retrouve la tâche, jamais de doublon).
+    //    Échec ou conflit : rien n'est écrit, le rapport reste à valider.
+    if (lignes.some(propositionACreer)) {
+      const res = await enregistrerCreationsProposees({
+        phasage: phCourant, lignes, rapport, genId, sauvegarder: sauvegarderPhasage,
+      });
+      if (!res.ok) {
+        if (res.code === "sans_ouvrages") {
+          alert("Ce chantier n'a pas de phasage par ouvrages : impossible de créer les nouvelles tâches proposées.\n\n"
+            + "Rattache ces lignes à une tâche existante ou laisse-les en tâche libre, puis revalide.");
+        } else if (res.code === "erreurs") {
+          alert("Le rapport N'A PAS été validé :\n\n"
+            + res.erreurs.map(e => `• « ${e.planifie || "(sans nom)"} » : ${e.code === "nom_vide"
+              ? "donne un nom à la nouvelle tâche"
+              : "l'ouvrage proposé n'existe plus sur ce chantier, choisis-en un autre"}`).join("\n"));
+        } else if (res.code === "conflit") {
+          setConflitPhasage(true);
+          alert("Le phasage de ce chantier a été modifié ailleurs pendant ta validation.\n\n"
+            + "Le rapport N'A PAS été validé et aucune tâche n'a été créée. "
+            + "Ferme cette fenêtre, clique sur « Recharger la version récente », puis revalide.");
+        } else {
+          console.error("Création des nouvelles tâches proposées:", res.code);
+          alert(`${MESSAGE_ERREUR_ECRITURE}\n\nLe rapport N'A PAS été validé.`);
+        }
+        setValidating(false);
+        return;
+      }
+      if (res.ecrit) majPhCourant({ ouvrages: res.phasage.ouvrages, revision: res.phasage.revision });
+      lignes = res.lignes;
+    }
+
     const taux = parseFloat(tauxHoraires?.[rapport.ouvrier]) || 0;
     const phasage_id = phasageIdParChantier[rapport.chantier_id] || null;
     // pointages.date est de type Postgres date → on convertit le format FR si besoin
@@ -763,7 +833,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       }
     });
     if (Object.keys(arbitresParTache).length > 0) {
-      const ph = phasages.find(p => p.chantier_id === rapport.chantier_id);
+      const ph = phCourant;
       if (ph) {
         const plan = { ...(ph.plan_travaux || {}) };
         let touched = false;
@@ -785,7 +855,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
             if (resAv.code === "conflit") setConflitPhasage(true);
             else console.error("Update plan_travaux avancement:", resAv.code);
           } else {
-            setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, plan_travaux: plan, revision: resAv.revision } : p));
+            majPhCourant({ plan_travaux: plan, revision: resAv.revision });
           }
         }
       }
@@ -812,7 +882,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       }
     });
     if (Object.keys(arbitresParId).length > 0 || Object.keys(arbitresParNom).length > 0) {
-      const phV2 = phasages.find(p => p.chantier_id === rapport.chantier_id);
+      const phV2 = phCourant;
       if (phV2 && Array.isArray(phV2.ouvrages)) {
         let touchedO = false;
         const ouvragesNext = phV2.ouvrages.map(o => ({
@@ -839,7 +909,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
             if (resO.code === "conflit") setConflitPhasage(true);
             else console.error("Update ouvrages avancement (double écriture):", resO.code);
           } else {
-            setPhasages(prev => prev.map(p => p.id === phV2.id ? { ...p, ouvrages: ouvragesNext, revision: resO.revision } : p));
+            majPhCourant({ ouvrages: ouvragesNext, revision: resO.revision });
           }
         }
       }
@@ -1221,6 +1291,11 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           avancementParTache={avancementParTache[opened.chantier_id] || {}}
           autresPropositions={autresPropositionsPourRapport(opened)}
           tachesPlan={tachesPlanParChantier[opened.chantier_id] || []}
+          ouvragesPlan={ouvragesPlanParChantier[opened.chantier_id] || []}
+          tacheExistante={(id) => {
+            const ph = phasages.find(p => p.chantier_id === opened.chantier_id);
+            return ph && Array.isArray(ph.ouvrages) ? trouverTache(ph.ouvrages, id) : null;
+          }}
           phases={phases}
           ouvriersDispo={ouvriers}
           journeeCloturee={!!journeeCloturee}
@@ -1342,6 +1417,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
+  ouvragesPlan = [], tacheExistante = () => null,
   chantiers = [], onChangerChantier, onBasculerLigne,
   nbChantiersDuJour = 1,
   autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
@@ -1382,6 +1458,9 @@ function ModaleRapport({
     setLignes(prev => prev.map(li => {
       if (li.tache_id) return li;            // déjà rattachée (via planning ou réaffectation manuelle)
       if (!li.planifie?.trim()) return li;   // ligne vide
+      // Nouvelle tâche proposée par l'ouvrier : jamais de rattachement
+      // automatique (une tâche proche est seulement SUGGÉRÉE dans son bloc).
+      if (li.proposition) return li;
       const best = meilleureTachePlan(li.planifie, tachesPlan);
       if (!best || best.score < SEUIL_AUTOMATCH) return li;
       return {
@@ -1455,12 +1534,29 @@ function ModaleRapport({
   const onChangeTache = (rowId, value) => {
     if (value === "__creer__") {
       // Pré-remplit le nom avec ce que l'ouvrier avait déclaré (modifiable).
+      // V2 : ouvrage « Divers / hors devis » par défaut, nature non renseignée.
       const ligne = lignes.find(l => l.rowId === rowId);
-      setCreerTacheState({ rowId, nom: ligne?.planifie || "", phase_id: chantierV2 ? null : (phases[0]?.id || ""), useOuvrages: chantierV2 });
+      setCreerTacheState({
+        rowId, nom: ligne?.planifie || "", phase_id: chantierV2 ? null : (phases[0]?.id || ""), useOuvrages: chantierV2,
+        ouvrage_id: null, nature: null, hors_devis: false,
+      });
+      return;
+    }
+    // Nouvelle tâche proposée : revenir à la création (décision préremplie
+    // depuis l'ouvrier, ou celle déjà retouchée par le conducteur).
+    if (value === "__proposee__") {
+      const ligne = lignes.find(l => l.rowId === rowId);
+      if (!ligne?.proposition) return;
+      const creation = ligne.creation || creationParDefaut({ planifie: ligne.planifie, proposition: ligne.proposition });
+      updateLigne(rowId, {
+        tache_id: null, phase_id: null, ouvrage_id: null, _autoMatched: false,
+        creation, planifie: creation.nom || ligne.planifie,
+      });
       return;
     }
     if (value === "__libre__" || !value) {
-      updateLigne(rowId, { tache_id: null, phase_id: null, ouvrage_id: null, _autoMatched: false });
+      // Sur une proposition : « ne pas créer », la ligne reste libre.
+      updateLigne(rowId, { tache_id: null, phase_id: null, ouvrage_id: null, _autoMatched: false, creation: null });
       return;
     }
     const t = tachesPlan.find(x => String(x.id) === String(value));
@@ -1476,8 +1572,17 @@ function ModaleRapport({
     const res = await onCreerTache({
       phase_id: creerTacheState.phase_id || null,
       nom: creerTacheState.nom,
-      heures_vendues: creerTacheState.heures_vendues,
+      // V2 : pas d'heures vendues (le champ n'existe plus) ; ouvrage, nature
+      // et « Hors devis » choisis dans la fenêtre.
+      heures_vendues: creerTacheState.useOuvrages ? null : creerTacheState.heures_vendues,
       ouvriers: rapport.ouvrier ? [rapport.ouvrier] : [],
+      ...(creerTacheState.useOuvrages ? {
+        ouvrage_id: creerTacheState.ouvrage_id || null,
+        nature: creerTacheState.nature || null,
+        hors_devis: creerTacheState.hors_devis === true,
+        cree_par: rapport.ouvrier || null,
+        rapport_id: rapport.id,
+      } : {}),
     });
     if (res?.tache_id) {
       updateLigne(creerTacheState.rowId, {
@@ -1488,6 +1593,16 @@ function ModaleRapport({
       });
       setCreerTacheState(null);
     }
+  };
+
+  // Tâche du phasage au nom proche d'une proposition : SUGGÉRÉE (doublon
+  // possible), jamais rattachée d'office. La tâche créée par une validation
+  // précédente de ce même rapport n'est pas un doublon : on l'écarte.
+  const suggestionProposition = (li) => {
+    const nom = li.creation?.nom || li.planifie;
+    const idPropre = idTacheProposee(rapport.id, li.origineIdx);
+    const best = meilleureTachePlan(nom, (tachesPlan || []).filter(t => String(t.id) !== idPropre));
+    return best && best.score >= SEUIL_AUTOMATCH ? best.tache : null;
   };
 
   const ajouterIndirect = () => setIndirectes(prev => [...prev, { motif: "", heures: "" }]);
@@ -1593,6 +1708,10 @@ function ModaleRapport({
                   T={T} acc={acc}
                   valide={verrouille}
                   tachesPlan={tachesPlan}
+                  ouvragesPlan={ouvragesPlan}
+                  ouvrier={rapport.ouvrier}
+                  dejaCreee={li.proposition ? tacheExistante(idTacheProposee(rapport.id, li.origineIdx)) : null}
+                  suggestion={li.proposition ? suggestionProposition(li) : null}
                   phases={phases}
                   avancementActuel={li.tache_id ? avancementParTache[String(li.tache_id)] : null}
                   autres={li.tache_id ? (autresPropositions[String(li.tache_id)] || []) : []}
@@ -1755,6 +1874,7 @@ function ModaleRapport({
           state={creerTacheState}
           setState={setCreerTacheState}
           phases={phases}
+          ouvragesPlan={ouvragesPlan}
           T={T} acc={acc}
           onValider={validerCreation}
           onClose={() => setCreerTacheState(null)}
@@ -1786,6 +1906,7 @@ function ModaleRapport({
 
 function LigneEditable({
   ligne, T, acc, valide, tachesPlan, phases,
+  ouvragesPlan = [], ouvrier = null, dejaCreee = null, suggestion = null,
   avancementActuel, autres, onChange, onChangeTache, onSplit, onRemove, onBasculer,
 }) {
   const phasesById = useMemo(() => Object.fromEntries((phases || []).map(p => [p.id, p])), [phases]);
@@ -1801,6 +1922,7 @@ function LigneEditable({
   }, [tachesPlan]);
 
   const libre = !ligne.tache_id;
+  const aCreer = propositionACreer(ligne);
   const baisse = (() => {
     if (avancementActuel == null) return false;
     const arb = parseInt(ligne.avancement_arbitre);
@@ -1823,7 +1945,7 @@ function LigneEditable({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <select
-            value={ligne.tache_id || (libre ? "__libre__" : "")}
+            value={ligne.tache_id || (aCreer ? "__proposee__" : libre ? "__libre__" : "")}
             onChange={e => onChangeTache(e.target.value)}
             disabled={valide}
             style={{
@@ -1833,7 +1955,10 @@ function LigneEditable({
               fontSize: 12, fontFamily: "inherit",
             }}
           >
-            <option value="__libre__">— Tâche libre / non rattachée —</option>
+            {ligne.proposition && (
+              <option value="__proposee__">★ Nouvelle tâche proposée (créée à la validation)</option>
+            )}
+            <option value="__libre__">{ligne.proposition ? "— Ne pas créer : laisser en tâche libre —" : "— Tâche libre / non rattachée —"}</option>
             {Object.keys(tachesParGroupe).map(groupe => {
               const ph = phasesById[groupe];
               const label = ph ? `${ph.emoji || ""} ${ph.label}` : groupe;
@@ -1853,7 +1978,7 @@ function LigneEditable({
         </div>
         {/* Sous-info : badge libre, badge auto-match, autres propositions */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {libre && (
+          {libre && !aCreer && (
             <span style={{
               fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 999,
               background: "rgba(245,166,35,0.15)", color: "#b27416", textTransform: "uppercase", letterSpacing: .3,
@@ -1927,6 +2052,11 @@ function LigneEditable({
             );
           })()}
         </div>
+        {ligne.proposition && (
+          <BlocProposition ligne={ligne} T={T} valide={valide} ouvragesPlan={ouvragesPlan}
+            ouvrier={ouvrier} dejaCreee={dejaCreee} suggestion={suggestion}
+            onChange={onChange} onChangeTache={onChangeTache}/>
+        )}
         {/* Photos déclarées par l'ouvrier pour cette tâche (clic = ouvre en plein) */}
         {Array.isArray(ligne.photos) && ligne.photos.length > 0 && (
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
@@ -1975,7 +2105,7 @@ function LigneEditable({
             min="0" max="100"
             valeur={ligne.avancement_arbitre ?? ""}
             entier onValeur={n => onChange({ avancement_arbitre: n === null ? "" : Math.max(0, Math.min(100, n)) })} vide={""}
-            disabled={valide || !ligne.tache_id}
+            disabled={valide || (!ligne.tache_id && !aCreer)}
             style={{
               ...inputStyle(T), textAlign: "right",
               borderColor: baisse ? "#e05c5c" : T.border,
@@ -2008,9 +2138,107 @@ function LigneEditable({
   );
 }
 
+// ─── Bloc « Nouvelle tâche proposée » (formulaire bêta) ──────────────────────
+// L'ouvrier a proposé une tâche absente du phasage, dans un ouvrage, avec une
+// nature. Par défaut le conducteur CONFIRME : la tâche est créée à la
+// validation du rapport. Il peut changer l'ouvrage, la nature, la case « Hors
+// devis » (préremplie par la nature), ou rattacher la ligne à une tâche
+// existante (menu au-dessus, ou suggestion d'une tâche au nom proche).
+const libelleOuvrageOption = (o) => `${o.code ? `${o.code} · ` : ""}${libelleCourt(o.libelle, 80)}`;
+
+function BlocProposition({ ligne, T, valide, ouvragesPlan, ouvrier, dejaCreee, suggestion, onChange, onChangeTache }) {
+  const p = ligne.proposition || {};
+  const c = ligne.creation;
+  const violet = "#7c3aed";
+  const setCreation = (patch) => onChange({ creation: { ...c, ...patch } });
+  const ouvrageConnu = !c?.ouvrage_id || ouvragesPlan.some(o => String(o.id) === String(c.ouvrage_id));
+  const champ = { ...inputStyle(T), padding: "5px 8px", fontSize: 12.5 };
+  const bouton = {
+    padding: "4px 10px", borderRadius: RADIUS.md, border: `1px solid ${violet}`, background: "transparent",
+    color: violet, cursor: valide ? "default" : "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700,
+  };
+  return (
+    <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: RADIUS.md, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.35)" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 800, color: violet, textTransform: "uppercase", letterSpacing: .4 }}>
+        Nouvelle tâche proposée{ouvrier ? ` par ${ouvrier}` : ""}
+      </div>
+      <div style={{ fontSize: 12, color: T.text, marginTop: 3, lineHeight: 1.45 }}>
+        Dans <strong title={p.ouvrage_libelle}>« {libelleCourt(p.ouvrage_libelle || DIVERS_HORS_DEVIS, 90)} »</strong>
+        {" · "}{libelleNature(p.nature) || "nature non renseignée"}
+        {p.demandeur ? <> · demandée par <strong>{p.demandeur}</strong></> : null}
+      </div>
+
+      {ligne.tache_id ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6, fontSize: 12, color: T.textSub }}>
+          Rattachée à une tâche existante : elle ne sera pas créée.
+          {!valide && <button onClick={() => onChangeTache("__proposee__")} style={bouton}>Créer la nouvelle tâche à la place</button>}
+        </div>
+      ) : !c ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6, fontSize: 12, color: T.textSub }}>
+          Laissée en tâche libre : elle ne sera pas créée.
+          {!valide && <button onClick={() => onChangeTache("__proposee__")} style={bouton}>Revenir à la création</button>}
+        </div>
+      ) : dejaCreee ? (
+        <div style={{ marginTop: 6, fontSize: 12, color: T.text }}>
+          ✓ Déjà créée lors d'une validation précédente, dans « {libelleCourt(dejaCreee.ouvrage.libelle, 70)} » :
+          la ligne y sera rattachée, rien n'est recréé.
+        </div>
+      ) : valide ? (
+        <div style={{ marginTop: 6, fontSize: 12, color: T.textSub }}>Non créée.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={miniLabel(T)}>Nom de la tâche créée</label>
+            <input type="text" value={c.nom || ""} onChange={e => onChange({ creation: { ...c, nom: e.target.value }, planifie: e.target.value })} style={champ}/>
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={miniLabel(T)}>Ouvrage</label>
+            <select value={c.ouvrage_id || ouvragesPlan.find(o => o.divers)?.id || ""} onChange={e => setCreation({ ouvrage_id: e.target.value || null })} style={champ}>
+              {!ouvrageConnu && <option value={c.ouvrage_id}>⚠ Ouvrage proposé introuvable sur ce chantier — choisis-en un</option>}
+              {ouvragesPlan.map(o => (
+                <option key={o.id || "__divers__"} value={o.id || ""}>{libelleOuvrageOption(o)}{o.id ? "" : " (sera créé)"}</option>
+              ))}
+            </select>
+            {!ouvrageConnu && (
+              <div style={{ fontSize: 11, color: "#e05c5c", fontWeight: 700, marginTop: 2 }}>
+                L'ouvrage proposé n'existe plus dans ce phasage : la validation sera refusée tant qu'un autre n'est pas choisi.
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={miniLabel(T)}>Nature</label>
+            <select value={c.nature || ""} onChange={e => {
+              const nature = e.target.value || null;
+              const parDefaut = horsDevisParDefaut(nature);
+              setCreation({ nature, hors_devis: parDefaut == null ? c.hors_devis : parDefaut });
+            }} style={champ}>
+              {!c.nature && <option value="">Non renseignée</option>}
+              {NATURES_TACHE.map(n => <option key={n.code} value={n.code}>{n.label}</option>)}
+            </select>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, alignSelf: "end", paddingBottom: 4 }}>
+            <input type="checkbox" checked={c.hors_devis === true} onChange={e => setCreation({ hors_devis: e.target.checked })}/>
+            Hors devis : ne consomme pas les heures vendues de l'ouvrage
+          </label>
+          <div style={{ gridColumn: "1 / -1", fontSize: 11, color: T.textSub }}>
+            Sera créée à la validation du rapport (sans heures vendues), au nom de {ouvrier || "l'ouvrier"}.
+          </div>
+        </div>
+      )}
+
+      {!valide && c && !ligne.tache_id && !dejaCreee && suggestion && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, fontSize: 12, color: T.text }}>
+          <span>Doublon possible : <strong>« {libelleCourt(suggestion.nom, 60)} »</strong> existe déjà{suggestion.groupe ? ` (${libelleCourt(suggestion.groupe, 40)})` : ""}.</span>
+          <button onClick={() => onChangeTache(suggestion.id)} style={bouton}>Rattacher à celle-ci</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Sous-modale création nouvelle tâche du plan ─────────────────────────────
 
-function CreerTacheModale({ state, setState, phases, T, acc, onValider, onClose }) {
+function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], T, acc, onValider, onClose }) {
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 300,
@@ -2051,9 +2279,39 @@ function CreerTacheModale({ state, setState, phases, T, acc, onValider, onClose 
             />
           </div>
           {state.useOuvrages ? (
-            <div style={{ fontSize: 12, color: T.textSub }}>
-              La tâche sera ajoutée à l'ouvrage <strong>« Divers / hors devis »</strong> du chantier.
-            </div>
+            <>
+              <div>
+                <label style={miniLabel(T)}>Ouvrage</label>
+                <select
+                  value={state.ouvrage_id || ouvragesPlan.find(o => o.divers)?.id || ""}
+                  onChange={e => setState({ ...state, ouvrage_id: e.target.value || null })}
+                  style={inputStyle(T)}
+                >
+                  {ouvragesPlan.map(o => (
+                    <option key={o.id || "__divers__"} value={o.id || ""}>{libelleOuvrageOption(o)}{o.id ? "" : " (sera créé)"}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={miniLabel(T)}>Nature</label>
+                <select
+                  value={state.nature || ""}
+                  onChange={e => {
+                    const nature = e.target.value || null;
+                    const parDefaut = horsDevisParDefaut(nature);
+                    setState({ ...state, nature, hors_devis: parDefaut == null ? state.hors_devis : parDefaut });
+                  }}
+                  style={inputStyle(T)}
+                >
+                  <option value="">Non renseignée</option>
+                  {NATURES_TACHE.map(n => <option key={n.code} value={n.code}>{n.label} — {n.description}</option>)}
+                </select>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text }}>
+                <input type="checkbox" checked={state.hors_devis === true} onChange={e => setState({ ...state, hors_devis: e.target.checked })}/>
+                Hors devis : ne consomme pas les heures vendues de l'ouvrage
+              </label>
+            </>
           ) : (
             <div>
               <label style={miniLabel(T)}>Phase</label>
@@ -2068,16 +2326,20 @@ function CreerTacheModale({ state, setState, phases, T, acc, onValider, onClose 
               </select>
             </div>
           )}
-          <div>
-            <label style={miniLabel(T)}>Heures vendues (optionnel)</label>
-            <input
-              type="number" step="0.5" min="0"
-              value={state.heures_vendues || ""}
-              onChange={e => setState({ ...state, heures_vendues: e.target.value })}
-              placeholder="0"
-              style={{ ...inputStyle(T), textAlign: "right" }}
-            />
-          </div>
+          {/* V1 seulement : en V2 une tâche créée ici n'a pas d'heures vendues
+              (le champ était affiché mais ignoré). */}
+          {!state.useOuvrages && (
+            <div>
+              <label style={miniLabel(T)}>Heures vendues (optionnel)</label>
+              <input
+                type="number" step="0.5" min="0"
+                value={state.heures_vendues || ""}
+                onChange={e => setState({ ...state, heures_vendues: e.target.value })}
+                placeholder="0"
+                style={{ ...inputStyle(T), textAlign: "right" }}
+              />
+            </div>
+          )}
         </div>
         <div style={{
           padding: "12px 20px", borderTop: `1px solid ${T.border}`,
