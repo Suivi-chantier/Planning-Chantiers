@@ -34,6 +34,8 @@ export function lignesDepuisRapport(rapport) {
     motif_depassement: t.motif_depassement || null,
     heures_prevues: t.heures_prevues ?? null,
     depassement: t.depassement || null,
+    // « phasage » : tâche ajoutée par l'ouvrier depuis le phasage (repère seul).
+    origine: t.origine || null,
   }));
 }
 

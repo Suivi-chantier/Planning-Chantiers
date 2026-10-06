@@ -278,3 +278,22 @@ export function libellePersonnes(liste, prenom) {
   const moi = l.filter(n => n === prenom).map(() => "Toi");
   return [...moi, ...l.filter(n => n !== prenom)].join(", ");
 }
+
+// ── Recherche (panneau « J'ai fait autre chose » du compte rendu) ───────────
+// Garde, dans chaque phase, les ouvrages dont le libellé correspond (avec
+// toutes leurs tâches) ou les tâches dont le nom correspond. Accents, casse
+// et espaces ignorés. Les totaux d'une phase restent ceux de la phase entière.
+const normRecherche = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase().replace(/\s+/g, " ").trim();
+export function rechercherDansPhases(phases, texte) {
+  const q = normRecherche(texte);
+  if (!q) return phases || [];
+  return (phases || []).map(p => {
+    const ouvrages = (p.ouvrages || []).map(o => {
+      if (normRecherche(o.libelle).includes(q)) return o;
+      const taches = (o.taches || []).filter(t => normRecherche(t.nom).includes(q));
+      return taches.length ? { ...o, taches } : null;
+    }).filter(Boolean);
+    return ouvrages.length ? { ...p, ouvrages } : null;
+  }).filter(Boolean);
+}

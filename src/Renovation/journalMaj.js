@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
+    type: "amelioration",
+    titre: "Nouveau compte rendu (bêta) : « J'ai fait autre chose » — choisir la tâche dans le phasage au lieu de la taper",
+    pages: [{ id: "validation", label: "Validation" }],
+    quoi: "Quand un ouvrier bêta-testeur a travaillé sur une tâche qui n'était pas prévue au planning, il la choisit directement dans le phasage du chantier. Elle arrive dans son compte rendu exactement comme une tâche planifiée : rattachée à la bonne tâche, avec sa jauge d'heures vendues et son avancement. Plus besoin de la réécrire, ni de la rattacher à la main en Validation.",
+    comment: "Sous les tâches du compte rendu, le bouton « J'ai fait autre chose » ouvre « Ajouter à ma journée » : chantier du jour (ou un autre chantier), recherche par tâche ou ouvrage, « Mes phases » / « Tout le chantier », puis « Ajouter » sur la tâche. Une tâche déjà dans la journée affiche « Déjà dans ta journée » (pas de doublon) ; une tâche terminée reste ajoutable. La carte ajoutée peut être retirée avant l'envoi. Si la tâche est introuvable, ou sans connexion, « La décrire » garde l'ajout en texte libre. En Validation, la ligne est une ligne normale avec le repère « Ajoutée par l'ouvrier ». Rien à lancer dans Supabase.",
+  },
+  {
+    date: "2026-10-06",
     type: "nouveaute",
     titre: "Espace ouvrier (bêta) : nouveau compte rendu du soir — temps au quart d'heure, statut en un tap, motifs au lieu de phrases",
     pages: [{ id: "validation", label: "Validation" }, { id: "admin", label: "Réglages" }],

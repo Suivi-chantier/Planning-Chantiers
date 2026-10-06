@@ -20,10 +20,11 @@ import {
 // Formulaire bêta « cr_v2 » (Admin → Collaborateurs → « Bêta : Nouveau compte rendu »).
 import {
   FORMULAIRE_V2, serialiserLigneV2, finaliserLignesV2, brouillonV2VersV1, preremplirDurees,
-  colonnesRapportV2, etatEnvoi, fmtMinutes,
+  colonnesRapportV2, etatEnvoi, fmtMinutes, ajouterDepuisPhasage, carteRetirable, ORIGINE_LIBRE,
 } from "./compteRenduV2";
 import { explicationComplete } from "./motifsCompteRendu";
 import TacheCarteV2 from "./TacheCarteV2";
+import PanneauAutreChose from "./PanneauAutreChose";
 
 // ─── THÈME LIGHT CHANTIER ─────────────────────────────────────────────────────
 // Palette claire (lisibilité extérieure pour les ouvriers en plein soleil)
@@ -312,6 +313,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // brouillon et écrite sur le rapport (saisie_debut_le).
   const [saisieDebut, setSaisieDebut] = useState(null);
   const touche = () => setSaisieDebut(s => s || new Date().toISOString());
+  // v2 : panneau « J'ai fait autre chose » (tâche choisie dans le phasage).
+  const [panneauAutreChose, setPanneauAutreChose] = useState(false);
   // v2 : infos des tâches du jour lues par la RPC ouvrier_mes_phases (chemin
   // Phase › Ouvrage, heures vendues / validées / en attente, dernier motif de
   // dépassement), par tache_id. infosEtat : chargement | ok | indisponible.
@@ -702,6 +705,22 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // la suppression des tâches issues du planning : si elles n'ont pas été faites,
   // l'ouvrier doit explicitement mettre "Non faite" pour qu'on en garde la trace.
   const supprimerTache = (idx) => setTaches(t => t.filter((_, i) => i !== idx));
+  // v2 — « J'ai fait autre chose » : une tâche du phasage devient une carte
+  // identique à une tâche planifiée (origine "phasage"), jamais en double.
+  const ajouterTachePhasage = (tache, chantier) => {
+    touche();
+    setTaches(arr => ajouterDepuisPhasage(arr, tache, chantier));
+  };
+  // v2 — texte libre (repli du panneau) : l'ajout manuel existant, inchangé,
+  // marqué origine "libre" ; le chantier choisi dans le panneau est prérempli.
+  const ajouterTacheLibreV2 = (chantier) => {
+    touche();
+    setTaches(t => [...t, {
+      chantier_id: chantier?.id || "", chantier_nom: chantier?.nom || "", chantier_couleur: chantier?.couleur || "#c8d8f0",
+      planifie: "", statut: null, remarque: "", photos: [], libre: true, origine: ORIGINE_LIBRE,
+    }]);
+    setPanneauAutreChose(false);
+  };
 
   const soumettre = async () => {
     if (preview) return; // aperçu admin : lecture seule
@@ -1512,9 +1531,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           <div style={{fontSize:FONT.base.size,color:T.textMuted,marginBottom:16,lineHeight:1.5}}>
             {todayJour ? `Rien n'est planifié pour toi ce ${todayJour}.` : "Bon week-end !"}
           </div>
-          <button onClick={addTacheLibre} style={S.btn("#fff", T.text)}>
+          <button onClick={estV2 ? () => setPanneauAutreChose(true) : addTacheLibre} style={S.btn("#fff", T.text)}>
             <Icon as={Plus} size={16} strokeWidth={2.2}/>
-            Ajouter une tâche manuellement
+            {estV2 ? "J'ai fait autre chose" : "Ajouter une tâche manuellement"}
           </button>
         </div>
       )}
@@ -1581,7 +1600,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               infosEtat={infosEtat}
               resteMin={envoiV2 ? envoiV2.resteMin : 0}
               onMaj={maj}
-              onSupprimer={t.libre ? () => supprimerTache(idx) : null}
+              onSupprimer={carteRetirable(t) ? () => supprimerTache(idx) : null}
               chantiers={chantiers}
               onOuvrirCommande={embedded && onOuvrirCommande ? onOuvrirCommande : null}
               photos={(
@@ -1989,7 +2008,35 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         </div>
       ))}
 
-      {/* Ajouter tâche libre — bouton global en bas de tous les groupes */}
+      {/* v2 : « J'ai fait autre chose » — choisir une tâche dans le phasage */}
+      {estV2 && taches.length > 0 && (
+        <div style={{padding:"0 12px 8px"}}>
+          <button onClick={() => setPanneauAutreChose(true)} style={{
+            width:"100%", minHeight:56, border:`2px dashed ${T.borderHover}`, borderRadius:RADIUS.xl,
+            fontSize:FONT.md.size+1, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
+            background:T.surface, color:T.text, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+          }}>
+            <Icon as={Plus} size={18} strokeWidth={2.4}/>
+            J'ai fait autre chose
+          </button>
+        </div>
+      )}
+      {estV2 && panneauAutreChose && (() => {
+        const ids = [...new Set(taches.map(t => t.chantier_id).filter(Boolean))];
+        const chantiersDuJour = ids.map(id => chantiers.find(c => c.id === id)
+          || { id, nom: taches.find(t => t.chantier_id === id)?.chantier_nom || id, couleur: taches.find(t => t.chantier_id === id)?.chantier_couleur });
+        return (
+          <PanneauAutreChose
+            taches={taches} chantiersDuJour={chantiersDuJour} tousChantiers={chantiers}
+            prenom={ouvrier.trim()} aujourdhuiISO={todayISO} T={T} accent={T.accent}
+            onAjouter={ajouterTachePhasage} onDecrireLibre={ajouterTacheLibreV2}
+            onFermer={() => setPanneauAutreChose(false)}/>
+        );
+      })()}
+
+      {/* Ajouter tâche libre — bouton global en bas de tous les groupes
+          (ancien formulaire ; en v2, le texte libre passe par le panneau). */}
+      {!estV2 && (
       <div style={{padding:"0 16px 8px"}}>
         <button onClick={()=>{ const n = taches.length; addTacheLibre(); if (embedded) setOpenTache(n); }} style={{
           width:"100%",padding:"12px",border:`1.5px dashed ${T.borderHover}`,borderRadius:RADIUS.xl,
@@ -2001,6 +2048,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           Ajouter une tâche
         </button>
       </div>
+      )}
 
       {/* Drawer bibliothèque */}
       {besoinDrawer && (() => {
