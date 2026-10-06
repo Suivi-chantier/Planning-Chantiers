@@ -4,7 +4,7 @@ import { PROFERO_YELLOW, LOGO_RENO_H, loadEquipes } from "../constants";
 import { normaliserNomRessource } from "./planningResourceModelV1";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, CalendarDays, Layers, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye,
+  LayoutDashboard, CalendarDays, Layers, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye, ListTree,
   Sun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, Zap,
 } from "lucide-react";
 import { MobileHero } from "../mobileUI";
@@ -13,6 +13,9 @@ import OuvrierPlanning from "./OuvrierPlanning";
 import OuvrierChantiers from "./OuvrierChantiers";
 import OuvrierCommande from "./OuvrierCommande";
 import PageRapportMobile from "./RapportMobile";
+import OuvrierMesPhases from "./OuvrierMesPhases";
+import { CODE_BETA_MES_PHASES } from "./mesPhasesV1";
+import { CODE_BETA_CR_V2, FORMULAIRE_V2 } from "./compteRenduV2";
 
 // Météo (Open-Meteo) — même mapping que Dashboard/Planning.
 function weatherInfo(code) {
@@ -52,6 +55,16 @@ const TABS = [
   { id: "demande-commande", label: "Commande",  icon: ShoppingCart,    titre: "Mes demandes" },
 ];
 
+// Onglet BÊTA « Phases » : inséré après « Opérations », uniquement pour les
+// bêta-testeurs de la fonctionnalité mes_phases (Admin → Collaborateurs). Il ne
+// dépend pas de la matrice d'accès d'access.js : l'espace ouvrier n'y lit
+// aucun droit d'onglet, la seule porte est le réglage bêta, vérifié par le
+// serveur (mes_fonctionnalites_beta, puis ouvrier_mes_phases elle-même).
+const TAB_PHASES = { id: "phases", label: "Phases", icon: ListTree, titre: "Mes phases" };
+const ongletsPour = (codesBeta) => codesBeta.includes(CODE_BETA_MES_PHASES)
+  ? TABS.flatMap(t => (t.id === "chantiers" ? [t, TAB_PHASES] : [t]))
+  : TABS;
+
 const NAV_H = 66; // hauteur bottom-nav
 
 // Placeholder premium tant que le contenu réel n'est pas branché.
@@ -77,7 +90,31 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
   const [tab, setTab] = useState("dashboard");
   const [weather, setWeather] = useState(null);
   const prenom = profil?.prenom_planning || profil?.nom || "";
-  const current = TABS.find(t => t.id === tab) || TABS[0];
+
+  // Fonctionnalités bêta ouvertes à cet ouvrier. Lues par la RPC
+  // mes_fonctionnalites_beta : l'ouvrier ne lit que SES codes ; en aperçu
+  // Admin, le compte bureau passe le prénom prévisualisé. En cas d'échec
+  // (migration pas encore appliquée, réseau) : aucun code, espace inchangé.
+  // null = pas encore lu : le compte rendu attend la réponse pour ne pas
+  // s'ouvrir dans un formulaire puis basculer dans l'autre.
+  const [codesBeta, setCodesBeta] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("mes_fonctionnalites_beta", preview ? { p_prenom: prenom || null } : {});
+        if (!cancelled) setCodesBeta(!error && Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setCodesBeta([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [preview, prenom]);
+  const tabs = ongletsPour(codesBeta || []);
+  // Formulaire du compte rendu : le nouveau (bêta « cr_v2 ») pour les ouvriers
+  // cochés, l'ancien pour tous les autres — inchangé.
+  const varianteCR = (codesBeta || []).includes(CODE_BETA_CR_V2) ? FORMULAIRE_V2 : "v1";
+  const current = tabs.find(t => t.id === tab) || tabs[0];
 
   // Qualité de chef d'équipe : capacité DÉRIVÉE (jamais un rôle), calculée
   // côté SQL par la RPC mon_profil_espace (planning_config/equipes, champ
@@ -185,14 +222,25 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
         // RapportMobile embarqué : formulaire plein écran avec son propre en-tête,
         // on ne superpose donc pas le hero. Le padding bas (nav) est géré dans le
         // composant (mode embedded).
-        <PageRapportMobile prenomFige={prenom} embedded preview={preview} />
+        codesBeta === null ? (
+          <div style={{ padding:"60px 24px", textAlign:"center", color:T.textMuted, fontSize:13, letterSpacing:2 }}>CHARGEMENT…</div>
+        ) : (
+          <PageRapportMobile key={varianteCR} prenomFige={prenom} embedded preview={preview}
+            variante={varianteCR} onOuvrirCommande={() => setTab("demande-commande")}/>
+        )
       ) : (
         <div style={{
           padding:"14px 12px", display:"flex", flexDirection:"column", gap:12,
           // Sur l'accueil, on réserve la place de la barre CTA collante en plus de la nav.
           paddingBottom: NAV_H + (tab === "dashboard" ? 88 : 16),
         }}>
-          <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
+          {/* L'onglet Phases porte son propre bandeau (sélecteur de chantier dedans). */}
+          {current.id === "phases" ? (
+            <OuvrierMesPhases prenom={prenom} T={T} accent={ACCENT}
+              hero={{ logo: LOGO_RENO_H, eyebrow: dateLong, right: heroRight }}/>
+          ) : (
+            <MobileHero accent={ACCENT} logo={LOGO_RENO_H} eyebrow={dateLong} title={heroTitle} right={heroRight}/>
+          )}
 
           {tab === "dashboard"        && <OuvrierDashboard prenom={prenom} T={T} accent={ACCENT}/>}
           {tab === "planning"         && (
@@ -233,7 +281,7 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
         display:"flex", boxShadow:"0 -2px 14px rgba(16,24,40,0.08)", zIndex:50,
         paddingBottom:"env(safe-area-inset-bottom)",
       }}>
-        {TABS.map(t => {
+        {tabs.map(t => {
           const actif = t.id === tab;
           return (
             <button key={t.id} onClick={() => setTab(t.id)} style={{

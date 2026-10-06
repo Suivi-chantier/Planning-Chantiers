@@ -84,6 +84,14 @@ jobs:
         run: node scripts/verif-encours-doc.mjs
       - name: Renovation copilot V1 (assistant IA, lecture seule)
         run: node scripts/verif-renovation-copilot-v1.mjs
+      - name: Installer PGlite (PostgreSQL en mémoire, hors package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: Espace ouvrier - beta Mes phases (RPC + module, donnees fictives)
+        run: node scripts/verif-ouvrier-mes-phases.mjs
+      - name: Compte rendu - beta nouveau formulaire (non-regression v1, equivalence des pointages v1/v2)
+        run: node scripts/verif-compte-rendu-v2.mjs
+      - name: Taches hors devis (instantane reel anonymise, calculs identiques + taches marquees)
+        run: node scripts/verif-hors-devis.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression

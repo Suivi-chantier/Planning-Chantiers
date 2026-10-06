@@ -5,6 +5,8 @@ import { avancementChantier as cfAvancementChantier } from "../chantierFinance";
 import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, BIBLIOTHEQUE_INITIALE, getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon } from "../ui";
 import { buildCompteRenduClientDocHTML } from "./compteRenduClientDoc";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne } from "./motifsCompteRendu";
 import AdresseInput from "../AdresseAutocomplete";
 import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
@@ -1038,11 +1040,11 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
                                       <div style={{fontSize:14,fontWeight:600,color:"#1a1f2e",lineHeight:1.4}}>
                                         {t.planifie||t.text||""}
                                       </div>
-                                      {t.remarque&&(
+                                      {explicationLigne(t)&&(
                                         <div style={{fontSize:13,color:"#555",marginTop:3,
                                           fontStyle:"italic",paddingLeft:8,
                                           borderLeft:`2px solid ${color}66`}}>
-                                          {t.remarque}
+                                          {explicationLigne(t)}
                                         </div>
                                       )}
                                     </div>

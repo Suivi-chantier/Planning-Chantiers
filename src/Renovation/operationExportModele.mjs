@@ -21,12 +21,15 @@
 import {
   indexPointagesParTache, tacheHeuresReelles, avancementOuvrage,
   heuresReellesOuvrage, coutMOOuvrage, heuresParMois, totalLignes,
+  tacheHorsDevis, heuresReellesComparablesOuvrage, heuresHorsDevisOuvrage,
 } from "../chantierFinance.mjs";
 import { etatTache } from "./preparationChantier.mjs";
 import { CYCLE_VIE_PHASES, CYCLE_VIE_ETAPES, lireEtatsEtapes, lirePhaseDeclaree } from "./cycleVie.mjs";
 // Détecteur unique de code d'ouvrage (« MU-001 : Fourniture… » → « MU-001 »).
 // Prudent par construction : « Pose 3 prises » ou « Bac 3 » n'en sont pas.
 import { codeOuvrage } from "./codeOuvrage.mjs";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne } from "./motifsCompteRendu.mjs";
 // Règles d'affichage des factures ProGBat — réutilisées telles quelles pour ne
 // pas inventer une seconde arithmétique de facturation.
 import {
@@ -188,6 +191,9 @@ export function normaliserChantier({
         ouvriers: listeOuNull(t?.ouvriers),
         dependances: resoudreDeps(t),
         externe: !!t?.externe,
+        // Tâche hors devis : ses heures ne se comparent pas aux heures vendues.
+        horsDevis: tacheHorsDevis(t),
+        nature: texteOuNull(t?.nature),
       };
     });
     return {
@@ -206,7 +212,10 @@ export function normaliserChantier({
       coutMateriaux: nombreOuNull(o?.cout_materiaux),
       heuresDevis: nombreOuNull(o?.heures_devis),
       heuresEstimees: nombreOuNull(o?.heures_estimees),
-      heuresReelles: heuresReellesOuvrage(o, ppt),
+      // Heures comparées aux heures du devis : sans les tâches hors devis,
+      // exportées à part (heuresHorsDevis). Le coût MO, lui, les compte.
+      heuresReelles: heuresReellesComparablesOuvrage(o, ppt),
+      heuresHorsDevis: heuresHorsDevisOuvrage(o, ppt),
       coutMOReel: coutMOOuvrage(o, ppt, tauxHoraires),
       avancement: avancementOuvrage(o),
       bibliothequeRef: texteOuNull(refBiblio) || texteOuNull(ratio?.identifiant),
@@ -330,7 +339,7 @@ export function normaliserChantier({
           statut: texteOuNull(t?.statut),
           avancement: nombreOuNull(t?.avancement),
           heures: nombreOuNull(t?.heures_reelles),
-          remarque: texteOuNull(t?.remarque),
+          remarque: texteOuNull(explicationLigne(t)),
         })),
       };
     });
@@ -818,7 +827,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     nbChantiers: (chantiersOp || []).length, nbAvecPhasage: 0,
     vendu: 0, moReel: 0, mat: 0, fg: 0, marge: 0,
     moPrev: 0, matPrev: 0, fgPrev: 0, margePrev: 0,
-    hVendues: 0, hReelles: 0,
+    hVendues: 0, hReelles: 0, hHorsDevis: 0,
     avNum: 0, avDen: 0,
     statuts: {},
   };
@@ -840,6 +849,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     t.margePrev += b.margePrevChantier || 0;
     t.hVendues += b.heuresVenduesChantier || 0;
     t.hReelles += b.heuresReellesTotalChantier || 0;
+    t.hHorsDevis += b.heuresHorsDevisChantier || 0;
     const poids = b.prixHTChantier || 0;
     t.avNum += (b.avancementChantier || 0) * poids;
     t.avDen += poids;

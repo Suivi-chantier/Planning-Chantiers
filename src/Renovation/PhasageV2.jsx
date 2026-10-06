@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne, NATURES_TACHE, horsDevisParDefaut } from "./motifsCompteRendu";
+// Répartition des heures vendues d'un ouvrage sur ses tâches : module pur
+// (testé par scripts/verif-hors-devis.mjs), déplacé tel quel d'ici.
+import { repartirHeuresVendues } from "./repartitionHeuresVendues.mjs";
 import ChoixMateriau from "./ChoixMateriau";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots, loadGroupesTypes, loadEquipes, getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
 import { Icon, InputNombre } from "../ui";
@@ -61,6 +66,9 @@ import {
   tacheHeuresVendues,
   tachePointagesParOuvrier as cfTachePointagesParOuvrier,
   heuresReellesOuvrage as cfHeuresReellesOuvrage,
+  heuresReellesComparablesOuvrage as cfHeuresComparablesOuvrage,
+  heuresHorsDevisOuvrage as cfHeuresHorsDevisOuvrage,
+  tacheHorsDevis,
   heuresVenduesOuvrage, prixHTOuvrage, coutMatOuvrage, totalLignes,
   avancementOuvrage, avancementOuvrageDetail, avancementTacheDetail,
   ouvragesDuLot as cfOuvragesDuLot,
@@ -117,26 +125,6 @@ const arrondiQuart = (h) => {
   return Math.round(n * 4) / 4;
 };
 
-// Répartit un total d'heures entre des tâches selon leur poids. Base de
-// pondération en cascade : ratio (copié de la biblio) → heures_estimees →
-// parts égales. Renvoie un tableau de valeurs EXACTES (2 décimales, non
-// arrondies) aligné sur `taches`. Si `total` est vide, renvoie des null.
-function repartirHeures(total, taches) {
-  const t = Array.isArray(taches) ? taches : [];
-  const tot = parseFloat(total);
-  if (isNaN(tot) || t.length === 0) return t.map(() => null);
-  let poids = t.map(x => parseFloat(x.ratio) || 0);
-  let somme = poids.reduce((s, p) => s + p, 0);
-  if (somme <= 0) {
-    poids = t.map(x => parseFloat(x.heures_estimees) || 0);
-    somme = poids.reduce((s, p) => s + p, 0);
-  }
-  if (somme <= 0) {
-    poids = t.map(() => 1);
-    somme = t.length;
-  }
-  return poids.map(p => parseFloat((tot * p / somme).toFixed(2)));
-}
 
 // Convertit un weekId "YYYY-W##" + un jour ("Lundi", etc.) en date ISO
 // yyyy-mm-dd. ISO 8601 : la semaine 1 contient le 4 janvier.
@@ -642,9 +630,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             // tâche n'en porte encore, on les répartit (ratio → estimées →
             // parts égales). Valeurs exactes ; l'arrondi reste côté planning.
             const heuresDevis = parseFloat(o.heures_devis);
-            const aucuneVendue = taches.length > 0 && taches.every(t => t.heures_vendues == null);
+            // Tâches hors devis : ni prises en compte ni servies (travail non vendu).
+            const comparablesBF = taches.filter(t => !tacheHorsDevis(t));
+            const aucuneVendue = comparablesBF.length > 0 && comparablesBF.every(t => t.heures_vendues == null);
             if (!isNaN(heuresDevis) && aucuneVendue) {
-              const parts = repartirHeures(heuresDevis, taches);
+              const parts = repartirHeuresVendues(heuresDevis, taches);
               taches = taches.map((t, i) => ({ ...t, heures_vendues: parts[i] }));
               mutated = true;
             }
@@ -1000,7 +990,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const setOuvrageHeuresDevis = (id, value) => {
     updateOuvrages(ouvrages.map(o => {
       if (o.id !== id) return o;
-      const parts = repartirHeures(value, o.taches || []);
+      const parts = repartirHeuresVendues(value, o.taches || []);
       const taches = (o.taches || []).map((t, i) => ({ ...t, heures_vendues: parts[i] }));
       return { ...o, heures_devis: value, taches };
     }));
@@ -1069,6 +1059,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const tacheHeuresReelles = (t) => cfTacheHeuresReelles(t, pointagesParTache);
   const tachePointagesParOuvrier = (t) => cfTachePointagesParOuvrier(t, pointagesParTache);
   const heuresReellesOuvrage = (o) => cfHeuresReellesOuvrage(o, pointagesParTache);
+  // Comparaisons au vendu : sans les tâches hors devis (affichées à part).
+  const heuresComparablesOuvrage = (o) => cfHeuresComparablesOuvrage(o, pointagesParTache);
+  const heuresHorsDevisOuvrage = (o) => cfHeuresHorsDevisOuvrage(o, pointagesParTache);
   const heuresReellesLot = (lotId) => fin.lots.find(l => l.id === lotId)?.heuresReelles || 0;
   const heuresVenduesLot = (lotId) => fin.lots.find(l => l.id === lotId)?.heuresVendues || 0;
 
@@ -1080,6 +1073,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     margeChantier, margePctChantier,
     margePrevChantier, margePrevPctChantier,
     repriseHeures, repriseTaux, repriseCout,
+    heuresComparablesChantier,
   } = fin.brut;
   const trajetStats   = { heures: fin.brut.trajetHeures,   cout: fin.brut.trajetCout };
   const indirectStats = { heures: fin.brut.indirectHeures, cout: fin.brut.indirectCout };
@@ -2807,7 +2801,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 donnee={fin.heuresReelles} dateRef={todayRefISO}
                 value={fin.heuresReelles.valeurTexte}
                 sub={fin.heuresReelles.sousLabel}
-                accent={couleurDerive(heuresReellesTotalChantier, heuresVenduesChantier)}
+                accent={couleurDerive(heuresComparablesChantier, heuresVenduesChantier)}
                 onClick={() => setKpiDetail("heures")}/>
               <KpiCard T={T} icon={Calendar} iconColor="#5b9cf6" label="Heures ce mois"
                 value={moisCourant.heures > 0 ? `${moisCourant.heures.toFixed(0)}h` : "—"}
@@ -3150,9 +3144,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                             {o.libelle || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans libellé)</span>}
                           </div>
                           {(() => {
-                            const hr = heuresReellesOuvrage(o);
+                            const hr = heuresComparablesOuvrage(o);
+                            const hd = heuresHorsDevisOuvrage(o);
                             const hv = heuresVenduesOuvrage(o);
-                            const showH = hr > 0 || hv > 0;
+                            const showH = hr > 0 || hv > 0 || hd > 0;
                             if (!showH && !o.quantite && !o.prix_ht) return null;
                             const col = couleurDepassement(hr, hv);
                             return (
@@ -3163,6 +3158,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                       {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
                                     </span>
                                   </InfoBulle>
+                                )}
+                                {hd > 0 && (
+                                  <span title="Tâches hors devis : comptées dans le coût, pas comparées aux heures vendues" style={{ color: "#2563eb", fontWeight: 700 }}>
+                                    {" "}+ {fmtH(hd)}h hors devis
+                                  </span>
                                 )}
                                 {o.quantite ? `${showH ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
                                 {o.prix_ht ? `${(showH||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
@@ -3262,6 +3262,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               {(() => {
                                 const hr = tacheHeuresReelles(t);
                                 const hv = tacheHeuresVendues(t);
+                                // Tâche hors devis : ses heures, sans comparaison ni couleur.
+                                if (tacheHorsDevis(t)) {
+                                  return (
+                                    <span style={{ fontSize: FONT.xs.size, color: "#2563eb", fontWeight: 700, whiteSpace: "nowrap" }}>
+                                      {hr > 0 ? `${fmtH(hr)}h · ` : ""}hors devis
+                                    </span>
+                                  );
+                                }
                                 if (hr > 0 || hv > 0) {
                                   const col = couleurDepassement(hr, hv);
                                   return (
@@ -3599,7 +3607,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         const PRESENTATION = {
           vendu:          { d: fin.venduHT,      icon: Banknote, color: "#f5c400" },
           heures:         { d: fin.heuresReelles, icon: Clock,   color: "#5b9cf6",
-                            totalColor: couleurDepassement(heuresReellesTotalChantier, heuresVenduesChantier) || "#5b9cf6" },
+                            totalColor: couleurDepassement(heuresComparablesChantier, heuresVenduesChantier) || "#5b9cf6" },
           mo:             { d: fin.moReel,       icon: HardHat,  color: "#60a5fa" },
           fg:             { d: fin.fg,           icon: Percent,  color: "#a78bfa" },
           marge:          { d: fin.marge,        icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor },
@@ -3896,7 +3904,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               {x.heures_reelles != null && x.heures_reelles !== "" && <span>{x.heures_reelles}h réelles</span>}
                               {x.avancement != null && x.avancement !== "" && <span>{x.avancement}%</span>}
                             </div>
-                            {x.remarque && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {x.remarque} »</div>}
+                            {explicationLigne(x) && <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: T.textSub, fontStyle: "italic" }}>« {explicationLigne(x)} »</div>}
                           </div>
                         ))}
                         {r.remarque && (
@@ -4022,6 +4030,31 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 })}
               </select>
             </ModalField>
+            {/* Nature et « Hors devis » (étape 3b) : choisir une nature préremplit
+                la case selon sa règle (demande du client, imprévu → hors devis) ;
+                la case reste modifiable. Une tâche hors devis ne consomme pas
+                les heures vendues de l'ouvrage : ses heures comptent dans le
+                coût, jamais dans les comparaisons au vendu ni l'avancement. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "end" }}>
+              <ModalField label="Nature de la tâche">
+                <select value={t.nature || ""}
+                  onChange={e => {
+                    const code = e.target.value || null;
+                    const defaut = horsDevisParDefaut(code);
+                    updateTache(o.id, t.id, { nature: code, ...(defaut === null ? {} : { hors_devis: defaut }) });
+                  }}
+                  style={{ ...modalInp(T), cursor: "pointer" }}>
+                  <option value="">Non renseignée</option>
+                  {NATURES_TACHE.map(n => <option key={n.code} value={n.code}>{n.label} — {n.description}</option>)}
+                </select>
+              </ModalField>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.sm.size, color: T.text, cursor: "pointer", paddingBottom: 10 }}>
+                <input type="checkbox" checked={tacheHorsDevis(t)}
+                  onChange={e => updateTache(o.id, t.id, { hors_devis: e.target.checked })}
+                  style={{ width: 16, height: 16, accentColor: "#2563eb" }}/>
+                <span><strong>Hors devis</strong> : ne consomme pas les heures vendues de l'ouvrage</span>
+              </label>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures estimées">
                 <InputNombre min="0" valeur={t.heures_estimees ?? ""}
@@ -5034,6 +5067,14 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {tacheHorsDevis(t) && (
+              <span title="Hors devis : travail non vendu — ses heures comptent dans le coût, pas dans les heures vendues de l'ouvrage"
+                style={{
+                  display: "inline-block", verticalAlign: "middle", marginRight: 6,
+                  padding: "0 5px", borderRadius: 4, border: "1px solid #2563eb",
+                  color: "#2563eb", fontSize: 9, fontWeight: 800, letterSpacing: .4, lineHeight: "14px",
+                }}>HORS DEVIS</span>
+            )}
             {t.externe && (
               <span title="Réalisée par un prestataire externe — aucune heure interne"
                 style={{

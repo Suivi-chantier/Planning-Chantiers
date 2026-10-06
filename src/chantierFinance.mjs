@@ -134,6 +134,38 @@ export function tachePointagesParOuvrier(t, ppt) {
   return Object.values(m).sort((a, b) => b.heures - a.heures);
 }
 
+// ── Tâches HORS DEVIS (ajout du 06/10/2026) ─────────────────────────────────
+// Une tâche marquée hors_devis: true (travail non vendu : demande du client,
+// imprévu… — cochée par le conducteur) :
+//   - garde ses heures dans TOUS les coûts (main-d'œuvre réelle, frais
+//     généraux, marge) : c'est un coût réel ;
+//   - n'est PAS comparée aux heures vendues : ni ratio de dérive, ni
+//     dépassement, ni couleur — ses heures s'affichent à part (« + X h hors
+//     devis ») ;
+//   - n'entre pas dans l'avancement de son ouvrage ni de sa phase (travail non
+//     vendu) — sauf si TOUTES les tâches de l'ouvrage / de la phase le sont.
+// Seul le champ EXPLICITE compte. Une tâche sans ce champ — c'est le cas de
+// toutes les tâches existantes, y compris celles de « Divers / hors devis » —
+// garde exactement le calcul d'avant.
+// ⚠ Les helpers historiques (heuresReellesOuvrage…) restent INCHANGÉS : ils
+// alimentent aussi les coûts (frais généraux). Les comparaisons au vendu
+// passent par les helpers « comparables » ci-dessous.
+export const tacheHorsDevis = (t) => t?.hors_devis === true;
+const tachesComparables = (taches) => (taches || []).filter(t => !tacheHorsDevis(t));
+// Tâches qui portent l'avancement : les comparables, ou toutes si l'ensemble
+// est hors devis (sinon un ouvrage 100 % hors devis n'aurait plus d'avancement).
+const tachesAvancement = (taches) => {
+  const list = taches || [];
+  const comp = tachesComparables(list);
+  return comp.length > 0 ? comp : list;
+};
+export const heuresReellesComparablesOuvrage = (o, ppt) =>
+  tachesComparables(o?.taches).reduce((s, t) => s + tacheHeuresReelles(t, ppt), 0);
+export const heuresHorsDevisOuvrage = (o, ppt) =>
+  (o?.taches || []).filter(tacheHorsDevis).reduce((s, t) => s + tacheHeuresReelles(t, ppt), 0);
+export const heuresHorsDevisOuvrages = (ouvrages, ppt) =>
+  (ouvrages || []).reduce((s, o) => s + heuresHorsDevisOuvrage(o, ppt), 0);
+
 // ── Ouvrage ──────────────────────────────────────────────────────────────────
 
 export const prixHTOuvrage       = (o) => parseFloat(o?.prix_ht) || 0;
@@ -149,7 +181,7 @@ export const coutMOOuvrage = (o, ppt, tauxHoraires) =>
 // L'arrondi intermédiaire est volontaire : il se propage aux lots/chantier
 // exactement comme dans PhasageV2.
 export function avancementOuvrage(ouvrage) {
-  const taches = ouvrage?.taches || [];
+  const taches = tachesAvancement(ouvrage?.taches);
   if (taches.length === 0) return 0;
   const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
   if (totalHE > 0) {
@@ -167,9 +199,12 @@ export function avancementOuvrage(ouvrage) {
 // (pondéré heures_estimees) : ne pas « harmoniser ».
 // `termine` = toutes les tâches du groupe à 100 % (définition du cycle de vie).
 export function statsGroupeChrono(groupeId, ouvrages) {
-  const taches = (ouvrages || [])
+  const toutes = (ouvrages || [])
     .flatMap(o => o?.taches || [])
     .filter(t => t?.chrono_groupe_id === groupeId);
+  // Avancement et « terminé » : sans les tâches hors devis (travail non
+  // vendu) ; count reste le nombre total de tâches du groupe.
+  const taches = tachesAvancement(toutes);
   let wsum = 0, wtot = 0, ssum = 0;
   taches.forEach(t => {
     const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
@@ -181,7 +216,7 @@ export function statsGroupeChrono(groupeId, ouvrages) {
     ? Math.round(wsum / wtot)
     : (taches.length ? Math.round(ssum / taches.length) : 0);
   const termine = taches.length > 0 && taches.every(t => (parseInt(t.avancement) || 0) >= 100);
-  return { count: taches.length, avancement, termine };
+  return { count: toutes.length, avancement, termine };
 }
 
 // ── Lots ─────────────────────────────────────────────────────────────────────
@@ -225,7 +260,7 @@ export function avancementChantier(ouvrages) {
 const fmt1 = (n) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 
 export function avancementOuvrageDetail(ouvrage) {
-  const taches = ouvrage?.taches || [];
+  const taches = tachesAvancement(ouvrage?.taches);
   if (taches.length === 0) return "Aucune tâche";
   const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
   if (totalHE > 0) {
@@ -393,7 +428,7 @@ export const METHODE_CALCUL = [
     formule: "Somme des heures vendues au devis (heures_devis) des ouvrages",
     source: "Ouvrages du phasage (Phasage V2)" },
   { cle: "heuresReelles", label: "Heures totales",
-    formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité",
+    formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité. Le % consommé compare aux heures vendues ces heures MOINS celles des tâches hors devis (travail non vendu), affichées à part ; le coût, lui, les compte toutes",
     source: "Registre de pointage (validations de fin de journée)" },
   { cle: "moPrev", label: "MO prév.",
     formule: "Heures vendues × taux de main d'œuvre prévisionnel (réglage Admin)",
@@ -432,7 +467,7 @@ export const METHODE_CALCUL = [
     formule: "Heures consommées avant l'application × taux moyen saisi (Suivi direction)",
     source: "Suivi direction (reprise_heures × reprise_taux)" },
   { cle: "ratioDerive", label: "Dérive d'un lot",
-    formule: "(heures réelles ÷ heures vendues) ÷ (avancement ÷ 100) — à 1,00 le lot est dans le devis, au-delà de 1,15 il dérive ; indéterminé si les heures vendues ou l'avancement sont à zéro",
+    formule: "(heures réelles ÷ heures vendues) ÷ (avancement ÷ 100) — à 1,00 le lot est dans le devis, au-delà de 1,15 il dérive ; indéterminé si les heures vendues ou l'avancement sont à zéro. Les tâches hors devis n'entrent ni dans les heures réelles comparées ni dans l'avancement",
     source: "Ouvrages du lot + registre de pointage" },
   // ── Projections (étape 6) : où on va, pas seulement où on en est ──
   { cle: "resteAFaire", label: "Reste à faire", projection: true,
@@ -484,6 +519,10 @@ export function computeChantierFinance({
   const repriseCout   = repriseHeures * repriseTaux;
   const coutMOTotalChantier = coutMOChantier + extras.coutLibre + extras.coutIndirect + repriseCout;
   const heuresReellesTotalChantier = heuresReellesChantier + extras.heuresLibre + extras.heuresIndirect + repriseHeures;
+  // Heures des tâches hors devis : comptées dans le total et les coûts, mais
+  // jamais comparées aux heures vendues (% consommées, couleur, indice de délai).
+  const heuresHorsDevisChantier = heuresHorsDevisOuvrages(ouvrages, ppt);
+  const heuresComparablesChantier = heuresReellesTotalChantier - heuresHorsDevisChantier;
   const coutMatChantier = totalLignes(commandeLignes);
   const commandesPrevChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
   const tauxMOPrevEff = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
@@ -539,7 +578,9 @@ export function computeChantierFinance({
   const lotsOut = lotsEtOrphelins.map(l => {
     const lo = ouvragesDuLot(ouvrages, lots, l.id);
     const hv = lo.reduce((s, o) => s + heuresVenduesOuvrage(o), 0);
-    const hr = lo.reduce((s, o) => s + heuresReellesOuvrage(o, ppt), 0);
+    // Heures comparées au vendu : sans les tâches hors devis (à part).
+    const hr = lo.reduce((s, o) => s + heuresReellesComparablesOuvrage(o, ppt), 0);
+    const hhd = lo.reduce((s, o) => s + heuresHorsDevisOuvrage(o, ppt), 0);
     const av = lo.length > 0 ? avancementLot(ouvrages, lots, l.id) : 0;
     // Ratio de dérive : (réelles/vendues) ÷ (avancement/100). 1,00 = dans le
     // devis. Indéterminé (null) si pas d'heures vendues ou avancement nul.
@@ -548,6 +589,7 @@ export function computeChantierFinance({
       id: l.id, label: l.label, couleur: l.couleur || null,
       nbOuvrages: lo.length,
       heuresVendues: hv, heuresReelles: hr,
+      ...(hhd > 0 ? { heuresHorsDevis: hhd } : {}),
       avancement: av, ratioDerive,
       vide: lo.length === 0,
     };
@@ -630,7 +672,7 @@ export function computeChantierFinance({
     if (l.ratioDerive != null && l.ratioDerive > SEUIL_RATIO_DERIVE) {
       warnings.push({
         code: "derive_lot", gravite: "alerte", lotId: l.id,
-        message: `Lot ${l.label} : dérive d'heures ×${l.ratioDerive.toFixed(2)} (réalisé ${fmtH(l.heuresReelles)}h / ${fmtH(l.heuresVendues)}h vendues pour ${l.avancement} % d'avancement).`,
+        message: `Lot ${l.label} : dérive d'heures ×${l.ratioDerive.toFixed(2)} (réalisé ${fmtH(l.heuresReelles)}h / ${fmtH(l.heuresVendues)}h vendues pour ${l.avancement} % d'avancement${l.heuresHorsDevis > 0 ? ` ; + ${fmtH(l.heuresHorsDevis)}h hors devis non comptées` : ""}).`,
       });
     }
   });
@@ -653,12 +695,13 @@ export function computeChantierFinance({
   // « heures » : réelles / vendues par ouvrage + ligne extras.
   const heuresRowsBase = ouvrages
     .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id),
-      r: heuresReellesOuvrage(o, ppt), v: heuresVenduesOuvrage(o) }))
-    .filter(r => r.r > 0 || r.v > 0)
+      r: heuresReellesComparablesOuvrage(o, ppt), v: heuresVenduesOuvrage(o), hd: heuresHorsDevisOuvrage(o, ppt) }))
+    .filter(r => r.r > 0 || r.v > 0 || r.hd > 0)
     .sort((a, b) => b.v - a.v || b.r - a.r);
   const heuresVentilation = heuresRowsBase.map(r => ({
     main: r.main, sub: r.sub,
-    right: `${fmtH(r.r)}h / ${fmtH(r.v)}h`,
+    // Les heures hors devis s'affichent à part, sans couleur de dépassement.
+    right: `${fmtH(r.r)}h / ${fmtH(r.v)}h${r.hd > 0 ? ` + ${fmtH(r.hd)}h hors devis` : ""}`,
     rightColor: couleurDepassement(r.r, r.v),
   }));
   const hExtra = extras.heuresIndirect + extras.heuresLibre;
@@ -833,11 +876,13 @@ export function computeChantierFinance({
     cle: "heuresReelles", label: "Heures totales", format: "heure",
     valeur: heuresReellesTotalChantier,
     valeurTexte: `${heuresReellesTotalChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`,
-    sousLabel: heuresVenduesChantier > 0
-      ? `${Math.round((heuresReellesTotalChantier / heuresVenduesChantier) * 100)}% consommées`
-      : "réelles / vendues",
+    sousLabel: (heuresVenduesChantier > 0
+      ? `${Math.round((heuresComparablesChantier / heuresVenduesChantier) * 100)}% consommées`
+      : "réelles / vendues")
+      + (heuresHorsDevisChantier > 0 ? ` · dont ${fmtH(heuresHorsDevisChantier)}h hors devis` : ""),
     formule: FORMULE.heuresReelles,
-    calculDetaille: `${fmtH(heuresReellesChantier)}h (tâches) + ${fmtH(extras.heuresLibre)}h (libres) + ${fmtH(extras.heuresIndirect)}h (trajets + indirect)${repriseHeures > 0 ? ` + ${fmtH(repriseHeures)}h (reprise)` : ""} = ${fmtH(heuresReellesTotalChantier)}h`,
+    calculDetaille: `${fmtH(heuresReellesChantier)}h (tâches) + ${fmtH(extras.heuresLibre)}h (libres) + ${fmtH(extras.heuresIndirect)}h (trajets + indirect)${repriseHeures > 0 ? ` + ${fmtH(repriseHeures)}h (reprise)` : ""} = ${fmtH(heuresReellesTotalChantier)}h`
+      + (heuresHorsDevisChantier > 0 ? `, dont ${fmtH(heuresHorsDevisChantier)}h hors devis (non comparées aux heures vendues : ${fmtH(heuresComparablesChantier)}h comparées)` : ""),
     ventilation: heuresVentilation,
     titre: "Heures réelles / vendues",
     sousTitre: `${heuresReellesTotalChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h vendues`,
@@ -1116,6 +1161,7 @@ export function computeChantierFinance({
     brut: {
       prixHTChantier, heuresVenduesChantier, heuresReellesChantier,
       heuresReellesTotalChantier, coutMOChantier, coutMOTotalChantier,
+      heuresHorsDevisChantier, heuresComparablesChantier,
       coutMatChantier, commandesPrevChantier, moPrevChantier, tauxMOPrevEff,
       fgTauxHoraire, fgChantier, margeChantier, margePctChantier,
       fgPrevChantier, deboursePrevChantier, margePrevChantier, margePrevPctChantier,

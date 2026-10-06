@@ -33,7 +33,7 @@ import { grouperParOperation } from "./ouvrierOperations";
 // par la RPC ouvrier_preparation_chantier — il ne lit aucune table.
 import OuvrierPreparationChantier from "./OuvrierPreparationChantier";
 import { MobileCard, MobileSection, MobileEmptyState, Pill, SummaryBar } from "../mobileUI";
-import { indexPointagesParTache, tacheHeuresReelles } from "../chantierFinance";
+import { indexPointagesParTache, tacheHeuresReelles, heuresReellesComparablesOuvrage, heuresHorsDevisOuvrage } from "../chantierFinance";
 import { urlDocumentChantier, derniereErreurDocument } from "./storageChantier";
 import { getEtape } from "./cycleVie";
 import { NavButtons } from "./ouvrierNav";
@@ -305,12 +305,15 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
     const ouvrages = Array.isArray(detail.ouvrages) ? detail.ouvrages : [];
     if (ouvrages.length > 0) {
       // V2 : les tâches vivent dans ouvrages[].taches.
+      // Heures comparées au vendu : sans les tâches hors devis (marquées par le
+      // conducteur), affichées à part — règle de chantierFinance.
       return ouvrages.map(o => ({
         id: o.id,
         label: o.libelle || "(sans nom)",
         vendues: parseFloat(o.heures_devis) || 0,
-        reelles: (o.taches || []).reduce((s, t) => s + tacheHeuresReelles(t, ppt), 0),
-      })).filter(o => o.vendues > 0 || o.reelles > 0);
+        reelles: heuresReellesComparablesOuvrage(o, ppt),
+        horsDevis: heuresHorsDevisOuvrage(o, ppt),
+      })).filter(o => o.vendues > 0 || o.reelles > 0 || o.horsDevis > 0);
     }
     // Repli V1 : tâches par phase, groupées par ouvrage_id.
     const parOuvrage = new Map();
@@ -333,8 +336,11 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
     return out;
   })();
   const heuresLibres = detail ? (parseFloat(detail.heures_libres) || 0) : 0;
-  const tot = rows.reduce((s, o) => ({ vendues: s.vendues + o.vendues, reelles: s.reelles + o.reelles }), { vendues: 0, reelles: 0 });
+  const tot = rows.reduce((s, o) => ({ vendues: s.vendues + o.vendues, reelles: s.reelles + o.reelles, horsDevis: s.horsDevis + (o.horsDevis || 0) }), { vendues: 0, reelles: 0, horsDevis: 0 });
+  // Heures comparées au vendu (couleur) ; le total affiché compte aussi les
+  // heures hors devis (« dont X h hors devis »).
   const totReelles = tot.reelles + heuresLibres;
+  const totAffiche = totReelles + tot.horsDevis;
   const nbDocs = (detail?.documents || []).reduce((s, d) => s + (Array.isArray(d.pieces) ? d.pieces.length : 0), 0);
   const sansPhasage = detail && !detail.phasage_id;
 
@@ -407,7 +413,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
           {/* Totaux du chantier */}
           <SummaryBar T={T} items={[
             { label:"Heures vendues", value:`${fmtH(tot.vendues)} h`, color:"#5b8af5", icon:Timer },
-            { label:"Heures réelles", value:`${fmtH(totReelles)} h`, color:couleurDerive(tot.vendues, totReelles), icon:HardHat },
+            { label: tot.horsDevis > 0 ? `Heures réelles, dont ${fmtH(tot.horsDevis)} h hors devis` : "Heures réelles", value:`${fmtH(totAffiche)} h`, color:couleurDerive(tot.vendues, totReelles), icon:HardHat },
           ]}/>
 
           {/* Plans dessinés dans la page Plans (table plans, visionneuse vectorielle) */}
@@ -512,6 +518,9 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
                         <span style={{ fontSize:13, fontWeight:800, color:col, whiteSpace:"nowrap" }}>{fmtH(o.reelles)} h</span>
                         <span style={{ fontSize:12, color:T.textMuted, whiteSpace:"nowrap" }}>/ {fmtH(o.vendues)} h vendues</span>
                       </div>
+                      {o.horsDevis > 0 && (
+                        <div style={{ fontSize:12, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>+ {fmtH(o.horsDevis)} h hors devis (non comptées dans les heures vendues)</div>
+                      )}
                       <div style={{ height:6, borderRadius:3, background:T.card, overflow:"hidden" }}>
                         <div style={{ height:"100%", width:`${Math.max(o.reelles > 0 ? 3 : 0, pct)}%`, background:`linear-gradient(90deg, ${col}, ${col}cc)`, borderRadius:3 }}/>
                       </div>

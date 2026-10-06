@@ -212,6 +212,8 @@ export const AIDE_CONTENU = {
     savoir: [
       "Tant qu'un rapport n'est pas validé, ses heures ne comptent pas dans le coût du chantier.",
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
+      "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h vendues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
+      "Une ligne marquée « Ajoutée par l'ouvrier » est une tâche non prévue au planning, choisie par l'ouvrier dans le phasage (« J'ai fait autre chose ») : elle est déjà rattachée à sa tâche et se valide comme les autres.",
     ],
   },
   "heures-salaries": {
@@ -259,6 +261,7 @@ export const AIDE_CONTENU = {
     savoir: [
       "Vous pouvez importer un devis Excel pour pré-remplir ouvrages et tâches.",
       "Les matériaux définis ici alimentent la page Commandes.",
+      "Dans « Modifier la tâche », choisissez sa nature (demande du client, imprévu, oubli du phasage, reprise) et cochez « Hors devis » pour un travail non vendu : ses heures comptent dans le coût mais ne sont plus comparées aux heures vendues de l'ouvrage (ni dérive, ni dépassement, ni avancement). Elles s'affichent à part : « + X h hors devis ».",
     ],
   },
   bibliotheque: {
@@ -356,6 +359,8 @@ export const AIDE_CONTENU = {
     intro: "Le centre de configuration : collaborateurs et droits d'accès, ouvriers et taux horaires, lots de travaux, fournisseurs et modèles d'e-mails.",
     etapes: [
       "« Collaborateurs » : invitez des membres et donnez-leur un rôle et des accès.",
+      "« Collaborateurs » → case « Bêta : Mes phases » sur la fiche d'un ouvrier : lui ouvre l'onglet d'essai « Phases » de l'espace ouvrier (phasage et heures du chantier, sans montant). Vérifiez le rendu avec « Voir la vue d'un collaborateur ».",
+      "« Collaborateurs » → case « Bêta : Nouveau compte rendu » : l'ouvrier passe au nouveau formulaire du soir (temps au quart d'heure, Terminé / En cours / Pas commencé / Bloqué, motifs en un tap). Ses rapports sont validés comme les autres et donnent les mêmes pointages.",
       "« Ouvriers » / « Lots » : définissez les ressources de base (noms, taux horaires, catégories de travaux).",
       "« Fournisseurs » : listez vos fournisseurs et créez des modèles d'e-mail de commande.",
     ],

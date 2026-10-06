@@ -692,7 +692,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               sub={`${agg.nbAvecPhasage}/${agg.nbChantiers} logements chiffrés`}/>
             <KpiCard T={T} icon={Clock} iconColor="#f5a623" label="Coût MO réel"
               value={eur(agg.moReel)}
-              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h vendues`}/>
+              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h vendues${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}`}/>
             <KpiCard T={T} icon={Package} iconColor="#5b8af5" label="Matériaux réels"
               value={eur(agg.mat)}
               sub={agg.matPrev > 0 ? `prévu : ${eur(agg.matPrev)}` : undefined}/>
@@ -794,7 +794,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                           <td style={{ ...td, fontWeight: 700, color: mPrevColor }}>{b.prixHTChantier > 0 ? eur(b.margePrevChantier) : "—"}</td>
                           <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? eur(b.margeChantier) : "—"}</td>
                           <td style={{ ...td, fontWeight: 700, color: mColor }}>{b.prixHTChantier > 0 ? pctTxt(b.margePctChantier) : "—"}</td>
-                          <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h</td>
+                          <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h{b.heuresHorsDevisChantier > 0 ? ` (dont ${fmtH(b.heuresHorsDevisChantier)}h hors devis)` : ""}</td>
                         </>
                       )}
                     </tr>
@@ -811,7 +811,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <td style={{ ...td, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margePrev, agg.margePrevPct ?? 0) : textMuted }}>{agg.vendu > 0 ? eur(agg.margePrev) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.marge) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? pctTxt(agg.margePct) : "—"}</td>
-                  <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h</td>
+                  <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h{agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}</td>
                 </tr>
               </tbody>
             </table>

@@ -7,6 +7,8 @@ import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
 import { calculerCapaciteRessourcePourDate } from "./planningResourceCapacityV1.js";
 import { chargerRessourcesPlanningV1, chargerEvenementsRessourcesPourDateV1, indexerRessourcesParNomPlanningV1, ressourcePourNomPlanningV1 } from "./planningResourceDataV1.js";
 import { sortByChrono } from "./chronoTemplate";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne } from "./motifsCompteRendu";
 import { creerAllocationUid } from "./planningBaselineModelV1.js";
 import { chargerVerrousAllocationsV1, indexerVerrousAllocationsV1, verrouillerAllocationV1, deverrouillerAllocationV1 } from "./planningAllocationLockDataV1.js";
 
@@ -810,9 +812,9 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                             </div>
                           )}
                           {/* Remarque tâche */}
-                          {t.remarque && (
+                          {explicationLigne(t) && (
                             <div style={{fontSize:12, color:T.textMuted, fontStyle:"italic", paddingLeft:23}}>
-                              ↳ {t.remarque}
+                              ↳ {explicationLigne(t)}
                             </div>
                           )}
                           {/* Photos liées à la tâche */}

@@ -51,6 +51,7 @@ import {
   tachePointages,
   sumHeures,
   tacheHeuresVendues,
+  tacheHorsDevis,
 } from "../chantierFinance.mjs";
 
 export const ECHANTILLON_CADENCES_VERSION = "v1";
@@ -105,7 +106,9 @@ const round1 = v => Math.round((Number(v) + Number.EPSILON) * 10) / 10;
  * sait pas, et on ne devine pas.
  */
 export function ouvrageEntierementTermineV1(ouvrage) {
-  const taches = listeSure(ouvrage?.taches);
+  // Les tâches hors devis (travail non vendu) ne disent rien de la cadence
+  // de l'ouvrage : elles n'empêchent pas un ouvrage d'être « terminé ».
+  const taches = listeSure(ouvrage?.taches).filter(t => !tacheHorsDevis(t));
   if (taches.length === 0) return false;
   return taches.every(t => nombreOuNull(t?.avancement) === 100);
 }
@@ -158,7 +161,9 @@ export function ouvragesComparablesV1(phasages, pointages) {
       if (!bibliothequeId) return;
       if (!ouvrageEntierementTermineV1(o)) return;
 
-      const taches = listeSure(o.taches);
+      // Tâches hors devis exclues : leurs heures ne correspondent à aucune
+      // quantité vendue et fausseraient la cadence de l'ouvrage.
+      const taches = listeSure(o.taches).filter(t => !tacheHorsDevis(t));
       // Heures vendues et heures réelles : primitives de chantierFinance, pas
       // de formule locale. tachePointages + sumHeures = le registre SEUL,
       // sans le repli legacy sur taches[].heures_reelles — ce champ du phasage

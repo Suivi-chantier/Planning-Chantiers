@@ -19,6 +19,8 @@ import { libellePointAttentionV1, libelleMotifsV1, etatPointsAttentionV1, ETAT_R
 import { suiviPointsAttentionV1, libelleSuiviV1, libelleDerivesArreteesV1 } from "./suiviPointsAttentionV1.js";
 import { preparerSemainesAttentionV1, auditDoublonsSnapshotsV1 } from "./pointsAttentionDonneesV1.js";
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
+// Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
+import { explicationLigne } from "./motifsCompteRendu";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
@@ -114,7 +116,8 @@ const fusionnerTachesBilan = (taches) => {
     if (!key) { sansTexte.push(t); return; }
     if (!groupes[key]) groupes[key] = { ...t, _ouvriers: new Set(), _remarques: new Set() };
     if (t.ouvrier) groupes[key]._ouvriers.add(t.ouvrier);
-    if (t.remarque && t.remarque.trim()) groupes[key]._remarques.add(t.remarque.trim());
+    const explication = explicationLigne(t);
+    if (explication) groupes[key]._remarques.add(explication);
   });
   return [
     ...Object.values(groupes).map(g => ({
@@ -849,8 +852,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         // dominant avant de partitionner.
         const taches = filtrerStatutDominant(tachesRaw);
         const presences = presencesDuChantier(cId).map(({ jour, ouvriers }) => `${jour} : ${ouvriers.join(", ")}`);
-        const rawFaites    = taches.filter(t=>t.statut==="faite")    .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
-        const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: t.remarque||"", ouvrier: t.ouvrier }));
+        const rawFaites    = taches.filter(t=>t.statut==="faite")    .map(t=>({ texte: t.planifie||t.text||"", remarque: explicationLigne(t), ouvrier: t.ouvrier }));
+        const rawEnCours   = taches.filter(t=>t.statut==="en_cours") .map(t=>({ texte: t.planifie||t.text||"", remarque: explicationLigne(t), ouvrier: t.ouvrier }));
         const rawRemarques = grp.rapports.filter(r=>r.remarque?.trim()).map(r=>({ ouvrier: r.ouvrier, texte: r.remarque }));
         const prog = progressions[cId] || null;
         // Blocages / points semaine suivante saisis par le conducteur pour CE chantier.
@@ -2577,7 +2580,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             const nom = grp?.nom || ch?.nom || cId;
             const heures = heuresParChantier[cId] || 0;
             const detailJours = grp ? presencesDuChantier(cId) : [];
-            const toutesTouches = (grp?.rapports || []).flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier})));
+            const toutesTouches = (grp?.rapports || []).flatMap(r => (r.taches||[]).map(t => ({...t, ouvrier:r.ouvrier, remarque: explicationLigne(t)})));
             const faites    = toutesTouches.filter(t => t.statut==="faite");
             const enCours   = toutesTouches.filter(t => t.statut==="en_cours");
             const nonFaites = toutesTouches.filter(t => t.statut==="non_faite");

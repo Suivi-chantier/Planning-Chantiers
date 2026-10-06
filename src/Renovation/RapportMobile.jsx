@@ -11,6 +11,20 @@ import {
   Hourglass, Calendar, RefreshCw, LogOut, ImagePlus, ListPlus, Trash2,
 } from "lucide-react";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
+// Socle commun aux deux formulaires (ancien et bêta v2) : quelles tâches
+// partent, total de la journée, un rapport par chantier, écriture des lignes.
+import {
+  aReprendreIntacte, filtrerTachesRemplies, filtrerIndirectesRemplies, filtrerIndirectesInvalides,
+  totalJournee, cibleAtteinte, construireRapports, serialiserLigneV1, COLONNES_FACULTATIVES,
+} from "./compteRenduEnvoi";
+// Formulaire bêta « cr_v2 » (Admin → Collaborateurs → « Bêta : Nouveau compte rendu »).
+import {
+  FORMULAIRE_V2, serialiserLigneV2, finaliserLignesV2, brouillonV2VersV1, preremplirDurees,
+  colonnesRapportV2, etatEnvoi, fmtMinutes, ajouterDepuisPhasage, carteRetirable, ORIGINE_LIBRE,
+} from "./compteRenduV2";
+import { explicationComplete } from "./motifsCompteRendu";
+import TacheCarteV2 from "./TacheCarteV2";
+import PanneauAutreChose from "./PanneauAutreChose";
 
 // ─── THÈME LIGHT CHANTIER ─────────────────────────────────────────────────────
 // Palette claire (lisibilité extérieure pour les ouvriers en plein soleil)
@@ -42,14 +56,9 @@ const T = {
   infoBd:    SEMANTIC.info.border,
 };
 
-// Tâche « À reprendre » jamais touchée (ni statut, ni heures, ni remarque, ni
-// avancement). Le formulaire n'en ajoute plus depuis le 28/09/2026 ; seul un
-// brouillon plus ancien peut encore en contenir. On l'écarte à la reprise du
-// brouillon et à l'envoi — pas de « Non faite — 0 % » forcé qui rabaisserait
-// l'avancement du phasage. Une tâche déjà remplie est gardée et envoyée.
-const aReprendreIntacte = (t) => t.aReprendre && !t.statut
-  && !String(t.heures_reelles ?? "").trim() && !t.remarque?.trim()
-  && (t.avancement === undefined || t.avancement === null || t.avancement === "");
+// Tâche « À reprendre » jamais touchée : voir aReprendreIntacte dans
+// compteRenduEnvoi.mjs (le formulaire n'en ajoute plus depuis le 28/09/2026 ;
+// seul un brouillon plus ancien peut encore en contenir).
 
 // ─── HELPER EMAIL ─────────────────────────────────────────────────────────────
 // Passe par /api/send-email (Vercel serverless) au lieu d'appeler Resend
@@ -57,12 +66,14 @@ const aReprendreIntacte = (t) => t.aReprendre && !t.statut
 // RESEND_FROM env var) au lieu de onboarding@resend.dev qui finit en spam.
 async function sendRapportEmail(rapport, chantierNom) {
   const tachesHtml = rapport.taches.map(t => {
-    const icon = t.statut==="faite"?"✅":t.statut==="en_cours"?"🔄":"❌";
+    // ⛔ = « Bloqué » (formulaire v2). L'explication = la remarque (ancien
+    // formulaire, inchangé) ou le libellé du motif + précision (v2).
+    const icon = t.bloque ? "⛔" : t.statut==="faite"?"✅":t.statut==="en_cours"?"🔄":"❌";
     return `<tr>
       <td style="padding:8px;border-bottom:1px solid #eee">${icon} <strong>${t.planifie}</strong></td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;color:#5b8af5;font-weight:700">${t.heures_reelles||0}h</td>
       <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;color:#8b5cf6;font-weight:700">${t.avancement||0}%</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;color:#666">${t.remarque||"—"}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;color:#666">${explicationComplete(t)||"—"}</td>
     </tr>`;
   }).join("");
   const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
@@ -251,7 +262,14 @@ export function PhotosPicker({ photos, onChange, pathPrefix, color="#5b8af5", la
 }
 
 // ─── PAGE RAPPORT MOBILE ──────────────────────────────────────────────────────
-function PageRapportMobile({ prenomFige = null, embedded = false, preview = false }) {
+// variante : "v1" (formulaire historique, défaut, toujours utilisé par le
+// formulaire public) ou "v2" (bêta « cr_v2 », espace ouvrier seulement).
+// Les deux partagent tout le socle : chargement, brouillon, rattrapage, cible,
+// trajets, heures indirectes, paniers, photos et envoi fiabilisé.
+// onOuvrirCommande : ouvre l'onglet Commande de l'espace ouvrier (lien
+// « Faire la demande de matériel » d'une tâche bloquée — navigation seule).
+function PageRapportMobile({ prenomFige = null, embedded = false, preview = false, variante = "v1", onOuvrirCommande = null }) {
+  const estV2 = variante === FORMULAIRE_V2;
   // prenomFige : quand fourni (espace ouvrier authentifié), le prénom vient de
   // la session → on saute l'étape "c'est qui ?" et on masque le bouton Changer.
   const [step, setStep]             = useState(prenomFige ? "rapport" : "login"); // login | rapport | done
@@ -288,6 +306,20 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // Clé = ouvrier + date → un brouillon distinct par personne et par jour.
   const [brouillonRepris, setBrouillonRepris] = useState(false);
   const [lastSaved, setLastSaved]   = useState(null);
+  // Brouillon commencé dans le formulaire v2 puis relu par l'ancien (case
+  // décochée en cours de journée) : motifs recopiés en texte, on le signale.
+  const [brouillonConverti, setBrouillonConverti] = useState(false);
+  // Mesure (v2) : heure de la première saisie de la journée, gardée dans le
+  // brouillon et écrite sur le rapport (saisie_debut_le).
+  const [saisieDebut, setSaisieDebut] = useState(null);
+  const touche = () => setSaisieDebut(s => s || new Date().toISOString());
+  // v2 : panneau « J'ai fait autre chose » (tâche choisie dans le phasage).
+  const [panneauAutreChose, setPanneauAutreChose] = useState(false);
+  // v2 : infos des tâches du jour lues par la RPC ouvrier_mes_phases (chemin
+  // Phase › Ouvrage, heures vendues / validées / en attente, dernier motif de
+  // dépassement), par tache_id. infosEtat : chargement | ok | indisponible.
+  const [infosParTache, setInfosParTache] = useState({});
+  const [infosEtat, setInfosEtat] = useState("chargement");
   // Heures attendues par jour — config Admin (clé planning_config "heures_par_jour").
   // Le défaut local sert de fallback tant que la config n'est pas chargée.
   const HEURES_PAR_JOUR_DEFAUT = { "Lundi": 10, "Mardi": 10, "Mercredi": 10, "Jeudi": 9, "Vendredi": 9 };
@@ -364,6 +396,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         taches, trajetMatin, trajetSoir, heuresIndirectes, remarque,
         paniers, photosChantier, planData,
         ts: Date.now(),
+        // Version du formulaire qui a écrit le brouillon : si la case bêta
+        // change en cours de journée, l'autre formulaire sait le relire.
+        ...(estV2 ? { version: FORMULAIRE_V2, saisieDebut } : {}),
       };
       localStorage.setItem(brouillonKey(nom, dateKey), JSON.stringify(payload));
       setLastSaved(new Date());
@@ -371,7 +406,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       // QuotaExceeded ou JSON.stringify circular → on log mais on ne bloque pas
       console.warn("Sauvegarde brouillon:", e);
     }
-  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData]);
+  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData, estV2, saisieDebut]);
 
   const repartirDeZero = () => {
     effacerBrouillon();
@@ -383,6 +418,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setPaniers({});
     setPhotosChantier({});
     setLastSaved(null);
+    setSaisieDebut(null);
+    setBrouillonConverti(false);
     loadTaches(ouvrier.trim());
   };
 
@@ -421,6 +458,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               phase_id: t.phase_id || null,
               statut: null, remarque: "",
               pourTout,
+              // v2 : durée prévue au planning pour cette personne (champ
+              // `duree` de la ligne, par ouvrier) — affichée, préremplie, et
+              // gardée sur la ligne envoyée pour la mesure.
+              ...(estV2 && parseFloat(t.duree) > 0 ? { heures_prevues: parseFloat(t.duree) } : {}),
             });
           }
         });
@@ -444,7 +485,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
     if (seq !== loadSeqRef.current) return; // date changée entre-temps
     setPlanData({ chantiersData });
-    setTaches(tachesInit);
+    setTaches(estV2 ? preremplirDurees(tachesInit) : tachesInit);
     setStep("rapport");
   };
 
@@ -459,11 +500,18 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       const b = raw ? JSON.parse(raw) : null;
       // Un brouillon commencé avant le 28/09/2026 peut encore contenir des
       // tâches « À reprendre » : on retire celles que l'ouvrier n'a pas touchées.
-      const tachesBrouillon = Array.isArray(b?.taches) ? b.taches.filter(t => !aReprendreIntacte(t)) : [];
+      let tachesBrouillon = Array.isArray(b?.taches) ? b.taches.filter(t => !aReprendreIntacte(t)) : [];
+      // Brouillon écrit par le formulaire v2 et relu par l'ancien (case bêta
+      // décochée en cours de journée) : les motifs deviennent du texte dans la
+      // remarque, rien n'est perdu, et on prévient l'ouvrier.
+      const venaitDuV2 = b?.version === FORMULAIRE_V2;
+      if (venaitDuV2 && !estV2) tachesBrouillon = brouillonV2VersV1(tachesBrouillon);
       // On ne reprend le brouillon que s'il contient réellement des tâches : un
       // brouillon vide (ex. sauvé avant le chargement du planning) ne doit pas
       // masquer les tâches du jour.
       if (tachesBrouillon.length > 0) {
+        setBrouillonConverti(venaitDuV2 && !estV2);
+        setSaisieDebut(estV2 ? (b.saisieDebut || null) : null);
         setTaches(tachesBrouillon);
         setTrajetMatin(b.trajetMatin || "");
         setTrajetSoir(b.trajetSoir || "");
@@ -482,6 +530,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // Pas de brouillon : on reset les états locaux pour éviter qu'un changement
     // d'ouvrier (bouton "Changer") n'hérite des trajets/paniers/etc. du précédent.
     setBrouillonRepris(false);
+    setBrouillonConverti(false);
+    setSaisieDebut(null);
     setTrajetMatin("");
     setTrajetSoir("");
     setHeuresIndirectes([]);
@@ -583,6 +633,39 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     }
   }, [embedded, taches]);
 
+  // ── v2 : infos des tâches du jour (une lecture par chantier) ───────────────
+  // Source unique : la RPC ouvrier_mes_phases (onglet Phases), sans aucun
+  // nouveau calcul. En cas d'échec, le formulaire reste utilisable : pas de
+  // jauge ni de motif de dépassement, et l'écran le dit (« indisponibles »).
+  const chantiersAvecTaches = estV2
+    ? [...new Set(taches.filter(t => t.tache_id && t.chantier_id).map(t => t.chantier_id))].sort().join("|")
+    : "";
+  useEffect(() => {
+    if (!estV2 || !chantiersAvecTaches) { setInfosEtat("ok"); return; }
+    let annule = false;
+    setInfosEtat("chargement");
+    (async () => {
+      const infos = {};
+      let echec = false;
+      for (const chId of chantiersAvecTaches.split("|")) {
+        try {
+          const { data, error } = await supabase.rpc("ouvrier_mes_phases", {
+            p_chantier_id: chId, p_prenom: ouvrier.trim() || null, p_aujourdhui: todayISO,
+          });
+          if (error || !data || data.acces_refuse) { echec = true; continue; }
+          (data.phases || []).forEach(ph => (ph.ouvrages || []).forEach(o => (o.taches || []).forEach(x => {
+            if (x.id) infos[String(x.id)] = { ...x, phase_nom: ph.synthetique ? null : ph.nom, ouvrage_libelle: o.libelle };
+          })));
+        } catch { echec = true; }
+      }
+      if (annule) return;
+      setInfosParTache(infos);
+      setInfosEtat(echec ? "indisponible" : "ok");
+    })();
+    return () => { annule = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estV2, chantiersAvecTaches, todayISO, ouvrier]);
+
   // Statut → auto-remplit avancement (100/0) et heures (0 pour non_faite).
   // Si on quitte faite/non_faite vers en_cours, on vide pour forcer une vraie
   // saisie (l'ancien 0/100 hérité de l'auto-fill serait faux).
@@ -622,12 +705,39 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // la suppression des tâches issues du planning : si elles n'ont pas été faites,
   // l'ouvrier doit explicitement mettre "Non faite" pour qu'on en garde la trace.
   const supprimerTache = (idx) => setTaches(t => t.filter((_, i) => i !== idx));
+  // v2 — « J'ai fait autre chose » : une tâche du phasage devient une carte
+  // identique à une tâche planifiée (origine "phasage"), jamais en double.
+  const ajouterTachePhasage = (tache, chantier) => {
+    touche();
+    setTaches(arr => ajouterDepuisPhasage(arr, tache, chantier));
+  };
+  // v2 — texte libre (repli du panneau) : l'ajout manuel existant, inchangé,
+  // marqué origine "libre" ; le chantier choisi dans le panneau est prérempli.
+  const ajouterTacheLibreV2 = (chantier) => {
+    touche();
+    setTaches(t => [...t, {
+      chantier_id: chantier?.id || "", chantier_nom: chantier?.nom || "", chantier_couleur: chantier?.couleur || "#c8d8f0",
+      planifie: "", statut: null, remarque: "", photos: [], libre: true, origine: ORIGINE_LIBRE,
+    }]);
+    setPanneauAutreChose(false);
+  };
 
   const soumettre = async () => {
     if (preview) return; // aperçu admin : lecture seule
     // Filet pour un brouillon antérieur au 28/09/2026 (voir aReprendreIntacte).
-    const tachesRemplies = taches.filter(t => t.planifie.trim() && !aReprendreIntacte(t));
+    const tachesRemplies = filtrerTachesRemplies(taches);
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
+    // Formulaire v2 : le bouton n'est actif que si tout est complet et le
+    // total exact ; on refait le même contrôle ici (filet), puis on saute
+    // directement à l'envoi — les contrôles ci-dessous sont ceux de l'ancien.
+    const tachesEnvoi = estV2 ? finaliserLignesV2(taches, infosParTache) : taches;
+    if (estV2) {
+      const e = etatEnvoi({
+        taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache,
+        indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
+      });
+      if (!e.peutEnvoyer) { alert(e.phrase || "Ton compte rendu n'est pas complet."); return; }
+    } else {
     // Chantier obligatoire pour les tâches ajoutées manuellement
     const sansChantier = tachesRemplies.filter(t => !t.chantier_id);
     if (sansChantier.length > 0) {
@@ -663,24 +773,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       return;
     }
     // Heures indirectes : motif + chantier + heures > 0 obligatoires
-    const indirectesRemplies = (heuresIndirectes || []).filter(h =>
-      (h.motif || "").trim() && (parseFloat(h.heures) || 0) > 0
-    );
-    const indirectesInvalides = (heuresIndirectes || []).filter(h =>
-      ((h.motif || "").trim() || (parseFloat(h.heures) || 0) > 0)
-      && (!(h.motif || "").trim() || !((parseFloat(h.heures) || 0) > 0) || !h.chantier_id)
-    );
+    const indirectesInvalides = filtrerIndirectesInvalides(heuresIndirectes);
     if (indirectesInvalides.length > 0) {
       alert(`Heures indirectes incomplètes\n\nChaque ligne d'heure indirecte doit avoir un motif, un chantier et un nombre d'heures > 0.`);
       return;
     }
     // Cible exacte : tâches + trajets + heures indirectes = cible du jour
     // (profil de la semaine 4j/5j, ou exception de date — voir cibleHeures)
-    const totalTachesHSubmit  = tachesRemplies.reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-    const totalIndirectesH    = indirectesRemplies.reduce((s, h) => s + (parseFloat(h.heures) || 0), 0);
-    const trajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
-    const totalSubmit = totalTachesHSubmit + trajetMin / 60 + totalIndirectesH;
-    if (Math.abs(totalSubmit - cibleHeures) > 0.01) {
+    // Même fonction que le compteur affiché (totalJournee).
+    const totalSubmit = totalJournee({ taches, trajetMatin, trajetSoir, heuresIndirectes }).totalH;
+    if (!cibleAtteinte(totalSubmit, cibleHeures)) {
       const ecart = totalSubmit - cibleHeures;
       const fmtH = (n) => n.toFixed(2).replace(/\.?0+$/, "");
       alert(
@@ -692,6 +794,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       );
       return;
     }
+    } // ← fin des contrôles de l'ancien formulaire
 
     setSubmitting(true);
 
@@ -712,32 +815,14 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       /jwt|expired|token|fetch|network|load failed|timeout|502|503/i
         .test(`${err?.message || ""} ${err?.code || ""} ${err?.status || ""}`);
 
-    // Regrouper par chantier (tâches + heures indirectes côte à côte sur le même rapport)
-    const parChantier = {};
-    tachesRemplies.forEach(t => {
-      const k = t.chantier_id || "divers";
-      if (!parChantier[k]) parChantier[k] = { chantier_id:t.chantier_id, chantier_nom:t.chantier_nom||"Divers", taches:[], heures_indirectes:[] };
-      parChantier[k].taches.push({
-        planifie:t.planifie,
-        tache_id: t.tache_id || null,
-        phase_id: t.phase_id || null,
-        statut:t.statut||"non_faite",
-        remarque:t.remarque,
-        heures_reelles:parseFloat(t.heures_reelles)||0,
-        avancement:parseInt(t.avancement)||0,
-        photos: t.photos || [],
-      });
-    });
-    indirectesRemplies.forEach(h => {
-      const k = h.chantier_id || "divers";
-      if (!parChantier[k]) {
-        const ch = planData?.chantiersData?.find(c => c.id === h.chantier_id);
-        parChantier[k] = { chantier_id: h.chantier_id, chantier_nom: ch?.nom || h.chantier_id || "Divers", taches: [], heures_indirectes: [] };
-      }
-      parChantier[k].heures_indirectes.push({
-        motif: (h.motif || "").trim(),
-        heures: parseFloat(h.heures) || 0,
-      });
+    // Un rapport par chantier (tâches + heures indirectes côte à côte) — module
+    // commun : l'ancien formulaire écrit exactement les mêmes rapports qu'avant
+    // (serialiserLigneV1, aucune colonne en plus) ; le v2 y ajoute ses champs.
+    const rapportsAEnvoyer = construireRapports({
+      taches: tachesEnvoi, heuresIndirectes, planData,
+      serialiser: estV2 ? serialiserLigneV2 : serialiserLigneV1,
+      ouvrier, dateKey, weekId, remarque, photosChantier, trajetMatin, trajetSoir,
+      extra: estV2 ? colonnesRapportV2(saisieDebut) : {},
     });
 
     let insertError = null;
@@ -745,26 +830,13 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // etc.) devient une erreur normale → alerte + brouillon conservé, jamais un
     // bouton bloqué sur « Envoi en cours… » ni un faux écran de succès.
     try {
-    for (const k of Object.keys(parChantier)) {
-      const grp = parChantier[k];
-      const photosCh = photosChantier[grp.chantier_id] || [];
-      const rapportFull = {
-        ouvrier: ouvrier.trim(),
-        chantier_id: grp.chantier_id,
-        chantier_nom: grp.chantier_nom,
-        date_rapport: dateKey,
-        semaine: weekId,
-        taches: grp.taches,
-        heures_indirectes: grp.heures_indirectes || [],
-        remarque,
-        photos_chantier: photosCh,
-        trajet_matin_min: parseInt(trajetMatin) || 0,
-        trajet_soir_min: parseInt(trajetSoir) || 0,
-      };
+    for (const rapportFull of rapportsAEnvoyer) {
+      const grp = rapportFull;
       // Insert avec retry : si une colonne optionnelle manque, on la drop
-      // (pattern déjà utilisé pour photos_chantier — ici on étend à trajet_* et heures_indirectes).
+      // (photos_chantier, trajet_*, heures_indirectes, et les deux colonnes du v2
+      // tant que sql/202610_compte_rendu_v2.sql n'est pas appliqué).
       let payload = { ...rapportFull };
-      const optionalCols = ["trajet_matin_min", "trajet_soir_min", "photos_chantier", "heures_indirectes"];
+      const optionalCols = COLONNES_FACULTATIVES;
       let { error: insErr } = await supabase.from("rapports").insert(payload);
       // Erreur transitoire (jeton expiré, réseau) : on rafraîchit la session et
       // on re-tente UNE fois — c'était la cause du « il faut envoyer deux fois ».
@@ -843,6 +915,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // CR envoyé → on efface le brouillon (sinon l'ouvrier le retrouverait demain).
     effacerBrouillon();
     setBrouillonRepris(false);
+    setBrouillonConverti(false);
+    setSaisieDebut(null);
     setLastSaved(null);
     if (enRattrapage) setRattrapageDispo(null); // jour rattrapé : plus rien à proposer
     setSubmitting(false);
@@ -950,17 +1024,21 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const enCours  = taches.filter(t=>t.statut==="en_cours").length;
   const nonFaite = taches.filter(t=>t.statut==="non_faite").length;
 
-  // Total journée = tâches + trajet matin + trajet soir (trajets en minutes).
-  // On ne compte que les tâches avec texte renseigné — alignement strict avec
-  // la validation de soumettre() (sinon : heures saisies sur une tâche libre
-  // sans description gonflent l'affichage mais sont ignorées au submit).
-  const totalTachesH = taches
-    .filter(t => t.planifie?.trim())
-    .reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-  const totalTrajetMin = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
-  const totalJourneeH = totalTachesH + totalTrajetMin / 60;
-  const matchCible = Math.abs(totalJourneeH - cibleHeures) < 0.01;
+  // Total journée = tâches + trajets + heures indirectes — la MÊME fonction que
+  // le contrôle à l'envoi (totalJournee). Avant le 06/10/2026, le compteur
+  // oubliait les heures indirectes alors que l'envoi les comptait.
+  const totJour = totalJournee({ taches, trajetMatin, trajetSoir, heuresIndirectes });
+  const totalTachesH = totJour.tachesH;
+  const totalTrajetMin = totJour.trajetMin;
+  const totalIndirectesH = totJour.indirectesH;
+  const totalJourneeH = totJour.totalH;
+  const matchCible = cibleAtteinte(totalJourneeH, cibleHeures);
   const ecartH = totalJourneeH - cibleHeures; // négatif si manque, positif si dépasse
+  // v2 : état du bouton d'envoi (total exact + lignes complètes) et reste en minutes.
+  const envoiV2 = estV2 ? etatEnvoi({
+    taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache,
+    indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
+  }) : null;
 
   // Helper format heures sans drift flottant
   const fmtH = (n) => (+n.toFixed(2)).toString();
@@ -1139,6 +1217,21 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         </div>
       )}
 
+      {/* ── Brouillon du formulaire bêta relu par l'ancien formulaire ── */}
+      {brouillonConverti && (
+        <div style={{ ...S.card, background:T.warningBg, borderLeft:`4px solid ${T.warning}`, padding:"12px 16px" }}>
+          <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+            <Icon as={AlertTriangle} size={16} color={T.warning} strokeWidth={2.2} style={{flexShrink:0,marginTop:2}}/>
+            <div>
+              <div style={{fontSize:FONT.base.size,fontWeight:700,color:T.text,marginBottom:2}}>Ton brouillon vient du nouveau formulaire</div>
+              <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.4}}>
+                Tes motifs ont été recopiés dans la remarque de chaque tâche. Vérifie tes tâches avant d'envoyer.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Bandeau règles à respecter (masqué dans l'espace ouvrier pour alléger) ── */}
       {!embedded && (
       <div style={{
@@ -1216,18 +1309,32 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8}}>
               <div style={{...S.sectionTitle(col), marginBottom:0}}>
                 <Icon as={Clock} size={13} strokeWidth={2.2}/>
-                Total de ma journée
+                {estV2 ? "Ma journée" : "Total de ma journée"}
               </div>
+              {estV2 ? (
+                // v2 : « X h placées sur Y h · reste Z », en heures et minutes.
+                <div style={{fontSize:FONT.lg.size+2,fontWeight:800,color:T.text,letterSpacing:-0.3,lineHeight:1.15,textAlign:"right"}}>
+                  {fmtMinutes(Math.round(totalJourneeH*60))} <span style={{fontSize:FONT.base.size,color:T.textSub,fontWeight:600}}>placées sur {fmtMinutes(Math.round(cibleHeures*60))}</span>
+                  {envoiV2.resteMin !== 0 && (
+                    <span style={{fontSize:FONT.base.size,color:col,fontWeight:800}}> · {envoiV2.resteMin > 0 ? `reste ${fmtMinutes(envoiV2.resteMin)}` : `${fmtMinutes(-envoiV2.resteMin)} de trop`}</span>
+                  )}
+                </div>
+              ) : (
               <div style={{fontSize:FONT.h2.size,fontWeight:800,color:col,letterSpacing:-0.5,lineHeight:1}}>
                 {fmtH(totalJourneeH)}h
                 <span style={{fontSize:FONT.base.size,color:T.textMuted,fontWeight:600,marginLeft:4}}>/ {cibleHeures}h</span>
               </div>
+              )}
             </div>
             <div style={{height:6,background:"rgba(0,0,0,0.06)",borderRadius:RADIUS.sm,overflow:"hidden"}}>
               <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:RADIUS.sm,transition:"width .3s"}}/>
             </div>
             <div style={{fontSize:FONT.sm.size+1,color:col,marginTop:6,fontWeight:600,display:"flex",alignItems:"center",gap:5}}>
-              {matchCible
+              {estV2
+                ? (envoiV2.peutEnvoyer
+                    ? <><Icon as={Check} size={13} strokeWidth={2.5}/> Tout est placé : tu peux envoyer</>
+                    : envoiV2.phrase)
+                : matchCible
                 ? <><Icon as={Check} size={13} strokeWidth={2.5}/> Tu peux soumettre ton compte rendu</>
                 : ecartH < 0
                   ? `Il manque ${fmtH(-ecartH)}h pour atteindre la cible`
@@ -1236,6 +1343,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:4}}>
               {fmtH(totalTachesH)}h de tâches
               {totalTrajetMin > 0 && ` + ${totalTrajetMin} min de trajet (${fmtH(totalTrajetMin/60)}h)`}
+              {totalIndirectesH > 0 && ` + ${fmtH(totalIndirectesH)}h indirectes`}
             </div>
             {lastSaved && (
               <div style={{
@@ -1261,9 +1369,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           ? tousChantiers.filter(c => chantiersDuJour.includes(c.id))
           : tousChantiers;
         const presets = ["Intempéries", "Nettoyage", "SAV", "Trajet supp.", "Préparation chantier"];
-        const addIndirect = () => setHeuresIndirectes(prev => [...prev, { motif: "", chantier_id: chantiersProposes[0]?.id || "", heures: "" }]);
+        const addIndirect = () => { touche(); setHeuresIndirectes(prev => [...prev, { motif: "", chantier_id: chantiersProposes[0]?.id || "", heures: "" }]); };
         const removeIndirect = (i) => setHeuresIndirectes(prev => prev.filter((_, idx) => idx !== i));
-        const updateIndirect = (i, patch) => setHeuresIndirectes(prev => prev.map((x, idx) => idx === i ? { ...x, ...patch } : x));
+        const updateIndirect = (i, patch) => { touche(); setHeuresIndirectes(prev => prev.map((x, idx) => idx === i ? { ...x, ...patch } : x)); };
         // Embarqué : replié tant qu'il n'y a rien → un simple bouton "+".
         if (embedded && !showIndirectes && heuresIndirectes.length === 0) {
           return (
@@ -1380,8 +1488,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           Mon temps de trajet
         </div>
         {[
-          { label:"Trajet matin (aller)", value:trajetMatin, setter:setTrajetMatin },
-          { label:"Trajet soir (retour)", value:trajetSoir,  setter:setTrajetSoir  },
+          { label:"Trajet matin (aller)", value:trajetMatin, setter:(v) => { touche(); setTrajetMatin(v); } },
+          { label:"Trajet soir (retour)", value:trajetSoir,  setter:(v) => { touche(); setTrajetSoir(v); } },
         ].map(({label, value, setter}, i) => (
           <div key={i} style={{marginBottom: i===0 ? 10 : 0}}>
             <div style={{fontSize:FONT.xs.size,fontWeight:700,color:T.text,marginBottom:6,letterSpacing:0.3}}>{label}</div>
@@ -1423,9 +1531,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           <div style={{fontSize:FONT.base.size,color:T.textMuted,marginBottom:16,lineHeight:1.5}}>
             {todayJour ? `Rien n'est planifié pour toi ce ${todayJour}.` : "Bon week-end !"}
           </div>
-          <button onClick={addTacheLibre} style={S.btn("#fff", T.text)}>
+          <button onClick={estV2 ? () => setPanneauAutreChose(true) : addTacheLibre} style={S.btn("#fff", T.text)}>
             <Icon as={Plus} size={16} strokeWidth={2.2}/>
-            Ajouter une tâche manuellement
+            {estV2 ? "J'ai fait autre chose" : "Ajouter une tâche manuellement"}
           </button>
         </div>
       )}
@@ -1483,6 +1591,32 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           {!collapsedChantiers[group.key] && (<>
 
       {group.items.map(({ t, idx }, gi) => {
+        if (estV2) {
+          // Formulaire bêta : une carte par tâche (TacheCarteV2), toutes ouvertes.
+          const maj = (fn) => { touche(); setTaches(arr => arr.map((x, i) => i === idx ? fn(x) : x)); };
+          return (
+            <TacheCarteV2 key={idx} t={t} T={T}
+              info={t.tache_id ? infosParTache[String(t.tache_id)] || null : null}
+              infosEtat={infosEtat}
+              resteMin={envoiV2 ? envoiV2.resteMin : 0}
+              onMaj={maj}
+              onSupprimer={carteRetirable(t) ? () => supprimerTache(idx) : null}
+              chantiers={chantiers}
+              onOuvrirCommande={embedded && onOuvrirCommande ? onOuvrirCommande : null}
+              photos={(
+                <div style={{marginTop:12,paddingTop:12,borderTop:`1px dashed ${T.border}`}}>
+                  <PhotosPicker
+                    photos={t.photos || []}
+                    onChange={(arr)=>{ touche(); setTachePhotos(idx, arr); }}
+                    pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}`}
+                    color={t.chantier_couleur || T.info}
+                    label="Photos de la tâche"
+                  />
+                </div>
+              )}
+            />
+          );
+        }
         const dureeOk    = t.statut==="non_faite" || (t.heures_reelles && parseFloat(t.heures_reelles)>0);
         const avRenseigne = !(t.avancement===""||t.avancement===undefined||t.avancement===null);
         const av100 = parseInt(t.avancement)===100;
@@ -1874,7 +2008,35 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         </div>
       ))}
 
-      {/* Ajouter tâche libre — bouton global en bas de tous les groupes */}
+      {/* v2 : « J'ai fait autre chose » — choisir une tâche dans le phasage */}
+      {estV2 && taches.length > 0 && (
+        <div style={{padding:"0 12px 8px"}}>
+          <button onClick={() => setPanneauAutreChose(true)} style={{
+            width:"100%", minHeight:56, border:`2px dashed ${T.borderHover}`, borderRadius:RADIUS.xl,
+            fontSize:FONT.md.size+1, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
+            background:T.surface, color:T.text, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+          }}>
+            <Icon as={Plus} size={18} strokeWidth={2.4}/>
+            J'ai fait autre chose
+          </button>
+        </div>
+      )}
+      {estV2 && panneauAutreChose && (() => {
+        const ids = [...new Set(taches.map(t => t.chantier_id).filter(Boolean))];
+        const chantiersDuJour = ids.map(id => chantiers.find(c => c.id === id)
+          || { id, nom: taches.find(t => t.chantier_id === id)?.chantier_nom || id, couleur: taches.find(t => t.chantier_id === id)?.chantier_couleur });
+        return (
+          <PanneauAutreChose
+            taches={taches} chantiersDuJour={chantiersDuJour} tousChantiers={chantiers}
+            prenom={ouvrier.trim()} aujourdhuiISO={todayISO} T={T} accent={T.accent}
+            onAjouter={ajouterTachePhasage} onDecrireLibre={ajouterTacheLibreV2}
+            onFermer={() => setPanneauAutreChose(false)}/>
+        );
+      })()}
+
+      {/* Ajouter tâche libre — bouton global en bas de tous les groupes
+          (ancien formulaire ; en v2, le texte libre passe par le panneau). */}
+      {!estV2 && (
       <div style={{padding:"0 16px 8px"}}>
         <button onClick={()=>{ const n = taches.length; addTacheLibre(); if (embedded) setOpenTache(n); }} style={{
           width:"100%",padding:"12px",border:`1.5px dashed ${T.borderHover}`,borderRadius:RADIUS.xl,
@@ -1886,6 +2048,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           Ajouter une tâche
         </button>
       </div>
+      )}
 
       {/* Drawer bibliothèque */}
       {besoinDrawer && (() => {
@@ -1917,13 +2080,18 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
       {/* Bouton soumettre */}
       <div style={{padding:"8px 16px 32px"}}>
-        <button onClick={soumettre} disabled={submitting || preview} style={{
+        {estV2 && !preview && !envoiV2.peutEnvoyer && envoiV2.phrase && (
+          <div style={{ textAlign:"center", fontSize:FONT.base.size, fontWeight:700, color:T.textSub, marginBottom:8 }}>
+            {envoiV2.phrase}
+          </div>
+        )}
+        <button onClick={soumettre} disabled={submitting || preview || (estV2 && !envoiV2.peutEnvoyer)} style={{
           width:"100%",padding:"18px",border:"none",borderRadius:RADIUS.xl+2,fontSize:FONT.lg.size,
-          fontWeight:800,cursor:(submitting||preview)?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
-          background: (submitting||preview) ? T.borderHover : T.accent, color: T.accentText,
-          boxShadow: preview ? "none" : `0 4px 20px ${T.accent}4D`,
+          fontWeight:800,cursor:(submitting||preview||(estV2 && !envoiV2.peutEnvoyer))?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
+          background: (submitting||preview||(estV2 && !envoiV2.peutEnvoyer)) ? T.borderHover : T.accent, color: T.accentText,
+          boxShadow: (preview||(estV2 && !envoiV2.peutEnvoyer)) ? "none" : `0 4px 20px ${T.accent}4D`,
           display:"flex",alignItems:"center",justifyContent:"center",gap:8,
-          opacity: (submitting||preview) ? 0.7 : 1,
+          opacity: (submitting||preview||(estV2 && !envoiV2.peutEnvoyer)) ? 0.7 : 1,
         }}>
           <Icon as={submitting ? RotateCw : Check} size={18} strokeWidth={2.5}
             style={submitting ? {animation:"spin 1s linear infinite"} : {}}/>
