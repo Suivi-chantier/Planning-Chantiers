@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-05",
+    type: "nouveaute",
+    titre: "Espace ouvrier (bêta) : onglet « Phases » — le phasage du chantier et les heures, phase par phase",
+    pages: [{ id: "admin", label: "Réglages" }],
+    quoi: "Un ouvrier bêta-testeur voit, sur son téléphone, le chantier découpé en phases, puis en ouvrages et en tâches : ce qui est fait, les heures passées face aux heures vendues, les heures déjà validées et celles encore en attente de validation, et sa propre part. Il sait où en est sa phase et ce qui vient ensuite. Aucun montant en euros n'est affiché. C'est un essai : un seul ou quelques ouvriers d'abord, en lecture seule.",
+    comment: "Réglages → Collaborateurs : cocher « Bêta : Mes phases » sur la fiche de l'ouvrier ; l'onglet « Phases » apparaît dans son espace à sa prochaine ouverture (décocher le retire). « Voir la vue d'un collaborateur » le montre aussi pour un bêta-testeur. Dans l'onglet : le chantier où il est planifié aujourd'hui est choisi d'office, « Mes phases » ne garde que les phases où il a une tâche, la phase en cours est ouverte et entourée de jaune. Chaque tâche porte une pastille (À venir, Dans le temps, À surveiller, Dérive, Dépassé, Hors devis) calculée avec les mêmes seuils que le tableau des lots de la fiche chantier. Les heures vendues sont celles de la fiche chantier ; une tâche sans heures vendues dont l'ouvrage en a reste sans jauge, rien n'est réparti au hasard. Les ouvriers non cochés ne voient aucune différence. À mettre en service : lancer sql/202610_ouvrier_mes_phases.sql dans Supabase.",
+  },
+  {
     date: "2026-10-02",
     type: "nouveaute",
     titre: "Espace client : le client renseigne et corrige ses informations, vous les vérifiez avant de les intégrer",
