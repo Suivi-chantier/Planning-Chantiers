@@ -75,6 +75,13 @@
 --       qui porte un motif_depassement pour cette tâche, QUEL QUE SOIT
 --       l'ouvrier : { code, date } — jamais le nom de qui l'a donné. Le
 --       nouveau compte rendu propose de le reprendre (visible, changeable).
+--   tâches hors devis (ajout du 06/10/2026, étape 3b)
+--       hors_devis_marque = champ explicite taches[].hors_devis (posé par le
+--       conducteur) : seules ces tâches sortent des totaux comparés au vendu
+--       et de l'avancement (mesPhasesV1). hors_devis reste l'indicateur
+--       d'AFFICHAGE (marquée OU sans heures vendues dans Divers / un ouvrage
+--       sans heures vendues). nature et cree_par : tâche ajoutée hors devis
+--       initial (« Ajoutée par … · nature »).
 --
 -- QUI PEUT APPELER (ouvrier) : les bêta-testeurs de « mes_phases » (onglet
 -- Phases) OU de « cr_v2 » (nouveau compte rendu, qui en lit les heures
@@ -450,10 +457,18 @@ begin
                                        else 'registre' end,
         'heures_en_attente', coalesce(att.heures, 0),
         'mes_heures',  coalesce(reg.miennes, 0) + coalesce(att.miennes, 0),
-        -- Hors devis : ni heures vendues sur la tâche, ni sur son ouvrage —
-        -- ou ouvrage « Divers / hors devis » explicitement.
-        'hors_devis',  (t.heures_vendues = 0 and (ouv.heures_devis = 0
-                         or ouv.data->>'libelle' ilike 'divers%hors devis%')),
+        -- Hors devis (AFFICHAGE : pastille, pas de jauge) : tâche marquée par
+        -- le conducteur, ou sans heures vendues dans un ouvrage qui n'en a pas
+        -- (ou « Divers / hors devis »).
+        'hors_devis',  (coalesce(t.data->'hors_devis' = 'true'::jsonb, false)
+                        or (t.heures_vendues = 0 and (ouv.heures_devis = 0
+                            or ouv.data->>'libelle' ilike 'divers%hors devis%'))),
+        -- Marquée EXPLICITEMENT hors devis (Phasage V2, Validation) : seules
+        -- ces tâches sortent des totaux comparés au vendu et de l'avancement.
+        'hors_devis_marque', coalesce(t.data->'hors_devis' = 'true'::jsonb, false),
+        -- Nature et auteur d'une tâche ajoutée hors du devis initial.
+        'nature',      nullif(trim(t.data->>'nature'), ''),
+        'cree_par',    nullif(trim(t.data->>'cree_par'), ''),
         'dernier_motif_depassement', case when dm.code is null then null
                                           else jsonb_build_object('code', dm.code, 'date', dm.date) end
       ) as data

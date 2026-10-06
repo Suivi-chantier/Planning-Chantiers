@@ -21,6 +21,7 @@
 import {
   indexPointagesParTache, tacheHeuresReelles, avancementOuvrage,
   heuresReellesOuvrage, coutMOOuvrage, heuresParMois, totalLignes,
+  tacheHorsDevis, heuresReellesComparablesOuvrage, heuresHorsDevisOuvrage,
 } from "../chantierFinance.mjs";
 import { etatTache } from "./preparationChantier.mjs";
 import { CYCLE_VIE_PHASES, CYCLE_VIE_ETAPES, lireEtatsEtapes, lirePhaseDeclaree } from "./cycleVie.mjs";
@@ -190,6 +191,9 @@ export function normaliserChantier({
         ouvriers: listeOuNull(t?.ouvriers),
         dependances: resoudreDeps(t),
         externe: !!t?.externe,
+        // Tâche hors devis : ses heures ne se comparent pas aux heures vendues.
+        horsDevis: tacheHorsDevis(t),
+        nature: texteOuNull(t?.nature),
       };
     });
     return {
@@ -208,7 +212,10 @@ export function normaliserChantier({
       coutMateriaux: nombreOuNull(o?.cout_materiaux),
       heuresDevis: nombreOuNull(o?.heures_devis),
       heuresEstimees: nombreOuNull(o?.heures_estimees),
-      heuresReelles: heuresReellesOuvrage(o, ppt),
+      // Heures comparées aux heures du devis : sans les tâches hors devis,
+      // exportées à part (heuresHorsDevis). Le coût MO, lui, les compte.
+      heuresReelles: heuresReellesComparablesOuvrage(o, ppt),
+      heuresHorsDevis: heuresHorsDevisOuvrage(o, ppt),
       coutMOReel: coutMOOuvrage(o, ppt, tauxHoraires),
       avancement: avancementOuvrage(o),
       bibliothequeRef: texteOuNull(refBiblio) || texteOuNull(ratio?.identifiant),
@@ -820,7 +827,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     nbChantiers: (chantiersOp || []).length, nbAvecPhasage: 0,
     vendu: 0, moReel: 0, mat: 0, fg: 0, marge: 0,
     moPrev: 0, matPrev: 0, fgPrev: 0, margePrev: 0,
-    hVendues: 0, hReelles: 0,
+    hVendues: 0, hReelles: 0, hHorsDevis: 0,
     avNum: 0, avDen: 0,
     statuts: {},
   };
@@ -842,6 +849,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     t.margePrev += b.margePrevChantier || 0;
     t.hVendues += b.heuresVenduesChantier || 0;
     t.hReelles += b.heuresReellesTotalChantier || 0;
+    t.hHorsDevis += b.heuresHorsDevisChantier || 0;
     const poids = b.prixHTChantier || 0;
     t.avNum += (b.avancementChantier || 0) * poids;
     t.avDen += poids;

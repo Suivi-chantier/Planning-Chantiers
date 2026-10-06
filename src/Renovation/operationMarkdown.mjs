@@ -651,7 +651,7 @@ export function construireMarkdownOperation(modele) {
           cellule(euros(b.coutMOTotalChantier)), cellule(euros(b.coutMatChantier)),
           cellule(b.prixHTChantier > 0 ? euros(b.margeChantier) : ND),
           cellule(b.prixHTChantier > 0 ? pourcent(b.margePctChantier, { decimales: 1 }) : ND),
-          cellule(`${heures(b.heuresReellesTotalChantier)} / ${heures(b.heuresVenduesChantier)}`),
+          cellule(`${heures(b.heuresReellesTotalChantier)} / ${heures(b.heuresVenduesChantier)}${b.heuresHorsDevisChantier > 0 ? ` (dont ${heures(b.heuresHorsDevisChantier)} hors devis)` : ""}`),
         ];
       }),
     ),
@@ -849,7 +849,8 @@ function ficheChantier(c, rang, m) {
         cellule(String(i + 1)),
         cellule(o.code), cellule(o.libelle, { max: LARGEUR_INTITULE }), cellule(o.lotLabel), cellule(o.unite),
         cellule(nombre(o.quantite)), cellule(euros(o.prixHT)), cellule(euros(o.coutMateriaux)),
-        cellule(heures(o.heuresDevis)), cellule(heures(o.heuresEstimees)), cellule(heures(o.heuresReelles)),
+        cellule(heures(o.heuresDevis)), cellule(heures(o.heuresEstimees)),
+        cellule(o.heuresHorsDevis > 0 ? `${heures(o.heuresReelles)} + ${heures(o.heuresHorsDevis)} hors devis` : heures(o.heuresReelles)),
         cellule(euros(o.coutMOReel)), cellule(pourcent(o.avancement)), cellule(String((o.taches || []).length)),
       ]),
     ),
@@ -876,10 +877,12 @@ function ficheChantier(c, rang, m) {
       recapOuvrages.map((o) => {
         const ts = o.taches || [];
         const somme = (cle) => ts.reduce((s, t) => s + (t[cle] || 0), 0);
+        const sommeComparable = (cle) => ts.filter((t) => !t.horsDevis).reduce((s, t) => s + (t[cle] || 0), 0);
+        const horsDevisH = ts.filter((t) => t.horsDevis).reduce((s, t) => s + (t.heuresReelles || 0), 0);
         return [
           cellule(o.reference), cellule(String(ts.length)),
           cellule(heures(somme("heuresEstimees"))), cellule(heures(somme("heuresVendues"))),
-          cellule(heures(somme("heuresReelles"))), cellule(pourcent(o.avancement)),
+          cellule(horsDevisH > 0 ? `${heures(sommeComparable("heuresReelles"))} + ${heures(horsDevisH)} hors devis` : heures(somme("heuresReelles"))), cellule(pourcent(o.avancement)),
           cellule([...new Set(ts.map((t) => t.phaseNom).filter(Boolean))]),
         ];
       }),
@@ -955,7 +958,8 @@ function ficheChantier(c, rang, m) {
     // Le ratio est un POURCENTAGE de l'ouvrage : sans son unité, « 25 » se lit
     // comme des heures ou une quantité.
     cellule(t.ratio === null || t.ratio === undefined ? ND : pourcent(t.ratio)),
-    cellule(heures(t.heuresEstimees)), cellule(heures(t.heuresVendues)), cellule(heures(t.heuresReelles)),
+    cellule(heures(t.heuresEstimees)), cellule(heures(t.heuresVendues)),
+    cellule(t.horsDevis ? `${heures(t.heuresReelles)} (hors devis)` : heures(t.heuresReelles)),
     cellule(pourcent(t.avancement)), cellule(t.etat), cellule(t.ouvriers), cellule(t.dependances),
   ];
   push(...section(2, "Plan de travaux et tâches", [
@@ -1043,7 +1047,9 @@ function ficheChantier(c, rang, m) {
     "",
     ...(b ? listeDefinitions([
       ["Heures vendues", heures(b.heuresVenduesChantier)],
-      ["Heures réelles (total, trajets et indirect compris)", heures(b.heuresReellesTotalChantier)],
+      ["Heures réelles (total, trajets et indirect compris)", b.heuresHorsDevisChantier > 0
+        ? `${heures(b.heuresReellesTotalChantier)}, dont ${heures(b.heuresHorsDevisChantier)} hors devis (non comparées aux heures vendues)`
+        : heures(b.heuresReellesTotalChantier)],
       ["Heures pointées sur les tâches du plan", heures(b.heuresReellesChantier)],
       ["Heures de trajet", heures(b.trajetHeures)],
       ["Heures indirectes hors trajet", heures(b.indirectHeures)],
@@ -1278,7 +1284,9 @@ function ficheChantier(c, rang, m) {
           ["Matériaux", euros(b.commandesPrevChantier), euros(b.coutMatChantier)],
           ["Frais généraux", euros(b.fgPrevChantier), euros(b.fgChantier)],
           ["Marge", euros(b.margePrevChantier), euros(b.margeChantier)],
-          ["Heures", heures(b.heuresVenduesChantier), heures(b.heuresReellesTotalChantier)],
+          ["Heures", heures(b.heuresVenduesChantier), b.heuresHorsDevisChantier > 0
+            ? `${heures(b.heuresReellesTotalChantier)} (dont ${heures(b.heuresHorsDevisChantier)} hors devis)`
+            : heures(b.heuresReellesTotalChantier)],
         ].map((r) => r.map((x) => cellule(x))),
       ),
       "",

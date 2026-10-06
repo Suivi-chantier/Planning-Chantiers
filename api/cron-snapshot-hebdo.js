@@ -90,6 +90,10 @@ function buildRow(cf, phasage, weekId, dateSnapshot, extraWarnings = []) {
           id: l.id, label: l.label,
           heuresVendues: r2(l.heuresVendues), heuresReelles: r2(l.heuresReelles),
           avancement: l.avancement, ratioDerive: l.ratioDerive != null ? r2(l.ratioDerive) : null,
+          // Heures des tâches hors devis du lot (comptées dans heures_reelles,
+          // pas dans heuresReelles du lot) : l'alerte « consommation sans
+          // avancement » les cite (« dont X h hors devis »). Absent si 0.
+          ...(l.heuresHorsDevis > 0 ? { heuresHorsDevis: r2(l.heuresHorsDevis) } : {}),
         })),
       warnings: [...fin.warnings, ...extraWarnings],
     },

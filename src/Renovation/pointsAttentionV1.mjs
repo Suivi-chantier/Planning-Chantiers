@@ -187,6 +187,10 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
 
     const avancementDelta = round2(avancement - avancementAvant);
     const heuresAjoutees = round2(heures - heuresAvant);
+    // Heures des tâches hors devis ajoutées dans la semaine (relevées par lot
+    // depuis le 06/10/2026 ; absentes avant → 0). Elles restent comptées dans
+    // la consommation : l'alerte se contente de les citer.
+    const heuresHorsDevisAjoutees = round2(heuresHorsDevisDe(courant) - heuresHorsDevisDe(precedent));
     const margePerdue = round2(margeAvant - margeApres);
 
     // MOTIF 1 — « ça n'avance pas et ça consomme » (règle d'origine, inchangée).
@@ -223,7 +227,8 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
       margeAvant: round2(margeAvant),
       margeApres: round2(margeApres),
       margePerdue,
-      explication: explicationDe({ motifs, avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue }),
+      ...(heuresHorsDevisAjoutees > 0 ? { heuresHorsDevisAjoutees } : {}),
+      explication: explicationDe({ motifs, avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue, heuresHorsDevisAjoutees }),
     });
   }
 
@@ -245,9 +250,9 @@ export function pointsAttentionV1({ snapshotsCourants, snapshotsPrecedents, seui
 
 // Phrase d'explication : décrit l'écart réellement constaté entre les deux
 // snapshots, sans interprétation ni cause inventée.
-function explicationDe({ motifs, avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue }) {
+function explicationDe({ motifs, avancement, avancementAvant, avancementDelta, heuresAjoutees, margePerdue, heuresHorsDevisAjoutees = 0 }) {
   const liste = Array.isArray(motifs) ? motifs : [];
-  const marche = formaterMarcheHeures(heuresAjoutees);
+  const marche = formaterMarcheHeures(heuresAjoutees, heuresHorsDevisAjoutees);
 
   // « Ça avance, mais ça coûte » : l'explication doit dire que la progression
   // ne rachète pas la perte, sinon le lecteur conclut que tout va bien.
@@ -266,15 +271,15 @@ function explicationDe({ motifs, avancement, avancementAvant, avancementDelta, h
   const aggravation = liste.includes(MOTIF_PERTE_DE_MARGE)
     ? " La perte dépasse à elle seule le seuil d'alerte financière."
     : "";
-  return `${mouvement} alors que ${formaterHeuresV1(heuresAjoutees)} ont été consommées ; la marge recule de ${formaterEurosV1(margePerdue)} sur la semaine.${aggravation}`;
+  return `${mouvement} alors que ${formaterHeuresV1(heuresAjoutees)}${dontHorsDevis(heuresHorsDevisAjoutees)} ont été consommées ; la marge recule de ${formaterEurosV1(margePerdue)} sur la semaine.${aggravation}`;
 }
 
 // Les heures ajoutées ne sont pas toujours positives : le motif perte_de_marge
 // ne les exige pas. On dit ce qui s'est réellement passé plutôt que d'annoncer
 // des heures consommées qui n'existent pas.
-function formaterMarcheHeures(heuresAjoutees) {
+function formaterMarcheHeures(heuresAjoutees, heuresHorsDevisAjoutees = 0) {
   const h = Number(heuresAjoutees) || 0;
-  if (h > 0) return `${formaterHeuresV1(h)} consommées`;
+  if (h > 0) return `${formaterHeuresV1(h)}${dontHorsDevis(heuresHorsDevisAjoutees)} consommées`;
   if (h === 0) return "sans aucune heure ajoutée";
   return `avec ${formaterHeuresV1(Math.abs(h))} retirées des pointages`;
 }
@@ -300,7 +305,7 @@ export function libellePointAttentionV1(ligne) {
 
   // Perte de marge SEULE : le chantier a bougé, et c'est justement le piège.
   if (motifs.includes(MOTIF_PERTE_DE_MARGE) && !motifs.includes(MOTIF_CONSOMMATION_SANS_AVANCEMENT)) {
-    const marche = formaterMarcheHeures(ligne.heuresAjoutees);
+    const marche = formaterMarcheHeures(ligne.heuresAjoutees, ligne.heuresHorsDevisAjoutees);
     const avance = delta > 0
       ? `avancement +${formaterPoints(delta)} mais ${marche}`
       : delta < 0
@@ -313,8 +318,20 @@ export function libellePointAttentionV1(ligne) {
   const avancement = delta === 0
     ? `${formaterAvancement(ligne.avancement)} d'avancement inchangé`
     : `${formaterAvancement(ligne.avancement)} d'avancement (${delta > 0 ? "+" : MOINS}${formaterPoints(delta)} seulement)`;
-  const heures = `+${formaterHeuresV1(ligne.heuresAjoutees)} consommées`;
+  const heures = `+${formaterHeuresV1(ligne.heuresAjoutees)}${dontHorsDevis(ligne.heuresHorsDevisAjoutees)} consommées`;
   return `${nom} — ${avancement}, ${heures}, ${marge}.`;
+}
+
+// Heures hors devis d'un relevé : somme des lots (absent → 0).
+function heuresHorsDevisDe(snapshot) {
+  const lots = Array.isArray(snapshot?.lots) ? snapshot.lots : [];
+  return lots.reduce((s, l) => s + (nombreOuNull(l?.heuresHorsDevis) || 0), 0);
+}
+// « (dont 12 h hors devis) » — vide quand il n'y en a pas : le texte des
+// chantiers sans tâche hors devis ne change pas d'un caractère.
+function dontHorsDevis(h) {
+  const v = Number(h) || 0;
+  return v > 0 ? ` (dont ${formaterHeuresV1(v)} hors devis)` : "";
 }
 
 // Étiquettes de motif, affichées à côté de la phrase (écran, PDF, e-mail).

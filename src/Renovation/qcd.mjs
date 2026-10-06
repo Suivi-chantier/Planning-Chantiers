@@ -234,7 +234,9 @@ export function qcdDepuisFinance(brut, qualiteCtx = {}) {
   if (!brut) return computeQCD({ ...qualiteCtx });
   const avancement100 = toNum(brut.avancementChantier);
   return computeQCD({
-    heuresReelles: brut.heuresReellesTotalChantier,
+    // Heures comparées au vendu : sans les tâches hors devis (travail non
+    // vendu, compté à part). Sans tâche hors devis : le total, comme avant.
+    heuresReelles: brut.heuresComparablesChantier ?? brut.heuresReellesTotalChantier,
     heuresVendues: brut.heuresVenduesChantier,
     avancement: avancement100 != null ? avancement100 / 100 : null,
     coutMOReel: brut.coutMOTotalChantier,

@@ -11,6 +11,8 @@ import {
   avancementChantier as cfAvancementChantier,
   tacheHeuresReelles as cfTacheHeuresReelles,
   statsGroupeChrono,
+  heuresReellesComparablesOuvrage as cfHeuresComparablesOuvrage,
+  heuresHorsDevisOuvrage as cfHeuresHorsDevisOuvrage,
 } from "../chantierFinance";
 // QCD (Point 2a) : calculs du triangle Qualité/Coût/Délai — module dédié,
 // indépendant des anciennes formules de la page Dashboard Analyse (jugées
@@ -2196,11 +2198,14 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     if (hasV2) {
       // Tâches rattachées directement à chaque ouvrage (structure V2) — heures
       // réelles du module (registre, repli legacy y c. format tableau v1).
+      // Heures comparées aux heures vendues : sans les tâches hors devis,
+      // affichées à part (« + X h hors devis ») — règle de chantierFinance.
       return ouvrages.map(o => {
-        const reelles = (o.taches || []).reduce((s, t) => s + cfTacheHeuresReelles(t, ptsIndexSelected), 0);
+        const reelles = cfHeuresComparablesOuvrage(o, ptsIndexSelected);
+        const horsDevis = cfHeuresHorsDevisOuvrage(o, ptsIndexSelected);
         const vendues = parseFloat(o.heures_devis) || 0;
-        return { id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, vendues, reelles };
-      }).filter(o => o.vendues > 0 || o.reelles > 0);
+        return { id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, vendues, reelles, horsDevis };
+      }).filter(o => o.vendues > 0 || o.reelles > 0 || o.horsDevis > 0);
     }
 
     // ── Repli V1 : tâches organisées par phase dans plan_travaux ──
@@ -2240,7 +2245,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   const totalHeures = heuresParOuvrage.reduce((s, o) => ({
     vendues: s.vendues + o.vendues,
     reelles: s.reelles + o.reelles,
-  }), { vendues: 0, reelles: 0 });
+    horsDevis: s.horsDevis + (o.horsDevis || 0),
+  }), { vendues: 0, reelles: 0, horsDevis: 0 });
 
   // ── QCD (Point 2a) : les trois sommets, calculés par le module dédié à
   // partir des données déjà chargées (aucune requête supplémentaire).
@@ -3366,6 +3372,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                       {fmtH(totalHeures.reelles)}h
                       <span style={{ fontSize: FONT.sm.size, color: textMuted, fontWeight: 600, marginLeft: 4 }}>
                         / {fmtH(totalHeures.vendues)}h vendues
+                        {totalHeures.horsDevis > 0 && ` + ${fmtH(totalHeures.horsDevis)}h hors devis`}
                       </span>
                     </span>
                     <span style={{
@@ -3399,6 +3406,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                           </span>
                         )}
                       </span>
+                      {o.horsDevis > 0 && (
+                        <span title="Tâches hors devis : comptées dans le coût, pas comparées aux heures vendues" style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, flexShrink: 0 }}>
+                          + {fmtH(o.horsDevis)}h hors devis
+                        </span>
+                      )}
                     </div>
                     <div style={{ height: 6, borderRadius: 3, background: "rgba(128,128,128,0.2)", overflow: "hidden", display: "flex" }}>
                       <div style={{ width: `${widthVendu}%`, background: col, transition: "width .4s ease" }}/>

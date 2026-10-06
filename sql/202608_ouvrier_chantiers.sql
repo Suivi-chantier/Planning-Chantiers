@@ -94,7 +94,10 @@ begin
       select jsonb_agg(jsonb_build_object(
         'id', t->>'id',
         'nom', t->>'nom',
-        'heures_reelles', t->'heures_reelles'
+        'heures_reelles', t->'heures_reelles',
+        -- Ajout du 06/10/2026 : tâche marquée hors devis par le conducteur —
+        -- ses heures ne se comparent pas aux heures vendues de l'ouvrage.
+        'hors_devis', coalesce(t->'hors_devis' = 'true'::jsonb, false)
       ))
       from jsonb_array_elements(
         case when jsonb_typeof(o->'taches') = 'array' then o->'taches' else '[]'::jsonb end
