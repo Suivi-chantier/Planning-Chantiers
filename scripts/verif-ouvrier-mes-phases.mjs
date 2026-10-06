@@ -131,6 +131,9 @@ const OUVRAGES = [
       T("t4", "Saignées", "g1", 8, 8, 50, ["Marc"], { date_prevue: "2026-10-02" }),
       T("t5", "Tirage câbles", "g2", 12, 12, 0, ["Marc"], { date_prevue: "2026-10-12" }),
       T("t8", "Appareillage", "g2", 10, 10, 20, ["Marc"], { date_prevue: "2026-10-14" }),
+      // Tâche marquée HORS DEVIS par le conducteur (étape 3b), dans un ouvrage
+      // qui a des heures vendues : indicateur explicite, nature, auteur.
+      T("t10", "Prise en plus", "g2", 0, null, 0, ["Marc"], { hors_devis: true, nature: "demande_client", cree_par: "Marc" }),
     ] },
   { id: "o3", libelle: "Divers / hors devis", heures_devis: 0,
     taches: [T("t6", "Reprise imprévue", null, 0, null, 0, [], { heures_reelles: [1, 2] })] },
@@ -255,7 +258,11 @@ eq(bureauMarc.prenom, "Marc", "bureau : p_prenom honoré (aperçu)");
 // ── 3. Données ──────────────────────────────────────────────────────────────
 eq(paul.phases.map(p => p.nom), ["Cloisons & doublage", "Électricité second œuvre", "À organiser"], "phases dans l'ordre chrono, « À organiser » en dernier");
 const taches = Object.fromEntries(paul.phases.flatMap(p => p.ouvrages.flatMap(o => o.taches)).map(t => [t.id, t]));
-eq(Object.keys(taches).sort(), ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"], "aucune tâche perdue ni dupliquée");
+eq(Object.keys(taches).sort(), ["t1", "t10", "t2", "t3", "t4", "t5", "t6", "t7", "t8"], "aucune tâche perdue ni dupliquée");
+// Hors devis : indicateur d'affichage (deviné ou marqué) vs indicateur EXPLICITE.
+eq([taches.t10.hors_devis, taches.t10.hors_devis_marque, taches.t10.nature, taches.t10.cree_par], [true, true, "demande_client", "Marc"], "t10 marquée hors devis : nature et auteur exposés");
+eq([taches.t6.hors_devis, taches.t6.hors_devis_marque, taches.t6.nature], [true, false, null], "t6 (Divers, deviné) : affichage hors devis, pas marquée");
+eq([taches.t7.hors_devis, taches.t7.hors_devis_marque], [false, false], "t7 (vendue sur l'ouvrage) : ni l'un ni l'autre");
 
 const attendu = {
   //     vendues validées attente mes   mienne
@@ -282,7 +289,7 @@ eq(taches.t3.date_prevue, "2026-10-08", "date prévue au format ISO");
 eq(taches.t4.dernier_motif_depassement, { code: "reprise", date: "2026-10-03" }, "dernier motif de dépassement : le plus récent du chantier, sans nom");
 eq(taches.t1.dernier_motif_depassement, null, "aucun motif donné → null");
 eq(bureauMarc.phases.flatMap(p => p.ouvrages.flatMap(o => o.taches)).filter(t => t.est_mienne).map(t => t.id).sort(),
-  ["t4", "t7", "t8"], "aperçu de Marc : ses tâches (t5 est passée à Paul par le planning)");
+  ["t10", "t4", "t7", "t8"], "aperçu de Marc : ses tâches (t5 est passée à Paul par le planning)");
 
 const o2g1 = paul.phases[0].ouvrages.find(o => o.id === "o2");
 const o1 = paul.phases[0].ouvrages.find(o => o.id === "o1");

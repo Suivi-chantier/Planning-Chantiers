@@ -261,6 +261,7 @@ export const AIDE_CONTENU = {
     savoir: [
       "Vous pouvez importer un devis Excel pour pré-remplir ouvrages et tâches.",
       "Les matériaux définis ici alimentent la page Commandes.",
+      "Dans « Modifier la tâche », choisissez sa nature (demande du client, imprévu, oubli du phasage, reprise) et cochez « Hors devis » pour un travail non vendu : ses heures comptent dans le coût mais ne sont plus comparées aux heures vendues de l'ouvrage (ni dérive, ni dépassement, ni avancement). Elles s'affichent à part : « + X h hors devis ».",
     ],
   },
   bibliotheque: {

@@ -183,6 +183,9 @@ function BandeauOuvrage({ o, T }) {
       {o.attente > 0 && (
         <div style={{ fontSize: 12, color: T.textSub, marginTop: 3 }}>{h(o.validees)} validées + {h(o.attente)} en attente</div>
       )}
+      {o.heuresHorsDevis > 0 && (
+        <div style={{ fontSize: 12, color: "#1d4ed8", fontWeight: 700, marginTop: 3 }}>+ {h(o.heuresHorsDevis)} hors devis (non comptées dans les heures vendues)</div>
+      )}
     </div>
   );
 }
@@ -225,6 +228,9 @@ export function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent, a
             )}
             {p.attente > 0 && (
               <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>{h(p.validees)} validées + {h(p.attente)} en attente de validation</div>
+            )}
+            {p.heuresHorsDevis > 0 && (
+              <div style={{ fontSize: 12.5, color: "#1d4ed8", fontWeight: 700, marginTop: 6 }}>+ {h(p.heuresHorsDevis)} hors devis (non comptées dans les heures vendues)</div>
             )}
           </>
         )}

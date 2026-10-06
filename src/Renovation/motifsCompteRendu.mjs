@@ -81,3 +81,25 @@ export function libelleStatutChoisi(ligne) {
   if (ligne?.statut === "non_faite") return "Pas commencé";
   return null;
 }
+
+// ── Nature d'une tâche ajoutée hors du devis initial (étape 3b) ─────────────
+// Posée par le conducteur (Phasage V2, Validation) ou proposée par l'ouvrier
+// (nouveau compte rendu). Codes STABLES (statistiques). horsDevis = valeur
+// PRÉREMPLIE de la case « Hors devis » quand on choisit la nature ; elle reste
+// modifiable. Une tâche sans nature (toutes les tâches existantes) est
+// « non renseignée » et garde son comportement.
+export const NATURES_TACHE = Object.freeze([
+  { code: "demande_client", label: "Demande du client", description: "Le client a demandé un travail en plus", horsDevis: true },
+  { code: "imprevu",        label: "Imprévu",           description: "Découvert en cours de travaux",          horsDevis: true },
+  { code: "oubli_phasage",  label: "Oubli du phasage",  description: "Ça faisait partie du chantier mais pas de la liste", horsDevis: false },
+  { code: "reprise",        label: "Reprise",           description: "Refaire ou corriger un travail déjà fait", horsDevis: false },
+]);
+export function libelleNature(code) {
+  if (!code) return null;
+  return NATURES_TACHE.find(n => n.code === code)?.label || `Nature « ${code} »`;
+}
+// Valeur par défaut de « Hors devis » pour une nature (null si inconnue).
+export function horsDevisParDefaut(code) {
+  const n = NATURES_TACHE.find(x => x.code === code);
+  return n ? n.horsDevis : null;
+}

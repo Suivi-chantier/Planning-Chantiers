@@ -273,7 +273,7 @@ export function buildOperationDocHTML({
     </tr></thead>
     <tbody>
       ${lignePR("Main-d'œuvre", eur(agg.moPrev), eur(agg.moReel),
-        { sousPrev: `${fmtH(agg.hVendues)} h vendues`, sousReel: `${fmtH(agg.hReelles)} h pointées` })}
+        { sousPrev: `${fmtH(agg.hVendues)} h vendues`, sousReel: `${fmtH(agg.hReelles)} h pointées${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}` })}
       ${lignePR("Matériaux", eur(agg.matPrev), eur(agg.mat))}
       ${lignePR("Frais généraux", agg.fgPrev > 0 ? eur(agg.fgPrev) : "—", agg.fg > 0 ? eur(agg.fg) : "—")}
       ${lignePR("Total déboursé", eur(debPrev), eur(debReel), { bold: true })}
@@ -322,7 +322,7 @@ export function buildOperationDocHTML({
            <td class="num" style="color:${mcPrev};">${b.prixHTChantier > 0 ? esc(eur(b.margePrevChantier)) : "—"}</td>
            <td class="num" style="color:${mc};font-weight:700;">${b.prixHTChantier > 0 ? esc(eur(b.margeChantier)) : "—"}</td>
            <td class="num" style="color:${mc};">${b.prixHTChantier > 0 ? esc(pctTxt(b.margePctChantier)) : "—"}</td>
-           <td class="num">${fmtH(b.heuresReellesTotalChantier)}h / ${fmtH(b.heuresVenduesChantier)}h</td>`}
+           <td class="num">${fmtH(b.heuresReellesTotalChantier)}h / ${fmtH(b.heuresVenduesChantier)}h${b.heuresHorsDevisChantier > 0 ? ` (dont ${fmtH(b.heuresHorsDevisChantier)}h hors devis)` : ""}</td>`}
     </tr>`;
   }).join("");
   const tableLogements = `
@@ -344,7 +344,7 @@ export function buildOperationDocHTML({
         <td class="num" style="color:${mPrevCol};">${venduOK ? esc(eur(agg.margePrev)) : "—"}</td>
         <td class="num" style="color:${mCol};">${venduOK ? esc(eur(agg.marge)) : "—"}</td>
         <td class="num" style="color:${mCol};">${venduOK ? esc(pctTxt(agg.margePct)) : "—"}</td>
-        <td class="num">${fmtH(agg.hReelles)}h / ${fmtH(agg.hVendues)}h</td>
+        <td class="num">${fmtH(agg.hReelles)}h / ${fmtH(agg.hVendues)}h${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}</td>
       </tr>
     </tbody>
   </table>`;

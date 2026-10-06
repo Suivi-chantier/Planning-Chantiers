@@ -90,6 +90,8 @@ jobs:
         run: node scripts/verif-ouvrier-mes-phases.mjs
       - name: Compte rendu - beta nouveau formulaire (non-regression v1, equivalence des pointages v1/v2)
         run: node scripts/verif-compte-rendu-v2.mjs
+      - name: Taches hors devis (instantane reel anonymise, calculs identiques + taches marquees)
+        run: node scripts/verif-hors-devis.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression

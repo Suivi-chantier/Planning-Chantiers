@@ -21,6 +21,15 @@
 //     on signale les heures de l'ouvrage entier (`venduesOuvrageEntier`).
 //   - phase   : somme de ses ouvrages.
 //
+// TÂCHES MARQUÉES HORS DEVIS (hors_devis_marque, indicateur EXPLICITE posé par
+// le conducteur — ajout du 06/10/2026) : leurs heures ne sont pas comparées
+// aux heures vendues de l'ouvrage ni de la phase (ni dérive, ni dépassement,
+// ni jauge) et s'affichent à part (« + X h hors devis ») ; elles n'entrent pas
+// dans l'avancement (règle de chantierFinance). Le champ hors_devis seul
+// (deviné par la RPC : 0 h vendue dans « Divers » ou un ouvrage sans heures
+// vendues) ne sert qu'à l'AFFICHAGE de la tâche (pastille, pas de jauge) et
+// ne change aucun total — comme avant.
+//
 // ÉTAT D'UNE TÂCHE (pastille) — seuils EXISTANTS uniquement :
 //   ratio de dérive = (heures validées ÷ heures vendues) ÷ (avancement ÷ 100),
 //   la formule de chantierFinance (lots). ≤ 1 « Dans le temps », ≤ 1,15
@@ -131,14 +140,22 @@ export function enrichirTache(t, ouvrage) {
     reste: vendues > 0 && avancement < 100 ? Math.max(0, arrondi(vendues - validees - attente)) : null,
     statut: statutDesTaches([t]),
     venduesAilleurs,
+    marqueHorsDevis: t.hors_devis_marque === true,
     etat,
   };
 }
 
+// Tâches transmises aux calculs d'avancement de chantierFinance : seul
+// l'indicateur EXPLICITE vaut « hors devis » (jamais celui deviné par la RPC).
+const pourAvancement = (t) => ({ avancement: t.avancement, heures_estimees: t.heures_estimees, hors_devis: t.marqueHorsDevis });
+
 // ── Ouvrage, tel qu'il apparaît dans UNE phase ─────────────────────────────
 export function agregerOuvrage(o) {
   const taches = (o.taches || []).map(t => enrichirTache(t, o));
-  const sommeVenduesTaches = taches.reduce((s, t) => s + t.vendues, 0);
+  // Heures comparées au vendu : sans les tâches marquées hors devis (leurs
+  // éventuelles heures vendues ne comptent pas non plus).
+  const comparables = taches.filter(t => !t.marqueHorsDevis);
+  const sommeVenduesTaches = comparables.reduce((s, t) => s + t.vendues, 0);
   const heuresDevis = num(o.heures_vendues_ouvrage);
   let vendues, venduesOuvrageEntier = null;
   if (o.ouvrage_complet) {
@@ -148,10 +165,11 @@ export function agregerOuvrage(o) {
     vendues = sommeVenduesTaches;
     if (sommeVenduesTaches <= 0 && heuresDevis > 0) venduesOuvrageEntier = heuresDevis;
   }
-  const validees = taches.reduce((s, t) => s + t.validees, 0);
-  const attente = taches.reduce((s, t) => s + t.attente, 0);
+  const validees = comparables.reduce((s, t) => s + t.validees, 0);
+  const attente = comparables.reduce((s, t) => s + t.attente, 0);
+  const heuresHorsDevis = taches.filter(t => t.marqueHorsDevis).reduce((s, t) => s + t.validees + t.attente, 0);
   // avancementOuvrage lit avancement + heures_estimees : les tâches DE LA PHASE.
-  const avancement = taches.length ? avancementOuvrage({ taches }) : 0;
+  const avancement = taches.length ? avancementOuvrage({ taches: taches.map(pourAvancement) }) : 0;
   const horsDevis = taches.length > 0 && taches.every(t => t.hors_devis);
   return {
     id: o.id, libelle: o.libelle, quantite: o.quantite, unite: o.unite,
@@ -160,6 +178,7 @@ export function agregerOuvrage(o) {
     vendues: arrondi(vendues), venduesOuvrageEntier,
     validees: arrondi(validees), attente: arrondi(attente),
     consommees: arrondi(validees + attente),
+    heuresHorsDevis: arrondi(heuresHorsDevis),
     miennes: arrondi(taches.reduce((s, t) => s + t.miennes, 0)),
     avancement,
     statut: statutDesTaches(taches),
@@ -177,11 +196,12 @@ export function agregerPhase(ph) {
   // statsGroupeChrono filtre sur chrono_groupe_id : « À organiser » regroupe
   // des tâches sans groupe valide, on leur donne donc l'id de la phase.
   const stats = statsGroupeChrono(ph.id, [{ taches: toutes.map(t => ({
-    chrono_groupe_id: ph.id, avancement: t.avancement, heures_vendues: t.vendues,
+    chrono_groupe_id: ph.id, avancement: t.avancement, heures_vendues: t.vendues, hors_devis: t.marqueHorsDevis,
   })) }]);
   const vendues = ouvrages.reduce((s, o) => s + o.vendues, 0);
   const validees = ouvrages.reduce((s, o) => s + o.validees, 0);
   const attente = ouvrages.reduce((s, o) => s + o.attente, 0);
+  const heuresHorsDevis = ouvrages.reduce((s, o) => s + o.heuresHorsDevis, 0);
   const horsDevis = toutes.length > 0 && toutes.every(t => t.hors_devis);
   return {
     id: ph.id, nom: ph.nom, ordre: ph.ordre, couleur: ph.couleur,
@@ -190,6 +210,7 @@ export function agregerPhase(ph) {
     nbTaches: toutes.length,
     vendues: arrondi(vendues), validees: arrondi(validees), attente: arrondi(attente),
     consommees: arrondi(validees + attente),
+    heuresHorsDevis: arrondi(heuresHorsDevis),
     avancement: stats.avancement,
     statut: statutDesTaches(toutes),
     ...bornesDates(toutes),

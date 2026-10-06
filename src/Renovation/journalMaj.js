@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
+    type: "nouveaute",
+    titre: "Tâches « hors devis » : leurs heures comptent dans le coût, plus dans les heures vendues",
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "chantiers", label: "Chantiers" }],
+    quoi: "Une tâche faite en plus du devis (demande du client, imprévu) ne doit pas faire croire qu'un ouvrage vendu dérive. Une tâche cochée « Hors devis » garde ses heures dans le coût de main-d'œuvre et la marge, mais n'est plus comparée aux heures vendues : ni dérive, ni dépassement, ni couleur, ni avancement. Ses heures s'affichent à part : « + X h hors devis ». Rien ne change tant que personne ne coche la case : toutes les tâches existantes, y compris celles de « Divers / hors devis », gardent exactement leurs chiffres.",
+    comment: "Phasage → « Modifier la tâche » : choisir la nature (Demande du client, Imprévu, Oubli du phasage, Reprise, ou non renseignée) préremplit la case « Hors devis : ne consomme pas les heures vendues de l'ouvrage » (oui pour Demande du client et Imprévu), modifiable. La règle s'applique partout avec le même chiffre : chiffres clés et détail des heures du chantier (« Heures totales » inchangé, avec « dont X h hors devis » ; % consommées et couleur sur les heures comparables), lots et alertes de dérive, bandeau Qualité / Coût / Délai, suivi des heures par ouvrage de la fiche chantier, bilan de semaine, export d'opération, cadences de la bibliothèque, onglets Opérations et Phases de l'espace ouvrier. L'alerte « consommation sans avancement » compte toujours toutes les heures et précise « dont X h hors devis ». Une tâche hors devis ne reçoit jamais d'heures vendues quand on répartit celles de l'ouvrage. À mettre en service : relancer sql/202610_ouvrier_mes_phases.sql et sql/202608_ouvrier_chantiers.sql dans Supabase.",
+  },
+  {
+    date: "2026-10-06",
     type: "amelioration",
     titre: "Nouveau compte rendu (bêta) : « J'ai fait autre chose » — choisir la tâche dans le phasage au lieu de la taper",
     pages: [{ id: "validation", label: "Validation" }],
