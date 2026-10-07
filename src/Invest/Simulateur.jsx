@@ -841,7 +841,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
           style={{
             background:T.input,border:`1px solid ${T.inputBorder}`,
             borderRadius:RADIUS.md,padding:`${SPACING.xs+1}px ${SPACING.md}px`,
-            color:T.text,fontFamily:"'Barlow Condensed',sans-serif",
+            color:T.text,fontFamily:"'Inter',sans-serif",
             fontSize:FONT.base.size,fontWeight:700,outline:"none",minWidth:200,
             transition:"all .15s",
           }}
@@ -860,7 +860,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                 border:`1px solid ${clientId ? T.accentBorder : T.inputBorder}`,
                 borderRadius:RADIUS.md,padding:`${SPACING.xs+1}px ${SPACING.md}px`,
                 color: clientId ? T.accent : T.textSub,
-                fontFamily:"'Barlow Condensed',sans-serif",fontSize:FONT.sm.size+1,
+                fontFamily:"'Inter',sans-serif",fontSize:FONT.sm.size+1,
                 fontWeight:600,outline:"none",cursor:"pointer",minWidth:170,
               }}
             >

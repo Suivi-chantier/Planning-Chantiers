@@ -403,7 +403,7 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
                 justifyContent: collapsed ? "center" : "flex-start",
                 gap:SPACING.md-2, padding: collapsed ? `${SPACING.md-1}px 0` : `${SPACING.md-1}px ${SPACING.md+2}px`,
                 borderRadius:RADIUS.lg, border:"none", cursor:"pointer",
-                fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.md.size,
+                fontFamily:"'Inter',sans-serif", fontSize:FONT.md.size,
                 fontWeight: active ? 700 : 500, letterSpacing:0.3,
                 background: active ? T.accentBg : "transparent",
                 color: active ? T.accent : T.textMuted,
