@@ -38,7 +38,7 @@ export function miseEnOeuvreVide() {
   return { intervenants: [], actions: [], rapport_remis_le: "", prochaine_revue_le: "" };
 }
 
-function docsRequisRecus(data) {
+export function docsRequisRecus(data) {
   const pertinents = documentsPertinents(data);
   const requis = nb(data?.collecte?.documents).filter((d) => d.required && d.statut !== "Non applicable" && estPertinent(pertinents, d));
   const recus = requis.filter((d) => d.statut === "Reçu" || d.statut === "Validé");

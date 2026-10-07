@@ -17,9 +17,10 @@ const lire = (rel) => readFileSync(join(racine, rel), "utf8");
 const CRM = lire("src/Invest/CRM.jsx");
 // Seule écriture permise sur invest_clients depuis la page Client : le statut des pièces demandées
 // (strategie_data.documents_checklist), même emplacement que l'ancienne vue CRM.
-const sansSuiviDocuments = (src) => src.replace(/from\("invest_clients"\)\.update\(\{ strategie_data: strat \}\)/g, "");
+// Et le drapeau « sujet de structuration » posé quand on démarre une Offre 3 depuis « Nouvelle mission » (même colonne qu'avant).
+const sansSuiviDocuments = (src) => src.replace(/from\("invest_clients"\)\.update\(\{ strategie_data: strat \}\)/g, "").replace(/from\("invest_clients"\)\.update\(\{ sujet_structuration: true \}\)/g, "");
 const CRMV2 = lire("src/Invest/crm/CrmV2.jsx") + lire("src/Invest/crm/CrmCartes.jsx");
-const FICHE = lire("src/Invest/crm/FicheClientV2.jsx");
+const FICHE = ["FicheClientV2", "FicheEntete", "FicheEnsemble", "FicheMissions", "FichePatrimoine", "FicheDocuments", "FicheActivite", "FicheUi"].map((f) => lire(`src/Invest/crm/${f}.jsx`)).join("\n");
 const VUE = lire("src/Invest/crm/crmV2Vue.mjs");
 const SHARED = lire("src/Invest/_shared.jsx");
 const PAGEINVEST = lire("src/Invest/PageInvest.jsx");
@@ -166,9 +167,9 @@ test("8. page Client : missions en cours, terminées, à faire (5 max), synthès
   assert.equal(vide.patrimoine.vide, true); assert.equal(vide.missionsEnCours.length, 0); assert.equal(vide.entete.conseiller, null);
 });
 
-test("9. navigation : 3 vues CRM, 6 onglets Client ; pas de frise V20.4 dans la V2", () => {
+test("9. navigation : 3 vues CRM, 5 onglets Client ; pas de frise V20.4 dans la V2", () => {
   assert.deepEqual(V.VUES_CRM.map((v) => v.libelle), ["À traiter", "Clients", "Actions & planning"]);
-  assert.deepEqual(V.ONGLETS_CLIENT.map((o) => o.libelle), ["Vue d'ensemble", "Missions", "Patrimoine", "Opérations", "Documents", "Historique"]);
+  assert.deepEqual(V.ONGLETS_CLIENT.map((o) => o.libelle), ["Vue d'ensemble", "Missions", "Patrimoine", "Documents", "Activité"]);
   assert.ok(!/Frise d'avancement|renderCrmTimeline/.test(CRMV2 + FICHE));
 });
 
@@ -241,12 +242,12 @@ test("14. refonte : écran CRM — trois vues compactes, aucune écriture, pilot
   assert.ok(!/Missions qui suivent leur cours|Ce que l'équipe doit traiter, les clients suivis/.test(CRMV2), "blocs et textes explicatifs supprimés");
 });
 
-test("15. structuration : l'onglet n'existe que pour les clients cochés, juste après Patrimoine", () => {
-  assert.deepEqual(V.ongletsClient({ sujet_structuration: false }).map((o) => o.cle), V.ONGLETS_CLIENT.map((o) => o.cle));
-  assert.deepEqual(V.ongletsClient(null).map((o) => o.cle), V.ONGLETS_CLIENT.map((o) => o.cle));
-  assert.deepEqual(V.ongletsClient({ sujet_structuration: "true" }).map((o) => o.cle), V.ONGLETS_CLIENT.map((o) => o.cle), "seul true compte");
-  const avec = V.ongletsClient({ sujet_structuration: true }).map((o) => o.cle);
-  assert.deepEqual(avec, ["ensemble", "missions", "patrimoine", "structuration", "operations", "documents", "historique"]);
+test("15. structuration : plus d'onglet à part, l'étude s'ouvre depuis Missions ; anciennes clés d'onglet redirigées", () => {
+  const cinq = V.ONGLETS_CLIENT.map((o) => o.cle);
+  for (const c of [{ sujet_structuration: false }, null, { sujet_structuration: "true" }, { sujet_structuration: true }]) assert.deepEqual(V.ongletsClient(c).map((o) => o.cle), cinq);
+  assert.deepEqual(cinq, ["ensemble", "missions", "patrimoine", "documents", "activite"]);
+  assert.deepEqual(["historique", "structuration", "operations", "ensemble", "inconnu", undefined].map(V.ongletValide), ["activite", "missions", "ensemble", "ensemble", "ensemble", "ensemble"]);
+  assert.ok(!/SujetStructuration/.test(FICHE), "plus de bouton « Sujet de structuration » dans la fiche");
 });
 
 test("16. structuration : liste Clients — marqueur et filtre « avec sujet » / « recherche seule »", () => {
@@ -283,12 +284,9 @@ test("18. structuration : la case n'écrit que invest_clients.sujet_structuratio
   for (const id of ["simulateur", "finance", "suivi_financier", "sourcing", "biens", "etat_des_lieux", "urbanisme", "admin"]) assert.match(PAGEINVEST, new RegExp(`\\{ id: "${id}",`), `${id} toujours dans le menu`);
 });
 
-test("19. refonte fiche Client : l'action d'une mission n'est plus répétée dans la liste d'actions", () => {
-  assert.match(FICHE, /const autres = vue\.aFaire\.filter\(\(a\) => !String\(a\.id\)\.startsWith\("m-"\)\);/);
-  assert.match(FICHE, /titre="3 · Autres actions à venir"/);
-  const ensemble = FICHE.slice(FICHE.indexOf("function VueEnsemble"), FICHE.indexOf("function LigneMission"));
-  assert.ok(ensemble.length > 500 && !/titre="Opérations"/.test(ensemble), "bloc vide « Opérations » retiré de la vue d'ensemble");
-  assert.match(FICHE, /onglet === "operations"/, "l'onglet Opérations, lui, reste");
+test("19. refonte fiche Client : À faire maintenant d'abord, l'action d'une mission n'est pas répétée", () => {
+  assert.ok(FICHE.indexOf("<AFaireMaintenant") < FICHE.indexOf("en cours`}>") && FICHE.indexOf("titre=\"État du dossier\"") > FICHE.indexOf("<AFaireMaintenant"), "ordre : À faire · Missions · État · Activité");
+  assert.ok(!/titre="Opérations"|Plus d'informations|Autres actions à venir/.test(FICHE), "blocs vides ou redondants retirés");
   // les données ne changent pas : le modèle de la page Client produit toujours les mêmes actions
   const m = V.construireClient({ client: CLIENTS[0], dossiers: DOSSIERS, etapes: ETAPES, taches: TACHES, utilisateurs: U, aujourdhui: AUJ });
   assert.ok(m.aFaire.some((a) => String(a.id).startsWith("m-")) && m.aFaire.some((a) => !String(a.id).startsWith("m-")));

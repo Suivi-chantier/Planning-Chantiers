@@ -14,7 +14,7 @@ const racine = fileURLToPath(new URL("..", import.meta.url));
 const lire = (r) => readFileSync(join(racine, r), "utf8");
 const FN = lire("supabase/functions/portail-inviter-client/index.ts");
 const UI = lire("src/Invest/crm/AccesPortail.jsx");
-const FICHE = lire("src/Invest/crm/FicheClientV2.jsx");
+const FICHE = lire("src/Invest/crm/FicheClientV2.jsx");  // l'invitation s'ouvre depuis « ••• → Gérer l'accès au portail »
 const PORTAIL = lire("src/Portail/PortailClient.jsx");
 let n = 0, total = 0;
 const test = (nom, fn) => { total++; try { fn(); n++; console.log(`  ✔ ${nom}`); } catch (e) { console.log(`  ✘ ${nom}\n      ${e.message.split("\n")[0]}`); process.exitCode = 1; } };
@@ -96,10 +96,11 @@ test("11. écran : la révocation n'écrit que statut / qui / quand, et seulemen
   assert.match(UI, /\.update\(\{ statut: "revoque", revoque_le: [^}]*revoque_par: [^}]*\}\)\s*\.eq\("client_id", client\.id\)\.eq\("statut", "actif"\)/);
   assert.ok(!/\.(insert|delete|upsert)\(/.test(UI), "aucune création ni suppression côté écran");
 });
-test("12. fiche client : le bloc est dans la vue d'ensemble, avec le client et le profil", () => {
-  assert.match(FICHE, /import AccesPortail from "\.\/AccesPortail";/);
+test("12. fiche client : le bloc s'ouvre depuis le menu « ••• », réservé aux gestionnaires, avec le client et le profil", () => {
+  assert.match(FICHE, /import AccesPortail, \{ ROLES_GESTIONNAIRES \} from "\.\/AccesPortail";/);
   assert.match(FICHE, /<AccesPortail T=\{T\} client=\{client\} profil=\{profil\} \/>/);
-  assert.match(FICHE, /<VueEnsemble [^>]*client=\{client\} profil=\{profil\}/);
+  assert.match(FICHE, /gestionnaire && \{ cle: "portail", libelle: "Gérer l'accès au portail"/);
+  assert.match(FICHE, /portailOuvert && gestionnaire/);
 });
 test("13. portail : lien lu une seule fois, retiré de l'adresse avant validation, mot de passe 8 caractères", () => {
   assert.match(PORTAIL, /const \[lienInitial\] = useState\(\(\) => lireLienInvitation\(window\.location\.search\)\)/);

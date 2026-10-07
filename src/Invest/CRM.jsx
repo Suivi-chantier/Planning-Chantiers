@@ -455,7 +455,7 @@ function computeCRMClientTimeline(client = {}, missionActions = [], propositions
 const CLE_VUE_CRM = "invest-crm-vue";
 function lireVueCrm() { try { return window.localStorage.getItem(CLE_VUE_CRM) === "ancienne"; } catch { return false; } }
 function CRM(props) {
-  const { profil, T=THEMES_INV.dark, initialFilter, onOpenStructuration } = props;
+  const { profil, T=THEMES_INV.dark, initialFilter, onOpenStructuration, onOpenBien } = props;
   const [ancienne, setAncienne] = useState(lireVueCrm);
   const choisir = (v) => {
     setAncienne(v);
@@ -478,7 +478,7 @@ function CRM(props) {
     );
   }
   return (
-    <CrmV2 profil={profil} T={T} initialFilter={initialFilter} onOpenStructuration={onOpenStructuration} onAncienneVue={() => choisir(true)}
+    <CrmV2 profil={profil} T={T} initialFilter={initialFilter} onOpenStructuration={onOpenStructuration} onOpenBien={onOpenBien} onAncienneVue={() => choisir(true)}
       renderNouveauClient={({ onFerme, onCree }) => <FormulaireClient profil={profil} T={T} onSave={onCree} onClose={onFerme} />}
       renderModifierClient={({ client, onFerme, onSauve }) => <FormulaireClient client={client} profil={profil} T={T} onSave={onSauve} onClose={onFerme} />} />
   );

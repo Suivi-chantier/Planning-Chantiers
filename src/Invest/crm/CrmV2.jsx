@@ -14,7 +14,9 @@ import { supabase } from "../../supabase";
 import { readNavTarget } from "../_shared";
 import FicheClientV2 from "./FicheClientV2";
 import { VUES_CRM, FILTRES_A_TRAITER, missionsAPiloter, compteursATraiter, filtrerMissions, portefeuille, planningActions, nomClient, alertesMission, echeanceCourte, filtrerPortefeuille } from "./crmV2Vue";
-import { ATraiterCartes, ClientsCartes } from "./CrmCartes";
+import { ATraiterListe, ClientsListe } from "./CrmCartes";
+import { missionEstAMoi, perimetreEffectif } from "./crmQuotidien.mjs";
+import { estUtilisateurCourant } from "../annuaire.mjs";
 import { FilAriane, Onglets, Discret, Vide, dateFr, aujourdhuiIso, ROUGE, ORANGE, GRIS } from "./ui";
 
 const VIOLET = "#7c3aed";
@@ -33,31 +35,29 @@ const Alerte = ({ ton, children, titre }) => (
   <span title={titre} style={{ fontSize: 11.5, fontWeight: 800, color: TON[ton], background: `${TON[ton]}14`, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap" }}>{children}</span>
 );
 
-export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenStructuration, renderNouveauClient, renderModifierClient }) {
+export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenStructuration, onOpenBien, renderNouveauClient, renderModifierClient }) {
   const [donnees, setDonnees] = useState(null);
   const [erreurs, setErreurs] = useState({});
   const [chargement, setChargement] = useState(true);
   const [vue, setVue] = useState("a_traiter");
+  const [perimetreChoisi, setPerimetre] = useState(null);   // "moi" | "equipe" ; null = « moi » si j'ai des missions, sinon l'équipe
   const [ecran, setEcran] = useState({ type: "crm" });
   const [nouveauClient, setNouveauClient] = useState(false);
   const aujourdhui = aujourdhuiIso();
 
   const charger = useCallback(async () => {
     setChargement(true);
-    const [rc, rd, re, rt, ru, rn, rp] = await Promise.all([
+    const [rc, rd, re, rt, ru, rn] = await Promise.all([
       supabase.from("invest_clients").select("id,nom,prenom,email,telephone,statut,conseiller,created_at,sujet_structuration").order("nom"),
       supabase.from("invest_dossiers").select("id,client_id,reference,libelle,statut,type_mission,conseiller_id,date_ouverture,date_cloture,motif_cloture,created_at"),
       supabase.from("invest_dossier_etapes").select("id,dossier_id,operation_id,etape,statut,balle,balle_utilisateur_id,balle_tiers_libelle,prochaine_action,echeance,blocage_motif,bloquee_depuis,reprise_a_confirmer,updated_at").is("operation_id", null).limit(10000),
       supabase.from("invest_mission_actions").select("id,client_id,dossier_id,etape,action_title,status,due_date,responsable").limit(10000),
       supabase.from("utilisateurs").select("id,nom,email,actif"),
       supabase.from("invest_notes").select("client_id,type,date,created_at").limit(10000),
-      supabase.from("invest_portail_comptes").select("client_id,statut,invite_le").order("invite_le", { ascending: true }),
     ]);
     setErreurs({ clients: rc.error?.message, pilotage: (rd.error || re.error)?.message, actions: rt.error?.message, notes: rn.error?.message });
     setDonnees({ clients: rc.data || [], dossiers: rd.data || [], etapes: re.data || [], taches: rt.data || [], utilisateurs: ru.data || [], notes: rn.data || [],
-      pilotageLisible: !rd.error && !re.error && !rt.error,
-      // client_id -> "actif" | "revoque" ; null si la table n'est pas lisible (droits) : on n'affiche alors aucun état.
-      comptesPortail: rp.error ? null : new Map((rp.data || []).map((x) => [x.client_id, x.statut])) });
+      pilotageLisible: !rd.error && !re.error && !rt.error });
     setChargement(false);
   }, []);
   useEffect(() => { charger(); }, [charger]);
@@ -71,6 +71,12 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
 
   const missions = useMemo(() => donnees && donnees.pilotageLisible
     ? missionsAPiloter({ ...donnees, aujourdhui }) : null, [donnees, aujourdhui]);
+
+  const estMoi = useCallback((nom) => estUtilisateurCourant(nom, profil), [profil]);
+  const missionsMoi = useMemo(() => (missions || []).filter((m) => missionEstAMoi(m, estMoi)), [missions, estMoi]);
+  const idsMissionsMoi = useMemo(() => new Set(missionsMoi.map((m) => m.dossierId)), [missionsMoi]);
+  const perimetre = perimetreEffectif(perimetreChoisi, missionsMoi.length);
+  const missionsAffichees = missions ? (perimetre === "moi" ? missionsMoi : missions) : null;
 
   const retourCrm = () => { setEcran({ type: "crm" }); charger(); };
   const ouvrirClient = (clientId, onglet) => setEcran({ type: "client", clientId, onglet });
@@ -86,7 +92,7 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
 
   if (ecran.type === "client") {
     return cadre(<FicheClientV2 key={ecran.clientId + (ecran.missionInitiale || "")} clientId={ecran.clientId} ongletInitial={ecran.onglet} missionInitiale={ecran.missionInitiale || null} profil={profil} T={T}
-      onRetour={retourCrm} renderModifierClient={renderModifierClient} />);
+      onRetour={retourCrm} renderModifierClient={renderModifierClient} onOpenBien={onOpenBien} />);
   }
   return cadre(
     <>
@@ -102,8 +108,8 @@ export default function CrmV2({ profil, T, initialFilter, onAncienneVue, onOpenS
 
       {!donnees ? <Discret T={T}>Chargement du portefeuille…</Discret> : (
         <>
-          {vue === "a_traiter" && <ATraiterCartes T={T} missions={missions} erreur={erreurs.pilotage || erreurs.actions} aujourdhui={aujourdhui} onMission={ouvrirMission} onClient={ouvrirClient} />}
-          {vue === "clients" && <ClientsCartes T={T} donnees={donnees} missions={missions} comptesPortail={donnees.comptesPortail} erreur={erreurs.clients} aujourdhui={aujourdhui} profil={profil} onClient={ouvrirClient} onInvitationFermee={charger} />}
+          {vue === "a_traiter" && <ATraiterListe T={T} missions={missionsAffichees} nbMoi={missionsMoi.length} nbEquipe={(missions || []).length} perimetre={perimetre} setPerimetre={setPerimetre} erreur={erreurs.pilotage || erreurs.actions} aujourdhui={aujourdhui} onMission={ouvrirMission} onClient={ouvrirClient} />}
+          {vue === "clients" && <ClientsListe T={T} donnees={donnees} missions={missions} idsMissionsMoi={idsMissionsMoi} estMoi={estMoi} perimetre={perimetre} setPerimetre={setPerimetre} erreur={erreurs.clients} aujourdhui={aujourdhui} onClient={ouvrirClient} />}
           {vue === "planning" && <Planning T={T} donnees={donnees} erreur={erreurs.actions} aujourdhui={aujourdhui} onMission={ouvrirMission} onClient={ouvrirClient} />}
         </>
       )}

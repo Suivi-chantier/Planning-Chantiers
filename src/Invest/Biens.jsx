@@ -5038,7 +5038,7 @@ function FicheBien({ id, profil, onRetour, T=THEMES_INV.dark }) {
             onClick={() => changerOngletFiche(key)}
             style={{
               padding:"8px 18px", border:"none", borderRadius:6, cursor:"pointer",
-              fontFamily:"'Barlow Condensed',sans-serif", fontSize:14, fontWeight:800,
+              fontFamily:"'Inter',sans-serif", fontSize:14, fontWeight:800,
               letterSpacing:.6, textTransform:"uppercase", display:"inline-flex", alignItems:"center", gap:7,
               background: ficheTab===key ? T.accent : "transparent",
               color: ficheTab===key ? T.onAccent : T.textSub,

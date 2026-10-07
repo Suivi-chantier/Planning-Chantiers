@@ -30,6 +30,8 @@ import Simulateur, { ListeProjets } from "./Simulateur";
 import Sourcing from "./Sourcing";
 import EtatDesLieux from "./EtatDesLieux";
 import Urbanisme from "./Urbanisme";
+import BarreOnglets, { MAX_ONGLETS } from "../Renovation/BarreOnglets";
+import BoutonAIFlottant from "./AI/BoutonAIFlottant";
 import { ClocheNotifications } from "./notifications";
 import PanneauAI from "./AI/PanneauAI";
 
@@ -289,7 +291,7 @@ function BarreBasInvest({ nav, page, setPage, T }) {
   );
 }
 
-function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null, onNavItems = null, onOuvrirAI = null }) {
+function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail, onLogout, rolePages = null, onNaviguer = null, onNavItems = null, onOuvrirAI = null, onOuvrirDansNouvelOnglet = null }) {
   const role = profil?.role || "admin";
   const T = THEMES_INV[theme];
   const [replieChoisi, setCollapsed] = useState(() => localStorage.getItem("invest_sidebar_collapsed") === "1");
@@ -393,14 +395,15 @@ function SidebarInvest({ page, setPage, theme, setTheme, profil, onRetourPortail
             <React.Fragment key={n.id}>
               {titreBloc && !collapsed && <div style={{ padding:`${i === 0 ? 2 : SPACING.md}px ${SPACING.md}px ${SPACING.xs}px`, fontSize:10.5, fontWeight:800, letterSpacing:1.2, textTransform:"uppercase", color:T.textMuted, opacity:.7 }}>{titreBloc}</div>}
               {nouveauBloc && collapsed && <div aria-hidden style={{ height:1, margin:`${SPACING.sm}px ${SPACING.sm}px`, background:T.sidebarBorder }}/>}
-            <button onClick={() => setPage(n.id)}
+            <button onClick={(e) => { if ((e.metaKey || e.ctrlKey) && onOuvrirDansNouvelOnglet) onOuvrirDansNouvelOnglet(n.id); else setPage(n.id); }}
+              onAuxClick={(e) => { if (e.button === 1 && onOuvrirDansNouvelOnglet) { e.preventDefault(); onOuvrirDansNouvelOnglet(n.id); } }}
               title={collapsed ? n.label : ""}
               style={{
                 width:"100%", display:"flex", alignItems:"center",
                 justifyContent: collapsed ? "center" : "flex-start",
                 gap:SPACING.md-2, padding: collapsed ? `${SPACING.md-1}px 0` : `${SPACING.md-1}px ${SPACING.md+2}px`,
                 borderRadius:RADIUS.lg, border:"none", cursor:"pointer",
-                fontFamily:"'Barlow Condensed',sans-serif", fontSize:FONT.md.size,
+                fontFamily:"'Inter',sans-serif", fontSize:FONT.md.size,
                 fontWeight: active ? 700 : 500, letterSpacing:0.3,
                 background: active ? T.accentBg : "transparent",
                 color: active ? T.accent : T.textMuted,
@@ -530,7 +533,14 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   const [theme, setTheme] = useState(() => localStorage.getItem("invest_theme") || "dark");
   const T = THEMES_INV[theme];
   const CSS = getCSS(T);
-  const [page, setPage]                 = useState("dashboard");
+  // Onglets façon navigateur : chaque onglet porte sa page et garde son état.
+  // `page` / `setPage` désignent l'onglet actif, donc la navigation existante
+  // (menu, sauts entre fiches) agit sur l'onglet courant.
+  const [onglets, setOnglets]           = useState([{ id: 1, page: "dashboard" }]);
+  const [ongletActif, setOngletActif]   = useState(1);
+  const prochainOnglet = useRef(2);
+  const page = (onglets.find(o => o.id === ongletActif) || onglets[0]).page;
+  const setPage = useCallback((p) => setOnglets(os => os.map(o => o.id === ongletActif ? { ...o, page: p } : o)), [ongletActif]);
   const [projetOuvert, setProjetOuvert] = useState(null);
   const [vueSim, setVueSim]             = useState("liste");
   const [crmInitialFilter, setCrmInitialFilter] = useState(null);
@@ -665,6 +675,12 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     bootstrapFait.current = true;
   }, [rolePages]);
 
+  // Un filtre de navigation ne vaut que pour l'onglet qui l'a produit.
+  const reinitialiserFiltres = () => {
+    setCrmInitialFilter(null); setBiensInitialFilter(null); setProspectionInitialFilter(null);
+    setUrbanismeInitialFilter(null); setEdlInitialFilter(null);
+  };
+
   const changerPage = (p) => {
     setPage(p);
     // Un filtre de navigation ne vaut que pour le saut qui l'a produit : le
@@ -674,6 +690,22 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
     if (p !== "prospection") setProspectionInitialFilter(null);
     if (p !== "urbanisme") setUrbanismeInitialFilter(null);
     if (p !== "etat_des_lieux") setEdlInitialFilter(null);
+  };
+
+  const ouvrirOnglet = (p) => {
+    if (onglets.length >= MAX_ONGLETS) return;
+    const id = prochainOnglet.current++;
+    setOnglets(os => [...os, { id, page: p || "dashboard" }]);
+    setOngletActif(id);
+    reinitialiserFiltres();
+  };
+  const choisirOnglet = (id) => { setOngletActif(id); reinitialiserFiltres(); };
+  const fermerOnglet = (id) => {
+    if (onglets.length < 2) return;
+    const i = onglets.findIndex(o => o.id === id);
+    const reste = onglets.filter(o => o.id !== id);
+    setOnglets(reste);
+    if (id === ongletActif) { setOngletActif(reste[Math.min(i, reste.length - 1)].id); reinitialiserFiltres(); }
   };
 
   // ⌘K sur Mac, Ctrl K ailleurs. Écouteur global : le raccourci doit répondre
@@ -730,25 +762,37 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
   return (
     <div className="inv" style={{ position:"fixed", inset:0, zIndex:9999, display:"flex", background:T.bg }}>
       <style>{CSS}</style>
-      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} onNavItems={setNavItems} onOuvrirAI={() => setAiOuvert(true)} />
+      <SidebarInvest page={page} setPage={changerPage} theme={theme} setTheme={setTheme} profil={profil} onRetourPortail={onRetourPortail} onLogout={onLogout} rolePages={rolePages} onNaviguer={naviguer} onNavItems={setNavItems} onOuvrirAI={() => setAiOuvert(true)} onOuvrirDansNouvelOnglet={ouvrirOnglet} />
+      <div style={{ flex:1, minWidth:0, minHeight:0, display:"flex", flexDirection:"column" }}>
+      <BarreOnglets onglets={onglets} actifId={ongletActif} onSelect={choisirOnglet} onFermer={fermerOnglet}
+        onNouveau={() => ouvrirOnglet("dashboard")} labels={Object.fromEntries(navItems.map(n => [n.id, n.label]))}
+        T={T} acc={getBranchAccent("invest")}/>
       <div className="inv-content" style={{ flex:1, minHeight:0, overflowY:"auto", background:T.bg }}>
-        {page === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
-        {page === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={prospectionInitialFilter} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
-        {page === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={crmInitialFilter} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
-        {page === "sourcing"   && (canSee("sourcing")   ? <Sourcing profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="sourcing"/>)}
-        {page === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={biensInitialFilter} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
-        {page === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} initialFilter={edlInitialFilter} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
-        {page === "urbanisme" && (canSee("urbanisme") ? <Urbanisme profil={profil} T={T} initialFilter={urbanismeInitialFilter} /> : <AccesRefuseInvest T={T} page="urbanisme"/>)}
-        {page === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
-        {page === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}
-        {page === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
-        {page === "simulateur" && (canSee("simulateur") ? (
+        {onglets.map(o => {
+          const p = o.page, actif = o.id === ongletActif;
+          return (
+          <div key={o.id} style={{ display: actif ? "block" : "none" }}>
+        {p === "dashboard"  && (canSee("dashboard")  ? <TableauBord profil={profil} T={T} onNavigate={naviguer} />                                      : <AccesRefuseInvest T={T} page="dashboard"/>)}
+        {p === "prospection" && (canSee("prospection") ? <Prospection profil={profil} T={T} initialFilter={actif ? prospectionInitialFilter : null} /> : <AccesRefuseInvest T={T} page="prospection"/>)}
+        {p === "crm"        && (canSee("crm")        ? <CRM profil={profil} T={T} initialFilter={actif ? crmInitialFilter : null} onOpenStructuration={ouvrirStructurationDepuisClient} onOpenBien={ouvrirBienDepuisClient} />        : <AccesRefuseInvest T={T} page="crm"/>)}
+        {p === "sourcing"   && (canSee("sourcing")   ? <Sourcing profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="sourcing"/>)}
+        {p === "biens"      && (canSee("biens")      ? <StockBiens profil={profil} T={T} initialFilter={actif ? biensInitialFilter : null} />                                          : <AccesRefuseInvest T={T} page="biens"/>)}
+        {p === "etat_des_lieux" && (canSee("etat_des_lieux") ? <EtatDesLieux profil={profil} T={T} initialFilter={actif ? edlInitialFilter : null} /> : <AccesRefuseInvest T={T} page="etat_des_lieux"/>)}
+        {p === "urbanisme" && (canSee("urbanisme") ? <Urbanisme profil={profil} T={T} initialFilter={actif ? urbanismeInitialFilter : null} /> : <AccesRefuseInvest T={T} page="urbanisme"/>)}
+        {p === "finance"    && (canSee("finance")    ? <DashboardFinancier profil={profil} T={T} />                                        : <AccesRefuseInvest T={T} page="finance"/>)}
+        {p === "suivi_financier" && (canSee("suivi_financier") ? <SuiviFinancier profil={profil} T={T} /> : <AccesRefuseInvest T={T} page="suivi_financier"/>)}
+        {p === "admin"      && (canSee("admin")      ? <AdminInvest profil={profil} T={T} theme={theme} setTheme={setTheme} />                                           : <AccesRefuseInvest T={T} page="admin"/>)}
+        {p === "simulateur" && (canSee("simulateur") ? (
           <div style={{ padding:"24px 28px", maxWidth:1200, margin:"0 auto" }}>
             <div style={{ fontSize:26, fontWeight:800, color:T.text, letterSpacing:.5, marginBottom:6 }}>Simulateur de projets</div>
             <div style={{ fontSize:14, color:T.textSub, marginBottom:24 }}>Créez et analysez vos projets d'investissement</div>
             <ListeProjets profil={profil} onOuvrir={ouvrirProjet} onNouveauProjet={nouveauProjet} inline={true} T={T} />
           </div>
         ) : <AccesRefuseInvest T={T} page="simulateur"/>)}
+          </div>
+          );
+        })}
+      </div>
       </div>
       {/* Navigation du bas, téléphone uniquement. Rendue en dernier enfant de
           .inv pour être au-dessus du contenu dans l'ordre de peinture. */}
@@ -758,6 +802,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       {/* Profero AI. Rendu en dernier : le volet passe au-dessus du contenu et
           de la barre du bas, et la page reste montée derrière — on ne perd ni
           saisie ni filtre en posant une question. */}
+      {!aiOuvert && <BoutonAIFlottant onOuvrir={() => setAiOuvert(true)} T={T} estMobile={estMobile} />}
       <PanneauAI ouvert={aiOuvert} onFermer={() => setAiOuvert(false)}
         T={T} profil={profil} contexte={contexteAI} onNaviguer={naviguer} estMobile={estMobile} />
     </div>

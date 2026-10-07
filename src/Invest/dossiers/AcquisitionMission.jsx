@@ -22,7 +22,7 @@ const versAcq = (r) => ({
   id: r.id, libelle: r.libelle || "", bien_id: r.bien_id || "", prix_signe: r.prix_signe ?? "", budget_travaux: r.budget_travaux ?? "", notaire: r.notaire || "",
   notaire_contact: r.notaire_contact || "", abandon_motif: r.abandon_motif || "", commentaire: r.commentaire || "",
   ...Object.fromEntries([...JALONS.map(([k]) => k), "abandon_le"].map((k) => [k, r[k] || ""])),
-  conditions_suspensives: (Array.isArray(r.conditions_suspensives) ? r.conditions_suspensives : []).map((c) => ({ libelle: c?.libelle || "", echeance: c?.echeance || "", levee_le: c?.levee_le || "" })),
+  conditions_suspensives: (Array.isArray(r.conditions_suspensives) ? r.conditions_suspensives : []).map((c) => ({ libelle: c?.libelle || "", echeance: c?.echeance || "", levee_le: c?.levee_le || "", ...(c?.statut ? { statut: c.statut } : {}), ...(c?.type ? { type: c.type } : {}) })),
 });
 
 function Carte({ T, titre, droite, children }) {

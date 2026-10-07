@@ -119,4 +119,6 @@ export function erreursAcquisition(a = {}) {
 
 /** Conditions prêtes à l'enregistrement : intitulé obligatoire, lignes vides retirées. */
 export const nettoyerConditions = (cs = []) => cs.filter((c) => String(c?.libelle || "").trim())
-  .map((c) => ({ libelle: String(c.libelle).trim(), echeance: date(c.echeance), levee_le: date(c.levee_le) }));
+  .map((c) => ({ libelle: String(c.libelle).trim(), echeance: date(c.echeance), levee_le: date(c.levee_le),
+    // `statut` et `type` (fiche Mission Offre 2) sont conservés quand ils existent : l'ancien écran ne les efface pas.
+    ...(c.statut ? { statut: String(c.statut) } : {}), ...(c.type ? { type: String(c.type) } : {}) }));

@@ -23,6 +23,22 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-07",
+    type: "nouveaute",
+    titre: "Mission Offre 2 refondue : un vrai parcours d'investissement en sept onglets, de la recherche à la transmission",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Ouvrir une mission d'accompagnement à l'investissement montre tout de suite où en est le dossier : l'étape actuelle, la prochaine action, qui a la balle, ce qui bloque et le bien travaillé. Les onglets suivent le déroulé réel : Vue d'ensemble, Projet, Recherche & biens, Offre & acquisition, Financement, Travaux, Transmission.",
+    comment: "Une frise Projet → Recherche → Bien → Offre → Acquisition → Financement → Travaux → Transmission reste visible en haut. « Recherche & biens » liste tous les biens étudiés (à analyser, proposé, visite, refusé, retenu) sans jamais en supprimer. « Offre & acquisition » suit l'offre, le compromis, les conditions suspensives et l'acte. « Financement » résume le pipeline et les banques. « Transmission » clôt la mission quand le dossier est transmis. Le patrimoine et les documents restent sur la fiche client : la mission en montre seulement l'avancement et y renvoie. Les anciennes missions s'affichent sans rien perdre : leurs étapes sont simplement regroupées.",
+  },
+  {
+    date: "2026-10-07",
+    type: "nouveaute",
+    titre: "Fiche client refondue : un poste de pilotage pour le quotidien, avec toutes les missions du client au même endroit",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "La fiche client montre d'abord ce qu'il y a à faire maintenant, puis où en est chaque mission (Offre 2 et Offre 3 côte à côte), puis l'état du dossier (patrimoine, pièces, portail). Cinq onglets seulement : Vue d'ensemble, Missions, Patrimoine, Documents, Activité.",
+    comment: "Ouvrez un client depuis le CRM. En haut : « ＋ Nouvelle mission » (Offre 2 ou Offre 3), « ＋ Note » et « ••• » (modifier le client, accès au portail, journal système). « À faire maintenant » classe les actions par retard puis priorité, avec Terminer / Reporter / Ouvrir. Chaque mission a sa frise d'avancement ; ce qui n'est pas renseigné s'affiche « À compléter », jamais 0. L'ancien onglet Structuration et le bouton « Sujet de structuration » disparaissent : l'étude patrimoniale s'ouvre depuis Missions, et ses préconisations deviennent des actions suivies. Documents : liste par catégories et demande groupée des pièces manquantes (confirmation avant tout envoi). Activité : notes, appels, e-mails, rendez-vous et missions, filtrables ; les événements techniques sont masqués (« ••• → Journal système »).",
+  },
+  {
     date: "2026-10-06",
     type: "nouveaute",
     titre: "Compte rendu (bêta) : quantités posées au lieu d'un pourcentage, et photo « après » sur les tâches terminées",
@@ -33,6 +49,10 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-06",
     type: "amelioration",
+    titre: "CRM : plus simple pour le suivi quotidien, vos missions d'abord et moins d'informations à l'écran",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Le CRM est l'outil de suivi de tous les jours : il montre maintenant d'abord ce qui vous concerne, une ligne par mission, avec seulement le client, la prochaine action et la date.",
+    comment: "À traiter : par défaut « Mes missions » (celles dont vous êtes conseiller ou responsable de la prochaine action), avec un bouton pour voir toute l'équipe. Trois groupes seulement : Urgent (retard ou blocage), Aujourd'hui, À faire ; les missions qui attendent le client sont repliées. Clients : « Mes clients » ou tous, une ligne par client (mission en cours, prochaine action et date), recherche et un seul filtre. L'invitation au portail se fait depuis la fiche du client. Fiche client : la vue d'ensemble commence par ce qui est en cours et ce qui vient ; les coordonnées complètes, les documents, le patrimoine et l'accès au portail sont dans « Plus d'informations », replié. L'onglet Opérations, encore vide, a disparu de la barre. Rien n'est supprimé : l'ancienne vue du CRM reste accessible.",
     titre: "Nouveaux horaires : 35 h en semaine de 4 jours, 43 h en semaine de 5 jours",
     pages: [{ id: "planning", label: "Planning semaine" }, { id: "validation", label: "Validation" }, { id: "bilan-semaine", label: "Bilan Semaine" }, { id: "admin", label: "Admin" }],
     quoi: "Depuis le lundi 5 octobre 2026 (semaine 41), les journées sont de 7h30 à 12h puis de 12h45 à 17h, soit 8h45. Semaine impaire (4 jours, du lundi au jeudi) : 4 × 8h45 = 35 h. Semaine paire (5 jours) : même horaire du lundi au jeudi, fin à 16h15 le vendredi (8 h), soit 43 h. Les semaines d'avant gardent leur ancien barème : rien n'est recalculé dans l'historique.",
