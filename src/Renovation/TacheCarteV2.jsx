@@ -7,17 +7,24 @@
 // Phase › Ouvrage, heures vendues / validées / en attente, dernier motif de
 // dépassement) arrivent de RapportMobile, qui les charge via la RPC
 // ouvrier_mes_phases.
+//
+// Tâche suivie en QUANTITÉ (suiviQuantite.mjs) : « Posé aujourd'hui » remplace
+// le pourcentage. Terminé : photo « après » obligatoire (sauf hors connexion,
+// ou bouton « Je ne peux pas envoyer la photo »).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect } from "react";
 import { Icon } from "../ui";
 import {
   Check, RotateCw, Pause, Ban, Minus, Plus, Trash2, ShoppingCart, ChevronRight, Hourglass, History, PenLine,
+  Camera, AlertTriangle,
 } from "lucide-react";
 import {
   CHOIX, PAS_MINUTES, choixDeLigne, appliquerChoix, changerMinutes, minutesDe, fmtMinutes,
   ajustementPossible, poserReste, etatAvecAujourdhui, motifDepassementRequis, problemesLigne,
-  LIBELLES_PROBLEMES,
+  LIBELLES_PROBLEMES, suiviDepuisInfo, totalAvecJour, quantiteAttendue, changerQuantiteJour, appliquerChoixSuivi,
+  apresMinutesSuivi, photosApres, majPhotosApres, signalerPhotoImpossible,
 } from "./compteRenduV2";
+import { avancementQuantite, fmtQuantite, libelleQuantite } from "./suiviQuantite";
 import {
   MOTIFS_STATUT, MOTIFS_DEPASSEMENT, CODE_MOTIF_AUTRE, libelleMotifDepassement, libelleNature,
 } from "./motifsCompteRendu";
@@ -61,7 +68,7 @@ function Pastilles({ options, valeur, onChoisir, T }) {
 
 export default function TacheCarteV2({
   t, info, infosEtat, resteMin, onMaj, onSupprimer, chantiers = [], onOuvrirCommande, T, photos,
-  onModifierNouvelle = null,
+  onModifierNouvelle = null, horsConnexion = false, champPhotosApres = null,
 }) {
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -69,7 +76,10 @@ export default function TacheCarteV2({
   const suivi = etatAvecAujourdhui(info, t);
   const requis = motifDepassementRequis(info, t);
   const dernier = info?.dernier_motif_depassement || null;
-  const problemes = problemesLigne(t, info && t.tache_id ? { [String(t.tache_id)]: info } : {});
+  const problemes = problemesLigne(t, info && t.tache_id ? { [String(t.tache_id)]: info } : {}, { horsConnexion });
+  // Suivi en quantité (null = en pourcentage, ou infos indisponibles).
+  const sq = suiviDepuisInfo(info);
+  const apresTemps = (x) => (sq ? apresMinutesSuivi(x, sq) : x);
 
   // Motif de dépassement déjà donné pour cette tâche : repris d'office, mais
   // VISIBLEMENT (phrase « Déjà indiqué le… ») et changeable d'un tap. Une fois
@@ -165,20 +175,20 @@ export default function TacheCarteV2({
           {!tempsActif && <div style={{ fontSize: 12.5, color: T.textSub }}>Pas commencé : 0 h</div>}
         </div>
         <button aria-label="Retirer 15 minutes" disabled={!tempsActif || min <= 0}
-          onClick={() => onMaj(x => changerMinutes(x, Math.max(0, minutesDe(x) - PAS_MINUTES)))} style={btnPasStyle(tempsActif && min > 0)}>
+          onClick={() => onMaj(x => apresTemps(changerMinutes(x, Math.max(0, minutesDe(x) - PAS_MINUTES))))} style={btnPasStyle(tempsActif && min > 0)}>
           <Icon as={Minus} size={22} strokeWidth={2.6}/>
         </button>
         <div style={{ minWidth: 86, textAlign: "center", fontSize: 24, fontWeight: 800, color: T.text }}>
           {min > 0 ? fmtMinutes(min) : "0 h"}
         </div>
         <button aria-label="Ajouter 15 minutes" disabled={!tempsActif}
-          onClick={() => onMaj(x => changerMinutes(x, minutesDe(x) + PAS_MINUTES))} style={btnPasStyle(tempsActif)}>
+          onClick={() => onMaj(x => apresTemps(changerMinutes(x, minutesDe(x) + PAS_MINUTES)))} style={btnPasStyle(tempsActif)}>
           <Icon as={Plus} size={22} strokeWidth={2.6}/>
         </button>
       </div>
       {/* Reste de moins de 15 min (trajets saisis à la minute) : un tap le pose ici. */}
       {tempsActif && ajustementPossible(resteMin) && min + resteMin >= 0 && (
-        <button onClick={() => onMaj(x => poserReste(x, resteMin))} style={{
+        <button onClick={() => onMaj(x => apresTemps(poserReste(x, resteMin)))} style={{
           marginTop: 8, width: "100%", minHeight: 44, borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
           border: `1.5px dashed ${T.warning}`, background: T.warningBg, color: SOMBRE, fontSize: 14.5, fontWeight: 700,
         }}>
@@ -192,7 +202,7 @@ export default function TacheCarteV2({
           const sel = choix === s.id;
           return (
             <button key={s.id} aria-pressed={sel}
-              onClick={() => onMaj(x => appliquerChoix(x, s.id, { avancementActuel }))} style={{
+              onClick={() => onMaj(x => (sq ? appliquerChoixSuivi(x, s.id, sq) : appliquerChoix(x, s.id, { avancementActuel })))} style={{
                 minHeight: 52, borderRadius: 14, cursor: "pointer", fontFamily: "inherit", fontSize: 16, fontWeight: 800,
                 border: `2px solid ${sel ? SOMBRE : T.border}`, background: sel ? (s.id === "termine" ? "#166534" : SOMBRE) : T.surface,
                 color: sel ? "#fff" : T.text, display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
@@ -203,8 +213,49 @@ export default function TacheCarteV2({
         })}
       </div>
 
-      {/* Avancement */}
-      {(choix === "en_cours" || choix === "bloque") && (
+      {/* Quantité posée (tâche suivie en quantité) */}
+      {sq && quantiteAttendue(t) && (() => {
+        const total = totalAvecJour(sq, t);
+        const avant = sq.cumul + sq.attente;
+        const plus = total > sq.quantite + 1e-9;
+        const av = choix === "termine" ? 100 : avancementQuantite({ cumul: total, quantite: sq.quantite, terminee: sq.terminee });
+        return (
+          <div style={{ marginTop: 12, padding: "12px", borderRadius: 14, background: T.bg }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.text, flex: "1 1 120px" }}>Posé aujourd'hui</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <input type="text" inputMode="decimal" autoComplete="off" value={t.quantite_jour ?? ""} placeholder="0"
+                  aria-label={`Quantité posée aujourd'hui, en ${sq.unite}`}
+                  onChange={e => onMaj(x => changerQuantiteJour(x, e.target.value, sq))} style={{
+                    width: 116, minHeight: 56, borderRadius: 14, fontSize: 26, fontWeight: 800, textAlign: "center",
+                    border: `2px solid ${problemes.includes("quantite") ? T.dangerBd : T.border}`, fontFamily: "inherit", color: T.text,
+                  }}/>
+                <span style={{ fontSize: 20, fontWeight: 800, color: T.text, minWidth: 30 }}>{sq.unite}</span>
+              </span>
+            </label>
+            <div style={{ marginTop: 8, fontSize: 15, color: T.text }}>
+              Total : <strong>{libelleQuantite(total, sq.quantite, sq.unite)}</strong> → <strong>{av} %</strong>
+            </div>
+            {avant > 0 && (
+              <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 2 }}>
+                Avant aujourd'hui : {fmtQuantite(avant)} {sq.unite}{sq.attente > 0 ? ` (dont ${fmtQuantite(sq.attente)} en attente de validation)` : ""}
+              </div>
+            )}
+            {plus && (
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-start", marginTop: 8, fontSize: 14, fontWeight: 700, color: T.warning }}>
+                <Icon as={AlertTriangle} size={16} style={{ flexShrink: 0, marginTop: 1 }}/>
+                Plus que prévu au devis ({fmtQuantite(sq.quantite)} {sq.unite}) : c'est normal ?
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      {sq && choix === "bloque" && !quantiteAttendue(t) && (
+        <div style={{ marginTop: 8, fontSize: 13, color: T.textSub }}>Bloqué sans heures : pas de quantité.</div>
+      )}
+
+      {/* Avancement (tâche suivie en pourcentage) */}
+      {!sq && (choix === "en_cours" || choix === "bloque") && (
         <div style={{ marginTop: 12, padding: "12px", borderRadius: 14, background: T.bg }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 8 }}>
             Avancement de la tâche{avancementActuel != null ? <span style={{ fontWeight: 600, color: T.textSub }}> (avant : {Math.round(avancementActuel)} %)</span> : null}
@@ -233,7 +284,7 @@ export default function TacheCarteV2({
           </div>
         </div>
       )}
-      {choix === "termine" && (
+      {choix === "termine" && !sq && (
         <div style={{ marginTop: 8, fontSize: 13, color: T.textSub }}>Avancement réglé à 100 %.</div>
       )}
       {choix === "pas_commence" && (
@@ -304,6 +355,40 @@ export default function TacheCarteV2({
             border: `1.5px solid ${problemes.includes("precision") ? T.dangerBd : T.border}`, borderRadius: 12, padding: "10px 12px",
           }}/>
       </div>
+
+      {/* Photo « après » : obligatoire sur Terminé (jamais bloquante hors connexion) */}
+      {choix === "termine" && (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: `1.5px solid ${problemes.includes("photo_apres") ? T.dangerBd : T.border}`, background: T.surface }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 8 }}>
+            <Icon as={Camera} size={16}/> Photo « après »
+            <span style={{ fontWeight: 600, fontSize: 13.5, color: problemes.includes("photo_apres") ? T.danger : T.textSub }}>
+              {photosApres(t).length > 0 ? "" : t.photo_apres_bouton || horsConnexion ? "(manquante)" : "(obligatoire)"}
+            </span>
+          </div>
+          {champPhotosApres ? champPhotosApres(photosApres(t), (arr) => onMaj(x => majPhotosApres(x, arr))) : null}
+          {photosApres(t).length === 0 && horsConnexion && !t.photo_apres_bouton && (
+            <div style={{ marginTop: 8, fontSize: 13, color: T.textSub }}>
+              Pas de connexion : la tâche partira sans photo, ton conducteur le verra.
+            </div>
+          )}
+          {photosApres(t).length === 0 && !horsConnexion && (
+            t.photo_apres_bouton ? (
+              <div style={{ marginTop: 8, fontSize: 13, color: T.textSub }}>
+                Envoi sans photo « après » : ton conducteur le verra.{" "}
+                <button onClick={() => onMaj(x => signalerPhotoImpossible(x, false))} style={{
+                  border: "none", background: "transparent", padding: 0, cursor: "pointer", fontFamily: "inherit",
+                  fontSize: 13, fontWeight: 800, color: T.text, textDecoration: "underline",
+                }}>Annuler</button>
+              </div>
+            ) : (
+              <button onClick={() => onMaj(x => signalerPhotoImpossible(x, true))} style={{
+                marginTop: 8, minHeight: 44, padding: "0 4px", border: "none", background: "transparent", cursor: "pointer",
+                fontFamily: "inherit", fontSize: 14, fontWeight: 700, color: T.textSub, textDecoration: "underline",
+              }}>Je ne peux pas envoyer la photo</button>
+            )
+          )}
+        </div>
+      )}
 
       {photos}
 

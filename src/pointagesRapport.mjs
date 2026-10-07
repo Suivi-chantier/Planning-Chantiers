@@ -24,11 +24,16 @@
 //     ne porte aucun trajet ; deux chantiers à 5h partagent le trajet moitié-
 //     moitié. La somme des quote-parts = exactement le trajet total du jour
 //     (fini les journées à 9,99 / 10,01 h dues à l'arrondi numeric(6,2)).
+//  3. QUANTITÉS POSÉES (tâche suivie en quantité) : une ligne qui porte
+//     quantite_validee (>= 0) transmet quantite_declaree / quantite_validee /
+//     quantite_unite ; deux lignes fusionnées additionnent leurs quantités.
+//     Une ligne sans quantité ne reçoit AUCUN de ces champs : les pointages
+//     des tâches suivies en % sont strictement inchangés.
 //
 // Renvoie le tableau des lignes prêtes pour `insert`.
 export function buildPointagesRapport({
   chantier_id, ouvrier, dateISO, taux = 0, phasage_id = null, rapport_id, valide_par = null,
-  taskLines = [],       // [{ tache_id, phase_id, heures, avancement_declare }]
+  taskLines = [],       // [{ tache_id, phase_id, heures, avancement_declare, quantite_declaree?, quantite_validee?, quantite_unite? }]
   indirectLines = [],   // [{ motif, heures }]
   trajetMinTotal = 0,   // minutes de trajet total du jour (posé identiquement sur chaque rapport)
   nbChantiersDuJour = 1,
@@ -45,12 +50,25 @@ export function buildPointagesRapport({
     if (h <= 0) return;
     const av = li.avancement_declare != null && li.avancement_declare !== "" ? parseInt(li.avancement_declare) : null;
     const entry = { tache_id: li.tache_id || null, phase_id: li.phase_id || null, h, av };
+    const qv = qte(li.quantite_validee);
+    if (entry.tache_id && qv != null) {
+      entry.q = { declaree: qte(li.quantite_declaree), validee: qv, unite: li.quantite_unite || null };
+    }
     if (!entry.tache_id) { libres.push(entry); return; }
     const key = `${entry.phase_id || ""}::${entry.tache_id}`;
     const cur = fusion.get(key);
     if (cur) {
       cur.h += h;
       if (av != null) cur.av = cur.av == null ? av : Math.max(cur.av, av);
+      if (entry.q) {
+        cur.q = cur.q
+          ? {
+              declaree: cur.q.declaree == null && entry.q.declaree == null ? null : cent((cur.q.declaree || 0) + (entry.q.declaree || 0)),
+              validee: cent(cur.q.validee + entry.q.validee),
+              unite: cur.q.unite || entry.q.unite,
+            }
+          : entry.q;
+      }
     } else {
       fusion.set(key, entry);
     }
@@ -58,6 +76,7 @@ export function buildPointagesRapport({
   const mkTache = (e) => ({
     ...base, phase_id: e.phase_id, tache_id: e.tache_id,
     heures: e.h, avancement_declare: e.av, type_pointage: "tache",
+    ...(e.q ? { quantite_declaree: e.q.declaree, quantite_validee: e.q.validee, quantite_unite: e.q.unite } : {}),
   });
   const lignesTaches = [...[...fusion.values()].map(mkTache), ...libres.map(mkTache)];
 
@@ -86,6 +105,29 @@ export function buildPointagesRapport({
   }] : [];
 
   return [...lignesTaches, ...lignesIndirectes, ...lignesTrajet];
+}
+
+// Quantité >= 0 arrondie au centième ; null si absente.
+function qte(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = parseFloat(String(v).replace(",", "."));
+  return Number.isFinite(n) ? Math.max(0, cent(n)) : null;
+}
+function cent(n) { return Math.round(n * 100) / 100; }
+
+// Outil de ré-génération (Admin → Pointages) : il repart de la déclaration
+// des rapports. Les quantités VALIDÉES par le conducteur ne sont pas dans le
+// rapport : on les reprend des pointages qu'on remplace, tâche par tâche,
+// pour que le cumul des tâches suivies en quantité ne change pas.
+export function reporterQuantites(lignes, anciens) {
+  const parTache = new Map();
+  (anciens || []).forEach(p => {
+    if (!p?.tache_id || p.quantite_validee === null || p.quantite_validee === undefined) return;
+    parTache.set(String(p.tache_id), {
+      quantite_declaree: p.quantite_declaree ?? null, quantite_validee: p.quantite_validee, quantite_unite: p.quantite_unite ?? null,
+    });
+  });
+  return (lignes || []).map(l => (l.tache_id && parTache.has(String(l.tache_id)) ? { ...l, ...parTache.get(String(l.tache_id)) } : l));
 }
 
 // Répartit le trajet total (minutes) entre les rapports d'un même jour, en

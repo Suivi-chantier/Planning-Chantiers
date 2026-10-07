@@ -214,6 +214,7 @@ export const AIDE_CONTENU = {
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
       "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h vendues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
       "Une ligne marquée « Ajoutée par l'ouvrier » est une tâche non prévue au planning, choisie par l'ouvrier dans le phasage (« J'ai fait autre chose ») : elle est déjà rattachée à sa tâche et se valide comme les autres.",
+      "Un bloc « Suivi en quantité » apparaît sur une tâche mesurée en m², ml, m³ ou unités : quantité posée déclarée, quantité validée (préremplie, jamais négative), cumul avant → après et avancement qui en résulte. Cochez « Tâche terminée » pour la passer à 100 % même si le total reste sous la quantité prévue (l'écart reste affiché). Un pourcentage de l'ancien formulaire y est converti en quantité. Les photos « après » sont marquées ; « Photo « après » manquante » signale un Terminé sans photo (hors connexion ou signalé par l'ouvrier).",
       "Un bloc « Nouvelle tâche proposée » signale un travail absent du phasage, proposé par l'ouvrier dans un ouvrage avec sa nature. Par défaut la tâche est créée à la validation du rapport (sans heures vendues, « Hors devis » prérempli selon la nature) ; vous pouvez changer l'ouvrage, la nature, la case, la rattacher à une tâche existante ou la laisser en tâche libre. Revalider le même rapport ne la recrée pas.",
     ],
   },
@@ -263,6 +264,7 @@ export const AIDE_CONTENU = {
       "Vous pouvez importer un devis Excel pour pré-remplir ouvrages et tâches.",
       "Les matériaux définis ici alimentent la page Commandes.",
       "Dans « Modifier la tâche », choisissez sa nature (demande du client, imprévu, oubli du phasage, reprise) et cochez « Hors devis » pour un travail non vendu : ses heures comptent dans le coût mais ne sont plus comparées aux heures vendues de l'ouvrage (ni dérive, ni dépassement, ni avancement). Elles s'affichent à part : « + X h hors devis ».",
+      "Suivi en quantité : une tâche dont l'ouvrage est en m², ml, m³ ou U (quantité supérieure à 1) se suit en quantité posée dans le nouveau compte rendu. « Suivi en % » le désactive pour une tâche ; « Quantité de la tâche » remplace celle de l'ouvrage. Dès la première quantité validée, l'avancement se calcule (total posé / quantité prévue) ; corrigez-le avec « Déjà posé hors comptes rendus » ou « Tâche terminée ».",
     ],
   },
   bibliotheque: {

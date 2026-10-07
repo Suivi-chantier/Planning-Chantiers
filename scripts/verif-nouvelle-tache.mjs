@@ -25,7 +25,7 @@ import { join } from "node:path";
 import {
   ORIGINE_NOUVELLE, DIVERS_HORS_DEVIS, ouvragesProposables, rechercherOuvrages, problemesNouvelleTache,
   ligneNouvelleTache, modifierNouvelleTache, saisieDepuisLigne, texteProposition, serialiserLigneV2,
-  problemesLigne, etatEnvoi, carteRetirable, brouillonV2VersV1, appliquerChoix, changerMinutes,
+  problemesLigne, etatEnvoi, carteRetirable, brouillonV2VersV1, appliquerChoix, changerMinutes, majPhotosApres,
 } from "../src/Renovation/compteRenduV2.mjs";
 import { serialiserLigneV1 } from "../src/Renovation/compteRenduEnvoi.mjs";
 import {
@@ -90,10 +90,11 @@ eq(ligneNouvelleTache({ ...base, ouvrage: liste[3], demandeur: "" }, chantier).p
   { ouvrage_id: null, ouvrage_libelle: DIVERS_HORS_DEVIS, nature: "imprevu" }, "Divers à créer : ouvrage_id vide, pas de demandeur vide");
 ok(carteRetirable(ligne), "la carte peut être retirée avant l'envoi");
 
-const remplie = changerMinutes(appliquerChoix(ligne, "termine"), 90);
+// Terminé : photo « après » jointe (étape 4), en plus de la photo de la demande.
+const remplie = majPhotosApres(changerMinutes(appliquerChoix(ligne, "termine"), 90), ["https://x/apres.jpg"]);
 eq(problemesLigne(remplie, {}), [], "carte remplie (terminé, 1 h 30, photo) : complète");
-eq(problemesLigne({ ...remplie, photos: [] }, {}), ["photo"], "photo retirée sur la carte : redevient bloquante");
-eq(problemesLigne({ ...remplie, photos: [], proposition: { ...remplie.proposition, nature: "reprise" } }, {}), [], "reprise sans photo : rien à compléter");
+eq(problemesLigne({ ...remplie, photos: [] }, {}), ["photo", "photo_apres"], "toutes les photos retirées de la carte : demande du client ET photo « après » redeviennent bloquantes");
+eq(problemesLigne({ ...remplie, photos: [], proposition: { ...remplie.proposition, nature: "reprise" } }, {}), ["photo_apres"], "reprise sans aucune photo : seule la photo « après » (Terminé) manque");
 const envoi = etatEnvoi({ taches: [{ ...remplie, photos: [] }], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 1.5 });
 eq([envoi.peutEnvoyer, envoi.phrase], [false, "Complète 1 tâche pour envoyer"], "envoi bloqué tant que la photo manque");
 ok(etatEnvoi({ taches: [remplie], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 1.5 }).peutEnvoyer, "avec la photo : envoi possible");
@@ -102,10 +103,10 @@ eq(problemesLigne(changerMinutes(remplie, 600), { t1: { heures_vendues: 1, heure
 
 const ecrite = serialiserLigneV2(remplie);
 eq([ecrite.tache_id, ecrite.phase_id, ecrite.origine, ecrite.heures_reelles, ecrite.statut, ecrite.photos],
-  [null, null, ORIGINE_NOUVELLE, 1.5, "faite", ["https://x/1.jpg"]], "ligne envoyée : tache_id et phase_id vides");
+  [null, null, ORIGINE_NOUVELLE, 1.5, "faite", ["https://x/1.jpg", "https://x/apres.jpg"]], "ligne envoyée : tache_id et phase_id vides");
 eq(ecrite.proposition, ligne.proposition, "proposition envoyée telle quelle");
-const { origine: _o, proposition: _p, ...socle } = ecrite;
-eq(socle, serialiserLigneV1(remplie), "en dehors de origine/proposition : exactement le format historique");
+const { origine: _o, proposition: _p, photos_apres: _pa, ...socle } = ecrite;
+eq(socle, serialiserLigneV1(remplie), "en dehors de origine, proposition et photos_apres : exactement le format historique");
 
 const modifiee = modifierNouvelleTache(remplie, { ...saisieClient, ouvrage: liste[2], nature: "oubli_phasage", nom: "Niche" });
 eq([modifiee.statut, modifiee.heures_reelles, modifiee.planifie, modifiee.proposition.ouvrage_id, modifiee.proposition.nature],
@@ -119,7 +120,7 @@ const [v1] = brouillonV2VersV1([{ ...remplie, remarque: "côté fenêtre" }]);
 ok(v1.libre === true && !("proposition" in v1) && !("origine" in v1), "ancien formulaire : tâche libre, champs v2 retirés");
 eq(v1.remarque, "Nouvelle tâche dans « " + liste[0].libelle + " » — Demande du client (demandée par Mme Test) — côté fenêtre",
   "l'ouvrage, la nature et le demandeur passent dans la remarque, rien n'est perdu");
-eq([v1.chantier_id, v1.planifie, v1.photos], ["ch1", "Niche murale", ["https://x/1.jpg"]], "chantier, nom et photos gardés");
+eq([v1.chantier_id, v1.planifie, v1.photos], ["ch1", "Niche murale", ["https://x/1.jpg", "https://x/apres.jpg"]], "chantier, nom et photos gardés");
 eq(texteProposition({ ouvrage_libelle: "", nature: null }), `Nouvelle tâche dans « ${DIVERS_HORS_DEVIS} »`, "texte sans nature");
 
 // ── 4. Validation ───────────────────────────────────────────────────────────

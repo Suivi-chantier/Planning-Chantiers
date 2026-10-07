@@ -35,9 +35,23 @@
 //   proposition        (origine "nouvelle") { ouvrage_id, ouvrage_libelle,
 //                      nature, demandeur? } — ouvrage_id null = « Divers /
 //                      hors devis » (créé à la validation s'il n'existe pas).
+//   quantite_jour      (tâche suivie en quantité, voir suiviQuantite.mjs)
+//   unite              « posé aujourd'hui » et son unité (m², ml, m³, U).
+//                      L'avancement reste rempli, calculé depuis le total
+//                      (100 si Terminé) : toute la chaîne existante le lit.
+//   photos_apres       photos « après » d'une tâche Terminée : sous-ensemble
+//                      de `photos`, qui garde TOUTES les photos de la ligne.
+//   photo_apres_manquante      Terminé sans photo « après » ;
+//   photo_apres_hors_connexion   … parce que le téléphone était hors ligne ;
+//   photo_apres_bouton           … parce que l'ouvrier a touché « Je ne peux
+//                                pas envoyer la photo ». (Deux champs
+//                                distincts, pour compter les deux cas.)
 // La « précision » est écrite dans le champ remarque existant.
 // ─────────────────────────────────────────────────────────────────────────────
 import { etatHeures } from "./mesPhasesV1.mjs";
+import {
+  MODE_QUANTITE, etatSuivi, avancementQuantite, resteAPoser, quantiteValide, fmtQuantite, arrondi2,
+} from "./suiviQuantite.mjs";
 import { CODE_MOTIF_AUTRE, explicationLigne, NATURES_TACHE, libelleNature } from "./motifsCompteRendu.mjs";
 import { serialiserLigneV1, totalJournee } from "./compteRenduEnvoi.mjs";
 
@@ -175,18 +189,122 @@ export function releveDepassement(info, t) {
   };
 }
 
+// ── Quantités posées (tâche suivie en quantité) ─────────────────────────────
+// Suivi d'une tâche du jour, depuis les infos de la RPC ouvrier_mes_phases.
+// null = suivi en pourcentage, OU infos indisponibles (hors connexion, RPC
+// d'avant l'étape 4) : la carte retombe alors sur le pourcentage, rien ne
+// bloque l'envoi.
+export function suiviDepuisInfo(info) {
+  if (!info || info.quantite_validee === undefined) return null;
+  const s = etatSuivi(
+    { quantite: info.quantite, suivi_pourcent: info.suivi_pourcent === true, hors_devis: info.hors_devis_marque === true,
+      quantite_reprise: info.quantite_reprise, quantite_terminee: info.quantite_terminee, avancement: info.avancement },
+    { unite: info.ouvrage_unite, quantite: info.ouvrage_quantite, libelle: info.ouvrage_libelle },
+    { validee: info.quantite_validee, attente: info.quantite_en_attente },
+  );
+  return s.mode === MODE_QUANTITE ? s : null;
+}
+const suiviDeLigne = (t, infosParTache) => (t?.tache_id ? suiviDepuisInfo(infosParTache?.[String(t.tache_id)]) : null);
+
+// Total de la tâche avec aujourd'hui : départ + validé + en attente + aujourd'hui.
+export const totalAvecJour = (suivi, t) => arrondi2(suivi.cumul + suivi.attente + (vide(t?.quantite_jour) ? 0 : quantiteValide(t.quantite_jour)));
+
+// La ligne attend-elle une quantité ? Terminé, En cours, Bloqué avec heures.
+// (« Pas commencé » et « Bloqué à 0 h » : pas de quantité.)
+export function quantiteAttendue(t) {
+  const choix = choixDeLigne(t);
+  return choix === "termine" || choix === "en_cours" || (choix === "bloque" && minutesDe(t) > 0);
+}
+
+// Avancement de la ligne : 100 si Terminé (ou tâche déjà marquée terminée),
+// sinon calculé depuis le total ; vide tant que rien n'est saisi.
+function avancementLigne(t, suivi) {
+  if (t.statut === "faite" && !t.bloque) return "100";
+  if (vide(t.quantite_jour)) return suivi.terminee ? "100" : "";
+  return String(avancementQuantite({ cumul: totalAvecJour(suivi, t), quantite: suivi.quantite, terminee: suivi.terminee }));
+}
+
+// Saisie de « posé aujourd'hui » : chiffres et une virgule seulement (jamais
+// négatif) ; le texte tapé est gardé tel quel (« 12, » en cours de frappe),
+// converti en nombre à l'envoi. Vide = pas encore saisi.
+export function changerQuantiteJour(t, valeur, suivi) {
+  const q = String(valeur ?? "").replace(/[^0-9.,]/g, "").replace(/\./g, ",").replace(/,(?=.*,)/g, "");
+  const next = { ...t, quantite_jour: q, unite: suivi.unite };
+  return { ...next, avancement: avancementLigne(next, suivi) };
+}
+
+// Choix de statut sur une tâche en quantité : Terminé préremplit ce qui
+// reste à poser (modifiable) ; Pas commencé / Bloqué à 0 h effacent la
+// quantité ; En cours demande une quantité (avancement calculé).
+export function appliquerChoixSuivi(t, choix, suivi) {
+  let next = appliquerChoix(t, choix, { avancementActuel: suivi.avancement });
+  if (!quantiteAttendue(next)) {
+    const { quantite_jour, unite, ...reste } = next;
+    return reste;
+  }
+  if (choix === "termine" && vide(next.quantite_jour)) {
+    next = { ...next, quantite_jour: String(resteAPoser(suivi.quantite, suivi.cumul + suivi.attente)) };
+  }
+  next = { ...next, unite: suivi.unite };
+  return { ...next, avancement: avancementLigne(next, suivi) };
+}
+
+// Après un changement de temps : « Bloqué » qui retombe à 0 h perd sa quantité.
+export function apresMinutesSuivi(t, suivi) {
+  if (quantiteAttendue(t)) return vide(t.quantite_jour) ? t : { ...t, avancement: avancementLigne(t, suivi) };
+  const { quantite_jour, unite, ...reste } = t;
+  return reste;
+}
+
+// ── Photos « après » ────────────────────────────────────────────────────────
+// `photos` garde TOUTES les photos de la ligne (rien ne change pour ceux qui
+// les lisent) ; `photos_apres` en désigne une partie.
+const liste = (v) => (Array.isArray(v) ? v : []);
+export const photosApres = (t) => liste(t?.photos_apres).filter(p => liste(t?.photos).includes(p));
+export const photosAutres = (t) => liste(t?.photos).filter(p => !liste(t?.photos_apres).includes(p));
+// Le sélecteur « Photos de la tâche » ne montre que les autres photos.
+export function majPhotosAutres(t, autres) {
+  const apres = photosApres(t);
+  return { ...t, photos: [...liste(autres), ...apres.filter(p => !liste(autres).includes(p))], photos_apres: apres };
+}
+// Le sélecteur « Photo après » : ajoutées aussi à `photos`, retirées des deux.
+export function majPhotosApres(t, apres) {
+  const nouvelles = liste(apres);
+  const autres = photosAutres(t);
+  const next = { ...t, photos: [...autres, ...nouvelles.filter(p => !autres.includes(p))], photos_apres: nouvelles };
+  if (nouvelles.length > 0) { delete next.photo_apres_bouton; delete next.photo_apres_manquante; delete next.photo_apres_hors_connexion; }
+  return next;
+}
+// « Je ne peux pas envoyer la photo » (bouton), annulable.
+export const signalerPhotoImpossible = (t, oui = true) => {
+  const next = { ...t };
+  if (oui) next.photo_apres_bouton = true; else delete next.photo_apres_bouton;
+  return next;
+};
+// Photo « après » exigée et absente ? Hors connexion, la tâche part quand
+// même (marquée à l'envoi) ; le bouton lève aussi l'exigence.
+export function photoApresManquante(t, { horsConnexion = false } = {}) {
+  return choixDeLigne(t) === "termine" && photosApres(t).length === 0 && !t.photo_apres_bouton && !horsConnexion;
+}
+
 // ── Contrôle d'une ligne et de la journée ───────────────────────────────────
 // infosParTache : { [tache_id]: info } (peut être vide si les données n'ont
-// pas pu être chargées : on ne demande alors pas de motif de dépassement).
-export function problemesLigne(t, infosParTache = {}) {
+// pas pu être chargées : on ne demande alors pas de motif de dépassement, et
+// la tâche se saisit en pourcentage).
+// horsConnexion : le téléphone est hors ligne (la photo « après » ne peut pas
+// partir : elle n'est pas exigée, la ligne sera marquée à l'envoi).
+export function problemesLigne(t, infosParTache = {}, { horsConnexion = false } = {}) {
   const p = [];
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
+  const suivi = suiviDeLigne(t, infosParTache);
   if (t.libre && !t.chantier_id) p.push("chantier");
   if (!String(t.planifie ?? "").trim()) p.push("intitule");
   if (!choix) { p.push("statut"); return p; }
   if ((choix === "termine" || choix === "en_cours") && min <= 0) p.push("temps");
-  if ((choix === "en_cours" || choix === "bloque") && vide(t.avancement)) p.push("avancement");
+  if (suivi) {
+    if (quantiteAttendue(t) && vide(t.quantite_jour)) p.push("quantite");
+  } else if ((choix === "en_cours" || choix === "bloque") && vide(t.avancement)) p.push("avancement");
   if ((choix === "pas_commence" || choix === "bloque") && !t.motif) p.push("motif");
   const info = t.tache_id ? infosParTache[String(t.tache_id)] : null;
   if (motifDepassementRequis(info, t) && !t.motif_depassement) p.push("motif_depassement");
@@ -194,6 +312,7 @@ export function problemesLigne(t, infosParTache = {}) {
     || (t.motif_depassement === CODE_MOTIF_AUTRE && motifDepassementRequis(info, t));
   if (autre && !String(t.remarque ?? "").trim()) p.push("precision");
   if (photoManquante(t)) p.push("photo");
+  if (photoApresManquante(t, { horsConnexion })) p.push("photo_apres");
   return p;
 }
 
@@ -212,14 +331,16 @@ export const LIBELLES_PROBLEMES = Object.freeze({
   motif_depassement: "dis pourquoi les heures vendues sont dépassées",
   precision: "précise le motif « Autre »",
   photo: "ajoute une photo (demande du client)",
+  quantite: "indique la quantité posée",
+  photo_apres: "ajoute une photo « après »",
 });
 
 // État du bouton d'envoi : on n'envoie que si toutes les lignes sont complètes
 // ET que le total tombe exactement sur la cible.
-export function etatEnvoi({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache = {}, indirectesInvalides = 0 }) {
+export function etatEnvoi({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache = {}, indirectesInvalides = 0, horsConnexion = false }) {
   const r = resteJournee({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures });
   const remplies = (taches || []).filter(t => String(t.planifie ?? "").trim() || t.libre);
-  const lignes = remplies.map((t, i) => ({ i, problemes: problemesLigne(t, infosParTache) }))
+  const lignes = remplies.map((t, i) => ({ i, problemes: problemesLigne(t, infosParTache, { horsConnexion }) }))
     .filter(x => x.problemes.length > 0);
   const phrase = r.resteMin > 0 ? `Place encore ${fmtMinutes(r.resteMin)} pour envoyer`
     : r.resteMin < 0 ? `Tu dépasses de ${fmtMinutes(-r.resteMin)}`
@@ -242,7 +363,10 @@ export function fmtMinutes(min) {
 // motif de dépassement devenu sans objet (heures réduites depuis, tâche hors
 // devis, données indisponibles) : on n'envoie jamais un motif qui ne
 // correspond à rien. Le motif de statut ne s'envoie que pour Bloqué / Pas commencé.
-export function finaliserLignesV2(taches, infosParTache = {}) {
+// Quantité : retirée d'une ligne qui n'en attend pas (Pas commencé, Bloqué à
+// 0 h). Photo « après » : un Terminé sans photo part marqué
+// photo_apres_manquante, avec la raison (hors connexion ou bouton).
+export function finaliserLignesV2(taches, infosParTache = {}, { horsConnexion = false } = {}) {
   return (taches || []).map(t => {
     const info = t.tache_id ? infosParTache[String(t.tache_id)] : null;
     const requis = motifDepassementRequis(info, t);
@@ -251,6 +375,12 @@ export function finaliserLignesV2(taches, infosParTache = {}) {
     if (!(choix === "bloque" || choix === "pas_commence")) next.motif = null;
     if (requis && t.motif_depassement) next.depassement = releveDepassement(info, t);
     else { next.motif_depassement = null; next.depassement = null; }
+    if (!quantiteAttendue(t)) { delete next.quantite_jour; delete next.unite; }
+    delete next.photo_apres_manquante; delete next.photo_apres_hors_connexion;
+    if (choix === "termine" && photosApres(t).length === 0) {
+      next.photo_apres_manquante = true;
+      if (horsConnexion && !t.photo_apres_bouton) next.photo_apres_hors_connexion = true;
+    } else delete next.photo_apres_bouton;
     return next;
   });
 }
@@ -275,6 +405,14 @@ export function serialiserLigneV2(t) {
   // Nouvelle tâche proposée : tache_id et phase_id restent vides (comme une
   // ligne libre) ; la Validation crée la tâche puis rattache la ligne.
   if (origine === ORIGINE_NOUVELLE) out.proposition = propositionPropre(t.proposition);
+  // Quantité posée (tâche suivie en quantité) : nombre >= 0 et son unité.
+  if (!vide(t.quantite_jour) && t.unite) { out.quantite_jour = quantiteValide(t.quantite_jour); out.unite = t.unite; }
+  // Photo « après » : sous-ensemble de photos, ou raison de son absence.
+  const apres = photosApres(t);
+  if (apres.length > 0) out.photos_apres = apres;
+  if (t.photo_apres_manquante) out.photo_apres_manquante = true;
+  if (t.photo_apres_hors_connexion) out.photo_apres_hors_connexion = true;
+  if (t.photo_apres_bouton) out.photo_apres_bouton = true;
   return out;
 }
 
@@ -433,15 +571,24 @@ export const carteRetirable = (t) => !!t?.libre || t?.origine === ORIGINE_PHASAG
 // garde son tache_id (la Validation la rattache à sa tâche).
 // Une nouvelle tâche proposée devient une tâche libre ; l'ouvrage et la
 // nature passent en tête de la remarque (« Nouvelle tâche dans « … » — … »).
+// La quantité posée passe aussi en texte (« Posé : 12 m² ») ; l'avancement en
+// % déjà calculé reste, et les photos « après » restent dans `photos`.
 export function brouillonV2VersV1(taches) {
   return (taches || []).map(t => {
-    const { bloque, motif, motif_depassement, depassement, origine, proposition, ...reste } = t;
+    const {
+      bloque, motif, motif_depassement, depassement, origine, proposition,
+      quantite_jour, unite, photos_apres, photo_apres_manquante, photo_apres_hors_connexion, photo_apres_bouton,
+      ...reste
+    } = t;
+    const pose = !vide(quantite_jour) && unite ? `Posé : ${fmtQuantite(quantiteValide(quantite_jour))} ${unite}` : "";
+    const avecPose = (rem) => [pose, rem].filter(Boolean).join(" — ");
     const remarque = explicationLigne(t);
     if (origine === ORIGINE_NOUVELLE) {
-      return { ...reste, libre: true, remarque: [texteProposition(proposition), remarque].filter(Boolean).join(" — ") };
+      return { ...reste, libre: true, remarque: avecPose([texteProposition(proposition), remarque].filter(Boolean).join(" — ")) };
     }
     const base = origine === ORIGINE_PHASAGE ? { ...reste, libre: true } : { ...reste };
-    return motif ? { ...base, remarque } : base;
+    if (motif) return { ...base, remarque: avecPose(remarque) };
+    return pose ? { ...base, remarque: avecPose(String(base.remarque ?? "").trim()) } : base;
   });
 }
 // Un brouillon de l'ancien formulaire relu par le v2 : la remarque devient la

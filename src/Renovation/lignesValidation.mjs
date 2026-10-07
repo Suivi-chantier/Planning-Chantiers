@@ -15,8 +15,19 @@
 // VALIDATION, avant les pointages, avec un identifiant DÉRIVÉ du rapport et
 // de la ligne : une validation relancée retrouve la tâche au lieu d'en créer
 // une seconde. Les pointages sont ensuite ceux d'une ligne libre rattachée.
+//
+// QUANTITÉS POSÉES (tâche suivie en quantité, règle : suiviQuantite.mjs) :
+// la ligne porte une décision `qte` { source, declaree, validee, unite,
+// terminee } ; ses pointages reçoivent quantite_declaree / quantite_validee /
+// quantite_unite ; après leur écriture, l'avancement de la tâche est
+// recalculé depuis le cumul relu en base (majTachesQuantite). Une ligne en
+// pourcentage ne reçoit AUCUN champ de plus : ses pointages sont inchangés.
 // ─────────────────────────────────────────────────────────────────────────────
 import { horsDevisParDefaut } from "./motifsCompteRendu.mjs";
+import {
+  MODE_QUANTITE, etatSuivi, estAllumee, pointDeDepart, avancementQuantite, conversionPourcent,
+  quantiteValide, normaliserUnite, arrondi2, quantitePrevue,
+} from "./suiviQuantite.mjs";
 import { ORIGINE_NOUVELLE, DIVERS_HORS_DEVIS, estOuvrageDivers, texteProposition } from "./compteRenduV2.mjs";
 
 // Décision du conducteur sur une proposition, préremplie depuis l'ouvrier :
@@ -63,6 +74,151 @@ export function lignesDepuisRapport(rapport) {
     // conducteur (`creation`, null = ne rien créer). Absents sur toute autre
     // ligne : les lignes d'un rapport existant restent identiques.
     ...(estProposition(t) ? { proposition: { ...t.proposition }, creation: creationParDefaut(t) } : {}),
+    // Quantité posée déclarée (nouveau compte rendu) et photo « après » :
+    // ajoutés seulement s'ils existent (une ligne existante reste identique).
+    ...(t.quantite_jour != null && t.quantite_jour !== "" ? {
+      quantite_declaree: quantiteValide(t.quantite_jour), unite_declaree: normaliserUnite(t.unite) || t.unite || null,
+    } : {}),
+    ...(Array.isArray(t.photos_apres) && t.photos_apres.length ? { photos_apres: [...t.photos_apres] } : {}),
+    ...(t.photo_apres_manquante ? {
+      photo_apres_manquante: true,
+      photo_apres_raison: t.photo_apres_bouton ? "bouton" : t.photo_apres_hors_connexion ? "hors_connexion" : null,
+    } : {}),
+  }));
+}
+
+// ── Quantités posées ────────────────────────────────────────────────────────
+// Tâche et ouvrage d'un id dans le phasage V2.
+export function tacheEtOuvrage(ouvrages, tacheId) {
+  if (!tacheId) return null;
+  for (const o of ouvrages || []) {
+    const t = (o.taches || []).find(x => String(x.id) === String(tacheId));
+    if (t) return { tache: t, ouvrage: o };
+  }
+  return null;
+}
+
+// Suivi d'une tâche pour la Validation : cumul AVANT ce rapport (point de
+// départ + quantités validées des AUTRES rapports). null si en pourcentage.
+export function suiviPourValidation(ouvrages, tacheId, sommeAvant = 0) {
+  const to = tacheEtOuvrage(ouvrages, tacheId);
+  if (!to) return null;
+  const s = etatSuivi(to.tache, to.ouvrage, { validee: sommeAvant });
+  return s.mode === MODE_QUANTITE ? { ...s, tache: to.tache } : null;
+}
+
+// Décision par défaut sur une ligne (préremplissage, modifiable) :
+//   « declaree »  l'ouvrier a déclaré une quantité (nouveau compte rendu) ;
+//   « pourcent »  % déclaré sur une tâche déjà allumée (ancien formulaire,
+//                 ou carte saisie en % faute de données) : converti en
+//                 quantité ajoutée au cumul ;
+//   null          la ligne reste en pourcentage (tâche en %, ou tâche pas
+//                 encore allumée sans quantité déclarée).
+// « terminee » est coché d'office quand la ligne est Terminée.
+export function decisionQuantite(ligne, suivi) {
+  if (!suivi || !ligne?.tache_id) return null;
+  const terminee = ligne.statut === "faite" && !ligne.bloque;
+  if (ligne.quantite_declaree != null) {
+    const memeUnite = !ligne.unite_declaree || ligne.unite_declaree === suivi.unite;
+    return {
+      source: "declaree", declaree: ligne.quantite_declaree, unite: suivi.unite,
+      validee: memeUnite ? ligne.quantite_declaree : 0, uniteDifferente: !memeUnite, terminee,
+    };
+  }
+  if (!suivi.allumee) return null;
+  return {
+    source: "pourcent", declaree: null, unite: suivi.unite, terminee, pourcent: ligne.avancement_declare ?? 0,
+    validee: conversionPourcent({ pourcent: ligne.avancement_declare, quantite: suivi.quantite, cumulAvant: suivi.cumul }),
+  };
+}
+
+// Décision effective : défaut + retouches du conducteur (li.qte_edit).
+export function quantiteEffective(ligne, suivi) {
+  const d = decisionQuantite(ligne, suivi);
+  if (!d) return null;
+  const e = ligne.qte_edit || {};
+  return {
+    ...d,
+    ...(e.validee !== undefined ? { validee: e.validee } : {}),
+    ...(e.terminee !== undefined ? { terminee: e.terminee } : {}),
+  };
+}
+
+// Cumul et avancement après ce rapport (estimation affichée en Validation ;
+// l'avancement écrit est recalculé depuis la base après les pointages).
+export function apresValidation(suivi, quantitesDuRapport, terminee) {
+  const cumul = arrondi2(suivi.cumul + (quantitesDuRapport || 0));
+  const t = terminee || suivi.terminee;
+  return { cumul, terminee: t, avancement: avancementQuantite({ cumul, quantite: suivi.quantite, terminee: t }) };
+}
+
+// Patch d'une tâche après écriture des pointages d'un rapport.
+//   sommes : { tache_id: somme des quantite_validee de TOUS ses pointages,
+//              relue en base après l'écriture }
+// Pose le point de départ s'il manque (avancement AVANT ce rapport ×
+// quantité prévue, une seule fois), le marqueur « terminée » si une ligne le
+// demande (jamais retiré ici), et l'avancement qui en résulte.
+export function majTachesQuantite({ ouvrages, lignes, sommes, rapportId, le }) {
+  const patches = {};
+  const parTache = new Map();
+  (lignes || []).forEach(li => {
+    // Une ligne à 0 h ne crée pas de pointage : elle ne compte pas ici non plus
+    // (sinon un marqueur « terminée » serait posé sans pointage pour le retirer).
+    if (!li?.tache_id || !li.qte || !((parseFloat(li.heures) || 0) > 0)) return;
+    const k = String(li.tache_id);
+    parTache.set(k, (parTache.get(k) || false) || !!li.qte.terminee);
+  });
+  parTache.forEach((termineeDemandee, k) => {
+    const to = tacheEtOuvrage(ouvrages, k);
+    if (!to) return;
+    const s = etatSuivi(to.tache, to.ouvrage);
+    if (s.mode !== MODE_QUANTITE) return;
+    const patch = {};
+    const reprise = estAllumee(to.tache) ? Number(to.tache.quantite_reprise) : pointDeDepart(to.tache, s.quantite);
+    if (!estAllumee(to.tache)) patch.quantite_reprise = reprise;
+    const marqueur = to.tache.quantite_terminee || (termineeDemandee ? { rapport_id: rapportId, le } : null);
+    if (marqueur && !to.tache.quantite_terminee) patch.quantite_terminee = marqueur;
+    patch.avancement = avancementQuantite({
+      cumul: arrondi2(reprise + (sommes?.[k] || 0)), quantite: s.quantite, terminee: !!marqueur,
+    });
+    patches[k] = patch;
+  });
+  return patches;
+}
+
+// Après une dévalidation (« Corriger ») : le cumul a baissé (pointages du
+// rapport supprimés). Avancement recalculé ; le marqueur « terminée » posé
+// par CE rapport est retiré (posé par un autre rapport ou à la main : gardé).
+export function majTachesApresDevalidation({ ouvrages, tacheIds, sommes, rapportId }) {
+  const patches = {};
+  [...new Set((tacheIds || []).map(String))].forEach(k => {
+    const to = tacheEtOuvrage(ouvrages, k);
+    if (!to || !estAllumee(to.tache)) return;
+    const s = etatSuivi(to.tache, to.ouvrage);
+    if (s.mode !== MODE_QUANTITE) return;
+    const m = to.tache.quantite_terminee;
+    const retirer = m && typeof m === "object" && String(m.rapport_id) === String(rapportId);
+    const patch = {};
+    if (retirer) patch.quantite_terminee = null;
+    patch.avancement = avancementQuantite({
+      cumul: arrondi2(Number(to.tache.quantite_reprise) + (sommes?.[k] || 0)), quantite: s.quantite, terminee: !!m && !retirer,
+    });
+    patches[k] = patch;
+  });
+  return patches;
+}
+
+// Applique un patch (null = retirer le champ).
+export function appliquerPatchTache(t, patch) {
+  const next = { ...t };
+  Object.entries(patch || {}).forEach(([k, v]) => { if (v === null) delete next[k]; else next[k] = v; });
+  return next;
+}
+export function appliquerPatches(ouvrages, patches) {
+  if (!patches || Object.keys(patches).length === 0) return ouvrages;
+  return (ouvrages || []).map(o => ({
+    ...o,
+    taches: (o.taches || []).map(t => (patches[String(t.id)] ? appliquerPatchTache(t, patches[String(t.id)]) : t)),
   }));
 }
 
@@ -176,11 +332,17 @@ export async function enregistrerCreationsProposees({ phasage, lignes, rapport, 
 }
 
 // Lignes de la modale → entrée « taskLines » de buildPointagesRapport.
+// Une ligne en quantité (li.qte) ajoute ses trois champs ; les autres non.
 export const taskLinesPourPointages = (lignes) => (lignes || []).map(li => ({
   tache_id: li.tache_id || null,
   phase_id: li.phase_id || null,
   heures: li.heures,
   avancement_declare: li.avancement_declare,
+  ...(li.qte && li.tache_id ? {
+    quantite_declaree: li.qte.declaree != null ? quantiteValide(li.qte.declaree) : null,
+    quantite_validee: quantiteValide(li.qte.validee),
+    quantite_unite: li.qte.unite,
+  } : {}),
 }));
 
 // Le relevé « X h sur Y h vendues » enregistré à la saisie ne vaut que pour
@@ -199,10 +361,15 @@ export function depassementAffichable(ligne) {
 
 // Découpage d'une ligne en deux moitiés : le relevé de dépassement est retiré
 // des deux (les heures ne sont plus celles déclarées) ; le motif est conservé.
+// Une quantité déclarée est coupée en deux comme les heures (la retouche du
+// conducteur aussi) : rien n'est compté deux fois.
 export function decouperLigne(src, nouvelId) {
   const moitie = (parseFloat(src.heures) || 0) / 2;
-  const nouvelle = { ...src, rowId: nouvelId, _origine: false, heures: moitie, depassement: null };
-  const modif = { ...src, heures: moitie, depassement: null };
+  const qte = src.quantite_declaree != null ? { quantite_declaree: arrondi2(src.quantite_declaree / 2) } : {};
+  const edit = src.qte_edit?.validee !== undefined
+    ? { qte_edit: { ...src.qte_edit, validee: arrondi2(quantiteValide(src.qte_edit.validee) / 2) } } : {};
+  const nouvelle = { ...src, rowId: nouvelId, _origine: false, heures: moitie, depassement: null, ...qte, ...edit };
+  const modif = { ...src, heures: moitie, depassement: null, ...qte, ...edit };
   return [modif, nouvelle];
 }
 
@@ -216,9 +383,11 @@ export function ligneBasculee(ligne, { heures, rapport, valideur, le }) {
     statut: ligne.statut || "non_faite",
     // Une nouvelle tâche proposée ne suit pas (son ouvrage est sur l'autre
     // chantier) : la proposition passe en texte dans la remarque.
-    remarque: ligne.proposition
-      ? [texteProposition(ligne.proposition), ligne.remarque].filter(Boolean).join(" — ")
-      : ligne.remarque || "",
+    remarque: [
+      ligne.proposition ? texteProposition(ligne.proposition) : "",
+      ligne.quantite_declaree != null ? `Posé : ${String(ligne.quantite_declaree).replace(".", ",")} ${ligne.unite_declaree || ""}`.trim() : "",
+      ligne.remarque || "",
+    ].filter(Boolean).join(" — "),
     heures_reelles: heures,
     avancement: ligne.avancement_declare != null ? ligne.avancement_declare : 0,
     photos: [],

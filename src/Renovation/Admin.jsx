@@ -4,7 +4,7 @@ import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, par
 import { Icon } from "../ui";
 import AdresseInput from "../AdresseAutocomplete";
 import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, HORAIRES_DATE_DEBUT, HORAIRES_JOUR, HORAIRES_VENDREDI_5J, getISOWeek, libelleRythme, fmtHeures } from "../rythmeSemaine";
-import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents } from "../pointages";
+import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, reporterQuantites } from "../pointages";
 import {
   Settings, Users, HardHat, Euro, Building2, Palette,
   Plus, Trash2, Pencil, Check, X, ChevronUp, ChevronDown, Search, Mail,
@@ -2188,7 +2188,7 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
       for (let idx = 0; idx < n; idx++) {
         const r = j.rapports[idx];
         const dateISO = frToISO(r.date_rapport);
-        const lignes = buildPointagesRapport({
+        const lignesDeclarees = buildPointagesRapport({
           chantier_id: r.chantier_id,
           ouvrier: r.ouvrier,
           dateISO,
@@ -2206,6 +2206,13 @@ function OngletPointages({ T, acc, tauxHoraires = {}, profil }) {
           rangRapport: idx,
           heuresParRapportDuJour,
         });
+        // Quantités posées : celles VALIDÉES par le conducteur ne sont pas dans
+        // le rapport ; on les reprend des pointages remplacés (le cumul des
+        // tâches suivies en quantité ne bouge pas). Lecture en échec (colonnes
+        // absentes avant le SQL de l'étape 4) : rien à reprendre.
+        const { data: anciens } = await supabase.from("pointages")
+          .select("tache_id, quantite_declaree, quantite_validee, quantite_unite").eq("rapport_id", r.id);
+        const lignes = reporterQuantites(lignesDeclarees, Array.isArray(anciens) ? anciens : []);
         // Remplace intégralement les pointages du rapport.
         const { error: delErr } = await supabase.from("pointages").delete().eq("rapport_id", r.id);
         if (delErr) { errs++; continue; }
