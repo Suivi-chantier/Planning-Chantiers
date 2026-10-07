@@ -31,6 +31,7 @@ import Sourcing from "./Sourcing";
 import EtatDesLieux from "./EtatDesLieux";
 import Urbanisme from "./Urbanisme";
 import BarreOnglets, { MAX_ONGLETS } from "../Renovation/BarreOnglets";
+import BoutonAIFlottant from "./AI/BoutonAIFlottant";
 import { ClocheNotifications } from "./notifications";
 import PanneauAI from "./AI/PanneauAI";
 
@@ -801,6 +802,7 @@ export default function PageInvest({ profil, onRetourPortail, onLogout }) {
       {/* Profero AI. Rendu en dernier : le volet passe au-dessus du contenu et
           de la barre du bas, et la page reste montée derrière — on ne perd ni
           saisie ni filtre en posant une question. */}
+      {!aiOuvert && <BoutonAIFlottant onOuvrir={() => setAiOuvert(true)} T={T} estMobile={estMobile} />}
       <PanneauAI ouvert={aiOuvert} onFermer={() => setAiOuvert(false)}
         T={T} profil={profil} contexte={contexteAI} onNaviguer={naviguer} estMobile={estMobile} />
     </div>
