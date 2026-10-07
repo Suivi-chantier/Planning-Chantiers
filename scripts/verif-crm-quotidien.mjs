@@ -47,10 +47,11 @@ test("6. câblage : l'écran passe par le périmètre, ne montre plus le portail
   assert.ok(!/\.(insert|update|upsert|delete)\(/.test(L + V2));
   assert.match(L, /onMission\(m\.clientId, m\.dossierId\)/); assert.match(L, /onClient\(l\.id\)/);
 });
-test("7. fiche client : « Opérations » (vide) n'est plus un onglet visible, et le détail rare est replié", () => {
-  const F = lire("src/Invest/crm/FicheClientV2.jsx");
-  assert.match(F, /\.filter\(\(o\) => o\.cle !== "operations"\)/);
-  assert.match(F, /<details[\s\S]*Plus d'informations/);
+test("7. fiche client : cinq onglets, plus d'« Opérations », plus de bloc « Plus d'informations », rubriques sans numéros", () => {
+  const F = ["FicheClientV2", "FicheEnsemble", "FicheMissions", "FichePatrimoine", "FicheDocuments", "FicheActivite"].map((f) => lire(`src/Invest/crm/${f}.jsx`)).join("\n");
+  assert.match(F, /onglets=\{ONGLETS_CLIENT\}/);
+  assert.ok(!/operations/.test(lire("src/Invest/crm/crmV2Vue.mjs").split("ONGLET_HERITE")[0]), "plus d'onglet Opérations");
+  assert.ok(!/<details[\s\S]*Plus d'informations/.test(F));
   assert.ok(!/titre="[123] ·/.test(F) && !/titre=\{`1 ·/.test(F), "plus de rubriques numérotées");
 });
 
