@@ -229,9 +229,42 @@ function MoreSheet({ items, currentPage, onSelect, onClose, T, acc }) {
 }
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
+// Pages de la branche Rénovation (réutilisé par la barre d'onglets).
+const allNav = [
+  { id:"dashboard",        icon:LayoutDashboard, label:"Tableau de bord"  },
+  { id:"chantiers",        icon:HardHat,         label:"Chantiers"        },
+  { id:"planning",         icon:Calendar,        label:"Planning semaine" },
+  { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },
+  { id:"alertes",          icon:Bell,            label:"Alertes"          },
+  { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
+  { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
+  { id:"commandes",        icon:Package,         label:"Commandes"        },
+  { id:"capture-cmd",      icon:Camera,          label:"Saisie commande"  },
+  { id:"rapprochement",    icon:Receipt,         label:"Rapprochement factures" },
+  { id:"encours-fournisseurs", icon:Wallet,      label:"Encours fournisseurs" },
+  { id:"planning-commandes", icon:ShoppingCart,  label:"Commandes à passer" },
+  { id:"equipe",           icon:Users,           label:"Équipe"           },
+  { id:"inventaire-equipes", icon:Wrench,        label:"Inventaire des équipes" },
+  { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
+  { id:"heures-salaries",  icon:Clock,           label:"Heures des salariés" },
+  { id:"plans",            icon:Ruler,           label:"Plans"            },
+  { id:"phasage-v2",       icon:ListChecks,      label:"Phasage" },
+  { id:"operations",       icon:Building2,       label:"Opérations" },
+  { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },
+  { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
+  { id:"visite",           icon:Search,          label:"Visites chantier" },
+  { id:"info-client",      icon:IdCard,          label:"Chiffrage"        },
+  { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
+  { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions de matériaux" },
+  { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide ouvrages"   },
+  { id:"journal-maj",      icon:Newspaper,       label:"Journal des MAJ"  },
+  { id:"admin",            icon:Settings,        label:"Réglages"         },
+];
+const LABELS_PAGES = Object.fromEntries(allNav.map(n => [n.id, n.label]));
+
 function Sidebar({
   page, setPage, T, role = "admin", branch = "renovation",
-  rolePages = null,
+  rolePages = null, onOuvrirDansNouvelOnglet = null,
   // Tout l'ancien contenu de la topbar :
   profil, theme, setTheme, onLogout, peutChangerBranche, onRetourPortail,
   syncing = false, connected = true, lastSync = null,
@@ -239,36 +272,6 @@ function Sidebar({
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "1");
   const acc = getBranchAccent(branch);
 
-  const allNav = [
-    { id:"dashboard",        icon:LayoutDashboard, label:"Tableau de bord"  },
-    { id:"chantiers",        icon:HardHat,         label:"Chantiers"        },
-    { id:"planning",         icon:Calendar,        label:"Planning semaine" },
-    { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },
-    { id:"alertes",          icon:Bell,            label:"Alertes"          },
-    { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
-    { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
-    { id:"commandes",        icon:Package,         label:"Commandes"        },
-    { id:"capture-cmd",      icon:Camera,          label:"Saisie commande"  },
-    { id:"rapprochement",    icon:Receipt,         label:"Rapprochement factures" },
-    { id:"encours-fournisseurs", icon:Wallet,      label:"Encours fournisseurs" },
-    { id:"planning-commandes", icon:ShoppingCart,  label:"Commandes à passer" },
-    { id:"equipe",           icon:Users,           label:"Équipe"           },
-    { id:"inventaire-equipes", icon:Wrench,        label:"Inventaire des équipes" },
-    { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
-    { id:"heures-salaries",  icon:Clock,           label:"Heures des salariés" },
-    { id:"plans",            icon:Ruler,           label:"Plans"            },
-    { id:"phasage-v2",       icon:ListChecks,      label:"Phasage" },
-    { id:"operations",       icon:Building2,       label:"Opérations" },
-    { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },
-    { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
-    { id:"visite",           icon:Search,          label:"Visites chantier" },
-    { id:"info-client",      icon:IdCard,          label:"Chiffrage"        },
-    { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
-    { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions de matériaux" },
-    { id:"guide-ouvrages",   icon:BookMarked,      label:"Guide ouvrages"   },
-    { id:"journal-maj",      icon:Newspaper,       label:"Journal des MAJ"  },
-    { id:"admin",            icon:Settings,        label:"Réglages"         },
-  ];
 
   const allowed = (rolePages && rolePages[role]) || ROLE_PAGES[role] || ROLE_PAGES.admin;
   const allowedNav = allNav.filter(n => allowed.includes(n.id));
@@ -402,7 +405,12 @@ function Sidebar({
                 }}/>
               )}
               <button
-                onClick={() => { if (!editOrder) setPage(n.id); }}
+                onClick={(e) => {
+                  if (editOrder) return;
+                  if ((e.metaKey || e.ctrlKey) && onOuvrirDansNouvelOnglet) onOuvrirDansNouvelOnglet(n.id);
+                  else setPage(n.id);
+                }}
+                onAuxClick={(e) => { if (e.button === 1 && !editOrder && onOuvrirDansNouvelOnglet) { e.preventDefault(); onOuvrirDansNouvelOnglet(n.id); } }}
                 title={collapsed ? n.label : ""}
                 draggable={editOrder && !collapsed}
                 onDragStart={editOrder ? () => setDragId(n.id) : undefined}
@@ -558,4 +566,4 @@ function Sidebar({
   );
 }
 
-export { useIsMobile, BottomNav, Sidebar };
+export { useIsMobile, BottomNav, Sidebar, LABELS_PAGES };
