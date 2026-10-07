@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-07",
+    type: "nouveaute",
+    titre: "Fiche client refondue : un poste de pilotage pour le quotidien, avec toutes les missions du client au même endroit",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "La fiche client montre d'abord ce qu'il y a à faire maintenant, puis où en est chaque mission (Offre 2 et Offre 3 côte à côte), puis l'état du dossier (patrimoine, pièces, portail). Cinq onglets seulement : Vue d'ensemble, Missions, Patrimoine, Documents, Activité.",
+    comment: "Ouvrez un client depuis le CRM. En haut : « ＋ Nouvelle mission » (Offre 2 ou Offre 3), « ＋ Note » et « ••• » (modifier le client, accès au portail, journal système). « À faire maintenant » classe les actions par retard puis priorité, avec Terminer / Reporter / Ouvrir. Chaque mission a sa frise d'avancement ; ce qui n'est pas renseigné s'affiche « À compléter », jamais 0. L'ancien onglet Structuration et le bouton « Sujet de structuration » disparaissent : l'étude patrimoniale s'ouvre depuis Missions, et ses préconisations deviennent des actions suivies. Documents : liste par catégories et demande groupée des pièces manquantes (confirmation avant tout envoi). Activité : notes, appels, e-mails, rendez-vous et missions, filtrables ; les événements techniques sont masqués (« ••• → Journal système »).",
+  },
+  {
     date: "2026-10-06",
     type: "amelioration",
     titre: "CRM : plus simple pour le suivi quotidien, vos missions d'abord et moins d'informations à l'écran",

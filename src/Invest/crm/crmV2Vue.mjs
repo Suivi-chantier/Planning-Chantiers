@@ -28,17 +28,17 @@ export const ONGLETS_CLIENT = Object.freeze([
   { cle: "ensemble", libelle: "Vue d'ensemble" },
   { cle: "missions", libelle: "Missions" },
   { cle: "patrimoine", libelle: "Patrimoine" },
-  { cle: "operations", libelle: "Opérations" },
   { cle: "documents", libelle: "Documents" },
-  { cle: "historique", libelle: "Historique" },
+  { cle: "activite", libelle: "Activité" },
 ]);
 
-/** Onglet affiché seulement pour les clients cochés « sujet de structuration » (après Patrimoine). */
-export const ONGLET_STRUCTURATION = Object.freeze({ cle: "structuration", libelle: "Structuration" });
-export function ongletsClient(client) {
-  if (client?.sujet_structuration !== true) return ONGLETS_CLIENT;
-  const i = ONGLETS_CLIENT.findIndex((o) => o.cle === "patrimoine");
-  return Object.freeze([...ONGLETS_CLIENT.slice(0, i + 1), ONGLET_STRUCTURATION, ...ONGLETS_CLIENT.slice(i + 1)]);
+/** Anciennes clés d'onglet (liens existants, onglet « Structuration » retiré) → onglet actuel. */
+export const ONGLET_HERITE = Object.freeze({ historique: "activite", structuration: "missions", operations: "ensemble" });
+export const ongletValide = (cle) => (ONGLETS_CLIENT.some((o) => o.cle === cle) ? cle : ONGLET_HERITE[cle] ?? "ensemble");
+
+/** Les cinq onglets sont les mêmes pour tous les clients : la structuration s'ouvre depuis les missions (Offre 3). */
+export function ongletsClient() {
+  return ONGLETS_CLIENT;
 }
 
 // Offres (Offre 2 / Offre 3) : source unique dans dossiers/offres.mjs (chantier 9).
@@ -206,7 +206,7 @@ export function historiqueClient({ notes = [], evenements = [], dossiers = [] })
   const n = notes.map((x) => ({ id: `n-${x.id}`, genre: "note", quand: x.date || x.created_at || null, type: LIBELLES_NOTE[x.type] ?? "Note",
     texte: x.contenu || "", auteur: x.auteur || null, mission: null, ordre: 0 }));
   const e = evenements.map((x) => ({ id: `e-${x.id}`, genre: "mission", quand: x.survenu_le || null, type: "Mission",
-    texte: x.resume || "", auteur: x.auteur_libelle || null, mission: refs.get(x.dossier_id) ?? null, ordre: Number(x.ordre) || 0 }));
+    texte: x.resume || "", auteur: x.auteur_libelle || null, mission: refs.get(x.dossier_id) ?? null, ordre: Number(x.ordre) || 0, typeEvenement: x.type || null }));
   return [...n, ...e].sort((a, b) => String(b.quand || "").localeCompare(String(a.quand || "")) || b.ordre - a.ordre);
 }
 

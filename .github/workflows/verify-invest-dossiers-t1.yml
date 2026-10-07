@@ -34,6 +34,7 @@ on:
       - 'scripts/verif-invest-fiche-dossier.mjs'
       - 'scripts/verif-invest-crm-v2.mjs'
       - 'scripts/verif-crm-quotidien.mjs'
+      - 'scripts/verif-fiche-client-v1.mjs'
       - 'src/Invest/crm/**'
       - 'scripts/verif-invest-missions-offres.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
@@ -66,5 +67,7 @@ jobs:
         run: node scripts/verif-invest-crm-v2.mjs
       - name: CRM du suivi quotidien (mes missions, groupes, fiche client allégée)
         run: node scripts/verif-crm-quotidien.mjs
+      - name: Fiche client V1 (poste de pilotage, frises Offre 2 / Offre 3, À faire maintenant, pièces, activité)
+        run: node scripts/verif-fiche-client-v1.mjs
       - name: Missions Offre 2 / Offre 3 (phases, jalons, honoraires, gestes)
         run: node scripts/verif-invest-missions-offres.mjs
