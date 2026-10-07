@@ -10,7 +10,7 @@ import { Section, Carte, Pastille, Discret, Vide, dateFr, aujourdhuiIso, ROUGE, 
 const COULEUR_PRIORITE = { Urgente: ROUGE, Haute: ORANGE, Normale: BLEU, Faible: GRIS };
 
 /** Une action : titre, contexte, priorité, boutons selon sa source. */
-function LigneAction({ T, a, onOuvrirMission, onOuvrirEtude, onOnglet, onChange }) {
+export function LigneAction({ T, a, onOuvrirMission, onOuvrirEtude, onOnglet, onChange, onDefinir, onOuvrirEtape }) {
   const [reportOuvert, setReportOuvert] = useState(false);
   const [date, setDate] = useState("");
   const [occupe, setOccupe] = useState(false);
@@ -28,6 +28,8 @@ function LigneAction({ T, a, onOuvrirMission, onOuvrirEtude, onOnglet, onChange 
     if (code === "terminer") return <button key={code} className="inv-btn inv-btn-sm" disabled={occupe} onClick={() => ecrire({ status: "fait" })}>Terminer</button>;
     if (code === "reporter") return <button key={code} className="inv-btn inv-btn-sm" disabled={occupe} onClick={() => setReportOuvert((v) => !v)}>Reporter</button>;
     if (code === "ouvrir") return <button key={code} className="inv-btn inv-btn-sm" onClick={() => onOuvrirMission(a.dossierId)}>Ouvrir</button>;
+    if (code === "definir") return <button key={code} className="inv-btn inv-btn-blue inv-btn-sm" onClick={onDefinir}>Définir</button>;
+    if (code === "ouvrir_etape") return <button key={code} className="inv-btn inv-btn-sm" onClick={onOuvrirEtape}>Ouvrir</button>;
     if (code === "ouvrir_etude") return <button key={code} className="inv-btn inv-btn-sm" onClick={onOuvrirEtude}>Ouvrir</button>;
     if (code === "demander") return <button key={code} className="inv-btn inv-btn-blue inv-btn-sm" onClick={() => onOnglet("documents")}>Demander</button>;
     if (code === "completer") return <button key={code} className="inv-btn inv-btn-sm" onClick={() => onOnglet("patrimoine")}>Compléter</button>;

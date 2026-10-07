@@ -35,6 +35,10 @@ on:
       - 'scripts/verif-invest-crm-v2.mjs'
       - 'scripts/verif-crm-quotidien.mjs'
       - 'scripts/verif-fiche-client-v1.mjs'
+      - 'scripts/verif-mission-offre2.mjs'
+      - 'scripts/verif-invest-mission-offre2-suivi.mjs'
+      - 'supabase/migrations/20261007120000_invest_mission_offre2_suivi.sql'
+      - 'src/Invest/dossiers/**'
       - 'src/Invest/crm/**'
       - 'scripts/verif-invest-missions-offres.mjs'
       - 'scripts/reprise-invest-dossiers-t1.mjs'
@@ -69,5 +73,9 @@ jobs:
         run: node scripts/verif-crm-quotidien.mjs
       - name: Fiche client V1 (poste de pilotage, frises Offre 2 / Offre 3, À faire maintenant, pièces, activité)
         run: node scripts/verif-fiche-client-v1.mjs
+      - name: Mission Offre 2 (sept onglets, frise, offre, acquisition, financement, travaux, transmission)
+        run: node scripts/verif-mission-offre2.mjs
+      - name: Mission Offre 2 — colonnes de suivi (PostgreSQL embarqué)
+        run: node scripts/verif-invest-mission-offre2-suivi.mjs
       - name: Missions Offre 2 / Offre 3 (phases, jalons, honoraires, gestes)
         run: node scripts/verif-invest-missions-offres.mjs

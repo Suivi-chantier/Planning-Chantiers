@@ -25,7 +25,7 @@ import { FilAriane, Onglets, Carte, Discret, Vide, aujourdhuiIso, ROUGE } from "
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
 const ETUDE = "etude";
 
-export default function FicheClientV2({ clientId, ongletInitial, missionInitiale = null, profil, T, onRetour, renderModifierClient }) {
+export default function FicheClientV2({ clientId, ongletInitial, missionInitiale = null, profil, T, onRetour, renderModifierClient, onOpenBien = null }) {
   const [donnees, setDonnees] = useState(null);
   const [erreur, setErreur] = useState("");
   const [onglet, setOnglet] = useState(missionInitiale ? "missions" : ongletValide(ongletInitial));
@@ -133,7 +133,8 @@ export default function FicheClientV2({ clientId, ongletInitial, missionInitiale
             <button className="inv-btn inv-btn-sm" style={{ marginBottom: 12 }} onClick={() => { setMissionOuverte(null); rafraichir(); }}>← Toutes les missions de {e.nom}</button>
             {missionOuverte === ETUDE
               ? <StructurationPatrimoniale key={client.id} profil={profil} T={T} clientIdFixe={client.id} />
-              : <FicheDossier client={client} T={T} profil={profil} dossierIdInitial={missionOuverte} />}
+              : <FicheDossier client={client} T={T} profil={profil} dossierIdInitial={missionOuverte} onOpenBien={onOpenBien}
+                  onClientOnglet={(o) => { setMissionOuverte(null); setOnglet(ongletValide(o)); }} />}
           </>
         : <FicheMissions key={signalNouvelle} T={T} vue={vue} donnees={donnees} cartes={modele.missions.enCours} structuration={donnees.structuration} profil={profil} illisible={illisible}
             ouvrirNouvelle={signalNouvelle > 0} onOuvrirMission={onOuvrirMission} onOuvrirEtude={onOuvrirEtude} onCree={(id) => { rafraichir(); onOuvrirMission(id); }} onChange={rafraichir} />)}

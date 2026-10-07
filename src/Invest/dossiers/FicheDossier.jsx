@@ -24,6 +24,7 @@ import AnalyseMission from "./AnalyseMission";
 import StrategieMission from "./StrategieMission";
 import FinancementMission from "./FinancementMission";
 import AcquisitionMission from "./AcquisitionMission";
+import MissionOffre2 from "./MissionOffre2";
 
 const TABLES_2C = ["invest_personnes", "invest_postes_financiers", "invest_engagements", "invest_actifs_patrimoniaux", "invest_structures"];
 const COULEUR_ETAPE = { a_venir: "#94a3b8", en_cours: "#2563eb", en_attente: "#d97706", bloquee: "#dc2626", terminee: "#16a34a", non_applicable: "#cbd5e1" };
@@ -58,7 +59,7 @@ const Donnee = ({ T, libelle, valeur, fort }) => (
 );
 
 // `dossierIdInitial` : mission à afficher à l'ouverture (CRM V2 → « Ouvrir la mission »).
-export default function FicheDossier({ client, T, profil, onDossierChange, version = 0, dossierIdInitial = null }) {
+export default function FicheDossier({ client, T, profil, onDossierChange, version = 0, dossierIdInitial = null, onClientOnglet = null, onOpenBien = null }) {
   const [donnees, setDonnees] = useState(null);
   const [etat, setEtat] = useState({ chargement: true, erreur: "" });
   const [idChoisi, setIdChoisi] = useState(dossierIdInitial);
@@ -129,6 +130,35 @@ export default function FicheDossier({ client, T, profil, onDossierChange, versi
   const { entete: e, pilotage: p, aFaire } = fiche;
   const etapePanneau = panneau ? donnees.etapes.find((x) => x.etape === panneau) : null;
   const tachesEtape = tachesParEtape(donnees.taches, fiche.dossier.id);
+
+  // Portail client : montrer / masquer le dossier. Rien n'est visible tant que ce n'est pas fait.
+  const basculerPortail = async (voulu) => {
+    if (voulu && !window.confirm("Montrer ce dossier au client ?\n\nIl verra le titre, le statut et la progression des étapes. Les tâches et événements restent masqués tant que vous ne les cochez pas. Jamais les honoraires ni les notes internes.")) return;
+    const { data, error } = await supabase.from("invest_dossiers").update({ portail_visible: voulu }).eq("id", fiche.dossier.id).select("id");
+    if (error) { setMessage(`Portail client : ${error.message}`); return; }
+    if (!data?.length) { setMessage("Portail client : modification refusée (droits insuffisants)."); return; }
+    setMessage(voulu ? "Dossier visible par le client." : "Dossier masqué au client."); rafraichir();
+  };
+
+  // Offre 2 (accompagnement à l'investissement) : nouvelle mission en sept onglets. Les autres types gardent la fiche historique.
+  if (fiche.dossier.type_mission === "accompagnement_acquisition") {
+    return (
+      <div id="fiche-dossier" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {message && <div style={{ fontSize: 12.5, padding: "8px 12px", borderRadius: 10, background: T.accentBg, color: T.text }}>{message}</div>}
+        {etat.erreur && <div style={{ fontSize: 12, color: "#be123c" }}>Lecture incomplète : {etat.erreur}</div>}
+        {geste && <GesteMission T={T} geste={geste} fiche={fiche} aujourdhui={aujourdhui} onFermer={() => setGeste(null)} onEnregistre={(txt) => { setGeste(null); setMessage(txt); rafraichir(); }} />}
+        <MissionOffre2 T={T} client={client} profil={profil} fiche={fiche} donnees={donnees} onRafraichir={rafraichir} onMessage={setMessage}
+          onOuvrirEtape={setPanneau} onGeste={setGeste} onClientOnglet={onClientOnglet} onOpenBien={onOpenBien}
+          parcoursDetail={fiche.offre ? <ParcoursOffre T={T} offre={fiche.offre} parcours={fiche.parcours} modifiable={fiche.modifiable} onOuvrir={setPanneau} onGeste={setGeste} /> : <Parcours T={T} parcours={fiche.parcours} onOuvrir={setPanneau} />}
+          honorairesCard={<MissionHonoraires T={T} fiche={fiche} onGeste={setGeste} onPortail={basculerPortail} />} />
+        {panneau && etapePanneau && (
+          <PanneauEtape T={T} cle={panneau} dossier={fiche.dossier} clos={e.clos} etape={etapePanneau} taches={tachesEtape[panneau]}
+            utilisateurs={donnees.utilisateurs} monId={monId} journal={journalVue(donnees.evenements, etapePanneau.id)} aujourdhui={aujourdhui}
+            onFermer={() => setPanneau(null)} onEnregistre={(txt) => { setMessage(txt); rafraichir(); }} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div id="fiche-dossier" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
