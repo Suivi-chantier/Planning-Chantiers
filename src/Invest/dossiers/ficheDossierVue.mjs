@@ -120,6 +120,8 @@ export function construireFiche({ client, dossiers = [], idChoisi = null, etapes
       echeance: ajd.echeance,
       retardJours: ajd.echeance && ajd.echeance < aujourdhui ? joursEntre(ajd.echeance, aujourdhui) : 0,
       blocage: etapeAgir?.blocage ? etapeAgir.blocage.motif : null,
+      // Aucune étape active ne porte de vraie prochaine action (l'action affichée est alors un libellé par défaut).
+      sansAction: !p.actives.some((a) => a.prochaineAction),
     } : null,
     parcours,
     projet: { ...syntheseObjectifs(questionnaire.data), statut: questionnaire.statut, statutLibelle: STATUTS_QUESTIONNAIRE[questionnaire.statut],

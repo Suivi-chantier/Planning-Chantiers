@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-07",
     type: "nouveaute",
+    titre: "Mission Offre 2 refondue : un vrai parcours d'investissement en sept onglets, de la recherche à la transmission",
+    pages: [{ id: "crm", label: "CRM" }],
+    quoi: "Ouvrir une mission d'accompagnement à l'investissement montre tout de suite où en est le dossier : l'étape actuelle, la prochaine action, qui a la balle, ce qui bloque et le bien travaillé. Les onglets suivent le déroulé réel : Vue d'ensemble, Projet, Recherche & biens, Offre & acquisition, Financement, Travaux, Transmission.",
+    comment: "Une frise Projet → Recherche → Bien → Offre → Acquisition → Financement → Travaux → Transmission reste visible en haut. « Recherche & biens » liste tous les biens étudiés (à analyser, proposé, visite, refusé, retenu) sans jamais en supprimer. « Offre & acquisition » suit l'offre, le compromis, les conditions suspensives et l'acte. « Financement » résume le pipeline et les banques. « Transmission » clôt la mission quand le dossier est transmis. Le patrimoine et les documents restent sur la fiche client : la mission en montre seulement l'avancement et y renvoie. Les anciennes missions s'affichent sans rien perdre : leurs étapes sont simplement regroupées.",
+  },
+  {
+    date: "2026-10-07",
+    type: "nouveaute",
     titre: "Fiche client refondue : un poste de pilotage pour le quotidien, avec toutes les missions du client au même endroit",
     pages: [{ id: "crm", label: "CRM" }],
     quoi: "La fiche client montre d'abord ce qu'il y a à faire maintenant, puis où en est chaque mission (Offre 2 et Offre 3 côte à côte), puis l'état du dossier (patrimoine, pièces, portail). Cinq onglets seulement : Vue d'ensemble, Missions, Patrimoine, Documents, Activité.",

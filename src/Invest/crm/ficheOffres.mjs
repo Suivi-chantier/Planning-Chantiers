@@ -275,6 +275,12 @@ export function prioriteDerivee({ echeance, retardJours = 0, bloque = false }, a
 
 const TACHE_OUVERTE = new Set(["a_faire", "en_cours", "bloque"]);
 
+/** Tri commun : le retard d'abord, puis la priorité, puis la date. */
+export function trierActions(items = []) {
+  return [...items].sort((a, b) => (b.retardJours > 0) - (a.retardJours > 0) || RANG[a.priorite] - RANG[b.priorite]
+    || String(a.echeance || "9999").localeCompare(String(b.echeance || "9999")) || a.titre.localeCompare(b.titre, "fr"));
+}
+
 /**
  * Actions à faire, toutes sources confondues : tri retard → priorité → date. `tout` = liste complète, `visibles` = cinq premières.
  * Sources : prochaine action de chaque mission, tâches de mission, pièces à demander, patrimoine incomplet, préconisations de l'Offre 3.
@@ -315,8 +321,7 @@ export function actionsAFaire({ missions = [], taches = [], dossiers = [], docum
     items.push({ id: `reco-${r.id}`, source: "preconisation", titre: `Préconisation ${STATUTS_PRECONISATION[r.etat].toLowerCase()} : ${r.titre}`, mission: "Offre 3", dossierId: null,
       echeance: r.echeance, retardJours: retard, priorite: retard > 7 ? "Urgente" : r.priorite, boutons: ["ouvrir_etude"] });
   }
-  const tri = [...items].sort((a, b) => (b.retardJours > 0) - (a.retardJours > 0) || RANG[a.priorite] - RANG[b.priorite]
-    || String(a.echeance || "9999").localeCompare(String(b.echeance || "9999")) || a.titre.localeCompare(b.titre, "fr"));
+  const tri = trierActions(items);
   return { tout: tri, visibles: tri.slice(0, max), total: tri.length };
 }
 
