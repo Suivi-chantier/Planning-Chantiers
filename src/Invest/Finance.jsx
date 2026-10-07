@@ -89,7 +89,7 @@ function getProjetSimFinance(p = {}) {
   const lots = Array.isArray(d.lots) ? d.lots.filter(l => l && l.type && l.type !== "Sélectionner") : [];
   const prixNegocie = Number(inputs.prixNegocie || 0);
   const tauxNotaire = Number(inputs.tauxNotaire ?? 0.08);
-  const fraisNotaire = prixNegocie * tauxNotaire;
+  const fraisNotaire = inputs.fraisNotaireManuel != null ? Number(inputs.fraisNotaireManuel) : prixNegocie * tauxNotaire;
   const budgetTravaux = Number(inputs.budgetTravaux || 0);
   const honoraires = Number(inputs.honoraires || 0);
   const enedis = Number(inputs.enedis || 0);

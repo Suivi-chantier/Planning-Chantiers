@@ -3078,7 +3078,8 @@ function getSimulationMetricsFromBien(bien = {}, selectedSimulationId = "") {
   const honoraires = metricValue(inputs.honoraires);
   const enedis = metricValue(inputs.enedis);
   const tauxNotaire = hasMetricValue(inputs.tauxNotaire) ? getNumberLoose(inputs.tauxNotaire) : 0.08;
-  const coutTotalSimulateur = prix + prix * tauxNotaire + travaux + honoraires + enedis;
+  const fraisNotaire = hasMetricValue(inputs.fraisNotaireManuel) ? getNumberLoose(inputs.fraisNotaireManuel) : prix * tauxNotaire;
+  const coutTotalSimulateur = prix + fraisNotaire + travaux + honoraires + enedis;
   const coutTotal = coutTotalSimulateur > 0 ? coutTotalSimulateur : metricValue(bien.cout_total);
 
   const loyerMensuel = activeLots.reduce((s,l)=>s+numVal(l.loyer),0);

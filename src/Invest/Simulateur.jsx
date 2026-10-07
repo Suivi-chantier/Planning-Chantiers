@@ -367,6 +367,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   const [prixAffiche,   setPrixAffiche]   = useState(d0.prixAffiche||280000);
   const [prixNegocie,   setPrixNegocie]   = useState(d0.prixNegocie||250000);
   const [tauxNotaire,   setTauxNotaire]   = useState(d0.tauxNotaire||0.08);
+  const [fraisNotaireManuel, setFraisNotaireManuel] = useState(d0.fraisNotaireManuel ?? null);
   const [surface,       setSurface]       = useState(d0.surface||237);
   const [budgetTravaux, setBudgetTravaux] = useState(d0.budgetTravaux||0);
   const [honoraires,    setHonoraires]    = useState(d0.honoraires||0);
@@ -417,7 +418,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   }, []);
 
   // ── Calculs dérivés ─────────────────────────────────────────────────────────
-  const fn          = prixNegocie * tauxNotaire;
+  const fn          = fraisNotaireManuel != null ? fraisNotaireManuel : prixNegocie * tauxNotaire;
   const prixAchat   = prixNegocie + fn;
   const coutTotal   = prixAchat + budgetTravaux + honoraires + enedis;
   const aLots       = actLots(lots);
@@ -464,7 +465,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
   // ── Sauvegarde : stock uniquement en mode embedded, local sinon ───────────────
   const collectState = useCallback(()=>({
     version:4, savedAt:new Date().toISOString(), projectName:nom,
-    inputs:{prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct},
+    inputs:{prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,fraisNotaireManuel,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct},
     selects:{gestionActive,modeDetention,tmi:tmi.toString(),selectedScenario:selectedScen},
     lots:lots.map(l=>({...l})), budgetQty:{...budgetQty}, budgetPrice:{...budgetPrice},
     customDivers:customDivers.map(c=>({...c})),
@@ -474,7 +475,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     note_interne: noteInterne,
     photos:photos.slice(),
     bien_id: bienId || null,
-  }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,adresse,noteInterne,photos,bienId]);
+  }),[nom,prixAffiche,prixNegocie,budgetTravaux,tauxNotaire,fraisNotaireManuel,surface,honoraires,enedis,taxeFonciere,assurance,compta,provisions,apport1,apport2,taux1,taux2,duree1,duree2,coefEtat,imprevusPct,gestionActive,modeDetention,tmi,selectedScen,lots,budgetQty,budgetPrice,customDivers,desc,travaux,atouts,adresse,noteInterne,photos,bienId]);
 
   const sauvegarder = useCallback(async(options = {})=>{
     const silent = !!options?.silent;
@@ -595,7 +596,7 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
     scheduleAutoSave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    nom, clientId, prixAffiche, prixNegocie, budgetTravaux, tauxNotaire, surface,
+    nom, clientId, prixAffiche, prixNegocie, budgetTravaux, tauxNotaire, fraisNotaireManuel, surface,
     honoraires, enedis, taxeFonciere, assurance, compta, provisions,
     apport1, apport2, taux1, taux2, duree1, duree2,
     coefEtat, imprevusPct, gestionActive, modeDetention, tmi, selectedScen,
@@ -966,7 +967,13 @@ function Simulateur({ projet, profil, onRetour, theme="dark", setTheme, embedded
                         <option value="0.025">2,5%</option><option value="0.07">7%</option>
                       </select>
                     </div>
-                    <div className="inv-row"><span className="inv-lbl">Frais de notaire</span><span className="inv-val calc">{fmt(fn)}</span></div>
+                    <div className="inv-row">
+                      <span className="inv-lbl">Frais de notaire (€){fraisNotaireManuel!=null?" — saisie manuelle":""}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        {fraisNotaireManuel!=null&&<button type="button" title="Revenir au calcul selon le taux" onClick={()=>{setFraisNotaireManuel(null);scheduleAutoSave();}} style={{fontSize:11,background:"none",border:"none",color:"#2563eb",cursor:"pointer",textDecoration:"underline",padding:0}}>Réinitialiser</button>}
+                        <NumInput value={Math.round(fn)} onChange={v=>{setFraisNotaireManuel(v);scheduleAutoSave();}}/>
+                      </div>
+                    </div>
                     <div className="inv-row"><span className="inv-lbl">Surface totale (m²)</span><NumInput value={surface} onChange={setSurface}/></div>
                     <div className="inv-row"><span className="inv-lbl">Prix d'achat / m²</span><span className="inv-val calc">{surface>0?(prixAchat/surface).toFixed(0)+" €/m²":"—"}</span></div>
                     <div className="inv-row"><span className="inv-lbl">Budget travaux TTC (€)</span><NumInput value={budgetTravaux} onChange={setBudgetTravaux}/></div>
