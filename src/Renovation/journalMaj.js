@@ -39,7 +39,7 @@ export const JOURNAL_MAJ = [
     comment: "Ouvrez un client depuis le CRM. En haut : « ＋ Nouvelle mission » (Offre 2 ou Offre 3), « ＋ Note » et « ••• » (modifier le client, accès au portail, journal système). « À faire maintenant » classe les actions par retard puis priorité, avec Terminer / Reporter / Ouvrir. Chaque mission a sa frise d'avancement ; ce qui n'est pas renseigné s'affiche « À compléter », jamais 0. L'ancien onglet Structuration et le bouton « Sujet de structuration » disparaissent : l'étude patrimoniale s'ouvre depuis Missions, et ses préconisations deviennent des actions suivies. Documents : liste par catégories et demande groupée des pièces manquantes (confirmation avant tout envoi). Activité : notes, appels, e-mails, rendez-vous et missions, filtrables ; les événements techniques sont masqués (« ••• → Journal système »).",
   },
   {
-    date: "2026-10-06",
+    date: "2026-10-07",
     type: "nouveaute",
     titre: "Compte rendu (bêta) : quantités posées au lieu d'un pourcentage, et photo « après » sur les tâches terminées",
     pages: [{ id: "validation", label: "Validation" }, { id: "phasage-v2", label: "Phasage" }],
