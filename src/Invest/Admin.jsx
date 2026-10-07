@@ -42,7 +42,7 @@ function AdminInvest({ profil, T, theme, setTheme }) {
             onClick={() => setOnglet(k)}
             style={{
               padding:"8px 18px", border:"none", borderRadius:6, cursor:"pointer",
-              fontFamily:"'Barlow Condensed',sans-serif", fontSize:14, fontWeight:700,
+              fontFamily:"'Inter',sans-serif", fontSize:14, fontWeight:700,
               letterSpacing:.5, textTransform:"uppercase",
               background: onglet===k ? T.accent : "transparent",
               color: onglet===k ? "white" : T.textSub,
@@ -215,7 +215,7 @@ function OngletUtilisateursInvest({ T }) {
   // Styles adaptés au thème Invest
   const cardStyle = { background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"20px 18px" };
   const labelStyle = { fontSize:11, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:T.textSub, display:"block", marginBottom:6 };
-  const inputStyle = { width:"100%", background:T.input, border:`1.5px solid ${T.border}`, borderRadius:6, padding:"8px 12px", color:T.text, fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, outline:"none" };
+  const inputStyle = { width:"100%", background:T.input, border:`1.5px solid ${T.border}`, borderRadius:6, padding:"8px 12px", color:T.text, fontFamily:"'Inter',sans-serif", fontSize:13, outline:"none" };
   const rowStyle   = { padding:"14px 0", borderBottom:`1px solid ${T.border}` };
 
   return (
@@ -253,7 +253,7 @@ function OngletUtilisateursInvest({ T }) {
               <div style={{ display:"flex", gap:8 }}>
                 {BRANCHES.map(b=>(
                   <button key={b.value} onClick={()=>setInvBranches(toggleBranche(invBranches,b.value))}
-                    style={{ flex:1, padding:"8px 0", borderRadius:8, border:"1.5px solid", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer",
+                    style={{ flex:1, padding:"8px 0", borderRadius:8, border:"1.5px solid", fontFamily:"'Inter',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer",
                       background: invBranches.includes(b.value) ? "rgba(77,184,255,0.12)" : "transparent",
                       borderColor: invBranches.includes(b.value) ? T.accent : T.border,
                       color: invBranches.includes(b.value) ? T.accent : T.textSub,
@@ -296,7 +296,7 @@ function OngletUtilisateursInvest({ T }) {
                     <div style={{ display:"flex", gap:8 }}>
                       {BRANCHES.map(b=>(
                         <button key={b.value} onClick={()=>setEditData({...editData,branches:toggleBranche(editData.branches||[],b.value)})}
-                          style={{ padding:"7px 18px", borderRadius:8, border:"1.5px solid", fontFamily:"'Barlow Condensed',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer",
+                          style={{ padding:"7px 18px", borderRadius:8, border:"1.5px solid", fontFamily:"'Inter',sans-serif", fontSize:13, fontWeight:700, cursor:"pointer",
                             background:(editData.branches||[]).includes(b.value)?"rgba(77,184,255,0.12)":"transparent",
                             borderColor:(editData.branches||[]).includes(b.value)?T.accent:T.border,
                             color:(editData.branches||[]).includes(b.value)?T.accent:T.textSub,
