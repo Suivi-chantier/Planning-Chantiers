@@ -45,7 +45,8 @@ function PageLoader({ T }) {
   );
 }
 
-import { Sidebar, BottomNav } from "./Renovation/Navigation";
+import { Sidebar, BottomNav, LABELS_PAGES } from "./Renovation/Navigation";
+import BarreOnglets, { MAX_ONGLETS } from "./Renovation/BarreOnglets";
 import PageDashboard          from "./Renovation/Dashboard";
 import PagePlanning           from "./Renovation/Planning";
 import PagePlanningMensuel    from "./Renovation/PlanningMensuel";
@@ -510,7 +511,27 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   const{year:iY,week:iW}=getCurrentWeek();
   const[year,setYear]=useState(iY);
   const[week,setWeek]=useState(iW);
-  const[page,setPage]=useState("dashboard");
+  // Onglets façon navigateur : chaque onglet porte sa page. `page` / `setPage`
+  // désignent la page de l'onglet actif, donc toute la navigation existante
+  // (menu, liens entre pages) agit sur l'onglet courant.
+  const[onglets,setOnglets]=useState([{id:1,page:"dashboard"}]);
+  const[ongletActif,setOngletActif]=useState(1);
+  const prochainOnglet=React.useRef(2);
+  const page=(onglets.find(o=>o.id===ongletActif)||onglets[0]).page;
+  const setPage=useCallback((p)=>setOnglets(os=>os.map(o=>o.id===ongletActif?{...o,page:p}:o)),[ongletActif]);
+  const ouvrirOnglet=(p)=>{
+    if(onglets.length>=MAX_ONGLETS) return;
+    const id=prochainOnglet.current++;
+    setOnglets(os=>[...os,{id,page:p||page}]);
+    setOngletActif(id);
+  };
+  const fermerOnglet=(id)=>{
+    if(onglets.length<2) return;
+    const i=onglets.findIndex(o=>o.id===id);
+    const reste=onglets.filter(o=>o.id!==id);
+    setOnglets(reste);
+    if(id===ongletActif) setOngletActif(reste[Math.min(i,reste.length-1)].id);
+  };
   const[theme,setTheme]=useState(()=>localStorage.getItem("theme")||"dark");
   const[view,setView]=useState("planifie");
   const[ouvriers,setOuvriers]=useState(DEFAULT_OUVRIERS);
@@ -828,7 +849,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
     <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
       <style>{css}</style>
       <div className="app-sidebar"><Sidebar
-        page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} branch="renovation"
+        page={page} setPage={setPage} T={T} role={role} rolePages={rolePages} branch="renovation" onOuvrirDansNouvelOnglet={ouvrirOnglet}
         profil={profil} theme={theme} setTheme={setTheme}
         onLogout={onLogout}
         peutChangerBranche={peutChangerBranche} onRetourPortail={onRetourPortail}
@@ -874,36 +895,44 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
             </button>
           </div>
         </div>
+        <BarreOnglets onglets={onglets} actifId={ongletActif} onSelect={setOngletActif} onFermer={fermerOnglet} onNouveau={()=>ouvrirOnglet("dashboard")} labels={LABELS_PAGES} T={T} acc={getBranchAccent("renovation")}/>
         <div className="page-content-area" style={{flex:1,display:"flex",minHeight:0,overflow:"hidden"}}>
           <Suspense fallback={<PageLoader T={T}/>}>
-          {page==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} profil={profil} initialSelectedId={chantierToOpen} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
-          {page==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
-          {page==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
-          {page==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
-          {page==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/> : <AccesRefuse T={T} page="notes-todo"/>)}
-          {page==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
-          {page==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
-          {page==="rapprochement"      && (canAccess(role,"rapprochement")      ? <PageRapprochementFactures T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="rapprochement"/>)}
-          {page==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
-          {page==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
-          {page==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")}/> : <AccesRefuse T={T} page="equipe"/>)}
-          {page==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
-          {page==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
-          {page==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} onOuvrirChantier={(a)=>{ setChantierToOpen(a.chantierId); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="alertes"/>)}
-          {page==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={validationDate} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
-          {page==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
-          {page==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
-          {page==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
-          {page==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")}/> : <AccesRefuse T={T} page="operations"/>)}
-          {page==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={biblioOuvrageToOpen} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
-          {page==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
-          {page==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
-          {page==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={retourChiffrage} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
-          {page==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
-          {page==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
-          {page==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
-          {page==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={setPage} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
-          {page==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
+          {onglets.map(o=>{
+            const p=o.page, actif=o.id===ongletActif;
+            return (
+              <div key={o.id} style={{flex:1,display:actif?"flex":"none",minWidth:0,minHeight:0,overflow:"hidden"}}>
+          {p==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} profil={profil} initialSelectedId={actif?chantierToOpen:null} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
+          {p==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
+          {p==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
+          {p==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
+          {p==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/> : <AccesRefuse T={T} page="notes-todo"/>)}
+          {p==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
+          {p==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
+          {p==="rapprochement"      && (canAccess(role,"rapprochement")      ? <PageRapprochementFactures T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="rapprochement"/>)}
+          {p==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
+          {p==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
+          {p==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")}/> : <AccesRefuse T={T} page="equipe"/>)}
+          {p==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
+          {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
+          {p==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} onOuvrirChantier={(a)=>{ setChantierToOpen(a.chantierId); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="alertes"/>)}
+          {p==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={actif?validationDate:null} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
+          {p==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
+          {p==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
+          {p==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
+          {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")}/> : <AccesRefuse T={T} page="operations"/>)}
+          {p==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={actif?biblioOuvrageToOpen:null} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
+          {p==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
+          {p==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiers} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
+          {p==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={actif?retourChiffrage:null} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
+          {p==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
+          {p==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
+          {p==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
+          {p==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={setPage} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
+          {p==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
+              </div>
+            );
+          })}
           </Suspense>
         </div>
       </div>
