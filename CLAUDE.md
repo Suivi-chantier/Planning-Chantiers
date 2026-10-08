@@ -72,6 +72,26 @@ Pas en note de bas de page.
   verra une page, vérifier la configuration en base ET lire `loadAccessConfig`
   jusqu'au bout. Dire explicitement dans le compte rendu : visible pour admin
   (auto-grant) ou non, et pour quels autres rôles.
-- Trois scripts échouent déjà sous Windows et ne doivent pas être « réparés » :
-  `verif-composants-internes`, `verif-progbat-yards-ecran`, `verif-urbanisme`.
-  Les mesurer avant et après toute modification, en comparant les sorties.
+
+## Vérifications en local : le strict nécessaire
+
+Chaque demande de fusion relance déjà tous les workflows sur GitHub, et `main`
+refuse la fusion tant qu'ils ne sont pas verts. Les relancer tous en local
+double le travail et coûte plusieurs minutes à Loris. En local, on lance
+seulement :
+
+- le ou les scripts `verif-*` créés ou modifiés pour la tâche ;
+- la compilation (`npx vite build`) ;
+- les scripts qui contrôlent directement un fichier modifié par la tâche.
+
+La suite complète des workflows ne se lance en local que pour comprendre un
+échec signalé par GitHub, ou pour les workflows Model et Resources, qui ne
+tournent sur GitHub que si certains fichiers changent.
+
+Trois scripts échouent déjà sous Windows et ne doivent pas être « réparés ».
+On ne les compare avant/après que si la tâche touche ce qu'ils contrôlent :
+- `verif-composants-internes` : tout fichier `.jsx` modifié, en le lançant sur
+  ces seuls fichiers (`node scripts/verif-composants-internes.mjs <fichier>`) ;
+- `verif-progbat-yards-ecran` : `src/Renovation/progbatYardsEcran.mjs` ;
+- `verif-urbanisme` : `src/Invest/urbanismeStore.js`,
+  `src/Invest/urbanismeImpression.js` et ce qu'ils importent.
