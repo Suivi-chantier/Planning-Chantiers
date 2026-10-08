@@ -15,6 +15,7 @@ import {
 import { Icon } from "../ui";
 import { FONT, RADIUS } from "../constants";
 import { KpiCard } from "./chantierFinanceUI";
+import ApercuSimulationOperation from "./ApercuSimulationOperation";
 import {
   ORDRE_LOTS_DEFAUT_V1,
   construirePlanEcritureOperationV1,
@@ -278,6 +279,12 @@ export default function PlanificationOperation({ T, acc, op, chantiersOp = [] })
               </Bandeau>
             )}
           </div>
+
+          {/* ── Voir la simulation avant de placer ── */}
+          <Section T={T} titre="Voir la simulation">
+            <ApercuSimulationOperation T={T} acc={acc} sim={sim} groupesTypes={simulation.snapshot.groupesTypes}
+              nomsRessources={nomsRessources} chantiers={resume.chantiers.map(c => ({ chantier_id: c.chantier_id, nom: c.nom }))}/>
+          </Section>
 
           {/* ── Par logement ── */}
           <Section T={T} titre="Par logement — cliquer pour voir les lots">

@@ -17,6 +17,8 @@ import {
   occupationAutresChantiersV1,
   premierJourOuvreV1,
   resumerSimulationOperationV1,
+  semainesSimulationV1,
+  tachesParChantierV1,
   simulerOperationJusquAuBoutV1,
   simulerOperationV1,
   verifierCellulesAvantEcritureV1,
@@ -158,6 +160,21 @@ assert.equal(resume.fin, null);
 assert.equal(resume.heures_placees, resume.heures_a_placer);
 const lots = lotsParChantierV1(sim, snapshot().groupesTypes);
 assert.deepEqual(lots.C1.map(l => l.nom), ["Passage réseau élec", "Laine / Placo", "Appareillage élec"]);
+
+// 5 bis. Aperçus avant écriture : mêmes allocations, rien d'inventé.
+{
+  const tp = tachesParChantierV1(sim, snapshot().groupesTypes);
+  assert.deepEqual(tp.C1.map(t => t.tache_id), ["elec", "placo", "app"], "ordre des lots, puis premier jour");
+  assert.ok(tp.C1.every(t => t.placee && t.dates.length === t.jours && t.debut === t.dates[0] && t.fin === t.dates.at(-1)));
+  assert.equal(tp.C1[0].ouvrage, "X-001");
+  assert.equal(tp.C1.find(t => t.tache_id === "placo").heures_placees, 20);
+  const sem = semainesSimulationV1(sim);
+  assert.equal(sem[0].week_id, "2026-W37");
+  assert.deepEqual(sem[0].jours.map(j => j.date), ["2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11"]);
+  const lignes = sem.flatMap(w => Object.values(w.cellules).flatMap(c => Object.values(c).flat()));
+  assert.equal(lignes.length, allocs.length, "une ligne d'aperçu par allocation");
+  assert.equal(Math.round(lignes.reduce((t, l) => t + l.duree, 0) * 100), Math.round(allocs.reduce((t, a) => t + a.duree, 0) * 100));
+}
 
 // 6. Tâche impossible : reste « au-delà de l'horizon », jamais une date.
 {

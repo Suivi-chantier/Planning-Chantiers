@@ -84,6 +84,22 @@ function indexNomsRessourcesBaseline(ressources = []) {
   return map;
 }
 
+// Libellé de l'ouvrage de chaque tâche : plusieurs tâches portent souvent le
+// même nom (une « Mise en place de la fenêtre » par fenêtre).
+function ouvragesTachesPhasages(phasages = []) {
+  const map = new Map();
+  for (const ph of Array.isArray(phasages) ? phasages : []) {
+    for (const o of Array.isArray(ph?.ouvrages) ? ph.ouvrages : []) {
+      const libelle = txt(o?.libelle) || txt(o?.code_ouvrage);
+      if (!libelle) continue;
+      for (const t of Array.isArray(o?.taches) ? o.taches : []) {
+        if (txt(t?.id)) map.set(`${txt(ph.chantier_id)}::${txt(t.id)}`, libelle);
+      }
+    }
+  }
+  return map;
+}
+
 function nomsTachesPhasages(phasages = []) {
   const map = new Map();
   for (const ph of Array.isArray(phasages) ? phasages : []) {
@@ -264,6 +280,7 @@ export function simulerOperationV1({ snapshot = {}, operationId, startDate, hori
     chantiers: chantiersOp.map(c => ({ id: txt(c.id), nom: txt(c.nom) || txt(c.id) })),
     chantiers_sans_phasage: sansPhasage,
     noms_taches: Object.fromEntries(nomsTachesPhasages(phasagesOp)),
+    ouvrages_taches: Object.fromEntries(ouvragesTachesPhasages(phasagesOp)),
     preparation,
     occupation: occupation.audit,
     ordre_lots: lots ? { actif: true, ...lots.audit } : { actif: false },
@@ -672,4 +689,87 @@ export function ordreLotsLisibleV1(table = ORDRE_LOTS_DEFAUT_V1, groupesTypes = 
   return Object.entries(table || {})
     .map(([g, avant]) => ({ groupe_type_id: g, ordre: num(gts.get(g)?.ordre, 9999), lot: nom(g), apres: uniq(avant).map(nom) }))
     .sort((a, b) => a.ordre - b.ordre);
+}
+
+/**
+ * Aperçu tâche par tâche d'un logement : chaque tâche du moteur avec son
+ * premier et son dernier jour posés, ses heures et ses ouvriers. Tri : lot
+ * (ordre du référentiel), puis premier jour, puis ordre du phasage. Une tâche
+ * non placée garde debut/fin à null et porte sa raison.
+ */
+export function tachesParChantierV1(sim, groupesTypes = []) {
+  const gts = new Map((Array.isArray(groupesTypes) ? groupesTypes : []).map(g => [txt(g?.id), g]));
+  const parTravail = new Map();
+  for (const a of sim?.proposition?.allocations_proposees || []) {
+    const id = txt(a.travail_id) || `${txt(a.chantier_id)}::${txt(a.tache_id)}`;
+    const e = parTravail.get(id) || { dates: new Set(), heures: 0, ressources: new Set() };
+    e.dates.add(a.date);
+    e.heures = round2(e.heures + num(a.heures_mo, 0));
+    (a.resource_ids || []).forEach(r => e.ressources.add(r));
+    parTravail.set(id, e);
+  }
+  const nonPlaces = new Map((sim?.proposition?.non_planifies || []).map(np => [txt(np.travail_id), np]));
+  const out = {};
+  for (const t of sim?.preparation?.engineInput?.travaux || []) {
+    const e = parTravail.get(t.id);
+    const dates = e ? [...e.dates].sort() : [];
+    const gt = gts.get(txt(t.groupe_type_id));
+    const np = nonPlaces.get(t.id);
+    (out[t.chantier_id] ||= []).push({
+      tache_id: t.tache_id,
+      nom: txt(t.texte) || "Tâche sans nom",
+      ouvrage: txt(sim?.ouvrages_taches?.[t.id]) || null,
+      groupe_type_id: t.groupe_type_id || null,
+      lot: txt(gt?.nom) || "Sans lot",
+      lot_ordre: num(gt?.ordre, num(t.ordre_groupe, 9999)),
+      ordre_tache: num(t.ordre_tache, 0),
+      debut: dates[0] || null,
+      fin: dates[dates.length - 1] || null,
+      jours: dates.length,
+      dates,
+      heures_placees: e ? e.heures : 0,
+      heures_a_placer: round2(num(t.heures_mo_restantes, 0)),
+      resource_ids: e ? [...e.ressources].sort() : [],
+      placee: !np,
+      raison: np ? np.raison : null,
+    });
+  }
+  for (const liste of Object.values(out)) {
+    liste.sort((a, b) => (a.lot_ordre - b.lot_ordre)
+      || ((a.debut || "9999") < (b.debut || "9999") ? -1 : (a.debut || "9999") > (b.debut || "9999") ? 1 : 0)
+      || (a.ordre_tache - b.ordre_tache)
+      || a.nom.localeCompare(b.nom));
+  }
+  return out;
+}
+
+/**
+ * Aperçu semaine par semaine, au format de la grille Planning :
+ * [{ week_id, jours: [{ jour, date }], cellules: { chantier_id: { jour: [lignes] } } }]
+ * Une ligne = { tache_id, nom, duree, resource_ids, groupe_type_id }.
+ */
+export function semainesSimulationV1(sim) {
+  const semaines = new Map();
+  for (const a of sim?.proposition?.allocations_proposees || []) {
+    let wj;
+    try { wj = weekJourDepuisDateV1(a.date); } catch { continue; }
+    if (!semaines.has(wj.week_id)) {
+      semaines.set(wj.week_id, {
+        week_id: wj.week_id,
+        jours: JOURS.map(jour => ({ jour, date: dateDepuisCelluleV1(wj.week_id, jour) })),
+        cellules: {},
+      });
+    }
+    const s = semaines.get(wj.week_id);
+    const parJour = (s.cellules[txt(a.chantier_id)] ||= {});
+    (parJour[wj.jour] ||= []).push({
+      tache_id: txt(a.tache_id),
+      nom: txt(a.texte) || "Tâche sans nom",
+      ouvrage: txt(sim?.ouvrages_taches?.[txt(a.travail_id)]) || null,
+      duree: round2(num(a.duree, 0)),
+      resource_ids: uniq(a.resource_ids),
+      groupe_type_id: a.groupe_type_id || null,
+    });
+  }
+  return [...semaines.values()].sort((a, b) => a.jours[0].date.localeCompare(b.jours[0].date));
 }
