@@ -43,7 +43,7 @@ import { agregerOperation } from "./operationExportModele.mjs";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
-  ChartBar, TrainFront, FileText,
+  ChartBar, TrainFront, FileText, CalendarClock,
 } from "lucide-react";
 
 // recharts reste dans son chunk dédié (même règle que la fiche Chantier).
@@ -51,6 +51,9 @@ const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierCha
 // Chemin de fer : l'ancienne page dédiée, embarquée ici comme onglet de la
 // fiche opération (chunk séparé — la frise n'est chargée que si on l'ouvre).
 const CheminDeFerVue = React.lazy(() => import("./CheminDeFer"));
+// Planifier : simulation + placement de toute l'opération par le moteur
+// (chunk séparé — le moteur n'est chargé que si on ouvre l'onglet).
+const PlanificationOperation = React.lazy(() => import("./PlanificationOperation"));
 
 const STATUTS = {
   en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
@@ -93,14 +96,14 @@ const STATUTS_IDS = Object.keys(STATUTS);
 
 const pctTxt = (p) => (p == null ? "—" : `${p.toFixed(1)} %`);
 
-export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin }) {
+export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false }) {
   const acc = getBranchAccent(branch);
   const [operations, setOperations] = useState(null); // null = chargement
   const [etat, setEtat] = useState({ charge: false, phasages: [], phasagesParChantier: {}, ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
   const [opId, setOpId] = useState(() => localStorage.getItem("operations_selected") || null);
   const [periode, setPeriode] = useState("12");
   const [masques, setMasques] = useState({});
-  const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer"
+  const [onglet, setOnglet] = useState("synthese"); // "synthese" | "chemin-de-fer" | "planifier"
   // Génération du dossier PDF en cours. Déclaré ICI avec les autres hooks :
   // la vue liste sort par un `return` anticipé plus bas, un useState placé
   // après serait un hook conditionnel.
@@ -661,7 +664,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         <>
           {/* ── Onglets : Synthèse (finances) / Chemin de fer (planning) ── */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-            {[["synthese", "Synthèse", ChartBar], ["chemin-de-fer", "Chemin de fer", TrainFront]].map(([id, label, Ic]) => {
+            {[["synthese", "Synthèse", ChartBar], ["chemin-de-fer", "Chemin de fer", TrainFront], ...(peutPlanifier ? [["planifier", "Planifier", CalendarClock]] : [])].map(([id, label, Ic]) => {
               const active = onglet === id;
               return (
                 <button key={id} onClick={() => setOnglet(id)} style={{
@@ -679,7 +682,11 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
             })}
           </div>
 
-          {onglet === "chemin-de-fer" ? (
+          {onglet === "planifier" && peutPlanifier ? (
+            <Suspense fallback={<div style={{ color: textMuted, fontSize: 13, padding: 20 }}>Chargement du moteur de planning…</div>}>
+              <PlanificationOperation T={T} acc={acc} op={op} chantiersOp={chantiersOp}/>
+            </Suspense>
+          ) : onglet === "chemin-de-fer" ? (
             <Suspense fallback={<div style={{ color: textMuted, fontSize: 13, padding: 20 }}>Chargement du chemin de fer…</div>}>
               <CheminDeFerVue chantiers={chantiers} T={T} branch={branch} onOuvrirAdmin={onOuvrirAdmin} opIdForce={op.id} embedded/>
             </Suspense>

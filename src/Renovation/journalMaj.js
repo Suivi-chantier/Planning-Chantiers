@@ -31,6 +31,14 @@ export const JOURNAL_MAJ = [
     comment: "Réglages → Maintenance → Inventaire de la bibliothèque → Analyser. Cochez « Choisir cette liaison » sur le bon candidat, puis préparez et confirmez les liaisons choisies. Une cible déjà liée, un lien introuvable, des unités incompatibles ou plusieurs choix visant la même cible bloquent l'écriture. Les doublons existants restent visibles pour être corrigés dans la bibliothèque.",
   },
   {
+    date: "2026-10-08",
+    type: "nouveaute",
+    titre: "Opérations : placer toute une opération dans le planning à partir d'une date de démarrage",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "planning", label: "Planning semaine" }],
+    quoi: "Une fois les phasages d'une opération faits (par exemple les 6 logements d'un immeuble), le moteur de planning pose toutes les tâches de tous les logements à partir de la date que vous donnez, avec l'équipe de chaque lot et les absences connues. Vous voyez d'abord le résultat (début, dernier jour, dates de chaque lot par logement, heures par ouvrier), puis vous décidez de l'écrire dans le planning.",
+    comment: "Opérations → ouvrir l'opération → onglet « Planifier » (visible si vous avez accès au Planning). Choisissez la date de démarrage, cliquez « Simuler », vérifiez, puis « Placer dans le planning » et confirmez. Ce qui est déjà posé sur les autres chantiers n'est jamais déplacé : un ouvrier déjà pris ailleurs n'est pas disponible ce jour-là. Dans chaque logement, un lot attend la fin des lots qui le précèdent (réseaux → placo → peinture → sols et appareillage → finitions ; le détail s'affiche avec « Ordre des lots appliqué »). Les tâches d'équipe externe (démolition…) ne sont pas placées : elles sont listées, et tant qu'elles ne sont pas datées la fin complète de l'opération reste inconnue — l'écran affiche alors le dernier jour des travaux Profero. Si le planning a changé entre la simulation et le clic, rien n'est écrit et il faut relancer. La date prévue de chaque tâche est mise à son premier jour posé. « Retirer ce placement » enlève en un clic toutes les lignes posées par le placement automatique, et rien d'autre.",
+  },
+  {
     date: "2026-10-07",
     type: "nouveaute",
     titre: "Mission Offre 2 refondue : un vrai parcours d'investissement en sept onglets, de la recherche à la transmission",
