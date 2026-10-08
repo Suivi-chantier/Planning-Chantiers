@@ -172,8 +172,8 @@ assert.equal(res.compteurs.progbat_non_lie, 1);
 assert.equal(res.nb_ouvrages_profero, 10);
 assert.equal(res.nb_structures_progbat, 7);
 assert.equal(res.ambiguites.length, 1);
-assert.equal(res.bloques.length, 3);
-assert.equal(res.nb_synchronisables, 7);
+assert.equal(res.bloques.length, 4);
+assert.equal(res.nb_synchronisables, 6);
 assert.deepEqual(res.sources_codes, { descriptif: 2, libelle: 0, champ: 4, aucun: 1 });
 
 // Même code dans le champ ET le libellé d'une seule structure : pas d'ambiguïté artificielle

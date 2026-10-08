@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-08",
+    type: "correctif",
+    titre: "ProGBat : comprendre les ouvrages ambigus et choisir leur liaison",
+    pages: [{ id: "admin", label: "Réglages" }],
+    quoi: "Le rapprochement explique les codes partagés, les doublons Profero et les liaisons déjà utilisées. Chaque candidat affiche son descriptif complet, son unité, son prix et les différences avec l'ouvrage Profero.",
+    comment: "Réglages → Maintenance → Inventaire de la bibliothèque → Analyser. Cochez « Choisir cette liaison » sur le bon candidat, puis préparez et confirmez les liaisons choisies. Une cible déjà liée, un lien introuvable, des unités incompatibles ou plusieurs choix visant la même cible bloquent l'écriture. Les doublons existants restent visibles pour être corrigés dans la bibliothèque.",
+  },
+  {
+    date: "2026-10-08",
     type: "nouveaute",
     titre: "Opérations : placer toute une opération dans le planning à partir d'une date de démarrage",
     pages: [{ id: "operations", label: "Opérations" }, { id: "planning", label: "Planning semaine" }],

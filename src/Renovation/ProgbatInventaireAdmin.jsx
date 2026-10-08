@@ -41,6 +41,7 @@ export default function ProgbatInventaire({ T, acc }) {
   const [syncResultat, setSyncResultat] = useState(null);
   const [confirmation, setConfirmation] = useState(false);
   const [familleId, setFamilleId] = useState(null);   // famille ProGBat de destination
+  const [selections, setSelections] = useState({});
   const [jobId, setJobId] = useState(null);           // main-d'œuvre qui porte la cadence
 
   const analyser = async () => {
@@ -52,7 +53,7 @@ export default function ProgbatInventaire({ T, acc }) {
         try { body = error?.context?.json ? await error.context.json() : null; } catch { /* pas de corps */ }
         setErreur({ message: body?.error || error.message || "Appel de la fonction impossible.", status: body?.progbat_status ?? null });
       } else if (data && data.ok) {
-        setResult(data); setFiltre("tous"); setSeulementBloques(false);
+        setResult(data); setFiltre("tous"); setSeulementBloques(false); setSelections({}); setSyncPlan(null); setConfirmation(false);
       } else {
         setErreur({ message: data?.error || "Réponse inattendue de la fonction.", status: data?.progbat_status ?? null, etape: data?.etape, progbat: data?.progbat });
       }
@@ -65,7 +66,7 @@ export default function ProgbatInventaire({ T, acc }) {
   const preparerSynchronisation = async (cible = familleId, cibleJob = jobId) => {
     setSyncLoading(true); setSyncErreur(null); setSyncResultat(null); setConfirmation(false);
     try {
-      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare", familleId: cible ?? null, jobId: cibleJob ?? null } });
+      const { data, error } = await supabase.functions.invoke("progbat-library-sync", { body: { action: "prepare", ouvrageIds: Object.keys(selections), selections, familleId: cible ?? null, jobId: cibleJob ?? null } });
       if (error && !data) throw error;
       if (!data?.ok) throw new Error(data?.error || "Préparation de la synchronisation impossible.");
       setSyncPlan(data);
@@ -78,7 +79,7 @@ export default function ProgbatInventaire({ T, acc }) {
     setSyncLoading(true); setSyncErreur(null);
     try {
       const { data, error } = await supabase.functions.invoke("progbat-library-sync", {
-        body: { action: "sync", familleId: familleId ?? null, jobId: jobId ?? null, expectedPlanHash: syncPlan.planHash, confirmed: true },
+        body: { action: "sync", ouvrageIds: Object.keys(selections), selections, familleId: familleId ?? null, jobId: jobId ?? null, expectedPlanHash: syncPlan.planHash, confirmed: true },
       });
       if (error && !data) throw error;
       if (!data) throw new Error("Réponse vide de la synchronisation.");
@@ -114,7 +115,7 @@ export default function ProgbatInventaire({ T, acc }) {
   // Correspondance ProGBat : code MÉTIER détecté + source exacte, identifiant
   // numérique, libellé nettoyé ; le code technique API en ligne secondaire.
   // Tous les textes arrivent déjà nettoyés du HTML par la fonction (jamais de innerHTML ici).
-  const Candidat = ({ c }) => (
+  const Candidat = ({ c, r }) => (
     <div>
       <div style={{ fontWeight: 600 }}>
         {c.code
@@ -124,8 +125,17 @@ export default function ProgbatInventaire({ T, acc }) {
       </div>
       <div style={{ color: T.textSub }} title={c.descriptif || c.label}>{c.label || <em>sans libellé</em>}</div>
       {c.descriptif && c.descriptif !== c.label && (
-        <div style={{ color: T.textMuted, fontSize: FONT.xs.size, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }} title={c.descriptif}>{c.descriptif}</div>
+        <details><summary style={{ color: T.textSub, cursor: "pointer" }}>Descriptif complet</summary><div style={{ color: T.textMuted, fontSize: FONT.xs.size, whiteSpace: "pre-wrap" }} title={c.descriptif}>{c.descriptif}</div></details>
       )}
+      {c.comparaison && <div style={{ fontSize: FONT.xs.size, color: c.comparaison.unite_identique ? T.textMuted : "#f59e0b" }}>
+        {c.comparaison.unite_identique ? "Même unité" : "Unité différente ou absente"} · {c.comparaison.libelle_identique ? "Descriptif identique" : "Descriptif différent"}
+        {c.comparaison.ecart_prix_ht != null ? ` · écart PV HT ${fmtPrix(c.comparaison.ecart_prix_ht)}` : ""}
+      </div>}
+      {c.lies_profero?.length > 0 && <div style={{ color: "#e15a5a", fontSize: FONT.xs.size }}>Déjà lié à : {c.lies_profero.map(o => `${o.libelle} (id ${o.id})`).join(" · ")}</div>}
+      {r && !r.profero.progbat_id && <label style={{ display: "block", marginTop: 5, color: T.text, fontSize: FONT.xs.size + 1 }}>
+        <input type="checkbox" disabled={!c.selectionnable || syncLoading || loading} checked={String(selections[r.profero.id] || "") === String(c.id)}
+          onChange={e => { setSelections(prev => { const next = { ...prev }; if (e.target.checked) next[r.profero.id] = c.id; else delete next[r.profero.id]; return next; }); setSyncPlan(null); setConfirmation(false); setSyncResultat(null); }} /> Choisir cette liaison
+      </label>}
       {c.code_api && <div style={{ color: T.textMuted, fontSize: FONT.xs.size }}>code technique API : {c.code_api}</div>}
       {c.prix_vente_ht != null && <div style={{ color: T.textMuted, fontSize: FONT.xs.size }}>PV HT ProGBat {fmtPrix(c.prix_vente_ht)}</div>}
     </div>
@@ -153,7 +163,7 @@ export default function ProgbatInventaire({ T, acc }) {
             Dernière analyse : {result ? fmtDate(result.analyse_le) : "aucune dans cette session"}
           </div>
         </div>
-        <button onClick={analyser} disabled={loading} style={{
+        <button onClick={analyser} disabled={loading || syncLoading} style={{
           display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 14px", borderRadius: RADIUS.md, border: "none",
           background: loading ? T.border : acc.accent, color: loading ? T.textMuted : acc.onAccent,
           fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: loading ? "not-allowed" : "pointer",
@@ -167,7 +177,7 @@ export default function ProgbatInventaire({ T, acc }) {
           fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800,
           cursor: syncLoading || loading ? "not-allowed" : "pointer", opacity: syncLoading || loading ? .55 : 1,
         }}>
-          <Icon as={ShieldCheck} size={12}/>{syncLoading ? "Préparation…" : "Préparer la synchronisation"}
+          <Icon as={ShieldCheck} size={12}/>{syncLoading ? "Préparation…" : `Préparer ${Object.keys(selections).length ? `les ${Object.keys(selections).length} liaison(s) choisie(s)` : "la synchronisation"}`}
         </button>}
 
         {erreur && (
@@ -196,7 +206,7 @@ export default function ProgbatInventaire({ T, acc }) {
               <div>
                 <div style={{ fontWeight: 800, color: T.text }}>Plan de synchronisation contrôlé par le serveur</div>
                 <div style={{ color: T.textSub }}>
-                  <strong>{syncPlan.plan.compteurs.a_lier}</strong> code(s) unique(s) à lier · <strong>{syncPlan.plan.compteurs.a_creer}</strong> ouvrage(s) à créer · <strong>{syncPlan.plan.compteurs.exclus}</strong> exclu(s)
+                  <strong>{syncPlan.plan.compteurs.a_lier}</strong> liaison(s) à confirmer · <strong>{syncPlan.plan.compteurs.a_creer}</strong> ouvrage(s) à créer · <strong>{syncPlan.plan.compteurs.exclus}</strong> exclu(s)
                 </div>
                 <div style={{ color: syncPlan.plan.famille?.ok ? "#22c55e" : "#f59e0b" }}>
                   Famille de destination : {syncPlan.plan.famille?.ok ? `${syncPlan.plan.famille.libelle} (id ${syncPlan.plan.famille.id})` : syncPlan.plan.famille?.erreur}
@@ -312,13 +322,17 @@ export default function ProgbatInventaire({ T, acc }) {
                       <td style={td}>{r.profero.unite || "—"}</td>
                       <td style={{ ...td, whiteSpace: "nowrap" }}>{r.profero.progbat_id || <span style={{ color: T.textMuted }}>—</span>}</td>
                       <td style={{ ...td, maxWidth: 320 }}>
-                        {r.correspondance && <Candidat c={r.correspondance} />}
+                        {r.correspondance && <Candidat c={r.correspondance} r={r} />}
                         {!r.correspondance && r.candidats?.length > 0 && (
                           <div style={{ display: "grid", gap: 6 }}>
-                            {r.candidats.map(c => <Candidat key={c.id} c={c} />)}
+                            {r.candidats.map(c => <Candidat key={c.id} c={c} r={r} />)}
                           </div>
                         )}
                         {!r.correspondance && !(r.candidats?.length) && <span style={{ color: T.textMuted }}>—</span>}
+                        {[...(r.doublons_code_profero || []), ...(r.doublons_liaison_profero || [])].length > 0 && <details style={{ color: "#f59e0b", marginTop: 6 }}>
+                          <summary>Doublons Profero à contrôler</summary>
+                          {[...new Map([...(r.doublons_code_profero || []), ...(r.doublons_liaison_profero || [])].map(o => [o.id, o])).values()].map(o => <div key={o.id}>{o.libelle} · {o.unite} · id {o.id}</div>)}
+                        </details>}
                         {r.notes?.length > 0 && <div style={{ color: "#f59e0b", fontSize: FONT.xs.size }}>{r.notes.join(" · ")}</div>}
                       </td>
                       <td style={td}>{badge(r.statut)}</td>
@@ -406,7 +420,7 @@ export default function ProgbatInventaire({ T, acc }) {
         <div onMouseDown={e => e.stopPropagation()} style={{ width: "min(580px,96vw)", background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.xl, padding: 20, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}><Icon as={ShieldCheck} size={20} color={acc.accent}/><div style={{ fontSize: FONT.lg.size, fontWeight: 800, color: T.text }}>Confirmer la synchronisation</div></div>
           <div style={{ color: T.textSub, lineHeight: 1.6 }}>
-            Profero va enregistrer <strong>{syncPlan.plan.compteurs.a_lier} liaison(s)</strong> par code unique et créer <strong>{syncPlan.plan.compteurs.a_creer} nouvel(aux) ouvrage(s)</strong>
+            Profero va enregistrer <strong>{syncPlan.plan.compteurs.a_lier} liaison(s)</strong> et créer <strong>{syncPlan.plan.compteurs.a_creer} nouvel(aux) ouvrage(s)</strong>
             {syncPlan.plan.famille?.ok ? <> dans la famille ProGBat <strong>« {syncPlan.plan.famille.libelle} »</strong></> : null}.
           </div>
           <div style={{ marginTop: 10, padding: 10, borderRadius: RADIUS.md, background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.25)", color: T.text }}>
