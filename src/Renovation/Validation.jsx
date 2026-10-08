@@ -41,7 +41,7 @@ import {
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
 import { getISOWeek, profilSemaine } from "../rythmeSemaine";
-import { cibleJourneeOuvrier, ressourceDeLOuvrier } from "./cibleJourneeOuvrier";
+import { chargerAbsencesOuvriers, cibleOuvrierPourDate } from "./absencesOuvriers";
 // Lignes d'un rapport (module pur, testé par scripts/verif-compte-rendu-v2.mjs)
 // et motifs du formulaire bêta « cr_v2 » (liste unique partagée avec l'ouvrier).
 import {
@@ -658,40 +658,18 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const totalJourValide = heuresHorsTrajetJour + trajetJourH;
     const totalJourDeclare = rapportsMemeJourGuard.reduce((sum, r) => sum + heuresDeclareesRapport(r), 0) + trajetJourH;
 
+    // Même calcul que la cible du compte rendu ouvrier : exception de date
+    // Admin > rythme 4j/5j, moins les absences de l'ouvrier (Réglages → Ressources).
     let heuresAttendues = heuresAttenduesPourDate(rapport.date_rapport);
-    // Même priorité que le formulaire ouvrier : exception de date Admin > rythme 4j/5j.
-    try {
-      const { data: cfg } = await supabase.from("planning_config")
-        .select("value").eq("key", "heures_par_jour").maybeSingle();
-      const isoRapport = frToISO(rapport.date_rapport);
-      const exc = parseFloat(cfg?.value?.exceptions?.[isoRapport]);
-      if (Number.isFinite(exc)) heuresAttendues = exc;
-    } catch (e) {
-      console.warn("Garde-fou heures — lecture exception planning_config:", e);
-    }
-    // Puis les absences de l'ouvrier (Réglages → Ressources) : même calcul et
-    // même explication que la cible affichée dans son compte rendu.
     let explicationAttendu = null;
     if (heuresAttendues != null) {
       try {
-        const [rRes, eRes] = await Promise.all([
-          supabase.from("planning_resources").select("id,nom_planning,auth_user_id"),
-          supabase.from("planning_resource_events")
-            .select("id,resource_id,type,date_debut,date_fin,toute_journee,heures_indisponibles,motif,actif")
-            .eq("actif", true),
-        ]);
-        if (rRes.error) throw rRes.error;
-        if (eRes.error) throw eRes.error;
-        const res = ressourceDeLOuvrier(rRes.data, { prenom: rapport.ouvrier });
-        if (res) {
-          const c = cibleJourneeOuvrier({
-            heuresJour: heuresAttendues, evenements: eRes.data, resourceId: res.id, dateISO: frToISO(rapport.date_rapport),
-          });
-          heuresAttendues = c.cible;
-          explicationAttendu = c.explication;
-        } else {
-          explicationAttendu = "absences non vérifiées : fiche ressource introuvable pour ce prénom";
-        }
+        const donnees = await chargerAbsencesOuvriers();
+        const c = cibleOuvrierPourDate(donnees, rapport.ouvrier, frToISO(rapport.date_rapport));
+        heuresAttendues = c.cible;
+        explicationAttendu = !donnees.ok ? "absences non vérifiées : lecture impossible"
+          : !c.ficheTrouvee ? "absences non vérifiées : fiche ressource introuvable pour ce prénom"
+          : c.explication;
       } catch (e) {
         console.warn("Garde-fou heures — lecture des absences :", e);
         explicationAttendu = "absences non vérifiées : lecture impossible";

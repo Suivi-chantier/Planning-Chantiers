@@ -20,6 +20,10 @@ import { supabase } from "../supabase";
 import { RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { fetchPointages, sumHeures } from "../pointages";
+import { fmtHeures } from "../rythmeSemaine";
+// Heures attendues = rythme de l'entreprise moins les absences saisies dans
+// Réglages → Ressources : même calcul que la cible du compte rendu ouvrier.
+import { chargerAbsencesOuvriers, cibleOuvrierPourDate, attenduOuvrierPourDates } from "./absencesOuvriers";
 import {
   Clock, Calendar, ChevronLeft, ChevronRight, Camera, AlertTriangle,
   CheckCircle2, Users, ArrowRight, X, Eye, EyeOff, Info, Lock,
@@ -110,6 +114,7 @@ export default function HeuresSalaries({
   const [pointages, setPointages] = useState([]);
   const [rapports, setRapports]   = useState([]);          // rapports de la plage (photos + statut)
   const [planCells, setPlanCells] = useState([]);          // planning_cells (prévu / fantôme)
+  const [absences, setAbsences]   = useState(null);        // { ok, ressources, evenements, exceptions }
   const [loading, setLoading]     = useState(true);
 
   const [cellSel, setCellSel] = useState(null);            // { ouvrier, dateISO } → modale détail
@@ -161,7 +166,13 @@ export default function HeuresSalaries({
         if (!error) cells = data || [];
       }
 
+      // 4. Absences des ouvriers + exceptions de date (heures attendues).
+      let abs;
+      try { abs = await chargerAbsencesOuvriers(); }
+      catch { abs = { ok: false, ressources: [], evenements: [], exceptions: {} }; }
+
       if (cancelled) return;
+      setAbsences(abs);
       setPointages(pts);
       setRapports(rps);
       setPlanCells(cells);
@@ -242,6 +253,17 @@ export default function HeuresSalaries({
     return parOuvrier[normNom(nom)]?.[dISO]?.heures || 0;
   }, [parOuvrier]);
 
+  // Heures attendues (absences déduites) : par jour, et sur un ensemble de jours.
+  const absenceJour = useCallback((nom, dISO) => {
+    if (!absences) return null;
+    const c = cibleOuvrierPourDate(absences, nom, dISO);
+    return c.retraitHeures > 0 ? c : null;
+  }, [absences]);
+  const attenduSur = useCallback((nom, dates) => {
+    if (!absences) return null;
+    return attenduOuvrierPourDates(absences, nom, dates.map(iso));
+  }, [absences]);
+
   // Sous-totaux par semaine civile (pour la coloration heures sup — vue mois).
   // Renvoie { [nom]: { [lundiISO]: heures } } sur les semaines couvertes.
   const semainesDeLaPlage = useMemo(() => {
@@ -305,10 +327,11 @@ export default function HeuresSalaries({
       if (!ok) return;
     }
     const sep = ";";
-    const head = ["Salarié", ...jours.map(d => iso(d)), "Total mois"];
+    const head = ["Salarié", ...jours.map(d => iso(d)), "Total mois", "Attendu (absences déduites)"];
     const lignes = lignesSalaries.map(({ nom }) => {
       const cells = jours.map(d => fmtH(heuresCellule(nom, iso(d))));
-      return [nom, ...cells, fmtH(totalOuvrier(nom))];
+      const att = attenduSur(nom, jours);
+      return [nom, ...cells, fmtH(totalOuvrier(nom)), att?.ficheTrouvee && absences?.ok ? fmtH(att.attendu) : "non calculé"];
     });
     const csv = [head, ...lignes].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(sep)).join("\r\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
@@ -395,6 +418,7 @@ export default function HeuresSalaries({
           lignes={lignesSalaries} parOuvrier={parOuvrier} prevuParOuvrier={prevuParOuvrier}
           rapportById={rapportById} chById={chById} detail={detail}
           heuresCellule={heuresCellule} totalOuvrier={totalOuvrier} totalSemaine={totalSemaine}
+          absenceJour={absenceJour} attenduSur={attenduSur} absencesOk={absences?.ok !== false}
           onOpenCell={(nom, dISO) => setCellSel({ ouvrier: nom, dateISO: dISO })}
         />
       )}
@@ -406,9 +430,10 @@ export default function HeuresSalaries({
       }}>
         <Icon as={Info} size={15} style={{ marginTop: 1, flexShrink: 0 }} />
         <div>
-          <strong style={{ color: T.textSub }}>Absences, clôture & export paie</strong> — à venir. Ces briques
-          écrivent en base et dépendent de décisions à prendre avec le comptable (format d'export,
-          règle des heures sup, modèle des absences). L'export ci-dessus est un récapitulatif de contrôle (CSV).
+          Les heures attendues retirent les absences saisies dans Réglages → Ressources (même calcul que le
+          compte rendu de l'ouvrier). <strong style={{ color: T.textSub }}>Clôture & export paie</strong> — à venir :
+          ces briques écrivent en base et dépendent de décisions à prendre avec le comptable (format d'export,
+          règle des heures sup). L'export ci-dessus est un récapitulatif de contrôle (CSV).
         </div>
       </div>
 
@@ -505,6 +530,7 @@ function Kpi({ T, label, value, icon, color }) {
 function Grille({
   T, vue, jours, semaines, lignes, parOuvrier, prevuParOuvrier, rapportById, chById,
   detail, heuresCellule, totalOuvrier, totalSemaine, onOpenCell,
+  absenceJour, attenduSur, absencesOk,
 }) {
   // Coloration du sous-total semaine (heures sup — affichage seulement).
   const couleurSemaine = (t) => {
@@ -545,6 +571,7 @@ function Grille({
         <tbody>
           {lignes.map(({ nom, hors }) => {
             const totalMois = totalOuvrier(nom);
+            const att = attenduSur(nom, jours);
             // Sous-totaux hebdo (vue mois) : affichés sous le nom.
             return (
               <tr key={nom} style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -555,13 +582,22 @@ function Grille({
                     {hors && <span title="Nom présent dans les pointages mais absent du référentiel Admin" style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(245,166,35,0.15)", color: "#d98a2b", fontWeight: 700 }}>hors réf.</span>}
                   </div>
                   <div style={{ fontSize: 11.5, color: T.textMuted, marginTop: 2 }}>{fmtH(totalMois)} h ce mois</div>
+                  {att && (
+                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 1 }}
+                      title="Rythme de l'entreprise (et jours fériés/ponts) moins les absences saisies dans Réglages → Ressources">
+                      {!absencesOk ? "attendu : absences non vérifiées"
+                        : !att.ficheTrouvee ? "attendu : fiche ressource introuvable"
+                        : <>attendu {fmtH(att.attendu)} h{att.retraitHeures > 0 && <span style={{ color: "#d98a2b" }}> · dont {fmtHeures(att.retraitHeures)} d'absence</span>}</>}
+                    </div>
+                  )}
                   {vue === "mois" && semaines.length > 1 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                       {semaines.map(lundi => {
                         const t = totalSemaine(nom, lundi);
                         if (t <= 0) return null;
+                        const attS = attenduSur(nom, Array.from({ length: 7 }, (_, i) => addDays(lundi, i)));
                         return (
-                          <span key={iso(lundi)} title={`Semaine du ${iso(lundi)}`} style={{
+                          <span key={iso(lundi)} title={`Semaine du ${iso(lundi)}${attS?.ficheTrouvee && absencesOk ? ` · attendu ${fmtH(attS.attendu)} h (absences déduites)` : ""}`} style={{
                             fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
                             color: couleurSemaine(t), background: T.card,
                           }}>{fmtH(t)}h</span>
@@ -580,6 +616,7 @@ function Grille({
                   return (
                     <Cellule
                       key={dISO} T={T} cell={cell} we={we} prevu={prevu} detail={detail}
+                      absence={absenceJour(nom, dISO)}
                       chById={chById} rapportById={rapportById}
                       onClick={cell ? () => onOpenCell(nom, dISO) : undefined}
                       width={vue === "mois" ? 46 : vue === "semaine" ? 96 : 220}
@@ -601,10 +638,23 @@ function Grille({
 }
 
 // ─── Une cellule (4 états — cf. spec 1e) ─────────────────────────────────────
-function Cellule({ T, cell, we, prevu, detail, chById, rapportById, onClick, width }) {
-  // État 4 : vide / week-end
+function Cellule({ T, cell, we, prevu, detail, chById, rapportById, onClick, width, absence }) {
+  // Absence saisie dans Réglages → Ressources (heures retirées de l'attendu).
+  const libAbsence = absence ? (absence.journeeEntiere ? "absent" : `abs. ${fmtHeures(absence.retraitHeures)}`) : null;
+  const marqueAbsence = libAbsence && (
+    <span title={absence.explication} style={{ fontSize: 8.5, fontWeight: 700, color: "#d98a2b", textTransform: "uppercase", letterSpacing: 0.3 }}>{libAbsence}</span>
+  );
+  // État 4 : vide / week-end (avec absence éventuelle)
   if (!cell && !prevu) {
-    return <td style={{ background: we ? T.card : "transparent", minWidth: width }} />;
+    return (
+      <td style={{ background: we ? T.card : "transparent", minWidth: width, textAlign: "center", padding: "6px 4px" }}>
+        {marqueAbsence && (
+          <div style={{ display: "inline-flex", padding: "4px 6px", borderRadius: 6, border: "1px dashed rgba(245,166,35,0.45)", background: "rgba(245,166,35,0.08)" }}>
+            {marqueAbsence}
+          </div>
+        )}
+      </td>
+    );
   }
   // État 2 : prévu non validé (fantôme)
   if (!cell && prevu) {
@@ -617,6 +667,7 @@ function Cellule({ T, cell, we, prevu, detail, chById, rapportById, onClick, wid
         }}>
           <span style={{ fontSize: 12, fontWeight: 600 }}>—</span>
           <span style={{ fontSize: 8, letterSpacing: 0.3, textTransform: "uppercase" }}>à valider</span>
+          {marqueAbsence}
         </div>
       </td>
     );
@@ -642,6 +693,7 @@ function Cellule({ T, cell, we, prevu, detail, chById, rapportById, onClick, wid
           {chIds.length > 4 && <span style={{ fontSize: 8, color: T.textMuted }}>+{chIds.length - 4}</span>}
           {photos && <Icon as={Camera} size={9} color={T.textMuted} style={{ marginLeft: 1 }} />}
         </div>
+        {marqueAbsence}
         {/* Vue détaillée : éclatement par chantier */}
         {detail && (
           <div style={{ marginTop: 2, display: "flex", flexDirection: "column", gap: 1, width: "100%" }}>

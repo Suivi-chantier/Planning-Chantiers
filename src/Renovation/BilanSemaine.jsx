@@ -10,7 +10,8 @@ import {
 import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierFinanceUI";
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon, InputNombre } from "../ui";
-import { profilSemaine } from "../rythmeSemaine";
+import { profilSemaine, mondayOfWeek } from "../rythmeSemaine";
+import { chargerAbsencesOuvriers, cibleOuvrierPourDate } from "./absencesOuvriers";
 import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1, lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
@@ -191,6 +192,30 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     wmatch ? parseInt(wmatch[2], 10) : 0
   );
 
+  // Absences des ouvriers (Réglages → Ressources) : l'estimation sans pointage
+  // retire les heures d'absence, avec le même calcul que la cible du compte
+  // rendu (absencesOuvriers → cibleJourneeOuvrier). null = chargement.
+  const [absences, setAbsences] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    chargerAbsencesOuvriers()
+      .then(d => { if (!cancelled) setAbsences(d); })
+      .catch(() => { if (!cancelled) setAbsences({ ok: false, ressources: [], evenements: [], exceptions: {} }); });
+    return () => { cancelled = true; };
+  }, [weekId]);
+  const dateDuJour = (jour) => {
+    if (!wmatch) return "";
+    const idx = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"].indexOf(jour);
+    const d = mondayOfWeek(parseInt(wmatch[1], 10), parseInt(wmatch[2], 10));
+    d.setDate(d.getDate() + Math.max(0, idx));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  // Heures d'un ouvrier un jour donné : barème du jour moins ses absences.
+  const heuresOuvrierJour = (ouvrier, jour) => {
+    const dISO = absences ? dateDuJour(jour) : "";
+    return dISO ? cibleOuvrierPourDate(absences, ouvrier, dISO).cible : HEURES_PAR_JOUR[jour];
+  };
+
   // ── Détection ouvriers sur plusieurs chantiers un même jour ─────────────────
   const conflits = (() => {
     const result = [];
@@ -208,7 +233,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       });
       Object.entries(parOuvrier).forEach(([ouvrier, chantierIds]) => {
         if (chantierIds.length < 2) return;
-        const heuresJour = HEURES_PAR_JOUR[jour];
+        const heuresJour = heuresOuvrierJour(ouvrier, jour);
         const heuresInit = {};
         chantierIds.forEach(cid => { heuresInit[cid] = parseFloat((heuresJour / chantierIds.length).toFixed(1)); });
         result.push({ jour, ouvrier, chantierIds, heures: heuresInit, heuresJour });
@@ -269,7 +294,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           if (ouvrierEnConflit.has(o)) {
             res[cid] += getSaisi(jour, o, cid);
           } else {
-            res[cid] += heuresJour;
+            res[cid] += heuresOuvrierJour(o, jour);
           }
         });
       });
@@ -1909,9 +1934,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             <div style={{ textAlign:"center" }}>
               <div style={{ fontSize:28, fontWeight:800, color:T.accent }}>{totalHeures.toFixed(1)}h</div>
               <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}
-                title={hasPointages ? "Somme des pointages validés en fin de journée" : "Estimation depuis le planning (aucun pointage validé cette semaine)"}>
+                title={hasPointages ? "Somme des pointages validés en fin de journée" : "Estimation depuis le planning (aucun pointage validé cette semaine), absences des ouvriers déduites"}>
                 {hasPointages ? "Heures validées" : "Heures estimées"}
               </div>
+              {!hasPointages && absences && !absences.ok && (
+                <div style={{ fontSize:10, color:"#f5a623", marginTop:2 }}>absences non vérifiées</div>
+              )}
             </div>
             <div style={{ textAlign:"center" }}>
               <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>

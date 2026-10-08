@@ -3,7 +3,8 @@
 // Réglages → Ressources. Données fictives.
 // Lancer : node --experimental-default-type=module scripts/verif-cible-journee-ouvrier.mjs
 import assert from "node:assert/strict";
-import { cibleJourneeOuvrier, ressourceDeLOuvrier, indisponibilitesDuJour } from "../src/Renovation/cibleJourneeOuvrier.mjs";
+import { cibleJourneeOuvrier, ressourceDeLOuvrier, indisponibilitesDuJour, attenduOuvrierPeriode } from "../src/Renovation/cibleJourneeOuvrier.mjs";
+import { heuresJourEntreprise } from "../src/rythmeSemaine.js";
 import { calculerCapaciteRessource } from "../src/Renovation/planningResourceModelV1.js";
 
 const R = "res-a";
@@ -69,4 +70,20 @@ for (const e of [ev({ heures_indisponibles: 3.75 }), ev({ toute_journee: true })
   assert.equal(cib.cible, cap.capacite_apres_exceptions, JSON.stringify(e));
 }
 
-console.log("✓ verif-cible-journee-ouvrier : cible du compte rendu diminuée des absences (10 contrôles)");
+// 11. Heures du jour avant absences : exception de date > rythme, 0 le week-end.
+assert.equal(heuresJourEntreprise("2026-10-08"), 8.75);           // jeudi, semaine 41
+assert.equal(heuresJourEntreprise("2026-10-09"), 0);              // vendredi, semaine impaire
+assert.equal(heuresJourEntreprise("2026-10-16"), 8);              // vendredi, semaine paire
+assert.equal(heuresJourEntreprise("2026-10-10"), 0);              // samedi
+assert.equal(heuresJourEntreprise("2026-11-11", { "2026-11-11": 0 }), 0); // férié saisi en Admin
+
+// 12. Période (semaine, mois) : somme des cibles jour par jour.
+const semaine = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11"]
+  .map(dateISO => ({ dateISO, heuresJour: heuresJourEntreprise(dateISO) }));
+let p = attenduOuvrierPeriode({ jours: semaine, evenements: [ev({ heures_indisponibles: 3.75 })], resourceId: R });
+assert.deepEqual([p.heuresJour, p.attendu, p.retraitHeures], [35, 31.25, 3.75]);
+assert.equal(p.parJour["2026-10-08"].cible, 5);
+p = attenduOuvrierPeriode({ jours: semaine, evenements: [ev({ date_debut: "2026-10-05", date_fin: "2026-10-11", toute_journee: true })], resourceId: R });
+assert.deepEqual([p.attendu, p.retraitHeures], [0, 35]);
+
+console.log("✓ verif-cible-journee-ouvrier : cible du compte rendu diminuée des absences (12 contrôles)");

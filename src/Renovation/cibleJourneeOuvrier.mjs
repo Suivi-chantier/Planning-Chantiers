@@ -91,3 +91,20 @@ export function cibleJourneeOuvrier({ heuresJour, evenements = [], resourceId = 
     : `${fmtH(base)} − ${fmtH(retraitHeures)} d'absence (${quoi}) = ${fmtH(cible)} attendues.`;
   return { cible: arrondi(cible), heuresJour: arrondi(base), retraitHeures, journeeEntiere, motifs, explication };
 }
+
+/**
+ * Heures attendues d'un ouvrier sur plusieurs jours (semaine, mois).
+ * @param jours  [{ dateISO, heuresJour }] — heuresJour = heures avant absences
+ * @returns { attendu, heuresJour, retraitHeures, parJour: { [dateISO]: cibleJourneeOuvrier } }
+ */
+export function attenduOuvrierPeriode({ jours = [], evenements = [], resourceId = null } = {}) {
+  const parJour = {};
+  let attendu = 0, base = 0;
+  for (const j of Array.isArray(jours) ? jours : []) {
+    const c = cibleJourneeOuvrier({ heuresJour: j?.heuresJour, evenements, resourceId, dateISO: j?.dateISO });
+    parJour[str(j?.dateISO).slice(0, 10)] = c;
+    attendu += c.cible;
+    base += c.heuresJour;
+  }
+  return { attendu: arrondi(attendu), heuresJour: arrondi(base), retraitHeures: arrondi(base - attendu), parJour };
+}

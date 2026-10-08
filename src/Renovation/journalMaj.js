@@ -25,10 +25,13 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-08",
     type: "correctif",
-    titre: "Compte rendu : les absences saisies réduisent les heures demandées à l'ouvrier",
-    pages: [{ id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" }],
-    quoi: "Une absence ou indisponibilité enregistrée pour un ouvrier n'était prise en compte que par le planning : son compte rendu lui demandait quand même sa journée complète (par exemple 8h45). Désormais, la cible de son compte rendu est diminuée d'autant, et le contrôle à la validation attend le même nombre d'heures.",
-    comment: "Réglages → Ressources & indisponibilités → « Absence » sur l'ouvrier. Absence de 3h45 un jour à 8h45 : son compte rendu affiche « Cible réduite : 8h45 − 3h45 d'absence (motif) = 5h attendues ». Absence sur toute la journée : le compte rendu affiche « Absence enregistrée » et n'attend aucune heure. La « capacité exceptionnelle » ne change pas la cible (elle ne sert qu'au planning). Si la fiche de l'ouvrier est introuvable, le compte rendu l'indique (« absences non vérifiées ») au lieu de faire comme s'il n'y en avait pas.",
+    titre: "Absences : déduites des heures demandées dans le compte rendu, la validation, le bilan et les heures des salariés",
+    pages: [
+      { id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" },
+      { id: "bilan-semaine", label: "Bilan de semaine" }, { id: "heures-salaries", label: "Heures des salariés" },
+    ],
+    quoi: "Une absence ou indisponibilité enregistrée pour un ouvrier n'était prise en compte que par le planning : son compte rendu lui demandait quand même sa journée complète (par exemple 8h45). Désormais, les heures attendues sont diminuées d'autant partout, avec le même calcul : compte rendu de l'ouvrier, contrôle à la validation, estimation du bilan de semaine et page Heures des salariés.",
+    comment: "Réglages → Ressources & indisponibilités → « Absence » sur l'ouvrier. Absence de 3h45 un jour à 8h45 : son compte rendu affiche « Cible réduite : 8h45 − 3h45 d'absence (motif) = 5h attendues », et la validation attend 5h. Absence sur toute la journée : le compte rendu affiche « Absence enregistrée » et n'attend aucune heure. Heures des salariés : sous chaque nom, « attendu … h · dont … d'absence » sur la période affichée, la case du jour porte « abs. 3h45 » ou « absent », et l'export CSV a une colonne « Attendu ». Bilan de semaine : quand la semaine n'a encore aucun compte rendu validé, l'estimation depuis le planning ne compte plus les heures d'absence. La « capacité exceptionnelle » ne change pas les heures attendues (elle ne sert qu'au planning). Si la fiche de l'ouvrier est introuvable ou illisible, l'écran l'indique (« absences non vérifiées ») au lieu de faire comme s'il n'y en avait pas.",
   },
   {
     date: "2026-10-08",
