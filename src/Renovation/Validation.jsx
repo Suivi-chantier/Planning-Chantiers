@@ -41,6 +41,7 @@ import {
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
 import { getISOWeek, profilSemaine } from "../rythmeSemaine";
+import { cibleJourneeOuvrier, ressourceDeLOuvrier } from "./cibleJourneeOuvrier";
 // Lignes d'un rapport (module pur, testé par scripts/verif-compte-rendu-v2.mjs)
 // et motifs du formulaire bêta « cr_v2 » (liste unique partagée avec l'ouvrier).
 import {
@@ -668,6 +669,34 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     } catch (e) {
       console.warn("Garde-fou heures — lecture exception planning_config:", e);
     }
+    // Puis les absences de l'ouvrier (Réglages → Ressources) : même calcul et
+    // même explication que la cible affichée dans son compte rendu.
+    let explicationAttendu = null;
+    if (heuresAttendues != null) {
+      try {
+        const [rRes, eRes] = await Promise.all([
+          supabase.from("planning_resources").select("id,nom_planning,auth_user_id"),
+          supabase.from("planning_resource_events")
+            .select("id,resource_id,type,date_debut,date_fin,toute_journee,heures_indisponibles,motif,actif")
+            .eq("actif", true),
+        ]);
+        if (rRes.error) throw rRes.error;
+        if (eRes.error) throw eRes.error;
+        const res = ressourceDeLOuvrier(rRes.data, { prenom: rapport.ouvrier });
+        if (res) {
+          const c = cibleJourneeOuvrier({
+            heuresJour: heuresAttendues, evenements: eRes.data, resourceId: res.id, dateISO: frToISO(rapport.date_rapport),
+          });
+          heuresAttendues = c.cible;
+          explicationAttendu = c.explication;
+        } else {
+          explicationAttendu = "absences non vérifiées : fiche ressource introuvable pour ce prénom";
+        }
+      } catch (e) {
+        console.warn("Garde-fou heures — lecture des absences :", e);
+        explicationAttendu = "absences non vérifiées : lecture impossible";
+      }
+    }
 
     let exceptionHeures = null;
     const ecartHeures = heuresAttendues == null ? 0 : totalJourValide - heuresAttendues;
@@ -677,7 +706,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         `⚠️ Garde-fou heures — ${rapport.ouvrier}\n\n`
         + `Déclaré par l'ouvrier : ${fmtH(totalJourDeclare)}h\n`
         + `Après validation : ${fmtH(totalJourValide)}h\n`
-        + `Attendu : ${fmtH(heuresAttendues)}h\n`
+        + `Attendu : ${fmtH(heuresAttendues)}h${explicationAttendu ? ` (${explicationAttendu})` : ""}\n`
         + `Écart : ${sens}\n\n`
         + `La validation est bloquée.\n\n`
         + `S'agit-il réellement d'une journée exceptionnelle ?`

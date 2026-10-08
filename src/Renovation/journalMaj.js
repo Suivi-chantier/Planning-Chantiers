@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-08",
     type: "correctif",
+    titre: "Compte rendu : les absences saisies réduisent les heures demandées à l'ouvrier",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" }],
+    quoi: "Une absence ou indisponibilité enregistrée pour un ouvrier n'était prise en compte que par le planning : son compte rendu lui demandait quand même sa journée complète (par exemple 8h45). Désormais, la cible de son compte rendu est diminuée d'autant, et le contrôle à la validation attend le même nombre d'heures.",
+    comment: "Réglages → Ressources & indisponibilités → « Absence » sur l'ouvrier. Absence de 3h45 un jour à 8h45 : son compte rendu affiche « Cible réduite : 8h45 − 3h45 d'absence (motif) = 5h attendues ». Absence sur toute la journée : le compte rendu affiche « Absence enregistrée » et n'attend aucune heure. La « capacité exceptionnelle » ne change pas la cible (elle ne sert qu'au planning). Si la fiche de l'ouvrier est introuvable, le compte rendu l'indique (« absences non vérifiées ») au lieu de faire comme s'il n'y en avait pas.",
+  },
+  {
+    date: "2026-10-08",
+    type: "correctif",
     titre: "ProGBat : comprendre les ouvrages ambigus et choisir leur liaison",
     pages: [{ id: "admin", label: "Réglages" }],
     quoi: "Le rapprochement explique les codes partagés, les doublons Profero et les liaisons déjà utilisées. Chaque candidat affiche son descriptif complet, son unité, son prix et les différences avec l'ouvrage Profero.",
