@@ -129,6 +129,11 @@ serve(async (req) => {
       ? [...new Set(body.ouvrageIds.map((x: unknown) => String(x ?? "").trim()).filter(Boolean))]
       : []
     if (ouvrageIds.length > MAX_PERIMETRE) return json({ ok: false, error: `Périmètre limité à ${MAX_PERIMETRE} ouvrages.` }, 400)
+    const selections = body.selections ?? {}
+    if (!selections || Array.isArray(selections) || typeof selections !== "object" ||
+      Object.entries(selections).some(([id, cible]) => !ouvrageIds.includes(id) || !Number.isInteger(Number(cible)) || Number(cible) <= 0)) {
+      return json({ ok: false, error: "Sélections ProGBat invalides : un périmètre explicite est requis." }, 400)
+    }
     // Famille ProGBat de destination : choisie par l'utilisateur parmi les
     // familles existantes. Sa validité est revérifiée ici contre ProGBat.
     const familleId = body.familleId == null ? null : Number(body.familleId)
@@ -212,7 +217,7 @@ serve(async (req) => {
     let plan = restreindrePlan(construirePlanSynchronisation({
       inventaire, familles: familles.items, unites: unites.items, taxes: taxesData,
       tvaDefaut: num(cfgMap.chiffrage_tva_defaut),
-      familleId, jobs: jobs.items, jobId, compositions,
+      familleId, jobs: jobs.items, jobId, compositions, selections,
     }), ouvrageIds)
     // Périmètre restreint : l'état vu par l'inventaire explique sur la fiche
     // pourquoi un ouvrage n'a rien à faire (déjà lié) ou reste bloqué.
@@ -224,7 +229,8 @@ serve(async (req) => {
     // Un état incertain/en cours reste bloquant même si l'inventaire le repropose.
     const ids = plan.actions.map((x: Record<string, unknown>) => x.ouvrageId)
     if (ids.length) {
-      const { data: actifs } = await admin.from("progbat_library_sync_items").select("ouvrage_id,statut,error_message").in("ouvrage_id", ids).in("statut", STATUTS_BLOQUANTS)
+      const { data: actifs, error: actifsErreur } = await admin.from("progbat_library_sync_items").select("ouvrage_id,statut,error_message").in("ouvrage_id", ids).in("statut", STATUTS_BLOQUANTS)
+      if (actifsErreur) return json({ ok: false, error: "Vérification des synchronisations en cours impossible." }, 500)
       const parId = new Map((actifs || []).map((x: Record<string, unknown>) => [String(x.ouvrage_id), x]))
       const gardees = [], bloquees = []
       for (const x of plan.actions) {
@@ -266,6 +272,13 @@ serve(async (req) => {
       const finir = async (patch: Record<string, unknown>) => admin.from("progbat_library_sync_items").update({ ...patch, finished_at: new Date().toISOString() }).eq("id", reservation.id)
 
       if (item.type === "link") {
+        const { data: autres, error: lectureErreur } = await admin.from("bibliotheque_ratios").select("id").eq("progbat_id", String(item.progbatId)).neq("id", item.ouvrageId).limit(1)
+        const { data: reservations, error: reservationErreur } = await admin.from("progbat_library_sync_items").select("id").eq("progbat_target_id", item.progbatId).neq("ouvrage_id", item.ouvrageId).in("statut", STATUTS_BLOQUANTS).limit(1)
+        if (lectureErreur || reservationErreur || autres?.length || reservations?.length) {
+          await finir({ statut: "failed", error_message: "Candidat déjà lié ou réservé par un autre ouvrage" })
+          resultats.push({ ouvrageId: item.ouvrageId, code: item.code, type: item.type, statut: "conflit", error: "Candidat déjà lié ou réservé : relancer l'analyse." })
+          continue
+        }
         const { data: lie, error } = await admin.from("bibliotheque_ratios").update({ progbat_id: String(item.progbatId), progbat_sync_at: new Date().toISOString() }).eq("id", item.ouvrageId).is("progbat_id", null).select("id").maybeSingle()
         if (error || !lie) {
           const { data: actuel } = await admin.from("bibliotheque_ratios").select("progbat_id").eq("id", item.ouvrageId).maybeSingle()

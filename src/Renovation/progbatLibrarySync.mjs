@@ -278,7 +278,7 @@ export function construirePayloadStructure(rapprochement, { familleId, unites = 
  * Sans l'un ni l'autre, les LIAISONS restent possibles — elles ne créent rien —
  * et seules les CRÉATIONS sont écartées, faute de destination.
  */
-export function construirePlanSynchronisation({ inventaire, familles = [], unites = [], taxes = [], tvaDefaut = null, familleId = null, familleLabel = null, jobs = [], jobId = null, compositions = null } = {}) {
+export function construirePlanSynchronisation({ inventaire, familles = [], unites = [], taxes = [], tvaDefaut = null, familleId = null, familleLabel = null, jobs = [], jobId = null, compositions = null, selections = {} } = {}) {
   const famille = familleId != null || !str(familleLabel)
     ? resoudreFamilleParId(familles, familleId)
     : trouverFamilleCible(familles, familleLabel);
@@ -296,6 +296,27 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
   for (const r of inventaire?.rapprochements || []) {
     const ouvrageId = r?.profero?.id;
     if (!ouvrageId) continue;
+    if (r.conflits_liaison?.length) {
+      exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: r.conflits_liaison });
+      continue;
+    }
+    const choix = Object.hasOwn(selections, str(ouvrageId)) ? selections[str(ouvrageId)] : null;
+    if (choix != null) {
+      const candidats = [...(r.candidats || []), ...(r.correspondance ? [r.correspondance] : [])];
+      const candidat = candidats.find(c => str(c.id) === str(choix));
+      if (r.profero.progbat_id || !candidat || candidat.selectionnable !== true) {
+        exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: ["Choix ProGBat invalide, unité différente ou candidat déjà lié : relancer l'analyse"] });
+      } else {
+        actions.push({ type: "link", ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court,
+          progbatId: Number(candidat.id), progbatLabel: candidat.label || "", manuel: true,
+          comparaison: candidat.comparaison, descriptif: candidat.descriptif });
+      }
+      continue;
+    }
+    if (r.doublons_code_profero?.length) {
+      exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: ["Code Profero dupliqué : choix manuel requis"] });
+      continue;
+    }
     if (r.statut === "correspondance_code_a_confirmer" && r.correspondance?.id != null) {
       actions.push({
         type: "link",
@@ -359,6 +380,19 @@ export function construirePlanSynchronisation({ inventaire, familles = [], unite
     exclus.push({ ouvrageId, code: r.profero.code, libelle: r.profero.libelle_court, raisons: r.blocages?.length ? r.blocages : [`Statut « ${r.statut} » à traiter manuellement`] });
   }
 
+  // Deux choix explicites peuvent encore viser la même cible libre : écarter
+  // TOUTES les actions en conflit, sans privilégier l'ordre de la liste.
+  const cibles = new Map();
+  actions.filter(a => a.type === "link").forEach(a => {
+    const k = str(a.progbatId); cibles.set(k, (cibles.get(k) || 0) + 1);
+  });
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const a = actions[i];
+    if (a.type === "link" && cibles.get(str(a.progbatId)) > 1) {
+      exclus.push({ ouvrageId: a.ouvrageId, code: a.code, libelle: a.libelle, raisons: [`Plusieurs ouvrages sélectionnés visent ProGBat #${a.progbatId}`] });
+      actions.splice(i, 1);
+    }
+  }
   actions.sort((a, b) => String(a.code || "").localeCompare(String(b.code || ""), "fr", { numeric: true }));
   return {
     famille,
@@ -433,7 +467,9 @@ export function etatOuvragePourSync(inventaire, ouvrageId) {
     notes: r.notes || [],
     progbatId: r.profero?.progbat_id ?? r.correspondance?.id ?? null,
     progbatLabel: str(r.correspondance?.label) || null,
-    candidats: (r.candidats || []).map((c) => ({ id: c?.id ?? null, label: str(c?.label) })),
+    candidats: r.candidats || [],
+    doublons_code_profero: r.doublons_code_profero || [],
+    doublons_liaison_profero: r.doublons_liaison_profero || [],
   };
 }
 
@@ -444,7 +480,7 @@ export function donneesPourHash(plan) {
     // ouvrage ne peut pas servir à confirmer une synchronisation globale.
     perimetre: plan?.perimetre?.ouvrageIds ?? null,
     actions: (plan?.actions || []).map((a) => a.type === "link"
-      ? { type: a.type, ouvrageId: a.ouvrageId, progbatId: a.progbatId }
+      ? { type: a.type, ouvrageId: a.ouvrageId, progbatId: a.progbatId, manuel: a.manuel === true, progbatLabel: a.progbatLabel ?? null, comparaison: a.comparaison ?? null, descriptif: a.descriptif ?? null }
       : a.type === "composition"
         ? { type: a.type, ouvrageId: a.ouvrageId, progbatId: a.progbatId, composition: a.composition?.payload }
         // La composition entre dans l'empreinte : confirmer une création, c'est

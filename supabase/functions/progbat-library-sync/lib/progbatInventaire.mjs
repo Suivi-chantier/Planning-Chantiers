@@ -293,7 +293,7 @@ const resumeStructure = (s, codeCommun = null) => ({
   code_api: s.codeApi,                 // champ `code` technique brut de l'API (colonne secondaire)
   code_commun: codeCommun,             // code normalisé qui a servi au rapprochement
   label: s.label,                      // libellé ProGBat nettoyé (jamais de HTML)
-  descriptif: s.descriptif.length > 200 ? s.descriptif.slice(0, 199) + "…" : s.descriptif,
+  descriptif: s.descriptif,
   unitCode: s.unitCode || null,
   prix_vente_ht: s.prixVente,
   actif: s.actif,
@@ -329,6 +329,13 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
     aucun: structs.filter((s) => !s.sourceCode).length,
   };
 
+  const ouvragesValides = (Array.isArray(ouvrages) ? ouvrages : []).filter(Boolean);
+  const parCodeProfero = new Map(), parLienProfero = new Map();
+  ouvragesValides.forEach(o => {
+    push(parCodeProfero, normaliserCode(codeProfero(o)), o);
+    push(parLienProfero, str(o.progbat_id), o);
+  });
+  const resumeProfero = o => ({ id: o.id, code: codeProfero(o), libelle: str(o.libelle), unite: str(o.unite) });
   const utilises = new Set();
   const ctx = { materiaux, coutHoraire, tauxHoraires, coefficientsVente, tvaDefaut, tauxTvaProgbat: taxes, unitesProgbat: unites };
 
@@ -372,10 +379,32 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
         cles.forEach((k) => (parLabel.get(k) || []).forEach((s) => trouves.set(s.idStr, s)));
         if (trouves.size > 0) {
           statut = STATUTS.correspondance_libelle_a_examiner;
-          candidats = [...trouves.values()].map(resumeStructure);
+          candidats = [...trouves.values()].map(s => resumeStructure(s));
           trouves.forEach((s) => utilises.add(s.idStr));
         }
       }
+
+      // Diagnostic séparé de la complétude : un ouvrage complet peut avoir
+      // une liaison dangereuse. Aucun prix ou libellé ne départage automatiquement.
+      const doublonsCode = (parCodeProfero.get(codeNorm) || []).filter(x => str(x.id) !== str(o.id));
+      const doublonsLien = pid ? (parLienProfero.get(pid) || []).filter(x => str(x.id) !== str(o.id)) : [];
+      const conflits = [];
+      if (doublonsCode.length) notes.push(`Code ${codeNorm} partagé par ${doublonsCode.length + 1} ouvrages Profero`);
+      if (doublonsLien.length) conflits.push(`Liaison ProGBat #${pid} partagée par ${doublonsLien.length + 1} ouvrages Profero`);
+      if (pid && !parId.has(pid)) conflits.push(`Liaison ProGBat #${pid} introuvable : corriger la fiche Profero`);
+      const enrichir = c => {
+        const lies = (parLienProfero.get(str(c.id)) || []).filter(x => str(x.id) !== str(o.id)).map(resumeProfero);
+        const uniteIdentique = Boolean(str(o.unite) && str(c.unitCode)) && normaliserUnite(o.unite).toLowerCase() === normaliserUnite(c.unitCode).toLowerCase();
+        const libelleIdentique = normaliserLibelle(compl.libelleCourt) === normaliserLibelle(parseCodeOuvrage(c.descriptif || c.label)?.reste || c.descriptif || c.label);
+        return { ...c, comparaison: { unite_identique: uniteIdentique, libelle_identique: libelleIdentique,
+          ecart_prix_ht: c.prix_vente_ht != null && compl.prix?.prix_vente_ht != null ? c.prix_vente_ht - compl.prix.prix_vente_ht : null },
+          lies_profero: lies, selectionnable: uniteIdentique && !lies.length && !pid };
+      };
+      candidats = candidats.map(enrichir);
+      if (correspondance) correspondance = enrichir(correspondance);
+      if (statut === STATUTS.ambigu) notes.push(`${candidats.length} structures ProGBat portent le code ${codeNorm} : choix explicite requis`);
+      if (!pid && correspondance?.lies_profero.length) conflits.push(`Candidat ProGBat #${correspondance.id} déjà lié à un autre ouvrage Profero`);
+      if (!pid && correspondance && !correspondance.comparaison.unite_identique) conflits.push("Unité différente ou absente : liaison à contrôler");
 
       // 5. nouveau
       if (!statut) statut = STATUTS.nouveau_a_creer;
@@ -392,9 +421,12 @@ export function rapprocherBibliotheque({ ouvrages = [], structures = [], materia
         statut,
         correspondance,
         candidats,
-        synchronisable: compl.synchronisable,
-        pret_a_creer: statut === STATUTS.nouveau_a_creer && compl.synchronisable,
-        blocages: compl.blocages,
+        doublons_code_profero: doublonsCode.map(resumeProfero),
+        doublons_liaison_profero: doublonsLien.map(resumeProfero),
+        conflits_liaison: conflits,
+        synchronisable: compl.synchronisable && !conflits.length && !doublonsCode.length,
+        pret_a_creer: statut === STATUTS.nouveau_a_creer && compl.synchronisable && !conflits.length && !doublonsCode.length,
+        blocages: [...compl.blocages, ...conflits, ...(doublonsCode.length ? ["Code Profero dupliqué : choix manuel requis"] : [])],
         avertissements: compl.avertissements,
         notes,
         prix: compl.prix,
