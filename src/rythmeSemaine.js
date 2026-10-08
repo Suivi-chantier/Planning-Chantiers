@@ -105,6 +105,20 @@ export function capaciteJour(jour, year, week) {
   return h > 0 ? h - 1 : 0;
 }
 
+// Heures TRAVAILLÉES attendues à une date "AAAA-MM-JJ", avant absences
+// individuelles : exception de date Admin (planning_config.heures_par_jour
+// .exceptions — férié, pont… 0 h valide) > profil de la semaine. 0 le week-end.
+export function heuresJourEntreprise(dateISO, exceptions = null) {
+  const iso = String(dateISO || "").slice(0, 10);
+  const exc = parseFloat(exceptions?.[iso]);
+  if (Number.isFinite(exc)) return exc;
+  const d = new Date(`${iso}T12:00:00`);
+  if (isNaN(d)) return 0;
+  const jour = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"][d.getDay()];
+  const { year, week } = getISOWeek(iso);
+  return profilSemaine(year, week)[jour] ?? 0;
+}
+
 // Durée lisible : 8.75 → "8h45", 8 → "8h", 0 → "0h".
 export function fmtHeures(h) {
   const min = Math.round((parseFloat(h) || 0) * 60);

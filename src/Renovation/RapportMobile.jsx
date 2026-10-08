@@ -24,6 +24,9 @@ import {
   ORIGINE_NOUVELLE, ligneNouvelleTache, modifierNouvelleTache, texteProposition, photosAutres, majPhotosAutres,
 } from "./compteRenduV2";
 import { explicationComplete } from "./motifsCompteRendu";
+// Cible du jour moins les absences saisies dans Réglages → Ressources (même
+// calcul que le garde-fou de validation du conducteur).
+import { cibleJourneeOuvrier, ressourceDeLOuvrier } from "./cibleJourneeOuvrier";
 import { fmtQuantite } from "./suiviQuantite";
 import TacheCarteV2 from "./TacheCarteV2";
 import PanneauAutreChose from "./PanneauAutreChose";
@@ -360,14 +363,23 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   //  2. profil de la semaine selon le rythme 4j/5j (src/rythmeSemaine.js) —
   //     0 h le vendredi des semaines impaires ; avant la rentrée du 24/08/2026,
   //     le profil retombe sur l'ancienne config Admin "heures_par_jour".
+  //  puis on retire les absences de l'ouvrier (Réglages → Ressources).
   const todayISO = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
   const excHeures  = parseFloat(heuresParJour?.exceptions?.[todayISO]);
   const baseHeures = todayJour ? parseFloat(profilSemaine(year, week, heuresParJour)[todayJour]) : NaN;
-  const cibleHeures = Number.isFinite(excHeures) ? excHeures
+  const heuresJourEntreprise = Number.isFinite(excHeures) ? excHeures
     : Number.isFinite(baseHeures) ? baseHeures
     : (HEURES_PAR_JOUR_DEFAUT[todayJour] || 10);
-  // Jour ouvré sans heures attendues (vendredi de semaine 4 jours, férié…) :
-  // on affiche un bandeau "repos" à la place du compteur de journée.
+  // Absences de l'ouvrier (planning_resource_events). etat : chargement | ok |
+  // sans_fiche (aucune fiche ressource reliée à ce prénom) | indisponible.
+  const [absencesJour, setAbsencesJour] = useState({ etat: "chargement", resourceId: null, evenements: [] });
+  const cibleJour = cibleJourneeOuvrier({
+    heuresJour: heuresJourEntreprise,
+    evenements: absencesJour.evenements, resourceId: absencesJour.resourceId, dateISO: todayISO,
+  });
+  const cibleHeures = cibleJour.cible;
+  // Jour ouvré sans heures attendues (vendredi de semaine 4 jours, férié,
+  // absence toute la journée) : bandeau à la place du compteur de journée.
   const jourNonTravaille = !!todayJour && cibleHeures === 0;
 
   // Load config + planning
@@ -385,6 +397,33 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     };
     load();
   }, []);
+
+  // Absences de l'ouvrier : sa fiche ressource (compte lié, sinon prénom) puis
+  // ses indisponibilités actives. Un ouvrier connecté ne lit que les siennes (RLS).
+  useEffect(() => {
+    const nom = ouvrier.trim();
+    if (step !== "rapport" || !nom) return;
+    let annule = false;
+    setAbsencesJour({ etat: "chargement", resourceId: null, evenements: [] });
+    (async () => {
+      try {
+        const { data: { session } = {} } = await supabase.auth.getSession();
+        const rRes = await supabase.from("planning_resources").select("id,nom_planning,auth_user_id");
+        if (rRes.error) throw rRes.error;
+        const res = ressourceDeLOuvrier(rRes.data, { authUserId: session?.user?.id || null, prenom: nom });
+        if (!res) { if (!annule) setAbsencesJour({ etat: "sans_fiche", resourceId: null, evenements: [] }); return; }
+        const eRes = await supabase.from("planning_resource_events")
+          .select("id,resource_id,type,date_debut,date_fin,toute_journee,heures_indisponibles,motif,actif")
+          .eq("resource_id", res.id).eq("actif", true);
+        if (eRes.error) throw eRes.error;
+        if (!annule) setAbsencesJour({ etat: "ok", resourceId: res.id, evenements: eRes.data || [] });
+      } catch (e) {
+        console.warn("Absences de l'ouvrier :", e);
+        if (!annule) setAbsencesJour({ etat: "indisponible", resourceId: null, evenements: [] });
+      }
+    })();
+    return () => { annule = true; };
+  }, [step, ouvrier, todayISO]);
 
   // ── Brouillon : helpers + autosave ──────────────────────────────────────────
   const brouillonKey = (nom, date) => `cr_brouillon::${nom}::${date}`;
@@ -757,6 +796,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
   const soumettre = async () => {
     if (preview) return; // aperçu admin : lecture seule
+    if (absencesJour.etat === "chargement") { alert("Vérification de tes absences en cours… réessaie dans un instant."); return; }
     // Filet pour un brouillon antérieur au 28/09/2026 (voir aReprendreIntacte).
     const tachesRemplies = filtrerTachesRemplies(taches);
     if (tachesRemplies.length === 0) { alert("Aucune tâche à soumettre."); return; }
@@ -1314,8 +1354,12 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         }}>
           <Icon as={Clock} size={18} color={T.info} strokeWidth={2} style={{flexShrink:0, marginTop:1}}/>
           <div style={{fontSize:FONT.base.size, color:T.text, lineHeight:1.5}}>
-            <strong>Jour non travaillé</strong> — aucune heure n'est attendue aujourd'hui
-            {libelleRythme(year, week) === "Semaine de 4 jours" ? " (semaine de 4 jours : lundi → jeudi)" : ""}.
+            {cibleJour.journeeEntiere ? (
+              <><strong>Absence enregistrée</strong> — {cibleJour.explication} </>
+            ) : (
+              <><strong>Jour non travaillé</strong> — aucune heure n'est attendue aujourd'hui
+              {libelleRythme(year, week) === "Semaine de 4 jours" ? " (semaine de 4 jours : lundi → jeudi)" : ""}. </>
+            )}
             Si tu as quand même travaillé, contacte ton conducteur de travaux.
           </div>
         </div>
@@ -1377,6 +1421,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               {totalTrajetMin > 0 && ` + ${totalTrajetMin} min de trajet (${fmtH(totalTrajetMin/60)}h)`}
               {totalIndirectesH > 0 && ` + ${fmtH(totalIndirectesH)}h indirectes`}
             </div>
+            {cibleJour.explication && (
+              <div style={{fontSize:FONT.xs.size+1,color:T.text,marginTop:4,fontWeight:600}}>
+                Cible réduite : {cibleJour.explication}
+              </div>
+            )}
+            {(absencesJour.etat === "indisponible" || absencesJour.etat === "sans_fiche") && (
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginTop:4}}>
+                Absences non vérifiées ({absencesJour.etat === "sans_fiche" ? "fiche ressource introuvable" : "lecture impossible"}) : cible du rythme de l'entreprise.
+              </div>
+            )}
             {lastSaved && (
               <div style={{
                 fontSize:FONT.xs.size,color:T.textMuted,marginTop:6,

@@ -19,6 +19,14 @@ on:
       - 'scripts/verif-planning-resource-model-v1.mjs'
       - 'scripts/verif-planning-resource-capacity-v1.mjs'
       - 'scripts/verif-rythme-semaine.mjs'
+      - 'src/Renovation/cibleJourneeOuvrier.mjs'
+      - 'src/Renovation/cibleJourneeOuvrier.js'
+      - 'src/Renovation/RapportMobile.jsx'
+      - 'src/Renovation/Validation.jsx'
+      - 'src/Renovation/BilanSemaine.jsx'
+      - 'src/Renovation/HeuresSalaries.jsx'
+      - 'src/Renovation/absencesOuvriers.js'
+      - 'scripts/verif-cible-journee-ouvrier.mjs'
       - 'scripts/verif-planning-constraint-model-v1.mjs'
       - 'scripts/verif-planning-model-v1.mjs'
       - 'scripts/verif-planning-model-audit-v1.mjs'
@@ -55,6 +63,8 @@ jobs:
         run: node --experimental-default-type=module scripts/verif-planning-resource-capacity-v1.mjs
       - name: Horaires 35 h / 43 h (rythme 4j/5j)
         run: node --experimental-default-type=module scripts/verif-rythme-semaine.mjs
+      - name: Cible du compte rendu moins les absences
+        run: node --experimental-default-type=module scripts/verif-cible-journee-ouvrier.mjs
       - name: Fixtures contraintes chantier 02
         run: node --experimental-default-type=module scripts/verif-planning-constraint-model-v1.mjs
       - name: Installer dépendances

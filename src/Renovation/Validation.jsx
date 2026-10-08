@@ -41,6 +41,7 @@ import {
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, heuresDeclareesRapport } from "../pointages";
 import { getISOWeek, profilSemaine } from "../rythmeSemaine";
+import { chargerAbsencesOuvriers, cibleOuvrierPourDate } from "./absencesOuvriers";
 // Lignes d'un rapport (module pur, testé par scripts/verif-compte-rendu-v2.mjs)
 // et motifs du formulaire bêta « cr_v2 » (liste unique partagée avec l'ouvrier).
 import {
@@ -657,16 +658,22 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const totalJourValide = heuresHorsTrajetJour + trajetJourH;
     const totalJourDeclare = rapportsMemeJourGuard.reduce((sum, r) => sum + heuresDeclareesRapport(r), 0) + trajetJourH;
 
+    // Même calcul que la cible du compte rendu ouvrier : exception de date
+    // Admin > rythme 4j/5j, moins les absences de l'ouvrier (Réglages → Ressources).
     let heuresAttendues = heuresAttenduesPourDate(rapport.date_rapport);
-    // Même priorité que le formulaire ouvrier : exception de date Admin > rythme 4j/5j.
-    try {
-      const { data: cfg } = await supabase.from("planning_config")
-        .select("value").eq("key", "heures_par_jour").maybeSingle();
-      const isoRapport = frToISO(rapport.date_rapport);
-      const exc = parseFloat(cfg?.value?.exceptions?.[isoRapport]);
-      if (Number.isFinite(exc)) heuresAttendues = exc;
-    } catch (e) {
-      console.warn("Garde-fou heures — lecture exception planning_config:", e);
+    let explicationAttendu = null;
+    if (heuresAttendues != null) {
+      try {
+        const donnees = await chargerAbsencesOuvriers();
+        const c = cibleOuvrierPourDate(donnees, rapport.ouvrier, frToISO(rapport.date_rapport));
+        heuresAttendues = c.cible;
+        explicationAttendu = !donnees.ok ? "absences non vérifiées : lecture impossible"
+          : !c.ficheTrouvee ? "absences non vérifiées : fiche ressource introuvable pour ce prénom"
+          : c.explication;
+      } catch (e) {
+        console.warn("Garde-fou heures — lecture des absences :", e);
+        explicationAttendu = "absences non vérifiées : lecture impossible";
+      }
     }
 
     let exceptionHeures = null;
@@ -677,7 +684,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         `⚠️ Garde-fou heures — ${rapport.ouvrier}\n\n`
         + `Déclaré par l'ouvrier : ${fmtH(totalJourDeclare)}h\n`
         + `Après validation : ${fmtH(totalJourValide)}h\n`
-        + `Attendu : ${fmtH(heuresAttendues)}h\n`
+        + `Attendu : ${fmtH(heuresAttendues)}h${explicationAttendu ? ` (${explicationAttendu})` : ""}\n`
         + `Écart : ${sens}\n\n`
         + `La validation est bloquée.\n\n`
         + `S'agit-il réellement d'une journée exceptionnelle ?`
