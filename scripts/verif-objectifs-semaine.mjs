@@ -1,0 +1,43 @@
+// exemple issu des tests, données fictives
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {analyserObjectifsSemaine,objectifsDepuisFaits,validerRedaction,semainesAnalyse} from '../src/Renovation/objectifsSemaine.mjs';
+const require=createRequire(import.meta.url),ia=require('../api/_ia/taches/objectifs_semaine.js');
+const c={id:'a',nom:'Exemple logement',operation_id:'op',couleur:'#64748b'};
+const cellule=(id,jour,text,tache_id,week_id='2026-W42')=>({chantier_id:id,jour,week_id,taches:[{text,tache_id}],ouvriers:['Compagnon fictif']});
+const analyse=(cells,phasages=[],extra={})=>analyserObjectifsSemaine({weekId:'2026-W42',chantiers:[c],cells,phasages,...extra});
+assert.deepEqual(semainesAnalyse('2027-W01'),['2026-W50','2026-W51','2026-W52','2026-W53','2027-W01','2027-W02','2027-W03']);
+let r=analyse([cellule('a','Jeudi','RDV ENEDIS'),cellule('a','Vendredi','Protections')]);
+assert.equal(r.faits.find(f=>f.type==='DEMARRAGE').jour,'Vendredi');
+assert(!analyse([cellule('a','Lundi','Pose'),cellule('a','Mardi','Pose',null,'2026-W41')]).faits.some(f=>f.type==='DEMARRAGE'));
+assert(!analyse([cellule('a','Jeudi','Nettoyage avant réception'),cellule('a','Lundi','Pose',null,'2026-W43')]).faits.some(f=>f.type==='LIVRAISON'));
+r=analyse([cellule('a','Jeudi','Nettoyage avant réception'),cellule('b','Jeudi','Livraison')],[],{chantiers:[c,{...c,id:'b',nom:'Exemple étage'}]});
+assert.equal(r.faits.find(f=>f.type==='LIVRAISON').chantier_ids.length,2);
+assert(r.attentions.some(a=>a.includes('indisponible')));
+const ph=[{chantier_id:'a',ouvrages:[{lot_id:'plomberie',taches:[{id:'p',nom:'Passage PER',avancement:0},{id:'q',nom:'Passage évacuation',avancement:0}]}]}];
+assert(!analyse([cellule('a','Mardi','Passage PER','p')],ph).faits.some(f=>f.type==='FIN_RESEAUX'));
+r=analyse([cellule('a','Mardi','Passage PER','p'),cellule('a','Jeudi','Passage évacuation','q')],ph);
+assert(r.faits.some(f=>f.type==='FIN_CHANTIER'&&f.jour==='Jeudi'));
+r=analyse([cellule('a','Mardi','Contrôle / essais réseaux avant fermeture')],ph);
+assert(r.attentions.some(a=>a.includes('2 tâche(s)')));
+r=analyse([cellule('a','Lundi','Pose','p')],[{chantier_id:'a',ouvrages:[{lot_id:'menuiserie',taches:[{id:'p',nom:'Pose',date_prevue:'2026-09-01',avancement:0}]}]}],{ouvriers:['Absent fictif'],indisponibles:{'Absent fictif_Lundi':true}});
+assert(r.attentions.some(a=>a.includes('plus de 7 jours')));assert(!r.attentions.some(a=>a==='Absent fictif n\'a aucune tâche lundi.'));
+const ambigu=[{chantier_id:'a',ouvrages:[{lot_id:'sol',taches:[{id:'1',nom:'Pose',avancement:0},{id:'2',nom:'Pose',avancement:0}]}]}];
+assert(!analyse([cellule('a','Lundi','Pose')],ambigu).faits.some(f=>f.type==='FIN_CHANTIER'));
+r=analyse([cellule('a','Mardi','Contrôle / essais réseaux avant fermeture')]);
+const os=objectifsDepuisFaits(r.faits);assert(os.every(o=>o.titre));
+assert(ia.schema_entree({faits:r.faits})===true);
+assert(ia.schema_sortie(os,{faits:r.faits})===true);assert(validerRedaction(os,r.faits));
+assert.notEqual(ia.schema_sortie([{...os[0],fait_ids:['inventé']}],{faits:r.faits}),true);
+assert(!validerRedaction(os.map(o=>({...o,jour:'Vendredi'})),r.faits));
+assert(!validerRedaction([...os,os[0]],r.faits));
+assert.notEqual(ia.schema_sortie(os),true);
+const many=Array.from({length:10},(_,i)=>({...c,id:`c${i}`,operation_id:null}));
+assert.equal(analyse(many.map(c=>cellule(c.id,'Lundi','Pose')),[],{chantiers:many}).faits.length,8);
+// Pose extérieure à l'opération : dernier jour de pose, finitions distinctes.
+const exterior=[{chantier_id:'a',ouvrages:[{lot_id:'menuiserie',libelle:'Fenêtre PVC',taches:[{id:'pose',nom:'Mise en place, calage et fixation de la fenêtre',avancement:0},{id:'fin',nom:'Réglages de la fenêtre',avancement:0}]}]}];
+r=analyse([cellule('a','Mercredi','Mise en place, calage et fixation de la fenêtre','pose'),cellule('a','Vendredi','Réglages de la fenêtre','fin')],exterior,{operations:[{id:'op',nom:'Opération fictive'}]});
+assert(r.faits.some(f=>f.pose_seulement&&f.jour==='Mercredi'));
+assert(objectifsDepuisFaits(r.faits).some(o=>o.titre==='Menuiseries extérieures posées'));
+assert(!r.faits.some(f=>f.type==='DEMARRAGE')); // petit chantier entièrement programmé : fin absorbe démarrage
+console.log('✓ Objectifs semaine : jalons, regroupement, limites, alertes, preuves et repli IA — exemple issu des tests, données fictives.');

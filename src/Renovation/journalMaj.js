@@ -23,6 +23,13 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-10", type: "nouveaute",
+    titre: "Planning semaine : objectifs, remarques et nouveau PDF sur une page",
+    pages: [{ id: "planning", label: "Planning semaine" }],
+    quoi: "Le planning imprimé présente les résultats attendus de la semaine, le tableau des équipes et vos remarques sur une page A4 paysage. Les objectifs et remarques sont conservés par semaine.",
+    comment: "Cliquez sur Imprimer / Exporter : une fenêtre propose les objectifs à partir des tâches planifiées et du phasage. Relisez, modifiez, supprimez ou ajoutez les objectifs, puis saisissez les remarques et cliquez sur Générer le PDF. Les alertes de planning restent dans la fenêtre. À la réouverture, les objectifs enregistrés reviennent sans nouvelle analyse ; Relancer l’analyse permet de les recalculer. Si la rédaction IA échoue, les propositions issues des règles restent disponibles et le message vous invite à les relire. Planning seul permet d’imprimer sans objectifs ni remarques.",
+  },
+  {
     date: "2026-10-08",
     type: "correctif",
     titre: "Absences : déduites des heures demandées dans le compte rendu, la validation, le bilan et les heures des salariés",
