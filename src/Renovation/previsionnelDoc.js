@@ -214,7 +214,7 @@ function friseChartHTML(frise, esc) {
 // chargées dans la fenêtre d'impression — repli Arial), pied discret.
 // Sert au « Planning prévisionnel » ET au « Dossier de plans » : toute
 // évolution du décor se fait ICI, une seule fois.
-const OR = "#FFC200"; // jaune marque Profero
+export const OR = "#FFC200"; // jaune marque Profero
 const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
 
@@ -230,8 +230,8 @@ const nl2br = (s) => esc(s).replace(/\n/g, "<br/>");
 //   halo bleu  (26 % de #5b8af5) sur le héros au coin bas-gauche (#1c2334).
 // Rendu identique à l'œil (écart de fond < 5/255 selon la hauteur du héros).
 // Contrôlé par scripts/verif-compte-rendu-client-doc.mjs.
-const HALO_OR = "radial-gradient(circle,#69582d 0%,#292a41 68%)";
-const HALO_BLEU = "radial-gradient(circle,#2c3e66 0%,#1c2334 68%)";
+export const HALO_OR = "radial-gradient(circle,#69582d 0%,#292a41 68%)";
+export const HALO_BLEU = "radial-gradient(circle,#2c3e66 0%,#1c2334 68%)";
 
 // Titre de section : libellé condensé + filet dégradé jaune.
 // (exporté : sert aussi aux autres documents au gabarit commun, ex. la fiche

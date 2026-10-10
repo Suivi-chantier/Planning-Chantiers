@@ -443,7 +443,7 @@ module.exports = async function handler(req, res) {
     let texte = texteDe(reponse);
     let resultat = parserSortie(tache, texte);
     job.sortie_brute = resultat;
-    let vSortie = valider(tache.schema_sortie, resultat);
+    let vSortie = valider(s => tache.schema_sortie?.(s, entree), resultat);
 
     if (!vSortie.ok) {
       let relance;
@@ -482,7 +482,7 @@ module.exports = async function handler(req, res) {
       texte = texteDe(relance);
       resultat = parserSortie(tache, texte);
       job.sortie_brute = resultat;
-      vSortie = valider(tache.schema_sortie, resultat);
+      vSortie = valider(s => tache.schema_sortie?.(s, entree), resultat);
       if (!vSortie.ok) {
         return echouer(502, "sortie_invalide", `Sortie invalide après relance : ${vSortie.erreurs.join(" ; ")}`);
       }

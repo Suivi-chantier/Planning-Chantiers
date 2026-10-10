@@ -1,0 +1,28 @@
+name: Verify Objectifs Semaine
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/Renovation/objectifsSemaine*'
+      - 'src/Renovation/PlanningExportModal.jsx'
+      - 'src/Renovation/planningHebdoDoc.js'
+      - 'api/_ia/taches/objectifs_semaine.js'
+      - 'api/ai.js'
+      - 'scripts/verif-objectifs-semaine.mjs'
+      - 'scripts/verif-planning-export-rls.mjs'
+      - 'supabase/migrations/*planning_semaine_export.sql'
+      - '.github/workflows/verify-objectifs-semaine.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/verif-objectifs-semaine.mjs
+      - run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - run: node scripts/verif-planning-export-rls.mjs

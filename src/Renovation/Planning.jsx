@@ -1,3 +1,4 @@
+import PlanningExportModal from "./PlanningExportModal";
 import CellModal from "./CellModal";
 import PlanningBaselinePanel from "./PlanningBaselinePanel";
 import PlanningEngineSimulationPanel from "./PlanningEngineSimulationPanel";
@@ -55,6 +56,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const v = "planifie";
   const [showEmptyWeek, setShowEmptyWeek] = useState(false); // grille PC : afficher les chantiers sans tâche de la semaine
   const [modal, setModal] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [baselineOpen, setBaselineOpen] = useState(false);
   const [simulationOpen, setSimulationOpen] = useState(false);
   const [cellDraft, setCellDraft] = useState(null);
@@ -354,83 +356,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   };
 
-  // Export PDF : uniquement les chantiers actifs de la semaine, mise en page
-  // compacte calibrée (zoom auto) pour tenir sur UNE page A4 paysage.
-  const handlePrint = () => {
-    const esc = (s) => (s || "").toString().replace(/[&<>"]/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[ch]));
-    const hasAct = (c) => JOURS.some(j => { const cl = getCell(c.id, j); return cl.planifie || cl.ouvriers?.length > 0; });
-    const actifs = chantiers.filter(hasAct);
-    const d0 = getDateDuJour(0), d4 = getDateDuJour(4);
-    const periode = `${d0.toLocaleDateString("fr-FR",{day:"numeric",month:"long"})} – ${d4.toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}`;
-
-    // Lignes chantier + estimation de hauteur (pour le zoom une-page).
-    let totalLines = 0;
-    const rows = actifs.map(c => {
-      const onLot = contrastText(c.couleur);
-      let rowMax = 1;
-      const cols = JOURS.map(j => {
-        const cell = getCell(c.id, j);
-        const taches = getDisplayTaches(cell).filter(t => t.text?.trim());
-        rowMax = Math.max(rowMax, taches.length + (cell.ouvriers?.length ? 1 : 0) || 1);
-        const tHtml = taches.map(t =>
-          `<div class="t">${esc(t.text)}${t.duree ? ` <span class="d">· ${t.duree}h</span>` : ""}</div>`
-        ).join("");
-        const oHtml = cell.ouvriers?.length
-          ? `<div class="ouv">${cell.ouvriers.map(o => `<span style="background:${c.couleur};color:${onLot}">${esc(o)}</span>`).join("")}</div>`
-          : "";
-        return `<td>${tHtml}${oHtml}</td>`;
-      }).join("");
-      totalLines += rowMax;
-      return `<tr><td class="lot" style="background:${c.couleur};color:${onLot}">${esc(c.nom)}</td>${cols}</tr>`;
-    }).join("");
-
-    // Zoom pour tenir en une page : ~700 px utiles en A4 paysage (marges 8 mm).
-    const estH = 60 + actifs.length * 16 + totalLines * 13;
-    const zoom = Math.max(0.45, Math.min(1, Math.floor((700 / estH) * 100) / 100));
-
-    // Récap heures / ouvrier sur une ligne.
-    const recap = ouvriers.filter(o => heuresParOuvrier[o])
-      .map(o => `<strong>${esc(o)}</strong> ${Math.round(heuresParOuvrier[o]*4)/4}h`).join('<span class="sep">·</span>');
-
-    const w = window.open("","_blank");
-    w.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Planning S${week} ${year}</title>
-    <style>
-      @page{size:A4 landscape;margin:8mm}
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:Arial,Helvetica,sans-serif;color:#1a1f2e;-webkit-print-color-adjust:exact;print-color-adjust:exact;zoom:${zoom}}
-      .head{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
-      h1{font-size:17px;letter-spacing:.3px}
-      .sub{font-size:10.5px;color:#666}
-      table{width:100%;border-collapse:collapse;table-layout:fixed}
-      th{background:#1a1f2e;color:#fff;padding:4px 6px;text-align:center;font-size:10px;letter-spacing:.6px;text-transform:uppercase}
-      th .dt{display:block;font-weight:400;font-size:8.5px;opacity:.75;text-transform:none;letter-spacing:0}
-      th.cha{width:88px}
-      td{border:1px solid #d8d8d8;padding:3px 5px;vertical-align:top}
-      td.lot{font-weight:800;font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;text-align:center;vertical-align:middle;line-height:1.25}
-      .t{font-size:9px;line-height:1.3;margin-bottom:1px}
-      .d{color:#555;font-weight:700;font-size:8px;white-space:nowrap}
-      .ouv{margin-top:2px}
-      .ouv span{display:inline-block;border-radius:3px;padding:0 4px;font-size:8px;font-weight:700;margin:1px 3px 0 0}
-      .recap{margin-top:6px;font-size:9px;color:#444}
-      .recap .sep{margin:0 5px;color:#bbb}
-      tr{page-break-inside:avoid}
-    </style></head><body>
-    <div class="head">
-      <h1>Planning — Semaine ${week}</h1>
-      <span class="sub">${periode}</span>
-      <span class="sub" style="margin-left:auto">Imprimé le ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span>
-    </div>
-    <table>
-      <thead><tr><th class="cha">Chantier</th>${JOURS.map((j, di) => {
-        const d = getDateDuJour(di);
-        return `<th>${j}<span class="dt">${d.getDate()} ${MOIS_COURTS[d.getMonth()]}</span></th>`;
-      }).join("")}</tr></thead>
-      <tbody>${rows || `<tr><td colspan="${JOURS.length+1}" style="text-align:center;color:#888;padding:14px">Rien de planifié cette semaine.</td></tr>`}</tbody>
-    </table>
-    ${recap ? `<div class="recap">Heures planifiées&nbsp;: ${recap}</div>` : ""}
-    </body></html>`);
-    w.document.close(); setTimeout(() => w.print(), 400);
-  };
+  const handlePrint = () => setExportOpen(true);
 
   const modalChantier = modal ? chantiers.find(c => c.id === modal.cId) : null;
 
@@ -465,6 +391,11 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         .cell-with-agenda:hover .tache-move-btn { opacity: .6 !important; pointer-events: auto !important; }
         .tache-move-btn:hover { opacity: 1 !important; }
       `}</style>
+
+      {exportOpen && <PlanningExportModal key={weekId} weekId={weekId} week={week} year={year}
+        chantiers={chantiers} cells={cells} ouvriers={ouvriers} T={T}
+        dates={JOURS.map((_, i) => getDateDuJour(i))} getDisplayTaches={getDisplayTaches}
+        onClose={() => setExportOpen(false)} />}
 
       {/* ── Menu "déplacer vers …" (popup ancré sur le bouton) ── */}
       {moveMenu && (() => {
