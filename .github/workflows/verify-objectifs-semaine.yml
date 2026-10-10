@@ -12,6 +12,7 @@ on:
       - 'scripts/verif-objectifs-semaine.mjs'
       - 'scripts/verif-export-hebdo-rls.mjs'
       - 'supabase/migrations/*planning_semaine_export.sql'
+      - 'supabase/migrations/*planning_export_version_monotone.sql'
       - '.github/workflows/verify-objectifs-semaine.yml'
 permissions:
   contents: read

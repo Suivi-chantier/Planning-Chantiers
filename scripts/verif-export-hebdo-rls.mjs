@@ -8,6 +8,7 @@ create function public.mon_role() returns text language sql as $$select current_
 create function public.est_collaborateur_actif() returns boolean language sql as $$select current_setting('qa.active',true)='true'$$;
 grant usage on schema public,auth to authenticated,anon;grant execute on function auth.uid() to authenticated;`);
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261010204055_planning_semaine_export.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261010205517_planning_export_version_monotone.sql',import.meta.url),'utf8'));
 const uid='00000000-0000-4000-8000-000000000001';await db.exec(`insert into auth.users values ('${uid}')`);
 async function comme(role,active,fn){await db.exec(`set role authenticated;select set_config('qa.uid','${uid}',false);select set_config('qa.role','${role}',false);select set_config('qa.active','${active}',false);`);try{return await fn();}finally{await db.exec('reset role');}}
 await comme('admin',true,async()=>{await db.exec(`insert into planning_semaine_export(week_id) values ('2026-W42')`);const r=await db.query('select * from planning_semaine_export');assert.equal(r.rows.length,1);assert.equal(r.rows[0].updated_by,uid);});
