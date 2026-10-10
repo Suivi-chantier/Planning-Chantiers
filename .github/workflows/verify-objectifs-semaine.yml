@@ -10,7 +10,7 @@ on:
       - 'api/_ia/taches/objectifs_semaine.js'
       - 'api/ai.js'
       - 'scripts/verif-objectifs-semaine.mjs'
-      - 'scripts/verif-planning-export-rls.mjs'
+      - 'scripts/verif-export-hebdo-rls.mjs'
       - 'supabase/migrations/*planning_semaine_export.sql'
       - '.github/workflows/verify-objectifs-semaine.yml'
 permissions:
@@ -25,4 +25,4 @@ jobs:
           node-version: '22'
       - run: node scripts/verif-objectifs-semaine.mjs
       - run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
-      - run: node scripts/verif-planning-export-rls.mjs
+      - run: node scripts/verif-export-hebdo-rls.mjs
