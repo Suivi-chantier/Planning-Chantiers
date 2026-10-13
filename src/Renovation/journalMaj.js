@@ -23,6 +23,13 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-13", type: "amelioration",
+    titre: "Bilan de semaine : la marge affichée est maintenant la marge réelle de la semaine",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Jusqu'ici, la marge de la semaine était une part de la marge prévue en fin de chantier : un chantier qui gagnait 5 points d'avancement recevait 5 % de cette marge, quoi qu'aient coûté les heures et les achats de la semaine. Désormais, c'est la vraie marge : ce que la semaine a produit, moins ce qu'elle a réellement coûté. Une semaine où l'équipe a travaillé sans faire avancer le chantier apparaît donc en négatif, et compte dans le total.",
+    comment: "Marge de la semaine = production (points d'avancement gagnés entre le relevé du vendredi précédent et celui de la semaine, multipliés par le prix vendu) − heures pointées sur la même période au taux de chaque ouvrier (trajets compris) − matériaux des commandes de la période (date du bon ou de la facture fournisseur, à défaut date de saisie) − frais généraux. Chaque fiche chantier montre aussi la marge réelle depuis le début du chantier, qui rattrape une commande saisie en retard ou un avancement mal déclaré. Cliquez sur une marge pour voir le détail : production, heures par ouvrier, commandes par fournisseur. Une semaine passée se lit désormais avec l'avancement relevé cette semaine-là, et non plus avec celui d'aujourd'hui. Quand la marge ne peut pas être calculée (chantier sans prix de vente, relevé absent), elle s'affiche « non calculable » et ses coûts sont signalés sous le total. Le résumé e-mail et le PDF affichent le même chiffre.",
+  },
+  {
     date: "2026-10-10", type: "nouveaute",
     titre: "Planning semaine : objectifs, remarques et nouveau PDF sur une page",
     pages: [{ id: "planning", label: "Planning semaine" }],

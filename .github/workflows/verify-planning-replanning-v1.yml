@@ -66,6 +66,8 @@ jobs:
         run: node scripts/verif-suivi-points-attention-v1.mjs
       - name: Bilan semaine email V1
         run: node scripts/verif-bilan-semaine-email-v1.mjs
+      - name: Bilan semaine - marge reelle de la semaine (donnees fictives)
+        run: node scripts/verif-marge-semaine.mjs
       - name: Echantillon cadences V1
         run: node scripts/verif-echantillon-cadences-v1.mjs
       - name: Bibliotheque proteger historique

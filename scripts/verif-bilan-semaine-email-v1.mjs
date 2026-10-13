@@ -52,7 +52,7 @@ const S1 = (id, o = {}) => snap(id, { avancement: 97, heures: 120, marge: -1166,
 const S0 = (id, o = {}) => snap(id, { avancement: 97, heures: 150, marge: -2283, date: "2026-09-18", ...o });
 
 const periode = { weekId: "2026-W39", debut: "21/09/2026", fin: "27/09/2026" };
-const indicateurs = { heures: 312, tachesFaites: 47, genereEuros: 18400, margeGenereeEuros: 4200, chantiers: 6 };
+const indicateurs = { heures: 312, tachesFaites: 47, genereEuros: 18400, margeSemaineEuros: 4200, chantiers: 6 };
 const points = pointsAttentionV1({
   snapshotsCourants: [S0("C1", { nom: "TOM & CAMILLE R+2" })],
   snapshotsPrecedents: [S1("C1", { nom: "TOM & CAMILLE R+2" })],
@@ -84,12 +84,12 @@ const suivi = suiviPointsAttentionV1({
   assert.match(corps, /- Heures : 312 h/);
   assert.match(corps, /- Tâches terminées : 47/);
   assert.match(corps, /- Valeur générée : 18 400 €/);
-  assert.match(corps, /- Dont marge : 4 200 €/);
+  assert.match(corps, /- Marge réelle de la semaine : 4 200 €/);
   assert.match(corps, /- Chantiers au bilan : 6/);
   // Un indicateur non transmis ne produit aucune ligne inventée.
   const partiel = bilanSemaineEmailV1({ periode, indicateursPortefeuille: { heures: 312 }, pointsAttention: points });
   assert.match(partiel.corps, /- Heures : 312 h/);
-  assert.equal(/Dont marge|Valeur générée|Tâches terminées|Chantiers au bilan/.test(partiel.corps), false);
+  assert.equal(/Marge réelle|Valeur générée|Tâches terminées|Chantiers au bilan/.test(partiel.corps), false);
   // Aucun indicateur du tout : pas de titre orphelin.
   const aucun = bilanSemaineEmailV1({ periode, pointsAttention: points });
   assert.equal(/INDICATEURS/.test(aucun.corps), false);

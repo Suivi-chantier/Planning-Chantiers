@@ -46,7 +46,7 @@ const nomDe = (o, repli = "Chantier") => str(o?.nom) || str(o?.chantier_nom) || 
  *
  * @param {object} args
  * @param {object} args.periode                  { weekId, debut?, fin? } — déjà formatés à l'écran
- * @param {object} args.indicateursPortefeuille  { heures?, tachesFaites?, genereEuros?, margeGenereeEuros?, chantiers? }
+ * @param {object} args.indicateursPortefeuille  { heures?, tachesFaites?, genereEuros?, margeSemaineEuros?, chantiers? }
  * @param {object} args.pointsAttention          sortie de pointsAttentionV1 (ou { lignes: [...] })
  * @param {object} [args.suivi]                  sortie de suiviPointsAttentionV1
  * @param {Array}  [args.blocages]               blocages saisis : [{ chantier_nom, texte }]
@@ -90,7 +90,7 @@ export function bilanSemaineEmailV1({
     estRenseigne(ind.heures) ? `- Heures : ${formaterHeuresV1(ind.heures)}` : "",
     estRenseigne(ind.tachesFaites) ? `- Tâches terminées : ${str(ind.tachesFaites)}` : "",
     estRenseigne(ind.genereEuros) ? `- Valeur générée : ${formaterEurosV1(ind.genereEuros)}` : "",
-    estRenseigne(ind.margeGenereeEuros) ? `- Dont marge : ${formaterEurosV1(ind.margeGenereeEuros)}` : "",
+    estRenseigne(ind.margeSemaineEuros) ? `- Marge réelle de la semaine : ${formaterEurosV1(ind.margeSemaineEuros)}` : "",
     estRenseigne(ind.chantiers) ? `- Chantiers au bilan : ${str(ind.chantiers)}` : "",
   ].filter(Boolean);
   // Aucun indicateur transmis : pas de titre orphelin.

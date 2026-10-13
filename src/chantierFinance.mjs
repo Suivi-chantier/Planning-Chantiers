@@ -482,9 +482,14 @@ export const METHODE_CALCUL = [
   { cle: "resteACommander", label: "Reste à commander", projection: true,
     formule: "Somme des matériaux prévus (bibliothèque) sans ligne de commande ni marquage « commandé » — même règle que la page Commandes à passer",
     source: "Matériaux liés des ouvrages vs lignes de commande" },
-  { cle: "margeGeneree", label: "Marge nette générée (bilan semaine)", projection: true,
-    formule: "Points d'avancement gagnés dans la semaine × marge à terminaison ÷ 100 — la part de la marge finale projetée que la production de la semaine a dégagée ; négative si le chantier avance à perte",
-    source: "Progression hebdo (snapshots d'avancement) × marge à terminaison" },
+  // ── Bilan semaine (13/10/2026) : marge RÉELLE, plus une part de la marge
+  // à terminaison. Les coûts sont ceux réellement datés dans la période. ──
+  { cle: "margeSemaine", label: "Marge réelle de la semaine",
+    formule: "Production de la semaine (points d'avancement gagnés entre deux relevés × prix vendu) − main-d'œuvre pointée sur la même période (heures × taux figé de chaque ouvrier, trajets et indirect compris) − matériaux des commandes datées de la période (date du document fournisseur, sinon date de saisie) − frais généraux (taux horaire × heures de la période). Négative si la semaine a coûté plus qu'elle n'a produit",
+    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, Suivi direction" },
+  { cle: "margeCumulee", label: "Marge réelle depuis le début",
+    formule: "Production cumulée (avancement en fin de semaine × prix vendu) − tous les coûts réels jusqu'à la fin de la semaine (main-d'œuvre, reprise d'antériorité comprise, matériaux, frais généraux). Elle rattrape d'elle-même un avancement mal déclaré une semaine ou une commande saisie en retard",
+    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, Suivi direction" },
 ];
 const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
 
@@ -1175,5 +1180,218 @@ export function computeChantierFinance({
       situationAFacturer: situationVal,
       resteACommander: resteACommanderVal,
     },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARGE RÉELLE DE LA SEMAINE — Bilan semaine (décision du 13/10/2026).
+// Remplace l'ancienne « marge générée » (points gagnés × marge à terminaison),
+// qui appliquait à chaque semaine le taux de marge final projeté, quoi
+// qu'aient coûté les heures et les achats de la semaine.
+//
+//   marge de la semaine = production − main-d'œuvre − matériaux − frais généraux
+//
+// La période va du relevé d'avancement de début (EXCLU) au relevé de fin
+// (INCLUS) : production et coûts couvrent exactement les mêmes jours.
+//   - production : prix vendu × points gagnés, MÊME arrondi que le « Généré »
+//     du bilan (c'est le même chiffre, l'appelant passe le même prix vendu) ;
+//   - main-d'œuvre : pointages DATÉS de la période × taux figé au pointage,
+//     même périmètre que la marge nette (tâches du plan, libres, indirects) ;
+//   - matériaux : lignes de commande datées de la période — date du document
+//     fournisseur, sinon date de saisie (décision : comptés à la commande) ;
+//   - frais généraux : taux horaire FG × heures de la période.
+// La marge depuis le début reprend computeChantierFinance sur les données
+// arrêtées à la fin de la période : même périmètre de coûts que la marge
+// nette (reprise d'antériorité et heures anciennes non datées comprises).
+// Une marge qu'on ne peut pas calculer reste null avec sa raison — jamais 0.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Date d'imputation d'une ligne de commande (AAAA-MM-JJ) : date du document
+// fournisseur (commandes.date_doc), à défaut date de saisie de la ligne.
+export function dateImputationLigne(l) {
+  const d = l?.date_doc || l?.commande?.date_doc || l?.created_at || null;
+  return d ? String(d).slice(0, 10) : null;
+}
+const datePointage = (p) => (p?.date ? String(p.date).slice(0, 10) : null);
+// Période (du, au] : du null = depuis le début, au null = sans limite.
+const dansPeriode = (d, du, au) => d != null && (du == null || d > du) && (au == null || d <= au);
+// Arrêt à la fin de période : une donnée sans date reste comptée (comme dans
+// la marge nette, qui ne sait pas la dater non plus).
+const avantFin = (d, au) => au == null || d == null || d <= au;
+const dateFr = (iso) => String(iso).split("-").reverse().join("/");
+const signe = (n) => `${n >= 0 ? "+" : ""}${eur(n)}`;
+
+export function libellePeriodeMarge(du, au) {
+  const debut = du ? `après le relevé du ${dateFr(du)}` : "depuis le début du chantier";
+  const fin = au ? `jusqu'au relevé du ${dateFr(au)}` : "jusqu'à aujourd'hui";
+  return `${debut}, ${fin}`;
+}
+
+export function margeReelleSemaine({
+  phasage,             // ligne phasages (ouvrages, plan_travaux.meta.fg_taux_horaire…)
+  pointages = [],      // TOUS les pointages du chantier (filtrés ici par date)
+  commandeLignes = [], // TOUTES les lignes du chantier, avec created_at et commande.date_doc
+  tauxHoraires = {}, tauxMOPrev = 0, lots = [], // pour la marge depuis le début
+  prixVendu = 0,          // prix vendu utilisé par le « Généré » du bilan
+  avancementDebut = null, // % au relevé de début (0 pour un chantier nouveau)
+  avancementFin = null,   // % au relevé de fin, ou actuel si la semaine est en cours ; null = inconnu
+  du = null,              // date du relevé de début, EXCLUE (null = depuis le début)
+  au = null,              // date du relevé de fin, INCLUSE (null = jusqu'à aujourd'hui)
+} = {}) {
+  const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
+  const meta = phasage?.plan_travaux?.meta || {};
+  const fgTauxHoraire = (() => {
+    const v = parseFloat(meta.fg_taux_horaire);
+    return Number.isFinite(v) ? v : 0;
+  })();
+  const vendu = parseFloat(prixVendu) || 0;
+
+  // ── Coûts de la période ──
+  // Même périmètre que coutMOTotalChantier : pointages des tâches du plan,
+  // pointages libres et indirects. Les heures d'une tâche supprimée du
+  // phasage n'y sont pas — elles sont signalées, pas comptées.
+  const idsTaches = new Set();
+  ouvrages.forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) idsTaches.add(String(t.id)); }));
+  const compte = (p) => p.type_pointage === "indirect" || !p.tache_id || idsTaches.has(String(p.tache_id));
+  const ptsPeriode = (pointages || []).filter(p => dansPeriode(datePointage(p), du, au));
+  const ptsComptes = ptsPeriode.filter(compte);
+  const heures = sumHeures(ptsComptes);
+  const mo = sumCoutMO(ptsComptes);
+  const heuresHorsPlan = sumHeures(ptsPeriode.filter(p => !compte(p)));
+  const lignesPeriode = (commandeLignes || []).filter(l => dansPeriode(dateImputationLigne(l), du, au));
+  const materiaux = totalLignes(lignesPeriode);
+  const fg = fgTauxHoraire * heures;
+  const couts = mo + materiaux + fg;
+
+  // ── Production : seulement si les deux relevés et le prix sont connus ──
+  const avDebut = avancementDebut == null ? NaN : parseFloat(avancementDebut);
+  const avFin = avancementFin == null ? NaN : parseFloat(avancementFin);
+  const avConnus = Number.isFinite(avDebut) && Number.isFinite(avFin);
+  const raison = !avConnus
+    ? "Relevé d'avancement de fin de semaine absent : la production de la semaine n'est pas connue."
+    : !(vendu > 0)
+      ? "Chantier sans prix de vente : la production ne peut pas être chiffrée."
+      : null;
+  const calculable = raison == null;
+  const points = avConnus ? avFin - avDebut : null;
+  const produit = calculable ? Math.round(vendu * points / 100) : null;
+  const marge = calculable ? produit - couts : null;
+
+  // ── Marge depuis le début : briques du module, données arrêtées à « au » ──
+  let cumul = null;
+  if (calculable) {
+    const fin = computeChantierFinance({
+      phasage,
+      pointages: (pointages || []).filter(p => avantFin(datePointage(p), au)),
+      commandeLignes: (commandeLignes || []).filter(l => avantFin(dateImputationLigne(l), au)),
+      tauxHoraires, tauxMOPrev, lots,
+    });
+    const b = fin.brut;
+    const produitCumul = Math.round(vendu * avFin / 100);
+    cumul = {
+      produit: produitCumul,
+      mo: b.coutMOTotalChantier,
+      materiaux: b.coutMatChantier,
+      fg: b.fgChantier,
+      marge: produitCumul - b.coutMOTotalChantier - b.coutMatChantier - b.fgChantier,
+    };
+  }
+
+  const warnings = [];
+  if (fgTauxHoraire <= 0) {
+    warnings.push({
+      code: "fg_non_regle", gravite: "alerte",
+      message: "Définis un taux horaire de frais généraux dans « Suivi direction » — sans lui, la marge est surestimée.",
+    });
+  }
+  if (heuresHorsPlan > 0.05) {
+    warnings.push({
+      code: "heures_hors_plan", gravite: "info",
+      message: `${fmtH(heuresHorsPlan)} h pointées sur des tâches qui ne sont plus dans le phasage : non comptées, comme dans la marge nette.`,
+    });
+  }
+
+  // ── Ventilation : les 4 postes, puis le détail des achats et des heures ──
+  const periode = libellePeriodeMarge(du, au);
+  const periodeTitre = periode.charAt(0).toUpperCase() + periode.slice(1);
+  const ventilation = [
+    { main: "Production", sub: avConnus
+        ? `${avDebut} % → ${avFin} % (${points >= 0 ? "+" : ""}${points} pt${Math.abs(points) > 1 ? "s" : ""}) × ${eur(vendu)}`
+        : "relevé de fin absent",
+      right: produit != null ? signe(produit) : "—", rightColor: produit != null && produit < 0 ? "#e15a5a" : "#22c55e" },
+    { main: "Main-d'œuvre", sub: `${fmtH(heures)} h pointées × taux de chaque ouvrier`, right: `− ${eur(mo)}`, rightColor: "#e15a5a" },
+    { main: "Matériaux", sub: `${lignesPeriode.length} ligne${lignesPeriode.length > 1 ? "s" : ""} de commande datée${lignesPeriode.length > 1 ? "s" : ""} de la période`, right: `− ${eur(materiaux)}`, rightColor: "#e15a5a" },
+    { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire} €/h × ${fmtH(heures)} h` : "non réglés", right: `− ${eur(fg)}`, rightColor: "#e15a5a" },
+  ];
+  const achats = {};
+  lignesPeriode.forEach(l => {
+    const fournisseur = l?.commande?.fournisseur_nom || "Fournisseur non renseigné";
+    const date = dateImputationLigne(l);
+    const k = `${date}|${fournisseur}`;
+    if (!achats[k]) achats[k] = { fournisseur, date, montant: 0 };
+    achats[k].montant += totalLignes([l]);
+  });
+  Object.values(achats).sort((a, b) => b.montant - a.montant).forEach(a => {
+    ventilation.push({ main: `↳ ${a.fournisseur}`, sub: `commande du ${dateFr(a.date)}`, right: `− ${eur(a.montant)}` });
+  });
+  const parOuvrier = {};
+  ptsComptes.forEach(p => {
+    const nom = p.ouvrier || "?";
+    if (!parOuvrier[nom]) parOuvrier[nom] = { nom, heures: 0, cout: 0 };
+    parOuvrier[nom].heures += parseFloat(p.heures) || 0;
+    parOuvrier[nom].cout += (parseFloat(p.heures) || 0) * (parseFloat(p.taux_horaire) || 0);
+  });
+  Object.values(parOuvrier).sort((a, b) => b.cout - a.cout).forEach(o => {
+    ventilation.push({ main: `↳ ${o.nom}`, sub: `${fmtH(o.heures)} h pointées`, right: `− ${eur(o.cout)}` });
+  });
+
+  const source = "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, Suivi direction";
+  const semaine = {
+    cle: "margeSemaine", label: "Marge réelle de la semaine", format: "euro",
+    valeur: marge,
+    valeurTexte: calculable ? signe(marge) : "non calculable",
+    sousLabel: calculable ? periodeTitre : raison,
+    formule: FORMULE.margeSemaine,
+    calculDetaille: calculable
+      ? `${eur(produit)} produits − ${eur(mo)} main-d'œuvre − ${eur(materiaux)} matériaux − ${eur(fg)} frais généraux = ${signe(marge)}`
+      : raison,
+    ventilation,
+    titre: "Marge réelle de la semaine",
+    sousTitre: periodeTitre,
+    vide: null,
+    totalLabel: "Marge de la semaine",
+    totalTexte: calculable ? signe(marge) : "non calculable",
+    // Non calculable : la raison passe en premier (c'est elle que l'infobulle montre).
+    source, fraicheur: null, renseigne: calculable,
+    warnings: calculable ? warnings : [{ code: "marge_non_calculable", gravite: "alerte", message: raison }, ...warnings],
+  };
+  const cumulee = cumul == null ? null : {
+    cle: "margeCumulee", label: "Marge réelle depuis le début", format: "euro",
+    valeur: cumul.marge,
+    valeurTexte: signe(cumul.marge),
+    sousLabel: au ? `Au relevé du ${dateFr(au)}` : "À ce jour",
+    formule: FORMULE.margeCumulee,
+    calculDetaille: `${eur(cumul.produit)} produits (${avFin} % × ${eur(vendu)}) − ${eur(cumul.mo)} main-d'œuvre − ${eur(cumul.materiaux)} matériaux − ${eur(cumul.fg)} frais généraux = ${signe(cumul.marge)}`,
+    ventilation: [
+      { main: "Production cumulée", sub: `${avFin} % × ${eur(vendu)}`, right: signe(cumul.produit), rightColor: "#22c55e" },
+      { main: "Main-d'œuvre", sub: "tous les pointages + reprise d'antériorité", right: `− ${eur(cumul.mo)}`, rightColor: "#e15a5a" },
+      { main: "Matériaux", sub: "toutes les commandes datées jusqu'à la fin de la période", right: `− ${eur(cumul.materiaux)}`, rightColor: "#e15a5a" },
+      { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire} €/h × heures totales` : "non réglés", right: `− ${eur(cumul.fg)}`, rightColor: "#e15a5a" },
+    ],
+    titre: "Marge réelle depuis le début",
+    sousTitre: au ? `Au relevé du ${dateFr(au)}` : "À ce jour",
+    vide: null,
+    totalLabel: "Marge depuis le début",
+    totalTexte: signe(cumul.marge),
+    source, fraicheur: null, warnings: warnings.filter(w => w.code === "fg_non_regle"), renseigne: true,
+  };
+
+  return {
+    calculable, raison, du, au,
+    avancementDebut: avConnus ? avDebut : null, avancementFin: avConnus ? avFin : null,
+    points, prixVendu: vendu, produit,
+    heures, mo, materiaux, fg, couts, marge,
+    heuresHorsPlan, nbLignesMateriaux: lignesPeriode.length,
+    cumul, warnings, semaine, cumulee,
   };
 }
