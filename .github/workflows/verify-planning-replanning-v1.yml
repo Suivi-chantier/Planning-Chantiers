@@ -98,6 +98,8 @@ jobs:
         run: node scripts/verif-nouvelle-tache.mjs
       - name: Quantites posees et photo apres (suivi en quantite, cumul, validation, SQL)
         run: node scripts/verif-quantites-posees.mjs
+      - name: Notes des ouvriers (note privee invisible du bureau, partage, memo chantier, reponses, photos, SQL)
+        run: node scripts/verif-notes-ouvriers.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression

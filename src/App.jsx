@@ -61,6 +61,7 @@ import BulleTodo              from "./Renovation/BulleTodo";
 import PageEquipe             from "./Renovation/Equipe";
 import PageBilanSemaine       from "./Renovation/BilanSemaine";
 import PageAlertes            from "./Renovation/PageAlertes";
+import PageNotesOuvriers      from "./Renovation/PageNotesOuvriers";
 import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
 import PageAdmin              from "./Renovation/Admin";
@@ -906,6 +907,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
           {p==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
           {p==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
+          {p==="notes-ouvriers"     && (canAccess(role,"notes-ouvriers")     ? <PageNotesOuvriers T={T} branch={branch} chantiers={chantiers} onOuvrirChantier={(id)=>{ setChantierToOpen(id); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="notes-ouvriers"/>)}
           {p==="notes-todo"         && (canAccess(role,"notes-todo")         ? <PageNotesEtTodo T={T} profil={profil} chantiers={chantiers}/> : <AccesRefuse T={T} page="notes-todo"/>)}
           {p==="commandes"          && (canAccess(role,"commandes")          ? <PageCommandes chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="commandes"/>)}
           {p==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}

@@ -40,6 +40,7 @@ import {
 } from "./facturationClient";
 import FacturationChantier from "./FacturationChantier";
 import PageSuggestionsMateriaux from "./PageSuggestionsMateriaux";
+import PageNotesOuvriers from "./PageNotesOuvriers";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
 import { uploadDocumentChantier, urlDocumentChantier, supprimerDocumentChantier, derniereErreurDocument, ACCEPT_DOCS } from "./storageChantier";
 // Diagramme financier (Point 5) : séries prévues + récapitulatif (calcul pur)
@@ -3335,6 +3336,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             <Icon as={StickyNote} size={13}/> Notes du chantier
           </div>
           <NotesChantier chantierId={selected} T={T} accent={acc.accent}/>
+        </div>
+
+        {/* ── Section : Notes du terrain (mémos et notes partagés par les
+             ouvriers) — MÊME composant que la page « Notes des ouvriers »,
+             chantier imposé. Les notes privées n'y sont jamais. */}
+        <div>
+          <PageNotesOuvriers T={T} branch={branch} chantiers={chantiers} chantierId={selected}/>
         </div>
 
         {/* ── Section : Suggestions de matériaux des ouvriers ──
