@@ -327,7 +327,9 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
                   }}>{notesNonLues > 9 ? "9+" : notesNonLues}</span>
                 )}
               </div>
-              <span style={{ fontSize:11, fontWeight: actif ? 800 : 600, letterSpacing:0.2 }}>{t.label}</span>
+              {/* 7 onglets (bêta Phases + Notes) : libellé un cran plus petit pour
+                  que « Opérations » tienne sur un téléphone de 360 px. */}
+              <span style={{ fontSize: tabs.length > 6 ? 10 : 11, fontWeight: actif ? 800 : 600, letterSpacing: tabs.length > 6 ? 0 : 0.2, whiteSpace:"nowrap" }}>{t.label}</span>
             </button>
           );
         })}
