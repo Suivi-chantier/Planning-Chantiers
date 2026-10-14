@@ -93,8 +93,8 @@ ok(carteRetirable(ligne), "la carte peut être retirée avant l'envoi");
 // Terminé : photo « après » jointe (étape 4), en plus de la photo de la demande.
 const remplie = majPhotosApres(changerMinutes(appliquerChoix(ligne, "termine"), 90), ["https://x/apres.jpg"]);
 eq(problemesLigne(remplie, {}), [], "carte remplie (terminé, 1 h 30, photo) : complète");
-eq(problemesLigne({ ...remplie, photos: [] }, {}), ["photo", "photo_apres"], "toutes les photos retirées de la carte : demande du client ET photo « après » redeviennent bloquantes");
-eq(problemesLigne({ ...remplie, photos: [], proposition: { ...remplie.proposition, nature: "reprise" } }, {}), ["photo_apres"], "reprise sans aucune photo : seule la photo « après » (Terminé) manque");
+eq(problemesLigne({ ...remplie, photos: [] }, {}), ["photo"], "toutes les photos retirées : la photo de la demande du client redevient bloquante (la photo « après », jamais)");
+eq(problemesLigne({ ...remplie, photos: [], proposition: { ...remplie.proposition, nature: "reprise" } }, {}), [], "reprise sans aucune photo : rien à compléter");
 const envoi = etatEnvoi({ taches: [{ ...remplie, photos: [] }], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 1.5 });
 eq([envoi.peutEnvoyer, envoi.phrase], [false, "Complète 1 tâche pour envoyer"], "envoi bloqué tant que la photo manque");
 ok(etatEnvoi({ taches: [remplie], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 1.5 }).peutEnvoyer, "avec la photo : envoi possible");

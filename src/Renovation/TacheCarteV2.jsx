@@ -9,8 +9,11 @@
 // ouvrier_mes_phases.
 //
 // Tâche suivie en QUANTITÉ (suiviQuantite.mjs) : « Posé aujourd'hui » remplace
-// le pourcentage. Terminé : photo « après » obligatoire (sauf hors connexion,
-// ou bouton « Je ne peux pas envoyer la photo »).
+// le pourcentage. Terminé : photo « après » RECOMMANDÉE, jamais exigée.
+//
+// aSignaler : l'ouvrier a touché « Valider mon compte rendu » alors qu'il
+// reste des choses à compléter → la carte incomplète est entourée de rouge
+// et dit en tête ce qui lui manque (même sans statut choisi).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect } from "react";
 import { Icon } from "../ui";
@@ -22,7 +25,7 @@ import {
   CHOIX, PAS_MINUTES, choixDeLigne, appliquerChoix, changerMinutes, minutesDe, fmtMinutes,
   ajustementPossible, poserReste, etatAvecAujourdhui, motifDepassementRequis, problemesLigne,
   LIBELLES_PROBLEMES, suiviDepuisInfo, totalAvecJour, quantiteAttendue, changerQuantiteJour, appliquerChoixSuivi,
-  apresMinutesSuivi, photosApres, majPhotosApres, signalerPhotoImpossible,
+  apresMinutesSuivi, photosApres, majPhotosApres,
 } from "./compteRenduV2";
 import { avancementQuantite, fmtQuantite, libelleQuantite } from "./suiviQuantite";
 import {
@@ -68,7 +71,7 @@ function Pastilles({ options, valeur, onChoisir, T }) {
 
 export default function TacheCarteV2({
   t, info, infosEtat, resteMin, onMaj, onSupprimer, chantiers = [], onOuvrirCommande, T, photos,
-  onModifierNouvelle = null, horsConnexion = false, champPhotosApres = null,
+  onModifierNouvelle = null, horsConnexion = false, champPhotosApres = null, ancre = undefined, aSignaler = false,
 }) {
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -101,7 +104,20 @@ export default function TacheCarteV2({
   const tempsActif = choix !== "pas_commence";
 
   return (
-    <div style={{ padding: "14px 14px 16px", borderTop: `1px solid ${T.border}` }}>
+    <div id={ancre} style={{
+      padding: "14px 14px 16px", borderTop: `1px solid ${T.border}`, scrollMarginTop: 120,
+      ...(aSignaler && problemes.length > 0 ? { outline: `3px solid ${T.danger}`, outlineOffset: -3, borderRadius: 14, background: T.dangerBg } : {}),
+    }}>
+      {/* Envoi demandé alors que la carte est incomplète : ce qui manque, en tête. */}
+      {aSignaler && problemes.length > 0 && (
+        <div role="alert" style={{
+          display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 10, padding: "10px 12px", borderRadius: 12,
+          background: T.surface, border: `2px solid ${T.danger}`, color: T.danger, fontSize: 15, fontWeight: 800, lineHeight: 1.35,
+        }}>
+          <Icon as={AlertTriangle} size={18} style={{ flexShrink: 0, marginTop: 1 }}/>
+          <span>À compléter : {problemes.map(p => LIBELLES_PROBLEMES[p]).join(", ")}</span>
+        </div>
+      )}
       {/* En-tête : chemin, nom, durée prévue */}
       {/* Les libellés d'ouvrage viennent du devis et peuvent faire un paragraphe :
           deux lignes au plus, le texte entier au survol / appui long. */}
@@ -356,44 +372,30 @@ export default function TacheCarteV2({
           }}/>
       </div>
 
-      {/* Photo « après » : obligatoire sur Terminé (jamais bloquante hors connexion) */}
+      {/* Photo « après » : recommandée sur Terminé, jamais exigée (sans photo,
+          la tâche part et la Validation affiche « Photo « après » manquante »). */}
       {choix === "termine" && (
-        <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: `1.5px solid ${problemes.includes("photo_apres") ? T.dangerBd : T.border}`, background: T.surface }}>
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 14, border: `1.5px solid ${T.border}`, background: T.surface }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 8 }}>
             <Icon as={Camera} size={16}/> Photo « après »
-            <span style={{ fontWeight: 600, fontSize: 13.5, color: problemes.includes("photo_apres") ? T.danger : T.textSub }}>
-              {photosApres(t).length > 0 ? "" : t.photo_apres_bouton || horsConnexion ? "(manquante)" : "(obligatoire)"}
-            </span>
+            {photosApres(t).length === 0 && (
+              <span style={{ fontWeight: 600, fontSize: 13.5, color: T.textSub }}>(recommandée)</span>
+            )}
           </div>
           {champPhotosApres ? champPhotosApres(photosApres(t), (arr) => onMaj(x => majPhotosApres(x, arr))) : null}
-          {photosApres(t).length === 0 && horsConnexion && !t.photo_apres_bouton && (
+          {photosApres(t).length === 0 && horsConnexion && (
             <div style={{ marginTop: 8, fontSize: 13, color: T.textSub }}>
-              Pas de connexion : la tâche partira sans photo, ton conducteur le verra.
+              Pas de connexion : la photo ne pourra pas partir. Ton compte rendu partira quand même.
             </div>
-          )}
-          {photosApres(t).length === 0 && !horsConnexion && (
-            t.photo_apres_bouton ? (
-              <div style={{ marginTop: 8, fontSize: 13, color: T.textSub }}>
-                Envoi sans photo « après » : ton conducteur le verra.{" "}
-                <button onClick={() => onMaj(x => signalerPhotoImpossible(x, false))} style={{
-                  border: "none", background: "transparent", padding: 0, cursor: "pointer", fontFamily: "inherit",
-                  fontSize: 13, fontWeight: 800, color: T.text, textDecoration: "underline",
-                }}>Annuler</button>
-              </div>
-            ) : (
-              <button onClick={() => onMaj(x => signalerPhotoImpossible(x, true))} style={{
-                marginTop: 8, minHeight: 44, padding: "0 4px", border: "none", background: "transparent", cursor: "pointer",
-                fontFamily: "inherit", fontSize: 14, fontWeight: 700, color: T.textSub, textDecoration: "underline",
-              }}>Je ne peux pas envoyer la photo</button>
-            )
           )}
         </div>
       )}
 
       {photos}
 
-      {/* Ce qui manque encore (une fois un statut choisi) */}
-      {choix && problemes.length > 0 && (
+      {/* Ce qui manque encore (une fois un statut choisi ; en tête de carte
+          quand l'ouvrier a demandé l'envoi) */}
+      {choix && !aSignaler && problemes.length > 0 && (
         <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: T.danger }}>
           À compléter : {problemes.map(p => LIBELLES_PROBLEMES[p]).join(", ")}
         </div>

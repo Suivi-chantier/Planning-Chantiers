@@ -266,7 +266,7 @@ let b2 = changerMinutes(b0, 120);
 eq([b2.statut, b2.bloque], ["en_cours", true], "Bloqué + 2 h → en_cours");
 eq([changerMinutes(b2, 0).statut], ["non_faite"], "Bloqué remis à 0 h → non_faite");
 // En cours / Terminé exigent du temps ; Pas commencé n'en a pas
-eq(problemesLigne(appliquerChoix({ planifie: "Y", heures_reelles: "", statut: null }, "termine"), {}), ["temps", "photo_apres"], "Terminé sans temps (ni photo « après ») : refusé");
+eq(problemesLigne(appliquerChoix({ planifie: "Y", heures_reelles: "", statut: null }, "termine"), {}), ["temps"], "Terminé sans temps : refusé (la photo « après » n'est jamais exigée)");
 const pc = changerMinutes(appliquerChoix({ planifie: "Y", heures_reelles: "2", statut: null }, "pas_commence", {}), 30);
 eq([pc.statut, minutesDe(pc)], ["en_cours", 30], "temps ajouté à un Pas commencé → En cours");
 eq(appliquerChoix({ planifie: "Y", statut: null }, "pas_commence", {}).avancement, "0", "Pas commencé sans tâche du phasage → 0 (comme avant)");
