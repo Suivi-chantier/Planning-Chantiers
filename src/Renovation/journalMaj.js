@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-15",
+    type: "amelioration",
+    titre: "Opérations : les chiffres clés s'ouvrent en détail, et une carte « Dérive heures vendues »",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Comme dans le Phasage d'un chantier, chaque chiffre clé d'une opération s'ouvre maintenant pour voir d'où il vient — mais sur toute l'opération. Une nouvelle carte « Dérive heures vendues » montre si les heures passées restent dans le devis, phase par phase, tous logements confondus.",
+    comment: "Fiche d'une opération, onglet Synthèse : cliquer sur une carte (Vendu HT, Coût MO réel, Dérive heures vendues, Matériaux réels, Frais généraux, Marge nette, Marge prévisionnelle). En haut, la vue de toute l'opération quand elle a un sens : le coût MO par ouvrier, le vendu par lot, les marges poste par poste, la dérive par phase. En dessous, chaque logement avec son chiffre ; un clic sur le logement déplie exactement le détail du Phasage de ce chantier. Le total en bas est toujours celui de la carte. Dérive : (heures réelles ÷ heures vendues) ÷ avancement, la même règle que pour les lots — à ×1,00 on est dans le devis, au-delà de ×1,15 ça dérive (rouge). Les phases d'un même type sont regroupées entre logements ; les tâches hors devis restent à part, les tâches sans phase ont leur ligne, et une phase à 0 % d'avancement affiche « non calculable » plutôt qu'un chiffre.",
+  },
+  {
     date: "2026-10-14",
     type: "amelioration",
     titre: "Planning : « À replanifier » ne montre que la semaine affichée",

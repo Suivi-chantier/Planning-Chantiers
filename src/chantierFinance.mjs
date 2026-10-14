@@ -202,6 +202,11 @@ export function statsGroupeChrono(groupeId, ouvrages) {
   const toutes = (ouvrages || [])
     .flatMap(o => o?.taches || [])
     .filter(t => t?.chrono_groupe_id === groupeId);
+  return statsTachesChrono(toutes);
+}
+
+// Même synthèse sur une liste de tâches quelconque (ex. les tâches sans phase).
+export function statsTachesChrono(toutes) {
   // Avancement et « terminé » : sans les tâches hors devis (travail non
   // vendu) ; count reste le nombre total de tâches du groupe.
   const taches = tachesAvancement(toutes);
@@ -600,6 +605,51 @@ export function computeChantierFinance({
     };
   });
 
+  // ── Phases (groupes chrono du phasage) : heures vendues / réelles ──
+  // Heures prises sur les TÂCHES (heures_vendues de la tâche), là où les lots
+  // lisent les heures du devis de l'ouvrage : les deux peuvent différer, la
+  // fiche Opération affiche l'écart. Hors devis : à part, jamais comparé.
+  // Avancement : convention de la vue chrono (statsTachesChrono, pondéré
+  // heures vendues). Dérive : même formule que les lots.
+  // Les tâches sans phase (ou d'une phase supprimée) forment « Sans phase ».
+  const groupesChrono = (Array.isArray(meta.chrono_groupes) ? meta.chrono_groupes : [])
+    .filter(g => g && g.id != null)
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => {
+      const oa = parseFloat(a.g.ordre), ob = parseFloat(b.g.ordre);
+      return (Number.isFinite(oa) ? oa : 1e9) - (Number.isFinite(ob) ? ob : 1e9) || a.i - b.i;
+    })
+    .map(x => x.g);
+  const idsPhases = new Set(groupesChrono.map(g => g.id));
+  const toutesTaches = ouvrages.flatMap(o => o.taches || []);
+  const synthesePhase = (taches) => {
+    const comp = taches.filter(t => !tacheHorsDevis(t));
+    const hv = comp.reduce((s, t) => s + tacheHeuresVendues(t), 0);
+    const hr = comp.reduce((s, t) => s + tacheHeuresReelles(t, ppt), 0);
+    const hhd = taches.filter(tacheHorsDevis).reduce((s, t) => s + tacheHeuresReelles(t, ppt), 0);
+    const av = statsTachesChrono(taches).avancement;
+    return {
+      nbTaches: taches.length, heuresVendues: hv, heuresReelles: hr, heuresHorsDevis: hhd,
+      avancement: av, ratioDerive: (hv > 0 && av > 0) ? (hr / hv) / (av / 100) : null,
+    };
+  };
+  const phasesOut = groupesChrono.map((g, rang) => ({
+    id: g.id, nom: (g.nom || "").trim() || "(sans nom)", groupeTypeId: g.groupe_type_id || null,
+    rang, sansPhase: false,
+    ...synthesePhase(toutesTaches.filter(t => t?.chrono_groupe_id === g.id)),
+  }));
+  const tachesSansPhase = toutesTaches.filter(t => !t?.chrono_groupe_id || !idsPhases.has(t.chrono_groupe_id));
+  if (tachesSansPhase.length > 0) {
+    phasesOut.push({ id: "_sans_phase", nom: "Sans phase (à organiser)", groupeTypeId: null,
+      rang: phasesOut.length, sansPhase: true, ...synthesePhase(tachesSansPhase) });
+  }
+  // Dérive du chantier : même formule que les lots, sur les heures comparées
+  // au vendu (tâches + trajets + indirect + libres + reprise, sans hors devis)
+  // et l'avancement du chantier. Indéterminée (null) si vendu ou avancement nul.
+  const deriveChantier = (heuresVenduesChantier > 0 && avancementGlobal > 0)
+    ? (heuresComparablesChantier / heuresVenduesChantier) / (avancementGlobal / 100)
+    : null;
+
   // ── PROJECTIONS (étape 6) : du constat au pilotage ──
   // Heures restantes estimées : tâches non terminées, heures_estimees × part
   // restante. Une tâche à 100 % ne compte plus, une tâche sans heures estimées
@@ -692,10 +742,12 @@ export function computeChantierFinance({
 
   // « vendu » : par ouvrage valorisé, tri décroissant.
   const venduRows = ouvrages
-    .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), value: prixHTOuvrage(o) }))
+    .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), lotId: o.lot_id || null, value: prixHTOuvrage(o) }))
     .filter(r => r.value > 0)
     .sort((a, b) => b.value - a.value);
-  const venduVentilation = venduRows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value) }));
+  // `lotId` et `valeur` ne s'affichent pas : ils permettent à la fiche
+  // Opération d'additionner ces lignes sans refaire le calcul.
+  const venduVentilation = venduRows.map(r => ({ main: r.main, sub: r.sub, right: eur(r.value), lotId: r.lotId, valeur: r.value }));
 
   // « heures » : réelles / vendues par ouvrage + ligne extras.
   const heuresRowsBase = ouvrages
@@ -727,22 +779,29 @@ export function computeChantierFinance({
   const moRowsOuvriers = Object.values(moParOuvrier).sort((a, b) => b.cout - a.cout);
   const moVentile = moRowsOuvriers.reduce((s, r) => s + r.cout, 0);
   const moReste = coutMOChantier - moVentile;
+  // `cle`, `heures`, `taux` et `valeur` ne s'affichent pas : ils permettent à
+  // la fiche Opération de regrouper ces lignes (par ouvrier) sans recalcul.
   const moVentilation = moRowsOuvriers.map(r => ({
     main: r.ouvrier,
     sub: `${fmtH(r.heures)}h × ${eur(r.taux)}/h`,
     right: eur(r.cout),
+    cle: "ouvrier", heures: r.heures, taux: r.taux, valeur: r.cout,
   }));
   if (moReste > 0.5) {
-    moVentilation.push({ main: "Heures sans pointage nominatif", sub: "coût estimé via ouvriers assignés", right: eur(moReste) });
+    moVentilation.push({ main: "Heures sans pointage nominatif", sub: "coût estimé via ouvriers assignés", right: eur(moReste),
+      cle: "sans_nominatif", heures: null, valeur: moReste });
   }
   if (trajet.cout > 0) {
-    moVentilation.push({ main: "Trajets", sub: `${fmtH(trajet.heures)}h · pointages indirects`, right: eur(trajet.cout) });
+    moVentilation.push({ main: "Trajets", sub: `${fmtH(trajet.heures)}h · pointages indirects`, right: eur(trajet.cout),
+      cle: "trajets", heures: trajet.heures, valeur: trajet.cout });
   }
   if (indirectHT.cout > 0) {
-    moVentilation.push({ main: "Heures indirectes", sub: "intempéries, SAV, nettoyage…", right: eur(indirectHT.cout) });
+    moVentilation.push({ main: "Heures indirectes", sub: "intempéries, SAV, nettoyage…", right: eur(indirectHT.cout),
+      cle: "indirect", heures: indirectHT.heures, valeur: indirectHT.cout });
   }
   if (extras.coutLibre > 0.5) {
-    moVentilation.push({ main: "Heures libres", sub: "hors tâche du plan", right: eur(extras.coutLibre) });
+    moVentilation.push({ main: "Heures libres", sub: "hors tâche du plan", right: eur(extras.coutLibre),
+      cle: "libres", heures: extras.heuresLibre, valeur: extras.coutLibre });
   }
 
   // « fg » : par ouvrage (heures réelles × taux) + ligne extras.
@@ -1158,6 +1217,7 @@ export function computeChantierFinance({
     // Projections (étape 6) — à afficher distinctement des chiffres à date.
     resteAFaire, margeATerminaison, situationAFacturer, resteACommander,
     lots: lotsOut,
+    phases: phasesOut,
     meta: { margeCible, seuilPrime, prime },
     warnings,
     fraicheur,
@@ -1171,6 +1231,7 @@ export function computeChantierFinance({
       fgTauxHoraire, fgChantier, margeChantier, margePctChantier,
       fgPrevChantier, deboursePrevChantier, margePrevChantier, margePrevPctChantier,
       avancementChantier: avancementGlobal,
+      deriveChantier,
       extras, repriseHeures, repriseTaux, repriseCout,
       trajetHeures: trajet.heures, trajetCout: trajet.cout,
       indirectHeures: indirectHT.heures, indirectCout: indirectHT.cout,

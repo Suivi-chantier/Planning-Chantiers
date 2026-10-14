@@ -102,6 +102,8 @@ jobs:
         run: node scripts/verif-retours-terrain.mjs
       - name: Notes des ouvriers (note privee invisible du bureau, partage, memo chantier, reponses, photos, SQL)
         run: node scripts/verif-notes-ouvriers.mjs
+      - name: Fiche Operation - detail des KPI et derive par phase (donnees fictives)
+        run: node scripts/verif-operation-kpi-detail.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
