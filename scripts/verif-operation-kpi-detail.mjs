@@ -5,7 +5,7 @@
 // Exemple issu des tests, données fictives : logements, ouvriers, phases et
 // montants sont inventés pour le calcul.
 import assert from "node:assert/strict";
-import { computeChantierFinance, statsGroupeChrono } from "../src/chantierFinance.mjs";
+import { computeChantierFinance, statsGroupeChrono, eur } from "../src/chantierFinance.mjs";
 import { agregerOperation } from "../src/Renovation/operationExportModele.mjs";
 import {
   detailKpiOperation, carteDeriveOperation, KPI_OPERATION, texteRatio,
@@ -75,7 +75,7 @@ test("les lignes du Phasage s'affichent à l'identique (champs ajoutés seulemen
   assert.equal(mo[0].main, "Ouvrier A");
   assert.equal(mo[0].right, "420 €");
   assert.equal(mo[0].sub, "14h × 30 €/h");
-  assert.equal(finParChantier.A.finance.venduHT.ventilation[0].right, "10 000 €");
+  assert.equal(finParChantier.A.finance.venduHT.ventilation[0].right, eur(10000));
 });
 
 test("statsGroupeChrono inchangé après extraction de statsTachesChrono", () => {
@@ -107,7 +107,7 @@ test("vendu : par lot, tous logements confondus", () => {
   const d = detailKpiOperation("vendu", ctx);
   proche(d.total, 23000, "total vendu");
   assert.equal(d.consolide.lignes[0].main, "Électricité");
-  assert.equal(d.consolide.lignes[0].right, "18 000 €");
+  assert.equal(d.consolide.lignes[0].right, eur(18000));
   assert.match(d.consolide.lignes[0].sub, /2 ouvrages · 2 logements/);
 });
 
