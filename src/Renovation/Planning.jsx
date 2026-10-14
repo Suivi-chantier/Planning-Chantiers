@@ -626,7 +626,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       </div>
 
       {/* Tâches déclarées « Pas commencé » / « Bloqué », restées sans suite */}
-      <BandeauAReplanifier chantiersVisibles={chantiers} T={T} onVoir={voirTacheAReplanifier} rafraichir={`${weekId}-${modal ? 1 : 0}`} marge={isMobile ? "10px 12px 0" : "10px 28px 0"}/>
+      <BandeauAReplanifier weekId={weekId} chantiersVisibles={chantiers} T={T} onVoir={voirTacheAReplanifier} rafraichir={`${weekId}-${modal ? 1 : 0}`} marge={isMobile ? "10px 12px 0" : "10px 28px 0"}/>
 
       {/* === VUE MOBILE === */}
       {isMobile && (

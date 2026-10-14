@@ -110,6 +110,15 @@ const plusRecent = tachesAReplanifier({ rapports: [...rapportsR, R("f", "Paul", 
   cellules: cellulesR, aujourdhuiISO: AUJ, depuisISO: "2026-09-23" }).find(i => i.tache_id === "p1");
 eq([plusRecent.date, plusRecent.motifs.map(m => m.label), plusRecent.ouvriers], ["2026-10-14", ["Information manquante"], ["Paul"]], "dernier signalement retenu");
 eq(tachesAReplanifier({ rapports: [], cellules: [], aujourdhuiISO: AUJ }), [], "rien de signalé : liste vide");
+// Semaine affichée : seuls ses signalements ; les heures déclarées APRÈS
+// la semaine règlent toujours la tâche.
+const semaine = tachesAReplanifier({ rapports: [...rapportsR, R("g", "Paul", "06/10/2026", "valide", [L("p9", { statut: "non_faite" })])],
+  cellules: cellulesR, aujourdhuiISO: AUJ, depuisISO: "2026-10-05", jusquaISO: "2026-10-11" });
+eq(semaine.map(i => i.tache_id), ["p9"], "semaine du 05/10 : seulement la tâche signalée cette semaine-là");
+eq(tachesAReplanifier({ rapports: [...rapportsR, R("h", "Paul", "06/10/2026", "valide", [L("p3", { statut: "non_faite" })])],
+  cellules: cellulesR, aujourdhuiISO: AUJ, depuisISO: "2026-10-05", jusquaISO: "2026-10-11" }).map(i => i.tache_id), [],
+  "signalée la semaine du 05/10 puis faite le 13/10 : réglée");
+
 // Tâche terminée depuis dans le phasage (100 %) : plus à replanifier.
 const avs = avancementsDesPhasages([{ ouvrages: [{ taches: [{ id: "p1", avancement: 100 }, { id: "p6", avancement: "40" }] }] }]);
 eq(avs, { p1: 100, p6: 40 }, "avancements lus dans le phasage");

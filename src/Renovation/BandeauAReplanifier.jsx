@@ -2,7 +2,8 @@
 // Planning — bandeau « À replanifier ».
 //
 // Tâches déclarées « Pas commencé » / « Bloqué » dans un compte rendu validé
-// des 3 dernières semaines, restées sans suite. La règle vit dans le module
+// de la SEMAINE AFFICHÉE au planning (elle suit les flèches), restées sans
+// suite depuis. La règle vit dans le module
 // pur replanificationV1.mjs ; ce bandeau lit les comptes rendus et le
 // planning des chantiers concernés, puis affiche. Rien n'est déplacé : « Voir
 // dans le planning » ouvre la case où la tâche était prévue, le conducteur
@@ -13,10 +14,10 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { TriangleAlert, ChevronDown, ChevronUp, RotateCw } from "lucide-react";
-import { tachesAReplanifier, semainesEntre, avancementsDesPhasages } from "./replanificationV1";
+import { tachesAReplanifier, semainesEntre, avancementsDesPhasages, dateDeCellule } from "./replanificationV1";
 
-const PROFONDEUR_JOURS = 21;     // signalements des 3 dernières semaines
 const HORIZON_JOURS = 56;        // planning lu jusqu'à 8 semaines devant
+const SUITE_MAX_JOURS = 120;     // heures déclarées lues jusqu'à 4 mois après la semaine
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const JOURS_COURTS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 const isoLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -25,7 +26,7 @@ const dateCourte = (iso) => { const d = new Date(`${iso}T12:00:00`); return `${J
 // Les deux écritures de date_rapport rencontrées en base (« 12/10/2026 » et ISO).
 const ecrituresDate = (iso) => { const [a, m, j] = iso.split("-"); return [`${j}/${m}/${a}`, iso]; };
 
-export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir, rafraichir = 0, marge = "10px 28px 0" }) {
+export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir, rafraichir = 0, marge = "10px 28px 0", weekId }) {
   const [etat, setEtat] = useState({ statut: "chargement", items: [] });
   const [ouvert, setOuvert] = useState(false);
   const [essai, setEssai] = useState(0);
@@ -34,8 +35,15 @@ export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir,
     let annule = false;
     (async () => {
       const aujourdhui = isoLocal(new Date());
-      const depuis = plusJours(aujourdhui, -PROFONDEUR_JOURS);
-      const jours = Array.from({ length: PROFONDEUR_JOURS + 1 }, (_, i) => plusJours(depuis, i));
+      const lundi = dateDeCellule(weekId, "Lundi"), dimanche = dateDeCellule(weekId, "Dimanche");
+      // Semaine à venir (ou illisible) : rien n'a encore pu être signalé.
+      if (!lundi || lundi > aujourdhui) { setEtat({ statut: "ok", items: [] }); return; }
+      const depuis = lundi;
+      // Comptes rendus de la semaine, puis jusqu'à aujourd'hui (une suite donnée
+      // après la semaine règle la tâche).
+      const fin = aujourdhui < plusJours(lundi, SUITE_MAX_JOURS) ? aujourdhui : plusJours(lundi, SUITE_MAX_JOURS);
+      const jours = [];
+      for (let d = depuis; d <= fin; d = plusJours(d, 1)) jours.push(d);
       const { data: rapports, error } = await supabase.from("rapports")
         .select("id, ouvrier, chantier_id, chantier_nom, date_rapport, statut, taches")
         .in("date_rapport", jours.flatMap(ecrituresDate));
@@ -61,10 +69,10 @@ export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir,
         if (e3) { setEtat({ statut: "erreur", items: [] }); return; }
         avancements = avancementsDesPhasages(ph || []);
       }
-      setEtat({ statut: "ok", items: tachesAReplanifier({ rapports: rapports || [], cellules, aujourdhuiISO: aujourdhui, depuisISO: depuis, avancements }) });
+      setEtat({ statut: "ok", items: tachesAReplanifier({ rapports: rapports || [], cellules, aujourdhuiISO: aujourdhui, depuisISO: lundi, jusquaISO: dimanche, avancements }) });
     })();
     return () => { annule = true; };
-  }, [rafraichir, essai]);
+  }, [weekId, rafraichir, essai]);
 
   if (etat.statut === "chargement" || (etat.statut === "ok" && etat.items.length === 0)) return null;
 
@@ -90,7 +98,7 @@ export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir,
           }}>
             <Icon as={TriangleAlert} size={16} color={orange}/>
             <span style={{ flex: 1, fontSize: FONT.sm.size + 1 }}>
-              <strong>À replanifier : {n} tâche{n > 1 ? "s" : ""}</strong>
+              <strong>À replanifier (semaine affichée) : {n} tâche{n > 1 ? "s" : ""}</strong>
               <span style={{ color: T.textSub }}> déclarée{n > 1 ? "s" : ""} « Pas commencé » ou « Bloqué » par les ouvriers, sans suite depuis</span>
             </span>
             <span style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: orange }}>{ouvert ? "Masquer" : "Voir"}</span>
