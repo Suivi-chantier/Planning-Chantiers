@@ -61,6 +61,7 @@ import BulleTodo              from "./Renovation/BulleTodo";
 import PageEquipe             from "./Renovation/Equipe";
 import PageBilanSemaine       from "./Renovation/BilanSemaine";
 import PageAlertes            from "./Renovation/PageAlertes";
+import PageRetoursTerrain     from "./Renovation/RetoursTerrain";
 import PageNotesOuvriers      from "./Renovation/PageNotesOuvriers";
 import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
@@ -918,6 +919,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
           {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
           {p==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} onOuvrirChantier={(a)=>{ setChantierToOpen(a.chantierId); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="alertes"/>)}
+          {p==="retours-terrain"    && (canAccess(role,"retours-terrain")    ? <PageRetoursTerrain T={T} branch={branch}/> : <AccesRefuse T={T} page="retours-terrain"/>)}
           {p==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={actif?validationDate:null} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
           {p==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {p==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}

@@ -95,6 +95,22 @@ export const AIDE_CONTENU = {
     ],
     savoir: [
       "Vous pouvez ajouter un événement à Google Agenda depuis une case remplie.",
+      "Le bandeau « À replanifier » liste les tâches déclarées « Pas commencé » ou « Bloqué » dans un compte rendu validé et restées sans suite (ni heures depuis, ni nouvelle date à venir). « Voir dans le planning » ouvre la case concernée : rien n'est déplacé automatiquement.",
+    ],
+  },
+  "retours-terrain": {
+    titre: "Retours du terrain",
+    sousTitre: "Ce que les ouvriers disent dans leurs comptes rendus.",
+    intro: "Tout ce que les ouvriers expliquent dans le nouveau compte rendu, regroupé par semaine : pourquoi une tâche dépasse ses heures vendues, pourquoi elle n'a pas commencé ou est bloquée, et les tâches qu'ils ont proposées.",
+    etapes: [
+      "Choisissez la semaine avec les flèches, et un chantier si besoin.",
+      "En haut de chaque bloc, les motifs les plus fréquents (« Devis sous-estimé × 3 »…).",
+      "« Signalés plusieurs fois » montre les ouvrages qui dépassent à répétition : à vérifier dans le chiffrage ou la bibliothèque.",
+    ],
+    savoir: [
+      "Lecture seule : rien n'est modifié depuis cette page.",
+      "Le relevé « X h sur Y h vendues » est celui noté au moment de la saisie de l'ouvrier.",
+      "Une nouvelle tâche indique ce qu'elle est devenue : créée, rattachée à une tâche existante, ou en attente de validation.",
     ],
   },
   "planning-mensuel": {

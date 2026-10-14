@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
+  MessageSquare,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -18,12 +19,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 // ─── PAGES PAR RÔLE ───────────────────────────────────────────────────────────
 const ROLE_PAGES = {
   admin: [
-    "dashboard","chantiers","planning","bilan-semaine","alertes","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
+    "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
-    "dashboard","chantiers","planning","bilan-semaine","alertes","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
+    "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","journal-maj"
   ],
@@ -43,6 +44,7 @@ const ALL_NAV_ITEMS = [
   { id:"planning",         icon:Calendar,        label:"Planning",   longLabel:"Planning semaine"    },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan",      longLabel:"Bilan de semaine"    },
   { id:"alertes",          icon:Bell,            label:"Alertes",    longLabel:"Alertes"             },
+  { id:"retours-terrain",  icon:MessageSquare,   label:"Retours",    longLabel:"Retours du terrain"  },
   { id:"notes-todo",       icon:ClipboardList,   label:"Notes",      longLabel:"Notes & To-do"       },
   { id:"notes-ouvriers",   icon:NotebookPen,     label:"Terrain",    longLabel:"Notes des ouvriers"  },
   { id:"planning-mensuel", icon:CalendarDays,    label:"Mensuel",    longLabel:"Planning mensuel"    },
@@ -237,6 +239,7 @@ const allNav = [
   { id:"planning",         icon:Calendar,        label:"Planning semaine" },
   { id:"bilan-semaine",    icon:ChartBar,        label:"Bilan de semaine" },
   { id:"alertes",          icon:Bell,            label:"Alertes"          },
+  { id:"retours-terrain",  icon:MessageSquare,   label:"Retours du terrain" },
   { id:"planning-mensuel", icon:CalendarDays,    label:"Planning mensuel" },
   { id:"notes-todo",       icon:ClipboardList,   label:"Notes & To-do"    },
   { id:"notes-ouvriers",   icon:NotebookPen,     label:"Notes des ouvriers" },

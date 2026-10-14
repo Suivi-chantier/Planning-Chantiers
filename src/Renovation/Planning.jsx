@@ -1,5 +1,6 @@
 import PlanningExportModal from "./PlanningExportModal";
 import CellModal from "./CellModal";
+import BandeauAReplanifier from "./BandeauAReplanifier";
 import PlanningBaselinePanel from "./PlanningBaselinePanel";
 import PlanningEngineSimulationPanel from "./PlanningEngineSimulationPanel";
 import { creerAllocationUid } from "./planningBaselineModelV1.js";
@@ -192,6 +193,33 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
       );
     });
   };
+
+  // ── « À replanifier » : aller à la case où la tâche était prévue ──────────
+  // Autre semaine : on change de semaine, puis on attend que ses cases ET ses
+  // commandes soient chargées avant d'ouvrir la case (sinon la case s'ouvrirait
+  // avec les données de l'ancienne semaine, et les enregistrerait au mauvais
+  // endroit en se refermant). Si l'utilisateur part ailleurs entre-temps, on
+  // abandonne.
+  const [cibleReplan, setCibleReplan] = useState(null); // { weekId, cId, jour, depuisWeekId, cellsAvant, commandesAvant }
+  const voirTacheAReplanifier = (it) => {
+    const m = /^(\d{4})-W(\d{1,2})$/.exec(it?.weekId || "");
+    if (!m || !it.jour || !it.chantier_id) return;
+    if (isMobile) setMobileDay(it.jour);
+    if (it.weekId === weekId) { openModal(it.chantier_id, it.jour); return; }
+    setCibleReplan({ weekId: it.weekId, cId: it.chantier_id, jour: it.jour, depuisWeekId: weekId, cellsAvant: cells, commandesAvant: commandes });
+    setYear(+m[1]); setWeek(+m[2]);
+  };
+  useEffect(() => {
+    if (!cibleReplan) return;
+    if (weekId !== cibleReplan.weekId) {
+      if (weekId !== cibleReplan.depuisWeekId) setCibleReplan(null); // parti ailleurs
+      return;
+    }
+    if (cells === cibleReplan.cellsAvant || commandes === cibleReplan.commandesAvant) return; // pas encore chargée
+    setCibleReplan(null);
+    openModal(cibleReplan.cId, cibleReplan.jour);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekId, cells, commandes, cibleReplan]);
 
   const openModal = (cId, jour) => {
     setModal({ cId, jour });
@@ -596,6 +624,9 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
           </button>
         </div>
       </div>
+
+      {/* Tâches déclarées « Pas commencé » / « Bloqué », restées sans suite */}
+      <BandeauAReplanifier chantiersVisibles={chantiers} T={T} onVoir={voirTacheAReplanifier} rafraichir={`${weekId}-${modal ? 1 : 0}`} marge={isMobile ? "10px 12px 0" : "10px 28px 0"}/>
 
       {/* === VUE MOBILE === */}
       {isMobile && (

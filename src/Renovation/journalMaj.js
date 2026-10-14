@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-14",
+    type: "nouveaute",
+    titre: "Nouvelle page « Retours du terrain » et bandeau « À replanifier » au planning",
+    pages: [{ id: "retours-terrain", label: "Retours du terrain" }, { id: "planning", label: "Planning semaine" }],
+    quoi: "Les ouvriers expliquent beaucoup de choses dans leurs comptes rendus (pourquoi une tâche dépasse, pourquoi elle n'a pas commencé, ce qu'ils ont dû faire en plus), mais ces informations restaient éparpillées rapport par rapport. Elles sont maintenant regroupées pour le bureau, et le planning signale les tâches restées en plan.",
+    comment: "Page « Retours du terrain » (menu Rénovation) : par semaine et par chantier, trois blocs — dépassements des heures vendues (motif, relevé « X h sur Y h vendues », ouvrages signalés plusieurs fois), tâches « Pas commencé » ou « Bloqué » (motif et précision de l'ouvrier ; « Non faite » pour l'ancien formulaire), nouvelles tâches proposées (nature, et si elles ont été créées, rattachées ou sont en attente). En tête de chaque bloc, les motifs les plus fréquents. Lecture seule. Planning semaine : un bandeau « À replanifier » liste les tâches déclarées « Pas commencé » ou « Bloqué » dans un compte rendu validé des 3 dernières semaines et restées sans suite — ni heures déclarées depuis, ni nouvelle date à venir au planning (« Fait par un collègue » n'y figure pas). « Voir dans le planning » ouvre la case où la tâche était prévue, pour la déplacer ; rien n'est déplacé automatiquement.",
+  },
+  {
+    date: "2026-10-14",
     type: "amelioration",
     titre: "Compte rendu (bêta) : nouveaux motifs, et les tâches existantes proposées avant d'en créer une",
     pages: [{ id: "validation", label: "Validation" }],
