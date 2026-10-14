@@ -41,11 +41,14 @@
 //                      (100 si Terminé) : toute la chaîne existante le lit.
 //   photos_apres       photos « après » d'une tâche Terminée : sous-ensemble
 //                      de `photos`, qui garde TOUTES les photos de la ligne.
-//   photo_apres_manquante      Terminé sans photo « après » ;
-//   photo_apres_hors_connexion   … parce que le téléphone était hors ligne ;
-//   photo_apres_bouton           … parce que l'ouvrier a touché « Je ne peux
-//                                pas envoyer la photo ». (Deux champs
-//                                distincts, pour compter les deux cas.)
+//   photo_apres_manquante      Terminé sans photo « après » (la photo est
+//                              RECOMMANDÉE, jamais exigée : décision du
+//                              14/10/2026, l'ouvrier n'a plus de bouton à
+//                              toucher pour chaque tâche sans photo) ;
+//   photo_apres_hors_connexion   … et le téléphone était hors ligne ;
+//   photo_apres_bouton           … ancien bouton « Je ne peux pas envoyer la
+//                                photo » (06-14/10/2026) : relu sur les
+//                                brouillons de cette période, plus proposé.
 // La « précision » est écrite dans le champ remarque existant.
 // ─────────────────────────────────────────────────────────────────────────────
 import { etatHeures } from "./mesPhasesV1.mjs";
@@ -275,25 +278,25 @@ export function majPhotosApres(t, apres) {
   if (nouvelles.length > 0) { delete next.photo_apres_bouton; delete next.photo_apres_manquante; delete next.photo_apres_hors_connexion; }
   return next;
 }
-// « Je ne peux pas envoyer la photo » (bouton), annulable.
+// Ancien bouton « Je ne peux pas envoyer la photo » (plus proposé depuis le
+// 14/10/2026) : gardé pour relire les brouillons de la période.
 export const signalerPhotoImpossible = (t, oui = true) => {
   const next = { ...t };
   if (oui) next.photo_apres_bouton = true; else delete next.photo_apres_bouton;
   return next;
 };
-// Photo « après » exigée et absente ? Hors connexion, la tâche part quand
-// même (marquée à l'envoi) ; le bouton lève aussi l'exigence.
-export function photoApresManquante(t, { horsConnexion = false } = {}) {
-  return choixDeLigne(t) === "termine" && photosApres(t).length === 0 && !t.photo_apres_bouton && !horsConnexion;
+// Terminé sans photo « après » ? Repère seulement (la carte la recommande, la
+// ligne part marquée photo_apres_manquante) : n'empêche JAMAIS l'envoi.
+export function photoApresManquante(t) {
+  return choixDeLigne(t) === "termine" && photosApres(t).length === 0;
 }
 
 // ── Contrôle d'une ligne et de la journée ───────────────────────────────────
 // infosParTache : { [tache_id]: info } (peut être vide si les données n'ont
 // pas pu être chargées : on ne demande alors pas de motif de dépassement, et
 // la tâche se saisit en pourcentage).
-// horsConnexion : le téléphone est hors ligne (la photo « après » ne peut pas
-// partir : elle n'est pas exigée, la ligne sera marquée à l'envoi).
-export function problemesLigne(t, infosParTache = {}, { horsConnexion = false } = {}) {
+// La photo « après » n'est PAS un problème : recommandée, jamais exigée.
+export function problemesLigne(t, infosParTache = {}) {
   const p = [];
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -312,7 +315,6 @@ export function problemesLigne(t, infosParTache = {}, { horsConnexion = false } 
     || (t.motif_depassement === CODE_MOTIF_AUTRE && motifDepassementRequis(info, t));
   if (autre && !String(t.remarque ?? "").trim()) p.push("precision");
   if (photoManquante(t)) p.push("photo");
-  if (photoApresManquante(t, { horsConnexion })) p.push("photo_apres");
   return p;
 }
 
@@ -332,7 +334,6 @@ export const LIBELLES_PROBLEMES = Object.freeze({
   precision: "précise le motif « Autre »",
   photo: "ajoute une photo (demande du client)",
   quantite: "indique la quantité posée",
-  photo_apres: "ajoute une photo « après »",
 });
 
 // État du bouton d'envoi : on n'envoie que si toutes les lignes sont complètes
@@ -340,14 +341,41 @@ export const LIBELLES_PROBLEMES = Object.freeze({
 export function etatEnvoi({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache = {}, indirectesInvalides = 0, horsConnexion = false }) {
   const r = resteJournee({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures });
   const remplies = (taches || []).filter(t => String(t.planifie ?? "").trim() || t.libre);
-  const lignes = remplies.map((t, i) => ({ i, problemes: problemesLigne(t, infosParTache, { horsConnexion }) }))
+  // idx : position de la ligne dans `taches` (pour y emmener l'ouvrier).
+  const lignes = remplies.map((t, i) => ({ i, idx: taches.indexOf(t), problemes: problemesLigne(t, infosParTache) }))
     .filter(x => x.problemes.length > 0);
   const phrase = r.resteMin > 0 ? `Place encore ${fmtMinutes(r.resteMin)} pour envoyer`
     : r.resteMin < 0 ? `Tu dépasses de ${fmtMinutes(-r.resteMin)}`
     : lignes.length > 0 ? `Complète ${lignes.length} tâche${lignes.length > 1 ? "s" : ""} pour envoyer`
     : indirectesInvalides > 0 ? "Complète tes heures indirectes pour envoyer"
     : null;
-  return { ...r, lignesIncompletes: lignes, peutEnvoyer: r.exact && lignes.length === 0 && indirectesInvalides === 0, phrase };
+  return { ...r, lignesIncompletes: lignes, indirectesInvalides, peutEnvoyer: r.exact && lignes.length === 0 && indirectesInvalides === 0, phrase };
+}
+
+// Ce qui empêche l'envoi, en clair, pour le montrer à l'ouvrier : le temps
+// à placer (ou en trop), chaque tâche incomplète avec ce qui lui manque, les
+// heures indirectes incomplètes. Vide quand l'envoi est possible.
+//   [{ type: "temps" | "ligne" | "indirectes", texte, idx?, nom? }]
+export function resumeManques(envoi, taches) {
+  if (!envoi || envoi.peutEnvoyer) return [];
+  const out = [];
+  if (envoi.resteMin > 0) {
+    out.push({ type: "temps", texte: `place encore ${fmtMinutes(envoi.resteMin)} (temps des tâches, trajets ou heures indirectes)` });
+  } else if (envoi.resteMin < 0) {
+    out.push({ type: "temps", texte: `tu dépasses de ${fmtMinutes(-envoi.resteMin)} : retire du temps sur une tâche ou un trajet` });
+  }
+  (envoi.lignesIncompletes || []).forEach(l => {
+    const t = (taches || [])[l.idx];
+    out.push({
+      type: "ligne", idx: l.idx,
+      nom: String(t?.planifie ?? "").trim() || "Tâche ajoutée",
+      texte: l.problemes.map(p => LIBELLES_PROBLEMES[p] || p).join(", "),
+    });
+  });
+  if (envoi.indirectesInvalides > 0) {
+    out.push({ type: "indirectes", texte: "complète tes heures indirectes (motif, chantier et heures)" });
+  }
+  return out;
 }
 
 // « 8 h 20 », « 45 min », « 2 h »

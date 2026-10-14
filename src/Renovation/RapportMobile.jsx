@@ -20,7 +20,7 @@ import {
 // Formulaire bêta « cr_v2 » (Admin → Collaborateurs → « Bêta : Nouveau compte rendu »).
 import {
   FORMULAIRE_V2, serialiserLigneV2, finaliserLignesV2, brouillonV2VersV1, preremplirDurees,
-  colonnesRapportV2, etatEnvoi, fmtMinutes, ajouterDepuisPhasage, carteRetirable, ORIGINE_LIBRE,
+  colonnesRapportV2, etatEnvoi, resumeManques, fmtMinutes, ajouterDepuisPhasage, carteRetirable, ORIGINE_LIBRE,
   ORIGINE_NOUVELLE, ligneNouvelleTache, modifierNouvelleTache, texteProposition, photosAutres, majPhotosAutres,
 } from "./compteRenduV2";
 import { explicationComplete } from "./motifsCompteRendu";
@@ -322,6 +322,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const [panneauAutreChose, setPanneauAutreChose] = useState(false);
   // v2 : « Modifier » une nouvelle tâche proposée ({ idx, chantierId, ligne }).
   const [editionNouvelle, setEditionNouvelle] = useState(null);
+  // v2 : l'ouvrier a touché « Valider mon compte rendu » alors qu'il reste des
+  // choses à compléter → les cartes incomplètes sont entourées de rouge.
+  const [montrerManques, setMontrerManques] = useState(false);
   // v2 : infos des tâches du jour lues par la RPC ouvrier_mes_phases (chemin
   // Phase › Ouvrage, heures vendues / validées / en attente, dernier motif de
   // dépassement), par tache_id. infosEtat : chargement | ok | indisponible.
@@ -1111,6 +1114,27 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache, horsConnexion,
     indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
   }) : null;
+  // Ce qui empêche l'envoi, en clair (temps à placer, tâches incomplètes, heures
+  // indirectes), et de quoi y emmener l'ouvrier : la carte s'ouvre (groupe
+  // déplié), défile jusqu'à l'écran et s'entoure de rouge.
+  const manques = estV2 ? resumeManques(envoiV2, taches) : [];
+  const allerA = (id) => setTimeout(() => {
+    const el = typeof document !== "undefined" ? document.getElementById(id) : null;
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 80);
+  const allerALaTache = (idx) => {
+    setMontrerManques(true);
+    const t = taches[idx];
+    if (t) setCollapsedChantiers(c => ({ ...c, [t.chantier_id || "_libres"]: false }));
+    allerA(`cr-tache-${idx}`);
+  };
+  const allerAuxManques = () => {
+    setMontrerManques(true);
+    const ligne = manques.find(m => m.type === "ligne");
+    if (ligne) return allerALaTache(ligne.idx);
+    if (manques.some(m => m.type === "temps")) return allerA("cr-journee");
+    if (manques.some(m => m.type === "indirectes")) return allerA("cr-indirectes");
+  };
 
   // Helper format heures sans drift flottant
   const fmtH = (n) => (+n.toFixed(2)).toString();
@@ -1381,7 +1405,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             border:`1.5px solid ${bdr}`, padding:"14px 16px",
             position:"sticky", top:8, zIndex:10,
             boxShadow:"0 4px 16px rgba(0,0,0,0.10)",
-          }}>
+          }} id="cr-journee">
             <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginBottom:8}}>
               <div style={{...S.sectionTitle(col), marginBottom:0}}>
                 <Icon as={Clock} size={13} strokeWidth={2.2}/>
@@ -1409,7 +1433,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               {estV2
                 ? (envoiV2.peutEnvoyer
                     ? <><Icon as={Check} size={13} strokeWidth={2.5}/> Tout est placé : tu peux envoyer</>
-                    : envoiV2.phrase)
+                    : <>
+                        {envoiV2.phrase}
+                        {manques.some(m => m.type === "ligne") && (
+                          <button onClick={allerAuxManques} style={{
+                            marginLeft:"auto", flexShrink:0, minHeight:32, padding:"0 10px", borderRadius:RADIUS.md,
+                            border:`1.5px solid ${col}`, background:T.surface, color:col, fontFamily:"inherit",
+                            fontSize:FONT.sm.size+1, fontWeight:800, cursor:"pointer",
+                          }}>Voir ce qui manque</button>
+                        )}
+                      </>)
                 : matchCible
                 ? <><Icon as={Check} size={13} strokeWidth={2.5}/> Tu peux soumettre ton compte rendu</>
                 : ecartH < 0
@@ -1475,7 +1508,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           );
         }
         return (
-          <div style={{...S.card, borderLeft:`4px solid #b27416`, padding:"14px 16px"}}>
+          <div id="cr-indirectes" style={{...S.card, borderLeft:`4px solid #b27416`, padding:"14px 16px", scrollMarginTop:120}}>
             <div style={{...S.sectionTitle("#b27416")}}>
               <Icon as={AlertTriangle} size={13} strokeWidth={2.2}/>
               Heures indirectes (intempéries, SAV, nettoyage…)
@@ -1691,6 +1724,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               chantiers={chantiers}
               onOuvrirCommande={embedded && onOuvrirCommande ? onOuvrirCommande : null}
               horsConnexion={horsConnexion}
+              ancre={`cr-tache-${idx}`}
+              aSignaler={montrerManques}
               champPhotosApres={(apres, onChange) => (
                 <PhotosPicker photos={apres} onChange={onChange}
                   pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}-apres`}
@@ -2183,12 +2218,42 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
       {/* Bouton soumettre */}
       <div style={{padding:"8px 16px 32px"}}>
-        {estV2 && !preview && !envoiV2.peutEnvoyer && envoiV2.phrase && (
-          <div style={{ textAlign:"center", fontSize:FONT.base.size, fontWeight:700, color:T.textSub, marginBottom:8 }}>
-            {envoiV2.phrase}
+        {/* v2 : tant que l'envoi n'est pas possible, la liste de ce qui manque,
+            chaque tâche touchable pour y aller. */}
+        {estV2 && !preview && manques.length > 0 && (
+          <div role="status" style={{
+            marginBottom:10, padding:"12px 14px", borderRadius:RADIUS.lg, background:T.dangerBg,
+            border:`2px solid ${montrerManques ? T.danger : T.dangerBd}`,
+          }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:FONT.md.size, fontWeight:800, color:T.danger, marginBottom:6 }}>
+              <Icon as={AlertTriangle} size={17} strokeWidth={2.4}/> Pour envoyer, il reste à faire :
+            </div>
+            {manques.map((m, k) => m.type === "ligne" ? (
+              <button key={k} onClick={() => allerALaTache(m.idx)} style={{
+                display:"flex", width:"100%", textAlign:"left", gap:8, alignItems:"flex-start", padding:"8px 0", minHeight:44,
+                border:"none", borderTop: k > 0 ? `1px solid ${T.dangerBd}` : "none", background:"transparent", cursor:"pointer", fontFamily:"inherit",
+              }}>
+                <span style={{ flex:1, minWidth:0, fontSize:FONT.base.size, color:T.text, lineHeight:1.35 }}>
+                  <strong>{m.nom.length > 60 ? `${m.nom.slice(0, 60)}…` : m.nom}</strong> : {m.texte}
+                </span>
+                <Icon as={ChevronRight} size={18} style={{ color:T.danger, flexShrink:0, marginTop:1 }}/>
+              </button>
+            ) : (
+              <button key={k} onClick={() => allerA(m.type === "temps" ? "cr-journee" : "cr-indirectes")} style={{
+                display:"flex", width:"100%", textAlign:"left", gap:8, alignItems:"flex-start", padding:"8px 0", minHeight:44,
+                border:"none", borderTop: k > 0 ? `1px solid ${T.dangerBd}` : "none", background:"transparent", cursor:"pointer", fontFamily:"inherit",
+              }}>
+                <span style={{ flex:1, minWidth:0, fontSize:FONT.base.size, color:T.text, fontWeight:700, lineHeight:1.35 }}>
+                  {m.texte.charAt(0).toUpperCase() + m.texte.slice(1)}
+                </span>
+                <Icon as={ChevronRight} size={18} style={{ color:T.danger, flexShrink:0, marginTop:1 }}/>
+              </button>
+            ))}
           </div>
         )}
-        <button onClick={soumettre} disabled={submitting || preview || (estV2 && !envoiV2.peutEnvoyer)} style={{
+        {/* Grisé tant que tout n'est pas complet, mais TOUCHABLE : il emmène
+            alors à la première chose à compléter (au lieu de ne rien faire). */}
+        <button onClick={estV2 && !envoiV2.peutEnvoyer ? allerAuxManques : soumettre} disabled={submitting || preview} style={{
           width:"100%",padding:"18px",border:"none",borderRadius:RADIUS.xl+2,fontSize:FONT.lg.size,
           fontWeight:800,cursor:(submitting||preview||(estV2 && !envoiV2.peutEnvoyer))?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
           background: (submitting||preview||(estV2 && !envoiV2.peutEnvoyer)) ? T.borderHover : T.accent, color: T.accentText,

@@ -31,7 +31,7 @@ import {
 import {
   suiviDepuisInfo, changerQuantiteJour, appliquerChoixSuivi, apresMinutesSuivi, totalAvecJour, problemesLigne,
   etatEnvoi, finaliserLignesV2, serialiserLigneV2, brouillonV2VersV1, majPhotosApres, majPhotosAutres,
-  photosAutres, photosApres, signalerPhotoImpossible, changerMinutes, appliquerChoix,
+  photosAutres, photosApres, signalerPhotoImpossible, changerMinutes, appliquerChoix, resumeManques,
 } from "../src/Renovation/compteRenduV2.mjs";
 import { serialiserLigneV1 } from "../src/Renovation/compteRenduEnvoi.mjs";
 import {
@@ -110,11 +110,11 @@ ok(!("quantite_jour" in apresMinutesSuivi(changerMinutes(changerQuantiteJour(blo
 eq(problemesLigne({ ...L0, statut: "en_cours", heures_reelles: "1", avancement: "" }, infos(INFO({ suivi_pourcent: true }))), ["avancement"],
   "tâche forcée en % : l'avancement en % reste demandé (inchangé)");
 
-// ── 4. Photo « après » ──────────────────────────────────────────────────────
+// ── 4. Photo « après » : recommandée, JAMAIS exigée (décision du 14/10/2026)
 const term = changerMinutes(appliquerChoix({ ...L0, photos: ["p-avant.jpg"] }, "termine"), 60);
-eq(problemesLigne(term, {}), ["photo_apres"], "Terminé sans photo « après » : bloqué");
-eq(problemesLigne(term, {}, { horsConnexion: true }), [], "hors connexion : non exigée");
-eq(problemesLigne(signalerPhotoImpossible(term), {}), [], "bouton « Je ne peux pas envoyer la photo » : non exigée");
+eq(problemesLigne(term, {}), [], "Terminé sans photo « après » : rien à compléter, aucun bouton à toucher");
+ok(etatEnvoi({ taches: [term], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 1 }).peutEnvoyer,
+  "Terminé sans photo « après » : l'envoi est possible (connecté)");
 const avecApres = majPhotosApres(term, ["p-apres.jpg"]);
 eq([avecApres.photos, photosApres(avecApres), photosAutres(avecApres)], [["p-avant.jpg", "p-apres.jpg"], ["p-apres.jpg"], ["p-avant.jpg"]],
   "photo « après » : ajoutée à photos (rien ne casse) et désignée dans photos_apres");
@@ -122,10 +122,12 @@ eq(problemesLigne(avecApres, {}), [], "avec la photo « après » : complète");
 eq(majPhotosAutres(avecApres, []).photos, ["p-apres.jpg"], "retirer les autres photos garde la photo « après »");
 eq(photosApres(majPhotosApres(avecApres, [])), [], "retirer la photo « après » la retire des deux listes");
 const [fHors] = finaliserLignesV2([term], {}, { horsConnexion: true });
+const [fSans] = finaliserLignesV2([term], {}, { horsConnexion: false });
 const [fBouton] = finaliserLignesV2([signalerPhotoImpossible(term)], {}, { horsConnexion: false });
 const [fOk] = finaliserLignesV2([avecApres], {});
+eq([fSans.photo_apres_manquante, fSans.photo_apres_hors_connexion, fSans.photo_apres_bouton], [true, undefined, undefined], "connecté, sans photo : part, marquée « photo après manquante » (repère en Validation)");
 eq([fHors.photo_apres_manquante, fHors.photo_apres_hors_connexion, fHors.photo_apres_bouton], [true, true, undefined], "hors connexion : part, marquée « hors connexion »");
-eq([fBouton.photo_apres_manquante, fBouton.photo_apres_hors_connexion, fBouton.photo_apres_bouton], [true, undefined, true], "bouton : part, marqué « bouton » (champ distinct)");
+eq([fBouton.photo_apres_manquante, fBouton.photo_apres_hors_connexion, fBouton.photo_apres_bouton], [true, undefined, true], "brouillon de l'ancien bouton (06-14/10) : relu, marqué « bouton »");
 eq([fOk.photo_apres_manquante, fOk.photo_apres_bouton], [undefined, undefined], "avec photo : aucun marqueur");
 const enCoursAvecBouton = finaliserLignesV2([{ ...signalerPhotoImpossible(term), statut: "en_cours" }], {})[0];
 ok(!enCoursAvecBouton.photo_apres_bouton && !enCoursAvecBouton.photo_apres_manquante, "plus Terminé : marqueurs retirés");
@@ -133,6 +135,25 @@ const env = etatEnvoi({ taches: [term], trajetMatin: "", trajetSoir: "", heuresI
 ok(env.peutEnvoyer, "hors connexion : l'envoi n'est jamais bloqué par la photo");
 const sOk = serialiserLigneV2(fOk), sHors = serialiserLigneV2(fHors);
 eq([sOk.photos_apres, sHors.photo_apres_manquante, sHors.photo_apres_hors_connexion], [["p-apres.jpg"], true, true], "envoyés sur la ligne");
+
+// ── 4 bis. Ce qui empêche l'envoi, en clair (bouton grisé) ───────────────────
+const jourManques = [
+  { ...L0, planifie: "Pose des plaques" },                                                   // pas de statut
+  changerMinutes(appliquerChoixSuivi({ ...L0, planifie: "Bandes" }, "en_cours", sq), 60),    // quantité manquante
+  { ...avecApres, tache_id: "t9" },                                                            // complète (suivie en %)
+];
+const envM = etatEnvoi({ taches: jourManques, trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 3, infosParTache: infos(INFO()), indirectesInvalides: 1 });
+eq(envM.lignesIncompletes.map(l => l.idx), [0, 1], "lignes incomplètes repérées par leur place dans la journée");
+eq(resumeManques(envM, jourManques), [
+  { type: "temps", texte: "place encore 1 h (temps des tâches, trajets ou heures indirectes)" },
+  { type: "ligne", idx: 0, nom: "Pose des plaques", texte: "choisis un statut" },
+  { type: "ligne", idx: 1, nom: "Bandes", texte: "indique la quantité posée" },
+  { type: "indirectes", texte: "complète tes heures indirectes (motif, chantier et heures)" },
+], "liste en clair : temps restant, chaque tâche et ce qui lui manque (même sans statut), heures indirectes");
+eq(resumeManques(etatEnvoi({ taches: [avecApres], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 1 }), [avecApres]), [],
+  "tout est complet : rien à montrer");
+eq(resumeManques(etatEnvoi({ taches: [avecApres], trajetMatin: "", trajetSoir: "", heuresIndirectes: [], cibleHeures: 0.5 }), [avecApres])[0].texte,
+  "tu dépasses de 30 min : retire du temps sur une tâche ou un trajet", "temps en trop : dit aussi");
 
 // ── Envoi d'une ligne en quantité ; brouillon relu par l'ancien formulaire ──
 const envoyee = serialiserLigneV2(finaliserLignesV2([c], infos(INFO()))[0]);

@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-14",
+    type: "amelioration",
+    titre: "Compte rendu (bêta) : plus de photo « après » imposée, et ce qui bloque l'envoi est montré clairement",
+    pages: [{ id: "validation", label: "Validation" }],
+    quoi: "Les ouvriers ne comprenaient pas pourquoi « Valider mon compte rendu » restait grisé, et devaient toucher « Je ne peux pas envoyer la photo » sur chaque tâche terminée sans photo. Désormais la photo « après » est seulement recommandée, et tout ce qui empêche l'envoi est listé en clair, avec un accès direct à la tâche concernée.",
+    comment: "Nouveau compte rendu : sur une tâche « Terminé », le bloc « Photo « après » (recommandée) » reste là, mais une tâche sans photo part quand même — le bouton « Je ne peux pas envoyer la photo » disparaît ; en Validation, le repère « Photo « après » manquante » reste affiché. Au-dessus du bouton d'envoi, un encadré rouge « Pour envoyer, il reste à faire » liste le temps encore à placer (ou en trop), chaque tâche incomplète avec ce qui lui manque (statut, temps, quantité, motif…) et les heures indirectes incomplètes ; toucher une ligne emmène à la tâche. Le bouton « Valider mon compte rendu » reste grisé tant que tout n'est pas complet, mais le toucher emmène à la première chose à compléter : la carte s'ouvre et s'entoure de rouge avec « À compléter : … » en tête, même quand aucun statut n'a encore été choisi. Le bandeau « Ma journée » propose aussi « Voir ce qui manque ».",
+  },
+  {
     date: "2026-10-14", type: "nouveaute",
     titre: "Espace ouvrier : un carnet de notes, à partager entre collègues ou avec le bureau",
     pages: [{ id: "notes-ouvriers", label: "Notes des ouvriers" }, { id: "chantiers", label: "Chantiers" }],
