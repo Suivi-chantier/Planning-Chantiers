@@ -118,12 +118,12 @@ Deux anomalies ont été corrigées au passage :
   production sans qu'aucune migration ne les déclare. Elle a été inscrite comme
   appliquée (écriture de comptabilité uniquement, aucun changement de schéma).
 
-`20261014120000_notes_ouvriers.sql` — **NON appliquée** à sa création
-(14/10/2026). Notes des ouvriers : 3 tables (`notes_ouvriers`, réponses,
+`20261014073919_notes_ouvriers.sql` — **appliquée en production le
+14/10/2026** (par Claude, via le connecteur Supabase ; le fichier a été renommé
+au numéro attribué par la base ; seuls les commentaires d'en-tête diffèrent du
+SQL enregistré). Notes des ouvriers : 3 tables (`notes_ouvriers`, réponses,
 lectures), le bucket privé `notes-ouvriers`, la RPC `notes_destinataires`.
-Additive, rejouable, s'applique seule (jamais par `db push`). Tant qu'elle ne
-l'est pas, l'onglet Notes et la page bureau affichent « pas encore activée ».
-Retour arrière : `sql/202610_notes_ouvriers_rollback.sql`.
+Additive, rejouable, s'applique seule (jamais par `db push`). Retour arrière : `sql/202610_notes_ouvriers_rollback.sql`.
 Vérification : `node scripts/verif-notes-ouvriers.mjs`.
 
 ## Règles

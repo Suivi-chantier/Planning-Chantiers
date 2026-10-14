@@ -6,7 +6,7 @@
 // Règles partagées par l'espace ouvrier (onglet Notes, mémo chantier de
 // l'onglet Opérations) et par le bureau (page « Notes des ouvriers », fiche
 // chantier). La sécurité réelle est en base (RLS de notes_ouvriers, migration
-// 20261014120000) : ce module ne décide JAMAIS qui a le droit de voir une
+// 20261014073919) : ce module ne décide JAMAIS qui a le droit de voir une
 // note, il l'explique et il classe ce que la base a déjà renvoyé.
 // ─────────────────────────────────────────────────────────────────────────────
 

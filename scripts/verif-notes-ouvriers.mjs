@@ -2,7 +2,7 @@
 // Vérifie les « Notes des ouvriers » :
 //   - src/Renovation/notesOuvriers.mjs (module pur : partage, liste à cocher,
 //     validation, lu / non lu, classement ouvrier, filtres et tri bureau) ;
-//   - supabase/migrations/20261014120000_notes_ouvriers.sql, exécutée dans un
+//   - supabase/migrations/20261014073919_notes_ouvriers.sql, exécutée dans un
 //     vrai PostgreSQL (PGlite, en mémoire) sur une réplique MINIMALE :
 //     utilisateurs, helpers de rôle de production (mon_role, est_ouvrier,
 //     mon_prenom_planning), est_collaborateur_actif, norm_prenom, et un schéma
@@ -38,7 +38,7 @@ import {
 } from "../src/Renovation/notesOuvriers.mjs";
 
 const racine = fileURLToPath(new URL("..", import.meta.url));
-const MIGRATION = readFileSync(join(racine, "supabase/migrations/20261014120000_notes_ouvriers.sql"), "utf8");
+const MIGRATION = readFileSync(join(racine, "supabase/migrations/20261014073919_notes_ouvriers.sql"), "utf8");
 const ROLLBACK = readFileSync(join(racine, "sql/202610_notes_ouvriers_rollback.sql"), "utf8");
 
 let nbOk = 0;

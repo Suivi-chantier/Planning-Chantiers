@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // NOTES DES OUVRIERS — accès aux données (Supabase). Les règles (partage,
 // classement, validation) sont dans notesOuvriers.mjs ; la sécurité est en
-// base (RLS, migration 20261014120000_notes_ouvriers.sql).
+// base (RLS, migration 20261014073919_notes_ouvriers.sql).
 //
 // Chaque lecture renvoie { data, erreur } ; erreur = "absente" quand la
 // migration n'est pas encore appliquée, pour que l'écran le DISE au lieu

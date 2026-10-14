@@ -1,4 +1,4 @@
--- Retour arrière de supabase/migrations/20261014120000_notes_ouvriers.sql.
+-- Retour arrière de supabase/migrations/20261014073919_notes_ouvriers.sql.
 -- ⚠ DESTRUCTIF : supprime toutes les notes des ouvriers, leurs réponses et
 -- leurs lectures. Les photos du bucket « notes-ouvriers » doivent être vidées
 -- depuis le tableau de bord Supabase (Storage) AVANT de supprimer le bucket.

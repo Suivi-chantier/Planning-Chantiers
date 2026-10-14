@@ -7,7 +7,7 @@
 //   • la fiche chantier (« Notes du terrain »), avec chantierId imposé.
 //
 // Le bureau ne voit JAMAIS une note privée : la base ne la renvoie pas (RLS,
-// migration 20261014120000_notes_ouvriers.sql). Il ne peut pas modifier une
+// migration 20261014073919_notes_ouvriers.sql). Il ne peut pas modifier une
 // note ; il la suit (nouveau → lu → traité) et y répond.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useState, useEffect, useCallback, useMemo } from "react";
