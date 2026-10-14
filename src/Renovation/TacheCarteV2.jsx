@@ -374,7 +374,7 @@ export default function TacheCarteV2({
       {/* Précision : facultative, obligatoire si « Autre » */}
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: T.textSub, marginBottom: 6 }}>
-          Précision {problemes.includes("precision") ? <span style={{ color: T.danger }}>(obligatoire pour « Autre »)</span> : "(facultatif)"}
+          Précision {problemes.includes("precision") ? <span style={{ color: T.danger }}>(obligatoire pour « Autre » : quelques mots)</span> : "(facultatif)"}
         </div>
         <textarea value={t.remarque || ""} onChange={e => onMaj(x => ({ ...x, remarque: e.target.value }))}
           placeholder={t.motif === CODE_MOTIF_AUTRE || t.motif_depassement === CODE_MOTIF_AUTRE ? "Explique en quelques mots…" : "Une précision, si besoin"}

@@ -20,6 +20,10 @@ export const MOTIFS_STATUT = Object.freeze([
   { code: "decision_client",  label: "Décision du client attendue" },
   { code: "manque_de_temps",  label: "Manque de temps" },
   { code: "priorite_changee", label: "Priorité changée" },
+  // Ajoutés le 14/10/2026 : précisions les plus fréquentes sous « Autre ».
+  { code: "fait_par_collegue", label: "Fait par un collègue" },
+  { code: "attente_sechage",   label: "Attente de séchage" },
+  { code: "etape_precedente",  label: "Étape d'avant pas terminée" },
   { code: "autre",            label: "Autre" },
 ]);
 
@@ -27,13 +31,19 @@ export const MOTIFS_STATUT = Object.freeze([
 export const MOTIFS_DEPASSEMENT = Object.freeze([
   { code: "imprevu",           label: "Imprévu découvert" },
   { code: "demande_client",    label: "Demande du client" },
-  { code: "support_degrade",   label: "Support dégradé" },
+  { code: "support_degrade",   label: "Support dégradé ou plus dur que prévu" },
   { code: "reprise",           label: "Reprise / correction" },
   { code: "devis_sous_estime", label: "Devis sous-estimé" },
   { code: "autre",             label: "Autre" },
 ]);
 
 export const CODE_MOTIF_AUTRE = "autre";
+
+// Précision exigée avec « Autre » : au moins MIN_LETTRES_PRECISION lettres
+// (un « . » ou « ok » ne dit rien au conducteur).
+export const MIN_LETTRES_PRECISION = 5;
+export const precisionSuffisante = (texte) =>
+  (String(texte ?? "").match(/\p{L}/gu) || []).length >= MIN_LETTRES_PRECISION;
 
 const trouver = (liste, code) => (code ? liste.find(m => m.code === code) : null);
 

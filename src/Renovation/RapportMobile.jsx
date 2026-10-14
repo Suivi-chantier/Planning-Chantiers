@@ -824,6 +824,19 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setTimeout(() => setSurbrillance(s => (s === idx ? null : s)), 8000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aMontrer, panneauAutreChose, editionNouvelle, taches]);
+  // v2 — « Ménage, évacuation, approvisionnement ? → Heures indirectes » :
+  // ferme le panneau, ouvre une ligne d'heures indirectes sur ce chantier et
+  // y emmène l'ouvrier.
+  const ouvrirHeuresIndirectes = (chantier) => {
+    touche();
+    setPanneauAutreChose(false);
+    setShowIndirectes(true);
+    setHeuresIndirectes(prev => [...prev, { motif: "", chantier_id: chantier?.id || "", heures: "" }]);
+    setTimeout(() => {
+      const el = typeof document !== "undefined" ? document.getElementById("cr-indirectes") : null;
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
+  };
   // Champ photos de l'écran « Nouvelle tâche » (même envoi que les cartes).
   const champPhotosNouvelle = (photos, onChange) => (
     <PhotosPicker photos={photos} onChange={onChange}
@@ -2194,6 +2207,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             prenom={ouvrier.trim()} aujourdhuiISO={todayISO} T={T} accent={T.accent}
             onAjouter={ajouterTachePhasage} onDecrireLibre={ajouterTacheLibreV2}
             champPhotos={champPhotosNouvelle} onAjouterNouvelle={ajouterNouvelleTache}
+            onHeuresIndirectes={ouvrirHeuresIndirectes}
             onFermer={() => setPanneauAutreChose(false)}/>
         );
       })()}

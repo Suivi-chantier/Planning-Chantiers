@@ -27,6 +27,7 @@ import {
   ligneNouvelleTache, modifierNouvelleTache, saisieDepuisLigne, texteProposition, serialiserLigneV2,
   problemesLigne, etatEnvoi, carteRetirable, brouillonV2VersV1, appliquerChoix, changerMinutes, majPhotosApres,
 } from "../src/Renovation/compteRenduV2.mjs";
+import { tachesDuChantier, suggestionsNouvelleTache, ressembleIndirect } from "../src/Renovation/compteRenduV2.mjs";
 import { serialiserLigneV1 } from "../src/Renovation/compteRenduEnvoi.mjs";
 import {
   lignesDepuisRapport, taskLinesPourPointages, decouperLigne, idTacheProposee, propositionACreer,
@@ -310,5 +311,29 @@ const sources = ["src/Renovation/RapportMobile.jsx", "src/Renovation/Validation.
 ok(/onAjouterNouvelle=\{ajouterNouvelleTache\}/.test(sources[0]) && /estV2 && panneauAutreChose/.test(sources[0]), "écran Nouvelle tâche branché sur le seul formulaire v2");
 ok(/if \(li\.proposition\) return li;/.test(sources[1]), "Validation : pas de rattachement automatique d'une proposition");
 ok(/plan_travaux: plan, revision: resPlan\.revision/.test(sources[1]), "Validation V1 : la révision suit l'écriture (défaut corrigé)");
+
+// ── 8. Tâches existantes avant d'en créer une (14/10/2026) ──────────────────
+// Sur le terrain, 9 nouvelles tâches sur 16 existaient déjà : l'écran propose
+// les tâches qui ressemblent (nom tapé, puis ouvrage choisi).
+const PH_SUGG = [
+  { id: "g1", nom: "Électricité", ouvrages: [
+    { id: "vmc", libelle: "Fourniture et pose d'une VMC simple flux", taches: [{ id: "v1", nom: "Pose réseau VMC" }, { id: "v2", nom: "Pose des bouches" }] },
+    { id: "pt", libelle: "Peinture", taches: [{ id: "p1", nom: "Peinture palier R+1" }] },
+  ] },
+  { id: "g2", nom: "Finitions", ouvrages: [
+    { id: "vmc", libelle: "Fourniture et pose d'une VMC simple flux", taches: [{ id: "v1", nom: "Pose réseau VMC" }] },
+  ] },
+];
+const TCH = tachesDuChantier(PH_SUGG);
+eq(TCH.map(t => [t.id, t.ouvrage_id, t.phase_nom]), [["v1", "vmc", "Électricité"], ["v2", "vmc", "Électricité"], ["p1", "pt", "Électricité"]], "tâches du chantier : une par id");
+eq(suggestionsNouvelleTache({ nom: "Pose vmc", taches: TCH }).map(t => [t.id, t.raison]), [["v1", "nom"]], "« Pose vmc » retrouve « Pose réseau VMC »");
+eq(suggestionsNouvelleTache({ nom: "Peindre palier R+1", taches: TCH }).map(t => t.id), ["p1"], "début de mot accepté (peind… / palier)");
+eq(suggestionsNouvelleTache({ nom: "Pose vmc", ouvrageId: "vmc", taches: TCH }).map(t => [t.id, t.raison]), [["v1", "nom"], ["v2", "ouvrage"]],
+  "puis les autres tâches de l'ouvrage choisi, sans doublon");
+eq(suggestionsNouvelleTache({ nom: "ab", taches: TCH }), [], "moins de 3 lettres : aucune suggestion par le nom");
+eq(suggestionsNouvelleTache({ nom: "Carrelage cuisine", taches: TCH }), [], "rien de proche : aucune suggestion");
+eq([ressembleIndirect("Ménage, aspirateur"), ressembleIndirect("Évacuation encombrants chambre"), ressembleIndirect("Appro Rexel"),
+  ressembleIndirect("Nettoyer matériel"), ressembleIndirect("Pose réseau VMC")], [true, true, true, true, false],
+  "ménage / évacuation / appro / nettoyage → suggestion heures indirectes ; pas pour une vraie tâche");
 
 console.log(`verif-nouvelle-tache : ${nbOk} contrôles OK`);
