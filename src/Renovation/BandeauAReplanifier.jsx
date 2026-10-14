@@ -13,7 +13,7 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { TriangleAlert, ChevronDown, ChevronUp, RotateCw } from "lucide-react";
-import { tachesAReplanifier, semainesEntre } from "./replanificationV1";
+import { tachesAReplanifier, semainesEntre, avancementsDesPhasages } from "./replanificationV1";
 
 const PROFONDEUR_JOURS = 21;     // signalements des 3 dernières semaines
 const HORIZON_JOURS = 56;        // planning lu jusqu'à 8 semaines devant
@@ -45,6 +45,7 @@ export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir,
       const ids = [...new Set((rapports || []).filter(r => r.statut === "valide" && (r.taches || [])
         .some(l => l?.tache_id && (l.bloque === true || l.statut === "non_faite"))).map(r => r.chantier_id).filter(Boolean))];
       let cellules = [];
+      let avancements = {};
       if (ids.length > 0) {
         const { data: cd, error: e2 } = await supabase.from("planning_cells")
           .select("week_id, jour, chantier_id, taches")
@@ -54,8 +55,13 @@ export default function BandeauAReplanifier({ chantiersVisibles = [], T, onVoir,
         // on le dit plutôt que d'afficher une liste fausse.
         if (e2) { setEtat({ statut: "erreur", items: [] }); return; }
         cellules = cd || [];
+        // Avancement des tâches : une tâche à 100 % n'est plus à replanifier.
+        const { data: ph, error: e3 } = await supabase.from("phasages").select("chantier_id, ouvrages").in("chantier_id", ids);
+        if (annule) return;
+        if (e3) { setEtat({ statut: "erreur", items: [] }); return; }
+        avancements = avancementsDesPhasages(ph || []);
       }
-      setEtat({ statut: "ok", items: tachesAReplanifier({ rapports: rapports || [], cellules, aujourdhuiISO: aujourdhui, depuisISO: depuis }) });
+      setEtat({ statut: "ok", items: tachesAReplanifier({ rapports: rapports || [], cellules, aujourdhuiISO: aujourdhui, depuisISO: depuis, avancements }) });
     })();
     return () => { annule = true; };
   }, [rafraichir, essai]);

@@ -12,7 +12,9 @@
 //     collègue l'a faite, ou elle a avancé) ;
 //   · la tâche est posée au planning à une date postérieure au signalement
 //     ET pas encore passée (aujourd'hui ou plus tard) — elle est replanifiée ;
-//   · le motif est « Fait par un collègue ».
+//   · le motif est « Fait par un collègue » ;
+//   · la tâche est à 100 % dans le phasage (terminée depuis, quelle que soit
+//     la façon : relevé réel du 14/10/2026, 27 signalements sur 40 l'étaient).
 // ─────────────────────────────────────────────────────────────────────────────
 import { libelleMotifStatut } from "./motifsCompteRendu.mjs";
 import { isoDepuisDateRapport } from "./retoursTerrainV1.mjs";
@@ -20,6 +22,14 @@ import { isoDepuisDateRapport } from "./retoursTerrainV1.mjs";
 const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const texte = (v) => String(v ?? "").trim();
 const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
+
+// { tache_id: avancement } des tâches d'ouvrages des phasages.
+export function avancementsDesPhasages(phasages) {
+  const m = {};
+  (phasages || []).forEach(ph => (Array.isArray(ph?.ouvrages) ? ph.ouvrages : []).forEach(o =>
+    (Array.isArray(o?.taches) ? o.taches : []).forEach(t => { if (t?.id != null) m[String(t.id)] = num(t.avancement); })));
+  return m;
+}
 
 // « 2026-W41 » + « Lundi » → « 2026-10-05 » (ISO, calcul en UTC) ; null sinon.
 export function dateDeCellule(weekId, jour) {
@@ -67,8 +77,9 @@ export function semainesEntre(debutISO, finISO) {
 // cellules : lignes planning_cells { week_id, jour, chantier_id, taches[] }
 //            des chantiers concernés, du plus ancien signalement à l'avenir ;
 // aujourdhuiISO : la date du jour ;
-// depuisISO : ignorer les signalements plus anciens.
-export function tachesAReplanifier({ rapports = [], cellules = [], aujourdhuiISO, depuisISO = null }) {
+// depuisISO : ignorer les signalements plus anciens ;
+// avancements : { tache_id: % } lu dans les phasages (avancementsDesPhasages).
+export function tachesAReplanifier({ rapports = [], cellules = [], aujourdhuiISO, depuisISO = null, avancements = {} }) {
   const derniereActivite = new Map();   // tache_id → date ISO max avec heures > 0
   const signalements = new Map();       // tache_id → signalement le plus récent
   (rapports || []).forEach(r => {
@@ -115,6 +126,7 @@ export function tachesAReplanifier({ rapports = [], cellules = [], aujourdhuiISO
   const out = [];
   signalements.forEach(s => {
     if (s.motifs.some(m => m.code === "fait_par_collegue")) return;
+    if (num(avancements?.[s.tache_id]) >= 100) return;
     const activite = derniereActivite.get(s.tache_id);
     if (activite && activite >= s.date) return;
     const replanifiee = (datesPlanifiees.get(s.tache_id) || []).some(d => d > s.date && d >= aujourdhuiISO);
