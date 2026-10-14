@@ -9,6 +9,11 @@ import {
 import { getBounds, calcSurface, drawLibSym, pointDansPolygone } from "./planDessin";
 import { imprimerPlanA4 } from "./planPdf";
 import { LOGO_RENO_H } from "../constants";
+import { dessinerReleve } from "./releveRendu";
+import {
+  calculerMetres, texteMetre, pointsAValider, emprisesReleve, appliquerCheminsPhotos,
+  HSP_DEFAUT,
+} from "./releveImapper";
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 
@@ -534,6 +539,76 @@ const DXF_LIBRARY = [
   { id:'plomb_vase',          name:"Vase d'expansion",           icon:'⭕', category:'Plomberie',   libSym:true, symType:'plomb_vase',          label:'VE',    color:'#50c878' },
 ];
 
+// ─── MÉTRÉS DU RELEVÉ iMAPPER ─────────────────────────────────────────────────
+// Tableau « Métrés par pièce » + total, hypothèses, points à valider. Tous les
+// chiffres viennent de calculerMetres (releveImapper.mjs) : la géométrie, rien
+// d'autre. Une valeur non calculable affiche sa raison, jamais un chiffre de
+// remplacement (ex. plinthes tant que les ouvertures ne sont pas relevées).
+function PanneauMetresReleve({ releve, onClose }) {
+  const m = calculerMetres(releve);
+  const pav = pointsAValider(releve);
+  const fr = (n) => n.toFixed(2).replace('.', ',');
+  const cell = { padding:'5px 6px', textAlign:'right', whiteSpace:'nowrap' };
+  const val = (l, k) => {
+    const t = texteMetre(l[k], l.approx?.[k], l.raison);
+    return l[k] == null ? <span style={{color:'#f5a623',fontStyle:'italic'}}>en attente</span> : t;
+  };
+  const nbPhotos = releve.pieces.reduce((t, p) => t + (p.photos||[]).length, 0);
+  const nbEnvoyees = releve.pieces.reduce((t, p) => t + (p.photos||[]).filter(ph => ph.chemin).length, 0);
+  const H = m.hauteurs;
+  return (
+    <div style={{position:'absolute',top:10,right:10,zIndex:5,width:560,maxWidth:'calc(100% - 20px)',
+      maxHeight:'calc(100% - 20px)',overflowY:'auto',background:'#1e2336',borderRadius:12,
+      border:'1px solid rgba(255,255,255,0.12)',boxShadow:'0 8px 30px rgba(0,0,0,0.45)',padding:16,color:'#e8eaf0'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+        <div style={{fontSize:15,fontWeight:800}}>Métrés par pièce</div>
+        <button onClick={onClose} style={{background:'transparent',border:'none',color:'#5b6a8a',fontSize:18,cursor:'pointer'}}>✕</button>
+      </div>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+        <thead>
+          <tr style={{color:'#9aa5c0',borderBottom:'1px solid rgba(255,255,255,0.15)'}}>
+            <th style={{...cell,textAlign:'left'}}>Pièce</th>
+            <th style={cell}>Sol (m²)</th><th style={cell}>Périm. (m)</th><th style={cell}>Plinthes (m)</th>
+            <th style={cell}>Murs bruts (m²)</th><th style={cell}>Murs nets (m²)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {m.pieces.map(l => (
+            <tr key={l.id} style={{borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+              <td style={{...cell,textAlign:'left',fontWeight:600}}>{l.nom}</td>
+              <td style={cell}>{fr(l.sol)}</td><td style={cell}>{fr(l.perimetre)}</td>
+              <td style={cell}>{val(l,'plinthes')}</td><td style={cell}>{val(l,'murs_bruts')}</td>
+              <td style={cell}>{val(l,'murs_nets')}</td>
+            </tr>
+          ))}
+          <tr style={{fontWeight:800,borderTop:'1px solid rgba(255,255,255,0.2)'}}>
+            <td style={{...cell,textAlign:'left'}}>Total</td>
+            <td style={cell}>{fr(m.total.sol)}</td><td style={cell}>{fr(m.total.perimetre)}</td>
+            <td style={cell}>{val(m.total,'plinthes')}</td><td style={cell}>{val(m.total,'murs_bruts')}</td>
+            <td style={cell}>{val(m.total,'murs_nets')}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style={{fontSize:11,color:'#7a86a6',marginTop:8,lineHeight:1.5}}>
+        Hypothèses : hauteur sous plafond {fr(HSP_DEFAUT)} m par défaut, non mesurée (« ≈ ») · portes {fr(H.porte)} m ·
+        fenêtres {fr(H.fenetre)} m · baies {fr(H.baie)} m. Plinthes = périmètre − largeurs des portes et baies.
+        {!m.ouverturesConnues&&<> <strong style={{color:'#f5a623'}}>Plinthes et murs nets : en attente des ouvertures</strong> (portes et fenêtres pas encore relevées).</>}
+      </div>
+      <div style={{fontSize:11,color:'#7a86a6',marginTop:6}}>
+        Photos : {nbEnvoyees}/{nbPhotos} rangées dans le stockage privé du chantier.
+      </div>
+      {pav.length>0&&(
+        <div style={{marginTop:14}}>
+          <div style={{fontSize:13,fontWeight:800,marginBottom:6}}>Points à valider ({pav.length})</div>
+          <ol style={{margin:0,paddingLeft:20,fontSize:12,color:'#c8d0e0',lineHeight:1.5}}>
+            {pav.map((a,i)=><li key={i} style={{marginBottom:3}}>{a.texte}</li>)}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
@@ -541,6 +616,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [symbols,   setSymbols]   = useState(plan.data?.symbols  || []);
   const [cotes,     setCotes]     = useState(plan.data?.cotes    || []);
   const [surfaces,  setSurfaces]  = useState(plan.data?.surfaces || []);
+  // Couche sémantique du relevé iMapper (pièces, murs, photos…) — null si
+  // le plan n'en a pas : il fonctionne alors exactement comme avant.
+  const [releve,    setReleve]    = useState(plan.data?.releve || null);
+  const releveRef = useRef(releve);
+  releveRef.current = releve;
   const [surfaceColor, setSurfaceColor] = useState('#3b82f6');
   const [polyPoints, setPolyPoints]     = useState([]);
 
@@ -550,7 +630,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [futureLen,  setFutureLen]  = useState(0);
 
   const pushHistory = useCallback((segs, syms, cots) => {
-    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots, surfaces: Array.isArray(surfacesRef.current) ? [...surfacesRef.current] : [] }];
+    historyRef.current = [...historyRef.current.slice(-29), { segments:segs, symbols:syms, cotes:cots, surfaces: Array.isArray(surfacesRef.current) ? [...surfacesRef.current] : [], releve: releveRef.current }];
     futureRef.current  = [];
     setHistoryLen(historyRef.current.length);
     setFutureLen(0);
@@ -560,9 +640,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     if (!historyRef.current.length) return;
     const prev = historyRef.current[historyRef.current.length-1];
     setSegments(cur => { setSymbols(cs => { setCotes(cc => {
-      futureRef.current = [{ segments:cur, symbols:cs, cotes:cc, surfaces:surfacesRef.current }, ...futureRef.current.slice(0,29)];
+      futureRef.current = [{ segments:cur, symbols:cs, cotes:cc, surfaces:surfacesRef.current, releve:releveRef.current }, ...futureRef.current.slice(0,29)];
       setFutureLen(futureRef.current.length);
       if(prev.surfaces) setSurfaces(prev.surfaces);
+      if('releve' in prev) setReleve(prev.releve);
       return prev.cotes;
     }); return prev.symbols; }); return prev.segments; });
     historyRef.current = historyRef.current.slice(0,-1);
@@ -573,9 +654,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     if (!futureRef.current.length) return;
     const next = futureRef.current[0];
     setSegments(cur => { setSymbols(cs => { setCotes(cc => {
-      historyRef.current = [...historyRef.current, { segments:cur, symbols:cs, cotes:cc, surfaces:surfacesRef.current }];
+      historyRef.current = [...historyRef.current, { segments:cur, symbols:cs, cotes:cc, surfaces:surfacesRef.current, releve:releveRef.current }];
       setHistoryLen(historyRef.current.length);
       if(next.surfaces) setSurfaces(next.surfaces);
+      if('releve' in next) setReleve(next.releve);
       return next.cotes;
     }); return next.symbols; }); return next.segments; });
     futureRef.current = futureRef.current.slice(1);
@@ -612,7 +694,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const movingSelRef = useRef(null);
   const movingCoteRef = useRef(null);
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0);
-  const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true });
+  const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true, releve:true });
   const [legendePdf, setLegendePdf] = useState(true); // colonne de légende dans le PDF A4
   const [symProps, setSymProps] = useState(null);
   const [groupProps, setGroupProps] = useState(null); // {groupId, angle, cx, cy}
@@ -873,6 +955,13 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         const oy = (-vp.y % gridSize) * vp.scale;
         for (let x=ox;x<W;x+=gStep) { ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke(); }
         for (let y=oy;y<H;y+=gStep) { ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke(); }
+      }
+
+      // Relevé iMapper : même dessin que la visionneuse et l'export PDF
+      // (releveRendu.js), sous les outils de dessin qui se posent par-dessus.
+      if (lyrs.releve && releveRef.current) {
+        dessinerReleve(ctx, releveRef.current, (x,y)=>{ const p=toC(x,y); return [p.cx,p.cy]; },
+          { sombre: !isPrint, points: lyrs.points });
       }
 
       if (lyrs.surfaces) surfacesRef.current.forEach(surf => {
@@ -1525,7 +1614,15 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     const canvas = canvasRef.current; if (!canvas) return;
     const segs  = segmentsRef.current.filter(s=>!s.deleted);
     const syms  = symbolsRef.current.filter(s=>!s.deleted);
-    const bounds = getBounds(segs, syms);
+    let bounds = getBounds(segs, syms);
+    // Relevé iMapper : il fait partie du dessin à cadrer.
+    const er = releveRef.current ? emprisesReleve(releveRef.current) : null;
+    if (er) {
+      const u = (segs.length||syms.length)
+        ? { minX:Math.min(bounds.minX,er.minX), maxX:Math.max(bounds.maxX,er.maxX), minY:Math.min(bounds.minY,er.minY), maxY:Math.max(bounds.maxY,er.maxY) }
+        : er;
+      bounds = { ...u, w:u.maxX-u.minX, h:u.maxY-u.minY };
+    }
     if (bounds.w===0&&bounds.h===0) return;
     const pad=0.1;
     const scaleX=canvas.width/(bounds.w*(1+pad*2));
@@ -1535,7 +1632,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setVp({ x:bounds.minX-bounds.w*pad, y:bounds.minY-bounds.h*pad, scale });
   }, []);
 
-  useEffect(() => { if (segments.length>0) fitView(); }, []);
+  useEffect(() => { if (segments.length>0 || releve) fitView(); }, []);
 
   const dragRef    = useRef(null);
   const rectRef    = useRef(null);
@@ -2053,6 +2150,61 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setTimeout(fitView, 50);
   };
 
+  // ── Import d'un relevé iMapper (DXF + PDF « pour les devis ») ──────────────
+  // Lecture et calcul dans le navigateur (releveImapperImport.js) : le plan
+  // s'affiche tout de suite, puis photos et fichiers d'origine partent en
+  // arrière-plan vers le stockage PRIVÉ ; seuls les chemins sont enregistrés.
+  const [showReleve, setShowReleve]       = useState(false);
+  const [releveLecture, setReleveLecture] = useState(null);   // { etat:'lecture'|'erreur', message }
+  const [envoiReleve, setEnvoiReleve]     = useState(null);   // { fait, total, echecs, raison }
+  const [showMetres, setShowMetres]       = useState(false);
+  const envoiEnCoursRef = useRef(false);
+
+  const importerReleve = async (fichiers) => {
+    if (!fichiers || !fichiers.length || releveLecture?.etat === 'lecture') return;
+    if (envoiEnCoursRef.current) { alert("Un envoi de photos est encore en cours : attendez qu'il se termine."); return; }
+    if (releveRef.current && !window.confirm("Ce plan contient déjà un relevé iMapper. Le remplacer par celui-ci ?")) return;
+    setReleveLecture({ etat:'lecture' });
+    let res, envoyerFichiersReleve, prefixeReleve;
+    try {
+      // pdf.js n'est chargé qu'au premier import de relevé (bibliothèque lourde).
+      const mod = await import('./releveImapperImport');
+      ({ envoyerFichiersReleve, prefixeReleve } = mod);
+      res = await mod.lireFichiersReleve(fichiers, { maintenant: new Date().toISOString() });
+    } catch (e) { console.error('import relevé iMapper:', e); res = { ok:false, erreur:`Lecture impossible : ${e.message}` }; }
+    if (!res.ok) { setReleveLecture({ etat:'erreur', message:res.erreur }); return; }
+
+    pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+    setReleve(res.releve);
+    setLayers(l => ({ ...l, releve:true }));
+    setReleveLecture(null);
+    setShowReleve(false);
+    setShowMetres(true);
+    setTimeout(fitView, 50);
+
+    const total = res.photos.length + res.originaux.length;
+    envoiEnCoursRef.current = true;
+    setEnvoiReleve({ fait:0, total, echecs:0 });
+    const r = await envoyerFichiersReleve({
+      photos: res.photos, originaux: res.originaux, prefixe: prefixeReleve(plan),
+      onProgres: (fait) => setEnvoiReleve(e => ({ ...(e||{}), fait })),
+    });
+    envoiEnCoursRef.current = false;
+    // On ne complète QUE le relevé importé ici (il a pu être annulé entre-temps),
+    // y compris dans l'historique pour qu'annuler/rétablir garde les chemins.
+    const meme = (x) => x && x.source?.importe_le === res.releve.source.importe_le;
+    const patch = (x) => (meme(x) ? appliquerCheminsPhotos(x, r.chemins, r.fichiers) : x);
+    historyRef.current = historyRef.current.map(h => ('releve' in h ? { ...h, releve: patch(h.releve) } : h));
+    futureRef.current  = futureRef.current.map(h => ('releve' in h ? { ...h, releve: patch(h.releve) } : h));
+    setReleve(cur => patch(cur));
+    setEnvoiReleve(r.echecs.length ? { fait:total, total, echecs:r.echecs.length, raison:r.raison } : null);
+  };
+
+  const quitterEditeur = () => {
+    if (envoiEnCoursRef.current && !window.confirm("Des photos du relevé sont en cours d'envoi. Si vous quittez maintenant, celles qui ne sont pas parties ne seront pas rattachées au plan. Quitter quand même ?")) return;
+    onClose();
+  };
+
   // ── Sauvegarde (manuelle + automatique) ─────────────────────────────────────
   const saveTimerRef  = useRef(null);
   const dirtyRef      = useRef(false);
@@ -2074,6 +2226,9 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           cotes: cotesRef.current, surfaces: surfacesRef.current,
           viewport: vpRef.current, threshold: thresholdRef.current,
           planRotation: planRotRef.current, bgLight: bgLightRef.current,
+          // Relevé iMapper : la sauvegarde réécrit tout `data`, il doit donc y
+          // figurer — sinon il serait effacé au premier enregistrement.
+          ...(releveRef.current ? { releve: releveRef.current } : {}),
         };
         await supabase.from('plans').update({data,thumbnail:thumb,updated_at:new Date().toISOString()}).eq('id',plan.id);
         onSaveRef.current({...plan,data,thumbnail:thumb});
@@ -2097,7 +2252,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(doSave, 2000);
     return () => clearTimeout(saveTimerRef.current);
-  }, [segments, symbols, cotes, surfaces, planRotation, threshold, bgLight, doSave]);
+  }, [segments, symbols, cotes, surfaces, releve, planRotation, threshold, bgLight, doSave]);
 
   // À la fermeture de l'éditeur : on sauvegarde ce qui reste en attente
   useEffect(() => () => {
@@ -2130,7 +2285,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const exportPDF = () => {
     const vivants = (arr) => arr.filter(x => !x.deleted).length;
     if (!vivants(segmentsRef.current) && !vivants(symbolsRef.current)
-        && !vivants(cotesRef.current) && !vivants(surfacesRef.current)) {
+        && !vivants(cotesRef.current) && !vivants(surfacesRef.current) && !releveRef.current) {
       alert("Ce plan est vide : rien à imprimer.");
       return;
     }
@@ -2140,6 +2295,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         segments: segmentsRef.current, symbols: symbolsRef.current,
         cotes: cotesRef.current, surfaces: surfacesRef.current,
         planRotation: planRotRef.current,
+        ...(releveRef.current ? { releve: releveRef.current } : {}),
       },
       nom: plan.name || 'Plan',
       chantier: chantier?.nom || '',
@@ -2187,7 +2343,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       <div style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',
         background:'#1e2336',borderBottom:'1px solid rgba(255,255,255,0.08)',flexShrink:0,flexWrap:'wrap'}}>
 
-        <button onClick={onClose} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.15)',
+        <button onClick={quitterEditeur} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.15)',
           borderRadius:8,padding:'5px 12px',color:'#9aa5c0',fontFamily:'inherit',fontSize:13,cursor:'pointer'}}>
           ← Retour
         </button>
@@ -2272,6 +2428,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             {k:'symbols',  icon:'🚪', label:'Symboles'},
             {k:'surfaces', icon:'⬡', label:'Surfaces'},
             {k:'cotes',    icon:'↔', label:'Cotes'},
+            ...(releve ? [{k:'releve', icon:'⌂', label:'Relevé iMapper'}] : []),
           ].map(({k,icon,label})=>(
             <button key={k} title={`${layers[k]?'Masquer':'Afficher'} ${label}`}
               onClick={()=>setLayers(l=>({...l,[k]:!l[k]}))} style={{
@@ -2302,6 +2459,37 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           📂 DXF
           <input type='file' accept='.dxf' style={{display:'none'}} onChange={importDXF}/>
         </label>
+
+        <button onClick={()=>{ setReleveLecture(null); setShowReleve(true); }}
+          title="Importer un relevé iMapper : le DXF « pour AutoCAD (plan éditable) » et les PDF « pour les devis »"
+          style={{display:'flex',alignItems:'center',gap:5,padding:'6px 11px',
+          background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.35)',
+          borderRadius:8,color:'#8fe0ad',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'inherit'}}>
+          📐 Relevé iMapper
+        </button>
+        {releve&&(()=>{
+          const n = pointsAValider(releve).length;
+          return (
+            <button onClick={()=>setShowMetres(v=>!v)} title="Métrés par pièce et points à valider"
+              style={{display:'flex',alignItems:'center',gap:6,padding:'6px 11px',
+              background:showMetres?'rgba(91,138,245,0.3)':'rgba(255,255,255,0.06)',
+              border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,color:'#e8eaf0',
+              fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'inherit'}}>
+              📊 Métrés
+              {n>0&&<span style={{background:'#c2410c',color:'#fff',borderRadius:10,padding:'1px 7px',fontSize:11,fontWeight:800}}>
+                {n} point{n>1?'s':''} à valider
+              </span>}
+            </button>
+          );
+        })()}
+        {envoiReleve&&(
+          <span title={envoiReleve.raison||''} style={{fontSize:11,fontWeight:700,whiteSpace:'nowrap',
+            color:envoiReleve.echecs?'#ff8a8a':'#a0b8ff'}}>
+            {envoiReleve.echecs
+              ? `⚠ ${envoiReleve.echecs} fichier${envoiReleve.echecs>1?'s':''} du relevé non envoyé${envoiReleve.echecs>1?'s':''}${envoiReleve.raison?` — ${envoiReleve.raison}`:''}`
+              : `Envoi des photos ${envoiReleve.fait}/${envoiReleve.total}…`}
+          </span>
+        )}
 
         <button onClick={()=>setShowThreshold(s=>!s)} style={{...btnStyle('thr'),width:'auto',padding:'0 8px',fontSize:11}}>
           ⚙ {threshold}m
@@ -2754,8 +2942,55 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         </div>
       )}
 
+      {/* ── Modal import relevé iMapper ── */}
+      {showReleve&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:2000,
+          display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+          onClick={()=>{ if (releveLecture?.etat!=='lecture') setShowReleve(false); }}>
+          <div style={{background:'#1e2336',borderRadius:14,padding:24,width:540,maxWidth:'100%',
+            border:'1px solid rgba(255,255,255,0.12)'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{fontSize:18,fontWeight:800,color:'#e8eaf0'}}>📐 Importer un relevé iMapper</div>
+              <button onClick={()=>setShowReleve(false)} disabled={releveLecture?.etat==='lecture'}
+                style={{background:'transparent',border:'none',color:'#5b6a8a',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{fontSize:13,color:'#9aa5c0',lineHeight:1.5,marginBottom:14}}>
+              Sur iMapper, lancez le plan automatique, puis exportez :
+              <div>• le <strong style={{color:'#e8eaf0'}}>DXF « pour AutoCAD (plan éditable) »</strong> ;</div>
+              <div>• les <strong style={{color:'#e8eaf0'}}>PDF « pour les devis »</strong> (un par pièce, avec les photos).</div>
+              Déposez-les ici tous ensemble. Les photos sont rangées dans le stockage privé du chantier.
+            </div>
+            <label
+              onDragOver={e=>{ e.preventDefault(); e.dataTransfer.dropEffect='copy'; }}
+              onDrop={e=>{ e.preventDefault(); importerReleve(e.dataTransfer.files); }}
+              style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,
+                padding:'30px 16px',borderRadius:12,border:'2px dashed rgba(80,200,120,0.45)',
+                background:'rgba(80,200,120,0.06)',color:'#8fe0ad',cursor:releveLecture?.etat==='lecture'?'wait':'pointer',
+                textAlign:'center'}}>
+              <div style={{fontSize:28}}>⇪</div>
+              <div style={{fontSize:14,fontWeight:700}}>
+                {releveLecture?.etat==='lecture' ? 'Lecture du relevé…' : 'Déposer le DXF et les PDF ici, ou cliquer pour choisir'}
+              </div>
+              <input type='file' multiple accept='.dxf,.pdf' style={{display:'none'}}
+                disabled={releveLecture?.etat==='lecture'}
+                onChange={e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; importerReleve(f); }}/>
+            </label>
+            {releveLecture?.etat==='erreur'&&(
+              <div style={{marginTop:12,padding:'10px 12px',borderRadius:8,background:'rgba(224,92,92,0.12)',
+                border:'1px solid rgba(224,92,92,0.4)',color:'#ffb4b4',fontSize:13}}>
+                {releveLecture.message}
+              </div>
+            )}
+            {releve&&<div style={{marginTop:12,fontSize:12,color:'#f5a623'}}>
+              Ce plan contient déjà un relevé : un nouvel import le remplacera (annulable avec Ctrl+Z).
+            </div>}
+          </div>
+        </div>
+      )}
+
       {/* ── Canvas ── */}
       <div style={{flex:1,position:'relative',minHeight:0,background:(bgLight||printMode)?'#ffffff':'#12151f',overflow:'hidden'}}>
+        {showMetres&&releve&&<PanneauMetresReleve releve={releve} onClose={()=>setShowMetres(false)}/>}
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',
             background:(bgLight||printMode)?'#ffffff':'#12151f',display:'block',touchAction:'none',

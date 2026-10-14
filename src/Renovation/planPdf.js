@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { cadreDessin, calerVueEchelle, dessinerScene, LEGENDE_ROWS } from "./planRendu";
 import { drawLibSym, calcSurface } from "./planDessin";
+import { airePolygone } from "./releveImapper";
 
 const OR = "#FFC200"; // jaune marque Profero
 const esc = (s) => (s || "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -438,7 +439,9 @@ export function buildPlanchePlanHTML({
 
   // Chiffres du cartouche
   const surfaces = (data?.surfaces || []).filter(s => !s.deleted && (s.points || []).length >= 3);
-  const surfTot = surfaces.reduce((a, s) => a + calcSurface(s.points), 0);
+  // Pièces d'un relevé iMapper : même aire que le tableau des métrés.
+  const surfReleve = (data?.releve?.pieces || []).reduce((a, p) => a + airePolygone(p.polygone || []), 0);
+  const surfTot = surfaces.reduce((a, s) => a + calcSurface(s.points), 0) + surfReleve;
   const nbSym = (data?.symbols || []).filter(s => !s.deleted && !String(s.symType || "").startsWith("legende_")).length;
   const nbCotes = (data?.cotes || []).filter(c => !c.deleted).length;
   const date = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });

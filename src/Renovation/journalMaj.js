@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-15",
+    type: "nouveaute",
+    titre: "Plans : importer un relevé iMapper (pièces, murs, photos, métrés)",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "Un relevé fait avec iMapper devient un plan de l'existant dans l'application, sans rien redessiner : pièces nommées et colorées avec leur surface, murs, cotes intérieures, et le tableau des métrés par pièce (sol, périmètre, murs). Les photos du relevé sont rangées avec le plan, dans le stockage privé du chantier. Première étape : les portes et fenêtres ne sont pas encore reconnues.",
+    comment: "Sur iMapper, lancer le plan automatique, puis exporter le DXF « pour AutoCAD (plan éditable) » et les PDF « pour les devis » (un par pièce). Dans Plans, ouvrir le plan du chantier et cliquer « 📐 Relevé iMapper » ; déposer tous les fichiers ensemble. Le plan s'affiche aussitôt ; les photos partent ensuite (compteur dans la barre d'outils). Les noms de pièces viennent du scan fait dans la pièce. Un scan fait hors du logement est ignoré et signalé. Chaque PDF est reconnu par sa surface et son périmètre, et ses photos sont rattachées au mur qu'elles montrent. Le bouton « 📊 Métrés » ouvre le tableau des métrés et la liste des points à valider. La hauteur sous plafond est de 2,50 m par défaut, non mesurée : les surfaces de murs sont donc précédées de « ≈ ». Plinthes et murs nets affichent « en attente » tant que portes et fenêtres ne sont pas relevées (prochaine étape). Les dimensions viennent toujours du relevé lui-même. Le relevé s'imprime avec le plan en PDF et apparaît dans la visionneuse des ouvriers. Ctrl+Z annule l'import.",
+  },
+  {
+    date: "2026-10-15",
     type: "amelioration",
     titre: "Opérations : les chiffres clés s'ouvrent en détail, et une carte « Dérive heures vendues »",
     pages: [{ id: "operations", label: "Opérations" }],

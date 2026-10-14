@@ -8,6 +8,8 @@
 // calcSurface) : même rendu que l'éditeur bureau. Ne modifier la scène qu'ici.
 // ─────────────────────────────────────────────────────────────────────────────
 import { getBounds, calcSurface, drawLibSym, pointDansPolygone } from "./planDessin";
+import { dessinerReleve } from "./releveRendu";
+import { emprisesReleve } from "./releveImapper";
 
 // Palette impression (mêmes valeurs que le bloc isPrint du render bureau).
 export const PALETTE_IMPRESSION = {
@@ -98,9 +100,19 @@ export function cadreDessin(d) {
   const cotePts = (d?.cotes || []).filter(c => !c.deleted)
     .flatMap(c => [{ x: c.x1, y: c.y1 }, { x: c.x2, y: c.y2 }]);
 
+  // Relevé iMapper (pièces + murs) : c'est le dessin lui-même, au même titre
+  // que les segments. Sans relevé, le cadrage est inchangé.
+  const er = d?.releve ? emprisesReleve(d.releve) : null;
+
   let minX, maxX, minY, maxY;
-  if (segs.length > 0 || syms.length > 0) {
-    const b = getBounds(segs, syms);
+  if (segs.length > 0 || syms.length > 0 || er) {
+    let b = segs.length > 0 || syms.length > 0 ? getBounds(segs, syms) : null;
+    if (er) {
+      const u = b
+        ? { minX: Math.min(b.minX, er.minX), maxX: Math.max(b.maxX, er.maxX), minY: Math.min(b.minY, er.minY), maxY: Math.max(b.maxY, er.maxY) }
+        : er;
+      b = { ...u, w: u.maxX - u.minX, h: u.maxY - u.minY };
+    }
     ({ minX, maxX, minY, maxY } = b);
     const marge = Math.max(b.w, b.h, 1) * 0.35;
     const dans = (p) => p.x >= b.minX - marge && p.x <= b.maxX + marge &&
@@ -144,14 +156,14 @@ export function calerVue(d, W, H) {
 //    contexte déjà mis à l'échelle. W/H : taille LOGIQUE du canvas ; vp :
 //    viewport { x, y, scale }. Le fond n'est PAS peint ici (à la charge de
 //    l'appelant : blanc pour la visionneuse comme pour l'export).
-//    opts.calques  : { surfaces, segments, cotes, symbols } — masque une
+//    opts.calques  : { surfaces, segments, cotes, symbols, releve, points } — masque une
 //                    famille d'objets (repris de l'éditeur bureau) ;
 //    opts.coteFont : taille du texte des cotes (12 par défaut, réglable dans
 //                    l'éditeur). Le contexte peut être un vrai canvas 2D ou
 //    l'enregistreur SVG de planPdf.js (même sous-ensemble d'API). ─────────────
 export function dessinerScene(ctx, d, W, H, vp, opts = {}) {
   if (!ctx || !d || !vp) return;
-  const CAL = { surfaces: true, segments: true, cotes: true, symbols: true, ...(opts.calques || {}) };
+  const CAL = { surfaces: true, segments: true, cotes: true, symbols: true, releve: true, points: false, ...(opts.calques || {}) };
   const coteFont = opts.coteFont || 12;
   const rot = (parseFloat(d.planRotation) || 0) * Math.PI / 180;
   const cosR = Math.cos(rot), sinR = Math.sin(rot);
@@ -162,6 +174,12 @@ export function dessinerScene(ctx, d, W, H, vp, opts = {}) {
     const dx = sx - cx0, dy = sy - cy0;
     return { cx: cx0 + dx * cosR - dy * sinR, cy: cy0 + dx * sinR + dy * cosR };
   };
+
+  // Relevé iMapper (pièces, murs, cotes, étiquettes) : sous tout le reste,
+  // les outils de dessin se posent par-dessus. Absent → rien ne change.
+  if (CAL.releve && d.releve) {
+    dessinerReleve(ctx, d.releve, (x, y) => { const p = toC(x, y); return [p.cx, p.cy]; }, { points: !!CAL.points });
+  }
 
   // Surfaces (polygones + étiquette d'aire)
   if (CAL.surfaces) (d.surfaces || []).forEach(surf => {
