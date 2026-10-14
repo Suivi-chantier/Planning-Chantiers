@@ -827,7 +827,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     nbChantiers: (chantiersOp || []).length, nbAvecPhasage: 0,
     vendu: 0, moReel: 0, mat: 0, fg: 0, marge: 0,
     moPrev: 0, matPrev: 0, fgPrev: 0, margePrev: 0,
-    hVendues: 0, hReelles: 0, hHorsDevis: 0,
+    hVendues: 0, hReelles: 0, hHorsDevis: 0, hComparables: 0,
     avNum: 0, avDen: 0,
     statuts: {},
   };
@@ -850,6 +850,7 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     t.hVendues += b.heuresVenduesChantier || 0;
     t.hReelles += b.heuresReellesTotalChantier || 0;
     t.hHorsDevis += b.heuresHorsDevisChantier || 0;
+    t.hComparables += b.heuresComparablesChantier || 0;
     const poids = b.prixHTChantier || 0;
     t.avNum += (b.avancementChantier || 0) * poids;
     t.avDen += poids;
@@ -857,6 +858,12 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
   t.avancement = t.avDen > 0 ? Math.round(t.avNum / t.avDen) : 0;
   t.margePct = t.vendu > 0 ? (t.marge / t.vendu) * 100 : null;
   t.margePrevPct = t.vendu > 0 ? (t.margePrev / t.vendu) * 100 : null;
+  // Dérive des heures vendues : même formule que la dérive d'un lot et que
+  // `deriveChantier` (computeChantierFinance), sur les sommes de l'opération.
+  // null = non calculable (aucune heure vendue ou avancement nul) — jamais 0.
+  t.derive = (t.hVendues > 0 && t.avancement > 0)
+    ? (t.hComparables / t.hVendues) / (t.avancement / 100)
+    : null;
   return t;
 }
 

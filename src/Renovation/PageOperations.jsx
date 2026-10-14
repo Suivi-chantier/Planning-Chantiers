@@ -40,10 +40,11 @@ import { exporterOperationMarkdown } from "./operationExportData";
 // exporté doivent afficher rigoureusement les mêmes totaux, donc une seule
 // implémentation. La formule est inchangée (avancement pondéré par le vendu).
 import { agregerOperation } from "./operationExportModele.mjs";
+import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
   TrendingUp, TrendingDown, Settings, ExternalLink, Banknote, FileDown,
-  ChartBar, TrainFront, FileText, CalendarClock,
+  ChartBar, TrainFront, FileText, CalendarClock, ChevronDown, ChevronRight, X, Gauge,
 } from "lucide-react";
 
 // recharts reste dans son chunk dédié (même règle que la fiche Chantier).
@@ -96,6 +97,101 @@ const STATUTS_IDS = Object.keys(STATUTS);
 
 const pctTxt = (p) => (p == null ? "—" : `${p.toFixed(1)} %`);
 
+// Ligne de détail : même rendu que KpiDetailModal (chantierFinanceUI).
+function LigneDetail({ r, T, retrait = 0 }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", paddingLeft: retrait, borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.main}</div>
+        {r.sub && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>{r.sub}</div>}
+      </div>
+      <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: r.rightColor || T.text, whiteSpace: "nowrap", flexShrink: 0 }}>{r.right}</span>
+    </div>
+  );
+}
+
+// Détail d'un KPI de l'opération : vue consolidée (quand elle a un sens) puis
+// chaque logement, dépliable sur les lignes exactes de la modale du Phasage.
+function KpiOperationModal({ detail, pres, opNom, T, onClose }) {
+  const [ouverts, setOuverts] = useState({});
+  const basculer = (id) => setOuverts((o) => ({ ...o, [id]: !o[id] }));
+  const titreSection = (txt) => (
+    <div style={{ fontSize: FONT.xs.size, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: T.textMuted, margin: "14px 0 2px" }}>{txt}</div>
+  );
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+          width: "min(620px, 100%)", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <span style={{
+            width: 30, height: 30, borderRadius: RADIUS.md, flexShrink: 0,
+            background: `color-mix(in srgb, ${pres.color} 20%, transparent)`, color: pres.color,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon as={pres.icon} size={16}/>
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>{detail.titre}</div>
+            <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>{opNom ? `${opNom} · ` : ""}{detail.sousTitre}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
+        </div>
+
+        <div style={{ padding: "0 20px 12px", overflowY: "auto" }}>
+          {detail.vide ? (
+            <div style={{ fontSize: FONT.sm.size, color: T.textMuted, fontStyle: "italic", padding: "12px 0" }}>{detail.vide}</div>
+          ) : (
+            <>
+              {detail.consolide && (
+                <>
+                  {titreSection(detail.consolide.titre)}
+                  {detail.consolide.lignes.map((r, i) => <LigneDetail key={i} r={r} T={T}/>)}
+                </>
+              )}
+              {titreSection("Par logement · cliquer pour le détail")}
+              {detail.parLogement.map((l) => {
+                const ouvert = !!ouverts[l.id];
+                return (
+                  <div key={l.id}>
+                    <div onClick={() => basculer(l.id)} className="pops-row-clic"
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${T.border}`, cursor: "pointer" }}>
+                      <Icon as={ouvert ? ChevronDown : ChevronRight} size={14} color={T.textMuted} style={{ flexShrink: 0 }}/>
+                      <span style={{ width: 9, height: 9, borderRadius: 3, background: l.couleur || "#888", flexShrink: 0 }}/>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.nom}</div>
+                        {l.sousLabel && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>{l.sousLabel}</div>}
+                      </div>
+                      <span style={{ fontSize: FONT.sm.size, fontWeight: 800, color: l.valeurCouleur || T.text, whiteSpace: "nowrap", flexShrink: 0 }}>{l.valeurTexte}</span>
+                    </div>
+                    {ouvert && (l.lignes.length === 0 ? (
+                      <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic", padding: "8px 0 8px 30px", borderBottom: `1px solid ${T.border}` }}>
+                        {l.vide || "Aucune ligne à détailler."}
+                      </div>
+                    ) : l.lignes.map((r, i) => <LigneDetail key={i} r={r} T={T} retrait={30}/>))}
+                  </div>
+                );
+              })}
+              {detail.sansPhasage.length > 0 && (
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted, fontStyle: "italic", padding: "10px 0 0" }}>
+                  Sans phasage, hors chiffres : {detail.sansPhasage.join(" · ")}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", background: T.card, flexShrink: 0, borderRadius: "0 0 14px 14px" }}>
+          <span style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.textMuted }}>{detail.totalLabel}</span>
+          <span style={{ fontSize: 16, fontWeight: 900, color: detail.totalCouleur || pres.color }}>{detail.totalTexte}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false }) {
   const acc = getBranchAccent(branch);
   const [operations, setOperations] = useState(null); // null = chargement
@@ -112,6 +208,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   // le `return` anticipé de la vue liste).
   const [mdBusy, setMdBusy] = useState(false);
   const [notif, setNotif] = useState(null); // { ton: "ok"|"alerte"|"erreur", texte }
+  // Détail d'un KPI (clic sur une carte) : "vendu" | "mo" | "derive" | "mat" | "fg" | "marge" | "marge_prev".
+  const [kpiDetail, setKpiDetail] = useState(null);
   const grapheRef = useRef(null);
 
   // ── Chargement : une passe pour toutes les opérations ──
@@ -126,7 +224,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         supabase.from("phasages").select("*"),
         fetchTout("pointages", "*"),
         fetchTout("commande_lignes",
-          "id, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)"),
+          "id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at, fournisseur_nom)"),
         supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "lots_travaux"]),
       ]);
       [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["réglages", cfgRes]]
@@ -578,6 +676,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       <style>{`
         @media(max-width:768px) { .pops-detail { padding: 14px 12px 30px !important; } .pops-kpis { grid-template-columns: repeat(2, 1fr) !important; } .pops-export-md { flex: 1 1 100%; justify-content: center; } }
         .pops-row-clic:hover { background: ${acc.bg10}; }
+        .p2-kpi-clic { transition: border-color .12s, transform .12s, box-shadow .12s; }
+        .p2-kpi-clic:hover { border-color: ${acc.accent} !important; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(16,24,40,0.12); }
       `}</style>
 
       {/* ── En-tête ── */}
@@ -696,21 +796,35 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
           <div className="pops-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
             <KpiCard T={T} icon={Wallet} iconColor="#5b8af5" label="Vendu HT" bold
               value={agg.vendu > 0 ? eur(agg.vendu) : "—"}
-              sub={`${agg.nbAvecPhasage}/${agg.nbChantiers} logements chiffrés`}/>
+              sub={`${agg.nbAvecPhasage}/${agg.nbChantiers} logements chiffrés`}
+              onClick={() => setKpiDetail("vendu")}/>
             <KpiCard T={T} icon={Clock} iconColor="#f5a623" label="Coût MO réel"
               value={eur(agg.moReel)}
-              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h vendues${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}`}/>
+              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h vendues${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}`}
+              onClick={() => setKpiDetail("mo")}/>
+            {(() => {
+              const d = carteDeriveOperation(agg);
+              return (
+                <KpiCard T={T} icon={Gauge} iconColor={d.couleur || "#818cf8"} label="Dérive heures vendues"
+                  value={d.valeurTexte} sub={d.sousLabel} accent={d.couleur}
+                  onClick={() => setKpiDetail("derive")}/>
+              );
+            })()}
             <KpiCard T={T} icon={Package} iconColor="#5b8af5" label="Matériaux réels"
               value={eur(agg.mat)}
-              sub={agg.matPrev > 0 ? `prévu : ${eur(agg.matPrev)}` : undefined}/>
+              sub={agg.matPrev > 0 ? `prévu : ${eur(agg.matPrev)}` : undefined}
+              onClick={() => setKpiDetail("mat")}/>
             <KpiCard T={T} icon={Receipt} iconColor="#c084fc" label="Frais généraux"
-              value={agg.fg > 0 ? eur(agg.fg) : "—"}/>
+              value={agg.fg > 0 ? eur(agg.fg) : "—"}
+              onClick={() => setKpiDetail("fg")}/>
             <KpiCard T={T} icon={agg.marge >= 0 ? TrendingUp : TrendingDown} iconColor={margeColor} accent={margeColor} bold
               label="Marge nette" value={agg.vendu > 0 ? eur(agg.marge) : "—"}
-              sub={agg.vendu > 0 ? `${pctTxt(agg.margePct)} du vendu` : "vendu HT non renseigné"}/>
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margePct)} du vendu` : "vendu HT non renseigné"}
+              onClick={() => setKpiDetail("marge")}/>
             <KpiCard T={T} icon={Banknote} iconColor="#22c55e" label="Marge prévisionnelle"
               value={agg.vendu > 0 ? eur(agg.margePrev) : "—"}
-              sub={agg.vendu > 0 ? `${pctTxt(agg.margePrevPct)} au devis` : undefined}/>
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margePrevPct)} au devis` : undefined}
+              onClick={() => setKpiDetail("marge_prev")}/>
           </div>
 
           {/* ── Avancement + décomposition du vendu ── */}
@@ -870,6 +984,28 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
           )}
         </>
       )}
+
+      {kpiDetail && (() => {
+        // Présentation seule (icône, couleur) : le contenu vient du module pur
+        // operationKpiDetail, qui reprend les Donnee de chaque logement.
+        const PRESENTATION = {
+          vendu:      { icon: Wallet,   color: "#5b8af5" },
+          mo:         { icon: Clock,    color: "#f5a623" },
+          derive:     { icon: Gauge,    color: "#818cf8" },
+          mat:        { icon: Package,  color: "#5b8af5" },
+          fg:         { icon: Receipt,  color: "#c084fc" },
+          marge:      { icon: agg.marge >= 0 ? TrendingUp : TrendingDown, color: margeColor },
+          marge_prev: { icon: Banknote, color: "#22c55e" },
+        };
+        const detail = detailKpiOperation(kpiDetail, {
+          chantiersOp, finParChantier, agg, lots: etat.cfg.lots_travaux?.items || [],
+        });
+        if (!detail) return null;
+        return (
+          <KpiOperationModal detail={detail} pres={PRESENTATION[kpiDetail]} opNom={op.nom}
+            T={T} onClose={() => setKpiDetail(null)}/>
+        );
+      })()}
     </div>
   );
 }
