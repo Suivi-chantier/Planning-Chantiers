@@ -38,6 +38,9 @@ import { urlDocumentChantier, derniereErreurDocument } from "./storageChantier";
 import { getEtape } from "./cycleVie";
 import { NavButtons } from "./ouvrierNav";
 import PlanViewerOuvrier from "./PlanViewerOuvrier";
+// Mémo chantier : mêmes données et mêmes écrans que l'onglet Notes.
+import { useNotesOuvrier } from "./OuvrierNotes";
+import { SectionMemosChantier, EcranMemoChantier } from "./MemosChantierOuvrier";
 
 // Mêmes libellés/couleurs de statut que PageChantiers (bureau).
 const STATUTS = {
@@ -60,7 +63,7 @@ const couleurDerive = (vendues, reelles) => {
   return pct > 120 ? "#ef4444" : pct > 100 ? "#f59e0b" : "#22c55e";
 };
 
-export default function OuvrierChantiers({ T, accent = "#FFC200", preview = false }) {
+export default function OuvrierChantiers({ T, accent = "#FFC200", preview = false, prenom = "" }) {
   const [config, setConfig]   = useState(null); // { chantiers, adresses, operations }
   const [erreurConfig, setErreurConfig] = useState(false);
   const [opSel, setOpSel]     = useState(null); // opération ouverte (niveau 2) — null = niveau 1
@@ -75,6 +78,9 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
   // et le retour suivant l'opération d'origine. Aucun état de provenance en
   // plus, aucune route : la pile de navigation, c'est ces trois booléens.
   const [prepOuverte, setPrepOuverte] = useState(false);
+  // Mémo chantier ouvert (même principe que la préparation) : null = détail.
+  const [memoVue, setMemoVue] = useState(null);
+  const notes = useNotesOuvrier({ preview });
 
   useEffect(() => {
     // Une seule requête pour les trois référentiels. On ne passe pas par
@@ -101,6 +107,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
   const openChantier = async (c) => {
     setSel(c); setDetail(null); setErreur(false); setLoading(true); setPlans(null);
     setPrepOuverte(false);
+    setMemoVue(null);
     // Plans de la page Plans (dessins) — chargés en parallèle du détail.
     supabase.rpc("ouvrier_plans_chantier", { p_chantier_id: c.id }).then(({ data, error }) => {
       if (error) { console.error("ouvrier_plans_chantier:", error); setPlans([]); return; }
@@ -292,6 +299,14 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
     );
   }
 
+  // ── MÉMO CHANTIER : détail ou édition, en plein écran ──────────────────────
+  if (sel && memoVue) {
+    return (
+      <EcranMemoChantier T={T} accent={accent} prenom={prenom} chantier={sel} notes={notes}
+        vue={memoVue} setVue={setMemoVue} onRetour={() => setMemoVue(null)} preview={preview}/>
+    );
+  }
+
   // ── Vue DÉTAIL ──────────────────────────────────────────────────────────────
   const couleur = sel.couleur || accent;
   const st = STATUTS[sel.statut || "en_cours"] || STATUTS.en_cours;
@@ -351,7 +366,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
           seul la provenance — pas besoin d'un état « origine » supplémentaire. */}
       {boutonRetour(
         opSel ? `Retour à ${opSel.nom}` : "Toutes les opérations",
-        () => { setSel(null); setDetail(null); setPlans(null); setPlanOuvert(null); },
+        () => { setSel(null); setDetail(null); setPlans(null); setPlanOuvert(null); setMemoVue(null); },
       )}
 
       {/* En-tête chantier */}
@@ -397,6 +412,12 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
           <Icon as={ChevronRight} size={18} style={{ color:T.textMuted, flexShrink:0 }}/>
         </button>
       </MobileCard>
+
+      {/* Mémo chantier : digicode, clés, coupure d'eau… — ne dépend pas du
+          chargement du détail (source : notes_ouvriers). */}
+      <SectionMemosChantier T={T} accent={accent} chantier={sel} notes={notes} preview={preview}
+        onOuvrir={(id) => setMemoVue({ mode:"detail", id })}
+        onNouveau={() => setMemoVue({ mode:"edition" })}/>
 
       {loading && (
         <div style={{ padding:"40px 24px", textAlign:"center", color:T.textMuted, fontSize:13, letterSpacing:2 }}>CHARGEMENT…</div>

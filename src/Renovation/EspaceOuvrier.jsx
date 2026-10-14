@@ -4,7 +4,7 @@ import { PROFERO_YELLOW, LOGO_RENO_H, loadEquipes } from "../constants";
 import { normaliserNomRessource } from "./planningResourceModelV1";
 import { Icon } from "../ui";
 import {
-  LayoutDashboard, CalendarDays, Layers, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye, ListTree,
+  LayoutDashboard, CalendarDays, Layers, ClipboardList, ShoppingCart, LogOut, ChevronRight, Eye, StickyNote, ListTree,
   Sun, Cloud, CloudFog, CloudDrizzle, CloudRain, CloudSnow, Zap,
 } from "lucide-react";
 import { MobileHero } from "../mobileUI";
@@ -13,6 +13,9 @@ import OuvrierPlanning from "./OuvrierPlanning";
 import OuvrierChantiers from "./OuvrierChantiers";
 import OuvrierCommande from "./OuvrierCommande";
 import PageRapportMobile from "./RapportMobile";
+import OuvrierNotes from "./OuvrierNotes";
+import { chargerNotes, monUid } from "./notesOuvriersStore";
+import { estNonLue } from "./notesOuvriers.js";
 import OuvrierMesPhases from "./OuvrierMesPhases";
 import { CODE_BETA_MES_PHASES } from "./mesPhasesV1";
 import { CODE_BETA_CR_V2, FORMULAIRE_V2 } from "./compteRenduV2";
@@ -43,7 +46,7 @@ export const T = {
 };
 const ACCENT = PROFERO_YELLOW;
 
-// Les 5 onglets. Les id correspondent aux pages dédiées "ouvrier-*" (access.js).
+// Les 6 onglets. Les id correspondent aux pages dédiées "ouvrier-*" (access.js).
 // ⚠ L'id "chantiers" est figé : il porte la permission ouvrier-chantiers de la
 // matrice d'accès. Seul son LIBELLÉ a changé (« Chantiers » → « Opérations »)
 // quand l'onglet est passé à la navigation Opération → Chantier → Détail.
@@ -53,6 +56,7 @@ const TABS = [
   { id: "chantiers",        label: "Opérations", icon: Layers,          titre: "Les opérations" },
   { id: "compte-rendu",     label: "Rapport",   icon: ClipboardList,   titre: "Mon compte rendu" },
   { id: "demande-commande", label: "Commande",  icon: ShoppingCart,    titre: "Mes demandes" },
+  { id: "notes",            label: "Notes",     icon: StickyNote,      titre: "Mes notes" },
 ];
 
 // Onglet BÊTA « Phases » : inséré après « Opérations », uniquement pour les
@@ -170,6 +174,22 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
     return () => { cancelled = true; };
   }, []);
 
+  // Pastille de l'onglet Notes : notes et réponses reçues pas encore lues.
+  // Rechargée au démarrage, toutes les 2 minutes et à chaque changement
+  // d'onglet ; l'onglet Notes, ouvert, la tient à jour lui-même.
+  const [notesNonLues, setNotesNonLues] = useState(0);
+  useEffect(() => {
+    if (preview || tab === "notes") return undefined;
+    let annule = false;
+    const compter = async () => {
+      const [uid, r] = await Promise.all([monUid(), chargerNotes()]);
+      if (!annule && Array.isArray(r.data)) setNotesNonLues(r.data.filter(n => estNonLue(n, r.lectures, uid)).length);
+    };
+    compter();
+    const t = setInterval(compter, 120000);
+    return () => { annule = true; clearInterval(t); };
+  }, [preview, tab]);
+
   const dateLong = new Date().toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" });
   const heroTitle = tab === "dashboard" && prenom ? `Bonjour ${prenom}` : current.titre;
   const wi = weather?.current ? weatherInfo(weather.current.weather_code) : null;
@@ -248,8 +268,9 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
               estResponsable={profilEspace.est_responsable}
               equipesResponsable={profilEspace.equipes_responsable}/>
           )}
-          {tab === "chantiers"        && <OuvrierChantiers T={T} accent={ACCENT} preview={preview}/>}
+          {tab === "chantiers"        && <OuvrierChantiers T={T} accent={ACCENT} preview={preview} prenom={prenom}/>}
           {tab === "demande-commande" && <OuvrierCommande prenom={prenom} T={T} accent={ACCENT} preview={preview}/>}
+          {tab === "notes"            && <OuvrierNotes prenom={prenom} T={T} accent={ACCENT} preview={preview} onNonLues={setNotesNonLues}/>}
         </div>
       )}
 
@@ -290,6 +311,7 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
               color: actif ? T.text : T.textMuted,
             }}>
               <div style={{
+                position:"relative",
                 display:"flex", alignItems:"center", justifyContent:"center",
                 width:38, height:30, borderRadius:11,
                 background: actif ? `linear-gradient(135deg, ${ACCENT}, ${ACCENT}cc)` : "transparent",
@@ -297,8 +319,17 @@ export default function EspaceOuvrier({ user, profil, onLogout, preview = false 
                 boxShadow: actif ? `0 5px 14px ${ACCENT}55` : "none",
               }}>
                 <Icon as={t.icon} size={19} strokeWidth={actif ? 2.4 : 1.9}/>
+                {t.id === "notes" && notesNonLues > 0 && (
+                  <span style={{
+                    position:"absolute", top:-4, right:-5, minWidth:17, height:17, padding:"0 4px", boxSizing:"border-box",
+                    borderRadius:999, background:"#e05c5c", color:"#fff", fontSize:10.5, fontWeight:800,
+                    display:"flex", alignItems:"center", justifyContent:"center", border:`2px solid ${T.surface}`,
+                  }}>{notesNonLues > 9 ? "9+" : notesNonLues}</span>
+                )}
               </div>
-              <span style={{ fontSize:11, fontWeight: actif ? 800 : 600, letterSpacing:0.2 }}>{t.label}</span>
+              {/* 7 onglets (bêta Phases + Notes) : libellé un cran plus petit pour
+                  que « Opérations » tienne sur un téléphone de 360 px. */}
+              <span style={{ fontSize: tabs.length > 6 ? 10 : 11, fontWeight: actif ? 800 : 600, letterSpacing: tabs.length > 6 ? 0 : 0.2, whiteSpace:"nowrap" }}>{t.label}</span>
             </button>
           );
         })}

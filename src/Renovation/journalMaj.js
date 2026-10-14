@@ -23,6 +23,13 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-14", type: "nouveaute",
+    titre: "Espace ouvrier : un carnet de notes, à partager entre collègues ou avec le bureau",
+    pages: [{ id: "notes-ouvriers", label: "Notes des ouvriers" }, { id: "chantiers", label: "Chantiers" }],
+    quoi: "Les ouvriers ont un onglet « Notes » pour noter une mesure, un détail de chantier ou un pense-bête, avec texte, liste à cocher et photos. Une note est privée tant qu'ils ne la partagent pas : même un administrateur ne la voit pas. Ils peuvent la partager avec des collègues, l'envoyer au bureau, ou l'épingler comme « mémo chantier » (digicode, clés, coupure d'eau…) pour que tous les ouvriers et le bureau la retrouvent sur la fiche du chantier. Une note « À signaler » (problème, malfaçon, danger) remonte en tête de la liste du bureau.",
+    comment: "Côté ouvrier : onglet Notes (6e onglet, en bas) → « Nouvelle note ». Choisir le type (Note / À signaler / Astuce), écrire, ajouter des éléments à cocher ou des photos, rattacher un chantier si besoin, puis choisir qui la voit : collègues (un par un, ou « Toute l'équipe »), « Envoyer au bureau », ou « Épingler comme mémo du chantier ». La phrase en bas du formulaire dit exactement qui la verra. Les notes reçues arrivent dans « Reçues », avec une pastille rouge sur l'onglet tant qu'elles ne sont pas lues. Une note partagée a un fil de réponses. Dans l'onglet Opérations, la fiche d'un chantier affiche ses mémos et permet d'en ajouter. Côté bureau : page « Notes des ouvriers » (filtres À traiter / Traitées / Toutes, par type, chantier, ouvrier). Ouvrir une note nouvelle la marque « lue » ; « Marquer traitée » la sort de la liste à traiter ; on peut répondre à l'ouvrier. Si l'ouvrier modifie ou répond ensuite, la note redevient « nouvelle ». La fiche chantier a un bloc « Notes du terrain » avec les mémos et notes partagés de ce chantier. Le bureau ne peut ni créer ni modifier une note d'ouvrier.",
+  },
+  {
     date: "2026-10-13", type: "amelioration",
     titre: "Bilan de semaine : la marge affichée est maintenant la marge réelle de la semaine",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],

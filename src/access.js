@@ -27,6 +27,7 @@ export const PAGES_RENOVATION = [
   { id: "alertes",            label: "Alertes"                     },
   { id: "planning-mensuel",   label: "Planning mensuel"            },
   { id: "notes-todo",         label: "Notes & To-do"               },
+  { id: "notes-ouvriers",     label: "Notes des ouvriers"          },
   { id: "commandes",          label: "Commandes"                   },
   { id: "capture-cmd",        label: "Saisie commande (mobile)"    },
   { id: "rapprochement",      label: "Rapprochement factures"      },
@@ -94,6 +95,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "alertes",
     "planning-mensuel",
     "notes-todo",
+    "notes-ouvriers",
     "commandes",
     "capture-cmd",
     "rapprochement",
@@ -125,6 +127,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "alertes",
     "planning-mensuel",
     "notes-todo",
+    "notes-ouvriers",
     "commandes",
     "capture-cmd",
     "rapprochement",
@@ -149,6 +152,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "dashboard",
     "chantiers",
     "planning",
+    "notes-ouvriers",
     "plans",
     "visite",
     "info-client",
@@ -159,6 +163,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "dashboard",
     "chantiers",
     "bilan-semaine",
+    "notes-ouvriers",
     "commandes",
     "rapprochement",
     "encours-fournisseurs",
@@ -171,7 +176,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
   ],
 
   // Espace ouvrier : identifiants de pages DÉDIÉS, distincts des pages bureau
-  // ci-dessus. Ils correspondent aux 5 onglets du composant EspaceOuvrier et
+  // ci-dessus. Ils correspondent aux 6 onglets du composant EspaceOuvrier et
   // ne sont volontairement pas listés dans PAGES_RENOVATION (la matrice Admin
   // ne gère que les pages bureau ; l'espace ouvrier a sa propre navigation).
   ouvrier: [
@@ -180,6 +185,7 @@ export const ROLE_PAGES_DEFAULT_RENOVATION = {
     "ouvrier-chantiers",
     "ouvrier-compte-rendu",
     "ouvrier-demande-commande",
+    "ouvrier-notes",
   ],
 };
 
