@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import assert from "node:assert/strict";
 import { retoursTerrain, isoDepuisDateRapport, indexTachesPhasages } from "../src/Renovation/retoursTerrainV1.mjs";
-import { tachesAReplanifier, dateDeCellule, celluleDeDate, semainesEntre } from "../src/Renovation/replanificationV1.mjs";
+import { tachesAReplanifier, dateDeCellule, celluleDeDate, semainesEntre, avancementsDesPhasages } from "../src/Renovation/replanificationV1.mjs";
 
 let nbOk = 0;
 const ok = (c, m) => { assert.ok(c, m); nbOk++; };
@@ -110,5 +110,10 @@ const plusRecent = tachesAReplanifier({ rapports: [...rapportsR, R("f", "Paul", 
   cellules: cellulesR, aujourdhuiISO: AUJ, depuisISO: "2026-09-23" }).find(i => i.tache_id === "p1");
 eq([plusRecent.date, plusRecent.motifs.map(m => m.label), plusRecent.ouvriers], ["2026-10-14", ["Information manquante"], ["Paul"]], "dernier signalement retenu");
 eq(tachesAReplanifier({ rapports: [], cellules: [], aujourdhuiISO: AUJ }), [], "rien de signalé : liste vide");
+// Tâche terminée depuis dans le phasage (100 %) : plus à replanifier.
+const avs = avancementsDesPhasages([{ ouvrages: [{ taches: [{ id: "p1", avancement: 100 }, { id: "p6", avancement: "40" }] }] }]);
+eq(avs, { p1: 100, p6: 40 }, "avancements lus dans le phasage");
+eq(tachesAReplanifier({ rapports: rapportsR, cellules: cellulesR, aujourdhuiISO: AUJ, depuisISO: "2026-09-23", avancements: avs }).map(i => i.tache_id).sort(),
+  ["p5", "p6"], "tâche à 100 % au phasage : retirée (p1) ; à 40 % : gardée (p6)");
 
 console.log(`verif-retours-terrain : ${nbOk} contrôles OK`);
