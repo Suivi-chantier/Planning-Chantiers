@@ -104,6 +104,8 @@ jobs:
         run: node scripts/verif-notes-ouvriers.mjs
       - name: Fiche Operation - detail des KPI et derive par phase (donnees fictives)
         run: node scripts/verif-operation-kpi-detail.mjs
+      - name: Plans - import d'un releve iMapper (piece, murs, photos, metres ; releve de reference anonymise)
+        run: node scripts/verif-releve-imapper.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression
