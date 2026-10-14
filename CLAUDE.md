@@ -73,25 +73,29 @@ Pas en note de bas de page.
   jusqu'au bout. Dire explicitement dans le compte rendu : visible pour admin
   (auto-grant) ou non, et pour quels autres rôles.
 
-## Vérifications en local : le strict nécessaire
+## Vérifications : GitHub s'en charge, pas de scripts en local
 
-Chaque demande de fusion relance déjà tous les workflows sur GitHub, et `main`
-refuse la fusion tant qu'ils ne sont pas verts. Les relancer tous en local
-double le travail et coûte plusieurs minutes à Loris. En local, on lance
-seulement :
+Décision de Loris du 14/10/2026 : lancer les scripts en local à chaque
+modification est beaucoup trop long. Chaque demande de fusion relance tous les
+workflows sur GitHub, et `main` refuse la fusion tant qu'ils ne sont pas verts :
+c'est la vérification qui fait foi.
 
-- le ou les scripts `verif-*` créés ou modifiés pour la tâche ;
-- la compilation (`npx vite build`) ;
-- les scripts qui contrôlent directement un fichier modifié par la tâche.
+- Par défaut, **aucun script `verif-*` ni compilation en local**. On pousse la
+  branche, on ouvre la demande de fusion, on attend les contrôles GitHub.
+- On continue d'écrire et de brancher les scripts `verif-*` d'une nouvelle
+  fonctionnalité (ils tournent sur GitHub, sans coût pour Loris).
+- Exception : un contrôle GitHub échoue. On lance alors en local le seul script
+  en échec, pour comprendre et corriger.
+- Les trois scripts qui échouent déjà sous Windows (`verif-composants-internes`,
+  `verif-progbat-yards-ecran`, `verif-urbanisme`) ne sont plus mesurés avant /
+  après, et ne doivent toujours pas être « réparés ».
 
-La suite complète des workflows ne se lance en local que pour comprendre un
-échec signalé par GitHub, ou pour les workflows Model et Resources, qui ne
-tournent sur GitHub que si certains fichiers changent.
+## Mise en ligne : sans attendre de feu vert
 
-Trois scripts échouent déjà sous Windows et ne doivent pas être « réparés ».
-On ne les compare avant/après que si la tâche touche ce qu'ils contrôlent :
-- `verif-composants-internes` : tout fichier `.jsx` modifié, en le lançant sur
-  ces seuls fichiers (`node scripts/verif-composants-internes.mjs <fichier>`) ;
-- `verif-progbat-yards-ecran` : `src/Renovation/progbatYardsEcran.mjs` ;
-- `verif-urbanisme` : `src/Invest/urbanismeStore.js`,
-  `src/Invest/urbanismeImpression.js` et ce qu'ils importent.
+Décision de Loris du 14/10/2026 : une tâche terminée est mise en ligne sans
+qu'il ait à le demander ou à l'écrire. Dès que tous les contrôles GitHub de la
+demande de fusion sont verts, on la fusionne (`gh pr merge`), on attend la fin
+du déploiement, et le compte rendu dit simplement que c'est en ligne. Si un
+contrôle est rouge, on corrige d'abord ; on ne fusionne jamais au rouge.
+Une migration de base n'est pas couverte par cette règle : on dit ce qu'elle
+change et on demande avant de l'appliquer.
