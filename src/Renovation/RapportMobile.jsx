@@ -325,6 +325,14 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // v2 : l'ouvrier a touché « Valider mon compte rendu » alors qu'il reste des
   // choses à compléter → les cartes incomplètes sont entourées de rouge.
   const [montrerManques, setMontrerManques] = useState(false);
+  // v2 : tâche tout juste ajoutée (phasage, nouvelle tâche, texte libre). Dès
+  // que le panneau est refermé, on la MONTRE : son chantier se déplie, la page
+  // défile jusqu'à elle, la carte s'entoure de vert et un bandeau confirme
+  // l'ajout — avant, la carte arrivait en bas d'un groupe parfois replié et
+  // l'ouvrier croyait qu'il ne s'était rien passé.
+  const [aMontrer, setAMontrer] = useState(null);       // { idx, nom }
+  const [surbrillance, setSurbrillance] = useState(null); // idx de la carte mise en avant
+  const [toastAjout, setToastAjout] = useState(null);   // texte du bandeau
   // v2 : infos des tâches du jour lues par la RPC ouvrier_mes_phases (chemin
   // Phase › Ouvrage, heures vendues / validées / en attente, dernier motif de
   // dépassement), par tache_id. infosEtat : chargement | ok | indisponible.
@@ -762,11 +770,14 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // Suppression d'une tâche libre (ajoutée par l'ouvrier). On ne propose pas
   // la suppression des tâches issues du planning : si elles n'ont pas été faites,
   // l'ouvrier doit explicitement mettre "Non faite" pour qu'on en garde la trace.
-  const supprimerTache = (idx) => setTaches(t => t.filter((_, i) => i !== idx));
+  const supprimerTache = (idx) => { setSurbrillance(null); setTaches(t => t.filter((_, i) => i !== idx)); };
   // v2 — « J'ai fait autre chose » : une tâche du phasage devient une carte
   // identique à une tâche planifiée (origine "phasage"), jamais en double.
   const ajouterTachePhasage = (tache, chantier) => {
     touche();
+    // Déjà dans la journée : on montrera celle qui existe (jamais de doublon).
+    const existe = taches.findIndex(t => tache?.id && String(t.tache_id ?? "") === String(tache.id));
+    setAMontrer({ idx: existe >= 0 ? existe : taches.length, nom: String(tache?.nom ?? "").trim() || "La tâche" });
     setTaches(arr => ajouterDepuisPhasage(arr, tache, chantier));
   };
   // v2 — texte libre (repli du panneau) : l'ajout manuel existant, inchangé,
@@ -777,6 +788,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       chantier_id: chantier?.id || "", chantier_nom: chantier?.nom || "", chantier_couleur: chantier?.couleur || "#c8d8f0",
       planifie: "", statut: null, remarque: "", photos: [], libre: true, origine: ORIGINE_LIBRE,
     }]);
+    setAMontrer({ idx: taches.length, nom: "Ta nouvelle tâche", libre: true });
     setPanneauAutreChose(false);
   };
   // v2 — « Nouvelle tâche » : tâche absente du phasage, PROPOSÉE dans un
@@ -784,13 +796,34 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const ajouterNouvelleTache = (saisie, chantier) => {
     touche();
     setTaches(t => [...t, ligneNouvelleTache(saisie, chantier)]);
+    setAMontrer({ idx: taches.length, nom: String(saisie?.nom ?? "").trim() || "Ta nouvelle tâche" });
     setPanneauAutreChose(false);
   };
   const modifierNouvelle = (idx, saisie) => {
     touche();
     setTaches(t => t.map((x, i) => i === idx ? modifierNouvelleTache(x, saisie) : x));
+    setAMontrer({ idx, nom: String(saisie?.nom ?? "").trim() || "La tâche", modifiee: true });
     setEditionNouvelle(null);
   };
+  // Montre la tâche ajoutée une fois le panneau refermé (voir aMontrer).
+  useEffect(() => {
+    if (!aMontrer || panneauAutreChose || editionNouvelle) return;
+    const { idx, nom, modifiee } = aMontrer;
+    setAMontrer(null);
+    const t = taches[idx];
+    if (!t) return;
+    setCollapsedChantiers(c => ({ ...c, [t.chantier_id || "_libres"]: false }));
+    setSurbrillance(idx);
+    const court = nom.length > 50 ? `${nom.slice(0, 50)}…` : nom;
+    setToastAjout(modifiee ? `« ${court} » est modifiée` : `« ${court} » est dans ta journée`);
+    setTimeout(() => {
+      const el = typeof document !== "undefined" ? document.getElementById(`cr-tache-${idx}`) : null;
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    setTimeout(() => setToastAjout(null), 4000);
+    setTimeout(() => setSurbrillance(s => (s === idx ? null : s)), 8000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aMontrer, panneauAutreChose, editionNouvelle, taches]);
   // Champ photos de l'écran « Nouvelle tâche » (même envoi que les cartes).
   const champPhotosNouvelle = (photos, onChange) => (
     <PhotosPicker photos={photos} onChange={onChange}
@@ -1726,6 +1759,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               horsConnexion={horsConnexion}
               ancre={`cr-tache-${idx}`}
               aSignaler={montrerManques}
+              vientDEtreAjoutee={surbrillance === idx}
               champPhotosApres={(apres, onChange) => (
                 <PhotosPicker photos={apres} onChange={onChange}
                   pathPrefix={`rapports/${ouvrier}/${dateKey}/tache-${idx}-apres`}
@@ -2266,6 +2300,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           {preview ? "Aperçu — envoi désactivé" : submitting ? "Envoi en cours…" : "Valider mon compte rendu"}
         </button>
       </div>
+      {/* v2 : confirmation d'ajout d'une tâche (quelques secondes) */}
+      {estV2 && toastAjout && (
+        <div role="status" style={{
+          position:"fixed", left:12, right:12, top:12, zIndex:1200, padding:"12px 14px", borderRadius:RADIUS.xl,
+          background:"#166534", color:"#fff", fontSize:FONT.md.size, fontWeight:800, lineHeight:1.3,
+          display:"flex", alignItems:"center", gap:8, boxShadow:"0 8px 24px rgba(0,0,0,0.25)",
+        }}>
+          <Icon as={Check} size={18} strokeWidth={2.8}/> {toastAjout}
+        </div>
+      )}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );

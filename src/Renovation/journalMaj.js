@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-14",
     type: "amelioration",
+    titre: "Compte rendu (bêta) : une tâche ajoutée se voit tout de suite",
+    pages: [],
+    quoi: "Quand un ouvrier ajoutait une tâche à sa journée (nouvelle tâche, tâche du phasage ou texte libre), la carte arrivait en bas de son chantier, parfois dans un groupe replié : il croyait qu'il ne s'était rien passé.",
+    comment: "Nouveau compte rendu : dès que la fenêtre « Ajouter à ma journée » se ferme, le chantier de la tâche se déplie, la page descend jusqu'à elle, la carte s'entoure de vert avec « Tâche ajoutée à ta journée : complète-la ici », et un bandeau vert confirme en haut de l'écran « … est dans ta journée ». Même chose après « Modifier » une nouvelle tâche (« … est modifiée »). Une tâche du phasage déjà présente dans la journée n'est jamais ajoutée deux fois : c'est la carte existante qui est montrée.",
+  },
+  {
+    date: "2026-10-14",
+    type: "amelioration",
     titre: "Compte rendu (bêta) : plus de photo « après » imposée, et ce qui bloque l'envoi est montré clairement",
     pages: [{ id: "validation", label: "Validation" }],
     quoi: "Les ouvriers ne comprenaient pas pourquoi « Valider mon compte rendu » restait grisé, et devaient toucher « Je ne peux pas envoyer la photo » sur chaque tâche terminée sans photo. Désormais la photo « après » est seulement recommandée, et tout ce qui empêche l'envoi est listé en clair, avec un accès direct à la tâche concernée.",
