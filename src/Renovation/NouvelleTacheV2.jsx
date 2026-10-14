@@ -9,6 +9,9 @@
 //
 // Toutes les règles (liste des ouvrages, recherche, ce qui manque, ligne
 // produite) vivent dans compteRenduV2.mjs ; cet écran ne fait qu'afficher.
+// Avant de créer, l'écran propose les tâches EXISTANTES qui ressemblent (nom
+// tapé, ouvrage choisi) : « C'est celle-ci » l'ajoute à la journée. Ménage,
+// évacuation, approvisionnement : suggestion de passer en heures indirectes.
 // Rien ne bloque l'envoi du compte rendu : « Plutôt décrire en texte libre »
 // reste toujours possible (pas de réseau pour la photo, ouvrage introuvable…).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,6 +21,7 @@ import { X, Search, ChevronLeft, Check, PenLine, WifiOff, Camera } from "lucide-
 import { NATURES_TACHE } from "./motifsCompteRendu";
 import {
   rechercherOuvrages, problemesNouvelleTache, LIBELLES_NOUVELLE_TACHE, NATURE_PHOTO_OBLIGATOIRE,
+  suggestionsNouvelleTache, ressembleIndirect,
 } from "./compteRenduV2";
 
 const SOMBRE = "#1a1f2e";
@@ -42,6 +46,7 @@ function Titre({ children, T, aide = null }) {
 export default function NouvelleTacheV2({
   ouvrages = [], saisieInitiale = null, chantierNom = "", enEdition = false,
   T, accent = "#FFC200", champPhotos, onValider, onLibre, onRetour, onFermer,
+  taches = [], dejaDansJournee = () => false, onChoisirExistante = null, onHeuresIndirectes = null,
 }) {
   const [saisie, setSaisie] = useState(() => ({
     nom: "", ouvrage: null, nature: null, demandeur: "", photos: [], ...(saisieInitiale || {}),
@@ -130,6 +135,48 @@ export default function NouvelleTacheV2({
             border: `1.5px solid ${T.border}`, borderRadius: 12, padding: "10px 12px", background: T.surface, color: T.text,
           }}/>
 
+        {/* Avant de créer : une tâche existante qui ressemble ? */}
+        {!enEdition && onChoisirExistante && (() => {
+          const sugg = suggestionsNouvelleTache({ nom: saisie.nom, ouvrageId: saisie.ouvrage?.id || null, taches });
+          if (sugg.length === 0) return null;
+          return (
+            <div style={{ marginTop: 14, padding: 12, borderRadius: 14, background: "#fff7e0", border: "2px solid #f5c542" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.text, marginBottom: 2 }}>C'est peut-être une de ces tâches ?</div>
+              <div style={{ fontSize: 13, color: T.textSub, marginBottom: 8 }}>
+                Elles existent déjà sur ce chantier. Si c'est l'une d'elles, choisis-la au lieu d'en créer une nouvelle.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {sugg.map(t => (
+                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 12, background: T.surface, border: `1px solid ${T.border}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: T.text, lineHeight: 1.25, ...clamp2 }}>{t.nom}</div>
+                      <div style={{ fontSize: 12, color: T.textSub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {[t.phase_nom, t.ouvrage_libelle].filter(Boolean).join(" › ")}
+                      </div>
+                    </div>
+                    <button onClick={() => onChoisirExistante(t.tache)} style={{
+                      minHeight: 44, padding: "0 12px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+                      border: `2px solid ${SOMBRE}`, background: accent, color: SOMBRE, fontSize: 14.5, fontWeight: 800,
+                    }}>{dejaDansJournee(t.id) ? "Déjà là : voir" : "C'est celle-ci"}</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+        {/* Ménage, évacuation, approvisionnement → heures indirectes */}
+        {!enEdition && onHeuresIndirectes && ressembleIndirect(saisie.nom) && (
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(178,116,22,0.08)", border: "1.5px solid #b2741666" }}>
+            <div style={{ fontSize: 14.5, color: T.text, lineHeight: 1.4 }}>
+              Ménage, évacuation, approvisionnement : si ce n'est pas une tâche du chantier, mets-le plutôt en <strong>heures indirectes</strong>.
+            </div>
+            <button onClick={onHeuresIndirectes} style={{
+              marginTop: 8, minHeight: 44, padding: "0 14px", borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+              border: "1.5px solid #b27416", background: T.surface, color: "#b27416", fontSize: 14.5, fontWeight: 800,
+            }}>Mettre en heures indirectes</button>
+          </div>
+        )}
+
         {/* 3. Pourquoi */}
         <Titre T={T}>Pourquoi cette tâche ?</Titre>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -186,7 +233,7 @@ export default function NouvelleTacheV2({
           border: `2px solid ${SOMBRE}`, background: problemes.length > 0 ? T.bg : accent, color: SOMBRE,
           cursor: problemes.length > 0 ? "not-allowed" : "pointer", opacity: problemes.length > 0 ? 0.55 : 1,
         }}>{enEdition ? "Enregistrer" : "Ajouter à ma journée"}</button>
-        {!enEdition && (
+        {!enEdition && horsLigne && (
           <button onClick={onLibre} style={{
             width: "100%", minHeight: 44, border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit",
             color: T.textSub, fontSize: 14.5, fontWeight: 700, textDecoration: "underline",

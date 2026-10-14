@@ -258,6 +258,9 @@ eq([b0.statut, b0.bloque, b0.avancement], ["non_faite", true, "30"], "Bloqué à
 eq(problemesLigne(b0, {}), ["motif"], "Bloqué : motif obligatoire");
 b0 = { ...b0, motif: "autre" };
 eq(problemesLigne(b0, {}), ["precision"], "motif « autre » : précision obligatoire");
+eq(problemesLigne({ ...b0, remarque: " . " }, {}), ["precision"], "motif « autre » : un « . » ne suffit pas (14/10/2026)");
+eq(problemesLigne({ ...b0, remarque: "Fait" }, {}), ["precision"], "motif « autre » : moins de 5 lettres ne suffit pas");
+eq(problemesLigne({ ...b0, remarque: "Pas sec" }, {}), [], "motif « autre » : quelques mots suffisent");
 b0 = { ...b0, remarque: "voisin absent" };
 eq(problemesLigne(b0, {}), [], "Bloqué à 0 h complet");
 eq(pointagesJournee(construireRapports({ ...base, taches: [b0], heuresIndirectes: [], trajetMatin: 0, trajetSoir: 0, planData, serialiser: serialiserLigneV2 })), [], "Bloqué à 0 h : aucun pointage");
@@ -351,8 +354,12 @@ const bascule = ligneBasculee(lT4, { heures: 1, rapport: { id: "r", chantier_id:
 eq([bascule.bloque, bascule.motif, bascule.motif_depassement, "depassement" in bascule], [true, "acces_impossible", "imprevu", false], "bascule : motifs suivis, relevé retiré");
 
 // ── 6. MOTIFS : liste unique, codes stables ─────────────────────────────────
-eq(MOTIFS_STATUT.map(m => m.code), ["attente_materiel", "autre_corps_etat", "acces_impossible", "info_manquante", "decision_client", "manque_de_temps", "priorite_changee", "autre"], "codes des motifs de statut (stables)");
+eq(MOTIFS_STATUT.map(m => m.code), ["attente_materiel", "autre_corps_etat", "acces_impossible", "info_manquante", "decision_client", "manque_de_temps", "priorite_changee",
+  "fait_par_collegue", "attente_sechage", "etape_precedente", "autre"], "codes des motifs de statut (stables ; 3 ajoutés le 14/10/2026, avant « Autre »)");
+eq([libelleMotifStatut("fait_par_collegue"), libelleMotifStatut("attente_sechage"), libelleMotifStatut("etape_precedente")],
+  ["Fait par un collègue", "Attente de séchage", "Étape d'avant pas terminée"], "libellés des nouveaux motifs");
 eq(MOTIFS_DEPASSEMENT.map(m => m.code), ["imprevu", "demande_client", "support_degrade", "reprise", "devis_sous_estime", "autre"], "codes des motifs de dépassement (stables)");
+eq(MOTIFS_DEPASSEMENT.find(m => m.code === "support_degrade").label, "Support dégradé ou plus dur que prévu", "libellé élargi, code inchangé (historique conservé)");
 eq(libelleMotifStatut("code_inconnu"), "Motif « code_inconnu »", "code inconnu : reste visible");
 eq(explicationLigne({ remarque: "texte libre" }), "texte libre", "ligne de l'ancien formulaire : la remarque, inchangée");
 eq(choixDeLigne({ statut: "non_faite", bloque: true }), "bloque", "choix relu depuis les champs stockés");

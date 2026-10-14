@@ -55,7 +55,7 @@ import { etatHeures } from "./mesPhasesV1.mjs";
 import {
   MODE_QUANTITE, etatSuivi, avancementQuantite, resteAPoser, quantiteValide, fmtQuantite, arrondi2,
 } from "./suiviQuantite.mjs";
-import { CODE_MOTIF_AUTRE, explicationLigne, NATURES_TACHE, libelleNature } from "./motifsCompteRendu.mjs";
+import { CODE_MOTIF_AUTRE, explicationLigne, NATURES_TACHE, libelleNature, precisionSuffisante } from "./motifsCompteRendu.mjs";
 import { serialiserLigneV1, totalJournee } from "./compteRenduEnvoi.mjs";
 
 export const FORMULAIRE_V2 = "v2";
@@ -313,7 +313,7 @@ export function problemesLigne(t, infosParTache = {}) {
   if (motifDepassementRequis(info, t) && !t.motif_depassement) p.push("motif_depassement");
   const autre = t.motif === CODE_MOTIF_AUTRE
     || (t.motif_depassement === CODE_MOTIF_AUTRE && motifDepassementRequis(info, t));
-  if (autre && !String(t.remarque ?? "").trim()) p.push("precision");
+  if (autre && !precisionSuffisante(t.remarque)) p.push("precision");
   if (photoManquante(t)) p.push("photo");
   return p;
 }
@@ -331,7 +331,7 @@ export const LIBELLES_PROBLEMES = Object.freeze({
   avancement: "indique l'avancement",
   motif: "choisis un motif",
   motif_depassement: "dis pourquoi les heures vendues sont dépassées",
-  precision: "précise le motif « Autre »",
+  precision: "précise le motif « Autre » en quelques mots",
   photo: "ajoute une photo (demande du client)",
   quantite: "indique la quantité posée",
 });
@@ -484,6 +484,51 @@ export function ouvragesProposables(phases) {
 
 const normRecherche = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "")
   .toLowerCase().replace(/\s+/g, " ").trim();
+// Toutes les tâches du chantier (une par id), depuis les phases de l'onglet
+// Phases — pour proposer une tâche EXISTANTE avant d'en créer une nouvelle.
+export function tachesDuChantier(phases) {
+  const vues = new Map();
+  (phases || []).forEach(p => (p.ouvrages || []).forEach(o => (o.taches || []).forEach(t => {
+    if (!t?.id || vues.has(String(t.id))) return;
+    vues.set(String(t.id), {
+      id: String(t.id), nom: texte(t.nom), tache: t,
+      ouvrage_id: o.id || null, ouvrage_libelle: texte(o.libelle), phase_nom: p.synthetique ? null : (p.nom || null),
+    });
+  })));
+  return [...vues.values()];
+}
+
+const MOTS_VIDES = new Set(["les", "des", "une", "pour", "avec", "dans", "sur", "aux", "par", "est"]);
+const mots = (s) => normRecherche(s).split(/[^a-z0-9]+/).filter(m => m.length >= 3 && !MOTS_VIDES.has(m));
+// Part des mots tapés qu'on retrouve dans le nom de la tâche (début de mot
+// accepté : mêmes 4 premières lettres, « peindre » retrouve « peinture »).
+function ressemblance(nom, cible) {
+  const a = mots(nom);
+  if (a.length === 0) return 0;
+  const b = mots(cible);
+  const proches = (m, x) => m === x || x.startsWith(m) || m.startsWith(x) || (m.length >= 4 && x.length >= 4 && m.slice(0, 4) === x.slice(0, 4));
+  return a.filter(m => b.some(x => proches(m, x))).length / a.length;
+}
+
+// « C'est peut-être celle-ci ? » : d'abord les tâches au nom proche de ce que
+// l'ouvrier tape (tout le chantier), puis celles de l'ouvrage choisi.
+export function suggestionsNouvelleTache({ nom, ouvrageId = null, taches = [], max = 6 }) {
+  const parNom = texte(nom).length >= 3
+    ? (taches || []).map(t => ({ ...t, score: ressemblance(nom, t.nom) }))
+        .filter(t => t.score > 0.5).sort((x, y) => y.score - x.score).slice(0, 3)
+    : [];
+  const deja = new Set(parNom.map(t => t.id));
+  const dansOuvrage = ouvrageId ? (taches || []).filter(t => t.ouvrage_id === ouvrageId && !deja.has(t.id)) : [];
+  return [...parNom.map(t => ({ ...t, raison: "nom" })), ...dansOuvrage.map(t => ({ ...t, raison: "ouvrage" }))].slice(0, max);
+}
+
+// Ménage, nettoyage, évacuation, approvisionnement : le plus souvent des
+// heures indirectes, pas une tâche du chantier (simple suggestion).
+const DEBUTS_INDIRECTS = ["menage", "nettoy", "aspira", "evacu", "dechet", "encombrant", "appro", "rangement", "ranger"];
+export function ressembleIndirect(nom) {
+  return normRecherche(nom).split(/[^a-z0-9]+/).some(m => DEBUTS_INDIRECTS.some(d => m.startsWith(d)));
+}
+
 // Recherche sur le libellé, le code et les phases (accents et casse ignorés).
 export function rechercherOuvrages(liste, q) {
   const n = normRecherche(q);

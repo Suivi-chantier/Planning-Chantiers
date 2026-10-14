@@ -27,7 +27,7 @@ import { X, Search, Plus, Check, PenLine, WifiOff } from "lucide-react";
 import { CartePhase } from "./OuvrierMesPhases";
 import NouvelleTacheV2 from "./NouvelleTacheV2";
 import { construireMesPhases, filtrerPhases, rechercherDansPhases } from "./mesPhasesV1";
-import { tacheDejaDansJournee, ouvragesProposables, saisieDepuisLigne } from "./compteRenduV2";
+import { tacheDejaDansJournee, ouvragesProposables, saisieDepuisLigne, tachesDuChantier } from "./compteRenduV2";
 
 const SOMBRE = "#1a1f2e";
 const PHASAGE_LISIBLE = ["ok", "sans_groupes"];
@@ -36,6 +36,7 @@ export default function PanneauAutreChose({
   taches, chantiersDuJour = [], tousChantiers = [], prenom, aujourdhuiISO, T, accent = "#FFC200",
   onAjouter, onDecrireLibre, onFermer,
   champPhotos = null, onAjouterNouvelle = null, edition = null, onModifierNouvelle = null,
+  onHeuresIndirectes = null,
 }) {
   // Le kit de l'onglet Phases attend un fond de piste (T.card) gris clair.
   const TP = useMemo(() => ({ ...T, card: "#eef1f7" }), [T]);
@@ -77,8 +78,12 @@ export default function PanneauAutreChose({
   const resultat = useMemo(() => (charge?.etat === "ok" ? construireMesPhases(charge.data) : null), [charge]);
   const vueEff = vue || (resultat && resultat.nbMiennes > 0 ? "miennes" : "tout");
   const ouvertesEff = ouvertes || new Set(resultat?.phaseEnCoursId ? [resultat.phaseEnCoursId] : []);
-  const phases = resultat ? rechercherDansPhases(filtrerPhases(resultat, vueEff), recherche) : [];
   const enRecherche = recherche.trim().length > 0;
+  // Une recherche porte TOUJOURS sur tout le chantier : sur « Mes phases »,
+  // une tâche d'un collègue n'apparaissait pas et l'ouvrier la retapait.
+  const phases = resultat
+    ? (enRecherche ? rechercherDansPhases(resultat.phases, recherche) : filtrerPhases(resultat, vueEff))
+    : [];
   const basculer = (id) => setOuvertes(() => {
     const n = new Set(ouvertesEff); if (n.has(id)) n.delete(id); else n.add(id); return n;
   });
@@ -182,6 +187,9 @@ export default function PanneauAutreChose({
             }}>{label}</button>
           ))}
         </div>
+        {enRecherche && (
+          <div style={{ fontSize: 13, color: T.textSub, margin: "-2px 2px 8px" }}>Recherche dans tout le chantier.</div>
+        )}
         {phases.length === 0 ? (
           <div style={{ padding: "20px 4px", fontSize: 14, color: T.textSub, textAlign: "center" }}>
             {enRecherche ? "Aucune tâche ne correspond à ta recherche." : vueEff === "miennes" ? "Aucune phase pour toi ici : regarde « Tout le chantier »." : "Aucune phase."}
@@ -194,6 +202,12 @@ export default function PanneauAutreChose({
                 onToggle={() => basculer(p.id)} actionTache={actionTache} actionOuvrage={actionOuvrage}/>
             ))}
           </div>
+        )}
+        {onHeuresIndirectes && (
+          <button onClick={() => onHeuresIndirectes(chantier)} style={{
+            width: "100%", marginTop: 12, minHeight: 52, padding: "8px 12px", borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
+            border: "1.5px dashed #b27416", background: "rgba(178,116,22,0.06)", color: "#b27416", fontSize: 15, fontWeight: 800, textAlign: "left",
+          }}>Ménage, évacuation, approvisionnement ? → Heures indirectes</button>
         )}
       </>
     );
@@ -214,7 +228,11 @@ export default function PanneauAutreChose({
             onValider={(saisie) => (edition ? onModifierNouvelle?.(edition.idx, saisie) : onAjouterNouvelle(saisie, chantier))}
             onLibre={() => onDecrireLibre(chantier)}
             onRetour={edition ? onFermer : () => setNouvelle(null)}
-            onFermer={onFermer}/>
+            onFermer={onFermer}
+            taches={lisible ? tachesDuChantier(resultat.phases) : []}
+            dejaDansJournee={(id) => tacheDejaDansJournee(taches, id)}
+            onChoisirExistante={edition ? null : (t) => { onAjouter(t, chantier); onFermer(); }}
+            onHeuresIndirectes={!edition && onHeuresIndirectes ? () => onHeuresIndirectes(chantier) : null}/>
         ) : (<>
         {/* En-tête : titre, fermer, chantier, recherche */}
         <div style={{ padding: "10px 14px 12px", borderBottom: `1px solid ${T.border}`, background: T.surface, borderRadius: "20px 20px 0 0" }}>

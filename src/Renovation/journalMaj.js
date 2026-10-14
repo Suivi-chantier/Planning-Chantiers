@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-14",
     type: "amelioration",
+    titre: "Compte rendu (bêta) : nouveaux motifs, et les tâches existantes proposées avant d'en créer une",
+    pages: [{ id: "validation", label: "Validation" }],
+    quoi: "D'après les comptes rendus de la première semaine : le motif « Autre » servait surtout à dire « fait par un collègue » ou « pas sec », souvent avec un simple « . » ; et 9 nouvelles tâches sur 16, comme 10 tâches tapées en texte libre, existaient déjà dans le phasage. Les ouvriers trouvent maintenant plus facilement la bonne tâche, et leurs explications sont plus utiles.",
+    comment: "Motifs « Pas commencé / Bloqué » ajoutés : « Fait par un collègue », « Attente de séchage », « Étape d'avant pas terminée ». Le motif de dépassement « Support dégradé » devient « Support dégradé ou plus dur que prévu » (les anciens rapports gardent leur motif). Avec « Autre », la précision demande quelques mots (au moins 5 lettres). Panneau « Ajouter à ma journée » : la recherche porte toujours sur tout le chantier (avant, sur « Mes phases », les tâches des collègues n'apparaissaient pas) ; un raccourci « Ménage, évacuation, approvisionnement ? → Heures indirectes » ouvre directement une ligne d'heures indirectes. Écran « Nouvelle tâche » : pendant la saisie, « C'est peut-être une de ces tâches ? » propose les tâches existantes au nom proche et celles de l'ouvrage choisi ; « C'est celle-ci » l'ajoute à la journée. Si le nom évoque du ménage ou de l'approvisionnement, l'écran suggère les heures indirectes. Le lien « Plutôt décrire en texte libre » n'apparaît plus que sans réseau.",
+  },
+  {
+    date: "2026-10-14",
+    type: "amelioration",
     titre: "Compte rendu (bêta) : une tâche ajoutée se voit tout de suite",
     pages: [],
     quoi: "Quand un ouvrier ajoutait une tâche à sa journée (nouvelle tâche, tâche du phasage ou texte libre), la carte arrivait en bas de son chantier, parfois dans un groupe replié : il croyait qu'il ne s'était rien passé.",
