@@ -72,6 +72,7 @@ function Pastilles({ options, valeur, onChoisir, T }) {
 export default function TacheCarteV2({
   t, info, infosEtat, resteMin, onMaj, onSupprimer, chantiers = [], onOuvrirCommande, T, photos,
   onModifierNouvelle = null, horsConnexion = false, champPhotosApres = null, ancre = undefined, aSignaler = false,
+  vientDEtreAjoutee = false,
 }) {
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -106,8 +107,19 @@ export default function TacheCarteV2({
   return (
     <div id={ancre} style={{
       padding: "14px 14px 16px", borderTop: `1px solid ${T.border}`, scrollMarginTop: 120,
+      ...(vientDEtreAjoutee ? { outline: "3px solid #16a34a", outlineOffset: -3, borderRadius: 14, background: "#f0fdf4" } : {}),
       ...(aSignaler && problemes.length > 0 ? { outline: `3px solid ${T.danger}`, outlineOffset: -3, borderRadius: 14, background: T.dangerBg } : {}),
     }}>
+      {/* Tâche tout juste ajoutée : on dit à l'ouvrier qu'elle est ici. */}
+      {vientDEtreAjoutee && !(aSignaler && problemes.length > 0) && (
+        <div role="status" style={{
+          display: "flex", gap: 8, alignItems: "center", marginBottom: 10, padding: "10px 12px", borderRadius: 12,
+          background: "#16a34a", color: "#fff", fontSize: 15, fontWeight: 800, lineHeight: 1.35,
+        }}>
+          <Icon as={Check} size={18} strokeWidth={2.8} style={{ flexShrink: 0 }}/>
+          <span>{t.libre ? "Tâche ajoutée : décris-la et complète-la ici" : "Tâche ajoutée à ta journée : complète-la ici"}</span>
+        </div>
+      )}
       {/* Envoi demandé alors que la carte est incomplète : ce qui manque, en tête. */}
       {aSignaler && problemes.length > 0 && (
         <div role="alert" style={{
