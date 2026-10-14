@@ -77,9 +77,11 @@ export function semainesEntre(debutISO, finISO) {
 // cellules : lignes planning_cells { week_id, jour, chantier_id, taches[] }
 //            des chantiers concernés, du plus ancien signalement à l'avenir ;
 // aujourdhuiISO : la date du jour ;
-// depuisISO : ignorer les signalements plus anciens ;
+// depuisISO / jusquaISO : ne retenir que les signalements de cette période
+//   (la semaine affichée au planning) ; les heures déclarées APRÈS, et le
+//   planning à venir, comptent toujours pour savoir si c'est réglé ;
 // avancements : { tache_id: % } lu dans les phasages (avancementsDesPhasages).
-export function tachesAReplanifier({ rapports = [], cellules = [], aujourdhuiISO, depuisISO = null, avancements = {} }) {
+export function tachesAReplanifier({ rapports = [], cellules = [], aujourdhuiISO, depuisISO = null, jusquaISO = null, avancements = {} }) {
   const derniereActivite = new Map();   // tache_id → date ISO max avec heures > 0
   const signalements = new Map();       // tache_id → signalement le plus récent
   (rapports || []).forEach(r => {
@@ -95,7 +97,7 @@ export function tachesAReplanifier({ rapports = [], cellules = [], aujourdhuiISO
         const prec = derniereActivite.get(k);
         if (!prec || date > prec) derniereActivite.set(k, date);
       }
-      if (!signal || r.statut !== "valide" || (depuisISO && date < depuisISO)) return;
+      if (!signal || r.statut !== "valide" || (depuisISO && date < depuisISO) || (jusquaISO && date > jusquaISO)) return;
       const cur = signalements.get(k);
       if (cur && cur.date > date) return;
       const ouvriers = cur && cur.date === date ? [...new Set([...cur.ouvriers, texte(r.ouvrier)].filter(Boolean))] : [texte(r.ouvrier)].filter(Boolean);

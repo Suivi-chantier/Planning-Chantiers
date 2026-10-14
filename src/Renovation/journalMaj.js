@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-14",
+    type: "amelioration",
+    titre: "Planning : « À replanifier » ne montre que la semaine affichée",
+    pages: [{ id: "planning", label: "Planning semaine" }],
+    quoi: "Le bandeau « À replanifier » mélangeait les tâches de plusieurs semaines. Il ne liste plus que celles de la semaine affichée au planning, et suit les flèches quand on change de semaine.",
+    comment: "Planning semaine : le bandeau montre les tâches déclarées « Pas commencé » ou « Bloqué » dans un compte rendu validé de la semaine affichée, restées sans suite (pas d'heures déclarées depuis, pas de nouvelle date à venir, pas à 100 % au phasage). Une semaine à venir n'affiche rien. On peut remonter les semaines passées avec les flèches pour retrouver les tâches restées en plan.",
+  },
+  {
+    date: "2026-10-14",
     type: "nouveaute",
     titre: "Nouvelle page « Retours du terrain » et bandeau « À replanifier » au planning",
     pages: [{ id: "retours-terrain", label: "Retours du terrain" }, { id: "planning", label: "Planning semaine" }],

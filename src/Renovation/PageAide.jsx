@@ -95,7 +95,7 @@ export const AIDE_CONTENU = {
     ],
     savoir: [
       "Vous pouvez ajouter un événement à Google Agenda depuis une case remplie.",
-      "Le bandeau « À replanifier » liste les tâches déclarées « Pas commencé » ou « Bloqué » dans un compte rendu validé et restées sans suite (ni heures depuis, ni nouvelle date à venir). « Voir dans le planning » ouvre la case concernée : rien n'est déplacé automatiquement.",
+      "Le bandeau « À replanifier » liste les tâches déclarées « Pas commencé » ou « Bloqué » dans un compte rendu validé de la semaine affichée, et restées sans suite (ni heures depuis, ni nouvelle date à venir, ni 100 % au phasage). « Voir dans le planning » ouvre la case concernée : rien n'est déplacé automatiquement.",
     ],
   },
   "retours-terrain": {
