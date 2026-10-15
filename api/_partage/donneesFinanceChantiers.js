@@ -49,13 +49,14 @@ const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").repla
 async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   const parChantierId = (q) => (chantierId ? q.eq("chantier_id", chantierId) : q);
 
-  const [phasages, pointages, commandeLignes, factureCouts, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux] = await Promise.all([
+  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux] = await Promise.all([
     fetchAll(supabase, "phasages", "*", parChantierId),
     fetchAll(supabase, "pointages", "*", parChantierId),
     fetchAll(supabase, "commande_lignes",
       "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, created_at",
       parChantierId),
     fetchAll(supabase, "facture_couts_chantiers", "id,chantier_id,montant_ht,nature,date_imputation", parChantierId),
+    fetchAll(supabase, "avoirs_fournisseurs_imputations", "id,chantier_id,montant_ht,date_imputation,factures!inner(statut)", (q) => parChantierId(q).eq("factures.statut", "rapprochee")),
     supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
@@ -77,6 +78,10 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   const clByChantier = {};
   commandeLignes.forEach(l => { (clByChantier[l.chantier_id] ||= []).push(l); });
   // Écritures distinctes : jamais de réécriture des commandes ni de double ajout.
+  avoirs.forEach(c => {
+    (clByChantier[c.chantier_id] ||= []).push({ id: `avoir-${c.id}`, chantier_id: c.chantier_id,
+      libelle: "Avoir fournisseur", prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` });
+  });
   factureCouts.forEach(c => {
     if (!c.chantier_id) return;
     (clByChantier[c.chantier_id] ||= []).push({ id: `facture-cout-${c.id}`, chantier_id: c.chantier_id,

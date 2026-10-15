@@ -28,6 +28,7 @@ const TABLES_AUTORISEES = new Set([
   "pointages",
   "commande_lignes",
   "facture_couts_chantiers",
+  "avoirs_fournisseurs_imputations",
   "materiaux_bibliotheque",
   // Réglages (taux, lots, états financiers) et liste des chantiers
   "planning_config",
