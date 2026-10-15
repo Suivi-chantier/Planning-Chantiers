@@ -49,11 +49,11 @@ alter table public.facture_frais enable row level security;
 drop policy if exists facture_frais_collaborateurs on public.facture_frais;
 create policy facture_frais_collaborateurs on public.facture_frais
  for all to authenticated
- using (exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau')))
- with check (exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau')));
+ using (exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau','comptable')))
+ with check (exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau','comptable')));
 grant select,insert,update,delete on public.facture_frais to authenticated;
 drop policy if exists factures_privees_collaborateurs on storage.objects;
 create policy factures_privees_collaborateurs on storage.objects
  for all to authenticated
- using (bucket_id='factures-privees' and exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau')))
- with check (bucket_id='factures-privees' and exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau')));
+ using (bucket_id='factures-privees' and exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau','comptable')))
+ with check (bucket_id='factures-privees' and exists(select 1 from public.utilisateurs u where u.id=(select auth.uid()) and u.actif=true and u.role in ('admin','conducteur','bureau','comptable')));
