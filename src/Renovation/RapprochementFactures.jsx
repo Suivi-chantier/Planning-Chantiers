@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { normaliserNumero, rapprocherFacture, verifierTotalFacture } from "./rapprochementFactures.mjs";
 import { supabase, photoTransform } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
@@ -11,7 +12,7 @@ const EDGE_ANALYSE_FACTURE =
   "https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-facture";
 
 // Tolérance d'écart de montant (remises, arrondis) avant de signaler un "écart"
-const TOLERANCE_ECART = 1.0;
+const TOLERANCE_ECART = 0.05;
 
 function toNum(v) {
   if (v == null || v === "") return null;
@@ -20,18 +21,16 @@ function toNum(v) {
 }
 
 // Normalisation pour l'appariement par numéro (trim, casse, espaces)
-const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "");
+const norm = (s) => normaliserNumero(s);
 
 async function uploadPhoto(file, pathPrefix) {
   try {
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
     const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const path = `${pathPrefix}/${safe}`;
-    const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+    const { error } = await supabase.storage.from("factures-privees").upload(path, file, { upsert: false });
     if (error) return { error: error.message || "Erreur upload" };
-    const { data } = supabase.storage.from("photos").getPublicUrl(path);
-    if (!data?.publicUrl) return { error: "URL publique introuvable" };
-    return { url: data.publicUrl };
+    return { path };
   } catch (e) {
     return { error: e.message || "Erreur réseau" };
   }
@@ -193,7 +192,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [fact, setFact] = useState({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-  const [bls, setBls] = useState([]); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
+  const [bls, setBls] = useState([]);
+  const [fichiers, setFichiers] = useState([]);
+  const [frais, setFrais] = useState([]);
+  const [extraction, setExtraction] = useState(null); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
   const fileCam = useRef(null);
   const fileGal = useRef(null);
 
@@ -275,32 +277,30 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
   // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
   // commande" mais portant le n° de BL doit quand même être retrouvée.
-  const matchBls = useCallback(async (blsList, fournisseurFacture) => {
-    const { data } = await supabase
-      .from("commandes")
-      .select("id, doc_numero, fournisseur_nom, montant_ht, statut_facturation")
-      .neq("statut_facturation", "facture")
-      .limit(2000);
-    const candidates = data || [];
-    return blsList.map(bl => {
-      const matches = candidates.filter(c => c.doc_numero && norm(c.doc_numero) === norm(bl.bl_numero));
-      let chosen = null;
-      if (matches.length === 1) chosen = matches[0];
-      else if (matches.length > 1) chosen = matches.find(c => norm(c.fournisseur_nom) === norm(fournisseurFacture)) || matches[0];
-      return {
-        bl_numero: bl.bl_numero || "",
-        montant_ht: bl.montant_ht != null ? String(bl.montant_ht) : "",
-        commande_id: chosen?.id || null,
-        commandeMontant: chosen?.montant_ht ?? null,
-        fournisseurCmd: chosen?.fournisseur_nom || "",
-        statut: chosen ? "rapproche" : "manquant",
-      };
+  const matchBls = useCallback(async (blsList, fournisseurFacture, dateFacture) => {
+    const { fournisseur: fournisseur } = matchFournisseur(fournisseurFacture, fournisseurs);
+    if (!fournisseur?.id) return blsList.map(b => ({ ...b, commande_id: null, statut: "manquant" }));
+    const { data, error } = await supabase.from("commandes")
+      .select("id, doc_numero, numero_commande_fournisseur, fournisseur_id, montant_ht, date_doc, statut_facturation, remplace_par_id")
+      .eq("fournisseur_id", fournisseur.id).eq("statut_facturation", "en_attente_facture").limit(3000);
+    if (error) throw error;
+    const result = rapprocherFacture({
+      fournisseurId: fournisseur.id, dateFacture,
+      livraisons: blsList.map(b => ({ ...b, date_livraison: b.date_livraison || dateFacture })),
+      documents: (data || []).map(d => ({ ...d, commande_numero: d.numero_commande_fournisseur })),
     });
-  }, []);
+    return result.rapprochements.map(r => ({
+      ...r.livraison, bl_numero: r.livraison.bl_numero || "",
+      montant_ht: r.livraison.montant_ht ?? "",
+      commande_id: r.document?.id || null, commandeMontant: r.document?.montant_ht ?? null,
+      statut: r.document ? (r.conforme ? "rapproche" : "ecart") : "manquant",
+      propositions: r.propositions || [], mode_rapprochement: r.mode,
+    }));
+  }, [fournisseurs]);
 
   const nouvelleFacture = () => {
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-    setBls([]); setPhotoUrl(""); setPhotos([]); setIaErr(""); setSaveErr("");
+    setBls([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
     setStep("capture");
   };
 
@@ -331,8 +331,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     ]);
 
     if (ups.status === "fulfilled") {
-      const firstUrl = ups.value.find(u => u?.url)?.url;
-      if (firstUrl) setPhotoUrl(firstUrl);
+      const paths = ups.value.filter(u => u?.path).map(u => u.path);
+      setFichiers(paths);
+      if (paths.length !== photos.length) setSaveErr("Une ou plusieurs pages n’ont pas pu être archivées. Réessaie avant de valider.");
     }
 
     if (ia.status === "fulfilled" && ia.value) {
@@ -345,7 +346,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         montant_ht: p.montant_ht != null ? String(p.montant_ht) : "",
       });
       const blsRaw = Array.isArray(p.bls) ? p.bls : [];
-      const matched = await matchBls(blsRaw, p.fournisseur || "");
+      setFrais(Array.isArray(p.frais) ? p.frais : []);
+      setExtraction(p);
+      const matched = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
       setBls(matched);
     } else {
       setIaErr((ia.status === "rejected" ? (ia.reason?.message || "Analyse impossible") : "Analyse impossible") + " — vérifie le document.");
@@ -383,21 +386,24 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     return "rapproche";
   };
 
-  const aucunManquant = bls.length > 0 && bls.every(b => blStatut(b) !== "manquant");
+  const aucunManquant = bls.every(b => blStatut(b) !== "manquant");
   const totalBl = bls.reduce((s, b) => s + (toNum(b.montant_ht) || 0), 0);
   const montantFacture = toNum(fact.montant_ht);
-  const ecartTotal = montantFacture != null ? montantFacture - totalBl : null;
+  const ecartTotal = montantFacture != null ? montantFacture - totalBl - frais.reduce((n, x) => n + (toNum(x.montant_ht) || 0), 0) : null;
 
   const confirmer = async () => {
-    if (!aucunManquant || saving) return;
+    if (saving || fichiers.length !== photos.length) return;
     setSaving(true); setSaveErr("");
 
     const fr = await resolveFourn();
     const { data: f, error: e1 } = await supabase.from("factures").insert({
       fournisseur_id: fr.id, fournisseur_nom: fr.nom, numero: fact.numero || null,
       date_facture: fact.date_facture || null, periode: fact.periode || null,
-      montant_ht: montantFacture, photo_url: photoUrl || null,
-      statut: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
+      montant_ht: montantFacture, photo_url: null, fichiers, extraction,
+      frais_ht: frais.reduce((n, x) => n + (toNum(x.montant_ht) || 0), 0),
+      montant_tva: toNum(extraction?.montant_tva), montant_ttc: toNum(extraction?.montant_ttc),
+      date_echeance: extraction?.date_echeance || null,
+      statut: "a_rapprocher", statut_rapprochement: aucunManquant ? "conforme" : "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
     }).select("id").single();
     if (e1 || !f) { setSaveErr("Erreur facture : " + (e1?.message || "inconnue")); setSaving(false); return; }
 
@@ -407,14 +413,21 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       const { error: eb } = await supabase.from("facture_bl").insert({
         facture_id: f.id, commande_id: b.commande_id || null,
         bl_numero: b.bl_numero || null, montant_ht: m, statut,
+        numero_commande_fournisseur: b.commande_numero || null,
+        date_livraison: b.date_livraison || null,
+        montant_commande_ht: b.commandeMontant,
+        ecart_ht: b.commandeMontant == null || m == null ? null : m - b.commandeMontant,
+        mode_rapprochement: b.mode_rapprochement || null,
       });
       if (eb) { setSaveErr("Erreur liaison BL : " + eb.message); setSaving(false); return; }
-      if (b.commande_id) {
+      if (b.commande_id && statut === "rapproche") {
         await supabase.from("commandes").update({ statut_facturation: "facture", facture_id: f.id }).eq("id", b.commande_id);
         await supabase.from("commande_lignes").update({ prix_verrouille: true }).eq("commande_id", b.commande_id);
       }
     }
-    await supabase.from("factures").update({ statut: "rapprochee" }).eq("id", f.id);
+    if (aucunManquant && bls.every(b => blStatut(b) === "rapproche")) {
+      await supabase.from("factures").update({ statut: "rapprochee", statut_rapprochement: "conforme" }).eq("id", f.id);
+    }
     setSaving(false);
     await loadHistorique();
     setStep("home");
