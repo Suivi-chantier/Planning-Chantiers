@@ -21,6 +21,8 @@ import {
   perimetrePolygone, longueursCotes, pointDansPoly, distancePointPolygone,
   cotesInterieures, traduireNomPiece, emprisesReleve, MSG_DXF_SANS_PIECES,
   decouperPdfImapper, extraireJpegsParPage, versionsDuPlan, ancrePiece, poleInaccessibilite,
+  geometrieOuverture, glisserOuverture, largeurOuverture, nouvelleOuverture, ouvertureSousPoint,
+  coteLePlusProche, traiterPointAValider, prochainCode,
 } from "../src/Renovation/releveImapper.mjs";
 import { dessinerReleve, miseEnPageEtiquettes } from "../src/Renovation/releveRendu.mjs";
 
@@ -48,7 +50,8 @@ test("le DXF R12 se lit : 6 pièces fermées, murs, points par scan", () => {
   assert.equal(R.murs.length, 37);
   assert.equal(R.source.projet, "00000");
   assert.equal(R.source.importe_le, "2026-10-15T10:00:00Z");
-  assert.equal(R.ouvertures, null, "lot 1 : ouvertures pas encore relevées (null, pas [])");
+  assert.ok(Array.isArray(R.ouvertures), "lot 2 : ouvertures détectées dès l'import");
+  assert.equal(assemblerReleve({ dxfTexte, pdfs, detecter: false }).releve.ouvertures, null, "sans détection : null, pas []");
 });
 
 test("aires 11,70 / 6,39 / 23,50 / 4,05 / 7,80 / 3,28 m² et périmètres des PDF au mm près", () => {
@@ -150,8 +153,9 @@ test("noms tronqués : table de traduction, inconnu laissé tel quel", () => {
 });
 
 // ── Métrés ─────────────────────────────────────────────────────────────────
-test("lot 1 : plinthes et murs nets NON calculés tant que les ouvertures manquent", () => {
-  const m = calculerMetres(R);
+test("plinthes et murs nets NON calculés tant que les ouvertures ne sont pas relevées", () => {
+  const R0 = { ...R, ouvertures: null };
+  const m = calculerMetres(R0);
   assert.equal(m.ouverturesConnues, false);
   for (const l of m.pieces) {
     assert.equal(l.plinthes, null);
@@ -165,7 +169,7 @@ test("lot 1 : plinthes et murs nets NON calculés tant que les ouvertures manque
   proche(m.total.perimetre, 72.42, 0.01, "total périmètre");
   proche(m.total.murs_bruts, 181.04, 0.02, "total murs bruts");
   assert.equal(texteMetre(m.total.murs_bruts, true), "≈ 181,04");
-  const pav = pointsAValider(R).map((x) => x.code);
+  const pav = pointsAValider(R0).map((x) => x.code);
   assert.ok(pav.includes("hsp_defaut") && pav.includes("scan_isole") && pav.includes("ouvertures_non_relevees"));
 });
 
@@ -239,7 +243,7 @@ function ctxEnregistreur() {
 
 test("rendu : sols puis murs, cotes en cm à l'intérieur, nom + surface", () => {
   const { ctx, ops } = ctxEnregistreur();
-  dessinerReleve(ctx, R, (x, y) => [x * 100, y * 100]);
+  dessinerReleve(ctx, { ...R, ouvertures: null }, (x, y) => [x * 100, y * 100]);
   const fills = ops.filter((o) => o[0] === "fill");
   assert.equal(fills.length, 6 + 37, "6 sols + 37 murs");
   assert.ok(fills.slice(0, 6).every((f) => f[2] !== "#3a4250") && fills.slice(6).every((f) => f[2] === "#3a4250"));
@@ -279,6 +283,126 @@ test("étiquettes : dans la pièce, au point le plus éloigné des murs, jamais 
   const L = [[0, 0], [4, 0], [4, 1], [1, 1], [1, 4], [0, 4]];
   const { point, rayon } = poleInaccessibilite(L);
   assert.ok(pointDansPoly(point, L) && rayon > 0.45, JSON.stringify({ point, rayon }));
+});
+
+// ── Lot 2 : ouvertures ─────────────────────────────────────────────────────
+// Tableau d'acceptation de la spécification, colonne « après géométrie seule »,
+// à ± 10 cm sur la largeur. Écart assumé : la porte palière (P6) et le placard
+// (PL), pris pour des fenêtres, sortent « à vérifier » et non « détectés » —
+// aucune vitre n'est vue derrière (règle ajoutée après le cas Montillers).
+const OUV_ATTENDUES = [
+  { code: "P1", type: "porte", cm: 75, entre: ["Chambre", "Salon"], statut: "detecte" },
+  { code: "P2", type: "porte", cm: 60, entre: ["Chambre", "Buanderie"], statut: "a_verifier" },
+  { code: "P3", type: "porte", cm: 80, entre: ["Cuisine", "Buanderie"], statut: "a_verifier" },
+  { code: "P4", type: "porte", cm: 70, entre: ["Cuisine", "Salle d'eau"], statut: "detecte" },
+  { code: "P5", type: "porte", cm: 80, entre: ["Cuisine", "Entrée"], statut: "a_verifier" },
+  { code: "P6", type: "fenetre", cm: 60, entre: ["Entrée"], statut: "a_verifier" },
+  { code: "PL", type: "fenetre", cm: 60, entre: ["Entrée"], statut: "a_verifier" },
+  { code: "P7", type: "porte", cm: 60, entre: ["Buanderie", "Salon"], statut: "a_verifier" },
+  { code: "B1", type: "porte", cm: 130, entre: ["Salon", "Entrée"], statut: "detecte" },
+  { code: "F1", type: "fenetre", cm: 125, entre: ["Chambre"], statut: "detecte" },
+  { code: "F3", type: "fenetre", cm: 145, entre: ["Salon"], statut: "detecte" },
+  { code: "F4", type: "fenetre", cm: 185, entre: ["Salon"], statut: "detecte" },
+];
+const nomsDe = (o) => (o.pieces_liees || [o.piece]).map((id) => R.pieces.find((p) => p.id === id).nom).sort().join("/");
+
+test("ouvertures (géométrie seule) : 11 des 12 réelles retrouvées, F2 absente, statuts du tableau", () => {
+  const restants = [...R.ouvertures];
+  for (const a of OUV_ATTENDUES) {
+    const i = restants.findIndex((o) => o.type === a.type && nomsDe(o) === [...a.entre].sort().join("/")
+      && Math.abs((o.t1 - o.t0) * 100 - a.cm) <= 10);
+    assert.ok(i >= 0, `${a.code} (${a.cm} cm, ${a.entre.join(" / ")}) non retrouvée`);
+    assert.equal(restants[i].statut, a.statut, `${a.code} : statut`);
+    restants.splice(i, 1);
+  }
+  // F2 (cuisine, 73 cm) : sa vitre a renvoyé des points, pas de fenêtre « détectée ».
+  assert.ok(!R.ouvertures.some((o) => nomsDe(o) === "Cuisine" && o.statut === "detecte"));
+  // Les faux candidats (mobilier, miroir, panneau de douche…) : tous « à vérifier ».
+  assert.ok(restants.length >= 5 && restants.length <= 10, `${restants.length} faux candidats`);
+  assert.ok(restants.every((o) => o.statut === "a_verifier"), JSON.stringify(restants.map((o) => [o.code, o.statut])));
+  // Chaque ouverture : un code unique, une épaisseur de mur ≥ 8 cm, charnière par défaut.
+  assert.equal(new Set(R.ouvertures.map((o) => o.code)).size, R.ouvertures.length);
+  assert.ok(R.ouvertures.every((o) => o.epaisseur >= 0.08 && o.sens.charniere === "t0"));
+});
+
+test("ouvertures : glisser, élargir, poser à la main ; les métrés suivent", () => {
+  const p1 = R.ouvertures.find((o) => nomsDe(o) === "Chambre/Salon" && o.statut === "detecte");
+  const g = geometrieOuverture(R, p1);
+  const w = p1.t1 - p1.t0;
+  // Glisser : même largeur, bornée au mur.
+  const d = glisserOuverture(R, p1, p1.t0 - 0.5);
+  proche(d.t1 - d.t0, w, 1e-6, "largeur conservée");
+  proche(glisserOuverture(R, p1, 99).t1, g.L, 1e-3, "bornée en fin de mur");
+  assert.equal(glisserOuverture(R, p1, -5).t0, 0);
+  // Élargir de 20 cm : plinthes −20 cm dans les deux pièces, murs nets −0,20 × 2,04.
+  const m0 = calculerMetres(R);
+  const R2 = { ...R, ouvertures: R.ouvertures.map((o) => (o.id === p1.id ? largeurOuverture(R, o, w + 0.2) : o)) };
+  const m1 = calculerMetres(R2);
+  for (const nom of ["Chambre", "Salon"]) {
+    const a = m0.pieces.find((l) => l.nom === nom), b = m1.pieces.find((l) => l.nom === nom);
+    proche(a.plinthes - b.plinthes, 0.2, 1e-3, `${nom} plinthes`);
+    proche(a.murs_nets - b.murs_nets, 0.2 * 2.04, 1e-3, `${nom} murs nets`);
+  }
+  // Poser à la main sur le mur Chambre/Salon : 83 cm, les deux pièces liées, « à vérifier ».
+  const ch = piece("Chambre");
+  const n = nouvelleOuverture(R, ch.id, p1.mur, 1.0, { id: "x1" });
+  proche(n.t1 - n.t0, 0.83, 1e-6, "largeur par défaut");
+  assert.deepEqual(n.pieces_liees.map((id) => R.pieces.find((p) => p.id === id).nom).sort(), ["Chambre", "Salon"]);
+  assert.equal(n.statut, "a_verifier");
+  // Sur un mur extérieur : seule la pièce.
+  const f = R.ouvertures.find((o) => o.type === "fenetre" && o.statut === "detecte" && nomsDe(o) === "Chambre");
+  assert.equal(nouvelleOuverture(R, ch.id, f.mur, 1.0).pieces_liees.length, 1);
+  // Clic sur une ouverture : elle ; à 1 m dans la pièce : aucune.
+  const milieu = [(g.p0[0] + g.p1[0]) / 2, (g.p0[1] + g.p1[1]) / 2];
+  assert.equal(ouvertureSousPoint(R, milieu, 0.05).id, p1.id);
+  assert.equal(ouvertureSousPoint(R, [milieu[0] + g.n[0], milieu[1] + g.n[1]], 0.05), null);
+  // Clic à 5 cm du mur dans la chambre : c'est ce côté de la chambre.
+  const cp = coteLePlusProche(R, [milieu[0] + g.n[0] * 0.05, milieu[1] + g.n[1] * 0.05]);
+  assert.ok(cp.piece === p1.piece && cp.k === p1.mur, JSON.stringify(cp));
+});
+
+test("ouverture ajoutée ou requalifiée : prochain code libre, les autres ne bougent pas", () => {
+  const nbP = R.ouvertures.filter((o) => /^P\d+$/.test(o.code)).length;
+  assert.equal(prochainCode(R.ouvertures, "porte"), `P${nbP}`.replace(/\d+$/, (d) => String(Math.max(...R.ouvertures.map((o) => Number(/^P(\d+)$/.exec(o.code)?.[1] || 0))) + 1)));
+  assert.equal(prochainCode(R.ouvertures, "baie"), "B1");
+  assert.equal(prochainCode([], "placard"), "PL1");
+});
+
+test("points à valider : ouvertures douteuses, hauteur, alertes ; confirmer et supprimer", () => {
+  const pav = pointsAValider(R);
+  const nbDouteuses = R.ouvertures.filter((o) => o.statut === "a_verifier").length;
+  assert.equal(pav.filter((x) => x.code === "ouverture_a_verifier").length, nbDouteuses);
+  assert.ok(pav.some((x) => x.code === "hsp_defaut") && pav.some((x) => x.code === "scan_isole"));
+  const o = pav.find((x) => x.code === "ouverture_a_verifier");
+  // Confirmer → validée, sort de la liste ; supprimer → retirée du relevé.
+  const Rc = traiterPointAValider(R, o, "confirmer");
+  assert.equal(Rc.ouvertures.find((x) => x.id === o.cible.id).statut, "valide");
+  assert.equal(pointsAValider(Rc).length, pav.length - 1);
+  const Rs = traiterPointAValider(R, o, "supprimer");
+  assert.ok(!Rs.ouvertures.some((x) => x.id === o.cible.id));
+  // Hauteur : confirmer → toutes mesurées, plus de « ≈ » sur les murs bruts.
+  const Rh = traiterPointAValider(R, pav.find((x) => x.code === "hsp_defaut"), "confirmer");
+  assert.ok(!pointsAValider(Rh).some((x) => x.code === "hsp_defaut"));
+  assert.ok(calculerMetres(Rh).pieces.every((l) => !l.approx.murs_bruts));
+  // Alerte : confirmer = vue (gardée), supprimer = retirée.
+  const al = pav.find((x) => x.code === "scan_isole");
+  assert.ok(traiterPointAValider(R, al, "confirmer").alertes.find((a) => a.code === "scan_isole").vue);
+  assert.ok(!traiterPointAValider(R, al, "supprimer").alertes.some((a) => a.code === "scan_isole"));
+  // Le relevé d'origine n'est jamais modifié (fonctions pures).
+  assert.equal(pointsAValider(R).length, pav.length);
+});
+
+test("rendu des ouvertures : mur effacé, symbole, code en pastille, masquées absentes", () => {
+  const { ctx, ops } = ctxEnregistreur();
+  dessinerReleve(ctx, R, (x, y) => [x * 100, y * 100]);
+  const textes = ops.filter((o) => o[0] === "fillText").map((o) => o[1][0]);
+  for (const o of R.ouvertures) assert.ok(textes.includes(o.code), `pastille ${o.code}`);
+  assert.equal(ops.filter((o) => o[0] === "fill" && o[2] === "#ffffff").length, R.ouvertures.length * 2, "trou + pastille par ouverture");
+  assert.ok(ops.filter((o) => o[0] === "arc").length >= R.ouvertures.filter((o) => o.type === "porte").length);
+  // Une ouverture masquée (faux positif) n'est pas dessinée.
+  const { ctx: c2, ops: o2 } = ctxEnregistreur();
+  dessinerReleve(c2, { ...R, ouvertures: R.ouvertures.map((o, i) => (i === 0 ? { ...o, masque: true } : o)) }, (x, y) => [x * 100, y * 100]);
+  assert.ok(!o2.filter((o) => o[0] === "fillText").map((o) => o[1][0]).includes(R.ouvertures[0].code));
 });
 
 // ── DXF à plusieurs versions du plan (plan automatique lancé plusieurs fois) ─
@@ -413,7 +537,8 @@ if (fs.existsSync(dossierMulti) && pdfjs) {
       assert.ok(R2.pieces.every((p) => p.pdf), `version ${v} : toutes les pièces ont leur page PDF`);
       assert.ok(R2.pieces.every((p) => p.photos.length === (p.scan ? 10 : 0)), `version ${v} : 10 photos par pièce scannée`);
       assert.ok(!R2.alertes.some((a) => /pdf_ambigu|pdf_sans_piece|photos_nombre/.test(a.code)), JSON.stringify(R2.alertes));
-      assert.ok(pointsAValider(R2).length <= 10, `version ${v} : ${pointsAValider(R2).length} points à valider`);
+      const horsOuv = pointsAValider(R2).filter((x) => x.code !== "ouverture_a_verifier").length;
+      assert.ok(horsOuv <= 10, `version ${v} : ${horsOuv} points à valider hors ouvertures`);
       for (const ech of [100, 40, 21]) {
         assert.equal(chevauchements(miseEnPageEtiquettes(R2.pieces, (x, y) => [x * ech, y * ech], mesurerApprox)), 0, `version ${v}, ${ech} px/m`);
       }
