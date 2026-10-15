@@ -215,6 +215,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [bls, setBls] = useState([]);
   const [fichiers, setFichiers] = useState([]);
   const [frais, setFrais] = useState([]);
+  const [absentsFacture, setAbsentsFacture] = useState([]);
   const [extraction, setExtraction] = useState(null); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
   const fileCam = useRef(null);
   const fileGal = useRef(null);
@@ -280,7 +281,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         (Array.isArray(data?.value) ? data.value : []).forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
         setChantiersMap(map);
       });
-    supabase.from("fournisseurs").select("id, nom").order("nom").then(({ data }) => setFournisseurs(data || []));
+    supabase.from("fournisseurs").select("id, nom, type_facturation, regles_numero, tolerance_ht").order("nom").then(({ data }) => setFournisseurs(data || []));
   }, []);
 
   // Rattache le fournisseur saisi à l'existant le plus proche, sinon le crée.
@@ -299,28 +300,28 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // commande" mais portant le n° de BL doit quand même être retrouvée.
   const matchBls = useCallback(async (blsList, fournisseurFacture, dateFacture) => {
     const { fournisseur: fournisseur } = matchFournisseur(fournisseurFacture, fournisseurs);
-    if (!fournisseur?.id) return blsList.map(b => ({ ...b, commande_id: null, statut: "manquant" }));
+    if (!fournisseur?.id) return { matched: blsList.map(b => ({ ...b, commande_id: null, statut: "manquant" })), missing: [] };
     const { data, error } = await supabase.from("commandes")
       .select("id, doc_numero, numero_commande_fournisseur, fournisseur_id, montant_ht, date_doc, statut_facturation, remplace_par_id")
       .eq("fournisseur_id", fournisseur.id).eq("statut_facturation", "en_attente_facture").limit(3000);
     if (error) throw error;
     const result = rapprocherFacture({
-      fournisseurId: fournisseur.id, dateFacture,
+      fournisseurId: fournisseur.id, dateFacture, regles: fournisseur.regles_numero || {}, toleranceHt: Number(fournisseur.tolerance_ht ?? 0.05),
       livraisons: blsList.map(b => ({ ...b, date_livraison: b.date_livraison || dateFacture })),
       documents: (data || []).map(d => ({ ...d, commande_numero: d.numero_commande_fournisseur })),
     });
-    return result.rapprochements.map(r => ({
+    return { matched: result.rapprochements.map(r => ({
       ...r.livraison, bl_numero: r.livraison.bl_numero || "",
       montant_ht: r.livraison.montant_ht ?? "",
       commande_id: r.document?.id || null, commandeMontant: r.document?.montant_ht ?? null,
       statut: r.document ? (r.conforme ? "rapproche" : "ecart") : "manquant",
       propositions: r.propositions || [], mode_rapprochement: r.mode,
-    }));
+    })), missing: fournisseur.type_facturation === "recapitulative" ? result.absentsFacture : [] };
   }, [fournisseurs]);
 
   const nouvelleFacture = () => {
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-    setBls([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
+    setBls([]); setAbsentsFacture([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
     setStep("capture");
   };
 
@@ -339,7 +340,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (!photos.length) return;
     setIaErr(""); setSaveErr("");
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-    setBls([]); setPhotoUrl("");
+    setBls([]); setAbsentsFacture([]); setPhotoUrl("");
     setStep("analyzing");
 
     const [ups, ia] = await Promise.allSettled([
@@ -369,8 +370,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       setFrais(Array.isArray(p.frais) ? p.frais : []);
       setExtraction(p);
       try {
-        const matched = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
+        const { matched, missing } = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
         setBls(matched);
+        setAbsentsFacture(missing);
       } catch (err) {
         setBls(blsRaw.map(b => ({ ...b, commande_id: null, statut: "manquant" })));
         setIaErr("Lecture réussie, mais rapprochement indisponible : " + err.message);
