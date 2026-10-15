@@ -323,6 +323,10 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
 export default function RapprochementFactures({ T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
   const [step, setStep] = useState("home"); // home | capture | analyzing | review
+  const [avoirFormVisible, setAvoirFormVisible] = useState(false);
+  const [avoirForm, setAvoirForm] = useState({fournisseur_id:"",numero:"",date:"",montant:"",origine:""});
+  const [avoirFormError, setAvoirFormError] = useState("");
+  const [avoirFormSaving, setAvoirFormSaving] = useState(false);
   const [historique, setHistorique] = useState([]); // factures + reçus/tickets comptant
   const [loadingHist, setLoadingHist] = useState(true);
   const [detail, setDetail] = useState(null);        // { kind, row } affiché dans la modale
@@ -650,6 +654,21 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     </div>
   );
 
+  const creerAvoir = async () => {
+    setAvoirFormSaving(true); setAvoirFormError("");
+    const {error}=await supabase.rpc("creer_avoir_fournisseur",{
+      p_fournisseur_id:avoirForm.fournisseur_id||null,
+      p_numero:avoirForm.numero,p_date:avoirForm.date||null,
+      p_montant_ht:Number(avoirForm.montant),
+      p_facture_origine_id:avoirForm.origine||null,
+    });
+    setAvoirFormSaving(false);
+    if(error){setAvoirFormError(error.message);return;}
+    setAvoirFormVisible(false);
+    setAvoirForm({fournisseur_id:"",numero:"",date:"",montant:"",origine:""});
+    await loadHistorique();
+  };
+
   // ════════════ ACCUEIL ════════════
   if (step === "home") {
     const q = recherche.trim().toLowerCase();
@@ -687,6 +706,21 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
           <Icon as={Receipt} size={20} strokeWidth={2.2} /> Nouvelle facture
         </button>
 
+        <button onClick={()=>setAvoirFormVisible(v=>!v)} style={{padding:"10px 14px",marginBottom:12,cursor:"pointer"}}>{avoirFormVisible?"Fermer":"Créer un avoir fournisseur"}</button>
+        {avoirFormVisible && <div style={{...card,marginBottom:14}}>
+          <strong>Nouvel avoir fournisseur</strong>
+          <p style={{fontSize:12,color:T.textSub}}>Saisir le montant HT en négatif. Aucun coût chantier ne change avant ventilation et clôture de l'avoir.</p>
+          <select value={avoirForm.fournisseur_id} onChange={e=>setAvoirForm(f=>({...f,fournisseur_id:e.target.value,origine:""}))} style={{...inputStyle,marginBottom:8}}>
+            <option value="">Choisir le fournisseur</option>
+            {fournisseurs.map(f=><option key={f.id} value={f.id}>{f.nom}</option>)}
+          </select>
+          <input style={{...inputStyle,marginBottom:8}} placeholder="Numéro de l'avoir" value={avoirForm.numero} onChange={e=>setAvoirForm(f=>({...f,numero:e.target.value}))}/>
+          <input type="date" style={{...inputStyle,marginBottom:8}} value={avoirForm.date} onChange={e=>setAvoirForm(f=>({...f,date:e.target.value}))}/>
+          <input type="number" step="0.01" max="-0.01" style={{...inputStyle,marginBottom:8}} placeholder="Montant HT négatif" value={avoirForm.montant} onChange={e=>setAvoirForm(f=>({...f,montant:e.target.value}))}/>
+          <input style={{...inputStyle,marginBottom:8}} placeholder="Identifiant facture d'origine (facultatif)" value={avoirForm.origine} onChange={e=>setAvoirForm(f=>({...f,origine:e.target.value}))}/>
+          <button disabled={avoirFormSaving||!avoirForm.fournisseur_id||!avoirForm.numero.trim()||!avoirForm.date||!(Number(avoirForm.montant)<0)} onClick={creerAvoir} style={{...btnPrimary(false)}}>Enregistrer l'avoir</button>
+          {avoirFormError&&<p style={{color:SEMANTIC.danger.color}}>{avoirFormError}</p>}
+        </div>}
         {/* Recherche */}
         <div style={{ position: "relative", marginBottom: SPACING.md }}>
           <Icon as={Search} size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: T.textSub, pointerEvents: "none" }} />
