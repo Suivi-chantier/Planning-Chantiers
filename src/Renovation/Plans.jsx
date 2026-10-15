@@ -14,6 +14,8 @@ import {
   pointsAValider, emprisesReleve, appliquerCheminsPhotos, detecterOuvertures, ouvertureSousPoint,
   abscisseSurMur, glisserOuverture, coteLePlusProche, nouvelleOuverture, prochainCode,
   traiterPointAValider, geometrieOuverture, pointDansPoly as pointDansPolyReleve,
+  piecesAnalysables, budgetIARestant, contexteAnalysePhotos, integrerAnalysePhotos, noterEchecAnalyse,
+  appliquerCheminsIA, PLAFOND_IA_RELEVE_EUR, ESTIMATION_IA_PIECE_EUR,
 } from "./releveImapper";
 import { PanneauMetresReleve, PanneauPieceReleve, PanneauOuvertureReleve } from "./PanneauxReleve";
 import { urlDocumentChantier } from "./storageChantier";
@@ -2271,7 +2273,74 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     modifierReleve(r => traiterPointAValider(r, point, action));
   };
 
+  // ── Analyse des photos par l'IA (lot 3) ───────────────────────────────────
+  // Trois pièces à la fois ; chaque réponse s'intègre dès qu'elle arrive (le
+  // plan s'affiche d'abord, statuts et observations se complètent ensuite).
+  // Plafond par relevé (2,50 €, décision du 15/10/2026) : on ne lance pas une
+  // pièce qui risquerait de le dépasser, d'après les coûts réellement renvoyés.
+  // Un seul point d'historique : Ctrl+Z annule toute l'analyse.
+  const [analyseIA, setAnalyseIA] = useState(null);
+  const analyseEnCoursRef = useRef(false);
+  const lancerAnalyseIA = async (pieceIds) => {
+    const R0 = releveRef.current;
+    if (analyseEnCoursRef.current || !R0) return;
+    const cibles = (pieceIds || piecesAnalysables(R0).map(p => p.id))
+      .filter(id => piecesAnalysables(R0).some(p => p.id === id));
+    const f2 = (n) => (Number(n) || 0).toFixed(2).replace('.', ',');
+    if (!cibles.length) { alert("Aucune photo de ces pièces n'est rangée dans le stockage : rien à analyser."); return; }
+    const budget = budgetIARestant(R0);
+    if (budget < ESTIMATION_IA_PIECE_EUR) {
+      alert(`Plafond de ${f2(PLAFOND_IA_RELEVE_EUR)} € d'analyse IA atteint pour ce relevé (${f2(R0.ia_cout_total)} € consommés).`);
+      return;
+    }
+    if (!window.confirm(`Analyser les photos de ${cibles.length} pièce${cibles.length > 1 ? 's' : ''} par l'IA ?\n\n`
+      + `Coût estimé : ≈ ${f2(cibles.length * ESTIMATION_IA_PIECE_EUR)} € (plafond ${f2(PLAFOND_IA_RELEVE_EUR)} € par relevé, ${f2(budget)} € restants).\n`
+      + `Les résultats sont des propositions : l'IA ne mesure rien, tout reste à valider.`)) return;
+    analyseEnCoursRef.current = true;
+    pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+    const mod = await import('./releveAnalyseIA');
+    const prefixe = mod.prefixeReleve(plan);
+    const file = [...cibles];
+    let fait = 0, cout = 0, echecs = 0, arrete = null, enCours = 0;
+    const depart = Number(R0.ia_cout_total) || 0;
+    setAnalyseIA({ fait, total: cibles.length, cout });
+    const travail = async () => {
+      while (file.length && !arrete) {
+        if (depart + cout + (enCours + 1) * ESTIMATION_IA_PIECE_EUR > PLAFOND_IA_RELEVE_EUR) {
+          arrete = `plafond de ${f2(PLAFOND_IA_RELEVE_EUR)} € par relevé`; break;
+        }
+        const pieceId = file.shift();
+        enCours++;
+        const date = new Date().toISOString();
+        try {
+          const piece = releveRef.current.pieces.find(p => p.id === pieceId);
+          const chemins = await mod.preparerPhotosIA(piece, prefixe);
+          const ctx = contexteAnalysePhotos(appliquerCheminsIA(releveRef.current, chemins), pieceId);
+          const rep = await mod.analyserPiece(
+            { plan_id: plan.id, piece: ctx },
+            { chantier_id: plan.chantier_id || null, branche: 'renovation', entite_type: 'plan', entite_id: plan.id },
+          );
+          cout += Number(rep.cout_eur) || 0;
+          setReleve(r => r && integrerAnalysePhotos(appliquerCheminsIA(r, chemins), pieceId, rep.resultat,
+            { job_id: rep.job_id, cout_eur: rep.cout_eur, date }));
+        } catch (e) {
+          echecs++;
+          setReleve(r => r && noterEchecAnalyse(r, pieceId, e.message, { date }));
+          if (['quota_depasse', 'credit_ia_epuise', 'non_authentifie', 'non_autorise'].includes(e.code)
+            || /coupe-circuit/.test(e.message)) arrete = e.message;
+        }
+        enCours--;
+        fait++;
+        setAnalyseIA(a => ({ ...(a || {}), fait, cout }));
+      }
+    };
+    await Promise.all([travail(), travail(), travail()]);
+    analyseEnCoursRef.current = false;
+    setAnalyseIA({ fait, total: cibles.length, cout, fini: true, echecs, arrete });
+  };
+
   const quitterEditeur = () => {
+    if (analyseEnCoursRef.current && !window.confirm("L'analyse des photos par l'IA est en cours : les pièces pas encore traitées ne le seront pas. Quitter quand même ?")) return;
     if (envoiEnCoursRef.current && !window.confirm("Des photos du relevé sont en cours d'envoi. Si vous quittez maintenant, celles qui ne sont pas parties ne seront pas rattachées au plan. Quitter quand même ?")) return;
     onClose();
   };
@@ -2559,6 +2628,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             </button>
           );
         })()}
+        {analyseIA&&!analyseIA.fini&&(
+          <span style={{fontSize:11,fontWeight:700,whiteSpace:'nowrap',color:'#c8a0ff'}}>
+            Analyse IA {analyseIA.fait}/{analyseIA.total} · {(analyseIA.cout||0).toFixed(2).replace('.',',')} €…
+          </span>
+        )}
         {envoiReleve&&(
           <span title={envoiReleve.raison||''} style={{fontSize:11,fontWeight:700,whiteSpace:'nowrap',
             color:envoiReleve.echecs?'#ff8a8a':'#a0b8ff'}}>
@@ -3098,7 +3172,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           <PanneauPieceReleve releve={releve} pieceId={selReleve.id} modifier={modifierReleve}
             onClose={()=>{ setSelReleve(null); setMurSurligne(null); }}
             onSelection={(c)=>{ setSelReleve(c); setMurSurligne(null); }}
-            setMurSurligne={setMurSurligne} urls={urlsPhotos} demanderUrls={demanderUrls}/>
+            setMurSurligne={setMurSurligne} urls={urlsPhotos} demanderUrls={demanderUrls}
+            onAnalyser={lancerAnalyseIA} analyseEnCours={!!analyseIA && !analyseIA.fini}/>
         )}
         {releve&&selReleve?.type==='ouverture'&&(
           <PanneauOuvertureReleve releve={releve} ouvertureId={selReleve.id} modifier={modifierReleve}
@@ -3106,7 +3181,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         )}
         {releve&&!selReleve&&showMetres&&(
           <PanneauMetresReleve releve={releve} onglet={ongletMetres} setOnglet={setOngletMetres}
-            onClose={()=>setShowMetres(false)} onPoint={onPointAValider} urls={urlsPhotos} demanderUrls={demanderUrls}/>
+            onClose={()=>setShowMetres(false)} onPoint={onPointAValider} urls={urlsPhotos} demanderUrls={demanderUrls}
+            onAnalyser={lancerAnalyseIA} etatIA={analyseIA}/>
         )}
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',

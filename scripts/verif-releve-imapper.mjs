@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import {
   lireDXF, releveDepuisDXF, assemblerReleve, lirePdfImapper, extraireJpegsPdf,
   rattacherPhotosMurs, calculerMetres, texteMetre, pointsAValider, airePolygone,
@@ -23,6 +24,8 @@ import {
   decouperPdfImapper, extraireJpegsParPage, versionsDuPlan, ancrePiece, poleInaccessibilite,
   geometrieOuverture, glisserOuverture, largeurOuverture, nouvelleOuverture, ouvertureSousPoint,
   coteLePlusProche, traiterPointAValider, prochainCode,
+  contexteAnalysePhotos, integrerAnalysePhotos, noterEchecAnalyse, appliquerCheminsIA, placerOuverture,
+  budgetIARestant, PLAFOND_IA_RELEVE_EUR,
 } from "../src/Renovation/releveImapper.mjs";
 import { dessinerReleve, miseEnPageEtiquettes } from "../src/Renovation/releveRendu.mjs";
 
@@ -403,6 +406,144 @@ test("rendu des ouvertures : mur effacé, symbole, code en pastille, masquées a
   const { ctx: c2, ops: o2 } = ctxEnregistreur();
   dessinerReleve(c2, { ...R, ouvertures: R.ouvertures.map((o, i) => (i === 0 ? { ...o, masque: true } : o)) }, (x, y) => [x * 100, y * 100]);
   assert.ok(!o2.filter((o) => o[0] === "fillText").map((o) => o[1][0]).includes(R.ouvertures[0].code));
+});
+
+// ── Lot 3 : analyse des photos par l'IA ────────────────────────────────────
+// Le modèle n'est pas appelé ici (pas de clé, et ce serait payant) : on vérifie
+// ce qu'on lui envoie, ce qu'on accepte de lui, et ce qu'on fait de ses
+// verdicts. Les réponses de l'IA ci-dessous sont des exemples issus des tests,
+// données fictives.
+const require_ = createRequire(import.meta.url);
+const tacheIA = require_("../api/_ia/taches/releve_photos.js");
+const PLAN = "0b1c2d3e-0000-4000-8000-000000000001";
+const avecChemins = (Rx) => ({
+  ...Rx,
+  pieces: Rx.pieces.map((p) => ({ ...p, photos: p.photos.map((ph) => ({ ...ph, chemin: `chantier-x/plans/${PLAN}/releve/photos/${p.scan}_${ph.num}.jpg` })) })),
+});
+const RP = avecChemins(R);
+
+test("IA — ce qu'on envoie : résumé de la pièce, chemins du plan, aucune image", () => {
+  const ch = piece("Chambre");
+  const ctx = contexteAnalysePhotos(RP, ch.id);
+  assert.equal(ctx.photos.length, 10);
+  assert.equal(ctx.murs.length, ch.polygone.length);
+  assert.ok(ctx.ouvertures.length >= 3 && ctx.ouvertures.every((o) => o.ref && o.code));
+  assert.ok(JSON.stringify(ctx).length < 5000, "entrée journalisée : quelques Ko");
+  assert.ok(!/base64|data:image/.test(JSON.stringify(ctx)));
+  // Photo réduite disponible : c'est elle qui part.
+  const R8 = appliquerCheminsIA(RP, { [`${ch.id}#1`]: `chantier-x/plans/${PLAN}/releve/photos_ia/a.jpg` });
+  assert.match(contexteAnalysePhotos(R8, ch.id).photos.find((p) => p.num === 1).chemin, /photos_ia/);
+  // Entrée acceptée ; chemin hors du relevé de ce plan refusé.
+  assert.equal(tacheIA.schema_entree({ plan_id: PLAN, piece: ctx }), true);
+  const pirate = { ...ctx, photos: [{ num: 1, mur: 0, chemin: "autre-chantier/plans/zzz/releve/x.jpg" }] };
+  assert.notEqual(tacheIA.schema_entree({ plan_id: PLAN, piece: pirate }), true);
+  assert.notEqual(tacheIA.schema_entree({ plan_id: PLAN, piece: { ...ctx, photos: [{ num: 1, chemin: `x/plans/${PLAN}/releve/../../y.jpg` }] } }), true);
+  // Le modèle reçoit les consignes : jamais de dimension, verdicts, alertes sécurité.
+  assert.match(tacheIA._internes.CONSIGNE, /Ne donne JAMAIS de dimension/);
+  assert.deepEqual(tacheIA.roles, ["admin", "conducteur"]);
+  assert.equal(tacheIA.sensible, true);
+});
+
+test("IA — réponse refusée si elle contient une dimension, une ref inconnue ou un mur hors pièce", () => {
+  const ch = piece("Chambre");
+  const ctx = contexteAnalysePhotos(RP, ch.id);
+  const entree = { plan_id: PLAN, piece: ctx };
+  const ref = ctx.ouvertures[0].ref;
+  const ok = { type_piece: "chambre", ouvertures: [{ ref, verdict: "confirme", type: null, photos: [1], confiance: 0.9 }],
+    equipements: [{ type: "radiateur", mur: 1, photos: [4] }], revetements: [{ zone: "sol", description: "parquet bois" }],
+    alertes: [], observations: ["Murs blancs en bon état apparent", "2 murs masqués par du mobilier"] };
+  assert.equal(tacheIA.schema_sortie(ok, entree), true, "« 2 murs » n'est pas une dimension");
+  const avec = (o) => tacheIA.schema_sortie({ ...ok, ...o }, entree);
+  assert.notEqual(avec({ observations: ["Porte de 80 cm vers le salon"] }), true);
+  assert.notEqual(avec({ observations: ["Hauteur sous plafond d'environ 2,8 m"] }), true);
+  assert.notEqual(avec({ revetements: [{ zone: "sol", description: "parquet sur 12 m²" }] }), true);
+  assert.notEqual(avec({ ouvertures: [{ ref: "inconnue", verdict: "confirme", photos: [1] }] }), true);
+  assert.notEqual(avec({ ouvertures: [{ ref: null, mur: 99, verdict: "nouvelle", type: "fenetre", photos: [1] }] }), true);
+  assert.notEqual(avec({ ouvertures: [{ ref, verdict: "requalifie", photos: [1] }] }), true, "requalifier sans type");
+  assert.notEqual(avec({ alertes: [{ texte: "Câblage apparent", gravite: "haute", photos: [42] }] }), true, "photo inexistante");
+});
+
+test("IA — verdicts intégrés : confirmé, requalifié, écarté, incertain, nouvelle (exemple fictif)", () => {
+  const nom = (o) => nomsDe(o);
+  const porteUnCote = R.ouvertures.find((o) => nom(o) === "Buanderie/Chambre" && o.statut === "a_verifier");
+  const palier = R.ouvertures.find((o) => nom(o) === "Entrée" && o.type === "fenetre");
+  const mobilier = R.ouvertures.find((o) => nom(o) === "Chambre" && o.statut === "a_verifier");
+  const douteuse = R.ouvertures.find((o) => nom(o) === "Buanderie/Salon");
+  const cuisine = piece("Cuisine");
+  const kCourt = longueursCotes(cuisine.polygone).findIndex((l) => Math.abs(l - 0.83) < 0.01);
+  const kLong = longueursCotes(cuisine.polygone).findIndex((l) => l > 3);
+  assert.ok(porteUnCote && palier && mobilier && douteuse && kCourt >= 0 && kLong >= 0);
+
+  let Rx = { ...R, ouvertures: R.ouvertures.map((o) => (o.id === douteuse.id ? { ...o, statut: "valide" } : o)) };
+  const m0 = calculerMetres(Rx);
+  Rx = integrerAnalysePhotos(Rx, piece("Chambre").id, {
+    ouvertures: [
+      { ref: porteUnCote.id, verdict: "confirme", photos: [4], confiance: 0.9 },
+      { ref: mobilier.id, verdict: "faux_positif", photos: [2], confiance: 0.8 },
+    ],
+    alertes: [], observations: ["Parquet bois"],
+  }, { job_id: "j1", cout_eur: 0.05, date: "2026-10-15T10:00:00Z" });
+  Rx = integrerAnalysePhotos(Rx, piece("Entrée").id, {
+    type_piece: "entree",
+    ouvertures: [{ ref: palier.id, verdict: "requalifie", type: "porte", photos: [1, 2], confiance: 0.85 }],
+    alertes: [{ texte: "Placard technique avec câblage apparent, probablement le tableau électrique", gravite: "haute", photos: [3] }],
+    observations: [],
+  }, { job_id: "j2", cout_eur: 0.04 });
+  Rx = integrerAnalysePhotos(Rx, cuisine.id, {
+    ouvertures: [
+      { ref: null, mur: kCourt, verdict: "nouvelle", type: "fenetre", photos: [7], confiance: 0.7 },
+      { ref: null, mur: kLong, verdict: "nouvelle", type: "porte", photos: [9], confiance: 0.4 },
+    ],
+    alertes: [{ texte: "Vitre cassée sur la fenêtre", gravite: "haute", photos: [7] }],
+    observations: ["Évier inox double bac sous la fenêtre"],
+  }, { job_id: "j3", cout_eur: 0.06 });
+  Rx = integrerAnalysePhotos(Rx, piece("Salon").id, {
+    ouvertures: [{ ref: douteuse.id, verdict: "faux_positif", photos: [5], confiance: 0.6 }], alertes: [], observations: [],
+  }, { job_id: "j4", cout_eur: 0.05 });
+
+  const o = (id) => Rx.ouvertures.find((x) => x.id === id);
+  assert.equal(o(porteUnCote.id).statut, "confirme_photo");
+  assert.equal(o(mobilier.id).masque, true, "écartée mais conservée");
+  assert.equal(o(palier.id).type, "porte");
+  assert.match(o(palier.id).code, /^P\d+$/);
+  assert.equal(o(palier.id).statut, "confirme_photo");
+  // Décision du bureau conservée : le verdict est seulement noté.
+  assert.equal(o(douteuse.id).statut, "valide");
+  assert.equal(o(douteuse.id).masque, false);
+  assert.equal(o(douteuse.id).ia.verdict, "faux_positif");
+  // Nouvelle sur l'ébrasement de 83 cm : le mur moins 5 cm à chaque bout = 73 cm (F2 du prototype).
+  const f2 = Rx.ouvertures.find((x) => x.piece === cuisine.id && x.mur === kCourt && x.origine === "ia");
+  proche((f2.t1 - f2.t0) * 100, 73, 1, "F2 occupe l'ébrasement");
+  assert.equal(f2.statut, "a_verifier");
+  // Nouvelle sur un long mur : position inconnue, ni dessinée ni déduite, et le métré le dit (≈).
+  const aPlacer = Rx.ouvertures.find((x) => x.piece === cuisine.id && x.mur === kLong && x.origine === "ia");
+  assert.equal(aPlacer.t0, null);
+  assert.equal(geometrieOuverture(Rx, aPlacer), null);
+  assert.ok(pointsAValider(Rx).some((p) => p.code === "ouverture_a_placer" && p.cible.id === aPlacer.id));
+  const mc = calculerMetres(Rx).pieces.find((l) => l.nom === "Cuisine");
+  assert.equal(mc.approx.plinthes, true);
+  const place = placerOuverture(Rx, aPlacer);
+  proche(place.t1 - place.t0, 0.83, 1e-6, "placée à la largeur par défaut d'une porte");
+  assert.equal(place.statut, "a_verifier");
+  // L'ouverture écartée ne compte plus dans les métrés de la chambre.
+  const lch0 = m0.pieces.find((l) => l.nom === "Chambre"), lch1 = calculerMetres(Rx).pieces.find((l) => l.nom === "Chambre");
+  proche(lch1.murs_nets - lch0.murs_nets, (mobilier.t1 - mobilier.t0) * 1.45, 1e-6, "fenêtre écartée rendue aux murs");
+  // Alertes (vitre cassée, placard technique) dans les points à valider ; observations « proposées ».
+  const pav = pointsAValider(Rx).map((p) => p.texte).join(" | ");
+  assert.match(pav, /Vitre cassée/);
+  assert.match(pav, /câblage apparent/);
+  assert.ok(Rx.pieces.find((p) => p.id === cuisine.id).observations.every((ob) => ob.statut === "propose" && ob.source === "ia"));
+  // Coût cumulé du relevé et budget restant.
+  proche(Rx.ia_cout_total, 0.2, 1e-9, "coût cumulé");
+  proche(budgetIARestant(Rx), PLAFOND_IA_RELEVE_EUR - 0.2, 1e-9, "budget restant");
+  // Relancer l'analyse d'une pièce remplace ses alertes et observations IA, sans les empiler.
+  const Ry = integrerAnalysePhotos(Rx, cuisine.id, { ouvertures: [], alertes: [], observations: ["Faïence blanche"] }, { cout_eur: 0.05 });
+  assert.ok(!pointsAValider(Ry).some((p) => /Vitre cassée/.test(p.texte)));
+  assert.deepEqual(Ry.pieces.find((p) => p.id === cuisine.id).observations.map((ob) => ob.texte), ["Faïence blanche"]);
+  // Échec d'une pièce : visible sur la pièce, rien d'autre ne bouge.
+  const Re = noterEchecAnalyse(Rx, cuisine.id, "Modèle indisponible");
+  assert.equal(Re.pieces.find((p) => p.id === cuisine.id).analyse_ia.statut, "erreur");
+  assert.deepEqual(Re.ouvertures, Rx.ouvertures);
 });
 
 // ── DXF à plusieurs versions du plan (plan automatique lancé plusieurs fois) ─
