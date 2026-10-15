@@ -442,10 +442,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     }).select("id").single();
     if (e1 || !f) { setSaveErr("Erreur facture : " + (e1?.message || "inconnue")); setSaving(false); return; }
 
-    for (const b of bls) {
+    const liens = bls.map(b => {
       const m = toNum(b.montant_ht);
       const statut = blStatut(b);
-      const { error: eb } = await supabase.from("facture_bl").insert({
+      return {
         facture_id: f.id, commande_id: b.commande_id || null,
         bl_numero: b.bl_numero || null, montant_ht: m, statut,
         numero_commande_fournisseur: b.commande_numero || null,
@@ -453,10 +453,11 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         montant_commande_ht: b.commandeMontant,
         ecart_ht: b.commandeMontant == null || m == null ? null : m - b.commandeMontant,
         mode_rapprochement: b.mode_rapprochement || null,
-      });
-      if (eb) { setSaveErr("Erreur liaison BL : " + eb.message); setSaving(false); return; }
-      // Les écritures de coûts et le verrouillage restent suspendus :
-      // aucune mutation comptable partielle sans validation transactionnelle côté serveur.
+      };
+    });
+    if (liens.length) {
+      const { error: eb } = await supabase.from("facture_bl").insert(liens);
+      if (eb) { setSaveErr("Facture enregistrée, mais liaisons BL non sauvées : " + eb.message); setSaving(false); return; }
     }
     if (frais.length) {
       const { error: fraisErr } = await supabase.from("facture_frais").insert(frais.map(x => ({ facture_id: f.id, libelle: x.libelle || "Frais", montant_ht: toNum(x.montant_ht) || 0 })));
