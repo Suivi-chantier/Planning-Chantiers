@@ -112,6 +112,13 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
     if (error) { setValidationError(error.message); return; }
     await chargerLignes();
   };
+  const contesterEcart = async (id) => {
+    setValidationError(""); setResolvingId(id);
+    const { error } = await supabase.rpc("contester_ecart_facture_bl", { p_ligne_id: id, p_justification: motifs[id] || "" });
+    setResolvingId(null);
+    if (error) { setValidationError(error.message); return; }
+    await chargerLignes();
+  };
   const accepterEcart = async (id) => {
     setValidationError(""); setResolvingId(id);
     const { error } = await supabase.rpc("resoudre_ecart_facture_bl", { p_ligne_id: id, p_justification: motifs[id] || "" });
@@ -211,12 +218,14 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                       <span style={{ fontSize: FONT.sm.size, color: T.text }}>BL n° {b.bl_numero || "?"}</span>
                       <span style={{ fontSize: FONT.sm.size, color: T.textSub }}>{b.montant_ht != null ? `${fmtEur(b.montant_ht)} €` : "—"}</span>
                       <span style={{ fontSize: 10, fontWeight: 800, color: sem.color }}>{b.statut}</span>
+                      {b.resolution === "conteste" && <span style={{ fontSize: 11, color: SEMANTIC.warning.color }}>Litige ouvert</span>}
                       {b.resolution === "accepte" && <span style={{ fontSize: 11, color: SEMANTIC.success.color }}>Écart accepté</span>}
                       {c.statut === "a_rapprocher" && b.statut === "ecart" && b.commande_id && b.resolution !== "accepte" && (
                         <div style={{ width: "100%", marginTop: 8 }}>
                           <div style={{ fontSize: 12, color: T.textSub }}>Écart HT : {b.ecart_ht == null ? "inconnu" : fmtEur(b.ecart_ht) + " €"} · achat : {b.montant_commande_ht == null ? "?" : fmtEur(b.montant_commande_ht) + " €"}</div>
                           <textarea placeholder="Justification de l'acceptation (12 caractères minimum)" value={motifs[b.id] || ""} onChange={e => setMotifs(prev => ({ ...prev, [b.id]: e.target.value }))} rows={2} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, borderRadius: 6, padding: 8, background: T.bg, color: T.text, border: `1px solid ${T.border}` }} />
-                          <button onClick={() => accepterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", marginTop: 6, cursor: "pointer" }}>Accepter cet écart avec justification</button>
+                          <button onClick={() => accepterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", marginTop: 6, cursor: "pointer" }}>Accepter cet écart</button>
+                        <button onClick={() => contesterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", margin: "6px 0 0 8px", cursor: "pointer" }}>Contester / ouvrir un litige</button>
                         </div>
                       )}
 
