@@ -307,6 +307,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (error) throw error;
     const result = rapprocherFacture({
       fournisseurId: fournisseur.id, dateFacture, regles: fournisseur.regles_numero || {}, toleranceHt: Number(fournisseur.tolerance_ht ?? 0.05),
+      periodeDebut: dateFacture ? new Date(Date.UTC(Number(dateFacture.slice(0,4)), Number(dateFacture.slice(5,7))-1, -2)).toISOString().slice(0,10) : undefined,
+      periodeFin: dateFacture || undefined,
       livraisons: blsList.map(b => ({ ...b, date_livraison: b.date_livraison || dateFacture })),
       documents: (data || []).map(d => ({ ...d, commande_numero: d.numero_commande_fournisseur })),
     });
