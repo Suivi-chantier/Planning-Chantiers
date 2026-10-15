@@ -214,7 +214,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                 ) : blLignes.map((b, i) => {
                   const sem = b.statut === "rapproche" ? SEMANTIC.success : b.statut === "ecart" ? SEMANTIC.warning : SEMANTIC.danger;
                   return (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div key={i} style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
                       <span style={{ fontSize: FONT.sm.size, color: T.text }}>BL n° {b.bl_numero || "?"}</span>
                       <span style={{ fontSize: FONT.sm.size, color: T.textSub }}>{b.montant_ht != null ? `${fmtEur(b.montant_ht)} €` : "—"}</span>
                       <span style={{ fontSize: 10, fontWeight: 800, color: sem.color }}>{b.statut}</span>
