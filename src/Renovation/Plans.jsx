@@ -2339,6 +2339,32 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setAnalyseIA({ fait, total: cibles.length, cout, fini: true, echecs, arrete });
   };
 
+  // ── Dossier PDF du relevé (lot 4) ──────────────────────────────────────────
+  // La fenêtre s'ouvre tout de suite (dans le geste du clic), puis se remplit
+  // une fois obtenus les liens temporaires (URL signées) des photos privées.
+  const imprimerDossierReleve = async () => {
+    const R = releveRef.current;
+    if (!R) return;
+    // Ouverte AVANT tout await : après, le navigateur la bloquerait.
+    const w = window.open('', '_blank', 'width=1200,height=850');
+    if (!w) { alert("La fenêtre d'impression a été bloquée. Autorisez les fenêtres pour ce site."); return; }
+    w.document.write('<p style="font-family:Arial,sans-serif;padding:24px;font-size:15px;">Préparation du dossier du relevé…</p>');
+    const mod = await import('./releveDossierPdf');
+    const chemins = [...new Set(R.pieces.flatMap(p => (p.photos || []).map(ph => ph.chemin).filter(Boolean)))];
+    const paires = await Promise.all(chemins.map(async c => [c, await urlDocumentChantier(c, 1800)]));
+    const chantier = chantiers?.find(c => c.id === plan.chantier_id);
+    const html = mod.construireDossierReleveHTML({
+      data: {
+        segments: segmentsRef.current, symbols: symbolsRef.current,
+        cotes: cotesRef.current, surfaces: surfacesRef.current,
+        planRotation: planRotRef.current, releve: R,
+      },
+      nom: plan.name || 'Plan', chantier: chantier?.nom || '',
+      urlsPhotos: Object.fromEntries(paires.filter(([, u]) => u)),
+    });
+    mod.remplirFenetreDossier(w, html, `${plan.name || 'Plan'} - relevé de l'existant`);
+  };
+
   const quitterEditeur = () => {
     if (analyseEnCoursRef.current && !window.confirm("L'analyse des photos par l'IA est en cours : les pièces pas encore traitées ne le seront pas. Quitter quand même ?")) return;
     if (envoiEnCoursRef.current && !window.confirm("Des photos du relevé sont en cours d'envoi. Si vous quittez maintenant, celles qui ne sont pas parties ne seront pas rattachées au plan. Quitter quand même ?")) return;
@@ -3182,7 +3208,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {releve&&!selReleve&&showMetres&&(
           <PanneauMetresReleve releve={releve} onglet={ongletMetres} setOnglet={setOngletMetres}
             onClose={()=>setShowMetres(false)} onPoint={onPointAValider} urls={urlsPhotos} demanderUrls={demanderUrls}
-            onAnalyser={lancerAnalyseIA} etatIA={analyseIA}/>
+            onAnalyser={lancerAnalyseIA} etatIA={analyseIA} onDossier={imprimerDossierReleve}/>
         )}
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',

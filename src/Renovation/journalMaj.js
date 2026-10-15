@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-15",
     type: "nouveaute",
+    titre: "Plans : dossier PDF du relevé de l'existant",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "Un relevé iMapper s'imprime désormais en dossier complet, sur le modèle du prototype : plan d'ensemble à l'échelle, métrés, ouvertures, une fiche par pièce avec ses photos, et la liste des points à valider. De quoi partir sur le chantier ou joindre au devis.",
+    comment: "Panneau « 📊 Métrés » → « 🖨 Dossier PDF du relevé ». Page 1 (A3 paysage) : le plan à l'échelle 1:50 quand le logement tient sur la feuille (sinon l'échelle normalisée suivante, indiquée), le tableau des métrés par pièce avec son total et ses hypothèses, la liste des ouvertures (en orange celles à vérifier). Puis une page A4 par pièce : la pièce surlignée sur le plan, ses métrés, ses photos numérotées, ses observations VALIDÉES (les propositions de l'IA non validées n'y figurent pas) et ce qui reste à vérifier sur place. Dernière page : les points à valider. Les chiffres sont exactement ceux de l'écran. La fenêtre s'ouvre aussitôt, se remplit une fois les photos chargées, puis lance l'impression (choisir « Enregistrer en PDF »). La visionneuse des ouvriers montre le même plan, portes et fenêtres comprises, sans les observations.",
+  },
+  {
+    date: "2026-10-15",
+    type: "nouveaute",
     titre: "Plans : relevé iMapper — analyse des photos par l'IA",
     pages: [{ id: "plans", label: "Plans" }],
     quoi: "L'IA regarde les 10 photos de chaque pièce. Elle confirme les portes et fenêtres trouvées dans le relevé, corrige leur type (porte palière ou placard pris pour une fenêtre), écarte les fausses (meuble, miroir, panneau de douche), signale celles que le relevé a manquées, et propose des observations et des alertes de sécurité (vitre cassée, tableau électrique, humidité, pièce sans ventilation). Elle ne mesure rien : les dimensions viennent toujours du relevé.",
