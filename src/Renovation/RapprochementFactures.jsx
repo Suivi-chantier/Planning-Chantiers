@@ -78,11 +78,21 @@ function moisLabel(ym) {
 }
 
 // Modale de détail : facture (avec ses BL rapprochés) ou reçu/ticket comptant (avec ses lignes).
-function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
+function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const isFacture = item.kind === "facture";
   const c = item.row;
   const [blLignes, setBlLignes] = useState([]);
   const [signedFile, setSignedFile] = useState(null);
+  const [validating, setValidating] = useState(false);
+  const [validationError, setValidationError] = useState("");
+  const valider = async () => {
+    setValidating(true); setValidationError("");
+    const { error } = await supabase.rpc("valider_rapprochement_facture", { p_facture_id: c.id });
+    setValidating(false);
+    if (error) { setValidationError(error.message); return; }
+    await onValidated?.();
+    onClose();
+  };
   useEffect(() => {
     if (isFacture) {
       supabase.from("facture_bl").select("bl_numero, montant_ht, statut").eq("facture_id", c.id)
@@ -138,6 +148,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
                 {info("Période", c.periode || "—")}
                 {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
                 {info("Statut", c.statut === "rapprochee" ? "Rapprochée" : c.statut === "archivee" ? "Archivée" : "À rapprocher")}
+                {c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ padding: "10px 14px", borderRadius: 8, background: acc.accent, color: "#111", border: "none", cursor: "pointer", fontWeight: 700 }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <p style={{ color: SEMANTIC.danger.color, fontSize: 12 }}>{validationError}</p>}<p style={{ fontSize: 12, color: T.textSub }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</p></div>}
                 <div style={{ fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, margin: "14px 0 6px" }}>
                   BL rapprochés ({blLignes.length})
                 </div>
