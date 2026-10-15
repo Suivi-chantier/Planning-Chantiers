@@ -25,7 +25,7 @@ begin
  if not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
  select * into f from public.factures where id=p_facture_id for update;
  if not found or f.statut<>'rapprochee' then raise exception 'Facture non validee'; end if;
- if exists(select 1 from public.facture_couts_chantiers where facture_id=f.id) then raise exception 'Facture deja comptabilisee'; end if;
+ if exists(select 1 from public.facture_couts_chantiers where facture_id=f.id) then return 0; end if;
  for b in select * from public.facture_bl where facture_id=f.id and coalesce(ecart_ht,0)<>0 loop
    if b.commande_id is null or b.resolution<>'accepte' then raise exception 'Ecart non accepte'; end if;
    select coalesce(sum(coalesce(prix_total,prix_unitaire*quantite,0)),0) into total
@@ -52,5 +52,6 @@ begin
  end loop;
  return (select count(*) from public.facture_couts_chantiers where facture_id=f.id);
 end $$;
-revoke all on function public.comptabiliser_couts_facture(uuid) from public,anon,authenticated;
--- Appel réservé à la procédure transactionnelle de validation.
+revoke all on function public.comptabiliser_couts_facture(uuid) from public,anon;
+grant execute on function public.comptabiliser_couts_facture(uuid) to authenticated;
+-- Le contrôle d'état et le verrou de la facture empêchent une comptabilisation anticipée.
