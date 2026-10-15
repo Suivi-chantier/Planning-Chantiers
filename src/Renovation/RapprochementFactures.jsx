@@ -234,7 +234,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                   <p style={{fontSize:12,color:T.textSub}}>Les avoirs clôturés réduisent les coûts réels. Montants négatifs en HT ; chaque chantier est choisi explicitement.</p>
                   {avoirImputations.map(a=><div key={a.id} style={{fontSize:12,marginBottom:4}}>{nomCh(a.chantier_id)} : {fmtEur(a.montant_ht)} € HT — {a.justification}</div>)}
                   {c.statut !== "rapprochee" && <>
-                    <input type="text" placeholder="Identifiant du chantier" value={avoirChantier} onChange={e=>setAvoirChantier(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}} />
+                    <select value={avoirChantier} onChange={e=>setAvoirChantier(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}}><option value="">Choisir un chantier…</option>{Object.entries(chantiersMap).map(([id,ch])=><option key={id} value={id}>{ch.nom || id}</option>)}</select>
                     <input type="number" step="0.01" max="-0.01" placeholder="Montant négatif HT (ex. -25.00)" value={avoirMontant} onChange={e=>setAvoirMontant(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}} />
                     <textarea placeholder="Justification (12 caractères minimum)" value={avoirMotif} onChange={e=>setAvoirMotif(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}} />
                     <button disabled={validating||!avoirChantier||!(Number(avoirMontant)<0)||avoirMotif.trim().length<12} onClick={imputerAvoir}>Affecter cet avoir</button>
