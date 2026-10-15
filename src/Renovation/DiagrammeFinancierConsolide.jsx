@@ -44,14 +44,15 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
     let actif = true;
     (async () => {
       const erreurs = [];
-      const [phRes, ptsRes, clRes, cfgRes] = await Promise.all([
+      const [phRes, ptsRes, clRes, fcRes, cfgRes] = await Promise.all([
         supabase.from("phasages").select("id, chantier_id, chantier_nom, ouvrages, plan_travaux, prix_vendu, updated_at"),
         supabase.from("pointages").select("*"),
         supabase.from("commande_lignes")
           .select("id, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)"),
+        supabase.from("facture_couts_chantiers").select("id,chantier_id,montant_ht,nature,date_imputation"),
         supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers"]),
       ]);
-      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["réglages", cfgRes]]
+      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["corrections factures", fcRes], ["réglages", cfgRes]]
         .forEach(([nom, r]) => { if (r.error) erreurs.push(`${nom} : ${r.error.message}`); });
 
       // Un phasage par chantier : le plus récent (même règle que le cron).
@@ -71,6 +72,9 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
       (ptsRes.data || []).forEach((p) => { (ptsByChantier[p.chantier_id] ||= []).push(p); });
       const clByChantier = {};
       (clRes.data || []).forEach((l) => { (clByChantier[l.chantier_id] ||= []).push(l); });
+      (fcRes.data || []).forEach((c) => { (clByChantier[c.chantier_id] ||= []).push({ id: `facture-cout-${c.id}`, chantier_id: c.chantier_id,
+        libelle: c.nature === "frais" ? "Frais de facture fournisseur" : "Écart de facture fournisseur",
+        prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` }); });
 
       // Références figées courantes, en UNE requête (.in).
       const refsRes = await loadReferencesFinancieres(phasages.map((ph) => ph.chantier_id));
