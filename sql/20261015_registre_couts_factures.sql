@@ -22,7 +22,7 @@ create or replace function public.comptabiliser_couts_facture(p_facture_id uuid)
 returns integer language plpgsql security invoker set search_path=public,pg_temp as $$
 declare f public.factures%rowtype; b record; frais record; ligne record; total numeric; restant numeric; part numeric; idx integer; nb integer:=0;
 begin
- if not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
+ if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
  select * into f from public.factures where id=p_facture_id for update;
  if not found or f.statut<>'rapprochee' then raise exception 'Facture non validee'; end if;
  if exists(select 1 from public.facture_couts_chantiers where facture_id=f.id) then return 0; end if;
