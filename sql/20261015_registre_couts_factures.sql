@@ -19,7 +19,7 @@ grant select on public.facture_couts_chantiers to authenticated;
 create policy facture_couts_lecture on public.facture_couts_chantiers for select to authenticated using (public.est_collaborateur_actif());
 -- Les coûts ne peuvent être écrits que par la validation transactionnelle.
 create or replace function public.comptabiliser_couts_facture(p_facture_id uuid)
-returns integer language plpgsql security invoker set search_path=public,pg_temp as $$
+returns integer language plpgsql security definer set search_path=public,pg_temp as $$
 declare f public.factures%rowtype; b record; frais record; ligne record; total numeric; restant numeric; part numeric; idx integer; nb integer:=0;
 begin
  if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
