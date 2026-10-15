@@ -702,7 +702,8 @@ export function rattacherPhotosMurs(polygone, mursPdf) {
 // jusqu'à leur envoi dans le stockage privé (fait par l'appelant).
 // DXF à plusieurs versions sans `version` : renvoie le choix à faire
 // ({ ok:false, choix:"version", versions }), voir releveDepuisDXF.
-export function assemblerReleve({ dxfTexte, pdfs = [], maintenant = null, version = null }) {
+// detecter : lance la détection des ouvertures (étape 9 de l'import).
+export function assemblerReleve({ dxfTexte, pdfs = [], maintenant = null, version = null, detecter = true }) {
   const base = releveDepuisDXF(dxfTexte, { maintenant, version });
   if (!base.ok) return base;
   const releve = base.releve;
@@ -727,6 +728,8 @@ export function assemblerReleve({ dxfTexte, pdfs = [], maintenant = null, versio
         texte: `${piece.nom} : ${pdf.nbPhotos || 0} photo(s) trouvée(s) dans le PDF au lieu de 10.` });
     }
   });
+  releve.alertes = releve.alertes.map((a, i) => ({ id: `a${i + 1}`, ...a }));
+  if (detecter) releve.ouvertures = detecterOuvertures(releve);
   return { ok: true, releve };
 }
 
@@ -749,6 +752,278 @@ export function appliquerCheminsPhotos(releve, chemins = {}, fichiers = []) {
       }),
     })),
   };
+}
+
+// ── Détection des ouvertures (lot 2) ────────────────────────────────────────
+// Une ouverture se repère comme un TROU dans les points relevés le long d'un
+// mur. Algorithme de la spécification, validé sur le relevé de référence :
+//  1. normale de chaque côté orientée vers l'intérieur de la pièce ;
+//  2. côtés ≥ 0,30 m : points (tous scans) qui se projettent dans le côté à
+//     moins de 4 cm de lui (une bande plus large capte la face opposée du mur
+//     voisin et masque les portes) ;
+//  3. cases de 5 cm, 4. suite de cases vides ≥ 55 cm = trou candidat ;
+//  5. mur partagé (côté d'une autre pièce parallèle à < 5°, à < 40 cm, qui
+//     recouvre le trou) : trou aussi de l'autre côté (recouvrement ≥ 50 %) →
+//     porte entre les deux pièces, « détectée » ; sinon « à vérifier » ;
+//  6. mur sans voisin → fenêtre « détectée » (des points au-delà du mur dans
+//     l'axe du trou = une vitre, noté `indice_vitre`) ;
+//  7. trou de plus de 1,60 m sur un mur partagé (mobilier qui masque) →
+//     « à vérifier » ;
+//  8. largeur t1 − t0 ; charnière en t0, ouverture vers la pièce du côté ;
+//  9. épaisseur du mur : pas de 1 cm vers l'extérieur tant qu'on reste dans
+//     un mur A-WALL (8 cm au minimum).
+// La géométrie seule n'est jamais définitive : elle qualifie mal (porte
+// palière ou placard pris pour une fenêtre), laisse des portes « à vérifier »
+// et produit des faux candidats (mobilier, miroir) — c'est le rôle de
+// l'analyse des photos (lot 3) et du conducteur de travaux.
+export const DETECTION = {
+  BANDE_M: 0.04, CASE_M: 0.05, TROU_MIN_M: 0.55, COTE_MIN_M: 0.3,
+  ANGLE_MAX_DEG: 5, ECART_VOISIN_M: 0.4, RECOUVREMENT_MIN: 0.5, TROU_DOUTEUX_M: 1.6,
+  EPAISSEUR_MIN_M: 0.08, EPAISSEUR_MAX_M: 1.0,
+  // Un mur « bien relevé » porte au moins tant de points par mètre de partie
+  // pleine (référence : 40 à 100 ; murs à peine scannés de Montillers : 0 à 7).
+  POINTS_MIN_PAR_M: 15,
+};
+export const LARGEUR_OUVERTURE_DEFAUT = 0.83;
+export const TYPES_OUVERTURE = [
+  { id: "porte", label: "Porte", prefixe: "P" },
+  { id: "porte_fenetre", label: "Porte-fenêtre", prefixe: "PF" },
+  { id: "fenetre", label: "Fenêtre", prefixe: "F" },
+  { id: "baie", label: "Baie (passage sans porte)", prefixe: "B" },
+  { id: "placard", label: "Placard", prefixe: "PL" },
+];
+export const STATUTS_OUVERTURE = {
+  detecte: "Détectée", confirme_photo: "Confirmée sur photo", a_verifier: "À vérifier", valide: "Validée",
+};
+
+// Côtés d'une pièce, avec direction unitaire u et normale n vers l'intérieur.
+export function cotesPiece(piece) {
+  const P = piece.polygone || [];
+  return P.map((a, k) => {
+    const b = P[(k + 1) % P.length];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
+    const u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    let n = [-u[1], u[0]];
+    const m = [(a[0] + b[0]) / 2 + n[0] * 0.01, (a[1] + b[1]) / 2 + n[1] * 0.01];
+    if (!pointDansPoly(m, P)) n = [-n[0], -n[1]];
+    return { piece: piece.id, k, a, b, L, u, n };
+  });
+}
+
+// Trous (cases vides ≥ 55 cm) le long d'un côté. Retourne [[t0, t1], …] en m.
+function trousCote(c, points, D) {
+  const nb = Math.max(1, Math.ceil(c.L / D.CASE_M));
+  const occ = new Array(nb).fill(false);
+  for (const q of points) {
+    const dx = q[0] - c.a[0], dy = q[1] - c.a[1];
+    const t = dx * c.u[0] + dy * c.u[1];
+    if (t < 0 || t > c.L) continue;
+    if (Math.abs(dx * c.n[0] + dy * c.n[1]) < D.BANDE_M) occ[Math.min(nb - 1, Math.floor(t / D.CASE_M))] = true;
+  }
+  const res = [];
+  for (let i = 0; i < nb;) {
+    if (occ[i]) { i++; continue; }
+    let j = i;
+    while (j < nb && !occ[j]) j++;
+    const t0 = i * D.CASE_M, t1 = Math.min(c.L, j * D.CASE_M);
+    if (t1 - t0 >= D.TROU_MIN_M - 1e-9) res.push([t0, t1]);
+    i = j;
+  }
+  return res;
+}
+
+// Point du côté c à l'abscisse t ; abscisse sur le côté o d'un point.
+const pointCote = (c, t) => [c.a[0] + c.u[0] * t, c.a[1] + c.u[1] * t];
+const abscisse = (o, p) => (p[0] - o.a[0]) * o.u[0] + (p[1] - o.a[1]) * o.u[1];
+
+// Épaisseur du mur derrière l'abscisse t du côté c (pas de 1 cm vers l'extérieur).
+export function epaisseurMur(c, t, murs, D = DETECTION) {
+  const p = pointCote(c, t);
+  let e = 0;
+  for (let s = 0.01; s <= D.EPAISSEUR_MAX_M; s += 0.01) {
+    const q = [p[0] - c.n[0] * s, p[1] - c.n[1] * s];
+    if (!murs.some((m) => pointDansPoly(q, m))) break;
+    e = s;
+  }
+  return Math.max(D.EPAISSEUR_MIN_M, Math.round(e * 100) / 100);
+}
+
+// releve → [ouverture] (sans les toucher : nouvelle liste). Codes P1, F1…
+// par pièce puis par côté. Statuts « detecte » ou « a_verifier ».
+export function detecterOuvertures(releve, D = DETECTION) {
+  const pieces = releve?.pieces || [];
+  const points = Object.values(releve?.points || {}).flat();
+  const murs = (releve?.murs || []).map((m) => m.polygone || []);
+  const cotes = pieces.flatMap(cotesPiece);
+  const trous = new Map(cotes.map((c) => [c, c.L >= D.COTE_MIN_M ? trousCote(c, points, D) : []]));
+  const cosMax = Math.cos((D.ANGLE_MAX_DEG * Math.PI) / 180);
+
+  // Côté voisin d'un trou : parallèle, proche, et qui recouvre le trou.
+  const voisin = (c, t0, t1) => {
+    let best = null;
+    for (const o of cotes) {
+      if (o.piece === c.piece) continue;
+      if (Math.abs(o.u[0] * c.u[0] + o.u[1] * c.u[1]) < cosMax) continue;
+      const ecart = Math.abs((o.a[0] - c.a[0]) * c.n[0] + (o.a[1] - c.a[1]) * c.n[1]);
+      if (ecart > D.ECART_VOISIN_M) continue;
+      let s0 = abscisse(o, pointCote(c, t0)), s1 = abscisse(o, pointCote(c, t1));
+      if (s0 > s1) [s0, s1] = [s1, s0];
+      if (s1 <= 0 || s0 >= o.L) continue;
+      const rec = Math.max(0, ...trous.get(o).map(([u0, u1]) => Math.max(0, Math.min(u1, s1) - Math.max(u0, s0)) / (s1 - s0)));
+      const couvert = (Math.min(s1, o.L) - Math.max(s0, 0)) / (s1 - s0);
+      if (!best || couvert > best.couvert + 1e-9 || (Math.abs(couvert - best.couvert) < 1e-9 && rec > best.rec)) {
+        best = { o, s0, s1, rec, couvert };
+      }
+    }
+    return best;
+  };
+
+  const brutes = [];
+  const dejaPris = new Set();   // trous déjà fusionnés dans une porte partagée
+  for (const c of cotes) {
+    for (const [t0, t1] of trous.get(c)) {
+      const cle = `${c.piece}#${c.k}#${t0}`;
+      if (dejaPris.has(cle)) continue;
+      const v = voisin(c, t0, t1);
+      const largeur = t1 - t0;
+      const base = {
+        piece: c.piece, mur: c.k, t0: r4(t0), t1: r4(t1),
+        sens: { charniere: "t0", cote: "interieur" },
+        hauteur: null, allege: null, origine: "detection",
+        epaisseur: epaisseurMur(c, (t0 + t1) / 2, murs, D),
+      };
+      if (v) {
+        const partage = v.rec >= D.RECOUVREMENT_MIN;
+        if (partage) {
+          // Le même passage vu de l'autre pièce : on ne le compte qu'une fois.
+          for (const [u0, u1] of trous.get(v.o)) {
+            const r = Math.max(0, Math.min(u1, v.s1) - Math.max(u0, v.s0)) / (v.s1 - v.s0);
+            if (r >= D.RECOUVREMENT_MIN) dejaPris.add(`${v.o.piece}#${v.o.k}#${u0}`);
+          }
+        }
+        const douteux = !partage || largeur > D.TROU_DOUTEUX_M;
+        brutes.push({
+          ...base, type: "porte", pieces_liees: [c.piece, v.o.piece],
+          statut: douteux ? "a_verifier" : "detecte",
+          raison: !partage ? "trou d'un seul côté du mur" : largeur > D.TROU_DOUTEUX_M ? "trou de plus de 1,60 m (mobilier ?)" : null,
+        });
+      } else {
+        // Mur sans voisin : fenêtre. Des points au-delà du mur dans l'axe du
+        // trou (à plus de l'épaisseur du mur) signalent une vitre.
+        const e = base.epaisseur;
+        const au_dela = points.some((q) => {
+          const dx = q[0] - c.a[0], dy = q[1] - c.a[1];
+          const t = dx * c.u[0] + dy * c.u[1];
+          const d = -(dx * c.n[0] + dy * c.n[1]);
+          return t > t0 && t < t1 && d > e + 0.05;
+        });
+        // Un trou n'est une fenêtre « détectée » que si le mur est bien relevé
+        // ailleurs ET qu'une vitre est vue derrière. Sinon « à vérifier » :
+        // sur un mur à peine scanné, le trou est un manque de mesure (cas réel :
+        // 40 « fenêtres » pour 12 pièces sans cette règle), et sans point
+        // derrière, rien ne distingue une fenêtre d'une porte palière, d'un
+        // placard ou d'un meuble (relevé de référence).
+        const pleins = c.L - trous.get(c).reduce((t, [u0, u1]) => t + (u1 - u0), 0);
+        const nbPts = points.filter((q) => {
+          const dx = q[0] - c.a[0], dy = q[1] - c.a[1];
+          const t = dx * c.u[0] + dy * c.u[1];
+          return t >= 0 && t <= c.L && Math.abs(dx * c.n[0] + dy * c.n[1]) < D.BANDE_M;
+        }).length;
+        const peuReleve = pleins < 0.15 * c.L || nbPts < D.POINTS_MIN_PAR_M * Math.max(pleins, 0.01);
+        brutes.push({
+          ...base, type: "fenetre", pieces_liees: [c.piece], indice_vitre: au_dela,
+          statut: !peuReleve && au_dela ? "detecte" : "a_verifier",
+          raison: peuReleve ? "mur à peine relevé : trou peut-être dû au scan" : !au_dela ? "aucun point derrière le mur : vitre non confirmée" : null,
+        });
+      }
+    }
+  }
+  return numeroterOuvertures(brutes.map((o, i) => ({ id: `o${i + 1}`, ...o, masque: false })));
+}
+
+// Codes P1, F1, B1, PL1, PF1 : par type, dans l'ordre des ouvertures.
+export function numeroterOuvertures(ouvertures) {
+  const n = {};
+  return ouvertures.map((o) => {
+    const pre = (TYPES_OUVERTURE.find((t) => t.id === o.type) || TYPES_OUVERTURE[0]).prefixe;
+    if (o.code && o.code_fixe) return o;
+    n[pre] = (n[pre] || 0) + 1;
+    return { ...o, code: `${pre}${n[pre]}` };
+  });
+}
+
+// Prochain code libre d'un type (P4 si P1 à P3 existent) : ajouter ou
+// requalifier une ouverture ne renumérote jamais les autres.
+export function prochainCode(ouvertures, type) {
+  const pre = (TYPES_OUVERTURE.find((t) => t.id === type) || TYPES_OUVERTURE[0]).prefixe;
+  const re = new RegExp(`^${pre}(\\d+)$`);
+  const max = Math.max(0, ...(ouvertures || []).map((o) => Number(re.exec(o.code || "")?.[1] || 0)));
+  return `${pre}${max + 1}`;
+}
+
+// Géométrie d'une ouverture : extrémités sur la face intérieure, direction,
+// normale vers la pièce du côté, épaisseur. null si la pièce ou le côté n'existe plus.
+export function geometrieOuverture(releve, o) {
+  const piece = (releve?.pieces || []).find((p) => p.id === o.piece);
+  if (!piece) return null;
+  const c = cotesPiece(piece)[o.mur];
+  if (!c) return null;
+  const t0 = Math.max(0, Math.min(c.L, o.t0)), t1 = Math.max(0, Math.min(c.L, o.t1));
+  return { cote: c, p0: pointCote(c, t0), p1: pointCote(c, t1), u: c.u, n: c.n, epaisseur: o.epaisseur || DETECTION.EPAISSEUR_MIN_M, largeur: t1 - t0, L: c.L };
+}
+
+// Déplace une ouverture le long de son mur sans changer sa largeur (t bornés au côté).
+export function glisserOuverture(releve, o, nouveauT0) {
+  const g = geometrieOuverture(releve, o);
+  if (!g) return o;
+  const w = o.t1 - o.t0;
+  const t0 = Math.max(0, Math.min(g.L - w, nouveauT0));
+  return { ...o, t0: r4(t0), t1: r4(t0 + w) };
+}
+
+// Change la largeur en gardant le centre (bornée au côté, 10 cm minimum).
+export function largeurOuverture(releve, o, largeur) {
+  const g = geometrieOuverture(releve, o);
+  if (!g || !(largeur > 0)) return o;
+  const w = Math.max(0.1, Math.min(g.L, largeur));
+  const centre = (o.t0 + o.t1) / 2;
+  const t0 = Math.max(0, Math.min(g.L - w, centre - w / 2));
+  return { ...o, t0: r4(t0), t1: r4(t0 + w) };
+}
+
+// Ouverture posée à la main sur le côté k d'une pièce, centrée sur t.
+export function nouvelleOuverture(releve, pieceId, k, t, { largeur = LARGEUR_OUVERTURE_DEFAUT, type = "porte", id } = {}) {
+  const piece = (releve?.pieces || []).find((p) => p.id === pieceId);
+  const c = piece && cotesPiece(piece)[k];
+  if (!c) return null;
+  const w = Math.min(largeur, c.L);
+  const t0 = Math.max(0, Math.min(c.L - w, t - w / 2));
+  const murs = (releve.murs || []).map((m) => m.polygone || []);
+  // Pièce de l'autre côté du mur, s'il y en a une.
+  const milieu = pointCote(c, t0 + w / 2);
+  const e = epaisseurMur(c, t0 + w / 2, murs);
+  const derriere = [milieu[0] - c.n[0] * (e + 0.05), milieu[1] - c.n[1] * (e + 0.05)];
+  const autre = (releve.pieces || []).find((p) => p.id !== pieceId && pointDansPoly(derriere, p.polygone));
+  return {
+    id, piece: pieceId, mur: k, t0: r4(t0), t1: r4(t0 + w), type,
+    pieces_liees: autre ? [pieceId, autre.id] : [pieceId],
+    sens: { charniere: "t0", cote: "interieur" }, hauteur: null, allege: null,
+    origine: "manuel", statut: "a_verifier", epaisseur: e, masque: false, raison: "posée à la main",
+  };
+}
+
+// Côté de pièce le plus proche d'un point (m) : { piece, k, t, distance }.
+export function coteLePlusProche(releve, p) {
+  let best = null;
+  for (const piece of releve?.pieces || []) {
+    for (const c of cotesPiece(piece)) {
+      const t = Math.max(0, Math.min(c.L, abscisse(c, p)));
+      const q = pointCote(c, t);
+      const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (!best || d < best.distance) best = { piece: piece.id, k: c.k, t, distance: d };
+    }
+  }
+  return best;
 }
 
 // ── Métrés par pièce ───────────────────────────────────────────────────────
@@ -819,21 +1094,83 @@ export function texteMetre(valeur, approx = false, raison = null) {
 }
 
 // ── Points à valider : alertes de l'import + hypothèses en cours ────────────
+// Chaque point porte sa cible (ce que « Corriger » ouvre) et ce que
+// « Confirmer » / « Supprimer » veulent dire pour lui :
+//   hauteur par défaut → confirmer la hauteur de toutes les pièces non mesurées ;
+//   ouverture à vérifier → confirmer = « validée », supprimer = retirer ;
+//   alerte d'import → confirmer = « vu », supprimer = retirer de la liste ;
+//   ouvertures pas encore relevées → lancer la détection.
 export function pointsAValider(releve) {
   if (!releve) return [];
-  const liste = [...(releve.alertes || [])];
+  const liste = [];
   const defaut = (releve.pieces || []).filter((p) => p.hsp_statut !== "mesuree");
   if (defaut.length) {
-    liste.unshift({
-      code: "hsp_defaut",
+    liste.push({
+      cle: "hsp_defaut", code: "hsp_defaut", cible: { type: "piece", id: defaut[0].id },
       texte: `Hauteur sous plafond ${fr(HSP_DEFAUT)} m appliquée par défaut à ${defaut.length === (releve.pieces || []).length ? "toutes les pièces" : `${defaut.length} pièce(s)`} : elle n'est pas mesurée. Elle change toutes les surfaces de murs.`,
     });
   }
   if (releve.ouvertures === null) {
-    liste.push({ code: "ouvertures_non_relevees",
+    liste.push({ cle: "ouvertures_non_relevees", code: "ouvertures_non_relevees", cible: null,
       texte: "Portes et fenêtres pas encore relevées : plinthes et murs nets ne sont pas calculés." });
   }
+  const nomPiece = (id) => (releve.pieces || []).find((p) => p.id === id)?.nom || "?";
+  (releve.ouvertures || []).filter((o) => !o.masque && o.statut === "a_verifier").forEach((o) => {
+    const type = (TYPES_OUVERTURE.find((t) => t.id === o.type) || {}).label || o.type;
+    liste.push({
+      cle: `ouverture#${o.id}`, code: "ouverture_a_verifier", cible: { type: "ouverture", id: o.id },
+      texte: `${o.code} — ${type} ≈ ${Math.round((o.t1 - o.t0) * 100)} cm, ${(o.pieces_liees || [o.piece]).map(nomPiece).join(" / ")}${o.raison ? ` : ${o.raison}` : ""}.`,
+    });
+  });
+  (releve.alertes || []).forEach((a, i) => {
+    if (a.vue) return;
+    const piece = a.piece || (a.pieces || [])[0];
+    liste.push({ ...a, cle: `alerte#${a.id || i}`, cible: piece ? { type: "piece", id: piece } : null });
+  });
   return liste;
+}
+
+// Applique « Confirmer » ou « Supprimer » à un point à valider. Pur : renvoie
+// un nouveau relevé (l'appelant l'inscrit dans l'historique).
+export function traiterPointAValider(releve, point, action) {
+  if (!releve || !point) return releve;
+  if (point.code === "hsp_defaut" && action === "confirmer") {
+    return { ...releve, pieces: releve.pieces.map((p) => (p.hsp_statut === "mesuree" ? p : { ...p, hsp_statut: "mesuree" })) };
+  }
+  if (point.code === "ouverture_a_verifier") {
+    const id = point.cible.id;
+    if (action === "confirmer") return { ...releve, ouvertures: releve.ouvertures.map((o) => (o.id === id ? { ...o, statut: "valide", raison: null } : o)) };
+    if (action === "supprimer") return { ...releve, ouvertures: releve.ouvertures.filter((o) => o.id !== id) };
+  }
+  if (point.cle.startsWith("alerte#")) {
+    const vise = (a, i) => `alerte#${a.id || i}` === point.cle;
+    if (action === "confirmer") return { ...releve, alertes: releve.alertes.map((a, i) => (vise(a, i) ? { ...a, vue: true } : a)) };
+    if (action === "supprimer") return { ...releve, alertes: releve.alertes.filter((a, i) => !vise(a, i)) };
+  }
+  return releve;
+}
+
+// Abscisse (m) d'un point projeté sur le côté k d'une pièce.
+export function abscisseSurMur(releve, pieceId, k, p) {
+  const piece = (releve?.pieces || []).find((x) => x.id === pieceId);
+  const c = piece && cotesPiece(piece)[k];
+  return c ? abscisse(c, p) : null;
+}
+
+// Ouverture sous un point (m), à `tol` m près : la plus proche, ou null.
+export function ouvertureSousPoint(releve, p, tol) {
+  let best = null;
+  for (const o of releve?.ouvertures || []) {
+    if (o.masque) continue;
+    const g = geometrieOuverture(releve, o);
+    if (!g) continue;
+    // Milieu de l'épaisseur du mur, sur la largeur de l'ouverture.
+    const a = [g.p0[0] - g.n[0] * g.epaisseur / 2, g.p0[1] - g.n[1] * g.epaisseur / 2];
+    const b = [g.p1[0] - g.n[0] * g.epaisseur / 2, g.p1[1] - g.n[1] * g.epaisseur / 2];
+    const d = distancePointSegment(p, a, b) - g.epaisseur / 2;
+    if (d <= tol && (!best || d < best.d)) best = { o, d };
+  }
+  return best ? best.o : null;
 }
 
 // Emprise du relevé (pièces + murs), en mètres — null si vide.

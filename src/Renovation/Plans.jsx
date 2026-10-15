@@ -11,9 +11,12 @@ import { imprimerPlanA4 } from "./planPdf";
 import { LOGO_RENO_H } from "../constants";
 import { dessinerReleve } from "./releveRendu";
 import {
-  calculerMetres, texteMetre, pointsAValider, emprisesReleve, appliquerCheminsPhotos,
-  HSP_DEFAUT,
+  pointsAValider, emprisesReleve, appliquerCheminsPhotos, detecterOuvertures, ouvertureSousPoint,
+  abscisseSurMur, glisserOuverture, coteLePlusProche, nouvelleOuverture, prochainCode,
+  traiterPointAValider, geometrieOuverture, pointDansPoly as pointDansPolyReleve,
 } from "./releveImapper";
+import { PanneauMetresReleve, PanneauPieceReleve, PanneauOuvertureReleve } from "./PanneauxReleve";
+import { urlDocumentChantier } from "./storageChantier";
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
 
@@ -539,76 +542,6 @@ const DXF_LIBRARY = [
   { id:'plomb_vase',          name:"Vase d'expansion",           icon:'⭕', category:'Plomberie',   libSym:true, symType:'plomb_vase',          label:'VE',    color:'#50c878' },
 ];
 
-// ─── MÉTRÉS DU RELEVÉ iMAPPER ─────────────────────────────────────────────────
-// Tableau « Métrés par pièce » + total, hypothèses, points à valider. Tous les
-// chiffres viennent de calculerMetres (releveImapper.mjs) : la géométrie, rien
-// d'autre. Une valeur non calculable affiche sa raison, jamais un chiffre de
-// remplacement (ex. plinthes tant que les ouvertures ne sont pas relevées).
-function PanneauMetresReleve({ releve, onClose }) {
-  const m = calculerMetres(releve);
-  const pav = pointsAValider(releve);
-  const fr = (n) => n.toFixed(2).replace('.', ',');
-  const cell = { padding:'5px 6px', textAlign:'right', whiteSpace:'nowrap' };
-  const val = (l, k) => {
-    const t = texteMetre(l[k], l.approx?.[k], l.raison);
-    return l[k] == null ? <span style={{color:'#f5a623',fontStyle:'italic'}}>en attente</span> : t;
-  };
-  const nbPhotos = releve.pieces.reduce((t, p) => t + (p.photos||[]).length, 0);
-  const nbEnvoyees = releve.pieces.reduce((t, p) => t + (p.photos||[]).filter(ph => ph.chemin).length, 0);
-  const H = m.hauteurs;
-  return (
-    <div style={{position:'absolute',top:10,right:10,zIndex:5,width:560,maxWidth:'calc(100% - 20px)',
-      maxHeight:'calc(100% - 20px)',overflowY:'auto',background:'#1e2336',borderRadius:12,
-      border:'1px solid rgba(255,255,255,0.12)',boxShadow:'0 8px 30px rgba(0,0,0,0.45)',padding:16,color:'#e8eaf0'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-        <div style={{fontSize:15,fontWeight:800}}>Métrés par pièce</div>
-        <button onClick={onClose} style={{background:'transparent',border:'none',color:'#5b6a8a',fontSize:18,cursor:'pointer'}}>✕</button>
-      </div>
-      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-        <thead>
-          <tr style={{color:'#9aa5c0',borderBottom:'1px solid rgba(255,255,255,0.15)'}}>
-            <th style={{...cell,textAlign:'left'}}>Pièce</th>
-            <th style={cell}>Sol (m²)</th><th style={cell}>Périm. (m)</th><th style={cell}>Plinthes (m)</th>
-            <th style={cell}>Murs bruts (m²)</th><th style={cell}>Murs nets (m²)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {m.pieces.map(l => (
-            <tr key={l.id} style={{borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
-              <td style={{...cell,textAlign:'left',fontWeight:600}}>{l.nom}</td>
-              <td style={cell}>{fr(l.sol)}</td><td style={cell}>{fr(l.perimetre)}</td>
-              <td style={cell}>{val(l,'plinthes')}</td><td style={cell}>{val(l,'murs_bruts')}</td>
-              <td style={cell}>{val(l,'murs_nets')}</td>
-            </tr>
-          ))}
-          <tr style={{fontWeight:800,borderTop:'1px solid rgba(255,255,255,0.2)'}}>
-            <td style={{...cell,textAlign:'left'}}>Total</td>
-            <td style={cell}>{fr(m.total.sol)}</td><td style={cell}>{fr(m.total.perimetre)}</td>
-            <td style={cell}>{val(m.total,'plinthes')}</td><td style={cell}>{val(m.total,'murs_bruts')}</td>
-            <td style={cell}>{val(m.total,'murs_nets')}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div style={{fontSize:11,color:'#7a86a6',marginTop:8,lineHeight:1.5}}>
-        Hypothèses : hauteur sous plafond {fr(HSP_DEFAUT)} m par défaut, non mesurée (« ≈ ») · portes {fr(H.porte)} m ·
-        fenêtres {fr(H.fenetre)} m · baies {fr(H.baie)} m. Plinthes = périmètre − largeurs des portes et baies.
-        {!m.ouverturesConnues&&<> <strong style={{color:'#f5a623'}}>Plinthes et murs nets : en attente des ouvertures</strong> (portes et fenêtres pas encore relevées).</>}
-      </div>
-      <div style={{fontSize:11,color:'#7a86a6',marginTop:6}}>
-        Photos : {nbEnvoyees}/{nbPhotos} rangées dans le stockage privé du chantier.
-      </div>
-      {pav.length>0&&(
-        <div style={{marginTop:14}}>
-          <div style={{fontSize:13,fontWeight:800,marginBottom:6}}>Points à valider ({pav.length})</div>
-          <ol style={{margin:0,paddingLeft:20,fontSize:12,color:'#c8d0e0',lineHeight:1.5}}>
-            {pav.map((a,i)=><li key={i} style={{marginBottom:3}}>{a.texte}</li>)}
-          </ol>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── PLAN EDITOR ──────────────────────────────────────────────────────────────
 function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const canvasRef = useRef(null);
@@ -621,6 +554,35 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [releve,    setReleve]    = useState(plan.data?.releve || null);
   const releveRef = useRef(releve);
   releveRef.current = releve;
+  // Sélection dans le relevé (pièce ou ouverture), mur surligné (photo
+  // survolée) et onglet du panneau des métrés.
+  const [selReleve, setSelReleve] = useState(null);
+  const selReleveRef = useRef(null);
+  selReleveRef.current = selReleve;
+  const [murSurligne, setMurSurligne] = useState(null);
+  const murSurligneRef = useRef(null);
+  murSurligneRef.current = murSurligne;
+  const [ongletMetres, setOngletMetres] = useState('metres');
+  const dragOuvRef = useRef(null);   // ouverture qu'on glisse le long de son mur
+  // URL signées des photos (stockage privé) : demandées à l'affichage, gardées
+  // le temps de la session, jamais enregistrées dans le plan.
+  const [urlsPhotos, setUrlsPhotos] = useState({});
+  const urlsDemandeesRef = useRef(new Set());
+  const demanderUrls = useCallback(async (chemins) => {
+    const manquants = (chemins || []).filter(c => c && !urlsDemandeesRef.current.has(c));
+    if (!manquants.length) return;
+    manquants.forEach(c => urlsDemandeesRef.current.add(c));
+    const res = await Promise.all(manquants.map(async c => [c, await urlDocumentChantier(c, 3600)]));
+    setUrlsPhotos(u => ({ ...u, ...Object.fromEntries(res.filter(([, url]) => url)) }));
+  }, []);
+  // Objet sélectionné disparu (suppression, annuler) : on désélectionne.
+  useEffect(() => {
+    if (!selReleve) return;
+    const existe = selReleve.type === 'piece'
+      ? releve?.pieces?.some(p => p.id === selReleve.id)
+      : releve?.ouvertures?.some(o => o.id === selReleve.id);
+    if (!existe) { setSelReleve(null); setMurSurligne(null); }
+  }, [releve, selReleve]);
   const [surfaceColor, setSurfaceColor] = useState('#3b82f6');
   const [polyPoints, setPolyPoints]     = useState([]);
 
@@ -961,7 +923,12 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       // (releveRendu.js), sous les outils de dessin qui se posent par-dessus.
       if (lyrs.releve && releveRef.current) {
         dessinerReleve(ctx, releveRef.current, (x,y)=>{ const p=toC(x,y); return [p.cx,p.cy]; },
-          { sombre: !isPrint, points: lyrs.points });
+          { sombre: !isPrint, points: lyrs.points,
+            ...(printModeRef.current ? {} : {
+              pieceSurlignee: selReleveRef.current?.type==='piece' ? selReleveRef.current.id : null,
+              ouvertureSelectionnee: selReleveRef.current?.type==='ouverture' ? selReleveRef.current.id : null,
+              murSurligne: murSurligneRef.current,
+            }) });
       }
 
       if (lyrs.surfaces) surfacesRef.current.forEach(surf => {
@@ -1503,7 +1470,15 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
   useEffect(() => {
     const handler = (e) => {
-      if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+      if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+      if (selReleveRef.current && e.key==='Escape') { setSelReleve(null); setMurSurligne(null); return; }
+      if (selReleveRef.current?.type==='ouverture' && (e.key==='Delete'||e.key==='Backspace')) {
+        e.preventDefault();
+        const id = selReleveRef.current.id;
+        modifierReleve(r => ({ ...r, ouvertures: (r.ouvertures || []).filter(o => o.id !== id) }));
+        setSelReleve(null);
+        return;
+      }
       if ((e.ctrlKey||e.metaKey) && e.key==='z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if (((e.ctrlKey||e.metaKey)&&e.key==='y')||((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key==='z')) { e.preventDefault(); redo(); }
       // Saisie clavier de la longueur pendant le tracé (ligne / doublage / cloison)
@@ -1658,6 +1633,32 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     }
     const pos=getEventPos(e);
     const {wx,wy}=toWorld(pos.cx,pos.cy);
+
+    // Relevé : sélection d'une ouverture (et début du glissé) ou d'une pièce.
+    if (tool==='releve' && releveRef.current) {
+      const R = releveRef.current;
+      const o = ouvertureSousPoint(R, [wx,wy], 10/vpRef.current.scale);
+      if (o) {
+        setSelReleve({ type:'ouverture', id:o.id }); setMurSurligne(null);
+        dragOuvRef.current = { id:o.id, t:abscisseSurMur(R, o.piece, o.mur, [wx,wy]), t0:o.t0, pousse:false };
+        return;
+      }
+      const piece = R.pieces.find(p => pointDansPolyReleve([wx,wy], p.polygone));
+      setSelReleve(piece ? { type:'piece', id:piece.id } : null); setMurSurligne(null);
+      return;
+    }
+    // Ouverture sur mur : 83 cm centrés sur le clic, « à vérifier ».
+    if (tool==='ouverture' && releveRef.current) {
+      const R = releveRef.current;
+      const cp = coteLePlusProche(R, [wx,wy]);
+      if (!cp || cp.distance > 25/vpRef.current.scale) return;
+      const id = 'om' + Date.now();
+      const n = nouvelleOuverture(R, cp.piece, cp.k, cp.t, { id });
+      if (!n) return;
+      modifierReleve(r => ({ ...r, ouvertures: [...(r.ouvertures || []), { ...n, code: prochainCode(r.ouvertures, n.type) }] }));
+      setSelReleve({ type:'ouverture', id }); setTool('releve');
+      return;
+    }
 
     if (tool==='pan') {
       const v=vpRef.current;
@@ -1984,6 +1985,23 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
       setVp(v=>({...v,x:midDrag.startVx-dx,y:midDrag.startVy-dy}));
       return;
     }
+    // Glissé d'une ouverture le long de son mur (largeur inchangée).
+    const dOuv = dragOuvRef.current;
+    if (dOuv && releveRef.current) {
+      const {wx:mwx, wy:mwy} = toWorld(pos.cx, pos.cy);
+      const R = releveRef.current;
+      const o = (R.ouvertures || []).find(x => x.id === dOuv.id);
+      const t = o && abscisseSurMur(R, o.piece, o.mur, [mwx, mwy]);
+      if (o && t != null && dOuv.t != null) {
+        if (!dOuv.pousse) {
+          if (Math.abs(t - dOuv.t) * vpRef.current.scale < 3) return;   // simple clic, pas un glissé
+          pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+          dOuv.pousse = true;
+        }
+        setReleve(r => ({ ...r, ouvertures: r.ouvertures.map(x => x.id === dOuv.id ? glisserOuverture(r, x, dOuv.t0 + (t - dOuv.t)) : x) }));
+      }
+      return;
+    }
     const drag=dragRef.current;
     if (drag && toolRef.current==='pan') {
       const scale=vpRef.current.scale;
@@ -2030,6 +2048,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const onMouseUp = (e) => {
     midDragRef.current=null;
     dragRef.current=null;
+    if (dragOuvRef.current) { dragOuvRef.current = null; return; }
     if (movingCoteRef.current) {
       movingCoteRef.current = null;
       return;
@@ -2075,7 +2094,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   };
 
   const onMouseLeave = () => {
-    dragRef.current=null; midDragRef.current=null;
+    dragRef.current=null; midDragRef.current=null; dragOuvRef.current=null;
     movingCoteRef.current=null;
     if (movingSelRef.current) {
       const mv = movingSelRef.current;
@@ -2196,6 +2215,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     if (!res.ok) { setReleveLecture({ etat:'erreur', message:res.erreur }); return; }
     sourcesReleveRef.current = null;
     setChoixVersions(null);
+    setSelReleve(null); setMurSurligne(null);
 
     pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
     setReleve(res.releve);
@@ -2221,6 +2241,34 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     futureRef.current  = futureRef.current.map(h => ('releve' in h ? { ...h, releve: patch(h.releve) } : h));
     setReleve(cur => patch(cur));
     setEnvoiReleve(r.echecs.length ? { fait:total, total, echecs:r.echecs.length, raison:r.raison } : null);
+  };
+
+  // Toute modification du relevé passe ici : historique (annuler / rétablir),
+  // puis nouvel état — les métrés se recalculent à l'affichage.
+  const modifierReleve = (fn) => {
+    if (!releveRef.current) return;
+    pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+    setReleve(r => (r ? fn(r) : r));
+  };
+  // Centre la vue sur une pièce ou une ouverture (échelle inchangée).
+  const centrerSurReleve = (cible) => {
+    const R = releveRef.current, canvas = canvasRef.current;
+    if (!R || !cible || !canvas) return;
+    let pts = [];
+    if (cible.type === 'piece') pts = R.pieces.find(p => p.id === cible.id)?.polygone || [];
+    else {
+      const o = (R.ouvertures || []).find(x => x.id === cible.id);
+      const g = o && geometrieOuverture(R, o);
+      if (g) pts = [g.p0, g.p1];
+    }
+    if (!pts.length) return;
+    const cx = pts.reduce((t, q) => t + q[0], 0) / pts.length, cy = pts.reduce((t, q) => t + q[1], 0) / pts.length;
+    setVp(v => ({ ...v, x: cx - canvas.width / 2 / v.scale, y: cy - canvas.height / 2 / v.scale }));
+  };
+  const onPointAValider = (point, action) => {
+    if (action === 'corriger') { if (point.cible) { setSelReleve(point.cible); setMurSurligne(null); centrerSurReleve(point.cible); } return; }
+    if (action === 'detecter') { modifierReleve(r => ({ ...r, ouvertures: detecterOuvertures(r) })); return; }
+    modifierReleve(r => traiterPointAValider(r, point, action));
   };
 
   const quitterEditeur = () => {
@@ -2349,6 +2397,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     {id:'window', icon:'⬜', label:'Fenêtre'},
     {id:'text',   icon:'T',  label:'Texte'},
     {id:'surface',icon:'⬡',  label:'Surface — cliquer les points, clic sur le 1er point pour fermer'},
+    ...(releve ? [
+      {id:'releve',    icon:'⌂', label:'Relevé : cliquer une pièce ou une ouverture pour la modifier ; glisser une ouverture le long de son mur'},
+      {id:'ouverture', icon:'⊓', label:'Ouverture sur mur : cliquer un mur pour y poser une porte de 83 cm'},
+    ] : []),
   ];
 
   const btnStyle=(id)=>({
@@ -2493,13 +2545,15 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {releve&&(()=>{
           const n = pointsAValider(releve).length;
           return (
-            <button onClick={()=>setShowMetres(v=>!v)} title="Métrés par pièce et points à valider"
+            <button onClick={()=>{ if (selReleve) { setSelReleve(null); setShowMetres(true); } else setShowMetres(v=>!v); setOngletMetres('metres'); }}
+              title="Métrés par pièce et points à valider"
               style={{display:'flex',alignItems:'center',gap:6,padding:'6px 11px',
               background:showMetres?'rgba(91,138,245,0.3)':'rgba(255,255,255,0.06)',
               border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,color:'#e8eaf0',
               fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'inherit'}}>
               📊 Métrés
-              {n>0&&<span style={{background:'#c2410c',color:'#fff',borderRadius:10,padding:'1px 7px',fontSize:11,fontWeight:800}}>
+              {n>0&&<span onClick={(e)=>{ e.stopPropagation(); setSelReleve(null); setOngletMetres('points'); setShowMetres(true); }}
+                style={{background:'#c2410c',color:'#fff',borderRadius:10,padding:'1px 7px',fontSize:11,fontWeight:800}}>
                 {n} point{n>1?'s':''} à valider
               </span>}
             </button>
@@ -3040,13 +3094,28 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
       {/* ── Canvas ── */}
       <div style={{flex:1,position:'relative',minHeight:0,background:(bgLight||printMode)?'#ffffff':'#12151f',overflow:'hidden'}}>
-        {showMetres&&releve&&<PanneauMetresReleve releve={releve} onClose={()=>setShowMetres(false)}/>}
+        {releve&&selReleve?.type==='piece'&&(
+          <PanneauPieceReleve releve={releve} pieceId={selReleve.id} modifier={modifierReleve}
+            onClose={()=>{ setSelReleve(null); setMurSurligne(null); }}
+            onSelection={(c)=>{ setSelReleve(c); setMurSurligne(null); }}
+            setMurSurligne={setMurSurligne} urls={urlsPhotos} demanderUrls={demanderUrls}/>
+        )}
+        {releve&&selReleve?.type==='ouverture'&&(
+          <PanneauOuvertureReleve releve={releve} ouvertureId={selReleve.id} modifier={modifierReleve}
+            onClose={()=>setSelReleve(null)} onSelection={(c)=>setSelReleve(c)}/>
+        )}
+        {releve&&!selReleve&&showMetres&&(
+          <PanneauMetresReleve releve={releve} onglet={ongletMetres} setOnglet={setOngletMetres}
+            onClose={()=>setShowMetres(false)} onPoint={onPointAValider} urls={urlsPhotos} demanderUrls={demanderUrls}/>
+        )}
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',
             background:(bgLight||printMode)?'#ffffff':'#12151f',display:'block',touchAction:'none',
             cursor:tool==='pan'?(dragRef.current?'grabbing':'grab')
               :tool==='select'?'crosshair'
               :tool==='delete'?'not-allowed'
+              :tool==='releve'?'pointer'
+              :tool==='ouverture'?'copy'
               :(tool==='line'||WALL_TYPES[tool])?'crosshair'
               :'default'}}
           onMouseDown={onMouseDown}
@@ -3076,6 +3145,8 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
         {tool==='cote'&&measurePts.length===0&&<span>Clic sur le 1er point de la cote</span>}
         {tool==='cote'&&measurePts.length===1&&<span style={{color:'#f5d08a'}}>Clic sur le 2ème point</span>}
         {tool==='select'&&<span>Clic = sélectionner · Glisser = rectangle · Shift = ajouter · Suppr = effacer</span>}
+        {tool==='releve'&&<span style={{color:'#8fe0ad'}}>Clic sur une pièce ou une ouverture = la modifier · Glisser une ouverture = la déplacer le long du mur · Suppr = supprimer l'ouverture · Échap = désélectionner</span>}
+        {tool==='ouverture'&&<span style={{color:'#8fe0ad'}}>Clic sur un mur = y poser une porte de 83 cm (à vérifier), réglable ensuite dans le panneau</span>}
         {tool==='surface'&&polyPoints.length===0&&<span style={{color:'#a0e0a0'}}>Clic = 1er point de la zone</span>}
         {tool==='surface'&&polyPoints.length>0&&<span style={{color:'#a0e0a0'}}>{polyPoints.length} points — clic sur ⭕ pour fermer · Échap = annuler</span>}
         {selCount>0&&<span style={{color:'#f5a623'}}>{selCount} élément{selCount>1?'s':''} sélectionné{selCount>1?'s':''} — Suppr pour effacer</span>}

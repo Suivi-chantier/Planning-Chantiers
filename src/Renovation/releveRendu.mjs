@@ -14,12 +14,15 @@
 // toC(x, y) → [px, py] : passage du repère plan (m) au repère écran.
 // Couvert par scripts/verif-releve-imapper.mjs.
 // ─────────────────────────────────────────────────────────────────────────────
-import { couleurPiece, cotesInterieures, poleInaccessibilite, airePolygone, pointDansPoly } from "./releveImapper.mjs";
+import {
+  couleurPiece, cotesInterieures, poleInaccessibilite, airePolygone, pointDansPoly, geometrieOuverture,
+} from "./releveImapper.mjs";
 
 export const COULEURS_RELEVE = {
   mur: "#3a4250", murSombre: "#5b6680",
   texte: "#1f2937", cote: "#4b5563", point: "#c2410c", selection: "#d97706",
   fondEtiquette: "rgba(255,255,255,0.92)",
+  ouverture: "#111827", aVerifier: "#ea580c", trou: "#ffffff",
 };
 
 // Pôle d'une pièce, calculé une fois par polygone (le dessin est rejoué à
@@ -36,7 +39,7 @@ function chemin(ctx, P, toC) {
   ctx.closePath();
 }
 
-// opts : { sombre, points, cotes, pieceSurlignee }
+// opts : { sombre, points, cotes, pieceSurlignee, ouvertureSelectionnee, murSurligne:{piece, mur} }
 export function dessinerReleve(ctx, releve, toC, opts = {}) {
   if (!ctx || !releve) return;
   const C = COULEURS_RELEVE;
@@ -83,11 +86,26 @@ export function dessinerReleve(ctx, releve, toC, opts = {}) {
     }
   }
 
+  // 4 bis. Mur surligné (photo affichée dans le panneau de la pièce).
+  if (opts.murSurligne) {
+    const p = pieces.find((x) => x.id === opts.murSurligne.piece);
+    const k = opts.murSurligne.mur;
+    if (p && k != null && p.polygone[k]) {
+      const a = toC(...p.polygone[k]), b = toC(...p.polygone[(k + 1) % p.polygone.length]);
+      ctx.strokeStyle = C.selection;
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+  }
+
+  // 4 ter. Ouvertures (portes, fenêtres, baies, placards) et leurs pastilles.
+  const pastilles = dessinerOuvertures(ctx, releve, toC, opts);
+
   // 5. Mise en page des étiquettes AVANT les cotes (voir miseEnPageEtiquettes).
   const ecrans = new Map(pieces.map((p) => [p.id, p.polygone.map((q) => toC(q[0], q[1]))]));
   const mesurer = (t, fs) => { ctx.font = `bold ${fs}px sans-serif`; return ctx.measureText(t).width; };
   const etiquettes = miseEnPageEtiquettes(pieces, toC, mesurer);
-  const boites = etiquettes.map((e) => e.boite);   // zones déjà occupées par du texte
+  const boites = [...etiquettes.map((e) => e.boite), ...pastilles];   // zones déjà occupées par du texte
   const croise = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
   // 6. Cotes intérieures, en cm, le long du côté et à l'intérieur de la pièce.
@@ -214,4 +232,98 @@ export function miseEnPageEtiquettes(pieces, toC, mesurer) {
     }
   });
   return liste;
+}
+
+// ── Ouvertures ─────────────────────────────────────────────────────────────
+// Pour chaque ouverture non masquée : la zone de mur est effacée (rectangle
+// dans l'épaisseur du mur), puis le symbole est tracé, à la largeur réelle :
+//   porte / placard : vantail + arc de débattement (charnière, côté) ;
+//   fenêtre : trois traits parallèles dans l'épaisseur du mur ;
+//   porte-fenêtre : traits de fenêtre + vantail ; baie : pointillés.
+// Noir pour « détectée », « confirmée sur photo » et « validée » ; orange et
+// pointillé pour « à vérifier ». Code (P1, F1…) dans une pastille côté pièce.
+// Retourne les boîtes écran des pastilles (pour que les cotes les évitent).
+export function dessinerOuvertures(ctx, releve, toC, opts = {}) {
+  const C = COULEURS_RELEVE;
+  const boites = [];
+  for (const o of releve?.ouvertures || []) {
+    if (o.masque) continue;
+    const g = geometrieOuverture(releve, o);
+    if (!g || g.largeur <= 0) continue;
+    const e = g.epaisseur;
+    const ext = (p, d) => [p[0] - g.n[0] * d, p[1] - g.n[1] * d];   // vers l'extérieur de la pièce
+    const S = (p) => toC(p[0], p[1]);
+    const [a, b, a2, b2] = [S(g.p0), S(g.p1), S(ext(g.p0, e)), S(ext(g.p1, e))];
+    const douteux = o.statut === "a_verifier";
+    const sel = opts.ouvertureSelectionnee === o.id;
+    const col = sel ? C.selection : douteux ? C.aVerifier : C.ouverture;
+
+    // Zone de mur effacée.
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(b2[0], b2[1]); ctx.lineTo(a2[0], a2[1]);
+    ctx.closePath();
+    ctx.fillStyle = C.trou;
+    ctx.fill();
+
+    ctx.strokeStyle = col;
+    ctx.lineWidth = sel ? 2.2 : 1.2;
+    ctx.setLineDash(douteux ? [4, 3] : []);
+    const trait = (p, q) => { ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); };
+    // Tableaux (bords du trou dans le mur).
+    trait(a, a2); trait(b, b2);
+
+    if (o.type === "fenetre" || o.type === "porte_fenetre") {
+      [0, e / 2, e].forEach((d) => trait(S(ext(g.p0, d)), S(ext(g.p1, d))));
+    }
+    if (o.type === "baie") {
+      ctx.setLineDash([3, 3]);
+      trait(a, b); trait(a2, b2);
+    }
+    if (o.type === "porte" || o.type === "placard" || o.type === "porte_fenetre") {
+      const versInterieur = (o.sens?.cote || "interieur") === "interieur";
+      // Le vantail tourne sur la face du mur du côté où il s'ouvre.
+      const face = (p) => (versInterieur ? p : ext(p, e));
+      const charT1 = o.sens?.charniere === "t1";
+      const gond = face(charT1 ? g.p1 : g.p0), autre = face(charT1 ? g.p0 : g.p1);
+      const d = versInterieur ? g.n : [-g.n[0], -g.n[1]];
+      const bout = [gond[0] + d[0] * g.largeur, gond[1] + d[1] * g.largeur];
+      const [G, B, A] = [S(gond), S(bout), S(autre)];
+      trait(G, B);
+      const r = Math.hypot(B[0] - G[0], B[1] - G[1]);
+      const a1 = Math.atan2(B[1] - G[1], B[0] - G[0]), a2b = Math.atan2(A[1] - G[1], A[0] - G[0]);
+      let delta = a2b - a1;
+      while (delta > Math.PI) delta -= 2 * Math.PI;
+      while (delta <= -Math.PI) delta += 2 * Math.PI;
+      ctx.setLineDash(douteux ? [4, 3] : [3, 2]);
+      ctx.lineWidth = sel ? 1.6 : 0.8;
+      ctx.beginPath();
+      ctx.arc(G[0], G[1], r, a1, a1 + delta, delta < 0);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Pastille du code, côté pièce, au milieu de l'ouverture.
+    const m = S([(g.p0[0] + g.p1[0]) / 2 + g.n[0] * 0.01, (g.p0[1] + g.p1[1]) / 2 + g.n[1] * 0.01]);
+    const m0 = S([(g.p0[0] + g.p1[0]) / 2, (g.p0[1] + g.p1[1]) / 2]);
+    const nx = m[0] - m0[0], ny = m[1] - m0[1], nl = Math.hypot(nx, ny) || 1;
+    const cx = m0[0] + (nx / nl) * 13, cy = m0[1] + (ny / nl) * 13;
+    const texte = o.code || "?";
+    ctx.font = "bold 9px sans-serif";
+    const tw = ctx.measureText(texte).width + 6;
+    const bt = { x0: cx - tw / 2, x1: cx + tw / 2, y0: cy - 7, y1: cy + 6 };
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bt.x0, bt.y0, tw, 13, 3); else ctx.rect(bt.x0, bt.y0, tw, 13);
+    ctx.fill();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.setLineDash(douteux ? [2, 2] : []);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = col;
+    ctx.textAlign = "center";
+    ctx.fillText(texte, cx, cy + 3);
+    boites.push(bt);
+  }
+  return boites;
 }

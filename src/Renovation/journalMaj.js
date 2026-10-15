@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-15",
+    type: "nouveaute",
+    titre: "Plans : relevé iMapper — portes et fenêtres détectées, plan modifiable, points à valider",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "Le relevé iMapper reconnaît maintenant les portes, fenêtres et passages dans les points mesurés, les dessine sur le plan, et calcule enfin les plinthes et les murs nets. Tout se corrige au clic, et un écran « Points à valider » liste ce que l'outil n'a pas pu établir seul.",
+    comment: "Les ouvertures sont détectées à l'import ; pour un relevé déjà importé, « Points à valider » propose « Détecter les portes et fenêtres ». La géométrie seule n'est jamais définitive : une porte vue d'un seul côté du mur, un trou sur un mur à peine relevé ou une « fenêtre » sans vitre vue derrière (porte palière, placard, meuble) sortent « à vérifier », en orange pointillé. Elles sont déduites des métrés, valeurs précédées de « ≈ » ; les placards ne le sont pas. Outil « ⌂ Relevé » : cliquer une pièce ouvre son panneau (nom, type, hauteur sous plafond — 2,50 m par défaut, à saisir pièce par pièce —, métrés, ouvertures, photos ; survoler une photo surligne son mur) ; cliquer une ouverture ouvre le sien (type, largeur, hauteur, allège, charnière, côté d'ouverture, « Marquer validée », supprimer — aussi avec Suppr) ; glisser une ouverture la déplace le long de son mur. Outil « ⊓ Ouverture sur mur » : un clic sur un mur y pose une porte de 83 cm. Le badge « points à valider » de la barre d'outils ouvre la liste : pour chaque point, Confirmer, Corriger (sélectionne et centre l'objet) ou Supprimer. Chaque modification se recalcule aussitôt et s'annule avec Ctrl+Z. Les ouvertures apparaissent aussi à l'impression PDF et dans la visionneuse des ouvriers, qui reste en lecture seule.",
+  },
+  {
+    date: "2026-10-15",
     type: "correctif",
     titre: "Plans : relevé iMapper — étiquettes et cotes lisibles, même dans les petites pièces",
     pages: [{ id: "plans", label: "Plans" }],
