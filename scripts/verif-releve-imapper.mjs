@@ -20,6 +20,7 @@ import {
   rattacherPhotosMurs, calculerMetres, texteMetre, pointsAValider, airePolygone,
   perimetrePolygone, longueursCotes, pointDansPoly, distancePointPolygone,
   cotesInterieures, traduireNomPiece, emprisesReleve, MSG_DXF_SANS_PIECES,
+  decouperPdfImapper, extraireJpegsParPage, versionsDuPlan,
 } from "../src/Renovation/releveImapper.mjs";
 import { dessinerReleve } from "../src/Renovation/releveRendu.mjs";
 
@@ -246,6 +247,81 @@ test("rendu : sols puis murs, cotes en cm à l'intérieur, nom + surface", () =>
   assert.ok(!cotesInterieures(piece("Chambre")).some((c) => c.texte === "5"));
 });
 
+// ── DXF à plusieurs versions du plan (plan automatique lancé plusieurs fois) ─
+// Cas réel rencontré le 15/10/2026 : 17 pièces + 12 pièces superposées dans le
+// même DXF. Reproduit ici sur le relevé de référence : on ajoute à la fin des
+// entités une 2ᵉ série de pièces (données fictives dérivées de la référence).
+function dxfAvecSecondeVersion(polys) {
+  const lignes = dxfTexte.split(/\r?\n/);
+  const iEnt = lignes.findIndex((l, i) => l.trim() === "ENTITIES" && lignes[i - 1].trim() === "2");
+  const iFin = lignes.findIndex((l, i) => i > iEnt && l.trim() === "ENDSEC");
+  const ajout = polys.flatMap((P) => [
+    "0", "POLYLINE", "8", "A-AREA-ONE-POLYLINE", "66", "1", "70", "1",
+    ...P.flatMap((q) => ["0", "VERTEX", "8", "A-AREA-ONE-POLYLINE", "10", q[0].toFixed(6), "20", q[1].toFixed(6)]),
+    "0", "SEQEND",
+  ]);
+  return [...lignes.slice(0, iFin - 1), ...ajout, ...lignes.slice(iFin - 1)].join("\n");
+}
+const piecesBrutes = lireDXF(dxfTexte).polylignes.filter((p) => p.calque === "A-AREA-ONE-POLYLINE").map((p) => p.sommets);
+const agrandir = (P, k) => {
+  const cx = P.reduce((t, q) => t + q[0], 0) / P.length, cy = P.reduce((t, q) => t + q[1], 0) / P.length;
+  return P.map((q) => [cx + (q[0] - cx) * k, cy + (q[1] - cy) * k]);
+};
+
+test("noms tronqués à 6 lettres (autre projet iMapper) : reconnus par le début du mot", () => {
+  assert.equal(traduireNomPiece("chambr").nom, "Chambre");
+  assert.equal(traduireNomPiece("Couloi").nom, "Couloir");
+  assert.equal(traduireNomPiece("SdB_t3").nom, "Salle de bain");
+  assert.equal(traduireNomPiece("Studio").type, "sejour");
+  assert.equal(traduireNomPiece("Bureau").nom, "Bureau");
+  assert.deepEqual(traduireNomPiece("Pente_"), { nom: "Pente", type: "autre", connu: false });
+  assert.equal(traduireNomPiece("Salle").nom, "Salle d'eau");
+});
+
+test("DXF à 2 versions : aucun choix silencieux, les versions sont décrites", () => {
+  const dxf2 = dxfAvecSecondeVersion(piecesBrutes.slice(0, 5).map((P) => agrandir(P, 1.03)));
+  assert.equal(versionsDuPlan(lireDXF(dxf2).polylignes.filter((p) => p.calque === "A-AREA-ONE-POLYLINE").map((p) => p.sommets)).length, 2);
+  const r = assemblerReleve({ dxfTexte: dxf2, pdfs, maintenant: "x" });
+  assert.equal(r.ok, false);
+  assert.equal(r.choix, "version");
+  assert.deepEqual(r.versions.map((v) => v.nb), [6, 5]);
+  assert.equal(r.versions[0].part_murs, 1, "la version d'origine est posée sur les murs");
+  assert.ok(r.versions[1].part_murs < 0.5, "la copie agrandie ne l'est pas");
+  // Version 1 choisie : le relevé de référence, intact, avec ses 60 photos.
+  const v1 = assemblerReleve({ dxfTexte: dxf2, pdfs, maintenant: "x", version: 1 });
+  assert.ok(v1.ok);
+  assert.deepEqual(v1.releve.pieces.map((p) => p.nom), R.pieces.map((p) => p.nom));
+  assert.equal(v1.releve.pieces.reduce((t, p) => t + p.photos.length, 0), 60);
+  assert.ok(v1.releve.alertes.some((a) => a.code === "plusieurs_versions"));
+  // Version 2 : 5 pièces, aucune page PDF ne leur correspond → une seule ligne.
+  const v2 = assemblerReleve({ dxfTexte: dxf2, pdfs, maintenant: "x", version: 2 });
+  assert.equal(v2.releve.pieces.length, 5);
+  assert.equal(v2.releve.alertes.filter((a) => a.code === "piece_sans_pdf").length, 1);
+  assert.equal(assemblerReleve({ dxfTexte: dxf2, pdfs, version: 3 }).ok, false);
+});
+
+test("même pièce à l'identique dans deux versions : la page PDF n'est pas attribuée au hasard", () => {
+  const ch = piecesBrutes[0];
+  const dxf2 = dxfAvecSecondeVersion([ch]);
+  const v1 = assemblerReleve({ dxfTexte: dxf2, pdfs, maintenant: "x", version: 1 }).releve;
+  const chambre = v1.pieces.find((p) => p.nom === "Chambre");
+  assert.equal(chambre.photos.length, 0, "égalité parfaite : pas de photos attribuées en silence");
+  assert.ok(v1.alertes.some((a) => a.code === "pdf_ambigu"));
+  // Les 5 autres pièces gardent leurs photos.
+  assert.equal(v1.pieces.filter((p) => p.photos.length === 10).length, 5);
+});
+
+test("PDF groupé (toutes les pièces dans un fichier) : découpé en une entrée par pièce", () => {
+  const plan = [{ str: "Projet — Plan #12", x: 10, y: 800 }, { str: "1:250 A4", x: 400, y: 30 }];
+  const pages = [plan, ...pdfJson.pdfs.flatMap((p) => [p.page1, p.page2])];
+  const pieces = decouperPdfImapper(pages);
+  assert.equal(pieces.length, 6);
+  assert.deepEqual(pieces.map((p) => p.page), [1, 3, 5, 7, 9, 11]);
+  assert.deepEqual(pieces.map((p) => p.lecture), pdfs.map((p) => p.lecture));
+  // PDF d'une seule pièce : même lecture qu'avant.
+  assert.equal(decouperPdfImapper([pdfJson.pdfs[0].page1, pdfJson.pdfs[0].page2]).length, 1);
+});
+
 // ── Fichiers d'origine (local uniquement, jamais sur GitHub) ───────────────
 const dossierPrive = path.join(ici, "fixtures-privees/releve-reference");
 if (fs.existsSync(dossierPrive)) {
@@ -268,8 +344,44 @@ if (fs.existsSync(dossierPrive)) {
     assert.equal(r2.source.projet, "13255");
     assert.deepEqual(r2.pieces, R.pieces);
   });
+  test("[privé] photos page par page : 10 sur la page 1 de chaque PDF, rien en page 2", () => {
+    const parPage = extraireJpegsParPage(new Uint8Array(fs.readFileSync(path.join(dossierPrive, "piece_1.pdf"))));
+    assert.deepEqual(parPage.map((l) => l.length), [10, 0]);
+  });
 } else {
   console.log("  (jeu privé absent : extraction des photos des vrais PDF non vérifiée ici)");
+}
+
+// Relevé réel à 2 versions + PDF groupé de 64 pages (cas du 15/10/2026).
+const dossierMulti = path.join(ici, "fixtures-privees/releve-montillers");
+let pdfjs = null;
+try { pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs"); } catch { /* sans dépendances installées */ }
+if (fs.existsSync(dossierMulti) && pdfjs) {
+  test("[privé] DXF à 2 versions + PDF groupé : versions décrites, toutes les pièces avec leurs photos", async () => {
+    const octets = new Uint8Array(fs.readFileSync(path.join(dossierMulti, "pieces.pdf")));
+    const doc = await pdfjs.getDocument({ data: octets.slice(), verbosity: 0 }).promise;
+    const pages = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      pages.push((await (await doc.getPage(n)).getTextContent()).items.filter((i) => i.str && i.str.trim())
+        .map((i) => ({ str: i.str, x: i.transform[4], y: i.transform[5] })));
+    }
+    const parPage = extraireJpegsParPage(octets);
+    const pieces = decouperPdfImapper(pages);
+    assert.equal(pieces.length, 29);
+    const pdfsM = pieces.map((p) => ({ nom: `#${p.lecture.piece_num}`, lecture: p.lecture, nbPhotos: parPage[p.page].length }));
+    const dxfM = fs.readFileSync(path.join(dossierMulti, "plan.dxf"), "latin1");
+    const choix = assemblerReleve({ dxfTexte: dxfM, pdfs: pdfsM });
+    assert.equal(choix.choix, "version");
+    assert.deepEqual(choix.versions.map((v) => v.nb), [17, 12]);
+    assert.equal(choix.versions[1].part_murs, 1);
+    for (const v of [1, 2]) {
+      const R2 = assemblerReleve({ dxfTexte: dxfM, pdfs: pdfsM, version: v }).releve;
+      assert.ok(R2.pieces.every((p) => p.pdf), `version ${v} : toutes les pièces ont leur page PDF`);
+      assert.ok(R2.pieces.every((p) => p.photos.length === (p.scan ? 10 : 0)), `version ${v} : 10 photos par pièce scannée`);
+      assert.ok(!R2.alertes.some((a) => /pdf_ambigu|pdf_sans_piece|photos_nombre/.test(a.code)), JSON.stringify(R2.alertes));
+      assert.ok(pointsAValider(R2).length <= 10, `version ${v} : ${pointsAValider(R2).length} points à valider`);
+    }
+  });
 }
 
 let ok = 0;

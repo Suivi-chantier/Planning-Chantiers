@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-15",
+    type: "correctif",
+    titre: "Plans : relevé iMapper — plan lancé plusieurs fois, PDF groupé, noms de pièces",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "Sur un projet iMapper où le plan automatique a été lancé plusieurs fois, l'import superposait toutes les versions (une même pièce apparaissait deux fois). Il demande maintenant laquelle importer. Le PDF « pour les devis » d'un seul tenant (toutes les pièces dans un fichier) est accepté, et les noms coupés à 6 lettres (« chambr », « Couloi ») sont reconnus.",
+    comment: "Quand le DXF contient plusieurs versions, la fenêtre d'import les présente avant d'importer : nombre de pièces, surface, et part des contours posés sur les murs du fichier. Les murs n'existent que pour une version : celle à 100 % est en général la bonne. Les pages du PDF des autres versions sont ignorées. Chaque page du PDF va à la pièce qui lui correspond le mieux ; en cas d'égalité parfaite, rien n'est attribué au hasard et un point à valider le signale. Les alertes répétées sont regroupées : une ligne par nom de pièce non reconnu, une seule ligne pour les pièces sans PDF. Une pièce dessinée sans scan (placard) n'attend pas de photo. Pour corriger un plan déjà importé, relancer l'import et choisir la version.",
+  },
+  {
+    date: "2026-10-15",
     type: "nouveaute",
     titre: "Plans : importer un relevé iMapper (pièces, murs, photos, métrés)",
     pages: [{ id: "plans", label: "Plans" }],
