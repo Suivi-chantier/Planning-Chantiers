@@ -30,7 +30,7 @@ begin
    raise exception 'Montant HT negatif au centime obligatoire';
  end if;
  select * into f from public.factures where id=p_facture_id for update;
- if not found or f.type_document is distinct from 'avoir' or f.statut='archivee'
+ if not found or f.type_document is distinct from 'avoir' or f.statut<>'a_rapprocher'
    then raise exception 'Document non admissible comme avoir'; end if;
  if f.montant_ht is null or f.montant_ht>=0 then raise exception 'Avoir sans montant HT negatif'; end if;
  if f.facture_origine_id is not null and not exists(
