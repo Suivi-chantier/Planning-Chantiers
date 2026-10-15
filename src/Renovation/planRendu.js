@@ -178,7 +178,9 @@ export function dessinerScene(ctx, d, W, H, vp, opts = {}) {
   // Relevé iMapper (pièces, murs, cotes, étiquettes) : sous tout le reste,
   // les outils de dessin se posent par-dessus. Absent → rien ne change.
   if (CAL.releve && d.releve) {
-    dessinerReleve(ctx, d.releve, (x, y) => { const p = toC(x, y); return [p.cx, p.cy]; }, { points: !!CAL.points });
+    // opts.releve : options du dessin du relevé (ex. pièce surlignée sur la
+    // fiche d'une pièce du dossier PDF).
+    dessinerReleve(ctx, d.releve, (x, y) => { const p = toC(x, y); return [p.cx, p.cy]; }, { points: !!CAL.points, ...(opts.releve || {}) });
   }
 
   // Surfaces (polygones + étiquette d'aire)

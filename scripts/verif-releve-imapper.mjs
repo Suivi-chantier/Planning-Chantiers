@@ -25,7 +25,7 @@ import {
   geometrieOuverture, glisserOuverture, largeurOuverture, nouvelleOuverture, ouvertureSousPoint,
   coteLePlusProche, traiterPointAValider, prochainCode,
   contexteAnalysePhotos, integrerAnalysePhotos, noterEchecAnalyse, appliquerCheminsIA, placerOuverture,
-  budgetIARestant, PLAFOND_IA_RELEVE_EUR,
+  budgetIARestant, PLAFOND_IA_RELEVE_EUR, syntheseDossier,
 } from "../src/Renovation/releveImapper.mjs";
 import { dessinerReleve, miseEnPageEtiquettes } from "../src/Renovation/releveRendu.mjs";
 
@@ -544,6 +544,46 @@ test("IA — verdicts intégrés : confirmé, requalifié, écarté, incertain, 
   const Re = noterEchecAnalyse(Rx, cuisine.id, "Modèle indisponible");
   assert.equal(Re.pieces.find((p) => p.id === cuisine.id).analyse_ia.statut, "erreur");
   assert.deepEqual(Re.ouvertures, Rx.ouvertures);
+});
+
+// ── Lot 4 : contenu du dossier PDF ─────────────────────────────────────────
+test("dossier PDF : mêmes métrés qu'à l'écran, ouvertures triées, observations VALIDÉES seulement", () => {
+  const ch = piece("Chambre");
+  const Rx = {
+    ...RP,
+    pieces: RP.pieces.map((p) => (p.id !== ch.id ? p : { ...p, observations: [
+      { texte: "Parquet bois (validée)", statut: "valide", source: "ia" },
+      { texte: "Proposition non validée", statut: "propose", source: "ia" },
+    ] })),
+    ouvertures: R.ouvertures.map((o, i) => (i === 0 ? { ...o, masque: true } : o)),
+  };
+  const s = syntheseDossier(Rx);
+  // Métrés : exactement ceux de calculerMetres (même service, même chiffre).
+  assert.deepEqual(s.metres, calculerMetres(Rx));
+  proche(s.surface, 56.72, 0.01, "surface habitable");
+  assert.equal(s.nb_pieces, 6);
+  // Ouverture écartée absente ; ordre P, PF, B, PL, F puis numéro.
+  assert.ok(!s.ouvertures.some((o) => o.id === R.ouvertures[0].id));
+  const pre = s.ouvertures.map((o) => /^[A-Z]+/.exec(o.code)[0]);
+  assert.deepEqual(pre, [...pre].sort((a, b) => ["P", "PF", "B", "PL", "F"].indexOf(a) - ["P", "PF", "B", "PL", "F"].indexOf(b)));
+  const nums = s.ouvertures.filter((o) => /^P\d/.test(o.code)).map((o) => Number(o.code.slice(1)));
+  assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
+  assert.ok(s.ouvertures.every((o) => o.largeur_cm > 0 && !o.a_placer));
+  // Fiche de la chambre : photos rangées, observation validée seule.
+  const f = s.pieces.find((p) => p.id === ch.id);
+  assert.equal(f.photos.length, 10);
+  assert.deepEqual(f.observations, ["Parquet bois (validée)"]);
+  assert.ok(f.ouvertures.length >= 3);
+  // Une ouverture « à placer » est signalée comme telle, sans largeur.
+  const cuisine = piece("Cuisine");
+  const kLong = longueursCotes(cuisine.polygone).findIndex((l) => l > 3);
+  const Ry = integrerAnalysePhotos(Rx, cuisine.id, { ouvertures: [{ ref: null, mur: kLong, verdict: "nouvelle", type: "porte", photos: [9] }] });
+  const ap = syntheseDossier(Ry).ouvertures.find((o) => o.a_placer);
+  assert.ok(ap && ap.largeur_cm === null);
+  // Points à valider : les mêmes qu'à l'écran.
+  assert.deepEqual(s.points.map((p) => p.cle), pointsAValider(Rx).map((p) => p.cle));
+  // Pas de relevé : pas de dossier.
+  assert.equal(syntheseDossier(null), null);
 });
 
 // ── DXF à plusieurs versions du plan (plan automatique lancé plusieurs fois) ─

@@ -124,7 +124,7 @@ function BlocAnalyseIA({ releve, onAnalyser, etat }) {
 }
 
 // ── Métrés + points à valider ──────────────────────────────────────────────
-export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onClose, onPoint, urls, demanderUrls, onAnalyser, etatIA }) {
+export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onClose, onPoint, urls, demanderUrls, onAnalyser, etatIA, onDossier }) {
   const m = calculerMetres(releve);
   const pav = pointsAValider(releve);
   const cell = { padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap" };
@@ -151,6 +151,11 @@ export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onCl
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
         {ong("metres", "Métrés")}
         {ong("points", `Points à valider (${pav.length})`)}
+        <span style={{ flex: 1 }} />
+        {onDossier && (
+          <button onClick={onDossier} title="Plan d'ensemble à l'échelle, métrés, ouvertures, une fiche par pièce avec ses photos, points à valider"
+            style={bouton("#f5a623")}>🖨 Dossier PDF du relevé</button>
+        )}
       </div>
       {onAnalyser && <BlocAnalyseIA releve={releve} onAnalyser={onAnalyser} etat={etatIA} />}
       {onglet === "metres" && (<>

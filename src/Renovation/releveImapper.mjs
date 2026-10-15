@@ -1362,6 +1362,57 @@ export function budgetIARestant(releve, plafond = PLAFOND_IA_RELEVE_EUR) {
   return Math.max(0, plafond - (Number(releve?.ia_cout_total) || 0));
 }
 
+// ── Lot 4 : contenu du dossier PDF du relevé ───────────────────────────────
+// Tout ce que le dossier imprime, préparé ici (pur, testé) ; la mise en page
+// (releveDossierPdf.js) ne calcule rien. Règles :
+//   • métrés = calculerMetres, mêmes chiffres et mêmes « ≈ » qu'à l'écran ;
+//   • ouvertures écartées (masquées) absentes ; « à placer » signalées comme
+//     telles, sans largeur ;
+//   • observations : SEULEMENT celles validées par le bureau — une proposition
+//     de l'IA ne sort pas sur papier comme un constat ;
+//   • alertes non traitées : listées comme « à vérifier », jamais comme faits.
+const ORDRE_PREFIXES = ["P", "PF", "B", "PL", "F"];
+function rangCode(code) {
+  const m = /^([A-Z]+)(\d+)$/.exec(code || "");
+  if (!m) return [99, 0];
+  const i = ORDRE_PREFIXES.indexOf(m[1]);
+  return [i < 0 ? 98 : i, Number(m[2])];
+}
+export function syntheseDossier(releve) {
+  if (!releve) return null;
+  const m = calculerMetres(releve);
+  const nomPiece = (id) => (releve.pieces || []).find((p) => p.id === id)?.nom || "?";
+  const ouvertures = (releve.ouvertures || [])
+    .filter((o) => !o.masque)
+    .map((o) => ({
+      id: o.id, code: o.code, type: o.type,
+      type_label: (TYPES_OUVERTURE.find((t) => t.id === o.type) || {}).label || o.type,
+      largeur_cm: o.t0 == null || o.t1 == null ? null : Math.round((o.t1 - o.t0) * 100),
+      entre: (o.pieces_liees || [o.piece]).map(nomPiece).join(" / "),
+      pieces: o.pieces_liees || [o.piece],
+      statut: o.statut, statut_label: STATUTS_OUVERTURE[o.statut] || o.statut,
+      a_verifier: o.statut === "a_verifier", a_placer: o.t0 == null || o.t1 == null,
+      note: o.raison || null,
+    }))
+    .sort((a, b) => { const [x, y] = [rangCode(a.code), rangCode(b.code)]; return x[0] - y[0] || x[1] - y[1]; });
+  const alertesDe = (id) => (releve.alertes || []).filter((a) => !a.vue && (a.piece === id || (a.pieces || []).includes(id)));
+  const pieces = (releve.pieces || []).map((p) => ({
+    id: p.id, nom: p.nom, type: p.type,
+    hsp: p.hsp ?? HSP_DEFAUT, hsp_mesuree: p.hsp_statut === "mesuree",
+    metres: m.pieces.find((l) => l.id === p.id),
+    photos: (p.photos || []).filter((ph) => ph.chemin),
+    observations: (p.observations || []).filter((ob) => ob.statut === "valide").map((ob) => ob.texte),
+    alertes: alertesDe(p.id).map((a) => a.texte),
+    ouvertures: ouvertures.filter((o) => o.pieces.includes(p.id)).map((o) => o.code),
+  }));
+  return {
+    metres: m, ouvertures, pieces,
+    points: pointsAValider(releve),
+    nb_pieces: pieces.length, surface: m.total.sol,
+    importe_le: releve.source?.importe_le || null,
+  };
+}
+
 // Emprise du relevé (pièces + murs), en mètres — null si vide.
 export function emprisesReleve(releve) {
   const pts = [
