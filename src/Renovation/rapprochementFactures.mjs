@@ -67,7 +67,7 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
   for (const doc of eligible.filter(d => !utilises.has(d.id))) {
     const cible = montant(doc);
     if (cible == null) continue;
-    const poss = nonLies.filter(r => montant(r.livraison) != null);
+    const poss = nonLies.filter(r => montant(r.livraison) != null).slice(0, 25);
     for (let i = 0; i < poss.length; i++) {
       for (let j = i + 1; j < poss.length; j++) {
         const paire = [poss[i], poss[j]];
