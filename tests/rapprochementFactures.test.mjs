@@ -33,3 +33,11 @@ test("frais séparés inclus dans contrôle total", () => {
   const r = verifierTotalFacture({ livraisons: [{ montant_ht: 100 }], frais: [{ montant_ht: 1.34 }], total_ht: 101.34 });
   assert.equal(r.conforme, true);
 });
+
+test("numéros en collision : aucune attribution arbitraire", () => {
+  const r = rapprocherFacture({ fournisseurId: "R", dateFacture: "2026-09-30",
+    livraisons: [{ bl_numero: "000123", montant_ht: 50 }],
+    documents: ["a","b"].map(id => ({ id, fournisseur_id: "R", doc_numero: "123", montant_ht: 50, statut_facturation: "en_attente_facture" })) });
+  assert.equal(r.rapprochements[0].document, null);
+  assert.equal(r.rapprochements[0].propositions.length, 2);
+});
