@@ -370,7 +370,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
     const [fRes, cRes] = await Promise.all([
       supabase.from("factures")
-        .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, type_document, facture_origine_id, photo_url, fichiers, created_at")
+        .select("id, fournisseur_id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, type_document, facture_origine_id, photo_url, fichiers, created_at")
         .order("created_at", { ascending: false }).limit(1000),
       cq.order("created_at", { ascending: false }).limit(1000),
     ]);
@@ -717,7 +717,10 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
           <input style={{...inputStyle,marginBottom:8}} placeholder="Numéro de l'avoir" value={avoirForm.numero} onChange={e=>setAvoirForm(f=>({...f,numero:e.target.value}))}/>
           <input type="date" style={{...inputStyle,marginBottom:8}} value={avoirForm.date} onChange={e=>setAvoirForm(f=>({...f,date:e.target.value}))}/>
           <input type="number" step="0.01" max="-0.01" style={{...inputStyle,marginBottom:8}} placeholder="Montant HT négatif" value={avoirForm.montant} onChange={e=>setAvoirForm(f=>({...f,montant:e.target.value}))}/>
-          <input style={{...inputStyle,marginBottom:8}} placeholder="Identifiant facture d'origine (facultatif)" value={avoirForm.origine} onChange={e=>setAvoirForm(f=>({...f,origine:e.target.value}))}/>
+          <select style={{...inputStyle,marginBottom:8}} value={avoirForm.origine} onChange={e=>setAvoirForm(f=>({...f,origine:e.target.value}))}>
+            <option value="">Facture d'origine (facultative)</option>
+            {historique.filter(it=>it.kind==="facture"&&it.raw?.fournisseur_id===avoirForm.fournisseur_id&&it.raw?.type_document!=="avoir").map(it=><option key={it.raw.id} value={it.raw.id}>{it.raw.numero} — {it.raw.date_facture}</option>)}
+          </select>
           <button disabled={avoirFormSaving||!avoirForm.fournisseur_id||!avoirForm.numero.trim()||!avoirForm.date||!(Number(avoirForm.montant)<0)} onClick={creerAvoir} style={{...btnPrimary(false)}}>Enregistrer l'avoir</button>
           {avoirFormError&&<p style={{color:SEMANTIC.danger.color}}>{avoirFormError}</p>}
         </div>}
