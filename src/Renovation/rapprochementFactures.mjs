@@ -40,18 +40,25 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
     const nFacture = normaliserNumero(livraison.facture_numero, regles);
     const candidats = eligible.filter(d => !utilises.has(d.id));
     const numero = (d, n) => n && [d.doc_numero, d.commande_numero].some(v => normaliserNumero(v, regles) === n);
-    let trouve = nBl && candidats.find(d => numero(d, nBl));
-    let mode = "numero";
-    if (!trouve && nCommande) { trouve = candidats.find(d => numero(d, nCommande)); mode = "commande"; }
-    if (!trouve && nFacture) { trouve = candidats.find(d => numero(d, nFacture)); mode = "numero_facture"; }
+    const uniques = (n) => candidats.filter(d => numero(d, n));
+    const stricts = nBl ? uniques(nBl) : [];
+    const commandes = !stricts.length && nCommande ? uniques(nCommande) : [];
+    const factures = !stricts.length && !commandes.length && nFacture ? uniques(nFacture) : [];
+    const choix = stricts.length ? stricts : commandes.length ? commandes : factures;
+    let trouve = choix.length === 1 ? choix[0] : null;
+    let mode = stricts.length ? "numero" : commandes.length ? "commande" : "numero_facture";
+    // Une référence de commande peut couvrir plusieurs BL : jamais d'attribution
+    // automatique sans confirmation si le montant ne correspond pas.
+    if (trouve && mode === "commande" && !memeMontant(montant(livraison), montant(trouve), tolerance)) trouve = null;
     if (trouve) {
       utilises.add(trouve.id);
       const ecart = montant(livraison) == null || montant(trouve) == null ? null : montant(livraison) - montant(trouve);
       resultat.push({ livraison, document: trouve, mode, confirmationRequise: false, ecartCentimes: ecart, conforme: ecart != null && Math.abs(ecart) <= tolerance });
       continue;
     }
-    const propositions = candidats.filter(d => jours(livraison.date_livraison, d.date_doc) <= 3 &&
-      memeMontant(montant(livraison), montant(d), tolerance)).map(d => ({ document: d, mode: "montant" }));
+    const propositions = [...choix.map(d => ({ document: d, mode: "numero_ambigu" })),
+      ...candidats.filter(d => !choix.includes(d) && jours(livraison.date_livraison, d.date_doc) <= 3 &&
+        memeMontant(montant(livraison), montant(d), tolerance)).map(d => ({ document: d, mode: "montant" }))];
     resultat.push({ livraison, document: null, mode: null, confirmationRequise: propositions.length > 0, propositions, conforme: false });
   }
   const inverses = eligible.filter(d => !utilises.has(d.id) &&
