@@ -964,6 +964,7 @@ export function prochainCode(ouvertures, type) {
 // Géométrie d'une ouverture : extrémités sur la face intérieure, direction,
 // normale vers la pièce du côté, épaisseur. null si la pièce ou le côté n'existe plus.
 export function geometrieOuverture(releve, o) {
+  if (o?.t0 == null || o?.t1 == null) return null;   // vue sur photo, pas encore placée
   const piece = (releve?.pieces || []).find((p) => p.id === o.piece);
   if (!piece) return null;
   const c = cotesPiece(piece)[o.mur];
@@ -1055,6 +1056,15 @@ export function calculerMetres(releve, {
     let plinthes = perimetre, nets = ligne.murs_bruts;
     ouvertures.forEach((o) => {
       if (o.masque) return;
+      if (o.t0 == null || o.t1 == null) {
+        // Vue sur les photos mais pas encore placée : largeur inconnue, rien
+        // n'est déduit — et la valeur le dit (« ≈ »).
+        if (o.piece === p.id || (o.pieces_liees || []).includes(p.id)) {
+          ligne.approx.murs_nets = true;
+          if (TYPES_PLINTHE.has(o.type)) ligne.approx.plinthes = true;
+        }
+        return;
+      }
       if (o.piece !== p.id && !(o.pieces_liees || []).includes(p.id)) return;
       if (o.statut === "a_verifier" && !deduireAVerifier) return;
       if (o.type === "placard" && !deduirePlacards) return;
@@ -1117,6 +1127,13 @@ export function pointsAValider(releve) {
   const nomPiece = (id) => (releve.pieces || []).find((p) => p.id === id)?.nom || "?";
   (releve.ouvertures || []).filter((o) => !o.masque && o.statut === "a_verifier").forEach((o) => {
     const type = (TYPES_OUVERTURE.find((t) => t.id === o.type) || {}).label || o.type;
+    if (o.t0 == null || o.t1 == null) {
+      liste.push({
+        cle: `ouverture#${o.id}`, code: "ouverture_a_placer", cible: { type: "ouverture", id: o.id },
+        texte: `${o.code} — ${type} vue sur les photos de « ${nomPiece(o.piece)} », mur ${o.mur} : à placer sur le mur (position et largeur inconnues).`,
+      });
+      return;
+    }
     liste.push({
       cle: `ouverture#${o.id}`, code: "ouverture_a_verifier", cible: { type: "ouverture", id: o.id },
       texte: `${o.code} — ${type} ≈ ${Math.round((o.t1 - o.t0) * 100)} cm, ${(o.pieces_liees || [o.piece]).map(nomPiece).join(" / ")}${o.raison ? ` : ${o.raison}` : ""}.`,
@@ -1137,7 +1154,7 @@ export function traiterPointAValider(releve, point, action) {
   if (point.code === "hsp_defaut" && action === "confirmer") {
     return { ...releve, pieces: releve.pieces.map((p) => (p.hsp_statut === "mesuree" ? p : { ...p, hsp_statut: "mesuree" })) };
   }
-  if (point.code === "ouverture_a_verifier") {
+  if (point.code === "ouverture_a_verifier" || point.code === "ouverture_a_placer") {
     const id = point.cible.id;
     if (action === "confirmer") return { ...releve, ouvertures: releve.ouvertures.map((o) => (o.id === id ? { ...o, statut: "valide", raison: null } : o)) };
     if (action === "supprimer") return { ...releve, ouvertures: releve.ouvertures.filter((o) => o.id !== id) };
@@ -1171,6 +1188,178 @@ export function ouvertureSousPoint(releve, p, tol) {
     if (d <= tol && (!best || d < best.d)) best = { o, d };
   }
   return best ? best.o : null;
+}
+
+// ── Lot 3 : analyse des photos par l'IA ────────────────────────────────────
+// L'IA INTERPRÈTE (type d'ouverture, équipements, alertes) ; elle ne MESURE
+// rien. Tout ce qu'elle renvoie est une proposition : elle requalifie, confirme
+// ou écarte des ouvertures candidates, propose des observations — jamais une
+// dimension (la tâche refuse toute réponse qui en contient).
+export const PLAFOND_IA_RELEVE_EUR = 2.5;      // décision de l'équipe, 15/10/2026
+export const ESTIMATION_IA_PIECE_EUR = 0.06;    // 10 photos réduites à 800 px, Sonnet
+export const MUR_COURT_M = 1.2;                 // en dessous : une ouverture « nouvelle » occupe le mur
+
+// Ce qu'on envoie au modèle pour une pièce : nom, murs (indice, longueur,
+// photos rattachées), ouvertures candidates, chemins des photos (réduites si
+// disponibles). Aucune image ni donnée client : l'entrée est journalisée.
+export function contexteAnalysePhotos(releve, pieceId) {
+  const piece = (releve?.pieces || []).find((p) => p.id === pieceId);
+  if (!piece) return null;
+  const photos = (piece.photos || []).filter((ph) => ph.chemin_ia || ph.chemin);
+  const murs = longueursCotes(piece.polygone || []).map((l, k) => ({
+    indice: k, longueur_cm: Math.round(l * 100),
+    photos: photos.filter((ph) => ph.mur === k).map((ph) => ph.num),
+  }));
+  const ouvertures = (releve.ouvertures || [])
+    .filter((o) => o.piece === pieceId || (o.pieces_liees || []).includes(pieceId))
+    .filter((o) => o.t0 != null && o.t1 != null)
+    .map((o) => ({
+      ref: o.id, code: o.code, type: o.type, statut: o.statut,
+      // Une ouverture portée par la pièce voisine est vue de l'autre côté du mur.
+      mur: o.piece === pieceId ? o.mur : null,
+      de_cm: Math.round(o.t0 * 100), a_cm: Math.round(o.t1 * 100),
+      vers: (o.pieces_liees || []).filter((id) => id !== pieceId)
+        .map((id) => releve.pieces.find((p) => p.id === id)?.nom).filter(Boolean),
+      masquee: !!o.masque,
+    }));
+  return {
+    piece_id: piece.id, nom: piece.nom, type: piece.type,
+    murs, ouvertures,
+    photos: photos.map((ph) => ({ num: ph.num, mur: ph.mur ?? null, chemin: ph.chemin_ia || ph.chemin })),
+  };
+}
+
+// Intègre la réponse de l'IA pour une pièce. Pur : renvoie un nouveau relevé.
+// Règles (spécification, § Analyse des photos) :
+//   confirme → « confirmée sur photo » ; requalifie → nouveau type (nouveau
+//   code), « confirmée sur photo » ; faux_positif → masquée mais conservée
+//   (rétablissable) ; incertain → « à vérifier » ; nouvelle → ouverture
+//   ajoutée « à vérifier » sur le mur indiqué : sur un mur de moins de 1,20 m
+//   (ébrasement), elle occupe le mur moins 5 cm à chaque bout ; sinon sa
+//   position reste inconnue (« à placer ») — jamais une largeur inventée.
+// Une ouverture validée ou posée à la main par le conducteur de travaux garde
+// son statut : le verdict de l'IA y est seulement noté.
+// Les observations et alertes précédentes de l'IA pour cette pièce sont
+// remplacées (relancer l'analyse ne les empile pas).
+export function integrerAnalysePhotos(releve, pieceId, resultat, meta = {}) {
+  const piece = (releve?.pieces || []).find((p) => p.id === pieceId);
+  if (!piece || !resultat) return releve;
+  const r = resultat;
+  let ouvertures = [...(releve.ouvertures || [])];
+  const ignorees = [];
+  const protegee = (o) => o.statut === "valide" || o.origine === "manuel";
+  const typeValide = (t) => TYPES_OUVERTURE.some((x) => x.id === t);
+  const cotes = cotesPiece(piece);
+
+  for (const v of r.ouvertures || []) {
+    const note = { verdict: v.verdict, type: v.type ?? null, photos: v.photos || [], confiance: v.confiance ?? null, job_id: meta.job_id ?? null };
+    if (v.verdict === "nouvelle") {
+      const c = cotes[v.mur];
+      if (!c || !typeValide(v.type)) { ignorees.push(v); continue; }
+      const court = c.L < MUR_COURT_M;
+      const id = `oia${pieceId}_${v.mur}_${ouvertures.length + 1}`;
+      ouvertures.push({
+        id, code: prochainCode(ouvertures, v.type), type: v.type,
+        piece: pieceId, mur: v.mur,
+        t0: court ? r4(Math.min(0.05, c.L / 4)) : null,
+        t1: court ? r4(Math.max(c.L - 0.05, c.L * 3 / 4)) : null,
+        position_inconnue: !court,
+        pieces_liees: [pieceId], sens: { charniere: "t0", cote: "interieur" },
+        hauteur: null, allege: null, origine: "ia", statut: "a_verifier", masque: false,
+        epaisseur: DETECTION.EPAISSEUR_MIN_M,
+        raison: court ? "vue sur les photos, occupe l'ébrasement (largeur à confirmer)" : "vue sur les photos : position à placer sur le mur",
+        ia: note,
+      });
+      continue;
+    }
+    const i = ouvertures.findIndex((o) => o.id === v.ref);
+    if (i < 0) { ignorees.push(v); continue; }
+    const o = ouvertures[i];
+    if (protegee(o)) { ouvertures[i] = { ...o, ia: note }; continue; }
+    if (v.verdict === "confirme") {
+      ouvertures[i] = { ...o, statut: "confirme_photo", raison: null, masque: false, ia: note };
+    } else if (v.verdict === "requalifie" && typeValide(v.type)) {
+      const autres = ouvertures.filter((x) => x.id !== o.id);
+      ouvertures[i] = {
+        ...o, type: v.type, code: v.type === o.type ? o.code : prochainCode(autres, v.type),
+        statut: "confirme_photo", raison: null, masque: false, ia: note,
+      };
+    } else if (v.verdict === "faux_positif") {
+      ouvertures[i] = { ...o, masque: true, masque_par: "ia", ia: note };
+    } else if (v.verdict === "incertain") {
+      ouvertures[i] = { ...o, statut: "a_verifier", raison: "photos : incertain", ia: note };
+    } else {
+      ignorees.push(v);
+    }
+  }
+
+  // Observations proposées (à valider), équipements et revêtements compris.
+  const observations = [
+    ...(r.observations || []).map((t) => ({ texte: String(t), categorie: "general" })),
+    ...(r.equipements || []).map((e) => ({ texte: `${e.type}${e.mur != null ? ` (mur ${e.mur})` : ""}`, categorie: "equipement", photos: e.photos || [] })),
+    ...(r.revetements || []).map((e) => ({ texte: `${e.zone} : ${e.description}`, categorie: "revetement" })),
+  ].map((o) => ({ ...o, statut: "propose", source: "ia" }));
+  if (r.type_piece) observations.unshift({ texte: `Type de pièce proposé : ${String(r.type_piece).replace(/_/g, " ")}`, categorie: "type", statut: "propose", source: "ia" });
+
+  const pieces = releve.pieces.map((p) => (p.id !== pieceId ? p : {
+    ...p,
+    observations: [...(p.observations || []).filter((ob) => ob.source !== "ia" || ob.statut === "valide"), ...observations],
+    analyse_ia: {
+      statut: "fait", job_id: meta.job_id ?? null, date: meta.date ?? null, cout_eur: meta.cout_eur ?? null,
+      ignorees: ignorees.length,
+    },
+  }));
+  const alertes = [
+    ...(releve.alertes || []).filter((a) => !(a.code === "ia_alerte" && a.piece === pieceId)),
+    ...(r.alertes || []).map((a, k) => ({
+      id: `ia_${pieceId}_${k + 1}`, code: "ia_alerte", piece: pieceId, gravite: a.gravite || "moyenne",
+      photos: a.photos || [], texte: `${piece.nom} : ${a.texte}`,
+    })),
+  ];
+  return { ...releve, pieces, ouvertures, alertes, ia_cout_total: r4((releve.ia_cout_total || 0) + (Number(meta.cout_eur) || 0)) };
+}
+
+// Échec de l'analyse d'une pièce : noté sur la pièce, visible, rien d'autre ne change.
+export function noterEchecAnalyse(releve, pieceId, message, meta = {}) {
+  return {
+    ...releve,
+    pieces: releve.pieces.map((p) => (p.id !== pieceId ? p : {
+      ...p, analyse_ia: { statut: "erreur", message: String(message || "échec"), date: meta.date ?? null, cout_eur: meta.cout_eur ?? null },
+    })),
+  };
+}
+
+// Chemins des photos réduites pour l'IA : { "‹idPièce›#‹n°›": chemin }.
+export function appliquerCheminsIA(releve, chemins = {}) {
+  if (!releve || !Object.keys(chemins).length) return releve;
+  return {
+    ...releve,
+    pieces: releve.pieces.map((p) => ({
+      ...p,
+      photos: (p.photos || []).map((ph) => (chemins[`${p.id}#${ph.num}`] ? { ...ph, chemin_ia: chemins[`${p.id}#${ph.num}`] } : ph)),
+    })),
+  };
+}
+
+// Place une ouverture vue sur photo (« à placer ») au centre de son mur, à la
+// largeur par défaut de son type — choix du conducteur de travaux, la largeur
+// reste à mesurer (statut « à vérifier »).
+export const LARGEURS_PAR_DEFAUT = { porte: 0.83, porte_fenetre: 1.2, fenetre: 1.2, baie: 1.2, placard: 0.8 };
+export function placerOuverture(releve, o) {
+  const piece = (releve?.pieces || []).find((p) => p.id === o.piece);
+  const c = piece && cotesPiece(piece)[o.mur];
+  if (!c) return o;
+  const w = Math.min(LARGEURS_PAR_DEFAUT[o.type] || LARGEUR_OUVERTURE_DEFAUT, c.L);
+  const t0 = (c.L - w) / 2;
+  return { ...o, t0: r4(t0), t1: r4(t0 + w), position_inconnue: false, statut: "a_verifier", raison: "placée au centre du mur : position et largeur à mesurer" };
+}
+
+// Pièces à analyser (au moins une photo envoyée) et budget restant du relevé.
+export function piecesAnalysables(releve) {
+  return (releve?.pieces || []).filter((p) => (p.photos || []).some((ph) => ph.chemin));
+}
+export function budgetIARestant(releve, plafond = PLAFOND_IA_RELEVE_EUR) {
+  return Math.max(0, plafond - (Number(releve?.ia_cout_total) || 0));
 }
 
 // Emprise du relevé (pièces + murs), en mètres — null si vide.

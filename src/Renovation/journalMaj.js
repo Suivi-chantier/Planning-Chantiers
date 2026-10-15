@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-15",
     type: "nouveaute",
+    titre: "Plans : relevé iMapper — analyse des photos par l'IA",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "L'IA regarde les 10 photos de chaque pièce. Elle confirme les portes et fenêtres trouvées dans le relevé, corrige leur type (porte palière ou placard pris pour une fenêtre), écarte les fausses (meuble, miroir, panneau de douche), signale celles que le relevé a manquées, et propose des observations et des alertes de sécurité (vitre cassée, tableau électrique, humidité, pièce sans ventilation). Elle ne mesure rien : les dimensions viennent toujours du relevé.",
+    comment: "Bouton « 📷 Analyser les photos (IA) » dans le panneau des métrés (toutes les pièces) ou dans le panneau d'une pièce (cette pièce seulement). Les photos sont d'abord réduites et rangées dans le stockage privé du chantier ; trois pièces sont analysées à la fois, et les résultats s'affichent dès qu'ils arrivent. Coût : environ 6 centimes par pièce, plafonné à 2,50 € par relevé (l'analyse s'arrête avant de le dépasser). Tout est une proposition : une ouverture confirmée sur photo passe en vert, une ouverture écartée disparaît du plan mais reste dans le panneau de la pièce (« Rétablir »), une ouverture vue sur les photos dans un ébrasement est posée à « à vérifier », ailleurs elle est « à placer » (sa position et sa largeur ne sont pas devinées). Une ouverture validée ou posée à la main n'est jamais modifiée par l'IA. Les observations arrivent marquées « IA », à valider ou supprimer ; les alertes rejoignent les points à valider. Relancer l'analyse d'une pièce remplace ses résultats ; Ctrl+Z annule toute une analyse. Chaque appel et son coût sont journalisés.",
+  },
+  {
+    date: "2026-10-15",
+    type: "nouveaute",
     titre: "Plans : relevé iMapper — portes et fenêtres détectées, plan modifiable, points à valider",
     pages: [{ id: "plans", label: "Plans" }],
     quoi: "Le relevé iMapper reconnaît maintenant les portes, fenêtres et passages dans les points mesurés, les dessine sur le plan, et calcule enfin les plinthes et les murs nets. Tout se corrige au clic, et un écran « Points à valider » liste ce que l'outil n'a pas pu établir seul.",

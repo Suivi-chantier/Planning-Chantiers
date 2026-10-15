@@ -126,8 +126,5 @@ export async function envoyerFichiersReleve({ photos, originaux, prefixe, onProg
   return { chemins, fichiers, echecs, raison };
 }
 
-// Dossier de stockage du relevé d'un plan : ‹chantier›/plans/‹plan›/releve.
-export function prefixeReleve(plan) {
-  const racine = plan?.chantier_id || (plan?.projet_id ? `projet-${plan.projet_id}` : "sans-chantier");
-  return `${racine}/plans/${plan?.id}/releve`;
-}
+// Dossier de stockage du relevé d'un plan (défini avec l'analyse IA, qui le partage).
+export { prefixeReleve } from "./releveAnalyseIA";

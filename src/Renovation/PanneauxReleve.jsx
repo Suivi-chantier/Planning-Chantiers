@@ -12,7 +12,8 @@
 import React, { useEffect, useState } from "react";
 import {
   calculerMetres, texteMetre, pointsAValider, HSP_DEFAUT, TYPES_PIECE, TYPES_OUVERTURE,
-  STATUTS_OUVERTURE, largeurOuverture, prochainCode,
+  STATUTS_OUVERTURE, largeurOuverture, prochainCode, placerOuverture,
+  PLAFOND_IA_RELEVE_EUR, ESTIMATION_IA_PIECE_EUR, piecesAnalysables, budgetIARestant,
 } from "./releveImapper";
 
 const fr = (n, d = 2) => Number(n).toFixed(d).replace(".", ",");
@@ -89,8 +90,41 @@ export function PhotoAgrandie({ photo, url, legende, onClose }) {
   );
 }
 
+// ── Analyse des photos par l'IA : bouton + état ────────────────────────────
+// etat : { fait, total, cout, fini, echecs, arrete } pendant / après l'analyse.
+function BlocAnalyseIA({ releve, onAnalyser, etat }) {
+  const n = piecesAnalysables(releve).length;
+  const deja = Number(releve.ia_cout_total) || 0;
+  const reste = budgetIARestant(releve);
+  const enCours = etat && !etat.fini;
+  return (
+    <div style={{ padding: 10, borderRadius: 10, background: "rgba(176,96,255,0.08)", border: "1px solid rgba(176,96,255,0.3)", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <button disabled={enCours || !n || reste < ESTIMATION_IA_PIECE_EUR} onClick={() => onAnalyser(null)}
+          style={{ ...bouton("#b060ff"), opacity: enCours || !n || reste < ESTIMATION_IA_PIECE_EUR ? 0.5 : 1 }}>
+          📷 Analyser les photos (IA)
+        </button>
+        <span style={{ fontSize: 11, color: "#9aa5c0" }}>
+          {n} pièce{n > 1 ? "s" : ""} avec photos · ≈ {fr(n * ESTIMATION_IA_PIECE_EUR)} € · plafond {fr(PLAFOND_IA_RELEVE_EUR)} € par relevé, {fr(deja)} € déjà consommés
+        </span>
+      </div>
+      {etat && (
+        <div style={{ fontSize: 12, marginTop: 6, color: etat.fini ? (etat.echecs || etat.arrete ? "#f5a623" : "#8fe0ad") : "#c8a0ff" }}>
+          {etat.fini ? "Analyse terminée" : "Analyse en cours"} : {etat.fait}/{etat.total} pièce{etat.total > 1 ? "s" : ""} · {fr(etat.cout || 0)} €
+          {etat.echecs ? ` · ${etat.echecs} échec${etat.echecs > 1 ? "s" : ""} (voir la pièce)` : ""}
+          {etat.arrete ? ` · arrêtée : ${etat.arrete}` : ""}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: "#7a86a6", marginTop: 4 }}>
+        L'IA confirme, requalifie ou écarte les ouvertures et propose des observations ; elle ne mesure rien. Tout reste à valider.
+        Un Ctrl+Z annule toute l'analyse.
+      </div>
+    </div>
+  );
+}
+
 // ── Métrés + points à valider ──────────────────────────────────────────────
-export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onClose, onPoint, urls, demanderUrls }) {
+export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onClose, onPoint, urls, demanderUrls, onAnalyser, etatIA }) {
   const m = calculerMetres(releve);
   const pav = pointsAValider(releve);
   const cell = { padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap" };
@@ -118,6 +152,7 @@ export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onCl
         {ong("metres", "Métrés")}
         {ong("points", `Points à valider (${pav.length})`)}
       </div>
+      {onAnalyser && <BlocAnalyseIA releve={releve} onAnalyser={onAnalyser} etat={etatIA} />}
       {onglet === "metres" && (<>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
@@ -172,6 +207,11 @@ export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onCl
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {detecter
                           ? <button style={bouton("#50c878")} onClick={() => onPoint(p, "detecter")}>Détecter les portes et fenêtres</button>
+                          : p.code === "ouverture_a_placer"
+                          ? <>
+                              <button style={bouton()} onClick={() => onPoint(p, "corriger")}>Placer</button>
+                              <button style={bouton("#e05c5c")} onClick={() => onPoint(p, "supprimer")}>Supprimer</button>
+                            </>
                           : <>
                               <button style={bouton("#50c878")} onClick={() => onPoint(p, "confirmer")}>Confirmer</button>
                               {p.cible && <button style={bouton()} onClick={() => onPoint(p, "corriger")}>Corriger</button>}
@@ -189,7 +229,7 @@ export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onCl
 }
 
 // ── Pièce sélectionnée ─────────────────────────────────────────────────────
-export function PanneauPieceReleve({ releve, pieceId, modifier, onClose, onSelection, setMurSurligne, urls, demanderUrls }) {
+export function PanneauPieceReleve({ releve, pieceId, modifier, onClose, onSelection, setMurSurligne, urls, demanderUrls, onAnalyser, analyseEnCours }) {
   const p = releve.pieces.find((x) => x.id === pieceId);
   const [agrandie, setAgrandie] = useState(null);
   if (!p) return null;
@@ -244,7 +284,7 @@ export function PanneauPieceReleve({ releve, pieceId, modifier, onClose, onSelec
         {ouvs.map((o) => (
           <button key={o.id} onClick={() => onSelection({ type: "ouverture", id: o.id })}
             style={{ ...bouton(COULEUR_STATUT[o.statut]), borderStyle: o.statut === "a_verifier" ? "dashed" : "solid" }}>
-            {o.code} · {Math.round((o.t1 - o.t0) * 100)} cm
+            {o.code} · {o.t0 == null ? "à placer" : `${Math.round((o.t1 - o.t0) * 100)} cm`}
           </button>
         ))}
       </div>
@@ -261,12 +301,47 @@ export function PanneauPieceReleve({ releve, pieceId, modifier, onClose, onSelec
           </div>}
       <div style={{ fontSize: 11, color: "#7a86a6", marginTop: 4 }}>Survoler une photo surligne le mur qu'elle montre.</div>
 
+      {(() => {
+        const ecartees = (releve.ouvertures || []).filter((o) => o.masque && (o.piece === p.id || (o.pieces_liees || []).includes(p.id)));
+        if (!ecartees.length) return null;
+        return (<>
+          <div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 6px" }}>Écartées par l'IA ({ecartees.length})</div>
+          {ecartees.map((o) => (
+            <div key={o.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, padding: "3px 0" }}>
+              <span style={{ flex: 1, color: "#9aa5c0" }}>
+                {o.code} · {Math.round((o.t1 - o.t0) * 100)} cm — pas une ouverture d'après les photos{o.ia?.photos?.length ? ` (photo ${o.ia.photos.join(", ")})` : ""}
+              </span>
+              <button style={bouton()} onClick={() => modifier((r) => ({ ...r, ouvertures: r.ouvertures.map((x) => (x.id === o.id ? { ...x, masque: false, statut: "a_verifier", raison: "rétablie après avoir été écartée par l'IA" } : x)) }))}>
+                Rétablir
+              </button>
+            </div>
+          ))}
+        </>);
+      })()}
+
+      <div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 6px" }}>Analyse des photos (IA)</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
+        {onAnalyser && photos.some((ph) => ph.chemin) && (
+          <button style={{ ...bouton("#b060ff"), opacity: analyseEnCours ? 0.5 : 1 }} disabled={analyseEnCours} onClick={() => onAnalyser([p.id])}>
+            📷 {p.analyse_ia ? "Relancer l'analyse" : "Analyser les photos de cette pièce"}
+          </button>
+        )}
+        <span style={{ color: p.analyse_ia?.statut === "erreur" ? "#ff8a8a" : "#9aa5c0" }}>
+          {!p.analyse_ia ? "Pas encore analysée."
+            : p.analyse_ia.statut === "erreur" ? `Échec : ${p.analyse_ia.message}`
+            : `Analysée${p.analyse_ia.date ? ` le ${new Date(p.analyse_ia.date).toLocaleDateString("fr-FR")}` : ""}${p.analyse_ia.cout_eur != null ? ` · ${fr(p.analyse_ia.cout_eur, 3)} €` : ""}${p.analyse_ia.ignorees ? ` · ${p.analyse_ia.ignorees} réponse(s) ignorée(s)` : ""}`}
+        </span>
+      </div>
+
       <div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 6px" }}>Observations</div>
       {(p.observations || []).length === 0
-        ? <div style={{ fontSize: 12, color: "#7a86a6" }}>Aucune pour l'instant (l'analyse des photos par l'IA viendra à l'étape suivante).</div>
+        ? <div style={{ fontSize: 12, color: "#7a86a6" }}>Aucune pour l'instant : l'analyse des photos en propose.</div>
         : (p.observations || []).map((ob, i) => (
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, padding: "4px 0" }}>
-              <span style={{ flex: 1, color: ob.statut === "valide" ? "#e8eaf0" : "#c8d0e0" }}>{ob.texte}</span>
+              <span style={{ flex: 1, color: ob.statut === "valide" ? "#e8eaf0" : "#c8d0e0" }}>
+                {ob.source === "ia" && ob.statut !== "valide" && <span style={{ color: "#c8a0ff", fontSize: 10, fontWeight: 800, marginRight: 4 }}>IA</span>}
+                {ob.texte}
+              </span>
               {ob.statut !== "valide" && <button style={bouton("#50c878")} onClick={() => majPiece({ observations: p.observations.map((x, j) => (j === i ? { ...x, statut: "valide" } : x)) })}>Valider</button>}
               <button style={bouton("#e05c5c")} onClick={() => majPiece({ observations: p.observations.filter((_, j) => j !== i) })}>Supprimer</button>
             </div>
@@ -289,7 +364,7 @@ export function PanneauOuvertureReleve({ releve, ouvertureId, modifier, onClose,
   const maj = (fn) => modifier((r) => ({ ...r, ouvertures: r.ouvertures.map((x) => (x.id === o.id ? fn(x, r) : x)) }));
   const nomPiece = (id) => releve.pieces.find((p) => p.id === id)?.nom || "?";
   const type = TYPES_OUVERTURE.find((t) => t.id === o.type);
-  const largeurCm = Math.round((o.t1 - o.t0) * 100);
+  const largeurCm = o.t0 == null ? null : Math.round((o.t1 - o.t0) * 100);
   const cm = (v) => (v == null ? "" : String(Math.round(v * 100)));
   const avecSens = ["porte", "porte_fenetre", "placard"].includes(o.type);
   return (
@@ -304,6 +379,23 @@ export function PanneauOuvertureReleve({ releve, ouvertureId, modifier, onClose,
         ))}
         · glisser l'ouverture sur le plan pour la déplacer le long du mur
       </div>
+      {o.t0 == null && (
+        <div style={{ padding: 10, borderRadius: 8, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.4)", marginBottom: 12, fontSize: 12 }}>
+          Vue sur les photos, mais sa position et sa largeur sont inconnues : elle n'est ni dessinée ni déduite des métrés.
+          <div style={{ marginTop: 6 }}>
+            <button style={bouton("#f5a623")} onClick={() => maj((x, r) => placerOuverture(r, x))}>Placer au centre du mur</button>
+            <span style={{ marginLeft: 8, color: "#9aa5c0" }}>puis la glisser et corriger sa largeur</span>
+          </div>
+        </div>
+      )}
+      {o.ia && (
+        <div style={{ fontSize: 12, color: "#c8a0ff", marginBottom: 8 }}>
+          IA : {{ confirme: "confirmée", requalifie: `requalifiée en ${(TYPES_OUVERTURE.find((t) => t.id === o.ia.type) || {}).label?.toLowerCase() || o.ia.type}`, faux_positif: "pas une ouverture", incertain: "incertaine", nouvelle: "vue sur les photos, absente du relevé" }[o.ia.verdict] || o.ia.verdict}
+          {o.ia.photos?.length ? ` · photo${o.ia.photos.length > 1 ? "s" : ""} ${o.ia.photos.join(", ")}` : ""}
+          {o.ia.confiance != null ? ` · confiance ${fr(o.ia.confiance)}` : ""}
+          {(o.statut === "valide" || o.origine === "manuel") && " (non appliqué : décision du bureau conservée)"}
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: COULEUR_STATUT[o.statut] }}>{STATUTS_OUVERTURE[o.statut] || o.statut}</span>
         {o.raison && <span style={{ fontSize: 12, color: "#9aa5c0" }}>— {o.raison}</span>}
@@ -324,8 +416,8 @@ export function PanneauOuvertureReleve({ releve, ouvertureId, modifier, onClose,
         </div>
         <div>
           <div style={etiquette}>Largeur</div>
-          <ChampValide valeur={String(largeurCm)} largeur={60} suffixe="cm"
-            onValider={(t) => { const n = nombre(t); if (n >= 10 && n <= 1000) maj((x, r) => largeurOuverture(r, x, n / 100)); }} />
+          <ChampValide valeur={largeurCm == null ? "" : String(largeurCm)} largeur={60} suffixe="cm" placeholder="à placer"
+            onValider={(t) => { const n = nombre(t); if (n >= 10 && n <= 1000 && o.t0 != null) maj((x, r) => largeurOuverture(r, x, n / 100)); }} />
         </div>
         <div>
           <div style={etiquette}>Hauteur</div>

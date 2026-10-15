@@ -40,6 +40,7 @@ const TACHES = [
   require("./taches/invest_copilot"),
   require("./taches/facture_client"),
   require("./taches/renovation_copilot"),
+  require("./taches/releve_photos"),
 ];
 
 module.exports = Object.fromEntries(TACHES.map((t) => [t.id, t]));
