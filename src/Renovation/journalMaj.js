@@ -28,7 +28,7 @@ export const JOURNAL_MAJ = [
     titre: "Plans : relevé iMapper — étiquettes et cotes lisibles, même dans les petites pièces",
     pages: [{ id: "plans", label: "Plans" }],
     quoi: "Dans les petites pièces et les pièces en L, le nom et la surface d'une pièce pouvaient se poser sur la pièce voisine, et les cotes passaient sous les étiquettes.",
-    comment: "Chaque étiquette se place maintenant au point de la pièce le plus éloigné des murs, et non plus au centre de gravité, qui tombe à côté dans une pièce en L. Elle rétrécit jusqu'à tenir dans la pièce, et se tourne d'un quart de tour dans une pièce étroite et haute. Si elle ne tient vraiment pas (vue très éloignée), elle s'écrit sur une ligne et se décale jusqu'à une place libre : deux étiquettes ne se recouvrent plus. Une cote qui recouvrirait une étiquette ou une autre cote n'est pas dessinée à ce zoom : elle réapparaît en zoomant. Même dessin dans l'éditeur, l'impression PDF et la visionneuse des ouvriers.",
+    comment: "Chaque étiquette se place maintenant au point de la pièce le plus éloigné des murs, et non plus au centre de gravité, qui tombe à côté dans une pièce en L. Elle rétrécit jusqu'à tenir dans la pièce, et se tourne d'un quart de tour dans une pièce étroite et haute. Si elle ne tient vraiment pas (vue très éloignée), elle s'écrit sur une ligne, sur fond clair pour rester lisible même posée sur un mur, et se décale jusqu'à une place libre : deux étiquettes ne se recouvrent plus. Une cote qui recouvrirait une étiquette ou une autre cote n'est pas dessinée à ce zoom : elle réapparaît en zoomant. Même dessin dans l'éditeur, l'impression PDF et la visionneuse des ouvriers.",
   },
   {
     date: "2026-10-15",
