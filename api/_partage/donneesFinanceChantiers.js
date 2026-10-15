@@ -49,12 +49,13 @@ const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").repla
 async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   const parChantierId = (q) => (chantierId ? q.eq("chantier_id", chantierId) : q);
 
-  const [phasages, pointages, commandeLignes, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux] = await Promise.all([
+  const [phasages, pointages, commandeLignes, factureCouts, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux] = await Promise.all([
     fetchAll(supabase, "phasages", "*", parChantierId),
     fetchAll(supabase, "pointages", "*", parChantierId),
     fetchAll(supabase, "commande_lignes",
       "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, created_at",
       parChantierId),
+    fetchAll(supabase, "facture_couts_chantiers", "id,chantier_id,montant_ht,nature,date_imputation", parChantierId),
     supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
@@ -75,6 +76,13 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   pointages.forEach(p => { (ptsByChantier[p.chantier_id] ||= []).push(p); });
   const clByChantier = {};
   commandeLignes.forEach(l => { (clByChantier[l.chantier_id] ||= []).push(l); });
+  // Écritures distinctes : jamais de réécriture des commandes ni de double ajout.
+  factureCouts.forEach(c => {
+    if (!c.chantier_id) return;
+    (clByChantier[c.chantier_id] ||= []).push({ id: `facture-cout-${c.id}`, chantier_id: c.chantier_id,
+      libelle: c.nature === 'frais' ? 'Frais de facture fournisseur' : 'Écart de facture fournisseur',
+      prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` });
+  });
 
   // UN SEUL phasage par chantier : la table peut contenir des doublons de
   // chantier_id (l'app n'en lit qu'un via .maybeSingle()). Sans ce filtre,
