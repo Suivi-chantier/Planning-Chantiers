@@ -83,6 +83,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const c = item.row;
   const [blLignes, setBlLignes] = useState([]);
   const [signedFile, setSignedFile] = useState(null);
+  const [signedPages, setSignedPages] = useState([]);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState("");
   const valider = async () => {
@@ -102,8 +103,8 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   useEffect(() => {
     const path = Array.isArray(c.fichiers) ? c.fichiers[0] : null;
     if (!path) return;
-    supabase.storage.from("factures-privees").createSignedUrl(path, 900)
-      .then(({ data }) => setSignedFile(data?.signedUrl || null));
+    Promise.all(c.fichiers.map(p => supabase.storage.from("factures-privees").createSignedUrl(p, 900)))
+      .then(rows => { const urls = rows.map((r, i) => ({ url: r.data?.signedUrl, path: c.fichiers[i] })).filter(x => x.url); setSignedPages(urls); setSignedFile(urls[0]?.url || null); });
   }, [c.fichiers]);
   const dateStr = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
   const fmtEur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -136,7 +137,8 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
-            {(signedFile || c.photo_url) && (
+            {signedPages.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{signedPages.map((p, i) => <a key={p.path} href={p.url} target="_blank" rel="noreferrer" style={{ color: acc.accent }}>Ouvrir page {i + 1}</a>)}</div>}
+            {(signedFile || c.photo_url) && !String(signedPages[0]?.path || "").toLowerCase().endsWith(".pdf") && (
               <a href={signedFile || c.photo_url} target="_blank" rel="noreferrer">
                 <img src={signedFile || photoTransform(c.photo_url, { width: 560, quality: 70 })} alt="" style={{ width: "100%", borderRadius: RADIUS.md, marginBottom: SPACING.md, border: `1px solid ${T.border}` }} />
               </a>
