@@ -3,7 +3,7 @@ create or replace function public.creer_avoir_fournisseur(
 ) returns uuid language plpgsql security definer set search_path=public,pg_temp as $$
 declare fournisseur public.fournisseurs%rowtype; origine public.factures%rowtype; nouveau uuid;
 begin
- if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
+ if auth.uid() is null or not public.est_collaborateur_actif() or public.est_ouvrier() then raise exception 'Acces refuse'; end if;
  if nullif(btrim(p_numero),'') is null then raise exception 'Numero obligatoire'; end if;
  if p_date is null then raise exception 'Date obligatoire'; end if;
  if p_montant_ht is null or p_montant_ht>=0 or round(p_montant_ht,2)<>p_montant_ht then
