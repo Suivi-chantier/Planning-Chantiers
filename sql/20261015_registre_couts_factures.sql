@@ -14,7 +14,7 @@ create table if not exists public.facture_couts_chantiers (
 );
 create index if not exists facture_couts_chantier_date_idx on public.facture_couts_chantiers(chantier_id,date_imputation);
 alter table public.facture_couts_chantiers enable row level security;
-revoke all on public.facture_couts_chantiers from anon,public;
+revoke all on public.facture_couts_chantiers from anon,public,authenticated;
 grant select on public.facture_couts_chantiers to authenticated;
 create policy facture_couts_lecture on public.facture_couts_chantiers for select to authenticated using (public.est_collaborateur_actif());
 -- Les coûts ne peuvent être écrits que par la validation transactionnelle.
