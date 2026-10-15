@@ -25,8 +25,12 @@ begin
    >coalesce((select tolerance_ht from public.fournisseurs where id=f.fournisseur_id),0.05)
  then raise exception 'Total HT incoherent'; end if;
  update public.commandes set statut_facturation='facture',facture_id=f.id
- where id in(select commande_id from public.facture_bl where facture_id=f.id);
+ where id in(select commande_id from public.facture_bl where facture_id=f.id)
+ and facture_id is null and statut_facturation='en_attente_facture';
  get diagnostics n = row_count;
+ if n<>(select count(*) from public.facture_bl where facture_id=f.id) then
+   raise exception 'Conflit concurrent : commande déjà affectée';
+ end if;
  update public.factures set statut='rapprochee',statut_rapprochement='conforme' where id=f.id;
  return jsonb_build_object('statut','conforme','documents',n);
 end $$;
