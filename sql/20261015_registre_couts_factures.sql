@@ -27,7 +27,9 @@ begin
  if not found or f.statut<>'rapprochee' then raise exception 'Facture non validee'; end if;
  if exists(select 1 from public.facture_couts_chantiers where facture_id=f.id) then return 0; end if;
  for b in select * from public.facture_bl where facture_id=f.id and coalesce(ecart_ht,0)<>0 loop
-   if b.commande_id is null or b.resolution<>'accepte' then raise exception 'Ecart non accepte'; end if;
+   if b.commande_id is null or (b.resolution is distinct from 'accepte' and
+     (b.statut<>'rapproche' or abs(b.ecart_ht)>coalesce((select tolerance_ht from public.fournisseurs where id=f.fournisseur_id),0.05)))
+     then raise exception 'Ecart non accepte'; end if;
    select coalesce(sum(coalesce(prix_total,prix_unitaire*quantite,0)),0) into total
    from public.commande_lignes where commande_id=b.commande_id and chantier_id is not null;
    if total<=0 then raise exception 'Achat sans repartition chantier valide'; end if;
