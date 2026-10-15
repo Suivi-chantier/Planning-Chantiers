@@ -23,7 +23,7 @@ create or replace function public.imputer_avoir_fournisseur(
 ) returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare f public.factures%rowtype; v_total numeric;
 begin
- if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
+ if auth.uid() is null or not public.est_collaborateur_actif() or public.est_ouvrier() then raise exception 'Acces refuse'; end if;
  if nullif(btrim(p_chantier_id),'') is null then raise exception 'Chantier obligatoire'; end if;
  if length(btrim(coalesce(p_justification,''))) < 12 then raise exception 'Justification obligatoire'; end if;
  if p_montant_ht is null or p_montant_ht>=0 or round(p_montant_ht,2)<>p_montant_ht then
@@ -62,7 +62,7 @@ create or replace function public.cloturer_avoir_fournisseur(p_facture_id uuid)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare f public.factures%rowtype; total numeric;
 begin
- if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
+ if auth.uid() is null or not public.est_collaborateur_actif() or public.est_ouvrier() then raise exception 'Acces refuse'; end if;
  select * into f from public.factures where id=p_facture_id for update;
  if not found or f.type_document is distinct from 'avoir' or f.statut='archivee'
  then raise exception 'Avoir introuvable ou archive'; end if;
