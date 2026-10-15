@@ -82,10 +82,51 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const isFacture = item.kind === "facture";
   const c = item.row;
   const [blLignes, setBlLignes] = useState([]);
+  const [fraisLignes, setFraisLignes] = useState([]);
+  const [chantiersEligibles, setChantiersEligibles] = useState([]);
+  const [affectations, setAffectations] = useState({});
   const [signedFile, setSignedFile] = useState(null);
   const [signedPages, setSignedPages] = useState([]);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState("");
+  const [motifs, setMotifs] = useState({});
+  const [resolvingId, setResolvingId] = useState(null);
+  const chargerLignes = async () => {
+    const { data } = await supabase.from("facture_bl").select("id, bl_numero, montant_ht, montant_commande_ht, ecart_ht, mode_rapprochement, commande_id, statut, resolution, justification").eq("facture_id", c.id);
+    setBlLignes(data || []);
+    const { data: ff } = await supabase.from("facture_frais").select("id,libelle,montant_ht,chantier_id,justification").eq("facture_id",c.id);
+    setFraisLignes(ff || []);
+    const ids = (data || []).map(x => x.commande_id).filter(Boolean);
+    if (ids.length) {
+      const { data: lignes } = await supabase.from("commande_lignes").select("chantier_id").in("commande_id", ids);
+      setChantiersEligibles([...new Set((lignes || []).map(x => x.chantier_id).filter(Boolean))]);
+    }
+  };
+  const affecterFrais = async (id) => {
+    setValidationError(""); setResolvingId(id);
+    const choix = affectations[id] || {};
+    const { error } = await supabase.rpc("affecter_frais_facture", {
+      p_frais_id: id, p_chantier_id: choix.chantier || "", p_justification: choix.motif || "",
+    });
+    setResolvingId(null);
+    if (error) { setValidationError(error.message); return; }
+    await chargerLignes();
+  };
+  const contesterEcart = async (id) => {
+    setValidationError(""); setResolvingId(id);
+    const { error } = await supabase.rpc("contester_ecart_facture_bl", { p_ligne_id: id, p_justification: motifs[id] || "" });
+    setResolvingId(null);
+    if (error) { setValidationError(error.message); return; }
+    await chargerLignes();
+  };
+  const accepterEcart = async (id) => {
+    setValidationError(""); setResolvingId(id);
+    const { error } = await supabase.rpc("resoudre_ecart_facture_bl", { p_ligne_id: id, p_justification: motifs[id] || "" });
+    setResolvingId(null);
+    if (error) { setValidationError(error.message); return; }
+    await chargerLignes();
+  };
+
   const valider = async () => {
     setValidating(true); setValidationError("");
     const { error } = await supabase.rpc("valider_rapprochement_facture", { p_facture_id: c.id });
@@ -96,8 +137,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   };
   useEffect(() => {
     if (isFacture) {
-      supabase.from("facture_bl").select("bl_numero, montant_ht, statut").eq("facture_id", c.id)
-        .then(({ data }) => setBlLignes(data || []));
+      chargerLignes();
     }
   }, [isFacture, c.id]);
   useEffect(() => {
@@ -151,6 +191,21 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                 {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
                 {info("Statut", c.statut === "rapprochee" ? "Rapprochée" : c.statut === "archivee" ? "Archivée" : "À rapprocher")}
                 {c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ padding: "10px 14px", borderRadius: 8, background: acc.accent, color: "#111", border: "none", cursor: "pointer", fontWeight: 700 }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <p style={{ color: SEMANTIC.danger.color, fontSize: 12 }}>{validationError}</p>}<p style={{ fontSize: 12, color: T.textSub }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</p></div>}
+                {fraisLignes.length > 0 && <div style={{ marginTop: 16 }}>
+                  <strong>Frais de facture ({fraisLignes.length})</strong>
+                  <p style={{ fontSize: 12, color: T.textSub }}>Affectation manuelle à un chantier présent dans les achats. Aucune répartition automatique.</p>
+                  {fraisLignes.map(frais => <div key={frais.id} style={{ padding: 10, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 8 }}>
+                    <div>{frais.libelle} — {fmtEur(frais.montant_ht)} € HT</div>
+                    {frais.chantier_id ? <div style={{ fontSize: 12, color: SEMANTIC.success.color }}>Affecté à {nomCh(frais.chantier_id)}</div> : c.statut === "a_rapprocher" && <>
+                      <select value={affectations[frais.id]?.chantier || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], chantier: e.target.value } }))} style={{ width: "100%", marginTop: 6, padding: 8, background: T.bg, color: T.text }}>
+                        <option value="">Choisir un chantier…</option>
+                        {chantiersEligibles.map(id => <option key={id} value={id}>{nomCh(id)}</option>)}
+                      </select>
+                      <textarea placeholder="Motif de l'affectation (12 caractères minimum)" rows={2} value={affectations[frais.id]?.motif || ""} onChange={e => setAffectations(prev => ({ ...prev, [frais.id]: { ...prev[frais.id], motif: e.target.value } }))} style={{ width: "100%", boxSizing: "border-box", marginTop: 6, background: T.bg, color: T.text }} />
+                      <button disabled={resolvingId === frais.id || !affectations[frais.id]?.chantier || (affectations[frais.id]?.motif || "").trim().length < 12} onClick={() => affecterFrais(frais.id)}>Affecter les frais</button>
+                    </>}
+                  </div>)}
+                </div>}
                 <div style={{ fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, margin: "14px 0 6px" }}>
                   BL rapprochés ({blLignes.length})
                 </div>
@@ -159,10 +214,21 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                 ) : blLignes.map((b, i) => {
                   const sem = b.statut === "rapproche" ? SEMANTIC.success : b.statut === "ecart" ? SEMANTIC.warning : SEMANTIC.danger;
                   return (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+                    <div key={i} style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
                       <span style={{ fontSize: FONT.sm.size, color: T.text }}>BL n° {b.bl_numero || "?"}</span>
                       <span style={{ fontSize: FONT.sm.size, color: T.textSub }}>{b.montant_ht != null ? `${fmtEur(b.montant_ht)} €` : "—"}</span>
                       <span style={{ fontSize: 10, fontWeight: 800, color: sem.color }}>{b.statut}</span>
+                      {b.resolution === "conteste" && <span style={{ fontSize: 11, color: SEMANTIC.warning.color }}>Litige ouvert</span>}
+                      {b.resolution === "accepte" && <span style={{ fontSize: 11, color: SEMANTIC.success.color }}>Écart accepté</span>}
+                      {c.statut === "a_rapprocher" && b.statut === "ecart" && b.commande_id && b.resolution !== "accepte" && (
+                        <div style={{ width: "100%", marginTop: 8 }}>
+                          <div style={{ fontSize: 12, color: T.textSub }}>Écart HT : {b.ecart_ht == null ? "inconnu" : fmtEur(b.ecart_ht) + " €"} · achat : {b.montant_commande_ht == null ? "?" : fmtEur(b.montant_commande_ht) + " €"}</div>
+                          <textarea placeholder="Justification de l'acceptation (12 caractères minimum)" value={motifs[b.id] || ""} onChange={e => setMotifs(prev => ({ ...prev, [b.id]: e.target.value }))} rows={2} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, borderRadius: 6, padding: 8, background: T.bg, color: T.text, border: `1px solid ${T.border}` }} />
+                          <button onClick={() => accepterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", marginTop: 6, cursor: "pointer" }}>Accepter cet écart</button>
+                        <button onClick={() => contesterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", margin: "6px 0 0 8px", cursor: "pointer" }}>Contester / ouvrir un litige</button>
+                        </div>
+                      )}
+
                     </div>
                   );
                 })}
