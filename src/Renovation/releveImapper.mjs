@@ -113,23 +113,33 @@ export function distancePointPolygone(p, P) {
   return d;
 }
 
-// Point d'ancrage de l'étiquette : centre de gravité de la surface s'il tombe
-// dans la pièce, sinon la position du scanner (toujours dedans par construction).
-export function ancrePiece(piece, scanners = {}) {
-  const P = piece.polygone || [];
-  let a = 0, cx = 0, cy = 0;
-  for (let k = 0; k < P.length; k++) {
-    const [x1, y1] = P[k], [x2, y2] = P[(k + 1) % P.length];
-    const f = x1 * y2 - x2 * y1;
-    a += f; cx += (x1 + x2) * f; cy += (y1 + y2) * f;
+// Point d'ancrage de l'étiquette : le point de la pièce le plus éloigné de
+// ses murs (« pôle d'inaccessibilité »), et la distance à ces murs (m). Le
+// centre de gravité, lui, tombe mal dans une pièce en L (cas réel : couloir
+// en L dont le centre tombait sur la petite pièce voisine). Recherche sur
+// grille puis affinage autour du meilleur point.
+export function poleInaccessibilite(P) {
+  if (!P || P.length < 3) return { point: [0, 0], rayon: 0 };
+  const xs = P.map((q) => q[0]), ys = P.map((q) => q[1]);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  let best = null, bestD = -1;
+  for (let passe = 0; passe < 3; passe++) {
+    const N = 16;
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
+      const pt = [x0 + (i / N) * (x1 - x0), y0 + (j / N) * (y1 - y0)];
+      if (!pointDansPoly(pt, P)) continue;
+      const d = distanceAuBord(pt, P);
+      if (d > bestD) { bestD = d; best = pt; }
+    }
+    if (!best) break;
+    const w = (x1 - x0) / 8, h = (y1 - y0) / 8;
+    x0 = best[0] - w; x1 = best[0] + w; y0 = best[1] - h; y1 = best[1] + h;
   }
-  if (Math.abs(a) > 1e-9) {
-    const c = [cx / (3 * a), cy / (3 * a)];
-    if (pointDansPoly(c, P)) return c;
-  }
-  const s = scanners[piece.scan];
-  if (s && pointDansPoly(s, P)) return s;
-  return P.length ? [P.reduce((t, p) => t + p[0], 0) / P.length, P.reduce((t, p) => t + p[1], 0) / P.length] : [0, 0];
+  if (!best) best = [xs.reduce((a, b) => a + b, 0) / P.length, ys.reduce((a, b) => a + b, 0) / P.length];
+  return { point: best, rayon: Math.max(0, bestD) };
+}
+export function ancrePiece(piece) {
+  return poleInaccessibilite(piece.polygone || []).point;
 }
 
 // Cotes intérieures : chaque côté d'au moins 0,30 m, en centimètres.

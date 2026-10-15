@@ -20,9 +20,9 @@ import {
   rattacherPhotosMurs, calculerMetres, texteMetre, pointsAValider, airePolygone,
   perimetrePolygone, longueursCotes, pointDansPoly, distancePointPolygone,
   cotesInterieures, traduireNomPiece, emprisesReleve, MSG_DXF_SANS_PIECES,
-  decouperPdfImapper, extraireJpegsParPage, versionsDuPlan,
+  decouperPdfImapper, extraireJpegsParPage, versionsDuPlan, ancrePiece, poleInaccessibilite,
 } from "../src/Renovation/releveImapper.mjs";
-import { dessinerReleve } from "../src/Renovation/releveRendu.mjs";
+import { dessinerReleve, miseEnPageEtiquettes } from "../src/Renovation/releveRendu.mjs";
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const dxfTexte = fs.readFileSync(path.join(ici, "fixtures/releve-imapper-reference.dxf"), "latin1");
@@ -213,6 +213,14 @@ test("métrés avec les ouvertures du prototype = tableau de la spécification �
 });
 
 // ── Rendu ──────────────────────────────────────────────────────────────────
+const mesurerApprox = (txt, fs) => String(txt).length * fs * 0.58;
+const croise = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+const chevauchements = (et) => {
+  let n = 0;
+  for (let i = 0; i < et.length; i++) for (let j = i + 1; j < et.length; j++) if (croise(et[i].boite, et[j].boite)) n++;
+  return n;
+};
+
 function ctxEnregistreur() {
   const ops = [];
   const etat = { fillStyle: "", strokeStyle: "", font: "", textAlign: "", lineWidth: 1 };
@@ -220,6 +228,8 @@ function ctxEnregistreur() {
     get(t, k) {
       if (k in t) return t[k];
       if (k === "ops") return ops;
+      // Largeur de texte approchée (Node n'a pas de moteur de polices).
+      if (k === "measureText") return (txt) => ({ width: mesurerApprox(txt, parseFloat(/(\d+(\.\d+)?)px/.exec(t.font)?.[1] || 10)) });
       return (...a) => ops.push([k, a, t.fillStyle, t.font]);
     },
     set(t, k, v) { t[k] = v; return true; },
@@ -237,7 +247,9 @@ test("rendu : sols puis murs, cotes en cm à l'intérieur, nom + surface", () =>
   assert.ok(textes.includes("Chambre") && textes.includes("11,70 m²"));
   const nbCotes = R.pieces.reduce((t, p) => t + cotesInterieures(p).length, 0);
   assert.ok(textes.includes("346") && textes.includes("345"), "cotes de la chambre en cm");
-  assert.equal(textes.length, nbCotes + 12, "cotes ≥ 0,30 m + 2 étiquettes par pièce");
+  assert.equal(textes.filter((t) => / m²$/.test(t)).length, 6, "une surface par pièce");
+  const cotesDessinees = textes.filter((t) => /^\d+$/.test(t)).length;
+  assert.ok(cotesDessinees > nbCotes * 0.8 && cotesDessinees <= nbCotes, `${cotesDessinees}/${nbCotes} cotes dessinées`);
   assert.ok(!ops.some((o) => o[0] === "fillRect"), "points bruts masqués par défaut");
   const { ctx: c2, ops: o2 } = ctxEnregistreur();
   dessinerReleve(c2, R, (x, y) => [x * 100, y * 100], { points: true });
@@ -245,6 +257,20 @@ test("rendu : sols puis murs, cotes en cm à l'intérieur, nom + surface", () =>
   // Côté court (< 0,30 m) : pas de cote.
   assert.ok(cotesInterieures(piece("Buanderie")).every((c) => c.longueur >= 0.3));
   assert.ok(!cotesInterieures(piece("Chambre")).some((c) => c.texte === "5"));
+});
+
+test("étiquettes : dans la pièce, au point le plus éloigné des murs, jamais l'une sur l'autre", () => {
+  for (const ech of [100, 40, 21]) {
+    const et = miseEnPageEtiquettes(R.pieces, (x, y) => [x * ech, y * ech], mesurerApprox);
+    assert.equal(chevauchements(et), 0, `${ech} px/m`);
+    if (ech >= 40) assert.ok(et.every((e) => e.tient), `${ech} px/m : toutes les étiquettes tiennent dans leur pièce`);
+  }
+  // L'ancre est dans la pièce, loin des murs.
+  for (const p of R.pieces) assert.ok(pointDansPoly(ancrePiece(p), p.polygone), p.nom);
+  // Pièce en L : l'ancre est au cœur de la pièce, pas sur son centre de gravité.
+  const L = [[0, 0], [4, 0], [4, 1], [1, 1], [1, 4], [0, 4]];
+  const { point, rayon } = poleInaccessibilite(L);
+  assert.ok(pointDansPoly(point, L) && rayon > 0.45, JSON.stringify({ point, rayon }));
 });
 
 // ── DXF à plusieurs versions du plan (plan automatique lancé plusieurs fois) ─
@@ -380,6 +406,9 @@ if (fs.existsSync(dossierMulti) && pdfjs) {
       assert.ok(R2.pieces.every((p) => p.photos.length === (p.scan ? 10 : 0)), `version ${v} : 10 photos par pièce scannée`);
       assert.ok(!R2.alertes.some((a) => /pdf_ambigu|pdf_sans_piece|photos_nombre/.test(a.code)), JSON.stringify(R2.alertes));
       assert.ok(pointsAValider(R2).length <= 10, `version ${v} : ${pointsAValider(R2).length} points à valider`);
+      for (const ech of [100, 40, 21]) {
+        assert.equal(chevauchements(miseEnPageEtiquettes(R2.pieces, (x, y) => [x * ech, y * ech], mesurerApprox)), 0, `version ${v}, ${ech} px/m`);
+      }
     }
   });
 }
