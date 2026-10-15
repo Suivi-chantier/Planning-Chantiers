@@ -410,7 +410,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Statut d'affichage d'un BL (ajoute la détection d'écart)
   const blStatut = (b) => {
     if (!b.commande_id) return "manquant";
-    if (["montant", "numero_ambigu"].includes(b.mode_rapprochement)) return "ecart";
+    if (["montant", "numero_ambigu", "regroupement"].includes(b.mode_rapprochement)) return "ecart";
     const m = toNum(b.montant_ht);
     if (m != null && b.commandeMontant != null && Math.abs(b.commandeMontant - m) > TOLERANCE_ECART) return "ecart";
     return "rapproche";
