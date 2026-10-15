@@ -600,7 +600,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
             </div>
           ))
         )}
-        {detail && <HistoDetail item={detail} chantiersMap={chantiersMap} T={T} acc={acc} onClose={() => setDetail(null)} />}
+        {detail && <HistoDetail item={detail} chantiersMap={chantiersMap} T={T} acc={acc} onClose={() => setDetail(null)} onValidated={loadHistorique} />}
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
       </div>
     );
