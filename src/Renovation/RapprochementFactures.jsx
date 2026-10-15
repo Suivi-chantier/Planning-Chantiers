@@ -744,6 +744,13 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
       {frais.length > 0 && <div style={card}><strong>Frais de facture</strong>{frais.map((x, i) => <div key={i}>{x.libelle} : {toNum(x.montant_ht)?.toFixed(2) || "—"} € HT</div>)}<small>Frais non affectés aux chantiers tant que la ventilation n’est pas validée.</small></div>}
       {extraction?.incertitudes?.length > 0 && <div style={card}><strong>Points à vérifier</strong>{extraction.incertitudes.map((x, i) => <div key={i}>{x}</div>)}</div>}
+      {absentsFacture.length > 0 && <div style={card}>
+        <strong>Achats saisis mais absents de cette facture ({absentsFacture.length})</strong>
+        <p style={{ fontSize: 12, color: T.textSub }}>À vérifier : certains documents peuvent relever de la facture du mois précédent ou suivant. Aucun rapprochement automatique.</p>
+        {absentsFacture.map(d => <div key={d.id} style={{ padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13 }}>
+          {d.doc_numero || "Sans numéro"} — {d.date_doc || "Date inconnue"} — {toNum(d.montant_ht)?.toFixed(2) || "—"} € HT
+        </div>)}
+      </div>}
       {/* Bloc comparaison */}
       <div style={{ ...card, marginTop: SPACING.md }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.sm.size, color: T.textSub, marginBottom: 4 }}>
