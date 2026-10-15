@@ -3,7 +3,7 @@ create or replace function public.diagnostiquer_rattrapage_facture(p_facture_id 
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare f public.factures%rowtype; n integer; n_reg integer; n_ecarts integer; n_frais integer; motif text:=null;
 begin
- if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
+ if auth.uid() is null or not public.est_collaborateur_actif() or public.est_ouvrier() then raise exception 'Acces refuse'; end if;
  select * into f from public.factures where id=p_facture_id;
  if not found then raise exception 'Facture introuvable'; end if;
  select count(*) into n_reg from public.facture_couts_chantiers where facture_id=f.id;
@@ -41,7 +41,7 @@ create or replace function public.rattraper_couts_facture(p_facture_id uuid,p_co
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare d jsonb; n integer;
 begin
- if auth.uid() is null or not public.est_collaborateur_actif() then raise exception 'Acces refuse'; end if;
+ if auth.uid() is null or not public.est_collaborateur_actif() or public.est_ouvrier() then raise exception 'Acces refuse'; end if;
  if p_confirmation is distinct from 'CONFIRMER RATTRAPAGE' then raise exception 'Confirmation explicite requise'; end if;
  perform 1 from public.factures where id=p_facture_id for update;
  d:=public.diagnostiquer_rattrapage_facture(p_facture_id);
