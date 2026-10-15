@@ -2159,20 +2159,43 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const [envoiReleve, setEnvoiReleve]     = useState(null);   // { fait, total, echecs, raison }
   const [showMetres, setShowMetres]       = useState(false);
   const envoiEnCoursRef = useRef(false);
+  // Fichiers déjà lus (un PDF groupé peut peser 40 Mo) : gardés le temps de
+  // choisir la version du plan quand le DXF en contient plusieurs.
+  const sourcesReleveRef = useRef(null);
+  const [choixVersions, setChoixVersions] = useState(null);
 
   const importerReleve = async (fichiers) => {
     if (!fichiers || !fichiers.length || releveLecture?.etat === 'lecture') return;
     if (envoiEnCoursRef.current) { alert("Un envoi de photos est encore en cours : attendez qu'il se termine."); return; }
     if (releveRef.current && !window.confirm("Ce plan contient déjà un relevé iMapper. Le remplacer par celui-ci ?")) return;
     setReleveLecture({ etat:'lecture' });
-    let res, envoyerFichiersReleve, prefixeReleve;
+    setChoixVersions(null);
+    sourcesReleveRef.current = null;
     try {
       // pdf.js n'est chargé qu'au premier import de relevé (bibliothèque lourde).
       const mod = await import('./releveImapperImport');
-      ({ envoyerFichiersReleve, prefixeReleve } = mod);
-      res = await mod.lireFichiersReleve(fichiers, { maintenant: new Date().toISOString() });
-    } catch (e) { console.error('import relevé iMapper:', e); res = { ok:false, erreur:`Lecture impossible : ${e.message}` }; }
+      const sources = await mod.lireSourcesReleve(fichiers);
+      if (!sources.ok) { setReleveLecture({ etat:'erreur', message:sources.erreur }); return; }
+      sourcesReleveRef.current = { mod, sources };
+    } catch (e) {
+      console.error('import relevé iMapper:', e);
+      setReleveLecture({ etat:'erreur', message:`Lecture impossible : ${e.message}` });
+      return;
+    }
+    await poursuivreImportReleve(null);
+  };
+
+  // Assemble le relevé (avec la version choisie s'il y en a plusieurs), l'affiche,
+  // puis envoie photos et fichiers d'origine en arrière-plan.
+  const poursuivreImportReleve = async (version) => {
+    const lu = sourcesReleveRef.current;
+    if (!lu) return;
+    const { envoyerFichiersReleve, prefixeReleve } = lu.mod;
+    const res = lu.mod.construireReleve(lu.sources, { maintenant: new Date().toISOString(), version });
+    if (res.choix === 'version') { setChoixVersions(res.versions); setReleveLecture(null); return; }
     if (!res.ok) { setReleveLecture({ etat:'erreur', message:res.erreur }); return; }
+    sourcesReleveRef.current = null;
+    setChoixVersions(null);
 
     pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
     setReleve(res.releve);
@@ -2460,7 +2483,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
           <input type='file' accept='.dxf' style={{display:'none'}} onChange={importDXF}/>
         </label>
 
-        <button onClick={()=>{ setReleveLecture(null); setShowReleve(true); }}
+        <button onClick={()=>{ setReleveLecture(null); setChoixVersions(null); sourcesReleveRef.current = null; setShowReleve(true); }}
           title="Importer un relevé iMapper : le DXF « pour AutoCAD (plan éditable) » et les PDF « pour les devis »"
           style={{display:'flex',alignItems:'center',gap:5,padding:'6px 11px',
           background:'rgba(80,200,120,0.15)',border:'1px solid rgba(80,200,120,0.35)',
@@ -2975,6 +2998,33 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
                 disabled={releveLecture?.etat==='lecture'}
                 onChange={e=>{ const f=Array.from(e.target.files||[]); e.target.value=''; importerReleve(f); }}/>
             </label>
+            {choixVersions&&(
+              <div style={{marginTop:14}}>
+                <div style={{fontSize:14,fontWeight:800,color:'#f5a623',marginBottom:6}}>
+                  Ce DXF contient {choixVersions.length} versions du plan, superposées
+                </div>
+                <div style={{fontSize:12,color:'#9aa5c0',lineHeight:1.5,marginBottom:10}}>
+                  Le plan automatique a été lancé plusieurs fois sur ce projet iMapper : chaque lancement a laissé
+                  ses pièces. Choisissez celle à importer. Les murs du fichier ne correspondent qu'à une version :
+                  la part des contours posés sur les murs aide à reconnaître la bonne.
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  {choixVersions.map(v=>(
+                    <button key={v.index} onClick={()=>poursuivreImportReleve(v.index)}
+                      style={{textAlign:'left',padding:'10px 14px',borderRadius:10,cursor:'pointer',fontFamily:'inherit',
+                        background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.14)',color:'#e8eaf0'}}>
+                      <div style={{fontSize:14,fontWeight:800}}>
+                        Version {v.index} — {v.nb} pièces, {v.aire.toFixed(1).replace('.',',')} m²
+                      </div>
+                      <div style={{fontSize:12,color:v.part_murs>=0.95?'#8fe0ad':'#f5a623',marginTop:2}}>
+                        {Math.round(v.part_murs*100)} % des contours posés sur les murs du fichier
+                      </div>
+                      <div style={{fontSize:11,color:'#7a86a6',marginTop:2}}>{v.noms.join(', ')}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {releveLecture?.etat==='erreur'&&(
               <div style={{marginTop:12,padding:'10px 12px',borderRadius:8,background:'rgba(224,92,92,0.12)',
                 border:'1px solid rgba(224,92,92,0.4)',color:'#ffb4b4',fontSize:13}}>
