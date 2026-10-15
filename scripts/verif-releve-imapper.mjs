@@ -265,6 +265,14 @@ test("étiquettes : dans la pièce, au point le plus éloigné des murs, jamais 
     assert.equal(chevauchements(et), 0, `${ech} px/m`);
     if (ech >= 40) assert.ok(et.every((e) => e.tient), `${ech} px/m : toutes les étiquettes tiennent dans leur pièce`);
   }
+  // Vue éloignée : une étiquette qui déborde reçoit un fond clair (sinon,
+  // texte foncé sur mur anthracite = invisible) ; celles qui tiennent, non.
+  const et21 = miseEnPageEtiquettes(R.pieces, (x, y) => [x * 21, y * 21], mesurerApprox);
+  const debordent = et21.filter((e) => !e.tient).length;
+  assert.ok(debordent > 0, "le cas existe sur la référence à 21 px/m");
+  const { ctx, ops } = ctxEnregistreur();
+  dessinerReleve(ctx, R, (x, y) => [x * 21, y * 21]);
+  assert.equal(ops.filter((o) => o[0] === "fill" && o[2] === "rgba(255,255,255,0.92)").length, debordent);
   // L'ancre est dans la pièce, loin des murs.
   for (const p of R.pieces) assert.ok(pointDansPoly(ancrePiece(p), p.polygone), p.nom);
   // Pièce en L : l'ancre est au cœur de la pièce, pas sur son centre de gravité.

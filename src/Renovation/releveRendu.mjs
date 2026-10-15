@@ -19,6 +19,7 @@ import { couleurPiece, cotesInterieures, poleInaccessibilite, airePolygone, poin
 export const COULEURS_RELEVE = {
   mur: "#3a4250", murSombre: "#5b6680",
   texte: "#1f2937", cote: "#4b5563", point: "#c2410c", selection: "#d97706",
+  fondEtiquette: "rgba(255,255,255,0.92)",
 };
 
 // Pôle d'une pièce, calculé une fois par polygone (le dessin est rejoué à
@@ -130,6 +131,17 @@ export function dessinerReleve(ctx, releve, toC, opts = {}) {
 
   // 7. Étiquettes : nom et surface (tournées d'un quart de tour dans une
   //    pièce étroite et haute).
+  //    Une étiquette qui déborde de sa pièce (vue éloignée, pièce minuscule)
+  //    passe sur un mur ou une pièce voisine : un fond clair la garde lisible
+  //    (texte foncé sur mur anthracite = invisible, cas réel du 15/10).
+  etiquettes.filter((e) => !e.tient).forEach((e) => {
+    const b = e.boite;
+    ctx.fillStyle = C.fondEtiquette;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(b.x0 - 2, b.y0 - 1, b.x1 - b.x0 + 4, b.y1 - b.y0 + 2, 3);
+    else ctx.rect(b.x0 - 2, b.y0 - 1, b.x1 - b.x0 + 4, b.y1 - b.y0 + 2);
+    ctx.fill();
+  });
   ctx.textAlign = "center";
   ctx.fillStyle = C.texte;
   etiquettes.forEach((e) => e.lignes.forEach(([t, fs, dy]) => {
