@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { normaliserNumero, rapprocherFacture, verifierTotalFacture } from "./rapprochementFactures.mjs";
+import { normaliserNumero, rapprocherFacture } from "./rapprochementFactures.mjs";
 import { supabase, photoTransform } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
@@ -16,7 +16,7 @@ const TOLERANCE_ECART = 0.05;
 
 function toNum(v) {
   if (v == null || v === "") return null;
-  const n = parseFloat(String(v).replace(",", ".").replace(/[^0-9.]/g, ""));
+  const n = Number(String(v).replace(/\s/g, "").replace(",", ".").replace(/[^0-9.\-]/g, ""));
   return isNaN(n) ? null : n;
 }
 
@@ -453,7 +453,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Archive la facture SANS rapprocher les BL (période de transition / fournisseur
   // sans BL saisi). Ne crée aucune liaison et ne modifie aucune commande.
   const archiverSansRapprocher = async () => {
-    if (saving) return;
+    if (saving || fichiers.length !== photos.length) return;
     if (!confirm("Archiver cette facture sans rapprocher les BL ?\n\nAucune commande ne sera modifiée. À utiliser pour les factures d'une période antérieure à la saisie des BL, ou les fournisseurs sans BL.")) return;
     setSaving(true); setSaveErr("");
     const fr = await resolveFourn();
