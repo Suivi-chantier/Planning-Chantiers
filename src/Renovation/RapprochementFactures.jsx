@@ -730,6 +730,25 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
               </div>
               <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{label}</span>
             </div>
+            {st === "manquant" && b.propositions?.length > 0 && (
+              <div style={{ marginTop: 10, fontSize: 13 }}>
+                <label style={{ display: "block", marginBottom: 5 }}>Correspondances possibles — confirmation nécessaire</label>
+                <select value="" onChange={e => {
+                  const p = b.propositions.find(x => x.document.id === e.target.value);
+                  if (!p) return;
+                  setBls(prev => prev.map((x, j) => j === i ? {
+                    ...x, commande_id: p.document.id, commandeMontant: p.document.montant_ht,
+                    mode_rapprochement: p.mode, propositions: [], statut: "ecart",
+                  } : x));
+                }} style={inputStyle}>
+                  <option value="">Choisir un document…</option>
+                  {b.propositions.map(p => <option key={p.document.id} value={p.document.id}>
+                    {p.document.doc_numero || "Sans numéro"} — {p.document.montant_ht ?? "?"} € HT ({p.mode})
+                  </option>)}
+                </select>
+                <p style={{ fontSize: 12, color: T.textSub }}>La liaison est enregistrée pour examen. Une correspondance proposée n'est jamais validée automatiquement.</p>
+              </div>
+            )}
             {st === "manquant" && (
               <button onClick={() => saisirBl(i)} style={{
                 marginTop: 10, width: "100%", padding: "10px", borderRadius: RADIUS.md, cursor: "pointer",
