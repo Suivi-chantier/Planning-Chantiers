@@ -738,7 +738,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
                 <select value="" onChange={e => {
                   const p = b.propositions.find(x => x.document.id === e.target.value);
                   if (!p) return;
-                  setBls(prev => prev.map((x, j) => j === i ? {
+                  setBls(prev => prev.map((x, j) => (j === i || (p.mode === "regroupement" && p.bls?.includes(x.bl_numero))) ? {
                     ...x, commande_id: p.document.id, commandeMontant: p.document.montant_ht,
                     mode_rapprochement: p.mode, propositions: [], statut: "ecart",
                   } : x));
