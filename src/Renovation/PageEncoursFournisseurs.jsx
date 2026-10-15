@@ -63,11 +63,12 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
         supabase.from("factures")
           .select("id, numero, fournisseur_id, fournisseur_nom, montant_ht, date_facture, date_echeance, created_at, statut")
           .neq("statut", "archivee").limit(2000),
-        supabase.from("facture_bl").select("facture_id, bl_numero, montant_ht, statut").limit(10000),
+        supabase.from("facture_bl").select("facture_id, commande_id, bl_numero, montant_ht, statut").limit(10000),
       ]);
       // BL rapprochés par facture
       const blByFacture = {};
       (blRes.data || []).forEach(b => { (blByFacture[b.facture_id] = blByFacture[b.facture_id] || []).push(b); });
+      const linkedIds = new Set((blRes.data || []).filter(b => b.commande_id).map(b => b.commande_id));
       // mode de paiement par fournisseur (par id et par nom normalisé)
       const modeById = {}, modeByNom = {};
       (fournRes.data || []).forEach(f => { modeById[f.id] = f.mode_paiement || ""; if (f.nom) modeByNom[normNom(f.nom)] = f.mode_paiement || ""; });
@@ -75,7 +76,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
 
       const arr = [];
       (cRes.data || []).forEach(c => {
-        if (c.source === "migration") return; // anciennes saisies (avant la refonte) : non comptées
+        if (c.source === "migration" || linkedIds.has(c.id)) return; // anciennes saisies (avant la refonte) : non comptées
         const montant = c.montant_ht != null ? Number(c.montant_ht)
           : (c.lignes || []).reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
         if (!montant) return;
