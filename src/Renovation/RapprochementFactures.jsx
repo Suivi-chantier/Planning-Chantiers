@@ -86,6 +86,20 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const [signedPages, setSignedPages] = useState([]);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState("");
+  const [motifs, setMotifs] = useState({});
+  const [resolvingId, setResolvingId] = useState(null);
+  const chargerLignes = async () => {
+    const { data } = await supabase.from("facture_bl").select("id, bl_numero, montant_ht, montant_commande_ht, ecart_ht, mode_rapprochement, commande_id, statut, resolution, justification").eq("facture_id", c.id);
+    setBlLignes(data || []);
+  };
+  const accepterEcart = async (id) => {
+    setValidationError(""); setResolvingId(id);
+    const { error } = await supabase.rpc("resoudre_ecart_facture_bl", { p_ligne_id: id, p_justification: motifs[id] || "" });
+    setResolvingId(null);
+    if (error) { setValidationError(error.message); return; }
+    await chargerLignes();
+  };
+
   const valider = async () => {
     setValidating(true); setValidationError("");
     const { error } = await supabase.rpc("valider_rapprochement_facture", { p_facture_id: c.id });
@@ -96,8 +110,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   };
   useEffect(() => {
     if (isFacture) {
-      supabase.from("facture_bl").select("bl_numero, montant_ht, statut").eq("facture_id", c.id)
-        .then(({ data }) => setBlLignes(data || []));
+      chargerLignes();
     }
   }, [isFacture, c.id]);
   useEffect(() => {
@@ -163,6 +176,15 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                       <span style={{ fontSize: FONT.sm.size, color: T.text }}>BL n° {b.bl_numero || "?"}</span>
                       <span style={{ fontSize: FONT.sm.size, color: T.textSub }}>{b.montant_ht != null ? `${fmtEur(b.montant_ht)} €` : "—"}</span>
                       <span style={{ fontSize: 10, fontWeight: 800, color: sem.color }}>{b.statut}</span>
+                      {b.resolution === "accepte" && <span style={{ fontSize: 11, color: SEMANTIC.success.color }}>Écart accepté</span>}
+                      {c.statut === "a_rapprocher" && b.statut === "ecart" && b.commande_id && b.resolution !== "accepte" && (
+                        <div style={{ width: "100%", marginTop: 8 }}>
+                          <div style={{ fontSize: 12, color: T.textSub }}>Écart HT : {b.ecart_ht == null ? "inconnu" : fmtEur(b.ecart_ht) + " €"} · achat : {b.montant_commande_ht == null ? "?" : fmtEur(b.montant_commande_ht) + " €"}</div>
+                          <textarea placeholder="Justification de l'acceptation (12 caractères minimum)" value={motifs[b.id] || ""} onChange={e => setMotifs(prev => ({ ...prev, [b.id]: e.target.value }))} rows={2} style={{ width: "100%", boxSizing: "border-box", marginTop: 8, borderRadius: 6, padding: 8, background: T.bg, color: T.text, border: `1px solid ${T.border}` }} />
+                          <button onClick={() => accepterEcart(b.id)} disabled={resolvingId === b.id || (motifs[b.id] || "").trim().length < 12} style={{ padding: "8px 12px", marginTop: 6, cursor: "pointer" }}>Accepter cet écart avec justification</button>
+                        </div>
+                      )}
+
                     </div>
                   );
                 })}
