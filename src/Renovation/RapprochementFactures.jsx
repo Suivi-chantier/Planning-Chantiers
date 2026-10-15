@@ -91,6 +91,11 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const [validationError, setValidationError] = useState("");
   const [motifs, setMotifs] = useState({});
   const [resolvingId, setResolvingId] = useState(null);
+  const [avoirMontant, setAvoirMontant] = useState("");
+  const [avoirChantier, setAvoirChantier] = useState("");
+  const [avoirMotif, setAvoirMotif] = useState("");
+  const [avoirImputations, setAvoirImputations] = useState([]);
+  const [diagnostic, setDiagnostic] = useState(null);
   const chargerLignes = async () => {
     const { data } = await supabase.from("facture_bl").select("id, bl_numero, montant_ht, montant_commande_ht, ecart_ht, mode_rapprochement, commande_id, statut, resolution, justification").eq("facture_id", c.id);
     setBlLignes(data || []);
@@ -127,6 +132,38 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
     await chargerLignes();
   };
 
+  const chargerAvoir = async () => {
+    const { data } = await supabase.from("avoirs_fournisseurs_imputations").select("id,chantier_id,montant_ht,justification").eq("facture_id",c.id);
+    setAvoirImputations(data || []);
+  };
+  const imputerAvoir = async () => {
+    setValidating(true); setValidationError("");
+    const { error } = await supabase.rpc("imputer_avoir_fournisseur", {
+      p_facture_id: c.id, p_chantier_id: avoirChantier, p_montant_ht: Number(avoirMontant), p_justification: avoirMotif,
+    });
+    setValidating(false);
+    if (error) { setValidationError(error.message); return; }
+    setAvoirMontant(""); setAvoirMotif(""); await chargerAvoir();
+  };
+  const cloturerAvoir = async () => {
+    setValidating(true); setValidationError("");
+    const { error } = await supabase.rpc("cloturer_avoir_fournisseur",{p_facture_id:c.id});
+    setValidating(false);
+    if (error) { setValidationError(error.message); return; }
+    await onValidated?.(); onClose();
+  };
+  const diagnostiquer = async () => {
+    setValidating(true); setValidationError("");
+    const { data,error } = await supabase.rpc("diagnostiquer_rattrapage_facture",{p_facture_id:c.id});
+    setValidating(false); if(error){setValidationError(error.message);return;} setDiagnostic(data);
+  };
+  const rattraper = async () => {
+    if(!confirm("Confirmer le rattrapage comptable de cette facture historique ? Cette action ajoute des écritures financières.")) return;
+    setValidating(true);setValidationError("");
+    const {error}=await supabase.rpc("rattraper_couts_facture",{p_facture_id:c.id,p_confirmation:"CONFIRMER RATTRAPAGE"});
+    setValidating(false);if(error){setValidationError(error.message);return;}
+    setDiagnostic(null);await onValidated?.();onClose();
+  };
   const valider = async () => {
     setValidating(true); setValidationError("");
     const { error } = await supabase.rpc("valider_rapprochement_facture", { p_facture_id: c.id });
@@ -138,6 +175,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   useEffect(() => {
     if (isFacture) {
       chargerLignes();
+      if (c.type_document === "avoir") chargerAvoir();
     }
   }, [isFacture, c.id]);
   useEffect(() => {
@@ -190,7 +228,26 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
                 {info("Période", c.periode || "—")}
                 {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
                 {info("Statut", c.statut === "rapprochee" ? "Rapprochée" : c.statut === "archivee" ? "Archivée" : "À rapprocher")}
-                {c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ padding: "10px 14px", borderRadius: 8, background: acc.accent, color: "#111", border: "none", cursor: "pointer", fontWeight: 700 }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <p style={{ color: SEMANTIC.danger.color, fontSize: 12 }}>{validationError}</p>}<p style={{ fontSize: 12, color: T.textSub }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</p></div>}
+                {c.type_document !== "avoir" && c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ padding: "10px 14px", borderRadius: 8, background: acc.accent, color: "#111", border: "none", cursor: "pointer", fontWeight: 700 }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <p style={{ color: SEMANTIC.danger.color, fontSize: 12 }}>{validationError}</p>}<p style={{ fontSize: 12, color: T.textSub }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</p></div>}
+                {c.type_document === "avoir" && <div style={{marginTop:14,padding:12,border:`1px solid ${T.border}`,borderRadius:8}}>
+                  <strong>Avoir fournisseur — ventilation manuelle</strong>
+                  <p style={{fontSize:12,color:T.textSub}}>Les avoirs clôturés réduisent les coûts réels. Montants négatifs en HT ; chaque chantier est choisi explicitement.</p>
+                  {avoirImputations.map(a=><div key={a.id} style={{fontSize:12,marginBottom:4}}>{nomCh(a.chantier_id)} : {fmtEur(a.montant_ht)} € HT — {a.justification}</div>)}
+                  {c.statut !== "rapprochee" && <>
+                    <input type="text" placeholder="Identifiant du chantier" value={avoirChantier} onChange={e=>setAvoirChantier(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}} />
+                    <input type="number" step="0.01" max="-0.01" placeholder="Montant négatif HT (ex. -25.00)" value={avoirMontant} onChange={e=>setAvoirMontant(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}} />
+                    <textarea placeholder="Justification (12 caractères minimum)" value={avoirMotif} onChange={e=>setAvoirMotif(e.target.value)} style={{width:"100%",boxSizing:"border-box",marginTop:8,padding:8}} />
+                    <button disabled={validating||!avoirChantier||!(Number(avoirMontant)<0)||avoirMotif.trim().length<12} onClick={imputerAvoir}>Affecter cet avoir</button>
+                    <button disabled={validating} onClick={cloturerAvoir} style={{marginLeft:8}}>Clôturer l'avoir ventilé</button>
+                  </>}
+                  {validationError && <p style={{color:SEMANTIC.danger.color}}>{validationError}</p>}
+                </div>}
+                {c.type_document !== "avoir" && c.statut === "rapprochee" && <div style={{marginTop:12,padding:10,border:`1px solid ${T.border}`,borderRadius:8}}>
+                  <button disabled={validating} onClick={diagnostiquer}>Vérifier le rattrapage historique</button>
+                  {diagnostic && <p style={{fontSize:12}}>{diagnostic.eligible ? `Éligible : ${diagnostic.ecarts} écarts, ${diagnostic.frais} frais à comptabiliser.` : `Rattrapage non nécessaire ou bloqué : ${diagnostic.motif}`}</p>}
+                  {diagnostic?.eligible && <button disabled={validating} onClick={rattraper}>Confirmer le rattrapage des coûts</button>}
+                  {validationError && <p style={{color:SEMANTIC.danger.color}}>{validationError}</p>}
+                </div>}
                 {fraisLignes.length > 0 && <div style={{ marginTop: 16 }}>
                   <strong>Frais de facture ({fraisLignes.length})</strong>
                   <p style={{ fontSize: 12, color: T.textSub }}>Affectation manuelle à un chantier présent dans les achats. Aucune répartition automatique.</p>
@@ -309,7 +366,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
     const [fRes, cRes] = await Promise.all([
       supabase.from("factures")
-        .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, photo_url, fichiers, created_at")
+        .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, type_document, facture_origine_id, photo_url, fichiers, created_at")
         .order("created_at", { ascending: false }).limit(1000),
       cq.order("created_at", { ascending: false }).limit(1000),
     ]);
