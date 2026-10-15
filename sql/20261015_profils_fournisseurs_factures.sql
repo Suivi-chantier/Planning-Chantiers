@@ -1,0 +1,4 @@
+update public.fournisseurs set type_facturation='recapitulative', delai_paiement='30j_fin_mois', regles_numero='{"retirerAgence":true,"prefixes":["CL-4900-","CL-4903-"]}'::jsonb where lower(nom)='rexel';
+update public.fournisseurs set type_facturation='recapitulative', delai_paiement='30j_fin_mois', regles_numero='{}'::jsonb where lower(nom)='zolpan';
+update public.fournisseurs set type_facturation='par_livraison', delai_paiement='30j_fin_mois', regles_numero='{"retirerClient":true}'::jsonb where lower(nom)='partedis';
+update public.fournisseurs set type_facturation='par_livraison', delai_paiement='30j_net', regles_numero='{}'::jsonb where lower(nom) in ('wurth','würth');
