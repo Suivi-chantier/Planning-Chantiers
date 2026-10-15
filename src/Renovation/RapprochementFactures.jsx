@@ -355,8 +355,13 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       const blsRaw = Array.isArray(p.bls) ? p.bls : [];
       setFrais(Array.isArray(p.frais) ? p.frais : []);
       setExtraction(p);
-      const matched = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
-      setBls(matched);
+      try {
+        const matched = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
+        setBls(matched);
+      } catch (err) {
+        setBls(blsRaw.map(b => ({ ...b, commande_id: null, statut: "manquant" })));
+        setIaErr("Lecture réussie, mais rapprochement indisponible : " + err.message);
+      }
     } else {
       setIaErr((ia.status === "rejected" ? (ia.reason?.message || "Analyse impossible") : "Analyse impossible") + " — vérifie le document.");
     }
@@ -415,7 +420,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
       frais_ht: frais.reduce((n, x) => n + (toNum(x.montant_ht) || 0), 0),
       montant_tva: toNum(extraction?.montant_tva), montant_ttc: toNum(extraction?.montant_ttc),
       date_echeance: extraction?.date_echeance || null,
-      statut: "a_rapprocher", statut_rapprochement: aucunManquant ? "conforme" : "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
+      statut: "a_rapprocher", statut_rapprochement: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
     }).select("id").single();
     if (e1 || !f) { setSaveErr("Erreur facture : " + (e1?.message || "inconnue")); setSaving(false); return; }
 
@@ -432,18 +437,14 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         mode_rapprochement: b.mode_rapprochement || null,
       });
       if (eb) { setSaveErr("Erreur liaison BL : " + eb.message); setSaving(false); return; }
-      if (b.commande_id && statut === "rapproche") {
-        await supabase.from("commandes").update({ statut_facturation: "facture", facture_id: f.id }).eq("id", b.commande_id);
-        await supabase.from("commande_lignes").update({ prix_verrouille: true }).eq("commande_id", b.commande_id);
-      }
+      // Les écritures de coûts et le verrouillage restent suspendus :
+      // aucune mutation comptable partielle sans validation transactionnelle côté serveur.
     }
     if (frais.length) {
       const { error: fraisErr } = await supabase.from("facture_frais").insert(frais.map(x => ({ facture_id: f.id, libelle: x.libelle || "Frais", montant_ht: toNum(x.montant_ht) || 0 })));
       if (fraisErr) { setSaveErr("Facture sauvegardée, mais frais non enregistrés : " + fraisErr.message); setSaving(false); return; }
     }
-    if (aucunManquant && bls.every(b => blStatut(b) === "rapproche")) {
-      await supabase.from("factures").update({ statut: "rapprochee", statut_rapprochement: "conforme" }).eq("id", f.id);
-    }
+    // Statut à rapprocher jusqu’à validation atomique des écritures en base.
     setSaving(false);
     await loadHistorique();
     setStep("home");
@@ -749,8 +750,8 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
       <div style={{ marginBottom: 8, fontSize: FONT.sm.size, color: T.textSub, textAlign: "center" }}>
         {nbManquants > 0
-          ? <span style={{ color: SEMANTIC.danger.color, fontWeight: 600 }}>{nbManquants} BL manquant(s) — tu peux enregistrer la facture et traiter les anomalies ensuite.</span>
-          : <span style={{ color: SEMANTIC.success.color, fontWeight: 600 }}>✓ Tous les BL sont appariés</span>}
+          ? <span style={{ color: SEMANTIC.danger.color, fontWeight: 600 }}>{nbManquants} BL manquant(s) — facture enregistrable, sans validation comptable.</span>
+          : <span style={{ color: SEMANTIC.success.color, fontWeight: 600 }}>Tous les BL sont identifiés — validation comptable encore nécessaire.</span>}
       </div>
 
       <button onClick={confirmer} disabled={saving || fichiers.length !== photos.length} style={btnPrimary(saving || fichiers.length !== photos.length)}>
