@@ -41,3 +41,11 @@ test("numéros en collision : aucune attribution arbitraire", () => {
   assert.equal(r.rapprochements[0].document, null);
   assert.equal(r.rapprochements[0].propositions.length, 2);
 });
+
+test("Rexel: un bon couvre deux livraisons, proposition sans liaison", () => {
+  const r = rapprocherFacture({ fournisseurId: "rexel", dateFacture: "2026-09-30",
+    livraisons: [{ bl_numero: "A", montant_ht: 423.67 }, { bl_numero: "B", montant_ht: 54.78 }],
+    documents: [{ id: "po", fournisseur_id: "rexel", doc_numero: "C", montant_ht: 478.45, statut_facturation: "en_attente_facture" }] });
+  assert.equal(r.rapprochements[0].document, null);
+  assert.equal(r.rapprochements[1].propositions[0].mode, "regroupement");
+});
