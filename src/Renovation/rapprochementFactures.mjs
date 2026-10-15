@@ -61,6 +61,28 @@ export function rapprocherFacture({ livraisons = [], documents = [], fournisseur
         memeMontant(montant(livraison), montant(d), tolerance)).map(d => ({ document: d, mode: "montant" }))];
     resultat.push({ livraison, document: null, mode: null, confirmationRequise: propositions.length > 0, propositions, conforme: false });
   }
+  // Détecter les bons de commande couvrant 2 ou 3 livraisons.
+  // Un regroupement reste une suggestion et n'est jamais lié automatiquement.
+  const nonLies = resultat.filter(r => !r.document);
+  for (const doc of eligible.filter(d => !utilises.has(d.id))) {
+    const cible = montant(doc);
+    if (cible == null) continue;
+    const poss = nonLies.filter(r => montant(r.livraison) != null);
+    for (let i = 0; i < poss.length; i++) {
+      for (let j = i + 1; j < poss.length; j++) {
+        const paire = [poss[i], poss[j]];
+        const sommes = [[...paire]];
+        for (let k = j + 1; k < poss.length; k++) sommes.push([...paire, poss[k]]);
+        for (const groupe of sommes) {
+          if (Math.abs(groupe.reduce((n, r) => n + montant(r.livraison), 0) - cible) > tolerance) continue;
+          for (const r of groupe) {
+            r.propositions.push({ document: doc, mode: "regroupement", bls: groupe.map(x => x.livraison.bl_numero) });
+            r.confirmationRequise = true;
+          }
+        }
+      }
+    }
+  }
   const inverses = eligible.filter(d => !utilises.has(d.id) &&
     (!periodeDebut || d.date_doc >= periodeDebut) && (!periodeFin || d.date_doc <= periodeFin));
   return { rapprochements: resultat, absentsFacture: inverses };
