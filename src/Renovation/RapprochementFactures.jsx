@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { normaliserNumero, rapprocherFacture } from "./rapprochementFactures.mjs";
 import { supabase, photoTransform } from "../supabase";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
@@ -11,27 +12,25 @@ const EDGE_ANALYSE_FACTURE =
   "https://yooksnzhlffqgpzkcjhl.supabase.co/functions/v1/analyse-facture";
 
 // Tolérance d'écart de montant (remises, arrondis) avant de signaler un "écart"
-const TOLERANCE_ECART = 1.0;
+const TOLERANCE_ECART = 0.05;
 
 function toNum(v) {
   if (v == null || v === "") return null;
-  const n = parseFloat(String(v).replace(",", ".").replace(/[^0-9.]/g, ""));
+  const n = Number(String(v).replace(/\s/g, "").replace(",", ".").replace(/[^0-9.\-]/g, ""));
   return isNaN(n) ? null : n;
 }
 
 // Normalisation pour l'appariement par numéro (trim, casse, espaces)
-const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "");
+const norm = (s) => normaliserNumero(s);
 
 async function uploadPhoto(file, pathPrefix) {
   try {
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
     const safe = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const path = `${pathPrefix}/${safe}`;
-    const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+    const { error } = await supabase.storage.from("factures-privees").upload(path, file, { upsert: false });
     if (error) return { error: error.message || "Erreur upload" };
-    const { data } = supabase.storage.from("photos").getPublicUrl(path);
-    if (!data?.publicUrl) return { error: "URL publique introuvable" };
-    return { url: data.publicUrl };
+    return { path };
   } catch (e) {
     return { error: e.message || "Erreur réseau" };
   }
@@ -79,16 +78,34 @@ function moisLabel(ym) {
 }
 
 // Modale de détail : facture (avec ses BL rapprochés) ou reçu/ticket comptant (avec ses lignes).
-function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
+function HistoDetail({ item, chantiersMap, T, acc, onClose, onValidated }) {
   const isFacture = item.kind === "facture";
   const c = item.row;
   const [blLignes, setBlLignes] = useState([]);
+  const [signedFile, setSignedFile] = useState(null);
+  const [signedPages, setSignedPages] = useState([]);
+  const [validating, setValidating] = useState(false);
+  const [validationError, setValidationError] = useState("");
+  const valider = async () => {
+    setValidating(true); setValidationError("");
+    const { error } = await supabase.rpc("valider_rapprochement_facture", { p_facture_id: c.id });
+    setValidating(false);
+    if (error) { setValidationError(error.message); return; }
+    await onValidated?.();
+    onClose();
+  };
   useEffect(() => {
     if (isFacture) {
       supabase.from("facture_bl").select("bl_numero, montant_ht, statut").eq("facture_id", c.id)
         .then(({ data }) => setBlLignes(data || []));
     }
   }, [isFacture, c.id]);
+  useEffect(() => {
+    const path = Array.isArray(c.fichiers) ? c.fichiers[0] : null;
+    if (!path) return;
+    Promise.all(c.fichiers.map(p => supabase.storage.from("factures-privees").createSignedUrl(p, 900)))
+      .then(rows => { const urls = rows.map((r, i) => ({ url: r.data?.signedUrl, path: c.fichiers[i] })).filter(x => x.url); setSignedPages(urls); setSignedFile(urls[0]?.url || null); });
+  }, [c.fichiers]);
   const dateStr = (d) => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
   const fmtEur = (n) => (Number(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const nomCh = (id) => chantiersMap[String(id)]?.nom || (id ? String(id) : "—");
@@ -120,9 +137,10 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: 18 }}>
-            {c.photo_url && (
-              <a href={c.photo_url} target="_blank" rel="noreferrer">
-                <img src={photoTransform(c.photo_url, { width: 560, quality: 70 })} alt="" style={{ width: "100%", borderRadius: RADIUS.md, marginBottom: SPACING.md, border: `1px solid ${T.border}` }} />
+            {signedPages.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>{signedPages.map((p, i) => <a key={p.path} href={p.url} target="_blank" rel="noreferrer" style={{ color: acc.accent }}>Ouvrir page {i + 1}</a>)}</div>}
+            {(signedFile || c.photo_url) && !String(signedPages[0]?.path || "").toLowerCase().endsWith(".pdf") && (
+              <a href={signedFile || c.photo_url} target="_blank" rel="noreferrer">
+                <img src={signedFile || photoTransform(c.photo_url, { width: 560, quality: 70 })} alt="" style={{ width: "100%", borderRadius: RADIUS.md, marginBottom: SPACING.md, border: `1px solid ${T.border}` }} />
               </a>
             )}
             {isFacture ? (
@@ -132,6 +150,7 @@ function HistoDetail({ item, chantiersMap, T, acc, onClose }) {
                 {info("Période", c.periode || "—")}
                 {info("Montant HT", `${fmtEur(c.montant_ht)} €`)}
                 {info("Statut", c.statut === "rapprochee" ? "Rapprochée" : c.statut === "archivee" ? "Archivée" : "À rapprocher")}
+                {c.statut === "a_rapprocher" && <div style={{ marginTop: 12 }}><button disabled={validating} onClick={valider} style={{ padding: "10px 14px", borderRadius: 8, background: acc.accent, color: "#111", border: "none", cursor: "pointer", fontWeight: 700 }}>{validating ? "Vérification…" : "Valider les correspondances conformes"}</button>{validationError && <p style={{ color: SEMANTIC.danger.color, fontSize: 12 }}>{validationError}</p>}<p style={{ fontSize: 12, color: T.textSub }}>Validation uniquement si tous les BL et le total HT sont conformes. Les écarts restent en attente.</p></div>}
                 <div style={{ fontSize: FONT.xs.size, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: T.textSub, margin: "14px 0 6px" }}>
                   BL rapprochés ({blLignes.length})
                 </div>
@@ -193,7 +212,11 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [fact, setFact] = useState({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-  const [bls, setBls] = useState([]); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
+  const [bls, setBls] = useState([]);
+  const [fichiers, setFichiers] = useState([]);
+  const [frais, setFrais] = useState([]);
+  const [absentsFacture, setAbsentsFacture] = useState([]);
+  const [extraction, setExtraction] = useState(null); // { bl_numero, montant_ht, commande_id, commandeMontant, fournisseurCmd, statut }
   const fileCam = useRef(null);
   const fileGal = useRef(null);
 
@@ -220,7 +243,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
     const [fRes, cRes] = await Promise.all([
       supabase.from("factures")
-        .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, photo_url, created_at")
+        .select("id, fournisseur_nom, numero, date_facture, periode, montant_ht, statut, photo_url, fichiers, created_at")
         .order("created_at", { ascending: false }).limit(1000),
       cq.order("created_at", { ascending: false }).limit(1000),
     ]);
@@ -258,7 +281,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         (Array.isArray(data?.value) ? data.value : []).forEach(c => { map[String(c.id)] = { nom: c.nom || c.id, couleur: c.couleur }; });
         setChantiersMap(map);
       });
-    supabase.from("fournisseurs").select("id, nom").order("nom").then(({ data }) => setFournisseurs(data || []));
+    supabase.from("fournisseurs").select("id, nom, type_facturation, regles_numero, tolerance_ht").order("nom").then(({ data }) => setFournisseurs(data || []));
   }, []);
 
   // Rattache le fournisseur saisi à l'existant le plus proche, sinon le crée.
@@ -275,32 +298,32 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Apparie une liste de BL aux commandes NON encore facturées, par NUMÉRO,
   // quel que soit le doc_type : une commande saisie comme "ticket" ou "bon de
   // commande" mais portant le n° de BL doit quand même être retrouvée.
-  const matchBls = useCallback(async (blsList, fournisseurFacture) => {
-    const { data } = await supabase
-      .from("commandes")
-      .select("id, doc_numero, fournisseur_nom, montant_ht, statut_facturation")
-      .neq("statut_facturation", "facture")
-      .limit(2000);
-    const candidates = data || [];
-    return blsList.map(bl => {
-      const matches = candidates.filter(c => c.doc_numero && norm(c.doc_numero) === norm(bl.bl_numero));
-      let chosen = null;
-      if (matches.length === 1) chosen = matches[0];
-      else if (matches.length > 1) chosen = matches.find(c => norm(c.fournisseur_nom) === norm(fournisseurFacture)) || matches[0];
-      return {
-        bl_numero: bl.bl_numero || "",
-        montant_ht: bl.montant_ht != null ? String(bl.montant_ht) : "",
-        commande_id: chosen?.id || null,
-        commandeMontant: chosen?.montant_ht ?? null,
-        fournisseurCmd: chosen?.fournisseur_nom || "",
-        statut: chosen ? "rapproche" : "manquant",
-      };
+  const matchBls = useCallback(async (blsList, fournisseurFacture, dateFacture) => {
+    const { fournisseur: fournisseur } = matchFournisseur(fournisseurFacture, fournisseurs);
+    if (!fournisseur?.id) return { matched: blsList.map(b => ({ ...b, commande_id: null, statut: "manquant" })), missing: [] };
+    const { data, error } = await supabase.from("commandes")
+      .select("id, doc_numero, numero_commande_fournisseur, fournisseur_id, montant_ht, date_doc, statut_facturation, remplace_par_id")
+      .eq("fournisseur_id", fournisseur.id).eq("statut_facturation", "en_attente_facture").limit(3000);
+    if (error) throw error;
+    const result = rapprocherFacture({
+      fournisseurId: fournisseur.id, dateFacture, regles: fournisseur.regles_numero || {}, toleranceHt: Number(fournisseur.tolerance_ht ?? 0.05),
+      periodeDebut: dateFacture ? new Date(Date.UTC(Number(dateFacture.slice(0,4)), Number(dateFacture.slice(5,7))-1, -2)).toISOString().slice(0,10) : undefined,
+      periodeFin: dateFacture || undefined,
+      livraisons: blsList.map(b => ({ ...b, date_livraison: b.date_livraison || dateFacture })),
+      documents: (data || []).map(d => ({ ...d, commande_numero: d.numero_commande_fournisseur })),
     });
-  }, []);
+    return { matched: result.rapprochements.map(r => ({
+      ...r.livraison, bl_numero: r.livraison.bl_numero || "",
+      montant_ht: r.livraison.montant_ht ?? "",
+      commande_id: r.document?.id || null, commandeMontant: r.document?.montant_ht ?? null,
+      statut: r.document ? (r.conforme ? "rapproche" : "ecart") : "manquant",
+      propositions: r.propositions || [], mode_rapprochement: r.mode,
+    })), missing: fournisseur.type_facturation === "recapitulative" ? result.absentsFacture : [] };
+  }, [fournisseurs]);
 
   const nouvelleFacture = () => {
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-    setBls([]); setPhotoUrl(""); setPhotos([]); setIaErr(""); setSaveErr("");
+    setBls([]); setAbsentsFacture([]); setPhotoUrl(""); setPhotos([]); setFichiers([]); setFrais([]); setExtraction(null); setIaErr(""); setSaveErr("");
     setStep("capture");
   };
 
@@ -319,7 +342,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     if (!photos.length) return;
     setIaErr(""); setSaveErr("");
     setFact({ fournisseur: "", numero: "", date_facture: "", periode: "", montant_ht: "" });
-    setBls([]); setPhotoUrl("");
+    setBls([]); setAbsentsFacture([]); setPhotoUrl("");
     setStep("analyzing");
 
     const [ups, ia] = await Promise.allSettled([
@@ -331,8 +354,9 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
     ]);
 
     if (ups.status === "fulfilled") {
-      const firstUrl = ups.value.find(u => u?.url)?.url;
-      if (firstUrl) setPhotoUrl(firstUrl);
+      const paths = ups.value.filter(u => u?.path).map(u => u.path);
+      setFichiers(paths);
+      if (paths.length !== photos.length) setSaveErr("Une ou plusieurs pages n’ont pas pu être archivées. Réessaie avant de valider.");
     }
 
     if (ia.status === "fulfilled" && ia.value) {
@@ -345,8 +369,16 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         montant_ht: p.montant_ht != null ? String(p.montant_ht) : "",
       });
       const blsRaw = Array.isArray(p.bls) ? p.bls : [];
-      const matched = await matchBls(blsRaw, p.fournisseur || "");
-      setBls(matched);
+      setFrais(Array.isArray(p.frais) ? p.frais : []);
+      setExtraction(p);
+      try {
+        const { matched, missing } = await matchBls(blsRaw, p.fournisseur || "", p.date_facture);
+        setBls(matched);
+        setAbsentsFacture(missing);
+      } catch (err) {
+        setBls(blsRaw.map(b => ({ ...b, commande_id: null, statut: "manquant" })));
+        setIaErr("Lecture réussie, mais rapprochement indisponible : " + err.message);
+      }
     } else {
       setIaErr((ia.status === "rejected" ? (ia.reason?.message || "Analyse impossible") : "Analyse impossible") + " — vérifie le document.");
     }
@@ -378,43 +410,60 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Statut d'affichage d'un BL (ajoute la détection d'écart)
   const blStatut = (b) => {
     if (!b.commande_id) return "manquant";
+    if (["montant", "numero_ambigu", "regroupement"].includes(b.mode_rapprochement)) return "ecart";
     const m = toNum(b.montant_ht);
     if (m != null && b.commandeMontant != null && Math.abs(b.commandeMontant - m) > TOLERANCE_ECART) return "ecart";
     return "rapproche";
   };
 
-  const aucunManquant = bls.length > 0 && bls.every(b => blStatut(b) !== "manquant");
+  const aucunManquant = bls.every(b => blStatut(b) !== "manquant");
   const totalBl = bls.reduce((s, b) => s + (toNum(b.montant_ht) || 0), 0);
   const montantFacture = toNum(fact.montant_ht);
-  const ecartTotal = montantFacture != null ? montantFacture - totalBl : null;
+  const ecartTotal = montantFacture != null ? montantFacture - totalBl - frais.reduce((n, x) => n + (toNum(x.montant_ht) || 0), 0) : null;
 
   const confirmer = async () => {
-    if (!aucunManquant || saving) return;
+    if (saving || fichiers.length !== photos.length) return;
     setSaving(true); setSaveErr("");
 
     const fr = await resolveFourn();
+    if (!fr.id) { setSaveErr("Fournisseur non reconnu : sélectionne un fournisseur existant."); setSaving(false); return; }
+    if (!fact.numero?.trim()) { setSaveErr("Numéro de facture obligatoire."); setSaving(false); return; }
+    const { data: doublon } = await supabase.from("factures").select("id")
+      .eq("fournisseur_id", fr.id).ilike("numero", fact.numero.trim()).maybeSingle();
+    if (doublon) { setSaveErr("Cette facture existe déjà pour ce fournisseur."); setSaving(false); return; }
     const { data: f, error: e1 } = await supabase.from("factures").insert({
       fournisseur_id: fr.id, fournisseur_nom: fr.nom, numero: fact.numero || null,
       date_facture: fact.date_facture || null, periode: fact.periode || null,
-      montant_ht: montantFacture, photo_url: photoUrl || null,
-      statut: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
+      montant_ht: montantFacture, photo_url: null, fichiers, extraction,
+      frais_ht: frais.reduce((n, x) => n + (toNum(x.montant_ht) || 0), 0),
+      montant_tva: toNum(extraction?.montant_tva), montant_ttc: toNum(extraction?.montant_ttc),
+      date_echeance: extraction?.date_echeance || null,
+      statut: "a_rapprocher", statut_rapprochement: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
     }).select("id").single();
     if (e1 || !f) { setSaveErr("Erreur facture : " + (e1?.message || "inconnue")); setSaving(false); return; }
 
-    for (const b of bls) {
+    const liens = bls.map(b => {
       const m = toNum(b.montant_ht);
       const statut = blStatut(b);
-      const { error: eb } = await supabase.from("facture_bl").insert({
+      return {
         facture_id: f.id, commande_id: b.commande_id || null,
         bl_numero: b.bl_numero || null, montant_ht: m, statut,
-      });
-      if (eb) { setSaveErr("Erreur liaison BL : " + eb.message); setSaving(false); return; }
-      if (b.commande_id) {
-        await supabase.from("commandes").update({ statut_facturation: "facture", facture_id: f.id }).eq("id", b.commande_id);
-        await supabase.from("commande_lignes").update({ prix_verrouille: true }).eq("commande_id", b.commande_id);
-      }
+        numero_commande_fournisseur: b.commande_numero || null,
+        date_livraison: b.date_livraison || null,
+        montant_commande_ht: b.commandeMontant,
+        ecart_ht: b.commandeMontant == null || m == null ? null : m - b.commandeMontant,
+        mode_rapprochement: b.mode_rapprochement || null,
+      };
+    });
+    if (liens.length) {
+      const { error: eb } = await supabase.from("facture_bl").insert(liens);
+      if (eb) { setSaveErr("Facture enregistrée, mais liaisons BL non sauvées : " + eb.message); setSaving(false); return; }
     }
-    await supabase.from("factures").update({ statut: "rapprochee" }).eq("id", f.id);
+    if (frais.length) {
+      const { error: fraisErr } = await supabase.from("facture_frais").insert(frais.map(x => ({ facture_id: f.id, libelle: x.libelle || "Frais", montant_ht: toNum(x.montant_ht) || 0 })));
+      if (fraisErr) { setSaveErr("Facture sauvegardée, mais frais non enregistrés : " + fraisErr.message); setSaving(false); return; }
+    }
+    // Statut à rapprocher jusqu’à validation atomique des écritures en base.
     setSaving(false);
     await loadHistorique();
     setStep("home");
@@ -423,15 +472,15 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
   // Archive la facture SANS rapprocher les BL (période de transition / fournisseur
   // sans BL saisi). Ne crée aucune liaison et ne modifie aucune commande.
   const archiverSansRapprocher = async () => {
-    if (saving) return;
+    if (saving || fichiers.length !== photos.length) return;
     if (!confirm("Archiver cette facture sans rapprocher les BL ?\n\nAucune commande ne sera modifiée. À utiliser pour les factures d'une période antérieure à la saisie des BL, ou les fournisseurs sans BL.")) return;
     setSaving(true); setSaveErr("");
     const fr = await resolveFourn();
     const { error } = await supabase.from("factures").insert({
       fournisseur_id: fr.id, fournisseur_nom: fr.nom, numero: fact.numero || null,
       date_facture: fact.date_facture || null, periode: fact.periode || null,
-      montant_ht: montantFacture, photo_url: photoUrl || null,
-      statut: "archivee", saisi_par: profil?.nom || profil?.email || null,
+      montant_ht: montantFacture, photo_url: null, fichiers, extraction,
+      statut: "archivee", statut_rapprochement: "a_rapprocher", saisi_par: profil?.nom || profil?.email || null,
     }).select("id").single();
     if (error) { setSaveErr("Erreur archivage : " + error.message); setSaving(false); return; }
     setSaving(false);
@@ -559,7 +608,7 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
             </div>
           ))
         )}
-        {detail && <HistoDetail item={detail} chantiersMap={chantiersMap} T={T} acc={acc} onClose={() => setDetail(null)} />}
+        {detail && <HistoDetail item={detail} chantiersMap={chantiersMap} T={T} acc={acc} onClose={() => setDetail(null)} onValidated={loadHistorique} />}
         <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
       </div>
     );
@@ -683,6 +732,25 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
               </div>
               <span style={{ fontSize: FONT.xs.size, fontWeight: 700, padding: "4px 8px", borderRadius: RADIUS.pill, color: sem.color, background: sem.bg, border: `1px solid ${sem.border}`, whiteSpace: "nowrap" }}>{label}</span>
             </div>
+            {st === "manquant" && b.propositions?.length > 0 && (
+              <div style={{ marginTop: 10, fontSize: 13 }}>
+                <label style={{ display: "block", marginBottom: 5 }}>Correspondances possibles — confirmation nécessaire</label>
+                <select value="" onChange={e => {
+                  const p = b.propositions.find(x => x.document.id === e.target.value);
+                  if (!p) return;
+                  setBls(prev => prev.map((x, j) => (j === i || (p.mode === "regroupement" && p.bls?.includes(x.bl_numero))) ? {
+                    ...x, commande_id: p.document.id, commandeMontant: p.document.montant_ht,
+                    mode_rapprochement: p.mode, propositions: [], statut: "ecart",
+                  } : x));
+                }} style={inputStyle}>
+                  <option value="">Choisir un document…</option>
+                  {b.propositions.map(p => <option key={p.document.id} value={p.document.id}>
+                    {p.document.doc_numero || "Sans numéro"} — {p.document.montant_ht ?? "?"} € HT ({p.mode})
+                  </option>)}
+                </select>
+                <p style={{ fontSize: 12, color: T.textSub }}>La liaison est enregistrée pour examen. Une correspondance proposée n'est jamais validée automatiquement.</p>
+              </div>
+            )}
             {st === "manquant" && (
               <button onClick={() => saisirBl(i)} style={{
                 marginTop: 10, width: "100%", padding: "10px", borderRadius: RADIUS.md, cursor: "pointer",
@@ -697,6 +765,15 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
         );
       })}
 
+      {frais.length > 0 && <div style={card}><strong>Frais de facture</strong>{frais.map((x, i) => <div key={i}>{x.libelle} : {toNum(x.montant_ht)?.toFixed(2) || "—"} € HT</div>)}<small>Frais non affectés aux chantiers tant que la ventilation n’est pas validée.</small></div>}
+      {extraction?.incertitudes?.length > 0 && <div style={card}><strong>Points à vérifier</strong>{extraction.incertitudes.map((x, i) => <div key={i}>{x}</div>)}</div>}
+      {absentsFacture.length > 0 && <div style={card}>
+        <strong>Achats saisis mais absents de cette facture ({absentsFacture.length})</strong>
+        <p style={{ fontSize: 12, color: T.textSub }}>À vérifier : certains documents peuvent relever de la facture du mois précédent ou suivant. Aucun rapprochement automatique.</p>
+        {absentsFacture.map(d => <div key={d.id} style={{ padding: "6px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13 }}>
+          {d.doc_numero || "Sans numéro"} — {d.date_doc || "Date inconnue"} — {toNum(d.montant_ht)?.toFixed(2) || "—"} € HT
+        </div>)}
+      </div>}
       {/* Bloc comparaison */}
       <div style={{ ...card, marginTop: SPACING.md }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT.sm.size, color: T.textSub, marginBottom: 4 }}>
@@ -718,13 +795,13 @@ export default function RapprochementFactures({ T, branch = "renovation", profil
 
       <div style={{ marginBottom: 8, fontSize: FONT.sm.size, color: T.textSub, textAlign: "center" }}>
         {nbManquants > 0
-          ? <span style={{ color: SEMANTIC.danger.color, fontWeight: 600 }}>{nbManquants} BL manquant(s) — saisis-les pour pouvoir confirmer.</span>
-          : <span style={{ color: SEMANTIC.success.color, fontWeight: 600 }}>✓ Tous les BL sont appariés</span>}
+          ? <span style={{ color: SEMANTIC.danger.color, fontWeight: 600 }}>{nbManquants} BL manquant(s) — facture enregistrable, sans validation comptable.</span>
+          : <span style={{ color: SEMANTIC.success.color, fontWeight: 600 }}>Tous les BL sont identifiés — validation comptable encore nécessaire.</span>}
       </div>
 
-      <button onClick={confirmer} disabled={!aucunManquant || saving} style={btnPrimary(!aucunManquant || saving)}>
+      <button onClick={confirmer} disabled={saving || fichiers.length !== photos.length} style={btnPrimary(saving || fichiers.length !== photos.length)}>
         {saving ? <Icon as={Loader2} size={20} className="spin" /> : <Icon as={Check} size={20} strokeWidth={2.5} />}
-        {saving ? "Rapprochement…" : "Confirmer le rapprochement"}
+        {saving ? "Enregistrement…" : aucunManquant ? "Enregistrer le rapprochement" : "Enregistrer avec anomalies à traiter"}
       </button>
 
       <button onClick={archiverSansRapprocher} disabled={saving} style={{

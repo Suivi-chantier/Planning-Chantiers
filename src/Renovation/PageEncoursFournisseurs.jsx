@@ -61,13 +61,14 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
           .select("id, fournisseur_id, fournisseur_nom, doc_type, doc_numero, montant_ht, date_doc, created_at, statut_facturation, source, lignes:commande_lignes(prix_total)")
           .is("facture_id", null).limit(5000),
         supabase.from("factures")
-          .select("id, numero, fournisseur_id, fournisseur_nom, montant_ht, date_facture, created_at, statut")
+          .select("id, numero, fournisseur_id, fournisseur_nom, montant_ht, date_facture, date_echeance, created_at, statut")
           .neq("statut", "archivee").limit(2000),
-        supabase.from("facture_bl").select("facture_id, bl_numero, montant_ht, statut").limit(10000),
+        supabase.from("facture_bl").select("facture_id, commande_id, bl_numero, montant_ht, statut").limit(10000),
       ]);
       // BL rapprochés par facture
       const blByFacture = {};
       (blRes.data || []).forEach(b => { (blByFacture[b.facture_id] = blByFacture[b.facture_id] || []).push(b); });
+      const linkedIds = new Set((blRes.data || []).filter(b => b.commande_id).map(b => b.commande_id));
       // mode de paiement par fournisseur (par id et par nom normalisé)
       const modeById = {}, modeByNom = {};
       (fournRes.data || []).forEach(f => { modeById[f.id] = f.mode_paiement || ""; if (f.nom) modeByNom[normNom(f.nom)] = f.mode_paiement || ""; });
@@ -75,7 +76,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
 
       const arr = [];
       (cRes.data || []).forEach(c => {
-        if (c.source === "migration") return; // anciennes saisies (avant la refonte) : non comptées
+        if (c.source === "migration" || linkedIds.has(c.id)) return; // anciennes saisies (avant la refonte) : non comptées
         const montant = c.montant_ht != null ? Number(c.montant_ht)
           : (c.lignes || []).reduce((s, l) => s + (Number(l.prix_total) || 0), 0);
         if (!montant) return;
@@ -92,7 +93,7 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
         const montant = Number(f.montant_ht) || 0;
         if (!montant) return;
         const docISO = f.date_facture || (f.created_at || "").slice(0, 10);
-        const dueISO = echeanceISO(docISO, modeOf(f.fournisseur_id, f.fournisseur_nom));
+        const dueISO = f.date_echeance || echeanceISO(docISO, modeOf(f.fournisseur_id, f.fournisseur_nom));
         arr.push({
           kind: "fact", mois: (dueISO || "").slice(0, 7), fournisseur: f.fournisseur_nom || "Sans fournisseur", montant, paye: false,
           doc: { kind: "fact", numero: f.numero, date: docISO, montant, bls: blByFacture[f.id] || [] },
