@@ -45,6 +45,10 @@ import {
   MESSAGE_ARCHIVES_INDISPONIBLES,
 } from "./archivesBibliothequeV1.js";
 import OuvrageProgbatSync from "./OuvrageProgbatSync";
+// Report automatique sur les chantiers (décision du 16/10/2026) : la cadence et
+// la répartition en % d'un ouvrage enregistré s'appliquent à tous les chantiers
+// qui l'utilisent, terminés compris.
+import { reporterOuvrageSurChantiers } from "./reportRatiosChantiers";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft, FlaskConical,
@@ -1139,13 +1143,86 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
 // `initialOuvrageId` / `onRetourChiffrage` : arrivée depuis « Modifier matériaux »
 // d'une ligne du Chiffrage. La fiche de l'ouvrage s'ouvre directement et un
 // bandeau propose de revenir sur le chiffrage d'origine.
-function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, onOuvrageConsumed = null, onRetourChiffrage = null }) {
+// Compte rendu du report d'un ouvrage sur les chantiers. Les tâches que le
+// report n'a pas pu reconnaître sont listées : laissées telles quelles, elles
+// ne doivent pas passer pour corrigées.
+function PanneauReport({ report, T, onFermer, onReessayer }) {
+  const { etat, ouvrage, chantiers, erreur } = report;
+  const modifies = chantiers.filter(c => c.modifie);
+  const aJour = chantiers.length - modifies.length;
+  const totalTaches = modifies.reduce((s, c) => s + c.tachesRealignees, 0);
+  const avecNonReconnues = chantiers.filter(c => c.nonReconnues.length > 0);
+  const couleur = etat === "erreur" ? "#e15a5a" : etat === "encours" ? T.textMuted : "#22c55e";
+  const pluriel = (n, s, p) => `${n} ${n > 1 ? p : s}`;
+
+  let titre;
+  if (etat === "encours") titre = `Report de « ${ouvrage.libelle} » sur les chantiers…`;
+  else if (etat === "erreur") titre = `« ${ouvrage.libelle} » est enregistré, mais le report sur les chantiers a échoué : ${erreur}. Les chantiers gardent leurs anciens ratios.`;
+  else if (chantiers.length === 0) titre = `« ${ouvrage.libelle} » : aucun chantier n'utilise cet ouvrage, rien à reporter.`;
+  else if (modifies.length === 0) titre = `« ${ouvrage.libelle} » : ${pluriel(chantiers.length, "chantier utilise", "chantiers utilisent")} cet ouvrage, déjà à jour.`;
+  else titre = `« ${ouvrage.libelle} » reporté sur ${pluriel(modifies.length, "chantier", "chantiers")} (${pluriel(totalTaches, "tâche réalignée", "tâches réalignées")})${aJour > 0 ? ` — ${aJour} déjà à jour` : ""}.`;
+
+  return (
+    <div style={{
+      padding: "10px 14px", borderRadius: RADIUS.md, marginBottom: 14,
+      fontSize: FONT.sm.size, background: T.surface,
+      border: `1px solid ${T.border}`, borderLeft: `3px solid ${couleur}`, color: T.text,
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <Icon as={etat === "erreur" ? AlertTriangle : etat === "encours" ? Clock : Check} size={14} style={{ color: couleur, marginTop: 2 }}/>
+        <div style={{ flex: 1, fontWeight: 600 }}>{titre}</div>
+        {etat === "erreur" && (
+          <button onClick={onReessayer} style={{
+            padding: "3px 10px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+            background: "transparent", color: T.text, cursor: "pointer", fontFamily: "inherit", fontSize: FONT.xs.size,
+          }}>Réessayer</button>
+        )}
+        {etat !== "encours" && (
+          <button onClick={onFermer} title="Fermer" style={{ border: "none", background: "transparent", color: T.textMuted, cursor: "pointer" }}>
+            <Icon as={X} size={14}/>
+          </button>
+        )}
+      </div>
+      {etat === "ok" && modifies.length > 0 && (
+        <ul style={{ margin: "8px 0 0 22px", padding: 0, color: T.textSub, lineHeight: 1.6 }}>
+          {modifies.map(c => (
+            <li key={c.chantier_id}>
+              {c.chantier_nom} — avancement {c.avancementAvant === c.avancementApres
+                ? `inchangé (${c.avancementApres} %)`
+                : `${c.avancementAvant} % → ${c.avancementApres} %`}
+            </li>
+          ))}
+        </ul>
+      )}
+      {etat === "ok" && modifies.some(c => c.avancementAvant !== c.avancementApres) && (
+        <div style={{ marginTop: 6, marginLeft: 22, color: T.textMuted, fontSize: FONT.xs.size + 1 }}>
+          Ces écarts d'avancement sont une correction, pas du travail fait : le Bilan Semaine les affiche à part, hors progression et hors marge générée.
+        </div>
+      )}
+      {etat === "ok" && avecNonReconnues.length > 0 && (
+        <div style={{ marginTop: 8, marginLeft: 22, color: "#f59e0b" }}>
+          Tâches non reconnues, laissées telles quelles (nom différent de la bibliothèque, ou en double) :
+          <ul style={{ margin: "4px 0 0 18px", padding: 0, lineHeight: 1.6 }}>
+            {avecNonReconnues.map(c => (
+              <li key={c.chantier_id}>{c.chantier_nom} : {c.nonReconnues.map(n => `${n.tache} (${n.ouvrage})`).join(", ")}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, onOuvrageConsumed = null, onRetourChiffrage = null }) {
   const acc = getBranchAccent(branch);
   const [ouvrages, setOuvrages] = useState([]);
   const [materiaux, setMateriaux] = useState([]);
   const [groupesTypes, setGroupesTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
+  // Compte rendu du dernier report sur les chantiers : reste affiché jusqu'à
+  // fermeture (un report raté ou partiel ne doit pas disparaître en 2 s).
+  const [report, setReport] = useState(null); // { etat, ouvrage, chantiers, erreur }
   const [search, setSearch] = useState("");
   const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -1664,6 +1741,20 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
     }
     setSaving(null);
     setEditId(null);
+    if (!error) {
+      lancerReport({ id: ouvrage.id, libelle: base.libelle, cadence: base.cadence, sous_taches: base.sous_taches });
+    }
+  }
+
+  async function lancerReport(ouvrageBiblio) {
+    setReport({ etat: "encours", ouvrage: ouvrageBiblio, chantiers: [], erreur: null });
+    let res;
+    try {
+      res = await reporterOuvrageSurChantiers(ouvrageBiblio);
+    } catch (e) {
+      res = { ok: false, erreur: e?.message || String(e), chantiers: [] };
+    }
+    setReport({ etat: res.ok ? "ok" : "erreur", ouvrage: ouvrageBiblio, chantiers: res.chantiers || [], erreur: res.erreur || null });
   }
 
   function flash(type, text) {
@@ -1969,6 +2060,9 @@ function PageBibliotheque({ T, branch = "renovation", initialOuvrageId = null, o
             {msg.text}
           </div>
         )}
+
+        {/* ── Report sur les chantiers ── */}
+        {report && <PanneauReport report={report} T={T} onFermer={() => setReport(null)} onReessayer={() => lancerReport(report.ouvrage)}/>}
 
         {/* ── Form nouvelle catégorie ── */}
         {showNewCat && (

@@ -9,6 +9,7 @@ import {
   margeReelleSemaine, dateImputationLigne,
 } from "../chantierFinance";
 import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierFinanceUI";
+import { correctionRatiosPeriode } from "./reportRatiosBibliotheque.js";
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
 import { Icon, InputNombre } from "../ui";
 import { profilSemaine, mondayOfWeek } from "../rythmeSemaine";
@@ -29,6 +30,11 @@ import {
   TrendingUp, TrendingDown, Target, AlertTriangle, Trash2,
   CalendarRange, Users, Play, ShieldCheck, CircleAlert,
 } from "lucide-react";
+
+// « correction des ratios −3 pts, hors progression » : le saut d'avancement dû
+// au report d'une correction de la bibliothèque, exclu de la progression.
+const texteCorrectionRatios = (pts) =>
+  `correction des ratios ${pts > 0 ? "+" : "−"}${Math.abs(pts)} pt${Math.abs(pts) > 1 ? "s" : ""}, hors progression`;
 
 // Date ISO → "lun. 28/09". Le jour de la semaine compte autant que le quantième
 // quand on lit une proposition de planning.
@@ -422,8 +428,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       // phasageToChantier pour rester cohérent).
       const actuelByCh   = {};
       const prixVenduByCh = {};
+      const planByCh     = {};
       (phasagesQ.data || []).forEach(ph => {
         const plan = ph.plan_travaux || {};
+        planByCh[ph.chantier_id] = plan;
         const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
         // Prix vendu : montant du devis (meta.prix_vendu) sinon somme des prix
         // HT des ouvrages — sans ce repli, un chantier chiffré uniquement par
@@ -465,12 +473,20 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         // (« Avancement non calculé »), jamais remplacée par l'avancement du jour.
         const snapFin    = snapshotFinByCh[cid] || null;
         const maintenant = semaineTerminee ? (snapFin ? (snapFin.avancement ?? 0) : null) : actuelByCh[cid];
-        const delta = maintenant == null ? null : maintenant - avant;
+        // Correction de ratios de la bibliothèque reportée sur le chantier
+        // pendant la période : ce n'est pas du travail fait, elle est sortie
+        // de la progression (donc du généré € et de la marge) et affichée à part.
+        const correction = correctionRatiosPeriode(planByCh[cid], {
+          apres:  snap?.date_snapshot || null,
+          jusqua: semaineTerminee ? (snapFin?.date_snapshot || dimancheIso) : null,
+        });
+        const delta = maintenant == null ? null : maintenant - avant - correction.points;
         const prixVendu = prixVenduByCh[cid] || 0;
         map[cid] = {
           avant,
           maintenant,
           delta,
+          correctionRatios: correction.points,
           deltaEuros: delta != null && prixVendu > 0 ? Math.round(prixVendu * delta / 100) : null,
           prixVendu,
           nouveau,
@@ -640,7 +656,9 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       out[cId] = margeReelleSemaine({
         ...entrees,
         prixVendu: p.prixVendu,
-        avancementDebut: p.avant,
+        // Départ recalé de la correction de ratios : la production de la
+        // semaine ne compte que le travail fait, pas le saut de recalcul.
+        avancementDebut: p.avant + (p.correctionRatios || 0),
         avancementFin: p.maintenant,
         du: p.dateAvant,
         au: p.dateFin,
@@ -960,6 +978,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             delta:      prog.delta,
             deltaEuros: prog.deltaEuros,
             dateAvant:  prog.dateAvant,
+            correctionRatios: prog.correctionRatios || 0,
           } : null,
         };
       });
@@ -1374,7 +1393,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           ? `<span style="display:inline-block;margin-left:8pt;padding-left:8pt;border-left:1pt solid ${LINE};color:${mg.color};font-weight:700;font-size:10pt;">${mg.texte}</span>${mg.cumulTexte ? `<span style="display:inline-block;margin-left:6pt;color:${GREY};font-size:8.5pt;">(${mg.cumulTexte})</span>` : ""}`
           : "";
         const nouveau = p.nouveau ? ` <span style="color:${GREY};font-style:italic;font-size:8.5pt;">· nouveau</span>` : "";
-        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${margeHtml}${nouveau}`;
+        const corrHtml = p.correctionRatios ? ` <span style="color:${GREY};font-style:italic;font-size:8.5pt;">· ${texteCorrectionRatios(p.correctionRatios)}</span>` : "";
+        progLigne = `<span style="font-size:9pt;color:${GREY};">${p.avant}% →</span> <strong style="font-size:17pt;color:${INK};letter-spacing:-.01em;">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;font-size:10pt;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${margeHtml}${nouveau}${corrHtml}`;
       }
 
       // Liste de tâches. `compact` = version discrète (utilisée pour "Réalisé",
@@ -1447,7 +1467,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           ? ` · <span style="color:${mg.color};font-weight:700;">${mg.texte}</span>`
           : "";
         const nouveau = p.nouveau ? ` <span style="color:${GREY};font-style:italic;">· nouveau</span>` : "";
-        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${margeTxt}${nouveau}`;
+        const corrTxt = p.correctionRatios ? ` <span style="color:${GREY};font-style:italic;">· ${texteCorrectionRatios(p.correctionRatios)}</span>` : "";
+        droite = `<strong style="color:${INK};">${p.maintenant}%</strong> <span style="color:${c};font-weight:700;">${sign}${p.delta} pt${Math.abs(p.delta)>1?"s":""}</span>${euros}${margeTxt}${nouveau}${corrTxt}`;
       }
       return `<tr>
         <td class="presence-row" style="padding:5pt 0;vertical-align:middle;border-bottom:1pt solid #f0f1f3;"><span style="display:inline-block;width:9pt;height:9pt;border-radius:50%;background:${dot};vertical-align:middle;margin-right:9pt;"></span><span style="font-size:10pt;font-weight:700;color:${INK};vertical-align:middle;">${esc(grp.nom)}</span></td>
@@ -2775,6 +2796,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                         {p.nouveau && (
                           <span style={{ color:T.textMuted, fontStyle:"italic" }}>· nouveau cette semaine</span>
                         )}
+                        {p.correctionRatios ? (
+                          <span title="Les ratios de la bibliothèque ont été corrigés et reportés sur ce chantier pendant la période : ce saut d'avancement n'est pas du travail fait, il est exclu de la progression, du montant généré et de la marge."
+                            style={{ color:T.textMuted, fontStyle:"italic" }}>
+                            · {texteCorrectionRatios(p.correctionRatios)}
+                          </span>
+                        ) : null}
                       </div>
                     );
                   })()}

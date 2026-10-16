@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-16",
+    type: "amelioration",
+    titre: "Bibliothèque : une correction de ratio s'applique à tous les chantiers",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Jusqu'ici, la cadence et la répartition en % d'un ouvrage étaient copiées dans le chantier au moment de l'import du devis : corriger la bibliothèque ne changeait rien aux chantiers existants, et un mauvais % faussait l'avancement pour toujours. Désormais, chaque ouvrage enregistré dans la bibliothèque est reporté automatiquement sur tous les chantiers qui l'utilisent, terminés compris.",
+    comment: "Modifiez la cadence ou les % des étapes d'un ouvrage, puis enregistrez. Sur chaque chantier concerné : chaque étape reprend le % de la bibliothèque, les heures estimées de l'ouvrage deviennent cadence × quantité et sont réparties selon ces %, et les heures vendues sont réparties de la même façon (leur total, ce qui a été vendu, ne bouge pas). L'avancement saisi, les heures pointées, les prix et les devis ne sont jamais touchés. La bibliothèque l'emporte sur un % ajusté à la main sur le chantier (l'ancienne valeur reste dans l'historique du phasage). Un compte rendu s'affiche en haut de la Bibliothèque : chantiers corrigés, avancement avant → après, et les étapes que l'appli n'a pas su reconnaître (nom différent de la bibliothèque, ou en double), laissées telles quelles. Dans le Bilan de semaine, le saut d'avancement dû à une correction est affiché à part (« correction des ratios … pts, hors progression ») : il n'entre ni dans la progression, ni dans le montant généré, ni dans la marge de la semaine.",
+  },
+  {
     date: "2026-10-15",
     type: "nouveaute",
     titre: "Plans : dossier PDF du relevé de l'existant",
