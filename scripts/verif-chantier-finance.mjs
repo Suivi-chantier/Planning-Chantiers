@@ -200,7 +200,7 @@ function comparer(chantierId, nom, ref, mod) {
   const b = mod.brut;
   const checks = [
     ["Vendu HT",            ref.prixHTChantier,            b.prixHTChantier],
-    ["Heures vendues",      ref.heuresVenduesChantier,     b.heuresVenduesChantier],
+    ["Heures prévues",      ref.heuresVenduesChantier,     b.heuresVenduesChantier],
     ["Heures réelles (tâches)", ref.heuresReellesChantier, b.heuresReellesChantier],
     ["Heures réelles TOTAL", ref.heuresReellesTotalChantier, b.heuresReellesTotalChantier],
     ["Coût MO (tâches)",    ref.coutMOChantier,            b.coutMOChantier],

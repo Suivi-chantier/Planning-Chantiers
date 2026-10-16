@@ -82,7 +82,7 @@ export function retoursTerrain({ rapports = [], phasages = [], debut, fin, chant
         depassements.push({
           ...base, motif: l.motif_depassement, motif_label: libelleMotifDepassement(l.motif_depassement),
           // Relevé figé à la saisie (jamais recalculé ici).
-          releve: d ? `${fmtH(num(d.heures_avant) + num(d.heures_jour))} sur ${fmtH(d.heures_vendues)} vendues` : null,
+          releve: d ? `${fmtH(num(d.heures_avant) + num(d.heures_jour))} sur ${fmtH(d.heures_vendues)} prévues` : null,
         });
       }
 

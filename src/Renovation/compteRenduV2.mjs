@@ -330,7 +330,7 @@ export const LIBELLES_PROBLEMES = Object.freeze({
   temps: "indique le temps passé",
   avancement: "indique l'avancement",
   motif: "choisis un motif",
-  motif_depassement: "dis pourquoi les heures vendues sont dépassées",
+  motif_depassement: "dis pourquoi les heures prévues sont dépassées",
   precision: "précise le motif « Autre » en quelques mots",
   photo: "ajoute une photo (demande du client)",
   quantite: "indique la quantité posée",

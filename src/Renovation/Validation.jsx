@@ -2169,7 +2169,7 @@ function LigneEditable({
                 fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 999,
                 background: "rgba(225,90,90,0.12)", color: "#c0392b",
               }}>
-                {d ? `${fmtH(d.heures_avant + d.heures_jour)}h sur ${fmtH(d.heures_vendues)}h vendues : ` : "Motif de dépassement : "}
+                {d ? `${fmtH(d.heures_avant + d.heures_jour)}h sur ${fmtH(d.heures_vendues)}h prévues : ` : "Motif de dépassement : "}
                 {libelleMotifDepassement(ligne.motif_depassement)}
               </span>
             );
@@ -2428,10 +2428,10 @@ function BlocProposition({ ligne, T, valide, ouvragesPlan, ouvrier, dejaCreee, s
           </div>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text, alignSelf: "end", paddingBottom: 4 }}>
             <input type="checkbox" checked={c.hors_devis === true} onChange={e => setCreation({ hors_devis: e.target.checked })}/>
-            Hors devis : ne consomme pas les heures vendues de l'ouvrage
+            Hors devis : ne consomme pas les heures prévues de l'ouvrage
           </label>
           <div style={{ gridColumn: "1 / -1", fontSize: 11, color: T.textSub }}>
-            Sera créée à la validation du rapport (sans heures vendues), au nom de {ouvrier || "l'ouvrier"}.
+            Sera créée à la validation du rapport (sans heures prévues), au nom de {ouvrier || "l'ouvrier"}.
           </div>
         </div>
       )}
@@ -2519,7 +2519,7 @@ function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], T, acc, 
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text }}>
                 <input type="checkbox" checked={state.hors_devis === true} onChange={e => setState({ ...state, hors_devis: e.target.checked })}/>
-                Hors devis : ne consomme pas les heures vendues de l'ouvrage
+                Hors devis : ne consomme pas les heures prévues de l'ouvrage
               </label>
             </>
           ) : (
@@ -2536,11 +2536,11 @@ function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], T, acc, 
               </select>
             </div>
           )}
-          {/* V1 seulement : en V2 une tâche créée ici n'a pas d'heures vendues
+          {/* V1 seulement : en V2 une tâche créée ici n'a pas d'heures prévues
               (le champ était affiché mais ignoré). */}
           {!state.useOuvrages && (
             <div>
-              <label style={miniLabel(T)}>Heures vendues (optionnel)</label>
+              <label style={miniLabel(T)}>Heures prévues (optionnel)</label>
               <input
                 type="number" step="0.5" min="0"
                 value={state.heures_vendues || ""}

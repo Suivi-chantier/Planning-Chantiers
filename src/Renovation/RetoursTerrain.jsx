@@ -132,7 +132,7 @@ export default function RetoursTerrain({ T, branch = "renovation" }) {
           <h1 style={{ fontSize: FONT.lg.size + 2, fontWeight: 800, color: T.text, margin: 0 }}>Retours du terrain</h1>
         </div>
         <div style={{ fontSize: FONT.sm.size, color: T.textSub, marginBottom: 14 }}>
-          Ce que les ouvriers disent dans leurs comptes rendus : dépassements des heures vendues, tâches pas commencées ou bloquées, nouvelles tâches proposées.
+          Ce que les ouvriers disent dans leurs comptes rendus : dépassements des heures prévues, tâches pas commencées ou bloquées, nouvelles tâches proposées.
         </div>
 
         {/* Semaine + chantier */}
@@ -180,7 +180,7 @@ export default function RetoursTerrain({ T, branch = "renovation" }) {
 
             {nbRapports > 0 && (
               <>
-                <Section T={T} id="rt-depassements" icone={Clock} titre="Dépassements des heures vendues" couleur={rouge} nb={res.depassements.length}
+                <Section T={T} id="rt-depassements" icone={Clock} titre="Dépassements des heures prévues" couleur={rouge} nb={res.depassements.length}
                   vide="Aucun dépassement signalé cette semaine.">
                   <Cumuls liste={res.depassementsParMotif} couleur={rouge} fond="rgba(192,57,43,.10)"/>
                   {res.depassementsParOuvrage.some(o => o.nb > 1) && (

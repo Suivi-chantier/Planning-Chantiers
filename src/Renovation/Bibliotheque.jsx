@@ -48,7 +48,7 @@ import OuvrageProgbatSync from "./OuvrageProgbatSync";
 // Report automatique sur les chantiers (décision du 16/10/2026) : la cadence et
 // la répartition en % d'un ouvrage enregistré s'appliquent à tous les chantiers
 // qui l'utilisent, terminés compris.
-import { reporterOuvrageSurChantiers } from "./reportRatiosChantiers";
+import { reporterOuvrageSurChantiers, appliquerBibliothequeATousLesChantiers } from "./reportRatiosChantiers";
 import {
   Library, Plus, Search, X, Trash2, Check, Clock, ChevronDown, ChevronUp,
   AlertTriangle, FolderPlus, FolderOpen, Hammer, Box, Package, Copy, Euro, ArrowLeft, FlaskConical,
@@ -528,14 +528,14 @@ function EncartEchantillon({ entree, pret, T }) {
         <div style={{ fontSize: FONT.xs.size + 1, color: T.text, fontWeight: 600 }}>
           {ecart}
           <span style={{ color: T.textMuted, fontWeight: 500 }}>
-            {" "}— {entree.heuresVendues} h vendues, {entree.heuresReelles} h pointées sur les ouvrages terminés.
+            {" "}— {entree.heuresVendues} h prévues, {entree.heuresReelles} h pointées sur les ouvrages terminés.
           </span>
         </div>
       ) : (
         <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>
           {entree
             ? "Écart réel/vendu non affiché : l'échantillon est trop petit pour qu'il veuille dire quelque chose."
-            : "Aucun ouvrage de phasage entièrement terminé ne référence cet ouvrage de bibliothèque avec des heures vendues et des heures pointées."}
+            : "Aucun ouvrage de phasage entièrement terminé ne référence cet ouvrage de bibliothèque avec des heures prévues et des heures pointées."}
         </div>
       )}
       <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 6, fontStyle: "italic" }}>
@@ -1746,6 +1746,21 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
     }
   }
 
+  async function lancerToutAppliquer() {
+    if (!window.confirm("Appliquer la bibliothèque à tous les chantiers ?
+
+Pour chaque ouvrage utilisé : % des étapes, heures estimées et heures prévues = cadence × quantité. Les heures du devis restent visibles pour information. L'avancement saisi, les heures pointées et les prix ne changent pas.")) return;
+    const global = { libelle: "Toute la bibliothèque" };
+    setReport({ etat: "encours", ouvrage: global, global: true, chantiers: [], erreur: null });
+    let res;
+    try {
+      res = await appliquerBibliothequeATousLesChantiers(ouvrages);
+    } catch (e) {
+      res = { ok: false, erreur: e?.message || String(e), chantiers: [] };
+    }
+    setReport({ etat: res.ok ? "ok" : "erreur", ouvrage: global, global: true, chantiers: res.chantiers || [], erreur: res.erreur || null });
+  }
+
   async function lancerReport(ouvrageBiblio) {
     setReport({ etat: "encours", ouvrage: ouvrageBiblio, chantiers: [], erreur: null });
     let res;
@@ -1866,6 +1881,18 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
             </div>
           </div>
           <div className="biblio-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={lancerToutAppliquer} disabled={report?.etat === "encours"}
+              title="Reporte la cadence et les % de TOUS les ouvrages sur tous les chantiers qui les utilisent (heures prévues = cadence × quantité). Même résultat que d'enregistrer chaque ouvrage."
+              style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: T.surface, color: T.textSub, border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.md, padding: "9px 14px",
+              fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700,
+              cursor: report?.etat === "encours" ? "default" : "pointer", opacity: report?.etat === "encours" ? 0.6 : 1,
+            }}>
+              <Icon as={Hammer} size={13}/>
+              Appliquer à tous les chantiers
+            </button>
             <button onClick={() => setShowNew(true)} style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               background: acc.accent, color: acc.onAccent, border: "none",
@@ -2062,7 +2089,7 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
         )}
 
         {/* ── Report sur les chantiers ── */}
-        {report && <PanneauReport report={report} T={T} onFermer={() => setReport(null)} onReessayer={() => lancerReport(report.ouvrage)}/>}
+        {report && <PanneauReport report={report} T={T} onFermer={() => setReport(null)} onReessayer={() => report.global ? lancerToutAppliquer() : lancerReport(report.ouvrage)}/>}
 
         {/* ── Form nouvelle catégorie ── */}
         {showNewCat && (

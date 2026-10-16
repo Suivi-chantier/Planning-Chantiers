@@ -148,7 +148,7 @@ rollback;
 -- ---------------------------------------------------------------------
 -- 5) Données réelles — mêmes chiffres que la fiche chantier
 -- Recalcule INDÉPENDAMMENT, depuis les tables, les heures validées
--- (registre « tâche », repli sur l'ancien suivi), les heures vendues
+-- (registre « tâche », repli sur l'ancien suivi), les heures prévues
 -- (heures_devis des ouvrages) et les heures du prénom, puis les compare
 -- au payload. Attendu : les trois colonnes ecart_* valent 0.
 -- Relevé du 05/10/2026 (transaction annulée) sur TOM & CAMILLE R+2,

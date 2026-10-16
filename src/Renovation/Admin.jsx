@@ -222,9 +222,9 @@ function OngletMailEncours({ T, acc }) {
 // (planning_config/fonctionnalites_beta, { code: [prénoms-planning] }).
 const BETAS_OUVRIER = [
   { code: "mes_phases", label: "Bêta : Mes phases", quoi: "l'onglet bêta « Phases »",
-    aide: "Onglet « Phases » de l'espace ouvrier : phasage du chantier, heures vendues, validées et en attente, sans aucun montant. Lecture seule." },
+    aide: "Onglet « Phases » de l'espace ouvrier : phasage du chantier, heures prévues, validées et en attente, sans aucun montant. Lecture seule." },
   { code: "cr_v2", label: "Bêta : Nouveau compte rendu", quoi: "le nouveau compte rendu (bêta)",
-    aide: "Nouveau formulaire de compte rendu du soir : temps au quart d'heure, statuts Terminé / En cours / Pas commencé / Bloqué, motifs en un tap, dépassement des heures vendues. Les rapports restent lus et validés comme les autres." },
+    aide: "Nouveau formulaire de compte rendu du soir : temps au quart d'heure, statuts Terminé / En cours / Pas commencé / Bloqué, motifs en un tap, dépassement des heures prévues. Les rapports restent lus et validés comme les autres." },
 ];
 
 function OngletUtilisateurs({ T, acc }) {
@@ -5254,12 +5254,12 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               chaque fiche ouvrage, prix matériaux = coût matériaux × coefficient. */}
           <CoefficientsVenteAdmin T={T} acc={acc} profil={profil}/>
 
-          {/* Taux MO prévisionnel global — base du coût MO PRÉVU (heures vendues ×
+          {/* Taux MO prévisionnel global — base du coût MO PRÉVU (heures prévues ×
               ce taux) dans le phasage v2 et la page Chantiers. Distinct des taux
               par ouvrier ci-dessous, qui servent au coût MO RÉEL (pointages). */}
           <div style={{fontWeight:700,fontSize:16,marginBottom:4}}>Taux MO prévisionnel</div>
           <div style={{color:T.textSub,fontSize:13,marginBottom:12}}>
-            Taux horaire moyen utilisé pour estimer le <strong>coût MO prévisionnel</strong> (heures vendues × ce taux) dans le phasage et les fiches chantier. Défaut : {TAUX_MO_PREV_DEFAUT} €/h.
+            Taux horaire moyen utilisé pour estimer le <strong>coût MO prévisionnel</strong> (heures prévues × ce taux) dans le phasage et les fiches chantier. Défaut : {TAUX_MO_PREV_DEFAUT} €/h.
             <br/>C'est aussi le <strong>coût horaire chargé de référence</strong> de la Bibliothèque et du Chiffrage : coût main-d'œuvre d'un ouvrage = cadence (h/unité) × ce taux, d'où la <strong>marge</strong>. Le prix de vente, lui, vient des taux horaires de vente ci-dessus ; s'il n'est pas réglé, les prix restent calculés mais la marge ne l'est pas.
           </div>
           <div className="ar" style={{gap:12,marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>

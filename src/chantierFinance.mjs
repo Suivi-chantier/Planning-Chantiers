@@ -429,20 +429,20 @@ export const METHODE_CALCUL = [
   { cle: "ecartVendu", label: "Écart de vendu",
     formule: "Somme des prix HT des ouvrages − montant du devis renseigné",
     source: "Ouvrages du phasage vs montant de devis saisi" },
-  { cle: "heuresVendues", label: "Heures vendues",
-    formule: "Somme des heures vendues au devis (heures_devis) des ouvrages",
+  { cle: "heuresVendues", label: "Heures prévues",
+    formule: "Somme des heures prévues des ouvrages : cadence × quantité de la bibliothèque, réparties entre les tâches selon les % ; à défaut de cadence, heures du devis (signalé « prévu = devis »)",
     source: "Ouvrages du phasage (Phasage V2)" },
   { cle: "heuresReelles", label: "Heures totales",
-    formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité. Le % consommé compare aux heures vendues ces heures MOINS celles des tâches hors devis (travail non vendu), affichées à part ; le coût, lui, les compte toutes",
+    formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité. Le % consommé compare aux heures prévues ces heures MOINS celles des tâches hors devis (travail non vendu), affichées à part ; le coût, lui, les compte toutes",
     source: "Registre de pointage (validations de fin de journée)" },
   { cle: "moPrev", label: "MO prév.",
-    formule: "Heures vendues × taux de main d'œuvre prévisionnel (réglage Admin)",
+    formule: "Heures prévues × taux de main d'œuvre prévisionnel (réglage Admin)",
     source: "Ouvrages du phasage × taux Admin" },
   { cle: "matPrev", label: "Commandes prév.",
     formule: "Somme des coûts matériaux estimés des ouvrages (matériaux liés de la bibliothèque)",
     source: "Bibliothèque de matériaux (cout_materiaux des ouvrages)" },
   { cle: "margePrev", label: "Marge prév.",
-    formule: "Vendu HT − déboursé prévisionnel (MO prévisionnelle + commandes prévisionnelles) − frais généraux prévisionnels (taux horaire FG × heures vendues)",
+    formule: "Vendu HT − déboursé prévisionnel (MO prévisionnelle + commandes prévisionnelles) − frais généraux prévisionnels (taux horaire FG × heures prévues)",
     source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, Suivi direction" },
   { cle: "moReel", label: "Coût MO",
     formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
@@ -472,7 +472,7 @@ export const METHODE_CALCUL = [
     formule: "Heures consommées avant l'application × taux moyen saisi (Suivi direction)",
     source: "Suivi direction (reprise_heures × reprise_taux)" },
   { cle: "ratioDerive", label: "Dérive d'un lot",
-    formule: "(heures réelles ÷ heures vendues) ÷ (avancement ÷ 100) — à 1,00 le lot est dans le devis, au-delà de 1,15 il dérive ; indéterminé si les heures vendues ou l'avancement sont à zéro. Les tâches hors devis n'entrent ni dans les heures réelles comparées ni dans l'avancement",
+    formule: "(heures réelles ÷ heures prévues) ÷ (avancement ÷ 100) — à 1,00 le lot est dans le devis, au-delà de 1,15 il dérive ; indéterminé si les heures prévues ou l'avancement sont à zéro. Les tâches hors devis n'entrent ni dans les heures réelles comparées ni dans l'avancement",
     source: "Ouvrages du lot + registre de pointage" },
   // ── Projections (étape 6) : où on va, pas seulement où on en est ──
   { cle: "resteAFaire", label: "Reste à faire", projection: true,
@@ -727,7 +727,7 @@ export function computeChantierFinance({
     if (l.ratioDerive != null && l.ratioDerive > SEUIL_RATIO_DERIVE) {
       warnings.push({
         code: "derive_lot", gravite: "alerte", lotId: l.id,
-        message: `Lot ${l.label} : dérive d'heures ×${l.ratioDerive.toFixed(2)} (réalisé ${fmtH(l.heuresReelles)}h / ${fmtH(l.heuresVendues)}h vendues pour ${l.avancement} % d'avancement${l.heuresHorsDevis > 0 ? ` ; + ${fmtH(l.heuresHorsDevis)}h hors devis non comptées` : ""}).`,
+        message: `Lot ${l.label} : dérive d'heures ×${l.ratioDerive.toFixed(2)} (réalisé ${fmtH(l.heuresReelles)}h / ${fmtH(l.heuresVendues)}h prévues pour ${l.avancement} % d'avancement${l.heuresHorsDevis > 0 ? ` ; + ${fmtH(l.heuresHorsDevis)}h hors devis non comptées` : ""}).`,
       });
     }
   });
@@ -828,7 +828,7 @@ export function computeChantierFinance({
   const margePrevVentilation = [
     { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
     { main: "Déboursé prévisionnel", sub: `MO prév. ${eur(moPrevChantier)} + matériaux prév. ${eur(commandesPrevChantier)}`, right: `− ${eur(deboursePrevChantier)}`, rightColor: "#e15a5a" },
-    { main: "Frais généraux prévisionnels", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${fmtH(heuresVenduesChantier)}h vendues` : "non réglés", right: `− ${eur(fgPrevChantier)}`, rightColor: "#e15a5a" },
+    { main: "Frais généraux prévisionnels", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${fmtH(heuresVenduesChantier)}h prévues` : "non réglés", right: `− ${eur(fgPrevChantier)}`, rightColor: "#e15a5a" },
   ];
 
   // « mo_prev » : par ouvrage, heures vendues × taux global.
@@ -928,10 +928,10 @@ export function computeChantierFinance({
   });
 
   const heuresVendues = D({
-    cle: "heuresVendues", label: "Heures vendues", format: "heure",
+    cle: "heuresVendues", label: "Heures prévues", format: "heure",
     valeur: heuresVenduesChantier, valeurTexte: `${fmtH(heuresVenduesChantier)}h`,
     formule: FORMULE.heuresVendues,
-    calculDetaille: `${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""} → ${fmtH(heuresVenduesChantier)}h vendues`,
+    calculDetaille: `${ouvrages.length} ouvrage${ouvrages.length > 1 ? "s" : ""} → ${fmtH(heuresVenduesChantier)}h prévues`,
     source: sourceOuvrages,
     renseigne: heuresVenduesChantier > 0 || ouvrages.length > 0,
   });
@@ -942,16 +942,16 @@ export function computeChantierFinance({
     valeurTexte: `${heuresReellesTotalChantier.toFixed(0)}h / ${heuresVenduesChantier.toFixed(0)}h`,
     sousLabel: (heuresVenduesChantier > 0
       ? `${Math.round((heuresComparablesChantier / heuresVenduesChantier) * 100)}% consommées`
-      : "réelles / vendues")
+      : "réelles / prévues")
       + (heuresHorsDevisChantier > 0 ? ` · dont ${fmtH(heuresHorsDevisChantier)}h hors devis` : ""),
     formule: FORMULE.heuresReelles,
     calculDetaille: `${fmtH(heuresReellesChantier)}h (tâches) + ${fmtH(extras.heuresLibre)}h (libres) + ${fmtH(extras.heuresIndirect)}h (trajets + indirect)${repriseHeures > 0 ? ` + ${fmtH(repriseHeures)}h (reprise)` : ""} = ${fmtH(heuresReellesTotalChantier)}h`
-      + (heuresHorsDevisChantier > 0 ? `, dont ${fmtH(heuresHorsDevisChantier)}h hors devis (non comparées aux heures vendues : ${fmtH(heuresComparablesChantier)}h comparées)` : ""),
+      + (heuresHorsDevisChantier > 0 ? `, dont ${fmtH(heuresHorsDevisChantier)}h hors devis (non comparées aux heures prévues : ${fmtH(heuresComparablesChantier)}h comparées)` : ""),
     ventilation: heuresVentilation,
-    titre: "Heures réelles / vendues",
-    sousTitre: `${heuresReellesTotalChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h vendues`,
-    vide: "Aucune heure vendue ni pointée.",
-    totalLabel: "Total réelles / vendues",
+    titre: "Heures réelles / prévues",
+    sousTitre: `${heuresReellesTotalChantier.toFixed(1)}h pointées sur ${heuresVenduesChantier.toFixed(0)}h prévues`,
+    vide: "Aucune heure prévue ni pointée.",
+    totalLabel: "Total réelles / prévues",
     totalTexte: `${fmtH(heuresReellesTotalChantier)}h / ${fmtH(heuresVenduesChantier)}h`,
     source: sourceRegistre,
     renseigne: true,
@@ -960,13 +960,13 @@ export function computeChantierFinance({
   const moPrev = D({
     cle: "moPrev", label: "MO prév.", format: "euro",
     valeur: moPrevChantier, valeurTexte: eur(moPrevChantier),
-    sousLabel: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`,
+    sousLabel: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h prévues`,
     formule: FORMULE.moPrev,
     calculDetaille: `${fmtH(heuresVenduesChantier)}h × ${tauxMOPrevEff} €/h = ${eur(moPrevChantier)}`,
     ventilation: moPrevVentilation,
     titre: "Coût MO prévisionnel",
-    sousTitre: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h vendues`,
-    vide: "Aucune heure vendue sur les ouvrages.",
+    sousTitre: `${tauxMOPrevEff}€/h × ${heuresVenduesChantier.toFixed(0)}h prévues`,
+    vide: "Aucune heure prévue sur les ouvrages.",
     totalLabel: "Total MO prévisionnel",
     source: "Ouvrages du phasage × taux Admin" + (tauxMOPrev > 0 ? "" : ` (défaut ${TAUX_MO_PREV_DEFAUT} €/h)`),
     renseigne: heuresVenduesChantier > 0,

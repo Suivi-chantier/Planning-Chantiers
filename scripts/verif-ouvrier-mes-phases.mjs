@@ -307,7 +307,7 @@ eq(bureauMarc.phases.flatMap(p => p.ouvrages.flatMap(o => o.taches)).filter(t =>
 const o2g1 = paul.phases[0].ouvrages.find(o => o.id === "o2");
 const o1 = paul.phases[0].ouvrages.find(o => o.id === "o1");
 eq([o1.ouvrage_complet, o2g1.ouvrage_complet], [true, false], "ouvrage complet / réparti sur plusieurs phases");
-eq(+o1.heures_vendues_ouvrage, 40, "heures vendues de l'ouvrage = heures_devis (fiche chantier)");
+eq(+o1.heures_vendues_ouvrage, 40, "heures prévues de l'ouvrage = heures_devis (fiche chantier)");
 
 // Modèles
 const modele = async (ch) => (await appel("paul@test.fr", RPC(`'${ch}'`))).val.modele;
@@ -333,7 +333,7 @@ eq(r.phases[1].suivante, null, "dernière phase réelle : pas de suite (« À or
 const g1 = r.phases[0];
 eq([g1.vendues, g1.validees, g1.attente], [48, 31, 7], "phase 1 : 40 (ouvrage complet, heures_devis) + 8 (part de l'ouvrage réparti)");
 eq(g1.avancement, statsGroupeChrono("g1", OUVRAGES).avancement, "avancement de phase = statsGroupeChrono");
-eq(g1.avancement, 59, "avancement de phase pondéré heures vendues (2600 / 44)");
+eq(g1.avancement, 59, "avancement de phase pondéré heures prévues (2600 / 44)");
 eq([g1.dateMin, g1.dateMax], ["2026-10-01", "2026-10-08"], "dates min – max de la phase");
 eq(g1.statut, "en_cours", "statut de phase");
 const ag1 = g1.ouvrages.find(o => o.id === "o1");
@@ -349,7 +349,7 @@ eq(e("t3").code, "sans_avancement", "t3 : heures posées, avancement 0 → déri
 eq([e("t4").code, e("t4").label], ["depasse", "Dépassé +1 h"], "t4 : 6 validées + 3 en attente > 8 vendues");
 eq(e("t5").code, "a_venir", "t5 : 0 h et 0 %");
 eq(e("t6").code, "hors_devis", "t6 : hors devis, sans jauge");
-eq([e("t7").code, e("t7").label, e("t7").jauge], ["sans_jauge", "Heures vendues sur l'ouvrage", false], "t7 : pas de répartition inventée");
+eq([e("t7").code, e("t7").label, e("t7").jauge], ["sans_jauge", "Heures prévues sur l'ouvrage", false], "t7 : pas de répartition inventée");
 eq(e("t8").code, "derive", "t8 : ratio 2,00 → dérive");
 const t2 = r.phases[0].ouvrages[0].taches.find(t => t.id === "t2");
 eq([t2.reste, t2.miennes, t2.consommees], [3, 8, 13], "t2 : reste 3 h, dont toi 8 h");
@@ -360,7 +360,7 @@ eq(SEUIL_RATIO_DERIVE, 1.15, "seuil de dérive de chantierFinance");
 eq(etatHeures({ vendues: 10, validees: 5, attente: 0, avancement: 50 }).code, "dans_le_temps", "ratio 1 → dans le temps");
 eq(etatHeures({ vendues: 100, validees: 57.5, attente: 0, avancement: 50 }).code, "a_surveiller", "ratio 1,15 → à surveiller");
 eq(etatHeures({ vendues: 100, validees: 58, attente: 0, avancement: 50 }).code, "derive", "ratio 1,16 → dérive");
-eq(ratioDerive(5, 0, 50), null, "ratio indéterminé sans heures vendues");
+eq(ratioDerive(5, 0, 50), null, "ratio indéterminé sans heures prévues");
 eq(statutDesTaches([]), "vide", "liste vide : « Aucune tâche », pas « À venir »");
 
 // États

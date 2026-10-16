@@ -101,7 +101,7 @@ export const AIDE_CONTENU = {
   "retours-terrain": {
     titre: "Retours du terrain",
     sousTitre: "Ce que les ouvriers disent dans leurs comptes rendus.",
-    intro: "Tout ce que les ouvriers expliquent dans le nouveau compte rendu, regroupé par semaine : pourquoi une tâche dépasse ses heures vendues, pourquoi elle n'a pas commencé ou est bloquée, et les tâches qu'ils ont proposées.",
+    intro: "Tout ce que les ouvriers expliquent dans le nouveau compte rendu, regroupé par semaine : pourquoi une tâche dépasse ses heures prévues, pourquoi elle n'a pas commencé ou est bloquée, et les tâches qu'ils ont proposées.",
     etapes: [
       "Choisissez la semaine avec les flèches, et un chantier si besoin.",
       "En haut de chaque bloc, les motifs les plus fréquents (« Devis sous-estimé × 3 »…).",
@@ -109,7 +109,7 @@ export const AIDE_CONTENU = {
     ],
     savoir: [
       "Lecture seule : rien n'est modifié depuis cette page.",
-      "Le relevé « X h sur Y h vendues » est celui noté au moment de la saisie de l'ouvrier.",
+      "Le relevé « X h sur Y h prévues » est celui noté au moment de la saisie de l'ouvrier.",
       "Une nouvelle tâche indique ce qu'elle est devenue : créée, rattachée à une tâche existante, ou en attente de validation.",
     ],
   },
@@ -228,10 +228,10 @@ export const AIDE_CONTENU = {
     savoir: [
       "Tant qu'un rapport n'est pas validé, ses heures ne comptent pas dans le coût du chantier.",
       "Vous pouvez ajouter des heures indirectes (trajets, imprévus) depuis le formulaire.",
-      "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h vendues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
+      "Un rapport marqué « Formulaire bêta » vient du nouveau compte rendu : le statut « Bloqué » et les motifs choisis par l'ouvrier s'affichent à la place de la remarque. Le relevé « X h sur Y h prévues » disparaît si vous réaffectez, découpez ou corrigez la ligne ; le motif de l'ouvrier reste.",
       "Une ligne marquée « Ajoutée par l'ouvrier » est une tâche non prévue au planning, choisie par l'ouvrier dans le phasage (« J'ai fait autre chose ») : elle est déjà rattachée à sa tâche et se valide comme les autres.",
       "Un bloc « Suivi en quantité » apparaît sur une tâche mesurée en m², ml, m³ ou unités : quantité posée déclarée, quantité validée (préremplie, jamais négative), cumul avant → après et avancement qui en résulte. Cochez « Tâche terminée » pour la passer à 100 % même si le total reste sous la quantité prévue (l'écart reste affiché). Un pourcentage de l'ancien formulaire y est converti en quantité. Les photos « après » sont marquées ; « Photo « après » manquante » signale un Terminé envoyé sans photo (la photo est recommandée à l'ouvrier, jamais exigée ; « hors connexion » si son téléphone était hors ligne).",
-      "Un bloc « Nouvelle tâche proposée » signale un travail absent du phasage, proposé par l'ouvrier dans un ouvrage avec sa nature. Par défaut la tâche est créée à la validation du rapport (sans heures vendues, « Hors devis » prérempli selon la nature) ; vous pouvez changer l'ouvrage, la nature, la case, la rattacher à une tâche existante ou la laisser en tâche libre. Revalider le même rapport ne la recrée pas.",
+      "Un bloc « Nouvelle tâche proposée » signale un travail absent du phasage, proposé par l'ouvrier dans un ouvrage avec sa nature. Par défaut la tâche est créée à la validation du rapport (sans heures prévues, « Hors devis » prérempli selon la nature) ; vous pouvez changer l'ouvrage, la nature, la case, la rattacher à une tâche existante ou la laisser en tâche libre. Revalider le même rapport ne la recrée pas.",
     ],
   },
   "heures-salaries": {
@@ -279,7 +279,7 @@ export const AIDE_CONTENU = {
     savoir: [
       "Vous pouvez importer un devis Excel pour pré-remplir ouvrages et tâches.",
       "Les matériaux définis ici alimentent la page Commandes.",
-      "Dans « Modifier la tâche », choisissez sa nature (demande du client, imprévu, oubli du phasage, reprise) et cochez « Hors devis » pour un travail non vendu : ses heures comptent dans le coût mais ne sont plus comparées aux heures vendues de l'ouvrage (ni dérive, ni dépassement, ni avancement). Elles s'affichent à part : « + X h hors devis ».",
+      "Dans « Modifier la tâche », choisissez sa nature (demande du client, imprévu, oubli du phasage, reprise) et cochez « Hors devis » pour un travail non vendu : ses heures comptent dans le coût mais ne sont plus comparées aux heures prévues de l'ouvrage (ni dérive, ni dépassement, ni avancement). Elles s'affichent à part : « + X h hors devis ».",
       "Suivi en quantité : une tâche dont l'ouvrage est en m², ml, m³ ou U (quantité supérieure à 1) se suit en quantité posée dans le nouveau compte rendu. « Suivi en % » le désactive pour une tâche ; « Quantité de la tâche » remplace celle de l'ouvrage. Dès la première quantité validée, l'avancement se calcule (total posé / quantité prévue) ; corrigez-le avec « Déjà posé hors comptes rendus » ou « Tâche terminée ».",
     ],
   },
@@ -296,7 +296,8 @@ export const AIDE_CONTENU = {
     savoir: [
       "Les cadences pré-remplissent les heures à l'import d'un devis.",
       "Les pourcentages des sous-tâches doivent totaliser 100 %.",
-      "À l'enregistrement, la cadence et les pourcentages sont reportés sur tous les chantiers qui utilisent l'ouvrage, terminés compris : les heures estimées et l'avancement sont recalculés. Les heures et prix vendus, l'avancement saisi et les devis ne changent pas.",
+      "À l'enregistrement, la cadence et les pourcentages sont reportés sur tous les chantiers qui utilisent l'ouvrage, terminés compris : heures prévues (cadence × quantité, réparties selon les %), heures estimées et avancement sont recalculés, donc aussi la MO et la marge prévisionnelles. L'avancement saisi, les heures pointées, les prix et les devis ne changent pas ; les heures du devis restent affichées pour information.",
+      "« Appliquer à tous les chantiers » fait la même chose pour toute la bibliothèque d'un coup.",
       "Un compte rendu s'affiche en haut de la page : chantiers corrigés, avancement avant → après, et les tâches non reconnues (laissées telles quelles).",
     ],
   },

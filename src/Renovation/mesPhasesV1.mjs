@@ -107,8 +107,8 @@ export function etatHeures({ vendues, validees, attente, avancement, horsDevis =
   if (hv <= 0) {
     if (conso <= 0 && av <= 0) return { code: "a_venir", label: "À venir", ton: "gris", jauge: false };
     return venduesAilleurs
-      ? { code: "sans_jauge", label: "Heures vendues sur l'ouvrage", ton: "gris", jauge: false }
-      : { code: "sans_jauge", label: "Pas d'heures vendues", ton: "gris", jauge: false };
+      ? { code: "sans_jauge", label: "Heures prévues sur l'ouvrage", ton: "gris", jauge: false }
+      : { code: "sans_jauge", label: "Pas d'heures prévues", ton: "gris", jauge: false };
   }
   if (conso > hv + 1e-9) {
     return { code: "depasse", label: `Dépassé +${fmtH(arrondi(conso - hv))} h`, ton: "rouge", jauge: true, depassement: arrondi(conso - hv) };

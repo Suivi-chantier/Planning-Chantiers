@@ -99,7 +99,7 @@ function DoubleBarre({ avancement, validees, attente, vendues, etat, T }) {
         <div style={{ width: `${Math.max(0, Math.min(100, avancement))}%`, background: SOMBRE, borderRadius: 4 }}/>
       </div>
       {etat.jauge !== false && vendues > 0 && (
-        <div style={piste} aria-label={`Heures utilisées : ${h(validees + attente)} sur ${h(vendues)} vendues`}>
+        <div style={piste} aria-label={`Heures utilisées : ${h(validees + attente)} sur ${h(vendues)} prévues`}>
           <div style={{ width: `${pctVal}%`, background: ton.barre }}/>
           <div style={{ width: `${pctAtt}%`, background: ton.barre, opacity: 0.45 }}/>
         </div>
@@ -121,7 +121,7 @@ function HeuresVendues({ consommees, vendues, T, taille = 14 }) {
   return (
     <span style={{ fontSize: taille, color: T.textSub }}>
       <strong style={{ color: T.text, fontWeight: 800, fontSize: taille + 1 }}>{h(consommees)}</strong>
-      {vendues > 0 ? ` / ${h(vendues)} vendues` : " passées"}
+      {vendues > 0 ? ` / ${h(vendues)} prévues` : " passées"}
     </span>
   );
 }
@@ -162,7 +162,7 @@ function LigneTache({ t, prenom, T, action = null }) {
         </div>
       )}
       {t.venduesAilleurs && (
-        <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>Heures vendues comptées sur l'ouvrage, pas sur la tâche.</div>
+        <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>Heures prévues comptées sur l'ouvrage, pas sur la tâche.</div>
       )}
       {t.heures_validees_source === "ancien_suivi" && (
         <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>Heures de l'ancien suivi (avant le registre de pointage).</div>
@@ -196,7 +196,7 @@ function BandeauOuvrage({ o, T }) {
         <div style={{ fontSize: 12, color: T.textSub, marginTop: 3 }}>{h(o.validees)} validées + {h(o.attente)} en attente</div>
       )}
       {o.heuresHorsDevis > 0 && (
-        <div style={{ fontSize: 12, color: "#1d4ed8", fontWeight: 700, marginTop: 3 }}>+ {h(o.heuresHorsDevis)} hors devis (non comptées dans les heures vendues)</div>
+        <div style={{ fontSize: 12, color: "#1d4ed8", fontWeight: 700, marginTop: 3 }}>+ {h(o.heuresHorsDevis)} hors devis (non comptées dans les heures prévues)</div>
       )}
     </div>
   );
@@ -244,7 +244,7 @@ export function CartePhase({ p, ouverte, enAvant, onToggle, prenom, T, accent, a
               <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 6 }}>{h(p.validees)} validées + {h(p.attente)} en attente de validation</div>
             )}
             {p.heuresHorsDevis > 0 && (
-              <div style={{ fontSize: 12.5, color: "#1d4ed8", fontWeight: 700, marginTop: 6 }}>+ {h(p.heuresHorsDevis)} hors devis (non comptées dans les heures vendues)</div>
+              <div style={{ fontSize: 12.5, color: "#1d4ed8", fontWeight: 700, marginTop: 6 }}>+ {h(p.heuresHorsDevis)} hors devis (non comptées dans les heures prévues)</div>
             )}
           </>
         )}
@@ -440,7 +440,7 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
             <span style={{ width: 22, height: 6, borderRadius: 3, background: SOMBRE, flexShrink: 0 }}/> Travail fait
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.textSub, marginTop: 5 }}>
-            <span style={{ width: 22, height: 6, borderRadius: 3, background: TONS.vert.barre, flexShrink: 0 }}/> Heures utilisées (sur les heures vendues)
+            <span style={{ width: 22, height: 6, borderRadius: 3, background: TONS.vert.barre, flexShrink: 0 }}/> Heures utilisées (sur les heures prévues)
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.textSub, marginTop: 5 }}>
             <span style={{ width: 22, height: 6, borderRadius: 3, background: TONS.vert.barre, opacity: 0.45, flexShrink: 0 }}/> Heures en attente de validation

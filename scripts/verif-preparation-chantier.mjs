@@ -169,7 +169,7 @@ test("12. aucune clé ni libellé financier dans ce qui part au rendu", () => {
   const code = source.split("\n")
     .filter(l => !l.trim().startsWith("//") && !l.includes("MOTIF_FINANCIER ="))
     .join("\n").toLowerCase();
-  for (const mot of ["€", "prix", "coût", "cout", "marge", "tarif", "heures vendues", "montant"]) {
+  for (const mot of ["€", "prix", "coût", "cout", "marge", "tarif", "heures prévues", "montant"]) {
     assert.ok(!code.includes(mot.toLowerCase()),
       `le mot « ${mot} » ne doit pas apparaître dans le code du module`);
   }

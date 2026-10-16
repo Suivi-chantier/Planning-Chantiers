@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-16",
     type: "amelioration",
+    titre: "Heures prévues : la bibliothèque remplace les heures vendues du devis",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "phasage-v2", label: "Phasage" }],
+    quoi: "Il n'y a plus d'« heures vendues » : chaque ouvrage a des heures PRÉVUES = cadence × quantité de la bibliothèque, réparties entre ses étapes selon les %. Corriger une cadence ou un % dans la bibliothèque met donc à jour les heures prévues de chaque tâche, la MO prévisionnelle, la marge prévisionnelle, les dérives, la durée des tâches au planning et ce que voient les ouvriers.",
+    comment: "Partout dans l'appli, « heures vendues » devient « heures prévues ». Les heures du devis Excel sont gardées pour information : elles s'affichent à côté de l'ouvrage dans le Phasage (« devis : 5 h »). Un ouvrage sans cadence, ou non relié à la bibliothèque, garde les heures du devis et l'indique (« prévu = devis, pas de cadence »). Bibliothèque → « Appliquer à tous les chantiers » : reporte d'un coup tous les ouvrages sur tous les chantiers (même résultat que de les enregistrer un par un), avec le même compte rendu. Ensuite, chaque ouvrage enregistré est reporté automatiquement, comme avant.",
+  },
+  {
+    date: "2026-10-16",
+    type: "amelioration",
     titre: "Bibliothèque : une correction de ratio s'applique à tous les chantiers",
     pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Jusqu'ici, la cadence et la répartition en % d'un ouvrage étaient copiées dans le chantier au moment de l'import du devis : corriger la bibliothèque ne changeait rien aux chantiers existants, et un mauvais % faussait l'avancement pour toujours. Désormais, chaque ouvrage enregistré dans la bibliothèque est reporté automatiquement sur tous les chantiers qui l'utilisent, terminés compris.",

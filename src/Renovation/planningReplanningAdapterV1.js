@@ -91,7 +91,7 @@ function exclusionsChargeNonQuantifiablePertinentes({ etatReel, preparation, cha
       chantier_id: etat.chantier_id,
       tache_id: etat.tache_id,
       type: "charge_reference_manquante",
-      explication: `Tâche physiquement ${etat.statut_reel === "en_cours" ? `en cours à ${etat.avancement}%` : "à faire"}, mais sans heures vendues/estimées exploitables : le reste à faire ne peut pas être quantifié sans inventer de charge.`,
+      explication: `Tâche physiquement ${etat.statut_reel === "en_cours" ? `en cours à ${etat.avancement}%` : "à faire"}, mais sans heures prévues/estimées exploitables : le reste à faire ne peut pas être quantifié sans inventer de charge.`,
       source_verite: "phasage",
       avancement: etat.avancement,
       charge_quantifiable: false,
