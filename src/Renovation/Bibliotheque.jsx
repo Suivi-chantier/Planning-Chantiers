@@ -1747,9 +1747,11 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
   }
 
   async function lancerToutAppliquer() {
-    if (!window.confirm("Appliquer la bibliothèque à tous les chantiers ?
-
-Pour chaque ouvrage utilisé : % des étapes, heures estimées et heures prévues = cadence × quantité. Les heures du devis restent visibles pour information. L'avancement saisi, les heures pointées et les prix ne changent pas.")) return;
+    if (!window.confirm(
+      "Appliquer la bibliothèque à tous les chantiers ?\n\n"
+      + "Pour chaque ouvrage utilisé : % des étapes, heures estimées et heures prévues = cadence × quantité. "
+      + "Les heures du devis restent visibles pour information. L'avancement saisi, les heures pointées et les prix ne changent pas."
+    )) return;
     const global = { libelle: "Toute la bibliothèque" };
     setReport({ etat: "encours", ouvrage: global, global: true, chantiers: [], erreur: null });
     let res;

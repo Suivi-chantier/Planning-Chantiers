@@ -28,6 +28,8 @@ jobs:
           cache: npm
       - name: Fixtures report des ratios sur les chantiers
         run: node scripts/verif-report-ratios-bibliotheque.mjs
+      - name: Installer dépendances
+        run: npm ci
       - name: Fixtures finances chantier (libellés « heures prévues »)
         run: node scripts/verif-chantier-finance.mjs
       - name: Fixtures tâches hors devis (libellés « heures prévues »)
@@ -44,7 +46,5 @@ jobs:
         run: node scripts/verif-retours-terrain.mjs
       - name: Fixtures préparation chantier (libellés « heures prévues »)
         run: node scripts/verif-preparation-chantier.mjs
-      - name: Installer dépendances
-        run: npm ci
       - name: Build Vite
         run: npm run build
