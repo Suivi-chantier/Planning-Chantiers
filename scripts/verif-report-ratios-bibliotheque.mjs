@@ -84,6 +84,21 @@ const ouvrageChantier = () => ({
   const r2 = reporterSurPhasage(r1.ouvrages, biblio);
   assert.equal(r2.modifie, false);
   assert.equal(r2.ouvrages, r1.ouvrages, "aucune copie inutile");
+
+  // Totaux qui ne tombent pas juste : la somme des parts reste au centime, et
+  // un second report ne redistribue pas un centième (dérive vue le 16/10/2026).
+  const b5 = { id: "bib-5", cadence: 0.75, sous_taches: [
+    { id: "a", ratio: 25 }, { id: "b", ratio: 20 }, { id: "c", ratio: 30 }, { id: "d", ratio: 14 }, { id: "e", ratio: 11 },
+  ] };
+  const vendues = [6.13, 4.91, 7.36, 3.43, 2.7];
+  const o5 = { id: "o5", bibliotheque_id: "bib-5", quantite: 30, heures_devis: 24.53,
+    taches: ["a", "b", "c", "d", "e"].map((id, i) => ({ id, source_sous_tache_id: id, nom: id, ratio: 20, avancement: 0, heures_estimees: 1, heures_vendues: vendues[i] })) };
+  const s1 = reporterSurOuvrage(o5, b5);
+  const centimes = (l) => Math.round(l.reduce((s, x) => s + x, 0) * 100);
+  assert.equal(centimes(s1.ouvrage.taches.map(t => t.heures_vendues)), 2453, "total vendu exact au centime");
+  assert.equal(centimes(s1.ouvrage.taches.map(t => t.heures_estimees)), 2250, "22,5 h estimées exactes");
+  const s2 = reporterSurOuvrage(s1.ouvrage, b5);
+  assert.equal(s2.modifie, false, "pas de redistribution d'un centième au second report");
 }
 
 // 5. Reconnaissance par nom (anciens ouvrages sans identifiant d'étape) :
