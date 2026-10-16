@@ -49,7 +49,7 @@ const ouvrageChantier = () => ({
   assert.equal(r.ouvrage.taches[0].heures_reelles, 7);
   assert.equal(r.ouvrage.prix_ht, 1000);
   assert.equal(r.ouvrage.heures_devis, 30);
-  assert.equal(r.realignees, 3);
+  assert.equal(r.realignees, 2, "Plaques avait déjà le bon % : rien à réaligner");
   assert.deepEqual(r.nonReconnues, []);
 }
 
@@ -111,7 +111,7 @@ const ouvrageChantier = () => ({
   assert.deepEqual(r.ouvrage.taches[3], o.taches[3]);
   assert.deepEqual(r.ouvrage.taches[4], o.taches[4], "hors devis jamais touchée");
   assert.deepEqual(r.nonReconnues, ["Reprise fictive"]);
-  assert.equal(r.realignees, 3);
+  assert.equal(r.realignees, 2, "Plaques avait déjà le bon % : rien à réaligner");
 }
 
 // 7. Noms en double : pas de devinette.
