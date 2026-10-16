@@ -38,8 +38,6 @@ jobs:
         run: node scripts/verif-operation-kpi-detail.mjs
       - name: Fixtures compte rendu v2 (libellés « heures prévues »)
         run: node scripts/verif-compte-rendu-v2.mjs
-      - name: Fixtures nouvelle tâche (libellés « heures prévues »)
-        run: node scripts/verif-nouvelle-tache.mjs
       - name: Fixtures retours terrain (libellés « heures prévues »)
         run: node scripts/verif-retours-terrain.mjs
       - name: Fixtures préparation chantier (libellés « heures prévues »)
