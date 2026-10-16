@@ -2,6 +2,7 @@
 // Vérification du report des ratios de la bibliothèque sur les chantiers
 // (src/Renovation/reportRatiosBibliotheque.mjs). Données fictives.
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   reporterSurOuvrage, reporterSurPhasage, nomComparable,
   ajouterCorrectionRatios, correctionRatiosPeriode, MAX_CORRECTIONS,
@@ -180,6 +181,15 @@ const ouvrageChantier = () => ({
   assert.deepEqual(correctionRatiosPeriode(p2, { apres: null, jusqua: null }), { points: -27, nb: 2 });
   assert.deepEqual(correctionRatiosPeriode({}, {}), { points: 0, nb: 0 });
   assert.deepEqual(correctionRatiosPeriode(undefined), { points: 0, nb: 0 });
+}
+
+// 12. Lecture des chantiers : le filtre jsonb doit partir en TEXTE JSON. Un
+//     tableau JS devient `cs.{…}` (tableau Postgres) : « invalid input syntax
+//     for type json », vu en ligne le 16/10/2026.
+{
+  const src = await readFile(new URL("../src/Renovation/reportRatiosChantiers.js", import.meta.url), "utf8");
+  assert.match(src, /\.contains\("ouvrages", JSON\.stringify\(\[/);
+  assert.doesNotMatch(src, /\.contains\("ouvrages", \[/);
 }
 
 console.log("verif-report-ratios-bibliotheque : OK");

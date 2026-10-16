@@ -26,7 +26,10 @@ export async function reporterOuvrageSurChantiers(ouvrageBiblio) {
     const { data: phasages, error } = await supabase
       .from("phasages")
       .select("id, chantier_id, chantier_nom, revision, ouvrages, plan_travaux")
-      .contains("ouvrages", [{ bibliotheque_id: id }]);
+      // Filtre passé en TEXTE JSON : avec un tableau JS, postgrest-js écrit
+      // `cs.{…}` (tableau Postgres) et la base refuse « invalid input syntax
+      // for type json » — vu en ligne le 16/10/2026.
+      .contains("ouvrages", JSON.stringify([{ bibliotheque_id: id }]));
     if (error) return { ok: false, erreur: error.message, chantiers };
 
     const maintenant = new Date();
