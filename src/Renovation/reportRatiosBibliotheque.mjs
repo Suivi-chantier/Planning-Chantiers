@@ -53,7 +53,20 @@ function repartir(total, poids, poidsRepli) {
   let somme = p.reduce((s, x) => s + x, 0);
   if (somme <= 0 && poidsRepli) { p = poidsRepli; somme = p.reduce((s, x) => s + x, 0); }
   if (somme <= 0) { p = p.map(() => 1); somme = p.length; }
-  return p.map(x => arr2(total * x / somme));
+  // Au centime près, la SOMME des parts vaut exactement le total (méthode du
+  // plus fort reste). Sans cela, la somme arrondie dérive d'un centième, et un
+  // second report du même ouvrage redistribue autrement : le chantier est
+  // réécrit pour rien à chaque enregistrement (vu le 16/10/2026, 7,36 → 7,37 h).
+  const cible = Math.round(total * 100);
+  const bruts = p.map(x => cible * x / somme);
+  const parts = bruts.map(v => Math.floor(v + 1e-9));
+  const reste = cible - parts.reduce((s, x) => s + x, 0);
+  bruts
+    .map((v, i) => ({ i, f: v - parts[i] }))
+    .sort((a, b) => b.f - a.f || a.i - b.i)
+    .slice(0, Math.max(0, reste))
+    .forEach(({ i }) => { parts[i] += 1; });
+  return parts.map(c => c / 100);
 }
 
 // Associe chaque tâche de l'ouvrage du chantier à une étape de la bibliothèque.
