@@ -155,7 +155,11 @@ Règles :
         const euros = (p.deltaEuros != null)
           ? `  ·  ${p.deltaEuros > 0 ? "+" : ""}${Number(p.deltaEuros).toLocaleString("fr-FR")} € générés`
           : "";
-        progText = `Avancement : ${p.avant}% → ${p.maintenant}%  (${sign}${p.delta} pt${Math.abs(p.delta) > 1 ? "s" : ""} cette semaine)${euros}`;
+        // Correction des ratios de la bibliothèque : saut exclu de la progression.
+        const corr = p.correctionRatios
+          ? `  ·  correction des ratios ${p.correctionRatios > 0 ? "+" : "−"}${Math.abs(p.correctionRatios)} pt${Math.abs(p.correctionRatios) > 1 ? "s" : ""}, hors progression`
+          : "";
+        progText = `Avancement : ${p.avant}% → ${p.maintenant}%  (${sign}${p.delta} pt${Math.abs(p.delta) > 1 ? "s" : ""} cette semaine)${euros}${corr}`;
       }
       const progColor = p.avant == null ? GREY : (p.delta > 0 ? "2db870" : p.delta < 0 ? "e15a5a" : GREY);
       children.push(new Paragraph({

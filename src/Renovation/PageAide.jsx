@@ -296,6 +296,8 @@ export const AIDE_CONTENU = {
     savoir: [
       "Les cadences pré-remplissent les heures à l'import d'un devis.",
       "Les pourcentages des sous-tâches doivent totaliser 100 %.",
+      "À l'enregistrement, la cadence et les pourcentages sont reportés sur tous les chantiers qui utilisent l'ouvrage, terminés compris : les heures estimées et l'avancement sont recalculés. Les heures et prix vendus, l'avancement saisi et les devis ne changent pas.",
+      "Un compte rendu s'affiche en haut de la page : chantiers corrigés, avancement avant → après, et les tâches non reconnues (laissées telles quelles).",
     ],
   },
   "biblio-materiaux": {

@@ -1,0 +1,33 @@
+name: Verify Report Ratios Bibliotheque
+
+on:
+  pull_request:
+    paths:
+      - 'src/Renovation/reportRatiosBibliotheque.mjs'
+      - 'src/Renovation/reportRatiosBibliotheque.js'
+      - 'src/Renovation/reportRatiosChantiers.js'
+      - 'src/Renovation/Bibliotheque.jsx'
+      - 'src/Renovation/BilanSemaine.jsx'
+      - 'src/chantierFinance.mjs'
+      - 'api/generate-docx.js'
+      - 'scripts/verif-report-ratios-bibliotheque.mjs'
+      - '.github/workflows/verify-report-ratios-bibliotheque.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Fixtures report des ratios sur les chantiers
+        run: node scripts/verif-report-ratios-bibliotheque.mjs
+      - name: Installer dépendances
+        run: npm ci
+      - name: Build Vite
+        run: npm run build
