@@ -157,14 +157,14 @@ eq(niche.ouvrage.id, "o1", "création DANS L'OUVRAGE PROPOSÉ");
 eq(niche.tache, {
   id: idNiche, nom: "Niche murale", heures_estimees: null, heures_reelles: null, avancement: 0, ouvriers: ["Paul"],
   date_prevue: null, _cree_depuis_validation: true, nature: "demande_client", hors_devis: true, cree_par: "Paul", cree_depuis_rapport: "r-1",
-}, "tâche créée : nom, nature, hors devis, auteur, rapport d'origine, sans heures vendues");
-ok(!("heures_vendues" in niche.tache), "aucune heure vendue");
+}, "tâche créée : nom, nature, hors devis, auteur, rapport d'origine, sans heures prévues");
+ok(!("heures_vendues" in niche.tache), "aucune heure prévue");
 const divers = res.ouvrages.find(o => o.libelle === DIVERS_HORS_DEVIS);
 eq([divers?.id, divers?.taches.map(t => t.id)], ["g1", ["nt-r-1-2"]], "Divers absent : créé avec la tâche (comme avant)");
 eq(res.lignes.slice(1).map(l => [l.tache_id, l.phase_id, l.ouvrage_id]), [[idNiche, null, "o1"], ["nt-r-1-2", null, "g1"]], "lignes rattachées, phase vide");
 eq(res.lignes[0], lignes[0], "la ligne du planning n'est pas touchée");
 eq(OUVRAGES()[0].taches.length, 2, "aucune mutation des données d'entrée");
-eq(res.ouvrages.slice(0, 3).map(o => o.heures_devis), [40, 20, 12], "heures vendues des ouvrages inchangées");
+eq(res.ouvrages.slice(0, 3).map(o => o.heures_devis), [40, 20, 12], "heures prévues des ouvrages inchangées");
 
 // Relance (pointages en échec, conducteur qui revalide, « Corriger » puis revalidation)
 const relance = appliquerCreationsProposees({ ouvrages: res.ouvrages, lignes: lignesDepuisRapport(RAPPORT), rapport: RAPPORT, genId });

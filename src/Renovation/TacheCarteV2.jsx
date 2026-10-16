@@ -341,24 +341,24 @@ export default function TacheCarteV2({
         </div>
       )}
 
-      {/* Heures vendues, avec aujourd'hui (même pastille que l'onglet Phases) */}
+      {/* Heures prévues, avec aujourd'hui (même pastille que l'onglet Phases) */}
       {suivi && (
         <div style={{ marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, color: T.textSub }}>
-            Avec aujourd'hui : <strong style={{ color: T.text }}>{fmtH(suivi.avant + suivi.aujourdhui)}</strong> / {fmtH(suivi.vendues)} vendues
+            Avec aujourd'hui : <strong style={{ color: T.text }}>{fmtH(suivi.avant + suivi.aujourdhui)}</strong> / {fmtH(suivi.vendues)} prévues
           </span>
           <Pastille etat={suivi.etat}/>
         </div>
       )}
       {!suivi && t.tache_id && infosEtat === "indisponible" && (
         <div style={{ marginTop: 10, fontSize: 12.5, color: T.textSub, fontStyle: "italic" }}>
-          Heures vendues indisponibles pour l'instant (connexion) : pas de jauge, rien ne bloque l'envoi.
+          Heures prévues indisponibles pour l'instant (connexion) : pas de jauge, rien ne bloque l'envoi.
         </div>
       )}
       {requis && (
         <div style={{ marginTop: 10, padding: 12, borderRadius: 14, background: T.dangerBg, border: `1.5px solid ${T.dangerBd}` }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: T.danger, marginBottom: 8 }}>
-            {fmtH(suivi.avant + suivi.aujourdhui)} sur {fmtH(suivi.vendues)} vendues : pourquoi ?
+            {fmtH(suivi.avant + suivi.aujourdhui)} sur {fmtH(suivi.vendues)} prévues : pourquoi ?
           </div>
           {t.motif_depassement_repris && dernier?.code === t.motif_depassement && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, color: T.text, marginBottom: 8 }}>

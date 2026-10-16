@@ -6,6 +6,7 @@ on:
       - 'src/Renovation/reportRatiosBibliotheque.mjs'
       - 'src/Renovation/reportRatiosBibliotheque.js'
       - 'src/Renovation/reportRatiosChantiers.js'
+      - 'src/Renovation/PhasageV2.jsx'
       - 'src/Renovation/Bibliotheque.jsx'
       - 'src/Renovation/BilanSemaine.jsx'
       - 'src/chantierFinance.mjs'
@@ -29,5 +30,17 @@ jobs:
         run: node scripts/verif-report-ratios-bibliotheque.mjs
       - name: Installer dépendances
         run: npm ci
+      - name: Fixtures finances chantier (libellés « heures prévues »)
+        run: node scripts/verif-chantier-finance.mjs
+      - name: Fixtures tâches hors devis (libellés « heures prévues »)
+        run: node scripts/verif-hors-devis.mjs
+      - name: Fixtures KPI Opérations (libellés « heures prévues »)
+        run: node scripts/verif-operation-kpi-detail.mjs
+      - name: Fixtures compte rendu v2 (libellés « heures prévues »)
+        run: node scripts/verif-compte-rendu-v2.mjs
+      - name: Fixtures retours terrain (libellés « heures prévues »)
+        run: node scripts/verif-retours-terrain.mjs
+      - name: Fixtures préparation chantier (libellés « heures prévues »)
+        run: node scripts/verif-preparation-chantier.mjs
       - name: Build Vite
         run: npm run build

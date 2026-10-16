@@ -431,7 +431,7 @@ export function construireMarkdownOperation(modele) {
         ? `${euros(agg.margePrev)} (${pourcent(agg.margePrevPct, { decimales: 1 })})` : null, { garder: true }],
       [LABEL_MARGE_PROVISOIRE, agg.vendu > 0
         ? `${euros(agg.marge)} (${pourcent(agg.margePct, { decimales: 1 })})` : null],
-      ["Heures réelles / heures vendues", `${heures(agg.hReelles)} / ${heures(agg.hVendues)}`],
+      ["Heures réelles / heures prévues", `${heures(agg.hReelles)} / ${heures(agg.hVendues)}`],
       ["Période de travaux planifiée", m.bornes?.debut || m.bornes?.fin
         ? `${dateFR(m.bornes.debut)} → ${dateFR(m.bornes.fin)}` : null],
     ]),
@@ -459,7 +459,7 @@ export function construireMarkdownOperation(modele) {
       ["Coût matériaux enregistré à ce jour", euros(agg.mat)],
       ["Frais généraux enregistrés à ce jour", euros(agg.fg)],
       [LABEL_MARGE_PROVISOIRE, euros(agg.marge)],
-      ["Heures vendues", heures(agg.hVendues)],
+      ["Heures prévues", heures(agg.hVendues)],
       ["Heures réelles", heures(agg.hReelles)],
       ["Date de l'export", txt(gen.leFr)],
     ]),
@@ -639,7 +639,7 @@ export function construireMarkdownOperation(modele) {
         { t: "Vendu HT", a: "r", garder: true }, { t: "Marge prév. au devis", a: "r", garder: true },
         { t: "Coût MO enregistré", a: "r" }, { t: "Matériaux enregistrés", a: "r" },
         { t: "Marge provisoire", a: "r" }, { t: "Marge provisoire %", a: "r" },
-        { t: "Heures réelles / vendues", a: "r" },
+        { t: "Heures réelles / prévues", a: "r" },
       ],
       chantiers.map((c) => {
         const b = c.finance;
@@ -824,7 +824,7 @@ function ficheChantier(c, rang, m) {
       "",
       ...tableau(
         [
-          { t: "Lot" }, { t: "Ouvrages", a: "r" }, { t: "Heures vendues", a: "r" },
+          { t: "Lot" }, { t: "Ouvrages", a: "r" }, { t: "Heures prévues", a: "r" },
           { t: "Heures réelles", a: "r" }, { t: "Avancement", a: "r" }, { t: "Dérive", a: "r" },
         ],
         c.lots.map((l) => [
@@ -871,7 +871,7 @@ function ficheChantier(c, rang, m) {
     ...tableau(
       [
         { t: "Ouvrage (réf.)" }, { t: "Sous-tâches", a: "r" }, { t: "H. estimées", a: "r" },
-        { t: "H. vendues", a: "r" }, { t: "H. réelles", a: "r" }, { t: "Avancement", a: "r" },
+        { t: "H. prévues", a: "r" }, { t: "H. réelles", a: "r" }, { t: "Avancement", a: "r" },
         { t: "Phases traversées" },
       ],
       recapOuvrages.map((o) => {
@@ -949,7 +949,7 @@ function ficheChantier(c, rang, m) {
   const colonnesTache = [
     { t: "Ordre", a: "r" }, { t: "Tâche" }, { t: "Ouvrage (réf.)" },
     { t: "Date prévue", garder: true }, { t: "Ratio", a: "r" },
-    { t: "H. estimées", a: "r" }, { t: "H. vendues", a: "r" }, { t: "H. réelles", a: "r" },
+    { t: "H. estimées", a: "r" }, { t: "H. prévues", a: "r" }, { t: "H. réelles", a: "r" },
     { t: "Avancement", a: "r" }, { t: "État" }, { t: "Ouvriers" }, { t: "Dépendances" },
   ];
   const ligneTache = (t) => [
@@ -1046,9 +1046,9 @@ function ficheChantier(c, rang, m) {
     ),
     "",
     ...(b ? listeDefinitions([
-      ["Heures vendues", heures(b.heuresVenduesChantier)],
+      ["Heures prévues", heures(b.heuresVenduesChantier)],
       ["Heures réelles (total, trajets et indirect compris)", b.heuresHorsDevisChantier > 0
-        ? `${heures(b.heuresReellesTotalChantier)}, dont ${heures(b.heuresHorsDevisChantier)} hors devis (non comparées aux heures vendues)`
+        ? `${heures(b.heuresReellesTotalChantier)}, dont ${heures(b.heuresHorsDevisChantier)} hors devis (non comparées aux heures prévues)`
         : heures(b.heuresReellesTotalChantier)],
       ["Heures pointées sur les tâches du plan", heures(b.heuresReellesChantier)],
       ["Heures de trajet", heures(b.trajetHeures)],

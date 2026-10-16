@@ -191,7 +191,7 @@ const etat_chantier = {
   description:
     "État financier et d'avancement d'UN chantier, calculé en direct par le module financier de " +
     "l'application (celui du relevé hebdomadaire et de la fiche chantier) : avancement, vendu HT, " +
-    "marge, marge à terminaison, heures vendues et réelles, reste à faire, situation à facturer, " +
+    "marge, marge à terminaison, heures prévues et réelles, reste à faire, situation à facturer, " +
     "facturé ProGBat. Renvoie aussi la date des données et les avertissements de fiabilité, à " +
     "reprendre dans la réponse. Nécessite l'identifiant exact renvoyé par chercher_chantier.",
   schema: {

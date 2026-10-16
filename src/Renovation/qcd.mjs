@@ -70,7 +70,7 @@ export function calculDelai({ heuresReelles, heuresVendues, avancement } = {}) {
     return {
       statut: QCD_GRIS, demarrage: false, valeur: null, valeurFormatee: "—",
       heuresReelles: hr, heuresAttendues: null,
-      explication: "Heures vendues absentes ou à zéro : indice non calculable.",
+      explication: "Heures prévues absentes ou à zéro : indice non calculable.",
     };
   }
   if (av == null || av < 0) {
@@ -299,7 +299,7 @@ export function construireOverrideQCD({ statut, commentaire, auteur, date } = {}
 export const QCD_METHODE = {
   delai: {
     titre: "Délai",
-    formule: "heures réelles ÷ (heures vendues × avancement)",
+    formule: "heures réelles ÷ (heures prévues × avancement)",
     description:
       "Compare les heures pointées (validées) aux heures qu'on devrait avoir consommées au rythme du devis, "
       + "à l'avancement réel du chantier. À 1,00 on est dans le devis ; "

@@ -109,7 +109,7 @@ ok(finM.heuresReelles.ventilation.some(r => / \+ 4h hors devis$/.test(r.right)),
 const lotM = finM.lots.find(l => l.id === "electricite"), lot0 = fin0.lots.find(l => l.id === "electricite"), lotSans = finSans.lots.find(l => l.id === "electricite");
 eq(lotM.heuresReelles, lot0.heuresReelles - 4, "lot : heures comparées sans les 4 h hors devis");
 eq(lotM.heuresHorsDevis, 4, "lot : 4 h hors devis à part");
-eq(lotM.heuresVendues, lot0.heuresVendues, "lot : heures vendues inchangées");
+eq(lotM.heuresVendues, lot0.heuresVendues, "lot : heures prévues inchangées");
 eq(lotM.avancement, lotSans.avancement, "lot : avancement calculé sans les tâches hors devis");
 eq(lotM.ratioDerive, (lotM.heuresReelles / lotM.heuresVendues) / (lotM.avancement / 100), "lot : dérive sur les heures comparables");
 ok(lotM.avancement > lot0.avancement, `lot : l'avancement ne baisse plus à cause d'une tâche hors devis à 0 % (${lot0.avancement} → ${lotM.avancement} %)`);
@@ -152,7 +152,7 @@ const oElecSans = sansMarquees(ph0).ouvrages.find(o => o.id === "kvftsmsvuto");
 const registreSans = oElecSans.taches.reduce((s, t) => s + CF.sumHeures(CF.tachePointages(t, ppt)), 0);
 const venduesSans = oElecSans.taches.reduce((s, t) => s + CF.tacheHeuresVendues(t), 0);
 eq(cadM && [cadM.heuresVendues, cadM.heuresReelles], [Math.round(venduesSans * 10) / 10, Math.round(registreSans * 10) / 10],
-  "cadences, après : ouvrage terminé hors tâches hors devis, sans leurs heures vendues ni réelles");
+  "cadences, après : ouvrage terminé hors tâches hors devis, sans leurs heures prévues ni réelles");
 // Répartition des heures vendues (Phasage V2) : jamais sur une tâche hors devis.
 const tachesRep = [{ ratio: 1 }, { ratio: 1, hors_devis: true, heures_vendues: null }, { ratio: 2 }];
 eq(repartirHeuresVendues(30, tachesRep), [10, null, 20], "répartition : la tâche hors devis ne reçoit rien");

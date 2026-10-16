@@ -686,7 +686,7 @@ export function preparerSimulationPlanningGlobalV1({
       groupes_externes_sans_override_exclus: true,
       continuite_site_journaliere: "site_id explicite, sinon operation_id, sinon chantier_id",
       predecesseur_termine_ne_masque_pas_ancetre_incomplet: true,
-      formule_restant_mo: "MO restante = (heures vendues si > 0, sinon heures estimées) × (1 - avancement/100) - MO déjà réservée par les allocations futures verrouillées",
+      formule_restant_mo: "MO restante = (heures prévues si > 0, sinon heures estimées) × (1 - avancement/100) - MO déjà réservée par les allocations futures verrouillées",
     },
   };
 }

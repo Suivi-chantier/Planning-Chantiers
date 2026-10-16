@@ -681,7 +681,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                                       )}
                                     </div>
                                     {total>0&&(
-                                      <span title={`${total}h ${hV>0?"vendues":"estimées"}${deja>0?` · ${deja}h déjà planifiées`:""}`}
+                                      <span title={`${total}h ${hV>0?"prévues":"estimées"}${deja>0?` · ${deja}h déjà planifiées`:""}`}
                                         style={{flexShrink:0,fontSize:11,fontWeight:700,
                                           color:deja<=0?"#5b8af5":restant>0?"#f97316":"#22c55e",
                                           background:deja<=0?"rgba(91,138,245,0.12)":restant>0?"rgba(249,115,22,0.12)":"rgba(34,197,94,0.12)",
@@ -722,7 +722,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                       <div style={{fontSize:11,color:T.textMuted,fontStyle:"italic"}}>
                         La date prévue du phasage suit le premier jour planifié : une tâche posée sur
                         plusieurs jours garde son jour de début. La durée proposée est la main-d'œuvre
-                        restante divisée par le nombre d'ouvriers de la ligne (10 h vendues à 2 ouvriers
+                        restante divisée par le nombre d'ouvriers de la ligne (10 h prévues à 2 ouvriers
                         → 5 h dans la journée), plafonnée au temps restant des ouvriers ce jour
                         ({capaciteJour} h le {jour.toLowerCase()}, tous chantiers confondus).
                       </div>

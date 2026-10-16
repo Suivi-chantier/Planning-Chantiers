@@ -1342,7 +1342,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           <table class="fin-table" style="width:100%;border-collapse:collapse;">
             <tr>
               <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:left;">Lot</th>
-              <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Heures réelles / vendues</th>
+              <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Heures réelles / prévues</th>
               <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Avancement</th>
               <th style="padding:3pt 8pt;font-size:6.5pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:${GREY};text-align:right;">Dérive</th>
             </tr>

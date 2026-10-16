@@ -110,7 +110,7 @@ export function couleurRatioDerive(r) {
   return r > SEUIL_RATIO_DERIVE ? "#e15a5a" : r > 1 ? "#f5a623" : "#22c55e";
 }
 const raisonNonCalculable = (hv, av) => (hv <= 0
-  ? "non calculable : aucune heure vendue"
+  ? "non calculable : aucune heure prévue"
   : av <= 0 ? "non calculable : avancement à 0 %" : null);
 
 // Carte « Dérive heures vendues » de la fiche Opération : valeur et sous-titre,
@@ -121,7 +121,7 @@ export function carteDeriveOperation(agg) {
   return {
     valeur: agg.derive,
     valeurTexte: texteRatio(agg.derive),
-    sousLabel: raison || `${fmtH(agg.hComparables)}h réelles / ${fmtH(agg.hVendues)}h vendues · ${agg.avancement}% avancé`,
+    sousLabel: raison || `${fmtH(agg.hComparables)}h réelles / ${fmtH(agg.hVendues)}h prévues · ${agg.avancement}% avancé`,
     couleur: couleurRatioDerive(agg.derive),
   };
 }
@@ -129,7 +129,7 @@ export function carteDeriveOperation(agg) {
 // Ligne d'une phase (d'un logement, ou regroupée sur l'opération).
 function lignePhase(ph, nbLogements = null) {
   const parties = [
-    `${fmtH(ph.heuresReelles)}h / ${fmtH(ph.heuresVendues)}h vendues`,
+    `${fmtH(ph.heuresReelles)}h / ${fmtH(ph.heuresVendues)}h prévues`,
     `${ph.avancement}% avancé`,
   ];
   if (ph.heuresHorsDevis > 0) parties.push(`+ ${fmtH(ph.heuresHorsDevis)}h hors devis`);
@@ -193,7 +193,7 @@ function consoliderPhases(parLogement, finances, agg) {
   if (Math.abs(ecartVendu) > 0.05) {
     lignes.push({
       main: "Écart de vendu ouvrages / tâches",
-      sub: `${fmtH(agg.hVendues)}h vendues sur les ouvrages, ${fmtH(hvTaches)}h réparties sur les tâches`,
+      sub: `${fmtH(agg.hVendues)}h prévues sur les ouvrages, ${fmtH(hvTaches)}h réparties sur les tâches`,
       right: `${ecartVendu > 0 ? "+" : "−"} ${fmtH(Math.abs(ecartVendu))}h`, rightColor: "#f5a623",
     });
   }
@@ -213,8 +213,8 @@ function ajouterEcart(lignes, total, explication) {
 // sur la carte.
 export const KPI_OPERATION = {
   derive: {
-    total: "derive", titre: "Dérive des heures vendues", totalLabel: "Dérive de l'opération",
-    sousTitre: `(heures réelles ÷ vendues) ÷ avancement · au-delà de ×${SEUIL_RATIO_DERIVE.toFixed(2)} ça dérive`,
+    total: "derive", titre: "Dérive des heures prévues", totalLabel: "Dérive de l'opération",
+    sousTitre: `(heures réelles ÷ prévues) ÷ avancement · au-delà de ×${SEUIL_RATIO_DERIVE.toFixed(2)} ça dérive`,
     totalTexte: (agg) => texteRatio(agg.derive),
     totalCouleur: (agg) => couleurRatioDerive(agg.derive),
     // Pas de Donnee pour cet indicateur : la ligne d'un logement vient de
@@ -227,7 +227,7 @@ export const KPI_OPERATION = {
         valeur: d,
         valeurTexte: texteRatio(d),
         valeurCouleur: couleurRatioDerive(d),
-        sousLabel: raison || `${fmtH(b.heuresComparablesChantier)}h / ${fmtH(b.heuresVenduesChantier)}h vendues · ${b.avancementChantier}% avancé`,
+        sousLabel: raison || `${fmtH(b.heuresComparablesChantier)}h / ${fmtH(b.heuresVenduesChantier)}h prévues · ${b.avancementChantier}% avancé`,
         lignes: (finance.phases || []).filter((ph) => ph.nbTaches > 0).map((ph) => lignePhase(ph)),
         vide: "Aucune tâche dans le phasage.",
       };
@@ -275,7 +275,7 @@ export const KPI_OPERATION = {
       lignes: [
         { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(agg.vendu)}`, rightColor: "#22c55e" },
         { main: "Déboursé prévisionnel", sub: `MO prév. ${eur(agg.moPrev)} + matériaux prév. ${eur(agg.matPrev)}`, right: `− ${eur(agg.moPrev + agg.matPrev)}`, rightColor: "#e15a5a" },
-        { main: "Frais généraux prévisionnels", sub: "taux horaire × heures vendues", right: `− ${eur(agg.fgPrev)}`, rightColor: "#e15a5a" },
+        { main: "Frais généraux prévisionnels", sub: "taux horaire × heures prévues", right: `− ${eur(agg.fgPrev)}`, rightColor: "#e15a5a" },
       ],
     }),
   },

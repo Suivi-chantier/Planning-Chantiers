@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
-  reporterSurOuvrage, reporterSurPhasage, nomComparable,
+  reporterSurOuvrage, reporterSurPhasage, reporterBibliothequeSurPhasage, nomComparable,
+  sourceHeuresPrevues, heuresDevisOrigine, mentionHeuresPrevues,
   ajouterCorrectionRatios, correctionRatiosPeriode, MAX_CORRECTIONS,
 } from "../src/Renovation/reportRatiosBibliotheque.mjs";
 import { avancementChantier } from "../src/chantierFinance.mjs";
@@ -44,13 +45,18 @@ const ouvrageChantier = () => ({
   assert.equal(r.ouvrage.heures_estimees, 20, "cadence 2 × quantité 10");
   assert.deepEqual(r.ouvrage.taches.map(t => t.ratio), [20, 30, 50]);
   assert.deepEqual(r.ouvrage.taches.map(t => t.heures_estimees), [4, 6, 10]);
-  assert.deepEqual(r.ouvrage.taches.map(t => t.heures_vendues), [6, 9, 15]);
-  assert.equal(r.ouvrage.taches.reduce((s, t) => s + t.heures_vendues, 0), 30, "le total vendu ne bouge pas");
+  // Heures prévues (champ heures_vendues) = cadence × quantité réparties ; les
+  // heures du devis (30 h) sont gardées pour information.
+  assert.deepEqual(r.ouvrage.taches.map(t => t.heures_vendues), [4, 6, 10]);
+  assert.equal(r.ouvrage.heures_devis, 20, "heures prévues de l'ouvrage = cadence × quantité");
+  assert.equal(r.ouvrage.heures_devis_origine, 30, "heures du devis gardées");
+  assert.equal(r.ouvrage.heures_prevues_source, "bibliotheque");
+  assert.equal(heuresDevisOrigine(r.ouvrage), 30);
+  assert.equal(mentionHeuresPrevues(r.ouvrage), "devis : 30 h");
   assert.deepEqual(r.ouvrage.taches.map(t => t.avancement), [100, 100, 0]);
   assert.equal(r.ouvrage.taches[0].heures_reelles, 7);
   assert.equal(r.ouvrage.prix_ht, 1000);
-  assert.equal(r.ouvrage.heures_devis, 30);
-  assert.equal(r.realignees, 2, "Plaques avait déjà le bon % : rien à réaligner");
+  assert.equal(r.realignees, 3);
   assert.deepEqual(r.nonReconnues, []);
 }
 
@@ -95,7 +101,7 @@ const ouvrageChantier = () => ({
     taches: ["a", "b", "c", "d", "e"].map((id, i) => ({ id, source_sous_tache_id: id, nom: id, ratio: 20, avancement: 0, heures_estimees: 1, heures_vendues: vendues[i] })) };
   const s1 = reporterSurOuvrage(o5, b5);
   const centimes = (l) => Math.round(l.reduce((s, x) => s + x, 0) * 100);
-  assert.equal(centimes(s1.ouvrage.taches.map(t => t.heures_vendues)), 2453, "total vendu exact au centime");
+  assert.equal(centimes(s1.ouvrage.taches.map(t => t.heures_vendues)), 2250, "heures prévues exactes au centime");
   assert.equal(centimes(s1.ouvrage.taches.map(t => t.heures_estimees)), 2250, "22,5 h estimées exactes");
   const s2 = reporterSurOuvrage(s1.ouvrage, b5);
   assert.equal(s2.modifie, false, "pas de redistribution d'un centième au second report");
@@ -127,7 +133,7 @@ const ouvrageChantier = () => ({
   assert.deepEqual(r.ouvrage.taches[3], o.taches[3]);
   assert.deepEqual(r.ouvrage.taches[4], o.taches[4], "hors devis jamais touchée");
   assert.deepEqual(r.nonReconnues, ["Reprise fictive"]);
-  assert.equal(r.realignees, 2, "Plaques avait déjà le bon % : rien à réaligner");
+  assert.equal(r.realignees, 3);
 }
 
 // 7. Noms en double : pas de devinette.
@@ -160,6 +166,18 @@ const ouvrageChantier = () => ({
   assert.deepEqual(r.ouvrage.taches.map(t => t.heures_estimees), [4, 6, 10]);
   const sansCadence = reporterSurOuvrage(ouvrageChantier(), { ...biblio, cadence: null });
   assert.equal(sansCadence.ouvrage.heures_estimees, 20);
+  // Sans cadence : heures prévues = heures du devis, et c'est signalé.
+  assert.equal(sansCadence.ouvrage.heures_devis, 30);
+  assert.equal(sansCadence.ouvrage.heures_prevues_source, "devis");
+  assert.equal(sansCadence.ouvrage.taches.reduce((s, t) => s + t.heures_vendues, 0), 30);
+  assert.equal(mentionHeuresPrevues(sansCadence.ouvrage), "prévu = devis, pas de cadence");
+  // Un ouvrage jamais passé par la bibliothèque est « prévu = devis ».
+  assert.equal(sourceHeuresPrevues({ heures_devis: 5 }), "devis");
+  assert.equal(heuresDevisOrigine({ heures_devis: 5 }), 5);
+  // La copie des heures du devis n'est jamais réécrite par un second report.
+  const deux = reporterSurOuvrage(reporterSurOuvrage(ouvrageChantier(), biblio).ouvrage, { ...biblio, cadence: 5 });
+  assert.equal(deux.ouvrage.heures_devis_origine, 30);
+  assert.equal(deux.ouvrage.heures_devis, 50);
 }
 
 // 10. Les autres ouvrages du phasage ne sont pas touchés.
@@ -173,6 +191,20 @@ const ouvrageChantier = () => ({
   const rien = reporterSurPhasage([autre], biblio);
   assert.equal(rien.ouvragesConcernes, 0);
   assert.equal(rien.modifie, false);
+}
+
+// 10 bis. Toute la bibliothèque d'un coup = ouvrages enregistrés un par un.
+{
+  const b2 = { id: "bib-2", cadence: 1, sous_taches: [{ nom: "Pose", ratio: 100 }] };
+  const o2 = { id: "o2", bibliotheque_id: "bib-2", quantite: 3, heures_devis: 2, taches: [{ id: "p", nom: "Pose", avancement: 50, heures_estimees: 1, heures_vendues: 2 }] };
+  const sansLien = { id: "o8", heures_devis: 4, taches: [] };
+  const tout = reporterBibliothequeSurPhasage([ouvrageChantier(), o2, sansLien], new Map([["bib-1", biblio], ["bib-2", b2]]));
+  const unParUn = reporterSurPhasage(reporterSurPhasage([ouvrageChantier(), o2, sansLien], biblio).ouvrages, b2);
+  assert.deepEqual(tout.ouvrages, unParUn.ouvrages);
+  assert.equal(tout.ouvragesConcernes, 2);
+  assert.equal(tout.ouvrages[2], sansLien, "ouvrage non relié : jamais touché");
+  assert.equal(tout.ouvrages[1].heures_devis, 3);
+  assert.equal(reporterBibliothequeSurPhasage(tout.ouvrages, new Map([["bib-1", biblio], ["bib-2", b2]])).modifie, false);
 }
 
 // 11. Journal des corrections : ajout sans écraser le reste du plan.

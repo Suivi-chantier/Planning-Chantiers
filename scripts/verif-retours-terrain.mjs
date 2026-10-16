@@ -50,7 +50,7 @@ const RAPPORTS = [
 ];
 const res = retoursTerrain({ rapports: RAPPORTS, phasages: PHASAGES, debut: "2026-10-12", fin: "2026-10-18" });
 eq(res.depassements.map(d => [d.rapport_id, d.motif_label, d.ouvrage, d.releve]),
-  [["r2", "Devis sous-estimé", "Doublage BA13", null], ["r1", "Devis sous-estimé", "Doublage BA13", "12 h sur 10 h vendues"]],
+  [["r2", "Devis sous-estimé", "Doublage BA13", null], ["r1", "Devis sous-estimé", "Doublage BA13", "12 h sur 10 h prévues"]],
   "dépassements de la semaine (plus récent d'abord), ouvrage retrouvé, relevé figé à la saisie");
 ok(!res.depassements.some(d => d.rapport_id === "r4"), "hors de la semaine : ignoré");
 eq(res.depassementsParMotif, [{ cle: "devis_sous_estime", label: "Devis sous-estimé", nb: 2 }], "cumul par motif");

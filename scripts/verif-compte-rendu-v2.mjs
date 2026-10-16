@@ -203,7 +203,7 @@ const v1 = [
 ];
 const jour = { trajetMatin: "40", trajetSoir: "20", heuresIndirectes: [{ motif: "Nettoyage", heures: "1", chantier_id: "chA" }], cibleHeures: 10 };
 // Dépassement : t4 a 7 + 0,5 h avant + 2 h aujourd'hui > 8 h vendues → motif requis, repris du dernier.
-ok(motifDepassementRequis(INFOS.t4, v2[3]), "t4 : 9,5 h sur 8 h vendues → motif de dépassement demandé");
+ok(motifDepassementRequis(INFOS.t4, v2[3]), "t4 : 9,5 h sur 8 h prévues → motif de dépassement demandé");
 eq(problemesLigne(v2[3], INFOS), ["motif_depassement"], "t4 : seul le motif de dépassement manque");
 v2 = maj(v2, 3, t => ({ ...t, motif_depassement: INFOS.t4.dernier_motif_depassement.code, motif_depassement_repris: true }));
 ok(!motifDepassementRequis(INFOS.t6, v2[4]), "hors devis : aucun motif de dépassement, même avec des heures");

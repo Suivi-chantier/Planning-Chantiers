@@ -562,12 +562,12 @@ export function seriesPrevuesChantier({
 
   // ── MO prévue datée + heures vendues placées (base de l'avancement prévu) ──
   const moParMois = new Map();  // mois → € MO prévue
-  const hvParMois = new Map();  // mois → heures vendues
-  const tachesNonDatees = [];   // heures vendues impossibles à placer
+  const hvParMois = new Map();  // mois → heures prévues
+  const tachesNonDatees = [];   // heures prévues impossibles à placer
   let heuresReparties = 0;
   ouvrages.forEach((o) => (o.taches || []).forEach((t) => {
     const hv = tacheHeuresVendues(t);
-    if (hv <= 0) return; // sans heures vendues : aucun poids dans la référence
+    if (hv <= 0) return; // sans heures prévues : aucun poids dans la référence
     heuresReparties += hv;
     const mois = moisDeDate(t.date_prevue);
     if (!mois) {
@@ -649,7 +649,7 @@ export function seriesPrevuesChantier({
   });
   const valeurGeneree = (totalHeuresVendues > 0 && venduHT > 0 && pointsValeur.length > 0)
     ? { renseigne: true, points: pointsValeur, avancementPrevuFinal: pointsValeur[pointsValeur.length - 1].avancementPrevu }
-    : { renseigne: false, raison: totalHeuresVendues <= 0 ? "Aucune heure vendue sur les ouvrages." : venduHT <= 0 ? "Aucun prix de vente sur les ouvrages." : "Aucune tâche datée.", points: [] };
+    : { renseigne: false, raison: totalHeuresVendues <= 0 ? "Aucune heure prévue sur les ouvrages." : venduHT <= 0 ? "Aucun prix de vente sur les ouvrages." : "Aucune tâche datée.", points: [] };
 
   // ── Recettes prévues : acompte au mois de signature, puis situations ───────
   const acompte = resolutionAcomptePct({ etatsFinanciers, chantierNom, meta, acomptePctDefaut });
@@ -697,13 +697,13 @@ export function seriesPrevuesChantier({
   if (tachesNonDatees.length > 0) {
     warnings.push({
       code: "taches_non_datees", gravite: "alerte",
-      message: `${tachesNonDatees.length} tâche(s) avec heures vendues sans date_prevue (${Math.round(heuresNonDatees)} h, ${Math.round(nonPlace.moTachesNonDatees)} €) : la référence serait incomplète.`,
+      message: `${tachesNonDatees.length} tâche(s) avec heures prévues sans date_prevue (${Math.round(heuresNonDatees)} h, ${Math.round(nonPlace.moTachesNonDatees)} €) : la référence serait incomplète.`,
     });
   }
   if (Math.abs(heuresNonReparties) > 0.05) {
     warnings.push({
       code: "heures_non_reparties", gravite: "info",
-      message: `${Math.round(heuresNonReparties)} h vendues au devis non réparties sur les tâches : non plaçables dans le temps (comptées à part).`,
+      message: `${Math.round(heuresNonReparties)} h prévues non réparties sur les tâches : non plaçables dans le temps (comptées à part).`,
     });
   }
   if (ouvragesMatNonDates.length > 0) {

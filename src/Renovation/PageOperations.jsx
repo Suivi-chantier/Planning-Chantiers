@@ -800,12 +800,12 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               onClick={() => setKpiDetail("vendu")}/>
             <KpiCard T={T} icon={Clock} iconColor="#f5a623" label="Coût MO réel"
               value={eur(agg.moReel)}
-              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h vendues${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}`}
+              sub={`${fmtH(agg.hReelles)} h réelles / ${fmtH(agg.hVendues)} h prévues${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}`}
               onClick={() => setKpiDetail("mo")}/>
             {(() => {
               const d = carteDeriveOperation(agg);
               return (
-                <KpiCard T={T} icon={Gauge} iconColor={d.couleur || "#818cf8"} label="Dérive heures vendues"
+                <KpiCard T={T} icon={Gauge} iconColor={d.couleur || "#818cf8"} label="Dérive heures prévues"
                   value={d.valeurTexte} sub={d.sousLabel} accent={d.couleur}
                   onClick={() => setKpiDetail("derive")}/>
               );

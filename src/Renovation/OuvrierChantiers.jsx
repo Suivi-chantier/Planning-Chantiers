@@ -433,7 +433,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
         <>
           {/* Totaux du chantier */}
           <SummaryBar T={T} items={[
-            { label:"Heures vendues", value:`${fmtH(tot.vendues)} h`, color:"#5b8af5", icon:Timer },
+            { label:"Heures prévues", value:`${fmtH(tot.vendues)} h`, color:"#5b8af5", icon:Timer },
             { label: tot.horsDevis > 0 ? `Heures réelles, dont ${fmtH(tot.horsDevis)} h hors devis` : "Heures réelles", value:`${fmtH(totAffiche)} h`, color:couleurDerive(tot.vendues, totReelles), icon:HardHat },
           ]}/>
 
@@ -523,7 +523,7 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
             summary={rows.length ? `${fmtH(totReelles)} / ${fmtH(tot.vendues)} h` : "aucun"} defaultOpen>
             {sansPhasage || rows.length === 0 ? (
               <div style={{ fontSize:13, color:T.textMuted, fontStyle:"italic" }}>
-                {sansPhasage ? "Pas encore de chiffrage pour ce chantier." : "Aucune heure vendue ni pointée sur ce chantier."}
+                {sansPhasage ? "Pas encore de chiffrage pour ce chantier." : "Aucune heure prévue ni pointée sur ce chantier."}
               </div>
             ) : (
               <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -537,10 +537,10 @@ export default function OuvrierChantiers({ T, accent = "#FFC200", preview = fals
                           {o.label}
                         </span>
                         <span style={{ fontSize:13, fontWeight:800, color:col, whiteSpace:"nowrap" }}>{fmtH(o.reelles)} h</span>
-                        <span style={{ fontSize:12, color:T.textMuted, whiteSpace:"nowrap" }}>/ {fmtH(o.vendues)} h vendues</span>
+                        <span style={{ fontSize:12, color:T.textMuted, whiteSpace:"nowrap" }}>/ {fmtH(o.vendues)} h prévues</span>
                       </div>
                       {o.horsDevis > 0 && (
-                        <div style={{ fontSize:12, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>+ {fmtH(o.horsDevis)} h hors devis (non comptées dans les heures vendues)</div>
+                        <div style={{ fontSize:12, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>+ {fmtH(o.horsDevis)} h hors devis (non comptées dans les heures prévues)</div>
                       )}
                       <div style={{ height:6, borderRadius:3, background:T.card, overflow:"hidden" }}>
                         <div style={{ height:"100%", width:`${Math.max(o.reelles > 0 ? 3 : 0, pct)}%`, background:`linear-gradient(90deg, ${col}, ${col}cc)`, borderRadius:3 }}/>

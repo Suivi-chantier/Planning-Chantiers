@@ -124,12 +124,12 @@ test("dérive : phases regroupées par type, dans l'ordre du phasage", () => {
   // Même type gt_reseau_elec sous deux noms : une seule ligne, nom du premier vu.
   assert.equal(l[0].main, "Passage réseau élec");
   // 18 h réelles / 36 h vendues ; avancement (50×20 + 25×16) / 36 = 38,9 → 39 %.
-  assert.match(l[0].sub, /^18h \/ 36h vendues · 39% avancé · 2 logements$/);
+  assert.match(l[0].sub, /^18h \/ 36h prévues · 39% avancé · 2 logements$/);
   assert.equal(l[0].right, texteRatio((18 / 36) / 0.39));
   assert.equal(l[0].rightColor, "#e15a5a", "au-delà de ×1,15 : rouge");
   // Plomberie : la tâche hors devis est à part, jamais comparée.
   assert.equal(l[1].main, "Plomberie");
-  assert.match(l[1].sub, /8h \/ 10h vendues · 100% avancé · \+ 2h hors devis · 1 logement/);
+  assert.match(l[1].sub, /8h \/ 10h prévues · 100% avancé · \+ 2h hors devis · 1 logement/);
   assert.equal(l[1].right, "×0.80");
   // Sans phase en dernier, non calculable à 0 % (jamais affiché comme ×0).
   assert.equal(l[2].main, "Sans phase (à organiser)");
@@ -143,7 +143,7 @@ test("dérive : heures hors phase et écart de vendu ont leur ligne", () => {
   assert.match(hp.sub, /^1h réelles/);
   const ec = l.find((x) => x.main.startsWith("Écart de vendu"));
   assert.equal(ec.right, "− 4h");
-  assert.match(ec.sub, /46h vendues sur les ouvrages, 50h réparties sur les tâches/);
+  assert.match(ec.sub, /46h prévues sur les ouvrages, 50h réparties sur les tâches/);
 });
 
 test("dérive : la carte = formule des lots sur les sommes de l'opération", () => {
@@ -165,7 +165,7 @@ test("dérive non calculable : affichée comme telle, jamais 0", () => {
   assert.equal(vide.derive, null);
   const carte = carteDeriveOperation(vide);
   assert.equal(carte.valeurTexte, "—");
-  assert.equal(carte.sousLabel, "non calculable : aucune heure vendue");
+  assert.equal(carte.sousLabel, "non calculable : aucune heure prévue");
   const d = detailKpiOperation("derive", { chantiersOp: [{ id: "X", nom: "X" }], finParChantier: {}, agg: vide });
   assert.equal(d.vide, "Aucun logement de l'opération n'a de phasage chiffré.");
   assert.equal(d.totalTexte, "—");

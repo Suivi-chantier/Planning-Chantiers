@@ -87,6 +87,11 @@ import {
 // Composants partagés (KPI, infobulles, modale de ventilation) — communs avec
 // la page Bilan semaine. La présentation vit là, le contenu dans les Donnee.
 import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
+// Heures prévues (16/10/2026) : cadence × quantité de la bibliothèque, à défaut
+// heures du devis (signalé). Elles vivent dans heures_devis / heures_vendues.
+import {
+  mentionHeuresPrevues, SOURCE_PREVUES_BIBLIOTHEQUE, SOURCE_PREVUES_DEVIS, SOURCE_PREVUES_MANUEL,
+} from "./reportRatiosBibliotheque.js";
 // Prévisionnel client : structure, génération auto depuis les groupes datés et
 // gabarit PDF — module partagé avec le Chemin de fer (prévisionnel d'opération).
 import {
@@ -990,15 +995,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     updateOuvrages(ouvrages.map(o => o.id === id ? { ...o, ...patch } : o));
   };
 
-  // Met à jour les heures vendues de l'ouvrage ET redistribue heures_vendues
-  // sur ses tâches (selon leur ratio, à défaut leurs heures estimées, à défaut
-  // à parts égales). Valeurs exactes ; l'arrondi à 0,25 est fait au planning.
+  // Met à jour les heures PRÉVUES de l'ouvrage (champ heures_devis) ET les
+  // redistribue sur ses tâches (selon leur ratio, à défaut leurs heures
+  // estimées, à défaut à parts égales). Saisie manuelle : marquée comme telle,
+  // et remplacée au prochain report de la bibliothèque (cadence × quantité).
+  // Les heures du devis Excel restent dans heures_devis_origine.
   const setOuvrageHeuresDevis = (id, value) => {
     updateOuvrages(ouvrages.map(o => {
       if (o.id !== id) return o;
       const parts = repartirHeuresVendues(value, o.taches || []);
       const taches = (o.taches || []).map((t, i) => ({ ...t, heures_vendues: parts[i] }));
-      return { ...o, heures_devis: value, taches };
+      const origine = Object.prototype.hasOwnProperty.call(o, "heures_devis_origine")
+        ? {} : { heures_devis_origine: o.heures_devis ?? null };
+      return { ...o, ...origine, heures_devis: value, heures_prevues_source: SOURCE_PREVUES_MANUEL, taches };
     }));
   };
 
@@ -1589,7 +1598,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       const heuresEstimees = cadence && it.quantite ? parseFloat((cadence * it.quantite).toFixed(2)) : null;
       const sousTaches = ref?.sous_taches || [];
       const sumRatios = sousTaches.reduce((sum, st) => sum + (parseFloat(st.ratio) || 0), 0);
-      const heuresDevis = parseFloat(it.heures);
+      // Heures prévues : cadence × quantité ; sans cadence, heures du devis.
+      const heuresDevis = heuresEstimees != null ? heuresEstimees : parseFloat(it.heures);
       const resolveChronoGroupId = (groupeTypeId) =>
         chronoGroupes.find(g => String(g.groupe_type_id || "") === String(groupeTypeId || ""))?.id || null;
 
@@ -1669,7 +1679,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         id: rid(),
         libelle: it.libelle,
         lot_id: it.lot_id || null,
-        heures_devis: it.heures,
+        heures_devis: heuresEstimees != null ? heuresEstimees : it.heures,
+        heures_devis_origine: it.heures ?? null,   // heures du devis Excel, pour information
+        heures_prevues_source: heuresEstimees != null ? SOURCE_PREVUES_BIBLIOTHEQUE : SOURCE_PREVUES_DEVIS,
         quantite: it.quantite,
         unite: it.unite || "U",
         prix_ht: it.prix_ht,
@@ -3019,7 +3031,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                         if (hr === 0 && hv === 0) return null;
                         const col = couleurDepassement(hr, hv);
                         return (
-                          <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`} T={T}>
+                          <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h prévues` : `${fmtH(hr)}h réelles`} T={T}>
                             <div style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, marginTop: 2, cursor: "help" }}>
                               {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
                             </div>
@@ -3168,15 +3180,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                             return (
                               <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
                                 {showH && (
-                                  <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues` : `${fmtH(hr)}h réelles`} T={T}>
+                                  <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h prévues` : `${fmtH(hr)}h réelles`} T={T}>
                                     <span style={{ color: col || T.textMuted, fontWeight: col ? 700 : 400, cursor: "help" }}>
                                       {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
                                     </span>
                                   </InfoBulle>
                                 )}
                                 {hd > 0 && (
-                                  <span title="Tâches hors devis : comptées dans le coût, pas comparées aux heures vendues" style={{ color: "#2563eb", fontWeight: 700 }}>
+                                  <span title="Tâches hors devis : comptées dans le coût, pas comparées aux heures prévues" style={{ color: "#2563eb", fontWeight: 700 }}>
                                     {" "}+ {fmtH(hd)}h hors devis
+                                  </span>
+                                )}
+                                {hv > 0 && mentionHeuresPrevues(o) && (
+                                  <span title="Heures prévues = cadence × quantité de la bibliothèque ; les heures du devis sont indiquées pour information."
+                                    style={{ fontStyle: "italic" }}>
+                                    {" "}({mentionHeuresPrevues(o)})
                                   </span>
                                 )}
                                 {o.quantite ? `${showH ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
@@ -3288,7 +3306,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                 if (hr > 0 || hv > 0) {
                                   const col = couleurDepassement(hr, hv);
                                   return (
-                                    <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h vendues (${Math.round(hr/hv*100)}%)` : `${fmtH(hr)}h réelles`} T={T}>
+                                    <InfoBulle contenu={hv > 0 ? `Réalisé ${fmtH(hr)}h sur ${fmtH(hv)}h prévues (${Math.round(hr/hv*100)}%)` : `${fmtH(hr)}h réelles`} T={T}>
                                       <span style={{ fontSize: FONT.xs.size, color: col || T.textMuted, fontWeight: col ? 700 : 400, whiteSpace: "nowrap", cursor: "help" }}>
                                         {fmtH(hr)}h / {hv > 0 ? `${fmtH(hv)}h` : "—"}
                                       </span>
@@ -3966,10 +3984,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 placeholder="Nom de l'ouvrage" style={{ ...modalInp(T), fontWeight: 600 }}/>
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              <ModalField label="Heures vendues">
+              <ModalField label="Heures prévues">
                 <InputNombre min="0" valeur={o.heures_devis ?? ""}
                   onValeur={n => setOuvrageHeuresDevis(o.id, n)}
                   placeholder="0" style={modalInp(T)}/>
+                {mentionHeuresPrevues(o) && (
+                  <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3, fontStyle: "italic" }}>{mentionHeuresPrevues(o)}</div>
+                )}
               </ModalField>
               <ModalField label="Quantité">
                 <div style={{ display: "flex", gap: 4 }}>
@@ -4058,7 +4079,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             {/* Nature et « Hors devis » (étape 3b) : choisir une nature préremplit
                 la case selon sa règle (demande du client, imprévu → hors devis) ;
                 la case reste modifiable. Une tâche hors devis ne consomme pas
-                les heures vendues de l'ouvrage : ses heures comptent dans le
+                les heures prévues de l'ouvrage : ses heures comptent dans le
                 coût, jamais dans les comparaisons au vendu ni l'avancement. */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "end" }}>
               <ModalField label="Nature de la tâche">
@@ -4077,7 +4098,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 <input type="checkbox" checked={tacheHorsDevis(t)}
                   onChange={e => updateTache(o.id, t.id, { hors_devis: e.target.checked })}
                   style={{ width: 16, height: 16, accentColor: "#2563eb" }}/>
-                <span><strong>Hors devis</strong> : ne consomme pas les heures vendues de l'ouvrage</span>
+                <span><strong>Hors devis</strong> : ne consomme pas les heures prévues de l'ouvrage</span>
               </label>
             </div>
             {/* Suivi en quantité (étape 4) : automatique selon l'unité et la
@@ -5164,7 +5185,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {tacheHorsDevis(t) && (
-              <span title="Hors devis : travail non vendu — ses heures comptent dans le coût, pas dans les heures vendues de l'ouvrage"
+              <span title="Hors devis : travail non vendu — ses heures comptent dans le coût, pas dans les heures prévues de l'ouvrage"
                 style={{
                   display: "inline-block", verticalAlign: "middle", marginRight: 6,
                   padding: "0 5px", borderRadius: 4, border: "1px solid #2563eb",
@@ -5360,7 +5381,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     const termine = tachesG.length > 0 && tachesG.every(({ tache: t }) => (parseInt(t.avancement) || 0) >= 100);
     const etatCtrl = etatControleGroupe(g.id, { reserves: reservesChantier, controles: controlesChantier, termine, todayISO });
     const rangeLbl = st.dmin ? (st.dmax && +st.dmax !== +st.dmin ? `${fmtShort(st.dmin)} – ${fmtShort(st.dmax)}` : fmtShort(st.dmin)) : null;
-    const hvLbl = st.hv > 0 ? `${Math.round(st.hv * 10) / 10} h vendues` : null;
+    const hvLbl = st.hv > 0 ? `${Math.round(st.hv * 10) / 10} h prévues` : null;
     return (
       <div key={g.id} style={{ marginBottom: 18 }}>
         {/* Ligne titre */}

@@ -1289,7 +1289,7 @@ function BlocReferenceFinanciere({ T, chantierId, chantierNom, phasage, finance,
               </div>
             ) : (
               <div style={{ margin: "12px 0", fontSize: 12.5, color: "#22c55e", fontWeight: 700 }}>
-                ✓ Toutes les tâches à heures vendues sont datées : référence complète.
+                ✓ Toutes les tâches à heures prévues sont datées : référence complète.
               </div>
             )}
 
@@ -3379,7 +3379,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     <span style={{ fontSize: FONT.lg.size, fontWeight: 800, color: text, letterSpacing: -0.3 }}>
                       {fmtH(totalHeures.reelles)}h
                       <span style={{ fontSize: FONT.sm.size, color: textMuted, fontWeight: 600, marginLeft: 4 }}>
-                        / {fmtH(totalHeures.vendues)}h vendues
+                        / {fmtH(totalHeures.vendues)}h prévues
                         {totalHeures.horsDevis > 0 && ` + ${fmtH(totalHeures.horsDevis)}h hors devis`}
                       </span>
                     </span>
@@ -3415,7 +3415,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                         )}
                       </span>
                       {o.horsDevis > 0 && (
-                        <span title="Tâches hors devis : comptées dans le coût, pas comparées aux heures vendues" style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, flexShrink: 0 }}>
+                        <span title="Tâches hors devis : comptées dans le coût, pas comparées aux heures prévues" style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: textMuted, flexShrink: 0 }}>
                           + {fmtH(o.horsDevis)}h hors devis
                         </span>
                       )}
@@ -3605,7 +3605,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Heures vendues</span>
+                      <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>Heures prévues</span>
                       <span style={{ fontSize: FONT.md.size, fontWeight: 800, color: text, fontFamily: "'DM Mono',monospace" }}>{fmtH(totalHVendues)}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>

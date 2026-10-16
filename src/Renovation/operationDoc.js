@@ -273,7 +273,7 @@ export function buildOperationDocHTML({
     </tr></thead>
     <tbody>
       ${lignePR("Main-d'œuvre", eur(agg.moPrev), eur(agg.moReel),
-        { sousPrev: `${fmtH(agg.hVendues)} h vendues`, sousReel: `${fmtH(agg.hReelles)} h pointées${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}` })}
+        { sousPrev: `${fmtH(agg.hVendues)} h prévues`, sousReel: `${fmtH(agg.hReelles)} h pointées${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}` })}
       ${lignePR("Matériaux", eur(agg.matPrev), eur(agg.mat))}
       ${lignePR("Frais généraux", agg.fgPrev > 0 ? eur(agg.fgPrev) : "—", agg.fg > 0 ? eur(agg.fg) : "—")}
       ${lignePR("Total déboursé", eur(debPrev), eur(debReel), { bold: true })}

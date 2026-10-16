@@ -23,12 +23,20 @@
 //     source, à défaut même nom) reprend le % de la bibliothèque ;
 //   • les heures estimées de l'ouvrage sont réparties entre les tâches
 //     reconnues selon ces % — c'est ce poids qui fait l'avancement ;
-//   • les heures VENDUES des tâches reconnues sont réparties selon les mêmes %,
-//     leur TOTAL ne bouge pas (ce qui a été vendu au client reste vendu).
-// Jamais touchés : avancement saisi, heures réelles, prix, heures vendues de
-// l'ouvrage, quantités, tâches hors devis, tâches non reconnues (renvoyées
-// pour être affichées : une tâche laissée telle quelle ne doit pas passer
-// pour corrigée).
+//   • HEURES PRÉVUES (décision du 16/10/2026, elles remplacent les « heures
+//     vendues » partout dans l'application) : cadence × quantité, réparties
+//     entre les tâches reconnues selon les mêmes %. Elles vivent dans les
+//     champs historiques `heures_devis` (ouvrage) et `heures_vendues` (tâche),
+//     que tous les calculs lisent déjà : MO et marge prévisionnelles, dérives,
+//     planning, espace ouvrier, Bilan, Opérations.
+//   • les heures du DEVIS Excel sont gardées pour information seulement dans
+//     `heures_devis_origine` (posé une fois, jamais réécrit) ;
+//   • sans cadence ou sans quantité, les heures prévues restent celles du devis
+//     et l'ouvrage est marqué `heures_prevues_source: "devis"` (« prévu =
+//     devis ») : l'absence de cadence reste visible.
+// Jamais touchés : avancement saisi, heures réelles, prix, quantités, tâches
+// hors devis, tâches non reconnues (renvoyées pour être affichées : une tâche
+// laissée telle quelle ne doit pas passer pour corrigée).
 
 import { avancementChantier } from "../chantierFinance.mjs";
 
@@ -38,6 +46,33 @@ const num = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 const arr2 = (n) => Number(n.toFixed(2));
+
+// ── Heures prévues : provenance et heures du devis (lecture) ────────────────
+// "bibliotheque" : cadence × quantité ; "manuel" : saisies dans le phasage ;
+// "devis" : heures du devis Excel, faute de cadence (ou ouvrage pas encore
+// passé par la bibliothèque — un ouvrage sans le champ est dans ce cas).
+export const SOURCE_PREVUES_BIBLIOTHEQUE = "bibliotheque";
+export const SOURCE_PREVUES_DEVIS = "devis";
+export const SOURCE_PREVUES_MANUEL = "manuel";
+export function sourceHeuresPrevues(ouvrage) {
+  const s = ouvrage?.heures_prevues_source;
+  return s === SOURCE_PREVUES_BIBLIOTHEQUE || s === SOURCE_PREVUES_MANUEL ? s : SOURCE_PREVUES_DEVIS;
+}
+// Heures du devis Excel (information) : la copie gardée, sinon — ouvrage pas
+// encore passé par la bibliothèque — `heures_devis`, qui en vient encore.
+export function heuresDevisOrigine(ouvrage) {
+  if (ouvrage && Object.prototype.hasOwnProperty.call(ouvrage, "heures_devis_origine")) return num(ouvrage.heures_devis_origine);
+  return num(ouvrage?.heures_devis);
+}
+// Mention courte affichée à côté des heures prévues d'un ouvrage.
+export function mentionHeuresPrevues(ouvrage) {
+  const src = sourceHeuresPrevues(ouvrage);
+  const devis = heuresDevisOrigine(ouvrage);
+  const fmt = (n) => `${String(Math.round(n * 100) / 100).replace(".", ",")} h`;
+  if (src === SOURCE_PREVUES_DEVIS) return "prévu = devis, pas de cadence";
+  if (devis == null) return src === SOURCE_PREVUES_MANUEL ? "prévu saisi à la main" : null;
+  return `${src === SOURCE_PREVUES_MANUEL ? "saisi à la main · " : ""}devis : ${fmt(devis)}`;
+}
 
 // Nom comparable : casse, accents et espaces multiples ignorés.
 export function nomComparable(s) {
@@ -116,12 +151,11 @@ export function reporterSurOuvrage(ouvrage, ouvrageBiblio) {
   const taches = Array.isArray(ouvrage?.taches) ? ouvrage.taches : [];
   const sousTaches = Array.isArray(ouvrageBiblio?.sous_taches) ? ouvrageBiblio.sous_taches : [];
 
-  // Heures estimées de l'ouvrage : cadence × quantité, sinon inchangées.
+  // Heures de l'ouvrage : cadence × quantité, sinon inchangées.
   const cadence = num(ouvrageBiblio?.cadence);
   const quantite = num(ouvrage?.quantite);
-  const heuresOuvrage = cadence != null && cadence > 0 && quantite != null && quantite > 0
-    ? arr2(cadence * quantite)
-    : num(ouvrage?.heures_estimees);
+  const parCadence = cadence != null && cadence > 0 && quantite != null && quantite > 0;
+  const heuresOuvrage = parCadence ? arr2(cadence * quantite) : num(ouvrage?.heures_estimees);
 
   // Les tâches hors devis ne sont jamais concernées (travail non vendu).
   const candidates = taches.map((t, i) => ({ t, i })).filter(({ t }) => t?.hors_devis !== true);
@@ -146,11 +180,12 @@ export function reporterSurOuvrage(ouvrage, ouvrageBiblio) {
     const estimees = totalEstimees == null ? null
       : repartir(totalEstimees, poids, reconnues.map(c => num(c.t.heures_estimees) || 0));
 
-    // Heures vendues : on redistribue le total déjà porté par les tâches
-    // reconnues ; si aucune n'en porte, les heures vendues de l'ouvrage.
+    // Heures prévues (champ heures_vendues) : cadence × quantité si elle est
+    // connue ; sinon on redistribue le total déjà porté par les tâches
+    // reconnues (à défaut les heures prévues de l'ouvrage).
     const ontVendues = reconnues.some(c => c.t.heures_vendues != null);
-    const totalVendues = ontVendues
-      ? reconnues.reduce((s, c) => s + (num(c.t.heures_vendues) || 0), 0)
+    const totalVendues = parCadence ? heuresOuvrage
+      : ontVendues ? reconnues.reduce((s, c) => s + (num(c.t.heures_vendues) || 0), 0)
       : num(ouvrage?.heures_devis);
     const vendues = totalVendues == null ? null
       : repartir(totalVendues, poids, reconnues.map(c => num(c.t.heures_vendues) || 0));
@@ -164,9 +199,20 @@ export function reporterSurOuvrage(ouvrage, ouvrageBiblio) {
     });
   }
 
+  // Heures prévues de l'ouvrage + copie unique des heures du devis.
+  const aOrigine = Object.prototype.hasOwnProperty.call(ouvrage || {}, "heures_devis_origine");
+  const prevues = parCadence ? {
+    ...(aOrigine ? {} : { heures_devis_origine: num(ouvrage?.heures_devis) }),
+    heures_devis: heuresOuvrage,
+    heures_prevues_source: SOURCE_PREVUES_BIBLIOTHEQUE,
+  } : {
+    ...(aOrigine ? {} : { heures_devis_origine: num(ouvrage?.heures_devis) }),
+    heures_prevues_source: SOURCE_PREVUES_DEVIS,
+  };
   const ouvrageNouveau = {
     ...ouvrage,
     ...(heuresOuvrage != null ? { heures_estimees: heuresOuvrage } : {}),
+    ...prevues,
     taches: nouvelles,
   };
   const modifie = JSON.stringify(ouvrageNouveau) !== JSON.stringify(ouvrage);
@@ -186,6 +232,34 @@ export function reporterSurPhasage(ouvrages, ouvrageBiblio) {
     if (idBiblio == null || o?.bibliotheque_id == null || String(o.bibliotheque_id) !== idBiblio) return o;
     concernes += 1;
     const r = reporterSurOuvrage(o, ouvrageBiblio);
+    if (r.modifie) modifie = true;
+    realignees += r.realignees;
+    r.nonReconnues.forEach(nom => nonReconnues.push({ ouvrage: o.libelle || "(sans libellé)", tache: nom }));
+    return r.ouvrage;
+  });
+  return {
+    ouvrages: modifie ? nouveaux : liste,
+    modifie,
+    ouvragesConcernes: concernes,
+    tachesRealignees: realignees,
+    nonReconnues,
+    avancementAvant: avancementChantier(liste),
+    avancementApres: avancementChantier(modifie ? nouveaux : liste),
+  };
+}
+
+// Toute la bibliothèque sur un phasage : chaque ouvrage du phasage relié à un
+// ouvrage de `biblioParId` (Map id → ouvrage) est reporté. Même résultat que
+// d'enregistrer un à un chacun de ces ouvrages.
+export function reporterBibliothequeSurPhasage(ouvrages, biblioParId) {
+  const liste = Array.isArray(ouvrages) ? ouvrages : [];
+  let concernes = 0, realignees = 0, modifie = false;
+  const nonReconnues = [];
+  const nouveaux = liste.map(o => {
+    const b = o?.bibliotheque_id == null ? null : biblioParId.get(String(o.bibliotheque_id));
+    if (!b) return o;
+    concernes += 1;
+    const r = reporterSurOuvrage(o, b);
     if (r.modifie) modifie = true;
     realignees += r.realignees;
     r.nonReconnues.forEach(nom => nonReconnues.push({ ouvrage: o.libelle || "(sans libellé)", tache: nom }));
