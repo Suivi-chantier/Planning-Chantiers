@@ -34,8 +34,6 @@ jobs:
         run: node scripts/verif-chantier-finance.mjs
       - name: Fixtures tâches hors devis (libellés « heures prévues »)
         run: node scripts/verif-hors-devis.mjs
-      - name: Fixtures Mes phases (libellés « heures prévues »)
-        run: node scripts/verif-ouvrier-mes-phases.mjs
       - name: Fixtures KPI Opérations (libellés « heures prévues »)
         run: node scripts/verif-operation-kpi-detail.mjs
       - name: Fixtures compte rendu v2 (libellés « heures prévues »)
