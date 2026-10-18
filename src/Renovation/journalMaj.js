@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-18",
+    type: "amelioration",
+    titre: "Nouveaux horaires : 4 jours chaque semaine, du lundi au jeudi, 39 h",
+    pages: [{ id: "planning", label: "Planning semaine" }, { id: "validation", label: "Validation" }, { id: "bilan-semaine", label: "Bilan Semaine" }, { id: "admin", label: "Admin" }],
+    quoi: "À partir du lundi 19 octobre 2026 (semaine 43), il n'y a plus d'alternance 4 jours / 5 jours : toutes les semaines se travaillent du lundi au jeudi, de 7h30 à 12h puis de 12h45 à 18h, soit 9h45 par jour et 39 h par semaine. Le vendredi n'est plus travaillé. Les semaines d'avant gardent leur barème (35 h / 43 h jusqu'au 16 octobre) : rien n'est recalculé dans l'historique.",
+    comment: "Le compte rendu de fin de journée demande désormais 9h45 du lundi au jeudi ; le vendredi s'affiche « jour non travaillé ». La validation compare à ces mêmes heures. Le planning compte 8h45 de tâches posables par jour, une heure étant laissée aux trajets et heures indirectes comme avant, et le vendredi n'a plus de capacité. Le badge du planning affiche « Semaine de 4 jours » chaque semaine. Admin → Heures par jour affiche les nouveaux horaires ; les exceptions par date (férié, pont) restent prioritaires.",
+  },
+  {
     date: "2026-10-16",
     type: "amelioration",
     titre: "Heures prévues : la bibliothèque remplace les heures vendues du devis",
