@@ -12,7 +12,7 @@ import { useIsMobile } from "./Navigation";
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileSection } from "../mobileUI";
 import { syncDatePrevueTache } from "./phasagePlanning";
-import { capaciteJour, estJourNonTravaille, libelleRythme, semainesDansAnnee } from "../rythmeSemaine";
+import { capaciteJour, estJourNonTravaille, libelleRythme, detailRythme, semainesDansAnnee } from "../rythmeSemaine";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
   ArrowRightLeft, Clock, TriangleAlert, Check, Snowflake,
@@ -573,7 +573,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
             {year}
           </span>
           {libelleRythme(year, week) && (
-            <span title="Rythme alterné : semaines impaires 4 jours (lun-jeu), semaines paires 5 jours" style={{
+            <span title={detailRythme(year, week)} style={{
               fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .4,
               color: acc.accentDark || acc.accent, background: acc.bg10,
               border: `1px solid ${acc.border}`, borderRadius: RADIUS.pill,

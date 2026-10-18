@@ -3,7 +3,7 @@ import { supabase } from "../supabase";
 import { JOURS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, FONT, RADIUS, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, GROUPES_TYPES_DEFAUT, EQUIPES_DEFAUT, TAUX_MO_PREV_DEFAUT, matchFournisseur, isLocalLoginEmail, loginEmailFromIdentifiant, identifiantFromLoginEmail, IDENTIFIANT_REGEX, normalizeBranches } from "../constants";
 import { Icon } from "../ui";
 import AdresseInput from "../AdresseAutocomplete";
-import { PROFIL_4J, PROFIL_5J, RYTHME_DATE_DEBUT, HORAIRES_DATE_DEBUT, HORAIRES_JOUR, HORAIRES_VENDREDI_5J, getISOWeek, libelleRythme, fmtHeures } from "../rythmeSemaine";
+import { PROFIL_SEMAINE, QUATRE_JOURS_DATE_DEBUT, HORAIRES_JOUR, getISOWeek, quatreJoursFixes, fmtHeures } from "../rythmeSemaine";
 import { buildPointagesRapport, rangRapportDuJour, repartTrajetCents, reporterQuantites } from "../pointages";
 import {
   Settings, Users, HardHat, Euro, Building2, Palette,
@@ -3244,7 +3244,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   }, []);
 
   // ─── HEURES PAR JOUR CRUD ────────────────────────────────────────────────
-  // Depuis le rythme 4j/5j (24/08/2026), le barème hebdomadaire est porté par
+  // Depuis la rentrée (24/08/2026), le barème hebdomadaire est porté par
   // src/rythmeSemaine.js (affiché en lecture seule dans l'onglet). La config
   // "heures_par_jour" ne sert plus qu'aux EXCEPTIONS par date et aux semaines
   // antérieures à la rentrée.
@@ -4930,25 +4930,20 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         <div className="ac">
           <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Heures travaillées par jour</div>
           <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18,maxWidth:640,lineHeight:1.6}}>
-            Depuis le {new Date(RYTHME_DATE_DEBUT + "T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})},
-            l'entreprise alterne une semaine sur deux selon le numéro de semaine du calendrier :
-            {" "}<strong style={{color:T.text}}>semaines impaires → 4 jours</strong> (lundi à jeudi),
-            {" "}<strong style={{color:T.text}}>semaines paires → 5 jours</strong>.
-            Depuis le {new Date(HORAIRES_DATE_DEBUT + "T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})},
-            horaires {HORAIRES_JOUR} (le vendredi des semaines de 5 jours : {HORAIRES_VENDREDI_5J}) —
-            soit <strong style={{color:T.text}}>35 h</strong> en semaine de 4 jours et <strong style={{color:T.text}}>43 h</strong> en semaine de 5 jours.
+            À partir du {new Date(QUATRE_JOURS_DATE_DEBUT + "T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})},
+            {" "}<strong style={{color:T.text}}>toutes les semaines font 4 jours</strong>, du lundi au jeudi,
+            horaires {HORAIRES_JOUR} — soit 9h45 par jour et <strong style={{color:T.text}}>39 h</strong> par semaine ; le vendredi n'est pas travaillé.
             C'est la cible exacte des comptes rendus de fin de journée (tâches + trajets + heures indirectes).
+            Les semaines précédentes gardent leur ancien barème (alternance 4 jours / 5 jours).
           </div>
 
-          {/* Profils du rythme alterné (source : src/rythmeSemaine.js, lecture seule) */}
+          {/* Profil de la semaine (source : src/rythmeSemaine.js, lecture seule) */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:10,marginBottom:14}}>
             {[
-              { titre:"Semaines impaires — 4 jours", profil:PROFIL_4J, note:`${HORAIRES_JOUR} · vendredi non travaillé` },
-              { titre:"Semaines paires — 5 jours",   profil:PROFIL_5J, note:`${HORAIRES_JOUR} · vendredi fin 16h15` },
+              { titre:"Toutes les semaines — 4 jours", profil:PROFIL_SEMAINE, note:`${HORAIRES_JOUR} · vendredi non travaillé` },
             ].map(({titre, profil, note}) => {
               const cur = getISOWeek(new Date());
-              const active = libelleRythme(cur.year, cur.week) !== "" &&
-                ((cur.week % 2 === 1) === (profil === PROFIL_4J));
+              const active = quatreJoursFixes(cur.year, cur.week);
               return (
                 <div key={titre} style={{
                   background:T.surface,border:`1.5px solid ${active ? acc.border : T.border}`,
