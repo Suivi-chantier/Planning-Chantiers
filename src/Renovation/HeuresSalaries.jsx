@@ -97,7 +97,7 @@ function rapportAPhotos(r) {
 }
 
 // Seuils heures sup (affichage seulement — cf. spec 2d). Configurables plus tard.
-const SEUIL_HS = 35;       // au-delà : sous-total semaine coloré (alerte douce)
+const SEUIL_HS = 39;       // au-delà : sous-total semaine coloré (alerte douce) — semaine normale = 39 h depuis le 19/10/2026
 const SEUIL_HS_FORT = 48;  // au-delà : alerte forte
 
 // Couleur de repli si un chantier n'a pas de couleur définie.

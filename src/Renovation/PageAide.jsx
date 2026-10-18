@@ -248,7 +248,7 @@ export const AIDE_CONTENU = {
     savoir: [
       "Une case n'apparaît que si le CR a été validé. « À valider » (bordure pointillée) = planifié mais pas encore validé.",
       "Cette page est en lecture seule : pour corriger une heure, revalidez le CR dans la page Validation.",
-      "Le sous-total d'une semaine se colore au-delà de 35 h (alerte forte à 48 h) : c'est un simple repère, pas un calcul de majoration.",
+      "Le sous-total d'une semaine se colore au-delà de 39 h (alerte forte à 48 h) : c'est un simple repère, pas un calcul de majoration.",
       "Absences, clôture et export paie arriveront après décision avec le comptable.",
     ],
   },
