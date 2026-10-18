@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-18",
+    type: "correctif",
+    titre: "Bibliothèque et Chiffrage : la saisie n'a plus de retard",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }, { id: "info-client", label: "Chiffrage" }],
+    quoi: "Dans la Bibliothèque des ouvrages et dans le Chiffrage, chaque lettre tapée mettait du temps à s'afficher. La cause : à chaque frappe, l'application recalculait le prix de tous les ouvrages (215), en reparcourant à chaque fois les quelque 12 800 matériaux de la bibliothèque. La saisie redevient immédiate.",
+    comment: "Rien ne change à l'écran ni dans les prix : ils sont calculés exactement de la même façon. Ils ne sont simplement plus recalculés quand rien ne les a modifiés. Dans la Bibliothèque, une frappe dans une fiche ne recalcule plus que cette fiche. Dans le Chiffrage, les prix du catalogue « Ajouter depuis la bibliothèque » sont calculés une fois au chargement (et à chaque changement des conditions de vente), et la recherche du catalogue filtre la liste juste après la frappe au lieu de la bloquer.",
+  },
+  {
+    date: "2026-10-18",
     type: "amelioration",
     titre: "Heures des salariés : une semaine ne se colore plus qu'au-delà de 39 h",
     pages: [{ id: "heures-salaries", label: "Heures des salariés" }],

@@ -82,7 +82,10 @@ export function normaliserUnite(u) {
   return s;
 }
 
-function indexerMateriaux(materiaux) {
+// Index id → matériau. Exporté pour que les écrans le construisent UNE fois
+// (12 000+ matériaux) et le passent tel quel à calculerOuvrage : avec un
+// tableau, l'index est reconstruit à chaque appel, donc pour chaque ouvrage.
+export function indexerMateriaux(materiaux) {
   if (materiaux instanceof Map) return materiaux;
   const map = new Map();
   if (Array.isArray(materiaux)) materiaux.forEach(m => { if (m && m.id != null) map.set(String(m.id), m); });

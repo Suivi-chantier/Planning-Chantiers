@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect, memo } from "react";
 import { supabase } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
 // BIBLIOTHEQUE_INITIALE n'est plus importée ici : elle servait uniquement à
@@ -11,7 +11,7 @@ import {
   DEPENDANCE_MODES, dupliquerSousTachesV2, estOuvrageV2, maturiteOuvrageV2,
   normaliserOuvrageV2, nouvelIdSousTache,
 } from "./planningModelV1";
-import { calculerOuvrage, validerValeurCoefficient, validerTauxHoraire } from "./chiffragePricing.mjs";
+import { calculerOuvrage, indexerMateriaux, validerValeurCoefficient, validerTauxHoraire } from "./chiffragePricing.mjs";
 import { valeurParDefautReferentiel } from "./conditionsChiffrage.mjs";
 import {
   expliquerPrixMateriaux, formaterCoefficient, diagnostiquerCoefficients, coefficientParDefaut,
@@ -82,7 +82,7 @@ export const CATEGORIES_BASE = [
 // Pour les Ouvrages_V2, la ligne porte aussi son groupe d'exécution et sa
 // dépendance technique. Les ouvrages historiques gardent leur affichage sans
 // imposer ces nouvelles métadonnées.
-function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, groupesTypes, T }) {
+function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, groupesTypes, T }) {
   const lotId = st.lotId ?? st.phaseId ?? "";
   const lot = LOTS.find(l => l.id === lotId);
   const total = (editData.sous_taches || []).length;
@@ -95,13 +95,13 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
   function update(field, value) {
     const next = [...(editData.sous_taches || [])];
     next[idx] = { ...next[idx], [field]: value };
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
   function updatePatch(patch) {
     const next = [...(editData.sous_taches || [])];
     next[idx] = { ...next[idx], ...patch };
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
   function remove() {
@@ -111,7 +111,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
       .map(x => removedId && Array.isArray(x.predecesseur_ids)
         ? { ...x, predecesseur_ids: x.predecesseur_ids.filter(id => id !== removedId) }
         : x);
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
   function move(delta) {
@@ -119,7 +119,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
     if (j < 0 || j >= total) return;
     const next = [...(editData.sous_taches || [])];
     [next[idx], next[j]] = [next[j], next[idx]];
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
   function setMode(nextMode) {
@@ -281,7 +281,7 @@ function SousTacheRow({ st, idx, editData, ouvrage, setOuvrages, ouvrages, group
 // ─── MATÉRIAU LIÉ ROW ────────────────────────────────────────────────────────
 // Un lien matériau ↔ ouvrage : { materiau_id, quantite }. La quantité est
 // exprimée pour 1 unité d'ouvrage (ex : 4 vis par porte posée).
-function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, materiaux, T, acc }) {
+function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, materiaux, T, acc }) {
   const [search, setSearch] = useState("");
   const [open, setOpen]     = useState(false);
   const mat = materiaux.find(m => m.id === ml.materiau_id);
@@ -289,12 +289,12 @@ function MateriauLienRow({ ml, idx, editData, ouvrage, setOuvrages, ouvrages, ma
   function update(field, value) {
     const next = [...(editData.materiaux_liens || [])];
     next[idx] = { ...next[idx], [field]: value };
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
   }
 
   function remove() {
     const next = (editData.materiaux_liens || []).filter((_, i) => i !== idx);
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
   }
 
   function pick(materiau) {
@@ -546,21 +546,34 @@ function EncartEchantillon({ entree, pret, T }) {
   );
 }
 
-function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, ouvrages, setOuvrages, categories, getCat, changerCategorie, materiaux, groupesTypes, coutHoraire, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, estArchive = false, onArchiver = null, archivageEnCours = false, T, acc }) {
-  const editData = ouvrages.find(o => o.id === ouvrage.id) || ouvrage;
-  const currentCat = getCat(ouvrage.identifiant);
+// Rappel d'identité stable qui appelle toujours la dernière version de `fn`
+// (réservé aux gestionnaires d'évènements, jamais appelé pendant le rendu).
+function useRappelStable(fn) {
+  const ref = useRef(fn);
+  useLayoutEffect(() => { ref.current = fn; });
+  return useCallback((...args) => ref.current(...args), []);
+}
+
+// Fiche mémoïsée : une frappe dans UNE fiche ne redessine que celle-ci. Pour
+// que la mémoïsation tienne, la page ne lui passe que des valeurs stables
+// (rappels stables, prix et catégorie calculés par la page) et la fiche ne
+// lit jamais la liste complète des ouvrages : elle met à jour SON ouvrage par
+// setOuvrages(prev => …).
+const OuvrageCard = memo(function OuvrageCard({ ouvrage, prix, categorie: currentCat, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, setOuvrages, categories, changerCategorie, materiaux, groupesTypes, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, estArchive = false, onArchiver = null, archivageEnCours = false, T, acc }) {
+  // L'ouvrage reçu EST la saisie en cours (il vient de `ouvrages`).
+  const editData = ouvrage;
   const cadence = parseFloat(ouvrage.cadence) || null;
   const isV2 = estOuvrageV2(editData);
   const maturite = isV2 ? maturiteOuvrageV2(editData) : null;
-  // Prix calculé (module pur chiffragePricing) : matériaux × coefficient
-  // (+ coût direct × coefficient) + cadence × taux horaire de VENTE sélectionné.
-  // Le coût horaire chargé ne sert plus qu'à la marge.
-  const prix = calculerOuvrage(editData, { materiaux, coutHoraire, tauxHoraires, coefficientsVente: coefficients });
+  // `prix` : calculerOuvrage (module pur chiffragePricing), calculé par la page
+  // avec l'index des matériaux — matériaux × coefficient (+ coût direct ×
+  // coefficient) + cadence × taux horaire de VENTE. Le coût horaire chargé ne
+  // sert plus qu'à la marge.
   // Coefficient et taux horaire : VALEURS SAISIES sur la fiche (aucune liste).
   // Les référentiels (Réglages) ne servent qu'à proposer une valeur de départ.
   const defautCoef = valeurParDefautReferentiel(coefficients, "valeur");
   const defautTaux = valeurParDefautReferentiel(tauxHoraires, "taux_ht");
-  const patchOuvrage = (patch) => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, ...patch }));
+  const patchOuvrage = (patch) => setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, ...patch }));
 
   // Bloque l'auto-reload pendant l'édition d'un ouvrage (sauvegarde au clic).
   useDirtyGuard("ouvrage-edit-" + ouvrage.id, isEdit);
@@ -569,16 +582,18 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
     const next = [...(editData.sous_taches || []), isV2
       ? { id: nouvelIdSousTache(), nom: "", lotId: "", groupe_type_id: null, ratio: null, dependance_mode: DEPENDANCE_MODES.PARALLEL, predecesseur_ids: [], delai_min_calendaire: 0, unite_delai: "heures" }
       : { nom: "", lotId: "", ratio: null }];
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
   function addMateriauLien() {
     const next = [...(editData.materiaux_liens || []), { materiau_id: null, quantite: null }];
-    setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, materiaux_liens: next }));
   }
 
   const liens = editData.materiaux_liens || [];
-  const coutTotalParUnite = liens.reduce((s, ml) => {
+  // Affiché seulement fiche ouverte : inutile de parcourir les 12 000+
+  // matériaux pour chaque fiche fermée.
+  const coutTotalParUnite = !isEdit ? 0 : liens.reduce((s, ml) => {
     const m = materiaux.find(x => x.id === ml.materiau_id);
     if (!m || ml.quantite == null) return s;
     return s + (parseFloat(m.prix_unitaire) || 0) * (parseFloat(ml.quantite) || 0);
@@ -704,7 +719,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Nom</label>
               <input
                 value={editData.libelle}
-                onChange={e => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, libelle: e.target.value }))}
+                onChange={e => setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, libelle: e.target.value }))}
                 onClick={e => e.stopPropagation()}
                 style={{ padding: "8px 12px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 14, fontWeight: 700, outline: "none" }}
               />
@@ -713,7 +728,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               <label style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>Unité</label>
               <input
                 value={editData.unite}
-                onChange={e => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, unite: e.target.value }))}
+                onChange={e => setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, unite: e.target.value }))}
                 onClick={e => e.stopPropagation()}
                 style={{ padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.border}`, color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none", textAlign: "center" }}
               />
@@ -735,7 +750,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
               <InputNombre
                 min="0.01"
                 valeur={editData.cadence ?? ""}
-                onValeur={n => setOuvrages(ouvrages.map(o => o.id !== ouvrage.id ? o : { ...o, cadence: n }))}
+                onValeur={n => setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, cadence: n }))}
                 onClick={e => e.stopPropagation()}
                 placeholder="ex: 0.5"
                 style={{ padding: "8px 10px", background: T.inputBg, borderRadius: 8, border: `1px solid ${T.accent}55`, color: T.accent, fontFamily: "inherit", fontSize: 15, fontWeight: 800, outline: "none", textAlign: "center" }}
@@ -968,7 +983,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                 key={st.id || idx}
                 st={st} idx={idx}
                 editData={editData} ouvrage={ouvrage}
-                setOuvrages={setOuvrages} ouvrages={ouvrages}
+                setOuvrages={setOuvrages}
                 groupesTypes={groupesTypes}
                 T={T}
               />
@@ -1036,7 +1051,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
                   key={idx}
                   ml={ml} idx={idx}
                   editData={editData} ouvrage={ouvrage}
-                  setOuvrages={setOuvrages} ouvrages={ouvrages}
+                  setOuvrages={setOuvrages}
                   materiaux={materiaux}
                   T={T} acc={acc}
                 />
@@ -1137,7 +1152,7 @@ function OuvrageCard({ ouvrage, isEdit, onToggleEdit, onSave, onDelete, onDuplic
       )}
     </div>
   );
-}
+});
 
 // ─── PAGE BIBLIOTHÈQUE (refonte) ─────────────────────────────────────────────
 // `initialOuvrageId` / `onRetourChiffrage` : arrivée depuis « Modifier matériaux »
@@ -1273,7 +1288,23 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
   // dire « lu, et aucun ouvrage terminé comparable ».
   const [echantillon, setEchantillon] = useState(null);
 
-  const categories = [...CATEGORIES_BASE, ...categoriesCustom];
+  const categories = useMemo(() => [...CATEGORIES_BASE, ...categoriesCustom], [categoriesCustom]);
+
+  // ── Prix des ouvrages, sans latence à la frappe ─────────────────────────────
+  // Plus de 12 000 matériaux : passé en tableau, calculerOuvrage reconstruit
+  // son index à CHAQUE appel. On le construit une fois ici. Et comme un
+  // ouvrage non modifié garde le même objet dans `ouvrages`, son prix est mis
+  // en cache par objet : une frappe ne recalcule que l'ouvrage en cours.
+  const indexMateriaux = useMemo(() => indexerMateriaux(materiaux), [materiaux]);
+  const cachePrix = useMemo(() => new WeakMap(), [indexMateriaux, coutHoraire, tauxHoraires, coefficients]);
+  function prixDe(o) {
+    let p = cachePrix.get(o);
+    if (!p) {
+      p = calculerOuvrage(o, { materiaux: indexMateriaux, coutHoraire, tauxHoraires, coefficientsVente: coefficients });
+      cachePrix.set(o, p);
+    }
+    return p;
+  }
 
   // ── Arrivée depuis le Chiffrage (« Modifier matériaux ») ────────────────────
   // On lève les filtres (l'ouvrage visé peut être hors recherche/catégorie),
@@ -1807,7 +1838,17 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
   // ── Stats globales ──────────────────────────────────────────────────────────
   const v2 = ouvrages.filter(estOuvrageV2);
   const v2Planifiables = v2.filter(o => maturiteOuvrageV2(o).planifiable).length;
-  const prixCalculables = ouvrages.filter(o => calculerOuvrage(o, { materiaux, coutHoraire, tauxHoraires, coefficientsVente: coefficients }).complet).length;
+  const prixCalculables = ouvrages.filter(o => prixDe(o).complet).length;
+
+  // Rappels passés aux fiches : identité stable (sinon chaque frappe
+  // redessinerait toutes les fiches), mais ils appellent toujours la version
+  // à jour de la fonction, avec l'état courant.
+  const onToggleEdit = useCallback(id => setEditId(cur => cur === id ? null : id), []);
+  const onSaveStable = useRappelStable(saveOuvrage);
+  const onDeleteStable = useRappelStable(id => demanderSuppressionOuvrage(ouvrages.find(o => o.id === id)));
+  const onDuplicateStable = useRappelStable(dupliquerOuvrage);
+  const changerCategorieStable = useRappelStable(changerCategorie);
+  const onArchiverStable = useRappelStable(basculerArchive);
   const diagTaux = diagnostiquerListe(tauxHoraires);
   const diagCoef = diagnostiquerCoefficients(coefficients);
   const stats = {
@@ -2407,26 +2448,25 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
                     <div key={ouvrage.id} id={`biblio-ouvrage-${ouvrage.id}`} style={{ scrollMarginTop: 16 }}>
                     <OuvrageCard
                       ouvrage={ouvrage}
+                      prix={prixDe(ouvrage)}
+                      categorie={getCat(ouvrage.identifiant)}
                       isEdit={editId === ouvrage.id}
-                      onToggleEdit={id => setEditId(editId === id ? null : id)}
-                      onSave={saveOuvrage}
-                      onDelete={(id) => demanderSuppressionOuvrage(ouvrages.find(o => o.id === id))}
-                      onDuplicate={dupliquerOuvrage}
+                      onToggleEdit={onToggleEdit}
+                      onSave={onSaveStable}
+                      onDelete={onDeleteStable}
+                      onDuplicate={onDuplicateStable}
                       saving={saving}
-                      ouvrages={ouvrages}
                       setOuvrages={setOuvrages}
                       categories={categories}
-                      getCat={getCat}
-                      changerCategorie={changerCategorie}
+                      changerCategorie={changerCategorieStable}
                       materiaux={materiaux}
                       groupesTypes={groupesTypes}
-                      coutHoraire={coutHoraire}
                       tauxHoraires={tauxHoraires}
                       coefficients={coefficients}
                       echantillon={echantillon ? (echantillon[ouvrage.id] || null) : null}
                       echantillonPret={echantillon !== null}
                       estArchive={estArchiveV1(archives, ouvrage.id)}
-                      onArchiver={basculerArchive}
+                      onArchiver={onArchiverStable}
                       archivageEnCours={archivageEnCours === ouvrage.id}
                       T={T} acc={acc}
                     />
