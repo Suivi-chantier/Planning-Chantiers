@@ -124,7 +124,7 @@ function BlocAnalyseIA({ releve, onAnalyser, etat }) {
 }
 
 // ── Métrés + points à valider ──────────────────────────────────────────────
-export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onClose, onPoint, urls, demanderUrls, onAnalyser, etatIA, onDossier }) {
+export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onClose, onPoint, urls, demanderUrls, onAnalyser, etatIA, onDossier, onConvertir }) {
   const m = calculerMetres(releve);
   const pav = pointsAValider(releve);
   const cell = { padding: "5px 6px", textAlign: "right", whiteSpace: "nowrap" };
@@ -157,6 +157,17 @@ export function PanneauMetresReleve({ releve, onglet = "metres", setOnglet, onCl
             style={bouton("#f5a623")}>🖨 Dossier PDF du relevé</button>
         )}
       </div>
+      {releve.converti
+        ? <div style={{ fontSize: 12, color: "#9aa5c0", lineHeight: 1.5, padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.04)", marginBottom: 10 }}>
+            Plan converti en éléments de l'éditeur{releve.converti.le ? ` le ${new Date(releve.converti.le).toLocaleDateString("fr-FR")}` : ""} : murs, portes, pièces et cotes se modifient avec les outils habituels.
+            <strong style={{ color: "#e8eaf0" }}> Les métrés, ouvertures et points ci-dessous sont ceux du relevé importé (référence)</strong> : modifier le dessin ne les change pas.
+          </div>
+        : onConvertir && (
+          <div style={{ padding: 10, borderRadius: 10, background: "rgba(80,200,120,0.08)", border: "1px solid rgba(80,200,120,0.3)", marginBottom: 12, fontSize: 12, color: "#9aa5c0" }}>
+            <button onClick={onConvertir} style={{ ...bouton("#50c878"), marginRight: 8 }}>✏ Convertir en plan éditable</button>
+            murs, portes, fenêtres, pièces et cotes deviennent des éléments du plan, modifiables avec les outils habituels.
+          </div>
+        )}
       {onAnalyser && <BlocAnalyseIA releve={releve} onAnalyser={onAnalyser} etat={etatIA} />}
       {onglet === "metres" && (<>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -363,7 +374,7 @@ export function PanneauPieceReleve({ releve, pieceId, modifier, onClose, onSelec
 }
 
 // ── Ouverture sélectionnée ─────────────────────────────────────────────────
-export function PanneauOuvertureReleve({ releve, ouvertureId, modifier, onClose, onSelection }) {
+export function PanneauOuvertureReleve({ releve, ouvertureId, modifier, onClose, onSelection, converti = false }) {
   const o = (releve.ouvertures || []).find((x) => x.id === ouvertureId);
   if (!o) return null;
   const maj = (fn) => modifier((r) => ({ ...r, ouvertures: r.ouvertures.map((x) => (x.id === o.id ? fn(x, r) : x)) }));
@@ -382,8 +393,14 @@ export function PanneauOuvertureReleve({ releve, ouvertureId, modifier, onClose,
             {nomPiece(id)}
           </button>
         ))}
-        · glisser l'ouverture sur le plan pour la déplacer le long du mur
+        {converti ? "" : "· glisser l'ouverture sur le plan pour la déplacer le long du mur"}
       </div>
+      {converti && (
+        <div style={{ fontSize: 12, color: "#9aa5c0", marginBottom: 10, lineHeight: 1.45 }}>
+          Ouverture du relevé de référence : elle compte dans les métrés. Sur le plan, c'est un groupe de traits
+          à modifier avec les outils de dessin ; changer l'un ne change pas l'autre.
+        </div>
+      )}
       {o.t0 == null && (
         <div style={{ padding: 10, borderRadius: 8, background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.4)", marginBottom: 12, fontSize: 12 }}>
           Vue sur les photos, mais sa position et sa largeur sont inconnues : elle n'est ni dessinée ni déduite des métrés.

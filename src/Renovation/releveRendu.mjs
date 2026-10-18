@@ -39,11 +39,42 @@ function chemin(ctx, P, toC) {
   ctx.closePath();
 }
 
-// opts : { sombre, points, cotes, pieceSurlignee, ouvertureSelectionnee, murSurligne:{piece, mur} }
+// Pièce surlignée (sélection dans l'éditeur, fiche du dossier PDF) et mur
+// surligné (photo survolée dans le panneau de la pièce).
+function surlignerReleve(ctx, pieces, toC, opts) {
+  const C = COULEURS_RELEVE;
+  if (opts.pieceSurlignee) {
+    const p = pieces.find((x) => x.id === opts.pieceSurlignee);
+    if (p) {
+      chemin(ctx, p.polygone, toC);
+      ctx.strokeStyle = C.selection;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+  }
+
+  // 4 bis. Mur surligné (photo affichée dans le panneau de la pièce).
+  if (opts.murSurligne) {
+    const p = pieces.find((x) => x.id === opts.murSurligne.piece);
+    const k = opts.murSurligne.mur;
+    if (p && k != null && p.polygone[k]) {
+      const a = toC(...p.polygone[k]), b = toC(...p.polygone[(k + 1) % p.polygone.length]);
+      ctx.strokeStyle = C.selection;
+      ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+  }
+
+}
+
+// opts : { sombre, points, cotes, pieceSurlignee, ouvertureSelectionnee, murSurligne:{piece, mur}, contourSeul }
 export function dessinerReleve(ctx, releve, toC, opts = {}) {
   if (!ctx || !releve) return;
   const C = COULEURS_RELEVE;
   const pieces = (releve.pieces || []).filter((p) => (p.polygone || []).length >= 3);
+  // Relevé converti en éléments de l'éditeur : le dessin vient de ces
+  // éléments ; du relevé, on ne trace plus que la pièce ou le mur surligné.
+  if (opts.contourSeul) { surlignerReleve(ctx, pieces, toC, opts); return; }
 
   // 1. Sols : couleur pastel du type de pièce.
   pieces.forEach((p) => {
@@ -75,28 +106,8 @@ export function dessinerReleve(ctx, releve, toC, opts = {}) {
     }));
   }
 
-  // 4. Pièce surlignée (sélection dans l'éditeur).
-  if (opts.pieceSurlignee) {
-    const p = pieces.find((x) => x.id === opts.pieceSurlignee);
-    if (p) {
-      chemin(ctx, p.polygone, toC);
-      ctx.strokeStyle = C.selection;
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-    }
-  }
-
-  // 4 bis. Mur surligné (photo affichée dans le panneau de la pièce).
-  if (opts.murSurligne) {
-    const p = pieces.find((x) => x.id === opts.murSurligne.piece);
-    const k = opts.murSurligne.mur;
-    if (p && k != null && p.polygone[k]) {
-      const a = toC(...p.polygone[k]), b = toC(...p.polygone[(k + 1) % p.polygone.length]);
-      ctx.strokeStyle = C.selection;
-      ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-    }
-  }
+  // 4. Pièce et mur surlignés.
+  surlignerReleve(ctx, pieces, toC, opts);
 
   // 4 ter. Ouvertures (portes, fenêtres, baies, placards) et leurs pastilles.
   const pastilles = dessinerOuvertures(ctx, releve, toC, opts);

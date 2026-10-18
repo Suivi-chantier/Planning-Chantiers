@@ -28,6 +28,7 @@ import {
   budgetIARestant, PLAFOND_IA_RELEVE_EUR, syntheseDossier,
 } from "../src/Renovation/releveImapper.mjs";
 import { dessinerReleve, miseEnPageEtiquettes } from "../src/Renovation/releveRendu.mjs";
+import { bordDesMurs, convertirEnElementsEditeur, COULEUR_DOUTE, COULEUR_TRAIT } from "../src/Renovation/releveVersEditeur.mjs";
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const dxfTexte = fs.readFileSync(path.join(ici, "fixtures/releve-imapper-reference.dxf"), "latin1");
@@ -584,6 +585,81 @@ test("dossier PDF : mêmes métrés qu'à l'écran, ouvertures triées, observat
   assert.deepEqual(s.points.map((p) => p.cle), pointsAValider(Rx).map((p) => p.cle));
   // Pas de relevé : pas de dossier.
   assert.equal(syntheseDossier(null), null);
+});
+
+// ── Plan éditable : relevé → éléments de l'éditeur (décision du 18/10/2026) ─
+test("bord des murs : coutures entre tronçons supprimées, trou d'ouverture découpé", () => {
+  // Deux tronçons de mur accolés (2 m × 0,2 m chacun) : un seul contour, sans la couture.
+  const m1 = [[0, 0], [2, 0], [2, 0.2], [0, 0.2]], m2 = [[2, 0], [4, 0], [4, 0.2], [2, 0.2]];
+  const bord = bordDesMurs([m1, m2]);
+  const long = bord.reduce((t, [a, b]) => t + Math.hypot(b[0] - a[0], b[1] - a[1]), 0);
+  proche(long, 2 * 4 + 2 * 0.2, 1e-6, "périmètre du mur fusionné");
+  assert.ok(!bord.some(([a, b]) => Math.abs(a[0] - 2) < 1e-6 && Math.abs(b[0] - 2) < 1e-6), "couture à x = 2 supprimée");
+  // Un trou de 0,8 m traversant le mur : deux faces coupées + deux tableaux.
+  const trou = [[1.6, -0.05], [2.4, -0.05], [2.4, 0.25], [1.6, 0.25]];
+  const bord2 = bordDesMurs([m1, m2], [trou]);
+  const long2 = bord2.reduce((t, [a, b]) => t + Math.hypot(b[0] - a[0], b[1] - a[1]), 0);
+  proche(long2, 8.4 - 2 * 0.8 + 2 * 0.2, 1e-6, "faces coupées, tableaux ajoutés");
+});
+
+test("conversion du relevé : murs, ouvertures, zones, noms, cotes au format de l'éditeur", () => {
+  let n = 0;
+  const el = convertirEnElementsEditeur(R, { nouvelId: () => ++n });
+  // Identifiants uniques, fournis par l'appelant (module pur).
+  const ids = [...el.segments, ...el.symbols, ...el.surfaces, ...el.cotes].map((x) => x.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(n, ids.length + el.bilan.ouvertures);   // + 1 par groupe d'ouverture
+  // Une zone par pièce, avec EXACTEMENT la surface du relevé (même chiffre).
+  assert.equal(el.surfaces.length, 6);
+  for (const p of R.pieces) {
+    const z = el.surfaces.find((s) => s.points.length === p.polygone.length && s.points.every((q, i) => q.x === p.polygone[i][0] && q.y === p.polygone[i][1]));
+    assert.ok(z, `zone de ${p.nom}`);
+    proche(airePolygone(z.points.map((q) => [q.x, q.y])), airePolygone(p.polygone), 1e-9, p.nom);
+    const nom = el.symbols.find((s) => s.type === "text" && s.text === p.nom);
+    assert.ok(nom && pointDansPoly([nom.x, nom.y], p.polygone), `nom de ${p.nom} dans la pièce`);
+  }
+  // Segments au format de l'éditeur ; ouvertures en groupes (déplaçables d'un bloc).
+  assert.ok(el.segments.every((s) => [s.x1, s.y1, s.x2, s.y2].every(Number.isFinite) && s.color && s.user === true));
+  const groupes = new Set(el.segments.filter((s) => s.groupId).map((s) => s.groupId));
+  assert.equal(groupes.size, el.bilan.ouvertures);
+  // Douteuses en orange, sûres en blanc ; seules les sûres coupent le mur.
+  const sures = R.ouvertures.filter((o) => o.statut !== "a_verifier");
+  assert.equal(el.bilan.coupees, sures.length);
+  const orange = el.segments.filter((s) => s.groupId && s.color === COULEUR_DOUTE).length;
+  assert.ok(orange > 0 && el.segments.filter((s) => s.groupId && s.color === COULEUR_TRAIT).length > 0);
+  // Porte sûre (Chambre / Salon) : aucun trait de mur ne longe sa face intérieure dans la largeur.
+  const p1 = R.ouvertures.find((o) => nomsDe(o) === "Chambre/Salon" && o.statut === "detecte");
+  const g = geometrieOuverture(R, p1);
+  const traverse = (o) => {
+    const gg = geometrieOuverture(R, o);
+    const mil = [(gg.p0[0] + gg.p1[0]) / 2 - gg.n[0] * 0.0005, (gg.p0[1] + gg.p1[1]) / 2 - gg.n[1] * 0.0005];
+    return el.segments.some((s) => !s.groupId && distancePointPolygone(mil, [[s.x1, s.y1], [s.x2, s.y2], [s.x2 + 1e-9, s.y2 + 1e-9]]) < 0.003);
+  };
+  assert.ok(g && !traverse(p1), "mur coupé devant une porte sûre");
+  // Douteuse : le mur n'est pas coupé (supprimer la fausse porte laisse le mur intact).
+  const dout = R.ouvertures.find((o) => o.statut === "a_verifier" && o.type === "porte" && nomsDe(o) === "Buanderie/Chambre");
+  assert.ok(traverse(dout), "mur intact derrière une ouverture à vérifier");
+  // Cotes : une par direction de mur et par pièce, texte côté intérieur.
+  assert.ok(el.cotes.length >= 12 && el.cotes.length <= 20, `${el.cotes.length} cotes`);
+  for (const c of el.cotes) {
+    const L = Math.hypot(c.x2 - c.x1, c.y2 - c.y1);
+    const gauche = [(c.y2 - c.y1) / L, -(c.x2 - c.x1) / L];
+    const m = [(c.x1 + c.x2) / 2 + gauche[0] * 0.05, (c.y1 + c.y2) / 2 + gauche[1] * 0.05];
+    assert.ok(R.pieces.some((p) => pointDansPoly(m, p.polygone)), "texte de cote dans une pièce");
+  }
+  // Une ouverture « à placer » ou masquée ne produit aucun trait.
+  const Rx = { ...R, ouvertures: R.ouvertures.map((o, i) => (i === 0 ? { ...o, masque: true } : i === 1 ? { ...o, t0: null, t1: null } : o)) };
+  assert.equal(convertirEnElementsEditeur(Rx, { nouvelId: () => ++n }).bilan.ouvertures, el.bilan.ouvertures - 2);
+  // Sans générateur d'identifiants : rien (jamais d'identifiant inventé).
+  assert.deepEqual(convertirEnElementsEditeur(R).segments, []);
+});
+
+test("plan converti : le relevé n'est plus dessiné, sauf le surlignage", () => {
+  const { ctx, ops } = ctxEnregistreur();
+  dessinerReleve(ctx, R, (x, y) => [x * 100, y * 100], { contourSeul: true, pieceSurlignee: piece("Chambre").id });
+  assert.equal(ops.filter((o) => o[0] === "fill").length, 0, "ni sols ni murs");
+  assert.equal(ops.filter((o) => o[0] === "fillText").length, 0, "ni cotes ni étiquettes");
+  assert.equal(ops.filter((o) => o[0] === "stroke").length, 1, "le contour de la pièce surlignée");
 });
 
 // ── DXF à plusieurs versions du plan (plan automatique lancé plusieurs fois) ─

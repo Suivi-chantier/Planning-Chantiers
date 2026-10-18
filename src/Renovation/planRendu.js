@@ -180,7 +180,9 @@ export function dessinerScene(ctx, d, W, H, vp, opts = {}) {
   if (CAL.releve && d.releve) {
     // opts.releve : options du dessin du relevé (ex. pièce surlignée sur la
     // fiche d'une pièce du dossier PDF).
-    dessinerReleve(ctx, d.releve, (x, y) => { const p = toC(x, y); return [p.cx, p.cy]; }, { points: !!CAL.points, ...(opts.releve || {}) });
+    // Relevé converti en éléments de l'éditeur : seul le surlignage reste.
+    dessinerReleve(ctx, d.releve, (x, y) => { const p = toC(x, y); return [p.cx, p.cy]; },
+      { points: !!CAL.points, ...(opts.releve || {}), ...(d.releve.converti ? { contourSeul: true } : {}) });
   }
 
   // Surfaces (polygones + étiquette d'aire)
