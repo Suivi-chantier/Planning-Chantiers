@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useDeferredValue } from "react";
 import { supabase, getClientId } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import { PlanEditor, PlanEditorErrorBoundary } from "./Plans";
@@ -25,7 +25,7 @@ import {
 } from "./archivesBibliothequeV1.js";
 import {
   ZONE_DEFAUT, ZONES_SUGGEREES, TYPES_LOGEMENT, TVA_TAUX_USUELS,
-  calculerOuvrage, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
+  calculerOuvrage, indexerMateriaux, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
   ligneEstSnapshot, totalLigneHT, totauxDevis, grouperParLotZone,
   lireLogementProjet, verifierPreparationDevis, normaliserUnite, num as numOrNull,
 } from "./chiffragePricing.mjs";
@@ -958,7 +958,21 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const conditionsProjet = lireConditionsProjet(projets.find(p => p.id === projetId));
   // `modesLigne` : pour une ligne existante (actualisation), ses dérogations sont
   // reprises telles quelles — actualiser ne remet jamais une ligne en héritage.
-  const calculBiblio = (o, modesLigne = null) => calculerOuvrage(o, { materiaux: biblio?.materiaux || [], coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [], conditions: conditionsProjet, modesLigne });
+  // Plus de 12 000 matériaux : passé en tableau, calculerOuvrage reconstruit
+  // son index à chaque appel (donc pour chaque ouvrage du catalogue, à chaque
+  // frappe). On le construit une fois par chargement de la bibliothèque.
+  const indexMateriauxBiblio = useMemo(() => indexerMateriaux(biblio?.materiaux || []), [biblio]);
+  const calculBiblio = (o, modesLigne = null) => calculerOuvrage(o, { materiaux: indexMateriauxBiblio, coutHoraire: biblio?.coutHoraire ?? null, tauxHoraires: biblio?.tauxHoraires || [], coefficientsVente: biblio?.coefficients || [], conditions: conditionsProjet, modesLigne });
+  // Prix affichés dans le catalogue d'ajout : recalculés seulement quand la
+  // bibliothèque ou les conditions de vente du chiffrage changent, plus à
+  // chaque frappe. `conditionsProjet` est recréé à chaque rendu : on suit son
+  // contenu, pas son identité.
+  const cleConditions = JSON.stringify(conditionsProjet);
+  const prixCatalogue = useMemo(() => {
+    const prix = new Map();
+    (biblio?.ouvrages || []).forEach(o => prix.set(o.id, calculBiblio(o)));
+    return prix;
+  }, [biblio, indexMateriauxBiblio, cleConditions]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Après application des conditions (RPC) : recharger CE projet et SES lignes,
   // sans changer de projet ni toucher aux autres chiffrages.
@@ -1061,9 +1075,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       chargerBiblio(),
     ]);
     if (!o) { setMajBiblio({ libelle: lignes[0].item, nb: lignes.length, supprime: true }); return; }
+    const indexMats = indexerMateriaux(b.materiaux);
     const majs = lignes.map(l => {
       const calcul = calculerOuvrage(o, {
-        materiaux: b.materiaux, coutHoraire: b.coutHoraire, tauxHoraires: b.tauxHoraires,
+        materiaux: indexMats, coutHoraire: b.coutHoraire, tauxHoraires: b.tauxHoraires,
         coefficientsVente: b.coefficients, conditions: conditionsProjet, modesLigne: lireModesLigne(l),
       });
       return { ligne: l, diffs: differencesSnapshot(l, o, calcul), patch: appliquerActualisation(l, o, calcul) };
@@ -1237,8 +1252,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const croquisActif = croquisList.find(d => d.id === croquisOuvert) || null;
   dessinOuvertRef.current = croquisActif?.id || (tab === "notes" && notesMode === "manuscrit" ? pageActive?.id : null) || null;
 
-  // Bibliothèque : ouvrages codés, groupés par lot (préfixe du code → code_prefixe)
-  const groupesBiblio = (() => {
+  // Bibliothèque : ouvrages codés, groupés par lot (préfixe du code → code_prefixe).
+  // Recalculé seulement quand la bibliothèque ou les archives changent.
+  const groupesBiblio = useMemo(() => {
     const lots = biblio?.lots || [];
     const map = new Map();
     // SEUL endroit filtré de cet écran : c'est ici que l'utilisateur CHOISIT un
@@ -1257,7 +1273,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     return [...map.values()]
       .sort((a, b) => a.ordre - b.ordre || a.label.localeCompare(b.label))
       .map(g => ({ ...g, items: g.items.sort((a, b) => a._code.num - b._code.num || a._code.code.localeCompare(b._code.code)) }));
-  })();
+  }, [biblio, archivesBiblio]);
+  // La recherche du catalogue filtre en différé : la lettre tapée s'affiche
+  // tout de suite, la liste suit dès que le navigateur a la main.
+  const searchCatalogue = useDeferredValue(search);
   const nbBiblio = groupesBiblio.reduce((s, g) => s + g.items.length, 0);
   const nbAnciens = Object.values(categories).flat().length;
   const nbAnciensSel = ouvrages.filter(o => !o.bibliotheque_id && (categories[o.category] || []).includes(o.item)).length;
@@ -2228,7 +2247,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <div style={{fontSize:FONT.xs.size+1,lineHeight:1.6}}>Seuls les ouvrages dont le libellé commence par un code (ex : « D-001 : Dépose… ») sont proposés ici. Complète les codes dans la page Bibliothèque.</div>
                     </div>
                   ) : groupesBiblio.map(g => {
-                    const q = search.trim().toLowerCase();
+                    const q = searchCatalogue.trim().toLowerCase();
                     const vis = g.items.filter(o => (filtresCat.length===0 || filtresCat.includes(g.label)) && (!q || o._code.code.toLowerCase().includes(q) || (o.libelle||"").toLowerCase().includes(q)));
                     if (vis.length === 0) return null;
                     return (
@@ -2240,7 +2259,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                         </div>
                         {vis.map(o => {
                           const occ = occurrencesDe(o), busy = biblioBusy === o.id;
-                          const calc = calculBiblio(o);
+                          const calc = prixCatalogue.get(o.id) || calculBiblio(o);
                           return (
                             <div key={o.id} style={{ padding:"9px 12px", background:occ.length?acc.bg10:T.card, border:`1px solid ${occ.length?acc.accent+"88":T.border}`, borderRadius:RADIUS.md, marginBottom:6, display:"flex", alignItems:"flex-start", gap:10, transition:"all .12s", opacity:busy?.6:1 }}>
                               <div style={{flex:1,minWidth:0}}>
@@ -2294,7 +2313,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     )}
 
                     {Object.entries(categories).map(([cat,items],catIndex,arr) => {
-                      const vis=items.filter(item=>(!search||item.toLowerCase().includes(search.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
+                      const vis=items.filter(item=>(!searchCatalogue||item.toLowerCase().includes(searchCatalogue.toLowerCase()))&&(filtresCat.length===0||filtresCat.includes(cat)));
                       if(vis.length===0 && !manageMode) return null;
                       return (
                         <div key={cat}>
