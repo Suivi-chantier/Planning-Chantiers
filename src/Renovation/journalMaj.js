@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-18",
     type: "amelioration",
+    titre: "Heures des salariés : une semaine ne se colore plus qu'au-delà de 39 h",
+    pages: [{ id: "heures-salaries", label: "Heures des salariés" }],
+    quoi: "Avec les nouveaux horaires (39 h par semaine, du lundi au jeudi), une semaine normale ne s'affiche plus en orange : le sous-total d'une semaine se colore seulement au-delà de 39 h, au lieu de 35 h.",
+    comment: "Orange au-delà de 39 h, rouge au-delà de 48 h (inchangé). C'est un simple repère visuel, pas un calcul de majoration ni d'heures supplémentaires. Les semaines passées sont affichées avec le même repère.",
+  },
+  {
+    date: "2026-10-18",
+    type: "amelioration",
     titre: "Nouveaux horaires : 4 jours chaque semaine, du lundi au jeudi, 39 h",
     pages: [{ id: "planning", label: "Planning semaine" }, { id: "validation", label: "Validation" }, { id: "bilan-semaine", label: "Bilan Semaine" }, { id: "admin", label: "Admin" }],
     quoi: "À partir du lundi 19 octobre 2026 (semaine 43), il n'y a plus d'alternance 4 jours / 5 jours : toutes les semaines se travaillent du lundi au jeudi, de 7h30 à 12h puis de 12h45 à 18h, soit 9h45 par jour et 39 h par semaine. Le vendredi n'est plus travaillé. Les semaines d'avant gardent leur barème (35 h / 43 h jusqu'au 16 octobre) : rien n'est recalculé dans l'historique.",
