@@ -18,6 +18,7 @@ import {
   appliquerCheminsIA, PLAFOND_IA_RELEVE_EUR, ESTIMATION_IA_PIECE_EUR,
 } from "./releveImapper";
 import { PanneauMetresReleve, PanneauPieceReleve, PanneauOuvertureReleve } from "./PanneauxReleve";
+import { convertirEnElementsEditeur } from "./releveVersEditeur";
 import { urlDocumentChantier } from "./storageChantier";
 
 // ─── PAGE PLANS ───────────────────────────────────────────────────────────────
@@ -658,7 +659,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
   const movingSelRef = useRef(null);
   const movingCoteRef = useRef(null);
   const [planRotation, setPlanRotation] = useState(plan.data?.planRotation || 0);
-  const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true, releve:true });
+  const [layers, setLayers] = useState({ segments:true, points:false, symbols:true, surfaces:true, cotes:true,
+    // Plan converti : le dessin, ce sont les éléments de l'éditeur ; le relevé
+    // d'origine ne s'affiche dessous que si on le demande (comparaison).
+    releve: !plan.data?.releve?.converti });
   const [legendePdf, setLegendePdf] = useState(true); // colonne de légende dans le PDF A4
   const [symProps, setSymProps] = useState(null);
   const [groupProps, setGroupProps] = useState(null); // {groupId, angle, cx, cy}
@@ -923,9 +927,10 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
 
       // Relevé iMapper : même dessin que la visionneuse et l'export PDF
       // (releveRendu.js), sous les outils de dessin qui se posent par-dessus.
-      if (lyrs.releve && releveRef.current) {
+      if (releveRef.current && (lyrs.releve || releveRef.current.converti)) {
         dessinerReleve(ctx, releveRef.current, (x,y)=>{ const p=toC(x,y); return [p.cx,p.cy]; },
           { sombre: !isPrint, points: lyrs.points,
+            contourSeul: !!releveRef.current.converti && !lyrs.releve,
             ...(printModeRef.current ? {} : {
               pieceSurlignee: selReleveRef.current?.type==='piece' ? selReleveRef.current.id : null,
               ouvertureSelectionnee: selReleveRef.current?.type==='ouverture' ? selReleveRef.current.id : null,
@@ -1639,7 +1644,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     // Relevé : sélection d'une ouverture (et début du glissé) ou d'une pièce.
     if (tool==='releve' && releveRef.current) {
       const R = releveRef.current;
-      const o = ouvertureSousPoint(R, [wx,wy], 10/vpRef.current.scale);
+      const o = R.converti ? null : ouvertureSousPoint(R, [wx,wy], 10/vpRef.current.scale);
       if (o) {
         setSelReleve({ type:'ouverture', id:o.id }); setMurSurligne(null);
         dragOuvRef.current = { id:o.id, t:abscisseSurMur(R, o.piece, o.mur, [wx,wy]), t0:o.t0, pousse:false };
@@ -2220,8 +2225,11 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     setSelReleve(null); setMurSurligne(null);
 
     pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
-    setReleve(res.releve);
-    setLayers(l => ({ ...l, releve:true }));
+    // Le plan arrive en ÉLÉMENTS DE L'ÉDITEUR (décision du 18/10/2026) ; le
+    // relevé reste attaché comme référence (photos, métrés, IA, dossier).
+    ajouterElementsReleve(res.releve);
+    setReleve({ ...res.releve, converti: { le: new Date().toISOString() } });
+    setLayers(l => ({ ...l, releve:false }));
     setReleveLecture(null);
     setShowReleve(false);
     setShowMetres(true);
@@ -2243,6 +2251,30 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     futureRef.current  = futureRef.current.map(h => ('releve' in h ? { ...h, releve: patch(h.releve) } : h));
     setReleve(cur => patch(cur));
     setEnvoiReleve(r.echecs.length ? { fait:total, total, echecs:r.echecs.length, raison:r.raison } : null);
+  };
+
+  // Éléments de l'éditeur tirés du relevé (traits, zones, textes, cotes),
+  // ajoutés au dessin existant.
+  const ajouterElementsReleve = (R) => {
+    const el = convertirEnElementsEditeur(R, { nouvelId: () => Date.now() + Math.random() });
+    setSegments(s => [...s, ...el.segments]);
+    setSymbols(s => [...s, ...el.symbols]);
+    setSurfaces(s => [...s, ...el.surfaces]);
+    setCotes(c => [...c, ...el.cotes]);
+    return el.bilan;
+  };
+  // Relevé importé avant le 18/10 : conversion à la demande (annulable).
+  const convertirRelevePlan = () => {
+    const R0 = releveRef.current;
+    if (!R0 || R0.converti) return;
+    if (!window.confirm("Convertir le relevé en plan éditable ?\n\nMurs, portes, fenêtres, pièces et cotes deviennent des éléments du plan, modifiables avec les outils habituels. "
+      + "Le relevé reste attaché comme référence (photos, métrés, points à valider, IA, dossier PDF) : modifier le dessin ne change pas ses métrés.")) return;
+    const R = R0.ouvertures === null ? { ...R0, ouvertures: detecterOuvertures(R0) } : R0;
+    pushHistory(segmentsRef.current, symbolsRef.current, cotesRef.current);
+    ajouterElementsReleve(R);
+    setReleve({ ...R, converti: { le: new Date().toISOString() } });
+    setLayers(l => ({ ...l, releve:false }));
+    setSelReleve(null);
   };
 
   // Toute modification du relevé passe ici : historique (annuler / rétablir),
@@ -2494,7 +2526,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
     {id:'surface',icon:'⬡',  label:'Surface — cliquer les points, clic sur le 1er point pour fermer'},
     ...(releve ? [
       {id:'releve',    icon:'⌂', label:'Relevé : cliquer une pièce ou une ouverture pour la modifier ; glisser une ouverture le long de son mur'},
-      {id:'ouverture', icon:'⊓', label:'Ouverture sur mur : cliquer un mur pour y poser une porte de 83 cm'},
+      ...(releve.converti ? [] : [{id:'ouverture', icon:'⊓', label:'Ouverture sur mur : cliquer un mur pour y poser une porte de 83 cm'}]),
     ] : []),
   ];
 
@@ -2598,7 +2630,7 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             {k:'symbols',  icon:'🚪', label:'Symboles'},
             {k:'surfaces', icon:'⬡', label:'Surfaces'},
             {k:'cotes',    icon:'↔', label:'Cotes'},
-            ...(releve ? [{k:'releve', icon:'⌂', label:'Relevé iMapper'}] : []),
+            ...(releve ? [{k:'releve', icon:'⌂', label: releve.converti ? "Relevé iMapper d'origine (sous le dessin)" : 'Relevé iMapper'}] : []),
           ].map(({k,icon,label})=>(
             <button key={k} title={`${layers[k]?'Masquer':'Afficher'} ${label}`}
               onClick={()=>setLayers(l=>({...l,[k]:!l[k]}))} style={{
@@ -3202,13 +3234,14 @@ function PlanEditor({plan, onSave, onClose, T, chantiers}) {
             onAnalyser={lancerAnalyseIA} analyseEnCours={!!analyseIA && !analyseIA.fini}/>
         )}
         {releve&&selReleve?.type==='ouverture'&&(
-          <PanneauOuvertureReleve releve={releve} ouvertureId={selReleve.id} modifier={modifierReleve}
+          <PanneauOuvertureReleve releve={releve} ouvertureId={selReleve.id} modifier={modifierReleve} converti={!!releve.converti}
             onClose={()=>setSelReleve(null)} onSelection={(c)=>setSelReleve(c)}/>
         )}
         {releve&&!selReleve&&showMetres&&(
           <PanneauMetresReleve releve={releve} onglet={ongletMetres} setOnglet={setOngletMetres}
             onClose={()=>setShowMetres(false)} onPoint={onPointAValider} urls={urlsPhotos} demanderUrls={demanderUrls}
-            onAnalyser={lancerAnalyseIA} etatIA={analyseIA} onDossier={imprimerDossierReleve}/>
+            onAnalyser={lancerAnalyseIA} etatIA={analyseIA} onDossier={imprimerDossierReleve}
+            onConvertir={convertirRelevePlan}/>
         )}
         <canvas ref={canvasRef}
           style={{position:'absolute',top:0,left:0,right:0,bottom:0,width:'100%',height:'100%',

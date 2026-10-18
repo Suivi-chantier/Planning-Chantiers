@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-18",
     type: "amelioration",
+    titre: "Plans : le relevé iMapper devient un plan éditable comme les autres",
+    pages: [{ id: "plans", label: "Plans" }],
+    quoi: "Après l'import d'un relevé iMapper, le plan est fait des éléments habituels de l'éditeur — traits de murs, portes et fenêtres, zones de pièces avec leur surface, textes, cotes — et se modifie avec les outils de toujours : déplacer, supprimer, recolorer un mur « à déposer », ajouter une cloison D120… Le relevé reste attaché comme référence.",
+    comment: "À l'import, le plan est dessiné directement : murs en double trait (sans couture entre tronçons), portes et fenêtres sûres découpées dans le mur, portes et fenêtres « à vérifier » en ORANGE par-dessus le mur (supprimer une fausse laisse le mur intact), une zone colorée et le nom par pièce, et une cote par direction de mur et par pièce. Chaque porte ou fenêtre est un groupe : elle se sélectionne et se déplace d'un bloc. Pour un relevé déjà importé : panneau « 📊 Métrés » → « ✏ Convertir en plan éditable » (Ctrl+Z annule). Le relevé reste la référence des photos, des métrés, des points à valider, de l'analyse IA et du dossier PDF : modifier le dessin ne change pas ses métrés, et le panneau le rappelle. Le calque « ⌂ » réaffiche le relevé d'origine sous le dessin pour comparer ; l'outil « ⌂ Relevé » ouvre toujours la fiche d'une pièce (photos, hauteur, observations).",
+  },
+  {
+    date: "2026-10-18",
+    type: "amelioration",
     titre: "Heures des salariés : une semaine ne se colore plus qu'au-delà de 39 h",
     pages: [{ id: "heures-salaries", label: "Heures des salariés" }],
     quoi: "Avec les nouveaux horaires (39 h par semaine, du lundi au jeudi), une semaine normale ne s'affiche plus en orange : le sous-total d'une semaine se colore seulement au-delà de 39 h, au lieu de 35 h.",
