@@ -106,6 +106,10 @@ jobs:
         run: node scripts/verif-operation-kpi-detail.mjs
       - name: Plans - import d'un releve iMapper (piece, murs, photos, metres ; releve de reference anonymise)
         run: node scripts/verif-releve-imapper.mjs
+      - name: Saisie commande - prix HT des lignes et remise globale (ticket du 14/10 deja remise)
+        run: node scripts/verif-prix-lignes-achat.mjs
+      - name: Edge Function analyse-commande - verrous et prompt
+        run: node scripts/verif-analyse-commande.mjs
       - name: Planning engine V1 regression
         run: node scripts/verif-planning-engine-v1.mjs
       - name: Planning engine adapter V1 regression

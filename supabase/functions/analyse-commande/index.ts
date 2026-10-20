@@ -39,8 +39,14 @@ import {
 // fait que lire un rôle. Ni `user_metadata`, ni un rôle transmis dans le corps
 // ne sont consultés — ce sont deux sources que l'appelant contrôle.
 //
-// CE QUI N'A PAS CHANGÉ, volontairement : le modèle, max_tokens, le prompt
-// métier et le format de la réponse rendue au navigateur.
+// CE QUI N'A PAS CHANGÉ, volontairement : le modèle, max_tokens et le format
+// de la réponse rendue au navigateur.
+//
+// REMISES (20/10/2026) : l'IA ne calcule plus aucune remise. Elle recopie le HT
+// imprimé de chaque ligne ; la répartition d'une remise globale est faite par
+// l'application (src/Renovation/prixLignesAchat.mjs). Avant, sur un ticket dont
+// la remise fidélité était déjà déduite ligne par ligne, elle la retranchait une
+// seconde fois puis faussait la dernière ligne pour retomber sur le total.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
@@ -216,26 +222,24 @@ Attention : beaucoup de tickets/factures de magasin (ex. Leroy Merlin, Castorama
 Brico Dépôt) affichent leurs colonnes en TTC ("Prix unit. TTC", "Total TTC"). Dans
 ce cas, n'utilise PAS ces montants TTC tels quels :
 - Si la ligne indique un "Montant HT" (souvent dans le petit texte sous la
-  désignation, avec le taux et le montant de TVA), utilise ce Montant HT comme
-  prix_total de la ligne (c'est le total HT de la ligne, quantité comprise).
-- Sinon, calcule le HT à partir du TTC et du taux de TVA de la ligne :
-  HT = TTC / (1 + taux/100). Ex. 38,85 TTC à 20% -> 32,37 HT.
+  désignation, avec le taux et le montant de TVA), recopie ce Montant HT TEL QUEL
+  comme prix_total de la ligne (c'est le total HT de la ligne, quantité comprise).
+  Ne le modifie pas, ne lui applique aucune remise.
+- Sinon, calcule le HT à partir du TOTAL TTC DE LA LIGNE (la colonne "Total TTC",
+  remise de la ligne déjà déduite) et du taux de TVA : HT = TTC / (1 + taux/100).
+  Ex. 38,85 TTC à 20% -> 32,37 HT.
 - prix_unitaire = prix_total (HT) / quantité.
 Pour montant_ht, prends le "Total HT" du document (ex. "Total HT 166,48"), jamais
 le "Total TTC". Ne renvoie jamais un montant TTC dans ces champs.
 
-REMISE GLOBALE (remise fidélité, remise globale, avoir) :
-Si le document applique une remise sur le TOTAL qui n'est PAS déjà déduite ligne
-par ligne (ex. "remise fidélité" chez Leroy Merlin), tu dois la RÉPARTIR sur les
-lignes pour refléter le montant réellement payé :
-- Calcule d'abord le HT de chaque ligne (voir règle prix ci-dessus).
-- Puis réduis proportionnellement chaque prix_total ET prix_unitaire pour que la
-  SOMME des prix_total soit EXACTEMENT égale au Total HT APRÈS remise du document.
-- montant_ht = ce Total HT APRÈS remise (le vrai montant payé HT), jamais le total
-  avant remise.
-Exemple : lignes = 184,98 € HT avant remise, Total HT après remise fidélité =
-166,48 € → multiplie chaque ligne par 166,48 / 184,98 ≈ 0,9000, et montant_ht =
-166,48. Ne crée PAS de ligne "remise" séparée : la remise est fondue dans les prix.`
+REMISES (remise fidélité, remise globale, avoir) : NE FAIS AUCUN CALCUL DE REMISE.
+- Ne réduis jamais toi-même les prix des lignes pour tenir compte d'une remise :
+  renvoie le HT de chaque ligne tel que le document l'imprime.
+- montant_ht = le Total HT FINAL du document (le montant HT réellement payé).
+- L'application compare elle-même la somme des lignes au Total HT et répartit
+  une éventuelle remise restante. Ne force jamais la somme des lignes à égaler
+  le total.
+Ne crée PAS de ligne "remise" séparée.`
             }
           ]
         }]

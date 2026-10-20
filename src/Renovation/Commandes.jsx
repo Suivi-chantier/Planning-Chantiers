@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { supabase, invoquerFonction } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import { filtrerListeChoix } from "./materiauxCatalogueV1.js";
+import { repartirRemiseGlobale } from "./prixLignesAchat.js";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
@@ -353,7 +354,8 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
       // Pré-remplir fournisseur et tenter matching biblio
       if (parsed.fournisseur) setFournisseurGlobal(parsed.fournisseur);
 
-      const lignesInit = parsed.lignes.map((l, idx) => ({
+      // Remise globale (fidélité…) non déduite des lignes : répartie ici, pas par l'IA.
+      const lignesInit = repartirRemiseGlobale(parsed.lignes, parsed.montant_ht).lignes.map((l, idx) => ({
         _id: idx,
         selected: true,
         designation: l.designation || "",

@@ -4,6 +4,7 @@ import { useDraft, useDirtyGuard } from "../hooks";
 import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
+import { repartirRemiseGlobale, ecartLignesDocument } from "./prixLignesAchat.js";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
   ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
@@ -470,8 +471,10 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
       // (comptant = payé ; tout autre mode défini = paiement/facture à venir).
       if (fMatch?.mode_paiement === "comptant") setDejaPaye(true);
       else if (fMatch?.mode_paiement) setDejaPaye(false);
-      const lignes = Array.isArray(p.lignes) && p.lignes.length
-        ? p.lignes.map(l => {
+      // Remise globale (fidélité…) non déduite des lignes : répartie ici, pas par l'IA.
+      const lignesHT = Array.isArray(p.lignes) ? repartirRemiseGlobale(p.lignes, p.montant_ht).lignes : [];
+      const lignes = lignesHT.length
+        ? lignesHT.map(l => {
             const lib = l.designation || l.libelle || "";
             const g = guessLotId(lib); // pré-sélection du lot par mots-clés
             return {
@@ -1086,6 +1089,19 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
             <input inputMode="decimal" value={form.montant_ht} onChange={e => setForm(f => ({ ...f, montant_ht: e.target.value }))} placeholder="0.00" style={inputStyle} />
           </div>
         </div>
+        {(() => {
+          const e = ecartLignesDocument(form.lignes, form.montant_ht);
+          if (e.statut !== "lignes_au_dessus" && e.statut !== "lignes_en_dessous") return null;
+          return (
+            <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: RADIUS.md, background: SEMANTIC.warning.bg, border: `1px solid ${SEMANTIC.warning.border}`, color: SEMANTIC.warning.color, fontSize: FONT.sm.size, display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <Icon as={AlertTriangle} size={16} />
+              <span>
+                Les articles font {e.somme.toFixed(2)} € HT, le document {e.total.toFixed(2)} € HT
+                {e.statut === "lignes_en_dessous" ? " : vérifie qu'il ne manque pas un article." : " : vérifie les prix des articles."}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Facturation */}
