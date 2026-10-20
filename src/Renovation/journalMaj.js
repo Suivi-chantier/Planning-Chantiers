@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-20",
+    type: "correctif",
+    titre: "Saisie commande : les prix HT des tickets remisés sont justes",
+    pages: [{ id: "capture-cmd", label: "Saisie commande" }, { id: "commandes", label: "Commandes" }],
+    quoi: "Sur les tickets Leroy Merlin où la remise fidélité est déjà déduite article par article, la lecture automatique retirait la remise une deuxième fois, puis faussait le dernier article pour que le total tombe juste. Le total HT était bon, mais le prix de chaque article était faux (ex. vis à 10,73 € HT au lieu de 11,92 €).",
+    comment: "La lecture recopie désormais le montant HT imprimé pour chaque article, sans calculer de remise. C'est l'application qui compare ensuite la somme des articles au total HT du document : si elles sont égales, rien ne bouge ; si les articles dépassent le total (remise appliquée seulement sur le total, comme sur les anciens tickets), la remise est répartie au prorata sur les articles. Si la somme des articles ne correspond toujours pas au total HT, un avertissement orange s'affiche sous le montant HT pour vérifier les prix ou un article oublié.",
+  },
+  {
     date: "2026-10-18",
     type: "correctif",
     titre: "Bibliothèque et Chiffrage : la saisie n'a plus de retard",

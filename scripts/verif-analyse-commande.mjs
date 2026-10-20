@@ -369,7 +369,9 @@ test("22. format de la réponse réussie inchangé", async () => {
   assert.match(INDEX_CODE, /model: "claude-opus-4-8"/);
   assert.match(INDEX_CODE, /max_tokens: 16000/);
   assert.match(INDEX_CODE, /Tu es un assistant spécialisé dans l'analyse de documents d'achat BTP/);
-  assert.match(INDEX_CODE, /REMISE GLOBALE \(remise fidélité, remise globale, avoir\)/);
+  // Depuis le 20/10/2026, l'IA ne calcule plus les remises : l'application s'en charge.
+  assert.match(INDEX_CODE, /REMISES \(remise fidélité, remise globale, avoir\) : NE FAIS AUCUN CALCUL DE REMISE/);
+  assert.doesNotMatch(INDEX_CODE, /réduis proportionnellement/);
 });
 
 test("23. erreur Anthropic gérée sans fuite", async () => {
