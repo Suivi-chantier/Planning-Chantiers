@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-21",
     type: "amelioration",
+    titre: "Chiffrage : un bouton « Créer un multi-ouvrage » pour trouver le regroupement",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Le regroupement de plusieurs ouvrages en un multi-ouvrage passait par de petites cases à cocher peu visibles. Un bouton dédié le rend évident.",
+    comment: "Onglet Ouvrages, en haut de la liste « Devis — ouvrages retenus » : bouton « Créer un multi-ouvrage ». Il affiche la marche à suivre et met en évidence les cases à cocher à gauche de chaque ouvrage. Cocher au moins 2 ouvrages d'une même zone, puis « Regrouper en multi-ouvrage ». « Fermer le regroupement » annule la sélection.",
+  },
+  {
+    date: "2026-10-21",
+    type: "amelioration",
     titre: "Chiffrage : les heures de chaque ouvrage et le total d'heures dans l'aperçu du devis",
     pages: [{ id: "info-client", label: "Chiffrage" }],
     quoi: "L'« Aperçu du devis » affiche maintenant le nombre d'heures de main-d'œuvre de chaque ouvrage et le total d'heures du devis, pour savoir d'un coup d'œil combien de temps représente le chantier vendu.",
