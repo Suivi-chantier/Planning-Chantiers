@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { traiterRequeteDevis, composerLotsOrdre, nettoyerMessage } from "./lib/progbatQuoteServeur.mjs"
+import { traiterRequeteDevis, composerLotsOrdre, nettoyerMessage, CLE_FAMILLE_MULTI } from "./lib/progbatQuoteServeur.mjs"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // progbat-quote
@@ -23,6 +23,13 @@ import { traiterRequeteDevis, composerLotsOrdre, nettoyerMessage } from "./lib/p
 //   POST /company/quotes             scope quotes           création d'un brouillon (201 → QuoteResponse { id, code, … })
 //   GET  /company/quotes/{quoteId}   scope quotes.read      relecture de vérification après un POST réussi (jamais de second POST)
 //   GET  /company/library/structures/{structureId}  scope structures.read  existence de chaque ouvrage lié (elementId)
+// Multi-ouvrages (profero_multi_ouvrages) :
+//   GET  /company/library/structures?filter=…   recherche des ouvrages « MULTI-… » par code
+//   GET  /company/structures/{id}/composition   relecture d'une composition (réutilisation / contrôle)
+//   GET  /company/library/families              famille choisie dans les Réglages (action familles_multi)
+//   POST /company/library/structures            création d'un ouvrage MULTI (action create seulement)
+//   PUT  /company/library/structures/{id}/composition  composition de l'ouvrage MULTI qu'on vient de créer
+//        (jamais sur un ouvrage existant : composition différente = nouvel ouvrage)
 // La fonction ne finalise, n'envoie, n'accepte ni ne supprime jamais un devis.
 //
 // Secret : PROGBAT_PRIVATE_ACCESS_TOKEN (Authorization: Bearer) — jamais renvoyé,
@@ -62,12 +69,14 @@ const messagePourStatus = (status: number, detail: string): string => {
 }
 
 type Resultat =
-  | { ok: true; status: number; data: unknown }
+  | { ok: true; status: number; data: unknown; range?: { end: number; count: number } | null }
   | { ok: false; status: number; message: string; timeout?: boolean; reseau?: boolean }
+
+const parseRange = (h: string | null) => { const m = (h || "").match(/(\d+)\s*-\s*(\d+)\s*\/\s*(\d+)/); return m ? { end: Number(m[2]), count: Number(m[3]) } : null }
 
 // Appel ProGBat avec délai maximal. Ne journalise ni en-têtes ni corps ; ne
 // renvoie jamais le corps brut. `timeout` / `reseau` = issue INCONNUE côté ProGBat.
-async function progbatFetch(method: "GET" | "POST", path: string, token: string, body?: unknown, timeoutMs = TIMEOUT_GET_MS): Promise<Resultat> {
+async function progbatFetch(method: "GET" | "POST" | "PUT", path: string, token: string, body?: unknown, timeoutMs = TIMEOUT_GET_MS): Promise<Resultat> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
@@ -90,7 +99,7 @@ async function progbatFetch(method: "GET" | "POST", path: string, token: string,
       return { ok: false, status: res.status, message: messagePourStatus(res.status, detail) }
     }
     const data = await res.json().catch(() => null)
-    return { ok: true, status: res.status, data }
+    return { ok: true, status: res.status, data, range: parseRange(res.headers.get("Range")) }
   } catch (err) {
     if ((err as Error)?.name === "AbortError") {
       return { ok: false, status: 0, message: `ProGBat n'a pas répondu en ${timeoutMs / 1000} s (délai dépassé).`, timeout: true }
@@ -99,6 +108,23 @@ async function progbatFetch(method: "GET" | "POST", path: string, token: string,
   } finally {
     clearTimeout(timer)
   }
+}
+
+// Liste paginée (limit/offset + en-tête Range), 80 pages au plus. Une page en
+// erreur = erreur : jamais une liste partielle présentée comme complète.
+async function progbatTout(path: string, token: string): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; status: number; message: string }> {
+  const items: Record<string, unknown>[] = []
+  const LIMITE = 50
+  for (let page = 0; page < 80; page++) {
+    const sep = path.includes("?") ? "&" : "?"
+    const r = await progbatFetch("GET", `${path}${sep}limit=${LIMITE}&offset=${page * LIMITE}`, token)
+    if (!r.ok) return { ok: false, status: r.status, message: r.message }
+    const lot = Array.isArray(r.data) ? r.data as Record<string, unknown>[] : []
+    items.push(...lot)
+    if (r.range && r.range.end + 1 >= r.range.count) return { ok: true, items }
+    if (!r.range && lot.length < LIMITE) return { ok: true, items }
+  }
+  return { ok: false, status: 0, message: "Liste ProGBat trop longue (plus de 80 pages) : lecture interrompue." }
 }
 
 const num = (v: unknown): number | null => {
@@ -185,6 +211,26 @@ serve(async (req) => {
         const { error } = await admin.from("profero_projets").update(patch).eq("id", projectId)
         return error ? { ok: false, erreur: error.message } : { ok: true }
       },
+      async chargerMultiOuvrages(projectId: string) {
+        const { data, error } = await admin.from("profero_multi_ouvrages").select("*").eq("projet_id", projectId)
+        if (error) throw new Error("Lecture des multi-ouvrages impossible : " + nettoyerMessage(error.message))
+        return data || []
+      },
+      async chercherStructuresMulti(signature: string) {
+        // Ouvrages MULTI déjà notés par Profero pour cette composition (tous chiffrages)
+        const { data, error } = await admin.from("profero_multi_ouvrages").select("progbat_structure_id").eq("progbat_signature", signature).not("progbat_structure_id", "is", null)
+        if (error) throw new Error("Lecture des ouvrages MULTI connus impossible : " + nettoyerMessage(error.message))
+        return (data || []).map((r: Record<string, unknown>) => r.progbat_structure_id)
+      },
+      async lireFamilleMulti() {
+        const { data } = await admin.from("planning_config").select("value").eq("key", CLE_FAMILLE_MULTI).maybeSingle()
+        const v = (data?.value ?? null) as Record<string, unknown> | null
+        return v && typeof v === "object" ? { id: v.id, label: v.label } : null
+      },
+      async majMultiStructure(multiId: string, patch: Record<string, unknown>) {
+        const { error } = await admin.from("profero_multi_ouvrages").update(patch).eq("id", multiId)
+        return error ? { ok: false, erreur: error.message } : { ok: true }
+      },
       async chargerLiaisons(bibliothequeIds: string[]) {
         // Liaison ACTUELLE de chaque ouvrage Profero : c'est elle qui donne l'elementId.
         const { data, error } = await admin.from("bibliotheque_ratios").select("id, progbat_id").in("id", bibliothequeIds)
@@ -216,6 +262,34 @@ serve(async (req) => {
       async lireDevis(quoteId: number) {
         // Lecture de confirmation (GET officiel) ; son échec n'entraîne aucun nouveau POST.
         return await progbatFetch("GET", `/company/quotes/${encodeURIComponent(String(quoteId))}`, token)
+      },
+      async chercherStructuresParCode(base: string) {
+        // Recherche filtrée par code ; si ProGBat refuse le filtre, lecture complète (codes comparés ensuite).
+        const filtre = encodeURIComponent(JSON.stringify({ code: { $like: `${base}%` } }))
+        let r = await progbatTout(`/company/library/structures?filter=${filtre}`, token)
+        if (!r.ok && (r.status === 400 || r.status === 422)) r = await progbatTout("/company/library/structures", token)
+        if (!r.ok) return { ok: false, status: r.status, message: r.message }
+        return { ok: true, structures: r.items.map((s) => ({ id: s.id, code: typeof s.code === "string" ? s.code : "" })) }
+      },
+      async lireComposition(id: number) {
+        const r = await progbatFetch("GET", `/company/structures/${encodeURIComponent(String(id))}/composition`, token)
+        if (!r.ok) return { ok: false, status: r.status, message: r.message }
+        return { ok: true, status: r.status, items: Array.isArray(r.data) ? r.data : [] }
+      },
+      async listerFamilles() {
+        const r = await progbatTout("/company/library/families", token)
+        if (!r.ok) return { ok: false, status: r.status, message: r.message }
+        return { ok: true, familles: r.items.map((f) => ({ id: f.id, label: typeof f.label === "string" ? f.label : "", structureFamily: f.structureFamily })) }
+      },
+      async creerStructure(body: unknown) {
+        // Création d'un ouvrage MULTI (jamais de modification d'un ouvrage existant).
+        const r = await progbatFetch("POST", "/company/library/structures", token, body, TIMEOUT_POST_MS)
+        if (!r.ok) return { ...r, incertain: !!(r.timeout || r.reseau || r.status >= 500) }
+        return r
+      },
+      async poserComposition(id: number, body: unknown) {
+        // Uniquement sur un ouvrage MULTI créé à l'instant par cette fonction.
+        return await progbatFetch("PUT", `/company/library/structures/${encodeURIComponent(String(id))}/composition`, token, body, TIMEOUT_POST_MS)
       },
       async verifierStructures(ids: number[]) {
         // Existence de chaque structure liée : 200 = existe, 404 = introuvable ; toute autre

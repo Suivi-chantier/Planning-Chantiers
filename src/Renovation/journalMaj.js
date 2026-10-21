@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-21",
+    type: "nouveaute",
+    titre: "Chiffrage : regrouper plusieurs ouvrages en un « multi-ouvrage » (une seule ligne de devis)",
+    pages: [{ id: "info-client", label: "Chiffrage" }, { id: "admin", label: "Réglages" }],
+    quoi: "Dans une zone d'un chiffrage, plusieurs ouvrages peuvent maintenant sortir sur le devis en UNE seule ligne avec un seul prix — par exemple « Fourniture et mise en place d'une salle de bain type ». Le client voit le libellé commercial suivi de « comprenant les ouvrages suivants » avec chaque ouvrage, sa quantité et son unité, sans leur prix. Rien ne change pour le planning, le phasage, les commandes ni les marges : les ouvrages regroupés restent des lignes normales du chiffrage.",
+    comment: "Dans l'onglet Ouvrages, cocher au moins deux ouvrages d'une même zone, puis « Regrouper en multi-ouvrage » : choisir l'ouvrage principal (affiché en premier), le libellé commercial et le lot sous lequel ranger la ligne sur le devis. Le bloc affiche le total, un champ « ajustement » pour arrondir le prix (visible seulement dans la marge interne) et l'aperçu exact du texte du devis. Les quantités restent modifiables. Pour compléter un bloc : cocher un ouvrage de la zone puis « Ajouter la sélection », ou, sur ordinateur, le glisser dans le bloc (et l'en sortir de la même façon). « Dissoudre » rend les ouvrages tels quels. Deux ouvrages à TVA différente ne peuvent pas être regroupés. Lors de la création du brouillon ProGBat, Profero crée (ou réutilise s'il existe déjà avec la même composition) un ouvrage « MULTI-… » dans la famille choisie une fois dans Réglages → Outils → Maintenance → « Multi-ouvrages : famille ProGBat ». Le PDF client reprend le même rendu que ProGBat ; la synthèse interne détaille les ouvrages, l'ajustement et la marge.",
+  },
+  {
     date: "2026-10-20",
     type: "correctif",
     titre: "Saisie commande : les prix HT des tickets remisés sont justes",

@@ -29,6 +29,7 @@ import {
   ligneEstSnapshot, totalLigneHT, totauxDevis, grouperParLotZone,
   lireLogementProjet, verifierPreparationDevis, normaliserUnite, num as numOrNull,
 } from "./chiffragePricing.mjs";
+import { libelleDevisMulti, validerMultiOuvrages, verifierRegroupement, libelleCourtLigne } from "./multiOuvrages.js";
 import {
   UserCircle, Plus, Trash2, Search, Calendar, MapPin, FileText, Hammer,
   Ruler, Settings, FileDown, Check, X, AlertTriangle, Menu,
@@ -136,6 +137,14 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [saving, setSaving]           = useState(false);
   const [infos, setInfos]             = useState(INFOS_VIDES);
   const [ouvrages, setOuvrages]       = useState([]);
+  // Multi-ouvrages du projet (profero_multi_ouvrages) : enveloppes d'affichage
+  // qui regroupent plusieurs lignes d'une zone en UNE ligne de devis.
+  const [multis, setMultis]           = useState([]);
+  const [multisErreur, setMultisErreur] = useState(null);   // lecture impossible : visible, jamais ignorée
+  const [selMulti, setSelMulti]       = useState({ zone: null, ids: [] });   // cases cochées (une zone à la fois)
+  const [modalMulti, setModalMulti]   = useState(null);     // { zone, ids, principal, libelle, lot, erreurs }
+  const [toDissoudre, setToDissoudre] = useState(null);
+  const [glisse, setGlisse]           = useState(null);     // ligne glissée (ordinateur)
   const [cotes, setCotes]             = useState([]);
   // Plans riches (table `plans` partagée avec la page Plans) liés au projet
   const [richPlans, setRichPlans]     = useState([]); // liste allégée [{id,name,thumbnail,chantier_id,updated_at}]
@@ -284,16 +293,22 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setProjetId(id);
     setEditingPlan(null);
     setCroquisOuvert(null); setNotePageId(null);
-    const [{ data:p },{ data:o },{ data:c },{ data:pl },{ data:ds }] = await Promise.all([
+    setSelMulti({ zone: null, ids: [] });
+    const [{ data:p },{ data:o },{ data:c },{ data:pl },{ data:ds },{ data:mo, error:moErr }] = await Promise.all([
       supabase.from("profero_projets").select("*").eq("id",id).single(),
       supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id",id),
       supabase.from("profero_cotes").select("*").eq("projet_id",id),
       supabase.from("plans").select("id,name,thumbnail,chantier_id,updated_at").eq("projet_id",id).order("updated_at",{ascending:false}),
       supabase.from("profero_dessins").select("*").eq("projet_id",id).order("ordre").order("created_at"),
+      supabase.from("profero_multi_ouvrages").select("*").eq("projet_id",id),
     ]);
     if (p) setInfos(infosDepuisProjet(p));
     setDessins(ds || []);
     setOuvrages(o||[]); setCotes(c||[]);
+    // Lecture impossible : on garde `null` (les totaux signalent alors les
+    // lignes rattachées à un multi-ouvrage non chargé) plutôt qu'une liste vide.
+    setMultis(moErr ? null : (mo || []));
+    setMultisErreur(moErr ? moErr.message : null);
     setRichPlans(pl || []);
     setPhotos(Array.isArray(p?.photos) ? p.photos : []);
     setLoading(false);
@@ -373,6 +388,21 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         }
       )
       .subscribe();
+    const multiChan = supabase
+      .channel(`info-client-multis-${projetId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "profero_multi_ouvrages", filter: `projet_id=eq.${projetId}` },
+        (payload) => {
+          setMultis(prev => {
+            if (prev == null) return prev;   // lecture initiale en échec : on ne reconstruit pas une liste partielle
+            if (payload.eventType === "INSERT") return prev.some(m => m.id === payload.new.id) ? prev : [...prev, payload.new];
+            if (payload.eventType === "UPDATE") return prev.map(m => m.id === payload.new.id ? fusionnerLigneDistante("multis", m, payload.new) : m);
+            if (payload.eventType === "DELETE") return prev.filter(m => m.id !== payload.old.id);
+            return prev;
+          });
+        }
+      )
+      .subscribe();
     const coteChan = supabase
       .channel(`info-client-cotes-${projetId}`)
       .on("postgres_changes",
@@ -409,6 +439,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     return () => {
       supabase.removeChannel(projChan);
       supabase.removeChannel(ouvChan);
+      supabase.removeChannel(multiChan);
       supabase.removeChannel(coteChan);
       supabase.removeChannel(dessinChan);
     };
@@ -466,7 +497,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // un court instant apres son enregistrement, et seulement si aucune frappe
   // n'est arrivee depuis. Meme principe que dirtyInfosRef pour les champs du
   // projet.
-  const saisieLignesRef = useRef({ ouvrages: new Map(), cotes: new Map(), dessins: new Map() });
+  const saisieLignesRef = useRef({ ouvrages: new Map(), cotes: new Map(), dessins: new Map(), multis: new Map() });
 
   function marquerSaisieLigne(table, id, champ) {
     const lignes = saisieLignesRef.current[table];
@@ -646,7 +677,102 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const { error } = await supabase.from("profero_ouvrages_selectionnes").delete().eq("id", id);
     if (error) { alert("Suppression impossible : " + error.message); return; }
     setOuvrages(p => p.filter(o => o.id !== id));
+    // Ligne principale d'un multi-ouvrage supprimée : la base remet le principal à vide (FK set null)
+    setMultis(prev => prev == null ? prev : prev.map(m => m.principal_ligne_id === id ? { ...m, principal_ligne_id: null } : m));
   }
+  // ─── MULTI-OUVRAGES (enveloppe d'affichage : plusieurs lignes d'une zone = 1 ligne de devis) ───
+  // Les lignes regroupées restent des lignes normales ; seul multi_ouvrage_id change.
+  // Le prix n'est jamais stocké : prixMultiOuvrage (chiffragePricing.mjs) le calcule.
+  function basculerSelMulti(ligne) {
+    const zone = (ligne.zone || "").trim() || ZONE_DEFAUT;
+    setSelMulti(s => {
+      if (s.zone && s.zone !== zone) return s;   // une seule zone à la fois
+      const ids = s.ids.includes(ligne.id) ? s.ids.filter(x => x !== ligne.id) : [...s.ids, ligne.id];
+      return { zone: ids.length ? zone : null, ids };
+    });
+  }
+  function ouvrirRegroupement() {
+    const v = verifierRegroupement({ ids: selMulti.ids, lignes: ouvrages, tvaPctDefaut: numOrNull(infos.tva_pct) });
+    const choisies = selMulti.ids.map(id => ouvrages.find(o => o.id === id)).filter(Boolean);
+    const principal = choisies[0] || null;
+    setModalMulti({
+      zone: selMulti.zone, ids: selMulti.ids, principal: principal?.id || null,
+      libelle: principal ? libelleCourtLigne(principal) : "", libelleTouche: false,
+      lot: principal?.category || "", erreurs: v.erreurs, enCours: false,
+    });
+  }
+  async function creerMulti() {
+    const m = modalMulti;
+    if (!m || m.enCours || !projetId) return;
+    const v = verifierRegroupement({ ids: m.ids, lignes: ouvrages, tvaPctDefaut: numOrNull(infos.tva_pct) });
+    const erreurs = [...v.erreurs];
+    if (!(m.libelle || "").trim()) erreurs.push("Libellé commercial obligatoire");
+    if (!(m.lot || "").trim()) erreurs.push("Lot d'affichage obligatoire");
+    if (erreurs.length) { setModalMulti({ ...m, erreurs }); return; }
+    setModalMulti({ ...m, enCours: true, erreurs: [] });
+    const { data: id, error } = await supabase.rpc("creer_multi_ouvrage", {
+      p_projet_id: projetId, p_libelle_commercial: m.libelle.trim(), p_lot_affichage: m.lot.trim(),
+      p_zone: m.zone, p_principal_ligne_id: m.principal, p_ligne_ids: m.ids,
+    });
+    if (error) { setModalMulti({ ...m, enCours: false, erreurs: [error.message] }); return; }
+    // Rechargement ciblé (le temps réel suit aussi, mais l'écran ne doit pas attendre)
+    const [{ data: mo }, { data: lo }] = await Promise.all([
+      supabase.from("profero_multi_ouvrages").select("*").eq("id", id).maybeSingle(),
+      supabase.from("profero_ouvrages_selectionnes").select("*").in("id", m.ids),
+    ]);
+    if (mo) setMultis(prev => (prev || []).some(x => x.id === mo.id) ? prev : [...(prev || []), mo]);
+    if (lo) setOuvrages(prev => prev.map(o => lo.find(x => x.id === o.id) || o));
+    setSelMulti({ zone: null, ids: [] });
+    setModalMulti(null);
+  }
+  function majMulti(id, champ, valeur, { differe = false } = {}) {
+    const n = marquerSaisieLigne("multis", id, champ);
+    setMultis(prev => (prev || []).map(m => m.id === id ? { ...m, [champ]: valeur } : m));
+    const ecrire = async () => {
+      setAutoSaveStatus("saving");
+      let v = valeur;
+      if (champ === "ajustement_ht") { v = numOrNull(valeur) ?? 0; }
+      if (champ === "libelle_commercial" && !String(valeur || "").trim()) { setAutoSaveStatus("error"); libererSaisieLigne("multis", id, champ, n); return; }   // obligatoire : non enregistré tant que vide
+      const { error } = await supabase.from("profero_multi_ouvrages").update({ [champ]: v }).eq("id", id);
+      setAutoSaveStatus(error ? "error" : "saved");
+      libererSaisieLigne("multis", id, champ, n);
+    };
+    if (differe) debounce(`multi-${champ}-${id}`, ecrire); else ecrire();
+  }
+  async function ajouterAuMulti(multi, ids) {
+    const v = verifierRegroupement({ ids, lignes: ouvrages, multiCible: multi, tvaPctDefaut: numOrNull(infos.tva_pct) });
+    if (!v.ok) { alert(v.erreurs.join("\n")); return; }
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ multi_ouvrage_id: multi.id }).in("id", ids).is("multi_ouvrage_id", null);
+    setAutoSaveStatus(error ? "error" : "saved");
+    if (error) { alert("Ajout impossible : " + error.message); return; }
+    setOuvrages(prev => prev.map(o => ids.includes(o.id) ? { ...o, multi_ouvrage_id: multi.id } : o));
+    setSelMulti({ zone: null, ids: [] });
+  }
+  // Retirer une ligne : elle redevient une ligne ordinaire. S'il ne reste qu'un
+  // ouvrage, le bloc le signale (bloquant pour l'export) — jamais de dissolution silencieuse.
+  async function retirerDuMulti(ligne) {
+    const multi = (multis || []).find(m => m.id === ligne.multi_ouvrage_id);
+    setAutoSaveStatus("saving");
+    const { error } = await supabase.from("profero_ouvrages_selectionnes").update({ multi_ouvrage_id: null }).eq("id", ligne.id);
+    if (error) { setAutoSaveStatus("error"); alert("Retrait impossible : " + error.message); return; }
+    setOuvrages(prev => prev.map(o => o.id === ligne.id ? { ...o, multi_ouvrage_id: null } : o));
+    if (multi && multi.principal_ligne_id === ligne.id) {
+      const suivant = ouvrages.find(o => o.multi_ouvrage_id === multi.id && o.id !== ligne.id);
+      await supabase.from("profero_multi_ouvrages").update({ principal_ligne_id: suivant?.id ?? null }).eq("id", multi.id);
+      setMultis(prev => (prev || []).map(m => m.id === multi.id ? { ...m, principal_ligne_id: suivant?.id ?? null } : m));
+    }
+    setAutoSaveStatus("saved");
+  }
+  // Dissoudre : l'enveloppe disparaît, les lignes restent intactes (FK « set null »).
+  async function dissoudreMulti(multi) {
+    setToDissoudre(null);
+    const { error } = await supabase.from("profero_multi_ouvrages").delete().eq("id", multi.id);
+    if (error) { alert("Dissolution impossible : " + error.message); return; }
+    setMultis(prev => (prev || []).filter(m => m.id !== multi.id));
+    setOuvrages(prev => prev.map(o => o.multi_ouvrage_id === multi.id ? { ...o, multi_ouvrage_id: null } : o));
+  }
+
   async function updPrix(id,prix) {
     const n = marquerSaisieLigne("ouvrages", id, "prix_unitaire");
     setOuvrages(p => p.map(o => o.id===id ? { ...o, prix_unitaire: prix } : o));
@@ -727,15 +853,33 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     if (!nouveau) return;
     // 2) Clone des lignes : tout est recopié (zone, quantité, snapshot financier,
     //    TVA, ordre, lien bibliothèque) sauf l'identité de la ligne.
+    //    Les multi-ouvrages sont recopiés avec de NOUVEAUX identifiants (générés
+    //    ici) et les lignes copiées pointent vers ces copies : jamais vers les
+    //    multi-ouvrages du chiffrage d'origine.
+    const nouveauxMultis = new Map((multis || []).map(m => [m.id, crypto.randomUUID()]));
+    const nouvellesLignes = new Map(ouvrages.map(o => [o.id, crypto.randomUUID()]));
+    if (nouveauxMultis.size > 0) {
+      const { error: errM } = await supabase.from("profero_multi_ouvrages").insert((multis || []).map(m => ({
+        id: nouveauxMultis.get(m.id), projet_id: nouveau.id, libelle_commercial: m.libelle_commercial, lot_affichage: m.lot_affichage,
+        zone: m.zone, ajustement_ht: numOrNull(m.ajustement_ht) ?? 0, ordre: m.ordre ?? null, principal_ligne_id: null,
+      })));
+      if (errM) { nouveauxMultis.clear(); alert("Les multi-ouvrages n'ont pas pu être recopiés : les ouvrages sont copiés sans regroupement. " + errM.message); }
+    }
     const ouvrSrc = ouvrages.map(o => {
-      const { id, projet_id, created_at, updated_at, progbat_ligne_id, ...reste } = o;
-      return { ...reste, projet_id: nouveau.id };
+      const { id, projet_id, created_at, updated_at, progbat_ligne_id, multi_ouvrage_id, ...reste } = o;
+      const mid = multi_ouvrage_id ? nouveauxMultis.get(multi_ouvrage_id) ?? null : null;
+      return { ...reste, id: nouvellesLignes.get(id), projet_id: nouveau.id, ...(mid ? { multi_ouvrage_id: mid } : {}) };
     });
     if (ouvrSrc.length > 0) {
       const { error: errL } = await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc);
       if (erreurColonnesLigne(errL)) {
         setSchemaDevisManquant(true);
         await supabase.from("profero_ouvrages_selectionnes").insert(ouvrSrc.map(sansColonnesLigneV3));
+      }
+      // Ouvrage principal de chaque multi-ouvrage copié
+      for (const m of (multis || [])) {
+        const nid = nouveauxMultis.get(m.id), np = m.principal_ligne_id ? nouvellesLignes.get(m.principal_ligne_id) : null;
+        if (nid && np) await supabase.from("profero_multi_ouvrages").update({ principal_ligne_id: np }).eq("id", nid);
       }
     }
     // 3) Clone côtes
@@ -1126,7 +1270,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         .map(p => ({ nom: p.name, data: p.thumbnail }));
       // Document CLIENT : lignes groupées lot → zone, prix de vente et TVA
       // uniquement (aucun coût interne ni marge n'est transmis).
-      const payload = { infos, ouvrages, cotes, plans: plansSnap, photos, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, lotsOrdre };
+      const payload = { infos, ouvrages, multiOuvrages: multis || [], cotes, plans: plansSnap, photos, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, lotsOrdre };
       const res = await fetch("/api/generate-info-client-docx", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1181,7 +1325,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       const st = statutMeta(infos.statut);
       const html = buildChiffrageDocHTML({
         infos, statut: { label: st.label, color: st.color },
-        ouvrages, lotsOrdre, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, preparation, interne,
+        ouvrages, multiOuvrages: multis || [], lotsOrdre, groupes: groupesDevis, totaux: totauxProjet, logement: logementInfo, preparation, interne,
         cotes,
         notesPages: interne ? [] : notesImgs, plans: interne ? [] : plansImgs, croquis: interne ? [] : croquisImgs,
         medias: interne ? [] : photos.map(p => ({ type: p.type === "video" ? "video" : "image", url: p.url, label: p.label, commentaire: p.commentaire })),
@@ -1233,12 +1377,14 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // Totaux du devis (module pur chiffragePricing) : vente HT, coûts figés,
   // marge pondérée, TVA/TTC, écart budget. `estimationTotale` = vente HT.
   const budgetClient = infos.budget_client === "" || infos.budget_client == null ? null : parseFloat(infos.budget_client);
-  const totauxProjet = totauxDevis(ouvrages, { tvaPctDefaut: numOrNull(infos.tva_pct), budgetClient });
+  // Multi-ouvrages : mêmes fonctions pour la page, les PDF, le Word et ProGBat.
+  const totauxProjet = totauxDevis(ouvrages, { tvaPctDefaut: numOrNull(infos.tva_pct), budgetClient, multiOuvrages: multis });
   const estimationTotale = totauxProjet.venteHT;
   const lotsOrdre = [...(biblio?.lots || []).map(l => l.label), ...Object.keys(categories)];
-  const groupesDevis = grouperParLotZone(ouvrages, lotsOrdre);          // LOT → ZONE → OUVRAGES
+  const groupesDevis = grouperParLotZone(ouvrages, lotsOrdre, { multiOuvrages: multis });   // LOT → ZONE → (MULTI-OUVRAGES +) OUVRAGES
   const logementInfo = lireLogementProjet(infos);                        // repli sur l'ancien `logements`
-  const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet);
+  const controlesMulti = validerMultiOuvrages({ multiOuvrages: multis || [], lignes: ouvrages, tvaPctDefaut: numOrNull(infos.tva_pct) });
+  const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet, { multiOuvrages: multis, controlesMulti });
   const couleurLot = (label) => (biblio?.lots || []).find(l => l.label === label)?.couleur || "#8a90a0";
   const coutHoraireManquant = !!biblio && biblio.coutHoraire == null;
   const diagTaux = biblio ? diagnostiquerListe(biblio.tauxHoraires || []) : null;
@@ -1294,6 +1440,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   // FIGÉ (snapshot) et ne se saisit pas ; les anciennes lignes (sans snapshot)
   // gardent leur prix saisi à la main.
   const ligneEdition = (sel) => {
+    const dansMulti = !!sel.multi_ouvrage_id && (multis || []).some(m => m.id === sel.multi_ouvrage_id);
     const snap = ligneEstSnapshot(sel);
     const pu = numOrNull(sel.prix_unitaire);
     const total = totalLigneHT(sel);
@@ -1304,8 +1451,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     return (
       <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
         <input list="pic-zones" placeholder="Zone" value={sel.zone ?? ZONE_DEFAUT} onChange={e=>updZone(sel.id,e.target.value)}
-          className="zone-input" title="Zone de cette occurrence (libre, suggestions proposées)"
-          style={{...inp,width:150,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
+          disabled={dansMulti}
+          className="zone-input" title={dansMulti ? "Ouvrage regroupé dans un multi-ouvrage : le retirer du multi-ouvrage pour changer sa zone" : "Zone de cette occurrence (libre, suggestions proposées)"}
+          style={{...inp,width:150,padding:"5px 8px",fontSize:FONT.xs.size+1,opacity:dansMulti?.55:1,cursor:dansMulti?"not-allowed":"text"}}/>
         <input type="number" placeholder="Qté" value={sel.quantite||""} onChange={e=>updQte(sel.id,e.target.value)}
           className="qte-input"
           style={{...inp,width:70,padding:"5px 8px",fontSize:FONT.xs.size+1}}/>
@@ -1356,7 +1504,107 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
         {sel.bibliotheque_id && (
           <button title="Actualiser depuis la bibliothèque (affiche les différences, puis confirmation)" onClick={()=>preparerActualisation(sel)} style={iconBtnSec}><Icon as={RefreshCw} size={12}/></button>
         )}
+        {dansMulti && (
+          <button title="Retirer cet ouvrage du multi-ouvrage (il redevient une ligne ordinaire du devis, rien n'est supprimé)" onClick={()=>retirerDuMulti(sel)}
+            style={{ ...iconBtnSec, width:"auto", gap:5, padding:"0 9px", fontFamily:"inherit", fontSize:FONT.xs.size, fontWeight:700, whiteSpace:"nowrap" }}>
+            <Icon as={X} size={11}/> Sortir du regroupement
+          </button>
+        )}
         <button title="Retirer cette ligne du devis" onClick={()=>setToDeleteLigne(sel)} style={iconBtnDng}><Icon as={Trash2} size={12}/></button>
+      </div>
+    );
+  };
+  // Poignée de glisser-déposer (ordinateur) : seule la poignée est glissable,
+  // pour ne pas gêner la saisie dans les champs de la ligne. Sur tablette,
+  // on passe par les cases à cocher et les boutons.
+  const poigneeGlisser = (sel) => (
+    <span draggable onDragStart={e=>{ e.dataTransfer.effectAllowed = "move"; setGlisse(sel); }} onDragEnd={()=>setGlisse(null)}
+      title={sel.multi_ouvrage_id ? "Glisser hors du bloc pour sortir cet ouvrage du multi-ouvrage" : "Glisser dans un multi-ouvrage de la même zone pour l'y ajouter"}
+      style={{ cursor:"grab", color:T.textMuted, fontSize:14, lineHeight:"20px", userSelect:"none", flexShrink:0 }}>⠿</span>
+  );
+  // Bloc d'un multi-ouvrage : libellé commercial, total, ajustement, ouvrages
+  // regroupés en retrait (quantités modifiables) et aperçu du libellé du devis.
+  // Sur ordinateur, on peut y glisser un ouvrage de la même zone.
+  const blocMulti = (b, couleur) => {
+    const m = b.multi;
+    const ctrl = controlesMulti.filter(c => c.multi_id === String(m.id));
+    const bloquant = ctrl.some(c => c.bloquant);
+    const selIci = selMulti.zone === b.zone ? selMulti.ids.filter(id => !ouvrages.find(o => o.id === id)?.multi_ouvrage_id) : [];
+    const lotsChoix = [...new Set([...lotsOrdre, m.lot_affichage].filter(Boolean))];
+    return (
+      <div key={`multi-${m.id}`}
+        onDragOver={e => {
+          e.stopPropagation();   // relâcher un ouvrage dans son propre bloc ne le fait pas sortir
+          if (glisse && !glisse.multi_ouvrage_id && ((glisse.zone || "").trim() || ZONE_DEFAUT) === b.zone) e.preventDefault();
+        }}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); if (glisse && !glisse.multi_ouvrage_id) ajouterAuMulti(m, [glisse.id]); setGlisse(null); }}
+        style={{ padding:"10px 12px", background:acc.bg10, border:`1px solid ${bloquant ? "#e15a5a88" : acc.accent + "66"}`, borderRadius:RADIUS.md, marginBottom:8 }}>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+          <span title="Multi-ouvrage : une seule ligne sur le devis" style={{ fontSize:FONT.xs.size-1, fontWeight:800, letterSpacing:.6, textTransform:"uppercase", color:acc.accent, border:`1px solid ${acc.accent}66`, borderRadius:RADIUS.sm, padding:"1px 7px", whiteSpace:"nowrap" }}>
+            <Icon as={Layers} size={10}/> Multi-ouvrage
+          </span>
+          <input value={m.libelle_commercial ?? ""} onChange={e=>majMulti(m.id, "libelle_commercial", e.target.value, { differe: true })}
+            placeholder="Libellé commercial (obligatoire)" title="Libellé commercial : première ligne du devis"
+            style={{ ...inp, flex:"1 1 260px", padding:"6px 9px", fontSize:FONT.sm.size, fontWeight:700, borderColor: (m.libelle_commercial || "").trim() ? border : "#e15a5a" }}/>
+          <span style={{ fontSize:FONT.md.size, fontWeight:800, color: b.prix != null ? "#22c55e" : "#e15a5a", whiteSpace:"nowrap" }}>
+            {b.prix != null ? fmtEur2(b.prix) : b.vide ? "vide" : "prix incalculable"}
+          </span>
+        </div>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:6, fontSize:FONT.xs.size+1, color:T.textSub }}>
+          <span>Ouvrages {fmtEur2(b.sousTotal)}</span>
+          <span>+ ajustement</span>
+          <div style={{ position:"relative", width:110 }} title="Ajustement HT pour obtenir un prix rond (négatif pour baisser). Visible dans la marge interne, jamais sur le devis client.">
+            <input type="number" step="0.01" value={m.ajustement_ht ?? ""} onChange={e=>majMulti(m.id, "ajustement_ht", e.target.value, { differe: true })}
+              style={{ ...inp, width:"100%", padding:"5px 22px 5px 8px", fontSize:FONT.xs.size+1 }}/>
+            <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:FONT.xs.size,color:T.textMuted,pointerEvents:"none"}}>€</span>
+          </div>
+          <span>Rangé dans le lot</span>
+          <select value={m.lot_affichage || ""} onChange={e=>majMulti(m.id, "lot_affichage", e.target.value)} title="Lot d'affichage : rangement du devis uniquement (chaque ouvrage garde son lot pour le planning et les commandes)"
+            style={{ ...inp, width:"auto", padding:"5px 6px", fontSize:FONT.xs.size+1, cursor:"pointer" }}>
+            {lotsChoix.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <span style={{ flex:1 }}/>
+          {selIci.length > 0 && (
+            <button onClick={()=>ajouterAuMulti(m, selIci)} style={{ ...btnSec, padding:"5px 10px", display:"inline-flex", alignItems:"center", gap:5, borderColor:acc.accent, color:acc.accent }}>
+              <Icon as={Plus} size={11}/> Ajouter la sélection ({selIci.length})
+            </button>
+          )}
+          <button onClick={()=>setToDissoudre(m)} title="Dissoudre : les ouvrages redeviennent des lignes ordinaires, rien n'est supprimé" style={{ ...btnSec, padding:"5px 10px" }}>Dissoudre</button>
+        </div>
+        {ctrl.length > 0 && (
+          <div style={{ marginTop:6, display:"flex", flexDirection:"column", gap:3 }}>
+            {ctrl.map((c, i) => <div key={i} style={{ fontSize:FONT.xs.size+1, fontWeight:700, color:c.bloquant ? "#e15a5a" : "#f5a623", display:"flex", gap:6, alignItems:"flex-start" }}><Icon as={AlertTriangle} size={11} style={{marginTop:2,flexShrink:0}}/>{c.message}</div>)}
+          </div>
+        )}
+        {/* Ouvrages regroupés (en retrait) : quantités toujours modifiables */}
+        <div style={{ marginTop:8, marginLeft:10, paddingLeft:10, borderLeft:`2px solid ${couleur}55` }}>
+          {b.lignes.map(sel => {
+            const c = decoderLibelleCode(sel.code_ouvrage ? `${sel.code_ouvrage} : ${sel.item}` : sel.item) || (sel.code_ouvrage ? { code: sel.code_ouvrage, reste: sel.item } : null);
+            const principal = m.principal_ligne_id === sel.id;
+            return (
+              <div key={sel.id}
+                style={{ padding:"8px 10px", background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
+                <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                  {poigneeGlisser(sel)}
+                  {c && <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:couleur, background:couleur+"1f", border:`1px solid ${couleur}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{c.code}</span>}
+                  <div style={{ flex:1, minWidth:0, fontSize:FONT.sm.size, color:T.text, fontWeight:600, lineHeight:1.45 }}>{libelleCourtLigne(sel)} <span style={{ color:T.textMuted, fontWeight:500, fontSize:FONT.xs.size }}>· lot {sel.category || "—"}</span></div>
+                  <button onClick={()=>!principal && majMulti(m.id, "principal_ligne_id", sel.id)} title={principal ? "Ouvrage principal (affiché en premier)" : "Définir comme ouvrage principal (affiché en premier)"}
+                    style={{ ...iconBtnSec, width:"auto", padding:"0 8px", fontFamily:"inherit", fontSize:FONT.xs.size-1, fontWeight:800, color: principal ? acc.accent : T.textMuted, borderColor: principal ? acc.accent : border, cursor: principal ? "default" : "pointer" }}>
+                    {principal ? "★ principal" : "☆"}
+                  </button>
+                </div>
+                {ligneEdition(sel)}
+              </div>
+            );
+          })}
+        </div>
+        {/* Aperçu du libellé tel qu'il sortira sur le devis (sans prix des ouvrages) */}
+        {!b.vide && (
+          <div style={{ marginTop:6, padding:"8px 10px", background:T.surface, border:`1px dashed ${T.border}`, borderRadius:RADIUS.md }}>
+            <div style={{ fontSize:FONT.xs.size-1, fontWeight:800, letterSpacing:.6, textTransform:"uppercase", color:T.textMuted, marginBottom:3 }}>Sur le devis : 1 U × {b.prix != null ? fmtEur2(b.prix) : "—"}</div>
+            <div style={{ whiteSpace:"pre-wrap", fontSize:FONT.xs.size+1, color:T.text, lineHeight:1.5 }}>{libelleDevisMulti(m, ouvrages)}</div>
+          </div>
+        )}
       </div>
     );
   };
@@ -2107,7 +2355,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <button onClick={()=>setShowProgbat(true)} title="Aperçu du devis ProGBat reconstruit par le serveur, puis création d'un brouillon après confirmation." style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
                         <Icon as={Send} size={11}/> {projets.find(p=>p.id===projetId)?.progbat_devis_id ? "Devis ProGBat (brouillon créé)" : "Aperçu ProGBat"}
                       </button>
-                      <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); setOuvrages([]); }}
+                      <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); await supabase.from("profero_multi_ouvrages").delete().eq("projet_id",projetId); setOuvrages([]); setMultis(prev => prev == null ? prev : []); setSelMulti({ zone: null, ids: [] }); }}
                         style={{...btnDng, display:"inline-flex", alignItems:"center", gap:5, padding:"8px 14px"}}>
                         <Icon as={X} size={11}/> Tout retirer
                       </button>
@@ -2115,6 +2363,24 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   )}
                 </div>
 
+                {multisErreur && (
+                  <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.1)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:700, display:"flex", alignItems:"center", gap:8 }}>
+                    <Icon as={AlertTriangle} size={13}/> Multi-ouvrages illisibles ({multisErreur}) : les ouvrages regroupés sont affichés un par un et le total peut être faux. Recharger la page.
+                  </div>
+                )}
+                {selMulti.ids.length > 0 && (
+                  <div style={{ position:"sticky", top:0, zIndex:5, marginBottom:10, padding:"10px 12px", borderRadius:RADIUS.md, background:T.surface, border:`1px solid ${acc.accent}88`, boxShadow:"0 6px 18px rgba(0,0,0,0.25)", display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                    <Icon as={Layers} size={14} color={acc.accent}/>
+                    <span style={{ flex:1, minWidth:180, fontSize:FONT.sm.size, fontWeight:700, color:T.text }}>
+                      {selMulti.ids.length} ouvrage{selMulti.ids.length>1?"s":""} coché{selMulti.ids.length>1?"s":""} · zone « {selMulti.zone} »
+                      {selMulti.ids.length < 2 && <span style={{ color:T.textMuted, fontWeight:500 }}> — en cocher au moins 2, ou « Ajouter la sélection » dans un multi-ouvrage existant</span>}
+                    </span>
+                    <button disabled={selMulti.ids.length < 2} onClick={ouvrirRegroupement} style={{ ...(selMulti.ids.length >= 2 ? btn : btnSec), padding:"10px 16px", display:"inline-flex", alignItems:"center", gap:6, cursor:selMulti.ids.length >= 2 ? "pointer" : "not-allowed" }}>
+                      <Icon as={Layers} size={12}/> Regrouper en multi-ouvrage
+                    </button>
+                    <button onClick={()=>setSelMulti({ zone: null, ids: [] })} style={{ ...btnSec, padding:"10px 14px" }}>Annuler</button>
+                  </div>
+                )}
                 {ouvrages.length === 0 ? (
                   <div style={{ background:T.card, border:`1px dashed ${T.border}`, borderRadius:RADIUS.xl, padding:"22px 20px", textAlign:"center", color:T.textSub, marginBottom:14 }}>
                     <div style={{fontSize:FONT.sm.size+1,fontWeight:700,color:T.text,marginBottom:3}}>Aucun ouvrage dans ce devis</div>
@@ -2128,19 +2394,38 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:g.total > 0 ? "#22c55e" : T.textMuted, textTransform:"none", letterSpacing:0 }}>{fmtEur2(g.total)}</span>
                     </div>
                     {g.zones.map(z => (
-                      <div key={z.zone} style={{ marginLeft:12, marginBottom:8, paddingLeft:10, borderLeft:`2px solid ${couleurLot(g.lot)}55` }}>
-                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                      <div key={z.zone}
+                        onDragOver={e => { if (glisse?.multi_ouvrage_id && ((glisse.zone || "").trim() || ZONE_DEFAUT) === z.zone) e.preventDefault(); }}
+                        onDrop={e => { if (glisse?.multi_ouvrage_id) { e.preventDefault(); retirerDuMulti(glisse); } setGlisse(null); }}
+                        style={{ marginLeft:12, marginBottom:8, paddingLeft:10, borderLeft:`2px solid ${couleurLot(g.lot)}55` }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
                           <Icon as={Home} size={11} color={T.textSub}/>
-                          <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:T.textSub, textTransform:"uppercase", letterSpacing:.6, flex:1 }}>{z.zone} <span style={{ color:T.textMuted, fontWeight:600 }}>({z.lignes.length})</span></span>
+                          <span style={{ fontSize:FONT.xs.size+1, fontWeight:800, color:T.textSub, textTransform:"uppercase", letterSpacing:.6, flex:1 }}>{z.zone} <span style={{ color:T.textMuted, fontWeight:600 }}>({z.lignes.length + z.multis.length})</span></span>
+                          {selMulti.zone === z.zone && selMulti.ids.length >= 2 && (
+                            <button onClick={ouvrirRegroupement} style={{ ...btn, padding:"5px 10px", display:"inline-flex", alignItems:"center", gap:5 }}>
+                              <Icon as={Layers} size={11}/> Regrouper en multi-ouvrage ({selMulti.ids.length})
+                            </button>
+                          )}
                           {g.zones.length > 1 && <span style={{ fontSize:FONT.xs.size, fontWeight:700, color:T.textMuted }}>{fmtEur2(z.total)}</span>}
                         </div>
+                        {z.multis.map(b => blocMulti(b, couleurLot(g.lot)))}
                         {z.lignes.map(sel => {
                           const c = decoderLibelleCode(sel.code_ouvrage ? `${sel.code_ouvrage} : ${sel.item}` : sel.item) || (sel.code_ouvrage ? { code: sel.code_ouvrage, reste: sel.item } : null);
                           const snap = ligneEstSnapshot(sel);
                           const libelleCourt = c ? (decoderLibelleCode(sel.item)?.reste || sel.item) : sel.item;
+                          const zoneLigne = (sel.zone || "").trim() || ZONE_DEFAUT;
+                          const coche = selMulti.ids.includes(sel.id);
+                          const autreZone = !!selMulti.zone && selMulti.zone !== zoneLigne;
                           return (
-                            <div key={sel.id} style={{ padding:"9px 12px", background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
+                            <div key={sel.id}
+                              style={{ padding:"9px 12px", background:coche ? acc.bg10 : T.card, border:`1px solid ${coche ? acc.accent + "88" : T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
                               <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                                {multis != null && z.multis.length > 0 && poigneeGlisser(sel)}
+                                {multis != null && (
+                                  <input type="checkbox" checked={coche} disabled={autreZone} onChange={()=>basculerSelMulti(sel)}
+                                    title={autreZone ? `Sélection en cours dans la zone « ${selMulti.zone} » : seuls les ouvrages d'une même zone se regroupent` : "Cocher pour regrouper en multi-ouvrage"}
+                                    style={{ accentColor:acc.accent, width:20, height:20, marginTop:0, flexShrink:0, cursor:autreZone ? "not-allowed" : "pointer" }}/>
+                                )}
                                 {c && <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:couleurLot(g.lot), background:couleurLot(g.lot)+"1f", border:`1px solid ${couleurLot(g.lot)}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{c.code}</span>}
                                 <div style={{ flex:1, minWidth:0, fontSize:FONT.sm.size, color:T.text, fontWeight:600, lineHeight:1.45 }}>{libelleCourt}</div>
                                 {!snap && <span title="Ligne ancienne ou hors bibliothèque : prix saisi à la main, pas de coût figé" style={{ fontSize:FONT.xs.size-1, fontWeight:700, color:T.textMuted, border:`1px solid ${T.border}`, borderRadius:RADIUS.pill, padding:"1px 7px", whiteSpace:"nowrap" }}>prix saisi</span>}
@@ -2830,6 +3115,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     {g.zones.map(z=>(
                       <div key={z.zone} style={{marginLeft:8,marginBottom:6}}>
                         <div style={{fontSize:FONT.xs.size+1,fontWeight:800,color:T.textSub,textTransform:"uppercase",letterSpacing:.5,padding:"2px 0 4px"}}>{z.zone}</div>
+                        {(z.multis || []).filter(b => !b.vide).map(b => (
+                          <div key={`m-${b.id}`} style={{display:"flex",gap:8,padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${acc.accent}`,marginBottom:4}}>
+                            <span style={{flex:1,minWidth:0,whiteSpace:"pre-wrap",lineHeight:1.45}}>{libelleDevisMulti(b.multi, ouvrages)}</span>
+                            <span style={{color:T.textMuted,whiteSpace:"nowrap"}}>1 U</span>
+                            <span style={{fontWeight:800,color:b.prix != null ? "#22c55e" : "#e15a5a",whiteSpace:"nowrap",minWidth:80,textAlign:"right"}}>{b.prix != null ? fmtEur2(b.prix) : "prix incalculable"}</span>
+                          </div>
+                        ))}
                         {z.lignes.map(it=>{
                           const tot = totalLigneHT(it);
                           return (
@@ -2859,7 +3151,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
       {/* ── DEVIS PROGBAT : aperçu reconstruit par le serveur + création d'un brouillon après confirmation ── */}
       {showProgbat && (
-        <ProgbatApercuDevis T={T} acc={acc} projetId={projetId} projet={infos} lignes={ouvrages} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)} onDevisCree={()=>chargerProjets()}/>
+        <ProgbatApercuDevis T={T} acc={acc} projetId={projetId} projet={infos} lignes={ouvrages} multiOuvrages={multis} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)} onDevisCree={()=>chargerProjets()}/>
       )}
 
       {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}
@@ -2985,6 +3277,76 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       )}
 
       {/* ── MODAL RETIRER UNE LIGNE DU DEVIS ── */}
+      {/* ── Création d'un multi-ouvrage : principal, libellé commercial, lot d'affichage ── */}
+      {modalMulti && (() => {
+        const choisies = modalMulti.ids.map(id => ouvrages.find(o => o.id === id)).filter(Boolean);
+        const lotsChoix = [...new Set([...choisies.map(o => o.category).filter(Boolean), ...lotsOrdre])];
+        const apercuMulti = { id: "apercu", libelle_commercial: modalMulti.libelle, principal_ligne_id: modalMulti.principal };
+        const lignesApercu = ouvrages.map(o => modalMulti.ids.includes(o.id) ? { ...o, multi_ouvrage_id: "apercu" } : o);
+        return (
+          <div onClick={e=>e.target===e.currentTarget&&!modalMulti.enCours&&setModalMulti(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+            <div style={{background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:22,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",border:`1px solid ${T.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <div style={{width:36,height:36,borderRadius:RADIUS.md,background:acc.bg10,color:acc.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon as={Layers} size={16}/></div>
+                <div>
+                  <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Regrouper en multi-ouvrage</div>
+                  <div style={{fontSize:FONT.xs.size+1,color:T.textMuted}}>{choisies.length} ouvrages · zone « {modalMulti.zone} » · une seule ligne sur le devis</div>
+                </div>
+              </div>
+              <label style={lbl}>Ouvrage principal (affiché en premier)</label>
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+                {choisies.map(o => (
+                  <label key={o.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:RADIUS.md,border:`1px solid ${modalMulti.principal===o.id?acc.accent:T.border}`,background:modalMulti.principal===o.id?acc.bg10:T.card,cursor:"pointer"}}>
+                    <input type="radio" name="principal-multi" checked={modalMulti.principal===o.id} style={{accentColor:acc.accent,width:18,height:18}}
+                      onChange={()=>setModalMulti(m=>({ ...m, principal:o.id, libelle: m.libelleTouche ? m.libelle : libelleCourtLigne(o), lot: o.category || m.lot }))}/>
+                    <span style={{flex:1,fontSize:FONT.sm.size,color:T.text,fontWeight:600}}>{o.code_ouvrage ? `${o.code_ouvrage} · ` : ""}{libelleCourtLigne(o)}</span>
+                    <span style={{fontSize:FONT.xs.size,color:T.textMuted,whiteSpace:"nowrap"}}>{o.quantite || "?"} {o.unite || ""} · lot {o.category || "—"}</span>
+                  </label>
+                ))}
+              </div>
+              <label style={lbl}>Libellé commercial (obligatoire)</label>
+              <input autoFocus value={modalMulti.libelle} onChange={e=>setModalMulti(m=>({ ...m, libelle:e.target.value, libelleTouche:true }))}
+                placeholder="ex. Fourniture et mise en place d'une salle de bain type" style={{...inp,marginBottom:12,fontSize:FONT.sm.size}}/>
+              <label style={lbl}>Lot d'affichage sur le devis</label>
+              <select value={modalMulti.lot} onChange={e=>setModalMulti(m=>({ ...m, lot:e.target.value }))} style={{...inp,marginBottom:6,cursor:"pointer"}}>
+                {lotsChoix.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <div style={{fontSize:FONT.xs.size,color:T.textMuted,marginBottom:12}}>Rangement du devis uniquement : chaque ouvrage garde son propre lot pour le planning et les commandes.</div>
+              <div style={{padding:"8px 10px",background:T.surface,border:`1px dashed ${T.border}`,borderRadius:RADIUS.md,marginBottom:12}}>
+                <div style={{fontSize:FONT.xs.size-1,fontWeight:800,letterSpacing:.6,textTransform:"uppercase",color:T.textMuted,marginBottom:3}}>Aperçu du libellé sur le devis</div>
+                <div style={{whiteSpace:"pre-wrap",fontSize:FONT.xs.size+1,color:T.text,lineHeight:1.5}}>{libelleDevisMulti(apercuMulti, lignesApercu)}</div>
+              </div>
+              {modalMulti.erreurs.length > 0 && (
+                <div style={{marginBottom:12,display:"flex",flexDirection:"column",gap:3}}>
+                  {modalMulti.erreurs.map((e,i)=><div key={i} style={{fontSize:FONT.xs.size+1,color:"#e15a5a",fontWeight:700,display:"flex",gap:6}}><Icon as={AlertTriangle} size={11} style={{marginTop:2,flexShrink:0}}/>{e}</div>)}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={()=>setModalMulti(null)} disabled={modalMulti.enCours} style={{...btnSec,padding:"10px 16px"}}>Annuler</button>
+                <button onClick={creerMulti} disabled={modalMulti.enCours} style={{...btn,padding:"10px 18px",display:"inline-flex",alignItems:"center",gap:6}}>
+                  <Icon as={Layers} size={12}/>{modalMulti.enCours ? "Regroupement…" : "Regrouper"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {toDissoudre && (
+        <div onClick={e=>e.target===e.currentTarget&&setToDissoudre(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+          <div style={{background:T.modal||T.surface,borderRadius:RADIUS.xl,padding:22,width:"100%",maxWidth:440,border:`1px solid ${T.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)"}}>
+            <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text,marginBottom:8}}>Dissoudre « {toDissoudre.libelle_commercial} » ?</div>
+            <div style={{fontSize:FONT.sm.size,color:T.textSub,lineHeight:1.6,marginBottom:16}}>
+              Les {ouvrages.filter(o => o.multi_ouvrage_id === toDissoudre.id).length} ouvrages regroupés redeviennent des lignes ordinaires du devis, avec leurs quantités et leurs prix. Rien n'est supprimé. Le libellé commercial{numOrNull(toDissoudre.ajustement_ht) ? " et l'ajustement" : ""} disparaissent.
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setToDissoudre(null)} style={{...btnSec,padding:"10px 16px"}}>Annuler</button>
+              <button onClick={()=>dissoudreMulti(toDissoudre)} style={{...btn,padding:"10px 18px"}}>Dissoudre</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toDeleteLigne && (
         <div onClick={()=>setToDeleteLigne(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000, display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)" }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:T.modal,borderRadius:RADIUS.xl,padding:24, width:"100%",maxWidth:440,border:`1px solid ${T.border}`, boxShadow:"0 24px 60px rgba(0,0,0,0.5)" }}>

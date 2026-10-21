@@ -21,6 +21,7 @@ import {
 import EspaceOuvrier from "./EspaceOuvrier";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
+import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
@@ -5236,6 +5237,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
 
           {/* Inventaire de la bibliothèque — simulation lecture seule (aucun bouton d'écriture) */}
           <ProgbatInventaire T={T} acc={acc} />
+          {/* Famille ProGBat des ouvrages « MULTI-… » (multi-ouvrages du chiffrage) */}
+          <ProgbatFamilleMultiAdmin T={T} acc={acc} />
         </div>
       )}
 

@@ -126,6 +126,16 @@ lectures), le bucket privé `notes-ouvriers`, la RPC `notes_destinataires`.
 Additive, rejouable, s'applique seule (jamais par `db push`). Retour arrière : `sql/202610_notes_ouvriers_rollback.sql`.
 Vérification : `node scripts/verif-notes-ouvriers.mjs`.
 
+`20261021120000_multi_ouvrages_chiffrage.sql` — **appliquée en production le
+21/10/2026** (accord de Loris ; le connecteur Supabase refusant l'écriture,
+appliquée par la CLI liée : `supabase db query --linked -f …`, puis
+`migration repair --status applied 20261021120000`). Multi-ouvrages du
+chiffrage : table `profero_multi_ouvrages`, colonne
+`profero_ouvrages_selectionnes.multi_ouvrage_id`, garde (même projet, même
+zone), RPC `creer_multi_ouvrage`. Additive, rejouable, s'applique seule.
+Retour arrière : `sql/202610_multi_ouvrages_chiffrage_rollback.sql`.
+Vérification : `node scripts/verif-multi-ouvrages.mjs`.
+
 ## Règles
 
 1. **Ne jamais exécuter de SQL directement dans l'éditeur Supabase.** Toute

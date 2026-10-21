@@ -18,6 +18,7 @@
 import { docClientHTML, sectionTitre } from "./previsionnelDoc";
 import { grouperParLotZone, totauxDevis, totalLigneHT, lireLogementProjet, verifierPreparationDevis, num, ZONE_DEFAUT } from "./chiffragePricing.mjs";
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
+import { libelleDevisMulti } from "./multiOuvrages.js";
 
 const OR = "#FFC200";
 const esc = (s) => (s ?? "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -59,20 +60,23 @@ const planche = (i, nom, image, { pleinePage = true } = {}) => `
 // lotsOrdre   : noms des lots dans l'ordre d'affichage du chiffrage
 // groupes / totaux / logement / preparation : pré-calculés par la page (sinon recalculés ici)
 // interne     : true = synthèse interne (coûts + marge)
+// multiOuvrages : profero_multi_ouvrages du projet. CLIENT : une ligne par
+//               multi-ouvrage, même libellé que le devis ProGBat (ouvrages
+//               listés sans prix). INTERNE : détail des ouvrages, ajustement, marge.
 // cotes       : [{ nom, localisation, largeur, hauteur }]
 // notesPages  : [{ nom, image }] pages manuscrites (PNG data-URL)
 // plans       : [{ nom, image }]   croquis : [{ nom, image }]
 // medias      : [{ type:"image"|"video", url, label, commentaire }]
 export function buildChiffrageDocHTML({
-  infos = {}, statut, ouvrages = [], lotsOrdre = [], groupes = null, totaux = null, logement = null, preparation = null,
+  infos = {}, statut, ouvrages = [], multiOuvrages = null, lotsOrdre = [], groupes = null, totaux = null, logement = null, preparation = null,
   interne = false, cotes = [], notesPages = [], plans = [], croquis = [], medias = [], logoUrl, dateGen,
 }) {
   const nomClient = `${infos.client_nom || ""} ${infos.client_prenom || ""}`.trim() || infos.client_societe || "Projet sans client";
   const lg = logement || lireLogementProjet(infos);
   const tvaProjet = num(infos.tva_pct);
   const budget = num(infos.budget_client);
-  const grp = groupes || grouperParLotZone(ouvrages, lotsOrdre);
-  const tot = totaux || totauxDevis(ouvrages, { tvaPctDefaut: tvaProjet, budgetClient: budget });
+  const grp = groupes || grouperParLotZone(ouvrages, lotsOrdre, { multiOuvrages });
+  const tot = totaux || totauxDevis(ouvrages, { tvaPctDefaut: tvaProjet, budgetClient: budget, multiOuvrages });
   const prep = interne ? (preparation || verifierPreparationDevis(infos, ouvrages, tot)) : null;
   const avecPrix = tot.venteHT > 0 || ouvrages.some(o => num(o.prix_unitaire) != null);
 
@@ -140,22 +144,42 @@ export function buildChiffrageDocHTML({
     const zonesHtml = g.zones.map(z => {
       const multiZones = g.zones.length > 1 || z.zone !== ZONE_DEFAUT;
       const enteteZone = multiZones ? `<tr class="ch-zone"><td colspan="${nbCols}"><span class="ch-zone-nom">${esc(z.zone)}</span>${avecPrix && g.zones.length > 1 && z.total > 0 ? `<span class="ch-zone-total">${esc(eur(z.total))}</span>` : ""}</td></tr>` : "";
-      const lignes = z.lignes.map(o => {
+      const ligneHtml = (o, { enfant = false } = {}) => {
         const q = num(o.quantite), pu = num(o.prix_unitaire), t = totalLigneHT(o);
         const code = o.code_ouvrage || parseCodeOuvrage(o.item)?.code || "";
         const libelle = parseCodeOuvrage(o.item)?.reste || o.item || "";
         const coutU = num(o.cout_total_unitaire);
         const margeLigne = coutU != null && pu != null && pu > 0 ? `${esc(eur((pu - coutU) * (q ?? 0)))}<br/><span class="ch-muted">${esc(pct(o.taux_marge_pct))}</span>` : "—";
         const tvaLigne = num(o.tva_pct);
-        return `<tr>
-          <td class="ch-item">${code ? `<span class="ch-code">${esc(code)}</span> ` : ""}${esc(libelle)}${tvaLigne != null && tvaProjet != null && tvaLigne !== tvaProjet ? ` <span class="ch-muted">(TVA ${esc(pct(tvaLigne))})</span>` : ""}</td>
+        return `<tr${enfant ? ` class="ch-multi-enfant"` : ""}>
+          <td class="ch-item">${enfant ? "↳ " : ""}${code ? `<span class="ch-code">${esc(code)}</span> ` : ""}${esc(libelle)}${tvaLigne != null && tvaProjet != null && tvaLigne !== tvaProjet ? ` <span class="ch-muted">(TVA ${esc(pct(tvaLigne))})</span>` : ""}</td>
           <td class="num">${q == null ? "—" : esc(numf(q))}</td>
           <td>${esc(o.unite || "")}</td>
-          ${avecPrix ? `<td class="num">${pu == null ? "—" : esc(eur(pu))}</td><td class="num"><b>${t != null ? esc(eur(t)) : "—"}</b></td>` : ""}
+          ${avecPrix ? `<td class="num">${pu == null ? "—" : esc(eur(pu))}</td><td class="num">${enfant ? "" : "<b>"}${t != null ? esc(eur(t)) : "—"}${enfant ? "" : "</b>"}</td>` : ""}
           ${interne ? `<td class="num">${coutU == null ? `<span class="ch-muted">prix saisi</span>` : esc(eur(coutU))}</td><td class="num">${margeLigne}</td>` : ""}
         </tr>`;
+      };
+      // Multi-ouvrages (en tête de zone) : UNE ligne, libellé identique au devis
+      // ProGBat. Le client ne voit ni le prix des ouvrages regroupés ni l'ajustement.
+      const multisHtml = (z.multis || []).filter(b => !b.vide).map(b => {
+        const libelle = libelleDevisMulti(b.multi, ouvrages);
+        const [tete, ...reste] = libelle.split("\n");
+        const coutMulti = b.lignes.reduce((s, l) => s + (num(l.cout_total_unitaire) ?? NaN) * (num(l.quantite) ?? 0), 0);
+        const margeMulti = Number.isFinite(coutMulti) && b.prix != null ? `${esc(eur(b.prix - coutMulti))}<br/><span class="ch-muted">${esc(pct(b.prix > 0 ? (b.prix - coutMulti) / b.prix * 100 : null))}</span>` : "—";
+        const principal = `<tr class="ch-multi">
+          <td class="ch-item">${esc(tete)}${reste.length ? `<div class="ch-multi-compo">${reste.map(esc).join("<br/>")}</div>` : ""}</td>
+          <td class="num">1</td>
+          <td>U</td>
+          ${avecPrix ? `<td class="num">${b.prix == null ? "—" : esc(eur(b.prix))}</td><td class="num"><b>${b.prix == null ? "—" : esc(eur(b.prix))}</b></td>` : ""}
+          ${interne ? `<td class="num">${Number.isFinite(coutMulti) ? esc(eur(coutMulti)) : `<span class="ch-muted">partiel</span>`}</td><td class="num">${margeMulti}</td>` : ""}
+        </tr>`;
+        if (!interne) return principal;
+        const detail = b.lignes.map(l => ligneHtml(l, { enfant: true })).join("");
+        const ajustement = b.ajustement ? `<tr class="ch-multi-enfant"><td class="ch-item">↳ Ajustement (prix rond) <span class="ch-muted">— jamais visible du client</span></td><td></td><td></td>${avecPrix ? `<td></td><td class="num">${esc(eur(b.ajustement))}</td>` : ""}<td></td><td></td></tr>` : "";
+        return principal + detail + ajustement;
       }).join("");
-      return enteteZone + lignes;
+      const lignes = z.lignes.map(o => ligneHtml(o)).join("");
+      return enteteZone + multisHtml + lignes;
     }).join("");
     return `
       <tr class="ch-lot"><td colspan="${nbCols}"><span class="ch-lot-nom bc">${esc(g.lot)}</span>${avecPrix && g.total > 0 ? `<span class="ch-lot-total">${esc(eur(g.total))}</span>` : ""}</td></tr>
@@ -193,6 +217,7 @@ export function buildChiffrageDocHTML({
     ${carte("Coût matériaux", esc(eur(tot.coutMateriaux)))}
     ${carte("Coût main-d'œuvre", esc(eur(tot.coutMainOeuvre)))}
     ${carte("Coûts directs", esc(eur(tot.coutDirect)))}
+    ${tot.nbMultiOuvrages ? carte("Multi-ouvrages", `${tot.nbMultiOuvrages} regroupement${tot.nbMultiOuvrages > 1 ? "s" : ""} · ajustements <b>${esc(eur(tot.ajustementsHT))}</b> <span class="ch-muted">(compris dans la vente et la marge)</span>`) : ""}
     ${carte("Marge", tot.marge == null ? `<span class="ch-muted">non fiable (lignes sans coût figé)</span>` : `<b style="color:${tot.marge >= 0 ? "#1e8e4e" : "#c0392b"};">${esc(eur(tot.marge))}</b> · taux réel global <b>${esc(pct(tot.tauxMargeReel))}</b> <span class="ch-muted">(pondéré, pas une moyenne)</span>`)}
     ${carte("TVA / TTC", tot.ttc == null ? `<span style="color:#c0392b;">TVA à choisir</span>` : `${esc(eur(tot.tva))} · <b>${esc(eur(tot.ttc))} TTC</b>`)}
     ${prep ? carte(prep.pret ? "Devis prêt à préparer" : `Devis à compléter (${prep.bloquants.length} bloquant${prep.bloquants.length > 1 ? "s" : ""})`,
@@ -257,6 +282,10 @@ export function buildChiffrageDocHTML({
   .ch-zone td{padding:6pt 8pt 3pt 18pt;border-bottom:1pt dashed #e9ebf0;background:#fafbfc;}
   .ch-zone-nom{font-size:8.5pt;font-weight:800;letter-spacing:.8pt;text-transform:uppercase;color:#4a4f5b;}
   .ch-zone-total{float:right;font-size:8.5pt;font-weight:700;color:#8a90a0;}
+  .ch-multi td{background:#fffbea;}
+  .ch-multi-compo{margin-top:3pt;font-weight:500;font-size:8.5pt;color:#4a4f5b;line-height:1.5;}
+  .ch-multi-enfant td{font-size:8.5pt;color:#6b7280;padding-left:20pt;}
+  .ch-multi-enfant .ch-item{font-weight:500;color:#4a4f5b;}
   .ch-soustotal td{padding:6pt 8pt;font-weight:700;font-size:9.5pt;color:#4a4f5b;border-top:1pt solid #e5e7eb;border-bottom:none;}
   .ch-total td{padding:8pt;font-weight:800;font-size:11pt;color:#12151c;border-top:2pt solid #12151c;border-bottom:none;}
   .ch-ecart{margin-top:9pt;padding:7pt 12pt;border:1pt solid;border-radius:8pt;font-size:9pt;color:#4a4f5b;}

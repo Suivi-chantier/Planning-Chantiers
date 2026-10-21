@@ -83,7 +83,10 @@ export function normaliserUnite(u) {
   return s;
 }
 
-function indexerMateriaux(materiaux) {
+// Index id → matériau. Exporté pour que les écrans le construisent UNE fois
+// (12 000+ matériaux) et le passent tel quel à calculerOuvrage : avec un
+// tableau, l'index est reconstruit à chaque appel, donc pour chaque ouvrage.
+export function indexerMateriaux(materiaux) {
   if (materiaux instanceof Map) return materiaux;
   const map = new Map();
   if (Array.isArray(materiaux)) materiaux.forEach(m => { if (m && m.id != null) map.set(String(m.id), m); });
@@ -740,23 +743,108 @@ export function totalLigneHT(ligne) {
   return arrondirMontant((q ?? 0) * pu);
 }
 
+// ─── Multi-ouvrages (profero_multi_ouvrages) ─────────────────────────────────
+// Un multi-ouvrage est une ENVELOPPE D'AFFICHAGE : plusieurs lignes d'une même
+// zone sortent sur le devis en UNE ligne (quantité 1, unité U). Les lignes
+// regroupées restent des lignes normales (quantités, coûts, lots inchangés).
+// Son prix n'est JAMAIS stocké : c'est prixMultiOuvrage qui le calcule, et
+// totauxDevis / grouperParLotZone / le payload ProGBat l'utilisent tous.
+//   prix = arrondi( Σ totalLigneHT(ligne regroupée) + ajustement_ht )
+// L'ajustement (prix rond) entre dans la vente HT, donc dans la marge ; il ne
+// change aucun coût.
+
+/** Index id → multi-ouvrage (tableau, Map ou null). */
+export function indexerMultiOuvrages(multiOuvrages) {
+  if (multiOuvrages instanceof Map) return multiOuvrages;
+  const map = new Map();
+  (Array.isArray(multiOuvrages) ? multiOuvrages : []).forEach(m => { if (m && m.id != null) map.set(String(m.id), m); });
+  return map;
+}
+
+/** Identifiant du multi-ouvrage d'une ligne (chaîne) ou null. */
+export function multiDeLigne(ligne) {
+  const id = ligne?.multi_ouvrage_id;
+  return id == null || str(id) === "" ? null : str(id);
+}
+
+/**
+ * Lignes regroupées dans un multi-ouvrage, ouvrage principal en tête puis
+ * ordre d'affichage du devis (même tri que les lignes d'une zone).
+ */
+export function lignesDuMulti(multi, lignes = []) {
+  const id = str(multi?.id);
+  const enfants = (lignes || []).filter(l => multiDeLigne(l) === id);
+  const principal = str(multi?.principal_ligne_id);
+  return enfants.sort((a, b) => {
+    const pa = principal && str(a?.id) === principal ? 0 : 1;
+    const pb = principal && str(b?.id) === principal ? 0 : 1;
+    return pa - pb || comparerLignes(a, b);
+  });
+}
+
+/**
+ * Prix d'un multi-ouvrage. `montant` = ce qui entre dans les totaux (lignes
+ * chiffrées + ajustement) ; `prix` = prix de la ligne de devis, null tant
+ * qu'une ligne regroupée n'a pas de prix (impossible à afficher comme un prix).
+ * Un multi-ouvrage vide ne compte rien, ajustement compris.
+ */
+export function prixMultiOuvrage(multi, lignes = []) {
+  const enfants = lignesDuMulti(multi, lignes);
+  const ajustement = arrondirMontant(num(multi?.ajustement_ht) ?? 0) ?? 0;
+  let sousTotal = 0, nbSansPrix = 0;
+  enfants.forEach(l => {
+    const t = totalLigneHT(l);
+    if (t == null) nbSansPrix++; else sousTotal += t;
+  });
+  const vide = enfants.length === 0;
+  const sousTotalArr = arrondirMontant(sousTotal) ?? 0;
+  const montant = vide ? 0 : arrondirMontant(sousTotalArr + ajustement);
+  return {
+    enfants,
+    nbEnfants: enfants.length,
+    nbSansPrix,
+    vide,
+    sousTotal: sousTotalArr,
+    ajustement,
+    montant,
+    prix: vide || nbSansPrix > 0 ? null : montant,
+    complet: !vide && nbSansPrix === 0,
+  };
+}
+
 /**
  * Totaux d'un devis (toutes les lignes d'un projet).
  * Le taux de marge global est PONDÉRÉ : (Σ vente − Σ coût) / Σ vente.
  * Les lignes sans snapshot de coût (anciennes lignes à prix saisi) rendent les
  * coûts « incomplets » : la marge n'est alors pas affichée comme fiable.
  * @param options.tvaPctDefaut  TVA du projet, appliquée aux lignes sans tva_pct
+ * @param options.multiOuvrages multi-ouvrages du projet (profero_multi_ouvrages).
+ *   Une ligne regroupée garde ses coûts ; sa VENTE entre via le prix du
+ *   multi-ouvrage (prixMultiOuvrage : lignes + ajustement). Sans multi-ouvrage,
+ *   le résultat est strictement celui d'avant.
  */
-export function totauxDevis(lignes = [], { tvaPctDefaut = null, budgetClient = null } = {}) {
+export function totauxDevis(lignes = [], { tvaPctDefaut = null, budgetClient = null, multiOuvrages = null } = {}) {
   let venteHT = 0, coutMateriaux = 0, coutMainOeuvre = 0, coutDirect = 0, coutTotal = 0, tva = 0;
   let nbSansPrix = 0, coutsIncomplets = false, tvaIncomplete = false, nbAvecCout = 0;
   const tvaDetail = {};
+  const multis = indexerMultiOuvrages(multiOuvrages);
+  // Lignes qui citent un multi-ouvrage absent de la liste fournie : comptées
+  // comme des lignes ordinaires, mais signalées (le total serait faux si les
+  // multi-ouvrages n'ont pas été chargés).
+  let nbLignesMultiInconnu = 0;
+  const ajouterTva = (ht, pct) => {
+    if (pct == null) tvaIncomplete = true;
+    else { tva += ht * pct / 100; tvaDetail[pct] = (tvaDetail[pct] || 0) + ht * pct / 100; }
+  };
   (lignes || []).forEach(l => {
     const q = num(l?.quantite) ?? 0;
     const pu = num(l?.prix_unitaire);
+    const mid = multiDeLigne(l);
+    const regroupee = mid != null && multis.has(mid);
+    if (mid != null && !regroupee) nbLignesMultiInconnu++;
     if (pu == null) { nbSansPrix++; return; }
     const ht = q * pu;
-    venteHT += ht;
+    if (!regroupee) venteHT += ht;
     const ct = num(l?.cout_total_unitaire);
     if (ct == null) coutsIncomplets = true;
     else {
@@ -766,9 +854,18 @@ export function totauxDevis(lignes = [], { tvaPctDefaut = null, budgetClient = n
       coutMainOeuvre += q * (num(l?.cout_main_oeuvre_unitaire) ?? 0);
       coutDirect += q * (num(l?.cout_direct_unitaire) ?? 0);
     }
-    const pct = num(l?.tva_pct) ?? num(tvaPctDefaut);
-    if (pct == null) tvaIncomplete = true;
-    else { tva += ht * pct / 100; tvaDetail[pct] = (tvaDetail[pct] || 0) + ht * pct / 100; }
+    if (!regroupee) ajouterTva(ht, num(l?.tva_pct) ?? num(tvaPctDefaut));
+  });
+  // Vente des multi-ouvrages : un seul montant chacun, au taux de leur ouvrage
+  // principal (tous les ouvrages regroupés ont le même taux : validerMultiOuvrages).
+  let ajustementsHT = 0, nbMultiOuvrages = 0;
+  multis.forEach(m => {
+    const p = prixMultiOuvrage(m, lignes);
+    if (p.vide) return;
+    nbMultiOuvrages++;
+    ajustementsHT += p.ajustement;
+    venteHT += p.montant;
+    ajouterTva(p.montant, num(p.enfants[0]?.tva_pct) ?? num(tvaPctDefaut));
   });
   const venteArr = arrondirMontant(venteHT);
   const coutArr = arrondirMontant(coutTotal);
@@ -792,6 +889,9 @@ export function totauxDevis(lignes = [], { tvaPctDefaut = null, budgetClient = n
     ttc: tvaArr == null ? null : arrondirMontant(venteArr + tvaArr),
     budgetClient: budget,
     ecartBudget: budget != null && venteArr > 0 ? arrondirMontant(venteArr - budget) : null,
+    nbMultiOuvrages,
+    ajustementsHT: arrondirMontant(ajustementsHT) ?? 0,
+    nbLignesMultiInconnu,
   };
 }
 
@@ -816,29 +916,57 @@ function comparerLignes(a, b) {
 }
 
 /**
- * Regroupe les lignes : [{ lot, total, zones: [{ zone, total, lignes }] }].
+ * Regroupe les lignes : [{ lot, total, zones: [{ zone, total, lignes, multis }] }].
  * @param lotsOrdre  libellés de lots dans l'ordre d'affichage souhaité
+ * @param options.multiOuvrages  multi-ouvrages du projet. Chacun est rangé sous
+ *   son lot d'AFFICHAGE et sa zone ; ses lignes ne figurent plus dans
+ *   `zone.lignes` mais dans `zone.multis[i].lignes` (principal en tête). Les
+ *   multi-ouvrages passent en tête de leur zone. Le total de zone compte le
+ *   montant du multi-ouvrage (lignes + ajustement). Sans multi-ouvrage, le
+ *   résultat est celui d'avant (`multis` vide).
  */
-export function grouperParLotZone(lignes = [], lotsOrdre = []) {
+export function grouperParLotZone(lignes = [], lotsOrdre = [], { multiOuvrages = null } = {}) {
+  const multis = indexerMultiOuvrages(multiOuvrages);
   const parLot = new Map();
-  (lignes || []).forEach(l => {
-    const lot = str(l?.category) || "Autre";
-    const zone = str(l?.zone) || ZONE_DEFAUT;
+  const zoneDe = (lot, zone) => {
     if (!parLot.has(lot)) parLot.set(lot, new Map());
     const zones = parLot.get(lot);
-    if (!zones.has(zone)) zones.set(zone, []);
-    zones.get(zone).push(l);
+    if (!zones.has(zone)) zones.set(zone, { lignes: [], multis: [] });
+    return zones.get(zone);
+  };
+  (lignes || []).forEach(l => {
+    const mid = multiDeLigne(l);
+    if (mid != null && multis.has(mid)) return;   // rangée dans son multi-ouvrage
+    zoneDe(str(l?.category) || "Autre", str(l?.zone) || ZONE_DEFAUT).lignes.push(l);
+  });
+  multis.forEach(m => {
+    const p = prixMultiOuvrage(m, lignes);
+    const lot = str(m?.lot_affichage) || str(p.enfants[0]?.category) || "Autre";
+    const zone = str(m?.zone) || ZONE_DEFAUT;
+    zoneDe(lot, zone).multis.push({
+      multi: m, id: m.id ?? null, libelle: str(m?.libelle_commercial), lot, zone,
+      lignes: p.enfants, nbEnfants: p.nbEnfants, nbSansPrix: p.nbSansPrix, vide: p.vide,
+      sousTotal: p.sousTotal, ajustement: p.ajustement, montant: p.montant, prix: p.prix, complet: p.complet,
+    });
   });
   const ordreLot = (lot) => { const i = (lotsOrdre || []).indexOf(lot); return i === -1 ? 9999 : i; };
+  const comparerMultis = (a, b) => {
+    const oa = num(a.multi?.ordre), ob = num(b.multi?.ordre);
+    if (oa != null && ob != null && oa !== ob) return oa - ob;
+    if (oa != null && ob == null) return -1;
+    if (oa == null && ob != null) return 1;
+    return a.libelle.localeCompare(b.libelle) || str(a.id).localeCompare(str(b.id));
+  };
   return [...parLot.entries()]
     .sort(([a], [b]) => ordreLot(a) - ordreLot(b) || a.localeCompare(b))
     .map(([lot, zones]) => {
       const zonesArr = [...zones.entries()]
         .sort(([a], [b]) => rangZone(a) - rangZone(b) || a.localeCompare(b))
-        .map(([zone, ls]) => {
-          const tri = [...ls].sort(comparerLignes);
-          const total = tri.reduce((s, l) => s + (totalLigneHT(l) ?? 0), 0);
-          return { zone, lignes: tri, total: arrondirMontant(total) };
+        .map(([zone, contenu]) => {
+          const tri = [...contenu.lignes].sort(comparerLignes);
+          const blocs = [...contenu.multis].sort(comparerMultis);
+          const total = tri.reduce((s, l) => s + (totalLigneHT(l) ?? 0), 0) + blocs.reduce((s, b) => s + (b.montant ?? 0), 0);
+          return { zone, lignes: tri, multis: blocs, total: arrondirMontant(total) };
         });
       return { lot, zones: zonesArr, total: arrondirMontant(zonesArr.reduce((s, z) => s + z.total, 0)) };
     });
@@ -897,8 +1025,8 @@ export function lireLogementProjet(projet) {
  * Le devis est-il prêt à être préparé (futur brouillon ProGBat) ?
  * Bloquants = données indispensables ; avertissements = à compléter idéalement.
  */
-export function verifierPreparationDevis(projet = {}, lignes = [], totaux = null) {
-  const t = totaux || totauxDevis(lignes, { tvaPctDefaut: projet?.tva_pct });
+export function verifierPreparationDevis(projet = {}, lignes = [], totaux = null, { multiOuvrages = null, controlesMulti = [] } = {}) {
+  const t = totaux || totauxDevis(lignes, { tvaPctDefaut: projet?.tva_pct, multiOuvrages });
   const bloquants = [];
   const avertissements = [];
   const logement = lireLogementProjet(projet);
@@ -917,5 +1045,8 @@ export function verifierPreparationDevis(projet = {}, lignes = [], totaux = null
   if (logement.repli) avertissements.push(logement.message);
   if (t.coutsIncomplets) avertissements.push("Certaines lignes n'ont pas de coût figé (anciennes lignes à prix saisi) : la marge globale n'est pas fiable");
   if (t.tvaIncomplete && num(projet.tva_pct) != null) avertissements.push("Certaines lignes n'ont pas de TVA : le taux du projet leur est appliqué");
+  // Contrôles des multi-ouvrages (validerMultiOuvrages, multiOuvrages.mjs)
+  (controlesMulti || []).forEach(c => (c.bloquant ? bloquants : avertissements).push(c.message));
+  if (t.nbLignesMultiInconnu > 0) bloquants.push(`${t.nbLignesMultiInconnu} ligne${t.nbLignesMultiInconnu > 1 ? "s" : ""} rattachée${t.nbLignesMultiInconnu > 1 ? "s" : ""} à un multi-ouvrage introuvable : recharger le chiffrage`);
   return { pret: bloquants.length === 0, bloquants, avertissements, logement, totaux: t };
 }

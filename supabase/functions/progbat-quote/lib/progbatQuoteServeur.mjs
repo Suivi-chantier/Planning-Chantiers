@@ -47,9 +47,28 @@
 // du logement reçue du navigateur (`logementReference`) est comparée à celle du
 // projet rechargé et figée dans la réservation pour l'audit.
 
-import { construirePayloadDevisProGBat, hacherPayload } from "./progbatQuotePayload.mjs";
+//
+// Multi-ouvrages (profero_multi_ouvrages) — interfaces supplémentaires :
+//   depot.chargerMultiOuvrages(projectId)      → lignes profero_multi_ouvrages du projet
+//   depot.chercherStructuresMulti(signature)   → [progbat_structure_id] déjà notés par Profero pour cette composition
+//   depot.lireFamilleMulti()                   → { id, label } | null (Réglages : famille ProGBat des MULTI)
+//   depot.majMultiStructure(multiId, patch)    → { ok } (progbat_structure_id + progbat_signature)
+//   progbat.chercherStructuresParCode(base)    → { ok, structures: [{ id, code }] } codes « MULTI-XXXXXXXX… »
+//   progbat.lireComposition(id)                → { ok, status, items } | { ok: false, status, message }
+//   progbat.listerFamilles()                   → { ok, familles } | { ok: false, status, message }
+//   progbat.creerStructure(body)               → { ok, status, data } | { ok: false, status, message, incertain? }
+//   progbat.poserComposition(id, body)         → { ok, status } | { ok: false, status, message }
+// `prepare` n'écrit RIEN : il dit quels ouvrages MULTI seront réutilisés
+// (composition relue identique) ou créés (code, libellé, composition). Un
+// ouvrage MULTI existant n'est JAMAIS modifié : composition différente = nouvel ouvrage.
 
-export const ACTIONS = Object.freeze(["prepare", "create", "status", "verifier_existant"]);
+import { construirePayloadDevisProGBat, hacherDevis, serialiserCanonique, retirerElementIds, planApresCreation } from "./progbatQuotePayload.mjs";
+import { lignesDuMulti } from "./chiffragePricing.mjs";
+import { compositionAttendue, signatureComposition, codeStructureMulti, codeDeLaSignature, premierCodeLibre, comparerComposition, MIN_OUVRAGES_MULTI } from "./multiOuvrages.mjs";
+
+export const ACTIONS = Object.freeze(["prepare", "create", "status", "verifier_existant", "familles_multi"]);
+/** Clé planning_config de la famille ProGBat qui reçoit les ouvrages MULTI. */
+export const CLE_FAMILLE_MULTI = "progbat_famille_multi_ouvrages";
 // « absent » : ProGBat a confirmé par un 404 que le devis n'existe plus (supprimé
 // chez eux). Hors de l'index d'unicité : une nouvelle création redevient possible.
 export const STATUTS_EXPORT = Object.freeze(["preparing", "creating", "created", "failed", "uncertain", "absent"]);
@@ -174,6 +193,150 @@ export async function resoudreLiaisons(lignes, { depot, progbat }) {
   return { ok: true, liaisons, ids };
 }
 
+// ─── Ouvrages ProGBat « MULTI-… » (multi-ouvrages) ───────────────────────────
+/**
+ * Plan des ouvrages MULTI, SANS AUCUNE ÉCRITURE : pour chaque multi-ouvrage
+ * complet (≥ 2 ouvrages, tous liés), composition attendue → signature →
+ * recherche d'un ouvrage déjà créé par Profero (base locale, puis code dans
+ * ProGBat) dont la composition RELUE est identique → réutilisé ; sinon à créer.
+ * @returns {{ ok: true, structures: object } | { ok: false, body }}
+ */
+export async function planifierStructuresMulti({ multis = [], lignes = [], liaisons = {}, depot, progbat }) {
+  const structures = {};
+  const parSignature = new Map();   // une même composition dans deux zones = un seul ouvrage MULTI
+  let famille = undefined;          // lue une seule fois, et seulement s'il faut créer
+  const progbatIdDe = (l) => {
+    const li = liaisons[String(l?.bibliotheque_id ?? "")];
+    const n = entierPositif(li?.progbat_id);
+    return n != null && li?.existe !== false ? n : null;
+  };
+  const refus = (code, error, extra = {}) => ({ ok: false, body: { ok: false, code, etape: "multi_ouvrages", error, aucune_ecriture: true, ...extra } });
+
+  for (const m of multis || []) {
+    const enfants = lignesDuMulti(m, lignes);
+    if (enfants.length < MIN_OUVRAGES_MULTI) continue;                 // signalé par validerMultiOuvrages
+    const compo = compositionAttendue(enfants, progbatIdDe);
+    if (!compo.ok) continue;                                            // ouvrage non lié : signalé ligne par ligne
+    const signature = await signatureComposition(compo.composants);
+    const base = { multi_id: String(m.id), signature, libelle: str(m.libelle_commercial), composition: compo.composants };
+    if (parSignature.has(signature)) { structures[String(m.id)] = { ...parSignature.get(signature), ...base }; continue; }
+
+    // Candidats : ouvrages déjà notés par Profero pour cette composition, puis codes ProGBat de la signature
+    const candidats = new Map();
+    const locaux = typeof depot.chercherStructuresMulti === "function" ? await depot.chercherStructuresMulti(signature) : [];
+    (locaux || []).forEach((id) => { const n = entierPositif(id); if (n != null) candidats.set(n, null); });
+    let codesPris = [];
+    if (typeof progbat.chercherStructuresParCode === "function") {
+      const r = await progbat.chercherStructuresParCode(codeStructureMulti(signature));
+      if (!r?.ok) return refus("multi_recherche_impossible", `Recherche des ouvrages MULTI dans ProGBat impossible${r?.message ? ` : ${nettoyerMessage(r.message)}` : ""}. Aucune création tant qu'on ne sait pas s'ils existent déjà.`, { progbat_status: r?.status ?? null });
+      (r.structures || []).filter((s) => codeDeLaSignature(s?.code, signature)).forEach((s) => {
+        const n = entierPositif(s.id); codesPris.push(str(s.code));
+        if (n != null) candidats.set(n, str(s.code));
+      });
+    }
+    let choisi = null;
+    for (const id of [...candidats.keys()].sort((a, b) => a - b)) {
+      const lu = await progbat.lireComposition(id);
+      if (!lu?.ok) {
+        if (Number(lu?.status) === 404) continue;                       // supprimé dans ProGBat : ignoré
+        return refus("multi_composition_illisible", `Composition de l'ouvrage ProGBat #${id} illisible${lu?.message ? ` : ${nettoyerMessage(lu.message)}` : ""}. Aucune création ni réutilisation sans relecture.`, { progbat_status: lu?.status ?? null });
+      }
+      if (comparerComposition(compo.composants, lu.items).identique) { choisi = { id, code: candidats.get(id) }; break; }
+    }
+    let plan;
+    if (choisi) {
+      plan = { action: "reutiliser", structure_id: choisi.id, code: choisi.code || null, famille_id: null };
+    } else {
+      if (famille === undefined) famille = await resoudreFamilleMulti({ depot, progbat });
+      const code = premierCodeLibre(signature, codesPris);
+      plan = famille.ok
+        ? { action: "creer", structure_id: null, code, famille_id: famille.id, famille_label: famille.label }
+        : { action: "creer", structure_id: null, code, famille_id: null, erreur: famille.erreur };
+    }
+    parSignature.set(signature, plan);
+    structures[String(m.id)] = { ...plan, ...base };
+  }
+  return { ok: true, structures };
+}
+
+/** Famille ProGBat choisie dans les Réglages, revérifiée contre ProGBat. */
+export async function resoudreFamilleMulti({ depot, progbat }) {
+  const choix = typeof depot.lireFamilleMulti === "function" ? await depot.lireFamilleMulti() : null;
+  const id = entierPositif(choix?.id);
+  if (id == null) return { ok: false, erreur: "famille ProGBat des multi-ouvrages non choisie (Réglages → Outils → ProGBat → Multi-ouvrages) : création de l'ouvrage MULTI impossible" };
+  if (typeof progbat.listerFamilles !== "function") return { ok: false, erreur: "lecture des familles ProGBat indisponible" };
+  const r = await progbat.listerFamilles();
+  if (!r?.ok) return { ok: false, erreur: `familles ProGBat illisibles${r?.message ? ` (${nettoyerMessage(r.message)})` : ""}` };
+  const f = (r.familles || []).find((x) => entierPositif(x?.id) === id);
+  if (!f) return { ok: false, erreur: `la famille ProGBat n° ${id} choisie pour les multi-ouvrages n'existe plus : en choisir une autre dans les Réglages` };
+  if (f.structureFamily === false) return { ok: false, erreur: `la famille ProGBat « ${str(f.label)} » n'est pas une famille d'ouvrages` };
+  return { ok: true, id, label: str(f.label) };
+}
+
+/** Corps de création d'un ouvrage MULTI : prix nuls (le prix vient de la ligne du devis). */
+export function corpsStructureMulti(plan) {
+  return {
+    code: plan.code,
+    label: plan.libelle || plan.code,
+    unitCode: "U",
+    families: [plan.famille_id],
+    purchaseNetUnitPrice: 0,
+    edge: 0,
+    saleNetUnitPrice: 0,
+    active: true,
+    fixedPrice: true,
+    technicalCom: `Multi-ouvrage créé par Profero — composition ${str(plan.signature).slice(0, 16)}. Ne pas modifier : une composition différente donne un nouvel ouvrage.`,
+  };
+}
+
+/** Corps du PUT de composition : uniquement les ouvrages regroupés, masqués sur le PDF. */
+export function corpsCompositionMulti(plan) {
+  return { components: (plan.composition || []).map((c) => ({ componentId: c.componentId, quantity: c.quantity, print: false })), updatePrice: false };
+}
+
+/**
+ * Crée les ouvrages MULTI du plan (POST structure, PUT composition, relecture
+ * stricte). Ne modifie jamais un ouvrage existant. Rend le plan complété
+ * (structure_id de chaque multi-ouvrage) ou le premier échec.
+ */
+export async function executerStructuresMulti(structures, { progbat, depot }) {
+  const complet = {};
+  const crees = new Map();   // signature → id créé
+  const journal = [];
+  for (const [multiId, plan] of Object.entries(structures || {})) {
+    if (plan.action === "reutiliser") { complet[multiId] = plan; continue; }
+    if (plan.action !== "creer") return { ok: false, code: "multi_plan_invalide", error: "Plan d'ouvrage MULTI invalide." };
+    if (crees.has(plan.signature)) { complet[multiId] = { ...plan, action: "creer", structure_id: crees.get(plan.signature) }; continue; }
+    const rep = await progbat.creerStructure(corpsStructureMulti(plan));
+    if (!rep?.ok) {
+      return { ok: false, code: "multi_creation_refusee", progbat_status: rep?.status ?? null, journal,
+        error: `Création de l'ouvrage ProGBat ${plan.code} (« ${plan.libelle} ») ${rep?.incertain ? "sans réponse certaine" : "refusée"}${rep?.message ? ` : ${nettoyerMessage(rep.message)}` : ""}. Aucun devis n'a été envoyé.${rep?.incertain ? " S'il a été créé, il sera retrouvé par son code au prochain essai." : ""}` };
+    }
+    const id = entierPositif(rep.data?.id);
+    if (id == null) return { ok: false, code: "multi_creation_sans_id", journal, error: `ProGBat a répondu sans identifiant pour l'ouvrage ${plan.code}. Aucun devis n'a été envoyé ; l'ouvrage sera retrouvé par son code au prochain essai.` };
+    journal.push({ code: plan.code, id, etape: "cree" });
+    const compo = await progbat.poserComposition(id, corpsCompositionMulti(plan));
+    if (!compo?.ok) return { ok: false, code: "multi_composition_refusee", progbat_status: compo?.status ?? null, journal, error: `Ouvrage ProGBat ${plan.code} créé (#${id}) mais sa composition n'a pas pu être posée${compo?.message ? ` : ${nettoyerMessage(compo.message)}` : ""}. Aucun devis n'a été envoyé ; cet ouvrage ne sera pas réutilisé.` };
+    // Relecture : ProGBat ajoute parfois « Fournitures » + « Main d'œuvre » génériques.
+    const lu = await progbat.lireComposition(id);
+    const cmp = lu?.ok ? comparerComposition(plan.composition, lu.items) : null;
+    if (!cmp?.identique) {
+      const detail = !lu?.ok ? "relecture impossible" : [cmp.enTrop.length ? `${cmp.enTrop.length} composant(s) en trop (${cmp.enTrop.map((c) => c.label || c.componentId).join(", ")})` : "", cmp.manquants.length ? `${cmp.manquants.length} manquant(s)` : "", cmp.differents.length ? `${cmp.differents.length} quantité(s) différente(s)` : ""].filter(Boolean).join(", ");
+      return { ok: false, code: "multi_composition_non_conforme", journal, error: `Ouvrage ProGBat ${plan.code} (#${id}) : composition relue non conforme (${detail}). Aucun devis n'a été envoyé.` };
+    }
+    journal.push({ code: plan.code, id, etape: "compose" });
+    crees.set(plan.signature, id);
+    complet[multiId] = { ...plan, structure_id: id };
+  }
+  // Mémorisation locale (facultative : le code permet de le retrouver sinon)
+  if (typeof depot.majMultiStructure === "function") {
+    for (const [multiId, plan] of Object.entries(complet)) {
+      try { await depot.majMultiStructure(multiId, { progbat_structure_id: String(plan.structure_id), progbat_signature: plan.signature }); } catch { /* non bloquant */ }
+    }
+  }
+  return { ok: true, structures: complet, journal };
+}
+
 // ─── Reconstruction serveur ──────────────────────────────────────────────────
 /**
  * Recharge tout depuis le dépôt, relit les taux ProGBat, résout et vérifie les
@@ -183,10 +346,11 @@ export async function resoudreLiaisons(lignes, { depot, progbat }) {
 export async function reconstruireDevis({ projectId, depot, progbat, maintenant = new Date() }) {
   const projet = await depot.chargerProjet(projectId);
   if (!projet) return { http: 404, body: { ok: false, code: "projet_introuvable", error: "Projet introuvable." } };
-  const [lignes, lotsOrdre, dernier] = await Promise.all([
+  const [lignes, lotsOrdre, dernier, multis] = await Promise.all([
     depot.chargerLignes(projectId),
     depot.chargerLotsOrdre(),
     depot.dernierExport(projectId),
+    typeof depot.chargerMultiOuvrages === "function" ? depot.chargerMultiOuvrages(projectId) : Promise.resolve([]),
   ]);
   const taux = await progbat.lireTaux();
   if (!taux.ok) {
@@ -194,15 +358,23 @@ export async function reconstruireDevis({ projectId, depot, progbat, maintenant 
   }
   const liaisonsRes = await resoudreLiaisons(lignes, { depot, progbat });
   if (!liaisonsRes.ok) return { http: 200, body: liaisonsRes.body };
-  const resultat = construirePayloadDevisProGBat({ projet, lignes: lignes || [], lotsOrdre, taxes: taux.taux, liaisons: liaisonsRes.liaisons, aujourdHui: maintenant });
-  const payloadHash = await hacherPayload(resultat.payload);
+  const planMulti = (multis || []).length
+    ? await planifierStructuresMulti({ multis, lignes: lignes || [], liaisons: liaisonsRes.liaisons, depot, progbat })
+    : { ok: true, structures: {} };
+  if (!planMulti.ok) return { http: 200, body: planMulti.body };
+  const resultat = construirePayloadDevisProGBat({ projet, lignes: lignes || [], lotsOrdre, taxes: taux.taux, liaisons: liaisonsRes.liaisons, multiOuvrages: multis || [], structuresMulti: planMulti.structures, aujourdHui: maintenant });
+  const payloadHash = await hacherDevis(resultat.payload, planMulti.structures);
   const exportResume = resumerExport(dernier, maintenant);
   const blocage = evaluerBlocageCreation(projet, exportResume);
   const hashEnvoye = exportResume?.statut === "created" ? exportResume.payload_hash : null;
   return {
     http: 200,
     projet, lignes, lotsOrdre, resultat, payloadHash, exportResume, blocage,
+    multis: multis || [], structuresMulti: planMulti.structures, taux: taux.taux, liaisons: liaisonsRes.liaisons,
     base: {
+      // Ouvrages ProGBat MULTI : réutilisés ou à créer (aucune écriture à l'aperçu)
+      structures_multi: planMulti.structures,
+      multi_ouvrages: (multis || []).map((m) => ({ id: m.id, libelle_commercial: m.libelle_commercial, lot_affichage: m.lot_affichage, zone: m.zone, principal_ligne_id: m.principal_ligne_id, ajustement_ht: m.ajustement_ht, ordre: m.ordre })),
       projectId,
       logement_reference: str(projet.logement_reference) || null,
       valide: resultat.valide,
@@ -241,7 +413,21 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
 
   const action = str(requete.action);
   const logementReference = str(requete.logementReference);
-  if (!ACTIONS.includes(action)) return { http: 400, body: { ok: false, code: "action_invalide", error: "Action inconnue (prepare, create, status ou verifier_existant attendu)." } };
+  if (!ACTIONS.includes(action)) return { http: 400, body: { ok: false, code: "action_invalide", error: "Action inconnue (prepare, create, status, verifier_existant ou familles_multi attendu)." } };
+
+  // ── familles_multi : familles d'ouvrages ProGBat (lecture seule) + choix actuel
+  if (action === "familles_multi") {
+    if (typeof progbat?.listerFamilles !== "function") return { http: 200, body: { ok: false, action, code: "lecture_indisponible", error: "Lecture des familles ProGBat indisponible.", aucune_ecriture: true } };
+    const r = await progbat.listerFamilles();
+    if (!r?.ok) return { http: 200, body: { ok: false, action, code: "familles_illisibles", progbat_status: r?.status ?? null, error: nettoyerMessage(r?.message) || "Familles ProGBat illisibles.", aucune_ecriture: true } };
+    const familles = (r.familles || [])
+      .filter((f) => entierPositif(f?.id) != null && f.structureFamily !== false && str(f.label))
+      .map((f) => ({ id: entierPositif(f.id), label: str(f.label) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }));
+    const choix = typeof depot?.lireFamilleMulti === "function" ? await depot.lireFamilleMulti() : null;
+    const id = entierPositif(choix?.id);
+    return { http: 200, body: { ok: true, action, aucune_ecriture: true, familles, choix: id != null ? { id, label: str(choix?.label), existe: familles.some((f) => f.id === id) } : null }, journal: { action, nb: familles.length } };
+  }
   const projectId = str(requete.projectId);
   if (!RE_UUID.test(projectId)) return { http: 400, body: { ok: false, code: "project_id_invalide", error: "projectId manquant ou invalide." } };
 
@@ -366,8 +552,37 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
     return r?.ok !== false;
   };
 
+  // ── Ouvrages ProGBat MULTI (avant le devis) ─────────────────────────────
+  // Création des ouvrages MULTI manquants, puis payload complété de leurs
+  // elementId. Un échec ici n'envoie AUCUN devis (statut failed : nouvelle
+  // tentative possible, les ouvrages déjà créés seront retrouvés par leur code).
+  let payloadFinal = rec.resultat.payload;
+  let hashEnvoye = rec.payloadHash;   // empreinte comparable au prochain aperçu
+  let multiJournal = null;
+  if (Object.keys(rec.structuresMulti || {}).length) {
+    const exe = await executerStructuresMulti(rec.structuresMulti, { progbat, depot });
+    multiJournal = exe.journal ?? null;
+    if (!exe.ok) {
+      await finir({ statut: "failed", http_status: exe.progbat_status ?? null, error_message: nettoyerMessage(exe.error) });
+      return {
+        http: 200,
+        body: { ok: false, action, statut: "failed", code: exe.code, progbat_status: exe.progbat_status ?? null, error: exe.error, export_id: exportId, payloadHash: rec.payloadHash, multi_journal: multiJournal },
+        journal: { action, projectId, etape: "multi_ouvrages", statut: "failed", refus: exe.code },
+      };
+    }
+    const final = construirePayloadDevisProGBat({ projet: rec.projet, lignes: rec.lignes || [], lotsOrdre: rec.lotsOrdre, taxes: rec.taux, liaisons: rec.liaisons, multiOuvrages: rec.multis, structuresMulti: exe.structures, aujourdHui: maintenant });
+    const identique = serialiserCanonique(retirerElementIds(final.payload, rec.resultat.multi_en_attente)) === serialiserCanonique(rec.resultat.payload);
+    if (!final.valide || (final.multi_en_attente || []).length || !identique) {
+      const message = !final.valide ? `Devis invalide après création des ouvrages MULTI : ${final.erreurs.map((e) => e.message).join(" · ").slice(0, 300)}` : "Le devis complété ne correspond plus à l'aperçu confirmé.";
+      await finir({ statut: "failed", error_message: nettoyerMessage(message) });
+      return { http: 200, body: { ok: false, action, statut: "failed", code: "multi_payload_final_invalide", error: `${message} Aucun devis n'a été envoyé.`, export_id: exportId, payloadHash: rec.payloadHash, multi_journal: multiJournal }, journal: { action, projectId, etape: "multi_ouvrages", statut: "failed" } };
+    }
+    payloadFinal = final.payload;
+    hashEnvoye = await hacherDevis(final.payload, planApresCreation(exe.structures));
+  }
+
   // ── POST officiel ───────────────────────────────────────────────────────
-  const rep = await progbat.creerDevis(rec.resultat.payload);
+  const rep = await progbat.creerDevis(payloadFinal);
   const duree_ms = Date.now() - t0;
 
   if (!rep.ok) {
@@ -404,7 +619,10 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
     };
   }
 
-  const okExport = await finir({ statut: "created", http_status: rep.status, progbat_quote_id: quoteId, progbat_quote_code: quoteCode, error_message: null });
+  // payload_hash = empreinte du devis ENVOYÉ, dans la forme que recalculera le
+  // prochain aperçu (ouvrages MULTI devenus « réutilisés ») : sans multi-ouvrage,
+  // c'est exactement le hash confirmé, comme avant.
+  const okExport = await finir({ statut: "created", http_status: rep.status, progbat_quote_id: quoteId, progbat_quote_code: quoteCode, error_message: null, ...(hashEnvoye !== rec.payloadHash ? { payload_hash: hashEnvoye } : {}) });
   const majProjet = await depot.majProjetDevis(projectId, { progbat_devis_id: String(quoteId), progbat_sync_at: new Date().toISOString() });
   if (!okExport || majProjet?.ok === false) {
     // Le devis EXISTE dans ProGBat (id connu) mais le suivi local est incomplet : jamais de relance automatique.
@@ -441,6 +659,7 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
       created_by_email: str(appelant.email) || null, finished_at,
       verification,
       payloadHash: rec.payloadHash, export_id: exportId, compteurs: rec.resultat.compteurs, totaux: rec.resultat.totaux,
+      multi_journal: multiJournal,
     },
     journal: { action, projectId, endpoint: ENDPOINT_POST_DEVIS, http_status: rep.status, progbat_quote_id: quoteId, statut: "created", verification: verification ? (verification.id_confirme ? "confirmee" : `non_confirmee_${verification.status ?? "erreur"}`) : "non_tentee", duree_ms },
   };
