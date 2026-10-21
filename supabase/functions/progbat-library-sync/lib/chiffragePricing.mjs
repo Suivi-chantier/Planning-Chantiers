@@ -743,6 +743,36 @@ export function totalLigneHT(ligne) {
   return arrondirMontant((q ?? 0) * pu);
 }
 
+// ─── Heures de main-d'œuvre du devis ─────────────────────────────────────────
+// Heures d'une ligne = quantité × cadence FIGÉE sur la ligne au moment de
+// l'ajout (calcul_detail.heures_unitaires) : la même cadence que celle qui a
+// fixé le prix de la main-d'œuvre. Jamais relue dans la bibliothèque.
+// Une ligne sans cadence figée (ancienne ligne à prix saisi, ou cadence absente)
+// a des heures INCONNUES (null), jamais 0 : le total est alors signalé partiel.
+const arrondirHeures = (h) => Math.round((h + Number.EPSILON) * 100) / 100;
+
+/** @returns {{ heuresUnitaires: number|null, heures: number|null }} */
+export function heuresLigne(ligne) {
+  const hu = num(ligne?.calcul_detail?.heures_unitaires);
+  if (hu == null || hu < 0) return { heuresUnitaires: null, heures: null };
+  return { heuresUnitaires: hu, heures: arrondirHeures((num(ligne?.quantite) ?? 0) * hu) };
+}
+
+/**
+ * Total d'heures d'un ensemble de lignes (tout le devis, ou les ouvrages d'un
+ * multi-ouvrage). `complet` = false dès qu'une ligne a des heures inconnues :
+ * `total` ne compte alors que les lignes connues.
+ * @returns {{ total: number, nbLignesSansHeures: number, complet: boolean }}
+ */
+export function heuresDevis(lignes = []) {
+  let total = 0, nbSans = 0;
+  (lignes || []).forEach(l => {
+    const h = heuresLigne(l).heures;
+    if (h == null) nbSans++; else total += h;
+  });
+  return { total: arrondirHeures(total), nbLignesSansHeures: nbSans, complet: nbSans === 0 };
+}
+
 // ─── Multi-ouvrages (profero_multi_ouvrages) ─────────────────────────────────
 // Un multi-ouvrage est une ENVELOPPE D'AFFICHAGE : plusieurs lignes d'une même
 // zone sortent sur le devis en UNE ligne (quantité 1, unité U). Les lignes

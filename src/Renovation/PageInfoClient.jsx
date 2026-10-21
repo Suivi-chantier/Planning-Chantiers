@@ -28,6 +28,7 @@ import {
   calculerOuvrage, indexerMateriaux, creerSnapshotOuvrage, differencesSnapshot, appliquerActualisation,
   ligneEstSnapshot, totalLigneHT, totauxDevis, grouperParLotZone,
   lireLogementProjet, verifierPreparationDevis, normaliserUnite, num as numOrNull,
+  heuresDevis,
 } from "./chiffragePricing.mjs";
 import { libelleDevisMulti, validerMultiOuvrages, verifierRegroupement, libelleCourtLigne } from "./multiOuvrages.js";
 import {
@@ -101,6 +102,7 @@ const erreurColonnesLigne = (error) => !!error && COLONNES_LIGNE_V3.some(c => (e
 const sansColonnesLigneV3 = (row) => { const r = { ...row }; COLONNES_LIGNE_V3.forEach(c => { delete r[c]; }); return r; };
 const fmtEur2 = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const fmtPct = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+const fmtHeures = (h) => h == null ? "—" : `${Number(h).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h`;
 
 // État vide d'un projet (formulaire + reset). `logements` (ancien tableau) est
 // conservé en lecture seule pour les anciens projets.
@@ -1383,6 +1385,9 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const lotsOrdre = [...(biblio?.lots || []).map(l => l.label), ...Object.keys(categories)];
   const groupesDevis = grouperParLotZone(ouvrages, lotsOrdre, { multiOuvrages: multis });   // LOT → ZONE → (MULTI-OUVRAGES +) OUVRAGES
   const logementInfo = lireLogementProjet(infos);                        // repli sur l'ancien `logements`
+  // Heures de main-d'œuvre du devis : quantité × cadence figée sur chaque ligne
+  // (heuresDevis, chiffragePricing.mjs). Lignes sans cadence = total partiel signalé.
+  const heuresProjet = heuresDevis(ouvrages);
   const controlesMulti = validerMultiOuvrages({ multiOuvrages: multis || [], lignes: ouvrages, tvaPctDefaut: numOrNull(infos.tva_pct) });
   const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet, { multiOuvrages: multis, controlesMulti });
   const couleurLot = (label) => (biblio?.lots || []).find(l => l.label === label)?.couleur || "#8a90a0";
@@ -1608,6 +1613,14 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       </div>
     );
   };
+  // Heures d'une ligne (ou d'un multi-ouvrage) dans l'aperçu : « — h » si la
+  // cadence n'est pas figée, « 12 h* » si le total est partiel.
+  const celluleHeures = (h) => (
+    <span title={h.complet ? "Heures de main-d'œuvre : quantité × cadence figée" : `${h.nbLignesSansHeures} ouvrage(s) sans cadence figée : heures inconnues, non comptées`}
+      style={{color:h.complet ? T.textSub : "#f5a623",whiteSpace:"nowrap",minWidth:58,textAlign:"right",fontWeight:600}}>
+      {h.complet || h.total > 0 ? `${fmtHeures(h.total)}${h.complet ? "" : "*"}` : "— h"}
+    </span>
+  );
   // Petit sélecteur de TVA (projet) : taux usuels + saisie libre
   const selecteurTva = (value, onChange, { large = false } = {}) => {
     const v = value === "" || value == null ? "" : String(value);
@@ -3081,7 +3094,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
           onClick={e=>e.target===e.currentTarget&&setShowModal(false)}>
           <div style={{
             background:T.modal||T.surface,borderRadius:RADIUS.xl,
-            padding:0,maxWidth:560,width:"100%",maxHeight:"85vh",
+            padding:0,maxWidth:640,width:"100%",maxHeight:"85vh",
             border:`1px solid ${T.border}`,boxShadow:"0 24px 60px rgba(0,0,0,0.5)",
             display:"flex",flexDirection:"column",overflow:"hidden",
           }}>
@@ -3091,7 +3104,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
               </div>
               <div style={{flex:1}}>
                 <div style={{fontSize:FONT.lg.size,fontWeight:800,color:T.text}}>Aperçu du devis{logementInfo.reference ? ` — ${logementInfo.reference}` : ""}</div>
-                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ligne{ouvrages.length>1?"s":""} · LOT → ZONE → OUVRAGES · {fmtEur2(totauxProjet.venteHT)} HT{totauxProjet.ttc != null ? ` · ${fmtEur2(totauxProjet.ttc)} TTC` : ""}</div>
+                <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:1}}>{ouvrages.length} ligne{ouvrages.length>1?"s":""} · LOT → ZONE → OUVRAGES · {fmtEur2(totauxProjet.venteHT)} HT{totauxProjet.ttc != null ? ` · ${fmtEur2(totauxProjet.ttc)} TTC` : ""} · {fmtHeures(heuresProjet.total)}{heuresProjet.complet ? "" : " (partiel)"}</div>
               </div>
               <button onClick={()=>setShowModal(false)} title="Fermer" style={{
                 display:"inline-flex",alignItems:"center",justifyContent:"center",
@@ -3119,6 +3132,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                           <div key={`m-${b.id}`} style={{display:"flex",gap:8,padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${acc.accent}`,marginBottom:4}}>
                             <span style={{flex:1,minWidth:0,whiteSpace:"pre-wrap",lineHeight:1.45}}>{libelleDevisMulti(b.multi, ouvrages)}</span>
                             <span style={{color:T.textMuted,whiteSpace:"nowrap"}}>1 U</span>
+                            {celluleHeures(heuresDevis(b.lignes))}
                             <span style={{fontWeight:800,color:b.prix != null ? "#22c55e" : "#e15a5a",whiteSpace:"nowrap",minWidth:80,textAlign:"right"}}>{b.prix != null ? fmtEur2(b.prix) : "prix incalculable"}</span>
                           </div>
                         ))}
@@ -3128,6 +3142,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                             <div key={it.id} style={{display:"flex",gap:8,padding:"5px 12px",fontSize:FONT.sm.size,color:T.text,borderLeft:`2px solid ${T.border}`,marginBottom:4}}>
                               <span style={{flex:1,minWidth:0}}>{it.code_ouvrage ? <strong style={{fontFamily:"ui-monospace, Menlo, Consolas, monospace",marginRight:6}}>{it.code_ouvrage}</strong> : null}{decoderLibelleCode(it.item)?.reste || it.item}</span>
                               <span style={{color:T.textMuted,whiteSpace:"nowrap"}}>{it.quantite ? `${it.quantite} ${it.unite || "U"}` : "—"}{numOrNull(it.prix_unitaire) != null ? ` × ${fmtEur2(it.prix_unitaire)}` : ""}</span>
+                              {celluleHeures(heuresDevis([it]))}
                               <span style={{fontWeight:800,color:tot != null ? "#22c55e" : T.textMuted,whiteSpace:"nowrap",minWidth:80,textAlign:"right"}}>{tot != null ? fmtEur2(tot) : "sans prix"}</span>
                             </div>
                           );
@@ -3138,7 +3153,19 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 ))
               )}
             </div>
-            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.sectionDivider||T.border}`,display:"flex",justifyContent:"flex-end"}}>
+            <div style={{padding:"14px 22px",borderTop:`1px solid ${T.sectionDivider||T.border}`,display:"flex",justifyContent:"flex-end",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              {ouvrages.length > 0 && (
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontSize:FONT.sm.size,fontWeight:800,color:T.text}}>
+                    Total heures du devis : <span style={{color:heuresProjet.complet ? acc.accent : "#f5a623"}}>{fmtHeures(heuresProjet.total)}</span>
+                  </div>
+                  <div style={{fontSize:FONT.xs.size,color:heuresProjet.complet ? T.textMuted : "#f5a623",marginTop:2}}>
+                    {heuresProjet.complet
+                      ? "Quantité × cadence figée sur chaque ouvrage (celle qui a fixé le prix de la main-d'œuvre)."
+                      : `Total partiel : ${heuresProjet.nbLignesSansHeures} ouvrage${heuresProjet.nbLignesSansHeures>1?"s":""} sans cadence figée (ancienne ligne à prix saisi ou cadence absente) non compté${heuresProjet.nbLignesSansHeures>1?"s":""}.`}
+                  </div>
+                </div>
+              )}
               <button onClick={()=>setShowModal(false)} style={{
                 background:acc.accent,color:acc.onAccent,border:"none",
                 borderRadius:RADIUS.md,padding:"9px 22px",cursor:"pointer",

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-21",
     type: "amelioration",
+    titre: "Chiffrage : les heures de chaque ouvrage et le total d'heures dans l'aperçu du devis",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "L'« Aperçu du devis » affiche maintenant le nombre d'heures de main-d'œuvre de chaque ouvrage et le total d'heures du devis, pour savoir d'un coup d'œil combien de temps représente le chantier vendu.",
+    comment: "Heures d'un ouvrage = quantité × cadence figée sur la ligne au moment où l'ouvrage a été ajouté (la même cadence que celle qui a fixé le prix de la main-d'œuvre). Un multi-ouvrage affiche la somme des heures de ses ouvrages. Le total est en bas de la fenêtre et dans son en-tête. Les anciennes lignes à prix saisi à la main n'ont pas de cadence : elles affichent « — h », et le total est alors marqué « partiel » en orange avec le nombre d'ouvrages non comptés — jamais compté comme 0 h.",
+  },
+  {
+    date: "2026-10-21",
+    type: "amelioration",
     titre: "Export de la fiche Opération : les multi-ouvrages du chiffrage apparaissent",
     pages: [{ id: "operations", label: "Opérations" }],
     quoi: "Dans le fichier exporté depuis une opération, la section « Conditions de vente du chiffrage rattaché » listait les ouvrages un par un, sans dire lesquels sont regroupés en une seule ligne de devis ni à quel prix le client les voit. C'est désormais visible.",
