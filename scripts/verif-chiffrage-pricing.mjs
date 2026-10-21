@@ -401,4 +401,19 @@ assert.equal(struct[0].enfants[0].lignes[0].code, "MU-001");
 assert.equal(struct[0].enfants[0].lignes[0].tva_pct, 10);
 assert.equal(struct[0].enfants[0].lignes[0].prix_unitaire_ht, 54.72, "prix FIGÉ transmis, pas recalculé");
 
+// ── Heures du devis : quantité × cadence FIGÉE sur la ligne ────────────────
+{
+  const L = (q, hu, extra = {}) => ({ quantite: q, calcul_detail: hu === undefined ? undefined : { heures_unitaires: hu }, ...extra });
+  assert.deepEqual(p.heuresLigne(L("12.5", 0.4)), { heuresUnitaires: 0.4, heures: 5 });
+  assert.deepEqual(p.heuresLigne(L("3", 1.8333)), { heuresUnitaires: 1.8333, heures: 5.5 }, "arrondi à 2 décimales");
+  assert.deepEqual(p.heuresLigne(L("", 2)), { heuresUnitaires: 2, heures: 0 }, "quantité vide = 0 h (comme le total HT)");
+  assert.deepEqual(p.heuresLigne(L("4")), { heuresUnitaires: null, heures: null }, "ligne à prix saisi : heures INCONNUES, pas 0");
+  assert.deepEqual(p.heuresLigne(L("4", null)), { heuresUnitaires: null, heures: null }, "cadence absente : inconnue");
+  assert.deepEqual(p.heuresDevis([L("2", 1.5), L("10", 0.25)]), { total: 5.5, nbLignesSansHeures: 0, complet: true });
+  assert.deepEqual(p.heuresDevis([L("2", 1.5), L("4")]), { total: 3, nbLignesSansHeures: 1, complet: false }, "total partiel signalé");
+  assert.deepEqual(p.heuresDevis([]), { total: 0, nbLignesSansHeures: 0, complet: true });
+  // Ligne du jeu de test : la cadence figée par creerSnapshotOuvrage est bien celle relue
+  assert.equal(p.heuresLigne({ ...lignes[0], quantite: "2" }).heuresUnitaires, lignes[0].calcul_detail.heures_unitaires);
+}
+
 console.log("verif-chiffrage-pricing : OK (formule v2 matériaux × coefficient référencé + cadence × taux, 14 cas + arrondis + snapshots + structure ProGBat)");
