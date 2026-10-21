@@ -144,6 +144,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [multis, setMultis]           = useState([]);
   const [multisErreur, setMultisErreur] = useState(null);   // lecture impossible : visible, jamais ignorée
   const [selMulti, setSelMulti]       = useState({ zone: null, ids: [] });   // cases cochées (une zone à la fois)
+  const [aideMulti, setAideMulti]     = useState(false);    // mode guidé « Créer un multi-ouvrage » (cases mises en avant)
   const [modalMulti, setModalMulti]   = useState(null);     // { zone, ids, principal, libelle, lot, erreurs }
   const [toDissoudre, setToDissoudre] = useState(null);
   const [glisse, setGlisse]           = useState(null);     // ligne glissée (ordinateur)
@@ -296,6 +297,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     setEditingPlan(null);
     setCroquisOuvert(null); setNotePageId(null);
     setSelMulti({ zone: null, ids: [] });
+    setAideMulti(false);
     const [{ data:p },{ data:o },{ data:c },{ data:pl },{ data:ds },{ data:mo, error:moErr }] = await Promise.all([
       supabase.from("profero_projets").select("*").eq("id",id).single(),
       supabase.from("profero_ouvrages_selectionnes").select("*").eq("projet_id",id),
@@ -726,6 +728,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     if (lo) setOuvrages(prev => prev.map(o => lo.find(x => x.id === o.id) || o));
     setSelMulti({ zone: null, ids: [] });
     setModalMulti(null);
+    setAideMulti(false);
   }
   function majMulti(id, champ, valeur, { differe = false } = {}) {
     const n = marquerSaisieLigne("multis", id, champ);
@@ -2362,6 +2365,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   </div>
                   {ouvrages.length > 0 && (
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      {multis != null && (
+                        <button onClick={()=>{ setAideMulti(a => !a); if (aideMulti) setSelMulti({ zone: null, ids: [] }); }}
+                          title="Regrouper plusieurs ouvrages d'une même zone en une seule ligne de devis (ex. « salle de bain type »)"
+                          style={{...(aideMulti ? btn : btnSec), display:"inline-flex", alignItems:"center", gap:5, ...(aideMulti ? {} : { borderColor:acc.accent, color:acc.accent })}}>
+                          <Icon as={aideMulti ? X : Layers} size={11}/> {aideMulti ? "Fermer le regroupement" : "Créer un multi-ouvrage"}
+                        </button>
+                      )}
                       <button onClick={()=>setShowModal(true)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
                         <Icon as={FileText} size={11}/> Aperçu du devis
                       </button>
@@ -2379,6 +2389,17 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 {multisErreur && (
                   <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.1)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:700, display:"flex", alignItems:"center", gap:8 }}>
                     <Icon as={AlertTriangle} size={13}/> Multi-ouvrages illisibles ({multisErreur}) : les ouvrages regroupés sont affichés un par un et le total peut être faux. Recharger la page.
+                  </div>
+                )}
+                {aideMulti && selMulti.ids.length === 0 && (
+                  <div style={{ position:"sticky", top:0, zIndex:5, marginBottom:10, padding:"12px 14px", borderRadius:RADIUS.md, background:T.surface, border:`1px solid ${acc.accent}88`, boxShadow:"0 6px 18px rgba(0,0,0,0.25)", display:"flex", alignItems:"flex-start", gap:10 }}>
+                    <Icon as={Layers} size={16} color={acc.accent} style={{ marginTop:2, flexShrink:0 }}/>
+                    <div style={{ flex:1, fontSize:FONT.sm.size, color:T.text, lineHeight:1.55 }}>
+                      <div style={{ fontWeight:800 }}>Créer un multi-ouvrage</div>
+                      <div style={{ color:T.textSub }}>1. Coche, dans la liste ci-dessous, au moins 2 ouvrages <strong>d'une même zone</strong> (case à gauche de chaque ouvrage).</div>
+                      <div style={{ color:T.textSub }}>2. Clique sur « Regrouper en multi-ouvrage » puis choisis l'ouvrage principal, le libellé commercial et le lot.</div>
+                      <div style={{ color:T.textMuted, fontSize:FONT.xs.size+1, marginTop:2 }}>Pour compléter un multi-ouvrage existant : coche l'ouvrage puis « Ajouter la sélection » dans le bloc.</div>
+                    </div>
                   </div>
                 )}
                 {selMulti.ids.length > 0 && (
@@ -2437,7 +2458,8 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                                 {multis != null && (
                                   <input type="checkbox" checked={coche} disabled={autreZone} onChange={()=>basculerSelMulti(sel)}
                                     title={autreZone ? `Sélection en cours dans la zone « ${selMulti.zone} » : seuls les ouvrages d'une même zone se regroupent` : "Cocher pour regrouper en multi-ouvrage"}
-                                    style={{ accentColor:acc.accent, width:20, height:20, marginTop:0, flexShrink:0, cursor:autreZone ? "not-allowed" : "pointer" }}/>
+                                    style={{ accentColor:acc.accent, width:20, height:20, marginTop:0, flexShrink:0, cursor:autreZone ? "not-allowed" : "pointer",
+                                      ...(aideMulti && !autreZone && !coche ? { outline:`2px solid ${acc.accent}`, outlineOffset:2, borderRadius:3 } : {}) }}/>
                                 )}
                                 {c && <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:couleurLot(g.lot), background:couleurLot(g.lot)+"1f", border:`1px solid ${couleurLot(g.lot)}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{c.code}</span>}
                                 <div style={{ flex:1, minWidth:0, fontSize:FONT.sm.size, color:T.text, fontWeight:600, lineHeight:1.45 }}>{libelleCourt}</div>
