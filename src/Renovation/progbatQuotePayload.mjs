@@ -477,7 +477,8 @@ export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = nu
   const tva = arrondirMontant(sommeTva);
   return {
     content, apercu, erreurs, avertissements, cheminsEnAttente,
-    compteurs: { lots: groupes.length, zones: nbZones, lignes: nbLignes, lignes_sans_snapshot: nbSansSnapshot, lies: nbLies, multi_ouvrages: nbMultis, ouvrages_regroupes: nbRegroupes },
+    // Compteurs multi-ouvrages ajoutés seulement s'il y en a : sans multi-ouvrage, sortie identique à avant
+    compteurs: { lots: groupes.length, zones: nbZones, lignes: nbLignes, lignes_sans_snapshot: nbSansSnapshot, lies: nbLies, ...(nbMultis ? { multi_ouvrages: nbMultis, ouvrages_regroupes: nbRegroupes } : {}) },
     totaux: {
       ht: totalHT ?? 0,
       ht_lignes_arrondies: totalLignesArrondies ?? 0,
