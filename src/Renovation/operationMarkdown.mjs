@@ -1434,6 +1434,9 @@ function conditionsChiffrage(c) {
   const ch = c.chiffrage;
   if (!ch) return [];
   const lignes = Array.isArray(ch.lignes) ? ch.lignes : [];
+  // Multi-ouvrages : colonne et tableau ajoutés SEULEMENT s'il y en a (sortie inchangée sinon)
+  const multis = Array.isArray(ch.multiOuvrages) ? ch.multiOuvrages : [];
+  const avecMultis = multis.length > 0 || lignes.some((l) => l.multiOuvrage);
   return [
     "### Conditions de vente du chiffrage rattaché",
     "",
@@ -1450,13 +1453,41 @@ function conditionsChiffrage(c) {
         { t: "Code" }, { t: "Ouvrage" }, { t: "Zone" }, { t: "Quantité", a: "r" },
         { t: "PU vente HT", a: "r" }, { t: "Coefficient", a: "r" }, { t: "Origine coef." },
         { t: "Taux horaire", a: "r" }, { t: "Origine taux" },
+        ...(avecMultis ? [{ t: "Regroupé dans" }] : []),
       ],
       lignes.map((l) => [
         cellule(l.code), cellule(l.libelle), cellule(l.zone), cellule(nombre(l.quantite, l.unite || "")),
         cellule(euros(l.prixUnitaire)), cellule(nombre(l.coefficient)), cellule(l.coefficientSource),
         cellule(l.tauxHoraire === null ? ND : nombre(l.tauxHoraire, "€/h")), cellule(l.tauxHoraireSource),
+        ...(avecMultis ? [cellule(l.multiOuvrage, { defaut: "—" })] : []),
       ]),
     ),
     "",
+    ...(ch.multisInconnus ? [
+      "> ⚠ Multi-ouvrages du chiffrage illisibles : certains ouvrages ci-dessus sont",
+      "> peut-être regroupés en une seule ligne de devis, avec un ajustement de prix.",
+      "",
+    ] : []),
+    ...(multis.length ? [
+      "#### Multi-ouvrages (une seule ligne sur le devis client)",
+      "",
+      "Les ouvrages regroupés gardent leurs quantités et leurs prix ci-dessus ; le client",
+      "voit une seule ligne au prix ci-dessous. L'ajustement (prix rond) n'apparaît jamais",
+      "sur le devis client.",
+      "",
+      ...tableau(
+        [
+          { t: "Libellé commercial" }, { t: "Zone" }, { t: "Lot d'affichage" }, { t: "Ouvrages" },
+          { t: "Total des ouvrages HT", a: "r" }, { t: "Ajustement HT", a: "r" }, { t: "Prix sur le devis HT", a: "r" },
+        ],
+        multis.map((m) => [
+          cellule(m.libelle), cellule(m.zone), cellule(m.lotAffichage),
+          cellule(m.vide ? "aucun (à dissoudre)" : `${m.nbOuvrages} : ${m.ouvrages.join(", ")}`),
+          cellule(euros(m.totalOuvragesHT)), cellule(euros(m.ajustementHT)),
+          cellule(m.prixHT === null ? (m.vide ? "—" : "incalculable (ouvrage sans prix)") : euros(m.prixHT)),
+        ]),
+      ),
+      "",
+    ] : []),
   ];
 }

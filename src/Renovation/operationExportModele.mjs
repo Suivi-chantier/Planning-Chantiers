@@ -36,6 +36,9 @@ import {
   montantOuNull, etatFactureProgbat, natureFactureProgbat, LIBELLE_NATURE,
   totauxFacturesProgbat, grouperReglements, referenceAnnulationProgbat,
 } from "./facturesProgbatAffichage.mjs";
+// Prix d'un multi-ouvrage du chiffrage : SOURCE UNIQUE (même fonction que la
+// page Chiffrage, les PDF et le devis ProGBat). Jamais recalculé ici.
+import { prixMultiOuvrage, indexerMultiOuvrages } from "./chiffragePricing.mjs";
 
 export const nombreOuNull = (v) => {
   if (v === null || v === undefined || typeof v === "boolean") return null;
@@ -769,10 +772,38 @@ function construireFacturation(factures, reglements) {
 
 // Conditions de vente du chiffrage rattaché. Un chantier peut porter plusieurs
 // projets (plusieurs devis) : on les concatène en gardant leur référence.
+// Multi-ouvrages : chaque ligne indique le regroupement auquel elle appartient,
+// et chaque regroupement porte son prix sur le devis (prixMultiOuvrage).
+// `multis: null` = multi-ouvrages non lus : signalé, jamais présenté comme « aucun ».
 function construireChiffrage(projets) {
+  let multisInconnus = false;
+  const multiOuvrages = [];
+  const nomMulti = new Map();
+  projets.forEach(({ projet, lignes: l, multis }) => {
+    const cite = (l || []).some((x) => x?.multi_ouvrage_id != null);
+    if (multis == null) { if (cite) multisInconnus = true; return; }
+    indexerMultiOuvrages(multis).forEach((m, id) => {
+      const p = prixMultiOuvrage(m, l || []);
+      nomMulti.set(id, texteOuNull(m.libelle_commercial));
+      multiOuvrages.push({
+        libelle: texteOuNull(m.libelle_commercial),
+        zone: texteOuNull(m.zone),
+        lotAffichage: texteOuNull(m.lot_affichage),
+        ouvrages: p.enfants.map((x) => texteOuNull(x.code_ouvrage) || texteOuNull(x.item)).filter(Boolean),
+        nbOuvrages: p.nbEnfants,
+        totalOuvragesHT: p.vide ? null : p.sousTotal,
+        ajustementHT: p.ajustement,
+        // Prix de la ligne de devis ; null si un ouvrage regroupé n'a pas de prix (jamais « 0 »)
+        prixHT: p.prix,
+        vide: p.vide,
+        projet: texteOuNull(projet?.devis_objet) || texteOuNull(projet?.logement_reference),
+      });
+    });
+  });
   const lignes = projets.flatMap(({ projet, lignes: l }) => [...l]
     .sort((a, b) => (a.ordre ?? 1e9) - (b.ordre ?? 1e9))
     .map((x) => ({
+      multiOuvrage: x.multi_ouvrage_id != null ? (nomMulti.get(String(x.multi_ouvrage_id)) ?? null) : null,
       code: texteOuNull(x.code_ouvrage),
       libelle: texteOuNull(x.item),
       zone: texteOuNull(x.zone),
@@ -797,6 +828,8 @@ function construireChiffrage(projets) {
     tauxHoraireGlobal: [nombreOuNull(p.taux_horaire_global_valeur), texteOuNull(p.taux_horaire_global_libelle)]
       .filter((x) => x !== null).join(" — ") || null,
     lignes,
+    multiOuvrages,
+    multisInconnus,
   };
 }
 

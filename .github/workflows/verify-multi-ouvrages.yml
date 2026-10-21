@@ -12,6 +12,10 @@ on:
       - 'src/Renovation/PageInfoClient.jsx'
       - 'src/Renovation/ProgbatApercuDevis.jsx'
       - 'api/generate-info-client-docx.js'
+      - 'src/Renovation/operationExportData.js'
+      - 'src/Renovation/operationExportModele.mjs'
+      - 'src/Renovation/operationMarkdown.mjs'
+      - 'scripts/verif-operation-export-modele.mjs'
       - 'supabase/functions/progbat-quote/**'
       - 'scripts/sync-progbat-edge-lib.mjs'
       - 'scripts/verif-multi-ouvrages.mjs'
@@ -39,6 +43,8 @@ jobs:
         run: node scripts/verif-progbat-quote-payload.mjs
       - name: Fixtures serveur devis ProGBat (non-régression)
         run: node scripts/verif-progbat-quote-serveur.mjs
+      - name: Fixtures export de la fiche Opération (chiffrage rattaché, multi-ouvrages)
+        run: node scripts/verif-operation-export-modele.mjs
       - name: Installer dépendances
         run: npm ci
       - name: Build Vite
