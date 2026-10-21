@@ -1514,6 +1514,14 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       </div>
     );
   };
+  // Poignée de glisser-déposer (ordinateur) : seule la poignée est glissable,
+  // pour ne pas gêner la saisie dans les champs de la ligne. Sur tablette,
+  // on passe par les cases à cocher et les boutons.
+  const poigneeGlisser = (sel) => (
+    <span draggable onDragStart={e=>{ e.dataTransfer.effectAllowed = "move"; setGlisse(sel); }} onDragEnd={()=>setGlisse(null)}
+      title={sel.multi_ouvrage_id ? "Glisser hors du bloc pour sortir cet ouvrage du multi-ouvrage" : "Glisser dans un multi-ouvrage de la même zone pour l'y ajouter"}
+      style={{ cursor:"grab", color:T.textMuted, fontSize:14, lineHeight:"20px", userSelect:"none", flexShrink:0 }}>⠿</span>
+  );
   // Bloc d'un multi-ouvrage : libellé commercial, total, ajustement, ouvrages
   // regroupés en retrait (quantités modifiables) et aperçu du libellé du devis.
   // Sur ordinateur, on peut y glisser un ouvrage de la même zone.
@@ -1525,8 +1533,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const lotsChoix = [...new Set([...lotsOrdre, m.lot_affichage].filter(Boolean))];
     return (
       <div key={`multi-${m.id}`}
-        onDragOver={e => { if (glisse && !glisse.multi_ouvrage_id && ((glisse.zone || "").trim() || ZONE_DEFAUT) === b.zone) e.preventDefault(); }}
-        onDrop={e => { e.preventDefault(); if (glisse && !glisse.multi_ouvrage_id) ajouterAuMulti(m, [glisse.id]); setGlisse(null); }}
+        onDragOver={e => {
+          e.stopPropagation();   // relâcher un ouvrage dans son propre bloc ne le fait pas sortir
+          if (glisse && !glisse.multi_ouvrage_id && ((glisse.zone || "").trim() || ZONE_DEFAUT) === b.zone) e.preventDefault();
+        }}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); if (glisse && !glisse.multi_ouvrage_id) ajouterAuMulti(m, [glisse.id]); setGlisse(null); }}
         style={{ padding:"10px 12px", background:acc.bg10, border:`1px solid ${bloquant ? "#e15a5a88" : acc.accent + "66"}`, borderRadius:RADIUS.md, marginBottom:8 }}>
         <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
           <span title="Multi-ouvrage : une seule ligne sur le devis" style={{ fontSize:FONT.xs.size-1, fontWeight:800, letterSpacing:.6, textTransform:"uppercase", color:acc.accent, border:`1px solid ${acc.accent}66`, borderRadius:RADIUS.sm, padding:"1px 7px", whiteSpace:"nowrap" }}>
@@ -1571,9 +1582,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
             const c = decoderLibelleCode(sel.code_ouvrage ? `${sel.code_ouvrage} : ${sel.item}` : sel.item) || (sel.code_ouvrage ? { code: sel.code_ouvrage, reste: sel.item } : null);
             const principal = m.principal_ligne_id === sel.id;
             return (
-              <div key={sel.id} draggable onDragStart={()=>setGlisse(sel)} onDragEnd={()=>setGlisse(null)}
+              <div key={sel.id}
                 style={{ padding:"8px 10px", background:T.card, border:`1px solid ${T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
                 <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                  {poigneeGlisser(sel)}
                   {c && <span style={{ fontFamily:"ui-monospace, Menlo, Consolas, monospace", fontSize:FONT.xs.size, fontWeight:800, color:couleur, background:couleur+"1f", border:`1px solid ${couleur}55`, padding:"1px 7px", borderRadius:RADIUS.sm, flexShrink:0, marginTop:1, whiteSpace:"nowrap" }}>{c.code}</span>}
                   <div style={{ flex:1, minWidth:0, fontSize:FONT.sm.size, color:T.text, fontWeight:600, lineHeight:1.45 }}>{libelleCourtLigne(sel)} <span style={{ color:T.textMuted, fontWeight:500, fontSize:FONT.xs.size }}>· lot {sel.category || "—"}</span></div>
                   <button onClick={()=>!principal && majMulti(m.id, "principal_ligne_id", sel.id)} title={principal ? "Ouvrage principal (affiché en premier)" : "Définir comme ouvrage principal (affiché en premier)"}
@@ -2405,9 +2417,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                           const coche = selMulti.ids.includes(sel.id);
                           const autreZone = !!selMulti.zone && selMulti.zone !== zoneLigne;
                           return (
-                            <div key={sel.id} draggable={multis != null} onDragStart={()=>setGlisse(sel)} onDragEnd={()=>setGlisse(null)}
+                            <div key={sel.id}
                               style={{ padding:"9px 12px", background:coche ? acc.bg10 : T.card, border:`1px solid ${coche ? acc.accent + "88" : T.border}`, borderRadius:RADIUS.md, marginBottom:6 }}>
                               <div style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                                {multis != null && z.multis.length > 0 && poigneeGlisser(sel)}
                                 {multis != null && (
                                   <input type="checkbox" checked={coche} disabled={autreZone} onChange={()=>basculerSelMulti(sel)}
                                     title={autreZone ? `Sélection en cours dans la zone « ${selMulti.zone} » : seuls les ouvrages d'une même zone se regroupent` : "Cocher pour regrouper en multi-ouvrage"}
