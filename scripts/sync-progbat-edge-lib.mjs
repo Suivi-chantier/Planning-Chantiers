@@ -18,7 +18,7 @@ export const CIBLES = Object.freeze({
   "progbat-library-inventory": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs"],
   "progbat-library-sync": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs", "progbatLibrarySync.mjs"],
   "progbat-library-categories": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatInventaire.mjs", "progbatCategoryDispatch.mjs"],
-  "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
+  "progbat-quote": ["codeOuvrage.mjs", "chiffragePricing.mjs", "multiOuvrages.mjs", "progbatQuotePayload.mjs", "progbatQuoteServeur.mjs"],
   "progbat-library-cadences": ["codeOuvrage.mjs", "progbatCadences.mjs", "progbatCadencesServeur.mjs"],
   "progbat-yards-list": ["progbatYards.mjs"],
   // Diagnostic de pré-synchronisation (lecture seule) : il réutilise les règles

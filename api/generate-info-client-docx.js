@@ -50,7 +50,7 @@ const lignesAdresse = (adresse, complement, cp, ville, pays) =>
 // JAMAIS écrits dans ce document.
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  const { infos = {}, ouvrages = [], cotes = [], plans = [], photos: medias = [], groupes: groupesIn = null, totaux: totauxIn = null, logement: logementIn = null, lotsOrdre = [] } = req.body || {};
+  const { infos = {}, ouvrages = [], multiOuvrages = null, cotes = [], plans = [], photos: medias = [], groupes: groupesIn = null, totaux: totauxIn = null, logement: logementIn = null, lotsOrdre = [] } = req.body || {};
   // Les vidéos ne s'intègrent pas dans un .docx : on ne garde que les images.
   const photos = (Array.isArray(medias) ? medias : []).filter(p => p && p.type !== "video");
 
@@ -58,9 +58,10 @@ module.exports = async function handler(req, res) {
   // partagé avec le front (src/Renovation/chiffragePricing.mjs), sauf si la
   // page les a déjà transmis.
   const pricing = await import("../src/Renovation/chiffragePricing.mjs");
+  const multi = await import("../src/Renovation/multiOuvrages.mjs");
   const tvaProjet = pricing.num(infos.tva_pct);
-  const groupes = Array.isArray(groupesIn) ? groupesIn : pricing.grouperParLotZone(ouvrages, lotsOrdre);
-  const totaux = totauxIn || pricing.totauxDevis(ouvrages, { tvaPctDefaut: tvaProjet, budgetClient: pricing.num(infos.budget_client) });
+  const groupes = Array.isArray(groupesIn) ? groupesIn : pricing.grouperParLotZone(ouvrages, lotsOrdre, { multiOuvrages });
+  const totaux = totauxIn || pricing.totauxDevis(ouvrages, { tvaPctDefaut: tvaProjet, budgetClient: pricing.num(infos.budget_client), multiOuvrages });
   const logement = logementIn || pricing.lireLogementProjet(infos);
   const totalGlobal = totaux.venteHT || 0;
 
@@ -153,6 +154,16 @@ module.exports = async function handler(req, res) {
           indent: { left: 200 },
           spacing: { before: 60, after: 30 },
         }));
+        // Multi-ouvrages : une ligne, libellé identique au devis ProGBat (ouvrages
+        // listés sans prix ; ni prix des ouvrages regroupés ni ajustement).
+        for (const b of z.multis || []) {
+          if (b.vide) continue;
+          const [tete, ...reste] = multi.libelleDevisMulti(b.multi, ouvrages).split("\n");
+          const parts = [new TextRun({ text: tete, bold: true, size: 22, font: "Arial", color: DARK }), new TextRun({ text: "   1 U", size: 20, font: "Arial", color: GREY })];
+          if (b.prix != null) parts.push(new TextRun({ text: `   = ${eur(b.prix)}`, bold: true, size: 20, font: "Arial", color: GREEN }));
+          reste.forEach(t => parts.push(new TextRun({ text: t, size: 19, font: "Arial", color: GREY, break: 1 })));
+          children.push(new Paragraph({ numbering: { reference: "bullets", level: 0 }, children: parts, indent: { left: 560, hanging: 220 }, spacing: { before: 0, after: 40 } }));
+        }
         for (const o of z.lignes || []) {
           const q = parseFloat(o.quantite) || 0;
           const pu = o.prix_unitaire == null || o.prix_unitaire === "" ? null : parseFloat(o.prix_unitaire);

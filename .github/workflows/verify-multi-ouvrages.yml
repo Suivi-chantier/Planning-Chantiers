@@ -1,0 +1,45 @@
+name: Verify Multi-ouvrages Chiffrage
+
+on:
+  pull_request:
+    paths:
+      - 'src/Renovation/chiffragePricing.mjs'
+      - 'src/Renovation/multiOuvrages.mjs'
+      - 'src/Renovation/multiOuvrages.js'
+      - 'src/Renovation/progbatQuotePayload.mjs'
+      - 'src/Renovation/progbatQuoteServeur.mjs'
+      - 'src/Renovation/chiffrageDoc.js'
+      - 'src/Renovation/PageInfoClient.jsx'
+      - 'src/Renovation/ProgbatApercuDevis.jsx'
+      - 'api/generate-info-client-docx.js'
+      - 'supabase/functions/progbat-quote/**'
+      - 'scripts/sync-progbat-edge-lib.mjs'
+      - 'scripts/verif-multi-ouvrages.mjs'
+      - '.github/workflows/verify-multi-ouvrages.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Copies lib des Edge Functions ProGBat à jour
+        run: node scripts/sync-progbat-edge-lib.mjs --check
+      - name: Fixtures multi-ouvrages (totaux, libellé, signature, payload, blocages, serveur)
+        run: node scripts/verif-multi-ouvrages.mjs
+      - name: Fixtures chiffrage (non-régression sans multi-ouvrage)
+        run: node scripts/verif-chiffrage-pricing.mjs
+      - name: Fixtures payload devis ProGBat (non-régression)
+        run: node scripts/verif-progbat-quote-payload.mjs
+      - name: Fixtures serveur devis ProGBat (non-régression)
+        run: node scripts/verif-progbat-quote-serveur.mjs
+      - name: Installer dépendances
+        run: npm ci
+      - name: Build Vite
+        run: npm run build

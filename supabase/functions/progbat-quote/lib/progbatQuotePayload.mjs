@@ -48,11 +48,21 @@
 // direct, coût total, coefficient de vente, taux de marge, marge, elementType
 // (voir CLES_INTERDITES + auditerPayload).
 
+//
+// Multi-ouvrages (profero_multi_ouvrages) : chacun devient UNE ligne element
+// sous LOT {lot d'affichage} → ZONE {zone} : elementId = ouvrage ProGBat
+// « MULTI-… » dont la composition = les ouvrages regroupés (invisibles sur le
+// PDF), quantité 1, unité U, prix = prixMultiOuvrage (lignes + ajustement),
+// libellé = libelleDevisMulti. Les ouvrages regroupés ne sont PAS envoyés en
+// lignes séparées. Les ouvrages MULTI à créer n'ont pas encore d'elementId à
+// l'aperçu : leur plan (code, libellé, composition) entre dans le hash confirmé.
+
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import {
   num, arrondirMontant, normaliserUnite, ligneEstSnapshot, totauxDevis,
-  grouperParLotZone, lireLogementProjet,
+  grouperParLotZone, lireLogementProjet, indexerMultiOuvrages,
 } from "./chiffragePricing.mjs";
+import { libelleDevisMulti, validerMultiOuvrages, libelleCourtLigne, UNITE_MULTI, QUANTITE_MULTI } from "./multiOuvrages.mjs";
 
 export const ENDPOINT_CREATION_DEVIS = "POST /v2/company/quotes";
 export const ENDPOINT_TAUX_TVA = "GET /v2/company/taxes";
@@ -86,6 +96,7 @@ export const CLES_INTERDITES = Object.freeze([
   "mode_taux_horaire_ligne", "taux_horaire_ligne_id", "taux_horaire_ligne_valeur", "taux_horaire_ligne_libelle",
   "taux_marge_pct", "tauxMarge", "tauxMargePct", "marge", "margeUnitaire",
   "calcul_detail", "calcul_version", "bibliotheque_id", "progbat_id", "progbat_ligne_id",
+  "ajustement_ht", "ajustement", "ajustementsHT", "multi_ouvrage_id", "progbat_signature", "sousTotal",
 ]);
 
 const str = (v) => String(v ?? "").trim();
@@ -282,16 +293,105 @@ export function convertirLigne(ligne = {}, { taxes, tvaPctDefaut = null, liaison
   };
 }
 
+// ─── Multi-ouvrages ──────────────────────────────────────────────────────────
+/**
+ * Plan des ouvrages ProGBat « MULTI-… » préparé par le serveur, indexé par id
+ * de multi-ouvrage : { action: "reutiliser" | "creer", structure_id, code,
+ * libelle, signature, composition: [{ componentId, quantity }], famille_id }.
+ */
+export function indexerStructuresMulti(structuresMulti) {
+  const map = new Map();
+  if (!structuresMulti) return map;
+  const entrees = structuresMulti instanceof Map ? [...structuresMulti.entries()]
+    : Array.isArray(structuresMulti) ? structuresMulti.map(s => [s?.multi_id, s])
+    : Object.entries(structuresMulti);
+  entrees.forEach(([k, v]) => { if (k != null && v) map.set(String(k), v); });
+  return map;
+}
+
+/**
+ * Convertit UN multi-ouvrage (bloc de grouperParLotZone) en ligne `element`.
+ * Les lignes regroupées sont contrôlées comme des lignes ordinaires (snapshot,
+ * quantité, prix, liaison ProGBat nommée) mais ne sont jamais émises.
+ */
+export function convertirMulti(bloc, { taxes, tvaPctDefaut = null, liaisons = null, structure = null, controles = [], lignesOrig = [] } = {}) {
+  const erreurs = [];
+  const avertissements = [];
+  const nom = str(bloc?.libelle) || "Multi-ouvrage sans libellé";
+  const err = (code, message) => erreurs.push({ code, message: `Multi-ouvrage « ${nom} » — ${message}`, multi_id: bloc?.id ?? null });
+  controles.filter(c => c.bloquant).forEach(c => erreurs.push({ code: c.code, message: c.message, multi_id: bloc?.id ?? null }));
+  controles.filter(c => !c.bloquant).forEach(c => avertissements.push(c.message));
+
+  const enfants = (bloc?.lignes || []).map(l => l.__orig ?? l);
+  const ouvrages = enfants.map(l => {
+    const conv = convertirLigne(l, { taxes, tvaPctDefaut, liaisons });
+    conv.erreurs.forEach(e => erreurs.push({ ...e, message: `Multi-ouvrage « ${nom} » — ${e.message}`, multi_id: bloc?.id ?? null }));
+    return { ligne_id: l.id ?? null, code: conv.apercu.code, libelle: libelleCourtLigne(l), quantite: conv.apercu.quantite, unite: conv.apercu.unite, progbat_id: conv.apercu.progbat_id, lie: conv.apercu.lie };
+  });
+
+  // Ouvrage ProGBat MULTI : réutilisé (id connu) ou à créer (id après création)
+  let elementId = null, enAttente = false;
+  if (!structure) {
+    if (enfants.length >= 2 && ouvrages.every(o => o.lie)) err("multi_structure_non_preparee", "ouvrage ProGBat MULTI non préparé (relancer l'aperçu)");
+  } else if (structure.erreur) {
+    err("multi_structure_erreur", str(structure.erreur));
+  } else {
+    const id = versEntier(structure.structure_id);
+    if (id != null && id > 0) elementId = id;
+    else if (structure.action === "creer") enAttente = true;
+    else err("multi_structure_invalide", "identifiant de l'ouvrage ProGBat MULTI invalide");
+  }
+
+  const label = libelleDevisMulti(bloc?.multi, lignesOrig);
+  const prix = num(bloc?.prix);
+  if (enfants.length && prix == null) err("prix_invalide", `prix incalculable (${bloc?.nbSansPrix ?? "?"} ouvrage(s) sans prix)`);
+  else if (prix != null && prix < 0) err("prix_invalide", `prix négatif (${prix} €) : ajustement trop fort`);
+  const netUnitPrice = prix != null && prix >= 0 ? arrondirMontant(prix) : null;
+
+  const tvaPct = num(enfants[0]?.tva_pct) ?? num(tvaPctDefaut);
+  const tax = trouverTaxRateId(tvaPct, taxes);
+  if (tvaPct == null) err("tva_absente", "TVA absente");
+  else if (tax.id == null) err("tva_sans_correspondance", tax.erreur);
+
+  const element = { lineType: "element" };
+  if (elementId != null) element.elementId = elementId;
+  element.label = label;
+  element.quantity = QUANTITE_MULTI;
+  element.unit = UNITE_MULTI;
+  if (netUnitPrice != null) element.netUnitPrice = netUnitPrice;
+  if (tax.id != null) element.taxRateId = tax.id;
+
+  return {
+    element,
+    enAttente,
+    apercu: {
+      type: "multi", multi_id: bloc?.id ?? null, libelle_commercial: nom, label,
+      code: null, libelle: nom, quantite: QUANTITE_MULTI, unite: UNITE_MULTI,
+      prix_unitaire_ht: netUnitPrice, total_ht: netUnitPrice, tva_pct: tvaPct, taxRateId: tax.id,
+      progbat_id: elementId, lie: elementId != null || (enAttente && erreurs.length === 0),
+      structure_action: structure?.action ?? null, structure_code: structure?.code ?? null,
+      snapshot: true, ouvrages, erreurs: erreurs.map(e => e.code),
+    },
+    brut: { prixArrondi: netUnitPrice, tvaPct },
+    erreurs, avertissements,
+  };
+}
+
 /**
  * Regroupe les occurrences par LOT puis ZONE (ordre : lots du chiffrage, zones
  * suggérées, puis `ordre` / code / date de chaque ligne — même tri que la page
  * Chiffrage) et rend le `content` du devis. Deux occurrences d'un même ouvrage
  * dans deux zones restent deux lignes ; dans la même zone aussi (jamais fusionnées).
+ * Les multi-ouvrages passent en tête de leur zone (même ordre que la page).
  */
-export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = null, tvaPctDefaut = null, liaisons = null } = {}) {
+export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = null, tvaPctDefaut = null, liaisons = null, multiOuvrages = null, structuresMulti = null } = {}) {
   const erreurs = [];
   const avertissements = [];
   const indexLiaisons = liaisons instanceof Map ? liaisons : indexerLiaisons(liaisons);
+  const indexMultis = indexerMultiOuvrages(multiOuvrages);
+  const indexStructures = indexerStructuresMulti(structuresMulti);
+  const controlesMulti = indexMultis.size ? validerMultiOuvrages({ multiOuvrages: indexMultis, lignes, tvaPctDefaut }) : [];
+  const cheminsEnAttente = [];
   // Zones / lots vides : marqués par un libellé d'aperçu, jamais remplacés par un défaut silencieux
   const marquees = (lignes || []).map((l) => ({
     ...l,
@@ -302,25 +402,48 @@ export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = nu
     __orig: l,   // la ligne d'origine est celle qui est contrôlée et convertie
   }));
   const index = taxes instanceof Map ? taxes : indexerTauxTva(taxes).parTaux;
-  const groupes = grouperParLotZone(marquees, lotsOrdre);
+  const groupes = grouperParLotZone(marquees, lotsOrdre, { multiOuvrages: indexMultis });
 
   let sommeBrute = 0, sommeArrondie = 0, sommeTva = 0;
-  let nbZones = 0, nbLignes = 0, nbSansSnapshot = 0, nbLies = 0;
+  let nbZones = 0, nbLignes = 0, nbSansSnapshot = 0, nbLies = 0, nbMultis = 0, nbRegroupes = 0;
   const tvaDetail = {};
   const content = [];
   const apercu = [];
 
-  groupes.forEach((g) => {
+  groupes.forEach((g, gi) => {
     const lotManquant = g.lot === LIBELLE_LOT_MANQUANT && g.zones.some(z => z.lignes.some(l => l.__lot_manquant));
     const zonesApercu = [];
     const zonesContent = [];
     let totalLot = 0;
-    g.zones.forEach((z) => {
+    g.zones.forEach((z, zi) => {
       nbZones++;
       const zoneManquante = z.lignes.some(l => l.__zone_manquante);
       const elements = [];
       const lignesApercu = [];
       let totalZone = 0;
+      // Multi-ouvrages en tête de zone : UNE ligne chacun, quantité 1
+      (z.multis || []).forEach((b) => {
+        nbLignes++; nbMultis++; nbRegroupes += b.nbEnfants;
+        const conv = convertirMulti(b, {
+          taxes: index, tvaPctDefaut, liaisons: indexLiaisons,
+          structure: indexStructures.get(String(b.id)) ?? null,
+          controles: controlesMulti.filter(c => String(c.multi_id) === String(b.id)),
+          lignesOrig: lignes,
+        });
+        if (conv.apercu.lie) nbLies++;
+        if (conv.enAttente) cheminsEnAttente.push(`content[${gi}].content[${zi}].content[${elements.length}]`);
+        erreurs.push(...conv.erreurs);
+        avertissements.push(...conv.avertissements);
+        elements.push(conv.element);
+        lignesApercu.push(conv.apercu);
+        const { prixArrondi, tvaPct } = conv.brut;
+        if (prixArrondi != null) {
+          sommeBrute += prixArrondi;
+          sommeArrondie += prixArrondi;
+          totalZone += prixArrondi;
+          if (tvaPct != null) { sommeTva += prixArrondi * tvaPct / 100; tvaDetail[tvaPct] = (tvaDetail[tvaPct] || 0) + prixArrondi * tvaPct / 100; }
+        }
+      });
       z.lignes.forEach((l) => {
         nbLignes++;
         const conv = convertirLigne(l.__orig ?? l, { taxes: index, tvaPctDefaut, liaisons: indexLiaisons });
@@ -354,8 +477,8 @@ export function construireContenuDevis(lignes = [], { lotsOrdre = [], taxes = nu
   }
   const tva = arrondirMontant(sommeTva);
   return {
-    content, apercu, erreurs, avertissements,
-    compteurs: { lots: groupes.length, zones: nbZones, lignes: nbLignes, lignes_sans_snapshot: nbSansSnapshot, lies: nbLies },
+    content, apercu, erreurs, avertissements, cheminsEnAttente,
+    compteurs: { lots: groupes.length, zones: nbZones, lignes: nbLignes, lignes_sans_snapshot: nbSansSnapshot, lies: nbLies, multi_ouvrages: nbMultis, ouvrages_regroupes: nbRegroupes },
     totaux: {
       ht: totalHT ?? 0,
       ht_lignes_arrondies: totalLignesArrondies ?? 0,
@@ -468,7 +591,7 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
 }
 
 // ─── Audit structurel du payload (indépendant de la construction) ────────────
-function auditerLigne(ligne, profondeurTitres, chemin, erreurs, elementIdsAutorises) {
+function auditerLigne(ligne, profondeurTitres, chemin, erreurs, elementIdsAutorises, enAttente = null) {
   if (!ligne || typeof ligne !== "object") { erreurs.push({ code: "ligne_invalide", message: `${chemin} : ligne non objet` }); return; }
   Object.keys(ligne).forEach((k) => {
     if (CLES_INTERDITES.includes(k)) erreurs.push({ code: "cle_interdite", message: `${chemin} : clé interdite « ${k} »` });
@@ -480,12 +603,15 @@ function auditerLigne(ligne, profondeurTitres, chemin, erreurs, elementIdsAutori
   if (ligne.lineType === "title") {
     if (profondeurTitres + 1 > PROFONDEUR_TITRES_MAX) erreurs.push({ code: "profondeur_titres", message: `${chemin} : ${profondeurTitres + 1} niveaux de titres (max ${PROFONDEUR_TITRES_MAX})` });
     if (!Array.isArray(ligne.content)) erreurs.push({ code: "titre_sans_contenu", message: `${chemin} : titre sans content` });
-    else ligne.content.forEach((s, i) => auditerLigne(s, profondeurTitres + 1, `${chemin}.content[${i}]`, erreurs, elementIdsAutorises));
+    else ligne.content.forEach((s, i) => auditerLigne(s, profondeurTitres + 1, `${chemin}.content[${i}]`, erreurs, elementIdsAutorises, enAttente));
   } else {
     if ("content" in ligne) erreurs.push({ code: "element_avec_contenu", message: `${chemin} : un element ne porte pas de content` });
     if (ligne.lineType === "element") {
       // elementId obligatoire : entier positif, et présent parmi les progbat_id actuels des ouvrages Profero du devis
-      if (!(Number.isInteger(ligne.elementId) && ligne.elementId > 0)) erreurs.push({ code: "element_id_absent", message: `${chemin} : elementId manquant ou non entier positif (ouvrage non lié à la bibliothèque ProGBat)` });
+      // Ouvrage MULTI à créer (aperçu) : son elementId n'existe pas encore ; il
+      // est posé juste avant le POST, puis le payload est audité à nouveau sans exception.
+      if (enAttente && enAttente.has(chemin) && !("elementId" in ligne)) { /* en attente de création */ }
+      else if (!(Number.isInteger(ligne.elementId) && ligne.elementId > 0)) erreurs.push({ code: "element_id_absent", message: `${chemin} : elementId manquant ou non entier positif (ouvrage non lié à la bibliothèque ProGBat)` });
       else if (elementIdsAutorises && !elementIdsAutorises.has(ligne.elementId)) erreurs.push({ code: "element_id_inconnu", message: `${chemin} : elementId ${ligne.elementId} ne correspond à aucun progbat_id actuel d'ouvrage Profero` });
       if (!(typeof ligne.quantity === "number" && ligne.quantity > 0)) erreurs.push({ code: "quantity_invalide", message: `${chemin} : quantity manquante ou ≤ 0` });
       if (!str(ligne.unit)) erreurs.push({ code: "unit_absente", message: `${chemin} : unit manquante` });
@@ -503,9 +629,10 @@ function auditerLigne(ligne, profondeurTitres, chemin, erreurs, elementIdsAutori
  * et — si `elementIdsAutorises` est fourni — égal au progbat_id actuel d'un ouvrage Profero).
  * @returns {Array<{code, message}>} vide si conforme
  */
-export function auditerPayload(payload, { elementIdsAutorises = null } = {}) {
+export function auditerPayload(payload, { elementIdsAutorises = null, cheminsSansElementId = null } = {}) {
   const erreurs = [];
   const autorises = elementIdsAutorises == null ? null : (elementIdsAutorises instanceof Set ? elementIdsAutorises : new Set(elementIdsAutorises));
+  const enAttente = cheminsSansElementId ? new Set(cheminsSansElementId) : null;
   if (!payload || typeof payload !== "object") return [{ code: "payload_invalide", message: "Payload absent" }];
   Object.keys(payload).forEach((k) => {
     if (CLES_INTERDITES.includes(k)) erreurs.push({ code: "cle_interdite", message: `payload : clé interdite « ${k} »` });
@@ -516,7 +643,7 @@ export function auditerPayload(payload, { elementIdsAutorises = null } = {}) {
   });
   if ("validityDate" in payload && !formaterDateISO(payload.validityDate)) erreurs.push({ code: "validity_date_invalide", message: "payload.validityDate n'est pas une date AAAA-MM-JJ" });
   if (!Array.isArray(payload.content)) erreurs.push({ code: "content_absent", message: "payload.content absent" });
-  else payload.content.forEach((l, i) => auditerLigne(l, 0, `content[${i}]`, erreurs, autorises));
+  else payload.content.forEach((l, i) => auditerLigne(l, 0, `content[${i}]`, erreurs, autorises, enAttente));
   // Filet : le JSON sérialisé ne doit contenir aucune clé interdite, à quelque profondeur que ce soit
   const json = JSON.stringify(payload);
   CLES_INTERDITES.forEach((k) => { if (json.includes(`"${k}"`)) erreurs.push({ code: "cle_interdite_profonde", message: `« ${k} » présent dans le JSON` }); });
@@ -540,7 +667,7 @@ function dedoublonner(liste) {
  *   Le payload est TOUJOURS rendu (pour inspection) mais `valide` = false dès
  *   qu'un contrôle bloquant échoue : aucun envoi ne doit alors avoir lieu.
  */
-export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOrdre = [], taxes = null, liaisons = null, aujourdHui = new Date() } = {}) {
+export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOrdre = [], taxes = null, liaisons = null, multiOuvrages = null, structuresMulti = null, aujourdHui = new Date() } = {}) {
   const erreurs = [];
   const avertissements = [];
   const indexLiaisons = indexerLiaisons(liaisons);
@@ -557,7 +684,10 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
 
   const tvaPctDefaut = num(projet.tva_pct);
   if (!(lignes || []).length) erreurs.push({ code: "aucune_ligne", message: "Aucun ouvrage dans le devis" });
-  const contenu = construireContenuDevis(lignes, { lotsOrdre, taxes: parTaux, tvaPctDefaut, liaisons: indexLiaisons });
+  const indexMultis = indexerMultiOuvrages(multiOuvrages);
+  const multisReferences = (lignes || []).some(l => l?.multi_ouvrage_id != null && String(l.multi_ouvrage_id).trim() !== "");
+  if (multisReferences && multiOuvrages == null) erreurs.push({ code: "multi_ouvrages_non_charges", message: "Multi-ouvrages du chiffrage non chargés : le devis ne peut pas être construit" });
+  const contenu = construireContenuDevis(lignes, { lotsOrdre, taxes: parTaux, tvaPctDefaut, liaisons: indexLiaisons, multiOuvrages: indexMultis, structuresMulti });
   erreurs.push(...contenu.erreurs);
   avertissements.push(...contenu.avertissements);
   // Règle bloquante : tous les ouvrages liés, jamais de devis hybride
@@ -566,7 +696,8 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
   }
 
   // Comparaison au centime avec le total HT affiché dans Profero (totauxDevis)
-  const profero = totauxDevis(lignes, { tvaPctDefaut, budgetClient: projet.budget_client });
+  const profero = totauxDevis(lignes, { tvaPctDefaut, budgetClient: projet.budget_client, multiOuvrages: indexMultis });
+  if (profero.nbLignesMultiInconnu > 0) erreurs.push({ code: "multi_ouvrage_inconnu", message: `${profero.nbLignesMultiInconnu} ligne(s) rattachée(s) à un multi-ouvrage introuvable` });
   const ecart = arrondirMontant((contenu.totaux.ht ?? 0) - (profero.venteHT ?? 0));
   if (Math.abs(ecart) >= 0.005) {
     erreurs.push({ code: "total_different", message: `Total HT du payload (${contenu.totaux.ht.toFixed(2)} €) ≠ total HT Profero (${(profero.venteHT ?? 0).toFixed(2)} €) : écart ${ecart.toFixed(2)} €` });
@@ -578,7 +709,9 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
   const CODES_LIGNE_AUDIT = ["quantity_invalide", "unit_absente", "net_unit_price_invalide", "tax_rate_id_absent", "label_vide", "element_id_absent"];
   const dejaSignalesParLigne = contenu.erreurs.length > 0;
   const elementIdsAutorises = new Set([...indexLiaisons.values()].map((l) => versEntier(l.progbat_id)).filter((n) => n != null && n > 0));
-  const audit = auditerPayload(payload, { elementIdsAutorises }).filter(e => !(dejaSignalesParLigne && CODES_LIGNE_AUDIT.includes(e.code)));
+  // Ouvrages ProGBat MULTI du plan (réutilisés ou déjà créés) : elementId légitimes
+  indexerStructuresMulti(structuresMulti).forEach((s) => { const n = versEntier(s?.structure_id); if (n != null && n > 0) elementIdsAutorises.add(n); });
+  const audit = auditerPayload(payload, { elementIdsAutorises, cheminsSansElementId: contenu.cheminsEnAttente }).filter(e => !(dejaSignalesParLigne && CODES_LIGNE_AUDIT.includes(e.code)));
   erreurs.push(...audit);
 
   const erreursFinales = dedoublonner(erreurs);
@@ -600,6 +733,8 @@ export function construirePayloadDevisProGBat({ projet = {}, lignes = [], lotsOr
     },
     compteurs: contenu.compteurs,
     apercu: contenu.apercu,
+    // Lignes MULTI dont l'ouvrage ProGBat reste à créer (elementId posé au moment du POST)
+    multi_en_attente: contenu.cheminsEnAttente,
     liaisons: Object.fromEntries([...indexLiaisons.entries()].map(([k, v]) => [k, { progbat_id: versEntier(v.progbat_id), existe: v.existe }])),
     entete: {
       logement: entete.logement,
@@ -641,4 +776,37 @@ export async function hacherPayload(payload) {
   const octets = new TextEncoder().encode(serialiserCanonique(payload));
   const digest = await subtle.digest("SHA-256", octets);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Ce que l'utilisateur confirme : le payload ET, s'il y a des multi-ouvrages,
+ * le plan des ouvrages ProGBat MULTI (réutilisés / à créer : code, libellé,
+ * composition, famille). Sans multi-ouvrage : le payload seul, exactement
+ * comme avant (les hash des devis déjà créés restent comparables).
+ */
+export function planMultiPourHash(structuresMulti) {
+  return [...indexerStructuresMulti(structuresMulti).entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([multiId, s]) => ({
+      multi_id: multiId, action: s.action ?? null, structure_id: versEntier(s.structure_id),
+      code: s.code ?? null, libelle: s.libelle ?? null, signature: s.signature ?? null,
+      composition: (s.composition || []).map((c) => ({ componentId: c.componentId, quantity: c.quantity })),
+      famille_id: versEntier(s.famille_id),
+    }));
+}
+export async function hacherDevis(payload, structuresMulti = null) {
+  const plan = planMultiPourHash(structuresMulti);
+  return hacherPayload(plan.length ? { payload, multi_ouvrages: plan } : payload);
+}
+
+/** Payload sans les elementId posés après coup (comparaison au payload confirmé). */
+export function retirerElementIds(payload, chemins = []) {
+  const copie = JSON.parse(JSON.stringify(payload ?? {}));
+  (chemins || []).forEach((chemin) => {
+    const parties = [...String(chemin).matchAll(/content\[(\d+)\]/g)].map((m) => Number(m[1]));
+    let noeud = { content: copie.content };
+    for (const i of parties) noeud = noeud?.content?.[i];
+    if (noeud && typeof noeud === "object") delete noeud.elementId;
+  });
+  return copie;
 }

@@ -17,7 +17,7 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { X, AlertTriangle, Check, Layers, Home, UserCircle, MapPin, FileText, Receipt, RefreshCw, Code2, Copy, Send, ShieldAlert, Lock } from "lucide-react";
-import { construirePayloadDevisProGBat, hacherPayload, formaterPct, ENDPOINT_CREATION_DEVIS, ENDPOINT_TAUX_TVA } from "./progbatQuotePayload.mjs";
+import { construirePayloadDevisProGBat, hacherDevis, formaterPct, ENDPOINT_CREATION_DEVIS, ENDPOINT_TAUX_TVA } from "./progbatQuotePayload.mjs";
 
 const fmtEur = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const fmtQte = (q) => q == null ? "—" : Number(q).toLocaleString("fr-FR", { maximumFractionDigits: 4 });
@@ -40,7 +40,7 @@ async function appelerProgbatQuote(body) {
   return { ok: false, code: "transport", error: error?.message || "Appel de la fonction progbat-quote impossible." };
 }
 
-export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, lotsOrdre, onClose, onDevisCree }) {
+export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, lotsOrdre, multiOuvrages = [], onClose, onDevisCree }) {
   const [prep, setPrep] = useState(null);             // réponse serveur `prepare`
   const [chargement, setChargement] = useState(true);
   const [erreurServeur, setErreurServeur] = useState(null);
@@ -83,14 +83,14 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
 
   // Reconstitution locale (même générateur, mêmes taux) : JSON technique + contrôle de parité
   const local = useMemo(
-    () => prep ? construirePayloadDevisProGBat({ projet, lignes, lotsOrdre, taxes: prep.taux, liaisons: prep.liaisons ?? null }) : null,
-    [prep, projet, lignes, lotsOrdre],
+    () => prep ? construirePayloadDevisProGBat({ projet, lignes, lotsOrdre, taxes: prep.taux, liaisons: prep.liaisons ?? null, multiOuvrages, structuresMulti: prep.structures_multi ?? null }) : null,
+    [prep, projet, lignes, lotsOrdre, multiOuvrages],
   );
   const jsonPayload = useMemo(() => local ? JSON.stringify(local.payload, null, 2) : "", [local]);
   useEffect(() => {
     let actif = true;
     if (!local) { setHashLocal(null); return; }
-    hacherPayload(local.payload).then(h => { if (actif) setHashLocal(h); }).catch(() => { if (actif) setHashLocal(null); });
+    hacherDevis(local.payload, prep?.structures_multi ?? null).then(h => { if (actif) setHashLocal(h); }).catch(() => { if (actif) setHashLocal(null); });
     return () => { actif = false; };
   }, [local]);
   const pariteOk = !!prep && !!hashLocal && hashLocal === prep.payloadHash;
@@ -334,7 +334,26 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
                       <div style={{ fontSize: FONT.xs.size + 1, fontWeight: 800, color: z.zone_manquante ? "#e15a5a" : T.textSub, textTransform: "uppercase", letterSpacing: .5, padding: "2px 0 4px", display: "flex", gap: 6, alignItems: "center" }}>
                         ZONE {z.zone}{z.zone_manquante && <Icon as={AlertTriangle} size={11} />}<span style={{ flex: 1 }} /><span style={{ fontWeight: 700, textTransform: "none", letterSpacing: 0 }}>{fmtEur(z.total_ht)}</span>
                       </div>
-                      {z.lignes.map((l, li) => (
+                      {z.lignes.map((l, li) => l.type === "multi" ? (
+                        <div key={`m-${l.multi_id ?? li}`} style={{ padding: "6px 12px", fontSize: FONT.sm.size, color: T.text, borderLeft: `2px solid ${l.erreurs.length ? "#e15a5a" : acc.accent}`, marginBottom: 6, background: acc.bg10, borderRadius: RADIUS.sm }}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: FONT.xs.size, fontWeight: 800, color: acc.accent, textTransform: "uppercase", letterSpacing: .5 }}>Multi-ouvrage</span>
+                            <span style={{ flex: 1, minWidth: 0, fontSize: FONT.xs.size, fontWeight: 600, color: l.lie ? T.textMuted : "#e15a5a" }}>
+                              {l.structure_action === "reutiliser" ? `Ouvrage ProGBat #${l.progbat_id}${l.structure_code ? ` (${l.structure_code})` : ""} réutilisé`
+                                : l.structure_action === "creer" ? `Ouvrage ProGBat ${l.structure_code || ""} créé à la confirmation`
+                                : "Ouvrage ProGBat MULTI non préparé"}
+                            </span>
+                            <span style={{ color: T.textMuted, whiteSpace: "nowrap" }}>1 U × {fmtEur(l.prix_unitaire_ht)}</span>
+                            <span style={{ color: T.textMuted, whiteSpace: "nowrap", fontSize: FONT.xs.size }}>{l.tva_pct != null ? formaterPct(l.tva_pct) : "TVA ?"}</span>
+                            <span style={{ fontWeight: 800, color: l.total_ht != null ? "#22c55e" : "#e15a5a", whiteSpace: "nowrap", minWidth: 80, textAlign: "right" }}>{l.total_ht != null ? fmtEur(l.total_ht) : "invalide"}</span>
+                          </div>
+                          {/* Libellé exact envoyé (retours à la ligne conservés) */}
+                          <div style={{ marginTop: 4, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{l.label}</div>
+                          <div style={{ marginTop: 4, fontSize: FONT.xs.size, color: T.textMuted }}>
+                            Composition (masquée sur le PDF) : {(l.ouvrages || []).map(o => `${o.code || "?"} ×${fmtQte(o.quantite)}${o.lie ? "" : " (non lié)"}`).join(" · ")}
+                          </div>
+                        </div>
+                      ) : (
                         <div key={l.ligne_id ?? li} style={{ display: "flex", gap: 8, padding: "5px 12px", fontSize: FONT.sm.size, color: T.text, borderLeft: `2px solid ${l.erreurs.length ? "#e15a5a" : T.border}`, marginBottom: 4, alignItems: "baseline" }}>
                           <span style={{ flex: 1, minWidth: 0 }}>
                             {l.code ? <strong style={{ fontFamily: "ui-monospace, Menlo, Consolas, monospace", marginRight: 6 }}>{l.code}</strong> : <span style={{ color: "#e15a5a", fontWeight: 700, marginRight: 6 }}>sans code</span>}
@@ -408,7 +427,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
                   <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Confirmation explicite requise.</div>
                 </div>
               </div>
-              <div style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 700, lineHeight: 1.6, marginBottom: 12 }}>Cette action créera un devis brouillon dans ProGBat. Il ne sera ni finalisé ni envoyé.</div>
+              <div style={{ fontSize: FONT.sm.size, color: T.text, fontWeight: 700, lineHeight: 1.6, marginBottom: 12 }}>Cette action créera un devis brouillon dans ProGBat. Il ne sera ni finalisé ni envoyé.{Object.values(prep?.structures_multi || {}).some(s => s.action === "creer") ? " Les ouvrages MULTI indiqués ci-dessous seront d'abord créés dans la bibliothèque ProGBat." : ""}</div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: FONT.sm.size, marginBottom: 16 }}>
                 <tbody>
                   {[
@@ -417,7 +436,11 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
                     ["Objet", entete?.objet || "—"],
                     ["Lots", compteurs?.lots],
                     ["Zones", compteurs?.zones],
-                    ["Ouvrages", compteurs?.lignes],
+                    ["Lignes de devis", compteurs?.lignes],
+                    ...(compteurs?.multi_ouvrages ? [
+                      ["dont multi-ouvrages", `${compteurs.multi_ouvrages} (${compteurs.ouvrages_regroupes} ouvrages regroupés)`],
+                      ["Ouvrages MULTI créés dans ProGBat", Object.values(prep?.structures_multi || {}).filter((s, i, arr) => s.action === "creer" && arr.findIndex(x => x.signature === s.signature) === i).map(s => s.code).join(", ") || "aucun (réutilisés)"],
+                    ] : []),
                     ["Total HT", fmtEur(totaux?.ht)],
                     ["TVA", fmtEur(totaux?.tva)],
                     ["Total TTC", fmtEur(totaux?.ttc)],
