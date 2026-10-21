@@ -46,12 +46,22 @@ export function formaterQuantite(q) {
  *   - {libellé court} : {quantité} {unité}
  * Ordre : ouvrage principal, puis ordre d'affichage du devis.
  */
-export function libelleDevisMulti(multi, lignes = []) {
+export function libelleDevisMulti(multi, lignes = [], { format = "texte" } = {}) {
   const enfants = lignesDuMulti(multi, lignes);
   const tete = str(multi?.libelle_commercial);
-  if (!enfants.length) return tete;
   const items = enfants.map(l => `- ${libelleCourtLigne(l)} : ${formaterQuantite(l.quantite)} ${normaliserUnite(l.unite)}`);
-  return [tete, INTRO_COMPOSITION, ...items].join("\n");
+  const lignesTexte = enfants.length ? [tete, INTRO_COMPOSITION, ...items] : [tete];
+  if (format !== "html") return lignesTexte.join("\n");
+  // ProGBat : le libellé d'une ligne de devis est du texte riche (HTML) ; un
+  // « \n » y est rendu comme un espace (constaté sur le brouillon $000504 du
+  // 21/10/2026). Une ligne = un bloc <div>, comme dans les descriptifs de sa
+  // bibliothèque.
+  return lignesTexte.map((t, i) => (i === 0 ? echapperHtml(t) : `<div>${echapperHtml(t)}</div>`)).join("");
+}
+
+/** Échappement minimal pour un libellé HTML ProGBat (&, <, >). */
+export function echapperHtml(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /**

@@ -122,6 +122,10 @@ const lignesAvec = (ids = ["l-receveur", "l-faience", "l-vasque"], mid = MULTI_I
     "- Faïence murale : 12,5 m²",
     "- Meuble vasque 80 cm : 1 U",
   ].join("\n"), "libellé : principal puis ordre, sans code, quantité française");
+  // ProGBat : texte riche, un « \n » y devient un espace (brouillon $000504) → une ligne = un <div>
+  eq(mo.libelleDevisMulti(multi(), L, { format: "html" }),
+    "Fourniture et mise en place d'une salle de bain type<div>comprenant les ouvrages suivants :</div><div>- Receveur de douche 90x90 : 1 U</div><div>- Faïence murale : 12,5 m²</div><div>- Meuble vasque 80 cm : 1 U</div>");
+  eq(mo.libelleDevisMulti(multi({ libelle_commercial: "SdB <type> & co" }), L, { format: "html" }).split("<div>")[0], "SdB &lt;type&gt; &amp; co", "HTML échappé");
   eq(mo.libelleCourtLigne({ item: "E-008 : Tableau électrique" }), "Tableau électrique");
   eq(mo.formaterQuantite("0.1"), "0,1");
   eq(mo.formaterQuantite(1.23456), "1,2346");
@@ -169,7 +173,9 @@ const elements = (p) => p.content.flatMap(l => l.content.flatMap(z => z.content.
   const lm = els.find(e => e.elementId === STRUCT_ID);
   eq(lm.lot, "LOT Plomberie sanitaire"); eq(lm.zone, "ZONE Salle de bains");
   eq(lm.quantity, 1); eq(lm.unit, "U"); eq(lm.netUnitPrice, 1900); eq(lm.taxRateId, 705);
-  eq(lm.label, mo.libelleDevisMulti(m, L));
+  eq(lm.label, mo.libelleDevisMulti(m, L, { format: "html" }), "libellé HTML envoyé à ProGBat");
+  ok(!lm.label.includes("\n"), "aucun « \\n » dans le libellé ProGBat");
+  eq(r.apercu[0].zones[0].lignes[0].label, mo.libelleDevisMulti(m, L), "aperçu en texte");
   ok(!els.some(e => [801, 802, 803].includes(e.elementId)), "enfants absents du payload");
   eq(r.totaux.ht, r.totaux.ht_profero, "total payload = total Profero au centime");
   eq(r.compteurs.multi_ouvrages, 1); eq(r.compteurs.ouvrages_regroupes, 3);
@@ -239,7 +245,7 @@ function creerDepot({ multis = [multi()], lignes = lignesAvec(), famille = { id:
     async chargerLignes() { return lignes.map(l => ({ ...l })); },
     async chargerLotsOrdre() { return LOTS; },
     async chargerMultiOuvrages() { return multis.map(m => ({ ...m })); },
-    async chercherStructuresMulti() { etat.appels.push("chercherStructuresMulti"); return connus; },
+    async chercherStructuresMulti(sig) { etat.appels.push("chercherStructuresMulti"); return [...connus, ...etat.majMulti.filter(x => x.progbat_signature === sig).map(x => x.progbat_structure_id)]; },
     async lireFamilleMulti() { return famille; },
     async majMultiStructure(id, patch) { etat.majMulti.push({ id, ...patch }); return { ok: true }; },
     async chargerLiaisons(ids) { return ids.filter(i => LIAISONS[i]).map(i => ({ id: i, progbat_id: String(LIAISONS[i].progbat_id ?? "") })); },
@@ -298,6 +304,12 @@ const COMPO_ATTENDUE = [{ componentId: 801, quantity: 1 }, { componentId: 802, q
   const lm = elements(envoye).find(e => e.elementId === 9100);
   ok(lm && lm.quantity === 1 && lm.netUnitPrice === 1915.55, "ligne MULTI envoyée avec son elementId");
   eq(depot.etat.majMulti[0].progbat_structure_id, "9100", "ouvrage MULTI mémorisé");
+  // Aperçu suivant : ouvrage MULTI désormais réutilisé, et PAS de « devis modifié depuis la création »
+  const apres = await appel("prepare", depot, pb);
+  eq(apres.body.structures_multi[MULTI_ID].action, "reutiliser");
+  eq(apres.body.structures_multi[MULTI_ID].structure_id, 9100);
+  eq(apres.body.chiffrage_modifie_depuis, false, "aucune fausse alerte « modifié depuis la création »");
+  ok(!pb.journal.some((j, i) => i > pb.journal.findIndex(x => x.devis) && (j.post || j.put)), "l'aperçu suivant n'écrit rien");
 }
 {
   // Réutilisation : un ouvrage MULTI existant à composition identique n'est pas recréé

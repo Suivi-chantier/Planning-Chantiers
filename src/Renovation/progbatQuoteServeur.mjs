@@ -61,7 +61,7 @@
 // (composition relue identique) ou créés (code, libellé, composition). Un
 // ouvrage MULTI existant n'est JAMAIS modifié : composition différente = nouvel ouvrage.
 
-import { construirePayloadDevisProGBat, hacherDevis, serialiserCanonique, retirerElementIds } from "./progbatQuotePayload.mjs";
+import { construirePayloadDevisProGBat, hacherDevis, serialiserCanonique, retirerElementIds, planApresCreation } from "./progbatQuotePayload.mjs";
 import { lignesDuMulti } from "./chiffragePricing.mjs";
 import { compositionAttendue, signatureComposition, codeStructureMulti, codeDeLaSignature, premierCodeLibre, comparerComposition, MIN_OUVRAGES_MULTI } from "./multiOuvrages.mjs";
 
@@ -556,6 +556,7 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
   // elementId. Un échec ici n'envoie AUCUN devis (statut failed : nouvelle
   // tentative possible, les ouvrages déjà créés seront retrouvés par leur code).
   let payloadFinal = rec.resultat.payload;
+  let hashEnvoye = rec.payloadHash;   // empreinte comparable au prochain aperçu
   let multiJournal = null;
   if (Object.keys(rec.structuresMulti || {}).length) {
     const exe = await executerStructuresMulti(rec.structuresMulti, { progbat, depot });
@@ -576,6 +577,7 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
       return { http: 200, body: { ok: false, action, statut: "failed", code: "multi_payload_final_invalide", error: `${message} Aucun devis n'a été envoyé.`, export_id: exportId, payloadHash: rec.payloadHash, multi_journal: multiJournal }, journal: { action, projectId, etape: "multi_ouvrages", statut: "failed" } };
     }
     payloadFinal = final.payload;
+    hashEnvoye = await hacherDevis(final.payload, planApresCreation(exe.structures));
   }
 
   // ── POST officiel ───────────────────────────────────────────────────────
@@ -616,7 +618,10 @@ export async function traiterRequeteDevis(requete = {}, { appelant, depot, progb
     };
   }
 
-  const okExport = await finir({ statut: "created", http_status: rep.status, progbat_quote_id: quoteId, progbat_quote_code: quoteCode, error_message: null });
+  // payload_hash = empreinte du devis ENVOYÉ, dans la forme que recalculera le
+  // prochain aperçu (ouvrages MULTI devenus « réutilisés ») : sans multi-ouvrage,
+  // c'est exactement le hash confirmé, comme avant.
+  const okExport = await finir({ statut: "created", http_status: rep.status, progbat_quote_id: quoteId, progbat_quote_code: quoteCode, error_message: null, ...(hashEnvoye !== rec.payloadHash ? { payload_hash: hashEnvoye } : {}) });
   const majProjet = await depot.majProjetDevis(projectId, { progbat_devis_id: String(quoteId), progbat_sync_at: new Date().toISOString() });
   if (!okExport || majProjet?.ok === false) {
     // Le devis EXISTE dans ProGBat (id connu) mais le suivi local est incomplet : jamais de relance automatique.

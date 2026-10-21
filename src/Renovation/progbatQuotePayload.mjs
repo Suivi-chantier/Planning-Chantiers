@@ -341,7 +341,9 @@ export function convertirMulti(bloc, { taxes, tvaPctDefaut = null, liaisons = nu
     else err("multi_structure_invalide", "identifiant de l'ouvrage ProGBat MULTI invalide");
   }
 
-  const label = libelleDevisMulti(bloc?.multi, lignesOrig);
+  // ProGBat reçoit le libellé en HTML (retours à la ligne conservés) ; l'aperçu l'affiche en texte.
+  const label = libelleDevisMulti(bloc?.multi, lignesOrig, { format: "html" });
+  const labelTexte = libelleDevisMulti(bloc?.multi, lignesOrig);
   const prix = num(bloc?.prix);
   if (enfants.length && prix == null) err("prix_invalide", `prix incalculable (${bloc?.nbSansPrix ?? "?"} ouvrage(s) sans prix)`);
   else if (prix != null && prix < 0) err("prix_invalide", `prix négatif (${prix} €) : ajustement trop fort`);
@@ -364,7 +366,7 @@ export function convertirMulti(bloc, { taxes, tvaPctDefaut = null, liaisons = nu
     element,
     enAttente,
     apercu: {
-      type: "multi", multi_id: bloc?.id ?? null, libelle_commercial: nom, label,
+      type: "multi", multi_id: bloc?.id ?? null, libelle_commercial: nom, label: labelTexte,
       code: null, libelle: nom, quantite: QUANTITE_MULTI, unite: UNITE_MULTI,
       prix_unitaire_ht: netUnitPrice, total_ht: netUnitPrice, tva_pct: tvaPct, taxRateId: tax.id,
       progbat_id: elementId, lie: elementId != null || (enAttente && erreurs.length === 0),
@@ -789,10 +791,24 @@ export function planMultiPourHash(structuresMulti) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([multiId, s]) => ({
       multi_id: multiId, action: s.action ?? null, structure_id: versEntier(s.structure_id),
-      code: s.code ?? null, libelle: s.libelle ?? null, signature: s.signature ?? null,
+      // Ouvrage réutilisé : son identifiant suffit (son code peut être retrouvé ou non
+      // selon la recherche) ; ouvrage à créer : le code et la famille sont confirmés.
+      code: s.action === "reutiliser" ? null : (s.code ?? null),
+      libelle: s.libelle ?? null, signature: s.signature ?? null,
       composition: (s.composition || []).map((c) => ({ componentId: c.componentId, quantity: c.quantity })),
-      famille_id: versEntier(s.famille_id),
+      famille_id: s.action === "reutiliser" ? null : versEntier(s.famille_id),
     }));
+}
+
+/**
+ * Plan tel que le verra le prochain aperçu une fois les ouvrages MULTI créés :
+ * tous « réutilisés ». Sert à enregistrer l'empreinte du devis réellement
+ * envoyé, pour ne pas signaler à tort « devis modifié depuis la création ».
+ */
+export function planApresCreation(structuresMulti) {
+  const sortie = {};
+  indexerStructuresMulti(structuresMulti).forEach((s, k) => { sortie[k] = { ...s, action: "reutiliser", famille_id: null }; });
+  return sortie;
 }
 export async function hacherDevis(payload, structuresMulti = null) {
   const plan = planMultiPourHash(structuresMulti);
