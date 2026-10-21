@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-21",
+    type: "amelioration",
+    titre: "Export de la fiche Opération : les multi-ouvrages du chiffrage apparaissent",
+    pages: [{ id: "operations", label: "Opérations" }],
+    quoi: "Dans le fichier exporté depuis une opération, la section « Conditions de vente du chiffrage rattaché » listait les ouvrages un par un, sans dire lesquels sont regroupés en une seule ligne de devis ni à quel prix le client les voit. C'est désormais visible.",
+    comment: "Quand le chiffrage rattaché contient des multi-ouvrages, une colonne « Regroupé dans » indique pour chaque ouvrage le multi-ouvrage auquel il appartient, et un tableau « Multi-ouvrages » donne pour chacun : la zone, le lot d'affichage, les ouvrages regroupés, leur total, l'ajustement et le prix sur le devis — calculés exactement comme dans le Chiffrage. Sans multi-ouvrage, la section ne change pas. Si les multi-ouvrages n'ont pas pu être lus, un avertissement le dit au lieu de laisser croire qu'il n'y en a pas.",
+  },
+  {
+    date: "2026-10-21",
     type: "nouveaute",
     titre: "Chiffrage : regrouper plusieurs ouvrages en un « multi-ouvrage » (une seule ligne de devis)",
     pages: [{ id: "info-client", label: "Chiffrage" }, { id: "admin", label: "Réglages" }],

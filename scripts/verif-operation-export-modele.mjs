@@ -468,6 +468,66 @@ test("le chiffrage rattaché conserve les dérogations de coefficient et de taux
   assert.equal(heritee.coefficient, 1.35);
 });
 
+test("sans multi-ouvrage : aucune colonne ni tableau de regroupement", () => {
+  // Fixture d'origine : `multis` absent → aucun regroupement, rien de signalé
+  assert.deepEqual(C.chiffrage.multiOuvrages, []);
+  assert.equal(C.chiffrage.multisInconnus, false);
+  const md = construireMarkdownOperation(MODELE);
+  assert.ok(!md.includes("Regroupé dans"));
+  assert.ok(!md.includes("Multi-ouvrages (une seule ligne"));
+});
+
+// Multi-ouvrage (données fictives) : les 2 ouvrages du chiffrage regroupés, ajustement −5 €
+const MULTI = { id: "m1", projet_id: "p1", libelle_commercial: "Rénovation du séjour", lot_affichage: "Finitions", zone: "Séjour", principal_ligne_id: "l2", ajustement_ht: -5, ordre: 0 };
+const avecMulti = (multis) => normaliserChantier({
+  ...CONTEXTE,
+  sources: {
+    ...CONTEXTE.sources,
+    projets: CONTEXTE.sources.projets.map((p) => ({
+      ...p,
+      lignes: p.lignes.map((l, i) => ({ ...l, id: `l${i + 1}`, zone: "Séjour", multi_ouvrage_id: "m1" })),
+      multis,
+    })),
+  },
+});
+const modeleMulti = (chantier) => assemblerModele({
+  op: { id: "op_1", nom: "Fourmond", adresse: "12 rue des Lilas", couleur: "#84cc16" },
+  chantiers: [chantier, VIDE],
+  agg: { nbChantiers: 2, nbAvecPhasage: 1, vendu: 4000, marge: 1200, avancement: 52 },
+  statutsLabels: { en_cours: "En cours", planifie: "Planifié" },
+  erreurs: [],
+  maintenant: new Date("2026-10-07T08:00:00.000Z"),
+});
+
+test("multi-ouvrage : prix du devis = total des ouvrages + ajustement (même fonction que le Chiffrage)", () => {
+  const ch = avecMulti([MULTI]).chiffrage;
+  assert.equal(ch.multiOuvrages.length, 1);
+  const m = ch.multiOuvrages[0];
+  assert.equal(m.nbOuvrages, 2);
+  assert.equal(m.totalOuvragesHT, 4750, "20 × 200 + 30 × 25");
+  assert.equal(m.ajustementHT, -5);
+  assert.equal(m.prixHT, 4745);
+  assert.deepEqual(m.ouvrages, ["PEI-001", "CLO-048"], "principal en tête");
+  assert.ok(ch.lignes.every((l) => l.multiOuvrage === "Rénovation du séjour"), "chaque ligne dit où elle est regroupée");
+});
+
+test("multi-ouvrage : l'export le montre, avec son ajustement", () => {
+  const md = construireMarkdownOperation(modeleMulti(avecMulti([MULTI])));
+  assert.ok(md.includes("Regroupé dans"));
+  assert.ok(md.includes("Multi-ouvrages (une seule ligne sur le devis client)"));
+  const ligne = md.split("\n").find((l) => l.includes("Rénovation du séjour") && l.includes("Finitions"));
+  // Montants au format de l'export (euros arrondis) : total 4 750, ajustement -5, prix 4 745
+  assert.ok(ligne && /4\s750\s€/.test(ligne) && /-5\s€/.test(ligne) && /4\s745\s€/.test(ligne), `ligne du multi-ouvrage : ${ligne}`);
+});
+
+test("multi-ouvrages illisibles : signalé, jamais présenté comme « pas de regroupement »", () => {
+  const ch = avecMulti(null).chiffrage;
+  assert.equal(ch.multisInconnus, true);
+  assert.deepEqual(ch.multiOuvrages, []);
+  const md = construireMarkdownOperation(modeleMulti(avecMulti(null)));
+  assert.ok(md.includes("Multi-ouvrages du chiffrage illisibles"));
+});
+
 test("le client du chiffrage remonte dans les contacts de l'opération", () => {
   assert.equal(C.client.nom, "Léa Martin");
   assert.equal(C.client.adresse, "3 rue A 49000 Angers");

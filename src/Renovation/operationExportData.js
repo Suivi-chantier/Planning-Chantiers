@@ -210,20 +210,29 @@ export async function chargerDonneesExportOperation({
   const liensProjets = (liensProjetsRes?.data || []).filter((l) => l?.projet_id);
   let projets = [];
   let lignesChiffrage = [];
+  // Multi-ouvrages des chiffrages rattachés (plusieurs ouvrages = une ligne de
+  // devis). `null` si la lecture échoue : le modèle le signale au lieu de
+  // présenter les ouvrages comme s'ils n'étaient pas regroupés.
+  let multisChiffrage = [];
   if (liensProjets.length > 0) {
     const projetIds = [...new Set(liensProjets.map((l) => l.projet_id))];
-    const [projetsRes, lignesChiffrageRes] = await Promise.all([
+    const [projetsRes, lignesChiffrageRes, multisRes] = await Promise.all([
       lireParIds("profero_projets",
         "id, client_nom, client_prenom, client_societe, client_email, client_telephone, client_adresse, client_code_postal, client_ville, devis_objet, logement_reference, mode_coefficient, coefficient_global_valeur, coefficient_global_libelle, mode_taux_horaire, taux_horaire_global_valeur, taux_horaire_global_libelle",
         projetIds, { colonne: "id" }),
       lireParIds("profero_ouvrages_selectionnes",
-        "projet_id, code_ouvrage, item, zone, quantite, unite, prix_unitaire, coefficient_source, coefficient_ligne_valeur, coefficient_origine_valeur, coef_vente, taux_horaire_source, taux_horaire_ligne_valeur, taux_horaire_origine_valeur, taux_horaire_vente, ordre",
+        "id, projet_id, code_ouvrage, item, zone, quantite, unite, prix_unitaire, coefficient_source, coefficient_ligne_valeur, coefficient_origine_valeur, coef_vente, taux_horaire_source, taux_horaire_ligne_valeur, taux_horaire_origine_valeur, taux_horaire_vente, ordre, multi_ouvrage_id",
+        projetIds, { colonne: "projet_id" }),
+      lireParIds("profero_multi_ouvrages",
+        "id, projet_id, libelle_commercial, lot_affichage, zone, principal_ligne_id, ajustement_ht, ordre",
         projetIds, { colonne: "projet_id" }),
     ]);
     noter("chiffrages rattachés", projetsRes.error);
     noter("lignes de chiffrage", lignesChiffrageRes.error);
+    noter("multi-ouvrages des chiffrages", multisRes.error);
     projets = projetsRes.data || [];
     lignesChiffrage = lignesChiffrageRes.data || [];
+    multisChiffrage = multisRes.error ? null : (multisRes.data || []);
   }
 
   // Règlements des factures : lus en UN lot, une fois les factures connues.
@@ -265,6 +274,7 @@ export async function chargerDonneesExportOperation({
   const projetsById = {};
   projets.forEach((p) => { projetsById[String(p.id)] = p; });
   const lignesChiffrageParProjet = grouper(lignesChiffrage, "projet_id");
+  const multisParProjet = multisChiffrage == null ? null : grouper(multisChiffrage, "projet_id");
   const projetParChantier = {};
   liensProjets.forEach((l) => { (projetParChantier[l.chantier_id] ||= []).push(String(l.projet_id)); });
 
@@ -356,6 +366,7 @@ export async function chargerDonneesExportOperation({
       projets: (projetParChantier[c.id] || []).map((pid) => ({
         projet: projetsById[pid] || null,
         lignes: lignesChiffrageParProjet[pid] || [],
+        multis: multisParProjet == null ? null : (multisParProjet[pid] || []),
       })).filter((x) => x.projet),
     },
     aujourdhui,
