@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "amelioration",
+    titre: "États financiers et export des Opérations : avancement lu dans les relevés de chaque jour",
+    pages: [{ id: "etats-financiers", label: "États financiers" }, { id: "operations", label: "Opérations" }],
+    quoi: "La colonne « Terrain » des États financiers et l'historique d'avancement de l'export des Opérations ne dépendent plus du relevé du vendredi soir, qui va être arrêté : ils lisent le relevé journalier le plus récent, comme le Bilan.",
+    comment: "Rien ne change à l'utilisation. L'historique d'avancement de l'export garde un point par semaine (le dernier relevé de la semaine).",
+  },
+  {
+    date: "2026-10-24",
     type: "nouveaute",
     titre: "Bilans figés : rectifications et prévu / réalisé",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],

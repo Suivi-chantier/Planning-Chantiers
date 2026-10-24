@@ -262,6 +262,7 @@ chaque étape.
   seulement (droits d'accès → son accord) ; (2) arrêter les deux relevés du
   vendredi et garder leurs tables en lecture seule.
 
+<<<<<<< HEAD
 - **24/10/2026 — Table d'archive des bilans.** Réponse de Loris : OUI pour
   créer `bilans_exports`, lisible et modifiable par le bureau seulement
   (mêmes règles que `achats_lots_termines` + « réservé aux collaborateurs »).
@@ -275,6 +276,27 @@ chaque étape.
   par le garde-fou des autorisations de Claude Code ; elle n'a pas été
   contournée. 3.5 attend qu'elle soit appliquée (par Loris ou après
   autorisation) avant d'être fusionnée.
+=======
+- **24/10/2026 — Relevés du vendredi : option A.** Réponse de Loris : arrêter
+  les deux tâches du vendredi (relevé hebdomadaire `chantier_snapshots_hebdo`
+  et historique d'avancement `chantier_avancement_history`) APRÈS avoir
+  basculé leurs derniers lecteurs sur les relevés journaliers ; garder les
+  deux tables en lecture seule pour l'historique, rien supprimé (si la
+  lecture seule exige une migration de droits, on ne la fait pas : arrêter les
+  écritures suffit). Ordre : (1) bascule des lecteurs, (2) arrêt des tâches,
+  (3) compléments du cahier des charges (commandes à passer et livraisons
+  dans « La semaine qui vient », glissement de la fin prévisionnelle).
+- **État au 24/10/2026 (fin de session du sous-agent étape 3).** (1a) États
+  financiers (colonne Terrain) et export Opérations (historique d'avancement,
+  un point par semaine) lisent les relevés journaliers : PR « bascule des
+  lecteurs ». (1b) RESTE : l'assistant IA (`api/_ia/renovation/outils.js`,
+  `calculerAlertes` et l'historique d'`expliquer_alerte`, + table autorisée
+  dans `donnees.js`) et les données de test de
+  `verif-renovation-copilot-v1` (table `chantier_snapshots_hebdo` → relevés
+  journaliers, test du doublon W31 à adapter). (2) et (3) : pas commencés.
+  3.5 (#161, brouillon) attend l'application de la migration
+  `bilans_exports`, gérée par le pilote avec Loris.
+>>>>>>> origin/main
 
 ### Comptes rendus des étapes
 
