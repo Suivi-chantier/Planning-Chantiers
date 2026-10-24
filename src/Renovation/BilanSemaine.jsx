@@ -1385,7 +1385,6 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               ${cell("Reste à faire", `${cfFmtH(b.heuresRestantes)}h · ${eur(b.resteAFaireEuros)}`, "#6d28d9").replace('border-left:1pt solid ' + LINE + ';', '')}
               ${cell("Marge à terminaison", `${b.margeATerminaison >= 0 ? "+" : ""}${eur(b.margeATerminaison)}`, b.margeATerminaison >= 0 ? "#6d28d9" : RED)}
               ${cell("Marge probable", `${b.margeProbable >= 0 ? "+" : ""}${eur(b.margeProbable)}`, b.margeProbable >= 0 ? "#6d28d9" : RED)}
-              ${cell("Situation à facturer", b.situationAFacturer != null ? `${b.situationAFacturer >= 0 ? "+" : ""}${eur(b.situationAFacturer)}` : "—", "#6d28d9")}
               ${cell("Reste à commander", b.resteACommander != null ? eur(b.resteACommander) : "—", "#6d28d9")}
             </tr>
           </table>
@@ -1713,7 +1712,6 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         <div style="color:#fff;font-size:17pt;font-weight:800;line-height:1.1;margin-top:3pt;letter-spacing:-.01em;">${esc(weekId)}</div>
       </td>
       ${kpiCell(`${totalHeuresInclus.toFixed(1)} h`, hasPointages ? "Heures validées" : "Heures estimées", YELLOW)}
-      ${kpiCell(`${totalFaitesInclus}`, "Tâches", "#5fbf85")}
       ${totalGenereEurosInclus > 0 ? kpiCell(`+${fmtEuros(totalGenereEurosInclus)}`, "Généré", YELLOW) : ""}
       ${includeFinances && margeInclus.has ? kpiCell(`${margeInclus.total >= 0 ? "+" : ""}${fmtEuros(margeInclus.total)}`, "Marge de la semaine", margeInclus.total >= 0 ? "#5fbf85" : RED) : ""}
     </tr>
@@ -2078,10 +2076,6 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               {!hasPointages && absences && !absences.ok && (
                 <div style={{ fontSize:10, color:"#f5a623", marginTop:2 }}>absences non vérifiées</div>
               )}
-            </div>
-            <div style={{ textAlign:"center" }}>
-              <div style={{ fontSize:28, fontWeight:800, color:"#50c878" }}>{totalFaites}</div>
-              <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Tâches faites</div>
             </div>
             {totalGenereEuros > 0 && (
               <div style={{ textAlign:"center" }} title="Somme des progressions hebdo × prix vendu de chaque chantier">
@@ -2903,7 +2897,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                           Projections — où on va (pas des chiffres constatés)
                         </div>
                         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:8 }}>
-                          {["resteAFaire", "margeATerminaison", "margeProbable", "situationAFacturer", "resteACommander"].map(cle => {
+                          {["resteAFaire", "margeATerminaison", "margeProbable", "resteACommander"].map(cle => {
                             const d = fin[cle];
                             if (!d) return null;
                             const pres = KPI_PRES[cle] || {};
