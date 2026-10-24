@@ -11,6 +11,7 @@ import {
   isoDate, heureParis, mediane, centile, part, famillesTravaux, decritPlusieursTravaux,
   comparerAuxPointages, nombreReouvertures, faitsComptesRendus, agreger, indicateursComptesRendus,
   decoupesParOuvrierEtMois, tendance, INDICATEURS_QUALITE,
+  avancementsValidesDepuisJournal,
 } from "../src/Renovation/qualiteComptesRendusV1.mjs";
 
 let nbOk = 0;
@@ -227,5 +228,24 @@ eq(tendance("ecartAvancement", g({}), g({})).delta, null, "indisponible : pas de
 eq(tendance("inconnu", g({}), g({})), null, "indicateur inconnu");
 ok(INDICATEURS_QUALITE.every(i => i.libelle && i.explication && typeof i.valeur === "function"), "chaque indicateur a un libellé, une explication et une valeur");
 ok(INDICATEURS_QUALITE.every(i => i.valeur(T) === null || Number.isFinite(i.valeur(T))), "chaque indicateur se lit sur le jeu de test");
+
+// Avancement validé relu dans le journal d'avancement (exemple issu des tests, données fictives).
+{
+  const J = [
+    { chantier_id: "C1", tache_id: "t1", source: "initial", avancement_avant: null, avancement_apres: 40, date_realisation: "2026-10-24", created_at: "2026-10-24T01:00:00Z" },
+    { chantier_id: "C1", tache_id: "t2", source: "initial", avancement_avant: null, avancement_apres: 20, date_realisation: "2026-10-24", created_at: "2026-10-24T01:00:00Z" },
+    { chantier_id: "C1", tache_id: "t1", source: "validation_cr", rapport_id: "a", avancement_avant: 40, avancement_apres: 60, date_realisation: "2026-10-26", created_at: "2026-10-26T18:00:00Z" },
+    { chantier_id: "C1", tache_id: "t1", source: "correction", rapport_id: "a", avancement_avant: 60, avancement_apres: 55, date_realisation: "2026-10-26", created_at: "2026-10-27T08:00:00Z" },
+  ];
+  const R = [
+    { id: "a", chantier_id: "C1", statut: "valide", valide_le: "2026-10-26T18:00:00Z", date_rapport: "26/10/2026", taches: [{ tache_id: "t1" }, { tache_id: "t2" }, { tache_id: null }] },
+    { id: "b", chantier_id: "C1", statut: "valide", valide_le: "2026-10-20T18:00:00Z", date_rapport: "20/10/2026", taches: [{ tache_id: "t1" }] },
+    { id: "c", chantier_id: "C1", statut: "en_attente", date_rapport: "27/10/2026", taches: [{ tache_id: "t1" }] },
+  ];
+  const av = avancementsValidesDepuisJournal({ rapports: R, journal: J });
+  eq(av.a, { t1: 55, t2: 20 }, "journal : valeur fixée par le compte rendu (correction la plus récente) ; tâche non changée → état du jour");
+  eq([av.b, av.c], [undefined, undefined], "journal : validé avant la mise en service du journal, ou non validé → non mesuré (jamais 0)");
+  eq(avancementsValidesDepuisJournal({ rapports: R, journal: J.filter(l => l.source !== "initial") }), {}, "journal sans mise en service → rien");
+}
 
 console.log(`verif-qualite-comptes-rendus : ${nbOk} contrôles OK (données fictives)`);

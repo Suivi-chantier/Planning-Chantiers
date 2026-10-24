@@ -17,9 +17,10 @@
 //                       Comparés à la déclaration, ils disent quelles lignes
 //                       ont été réaffectées, découpées ou corrigées.
 //   avancementsValides  l'avancement retenu à la validation n'est écrit QUE
-//                       dans le phasage. Il est relu dans l'historique du
-//                       phasage par une requête serveur et arrive ici déjà
-//                       calculé : { [rapport_id]: { [tache_id]: avancement } }.
+//                       dans le phasage, donc dans le journal d'avancement
+//                       daté (étape 1C) : avancementsValidesDepuisJournal()
+//                       le relit, pour les validations faites depuis la mise
+//                       en service du journal (24/10/2026).
 //                       Absent (null) → l'indicateur est « indisponible »,
 //                       jamais « 0 ».
 //   historique          anciennes versions des rapports (data_history) :
@@ -32,6 +33,7 @@
 // « — »), jamais 0 %.
 // ─────────────────────────────────────────────────────────────────────────────
 import { horsDevisParDefaut } from "./motifsCompteRendu.mjs";
+import { etatTachesALaDate } from "../chantierFinance.mjs";
 
 const texte = (v) => String(v ?? "").trim();
 const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
@@ -395,7 +397,7 @@ export function faitsComptesRendus({
 const INDISPO = {
   pointages: "Pointages non lus : impossible de comparer la déclaration à la validation.",
   historique: "Historique des rapports non lu : impossible de savoir s'ils ont été rouverts.",
-  avancements: "Avancement validé non disponible : il n'est gardé que dans l'historique du phasage, trop lourd à lire depuis la page (lecture serveur à mettre en place).",
+  avancements: "Journal d'avancement non lu : impossible de connaître l'avancement retenu à la validation.",
   horsDevis: "Phasages non lus : impossible de savoir quelles tâches sont hors devis.",
 };
 const indisponible = (raison) => ({ indisponible: raison });
@@ -507,6 +509,57 @@ export function agreger(faits, { ouvrier = null, version = null } = {}) {
   };
 }
 
+// Avancement retenu à la validation, relu dans le journal d'avancement daté
+// (étape 1C). Une validation écrit dans le journal une ligne portant l'id du
+// compte rendu (source « validation_cr » ou « correction ») pour chaque tâche
+// dont elle change l'avancement :
+//   - ligne trouvée → sa valeur « après » (la plus récemment écrite) ;
+//   - aucune ligne → le conducteur n'a pas changé l'avancement : on prend
+//     l'état de la tâche en fin de journée du compte rendu (etatTachesALaDate).
+// Seuls les comptes rendus validés APRÈS la mise en service du journal (sa
+// première ligne « initial ») sont mesurables : avant, le passé reconstitué
+// ne dit pas quelle validation a fixé quelle valeur. Les autres restent
+// absents (lignes non comparées, jamais 0).
+// rapports : { id, chantier_id, statut, date_rapport, valide_le, taches } ;
+// journal : { chantier_id, tache_id, rapport_id, source, avancement_avant,
+// avancement_apres, date_realisation, created_at }.
+export function avancementsValidesDepuisJournal({ rapports = [], journal = [] } = {}) {
+  const lignes = journal || [];
+  const miseEnService = lignes.filter(l => l?.source === "initial")
+    .reduce((m, l) => (!m || String(l.created_at) < m ? String(l.created_at) : m), null);
+  if (!miseEnService) return {};
+  const parChantier = new Map();
+  const parRapport = new Map();
+  lignes.forEach(l => {
+    const c = String(l?.chantier_id ?? "");
+    if (!parChantier.has(c)) parChantier.set(c, []);
+    parChantier.get(c).push(l);
+    if (l?.rapport_id != null && l?.tache_id != null) {
+      const k = `${l.rapport_id}|${l.tache_id}`;
+      const prec = parRapport.get(k);
+      if (!prec || String(l.created_at) >= String(prec.created_at)) parRapport.set(k, l);
+    }
+  });
+  const etats = new Map();
+  const out = {};
+  (rapports || []).forEach(r => {
+    if (r?.statut !== "valide" || !r.valide_le || String(r.valide_le) < miseEnService) return;
+    const d = isoDate(r.date_rapport);
+    const c = String(r.chantier_id ?? "");
+    if (!d) return;
+    const cle = `${c}|${d}`;
+    if (!etats.has(cle)) etats.set(cle, etatTachesALaDate(parChantier.get(c) || [], d));
+    (r.taches || []).forEach(t => {
+      const k = tid(t);
+      if (!k) return;
+      const ligne = parRapport.get(`${r.id}|${k}`);
+      const v = ligne ? nombreOuNull(ligne.avancement_apres) : (etats.get(cle).get(k) ?? null);
+      if (v != null) (out[r.id] ??= {})[k] = v;
+    });
+  });
+  return out;
+}
+
 // Lignes découpées à la validation, par ouvrier et par mois (« 2026-10 ») :
 // { [ouvrier]: { [mois]: { lignesDecoupees, lignesCreees } } }.
 // Sert le compteur « tâches regroupées » de la Validation (prompt CR-5).
@@ -551,7 +604,7 @@ export const INDICATEURS_QUALITE = Object.freeze([
     explication: "Part des envois faits un jour après la date du compte rendu (heure de Paris)." },
   { code: "ecartAvancement", libelle: "Écart d'avancement déclaré / validé", unite: "pts", meilleur: "bas",
     valeur: g => (g.ecartAvancement.indisponible ? null : g.ecartAvancement.moyenneAbs),
-    explication: "Écart moyen, en points de %, entre l'avancement déclaré par l'ouvrier et celui retenu à la validation, sur les lignes avec des heures dont la tâche a été gardée." },
+    explication: "Écart moyen, en points de %, entre l'avancement déclaré par l'ouvrier et celui retenu à la validation, sur les lignes avec des heures dont la tâche a été gardée. L'avancement retenu est relu dans le journal d'avancement, pour les comptes rendus validés depuis sa mise en service (24/10/2026) ; avant, il n'est pas mesuré ici." },
   { code: "reaffectees", libelle: "Lignes réaffectées", unite: "%", meilleur: "bas",
     valeur: g => taux(g.reaffectees),
     explication: "Ligne déclarée sur une tâche du phasage dont toutes les heures sont parties sur une autre tâche à la validation." },

@@ -196,7 +196,7 @@ chaque étape.
 | 2 | Étape 2 — Les trois marges et les alertes | ✅ En ligne | 2026-10-24 | Trois marges (avancement, terminaison, probable), « marge nette » devenue « budget restant », relevés passés recalculés (3 686), nouvelles alertes sur les relevés journaliers. Coefficients sous ×1 : tranché par Loris (plancher ×1, livré en 3.0). Voir « Étape 2 ». |
 | 3 | Étape 3 — Refonte du Bilan semaine | ✅ En ligne | 2026-10-24 | Bilan sur les relevés journaliers, période libre, présélection, versions direction et détaillée, bilans figés + Rectifications, prévu / réalisé, fin prévisionnelle et glissement, tendances, semaine qui vient (équipe + commandes + livraisons), bilan de clôture. Relevés du vendredi arrêtés (option A), plus aucun lecteur. PR #155 à #166. Voir « Étape 3 ». |
 | 4 | Étape 4 — Tâches hors devis | ✅ En ligne | 2026-10-24 | Cas A / B / C choisis à la validation et dans le phasage (« Ce travail est-il facturé au client ? »), avenant, geste commercial, ouvrage non facturé ; décisions « à arbitrer » dans le Bilan avec rappel réglable ; heures hors devis par cas dans la fiche chantier ; tâches souvent ajoutées dans la Bibliothèque. Aucune migration. Voir « Étape 4 ». |
-| 5 | CR-1 — Diagnostic chiffré des comptes rendus | ⏳ À faire | | |
+| 5 | CR-1 — Diagnostic chiffré des comptes rendus | ✅ En ligne | 2026-10-24 | Diagnostic réel sur 8 semaines, page « Qualité des comptes rendus » (bureau), module d'indicateurs réutilisable (compteur « lignes découpées » par ouvrier et par mois pour CR-5). Écart d'avancement déclaré / validé allumé à partir du journal d'avancement, sans fonction SQL. Voir « CR-1 ». |
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ⏳ À faire | | |
 | 7 | CR-3 — Nouveau parcours du compte rendu | ⏳ À faire | | |
 | 8 | CR-4 — Dictée vocale et IA | ⏳ À faire | | |
@@ -326,6 +326,17 @@ chaque étape.
   poids dans l'avancement) ; les heures prévues de l'ouvrage (heures du devis)
   ne bougent pas. Un cas C reste « hors devis » (coût réel, pas d'avancement,
   pas comparé aux heures prévues) jusqu'à son rattachement à un avenant.
+
+- **24/10/2026 — CR-1 : écart d'avancement lu dans le journal, sans fonction
+  SQL (choix technique).** La fonction serveur proposée le 24/10
+  (`qualite_cr_avancements_valides`, lecture de l'historique des phasages)
+  n'est plus nécessaire : depuis l'étape 1C, chaque validation écrit dans le
+  journal d'avancement une ligne portant l'id du compte rendu. La page lit ce
+  journal. Le passé reconstitué ne dit pas quelle validation a fixé quelle
+  valeur (un essai sur le passé donnait 30 % de lignes « modifiées », contre
+  8 % mesurés directement le 24/10 : artefact de datation) : l'indicateur
+  n'est donc mesuré que pour les comptes rendus validés depuis le 24/10/2026,
+  et le chiffre du passé reste celui du diagnostic. Aucune migration.
 
 ### Comptes rendus des étapes
 
@@ -720,6 +731,79 @@ tâches standard (nettoyage, approvisionnement, SAV… à garder telles quelles)
   `arbitrage` dans la tâche).
 
 ---
+#### CR-1 — Diagnostic chiffré des comptes rendus (24/10/2026, en ligne)
+
+**Mises en ligne.** Page « Qualité des comptes rendus » et module
+d'indicateurs (PR #148, 24/10) ; finitions CR-1 (écart d'avancement déclaré /
+validé allumé depuis le journal d'avancement). Aucune migration.
+
+**Qui voit la page.** Équipe → bouton « Qualité des comptes rendus » (et le
+menu). Vérifié en base et dans `loadAccessConfig` : **admin oui** (ajout
+automatique des nouvelles pages pour admin) ; conducteur : prévue dans sa
+liste par défaut, mais la liste enregistrée en base ne la contient pas, donc
+**non** tant qu'on ne la coche pas dans Admin → Accès ; commercial, comptable,
+ouvrier : non.
+
+**Le diagnostic — vraies données, 8 semaines (31/08 → 25/10/2026, base du
+24/10).** 597 comptes rendus, 236 envois, 1 049 lignes avec des heures, 8
+ouvriers. Ancien formulaire (v1) : 174 envois ; nouveau (cr_v2) : 62.
+
+| Indicateur | Total | Ancien formulaire | Nouveau formulaire |
+|---|---|---|---|
+| Temps de remplissage (médiane / 80 %) | 13 min / 29 min | non mesurable | 13 min / 29 min |
+| Envoyés en rattrapage (le lendemain) | 4 % | 5 % | 2 % |
+| Avancement modifié à la validation | 8 % des lignes (écart moyen 3,5 pts) | | |
+| Lignes réaffectées / découpées / heures modifiées | 2 % / 0,5 % / 2 % | | |
+| Lignes sans tâche du phasage | 56 % | 63 % | 38 % |
+| … dont rattachées à la main à la validation | 89 % | 88 % | 95 % |
+| Tâches proposées par l'ouvrier (v2) | 9 % | — | 9 % |
+| Lignes « fourre-tout » probables | 4 % | 5 % | 2 % |
+| Lignes sans remarque | 62 % | 60 % | 67 % |
+| Remarques très courtes (< 15 caractères) | 44 % | 30 % | 68 % |
+| Tâches terminées sans photo | 65 % | 69 % | 54 % |
+| Comptes rendus rouverts après validation | 2 % | 2 % | 1 % |
+| Tâche faite à plusieurs : avancements différents | 30 % (écart moyen 43 pts) | 27 % | 35 % |
+
+Heure d'envoi : 16 avant 16 h, 80 entre 16 h et 17 h, 76 entre 17 h et 18 h,
+27 entre 18 h et 19 h, 28 après 19 h.
+
+**Ce que mesure le temps de remplissage.** Le temps entre la première saisie
+de la journée et l'envoi, sur le nouveau formulaire seulement (l'ancien ne
+note pas l'heure de début). C'est le temps pendant lequel le compte rendu est
+resté ouvert, pas le temps passé à écrire : un brouillon ouvert à midi et
+envoyé le soir compte plusieurs heures. 5 envois sur 61 dépassent une heure.
+
+**Les 5 constats les plus marquants.**
+1. **Plus d'une ligne sur deux n'est rattachée à aucune tâche du phasage**
+   (56 %) ; le conducteur en rattache 89 % à la main à la validation. Sur le
+   nouveau formulaire, la plupart viennent de cases du planning qui n'ont pas
+   de lien vers une tâche.
+2. **Tâches faites à plusieurs : dans 30 % des cas, les ouvriers ne déclarent
+   pas le même avancement**, avec 43 points d'écart en moyenne quand ils
+   diffèrent.
+3. **65 % des tâches déclarées terminées n'ont pas de photo.**
+4. **Les remarques sont pauvres** : 62 % des lignes sans remarque, et sur le
+   nouveau formulaire 68 % des remarques font moins de 15 caractères
+   (« En cours », « À finir »).
+5. **Le conducteur corrige peu** : 8 % des avancements modifiés, 2 % des
+   lignes réaffectées, 0,5 % découpées, 2 % des comptes rendus rouverts. Le
+   remplissage médian (13 min) n'est pas excessif ; c'est la qualité de ce qui
+   est déclaré qui pose problème, plus que la durée.
+
+**Par ouvrier (lignes sans tâche du phasage, lignes fourre-tout).** JP 100 % /
+12 % ; Margaux 86 % / 4 % ; Kev 66 % / 5 % ; Davy 57 % / 2 % ; Steven 50 % /
+2 % ; Selman 46 % / 3 % ; Mohamed 42 % / 9 % ; Venceslas 34 % / 3 %.
+Lignes découpées à la validation (compteur prévu pour CR-5) : 5 sur la
+période (Davy 2, Kev 1, Steven 1, Venceslas 1).
+
+**Écart d'avancement déclaré / validé sur la page.** Il est maintenant lu dans
+le journal d'avancement : chaque validation y écrit l'avancement retenu avec
+l'id du compte rendu. Il n'est mesuré que pour les comptes rendus validés
+depuis le 24/10/2026 ; avant, la page affiche « — » (aucune ligne comparable),
+jamais 0. Le chiffre du passé (8 % de lignes modifiées) vient du diagnostic.
+
+**Points d'attention.** Mesure faite avant le nouveau parcours (CR-3) : c'est
+la référence « avant ». La même page donnera le « après ».
 
 ## 5. Cahier des charges des étapes
 
