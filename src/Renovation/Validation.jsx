@@ -35,7 +35,7 @@ import { supabase } from "../supabase";
 import { sauvegarderPhasage, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
 import { Icon, InputNombre } from "../ui";
 import {
-  CheckCircle2, AlertTriangle, Clock, User as UserIcon, X,
+  CheckCircle2, AlertTriangle, Clock, X,
   Plus, Trash2, Split, PlusCircle, Lock, LockOpen, ArrowRightLeft,
 } from "lucide-react";
 import { getBranchAccent, RADIUS, PHASES_DEFAUT, loadPhases } from "../constants";
@@ -62,6 +62,14 @@ import ChoixCasHorsDevis from "./ChoixCasHorsDevis";
 import { libelleOuvrage, nomTache, nomTacheDevis } from "./libellesPhasageV1";
 // CR-4 : remarque reformulée par l'IA, avec le texte dicté d'origine à côté.
 import { remarqueAffichee } from "./dicteeCrV1";
+// CR-5 : page de la journée (écarts en clair, résumé, arbitrage groupé).
+import ValidationJournee from "./ValidationJournee";
+import {
+  classerRapport, peutValiderDirect, resumeJournee, joursEnRetard, poserArbitrage, appliquerArbitrages,
+  heuresJourOuvrier,
+} from "./validationJourneeV1";
+import { comptesRendusAttendus } from "./releveJournalier.mjs";
+import { avancementChantier } from "../chantierFinance";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -276,6 +284,12 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const [showHistorique, setShowHistorique] = useState(false);
   const [clotureBusy, setClotureBusy] = useState(false);
   const [clotureTableManquante, setClotureTableManquante] = useState(false);
+  // CR-5 : absences (heures attendues, comptes rendus attendus), comptes
+  // rendus encore à valider des jours précédents, avancement retenu pour une
+  // tâche déclarée différemment par plusieurs ouvriers ({ chantier: { tâche: % } }).
+  const [absences, setAbsences] = useState(null);
+  const [enAttenteRecents, setEnAttenteRecents] = useState([]);
+  const [arbitrages, setArbitrages] = useState({});
 
   const valideur = profil?.nom || profil?.email || "Conducteur";
 
@@ -291,6 +305,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       .from("rapports").select("*")
       .in("date_rapport", [dateFilter, dateFR]).order("ouvrier");
     if (error && /statut/.test(error.message || "")) {
+      // Base sans la colonne « statut » : signalé aux journaux, jamais à l'écran.
+      console.warn("Validation : colonne rapports.statut absente — verrouillage anti-double-comptage inactif.");
       setStatutColManquante(true);
       const r2 = await supabase.from("rapports").select("*")
         .in("date_rapport", [dateFilter, dateFR]).order("ouvrier");
@@ -304,11 +320,22 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     const { weekId, jour } = weekIdAndJourFromDate(dateFilter);
     if (weekId && jour) {
       const { data: cells } = await supabase
-        .from("planning_cells").select("chantier_id,ouvriers,taches")
+        .from("planning_cells").select("week_id,jour,chantier_id,ouvriers,taches")
         .eq("week_id", weekId).eq("jour", jour);
       setCellsJour(cells || []);
     } else {
       setCellsJour([]);
+    }
+
+    // CR-5 : absences (comptes rendus et heures attendus) et comptes rendus
+    // encore à valider des jours précédents. Lecture impossible : la page
+    // dit « inconnu », jamais zéro.
+    try { setAbsences(await chargerAbsencesOuvriers()); } catch (e) { console.warn("Validation — absences :", e); setAbsences(null); }
+    {
+      const { data: att, error: attErr } = await supabase.from("rapports").select("date_rapport")
+        .or("statut.is.null,statut.neq.valide").order("created_at", { ascending: false }).limit(500);
+      if (attErr) console.warn("Validation — comptes rendus en attente :", attErr.message);
+      setEnAttenteRecents(att || []);
     }
 
     // P6 : charge la clôture (globale) pour cette date
@@ -318,6 +345,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         .eq("date", dateFilter).is("chantier_id", null)
         .maybeSingle();
       if (clotErr?.code === "42P01") {
+        console.warn("Validation : table clotures_journee absente — clôture de journée inactive.");
         setClotureTableManquante(true);
         setCloture(false);
       } else if (clotErr) {
@@ -471,37 +499,61 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     return m;
   }
 
-  function alertesRapport(r) {
-    const alerts = [];
-    const totalH = (r.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0)
-                 + ((parseInt(r.trajet_matin_min) || 0) + (parseInt(r.trajet_soir_min) || 0)) / 60;
-    if (totalH > 10) {
-      alerts.push({ icon: AlertTriangle, text: `Journée à ${fmtH(totalH)}h — au-dessus de 10h.` });
-    }
-    if (r.ouvrier && ouvriersPlanifies.size > 0 && !ouvriersPlanifies.has(r.ouvrier)) {
-      alerts.push({ icon: AlertTriangle, text: `${r.ouvrier} n'était pas planifié ce jour-là.` });
-    }
-    const avancements = avancementParTache[r.chantier_id] || {};
-    (r.taches || []).forEach(t => {
-      const av = t.tache_id ? avancements[String(t.tache_id)] : null;
-      if (av === 100 && (parseFloat(t.heures_reelles) || 0) > 0) {
-        alerts.push({ icon: AlertTriangle, text: `« ${t.planifie} » pointée alors qu'elle est déjà à 100 %.` });
-      }
-    });
-    return alerts;
-  }
+  const opened = openedId ? rapports.find(r => r.id === openedId) : null;
 
-  const rapportsParOuvrier = useMemo(() => {
+  // ── CR-5 : page de la journée ──────────────────────────────────────────────
+  // Heures attendues de chaque ouvrier (même calcul que le garde-fou) ; null
+  // si les absences n'ont pas pu être lues.
+  const heuresAttenduesParOuvrier = useMemo(() => {
+    if (!absences) return {};
+    const noms = new Set([...rapports.map(r => r.ouvrier), ...cellsJour.flatMap(c => c.ouvriers || [])].filter(Boolean));
+    const m = {};
+    noms.forEach(o => { m[o] = cibleOuvrierPourDate(absences, o, dateFilter).cible; });
+    return m;
+  }, [absences, rapports, cellsJour, dateFilter]);
+  // Comptes rendus attendus par chantier : la règle des relevés journaliers
+  // (étape 1D), pour que « non envoyé » ici = « journée incomplète » au Bilan.
+  const attendus = useMemo(() => {
+    const ids = [...new Set(cellsJour.map(c => c.chantier_id).filter(Boolean))];
+    return ids.flatMap(chId => comptesRendusAttendus({ chantierId: chId, dateISO: dateFilter, cellules: cellsJour, rapports, absences })
+      .attendus.map(a => ({ ...a, chantier_id: chId,
+        chantier_nom: chantiers.find(c => String(c.id) === String(chId))?.nom || rapports.find(r => String(r.chantier_id) === String(chId))?.chantier_nom || null })));
+  }, [cellsJour, rapports, absences, dateFilter, chantiers]);
+  const classements = useMemo(() => {
     const m = {};
     rapports.forEach(r => {
-      const key = r.ouvrier || "(sans nom)";
-      if (!m[key]) m[key] = [];
-      m[key].push(r);
+      m[r.id] = classerRapport(r, {
+        avancementParTache: avancementParTache[r.chantier_id] || {},
+        ouvriersPlanifies: [...ouvriersPlanifies],
+        heuresAttendues: heuresAttenduesParOuvrier[r.ouvrier] ?? null,
+        heuresJourOuvrier: heuresJourOuvrier(rapports, r.ouvrier),
+      });
     });
-    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rapports]);
-
-  const opened = openedId ? rapports.find(r => r.id === openedId) : null;
+    return m;
+  }, [rapports, avancementParTache, ouvriersPlanifies, heuresAttenduesParOuvrier]);
+  const resume = useMemo(() => resumeJournee({ rapports, classements, attendus, heuresAttenduesParOuvrier }),
+    [rapports, classements, attendus, heuresAttenduesParOuvrier]);
+  const joursRetard = useMemo(() => joursEnRetard(enAttenteRecents, dateFilter), [enAttenteRecents, dateFilter]);
+  const avancementParChantier = useMemo(() => {
+    const m = {};
+    phasages.forEach(ph => { if (Array.isArray(ph.ouvrages) && ph.ouvrages.length) m[String(ph.chantier_id)] = avancementChantier(ph.ouvrages); });
+    return m;
+  }, [phasages]);
+  const peutDirect = (r) => {
+    const ph = phasages.find(p => p.chantier_id === r.chantier_id);
+    return peutValiderDirect(r, classements[r.id], {
+      journeeCloturee: !!journeeCloturee,
+      suiviEnQuantite: (id) => !!(ph && Array.isArray(ph.ouvrages) && suiviPourValidation(ph.ouvrages, id, 0)),
+    });
+  };
+  // « Valider » direct : exactement la validation de la fenêtre ouverte puis
+  // validée sans retouche (mêmes lignes, même garde-fou, mêmes écritures).
+  async function validerDirect(r) {
+    const lignes = appliquerArbitrages(lignesDepuisRapport(r), arbitrages[String(r.chantier_id)]);
+    const indirectes = Array.isArray(r.heures_indirectes)
+      ? r.heures_indirectes.map(h => ({ motif: h.motif || "", heures: h.heures != null ? h.heures : "" })) : [];
+    await validerRapport({ rapport: r, lignes, indirectes });
+  }
 
   // ── P6 : Clôture / Réouverture ────────────────────────────────────────────
   // Une journée est "clôturée" si une ligne existe pour la date avec statut='cloture'.
@@ -536,7 +588,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       }
     } catch (e) {
       console.error("Clôture:", e);
-      alert(`Erreur clôture : ${e.message || e}`);
+      alert("La journée n'a pas pu être clôturée. Réessaie dans un instant.");
     }
     setClotureBusy(false);
     await load();
@@ -556,7 +608,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       if (error) throw error;
     } catch (e) {
       console.error("Réouverture:", e);
-      alert(`Erreur réouverture : ${e.message || e}`);
+      alert("La journée n'a pas pu être rouverte. Réessaie dans un instant.");
     }
     setClotureBusy(false);
     setReopenMotif("");
@@ -850,7 +902,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           + (doublon
               ? "Cause probable : deux lignes pointent vers la même tâche du plan. "
                 + "Regroupe-les sur une seule ligne (en additionnant les heures) puis revalide."
-              : `Détail technique : ${insErr.message || "erreur inconnue"}`)
+              : "Réessaie dans un instant ; si cela se reproduit, préviens un administrateur.")
           + "\n\nCorrige puis réessaie — il n'y a pas de risque de double comptage."
         );
         setValidating(false);
@@ -1033,7 +1085,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       .eq("id", rapport.id);
     if (error) {
       console.error("Changement de chantier:", error);
-      alert(`Erreur lors du changement de chantier : ${error.message || error}`);
+      alert("Le chantier de ce compte rendu n'a pas pu être changé. Réessaie dans un instant.");
       setValidating(false);
       return;
     }
@@ -1129,14 +1181,14 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     }
     if (err) {
       console.error("Bascule vers un autre chantier:", err);
-      alert(`Impossible de basculer ces heures vers « ${nomNew} » : ${err.message || err}\n\nRien n'a été modifié.`);
+      alert(`Impossible de basculer ces heures vers « ${nomNew} ». Rien n'a été modifié : réessaie dans un instant.`);
       setValidating(false);
       return false;
     }
     const { error: srcErr } = await supabase.from("rapports").update({ taches: tachesSrc }).eq("id", rapport.id);
     if (srcErr) {
       console.error("Bascule — mise à jour du rapport d'origine:", srcErr);
-      alert(`Les ${fmtH(h)}h ont bien été ajoutées sur « ${nomNew} », mais le rapport d'origine n'a pas pu être mis à jour (${srcErr.message || srcErr}).\n\nRetire ces heures à la main sur la ligne avant de valider.`);
+      alert(`Les ${fmtH(h)}h ont bien été ajoutées sur « ${nomNew} », mais le rapport d'origine n'a pas pu être mis à jour.\n\nRetire ces heures à la main sur la ligne avant de valider.`);
     }
     setValidating(false);
     await load(); // recharge rapports (dont le nouveau) + phasage du chantier cible
@@ -1244,49 +1296,6 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           }}>Recharger la version récente</button>
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0, fontSize: 22, color: T.text, fontWeight: 700 }}>
-          Validation de fin de journée
-        </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <label style={{ fontSize: 13, color: T.textSub }}>Date :</label>
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={e => setDateFilter(e.target.value)}
-            style={{
-              padding: "6px 10px", borderRadius: RADIUS.md,
-              border: `1px solid ${T.border}`, background: T.surface, color: T.text,
-              fontSize: 14, fontFamily: "inherit",
-            }}
-          />
-          {/* P6 : Clôture / Réouverture (caché si la table n'existe pas encore) */}
-          {!clotureTableManquante && (
-            journeeCloturee ? (
-              <button onClick={() => setShowReopenModal(true)} disabled={clotureBusy} style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "6px 12px", borderRadius: RADIUS.md,
-                border: "1px solid rgba(245,166,35,0.4)",
-                background: "rgba(245,166,35,0.10)", color: "#b27416",
-                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-              }}>
-                <Icon as={LockOpen} size={14}/> Rouvrir
-              </button>
-            ) : (
-              <button onClick={cloturerJournee} disabled={clotureBusy} style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "6px 12px", borderRadius: RADIUS.md,
-                border: `1px solid ${acc.border}`,
-                background: acc.bg10, color: acc.accent,
-                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-              }}>
-                <Icon as={Lock} size={14}/> Clôturer la journée
-              </button>
-            )
-          )}
-        </div>
-      </div>
-
       {/* P6 : Bandeau d'information si journée clôturée */}
       {journeeCloturee && (
         <div style={{
@@ -1310,80 +1319,42 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         </div>
       )}
 
-      {clotureTableManquante && (
-        <div style={{ marginBottom: 12 }}>
-          <AlerteBox text="La table `clotures_journee` n'a pas encore été créée — exécute le SQL du P6 pour activer la clôture de journée." T={T}/>
-        </div>
-      )}
-
-      <div style={{ fontSize: 13, color: T.textSub, marginBottom: 16 }}>
-        {dateLabel(dateFilter)} — {rapports.length} rapport{rapports.length > 1 ? "s" : ""}
-      </div>
-
-      {statutColManquante && (
-        <div style={{ marginBottom: 12 }}>
-          <AlerteBox text="La colonne `rapports.statut` n'a pas encore été ajoutée à Supabase — exécute le SQL du P3 pour activer le verrouillage anti-double-comptage." T={T}/>
-        </div>
-      )}
-
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: T.textSub }}>Chargement…</div>
-      ) : rapports.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center", color: T.textSub, fontSize: 14 }}>
-          Aucun rapport pour cette date.
-        </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {rapportsParOuvrier.map(([ouvrier, rs]) => (
-            <div key={ouvrier} style={{
-              background: T.surface, borderRadius: RADIUS.md,
-              border: `1px solid ${T.border}`, padding: 12,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <Icon as={UserIcon} size={16} color={acc.accent}/>
-                <span style={{ fontWeight: 700, color: T.text, fontSize: 15 }}>{ouvrier}</span>
-                <span style={{ fontSize: 12, color: T.textSub }}>· {rs.length} chantier{rs.length > 1 ? "s" : ""}</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {rs.map(r => {
-                  const totalH = (r.taches || []).reduce((s, t) => s + (parseFloat(t.heures_reelles) || 0), 0);
-                  const alerts = alertesRapport(r);
-                  return (
-                    <button
-                      key={r.id}
-                      onClick={() => setOpenedId(r.id)}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr auto auto auto",
-                        gap: 12, alignItems: "center",
-                        padding: "10px 12px", borderRadius: RADIUS.md,
-                        background: T.widgetBg || T.bg, border: `1px solid ${T.border}`,
-                        cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: T.text,
-                      }}
-                    >
-                      <span style={{ fontSize: 14, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        {r.chantier_nom || r.chantier_id}
-                        {estRapportBeta(r) && <BadgeBeta/>}
-                      </span>
-                      <span style={{ fontSize: 12, color: T.textSub }}>{fmtH(totalH)}h</span>
-                      {alerts.length > 0 && (
-                        <span title={alerts.map(a => a.text).join("\n")} style={{
-                          display: "inline-flex", alignItems: "center", gap: 4,
-                          padding: "2px 6px", borderRadius: 999,
-                          background: "rgba(245,166,35,0.15)", color: "#b27416",
-                          fontSize: 11, fontWeight: 600,
-                        }}>
-                          <Icon as={AlertTriangle} size={12}/>{alerts.length}
-                        </span>
-                      )}
-                      <StatutBadge statut={r.statut}/>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
+        <ValidationJournee
+          T={T} acc={acc}
+          dateFilter={dateFilter} setDateFilter={setDateFilter} titreDate={dateLabel(dateFilter)}
+          actionsEntete={!clotureTableManquante && (
+            journeeCloturee ? (
+              <button onClick={() => setShowReopenModal(true)} disabled={clotureBusy} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: RADIUS.md,
+                border: "1px solid rgba(245,166,35,0.4)",
+                background: "rgba(245,166,35,0.10)", color: "#b27416",
+                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}>
+                <Icon as={LockOpen} size={14}/> Rouvrir
+              </button>
+            ) : (
+              <button onClick={cloturerJournee} disabled={clotureBusy} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 12px", borderRadius: RADIUS.md,
+                border: `1px solid ${acc.border}`,
+                background: acc.bg10, color: acc.accent,
+                fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}>
+                <Icon as={Lock} size={14}/> Clôturer la journée
+              </button>
+            )
+          )}
+          rapports={rapports} classements={classements} attendus={attendus} resume={resume} joursRetard={joursRetard}
+          avancementParChantier={avancementParChantier}
+          arbitrages={arbitrages}
+          onAppliquerArbitrage={(chId, tacheId, v) => setArbitrages(prev => poserArbitrage(prev, chId, tacheId, v))}
+          peutDirect={peutDirect} onValiderDirect={validerDirect} onOuvrir={setOpenedId}
+          validating={validating} journeeCloturee={!!journeeCloturee}
+        />
       )}
 
       {opened && (
@@ -1398,7 +1369,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           onBasculerLigne={(args) => basculerLigneVersChantier({ rapport: opened, ...args })}
           T={T} acc={acc}
           taux={parseFloat(tauxHoraires?.[opened.ouvrier]) || 0}
-          alertes={alertesRapport(opened)}
+          alertes={(classements[opened.id]?.ecarts || []).map(e => ({ text: e.texte }))}
+          arbitrages={arbitrages[String(opened.chantier_id)] || null}
           avancementParTache={avancementParTache[opened.chantier_id] || {}}
           autresPropositions={autresPropositionsPourRapport(opened)}
           tachesPlan={tachesPlanParChantier[opened.chantier_id] || []}
@@ -1528,7 +1500,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 // ─── Modale détail rapport (éditable — P4 + P5) ──────────────────────────────
 
 function ModaleRapport({
-  rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
+  rapport, T, acc, taux, alertes, avancementParTache, autresPropositions, arbitrages = null,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
   ouvragesPlan = [], tacheExistante = () => null, phasageOuvrages = [], bibliotheque = [],
   chantiers = [], onChangerChantier, onBasculerLigne,
@@ -1599,7 +1571,9 @@ function ModaleRapport({
   });
 
   useEffect(() => {
-    const init = lignesDepuisRapport(rapport);
+    // Avancement retenu sur la page de la journée pour une tâche déclarée
+    // différemment par plusieurs ouvriers : appliqué d'office (modifiable).
+    const init = appliquerArbitrages(lignesDepuisRapport(rapport), arbitrages);
     setLignes(init);
     // Pré-remplit la zone heures indirectes avec ce que l'ouvrier a déclaré
     // (P7). Le conducteur peut compléter/corriger/supprimer avant validation.
