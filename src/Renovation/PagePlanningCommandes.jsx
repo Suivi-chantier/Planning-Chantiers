@@ -6,6 +6,12 @@ import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import { sauvegarderPhasage, sauvegarderPhasagesLot, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
 import { envoyerEmailApi } from "../emailApi";
 import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constants";
+// Le MONTANT à commander vient des enveloppes de lot : la même fonction que la
+// marge à terminaison (chantierFinance). La liste des matériaux prévus par
+// ouvrage reste affichée comme aide.
+import { resteACommanderEnveloppes, eur } from "../chantierFinance";
+import { lireToutParTranches } from "./lectureParTranches";
+import { chargerAchatsTermines, achatsTerminesParChantier, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { Icon } from "../ui";
 import {
   ShoppingCart, Package, Calendar, Check, AlertTriangle, Building2,
@@ -58,7 +64,7 @@ function useIsMobile(maxWidth = 860) {
 }
 
 // ─── PAGE PRINCIPALE ─────────────────────────────────────────────────────────
-export default function PagePlanningCommandes({ chantiers = [], T, branch = "renovation" }) {
+export default function PagePlanningCommandes({ chantiers = [], T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
   const isMobile = useIsMobile();
 
@@ -73,6 +79,8 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
   const [fournisseurs, setFournisseurs] = useState([]);
   const [lignesCmd, setLignesCmd] = useState([]); // commande_lignes existantes (+ en-tête commande)
   const [besoins, setBesoins]     = useState([]); // demandes ouvrier en attente (table besoins)
+  const [achatsParCh, setAchatsParCh] = useState({}); // lots « achats terminés » par chantier
+  const [erreurAchats, setErreurAchats] = useState(null);
   const [loading, setLoading]     = useState(true);
 
   // Vue courante : "ouvrage" (backlog phasage) | "demandes" (paniers ouvrier)
@@ -103,10 +111,26 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
     setPhasages(data || []);
   };
   const loadLignesCmd = async () => {
-    const { data } = await supabase
+    // Par tranches : plus de 1 000 lignes en base, une lecture d'un coup serait
+    // tronquée sans erreur (et le reste à commander avec).
+    const { data } = await lireToutParTranches((a, b) => supabase
       .from("commande_lignes")
-      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, phasage_id, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation, type_evenement)");
+      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, phasage_id, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation, type_evenement)")
+      .order("id").range(a, b));
     setLignesCmd(data || []);
+  };
+  const loadAchats = async () => {
+    const { data, error } = await chargerAchatsTermines();
+    setErreurAchats(error ? error.message : null);
+    setAchatsParCh(achatsTerminesParChantier(data));
+  };
+  // Marque / rouvre les achats d'un lot (réversible, date + auteur).
+  const basculerAchatsTermines = async (chantierId, lot) => {
+    const r = lot.achatsTermines
+      ? await annulerAchatsTermines({ chantierId, lotId: lot.lotId })
+      : await marquerAchatsTermines({ chantierId, lotId: lot.lotId, auteur: profil?.nom || profil?.email || null });
+    if (!r.ok) { window.alert("Enregistrement impossible : " + r.error); return; }
+    await loadAchats();
   };
   const loadBesoins = async () => {
     const { data } = await supabase
@@ -121,7 +145,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await Promise.all([loadPhasages(), loadLignesCmd(), loadBesoins()]);
+      await Promise.all([loadPhasages(), loadLignesCmd(), loadBesoins(), loadAchats()]);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -290,7 +314,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           if (t.date_prevue && (!earliest || t.date_prevue < earliest)) earliest = t.date_prevue;
         });
 
-        if (prevus.length === 0 && lignesO.length === 0) return; // ouvrage sans matériau ni commande : ignoré
+        if (prevus.length === 0 && lignesO.length === 0) return; // ouvrage sans matériau ni commande : ignoré (son enveloppe compte quand même)
 
         ouvrages.push({
           id:            o.id,
@@ -307,13 +331,19 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         });
       });
 
-      if (ouvrages.length === 0) return;
+      // Enveloppes matériaux par lot : LE montant à commander du chantier.
+      const enveloppes = resteACommanderEnveloppes({
+        ouvrages: ouvragesRaw,
+        commandeLignes: lignesCmd.filter(l => l.chantier_id === p.chantier_id),
+        lots, achatsTermines: achatsParCh[p.chantier_id] || [],
+      });
+      if (ouvrages.length === 0 && !(enveloppes.enveloppe > 0.5) && !(enveloppes.commandesMateriaux > 0.5)) return;
       // tri ouvrages : par lot puis libellé
       ouvrages.sort((a, b) => (a.lotLabel || "").localeCompare(b.lotLabel || "") || (a.libelle || "").localeCompare(b.libelle || ""));
 
+      // Nombre d'articles : aide (liste des matériaux prévus non commandés).
       const nbACommander = ouvrages.reduce((s, o) => s + o.aCommander.length, 0);
-      const totalACommander = ouvrages.reduce((s, o) =>
-        s + o.aCommander.reduce((ss, m) => ss + (parseFloat(m.prix_ht) || 0) * (parseFloat(m.quantite) || 0), 0), 0);
+      const totalACommander = enveloppes.reste;
 
       result.push({
         phasageId:   p.id,
@@ -323,12 +353,13 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
         ouvrages,
         nbACommander,
         totalACommander,
+        enveloppes,
       });
     });
     // tri chantiers : ceux avec des articles à commander d'abord, puis par nom
-    result.sort((a, b) => (b.nbACommander - a.nbACommander) || a.chantierNom.localeCompare(b.chantierNom));
+    result.sort((a, b) => (b.totalACommander - a.totalACommander) || (b.nbACommander - a.nbACommander) || a.chantierNom.localeCompare(b.chantierNom));
     return result;
-  }, [phasages, chantiers, matById, lotById, lignesCmd]);
+  }, [phasages, chantiers, matById, lotById, lignesCmd, lots, achatsParCh]);
 
   // Sélection courante
   const chantierSel = modele.find(c => c.chantierId === selChantierId) || null;
@@ -567,7 +598,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
           {[
             { label: "Chantiers en cours", val: stats.nbChantiers, color: text, icon: Building2 },
             { label: "Articles à commander", val: stats.nbACommander, color: acc.accent, icon: Package },
-            { label: "Estimé HT à commander", val: `${stats.totalHt.toFixed(0)} €`, color: "#22c55e", icon: ShoppingCart },
+            { label: "Reste à commander HT (enveloppes des lots)", val: eur(stats.totalHt), color: "#22c55e", icon: ShoppingCart },
           ].map(s => (
             <div key={s.label} style={{
               flex: "1 1 160px",
@@ -620,9 +651,14 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.xs.size, color: textMuted, paddingLeft: 15 }}>
                       <span>{c.ouvrages.length} ouvrage{c.ouvrages.length > 1 ? "s" : ""}</span>
-                      {c.nbACommander > 0 && (
+                      {c.totalACommander > 0.5 && (
                         <span style={{ color: acc.accent, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 3 }}>
-                          <Icon as={Package} size={10}/> {c.nbACommander} à commander
+                          <Icon as={Package} size={10}/> reste {eur(c.totalACommander)}
+                        </span>
+                      )}
+                      {c.enveloppes.depassements.length > 0 && (
+                        <span style={{ color: "#e15a5a", fontWeight: 700 }}>
+                          {c.enveloppes.depassements.length} dépassement{c.enveloppes.depassements.length > 1 ? "s" : ""}
                         </span>
                       )}
                     </div>
@@ -644,6 +680,9 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
                       </button>
                     ) : null}
                     sousTitre={`${chantierSel.ouvrages.length}`} textMuted={textMuted} text={text} border={border} card={card}/>
+                  <EnveloppesLots enveloppes={chantierSel.enveloppes} erreurAchats={erreurAchats}
+                    onBasculer={(lot) => basculerAchatsTermines(chantierSel.chantierId, lot)}
+                    text={text} textMuted={textMuted} border={border} card={card} acc={acc}/>
                   <div className="pgc-list">
                     {chantierSel.ouvrages.map(o => (
                       <button key={o.id} className={"pgc-item" + (o.id === selOuvrageId ? " sel" : "")}
@@ -742,6 +781,59 @@ function PaneHeader({ icon, titre, titreNode, sousTitre, textMuted, text, border
   );
 }
 
+// Enveloppes matériaux par lot d'un chantier : prévu, commandé, reste, et le
+// bouton « achats terminés » (réversible). Montants calculés par
+// resteACommanderEnveloppes — rien n'est recalculé ici.
+function EnveloppesLots({ enveloppes, erreurAchats, onBasculer, text, textMuted, border, card, acc }) {
+  const lots = (enveloppes?.lots || []).filter(l => l.enveloppe > 0.5 || l.commandes > 0.5);
+  if (lots.length === 0 && !(enveloppes?.commandesSansLot > 0.5)) return null;
+  return (
+    <div style={{ padding: "10px 12px", borderBottom: `1px solid ${border}`, background: card }}>
+      <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: textMuted, marginBottom: 6 }}>
+        Reste à commander par lot · {eur(enveloppes.reste)}
+      </div>
+      {erreurAchats && (
+        <div style={{ fontSize: FONT.xs.size, color: "#e15a5a", marginBottom: 6 }}>
+          Lots « achats terminés » illisibles ({erreurAchats}) : les restes affichés les ignorent.
+        </div>
+      )}
+      {lots.map(l => (
+        <div key={l.lotId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderTop: `1px solid ${border}` }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: text }}>{l.label}</div>
+            <div style={{ fontSize: FONT.xs.size, color: textMuted }}>
+              prévu {eur(l.enveloppe)} · commandé {eur(l.commandes)}
+              {l.depassement && (
+                <span style={{ color: "#e15a5a", fontWeight: 700 }}>
+                  {" "}· dépassement +{eur(l.depassement.euros)}{l.depassement.pct != null ? ` (+${l.depassement.pct.toFixed(0)} %)` : ""}
+                </span>
+              )}
+              {l.achatsTermines && (
+                <span> · terminé{l.achatsTermines.le ? ` le ${new Date(l.achatsTermines.le).toLocaleDateString("fr-FR")}` : ""}{l.achatsTermines.par ? ` par ${l.achatsTermines.par}` : ""}</span>
+              )}
+            </div>
+          </div>
+          <div style={{ fontSize: FONT.sm.size, fontWeight: 800, color: l.achatsTermines ? "#22c55e" : text, whiteSpace: "nowrap" }}>{eur(l.reste)}</div>
+          {l.lotId !== "_sans_lot" && (
+            <button onClick={() => onBasculer(l)}
+              title={l.achatsTermines ? "Rouvrir : le reste à commander de ce lot redevient l'enveloppe non consommée" : "Plus rien à acheter sur ce lot : reste à commander à 0"}
+              style={{ padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${l.achatsTermines ? border : "#22c55e"}`,
+                background: l.achatsTermines ? "transparent" : "#22c55e18", color: l.achatsTermines ? textMuted : "#22c55e",
+                fontFamily: "inherit", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+              {l.achatsTermines ? "Rouvrir" : "Achats terminés"}
+            </button>
+          )}
+        </div>
+      ))}
+      {enveloppes.commandesSansLot > 0.5 && (
+        <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: "#f5a623" }}>
+          {enveloppes.warnings.find(w => w.code === "commandes_sans_lot")?.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PanePlaceholder({ icon, texte, textMuted }) {
   return (
     <div style={{ padding: "48px 24px", textAlign: "center", color: textMuted, fontSize: FONT.sm.size + 1 }}>
@@ -833,7 +925,7 @@ function OuvrageDetail({ chantier, ouvrage, onBack, onCommander, onAnnulerMarque
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: FONT.sm.size, color: textMuted }}>
-                Total estimé : <strong style={{ color: text }}>{totalACommander.toFixed(2)} € HT</strong>
+                Total des articles listés (aide) : <strong style={{ color: text }}>{totalACommander.toFixed(2)} € HT</strong>
               </span>
               <button onClick={onCommander} style={{
                 display: "inline-flex", alignItems: "center", gap: 7,

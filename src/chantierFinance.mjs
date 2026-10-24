@@ -411,6 +411,110 @@ export function totalLignes(lignes) {
     (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
 }
 
+// ── Nature des coûts d'une ligne de commande (24/10/2026) ───────────────────
+// commande_lignes.nature : toutes les natures restent dans les coûts réels du
+// chantier ; seules les lignes « materiaux » consomment l'enveloppe matériaux.
+// Une ligne sans nature (antérieure à la colonne, ou ajustement de facture
+// ajouté par les chargeurs) compte en matériaux, la valeur par défaut.
+export const NATURES_COUT = Object.freeze([
+  Object.freeze({ id: "materiaux",      label: "Matériaux" }),
+  Object.freeze({ id: "sous_traitance", label: "Sous-traitance" }),
+  Object.freeze({ id: "location",       label: "Location de matériel" }),
+  Object.freeze({ id: "dechets",        label: "Bennes / déchetterie" }),
+  Object.freeze({ id: "autre",          label: "Autre" }),
+]);
+export const NATURE_DEFAUT = "materiaux";
+const NATURE_IDS = new Set(NATURES_COUT.map(n => n.id));
+export const natureLigne = (l) => (NATURE_IDS.has(l?.nature) ? l.nature : NATURE_DEFAUT);
+export const libelleNature = (id) => NATURES_COUT.find(n => n.id === id)?.label || "Matériaux";
+
+// Montants par nature : { materiaux, sous_traitance, location, dechets, autre }
+// (toutes les clés présentes, 0 si aucune ligne).
+export function coutsParNature(lignes) {
+  const out = Object.fromEntries(NATURES_COUT.map(n => [n.id, 0]));
+  (lignes || []).forEach(l => { out[natureLigne(l)] += totalLignes([l]); });
+  return out;
+}
+
+// ── Reste à commander PAR ENVELOPPE de lot (24/10/2026) ─────────────────────
+// Remplace le rapprochement matériau par matériau (materiau_id / ouvrage_id /
+// commande_le), qui ne reconnaissait pas une commande saisie sans lien avec le
+// matériau prévu et la comptait deux fois dans la marge à terminaison.
+//   enveloppe d'un lot = Σ coûts matériaux prévus (cout_materiaux) de ses ouvrages
+//   reste du lot       = max(0, enveloppe − commandes « materiaux » du lot),
+//                        0 si le lot est marqué « achats terminés »
+//   commandes matériaux SANS lot : déduites du reste total (plancher 0), avec
+//   un avertissement chiffré — on ne sait pas quel lot elles couvrent.
+// Un lot dont les commandes dépassent l'enveloppe porte son dépassement (€, %).
+// `achatsTermines` : lignes de la table achats_lots_termines du chantier
+// ({ lot_id, termine_le, termine_par }).
+// C'est LA fonction de la page « Commandes à passer » ET de la marge à
+// terminaison (via computeChantierFinance) : un seul calcul.
+export const LOT_SANS_LOT = "_sans_lot";
+export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], lots = [], achatsTermines = [] } = {}) {
+  const labelLot = (id) => id === LOT_SANS_LOT ? "Sans lot" : ((lots || []).find(l => l.id === id)?.label || id);
+  const parLot = new Map();
+  const lot = (id) => {
+    if (!parLot.has(id)) parLot.set(id, { lotId: id, label: labelLot(id), enveloppe: 0, nbOuvrages: 0, commandes: 0, nbLignes: 0 });
+    return parLot.get(id);
+  };
+  (ouvrages || []).forEach(o => {
+    const l = lot(o?.lot_id || LOT_SANS_LOT);
+    l.enveloppe += coutMatOuvrage(o);
+    l.nbOuvrages += 1;
+  });
+  let sansLot = 0, nbLignesSansLot = 0;
+  (commandeLignes || []).forEach(li => {
+    if (natureLigne(li) !== "materiaux") return;
+    const m = totalLignes([li]);
+    if (!li.lot_id) { sansLot += m; nbLignesSansLot += 1; return; }
+    const l = lot(li.lot_id);
+    l.commandes += m; l.nbLignes += 1;
+  });
+  const termines = new Map((achatsTermines || []).filter(a => a?.lot_id).map(a => [a.lot_id, a]));
+  const ordre = (lots || []).map(l => l.id);
+  const rang = (id) => { const i = ordre.indexOf(id); return id === LOT_SANS_LOT ? 1e9 : (i < 0 ? 1e8 : i); };
+  const lotsOut = [...parLot.values()].sort((a, b) => rang(a.lotId) - rang(b.lotId) || a.label.localeCompare(b.label)).map(l => {
+    const t = termines.get(l.lotId) || null;
+    const ecart = l.commandes - l.enveloppe;
+    return {
+      ...l,
+      achatsTermines: t ? { le: t.termine_le || null, par: t.termine_par || null } : null,
+      reste: t ? 0 : Math.max(0, -ecart),
+      depassement: ecart > 0.005
+        ? { euros: ecart, pct: l.enveloppe > 0 ? (ecart / l.enveloppe) * 100 : null }
+        : null,
+    };
+  });
+  const resteLots = lotsOut.reduce((s, l) => s + l.reste, 0);
+  // Une commande sans lot ne peut que RÉDUIRE le reste (un avoir sans lot ne
+  // le fait pas remonter).
+  const deduction = Math.min(resteLots, Math.max(0, sansLot));
+  const reste = Math.max(0, resteLots - Math.max(0, sansLot));
+  const warnings = [];
+  if (sansLot > 0.5) {
+    warnings.push({
+      code: "commandes_sans_lot", gravite: "alerte",
+      message: `${nbLignesSansLot} ligne${nbLignesSansLot > 1 ? "s" : ""} de matériaux sans lot (${eur(sansLot)}) : déduite${nbLignesSansLot > 1 ? "s" : ""} du reste à commander total (${eur(deduction)} retirés), sans savoir quel lot ${nbLignesSansLot > 1 ? "elles couvrent" : "elle couvre"}. Indique le lot sur ces lignes pour un reste juste par lot.`,
+    });
+  }
+  lotsOut.filter(l => l.depassement).forEach(l => {
+    warnings.push({
+      code: "depassement_enveloppe", gravite: "alerte", lotId: l.lotId,
+      message: `Lot ${l.label} : ${eur(l.commandes)} de matériaux commandés pour une enveloppe de ${eur(l.enveloppe)} (+${eur(l.depassement.euros)}${l.depassement.pct != null ? `, +${l.depassement.pct.toFixed(0)} %` : ", aucun matériau prévu"}).`,
+    });
+  });
+  return {
+    lots: lotsOut,
+    enveloppe: lotsOut.reduce((s, l) => s + l.enveloppe, 0),
+    commandesMateriaux: lotsOut.reduce((s, l) => s + l.commandes, 0) + sansLot,
+    commandesSansLot: sansLot, nbLignesSansLot, deductionSansLot: deduction,
+    resteLots, reste,
+    depassements: lotsOut.filter(l => l.depassement).map(l => ({ lotId: l.lotId, label: l.label, ...l.depassement })),
+    warnings,
+  };
+}
+
 // ── Seuils de couleur (règle métier partagée ; l'UI applique les couleurs) ───
 // Dérive heures réelles vs estimées : vert ≤ 1, orange ≤ 1,2, rouge au-delà.
 export function couleurDerive(reelles, estimees) {
@@ -512,7 +616,7 @@ export const METHODE_CALCUL = [
     formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
     source: "Registre de pointage (validations de fin de journée)" },
   { cle: "matReel", label: "Matériaux",
-    formule: "Somme des lignes de commande passées pour le chantier",
+    formule: "Somme des lignes de commande passées pour le chantier, toutes natures comprises (matériaux, sous-traitance, location de matériel, bennes / déchetterie, autre), ventilées par nature",
     source: "Lignes de commande du chantier" },
   { cle: "fg", label: "Frais généraux",
     formule: "Chaque heure réelle du chantier × le taux de frais généraux en vigueur à la date de cette heure. Le taux est unique pour toute l'entreprise et daté (réglage Admin, 17,44 €/h depuis le 01/01/2026 par défaut) : un nouveau taux ne change pas les heures passées. Les heures sans date (reprise d'antériorité, heures anciennes) prennent le taux le plus ancien",
@@ -544,13 +648,13 @@ export const METHODE_CALCUL = [
     source: "Tâches des ouvrages (heures estimées + avancement)" },
   { cle: "margeATerminaison", label: "Marge à terminaison", projection: true,
     formule: "Vendu HT − (coût MO réel + heures restantes × taux MO prévisionnel) − (matériaux réels + reste à commander) − frais généraux projetés (frais généraux des heures déjà faites + heures restantes × taux de frais généraux en vigueur aujourd'hui)",
-    source: "Registre de pointage, tâches restantes, lignes de commande, bibliothèque de matériaux, taux de frais généraux (Admin)" },
+    source: "Registre de pointage, tâches restantes, lignes de commande, coûts matériaux prévus des ouvrages, taux de frais généraux (Admin)" },
   { cle: "situationAFacturer", label: "Situation à facturer", projection: true,
     formule: "(avancement % − % facturé) × vendu HT — si l'avancement dépasse le facturé, une situation est à émettre",
     source: "Avancement du chantier + % facturé des États financiers (CA à provisionner)" },
   { cle: "resteACommander", label: "Reste à commander", projection: true,
-    formule: "Somme des matériaux prévus (bibliothèque) sans ligne de commande ni marquage « commandé » — même règle que la page Commandes à passer",
-    source: "Matériaux liés des ouvrages vs lignes de commande" },
+    formule: "Lot par lot : enveloppe matériaux (somme des coûts matériaux prévus des ouvrages du lot) − commandes de matériaux rattachées au lot, jamais moins de 0 ; 0 pour un lot marqué « achats terminés ». Les commandes de matériaux sans lot sont retirées du total (jamais moins de 0). Sous-traitance, location, bennes et autres coûts ne consomment pas l'enveloppe. Même calcul que la page Commandes à passer",
+    source: "Coûts matériaux prévus des ouvrages vs lignes de commande (nature matériaux) + lots marqués « achats terminés »" },
   // ── Bilan semaine (13/10/2026) : marge RÉELLE, plus une part de la marge
   // à terminaison. Les coûts sont ceux réellement datés dans la période. ──
   { cle: "margeSemaine", label: "Marge réelle de la semaine",
@@ -575,7 +679,8 @@ export function computeChantierFinance({
   lots = [],           // config des lots (planning_config.lots_travaux)
   // ── Optionnels, pour les PROJECTIONS (étape 6) ──
   pctFacture = null,     // % facturé du chantier, fraction 0-1 (États financiers) — null = non disponible
-  materiauxById = null,  // map { id: fiche } de materiaux_bibliotheque — null = reste à commander indisponible
+  materiauxById = null,  // (plus lu depuis le 24/10/2026 : le reste à commander passe par les enveloppes de lot)
+  achatsTermines = [],   // lots marqués « achats terminés » du chantier (table achats_lots_termines)
   // ── Frais généraux (24/10/2026) ──
   tauxFG = null,         // barème daté planning_config.fg_taux_horaires — absent = TAUX_FG_DEFAUT
   aujourdhui = null,     // "AAAA-MM-JJ" : date du taux des projections — absente = taux le plus récent
@@ -749,27 +854,12 @@ export function computeChantierFinance({
   // Reste à faire en euros : la part du vendu restant à produire.
   const resteAFaireEuros = prixHTChantier * Math.max(0, 100 - avancementGlobal) / 100;
 
-  // Reste à commander : même règle que la page « Commandes à passer » —
-  // matériaux prévus (bibliothèque) sans ligne de commande NI flag commande_le.
-  let resteACommanderVal = null;
-  if (materiauxById) {
-    resteACommanderVal = 0;
-    ouvrages.forEach(o => {
-      const liens = (o.materiaux_liens || []).filter(ml => ml && ml.materiau_id != null);
-      if (liens.length === 0) return;
-      const lignesO = (commandeLignes || []).filter(l =>
-        l.ouvrage_id === o.id ||
-        (!l.ouvrage_id && l.materiau_id && liens.some(ml => String(ml.materiau_id) === String(l.materiau_id))));
-      const matCmd = new Set(lignesO.map(l => l.materiau_id != null ? String(l.materiau_id) : null).filter(Boolean));
-      liens.forEach(ml => {
-        if (matCmd.has(String(ml.materiau_id)) || ml.commande_le) return;
-        const mat = materiauxById[String(ml.materiau_id)];
-        if (!mat) return;
-        const q = ml.quantite != null ? ml.quantite : 1;
-        resteACommanderVal += (parseFloat(mat.prix_unitaire) || 0) * (parseFloat(q) || 0);
-      });
-    });
-  }
+  // Reste à commander : enveloppe matériaux par lot — LA fonction de la page
+  // « Commandes à passer » (resteACommanderEnveloppes). Toujours calculable :
+  // elle ne dépend plus de la bibliothèque (materiauxById n'est plus lu).
+  const enveloppes = resteACommanderEnveloppes({ ouvrages, commandeLignes, lots, achatsTermines });
+  const resteACommanderVal = enveloppes.reste;
+  const coutMatParNature = coutsParNature(commandeLignes);
 
   // Marge à terminaison : ce qu'il restera une fois le chantier fini, si les
   // heures restantes coûtent le taux MO prévisionnel et si le reste à
@@ -963,7 +1053,8 @@ export function computeChantierFinance({
   const matReelVentilation = (commandeLignes || [])
     .map(l => ({
       main: l.libelle || l.reference || "(sans libellé)",
-      sub: l.commande?.fournisseur_nom || null,
+      // La nature n'est rappelée que si ce n'est pas des matériaux.
+      sub: [l.commande?.fournisseur_nom || null, natureLigne(l) !== "materiaux" ? libelleNature(natureLigne(l)) : null].filter(Boolean).join(" · ") || null,
       value: parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0,
     }))
     .filter(r => r.value > 0)
@@ -1114,8 +1205,11 @@ export function computeChantierFinance({
     formule: FORMULE.matReel,
     calculDetaille: `${(commandeLignes || []).length} ligne${(commandeLignes || []).length > 1 ? "s" : ""} de commande → ${eur(coutMatChantier)}`,
     ventilation: matReelVentilation,
+    // Ventilation par nature (toutes les natures restent dans ce coût réel).
+    parNature: NATURES_COUT.map(n => ({ nature: n.id, label: n.label, valeur: coutMatParNature[n.id] })),
     titre: "Matériaux (commandes)",
-    sousTitre: `${(commandeLignes || []).length} ligne${(commandeLignes || []).length > 1 ? "s" : ""} de commande`,
+    sousTitre: [`${(commandeLignes || []).length} ligne${(commandeLignes || []).length > 1 ? "s" : ""} de commande`,
+      ...NATURES_COUT.filter(n => n.id !== "materiaux" && Math.abs(coutMatParNature[n.id]) > 0.5).map(n => `dont ${n.label.toLowerCase()} ${eur(coutMatParNature[n.id])}`)].join(" · "),
     vide: "Aucune ligne de commande liée à ce chantier.",
     totalLabel: "Total matériaux",
     source: sourceCommandes,
@@ -1237,20 +1331,20 @@ export function computeChantierFinance({
     valeurTexte: `${margeATerminaisonVal >= 0 ? "+" : ""}${eur(margeATerminaisonVal)}`,
     sousLabel: "Projection · si le restant coûte le prévu",
     formule: FORMULE.margeATerminaison,
-    calculDetaille: `${eur(prixHTChantier)} − (${eur(coutMOTotalChantier)} + ${fmtH(heuresRestantes)}h × ${tauxMOPrevEff} €/h) − (${eur(coutMatChantier)} + ${eur(resteACommanderVal ?? 0)}) − ${eur(fgProjete)} (FG projetés) = ${eur(margeATerminaisonVal)}`,
+    calculDetaille: `${eur(prixHTChantier)} − (${eur(coutMOTotalChantier)} + ${fmtH(heuresRestantes)}h × ${tauxMOPrevEff} €/h) − (${eur(coutMatChantier)} + ${eur(resteACommanderVal)}) − ${eur(fgProjete)} (FG projetés) = ${eur(margeATerminaisonVal)}`,
     ventilation: [
       { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
       { main: "Coût MO réel", sub: "déjà pointé", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
       { main: "MO restante estimée", sub: `${fmtH(heuresRestantes)}h × ${tauxMOPrevEff} €/h`, right: `− ${eur(heuresRestantes * tauxMOPrevEff)}`, rightColor: "#e15a5a" },
       { main: "Matériaux réels", sub: "commandes passées", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
-      { main: "Reste à commander", sub: materiauxById ? "matériaux prévus non commandés" : "bibliothèque non chargée → 0", right: `− ${eur(resteACommanderVal ?? 0)}`, rightColor: "#e15a5a" },
+      { main: "Reste à commander", sub: "enveloppes matériaux des lots non consommées", right: `− ${eur(resteACommanderVal)}`, rightColor: "#e15a5a" },
       { main: "Frais généraux projetés", sub: `${eur(fgChantier)} déjà engagés + ${fmtH(heuresRestantes)}h restantes × ${fmtTauxFG(tauxFGActuel)}`, right: `− ${eur(fgProjete)}`, rightColor: "#e15a5a" },
     ],
     titre: "Marge à terminaison",
     sousTitre: "Projection : marge restante si les heures restantes coûtent le taux prévisionnel",
     totalLabel: "Marge à terminaison",
     totalTexte: `${margeATerminaisonVal >= 0 ? "+" : ""}${eur(margeATerminaisonVal)}`,
-    source: "Registre de pointage, tâches restantes, commandes, bibliothèque, taux de frais généraux (Admin)",
+    source: "Registre de pointage, tâches restantes, commandes, enveloppes matériaux des lots, taux de frais généraux (Admin)",
     renseigne: prixHTChantier > 0,
   });
 
@@ -1270,19 +1364,40 @@ export function computeChantierFinance({
     renseigne: situationVal != null,
   });
 
+  // Ventilation par lot : enveloppe, commandé, reste (ou « achats terminés »).
+  const resteVentilation = enveloppes.lots
+    .filter(l => l.enveloppe > 0.5 || l.commandes > 0.5)
+    .map(l => ({
+      main: l.label,
+      sub: `enveloppe ${eur(l.enveloppe)} · commandé ${eur(l.commandes)}`
+        + (l.achatsTermines ? " · achats terminés" : "")
+        + (l.depassement ? ` · dépassement +${eur(l.depassement.euros)}${l.depassement.pct != null ? ` (+${l.depassement.pct.toFixed(0)} %)` : ""}` : ""),
+      right: eur(l.reste),
+      rightColor: l.depassement ? "#e15a5a" : null,
+      lotId: l.lotId, valeur: l.reste,
+    }));
+  if (enveloppes.commandesSansLot > 0.5) {
+    resteVentilation.push({ main: "Commandes de matériaux sans lot", sub: `${enveloppes.nbLignesSansLot} ligne${enveloppes.nbLignesSansLot > 1 ? "s" : ""} · ${eur(enveloppes.commandesSansLot)}`,
+      right: `− ${eur(enveloppes.deductionSansLot)}`, rightColor: "#f5a623", lotId: null, valeur: 0 - enveloppes.deductionSansLot });
+  }
   const resteACommander = D({
     cle: "resteACommander", label: "Reste à commander", format: "euro", projection: true,
     valeur: resteACommanderVal,
-    valeurTexte: resteACommanderVal != null ? eur(resteACommanderVal) : "—",
-    sousLabel: "Projection · matériaux prévus non commandés",
+    valeurTexte: eur(resteACommanderVal),
+    sousLabel: "Projection · enveloppes matériaux non consommées",
     formule: FORMULE.resteACommander,
-    calculDetaille: resteACommanderVal != null
-      ? `Matériaux liés non commandés → ${eur(resteACommanderVal)}`
-      : "Bibliothèque de matériaux non chargée : reste à commander indisponible.",
+    calculDetaille: `${eur(enveloppes.resteLots)} restant sur les enveloppes des lots`
+      + (enveloppes.commandesSansLot > 0.5 ? ` − ${eur(enveloppes.deductionSansLot)} de commandes sans lot` : "")
+      + ` = ${eur(resteACommanderVal)}`,
+    ventilation: resteVentilation,
+    enveloppes,
     titre: "Reste à commander",
-    sousTitre: "Même règle que la page Commandes à passer",
-    source: "Matériaux liés des ouvrages vs lignes de commande",
-    renseigne: resteACommanderVal != null,
+    sousTitre: "Même calcul que la page Commandes à passer",
+    vide: "Aucun coût matériaux prévu sur les ouvrages ni commande de matériaux.",
+    totalLabel: "Reste à commander",
+    source: "Coûts matériaux prévus des ouvrages vs lignes de commande (nature matériaux)",
+    warnings: enveloppes.warnings,
+    renseigne: true,
   });
 
   return {
@@ -1316,6 +1431,7 @@ export function computeChantierFinance({
       margeATerminaison: margeATerminaisonVal,
       situationAFacturer: situationVal,
       resteACommander: resteACommanderVal,
+      coutMatParNature, enveloppesMateriaux: enveloppes,
     },
   };
 }

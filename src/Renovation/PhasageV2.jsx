@@ -87,6 +87,7 @@ import {
 // Composants partagés (KPI, infobulles, modale de ventilation) — communs avec
 // la page Bilan semaine. La présentation vit là, le contenu dans les Donnee.
 import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
+import { chargerAchatsTermines, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 // Heures prévues (16/10/2026) : cadence × quantité de la bibliothèque, à défaut
 // heures du devis (signalé). Elles vivent dans heures_devis / heures_vendues.
 import {
@@ -698,11 +699,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const loadCommandeLignes = React.useCallback(async () => {
     if (!chantierId) { setCommandeLignes([]); return; }
     const { data } = await supabase.from("commande_lignes")
-      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, commande:commandes(statut_completude, statut_facturation, fournisseur_nom, doc_numero)")
+      .select("id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, commande:commandes(statut_completude, statut_facturation, fournisseur_nom, doc_numero)")
       .eq("chantier_id", chantierId);
     setCommandeLignes(data || []);
   }, [chantierId]);
   useEffect(() => { loadCommandeLignes(); }, [loadCommandeLignes]);
+
+  // Lots « achats terminés » du chantier : leur reste à commander vaut 0.
+  const [achatsTermines, setAchatsTermines] = useState([]);
+  const loadAchatsTermines = React.useCallback(async () => {
+    if (!chantierId) { setAchatsTermines([]); return; }
+    const { data } = await chargerAchatsTermines(chantierId);
+    setAchatsTermines(data);
+  }, [chantierId]);
+  useEffect(() => { loadAchatsTermines(); }, [loadAchatsTermines]);
 
   const ouvrages = phasage?.ouvrages || [];
   const chantier = chantiers.find(c => c.id === chantierId);
@@ -711,8 +721,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Frais généraux : barème daté de l'Admin (tauxFG) ; projections au taux du jour.
   const fin = useMemo(() => computeChantierFinance({
     phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
-    tauxFG, aujourdhui: new Date().toISOString().slice(0, 10),
-  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG]);
+    tauxFG, aujourdhui: new Date().toISOString().slice(0, 10), achatsTermines,
+  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG, achatsTermines]);
 
   // TOUS les comptes rendus liés à la tâche `t`, du plus récent au plus ancien.
   // On matche par tache_id (tâches créées/planifiées en V2) OU par nom (tâches
@@ -3785,6 +3795,50 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 </div>
                 <button onClick={close} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
               </div>
+
+              {/* ── Enveloppe matériaux du lot (même calcul que la page
+                  Commandes à passer et la marge à terminaison) ── */}
+              {isLot && (() => {
+                const env = fin.resteACommander.enveloppes?.lots.find(x => x.lotId === matPanel.id) || null;
+                if (!env) return null;
+                const marquer = async () => {
+                  const r = env.achatsTermines
+                    ? await annulerAchatsTermines({ chantierId, lotId: matPanel.id })
+                    : await marquerAchatsTermines({ chantierId, lotId: matPanel.id, auteur: profil?.nom || profil?.email || null });
+                  if (!r.ok) { window.alert("Enregistrement impossible : " + r.error); return; }
+                  await loadAchatsTermines();
+                };
+                return (
+                  <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6, color: T.textMuted, marginBottom: 8 }}>
+                      Enveloppe matériaux du lot
+                    </div>
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: FONT.sm.size, color: T.text }}>
+                      <span>Prévu <strong>{fmtEur(env.enveloppe)} €</strong></span>
+                      <span>Commandé <strong>{fmtEur(env.commandes)} €</strong></span>
+                      <span>Reste à commander <strong style={{ color: env.achatsTermines ? "#22c55e" : T.text }}>{fmtEur(env.reste)} €</strong></span>
+                    </div>
+                    {env.depassement && (
+                      <div style={{ marginTop: 6, fontSize: FONT.xs.size, color: "#e15a5a", fontWeight: 700 }}>
+                        Dépassement de l'enveloppe : +{fmtEur(env.depassement.euros)} €{env.depassement.pct != null ? ` (+${env.depassement.pct.toFixed(0)} %)` : " (aucun matériau prévu sur ce lot)"}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                      <button onClick={marquer}
+                        style={{ padding: "7px 12px", borderRadius: RADIUS.sm, border: `1px solid ${env.achatsTermines ? T.border : "#22c55e"}`,
+                          background: env.achatsTermines ? "transparent" : "#22c55e22", color: env.achatsTermines ? T.textSub : "#22c55e",
+                          fontFamily: "inherit", fontSize: FONT.xs.size + 1, fontWeight: 800, cursor: "pointer" }}>
+                        {env.achatsTermines ? "Rouvrir les achats de ce lot" : "Achats terminés pour ce lot"}
+                      </button>
+                      {env.achatsTermines && (
+                        <span style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+                          Marqué terminé{env.achatsTermines.le ? ` le ${new Date(env.achatsTermines.le).toLocaleDateString("fr-FR")}` : ""}{env.achatsTermines.par ? ` par ${env.achatsTermines.par}` : ""} : reste à commander à 0.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── Matériaux prévus de base ── */}
               <div style={{ padding: "12px 20px" }}>

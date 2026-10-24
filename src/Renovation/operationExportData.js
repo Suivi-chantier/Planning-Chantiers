@@ -124,6 +124,8 @@ export async function chargerDonneesExportOperation({
     // repris du cache de la page. Un phasage modifié par un collègue depuis
     // l'ouverture de l'écran doit figurer dans le fichier téléchargé.
     phasagesRes, pointagesRes, reglesConfigRes,
+    // Lots « achats terminés » (reste à commander à 0).
+    achatsRes,
   ] = await Promise.all([
     supabase.from("planning_config").select("key,value").in("key", ["chantier_adresses", "bloc_todos"]),
     loadGroupesTypes().catch((e) => { noter("groupes types", e); return []; }),
@@ -135,7 +137,7 @@ export async function chargerDonneesExportOperation({
     parIds("rapports",
       "id, chantier_id, ouvrier, date_rapport, taches, remarque, submitted_at, photos_chantier, trajet_matin_min, trajet_soir_min, statut, valide_par, heures_indirectes"),
     parIds("commande_lignes",
-      "id, chantier_id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, created_at, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation)"),
+      "id, chantier_id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, created_at, commande:commandes(id, doc_numero, numero_en_attente, date_doc, fournisseur_nom, statut_completude, statut_facturation)"),
     parIds("besoins",
       "id, chantier_id, article, quantite, unite, ouvrier_demandeur, statut, notes, priorite, created_at, materiau_id"),
     parIds("controles_groupe",
@@ -166,6 +168,7 @@ export async function chargerDonneesExportOperation({
       "id, chantier_id, tache_id, ouvrier, date, heures, taux_horaire, type_pointage, motif_indirect"),
     supabase.from("planning_config").select("key,value")
       .in("key", ["taux_horaires", "taux_mo_previsionnel", "lots_travaux", "fg_taux_horaires"]),
+    parIds("achats_lots_termines", "id, chantier_id, lot_id, termine_le, termine_par"),
   ]);
 
   [
@@ -174,6 +177,7 @@ export async function chargerDonneesExportOperation({
     ["bibliothèque des matériaux", materiauxRes],
     ["comptes rendus", rapportsRes],
     ["lignes de commande", lignesRes],
+    ["lots « achats terminés »", achatsRes],
     ["besoins matériaux", besoinsRes],
     ["contrôles de groupe", controlesRes],
     ["réserves", reservesRes],
@@ -329,6 +333,7 @@ export async function chargerDonneesExportOperation({
           pointages: pointagesDe(c.id),
           commandeLignes: parChantier.lignes[c.id] || [],
           tauxHoraires, tauxMOPrev, lots, tauxFG, aujourdhui,
+          achatsTermines: (achatsRes?.data || []).filter(a => a.chantier_id === c.id),
         }),
       };
     });

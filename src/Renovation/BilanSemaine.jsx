@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
 import { fetchPointages } from "../pointages";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
+import { chargerAchatsTermines, achatsTerminesParChantier } from "./achatsLotsTermines";
 import {
   computeChantierFinance, avancementChantier as cfAvancementChantier,
   couleurMarge, eur, METHODE_CALCUL, SEUIL_RATIO_DERIVE, fmtH as cfFmtH,
@@ -566,12 +567,15 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           }
           return out;
         };
-        const [pts, cls] = await Promise.all([
+        const [pts, cls, achatsQ] = await Promise.all([
           fetchTout("pointages", "*"),
           // created_at + date_doc : date d'imputation des achats dans la marge
           // réelle de la semaine (dateImputationLigne du module).
-          fetchTout("commande_lignes", "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, created_at, commande:commandes(fournisseur_nom, date_doc)"),
+          fetchTout("commande_lignes", "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at, commande:commandes(fournisseur_nom, date_doc)"),
+          // Lots « achats terminés » : reste à commander à 0 (marge à terminaison).
+          chargerAchatsTermines(),
         ]);
+        const achatsParCh = achatsTerminesParChantier(achatsQ.data);
         if (cancelled) return;
         const ptsBy = {}, clsBy = {};
         pts.forEach(p => { (ptsBy[p.chantier_id] ||= []).push(p); });
@@ -599,6 +603,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             tauxHoraires, tauxMOPrev, lots: lotsCfg,
             pctFacture: nomCh in pctFactureParNom ? pctFactureParNom[nomCh] : null,
             materiauxById, tauxFG, aujourdhui,
+            achatsTermines: achatsParCh[ph.chantier_id] || [],
           });
           finByCh[ph.chantier_id] = fin;
           entreesByCh[ph.chantier_id] = {

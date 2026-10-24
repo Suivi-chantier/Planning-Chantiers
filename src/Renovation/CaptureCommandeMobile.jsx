@@ -5,6 +5,7 @@ import { pdfFileToImages } from "../pdfToImages";
 import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, PHASES_DEFAUT, LOTS_DEFAUT, loadLots, guessLotId, matchFournisseur } from "../constants";
 import { Icon } from "../ui";
 import { repartirRemiseGlobale, ecartLignesDocument } from "./prixLignesAchat.js";
+import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
 import {
   Camera, Image as ImageIcon, Plus, Trash2, Check, X, Loader2,
   ChevronLeft, ChevronDown, AlertTriangle, FileText, ShoppingCart, Truck, Search, Split,
@@ -104,7 +105,7 @@ async function analyseCommande(images) {
   return JSON.parse(clean);
 }
 
-const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", lot_id: "" });
+const ligneVide = () => ({ libelle: "", reference: "", quantite: "", unite: "U", prix_unitaire: "", prix_total: "", chantier_id: "", lot_id: "", nature: "materiaux" });
 
 // ── Modale de détail d'un document — consultation ET correction ──
 function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }) {
@@ -152,7 +153,12 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
   const valStyle = { fontSize: FONT.base.size, color: T.text, fontWeight: 600 };
   const inp = { width: "100%", boxSizing: "border-box", padding: "8px 10px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.sm, color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, outline: "none" };
 
+  const [erreurLot, setErreurLot] = useState("");
   const enregistrer = async () => {
+    // Lot obligatoire pour une ligne rattachée à un chantier (enveloppe matériaux).
+    const sansLot = lignesChantierSansLot(lignesE);
+    if (sansLot.length > 0) { setErreurLot(messageLotObligatoire(sansLot.length)); return; }
+    setErreurLot("");
     setSaving(true);
     await supabase.from("commandes").update({
       statut_facturation: dejaPaye ? "facture" : "en_attente_facture",
@@ -161,6 +167,7 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
       await supabase.from("commande_lignes").update({
         chantier_id: l.chantier_id || null,
         lot_id: l.lot_id || null,
+        nature: natureSaisie(l.nature),
         quantite: num(l.quantite),
         prix_total: num(l.prix_total),
         prix_verrouille: dejaPaye,
@@ -267,9 +274,13 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
                     <option value="">— Chantier —</option>
                     {chantiers.map(ch => <option key={ch.id} value={ch.id}>{ch.nom || ch.id}</option>)}
                   </select>
-                  <select value={l.lot_id || ""} onChange={e => setLigne(i, { lot_id: e.target.value })} style={inp}>
-                    <option value="">— Lot —</option>
+                  <select value={l.lot_id || ""} onChange={e => setLigne(i, { lot_id: e.target.value })}
+                    style={{ ...inp, marginBottom: 8, borderColor: l.chantier_id && !l.lot_id ? SEMANTIC.danger.color : T.border }}>
+                    <option value="">{l.chantier_id ? "— Lot (obligatoire) —" : "— Lot —"}</option>
                     {lots.map(lo => <option key={lo.id} value={lo.id}>{lo.label}</option>)}
+                  </select>
+                  <select value={natureSaisie(l.nature)} onChange={e => setLigne(i, { nature: e.target.value })} style={inp}>
+                    {NATURES_COUT.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}
                   </select>
                 </div>
               ))
@@ -297,6 +308,9 @@ function DetailModale({ commande: c, chantiers, lots, T, acc, onClose, onSaved }
           </div>
 
           {/* Pied : actions d'édition */}
+          {edit && erreurLot && (
+            <div style={{ padding: "10px 18px 0", fontSize: FONT.sm.size, color: SEMANTIC.danger.color, fontWeight: 600 }}>{erreurLot}</div>
+          )}
           {edit && (
             <div style={{ padding: "12px 18px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, flexShrink: 0 }}>
               <button onClick={annuler} disabled={saving} style={{ flex: 1, padding: "12px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, fontFamily: "inherit", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Annuler</button>
@@ -381,7 +395,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
     // porte alors pas sur les saisies les plus anciennes).
     const { data } = await supabase
       .from("commandes")
-      .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, statut_facturation, notes, saisi_par, photo_url, created_at, lignes:commande_lignes(id, libelle, reference, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id)")
+      .select("id, type_evenement, doc_type, doc_numero, numero_en_attente, fournisseur_nom, montant_ht, date_doc, statut_completude, statut_facturation, notes, saisi_par, photo_url, created_at, lignes:commande_lignes(id, libelle, reference, quantite, unite, prix_unitaire, prix_total, chantier_id, lot_id, nature)")
       .order("created_at", { ascending: false })
       .limit(LIMITE_RECENTS);
     setRecents(data || []);
@@ -486,6 +500,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
               prix_total: l.prix_total != null ? String(l.prix_total) : "",
               chantier_id: "",
               lot_id: (g && lots.some(x => x.id === g)) ? g : "",
+              nature: "materiaux",
             };
           })
         : [ligneVide()];
@@ -556,6 +571,10 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
       );
       if (!ok) return;
     }
+    // Lot obligatoire pour toute ligne rattachée à un chantier (enveloppe matériaux).
+    const lignesASauver = form.lignes.filter(l => l.libelle.trim() || toNum(l.quantite) != null || toNum(l.prix_total) != null);
+    const sansLot = lignesChantierSansLot(lignesASauver, (l) => (repartir ? l.chantier_id : chantierDefaut) || null);
+    if (sansLot.length > 0) { setSaveErr(messageLotObligatoire(sansLot.length)); return; }
     setSaving(true); setSaveErr("");
     // mémorise le dernier chantier choisi
     if (chantierDefaut) localStorage.setItem(LS_DERNIER_CHANTIER, chantierDefaut);
@@ -615,6 +634,7 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
           chantier_id: effCh,
           phasage_id: phRow ? phRow.id : null,
           lot_id: lotId,
+          nature: natureSaisie(l.nature),
         };
       });
 
@@ -1158,12 +1178,20 @@ export default function CaptureCommandeMobile({ chantiers = [], T, branch = "ren
               {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom || c.id}</option>)}
             </select>
           )}
-          {lots.length > 0 && (
-            <select value={l.lot_id} onChange={e => setLigne(i, { lot_id: e.target.value })} style={{ ...inputStyle, marginTop: repartir ? 8 : 0 }}>
-              <option value="">— Lot (optionnel) —</option>
-              {lots.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-            </select>
-          )}
+          {lots.length > 0 && (() => {
+            // Lot obligatoire dès que la ligne est rattachée à un chantier.
+            const avecChantier = !!((repartir ? l.chantier_id : chantierDefaut) || null);
+            return (
+              <select value={l.lot_id} onChange={e => setLigne(i, { lot_id: e.target.value })}
+                style={{ ...inputStyle, marginTop: repartir ? 8 : 0, borderColor: avecChantier && !l.lot_id ? SEMANTIC.danger.color : T.border }}>
+                <option value="">{avecChantier ? "— Lot (obligatoire) —" : "— Lot —"}</option>
+                {lots.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            );
+          })()}
+          <select value={natureSaisie(l.nature)} onChange={e => setLigne(i, { nature: e.target.value })} style={{ ...inputStyle, marginTop: 8 }}>
+            {NATURES_COUT.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}
+          </select>
         </div>
         );
       })}

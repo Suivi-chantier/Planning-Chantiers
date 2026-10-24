@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "amelioration",
+    titre: "Commandes : nature du coût, lot obligatoire, et reste à commander par lot (« enveloppe »)",
+    pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "commandes", label: "Commandes" }, { id: "capture-cmd", label: "Saisie commande" }, { id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Le reste à commander se calculait matériau par matériau : une commande saisie sans le lien vers le matériau prévu n'était pas reconnue, et la marge à terminaison comptait la dépense deux fois (dans les achats ET dans le « reste à commander »). Il se calcule maintenant lot par lot : pour chaque lot, le budget matériaux prévu (l'« enveloppe ») moins les commandes de matériaux du lot. La sous-traitance, la location de matériel et les bennes sont distinguées des matériaux : elles restent dans les coûts du chantier mais ne consomment pas l'enveloppe.",
+    comment: "À la saisie d'une commande (mobile et bureau), chaque ligne rattachée à un chantier doit avoir un lot, et on choisit sa nature : Matériaux (par défaut), Sous-traitance, Location de matériel, Bennes / déchetterie ou Autre. Page « Commandes à passer » : en choisissant un chantier, un encadré « Reste à commander par lot » donne pour chaque lot le prévu, le commandé et le reste, signale les dépassements, et propose « Achats terminés » (le reste du lot passe à 0 ; « Rouvrir » annule). Le même bouton existe dans le phasage, sur le panneau « Matériaux & commandes » d'un lot. La liste des matériaux prévus par ouvrage reste affichée comme aide. Les anciennes commandes sans lot sont retirées du reste total, avec un message qui donne leur nombre et leur montant. Au passage, les pages Commandes, Chantiers et le diagramme consolidé lisent désormais toutes les lignes et tous les pointages (elles s'arrêtaient à 1 000 : sur la page Commandes, les commandes les plus récentes n'apparaissaient pas).",
+  },
+  {
+    date: "2026-10-24",
+    type: "amelioration",
     titre: "Frais généraux : un seul taux pour toute l'entreprise, daté, réglé dans Réglages",
     pages: [{ id: "admin", label: "Réglages" }, { id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }, { id: "chantiers", label: "Chantiers" }, { id: "operations", label: "Opérations" }],
     quoi: "Le taux horaire de frais généraux se réglait chantier par chantier dans le phasage, et 14 chantiers n'en avaient pas : leur marge était surestimée. Il y a maintenant un seul taux pour toute l'entreprise — 17,44 €/h depuis le 01/01/2026 — appliqué à tous les chantiers, partout où une marge s'affiche (phasage, fiche chantier, Bilan de semaine, Opérations, relevé du vendredi, assistant).",
