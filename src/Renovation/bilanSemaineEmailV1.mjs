@@ -90,7 +90,7 @@ export function bilanSemaineEmailV1({
     estRenseigne(ind.heures) ? `- Heures : ${formaterHeuresV1(ind.heures)}` : "",
     estRenseigne(ind.tachesFaites) ? `- Tâches terminées : ${str(ind.tachesFaites)}` : "",
     estRenseigne(ind.genereEuros) ? `- Valeur générée : ${formaterEurosV1(ind.genereEuros)}` : "",
-    estRenseigne(ind.margeSemaineEuros) ? `- Marge réelle de la semaine : ${formaterEurosV1(ind.margeSemaineEuros)}` : "",
+    estRenseigne(ind.margeSemaineEuros) ? `- Marge de la semaine : ${formaterEurosV1(ind.margeSemaineEuros)}` : "",
     estRenseigne(ind.chantiers) ? `- Chantiers au bilan : ${str(ind.chantiers)}` : "",
   ].filter(Boolean);
   // Aucun indicateur transmis : pas de titre orphelin.

@@ -28,6 +28,7 @@ const posPhase = (h, nom, depuis = 0) => h.indexOf(`class="op-ph-nom">${nom}`, d
 const AGG = {
   nbChantiers: 5, nbAvecPhasage: 4,
   vendu: 420000, moReel: 118000, mat: 74000, fg: 12000, marge: 216000, margePct: 51.4,
+  production: 260000, matImputes: 70000, margeAvancement: 60000, margeAvancementPct: 23.1, margeProbable: 180000, margeProbablePct: 42.9,
   moPrev: 110000, matPrev: 70000, fgPrev: 11000, margePrev: 229000, margePrevPct: 54.5,
   hVendues: 2100, hReelles: 1980, avancement: 62,
 };
@@ -125,7 +126,7 @@ test("1. héros « Dossier d'opération » complet", () => {
 test("2. la fiche financière historique est intacte", () => {
   ["Chiffres clés", "Prévisionnel vs réel", "Détail par logement"].forEach(t =>
     assert.ok(HTML.includes(t), `section « ${t} » conservée`));
-  assert.ok(HTML.includes("Marge nette à date"), "badge de marge conservé");
+  assert.ok(HTML.includes("Marge à l'avancement") && !HTML.includes("Marge nette"), "badge de marge : marge à l'avancement, plus de « marge nette »");
   assert.ok(HTML.includes("Marge prévisionnelle"), "tuile marge prévisionnelle conservée");
   assert.ok(HTML.includes("Total opération"), "ligne de total du tableau conservée");
   assert.ok(HTML.includes("ne pas diffuser au client"), "mention de confidentialité conservée");

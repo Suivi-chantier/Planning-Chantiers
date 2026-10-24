@@ -290,7 +290,8 @@ await bloc("5. etat_chantier : chiffres = chantierFinance, même chargement que 
   const r2 = (v) => (v == null ? null : Number(Number(v).toFixed(2)));
   verifier(c.avancement_pct === b.avancementChantier, "avancement");
   verifier(c.vendu_ht === r2(b.prixHTChantier) && c.vendu_ht === 15000, `vendu ${c.vendu_ht}`);
-  verifier(c.marge === r2(b.margeChantier), "marge");
+  verifier(c.budget_restant === r2(b.margeChantier) && c.marge === undefined, "budget restant (ancienne « marge nette »), plus de champ « marge »");
+  verifier(c.marge_a_l_avancement === r2(b.margeAvancement) && c.marge_probable === r2(b.margeProbable), "marge à l'avancement et marge probable");
   verifier(c.marge_a_terminaison === r2(b.margeATerminaison), "marge à terminaison");
   verifier(c.heures_vendues === r2(b.heuresVenduesChantier) && c.heures_reelles === r2(b.heuresReellesTotalChantier), "heures");
   verifier(c.reste_a_faire_heures === r2(b.heuresRestantes) && c.reste_a_faire_euros === r2(b.resteAFaireEuros), "reste à faire");
@@ -315,7 +316,7 @@ await bloc("6. etat_chantier : frais généraux au barème de l'entreprise, plus
     tauxFG: [{ depuis: "2026-01-01", taux: 12 }],
   });
   verifier(Math.abs(bB.fgChantier - 360) < 0.01, `frais généraux B = 30 h × 12 €/h, obtenu ${bB.fgChantier}`);
-  verifier(r.chiffres.marge === r2(bB.margeChantier), `marge B calculée au barème (${r.chiffres.marge} vs ${r2(bB.margeChantier)})`);
+  verifier(r.chiffres.budget_restant === r2(bB.margeChantier), `budget restant B calculé au barème (${r.chiffres.budget_restant} vs ${r2(bB.margeChantier)})`);
   verifier(!r.avertissements.some((w) => w.code === "fg_non_regle"), "plus d'avertissement fg_non_regle");
   verifier(r.fiabilite === null, `pas de drapeau de fiabilité, reçu ${r.fiabilite}`);
   verifier(r.chiffres.facture_progbat === null && r.indisponibles.some((t) => /Aucune situation de travaux ProGBat/.test(t)), "facturé ProGBat absent dit comme tel");
@@ -366,7 +367,7 @@ await bloc("9. expliquer_alerte : motifs + 8 derniers relevés dédoublonnés", 
   verifier(r.historique.length === 8, `8 relevés attendus, reçu ${r.historique.length}`);
   verifier(r.historique[0].semaine === "2026-W38" && r.historique[7].semaine === "2026-W31", "du plus récent au plus ancien");
   const w31 = r.historique.find((h) => h.semaine === "2026-W31");
-  verifier(w31 && w31.avancement_pct === 20 && w31.marge === 3800, "doublon W31 : la ligne la plus récemment écrite fait foi");
+  verifier(w31 && w31.avancement_pct === 20 && w31.budget_restant === 3800, "doublon W31 : la ligne la plus récemment écrite fait foi");
   verifier(r.doublons_ecartes === 1, "le doublon écarté est compté, pas masqué");
   verifier(r.semaine_releve === "2026-W38" && r.date_releve === "2026-09-18", "date du relevé citée");
   const absent = await outil("expliquer_alerte", { chantier_id: "briollay-appt-2" });
@@ -565,7 +566,7 @@ await bloc("16. Cron du relevé hebdo : même résultat après extraction du cha
   const ligneA = up && up.lignes.find((l) => l.chantier_id === "ch-test-a");
   const direct = await outil("etat_chantier", { chantier_id: "ch-test-a" }, fixtures());
   verifier(ligneA && ligneA.phasage_id === "ph-a", "phasage le plus récent retenu");
-  verifier(ligneA && ligneA.marge === direct.chiffres.marge && ligneA.vendu_ht === direct.chiffres.vendu_ht &&
+  verifier(ligneA && ligneA.marge === direct.chiffres.budget_restant && ligneA.vendu_ht === direct.chiffres.vendu_ht &&
     ligneA.marge_terminaison === direct.chiffres.marge_a_terminaison && ligneA.avancement === direct.chiffres.avancement_pct,
     "le relevé et l'assistant donnent les mêmes chiffres");
 });

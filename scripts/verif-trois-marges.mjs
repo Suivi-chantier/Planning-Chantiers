@@ -211,4 +211,27 @@ const HIST = { cloisons: { coef: 1.2, nbChantiers: 3 }, peinture: { coef: 1.5, n
   ok(r.chantier_repris === false, "chantier non repris");
 }
 
+// ── 8. Chantier repris exclu des statistiques de cadences ───────────────────
+{
+  const { echantillonCadencesV1 } = await import("../src/Renovation/echantillonCadencesV1.mjs");
+  const ph = (id, repris) => ({ chantier_id: id, plan_travaux: { meta: repris ? { chantier_repris: { le: "2026-10-24", par: "Loris" } } : {} },
+    ouvrages: [{ id: `o-${id}`, bibliotheque_id: "b1", taches: [{ id: `t-${id}`, avancement: 100, heures_vendues: 10 }] }] });
+  const pts = ["A", "B"].map(id => ({ chantier_id: id, tache_id: `t-${id}`, heures: 12, type_pointage: "tache" }));
+  const avec = echantillonCadencesV1({ phasages: [ph("A", false), ph("B", false)], pointages: pts });
+  const sans = echantillonCadencesV1({ phasages: [ph("A", false), ph("B", true)], pointages: pts });
+  const nbOuvrages = (r) => JSON.stringify(r).match(/"chantierId":"[AB]"/g)?.length ?? 0;
+  ok(nbOuvrages(sans) < nbOuvrages(avec) || JSON.stringify(sans) !== JSON.stringify(avec), "chantier repris : retiré de l'échantillon de cadences");
+}
+
+// ── 9. Plus aucune « marge nette » présentée comme une marge ────────────────
+{
+  const f = fin([ouvrage("a", "cloisons", { av: 40 })], { pointages: [pointage("t-a", 80)] });
+  ok(f.marge.label === "Budget restant" && f.marge === f.budgetRestant, "l'ancienne Donnee « marge » est le budget restant");
+  ok(!METHODE_CALCUL.some(m => /marge nette/i.test(m.label)), "méthode de calcul : plus d'entrée « Marge nette »");
+  ok(!METHODE_CALCUL.some(m => m.cle === "margePct"), "méthode de calcul : « Marge % » sur le vendu a disparu");
+  // Seuil de prime comparé à la marge probable.
+  const g = fin([ouvrage("a", "cloisons", { av: 40 })], { pointages: [pointage("t-a", 80)], meta: { seuil_prime: 90 } });
+  ok(g.warnings.some(w => w.code === "marge_sous_seuil_prime" && /Marge probable/.test(w.message)), "seuil de prime : comparé à la marge probable");
+}
+
 console.log(`verif-trois-marges : OK (${nb} contrôles)`);

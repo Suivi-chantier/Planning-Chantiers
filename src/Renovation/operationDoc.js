@@ -242,7 +242,9 @@ export function buildOperationDocHTML({
   op, agg, lignes = [], logoUrl, dateGen, preparations = [], totaux = null,
 }) {
   const venduOK = agg.vendu > 0;
-  const mCol = venduOK ? margeCouleur(agg.marge, agg.margePct) : "#8a90a0";
+  // Étape 2 : la marge présentée est la marge à l'avancement (le constat) ;
+  // l'ancienne « marge nette » est le budget restant, pas une marge.
+  const mCol = venduOK ? margeCouleur(agg.margeAvancement ?? 0, agg.margeAvancementPct ?? 0) : "#8a90a0";
   const mPrevCol = venduOK ? margeCouleur(agg.margePrev, agg.margePrevPct) : "#8a90a0";
 
   // ── Chiffres clés ──
@@ -251,8 +253,10 @@ export function buildOperationDocHTML({
     tuile({ label: "Avancement", valeur: `${agg.avancement}%`, sous: "pondéré par le vendu HT" }),
     tuile({ label: "Marge prévisionnelle", valeur: venduOK ? eur(agg.margePrev) : "—",
       sous: venduOK ? `${pctTxt(agg.margePrevPct)} au devis` : "", accent: mPrevCol }),
-    tuile({ label: "Marge nette à date", valeur: venduOK ? eur(agg.marge) : "—",
-      sous: venduOK ? `${pctTxt(agg.margePct)} du vendu` : "", accent: mCol }),
+    tuile({ label: "Marge à l'avancement", valeur: venduOK ? eur(agg.margeAvancement ?? 0) : "—",
+      sous: venduOK && agg.margeAvancementPct != null ? `${pctTxt(agg.margeAvancementPct)} de la production` : "", accent: mCol }),
+    tuile({ label: "Marge probable", valeur: venduOK ? eur(agg.margeProbable ?? 0) : "—",
+      sous: venduOK ? "si on continue au rythme actuel" : "" }),
   ].join("");
 
   // ── Prévisionnel (devis) vs réel à date ──
@@ -290,7 +294,7 @@ export function buildOperationDocHTML({
     { label: "Coût MO",    val: agg.moReel, color: "#f5a623" },
     { label: "Matériaux",  val: agg.mat,    color: "#5b8af5" },
     { label: "Frais gén.", val: agg.fg,     color: "#c084fc" },
-    ...(agg.marge > 0 ? [{ label: "Marge", val: agg.marge, color: "#22c55e" }] : []),
+    ...(agg.marge > 0 ? [{ label: "Budget restant", val: agg.marge, color: "#9ca3af" }] : []),
   ].filter(s => s.val > 0) : [];
   const barre = segments.length === 0 ? "" : `
   <div class="op-barre-wrap">
@@ -299,7 +303,7 @@ export function buildOperationDocHTML({
     </div>
     <div class="op-barre-leg">
       ${segments.map(s => `<span class="op-leg-item"><span class="op-leg-dot" style="background:${s.color};"></span>${esc(s.label)} · <b>${esc(eur(s.val))}</b></span>`).join("")}
-      ${agg.marge < 0 ? `<span class="op-leg-item" style="color:#c0392b;font-weight:700;">Coûts supérieurs au vendu : marge ${esc(eur(agg.marge))}</span>` : ""}
+      ${agg.marge < 0 ? `<span class="op-leg-item" style="color:#c0392b;font-weight:700;">Coûts supérieurs au vendu : budget restant ${esc(eur(agg.marge))}</span>` : ""}
     </div>
   </div>`;
 
@@ -307,7 +311,7 @@ export function buildOperationDocHTML({
   const sansPhasage = lignes.filter(l => !l.b).length;
   const rowsHTML = lignes.map(l => {
     const b = l.b;
-    const mc = b && b.prixHTChantier > 0 ? margeCouleur(b.margeChantier, b.margePctChantier) : "#8a90a0";
+    const mc = b && b.prixHTChantier > 0 ? margeCouleur(b.margeAvancement ?? 0, b.productionCumulee > 0 ? (b.margeAvancement ?? 0) / b.productionCumulee * 100 : 0) : "#8a90a0";
     const mcPrev = b && b.prixHTChantier > 0 ? margeCouleur(b.margePrevChantier, b.margePrevPctChantier) : "#8a90a0";
     return `
     <tr>
@@ -320,8 +324,8 @@ export function buildOperationDocHTML({
            <td class="num">${esc(eur(b.coutMOTotalChantier))}</td>
            <td class="num">${esc(eur(b.coutMatChantier))}</td>
            <td class="num" style="color:${mcPrev};">${b.prixHTChantier > 0 ? esc(eur(b.margePrevChantier)) : "—"}</td>
-           <td class="num" style="color:${mc};font-weight:700;">${b.prixHTChantier > 0 ? esc(eur(b.margeChantier)) : "—"}</td>
-           <td class="num" style="color:${mc};">${b.prixHTChantier > 0 ? esc(pctTxt(b.margePctChantier)) : "—"}</td>
+           <td class="num" style="color:${mc};font-weight:700;">${b.prixHTChantier > 0 ? esc(eur(b.margeAvancement ?? 0)) : "—"}</td>
+           <td class="num">${b.prixHTChantier > 0 ? esc(eur(b.margeProbable ?? 0)) : "—"}</td>
            <td class="num">${fmtH(b.heuresReellesTotalChantier)}h / ${fmtH(b.heuresVenduesChantier)}h${b.heuresHorsDevisChantier > 0 ? ` (dont ${fmtH(b.heuresHorsDevisChantier)}h hors devis)` : ""}</td>`}
     </tr>`;
   }).join("");
@@ -330,7 +334,7 @@ export function buildOperationDocHTML({
     <thead><tr>
       <th style="text-align:left;">Logement</th>
       <th style="text-align:left;">Statut</th>
-      <th>Avanc.</th><th>Vendu HT</th><th>Coût MO</th><th>Matériaux</th><th>Marge prév.</th><th>Marge</th><th>Marge %</th><th>Heures</th>
+      <th>Avanc.</th><th>Vendu HT</th><th>Coût MO</th><th>Matériaux</th><th>Marge prév.</th><th>Marge à l'avancement</th><th>Marge probable</th><th>Heures</th>
     </tr></thead>
     <tbody>
       ${rowsHTML}
@@ -342,8 +346,8 @@ export function buildOperationDocHTML({
         <td class="num">${esc(eur(agg.moReel))}</td>
         <td class="num">${esc(eur(agg.mat))}</td>
         <td class="num" style="color:${mPrevCol};">${venduOK ? esc(eur(agg.margePrev)) : "—"}</td>
-        <td class="num" style="color:${mCol};">${venduOK ? esc(eur(agg.marge)) : "—"}</td>
-        <td class="num" style="color:${mCol};">${venduOK ? esc(pctTxt(agg.margePct)) : "—"}</td>
+        <td class="num" style="color:${mCol};">${venduOK ? esc(eur(agg.margeAvancement ?? 0)) : "—"}</td>
+        <td class="num">${venduOK ? esc(eur(agg.margeProbable ?? 0)) : "—"}</td>
         <td class="num">${fmtH(agg.hReelles)}h / ${fmtH(agg.hVendues)}h${agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}</td>
       </tr>
     </tbody>
@@ -482,13 +486,13 @@ export function buildOperationDocHTML({
 
   ${blocPreparation}`;
 
-  // Badge héros : la marge nette, l'information que ce document vient chercher.
+  // Badge héros : la marge à l'avancement, l'information que ce document vient chercher.
   const badgeHTML = venduOK ? `
       <td style="vertical-align:bottom;text-align:right;white-space:nowrap;padding-left:14pt;">
         <div style="display:inline-block;background:${OR};border-radius:10pt;padding:9pt 16pt 10pt;text-align:center;">
-          <div style="font-size:6.5pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;color:rgba(0,0,0,.55);">Marge nette à date</div>
-          <div class="bc" style="font-size:18pt;font-weight:800;color:#12151c;line-height:1.05;margin-top:2pt;">${esc(eur(agg.marge))}</div>
-          <div style="font-size:7.5pt;font-weight:700;color:rgba(0,0,0,.55);margin-top:1pt;">${esc(pctTxt(agg.margePct))} du vendu</div>
+          <div style="font-size:6.5pt;font-weight:700;letter-spacing:2pt;text-transform:uppercase;color:rgba(0,0,0,.55);">Marge à l'avancement</div>
+          <div class="bc" style="font-size:18pt;font-weight:800;color:#12151c;line-height:1.05;margin-top:2pt;">${esc(eur(agg.margeAvancement ?? 0))}</div>
+          <div style="font-size:7.5pt;font-weight:700;color:rgba(0,0,0,.55);margin-top:1pt;">${agg.margeAvancementPct != null ? `${esc(pctTxt(agg.margeAvancementPct))} de la production` : "rien de produit"}</div>
         </div>
       </td>` : "";
 

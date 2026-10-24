@@ -89,6 +89,9 @@ import {
 import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
 import { chargerAchatsTermines, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { demanderRecalculReleve } from "./relevesJournaliersApi";
+// Trois marges (étape 2) : seuils Admin + dérives historiques, communs à toutes les pages.
+import { useReglagesMarges } from "./reglagesMarges";
+import { LIBELLES_PROVENANCE_COEF } from "../chantierFinance";
 // Heures prévues (16/10/2026) : cadence × quantité de la bibliothèque, à défaut
 // heures du devis (signalé). Elles vivent dans heures_devis / heures_vendues.
 import {
@@ -458,6 +461,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [refSaving, setRefSaving] = useState(false);
   // Modale suivi direction (marge cible, seuil prime, prime chantier)
   const [showSuiviDirection, setShowSuiviDirection] = useState(false);
+  // Marge probable : détail par lot + neutralisation de la dérive (étape 2).
+  const [margesLotsOuvert, setMargesLotsOuvert] = useState(false);
   // Mode d'affichage : "list" (3 colonnes Lots/Ouvrages/Tâches) | "gantt" (timeline)
   //                     | "previsionnel" (calendrier client + export PDF)
   const [viewMode, setViewMode] = useState("list");
@@ -745,10 +750,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
   // ─── CALCULS : une seule passe du module (source de vérité) ──────────────
   // Frais généraux : barème daté de l'Admin (tauxFG) ; projections au taux du jour.
+  const reglagesMarges = useReglagesMarges();
   const fin = useMemo(() => computeChantierFinance({
     phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
     tauxFG, aujourdhui: new Date().toISOString().slice(0, 10), achatsTermines,
-  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG, achatsTermines]);
+    seuilsMarges: reglagesMarges.seuilsMarges, derivesHistoriques: reglagesMarges.derivesHistoriques,
+  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG, achatsTermines, reglagesMarges]);
 
   // TOUS les comptes rendus liés à la tâche `t`, du plus récent au plus ancien.
   // On matche par tache_id (tâches créées/planifiées en V2) OU par nom (tâches
@@ -1129,7 +1136,6 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     prixHTChantier, heuresVenduesChantier, heuresReellesTotalChantier,
     coutMOTotalChantier, coutMatChantier, commandesPrevChantier,
     moPrevChantier, tauxMOPrevEff, fgChantier,
-    margeChantier, margePctChantier,
     margePrevChantier, margePrevPctChantier,
     repriseHeures, repriseTaux, repriseCout,
     heuresComparablesChantier,
@@ -1981,9 +1987,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       ${kpiCell(`${Math.round(coutMOTotalChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#60a5fa")}
       ${kpiCell(`${Math.round(coutMatChantier).toLocaleString("fr-FR")} €`, "Matériaux", "#f97316")}
       ${kpiCell(`${Math.round(fgChantier).toLocaleString("fr-FR")} €`, "Frais généraux", "#a78bfa")}
-      ${kpiCell(`${margeChantier >= 0 ? "+" : ""}${Math.round(margeChantier).toLocaleString("fr-FR")} €`,
-        `Marge ${prixHTChantier > 0 ? margePctChantier.toFixed(0) + "%" : ""}`,
-        margeChantier >= 0 ? "#50c878" : "#ff6b6b")}
+      ${kpiCell(`${fin.brut.margeAvancement >= 0 ? "+" : ""}${Math.round(fin.brut.margeAvancement).toLocaleString("fr-FR")} €`,
+        "Marge à l'avancement",
+        fin.brut.margeAvancement >= 0 ? "#50c878" : "#ff6b6b")}
+      ${kpiCell(`${fin.brut.margeProbable >= 0 ? "+" : ""}${Math.round(fin.brut.margeProbable).toLocaleString("fr-FR")} €`,
+        "Marge probable",
+        fin.brut.margeProbable >= 0 ? "#50c878" : "#ff6b6b")}
     </tr>
   </table>
   ${sectionsHTML || `<div style="text-align:center;padding:40pt;color:#999;">Aucun ouvrage dans ce phasage.</div>`}
@@ -2863,7 +2872,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
       {/* ── Sous-header chantier (KPI + barre d'avancement, persistant) ── */}
       {chantierId && !loadingPhasage && ouvrages.length > 0 && (() => {
-        const margeColor = couleurMarge(margeChantier, margePctChantier);
+        const margeColor = couleurMarge(fin.brut.margeAvancement, fin.brut.productionCumulee > 0 ? fin.brut.margeAvancement / fin.brut.productionCumulee * 100 : 0);
         return (
           <div style={{
             flexShrink: 0,
@@ -2938,17 +2947,47 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 value={fin.fg.valeurTexte}
                 sub={fin.fg.sousLabel}
                 onClick={() => setKpiDetail("fg")}/>
+              {/* Trois marges (étape 2) : le constat, si le reste suit le devis,
+                  si on continue au rythme actuel. Puis le budget restant
+                  (ancienne « marge nette », qui n'est pas une marge). */}
               <KpiCard T={T}
-                icon={margeChantier >= 0 ? TrendingUp : TrendingDown}
-                iconColor={margeColor} label={fin.marge.label}
-                donnee={fin.marge} dateRef={todayRefISO}
-                value={fin.marge.valeurTexte}
-                sub={fin.marge.sousLabel}
+                icon={fin.brut.margeAvancement >= 0 ? TrendingUp : TrendingDown}
+                iconColor={margeColor} label={fin.margeAvancement.label}
+                donnee={fin.margeAvancement} dateRef={todayRefISO}
+                value={fin.margeAvancement.valeurTexte}
+                sub={fin.margeAvancement.sousLabel}
                 accent={margeColor} bold={true}
-                onClick={() => setKpiDetail("marge")}/>
+                onClick={() => setKpiDetail("marge_avancement")}/>
+              <KpiCard T={T}
+                icon={fin.brut.margeATerminaison >= 0 ? TrendingUp : TrendingDown}
+                iconColor="#8b5cf6" label={fin.margeATerminaison.label}
+                donnee={fin.margeATerminaison} dateRef={todayRefISO}
+                value={fin.margeATerminaison.valeurTexte}
+                sub={fin.margeATerminaison.sousLabel}
+                onClick={() => setKpiDetail("marge_terminaison")}/>
+              <KpiCard T={T}
+                icon={fin.brut.margeProbable >= 0 ? TrendingUp : TrendingDown}
+                iconColor="#8b5cf6" label={fin.margeProbable.label}
+                donnee={fin.margeProbable} dateRef={todayRefISO}
+                value={fin.margeProbable.valeurTexte}
+                sub={fin.margeProbable.sousLabel}
+                accent={fin.brut.margeProbable < 0 ? "#e15a5a" : null}
+                onClick={() => setMargesLotsOuvert(true)}/>
+              {fin.brut.materiauxEnAvance > 0.5 && (
+                <KpiCard T={T} icon={Boxes} iconColor="#fb923c" label={fin.materiauxEnAvance.label}
+                  donnee={fin.materiauxEnAvance} dateRef={todayRefISO}
+                  value={fin.materiauxEnAvance.valeurTexte}
+                  sub={fin.materiauxEnAvance.sousLabel}
+                  onClick={() => setKpiDetail("mat_avance")}/>
+              )}
+              <KpiCard T={T} icon={Banknote} iconColor="#9ca3af" label={fin.budgetRestant.label}
+                donnee={fin.budgetRestant} dateRef={todayRefISO}
+                value={fin.budgetRestant.valeurTexte}
+                sub={fin.budgetRestant.sousLabel}
+                onClick={() => setKpiDetail("budget")}/>
               {(margeCible > 0 || primeChant > 0) && (
                 <KpiCibleEtPrime T={T}
-                  margeCible={margeCible} margePct={margePctChantier}
+                  margeCible={margeCible} margePct={prixHTChantier > 0 ? fin.brut.margeProbable / prixHTChantier * 100 : 0}
                   prime={primeChant} seuilPrime={seuilPrime}
                   prixHT={prixHTChantier}/>
               )}
@@ -3546,6 +3585,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         </div>
       )}
 
+      {/* ── Marge probable : lots, coefficients, neutralisation (étape 2) ── */}
+      {margesLotsOuvert && (
+        <MargesLotsModal T={T} fin={fin} chantierNom={chantier?.nom}
+          onClose={() => setMargesLotsOuvert(false)}
+          onNeutraliser={(lotId, commentaire) => {
+            const actuelles = { ...(meta.neutralisations_derive || {}) };
+            if (commentaire == null) delete actuelles[lotId];
+            else actuelles[lotId] = { commentaire, par: profil?.nom || profil?.email || null, le: new Date().toISOString().slice(0, 10) };
+            saveMeta({ neutralisations_derive: actuelles });
+          }}/>
+      )}
+
       {/* ── Modale suivi direction ── */}
       {showSuiviDirection && (
         <ItemEditModal
@@ -3606,13 +3657,30 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               Coût de reprise ajouté : <strong style={{ color: T.text }}>{fmtEur(repriseCout)}</strong> ({fmtH(repriseHeures)} h × {repriseTaux || 0} €/h).
             </div>
           )}
+          {/* Chantier repris (étape 2) : exclu des dérives historiques, des
+              statistiques de cadences et des alertes ; chiffres affichés avec
+              la mention « chantier repris ». */}
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 6, cursor: "pointer",
+            fontSize: FONT.xs.size + 1, color: T.text, lineHeight: 1.5 }}>
+            <input type="checkbox" checked={!!fin.repris}
+              onChange={e => saveMeta({ chantier_repris: e.target.checked
+                ? { le: new Date().toISOString().slice(0, 10), par: profil?.nom || profil?.email || null }
+                : null })}/>
+            <span>
+              <strong>Chantier repris</strong> — démarré avant l'application, ses données d'origine ne sont pas fiables.
+              Il est exclu des dérives historiques, des statistiques de cadences et des alertes ; ses chiffres restent affichés.
+              {fin.repris && (fin.repris.le || fin.repris.par) && (
+                <span style={{ color: T.textSub }}> Coché{fin.repris.le ? ` le ${fin.repris.le.split("-").reverse().join("/")}` : ""}{fin.repris.par ? ` par ${fin.repris.par}` : ""}.</span>
+              )}
+            </span>
+          </label>
 
           <div style={{
             marginTop: 4, padding: "10px 12px", borderRadius: RADIUS.md,
             background: T.card, border: `1px solid ${T.border}`,
             fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6,
           }}>
-            <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge nette pour considérer le chantier rentable.</div>
+            <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge pour considérer le chantier rentable, comparé à la marge probable (la meilleure estimation de la marge finale).</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : chaque heure réelle du chantier (tâches + trajets + indirect) × le taux en vigueur à la date de cette heure. Le taux est le même pour tous les chantiers et se règle dans Admin → Taux horaires. Couvre admin, transport, etc. Déduit de la marge.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
@@ -3726,14 +3794,17 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         // Tout le CONTENU (titres, sous-titres, lignes, totaux, messages vides)
         // vient des objets Donnee du module. Ne restent ici que la présentation :
         // icône et couleurs par KPI.
-        const margeColor = couleurMarge(margeChantier, margePctChantier);
+        const margeColor = couleurMarge(fin.brut.margeAvancement, fin.brut.productionCumulee > 0 ? fin.brut.margeAvancement / fin.brut.productionCumulee * 100 : 0);
         const PRESENTATION = {
           vendu:          { d: fin.venduHT,      icon: Banknote, color: "#f5c400" },
           heures:         { d: fin.heuresReelles, icon: Clock,   color: "#5b9cf6",
                             totalColor: couleurDepassement(heuresComparablesChantier, heuresVenduesChantier) || "#5b9cf6" },
           mo:             { d: fin.moReel,       icon: HardHat,  color: "#60a5fa" },
           fg:             { d: fin.fg,           icon: Percent,  color: "#a78bfa" },
-          marge:          { d: fin.marge,        icon: margeChantier >= 0 ? TrendingUp : TrendingDown, color: margeColor },
+          marge_avancement: { d: fin.margeAvancement, icon: fin.brut.margeAvancement >= 0 ? TrendingUp : TrendingDown, color: margeColor },
+          marge_terminaison: { d: fin.margeATerminaison, icon: TrendingDown, color: "#8b5cf6" },
+          mat_avance:     { d: fin.materiauxEnAvance, icon: Boxes, color: "#fb923c" },
+          budget:         { d: fin.budgetRestant, icon: Banknote, color: "#9ca3af" },
           mo_prev:        { d: fin.moPrev,       icon: Target,   color: "#818cf8" },
           commandes_prev: { d: fin.matPrev,      icon: Boxes,    color: "#fb923c" },
           marge_prev:     { d: fin.margePrev,    icon: margePrevChantier >= 0 ? TrendingUp : TrendingDown,
@@ -6584,6 +6655,121 @@ function KpiBlock({ T, label, value, sub, accent }) {
 }
 
 // ─── KPI fusionné : Marge cible + Prime équipe ────────────────────────────────
+// ─── Marge probable, lot par lot (étape 2 de la refonte des marges) ─────────
+// Tout le contenu vient du module (fin.lots, fin.margeProbable) : coefficient
+// appliqué aux heures restantes et sa provenance, dérive en heures et en
+// euros. Le conducteur peut neutraliser la dérive d'un lot (×1) avec un
+// commentaire obligatoire ; c'est réversible.
+function MargesLotsModal({ T, fin, chantierNom, onClose, onNeutraliser }) {
+  const [edition, setEdition] = useState(null); // { lotId, texte }
+  const lots = fin.lots.filter(l => !l.vide);
+  const n1 = (v) => (Math.round((v || 0) * 100) / 100).toLocaleString("fr-FR");
+  const signe = (v) => `${v > 0.5 ? "+" : v < -0.5 ? "−" : ""}${eur(Math.abs(v || 0))}`;
+  const cell = { padding: "7px 8px", borderBottom: `1px solid ${T.border}`, fontSize: FONT.xs.size + 1, color: T.text, verticalAlign: "top" };
+  const th = { ...cell, fontWeight: 800, color: T.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: .5, textAlign: "left" };
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 800,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14,
+          width: "min(980px, 100%)", maxHeight: "88vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, color: T.text }}>Marge probable : {fin.margeProbable.valeurTexte}</div>
+            <div style={{ fontSize: FONT.xs.size, color: T.textMuted }}>
+              {chantierNom ? `${chantierNom} · ` : ""}marge à terminaison {fin.margeATerminaison.valeurTexte}, corrigée de la dérive de chaque lot
+              {fin.repris ? " · chantier repris" : ""}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: T.textMuted, cursor: "pointer", flexShrink: 0 }}><Icon as={X} size={18}/></button>
+        </div>
+        <div style={{ padding: "8px 20px 16px", overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={th}>Lot</th>
+                <th style={th}>Avancement</th>
+                <th style={th}>Heures réelles / attendues</th>
+                <th style={th}>Dérive</th>
+                <th style={th}>Heures restantes prévues → probables</th>
+                <th style={th}>Coefficient</th>
+                <th style={{ ...th, textAlign: "right" }}>Effet sur la marge</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lots.map(l => (
+                <tr key={l.id}>
+                  <td style={{ ...cell, fontWeight: 700 }}>{l.label}</td>
+                  <td style={cell}>{n1(l.avancementExact)} %</td>
+                  <td style={cell}>{fmtH(l.heuresReelles)} h / {fmtH(l.heuresAttendues)} h</td>
+                  <td style={{ ...cell, color: l.ecartHeures > 0.5 ? "#e15a5a" : l.ecartHeures < -0.5 ? "#22c55e" : T.text }}>
+                    {l.ecartHeures > 0 ? "+" : ""}{fmtH(l.ecartHeures)} h · {signe(l.ecartEuros)}
+                    {l.ratioDeriveExact != null && <span style={{ color: T.textMuted }}> (×{n1(l.ratioDeriveExact)})</span>}
+                  </td>
+                  <td style={cell}>{fmtH(l.heuresRestantesPrevues)} h → {fmtH(l.heuresRestantesProbables)} h</td>
+                  <td style={cell}>
+                    <strong>×{n1(l.coefficient)}</strong>
+                    <div style={{ color: T.textMuted, fontSize: 10 }}>
+                      {LIBELLES_PROVENANCE_COEF[l.provenanceCoefficient]}
+                      {l.coefficientPlafonne ? " (plafonnée)" : ""}
+                      {l.nbChantiersHistorique ? ` · ${l.nbChantiersHistorique} chantiers` : ""}
+                    </div>
+                    {l.neutralisation && (
+                      <div style={{ color: T.textSub, fontSize: 10, marginTop: 2 }}>
+                        « {l.neutralisation.commentaire} »{l.neutralisation.par ? ` — ${l.neutralisation.par}` : ""}{l.neutralisation.le ? `, ${l.neutralisation.le.split("-").reverse().join("/")}` : ""}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ ...cell, textAlign: "right", fontWeight: 800,
+                    color: l.ecartProbableEuros > 0.5 ? "#e15a5a" : l.ecartProbableEuros < -0.5 ? "#22c55e" : T.text }}>
+                    {l.ecartProbableEuros > 0.5 ? "− " : l.ecartProbableEuros < -0.5 ? "+ " : ""}{eur(Math.abs(l.ecartProbableEuros))}
+                  </td>
+                  <td style={{ ...cell, whiteSpace: "nowrap" }}>
+                    {l.id === "_orphans" ? null : l.neutralisation ? (
+                      <button onClick={() => onNeutraliser(l.id, null)}
+                        style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, cursor: "pointer" }}>
+                        Rétablir la dérive
+                      </button>
+                    ) : edition?.lotId === l.id ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 200 }}>
+                        <input autoFocus value={edition.texte} placeholder="Pourquoi ? (obligatoire)"
+                          onChange={e => setEdition({ lotId: l.id, texte: e.target.value })}
+                          style={{ fontSize: 11, padding: "4px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card, color: T.text }}/>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button disabled={!edition.texte.trim()}
+                            onClick={() => { onNeutraliser(l.id, edition.texte.trim()); setEdition(null); }}
+                            style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: "none", background: edition.texte.trim() ? "#8b5cf6" : T.border, color: "#fff", cursor: edition.texte.trim() ? "pointer" : "not-allowed" }}>
+                            Neutraliser
+                          </button>
+                          <button onClick={() => setEdition(null)}
+                            style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, cursor: "pointer" }}>
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    ) : (l.provenanceCoefficient !== "aucune" || Math.abs(l.coefficient - 1) > 1e-9) ? (
+                      <button onClick={() => setEdition({ lotId: l.id, texte: "" })}
+                        title="Ne pas appliquer la dérive de ce lot aux heures restantes (×1), avec un commentaire"
+                        style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textSub, cursor: "pointer" }}>
+                        Neutraliser…
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 10, fontSize: 10.5, color: T.textMuted, lineHeight: 1.5 }}>
+            {fin.margeProbable.formule}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function KpiCibleEtPrime({ T, margeCible, margePct, prime, seuilPrime, prixHT }) {
   const cibleAtteinte = margeCible > 0 && prixHT > 0 && margePct >= margeCible;
   const primeAcquise  = prime > 0 && seuilPrime > 0 && prixHT > 0 && margePct >= seuilPrime;

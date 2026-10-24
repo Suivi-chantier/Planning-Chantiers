@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Trois marges par chantier : à l'avancement, à terminaison, probable",
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }, { id: "operations", label: "Opérations" }, { id: "chantiers", label: "Chantiers" }, { id: "admin", label: "Réglages" }],
+    quoi: "L'ancienne « marge nette » (vendu − coûts engagés) n'était pas une marge : un chantier à 0 % affichait presque 100 % de marge, et elle baissait à chaque dépense, même sur un chantier qui gagne de l'argent. Elle s'appelle désormais « Budget restant ». Chaque chantier affiche trois vraies marges : la marge à l'avancement (le constat : ce que le travail fait a rapporté, moins ce qu'il a coûté), la marge à terminaison (si le reste se passe comme le devis) et la marge probable (si on continue au rythme actuel : les heures restantes de chaque lot sont corrigées de sa dérive). Les matériaux commandés en avance, dans l'enveloppe du lot, ne pèsent sur la marge qu'au fur et à mesure de l'avancement (« matériaux en avance sur chantier ») ; un dépassement d'enveloppe compte tout de suite. La marge de la semaine du Bilan devient la différence entre deux marges à l'avancement : les semaines s'additionnent exactement à la marge cumulée.",
+    comment: "Dans le Phasage, les cartes « Marge à l'avancement », « Marge à terminaison », « Marge probable » et « Budget restant » remplacent la marge nette. Un clic sur « Marge probable » montre, lot par lot, la dérive en heures et en euros, le coefficient appliqué aux heures restantes et d'où il vient (dérive constatée à partir de 25 % d'avancement, sinon dérive moyenne de ce lot sur les chantiers terminés, plafonnée à ×5). Le bouton « Neutraliser… » ramène la dérive d'un lot à ×1 avec un commentaire obligatoire (réversible). Dans Suivi direction, la case « Chantier repris » exclut un chantier démarré avant l'application des dérives historiques, des statistiques de cadences et des alertes. Les seuils se règlent dans Réglages → Taux horaires → « Marge probable et alertes ».",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Relevé de chaque chantier, chaque jour, avec les comptes rendus manquants",
     pages: [],
     quoi: "En plus du relevé du vendredi, chaque chantier a désormais un relevé par jour : les mêmes chiffres (vendu, coûts, marge, avancement, reste à commander…) en fin de journée, et la liste des comptes rendus attendus ce jour-là qui manquent ou ne sont pas encore validés. Ces relevés préparent la refonte du Bilan de semaine ; l'écran du Bilan ne change pas encore.",

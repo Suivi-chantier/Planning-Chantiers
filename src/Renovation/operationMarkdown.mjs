@@ -296,7 +296,9 @@ const pluriel = (n, singulier, plurielMot) => `${n} ${n > 1 ? (plurielMot || `${
 // coût n'est engagé : l'indicateur frôle alors 100 % du vendu et n'a aucune
 // valeur prédictive. Le calcul n'est pas touché — seul son nom l'est, et une
 // mise en garde l'accompagne tant que l'avancement est faible.
-const LABEL_MARGE_PROVISOIRE = "Marge provisoire sur coûts enregistrés";
+// Étape 2 (24/10/2026) : ce n'est pas une marge, c'est le BUDGET RESTANT ; la
+// marge mesurée est la marge à l'avancement (production − coûts imputés).
+const LABEL_MARGE_PROVISOIRE = "Budget restant (vendu − coûts enregistrés)";
 // En dessous de ce seuil d'avancement, la marge provisoire est trompeuse.
 const SEUIL_AVANCEMENT_MARGE_FIABLE = 20;
 
@@ -305,8 +307,8 @@ function avertissementMarge(avancement, vendu) {
   if (!(vendu > 0) || !Number.isFinite(av) || av >= SEUIL_AVANCEMENT_MARGE_FIABLE) return [];
   return [
     "",
-    `> **Attention** : la « ${LABEL_MARGE_PROVISOIRE.toLowerCase()} » n'est pas`,
-    `> représentative de la marge finale — l'avancement n'est que de ${pourcent(av)} et`,
+    "> **Attention** : le « budget restant » n'est pas une marge ni une estimation",
+    `> de la marge finale — l'avancement n'est que de ${pourcent(av)} et`,
     "> la majorité des coûts n'est pas encore engagée. Pour la préparation, c'est la",
     "> **marge prévisionnelle au devis** qui fait foi.",
   ];
@@ -429,8 +431,9 @@ export function construireMarkdownOperation(modele) {
       // La marge AU DEVIS vient en premier : c'est l'indicateur de pilotage.
       ["Marge prévisionnelle au devis", agg.vendu > 0
         ? `${euros(agg.margePrev)} (${pourcent(agg.margePrevPct, { decimales: 1 })})` : null, { garder: true }],
-      [LABEL_MARGE_PROVISOIRE, agg.vendu > 0
-        ? `${euros(agg.marge)} (${pourcent(agg.margePct, { decimales: 1 })})` : null],
+      [LABEL_MARGE_PROVISOIRE, agg.vendu > 0 ? euros(agg.marge) : null],
+      ["Marge à l'avancement (production − coûts imputés)", agg.vendu > 0 && agg.margeAvancement != null ? euros(agg.margeAvancement) : null],
+      ["Marge probable (si on continue au rythme actuel)", agg.vendu > 0 && agg.margeProbable != null ? euros(agg.margeProbable) : null],
       ["Heures réelles / heures prévues", `${heures(agg.hReelles)} / ${heures(agg.hVendues)}`],
       ["Période de travaux planifiée", m.bornes?.debut || m.bornes?.fin
         ? `${dateFR(m.bornes.debut)} → ${dateFR(m.bornes.fin)}` : null],
@@ -638,7 +641,7 @@ export function construireMarkdownOperation(modele) {
         { t: "Chantier" }, { t: "Statut" }, { t: "Avancement", a: "r", garder: true },
         { t: "Vendu HT", a: "r", garder: true }, { t: "Marge prév. au devis", a: "r", garder: true },
         { t: "Coût MO enregistré", a: "r" }, { t: "Matériaux enregistrés", a: "r" },
-        { t: "Marge provisoire", a: "r" }, { t: "Marge provisoire %", a: "r" },
+        { t: "Budget restant", a: "r" }, { t: "Marge à l'avancement", a: "r" },
         { t: "Heures réelles / prévues", a: "r" },
       ],
       chantiers.map((c) => {
@@ -650,7 +653,7 @@ export function construireMarkdownOperation(modele) {
           cellule(b.prixHTChantier > 0 ? euros(b.margePrevChantier) : ND),
           cellule(euros(b.coutMOTotalChantier)), cellule(euros(b.coutMatChantier)),
           cellule(b.prixHTChantier > 0 ? euros(b.margeChantier) : ND),
-          cellule(b.prixHTChantier > 0 ? pourcent(b.margePctChantier, { decimales: 1 }) : ND),
+          cellule(b.prixHTChantier > 0 && b.margeAvancement != null ? euros(b.margeAvancement) : ND),
           cellule(`${heures(b.heuresReellesTotalChantier)} / ${heures(b.heuresVenduesChantier)}${b.heuresHorsDevisChantier > 0 ? ` (dont ${heures(b.heuresHorsDevisChantier)} hors devis)` : ""}`),
         ];
       }),
@@ -658,8 +661,8 @@ export function construireMarkdownOperation(modele) {
     "",
     `**Total opération** — avancement ${pourcent(agg.avancement)} · vendu ${euros(agg.vendu)} · `
     + `marge prévisionnelle au devis ${euros(agg.margePrev)} · coût MO enregistré ${euros(agg.moReel)} · `
-    + `matériaux enregistrés ${euros(agg.mat)} · ${LABEL_MARGE_PROVISOIRE.toLowerCase()} ${euros(agg.marge)} `
-    + `(${pourcent(agg.margePct, { decimales: 1 })}) · heures ${heures(agg.hReelles)} / ${heures(agg.hVendues)}.`,
+    + `matériaux enregistrés ${euros(agg.mat)} · budget restant ${euros(agg.marge)} `
+    + `${agg.margeAvancement != null ? `· marge à l'avancement ${euros(agg.margeAvancement)} ` : ""}· heures ${heures(agg.hReelles)} / ${heures(agg.hVendues)}.`,
     ...avertissementMarge(agg.avancement, agg.vendu),
   ]));
 
@@ -1067,10 +1070,12 @@ function ficheChantier(c, rang, m) {
       ["Coût matériaux réel (commandes)", euros(b.coutMatChantier)],
       ["Matériaux prévus au devis", euros(b.commandesPrevChantier)],
       ["Frais généraux", euros(b.fgChantier)],
-      ["Marge nette", `${euros(b.margeChantier)} (${pourcent(b.margePctChantier, { decimales: 1 })})`],
+      ["Marge à l'avancement", b.margeAvancement != null ? euros(b.margeAvancement) : null],
+      ["Budget restant (vendu − coûts engagés, pas une marge)", euros(b.margeChantier)],
       ["Marge prévisionnelle", `${euros(b.margePrevChantier)} (${pourcent(b.margePrevPctChantier, { decimales: 1 })})`],
       ["Reste à faire", `${heures(b.heuresRestantes)} · ${euros(b.resteAFaireEuros)}`],
       ["Marge à terminaison (projection)", euros(b.margeATerminaison)],
+      ["Marge probable (projection)", b.margeProbable != null ? euros(b.margeProbable) : null],
       ["Situation à facturer (projection)", b.situationAFacturer == null ? "% facturé non disponible" : euros(b.situationAFacturer)],
       ["Reste à commander (projection)", b.resteACommander == null ? "bibliothèque matériaux non chargée" : euros(b.resteACommander)],
     ]) : ["Ce chantier n'a pas de phasage exploitable : aucun chiffre n'est calculable."]),

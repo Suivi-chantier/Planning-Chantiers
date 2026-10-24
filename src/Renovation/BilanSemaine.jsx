@@ -26,6 +26,7 @@ import { preparerSemainesAttentionV1, auditDoublonsSnapshotsV1 } from "./pointsA
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 // Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
 import { explicationLigne } from "./motifsCompteRendu";
+import { chargerReglagesMarges } from "./reglagesMarges";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
@@ -544,6 +545,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
         ]);
         const phasages = phQ.data || [];
+        // Trois marges (étape 2) : seuils Admin + dérives historiques, communs à toute l'application.
+        const { seuilsMarges, derivesHistoriques } = await chargerReglagesMarges();
         // Barème daté des frais généraux (Admin) ; absent = défaut du module.
         const tauxFG = cfgFG.data?.value ?? null;
         const tauxHoraires = cfgTaux.data?.value || {};
@@ -614,7 +617,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         })();
         const finByCh = {}, actifs = new Set(), demarrages = {};
         // Entrées du module par chantier, gardées pour la marge réelle de la
-        // semaine (mêmes données que la marge nette, filtrées par date).
+        // semaine (mêmes données que la marge à l'avancement, filtrées par date).
         const entreesByCh = {};
         phasages.forEach(ph => {
           if (!ph.chantier_id) return;
@@ -626,6 +629,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             pctFacture: nomCh in pctFactureParNom ? pctFactureParNom[nomCh] : null,
             materiauxById, tauxFG, aujourdhui,
             achatsTermines: achatsParCh[ph.chantier_id] || [],
+            seuilsMarges, derivesHistoriques,
           });
           finByCh[ph.chantier_id] = fin;
           entreesByCh[ph.chantier_id] = {
@@ -727,7 +731,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     moReel: { icon: HardHat, color: "#60a5fa" },
     matReel: { icon: Receipt, color: "#f97316" },
     fg: { icon: Percent, color: "#a78bfa" },
-    marge: { icon: TrendingUp, color: "#22c55e" },
+    budgetRestant: { icon: Banknote, color: "#9ca3af" },
+    margeAvancement: { icon: TrendingUp, color: "#22c55e" },
+    materiauxEnAvance: { icon: Receipt, color: "#fb923c" },
+    margeProbable: { icon: TrendingDown, color: "#8b5cf6" },
     margeSemaine: { icon: TrendingUp, color: "#22c55e" },
     margeCumulee: { icon: TrendingUp, color: "#22c55e" },
     // Projections (étape 6) — teinte violette commune : « où on va »
@@ -1333,7 +1340,9 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     const financesHTML = (fin) => {
       if (!includeFinances || !fin) return "";
       const b = fin.brut;
-      const margeC = b.margeChantier < 0 ? RED : b.margePctChantier < 15 ? ORANGE : GREEN;
+      // Étape 2 : marge à l'avancement (le constat) ; l'ancienne « marge nette »
+      // n'est plus présentée comme une marge (budget restant).
+      const margeC = b.margeAvancement < 0 ? RED : b.productionCumulee > 0 && b.margeAvancement / b.productionCumulee * 100 < 15 ? ORANGE : GREEN;
       const cell = (label, val, color = INK) => `
         <td style="padding:7pt 10pt;text-align:center;border-left:1pt solid ${LINE};">
           <div style="font-size:11pt;font-weight:800;color:${color};white-space:nowrap;">${val}</div>
@@ -1357,15 +1366,16 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               ${cell("Coût MO", eur(b.coutMOTotalChantier))}
               ${cell("Matériaux", eur(b.coutMatChantier))}
               ${cell("Frais généraux", eur(b.fgChantier))}
-              ${cell("Marge nette", `${b.margeChantier >= 0 ? "+" : ""}${eur(b.margeChantier)}`, margeC)}
-              ${cell("Marge %", b.prixHTChantier > 0 ? `${b.margePctChantier.toFixed(1)}%` : "—", margeC)}
+              ${cell("Marge à l'avancement", `${b.margeAvancement >= 0 ? "+" : ""}${eur(b.margeAvancement)}${b.repris ? " · repris" : ""}`, margeC)}
+              ${cell("Budget restant", `${b.budgetRestant >= 0 ? "+" : ""}${eur(b.budgetRestant)}`, GREY)}
             </tr>
           </table>
           <table class="fin-table" style="width:100%;border-collapse:collapse;border:1pt dashed #8b5cf6;border-radius:2pt;margin:0 0 7pt;">
-            <tr><td colspan="4" style="padding:3pt 10pt;font-size:6.5pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#8b5cf6;">Projections — où on va (pas des chiffres constatés)</td></tr>
+            <tr><td colspan="5" style="padding:3pt 10pt;font-size:6.5pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#8b5cf6;">Projections — où on va (pas des chiffres constatés)</td></tr>
             <tr>
               ${cell("Reste à faire", `${cfFmtH(b.heuresRestantes)}h · ${eur(b.resteAFaireEuros)}`, "#6d28d9").replace('border-left:1pt solid ' + LINE + ';', '')}
               ${cell("Marge à terminaison", `${b.margeATerminaison >= 0 ? "+" : ""}${eur(b.margeATerminaison)}`, b.margeATerminaison >= 0 ? "#6d28d9" : RED)}
+              ${cell("Marge probable", `${b.margeProbable >= 0 ? "+" : ""}${eur(b.margeProbable)}`, b.margeProbable >= 0 ? "#6d28d9" : RED)}
               ${cell("Situation à facturer", b.situationAFacturer != null ? `${b.situationAFacturer >= 0 ? "+" : ""}${eur(b.situationAFacturer)}` : "—", "#6d28d9")}
               ${cell("Reste à commander", b.resteACommander != null ? eur(b.resteACommander) : "—", "#6d28d9")}
             </tr>
@@ -1518,7 +1528,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         <div style="background:${INK};color:${YELLOW};font-size:8pt;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:6pt 14pt;">Synthèse de la semaine</div>
         <div style="padding:10pt 14pt;">
           <table style="width:100%;border-collapse:collapse;">${synthChantiers}</table>
-          ${includeFinances && libelleCoutsNonComptes(margeInclus) ? `<div style="margin-top:6pt;font-size:8.5pt;color:${GREY};font-style:italic;">Marge réelle ${esc(libelleCoutsNonComptes(margeInclus))}.</div>` : ""}
+          ${includeFinances && libelleCoutsNonComptes(margeInclus) ? `<div style="margin-top:6pt;font-size:8.5pt;color:${GREY};font-style:italic;">Marge de la semaine ${esc(libelleCoutsNonComptes(margeInclus))}.</div>` : ""}
           <div style="margin-top:11pt;padding-top:9pt;border-top:1pt solid ${LINE};">
             <div class="sect-title" style="color:${RED};margin:0 0 6pt;">Décisions attendues</div>
             ${decisionsHTML}
@@ -1696,7 +1706,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       ${kpiCell(`${totalHeuresInclus.toFixed(1)} h`, hasPointages ? "Heures validées" : "Heures estimées", YELLOW)}
       ${kpiCell(`${totalFaitesInclus}`, "Tâches", "#5fbf85")}
       ${totalGenereEurosInclus > 0 ? kpiCell(`+${fmtEuros(totalGenereEurosInclus)}`, "Généré", YELLOW) : ""}
-      ${includeFinances && margeInclus.has ? kpiCell(`${margeInclus.total >= 0 ? "+" : ""}${fmtEuros(margeInclus.total)}`, "Marge réelle", margeInclus.total >= 0 ? "#5fbf85" : RED) : ""}
+      ${includeFinances && margeInclus.has ? kpiCell(`${margeInclus.total >= 0 ? "+" : ""}${fmtEuros(margeInclus.total)}`, "Marge de la semaine", margeInclus.total >= 0 ? "#5fbf85" : RED) : ""}
     </tr>
   </table>
   ${syntheseHTML}
@@ -2071,11 +2081,11 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
               </div>
             )}
             {includeFinances && margeSemaineTotaux.has && (
-              <div style={{ textAlign:"center" }} title="Marge réelle de la semaine : production de la semaine − main-d'œuvre pointée − matériaux commandés − frais généraux, tous chantiers du bilan (y compris ceux qui ont coûté sans avancer). Détail par chantier dans chaque fiche.">
+              <div style={{ textAlign:"center" }} title="Marge de la semaine : marge à l'avancement en fin de semaine − marge à l'avancement en début de semaine (production de la semaine − main-d'œuvre pointée − matériaux imputés à l'avancement − frais généraux), tous chantiers du bilan (y compris ceux qui ont coûté sans avancer). Détail par chantier dans chaque fiche.">
                 <div style={{ fontSize:28, fontWeight:800, color: margeSemaineTotaux.total >= 0 ? "#50c878" : "#e15a5a" }}>
                   {margeSemaineTotaux.total >= 0 ? "+" : ""}{margeSemaineTotaux.total.toLocaleString("fr-FR")} €
                 </div>
-                <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Marge réelle</div>
+                <div style={{ fontSize:11, color:"rgba(255,255,255,0.4)", textTransform:"uppercase", letterSpacing:1 }}>Marge de la semaine</div>
                 {libelleCoutsNonComptes(margeSemaineTotaux) && (
                   <div style={{ fontSize:10, color:"#f5a623", marginTop:2 }}>{libelleCoutsNonComptes(margeSemaineTotaux)}</div>
                 )}
@@ -2741,7 +2751,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             const open = !!expandedCh[cId];
             const sansActivite = !grp;
             const alertes = fin?.warnings || [];
-            const margeColor = fin ? couleurMarge(fin.brut.margeChantier, fin.brut.margePctChantier) : T.textMuted;
+            const margeColor = fin ? couleurMarge(fin.brut.margeAvancement, fin.brut.productionCumulee > 0 ? fin.brut.margeAvancement / fin.brut.productionCumulee * 100 : 0) : T.textMuted;
             const avHeader = p?.maintenant ?? fin?.brut?.avancementChantier ?? null;
             const blocagesCh = (bilanExtras.blocages || []).filter(b => b.chantier_id === cId && (b.texte || "").trim());
             const suiteCh    = (bilanExtras.semaineSuivante || []).filter(s => s.chantier_id === cId && (s.texte || "").trim());
@@ -2777,7 +2787,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                   {includeFinances && fin && fin.brut.prixHTChantier > 0 && badge(<>{eur(fin.brut.prixHTChantier)}</>)}
                   {includeFinances && fin && badge(
                     <span style={{ color: margeColor, fontWeight:800 }}>
-                      {fin.brut.margeChantier >= 0 ? "+" : ""}{eur(fin.brut.margeChantier)}
+                      {fin.brut.margeAvancement >= 0 ? "+" : ""}{eur(fin.brut.margeAvancement)}{fin.repris ? " · repris" : ""}
                     </span>
                   )}
                   {alertes.length > 0 && badge(<>
@@ -2819,7 +2829,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                           </span>
                         )}
                         {ms?.calculable && (
-                          <span title="Marge réelle de la semaine : production − main-d'œuvre − matériaux − frais généraux (cliquer pour le détail)"
+                          <span title="Marge de la semaine : production − main-d'œuvre − matériaux imputés à l'avancement − frais généraux (cliquer pour le détail)"
                             onClick={() => ouvrirVentilation(ms.semaine, nom)}
                             style={{ color: ms.marge >= 0 ? "#22c55e" : "#e15a5a", fontWeight:800, paddingLeft:4, borderLeft:`1px solid ${deltaColor}33`, cursor:"pointer" }}>
                             marge {Math.round(ms.marge) > 0 ? "+" : ""}{Math.round(ms.marge).toLocaleString("fr-FR")} €
@@ -2846,10 +2856,10 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                         Finances
                       </div>
                       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:8 }}>
-                        {["venduHT", "heuresReelles", "moReel", "matReel", "fg", "marge"].map(cle => {
+                        {["venduHT", "heuresReelles", "moReel", "matReel", "fg", "margeAvancement", "budgetRestant"].map(cle => {
                           const d = fin[cle];
                           const pres = KPI_PRES[cle] || {};
-                          const isMarge = cle === "marge";
+                          const isMarge = cle === "margeAvancement";
                           return (
                             <KpiCard key={cle} T={T} icon={pres.icon} iconColor={isMarge ? margeColor : pres.color}
                               label={d.label} value={d.valeurTexte} sub={d.sousLabel}
@@ -2881,12 +2891,12 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                           Projections — où on va (pas des chiffres constatés)
                         </div>
                         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))", gap:8 }}>
-                          {["resteAFaire", "margeATerminaison", "situationAFacturer", "resteACommander"].map(cle => {
+                          {["resteAFaire", "margeATerminaison", "margeProbable", "situationAFacturer", "resteACommander"].map(cle => {
                             const d = fin[cle];
                             if (!d) return null;
                             const pres = KPI_PRES[cle] || {};
-                            const accent = cle === "margeATerminaison"
-                              ? (fin.brut.margeATerminaison >= 0 ? "#8b5cf6" : "#e15a5a")
+                            const accent = cle === "margeATerminaison" || cle === "margeProbable"
+                              ? (fin.brut[cle] >= 0 ? "#8b5cf6" : "#e15a5a")
                               : undefined;
                             return (
                               <KpiCard key={cle} T={T} icon={pres.icon} iconColor={pres.color}

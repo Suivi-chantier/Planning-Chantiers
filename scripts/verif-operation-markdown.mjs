@@ -587,11 +587,11 @@ test("les références d'ouvrage s'écrivent CODE (#n), ou #n sans code", () => 
 
 // ─── MARGES ──────────────────────────────────────────────────────────────────
 
-test("la marge à date est nommée « provisoire » et passe après la marge au devis", () => {
-  assert.ok(MD.includes("Marge provisoire sur coûts enregistrés"));
+test("l'ancienne marge à date est nommée « budget restant » et passe après la marge au devis", () => {
+  assert.ok(MD.includes("Budget restant (vendu − coûts enregistrés)"));
   assert.ok(!MD.includes("Marge nette à date"), "l'ancien intitulé trompeur ne doit plus exister");
   const devis = MD.indexOf("Marge prévisionnelle au devis");
-  const provisoire = MD.indexOf("Marge provisoire sur coûts enregistrés");
+  const provisoire = MD.indexOf("Budget restant (vendu − coûts enregistrés)");
   assert.ok(devis > 0 && provisoire > devis, "la marge au devis vient en premier");
 });
 

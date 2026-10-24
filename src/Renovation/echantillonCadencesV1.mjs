@@ -52,6 +52,7 @@ import {
   sumHeures,
   tacheHeuresVendues,
   tacheHorsDevis,
+  chantierRepris,
 } from "../chantierFinance.mjs";
 
 export const ECHANTILLON_CADENCES_VERSION = "v1";
@@ -154,6 +155,9 @@ export function ouvragesComparablesV1(phasages, pointages) {
   listeSure(phasages).forEach(ph => {
     const chantierId = str(ph?.chantier_id);
     if (!chantierId) return;
+    // Chantier repris (démarré avant l'application, étape 2 du 24/10/2026) :
+    // ses données d'origine ne sont pas fiables, il ne nourrit pas les cadences.
+    if (chantierRepris(ph)) return;
     const ppt = indexParChantier.get(chantierId) || {};
 
     listeSure(ph?.ouvrages).forEach(o => {
