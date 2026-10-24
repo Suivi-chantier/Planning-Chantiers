@@ -24,6 +24,9 @@ import {
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
 import PageBilanSemaine from "./BilanSemaine";
+import { rappelBlocagesV3, suggestionsDecisionsV3, tendancesParLotV3, semaineQuiVientV3 } from "./bilanDecisionsV3.js";
+import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
+import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
 
 const ACCENT = "#FFC200";
 const CHANTIERS_EXCLUS = ["DÉPOT"];
@@ -63,7 +66,8 @@ function useDonneesPeriode(periode) {
     setEtat({ charge: false });
     (async () => {
       const avant = ajouterJoursV3(periode.debut, -21);
-      const [rel, pts, rap, jou, cmd] = await Promise.all([
+      const semainesDecisions = semainesCouvrant(ajouterJoursV3(periode.fin, -34), periode.fin);
+      const [rel, pts, rap, jou, cmd, bh, rapDec] = await Promise.all([
         lireToutParTranches((a, b) => supabase.from("chantier_releves_journaliers").select(COLONNES_LEGERES)
           .lte("date_releve", periode.fin).order("id").range(a, b)),
         lireToutParTranches((a, b) => supabase.from("pointages").select("chantier_id, date, heures, ouvrier")
@@ -74,6 +78,9 @@ function useDonneesPeriode(periode) {
           .gte("date_realisation", periode.debut).lte("date_realisation", periode.fin).order("id").range(a, b)),
         lireToutParTranches((a, b) => supabase.from("commande_lignes").select("chantier_id, commandes!inner(date_doc)")
           .gte("commandes.date_doc", periode.debut).lte("commandes.date_doc", periode.fin).order("id").range(a, b)),
+        supabase.from("bilans_hebdo").select("week_id, data").gte("week_id", semaineIsoV3(ajouterJoursV3(periode.debut, -35))).lt("week_id", semaineIsoV3(periode.debut)),
+        lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, date_rapport, semaine, taches, remarque")
+          .in("semaine", semainesDecisions).order("id").range(a, b)),
       ]);
       const erreur = [rel, pts, rap, jou, cmd].map(r => r.error?.message).filter(Boolean)[0] || null;
       if (erreur) console.warn("Bilan période :", erreur);
@@ -103,6 +110,7 @@ function useDonneesPeriode(periode) {
         charge: true, erreur, bornes, releves,
         pointages: pts.data || [], rapports: rap.data || [], journal: jou.data || [],
         commandes: (cmd.data || []).map(l => ({ chantier_id: l.chantier_id, date: l.commandes?.date_doc })),
+        bilansHebdo: bh.data || [], rapportsDecisions: rapDec.data || [],
       });
     })();
     return () => { annule = true; };
@@ -151,6 +159,22 @@ async function proposerSynthese({ nom, periode, synthese, taches, commentaires }
   return data.resultat.phrase;
 }
 
+// ── La semaine qui vient : moteur de planning lancé par défaut ──────────────
+function useSemaineQuiVient(periode) {
+  const [etat, setEtat] = useState({ decoupe: null, referentiel: null, erreur: null });
+  useEffect(() => {
+    if (!periode) return undefined;
+    let annule = false;
+    setEtat({ decoupe: null, referentiel: null, erreur: null });
+    const fenetre = fenetreSemaineProchaineV1(semaineIsoV3(periode.fin));
+    simulerPlanningGlobalV1({ startDate: fenetre.debut, horizonDays: 42 })
+      .then(out => { if (!annule) setEtat({ decoupe: bilanSemaineProchaineV1({ resultatMoteur: out, fenetre }), referentiel: out?.referentiel || null, erreur: null }); })
+      .catch(e => { if (!annule) setEtat({ decoupe: null, referentiel: null, erreur: e?.message || "erreur du moteur de planning" }); });
+    return () => { annule = true; };
+  }, [periode?.cle]); // eslint-disable-line react-hooks/exhaustive-deps
+  return etat;
+}
+
 // ── Génération du PDF (html2pdf, chargé à la demande) ───────────────────────
 async function telechargerPdf(html, nomFichier) {
   const conteneur = document.createElement("div");
@@ -192,6 +216,10 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
   const reglages = useReglagesMarges();
   const donnees = useDonneesPeriode(periode);
+  const semProchaine = useSemaineQuiVient(periode);
+  const [decisionsChoix, setDecisionsChoix] = useState({ cle: null, valeurs: {} });
+  const decisionsPeriode = decisionsChoix.cle === periode?.cle ? decisionsChoix.valeurs : {};
+  const choisirDecision = (id, valeur) => setDecisionsChoix(c => ({ cle: periode.cle, valeurs: { ...(c.cle === periode.cle ? c.valeurs : {}), [id]: valeur } }));
 
   // Choix manuels de la case « exporter », conservés tant qu'on reste sur la
   // même période ; oubliés quand on en change (la présélection se refait).
@@ -218,8 +246,26 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     const noms = Object.fromEntries(enCours.map(c => [c.id, c.nom]));
     const avertissements = avertissementsExportV3({ periode, chantierIds: retenus.map(c => c.id), rapports, relevesLignes: releves, noms });
     const bandeau = bandeauV3({ synthese, nbComptesRendusNonValides: avertissements.nbNonValides });
-    return { activite, preselection, synthese, alertes, avertissements, bandeau, ligneSansActivite: ligneSansActiviteV3(preselection) };
-  }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges]);
+    const tousNoms = Object.fromEntries((chantiers || []).map(c => [c.id, c.nom]));
+    const rappel = rappelBlocagesV3({ bilansHebdo: donnees.bilansHebdo, periode, noms: tousNoms });
+    const suggestions = suggestionsDecisionsV3({ rapports: donnees.rapportsDecisions.filter(r => retenus.some(c => c.id === r.chantier_id)), periode, noms: tousNoms });
+    const statuts = Object.fromEntries((chantiers || []).map(c => [c.id, c.statut]));
+    const relevesFinTous = [...idx.values()].map(l => releveAuPlusTardV3(l, bornes.dateFin)).filter(Boolean)
+      .filter(r => !CHANTIERS_EXCLUS.includes(r.chantier_nom));
+    const tendances = tendancesParLotV3({ releves: relevesFinTous, statuts, exclus: reglages.derivesDetail?.exclusReprise || [] });
+    return { activite, preselection, synthese, alertes, avertissements, bandeau, ligneSansActivite: ligneSansActiviteV3(preselection),
+      rappel, suggestions, tendances };
+  }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges, reglages.derivesDetail, chantiers]);
+  const semaineQuiVient = useMemo(() => {
+    const ref = semProchaine.referentiel;
+    const nomChantier = id => (chantiers || []).find(c => c.id === id)?.nom || (ref?.chantiers || []).find(c => c.id === id)?.nom || id;
+    const nomRessource = id => { const r = (ref?.ressources || []).find(x => x.id === id); return r?.nom_planning || r?.nom || id; };
+    return semaineQuiVientV3({ decoupe: semProchaine.decoupe, erreur: semProchaine.erreur, nomChantier, nomRessource });
+  }, [semProchaine, chantiers]);
+  const decisionsRetenues = calcul ? [
+    ...calcul.rappel.map(b => ({ titre: `${b.nom} (rappel ${b.semaine.replace(/^\d{4}-W/, "S")})`, detail: b.texte })),
+    ...calcul.suggestions.filter(x => decisionsPeriode[x.id] === true).map(x => ({ titre: x.titre, detail: x.detail })),
+  ] : [];
 
   // ── Version détaillée : préparation par le conducteur (par période) ──
   const [detaillee, setDetaillee] = useState(false);
@@ -259,6 +305,9 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     periode, bornes: donnees.bornes, bandeau: calcul.bandeau, synthese: calcul.synthese,
     ligneSansActivite: calcul.ligneSansActivite, avertissements: calcul.avertissements,
     alertes: calcul.alertes.releveDisponible ? calcul.alertes.lignes : null,
+    decisions: decisionsRetenues,
+    tendances: calcul.tendances,
+    semaineQuiVient,
     genereLe: new Date().toLocaleDateString("fr-FR"),
     ...(detaillee && preparation ? {
       fiches: calcul.synthese.map(s => {
@@ -426,6 +475,51 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
                   <ul style={{ margin: "2px 0 0 18px", padding: 0 }}>{l.alertes.map((a, i) => <li key={i}>{a.texte}</li>)}</ul>
                 </div>
               ))}
+        </div>
+
+        {/* Décisions attendues */}
+        <div style={carte}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Décisions attendues</div>
+          {calcul.rappel.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 2 }}>Rappel des blocages des 4 dernières semaines</div>
+              {calcul.rappel.map((b, i) => <div key={i} style={{ fontSize: 13 }}><strong>{b.nom}</strong> ({b.semaine}) : {b.texte}</div>)}
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 2 }}>Propositions — retenez celles qui doivent figurer dans le bilan</div>
+          {calcul.suggestions.length === 0 ? <div style={{ fontSize: 13, color: T.textMuted }}>Aucune proposition sur la période.</div>
+            : calcul.suggestions.map(x => (
+              <div key={x.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0", borderTop: `1px solid ${T.border}`, fontSize: 13 }}>
+                <div style={{ flex: 1 }}><strong>{x.titre}</strong><div style={{ fontSize: 12, color: T.textSub }}>{x.detail}</div></div>
+                <button style={btn(decisionsPeriode[x.id] === true)} onClick={() => choisirDecision(x.id, true)}>Retenir</button>
+                <button style={btn(decisionsPeriode[x.id] === false)} onClick={() => choisirDecision(x.id, false)}>Écarter</button>
+              </div>
+            ))}
+          <div style={{ fontSize: 12, color: T.textMuted, marginTop: 6 }}>Tâches hors devis à arbitrer : arrivent avec l'étape 4 du projet.</div>
+        </div>
+
+        {/* Tendances par lot */}
+        <div style={carte}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Tendances par lot (tous chantiers)</div>
+          {calcul.tendances.phrase && <div style={{ fontSize: 13, marginBottom: 6 }}>{calcul.tendances.phrase}</div>}
+          {calcul.tendances.lignes.length === 0 ? <div style={{ fontSize: 13, color: T.textMuted }}>Pas assez de données.</div> : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ color: T.textMuted, fontSize: 11, textAlign: "right" }}><th style={{ textAlign: "left" }}>Type de lot</th><th>Chantiers</th><th>Dérive moyenne</th><th>Écart (h)</th><th>Écart (€)</th></tr></thead>
+              <tbody>{calcul.tendances.lignes.map(l => (
+                <tr key={l.id} style={{ borderTop: `1px solid ${T.border}`, textAlign: "right" }}>
+                  <td style={{ textAlign: "left", padding: 4 }}>{l.label}</td><td>{l.nbChantiers}</td><td>×{String(l.derive).replace(".", ",")}</td>
+                  <td>{fmtH(l.ecartHeures)}</td><td style={{ color: couleurSigne(-l.ecartEuros, T) }}>{fmtEurSigne(l.ecartEuros)}</td>
+                </tr>))}</tbody>
+            </table>
+          )}
+          {calcul.tendances.reprisExclus.length > 0 && <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>Chantiers repris exclus : {calcul.tendances.reprisExclus.join(", ")}</div>}
+        </div>
+
+        {/* La semaine qui vient */}
+        <div style={carte}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>La semaine qui vient{semaineQuiVient.fenetre ? ` (du ${fmtJourV3(semaineQuiVient.fenetre.debut)} au ${fmtJourV3(semaineQuiVient.fenetre.fin)})` : ""}</div>
+          {semaineQuiVient.indisponible ? <div style={{ fontSize: 13, color: T.textMuted }}>{semaineQuiVient.indisponible}</div>
+            : semaineQuiVient.lignes.map((l, i) => <div key={i} style={{ fontSize: 13, padding: "2px 0" }}><strong>{l.titre}</strong> : {l.detail}</div>)}
         </div>
 
         {/* Sélection et export */}
