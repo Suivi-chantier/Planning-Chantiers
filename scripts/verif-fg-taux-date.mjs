@@ -150,7 +150,8 @@ const lus = sources.map(f => ({ f: f.slice(racine.length + 1).replace(/\\/g, "/"
   // Le champ par phasage n'est plus LU nulle part (seuls des commentaires le citent).
   const lecteurs = lus.filter(({ s }) => s.split(/\r?\n/).some(l => /fg_taux_horaire\b/.test(l) && !/^\s*(\/\/|\*)/.test(l)));
   ok(lecteurs.length === 0, `champ par phasage encore lu : ${lecteurs.map(x => x.f).join(", ")}`);
-  ok(!lus.some(({ s }) => /Définis un taux horaire de frais généraux/.test(s)), "l'avertissement « Définis un taux horaire » a disparu");
+  // (Le journal des MAJ annonce sa disparition : il est le seul à le citer.)
+  ok(!lus.some(({ f, s }) => f !== "src/Renovation/journalMaj.js" && /Définis un taux horaire de frais généraux/.test(s)), "l'avertissement « Définis un taux horaire » a disparu");
   // Tous les appels du module transmettent le barème.
   const appels = [];
   lus.forEach(({ f, s }) => {
