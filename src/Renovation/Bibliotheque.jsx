@@ -45,6 +45,8 @@ import {
   MESSAGE_ARCHIVES_INDISPONIBLES,
 } from "./archivesBibliothequeV1.js";
 import OuvrageProgbatSync from "./OuvrageProgbatSync";
+import { tachesSouventAjouteesV2, ressemblanceNomsV2 } from "./horsDevisV2";
+import { chantierRepris } from "../chantierFinance";
 // Report automatique sur les chantiers (décision du 16/10/2026) : la cadence et
 // la répartition en % d'un ouvrage enregistré s'appliquent à tous les chantiers
 // qui l'utilisent, terminés compris.
@@ -559,7 +561,7 @@ function useRappelStable(fn) {
 // (rappels stables, prix et catégorie calculés par la page) et la fiche ne
 // lit jamais la liste complète des ouvrages : elle met à jour SON ouvrage par
 // setOuvrages(prev => …).
-const OuvrageCard = memo(function OuvrageCard({ ouvrage, prix, categorie: currentCat, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, setOuvrages, categories, changerCategorie, materiaux, groupesTypes, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, estArchive = false, onArchiver = null, archivageEnCours = false, T, acc }) {
+const OuvrageCard = memo(function OuvrageCard({ ouvrage, prix, categorie: currentCat, isEdit, onToggleEdit, onSave, onDelete, onDuplicate, saving, setOuvrages, categories, changerCategorie, materiaux, groupesTypes, tauxHoraires = [], coefficients = [], echantillon = null, echantillonPret = false, souventAjoutees = null, estArchive = false, onArchiver = null, archivageEnCours = false, T, acc }) {
   // L'ouvrage reçu EST la saisie en cours (il vient de `ouvrages`).
   const editData = ouvrage;
   const cadence = parseFloat(ouvrage.cadence) || null;
@@ -582,6 +584,18 @@ const OuvrageCard = memo(function OuvrageCard({ ouvrage, prix, categorie: curren
     const next = [...(editData.sous_taches || []), isV2
       ? { id: nouvelIdSousTache(), nom: "", lotId: "", groupe_type_id: null, ratio: null, dependance_mode: DEPENDANCE_MODES.PARALLEL, predecesseur_ids: [], delai_min_calendaire: 0, unite_delai: "heures" }
       : { nom: "", lotId: "", ratio: null }];
+    setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
+  }
+
+  // Étape 4 : « tâches souvent ajoutées » en cours de chantier sur ce modèle →
+  // ajoutée comme étape à 0 % (la répartition existante ne bouge pas ; à
+  // ajuster puis enregistrer).
+  function addSousTacheNommee(nom) {
+    const deja = (editData.sous_taches || []).some(st => String(st?.nom || "").trim().toLowerCase() === String(nom).trim().toLowerCase());
+    if (deja) return;
+    const next = [...(editData.sous_taches || []), isV2
+      ? { id: nouvelIdSousTache(), nom, lotId: "", groupe_type_id: null, ratio: 0, dependance_mode: DEPENDANCE_MODES.PARALLEL, predecesseur_ids: [], delai_min_calendaire: 0, unite_delai: "heures" }
+      : { nom, lotId: "", ratio: 0 }];
     setOuvrages(prev => prev.map(o => o.id !== ouvrage.id ? o : { ...o, sous_taches: next }));
   }
 
@@ -763,6 +777,28 @@ const OuvrageCard = memo(function OuvrageCard({ ouvrage, prix, categorie: curren
               que cette information éclaire — et elle l'éclaire souvent en
               disant « on ne sait pas encore ». Rien n'est modifiable ici. */}
           <EncartEchantillon entree={echantillon} pret={echantillonPret} T={T}/>
+
+          {/* ── Tâches souvent ajoutées en cours de chantier (étape 4) ── */}
+          {(() => {
+            const restantes = (souventAjoutees || []).filter(s => !(editData.sous_taches || []).some(st => ressemblanceNomsV2(st?.nom, s.nom) >= 0.8));
+            return restantes.length > 0 && (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: T.card }}>
+              <div style={{ fontSize: FONT.xs.size + 1, fontWeight: 700, color: T.text }}>Tâches souvent ajoutées en cours de chantier</div>
+              <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginBottom: 4 }}>
+                Ajoutées (cas « imprévu ») sur au moins 2 chantiers, chantiers repris exclus. « Ajouter au modèle » crée l'étape à 0 % : ajustez la répartition puis enregistrez.
+              </div>
+              {restantes.map(s => (
+                <div key={s.nom} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: FONT.xs.size + 1, color: T.text, padding: "2px 0" }}>
+                  <span style={{ flex: 1 }}><strong>{s.nom}</strong> <span style={{ color: T.textMuted }}>· {s.nbChantiers} chantiers</span></span>
+                  <button type="button" onClick={() => addSousTacheNommee(s.nom)} style={{
+                    padding: "3px 9px", borderRadius: RADIUS.md, border: `1px solid ${acc.accent}`, background: "transparent",
+                    color: acc.accent, fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer",
+                  }}>Ajouter au modèle</button>
+                </div>
+              ))}
+            </div>
+            );
+          })()}
 
           {/* ── Prix de vente calculé (Profero = source de vérité du prix) ──
               Formule v2 : matériaux × coefficient + coût direct × coefficient
@@ -1287,6 +1323,7 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
   // null tant que la lecture n'a pas répondu — à distinguer de {}, qui veut
   // dire « lu, et aucun ouvrage terminé comparable ».
   const [echantillon, setEchantillon] = useState(null);
+  const [souventAjoutees, setSouventAjoutees] = useState(null);   // Map bibliotheque_id → [{ nom, nbChantiers }]
 
   const categories = useMemo(() => [...CATEGORIES_BASE, ...categoriesCustom], [categoriesCustom]);
 
@@ -1413,6 +1450,9 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
     // ouvrages » là où il y en a 5, ce qui est pire que de ne rien afficher.
     if (errPh || errPt) { setEchantillon({}); return; }
     const resultat = echantillonCadencesV1({ phasages, pointages });
+    // Étape 4 : tâches ajoutées en cours de chantier (cas B), par modèle.
+    // Les étapes déjà présentes dans un modèle sont écartées à l'affichage.
+    setSouventAjoutees(tachesSouventAjouteesV2({ phasages, exclus: (phasages || []).filter(p => chantierRepris(p)).map(p => p.chantier_id) }));
     setEchantillon(indexEchantillonParBibliothequeV1(resultat));
   }
 
@@ -2466,6 +2506,7 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
                       coefficients={coefficients}
                       echantillon={echantillon ? (echantillon[ouvrage.id] || null) : null}
                       echantillonPret={echantillon !== null}
+                      souventAjoutees={souventAjoutees ? (souventAjoutees.get(String(ouvrage.id)) || null) : null}
                       estArchive={estArchiveV1(archives, ouvrage.id)}
                       onArchiver={onArchiverStable}
                       archivageEnCours={archivageEnCours === ouvrage.id}

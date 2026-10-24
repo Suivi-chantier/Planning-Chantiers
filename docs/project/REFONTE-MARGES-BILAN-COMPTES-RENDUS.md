@@ -195,7 +195,7 @@ chaque étape.
 | 1 | Étape 1 — Fondations des données financières | ✅ En ligne | 2026-10-24 | Trouvée non en ligne au démarrage, mise en ligne le 24/10 avec l'accord de Loris : 3 migrations, reconstitution du passé (4 796 lignes), premiers relevés journaliers. Voir « Vérification de l'étape 1 ». |
 | 2 | Étape 2 — Les trois marges et les alertes | ✅ En ligne | 2026-10-24 | Trois marges (avancement, terminaison, probable), « marge nette » devenue « budget restant », relevés passés recalculés (3 686), nouvelles alertes sur les relevés journaliers. Coefficients sous ×1 : tranché par Loris (plancher ×1, livré en 3.0). Voir « Étape 2 ». |
 | 3 | Étape 3 — Refonte du Bilan semaine | ✅ En ligne | 2026-10-24 | Bilan sur les relevés journaliers, période libre, présélection, versions direction et détaillée, bilans figés + Rectifications, prévu / réalisé, fin prévisionnelle et glissement, tendances, semaine qui vient (équipe + commandes + livraisons), bilan de clôture. Relevés du vendredi arrêtés (option A), plus aucun lecteur. PR #155 à #166. Voir « Étape 3 ». |
-| 4 | Étape 4 — Tâches hors devis | ⏳ À faire | | |
+| 4 | Étape 4 — Tâches hors devis | ✅ En ligne | 2026-10-24 | Cas A / B / C choisis à la validation et dans le phasage (« Ce travail est-il facturé au client ? »), avenant, geste commercial, ouvrage non facturé ; décisions « à arbitrer » dans le Bilan avec rappel réglable ; heures hors devis par cas dans la fiche chantier ; tâches souvent ajoutées dans la Bibliothèque. Aucune migration. Voir « Étape 4 ». |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ⏳ À faire | | |
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ⏳ À faire | | |
 | 7 | CR-3 — Nouveau parcours du compte rendu | ⏳ À faire | | |
@@ -317,7 +317,8 @@ chaque étape.
   « Ce travail est-il facturé au client ? », avenant, geste commercial,
   ouvrage « non facturé ») ; 4C Bilan et fiche chantier (décisions attendues,
   rappel réglable, gestes commerciaux, heures par motif) ; 4D bibliothèque
-  (« tâches souvent ajoutées »). Aucune migration : le motif, le statut
+  (« tâches souvent ajoutées ») — 4C et 4D livrées ensemble (#170), petites
+  et sans risque l'une pour l'autre. Aucune migration : le motif, le statut
   d'arbitrage et la marque « ajoutée en cours de chantier » sont rangés dans
   la tâche du phasage, comme les autres informations de la tâche. Les tâches
   existantes restent « motif non renseigné » tant que personne ne les classe.
@@ -604,6 +605,119 @@ sont gardées telles quelles.
 - Code mort laissé en place (aucun appel) : `pointsAttentionV1`, les
   fonctions de dédoublonnage des relevés du vendredi et les deux routes
   `api/cron-snapshot-*.js` (gardées pour un relancement manuel).
+
+#### Étape 4 — Tâches hors devis (24/10/2026, en ligne)
+
+**Ce qui change pour les conducteurs (et pour Loris).**
+- **Validation de fin de journée** : quand un ouvrier propose une tâche qui
+  n'est pas dans le phasage (ou quand le conducteur clique « + Créer »), un
+  bloc « Quel cas ? » demande ce que c'est :
+  - **A — elle existait** : l'application propose les tâches les plus
+    probables (nom proche, prévue ce jour-là, même lot) ; un clic rattache
+    les heures à la tâche existante, rien n'est créé ;
+  - **B — imprévu dans un ouvrage vendu** : la tâche est créée dans l'ouvrage
+    choisi, marquée « ajoutée en cours de chantier », avec ses heures
+    NORMALES (proposées par la bibliothèque quand une étape du modèle porte
+    un nom proche, sinon saisies) ; la validation est refusée tant qu'elles
+    manquent. Les heures prévues de l'ouvrage ne bougent pas : la dérive
+    reste visible ;
+  - **C — non vendu** : la tâche va dans « Divers / hors devis », « à
+    arbitrer ». Sans cas choisi, tout se passe comme avant.
+- **Phasage** : bouton « Hors devis · N » en haut (rouge s'il reste des
+  tâches à arbitrer). Toutes les tâches hors devis du chantier, anciennes
+  comprises, avec heures, coût (main-d'œuvre + frais généraux) et un cas
+  proposé. « Classer » pose d'abord la question « Ce travail est-il facturé
+  au client ? » : oui dans le devis → A (les heures passent sur la tâche
+  existante, la tâche hors devis disparaît) ou B ; oui par un avenant →
+  rattachement à l'ouvrage d'avenant chiffré (il produit ; les relevés sont
+  recalculés depuis le premier jour déclaré, et si ces jours sont dans un
+  bilan déjà exporté, l'écart sort dans « Rectifications ») ; non → geste
+  commercial (un coût sans production) ; pas encore décidé → à arbitrer. Un
+  ouvrage sans prix peut être marqué « non facturé ».
+- **Bilan** : « Décisions attendues » propose, par chantier, les tâches à
+  arbitrer avec heures et coût (Retenir / Écarter), en rouge au-delà de 3
+  semaines sans décision. Version détaillée : total des gestes commerciaux de
+  la période, et par chantier les heures hors devis par cas.
+- **Fiche chantier** (page Chantiers, sous « Total chantier ») : heures hors
+  devis par cas, à arbitrer, gestes commerciaux, avenants.
+- **Bibliothèque** : encart « Tâches souvent ajoutées en cours de chantier »
+  dans un ouvrage (au moins 2 chantiers, chantiers repris exclus), bouton
+  « Ajouter au modèle » (étape à 0 %, à répartir).
+- **Admin** → Taux horaires → « Marge probable et alertes » → « Tâches hors
+  devis » : rappel au-delà de **3 semaines** (défaut).
+
+**Mises en ligne** : #168 (4A validation + module), #169 (4B phasage),
+#170 (4C Bilan / fiche / Admin + 4D bibliothèque). **Aucune migration** : le
+cas, le statut d'arbitrage et la marque « ajoutée en cours de chantier » sont
+rangés dans la tâche du phasage. Contrôle `verif-hors-devis-v2.mjs` (63
+contrôles, données fictives) branché dans « Verify Fondations Finance » :
+les 6 cas demandés (A sans nouvelle tâche ni double production ; B à 1 h
+normale pour 3 h réelles ; C en avenant dans une semaine exportée →
+Rectifications de 600 € ; C en geste commercial, coût sans production ;
+rappel au-delà de 3 semaines ; tâche souvent ajoutée proposée) et plus.
+
+**Les vraies tâches hors devis, chantier par chantier** (requête sur la base
+du 24/10/2026 : tâches cochées hors devis ou rangées dans « Divers / hors
+devis » ; coût = heures × taux horaire chargé de l'ouvrier + frais généraux
+au taux par défaut 17,44 €/h, le barème n'ayant jamais été enregistré ; cas
+proposé automatiquement par l'application, aucune n'est encore classée) :
+
+| Chantier | Tâches | Heures | Coût (MO+FG) | A proposé | B proposé | C proposé | Standard |
+|---|---|---|---|---|---|---|---|
+| TOM & CAMILLE R+2 | 47 | 173,5 h | 5 941 € | 0 · 0 h | 0 · 0 h | 39 · 142 h | 8 · 31,5 h |
+| BRIOLLAY | 43 | 165,3 h | 6 165 € | 0 · 0 h | 0 · 0 h | 36 · 143,3 h | 7 · 22 h |
+| TOM & CAMILLE R+1 | 45 | 128,2 h | 4 709 € | 4 · 9,5 h | 0 · 0 h | 35 · 99,7 h | 6 · 19 h |
+| TOM & CAMILLE RDC | 47 | 126,8 h | 4 769 € | 2 · 1 h | 1 · 1 h | 38 · 99,3 h | 6 · 25,6 h |
+| METOIS | 41 | 92,7 h | 3 448 € | 1 · 3,5 h | 0 · 0 h | 38 · 86,3 h | 2 · 2,9 h |
+| MAUDUIT | 31 | 65,3 h | 2 479 € | 5 · 0 h | 0 · 0 h | 23 · 60,3 h | 3 · 5 h |
+| ARTHUR - R+1 | 16 | 56 h | 1 542 € | 1 · 0,5 h | 0 · 0 h | 13 · 52,3 h | 2 · 3,3 h |
+| ARTHUR - RDC | 23 | 53 h | 1 815 € | 1 · 0 h | 0 · 0 h | 19 · 49,8 h | 3 · 3,3 h |
+| TOURBOUTON CO-LIVING | 30 | 42,3 h | 1 551 € | 0 · 0 h | 0 · 0 h | 27 · 36,3 h | 3 · 6 h |
+| FOURMOND 001 | 17 | 38,9 h | 1 367 € | 0 · 0 h | 0 · 0 h | 13 · 26,4 h | 4 · 12,5 h |
+| TOURBOUTON 101 | 11 | 36,8 h | 1 380 € | 1 · 0,5 h | 0 · 0 h | 7 · 24,5 h | 3 · 11,8 h |
+| FOURMOND 101 | 9 | 22,3 h | 792 € | 0 · 0 h | 0 · 0 h | 7 · 19,3 h | 2 · 3 h |
+| BRIOLLAY APPT 2 | 9 | 21,8 h | 717 € | 0 · 0 h | 0 · 0 h | 7 · 13,3 h | 2 · 8,5 h |
+| KATHLEEN T2 | 5 | 20 h | 758 € | 0 · 0 h | 0 · 0 h | 5 · 20 h | 0 · 0 h |
+| BRIOLLAY APPT 1 | 4 | 15,5 h | 519 € | 0 · 0 h | 0 · 0 h | 1 · 2,5 h | 3 · 13 h |
+| BRIOLLAY APPT 5 | 4 | 15 h | 561 € | 0 · 0 h | 0 · 0 h | 3 · 12 h | 1 · 3 h |
+| FOURMOND 102 | 4 | 15 h | 576 € | 0 · 0 h | 0 · 0 h | 3 · 14,5 h | 1 · 0,5 h |
+| FOURMOND COMMUNS | 6 | 14,8 h | 591 € | 0 · 0 h | 0 · 0 h | 4 · 7 h | 2 · 7,8 h |
+| BRIOLLAY APPT 3 | 4 | 13,2 h | 508 € | 0 · 0 h | 0 · 0 h | 4 · 13,2 h | 0 · 0 h |
+| ARTHUR - R+2 | 15 | 11,8 h | 425 € | 2 · 0,5 h | 0 · 0 h | 10 · 10,8 h | 3 · 0,5 h |
+| BRIOLLAY APPT 4 | 5 | 11,3 h | 430 € | 0 · 0 h | 0 · 0 h | 3 · 5 h | 2 · 6,3 h |
+| TOURBOUTON 102 | 5 | 9 h | 288 € | 0 · 0 h | 0 · 0 h | 5 · 9 h | 0 · 0 h |
+| ROLAND - PLANCHER | 1 | 5,3 h | 153 € | 0 · 0 h | 0 · 0 h | 0 · 0 h | 1 · 5,3 h |
+| MONTILLERS APPT 1 (T3) | 1 | 4 h | 146 € | 0 · 0 h | 1 · 4 h | 0 · 0 h | 0 · 0 h |
+| CHALONNES ENEDIS | 1 | 3 h | 126 € | 0 · 0 h | 0 · 0 h | 1 · 3 h | 0 · 0 h |
+| MONTILLERS APPT 3 (STUDIO) | 2 | 2,5 h | 91 € | 0 · 0 h | 1 · 1 h | 0 · 0 h | 1 · 1,5 h |
+| MONTILLERS APPT 4 (T2) | 1 | 0,5 h | 18 € | 0 · 0 h | 0 · 0 h | 1 · 0,5 h | 0 · 0 h |
+| GILDAS BAUGE 2 | 4 | 0 h | 0 € | 0 · 0 h | 0 · 0 h | 4 · 0 h | 0 · 0 h |
+| TEST | 1 | 0 h | 0 € | 0 · 0 h | 0 · 0 h | 1 · 0 h | 0 · 0 h |
+| LOU | 1 | 0 h | 0 € | 0 · 0 h | 0 · 0 h | 0 · 0 h | 1 · 0 h |
+
+Total : **433 tâches, 1 163 h, 41 866 €**. Cas proposés : A 17, B 3, C 347,
+tâches standard (nettoyage, approvisionnement, SAV… à garder telles quelles)
+66.
+
+**Points d'attention.**
+- La proposition « C » est surtout un « à examiner » : sur les chantiers
+  anciens (TOM & CAMILLE, BRIOLLAY, METOIS, MAUDUIT, ARTHUR), presque tout
+  le travail a été saisi dans « Divers » sans tâches de devis à côté — il n'y
+  a rien à quoi le rapprocher, alors que beaucoup de ces travaux étaient
+  vendus (« Doublage cuisine », « Enduits »…). Rien n'est classé
+  automatiquement : seul un clic du conducteur change une tâche. Les
+  décisions du Bilan ne montrent que les tâches effectivement marquées « à
+  arbitrer ».
+- Cas A depuis le phasage : les heures sont déplacées dans les pointages
+  (la tâche hors devis disparaît du phasage) ; les comptes rendus d'origine
+  gardent le nom écrit par l'ouvrier.
+- Rattachement à un avenant : la production compte aux jours où la tâche a
+  progressé dans le journal d'avancement ; la ligne « Rectifications »
+  n'apparaît que si un bilan de ces jours a été exporté.
+- Réservé à CR-3 : l'écran ouvrier posera lui-même la question « Pourquoi
+  elle n'est pas dans la liste ? » (introuvable / imprévu / demande du
+  client) ; les données sont prêtes (`motif_hd`, `ajoutee_en_cours`,
+  `arbitrage` dans la tâche).
 
 ---
 

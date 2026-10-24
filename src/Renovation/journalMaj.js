@@ -25,6 +25,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Bibliothèque : tâches souvent ajoutées en cours de chantier",
+    pages: [{ id: "bibliotheque", label: "Bibliothèque" }],
+    quoi: "Quand la même tâche est ajoutée en cours de chantier (imprévu dans un ouvrage vendu) sur au moins 2 chantiers pour un même modèle d'ouvrage, la Bibliothèque la signale : c'est probablement une étape oubliée du modèle. Les chantiers repris ne comptent pas.",
+    comment: "Bibliothèque → ouvrir un ouvrage : encart « Tâches souvent ajoutées en cours de chantier » → « Ajouter au modèle » (étape à 0 %, à répartir puis enregistrer).",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Bilan : tâches hors devis à arbitrer et gestes commerciaux",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "chantiers", label: "Chantiers" }],
+    quoi: "Les décisions attendues du Bilan proposent, par chantier, les tâches hors devis encore à arbitrer avec leurs heures et leur coût (« KATHLEEN : 3 tâches hors devis à arbitrer, 12 h, environ 450 € — avenant ou offert ? »), avec un rappel en rouge au-delà de 3 semaines sans décision (réglable dans Admin). La version détaillée donne le total des gestes commerciaux de la période et, par chantier, les heures hors devis par cas ; la fiche chantier aussi.",
+    comment: "Équipe → Bilan → « Décisions attendues » : Retenir / Écarter comme les autres propositions. Admin → Taux horaires → « Marge probable et alertes » → « Tâches hors devis ».",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Phasage : classer les tâches hors devis (réaffecter, intégrer, avenant, offert)",
     pages: [{ id: "phasage", label: "Phasage" }],
     quoi: "Toutes les tâches hors devis d'un chantier (y compris les anciennes, rangées dans « Divers / hors devis ») sont listées avec leurs heures et leur coût (main-d'œuvre + frais généraux), et un cas proposé automatiquement. Pour chacune, une question : « Ce travail est-il facturé au client ? ». Oui, dans le devis : les heures vont à la tâche existante (A) ou la tâche rejoint un ouvrage vendu avec ses heures normales (B). Oui, par un avenant : elle est rattachée à l'ouvrage d'avenant chiffré et produit — si c'était dans une semaine déjà exportée, l'écart sort dans « Rectifications ». Non : geste commercial, un coût sans production. Pas encore décidé : « à arbitrer ». Un ouvrage sans prix peut être marqué « non facturé ».",

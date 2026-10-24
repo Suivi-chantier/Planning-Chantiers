@@ -23,6 +23,8 @@ const CHAMPS = [
   { cle: "consoAvancementStablePts", label: "Avancement considéré stable jusqu'à", unite: "point(s) de production" },
   { cle: "consoHeuresAjouteesMin", label: "Au moins", unite: "heures consommées sur la période" },
   { cle: "consoMargePerdueMinEuros", label: "Marge à l'avancement en baisse d'au moins", unite: "€" },
+  { titre: "Tâches hors devis" },
+  { cle: "horsDevisRappelSemaines", label: "Rappel des tâches « à arbitrer » au-delà de", unite: "semaines sans décision (avenant ou geste commercial)" },
 ];
 
 export default function SeuilsMargesAdmin({ T, saveConfig }) {

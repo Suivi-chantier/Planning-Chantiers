@@ -642,6 +642,8 @@ export const SEUILS_MARGES_DEFAUT = Object.freeze({
   consoAvancementStablePts: 1,
   consoHeuresAjouteesMin: 2,
   consoMargePerdueMinEuros: 50,
+  // Tâches hors devis (étape 4) : rappel des tâches « à arbitrer » au-delà de N semaines
+  horsDevisRappelSemaines: 3,
 });
 export function normaliserSeuilsMarges(valeur) {
   const v = valeur && typeof valeur === "object" ? valeur : {};

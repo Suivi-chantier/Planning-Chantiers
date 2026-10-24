@@ -31,6 +31,8 @@ import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanClotureV3 } from "./bilanClotureV3.js";
 import { ligneArchiveV3, rectificationsV3, prevuRealiseV3, derniersExportsParPeriodeV3, finsPrevuesV3 } from "./bilanArchiveV3.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
+import { syntheseHorsDevisChantierV2, decisionsHorsDevisV2, gestesCommerciauxPeriodeV2, texteHorsDevisV2, texteGestesPeriodeV2, estTacheHorsDevisV2 } from "./horsDevisV2.js";
+import { tauxFGALaDate } from "../chantierFinance";
 
 const ACCENT = "#FFC200";
 const CHANTIERS_EXCLUS = ["DÉPOT"];
@@ -199,6 +201,42 @@ function useSemaineQuiVient(periode) {
       .catch(e => { if (!annule) setEtat({ decoupe: null, referentiel: null, erreur: e?.message || "erreur du moteur de planning", fins: null }); });
     return () => { annule = true; };
   }, [periode?.cle]); // eslint-disable-line react-hooks/exhaustive-deps
+  return etat;
+}
+
+// ── Tâches hors devis des chantiers retenus (étape 4) : phasages, pointages
+// des seules tâches hors devis (avec taux horaire, pour le coût) et barème
+// des frais généraux.
+function useHorsDevisChantiers(ids) {
+  const [etat, setEtat] = useState({ charge: false, ouvragesPar: {}, pointages: [], bareme: null, erreur: null });
+  const cle = (ids || []).slice().sort().join(",");
+  useEffect(() => {
+    if (!cle) { setEtat({ charge: true, ouvragesPar: {}, pointages: [], bareme: null, erreur: null }); return undefined; }
+    let annule = false;
+    (async () => {
+      const liste = cle.split(",");
+      const [ph, fg] = await Promise.all([
+        supabase.from("phasages").select("chantier_id, ouvrages").in("chantier_id", liste),
+        supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
+      ]);
+      if (annule) return;
+      if (ph.error) { setEtat({ charge: true, ouvragesPar: {}, pointages: [], bareme: null, erreur: ph.error.message }); return; }
+      const ouvragesPar = {};
+      (ph.data || []).forEach(r => { ouvragesPar[r.chantier_id] = [...(ouvragesPar[r.chantier_id] || []), ...(r.ouvrages || [])]; });
+      const tacheIds = [];
+      Object.values(ouvragesPar).forEach(os => os.forEach(o => (o.taches || []).forEach(t => { if (t?.id && estTacheHorsDevisV2(t, o)) tacheIds.push(String(t.id)); })));
+      const pointages = [];
+      for (let i = 0; i < tacheIds.length; i += 150) {
+        const { data, error } = await supabase.from("pointages").select("chantier_id, tache_id, date, heures, taux_horaire")
+          .in("tache_id", tacheIds.slice(i, i + 150));
+        if (annule) return;
+        if (error) { setEtat({ charge: true, ouvragesPar, pointages: [], bareme: null, erreur: error.message }); return; }
+        pointages.push(...(data || []));
+      }
+      setEtat({ charge: true, ouvragesPar, pointages, bareme: Array.isArray(fg.data?.value) ? fg.data.value : null, erreur: null });
+    })();
+    return () => { annule = true; };
+  }, [cle]);
   return etat;
 }
 
@@ -384,9 +422,30 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     ? (semProchaine.erreur ? { disponible: false, raison: `fin prévisionnelle indisponible : ${semProchaine.erreur}`, lignes: [] }
       : finsPrevuesV3({ archives: donnees.archives, periode, synthese: calcul.synthese, fins: semProchaine.fins }))
     : null), [calcul, semProchaine, donnees, periode]);
+  // Tâches hors devis à arbitrer (étape 4) : décisions proposées par chantier,
+  // gestes commerciaux de la période, textes des fiches.
+  const idsRetenusHD = useMemo(() => (calcul ? calcul.synthese.map(s => s.chantierId) : []), [calcul]);
+  const hd = useHorsDevisChantiers(idsRetenusHD);
+  const horsDevis = useMemo(() => {
+    if (!calcul || !hd.charge || hd.erreur) return { decisions: [], parChantier: {}, gestes: null, erreur: hd.erreur };
+    const tauxFG = d => tauxFGALaDate(hd.bareme, d);
+    const aujourdHui = new Date().toISOString().slice(0, 10);
+    const semainesRappel = reglages.seuilsMarges?.horsDevisRappelSemaines ?? 3;
+    const parChantier = {};
+    const liste = calcul.synthese.map(s => {
+      const synthese = syntheseHorsDevisChantierV2({ ouvrages: hd.ouvragesPar[s.chantierId] || [],
+        pointages: hd.pointages.filter(p => p.chantier_id === s.chantierId), tauxFG, aujourdHui, semainesRappel });
+      parChantier[s.chantierId] = synthese;
+      return { chantierId: s.chantierId, nom: s.nom, synthese };
+    });
+    const gestes = gestesCommerciauxPeriodeV2({ ouvragesParChantier: Object.entries(hd.ouvragesPar).map(([chantierId, ouvrages]) => ({ chantierId, ouvrages })),
+      pointages: hd.pointages, periode, tauxFG });
+    return { decisions: decisionsHorsDevisV2({ chantiers: liste, semainesRappel }), parChantier, gestes, erreur: null };
+  }, [calcul, hd, periode, reglages.seuilsMarges]);
   const decisionsRetenues = calcul ? [
     ...calcul.rappel.map(b => ({ titre: `${b.nom} (rappel ${b.semaine.replace(/^\d{4}-W/, "S")})`, detail: b.texte })),
     ...calcul.suggestions.filter(x => decisionsPeriode[x.id] === true).map(x => ({ titre: x.titre, detail: x.detail })),
+    ...horsDevis.decisions.filter(x => decisionsPeriode[x.id] === true).map(x => ({ titre: x.titre, detail: x.detail })),
   ] : [];
 
   // ── Version détaillée : préparation par le conducteur (par période) ──
@@ -438,14 +497,16 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
       fiches: calcul.synthese.map(s => {
         const idx = indexerRelevesV3(donnees.releves);
         const coches = prepPeriode.commentaires[s.chantierId] || [];
-        return ficheChantierV3({ synthese: s, releveFin: releveAuPlusTardV3(idx.get(s.chantierId), donnees.bornes.dateFin),
+        const fiche = ficheChantierV3({ synthese: s, releveFin: releveAuPlusTardV3(idx.get(s.chantierId), donnees.bornes.dateFin),
           ouvrages: det.ouvragesPar[s.chantierId] || [], journal: donnees.journal.filter(j => j.chantier_id === s.chantierId),
           pointages: donnees.pointages, periode, bornes: donnees.bornes,
           photosChoisies: prepPeriode.photos[s.chantierId] || [],
           commentairesCoches: preparation[s.chantierId].commentaires.filter(c => coches.includes(c.id)),
           syntheseRelue: prepPeriode.syntheses[s.chantierId] || "",
           seuilSansLotPct: reglages.seuilsMarges?.alerteSansLotPct ?? 10 });
+        return { ...fiche, horsDevis: texteHorsDevisV2(horsDevis.parChantier[s.chantierId]) };
       }),
+      gestesCommerciaux: texteGestesPeriodeV2(horsDevis.gestes) || undefined,
       methode: methodeBilanV3(),
     } : {}),
   });
@@ -629,7 +690,20 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
                 <button style={btn(decisionsPeriode[x.id] === false)} onClick={() => choisirDecision(x.id, false)}>Écarter</button>
               </div>
             ))}
-          <div style={{ fontSize: 12, color: T.textMuted, marginTop: 6 }}>Tâches hors devis à arbitrer : arrivent avec l'étape 4 du projet.</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginTop: 8, marginBottom: 2 }}>Tâches hors devis à arbitrer (avenant ou offert ?)</div>
+          {!hd.charge ? <div style={{ fontSize: 13, color: T.textMuted }}>Chargement…</div>
+            : horsDevis.erreur ? <div style={{ fontSize: 13, color: "#e05c5c" }}>Tâches hors devis indisponibles : {horsDevis.erreur}</div>
+            : horsDevis.decisions.length === 0 ? <div style={{ fontSize: 13, color: T.textMuted }}>Aucune tâche hors devis à arbitrer sur les chantiers retenus.</div>
+            : horsDevis.decisions.map(x => (
+              <div key={x.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0", borderTop: `1px solid ${T.border}`, fontSize: 13 }}>
+                <div style={{ flex: 1 }}><strong style={{ color: x.rappel ? "#e05c5c" : undefined }}>{x.titre}</strong><div style={{ fontSize: 12, color: T.textSub }}>{x.detail}</div></div>
+                <button style={btn(decisionsPeriode[x.id] === true)} onClick={() => choisirDecision(x.id, true)}>Retenir</button>
+                <button style={btn(decisionsPeriode[x.id] === false)} onClick={() => choisirDecision(x.id, false)}>Écarter</button>
+              </div>
+            ))}
+          {horsDevis.gestes && horsDevis.gestes.heures > 0 && (
+            <div style={{ fontSize: 12, color: T.textSub, marginTop: 6 }}>Gestes commerciaux de la période : {texteGestesPeriodeV2(horsDevis.gestes)}.</div>
+          )}
         </div>
 
         {/* Tendances par lot */}

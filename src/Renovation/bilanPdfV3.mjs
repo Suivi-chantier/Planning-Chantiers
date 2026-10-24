@@ -189,6 +189,7 @@ function ficheHtml(f) {
     <h2>${e(f.nom)}</h2>
     ${f.synthese ? `<p><strong>Synthèse :</strong> ${e(f.synthese)}</p>` : ""}
     ${f.presences ? `<p class="note"><strong>Présences :</strong> ${e(f.presences)}</p>` : ""}
+    ${f.horsDevis ? `<p class="note">${e(f.horsDevis)}</p>` : ""}
     <table><thead><tr><th>Lot</th><th class="n">Heures réelles / prévues</th><th class="n">Avancement</th><th class="n">Écart</th><th class="n">Restant prévu → probable</th><th>Coefficient</th></tr></thead>
     <tbody>${lots}</tbody></table>
     ${f.sansLotAlerte ? `<p class="avert">${e(f.sansLotAlerte)}</p>` : ""}
