@@ -60,6 +60,8 @@ import { DIVERS_HORS_DEVIS, estOuvrageDivers } from "./compteRenduV2";
 import { demanderRecalculReleve } from "./relevesJournaliersApi";
 import ChoixCasHorsDevis from "./ChoixCasHorsDevis";
 import { libelleOuvrage, nomTache, nomTacheDevis } from "./libellesPhasageV1";
+// CR-4 : remarque reformulée par l'IA, avec le texte dicté d'origine à côté.
+import { remarqueAffichee } from "./dicteeCrV1";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -1900,11 +1902,21 @@ function ModaleRapport({
               ))}
             </div>
           )}
-          {rapport.remarque && (
-            <div style={{ marginTop: 10, padding: "8px 12px", background: T.widgetBg || T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, fontSize: 13, color: T.text }}>
-              <strong>Remarque générale :</strong> {rapport.remarque}
-            </div>
-          )}
+          {(() => {
+            const r = remarqueAffichee(rapport);
+            if (!r) return null;
+            return (
+              <div style={{ marginTop: 10, padding: "8px 12px", background: T.widgetBg || T.bg, border: `1px solid ${T.border}`, borderRadius: RADIUS.md, fontSize: 13, color: T.text }}>
+                <strong>{r.libelle} :</strong> {r.texte}
+                {r.origine && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: "pointer", color: T.textSub, fontSize: 12.5 }}>Voir le texte dicté d'origine</summary>
+                    <div style={{ marginTop: 4, whiteSpace: "pre-wrap", color: T.textSub, fontStyle: "italic" }}>{r.origine}</div>
+                  </details>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Heures indirectes */}
@@ -1967,6 +1979,8 @@ function ModaleRapport({
           <div style={{ padding: "0 20px 16px" }}>
             <h3 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: .5, color: T.textSub }}>
               Photos générales ({rapport.photos_chantier.length})
+              {Array.isArray(rapport.photos_fin_journee) && rapport.photos_fin_journee.length > 0
+                ? ` · dont ${rapport.photos_fin_journee.length} de fin de journée` : ""}
             </h3>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {rapport.photos_chantier.map((url, i) => (

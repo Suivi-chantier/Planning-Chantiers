@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-25",
     type: "nouveaute",
+    titre: "Compte rendu du soir : raconter sa journée au micro, l'IA prépare le compte rendu",
+    pages: [{ id: "validation", label: "Validation fin de journée" }],
+    quoi: "Dans le compte rendu du soir, l'ouvrier peut appuyer sur « Raconter ma journée au micro » et dire en quelques phrases ce qu'il a fait (« j'ai fini le placo de la chambre, commencé les bandes de la salle de bain, il manque des vis de 25 »). L'application lui propose les tâches concernées avec leur état et son temps, une remarque remise au propre et les demandes de matériel ; il relit, corrige, et c'est lui qui envoie. Rien n'est rempli quand l'IA n'est pas sûre. Le micro est aussi disponible dans la recherche du phasage, dans le nom d'une tâche créée et dans la remarque. Une photo de la zone en fin de journée est proposée (recommandée, jamais obligatoire).",
+    comment: "À la validation, la remarque reformulée s'affiche avec un lien « Voir le texte dicté d'origine » : le texte raconté par l'ouvrier est toujours gardé tel quel. Sans réseau, l'ouvrier dicte avec le micro de son clavier et remplit à la main ; sa remarque est remise au propre à l'envoi (signalée « non relue par l'ouvrier »). Les photos de fin de journée apparaissent dans les photos du chantier.",
+  },
+  {
+    date: "2026-10-25",
+    type: "nouveaute",
     titre: "Compte rendu du soir : nouveau parcours (journée prévue, comme prévu / pas comme prévu)",
     pages: [{ id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" }],
     quoi: "Le compte rendu des ouvriers devient plus court. À l'ouverture, l'ouvrier voit sa journée prévue et ce qui est attendu ce soir pour chaque tâche (« terminée ce soir », « en cours »). S'il a fait sa journée comme prévu, un bouton remplit tout ; sinon, il choisit ses tâches directement dans le phasage du chantier (par lot ou par pièce, avec les noms personnalisés et une recherche), indique où elles en sont avec des repères simples (commencé, à moitié, presque fini, terminé) et son temps au quart d'heure, avec des raccourcis (1 h, 2 h, 4 h, journée, « le reste ici »). Les tâches prévues non faites demandent une seule réponse : pourquoi. Quand un collègue a déjà déclaré une tâche, l'ouvrier confirme ou dit autre chose ; un désaccord apparaît à la validation.",

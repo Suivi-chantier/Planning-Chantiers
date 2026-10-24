@@ -42,6 +42,7 @@ const TACHES = [
   require("./taches/renovation_copilot"),
   require("./taches/releve_photos"),
   require("./taches/bilan_synthese"),
+  require("./taches/cr_dictee"),
 ];
 
 module.exports = Object.fromEntries(TACHES.map((t) => [t.id, t]));

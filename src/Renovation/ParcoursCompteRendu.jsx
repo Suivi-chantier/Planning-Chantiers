@@ -17,9 +17,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { Icon } from "../ui";
 import {
-  Check, X, Search, Plus, ChevronRight, ChevronLeft, WifiOff, Layers, Home, ListChecks, Clock, Users,
+  Check, X, Search, Plus, ChevronRight, ChevronLeft, WifiOff, Layers, Home, ListChecks, Clock, Users, Mic,
 } from "lucide-react";
 import { LOTS_DEFAUT } from "../constants";
+import { BoutonMicro } from "./DicteeCompteRendu";
 import {
   phraseAttendue, MOTIFS_CREATION, phraseCollegue, dureesDepuisFrise, minutesDeHeure,
 } from "./compteRenduV3";
@@ -51,7 +52,7 @@ export function phasageMemorise(chantierId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-export function AccueilJournee({ T, groupes, cibleHeures, fmtH, onCommePrevu, onPasCommePrevu, journeeEtat }) {
+export function AccueilJournee({ T, groupes, cibleHeures, fmtH, onCommePrevu, onPasCommePrevu, journeeEtat, onDicter = null }) {
   const nbPrevues = groupes.reduce((s, g) => s + g.lignes.length, 0);
   return (
     <>
@@ -101,6 +102,11 @@ export function AccueilJournee({ T, groupes, cibleHeures, fmtH, onCommePrevu, on
           <span style={{ border: `2px solid ${SOMBRE}`, borderRadius: 999, display: "inline-flex", padding: 2 }}><Icon as={X} size={16} strokeWidth={2.8}/></span>
           {nbPrevues > 0 ? "Ça ne s'est pas passé comme prévu" : "Dire ce que j'ai fait"}
         </button>
+        {onDicter && (
+          <button onClick={onDicter} style={gros(T, T.surface, SOMBRE)}>
+            <Icon as={Mic} size={22}/> Raconter ma journée au micro
+          </button>
+        )}
       </div>
     </>
   );
@@ -225,9 +231,12 @@ export function PhasageMobileCR({
         </div>
         <div style={carte(T)}>
           <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>Ce que tu as fait</div>
-          <input value={creation.nom} onChange={e => setCreation(c => ({ ...c, nom: e.target.value }))} placeholder="Ex. : reprise de l'angle du couloir" style={{
-            width: "100%", boxSizing: "border-box", minHeight: 52, borderRadius: 12, border: `1.5px solid ${T.border}`, padding: "0 12px", fontSize: 17, fontFamily: "inherit",
-          }}/>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input value={creation.nom} onChange={e => setCreation(c => ({ ...c, nom: e.target.value }))} placeholder="Ex. : reprise de l'angle du couloir" style={{
+              flex: 1, minWidth: 0, boxSizing: "border-box", minHeight: 52, borderRadius: 12, border: `1.5px solid ${T.border}`, padding: "0 12px", fontSize: 17, fontFamily: "inherit",
+            }}/>
+            <BoutonMicro T={T} valeur={creation.nom} onChange={v => setCreation(c => ({ ...c, nom: v }))} taille={52}/>
+          </div>
           <div style={{ fontSize: 15, fontWeight: 800, margin: "14px 0 6px" }}>Dans quel ouvrage ?</div>
           <select value={creation.ouvrage?.id || ""} onChange={e => {
             const o = ouvragesChantier.find(x => x.id === e.target.value);
@@ -273,9 +282,12 @@ export function PhasageMobileCR({
         </div>
         <div style={{ position: "relative", marginTop: 10 }}>
           <Icon as={Search} size={18} style={{ position: "absolute", left: 12, top: 15, color: T.textMuted }}/>
-          <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Chercher une tâche dans tout le chantier" style={{
-            width: "100%", boxSizing: "border-box", minHeight: 48, borderRadius: 12, border: "none", padding: "0 12px 0 38px", fontSize: 16, fontFamily: "inherit",
-          }}/>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Chercher une tâche dans tout le chantier" style={{
+              flex: 1, minWidth: 0, boxSizing: "border-box", minHeight: 48, borderRadius: 12, border: "none", padding: "0 12px 0 38px", fontSize: 16, fontFamily: "inherit",
+            }}/>
+            <BoutonMicro T={T} valeur={recherche} onChange={setRecherche} taille={48} fond="#fff" couleur={SOMBRE}/>
+          </div>
         </div>
       </div>
 

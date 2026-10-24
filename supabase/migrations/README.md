@@ -174,6 +174,11 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   du jour des collègues, réglage du parcours), droits authenticated seulement.
   Accord de Loris du 24/10/2026. Appliquée le 25/10/2026 par la CLI liée
   avant la fusion, enregistrée par `migration repair`.
+- `20261025120000_cr4_dictee_photo_fin.sql` (refonte des comptes rendus,
+  CR-4) : deux colonnes facultatives sur `rapports` — `dictee` (texte dicté
+  d'origine + remarque reformulée) et `photos_fin_journee`. Purement
+  additive, aucun droit modifié. Appliquée le 25/10/2026 par la CLI liée
+  avant la fusion, enregistrée par `migration repair`.
 
 ## Règles
 
