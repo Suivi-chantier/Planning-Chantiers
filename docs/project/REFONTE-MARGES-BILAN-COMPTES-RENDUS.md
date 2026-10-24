@@ -197,7 +197,7 @@ chaque étape.
 | 3 | Étape 3 — Refonte du Bilan semaine | ✅ En ligne | 2026-10-24 | Bilan sur les relevés journaliers, période libre, présélection, versions direction et détaillée, bilans figés + Rectifications, prévu / réalisé, fin prévisionnelle et glissement, tendances, semaine qui vient (équipe + commandes + livraisons), bilan de clôture. Relevés du vendredi arrêtés (option A), plus aucun lecteur. PR #155 à #166. Voir « Étape 3 ». |
 | 4 | Étape 4 — Tâches hors devis | ✅ En ligne | 2026-10-24 | Cas A / B / C choisis à la validation et dans le phasage (« Ce travail est-il facturé au client ? »), avenant, geste commercial, ouvrage non facturé ; décisions « à arbitrer » dans le Bilan avec rappel réglable ; heures hors devis par cas dans la fiche chantier ; tâches souvent ajoutées dans la Bibliothèque. Aucune migration. Voir « Étape 4 ». |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ✅ En ligne | 2026-10-24 | Diagnostic réel sur 8 semaines, page « Qualité des comptes rendus » (bureau), module d'indicateurs réutilisable (compteur « lignes découpées » par ouvrier et par mois pour CR-5). Écart d'avancement déclaré / validé allumé à partir du journal d'avancement, sans fonction SQL. Voir « CR-1 ». |
-| 6 | CR-2 — Phasage lisible (libellés, pièces) | 🔄 En cours | 2026-10-24 | Partie 1 (libellés personnalisés) mise en ligne ; partie 2 (pièces) à faire. |
+| 6 | CR-2 — Phasage lisible (libellés, pièces) | ✅ En ligne | 2026-10-24 | Libellés personnalisés d'ouvrages et de tâches (à côté du libellé devis, inventaire complet des usages) ; pièces du chantier : liste, rattachement de plusieurs tâches, filtre et regroupement, duplication par pièce à heures conservées. Aucune migration. Écrans ouvriers : libellé devis jusqu'au CR-3. Voir « CR-2 ». |
 | 7 | CR-3 — Nouveau parcours du compte rendu | ⏳ À faire | | |
 | 8 | CR-4 — Dictée vocale et IA | ⏳ À faire | | |
 | 9 | CR-5 — Refonte de la page de validation | ⏳ À faire | | |
@@ -804,7 +804,7 @@ jamais 0. Le chiffre du passé (8 % de lignes modifiées) vient du diagnostic.
 
 **Points d'attention.** Mesure faite avant le nouveau parcours (CR-3) : c'est
 la référence « avant ». La même page donnera le « après ».
-#### CR-2 — Phasage lisible (en cours)
+#### CR-2 — Phasage lisible (24/10/2026, en ligne)
 
 **Partie 1 — libellés personnalisés (24/10/2026).** Dans le Phasage, un
 ouvrage ou une tâche se renomme directement dans la ligne (crayon ✎ ou
@@ -842,6 +842,45 @@ deux).
 | Chiffrage, bibliothèque | Chiffrage, Bibliotheque | sans objet (avant le phasage) |
 | Écrans ouvriers (Mes phases, préparation, tâches actives, compte rendu) | fonctions serveur `ouvrier_*` | **devis pour l'instant** : ces fonctions renvoient le libellé devis. Les passer au nom personnalisé demande de modifier des fonctions à droits élevés (accord de Loris) — prévu avec le nouveau parcours (CR-3). |
 | Assistant IA Rénovation | api/_ia/renovation | sans objet (ne lit pas les noms de tâches du phasage) |
+
+**Partie 2 — les pièces du chantier (24/10/2026).** Phasage → colonne Tâches :
+- bouton **« Pièces »** : la liste des pièces du chantier, saisie une fois
+  (ajouter, renommer, monter / descendre, supprimer — une pièce supprimée
+  détache ses tâches) ; enregistrée dans le phasage
+  (`plan_travaux.meta.pieces`), chaque tâche porte sa pièce (`piece_id`,
+  facultatif) — aucune migration ;
+- **filtre** « Toutes les pièces / une pièce / Sans pièce » et case
+  **« par pièce »** pour regrouper les tâches ; un badge rappelle la pièce
+  de chaque tâche ;
+- **« Choisir plusieurs »** : on coche des tâches, puis une barre en bas
+  « N tâches choisies → pièce → Rattacher » (ou « Sans pièce » pour détacher) ;
+- fenêtre d'une tâche : choix de la pièce et **« Dupliquer par pièce… »** :
+  une tâche par pièce cochée ; la première garde la tâche d'origine (son
+  avancement, ses heures pointées), les autres partent à 0 %. Les heures
+  estimées sont réparties (parts égales par défaut, ajustables au quart
+  d'heure) et le bouton ne s'active que quand le total tombe juste. Les heures
+  vendues et le ratio de la tâche sont répartis dans les mêmes proportions :
+  les heures prévues de l'ouvrage — donc la dérive — ne bougent pas.
+
+**Contrôles** (données fictives, branchés dans Verify Fondations Finance) :
+`verif-libelles-phasage` (21 contrôles : un ouvrage renommé garde son
+libellé devis dans l'export, correspondance par les deux noms) et
+`verif-pieces-phasage` (31 contrôles : la duplication par pièce conserve le
+total des heures estimées et vendues, refus si la répartition ne tombe pas
+juste, filtre, regroupement, rattachement).
+
+**Points pour CR-3.**
+- Les écrans ouvriers lisent le phasage par des fonctions serveur à droits
+  élevés (`ouvrier_mes_phases`, `ouvrier_preparation_chantier`,
+  `ouvrier_chantier_detail`, `ouvrier_taches_actives`) qui renvoient le
+  libellé devis et ne connaissent pas les pièces. Le nouveau parcours devra
+  les faire renvoyer `nom_perso` / `libelle_perso` (ou le nom affiché) et
+  `piece_id` + `meta.pieces` : modification de fonctions à droits élevés,
+  donc accord de Loris.
+- Une tâche dupliquée par pièce est une tâche ordinaire : la validation, le
+  journal d'avancement et le Bilan la traitent sans changement. Les tâches
+  qui dépendaient de la tâche d'origine ne dépendent pas automatiquement des
+  copies (dépendances à revoir si besoin dans la vue Rang).
 
 ## 5. Cahier des charges des étapes
 

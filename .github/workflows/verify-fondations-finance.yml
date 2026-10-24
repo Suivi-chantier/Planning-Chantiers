@@ -43,3 +43,5 @@ jobs:
         run: node scripts/verif-hors-devis-v2.mjs
       - name: CR-2 - Libelles personnalises du phasage, libelle devis conserve (donnees fictives)
         run: node scripts/verif-libelles-phasage.mjs
+      - name: CR-2 - Pieces du chantier, duplication par piece qui conserve les heures (donnees fictives)
+        run: node scripts/verif-pieces-phasage.mjs
