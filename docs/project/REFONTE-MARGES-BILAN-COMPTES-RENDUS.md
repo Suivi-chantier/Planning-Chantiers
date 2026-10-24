@@ -262,6 +262,26 @@ chaque étape.
   seulement (droits d'accès → son accord) ; (2) arrêter les deux relevés du
   vendredi et garder leurs tables en lecture seule.
 
+- **24/10/2026 — Relevés du vendredi : option A.** Réponse de Loris : arrêter
+  les deux tâches du vendredi (relevé hebdomadaire `chantier_snapshots_hebdo`
+  et historique d'avancement `chantier_avancement_history`) APRÈS avoir
+  basculé leurs derniers lecteurs sur les relevés journaliers ; garder les
+  deux tables en lecture seule pour l'historique, rien supprimé (si la
+  lecture seule exige une migration de droits, on ne la fait pas : arrêter les
+  écritures suffit). Ordre : (1) bascule des lecteurs, (2) arrêt des tâches,
+  (3) compléments du cahier des charges (commandes à passer et livraisons
+  dans « La semaine qui vient », glissement de la fin prévisionnelle).
+- **État au 24/10/2026 (fin de session du sous-agent étape 3).** (1a) États
+  financiers (colonne Terrain) et export Opérations (historique d'avancement,
+  un point par semaine) lisent les relevés journaliers : PR « bascule des
+  lecteurs ». (1b) RESTE : l'assistant IA (`api/_ia/renovation/outils.js`,
+  `calculerAlertes` et l'historique d'`expliquer_alerte`, + table autorisée
+  dans `donnees.js`) et les données de test de
+  `verif-renovation-copilot-v1` (table `chantier_snapshots_hebdo` → relevés
+  journaliers, test du doublon W31 à adapter). (2) et (3) : pas commencés.
+  3.5 (#161, brouillon) attend l'application de la migration
+  `bilans_exports`, gérée par le pilote avec Loris.
+
 ### Comptes rendus des étapes
 
 _(Ajouter ici, pour chaque étape terminée, le compte rendu en langage métier.)_

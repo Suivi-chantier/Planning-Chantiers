@@ -3619,10 +3619,13 @@ export default function PageEtatsFinanciers({ T, branch = "renovation" }) {
             .eq("key", "chantiers")
             .maybeSingle(),
           // On ne lit ni `marge` ni `situation_a_facturer` : hors périmètre.
+          // Relevés JOURNALIERS (refonte du Bilan, 24/10/2026 : les relevés du
+          // vendredi sont arrêtés) : le plus récent par chantier fait foi.
           supabase
-            .from("chantier_snapshots_hebdo")
-            .select("chantier_id, week_id, date_snapshot, avancement")
-            .order("date_snapshot", { ascending: false }),
+            .from("chantier_releves_journaliers")
+            .select("chantier_id, week_id, date_snapshot:date_releve, avancement")
+            .order("date_releve", { ascending: false })
+            .limit(1000),
           supabase
             .from("chantier_factures_client")
             .select("chantier_id, date_facture, progbat_situation_number, progbat_achievement, progbat_deal_net_total")
