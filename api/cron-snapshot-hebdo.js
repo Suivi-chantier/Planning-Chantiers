@@ -7,7 +7,7 @@
 // Chantier ACTIF = au moins un pointage dans les JOURS_ACTIVITE derniers jours
 // OU avancement strictement entre 1 % et 99 % (pas de colonne statut fiable).
 //
-// Déclenché chaque vendredi 18h10 Paris par GitHub Actions
+// Déclenché chaque vendredi 18h40 UTC (20h40 Paris en été, 19h40 en hiver) par GitHub Actions
 // (cron-snapshot-hebdo.yml), juste après le snapshot d'avancement existant.
 // Idempotent : UNIQUE (chantier_id, date_snapshot) + upsert.
 //

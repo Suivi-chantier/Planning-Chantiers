@@ -57,6 +57,7 @@ import {
   explicationLigne, libelleMotifDepassement, NATURES_TACHE, horsDevisParDefaut, libelleNature,
 } from "./motifsCompteRendu";
 import { DIVERS_HORS_DEVIS, estOuvrageDivers } from "./compteRenduV2";
+import { demanderRecalculReleve } from "./relevesJournaliersApi";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -977,6 +978,10 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     }
     if (upErr) console.error("Update rapport statut:", upErr);
 
+    // Relevé journalier du jour du rapport (et des jours suivants) : recalcul
+    // en arrière-plan, jamais bloquant.
+    demanderRecalculReleve({ chantierId: rapport.chantier_id, date: dateISO });
+
     setValidating(false);
     setOpenedId(null);
     await load();
@@ -1188,6 +1193,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         }
       }
     }
+    // Le rapport n'est plus validé : relevé de son jour à recalculer.
+    demanderRecalculReleve({ chantierId: rapport.chantier_id, date: frToISO(rapport.date_rapport) });
     // 3) Met à jour l'état local : la modale (opened dérivé de rapports)
     //    redevient éditable sans se fermer.
     setRapports(prev => prev.map(r => r.id === rapport.id

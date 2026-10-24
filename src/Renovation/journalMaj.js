@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Relevé de chaque chantier, chaque jour, avec les comptes rendus manquants",
+    pages: [],
+    quoi: "En plus du relevé du vendredi, chaque chantier a désormais un relevé par jour : les mêmes chiffres (vendu, coûts, marge, avancement, reste à commander…) en fin de journée, et la liste des comptes rendus attendus ce jour-là qui manquent ou ne sont pas encore validés. Ces relevés préparent la refonte du Bilan de semaine ; l'écran du Bilan ne change pas encore.",
+    comment: "Rien à faire : le relevé d'un jour se recalcule tout seul après chaque validation de compte rendu, chaque « Corriger » et chaque modification d'avancement datée de ce jour (et les jours suivants déjà relevés aussi). Un contrôle de nuit rattrape les chantiers qui ont bougé dans la journée. Comptes rendus attendus = ouvriers planifiés sur le chantier ce jour-là, sauf absence sur toute la journée ou jour non travaillé. Les deux relevés du vendredi passent plus tard dans la soirée (19h30 et 19h40 en hiver, 20h30 et 20h40 en été) au lieu de 17 h en hiver, pour inclure les validations de fin de journée.",
+  },
+  {
+    date: "2026-10-24",
     type: "amelioration",
     titre: "Avancement daté : la production compte au jour où le travail a été fait",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "phasage-v2", label: "Phasage" }, { id: "admin", label: "Réglages" }],

@@ -53,7 +53,8 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
     fetchAll(supabase, "phasages", "*", parChantierId),
     fetchAll(supabase, "pointages", "*", parChantierId),
     fetchAll(supabase, "commande_lignes",
-      "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at",
+      // commande.date_doc : date d'imputation des achats (relevés à une date passée).
+      "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc)",
       parChantierId),
     fetchAll(supabase, "facture_couts_chantiers", "id,chantier_id,montant_ht,nature,date_imputation", parChantierId),
     fetchAll(supabase, "avoirs_fournisseurs_imputations", "id,chantier_id,montant_ht,date_imputation,factures!inner(statut)", (q) => parChantierId(q).eq("factures.statut", "rapprochee")),

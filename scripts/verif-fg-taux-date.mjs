@@ -161,7 +161,9 @@ const lus = sources.map(f => ({ f: f.slice(racine.length + 1).replace(/\\/g, "/"
     while ((m = re.exec(s))) {
       const bloc = s.slice(m.index, m.index + 600);
       // Serveur : les entrées viennent de inputsPour (chargeur partagé, barème inclus).
-      const passe = /tauxFG/.test(bloc) || /inputsPour\(/.test(bloc) || /^computeChantierFinance\(phasage\.inputs\)/.test(bloc);
+      // Relevé journalier : entrées = inputsPour (chargeur partagé) arrêtées à la date.
+      const passe = /tauxFG/.test(bloc) || /inputsPour\(/.test(bloc) || /^computeChantierFinance\(phasage\.inputs\)/.test(bloc)
+        || (f === "src/Renovation/releveJournalier.mjs" && /^computeChantierFinance\(entrees\)/.test(bloc));
       appels.push({ f, passe });
     }
   });

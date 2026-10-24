@@ -470,7 +470,10 @@ function fichiers(dossier, filtre) {
 {
   const exposees = readdirSync(join(RACINE, "api"))
     .filter(n => !n.startsWith("_") && !n.startsWith(".") && /\.(js|mjs|cjs|ts)$/.test(n));
-  verifie(`fonctions Vercel exposées : ${exposees.length} (plafond Hobby 12)`, exposees.length === 10, exposees.join(", "));
+  // 11 depuis le 24/10/2026 : api/releves-journaliers.js (relevés journaliers,
+  // refonte du Bilan — appelé par l'application après une écriture, donc pas
+  // routable par le dispatcher des crons). Reste 1 place sur le plan Hobby.
+  verifie(`fonctions Vercel exposées : ${exposees.length} (plafond Hobby 12)`, exposees.length === 11, exposees.join(", "));
   verifie("gmail-draft.js supprimé", !existsSync(join(RACINE, "api", "gmail-draft.js")));
 }
 {

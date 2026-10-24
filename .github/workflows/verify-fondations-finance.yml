@@ -29,5 +29,7 @@ jobs:
         run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
       - name: 1C - Journal d'avancement date et production exacte (SQL en memoire, donnees fictives)
         run: node scripts/verif-journal-avancement.mjs
+      - name: 1D - Releves journaliers (completude, cascade, rattrapage de nuit, donnees fictives)
+        run: node scripts/verif-releves-journaliers.mjs
       - name: Module chantierFinance - valeurs calculees a la main (donnees fictives)
         run: node scripts/verif-chantier-finance-fixtures.mjs
