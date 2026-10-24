@@ -2,7 +2,7 @@
 // Exemple issu des tests, données fictives : chantier « C1 », tâches t1…t4.
 import assert from "node:assert/strict";
 import {
-  parcoursActif, REPERES, repereDeLigne, repereProposable, appliquerRepere, repereAttendu,
+  parcoursActif, PARCOURS_ACTIF_PAR_DEFAUT, REPERES, repereDeLigne, repereProposable, appliquerRepere, repereAttendu,
   etatAttenduCeSoir, phraseAttendue, lignesCommePrevu, estLignePrevue,
   minutesJourneeTaches, appliquerRaccourci, resteIci,
   dureesDepuisFrise, appliquerFrise, prevuesNonChoisies, appliquerNonFaite,
@@ -34,7 +34,8 @@ const infos = {
 };
 
 // ── Réglage Admin ───────────────────────────────────────────────────────────
-eq(parcoursActif(null), false, "réglage absent → valeur par défaut (inactif)");
+eq(parcoursActif(null), PARCOURS_ACTIF_PAR_DEFAUT, "réglage absent → valeur par défaut");
+eq(PARCOURS_ACTIF_PAR_DEFAUT, true, "parcours activé pour tous par défaut (pas de déploiement progressif)");
 eq(parcoursActif(null, true), true, "réglage absent → défaut passé");
 eq(parcoursActif({ actif: false }, true), false, "interrupteur Admin : retour à l'écran actuel");
 eq(parcoursActif({ actif: true }), true, "interrupteur Admin : nouveau parcours");

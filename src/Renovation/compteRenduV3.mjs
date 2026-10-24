@@ -33,8 +33,10 @@ import {
 } from "./compteRenduV2.mjs";
 
 export const CODE_PARCOURS_V3 = "cr_parcours_v3";
-// Réglage absent (jamais touché dans Admin) : le parcours est-il actif ?
-export const PARCOURS_ACTIF_PAR_DEFAUT = false;
+// Réglage absent (jamais touché dans Admin) : le parcours est actif pour tous
+// (CR-3 terminé le 25/10/2026, pas de déploiement progressif). Admin → éteint
+// = retour immédiat au formulaire v2.
+export const PARCOURS_ACTIF_PAR_DEFAUT = true;
 
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 const vide = (v) => v === undefined || v === null || String(v).trim() === "";
