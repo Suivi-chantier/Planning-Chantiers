@@ -54,6 +54,8 @@ import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
 import { useDirtyGuard } from "../hooks";
 import LibelleEditable from "./LibelleEditable";
+import { PiecesPanel, BarreSelectionPieces, DuplicationPieces, BadgePiece } from "./PiecesPhasage";
+import { piecesDuPhasage, rattacherTaches, detacherPiece, filtrerParPiece, grouperParPiece, SANS_PIECE } from "./piecesPhasageV1";
 import { libelleOuvrage, libelleOuvrageDevis, nomTache, nomTacheDevis, aLibellePerso, aNomPerso, textesTache, tacheCorrespond, patchLibelleOuvrage, patchNomTache } from "./libellesPhasageV1";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
@@ -428,6 +430,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Modales d'édition : id de l'ouvrage / de la tâche en cours d'édition
   const [editingOuvrageId, setEditingOuvrageId] = useState(null);
   const [editingTache, setEditingTache] = useState(null); // { ouvrageId, tacheId }
+  // Pièces du chantier (CR-2) : panneau, filtre / regroupement de la colonne
+  // Tâches, sélection multiple pour rattacher, duplication par pièce.
+  const [piecesOuvert, setPiecesOuvert] = useState(false);
+  const [pieceFiltre, setPieceFiltre] = useState("");
+  const [grouperPieces, setGrouperPieces] = useState(false);
+  const [selectionTaches, setSelectionTaches] = useState(null); // Set d'ids ou null
+  const [duplication, setDuplication] = useState(null); // { ouvrageId, tacheId }
   // Comptes rendus (rapports) du chantier — pour le bouton "voir le dernier CR"
   const [rapports, setRapports] = useState([]);
   const [rapportsModal, setRapportsModal] = useState(null); // { tacheNom, rapports } — tous les CR d'une tâche
@@ -1836,6 +1845,43 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         : o.lot_id === selectedLotId))
     : [];
   const selectedOuvrage = ouvrages.find(o => o.id === selectedOuvrageId) || null;
+  const pieces = piecesDuPhasage(phasage?.plan_travaux?.meta);
+  const nomPiece = new Map(pieces.map(p => [p.id, p.nom]));
+  const setPieces = (next) => saveMeta({ pieces: next });
+  const supprimerPieceChantier = (id) => {
+    setPieces(pieces.filter(p => p.id !== id));
+    if (ouvrages.some(o => (o.taches || []).some(t => t.piece_id === id))) updateOuvrages(detacherPiece(ouvrages, id));
+    if (pieceFiltre === id) setPieceFiltre("");
+  };
+  const basculerSelection = (id) => setSelectionTaches(prev => {
+    const n = new Set(prev || []); const k = String(id);
+    if (n.has(k)) n.delete(k); else n.add(k);
+    return n;
+  });
+  const rattacherSelection = (pieceId) => {
+    updateOuvrages(rattacherTaches(ouvrages, [...(selectionTaches || [])], pieceId));
+    setSelectionTaches(null);
+  };
+  const appliquerDuplication = (ouvrageId, tacheId, nouvelles) => {
+    updateOuvrages(ouvrages.map(o => o.id !== ouvrageId ? o : {
+      ...o, taches: (o.taches || []).flatMap(t => (t.id === tacheId ? nouvelles : [t])),
+    }));
+    setDuplication(null);
+  };
+  // Colonne Tâches : filtre et regroupement par pièce.
+  const blocTachesParPiece = (liste, rendre) => {
+    const visibles = filtrerParPiece(liste, pieceFiltre, pieces);
+    if (visibles.length === 0) return emptyColMsg("Aucune tâche pour cette pièce");
+    if (!grouperPieces || pieces.length === 0) return visibles.map(rendre);
+    return grouperParPiece(visibles, pieces).map(g => (
+      <React.Fragment key={g.id}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .5, textTransform: "uppercase", color: T.textMuted, margin: "8px 2px 4px" }}>
+          {g.nom} · {g.taches.length}
+        </div>
+        {g.taches.map(rendre)}
+      </React.Fragment>
+    ));
+  };
   const taches = selectedOuvrage?.taches || [];
 
   // ── Styles ──────────────────────────────────────────────────────────────
@@ -3428,6 +3474,24 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   <button onClick={() => createTache(selectedOuvrage.id)} style={addBtn}>
                     <Icon as={Plus} size={11}/> Tâche
                   </button>
+                  <button onClick={() => setPiecesOuvert(true)} style={addBtn} title="Pièces du chantier">
+                    Pièces{pieces.length ? ` · ${pieces.length}` : ""}
+                  </button>
+                  {pieces.length > 0 && (<>
+                    <select value={pieceFiltre} onChange={e => setPieceFiltre(e.target.value)} title="Filtrer par pièce"
+                      style={{ fontSize: 11, padding: "2px 4px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`, background: T.fieldBg || T.card, color: T.text, fontFamily: "inherit", maxWidth: 130 }}>
+                      <option value="">Toutes les pièces</option>
+                      {pieces.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+                      <option value={SANS_PIECE}>Sans pièce</option>
+                    </select>
+                    <label title="Regrouper les tâches par pièce" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: T.textSub, cursor: "pointer" }}>
+                      <input type="checkbox" checked={grouperPieces} onChange={e => setGrouperPieces(e.target.checked)}/> par pièce
+                    </label>
+                    <button onClick={() => setSelectionTaches(s => (s ? null : new Set()))} style={addBtn}
+                      title="Cocher plusieurs tâches pour les rattacher à une pièce">
+                      {selectionTaches ? "Fin de sélection" : "Choisir plusieurs"}
+                    </button>
+                  </>)}
                 </>
               )}
             </div>
@@ -3438,18 +3502,28 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   ? emptyColMsg("Aucune tâche — clique « + Tâche »")
                   : (() => {
                     const tacheColor = lots.find(l => l.id === selectedOuvrage.lot_id)?.couleur || acc.accent;
-                    return taches.map(t => {
+                    const rendreTache = (t) => {
                       const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
                       const bubbleColor = av >= 100 ? "#22c55e" : tacheColor;
                       return (
                         <div key={t.id} className="p2-bubble"
                           style={{ "--bubble-color": bubbleColor, "--av": `${av}%`, display: "flex", flexDirection: "column", gap: 0 }}
-                          onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
+                          onClick={() => (selectionTaches ? basculerSelection(t.id) : setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id }))}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <LibelleEditable T={T}
-                              affiche={nomTache(t)} devis={nomTacheDevis(t)} perso={aNomPerso(t)}
-                              onSave={v => updateTache(selectedOuvrage.id, t.id, patchNomTache(t, v))}/>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                              {selectionTaches && (
+                                <input type="checkbox" checked={selectionTaches.has(String(t.id))}
+                                  onClick={e => e.stopPropagation()} onChange={() => basculerSelection(t.id)}
+                                  aria-label="Choisir cette tâche"/>
+                              )}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <LibelleEditable T={T}
+                                  affiche={nomTache(t)} devis={nomTacheDevis(t)} perso={aNomPerso(t)}
+                                  onSave={v => updateTache(selectedOuvrage.id, t.id, patchNomTache(t, v))}/>
+                              </div>
+                              <BadgePiece nom={t.piece_id ? nomPiece.get(t.piece_id) : null} T={T}/>
+                            </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                               {(() => {
                                 const hr = tacheHeuresReelles(t);
@@ -3621,7 +3695,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                           </div>
                         </div>
                       );
-                    });
+                    };
+                    return blocTachesParPiece(taches, rendreTache);
                   })()
               }
             </div>
@@ -4289,6 +4364,24 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       })()}
 
       {/* ── Modale édition tâche ── */}
+      {piecesOuvert && (
+        <PiecesPanel pieces={pieces} onChange={setPieces} onSupprimer={supprimerPieceChantier}
+          onClose={() => setPiecesOuvert(false)} T={T} accent={acc.accent}/>
+      )}
+      {duplication && (() => {
+        const o = ouvrages.find(x => x.id === duplication.ouvrageId);
+        const t = o?.taches?.find(x => x.id === duplication.tacheId);
+        if (!t) return null;
+        return (
+          <DuplicationPieces tache={t} nomAffiche={nomTache(t) || "tâche"} pieces={pieces}
+            onValider={(nouvelles) => appliquerDuplication(o.id, t.id, nouvelles)}
+            onClose={() => setDuplication(null)} T={T} accent={acc.accent}/>
+        );
+      })()}
+      {selectionTaches && (
+        <BarreSelectionPieces nb={selectionTaches.size} pieces={pieces}
+          onRattacher={rattacherSelection} onAnnuler={() => setSelectionTaches(null)} T={T} accent={acc.accent}/>
+      )}
       {editingTache && (() => {
         const o = ouvrages.find(x => x.id === editingTache.ouvrageId);
         const t = o?.taches?.find(x => x.id === editingTache.tacheId);
@@ -4312,6 +4405,21 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               <input value={t.nom_perso || ""}
                 onChange={e => updateTache(o.id, t.id, { nom_perso: e.target.value || null })}
                 placeholder={nomTacheDevis(t) || "Nom court, lisible sur un téléphone"} style={modalInp(T)}/>
+            </ModalField>
+            <ModalField label="Pièce (facultatif)">
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select value={t.piece_id && nomPiece.has(t.piece_id) ? t.piece_id : ""}
+                  onChange={e => updateTache(o.id, t.id, { piece_id: e.target.value || null })}
+                  style={{ ...modalInp(T), flex: 1 }}>
+                  <option value="">Sans pièce</option>
+                  {pieces.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
+                </select>
+                <button type="button" onClick={() => { setPiecesOuvert(pieces.length === 0); if (pieces.length > 0) { setDuplication({ ouvrageId: o.id, tacheId: t.id }); setEditingTache(null); } }}
+                  style={{ ...modalInp(T), width: "auto", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}
+                  title="Une tâche par pièce, heures estimées réparties (total conservé)">
+                  {pieces.length === 0 ? "Créer des pièces…" : "Dupliquer par pièce…"}
+                </button>
+              </div>
             </ModalField>
             {/* Rattachement : permet de reclasser une tâche vers le bon ouvrage
                 (ex. tâches atterries dans « Divers / hors devis »). La tâche

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Phasage : les pièces du chantier",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Chaque chantier peut avoir sa liste de pièces (Salle de bain, Chambre 1, Séjour…). Une tâche peut être rattachée à une pièce, ce qui permet de filtrer et regrouper le phasage par pièce, et de dupliquer une tâche pour plusieurs pièces (cloisons, sols, peinture, faïence) en répartissant ses heures.",
+    comment: "Phasage → colonne Tâches → « Pièces » pour saisir la liste (ajouter, renommer, monter / descendre). Puis « Choisir plusieurs » pour cocher des tâches et les rattacher d'un coup, le menu « Toutes les pièces » pour filtrer, « par pièce » pour regrouper. Dans la fenêtre d'une tâche : « Dupliquer par pièce… » — une tâche par pièce cochée, heures estimées réparties (parts égales ou ajustées), le total ne change pas.",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Phasage : renommer un ouvrage ou une tâche pour le chantier",
     pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "validation", label: "Validation fin de journée" }],
     quoi: "Un ouvrage ou une tâche peut porter un nom court et lisible (« Isolation cloison SDB ») à la place du long libellé du devis, dans l'application : phasage, planning, validation, Bilan. Le libellé du devis est conservé à côté : les documents client et ProGBat le gardent.",
