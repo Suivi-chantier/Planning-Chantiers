@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Nouvelle page « Qualité des comptes rendus » : suivre, ouvrier par ouvrier, ce que valent les comptes rendus du soir",
+    pages: [{ id: "qualite-cr", label: "Qualité des comptes rendus" }, { id: "equipe", label: "Équipe" }],
+    quoi: "Avant de simplifier le compte rendu du soir, il faut savoir où il pèche et pouvoir mesurer l'effet des changements. Cette page donne, pour chaque ouvrier et au total, le temps de remplissage, l'heure d'envoi, ce que le conducteur a dû corriger à la validation, les lignes sans tâche ou fourre-tout, les remarques vides, les photos manquantes et les comptes rendus rouverts — avec la tendance par rapport à la période précédente.",
+    comment: "Page Équipe → bouton « Qualité des comptes rendus » (ou directement dans le menu). Choisir 2, 4 ou 8 semaines, déplacer la période avec les flèches, filtrer sur l'ancien ou le nouveau formulaire. Survoler un indicateur pour sa définition. « — » = aucune ligne concernée (pas 0 %) ; « ancien formulaire » = mesure impossible sur l'ancien formulaire. L'écart d'avancement déclaré / validé n'est pas encore calculé sur la page (il est affiché « indisponible ») : il a été mesuré une fois pour le diagnostic du 24/10. Lecture seule, réservée au bureau.",
+  },
+  {
     date: "2026-10-21",
     type: "amelioration",
     titre: "Chiffrage : un bouton « Créer un multi-ouvrage » pour trouver le regroupement",
