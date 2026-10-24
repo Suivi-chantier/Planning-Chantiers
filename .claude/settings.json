@@ -1,0 +1,184 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(git *)",
+      "PowerShell(git *)",
+      "Bash(gh *)",
+      "PowerShell(gh *)",
+      "Bash(node *)",
+      "PowerShell(node *)",
+      "Bash(npm *)",
+      "PowerShell(npm *)",
+      "Bash(npx *)",
+      "PowerShell(npx *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(grep *)",
+      "Bash(wc *)",
+      "Bash(find *)",
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit(/**)",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__list_migrations",
+      "mcp__claude_ai_Supabase__list_extensions",
+      "mcp__claude_ai_Supabase__get_advisors",
+      "mcp__claude_ai_Supabase__query_logs",
+      "mcp__claude_ai_Supabase__get_project",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_publishable_keys",
+      "mcp__claude_ai_Supabase__list_edge_functions",
+      "mcp__claude_ai_Supabase__get_edge_function",
+      "mcp__claude_ai_Supabase__search_docs",
+      "mcp__claude_ai_Supabase__generate_typescript_types",
+      "mcp__claude_ai_Supabase__list_branches",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__get_organization",
+      "mcp__claude_ai_Supabase__list_organizations",
+      "mcp__claude_ai_Supabase__apply_migration"
+    ],
+    "deny": [
+      "Bash(rm -r *)",
+      "Bash(rm -R *)",
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(rm -Rf *)",
+      "Bash(rm -fR *)",
+      "Bash(rm --recursive *)",
+      "Bash(find * -delete*)",
+      "Bash(find * -exec rm *)",
+      "Bash(git clean *)",
+      "PowerShell(Remove-Item *-Recurse*)",
+      "PowerShell(Remove-Item *-r *)",
+      "PowerShell(rm *-Recurse*)",
+      "PowerShell(rm *-r *)",
+      "PowerShell(del *-Recurse*)",
+      "PowerShell(del *-r *)",
+      "PowerShell(rd *)",
+      "PowerShell(rmdir *)",
+      "PowerShell(cmd /c rd *)",
+      "PowerShell(cmd /c rmdir *)",
+      "PowerShell(cmd /c del /s*)",
+      "PowerShell(git clean *)",
+      "Bash(git push --force*)",
+      "PowerShell(git push --force*)",
+      "Bash(git push -f*)",
+      "PowerShell(git push -f*)",
+      "Bash(git push * --force*)",
+      "PowerShell(git push * --force*)",
+      "Bash(git push * -f*)",
+      "PowerShell(git push * -f*)",
+      "Bash(git push * +*)",
+      "PowerShell(git push * +*)",
+      "Bash(git rebase*)",
+      "PowerShell(git rebase*)",
+      "Bash(git pull --rebase*)",
+      "PowerShell(git pull --rebase*)",
+      "Bash(git pull * --rebase*)",
+      "PowerShell(git pull * --rebase*)",
+      "Bash(git commit --amend*)",
+      "PowerShell(git commit --amend*)",
+      "Bash(git commit * --amend*)",
+      "PowerShell(git commit * --amend*)",
+      "Bash(git reset --hard*)",
+      "PowerShell(git reset --hard*)",
+      "Bash(git reset * --hard*)",
+      "PowerShell(git reset * --hard*)",
+      "Bash(git filter-branch*)",
+      "PowerShell(git filter-branch*)",
+      "Bash(git filter-repo*)",
+      "PowerShell(git filter-repo*)",
+      "Bash(git reflog expire*)",
+      "PowerShell(git reflog expire*)",
+      "Bash(git update-ref -d*)",
+      "PowerShell(git update-ref -d*)",
+      "Bash(git replace*)",
+      "PowerShell(git replace*)",
+      "Bash(gh repo delete*)",
+      "PowerShell(gh repo delete*)",
+      "Bash(*supabase db reset*)",
+      "PowerShell(*supabase db reset*)",
+      "Bash(*supabase projects delete*)",
+      "PowerShell(*supabase projects delete*)",
+      "Bash(*supabase branches delete*)",
+      "PowerShell(*supabase branches delete*)",
+      "Bash(*supabase projects pause*)",
+      "PowerShell(*supabase projects pause*)",
+      "mcp__claude_ai_Supabase__pause_project",
+      "mcp__claude_ai_Supabase__reset_branch",
+      "mcp__claude_ai_Supabase__delete_branch",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(cat *.env*)",
+      "Bash(type *.env*)",
+      "Bash(head *.env*)",
+      "Bash(tail *.env*)",
+      "Bash(less *.env*)",
+      "Bash(more *.env*)",
+      "Bash(printenv*)",
+      "Bash(env)",
+      "Bash(set)",
+      "Bash(export -p)",
+      "PowerShell(Get-Content *.env*)",
+      "PowerShell(gc *.env*)",
+      "PowerShell(cat *.env*)",
+      "PowerShell(type *.env*)",
+      "PowerShell(Get-ChildItem env:*)",
+      "PowerShell(gci env:*)",
+      "PowerShell(dir env:*)",
+      "PowerShell(ls env:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__claude_ai_Supabase__execute_sql|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/garde-sql.mjs\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/garde-secrets.mjs\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/notifier.mjs\" stop",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/notifier.mjs\" notification",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -32,8 +32,11 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Claude
-.claude/
+# Claude : réglages et gardes versionnés (.claude/settings.json, .claude/hooks/),
+# réglages personnels et dossiers de travail non versionnés.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
 # Données locales d'import (Excel articles, exports fournisseurs…)
 # On garde le dossier scripts/ versionné mais pas son sous-dossier data/.
