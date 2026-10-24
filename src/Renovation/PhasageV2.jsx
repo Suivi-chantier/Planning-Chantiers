@@ -53,6 +53,8 @@ import MateriauxOuvrage from "./MateriauxOuvrage";
 import { etatControleGroupe } from "./controles";
 import { confirmPerteMassive } from "../guards";
 import { useDirtyGuard } from "../hooks";
+import LibelleEditable from "./LibelleEditable";
+import { libelleOuvrage, libelleOuvrageDevis, nomTache, nomTacheDevis, aLibellePerso, aNomPerso, textesTache, tacheCorrespond, patchLibelleOuvrage, patchNomTache } from "./libellesPhasageV1";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
 // l'ordre des groupes + chrono_ordre, rangs, incohérences. Rien n'est stocké.
 import { calculerRangs, predecesseursEffectifs, positionsManuelles, cycleApresPatch, organiserTaches, reordonnancementPropose } from "./rang";
@@ -552,8 +554,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       // Tâche externe (prestataire) : le marqueur suit dans le planning comme
       // repère — texte suffixé « (externe) » et flag sur la tâche de cellule.
       // Aucun ouvrier interne n'est ajouté, donc rien ne change aux heures.
-      const newTask = { id: rid(), tache_id: tache.id, text: tache.nom || "", duree, ouvriers: ouvriersTache, ...(tache.externe ? { externe: true } : {}) };
-      const ligne = (tache.nom || "") + (tache.externe ? " (externe)" : "");
+      const newTask = { id: rid(), tache_id: tache.id, text: nomTache(tache) || "", duree, ouvriers: ouvriersTache, ...(tache.externe ? { externe: true } : {}) };
+      const ligne = (nomTache(tache) || "") + (tache.externe ? " (externe)" : "");
       const nouveauPlanifie = base.planifie ? `${base.planifie}\n${ligne}` : ligne;
       const upsertPayload = {
         week_id: planifSemaine,
@@ -766,10 +768,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // migrées depuis la V1, dont l'id a été régénéré).
   const rapportsPourTache = (t) => {
     if (!t) return [];
-    const nom = (t.nom || "").trim().toLowerCase();
+    const noms = textesTache(t).map(n => n.toLowerCase());
     return rapports.filter(r => (r.taches || []).some(x =>
       (x.tache_id && String(x.tache_id) === String(t.id)) ||
-      (nom && (x.planifie || x.nom || "").trim().toLowerCase() === nom)
+      (noms.length > 0 && noms.includes((x.planifie || x.nom || "").trim().toLowerCase()))
     ));
   };
 
@@ -1420,7 +1422,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     const cycle = cycleApresPatch(ouvrages, chronoGroupes, patchMap);
     if (cycle) {
       const nomDe = (id) => {
-        for (const o of ouvrages) { const t = (o.taches || []).find(x => String(x.id) === String(id)); if (t) return t.nom || "(sans nom)"; }
+        for (const o of ouvrages) { const t = (o.taches || []).find(x => String(x.id) === String(id)); if (t) return nomTache(t) || "(sans nom)"; }
         return "(tâche supprimée)";
       };
       alert(`Impossible : cela créerait une boucle de dépendances :\n${[...cycle, cycle[0]].map(nomDe).join(" → ")}\n\nRien n'a été modifié.`);
@@ -1939,7 +1941,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             const dateStr = t.date_prevue ? ` <span style="color:#999;font-size:8pt;">📅 ${new Date(t.date_prevue).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span>` : "";
             return `<li style="font-size:9pt;color:#222;padding:2pt 0;break-inside:avoid;page-break-inside:avoid;">
               <span style="color:${tavColor};font-weight:800;display:inline-block;width:32pt;">${tav}%</span>
-              <span>${esc(t.nom || "(sans nom)")}</span>${heuresStr}${ouvriersStr}${dateStr}
+              <span>${esc(nomTache(t) || "(sans nom)")}</span>${heuresStr}${ouvriersStr}${dateStr}
             </li>`;
           }).join("")}
         </ul>`;
@@ -1947,7 +1949,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         <div class="ouvrage" style="border:1pt solid #e0e0e0;border-left:4pt solid ${lotColor};margin:0 0 8pt;padding:8pt 12pt;break-inside:avoid;page-break-inside:avoid;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8pt;">
             <div style="flex:1;min-width:0;">
-              <div style="font-weight:800;font-size:10pt;color:#1a1f2e;">${esc(o.libelle || "(sans libellé)")}</div>
+              <div style="font-weight:800;font-size:10pt;color:#1a1f2e;">${esc(libelleOuvrage(o) || "(sans libellé)")}</div>
               ${ouvragesInfos.length > 0 ? `<div style="font-size:8.5pt;color:#666;margin-top:2pt;">${ouvragesInfos.join(" · ")}</div>` : ""}
             </div>
             <div style="text-align:right;white-space:nowrap;">
@@ -2115,10 +2117,10 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       const av = Math.max(0, Math.min(100, parseInt(t.avancement) || 0));
       const late = d && d < today && av < 100;
       const hv = parseFloat(t.heures_vendues) || 0;
-      const ctx = (lot?.label ? esc(lot.label) + " · " : "") + esc(o.libelle || "—");
+      const ctx = (lot?.label ? esc(lot.label) + " · " : "") + esc(libelleOuvrage(o) || "—");
       return `<tr>
         <td style="padding:5pt 8pt;white-space:nowrap;color:${late ? "#c0392b" : "#333"};font-weight:${late ? 700 : 400};border-bottom:0.5pt solid #eee;vertical-align:top;">${late ? "⚠ " : ""}${fmtD(d)}</td>
-        <td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;"><strong>${esc(t.nom || "(sans nom)")}</strong><div style="color:#999;font-size:8pt;">${ctx}</div></td>
+        <td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;"><strong>${esc(nomTache(t) || "(sans nom)")}</strong><div style="color:#999;font-size:8pt;">${ctx}</div></td>
         <td style="padding:5pt 8pt;text-align:right;white-space:nowrap;color:#555;border-bottom:0.5pt solid #eee;vertical-align:top;">${hv > 0 ? `${Math.round(hv * 10) / 10} h` : ""}</td>
         <td style="padding:5pt 8pt;text-align:right;white-space:nowrap;font-weight:700;color:${av >= 100 ? "#1e8e3e" : "#555"};border-bottom:0.5pt solid #eee;vertical-align:top;">${av}%</td>
       </tr>`;
@@ -2277,7 +2279,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     // Tri des rows
     rows.sort((a, b) => {
       if (a.lot.id !== b.lot.id) return a.lot.id.localeCompare(b.lot.id);
-      if (a.ouvrage.id !== b.ouvrage.id) return (a.ouvrage.libelle || "").localeCompare(b.ouvrage.libelle || "");
+      if (a.ouvrage.id !== b.ouvrage.id) return (libelleOuvrage(a.ouvrage) || "").localeCompare(libelleOuvrage(b.ouvrage) || "");
       return a.date.getTime() - b.date.getTime();
     });
     // Non planifiées : ordre chrono métier (même règle que l'écran Gantt).
@@ -2318,13 +2320,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           ? `color-mix(in srgb, ${barColor} 70%, transparent)`
           : (today ? "#fff4b8" : "transparent");
         return `<td style="border-right:0.5pt solid #eee;padding:0;height:18pt;background:${bg};font-size:7pt;color:#000;overflow:hidden;white-space:nowrap;">
-          ${isFirst ? `<div style="padding:0 4pt;font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc((r.tache.nom || "").slice(0, 40))}${av > 0 ? ` · ${av}%` : ""}</div>` : ""}
+          ${isFirst ? `<div style="padding:0 4pt;font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc((nomTache(r.tache) || "").slice(0, 40))}${av > 0 ? ` · ${av}%` : ""}</div>` : ""}
         </td>`;
       }).join("");
       html += `<tr style="break-inside:avoid;page-break-inside:avoid;">
         <td style="padding:4pt 8pt;border-right:1pt solid #ccc;border-bottom:0.5pt solid #eee;font-size:8pt;color:#1a1f2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140pt;">
-          <div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc(r.tache.nom || "(sans nom)")}</div>
-          <div style="font-size:7pt;color:#888;overflow:hidden;text-overflow:ellipsis;">${esc(r.ouvrage.libelle || "")}${r.fromCR ? " · d'après CR" : ""}</div>
+          <div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;">${esc(nomTache(r.tache) || "(sans nom)")}</div>
+          <div style="font-size:7pt;color:#888;overflow:hidden;text-overflow:ellipsis;">${esc(libelleOuvrage(r.ouvrage) || "")}${r.fromCR ? " · d'après CR" : ""}</div>
         </td>
         ${cells}
       </tr>`;
@@ -2343,7 +2345,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       <div style="margin-top:14pt;padding:8pt 12pt;background:#fff8dc;border:1pt dashed #d4a017;border-radius:4pt;break-inside:avoid;">
         <div style="font-size:8pt;font-weight:700;color:#9a7a00;letter-spacing:.4pt;text-transform:uppercase;margin-bottom:6pt;">Tâches non planifiées (${orphans.length})</div>
         <ul style="margin:0;padding:0 0 0 14pt;font-size:8pt;color:#333;">
-          ${orphans.map(r => `<li style="margin-bottom:2pt;">${esc(r.tache.nom || "(sans nom)")} <span style="color:#888;">— ${esc(r.ouvrage.libelle || "")}</span></li>`).join("")}
+          ${orphans.map(r => `<li style="margin-bottom:2pt;">${esc(nomTache(r.tache) || "(sans nom)")} <span style="color:#888;">— ${esc(libelleOuvrage(r.ouvrage) || "")}</span></li>`).join("")}
         </ul>
       </div>`;
 
@@ -2425,7 +2427,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     const index = new Map();
     ouvrages.forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) index.set(String(t.id), t); }));
     const gById = new Map((chronoGroupes || []).map(g => [g.id, g]));
-    const nomDe = (id) => index.get(String(id))?.nom || "(tâche supprimée)";
+    const nomDe = (id) => { const x = index.get(String(id)); return x ? (nomTache(x) || "(sans nom)") : "(tâche supprimée)"; };
 
     if (parRang.length === 0) {
       return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rang ${esc(titre)}</title></head><body style="font-family:Arial;padding:40pt;text-align:center;color:#666;">Aucune tâche à ranger — organise d'abord la vue Chronologique.</body></html>`;
@@ -2443,7 +2445,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         return `<tr style="break-inside:avoid;">
           <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:8pt;white-space:nowrap;">
             <span style="display:inline-block;width:8pt;height:8pt;background:${g?.couleur || "#888"};border-radius:2pt;vertical-align:middle;margin-right:5pt;"></span>
-            <strong>${esc(t?.nom || "(sans nom)")}</strong>
+            <strong>${esc(nomTache(t) || "(sans nom)")}</strong>
           </td>
           <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:7.5pt;color:#666;white-space:nowrap;">${esc(g?.nom || "à classer")}</td>
           <td style="padding:3pt 8pt;border-bottom:0.5pt solid #eee;font-size:7.5pt;color:#666;text-align:right;white-space:nowrap;">${h ? `${h} h` : "—"}</td>
@@ -3129,7 +3131,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           onMarquerExterne={marquerGroupeExterne}
           onClickTache={(ouvrageId, tacheId) => setEditingTache({ ouvrageId, tacheId })}
           rapportsPourTache={rapportsPourTache}
-          onShowRapports={(tache, list) => setRapportsModal({ tacheNom: tache.nom, tacheId: tache.id, rapports: list })}
+          onShowRapports={(tache, list) => setRapportsModal({ tacheNom: nomTache(tache), tacheId: tache.id, rapports: list })}
           controleCtx={{
             chantierId,
             chantierNom: chantiers.find(c => c.id === chantierId)?.nom || phasage?.chantier_nom || "",
@@ -3324,9 +3326,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                         onDragStart={e => { setDraggedOuvrageId(o.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", o.id); }}
                         onDragEnd={() => { setDraggedOuvrageId(null); setDragOverLotId(null); }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {o.libelle || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans libellé)</span>}
-                          </div>
+                          <LibelleEditable T={T} vide="(sans libellé)"
+                            affiche={libelleOuvrage(o)} devis={libelleOuvrageDevis(o)} perso={aLibellePerso(o)}
+                            onSave={v => updateOuvrage(o.id, patchLibelleOuvrage(o, v))}/>
                           {(() => {
                             const hr = heuresComparablesOuvrage(o);
                             const hd = heuresHorsDevisOuvrage(o);
@@ -3445,9 +3447,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                           onClick={() => setEditingTache({ ouvrageId: selectedOuvrage.id, tacheId: t.id })}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
-                            </div>
+                            <LibelleEditable T={T}
+                              affiche={nomTache(t)} devis={nomTacheDevis(t)} perso={aNomPerso(t)}
+                              onSave={v => updateTache(selectedOuvrage.id, t.id, patchNomTache(t, v))}/>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                               {(() => {
                                 const hr = tacheHeuresReelles(t);
@@ -3524,7 +3526,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                             return (
                               <button
                                 className="p2-cr-btn"
-                                onClick={e => { e.stopPropagation(); setRapportsModal({ tacheNom: t.nom, tacheId: t.id, rapports: crs }); }}
+                                onClick={e => { e.stopPropagation(); setRapportsModal({ tacheNom: nomTache(t), tacheId: t.id, rapports: crs }); }}
                                 title={`${n} compte${n > 1 ? "s" : ""} rendu${n > 1 ? "s" : ""} lié${n > 1 ? "s" : ""} à cette tâche`}
                                 style={{
                                   background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
@@ -3759,7 +3761,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         const sansPrix = (l) => l.prix_total == null && l.prix_unitaire == null;
         const sansPrixCount = lignes.filter(sansPrix).length;
         const lotLabelOf = (id) => lots.find(l => l.id === id)?.label || (id || null);
-        const ouvrageLabelOf = (id) => ouvrages.find(o => o.id === id)?.libelle || null;
+        const ouvrageLabelOf = (id) => { const ov = ouvrages.find(o => o.id === id); return ov ? (libelleOuvrage(ov) || null) : null; };
         const q = matKpiSearch.trim().toLowerCase();
         const lignesAffichees = !q ? lignes : lignes.filter(l =>
           (l.libelle || "").toLowerCase().includes(q) ||
@@ -3962,7 +3964,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         const ouvragesDuLot = ouvrages.filter(o => isLot ? (o.lot_id === matPanel.id) : (o.lot_id === ouvrage?.lot_id));
         const lignes = isLot ? lignesDuLot(matPanel.id) : lignesDeLOuvrage(ouvrage);
         const prevus = isLot
-          ? ouvragesDuLot.flatMap(o => prevusOuvrage(o).map(p => ({ ...p, ouvrageLibelle: o.libelle })))
+          ? ouvragesDuLot.flatMap(o => prevusOuvrage(o).map(p => ({ ...p, ouvrageLibelle: libelleOuvrage(o) })))
           : prevusOuvrage(ouvrage);
         const close = () => { setMatPanel(null); setRefForm({ materiau_id: "", libelle: "", quantite: "", prix: "", unite: "U" }); };
         const fmtEur = (n) => (parseFloat(n) || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 });
@@ -4076,7 +4078,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                           style={{ flex: 1, padding: "4px 8px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
                             background: T.fieldBg || T.card, color: T.text, fontSize: FONT.xs.size, fontFamily: "inherit", outline: "none" }}>
                           <option value="">— Lot uniquement —</option>
-                          {ouvragesDuLot.map(o => <option key={o.id} value={o.id}>{o.libelle || "(sans libellé)"}</option>)}
+                          {ouvragesDuLot.map(o => <option key={o.id} value={o.id}>{libelleOuvrage(o) || "(sans libellé)"}</option>)}
                         </select>
                       </div>
                     </div>
@@ -4223,10 +4225,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             onClose={() => setEditingOuvrageId(null)}
             onDelete={() => { deleteOuvrage(o.id); setEditingOuvrageId(null); }}
           >
-            <ModalField label="Libellé">
+            <ModalField label="Libellé du devis">
               <input autoFocus value={o.libelle || ""}
                 onChange={e => updateOuvrage(o.id, { libelle: e.target.value })}
                 placeholder="Nom de l'ouvrage" style={{ ...modalInp(T), fontWeight: 600 }}/>
+            </ModalField>
+            <ModalField label="Nom sur le chantier (facultatif — documents client et ProGBat gardent le libellé du devis)">
+              <input value={o.libelle_perso || ""}
+                onChange={e => updateOuvrage(o.id, { libelle_perso: e.target.value || null })}
+                placeholder={libelleOuvrageDevis(o) || "Nom court, lisible sur un téléphone"} style={modalInp(T)}/>
             </ModalField>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <ModalField label="Heures prévues">
@@ -4295,11 +4302,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             onClose={() => setEditingTache(null)}
             onDelete={() => { deleteTache(o.id, t.id); setEditingTache(null); }}
           >
-            <ModalField label="Description">
+            <ModalField label="Libellé du devis">
               <textarea autoFocus value={t.nom || ""}
                 onChange={e => updateTache(o.id, t.id, { nom: e.target.value })}
                 placeholder="Description de la tâche" rows={2}
                 style={{ ...modalInp(T), fontWeight: 600, resize: "vertical", minHeight: 60 }}/>
+            </ModalField>
+            <ModalField label="Nom sur le chantier (facultatif — affiché aux ouvriers, en validation et au planning)">
+              <input value={t.nom_perso || ""}
+                onChange={e => updateTache(o.id, t.id, { nom_perso: e.target.value || null })}
+                placeholder={nomTacheDevis(t) || "Nom court, lisible sur un téléphone"} style={modalInp(T)}/>
             </ModalField>
             {/* Rattachement : permet de reclasser une tâche vers le bon ouvrage
                 (ex. tâches atterries dans « Divers / hors devis »). La tâche
@@ -4315,7 +4327,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   const lotLabel = ov.lot_id ? lots.find(l => l.id === ov.lot_id)?.label : null;
                   return (
                     <option key={ov.id} value={ov.id}>
-                      {(ov.libelle || "(sans libellé)") + (lotLabel ? ` — ${lotLabel}` : "")}
+                      {(libelleOuvrage(ov) || "(sans libellé)") + (lotLabel ? ` — ${lotLabel}` : "")}
                     </option>
                   );
                 })}
@@ -4633,7 +4645,7 @@ function PredsEditor({ ouvrages, groupes, tacheId, T, acc, appliquerPredecesseur
     { g: { id: "__hors__", nom: "À classer", couleur: "#888" }, taches: horsGroupe },
   ].map(s => ({
     ...s,
-    taches: s.taches.filter(t => String(t.id) !== id && (!filtre || norm(t.nom).includes(filtre))),
+    taches: s.taches.filter(t => String(t.id) !== id && (!filtre || textesTache(t).some(x => norm(x).includes(filtre)))),
   })).filter(s => s.taches.length > 0);
 
   return (
@@ -4685,7 +4697,7 @@ function PredsEditor({ ouvrages, groupes, tacheId, T, acc, appliquerPredecesseur
                       color: sel ? acc.accent : T.textSub,
                       fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: sel ? 800 : 600, cursor: "pointer",
                     }}>
-                    {t.nom || "(sans nom)"}
+                    {nomTache(t) || "(sans nom)"}
                   </button>
                 );
               })}
@@ -4796,7 +4808,7 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesse
             title="Sélectionner pour une action groupée"
             style={{ margin: 0, cursor: "pointer", flexShrink: 0 }}/>
           <div style={{ fontSize: FONT.sm.size, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-            {t.nom || "(sans nom)"}
+            {nomTache(t) || "(sans nom)"}
           </div>
         </div>
         <div style={{ fontSize: FONT.xs.size, color: T.textSub, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -4969,7 +4981,7 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesse
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxHeight: 120, overflow: "auto" }}>
                 {[...index.entries()]
                   .filter(([tid]) => !selection.has(tid))
-                  .filter(([, e]) => !pickerSearch || (e.tache.nom || "").toLowerCase().includes(pickerSearch.toLowerCase()))
+                  .filter(([, e]) => tacheCorrespond(e.tache, pickerSearch))
                   .map(([tid, e]) => {
                     const g = gById.get(e.tache.chrono_groupe_id);
                     return (
@@ -4981,7 +4993,7 @@ function RangView({ ouvrages, groupes, acc, T, onClickTache, appliquerPredecesse
                           fontFamily: "inherit", fontSize: FONT.xs.size, fontWeight: 600, cursor: "pointer",
                         }}>
                         <span style={{ width: 7, height: 7, borderRadius: 2, background: g?.couleur || "#888", flexShrink: 0 }}/>
-                        {e.tache.nom || "(sans nom)"}
+                        {nomTache(e.tache) || "(sans nom)"}
                       </button>
                     );
                   })}
@@ -5180,11 +5192,11 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
     .sort((a, b) => {
       const oa = a.tache.chrono_ordre ?? 1e9, ob = b.tache.chrono_ordre ?? 1e9;
       if (oa !== ob) return oa - ob;
-      return (a.tache.nom || "").localeCompare(b.tache.nom || "");
+      return (nomTache(a.tache) || "").localeCompare(nomTache(b.tache) || "");
     });
   const unassigned = items
     .filter(it => !it.tache.chrono_groupe_id || !groupeIds.has(it.tache.chrono_groupe_id))
-    .sort((a, b) => (a.tache.nom || "").localeCompare(b.tache.nom || ""));
+    .sort((a, b) => (nomTache(a.tache) || "").localeCompare(nomTache(b.tache) || ""));
 
   // Entrées ordonnées d'un groupe = tâches + jalons fusionnés par `ordre`.
   // À égalité d'ordre, la tâche passe avant le jalon (stable).
@@ -5449,10 +5461,10 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                   color: "#f5a623", fontSize: 9, fontWeight: 800, letterSpacing: .4, lineHeight: "14px",
                 }}>EXT</span>
             )}
-            {t.nom || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
+            {nomTache(t) || <span style={{ fontStyle: "italic", color: T.textMuted }}>(sans nom)</span>}
           </div>
           <div style={{ fontSize: FONT.xs.size, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {(it.lot?.label ? it.lot.label + " · " : "") + (it.ouvrage.libelle || "—")}
+            {(it.lot?.label ? it.lot.label + " · " : "") + (libelleOuvrage(it.ouvrage) || "—")}
           </div>
         </div>
         {groupesTries.length > 0 && (
@@ -6164,7 +6176,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
                                 style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: RADIUS.sm, background: T.surface, border: `1px solid ${idx === 0 ? acc.border : T.border}`, cursor: "pointer" }}>
                                 <span style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, background: idx === 0 ? acc.accent : T.card, color: idx === 0 ? (acc.onAccent || "#000") : T.textMuted, border: `1px solid ${idx === 0 ? acc.accent : T.border}` }}>{idx + 1}</span>
                                 <span style={{ width: 8, height: 8, borderRadius: 2, background: g.couleur || acc.accent, flexShrink: 0 }} />
-                                <span style={{ flex: 1, minWidth: 0, fontSize: FONT.sm.size, fontWeight: idx === 0 ? 800 : 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.nom || "(sans nom)"}</span>
+                                <span style={{ flex: 1, minWidth: 0, fontSize: FONT.sm.size, fontWeight: idx === 0 ? 800 : 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nomTache(t) || "(sans nom)"}</span>
                                 {a > 0 && <span style={{ fontSize: 10, fontWeight: 800, color: acc.accent, flexShrink: 0 }}>en cours {a}%</span>}
                                 <span style={{ fontSize: FONT.xs.size, color: T.textMuted, flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.nom || ""}</span>
                                 {d && <span style={{ fontSize: FONT.xs.size, fontWeight: late ? 800 : 600, color: late ? "#e15a5a" : T.textSub, flexShrink: 0, whiteSpace: "nowrap" }}>{late ? "⚠ " : ""}{fmtShort(d)}</span>}
@@ -6290,7 +6302,7 @@ function ChronoView({ ouvrages, lots, groupes, jalons, acc, T, applyChrono, patc
           auteur={controleCtx?.auteur || ""}
           groupe={controleOuvert}
           taches={itemsOfGroup(controleOuvert.id).map(it => ({
-            id: it.tache.id, nom: it.tache.nom || "", ouvrage: it.ouvrage?.libelle || "",
+            id: it.tache.id, nom: nomTache(it.tache) || "", ouvrage: libelleOuvrage(it.ouvrage) || "",
           }))}
           onClose={() => { setControleOuvert(null); onControleChange?.(); }}
         />
@@ -6371,7 +6383,7 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
   // Tri des rows : par lot.id puis par ouvrage puis par date
   rows.sort((a, b) => {
     if (a.lot.id !== b.lot.id) return a.lot.id.localeCompare(b.lot.id);
-    if (a.ouvrage.id !== b.ouvrage.id) return (a.ouvrage.libelle || "").localeCompare(b.ouvrage.libelle || "");
+    if (a.ouvrage.id !== b.ouvrage.id) return (libelleOuvrage(a.ouvrage) || "").localeCompare(libelleOuvrage(b.ouvrage) || "");
     return a.date.getTime() - b.date.getTime();
   });
 
@@ -6497,10 +6509,10 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
                 style={{ padding: "0 10px 0 14px", borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, minWidth: 0, cursor: clickable ? "pointer" : "default" }}>
                 <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
                   <div style={{ fontSize: FONT.sm.size, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.tache.nom || "(sans nom)"}
+                    {nomTache(r.tache) || "(sans nom)"}
                   </div>
                   <div style={{ fontSize: 9, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.ouvrage.libelle || "(sans libellé)"}{note || ""}
+                    {libelleOuvrage(r.ouvrage) || "(sans libellé)"}{note || ""}
                   </div>
                 </div>
                 <InfoBulle contenu={`${av}% réalisé`} T={T}>
@@ -6578,7 +6590,7 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
               const dateLbl = r.fromCR
                 ? `${r.date.toLocaleDateString("fr-FR")} → ${r.dateFin.toLocaleDateString("fr-FR")} (d'après les comptes rendus — pas de date prévue)`
                 : r.date.toLocaleDateString("fr-FR");
-              const tooltip = `${r.tache.nom || "(sans nom)"} — ${dateLbl} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
+              const tooltip = `${nomTache(r.tache) || "(sans nom)"} — ${dateLbl} — ${av}%${r.tache.heures_estimees ? ` — ${hr || 0}h/${r.tache.heures_estimees}h` : ""}`;
               stripe += 1;
               els.push(
                 <div key={`row-${r.tache.id}`} style={{
@@ -6608,7 +6620,7 @@ function GanttV2({ ouvrages, lots, jalons, groupes, acc, T, avancementOuvrage, t
                           boxShadow: `0 2px 4px color-mix(in srgb, ${barColor} 30%, transparent)`,
                         }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {r.tache.nom || ""} {av > 0 ? `· ${av}%` : ""}
+                          {nomTache(r.tache) || ""} {av > 0 ? `· ${av}%` : ""}
                         </span>
                       </div>
                     )}

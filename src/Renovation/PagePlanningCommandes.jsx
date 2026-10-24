@@ -1,3 +1,4 @@
+import { libelleOuvrage } from "./libellesPhasageV1";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
@@ -311,7 +312,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 
         ouvrages.push({
           id:            o.id,
-          libelle:       o.libelle || o.nom || "Ouvrage",
+          libelle:       libelleOuvrage(o) || o.nom || "Ouvrage",
           lotId:         o.lot_id || null,
           lotLabel:      lotById[o.lot_id]?.label || "Sans lot",
           lotCouleur:    lotById[o.lot_id]?.couleur || "#888",
@@ -381,7 +382,7 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
             lotId:           o.lotId,
             lotLabel:        o.lotLabel,
             ouvrageId:       o.id,
-            ouvrageLibelle:  o.libelle,
+            ouvrageLibelle:  libelleOuvrage(o),
             dateISO:         o.dateISO,
             dateObj:         o.dateObj,
           });
@@ -460,10 +461,10 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
       fournisseur_id: m.fournisseur_id, fournisseur_nom: m.fournisseur_nom, materiau_id: m.materiau_id,
       chantierId: chantier.chantierId, chantierNom: chantier.chantierNom, chantierCouleur: chantier.chantierCouleur,
       phasageId: chantier.phasageId, lotId: ouvrage.lotId, lotLabel: ouvrage.lotLabel,
-      ouvrageId: ouvrage.id, ouvrageLibelle: ouvrage.libelle,
+      ouvrageId: ouvrage.id, ouvrageLibelle: libelleOuvrage(ouvrage),
     }));
     setCmdModal({
-      titre: `${chantier.chantierNom} · ${ouvrage.libelle}`,
+      titre: `${chantier.chantierNom} · ${libelleOuvrage(ouvrage)}`,
       lignes,
       dateBesoin: ouvrage.dateISO || "",
     });

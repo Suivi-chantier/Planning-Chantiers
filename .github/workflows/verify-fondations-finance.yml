@@ -41,3 +41,5 @@ jobs:
         run: node scripts/verif-bilan-periode.mjs
       - name: Etape 4 - Taches hors devis A / B / C (donnees fictives)
         run: node scripts/verif-hors-devis-v2.mjs
+      - name: CR-2 - Libelles personnalises du phasage, libelle devis conserve (donnees fictives)
+        run: node scripts/verif-libelles-phasage.mjs

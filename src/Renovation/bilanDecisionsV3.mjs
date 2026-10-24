@@ -19,6 +19,7 @@
 //
 // Module PUR : aucune dépendance Supabase, aucune horloge, aucun effet de bord.
 // ─────────────────────────────────────────────────────────────────────────────
+import { libelleOuvrage } from "./libellesPhasageV1.mjs";
 import { dateRapportIsoV3, ajouterJoursV3, semaineIsoV3, lundiSemaineV3, fmtJourV3 } from "./bilanPeriodeV3.mjs";
 import { etatMateriauxOuvrageV1 } from "./commandesOuvrageV1.mjs";
 
@@ -163,7 +164,7 @@ export function commandesSemaineQuiVientV3({ phasages, lignesCmd = [], fenetre, 
     if (!chantierId) continue;
     for (const o of listeSure(p.ouvrages)) {
       const e = etatMateriauxOuvrageV1({ ouvrage: o, chantierId, lignesCmd, estConnu });
-      const libelle = str(o && (o.libelle || o.nom)) || "Ouvrage";
+      const libelle = str(o && (libelleOuvrage(o) || o.nom)) || "Ouvrage";
       const aCommander = e.dateBesoin && e.dateBesoin <= finFenetre ? e.aCommander.length : 0;
       const attendus = e.marques.length;
       if (!aCommander && !attendus) continue;

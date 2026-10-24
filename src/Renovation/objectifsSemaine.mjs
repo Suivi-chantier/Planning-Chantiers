@@ -1,3 +1,4 @@
+import { textesTache } from "./libellesPhasageV1.mjs";
 // Analyse pure : les absences de données ne prouvent jamais une fin de travaux.
 export const JOURS_EXPORT = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
 export const normaliser = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -28,7 +29,9 @@ export function analyserObjectifsSemaine({weekId,cells=[],chantiers=[],operation
     const restantes=(ouvrages||[]).flatMap(o=>(o.taches||[]).filter(t=>Number(t.avancement||0)<100).map(t=>({...t,lot_id:o.lot_id,exterieur:exterieur(o)})));
     // Liens directs prioritaires. Le nom est un secours uniquement si unique dans le phasage.
     const toutes=(ouvrages||[]).flatMap(o=>o.taches||[]);
-    const correspond=(t,l)=> l.tache_id ? String(l.tache_id)===String(t.id) : normaliser(texte(l))===normaliser(t.nom) && toutes.filter(x=>normaliser(x.nom)===normaliser(t.nom)).length===1;
+    // Nom personnalisé (CR-2) ou libellé devis : les deux reconnaissent la tâche.
+    const memeNom=(t,n)=>textesTache(t).some(x=>normaliser(x)===n);
+    const correspond=(t,l)=> l.tache_id ? String(l.tache_id)===String(t.id) : memeNom(t,normaliser(texte(l))) && toutes.filter(x=>memeNom(x,normaliser(texte(l)))).length===1;
     const plan=(t,avant=4)=>ici.filter(l=>JOURS_EXPORT.indexOf(l.jour)<=avant && correspond(t,l));
     const add=(type,ls,extra={})=> { if(!ls.length)return; const jour=ls.at(-1).jour; faits.push({id:`${type}:${c.id}:${jour}:${extra.lot_id||''}:${type==='RDV'?ls[0].preuve_id:''}`,type,chantier_ids:[c.id],operation_id:c.operation_id||null,libelle_groupe:c.nom,jour,couleur:c.couleur,preuves:ls.map(t=>({id:t.preuve_id,tache_id:t.tache_id||null,nom:texte(t),jour:t.jour})),...extra}); };
     const travaux=ici.filter(t=>!rdv(t));
@@ -75,7 +78,7 @@ export function analyserObjectifsSemaine({weekId,cells=[],chantiers=[],operation
       if(!poses.length)continue;
       const lc=cells.filter(x=>x.chantier_id===c.id).flatMap(x=>(x.taches||[]).map((t,i)=>({...t,week_id:x.week_id,jour:x.jour,preuve_id:t.allocation_uid||`${x.week_id}:${c.id}:${x.jour}:${i}`})));
       for(const t of poses) {
-        const ls=lc.filter(l=>l.week_id===weekId && (l.tache_id?String(l.tache_id)===String(t.id):normaliser(texte(l))===normaliser(t.nom)));
+        const ls=lc.filter(l=>l.week_id===weekId && (l.tache_id?String(l.tache_id)===String(t.id):textesTache(t).some(x=>normaliser(x)===normaliser(texte(l)))));
         if(!ls.length || lc.some(l=>l.week_id>weekId && String(l.tache_id)===String(t.id))) {inconnu=true;break;}
         preuves.push(...ls.map(l=>({id:l.preuve_id,tache_id:t.id,nom:texte(l),jour:l.jour})));if(!ids.includes(c.id))ids.push(c.id);
       }

@@ -1,3 +1,4 @@
+import { libelleOuvrage } from "./libellesPhasageV1";
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
@@ -2234,7 +2235,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         const reelles = cfHeuresComparablesOuvrage(o, ptsIndexSelected);
         const horsDevis = cfHeuresHorsDevisOuvrage(o, ptsIndexSelected);
         const vendues = parseFloat(o.heures_devis) || 0;
-        return { id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, vendues, reelles, horsDevis };
+        return { id: o.id, label: libelleOuvrage(o) || "(sans nom)", couleur: acc.accent, vendues, reelles, horsDevis };
       }).filter(o => o.vendues > 0 || o.reelles > 0 || o.horsDevis > 0);
     }
 
@@ -2265,7 +2266,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         if (count > maxCount) { maxCount = count; domPhaseId = phId; }
       });
       const couleur = PHASES.find(p => p.id === domPhaseId)?.couleur || acc.accent;
-      return { id: o.id, label: o.libelle || "(sans nom)", couleur, vendues, reelles: entry.reelles };
+      return { id: o.id, label: libelleOuvrage(o) || "(sans nom)", couleur, vendues, reelles: entry.reelles };
     }).filter(o => o.vendues > 0 || o.reelles > 0);
     if (orphan.vendues > 0 || orphan.reelles > 0) {
       result.push({ id: "_orphan", label: "Sans ouvrage rattaché", couleur: textMuted, ...orphan });
@@ -3059,7 +3060,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     const rows = hasV2
                       ? ouvragesV2
                           .filter(o => (o.taches || []).length > 0)
-                          .map(o => ({ id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, av: avPondere(o.taches || []) }))
+                          .map(o => ({ id: o.id, label: libelleOuvrage(o) || "(sans nom)", couleur: acc.accent, av: avPondere(o.taches || []) }))
                       : PHASES.map(ph => {
                           const taches = selectedPhasage.plan_travaux?.[ph.id] || [];
                           if (taches.length === 0) return null;
@@ -3571,7 +3572,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               const coutPrev = parseFloat(o.cout_materiaux) || 0;
               const coutReel = totalLignes(commandeLignesSelected.filter(l => l.ouvrage_id === o.id));
               return {
-                id: o.id, label: o.libelle || "(sans nom)", couleur: acc.accent, emoji: null,
+                id: o.id, label: libelleOuvrage(o) || "(sans nom)", couleur: acc.accent, emoji: null,
                 matsPrev: [], coutPrev, coutReel, dateCmd: null,
                 hasMat: coutPrev > 0 || coutReel > 0,
                 statutCmd: coutReel > 0 ? "commande" : "a_commander",

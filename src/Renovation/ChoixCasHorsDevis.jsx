@@ -9,6 +9,7 @@
 // Les règles sont dans horsDevisV2.mjs ; ce composant ne fait qu'afficher.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useMemo } from "react";
+import { libelleOuvrage } from "./libellesPhasageV1";
 import { tachesProbablesV2, heuresNormalesProposeesV2, MOTIFS_HORS_DEVIS, estOuvrageDiversV2 } from "./horsDevisV2";
 
 const fmtH = h => `${String(Math.round(h * 100) / 100).replace(".", ",")} h`;
@@ -93,7 +94,7 @@ export default function ChoixCasHorsDevis({ valeur = {}, onChange, onRattacher =
                 onChange({ ouvrage_id: e.target.value || null, ...(p && !valeur.heures_normales ? { heures_normales: p.heures } : {}) });
               }}>
               {!valeur.ouvrage_id && <option value="">Choisissez l'ouvrage</option>}
-              {vendus.map(o => <option key={o.id} value={o.id}>{String(o.libelle || "(sans libellé)").slice(0, 80)}</option>)}
+              {vendus.map(o => <option key={o.id} value={o.id}>{String(libelleOuvrage(o) || "(sans libellé)").slice(0, 80)}</option>)}
             </select>
           </div>
           <div>

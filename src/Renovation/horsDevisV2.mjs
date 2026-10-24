@@ -50,6 +50,8 @@ export const STATUTS_ARBITRAGE = Object.freeze([
 
 export const SEMAINES_RAPPEL_ARBITRAGE = 3;
 
+import { libelleOuvrage, nomTache, nomTacheDevis } from "./libellesPhasageV1.mjs";
+
 const str = v => (v == null ? "" : String(v).trim());
 const liste = v => (Array.isArray(v) ? v : []);
 const num = v => {
@@ -134,7 +136,7 @@ export function tachesProbablesV2({ nom, ouvrages, lotId = null, tachesPrevuesJo
     if (estOuvrageDiversV2(o)) continue;
     for (const t of liste(o.taches)) {
       if (!t?.id || exclus.has(String(t.id)) || t.hors_devis === true) continue;
-      const sim = ressemblanceNomsV2(nom, t.nom);
+      const sim = Math.max(ressemblanceNomsV2(nom, nomTache(t)), ressemblanceNomsV2(nom, nomTacheDevis(t)));
       const prevue = prevues.has(String(t.id));
       const memeLot = !!lotId && str(o.lot_id) === str(lotId);
       const score = round2(sim * 0.6 + (prevue ? 0.25 : 0) + (memeLot ? 0.15 : 0));
@@ -143,7 +145,7 @@ export function tachesProbablesV2({ nom, ouvrages, lotId = null, tachesPrevuesJo
       if (sim >= 0.3) raisons.push(sim >= 0.8 ? "nom très proche" : "mots en commun");
       if (prevue) raisons.push("prévue ce jour-là");
       if (memeLot) raisons.push("même lot");
-      out.push({ tache_id: t.id, nom: str(t.nom), ouvrage_id: o.id, ouvrage: str(o.libelle), avancement: num(t.avancement) ?? 0, score, raisons });
+      out.push({ tache_id: t.id, nom: nomTache(t), ouvrage_id: o.id, ouvrage: libelleOuvrage(o), avancement: num(t.avancement) ?? 0, score, raisons });
     }
   }
   return out.sort((a, b) => b.score - a.score || a.nom.localeCompare(b.nom, "fr")).slice(0, max);
@@ -369,7 +371,7 @@ export function syntheseHorsDevisChantierV2({ ouvrages, pointages = [], tauxFG =
       const depuis = statut === "a_arbitrer" ? (jour(t.arbitrage?.le) || jours[0] || null) : null;
       const rappel = !!(depuis && aujourdHui && semainesEntre(depuis, aujourdHui) > semainesRappel);
       taches.push({
-        tache_id: t.id, nom: str(t.nom), ouvrage_id: o.id, ouvrage: str(o.libelle),
+        tache_id: t.id, nom: nomTache(t), ouvrage_id: o.id, ouvrage: libelleOuvrage(o),
         motif: motifTacheV2(t), cas: casDuMotif(motifTacheV2(t)), arbitrage: statut,
         ajouteeEnCours: t.ajoutee_en_cours === true, horsDevis: t.hors_devis === true,
         heures: round2(e.heures), cout: round2(e.mo + e.fg), coutMO: round2(e.mo), coutFG: round2(e.fg),

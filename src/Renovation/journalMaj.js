@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Phasage : renommer un ouvrage ou une tâche pour le chantier",
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "validation", label: "Validation fin de journée" }],
+    quoi: "Un ouvrage ou une tâche peut porter un nom court et lisible (« Isolation cloison SDB ») à la place du long libellé du devis, dans l'application : phasage, planning, validation, Bilan. Le libellé du devis est conservé à côté : les documents client et ProGBat le gardent.",
+    comment: "Phasage → crayon ✎ (ou double-clic) sur le nom d'un ouvrage ou d'une tâche, taper le nouveau nom, Entrée. Nom vide = retour au libellé du devis. Le libellé du devis reste affiché en petit dessous, et dans la validation.",
+  },
+  {
+    date: "2026-10-24",
     type: "amelioration",
     titre: "Qualité des comptes rendus : écart d'avancement déclaré / validé",
     pages: [{ id: "qualite-cr", label: "Qualité des comptes rendus" }],

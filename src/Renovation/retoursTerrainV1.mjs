@@ -12,6 +12,7 @@
 //   nouvelles      nouvelles tâches proposées, et ce qu'elles sont devenues.
 // Plus des cumuls : dépassements par motif et par ouvrage, non faites par motif.
 // ─────────────────────────────────────────────────────────────────────────────
+import { libelleOuvrage, nomTache } from "./libellesPhasageV1.mjs";
 import { libelleMotifStatut, libelleMotifDepassement, libelleNature } from "./motifsCompteRendu.mjs";
 
 const texte = (v) => String(v ?? "").trim();
@@ -32,7 +33,7 @@ export function indexTachesPhasages(phasages) {
   const m = new Map();
   (phasages || []).forEach(ph => (Array.isArray(ph?.ouvrages) ? ph.ouvrages : []).forEach(o =>
     (Array.isArray(o?.taches) ? o.taches : []).forEach(t => {
-      if (t?.id != null) m.set(String(t.id), { nom: texte(t.nom), ouvrage: texte(o.libelle) || null, tache: t });
+      if (t?.id != null) m.set(String(t.id), { nom: texte(nomTache(t)), ouvrage: texte(libelleOuvrage(o)) || null, tache: t });
     })));
   return m;
 }

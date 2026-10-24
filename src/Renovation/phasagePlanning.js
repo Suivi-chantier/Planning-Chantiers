@@ -9,6 +9,7 @@ import { supabase } from "../supabase";
 // Écriture versionnée : ces helpers réécrivent ouvrages / plan_travaux, ils
 // doivent donc passer par le verrou optimiste comme tout le reste.
 import { sauvegarderPhasage } from "./phasageEcriture.mjs";
+import { nomTache } from "./libellesPhasageV1.mjs";
 import { statsGroupeChrono } from "../chantierFinance";
 
 // Les heures/capacités par jour dépendent désormais de la parité de la
@@ -88,7 +89,7 @@ export async function loadPhasagesOperation(chantiersOperation) {
     // survol) sans traîner tout le phasage.
     const projette = (t) => ({
       id: t.id,
-      nom: t.nom || "",
+      nom: nomTache(t) || "",
       date_prevue: isISO(t.date_prevue) ? t.date_prevue.slice(0, 10) : "",
       avancement: Math.max(0, Math.min(100, parseInt(t.avancement) || 0)),
       heures_estimees: parseFloat(t.heures_estimees) || 0,

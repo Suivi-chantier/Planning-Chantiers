@@ -15,6 +15,7 @@
 // appels au parent (qui écrit le phasage et, pour A, les pointages).
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useMemo, useState } from "react";
+import { libelleOuvrage } from "./libellesPhasageV1";
 import {
   syntheseHorsDevisChantierV2, REPONSES_FACTURATION, tachesProbablesV2, heuresNormalesProposeesV2,
   reaffecterCasAV2, integrerCasBV2, rattacherAvenantV2, gesteCommercialV2, aArbitrerV2, marquerNonFactureV2,
@@ -133,7 +134,7 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
                   setChoix({ ...c, ouvrage_id: e.target.value || null, heures_normales: p ? p.heures : c.heures_normales });
                 }}>
                   {!c.ouvrage_id && <option value="">Choisissez l'ouvrage</option>}
-                  {vendus.map(o => <option key={o.id} value={o.id}>{String(o.libelle || "(sans libellé)").slice(0, 80)}</option>)}
+                  {vendus.map(o => <option key={o.id} value={o.id}>{String(libelleOuvrage(o) || "(sans libellé)").slice(0, 80)}</option>)}
                 </select>
                 <input type="number" min="0" step="0.25" placeholder="Heures normales" value={c.heures_normales ?? ""} style={{ ...champ, textAlign: "right" }}
                   onChange={e => setChoix({ ...c, heures_normales: e.target.value })}/>
@@ -156,7 +157,7 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
             ) : <>
               <select value={c.ouvrage_id || ""} style={{ ...champ, minWidth: 260 }} onChange={e => setChoix({ ...c, ouvrage_id: e.target.value || null })}>
                 <option value="">Ouvrage d'avenant…</option>
-                {avenants.map(o => <option key={o.id} value={o.id}>{String(o.libelle || "(sans libellé)").slice(0, 70)} — {fmtEur(o.prix_ht)}</option>)}
+                {avenants.map(o => <option key={o.id} value={o.id}>{String(libelleOuvrage(o) || "(sans libellé)").slice(0, 70)} — {fmtEur(o.prix_ht)}</option>)}
               </select>
               <button type="button" disabled={occupe || !c.ouvrage_id} style={bouton(true)} onClick={() => {
                 const r = rattacherAvenantV2(ouvrages, l.tache_id, c.ouvrage_id, { ...ctx, joursDeclares: jours(l.tache_id) });
@@ -240,7 +241,7 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
                 <label key={o.id} style={{ display: "flex", gap: 8, fontSize: 12.5, alignItems: "center", marginBottom: 3 }}>
                   <input type="checkbox" checked={o.non_facture === true} disabled={occupe}
                     onChange={e => appliquer(marquerNonFactureV2(ouvrages, o.id, e.target.checked))}/>
-                  {String(o.libelle || "(sans libellé)").slice(0, 90)}
+                  {String(libelleOuvrage(o) || "(sans libellé)").slice(0, 90)}
                 </label>
               ))}
             </div>
