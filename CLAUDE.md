@@ -103,11 +103,17 @@ change et on demande avant de l'appliquer.
 Seule exception, décision de Loris du 24/10/2026 : en mode projet (voir
 « Projets longs »), une migration purement additive — création de table, de
 colonne, d'index, ou ajout de la policy `profero_collaborateurs_seulement` sur
-une nouvelle table — peut être appliquée sans demander, si le fichier projet
-l'autorise (sa section « Validation automatique », ou la règle par défaut quand
-elle est vide). Raison : sur un projet long, attendre une réponse pour chaque
-table nouvelle bloquerait tout, et une migration additive n'efface rien.
-Hors mode projet, rien ne change.
+une nouvelle table — est appliquée sans demander, une fois vérifiée :
+
+- avant : relire le SQL en entier et confirmer qu'il ne fait que créer ;
+  vérifier sur la base que les objets créés n'existent pas déjà et que chaque
+  nouvelle table reçoit bien `profero_collaborateurs_seulement` ;
+- après : vérifier que la migration est bien enregistrée comme appliquée et
+  que l'application s'ouvre.
+
+Le compte rendu dit ce qui a été vérifié. Raison : sur un projet long, attendre
+une réponse pour chaque table nouvelle bloquerait tout, et une migration
+additive n'efface rien. Hors mode projet, rien ne change.
 
 ## Projets longs : travail en autonomie
 
@@ -157,7 +163,8 @@ On est « en mode projet » quand Loris désigne un fichier de `docs/projets/`.
 - On applique la section « Validation automatique » du fichier projet. Quand
   elle est vide :
   - mise en ligne seule si tous les contrôles sont verts ;
-  - migration seule si elle est purement additive (voir « Mise en ligne ») ;
+  - migration seule si elle est purement additive et vérifiée (voir « Mise en
+    ligne ») ;
   - chiffres financiers : tableau avant / après sur les VRAIS chantiers
     (requête sur la base, jamais une fixture) ; aucun chantier ne doit varier
     de plus de 500 € ou de 2 points de marge. Ce tableau est recopié dans le

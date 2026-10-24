@@ -31,7 +31,7 @@ voir à la fin de chacune. Claude les découpe ensuite en tâches.
 
 Ce que Claude peut mettre en ligne seul et ce qui doit attendre l'accord de
 Loris. Laisser vide pour appliquer la règle par défaut de `CLAUDE.md` (contrôles
-verts, migrations purement additives, écart financier ≤ 500 € et ≤ 2 points de
+verts, migrations purement additives vérifiées, écart financier ≤ 500 € et ≤ 2 points de
 marge par chantier). Les arrêts obligatoires de `CLAUDE.md` s'appliquent
 toujours.
 
