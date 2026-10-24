@@ -89,6 +89,35 @@ async function recalculerApresEcriture(supabase, rj, { chantierId, date = null, 
   return ecrireReleves(supabase, rj, ctx, { chantierId, jours, calculeLe: maintenant.toISOString() });
 }
 
+// Dérives historiques par type de lot (étape 2, marge probable) : calculées
+// sur les chantiers TERMINÉS (statut de la liste des chantiers), chantiers
+// repris exclus, puis rangées dans planning_config — toutes les pages et tous
+// les relevés lisent cette valeur, aucun ne la recalcule.
+async function calculerDerivesHistoriques(supabase, ctx, { maintenant = new Date(), ecrire = true } = {}) {
+  const finance = await import("../../src/chantierFinance.mjs");
+  const d = ctx.donnees;
+  const termines = new Set((d.chantiersConfig || []).filter(c => c?.statut === "termine").map(c => String(c.id)));
+  const entrees = d.phasagesUniques
+    .filter(ph => termines.has(String(ph.chantier_id)))
+    .map(ph => {
+      const fin = finance.computeChantierFinance(d.inputsPour(ph));
+      return { chantierId: ph.chantier_id, chantierNom: ph.chantier_nom || ph.chantier_id, repris: fin.repris != null,
+        repriseHeures: fin.brut.repriseHeures, lots: fin.lots };
+    });
+  const r = finance.derivesHistoriquesParLot(entrees, d.seuilsMarges);
+  const valeur = { calcule_le: maintenant.toISOString(), ...r };
+  if (ecrire) {
+    const { error } = await supabase.from("planning_config")
+      .upsert([{ key: finance.CLE_CONFIG_DERIVES_HISTORIQUES, value: valeur }], { onConflict: "key" });
+    if (error) throw new Error(`planning_config/${finance.CLE_CONFIG_DERIVES_HISTORIQUES} : ${error.message}`);
+  }
+  // Les relevés de cette exécution lisent la valeur fraîche.
+  d.derivesHistoriques = r.lots;
+  const inputsPourAvant = d.inputsPour;
+  d.inputsPour = (ph, surcharge) => ({ ...inputsPourAvant(ph, surcharge), derivesHistoriques: r.lots });
+  return valeur;
+}
+
 // Rattrapage de nuit (idempotent) : chaque chantier qui a eu un mouvement
 // aujourd'hui (journal d'avancement, pointages, lignes de commande saisies,
 // comptes rendus validés) — relevé du jour, plus la cascade depuis le jour le
@@ -97,6 +126,7 @@ async function rattrapageDeNuit(supabase, rj, { maintenant = new Date() } = {}) 
   const ctx = await chargerContexte(supabase);
   const aujourdhui = aujourdhuiParis(maintenant);
   const resultats = [];
+  const historique = await calculerDerivesHistoriques(supabase, ctx, { maintenant });
   for (const ph of ctx.donnees.phasagesUniques) {
     const chantierId = ph.chantier_id;
     if (!chantierId) continue;
@@ -116,7 +146,7 @@ async function rattrapageDeNuit(supabase, rj, { maintenant = new Date() } = {}) 
     if (!jours.includes(aujourdhui)) jours.push(aujourdhui);
     resultats.push(await ecrireReleves(supabase, rj, ctx, { chantierId, jours, calculeLe: maintenant.toISOString() }));
   }
-  return { ok: true, date: aujourdhui, chantiers: resultats.length, relevesEcrits: resultats.reduce((s, r) => s + (r.ecrits || 0), 0), resultats };
+  return { ok: true, date: aujourdhui, chantiers: resultats.length, relevesEcrits: resultats.reduce((s, r) => s + (r.ecrits || 0), 0), derivesHistoriques: Object.keys(historique.lots || {}).length, resultats };
 }
 
-module.exports = { aujourdhuiParis, chargerContexte, ecrireReleves, recalculerApresEcriture, rattrapageDeNuit };
+module.exports = { aujourdhuiParis, chargerContexte, ecrireReleves, recalculerApresEcriture, rattrapageDeNuit, calculerDerivesHistoriques };

@@ -621,6 +621,202 @@ export function resteACommanderEnveloppes({ ouvrages = [], commandeLignes = [], 
   };
 }
 
+// ── LES TROIS MARGES (étape 2 de la refonte, 24/10/2026) ────────────────────
+// Réglages Admin (planning_config, clé CLE_CONFIG_SEUILS_MARGES) : tous les
+// seuils de la marge probable et des alertes. Valeur absente ou illisible →
+// défaut ci-dessous.
+export const CLE_CONFIG_SEUILS_MARGES = "seuils_marges";
+export const SEUILS_MARGES_DEFAUT = Object.freeze({
+  // Marge probable
+  deriveSeuilAvancementPct: 25,  // dérive constatée appliquée à partir de cet avancement du lot
+  derivePlafond: 5,              // coefficient maximal appliqué aux heures restantes
+  historiqueMinChantiers: 2,     // dérive historique : au moins N chantiers terminés
+  // Alertes (relevés journaliers)
+  alerteBaisseMargeProbableEuros: 500,
+  alerteDeriveLotRatio: 1.3,
+  alerteDeriveLotAvancementPct: 25,
+  alerteSansLotPct: 10,
+  alerteProductionHeureFacteur: 2,
+  // « Consommation sans avancement » (règle conservée, production exacte)
+  consoAvancementStablePts: 1,
+  consoHeuresAjouteesMin: 2,
+  consoMargePerdueMinEuros: 50,
+});
+export function normaliserSeuilsMarges(valeur) {
+  const v = valeur && typeof valeur === "object" ? valeur : {};
+  const out = {};
+  Object.entries(SEUILS_MARGES_DEFAUT).forEach(([k, d]) => {
+    const n = parseFloat(String(v[k] ?? "").replace(",", "."));
+    out[k] = Number.isFinite(n) && n >= 0 ? n : d;
+  });
+  return out;
+}
+
+// Dérives historiques par type de lot : calculées chaque nuit (et au
+// rattrapage) sur les chantiers TERMINÉS, rangées dans planning_config sous
+// CLE_CONFIG_DERIVES_HISTORIQUES ; tout le monde lit cette valeur (un seul
+// calcul, jamais refait par une page).
+export const CLE_CONFIG_DERIVES_HISTORIQUES = "derives_historiques_lots";
+
+// « Chantier repris » : démarré avant l'application, données d'origine non
+// fiables (ex. TOM & CAMILLE). Case du phasage, datée, avec auteur :
+// plan_travaux.meta.chantier_repris = { le, par }. Exclu des dérives
+// historiques, des statistiques de cadences et des alertes ; ses chiffres
+// restent affichés avec la mention « chantier repris ».
+export function chantierRepris(phasage) {
+  const r = phasage?.plan_travaux?.meta?.chantier_repris;
+  return r && typeof r === "object" && r.actif !== false ? { le: r.le || null, par: r.par || null } : null;
+}
+
+// Neutralisation de la dérive d'un lot par le conducteur (coefficient ×1 dans
+// la marge probable) : plan_travaux.meta.neutralisations_derive =
+// { [lotId]: { commentaire, par, le } }. Sans commentaire, elle ne compte pas
+// (le commentaire est obligatoire). Réversible : on retire l'entrée.
+export function neutralisationsDerive(phasage) {
+  const n = phasage?.plan_travaux?.meta?.neutralisations_derive;
+  const out = {};
+  if (n && typeof n === "object") {
+    Object.entries(n).forEach(([lotId, e]) => {
+      const commentaire = String(e?.commentaire || "").trim();
+      if (commentaire) out[lotId] = { commentaire, par: e.par || null, le: e.le || null };
+    });
+  }
+  return out;
+}
+
+// Avancement EXACT d'un lot (0-100, non arrondi) : moyenne des avancements
+// exacts de ses ouvrages pondérée par leur prix (moyenne simple sans prix) —
+// même pondération que avancementLot, sans les arrondis. `etat` : état des
+// tâches à une date (etatTachesALaDate) ; null = aujourd'hui. null si inconnu.
+export function avancementLotExact(ouvrages, lots, lotId, etat = null) {
+  const lo = ouvragesDuLot(ouvrages, lots, lotId);
+  if (lo.length === 0) return 0;
+  const vals = lo.map(o => avancementOuvrageExact(o, etat));
+  if (vals.some(v => v == null)) return null;
+  const tp = lo.reduce((s, o) => s + prixHTOuvrage(o), 0);
+  if (tp > 0) return lo.reduce((s, o, i) => s + vals[i] * prixHTOuvrage(o), 0) / tp;
+  return vals.reduce((s, v) => s + v, 0) / lo.length;
+}
+
+// Production cumulée à une date (ou aujourd'hui) : Σ prix × avancement exact.
+export function productionCumulee(ouvrages, etat = null) {
+  let v = 0;
+  for (const o of ouvrages || []) {
+    const av = avancementOuvrageExact(o, etat);
+    if (av == null) { if (prixHTOuvrage(o) > 0) return null; continue; }
+    v += prixHTOuvrage(o) * av / 100;
+  }
+  return v;
+}
+
+// MATÉRIAUX IMPUTÉS À L'AVANCEMENT, lot par lot (enveloppe = Σ coûts
+// matériaux prévus des ouvrages du lot, mêmes lots que le reste à commander) :
+//   consommé théorique = Σ ouvrages du lot de leur enveloppe × leur avancement
+//                        exact (= enveloppe × avancement du lot)
+//   en avance          = min( max(0, commandés − consommé), enveloppe − consommé )
+//   imputé             = commandés − en avance
+// Un lot terminé impute tout ; un dépassement d'enveloppe est imputé tout de
+// suite ; seul un achat anticipé DANS l'enveloppe est différé. Les commandes
+// de matériaux sans lot et les autres natures (sous-traitance, location,
+// déchets, autre) sont imputées directement. null si l'avancement d'un
+// ouvrage est inconnu à la date (`etat`).
+export function materiauxImputesALAvancement({ ouvrages = [], commandeLignes = [], lots = [], etat = null } = {}) {
+  const labelLot = (id) => id === LOT_SANS_LOT ? "Sans lot" : ((lots || []).find(l => l.id === id)?.label || id);
+  const parLot = new Map();
+  const lot = (id) => {
+    if (!parLot.has(id)) parLot.set(id, { lotId: id, label: labelLot(id), enveloppe: 0, consomme: 0, commandes: 0 });
+    return parLot.get(id);
+  };
+  for (const o of ouvrages || []) {
+    const env = coutMatOuvrage(o);
+    const l = lot(o?.lot_id || LOT_SANS_LOT);
+    l.enveloppe += env;
+    if (env !== 0) {
+      const av = avancementOuvrageExact(o, etat);
+      if (av == null) return null;
+      l.consomme += env * av / 100;
+    }
+  }
+  let sansLot = 0, autresNatures = 0;
+  (commandeLignes || []).forEach(li => {
+    const m = totalLignes([li]);
+    if (natureLigne(li) !== "materiaux") { autresNatures += m; return; }
+    if (!li.lot_id) { sansLot += m; return; }
+    lot(li.lot_id).commandes += m;
+  });
+  const lotsOut = [...parLot.values()].map(l => {
+    const enAvance = Math.min(Math.max(0, l.commandes - l.consomme), Math.max(0, l.enveloppe - l.consomme));
+    return { ...l, enAvance, impute: l.commandes - enAvance };
+  });
+  const enAvance = lotsOut.reduce((s, l) => s + l.enAvance, 0);
+  const imputeLots = lotsOut.reduce((s, l) => s + l.impute, 0);
+  return {
+    lots: lotsOut, sansLot, autresNatures, enAvance,
+    commandes: lotsOut.reduce((s, l) => s + l.commandes, 0) + sansLot + autresNatures,
+    impute: imputeLots + sansLot + autresNatures,
+  };
+}
+
+// Coefficient de la marge probable d'un lot et sa provenance :
+//   neutralisee : le conducteur a neutralisé la dérive du lot → ×1 ;
+//   constatee   : avancement exact ≥ seuil → dérive constatée, plafonnée ;
+//   historique  : sous le seuil → dérive historique du même type de lot
+//                 (chantiers terminés, hors chantiers repris, ≥ N chantiers) ;
+//   aucune      : rien d'applicable → ×1.
+export function coefficientMargeProbable({ lotId, avancementExact, ratioDerive, neutralisation = null, historique = null, seuils = SEUILS_MARGES_DEFAUT }) {
+  const s = normaliserSeuilsMarges(seuils);
+  if (neutralisation) return { coefficient: 1, provenance: "neutralisee" };
+  if (avancementExact != null && avancementExact >= s.deriveSeuilAvancementPct && ratioDerive != null) {
+    return { coefficient: Math.min(ratioDerive, s.derivePlafond), provenance: "constatee", plafonne: ratioDerive > s.derivePlafond };
+  }
+  const h = historique?.[lotId];
+  if (h && Number.isFinite(h.coef) && (h.nbChantiers || 0) >= s.historiqueMinChantiers) {
+    return { coefficient: Math.min(h.coef, s.derivePlafond), provenance: "historique", nbChantiers: h.nbChantiers };
+  }
+  return { coefficient: 1, provenance: "aucune" };
+}
+export const LIBELLES_PROVENANCE_COEF = Object.freeze({
+  constatee: "dérive constatée du lot",
+  historique: "dérive moyenne de ce lot sur les chantiers terminés",
+  neutralisee: "dérive neutralisée par le conducteur",
+  aucune: "pas de dérive applicable (×1)",
+});
+
+// DÉRIVES HISTORIQUES par type de lot. `chantiers` : [{ chantierId,
+// chantierNom, repris, lots }] où `lots` sont les lots de computeChantierFinance
+// d'un chantier TERMINÉ. Par lot : Σ heures réelles comparables ÷ Σ heures
+// attendues (heures prévues × avancement exact), soit la moyenne des dérives
+// pondérée par les heures. Lots sous le seuil d'avancement et chantiers repris
+// exclus. Coefficient retenu seulement à partir de N chantiers (réglage).
+// Un chantier avec une reprise d'antériorité (`repriseHeures` > 0 : heures
+// consommées avant l'application, saisies en bloc sans lot) est exclu lui
+// aussi : ses heures par lot sont incomplètes, sa dérive par lot serait fausse.
+export function derivesHistoriquesParLot(chantiers = [], seuils = SEUILS_MARGES_DEFAUT) {
+  const s = normaliserSeuilsMarges(seuils);
+  const parLot = {};
+  const exclusRepris = [];
+  const exclusReprise = [];
+  (chantiers || []).forEach(c => {
+    if (c?.repris) { exclusRepris.push(c.chantierNom || c.chantierId); return; }
+    if ((parseFloat(c?.repriseHeures) || 0) > 0) { exclusReprise.push(c.chantierNom || c.chantierId); return; }
+    (c?.lots || []).forEach(l => {
+      if (!l || l.id === "_orphans" || l.vide) return;
+      const att = parseFloat(l.heuresAttendues) || 0;
+      if (!(att > 0) || !((l.avancementExact ?? 0) >= s.deriveSeuilAvancementPct)) return;
+      const e = (parLot[l.id] ||= { lotId: l.id, label: l.label, heuresReelles: 0, heuresAttendues: 0, chantiers: [] });
+      e.heuresReelles += parseFloat(l.heuresReelles) || 0;
+      e.heuresAttendues += att;
+      e.chantiers.push(c.chantierNom || c.chantierId);
+    });
+  });
+  const lots = {};
+  Object.values(parLot).forEach(e => {
+    lots[e.lotId] = { ...e, nbChantiers: e.chantiers.length, coef: e.heuresAttendues > 0 ? e.heuresReelles / e.heuresAttendues : null,
+      retenu: e.chantiers.length >= s.historiqueMinChantiers };
+  });
+  return { lots, nbChantiers: (chantiers || []).length - exclusRepris.length - exclusReprise.length, exclusRepris, exclusReprise };
+}
+
 // ── Seuils de couleur (règle métier partagée ; l'UI applique les couleurs) ───
 // Dérive heures réelles vs estimées : vert ≤ 1, orange ≤ 1,2, rouge au-delà.
 export function couleurDerive(reelles, estimees) {
@@ -766,14 +962,34 @@ export const METHODE_CALCUL = [
   { cle: "production", label: "Production d'une période",
     formule: "Somme, ouvrage par ouvrage, de son prix de vente × (avancement en fin de période − avancement en début de période), sans arrondi. L'avancement d'un ouvrage à une date vient du journal d'avancement daté : chaque tâche prend sa dernière valeur enregistrée à cette date (date de réalisation : jour du compte rendu, ou date choisie dans le phasage). Ajouter un ouvrage ne change pas la production passée des autres. Les tâches hors devis restent hors de l'avancement. Si l'avancement d'un ouvrage est inconnu à l'une des deux dates (avant le début du journal), la production est « non calculable », jamais 0",
     source: "Journal d'avancement daté (validations de fin de journée, phasage) + prix de vente des ouvrages" },
-  { cle: "margeSemaine", label: "Marge réelle de la semaine",
-    formule: "Production de la semaine (ouvrage par ouvrage : prix de vente × avancement gagné sur la période, sans arrondi, d'après le journal d'avancement daté — un compte rendu compte au jour du rapport, pas au jour de sa validation) − main-d'œuvre pointée sur la même période (heures × taux figé de chaque ouvrier, trajets et indirect compris) − matériaux des commandes datées de la période (date du document fournisseur, sinon date de saisie) − frais généraux (heures de la période × taux de frais généraux en vigueur à la date de chaque heure). Négative si la semaine a coûté plus qu'elle n'a produit",
-    source: "Journal d'avancement daté, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
-  { cle: "margeCumulee", label: "Marge réelle depuis le début",
-    formule: "Production cumulée (ouvrage par ouvrage : prix de vente × avancement exact en fin de période) − tous les coûts réels jusqu'à la fin de la semaine (main-d'œuvre, reprise d'antériorité comprise, matériaux, frais généraux). Elle rattrape d'elle-même un avancement mal déclaré une semaine ou une commande saisie en retard",
-    source: "Journal d'avancement daté, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
+  { cle: "margeSemaine", label: "Marge de la période",
+    formule: "Marge à l'avancement en fin de période − marge à l'avancement en début de période. Elle se lit comme : production de la période (ouvrage par ouvrage, prix de vente × avancement gagné, sans arrondi, d'après le journal d'avancement daté — un compte rendu compte au jour du rapport, pas au jour de sa validation) − main-d'œuvre et frais généraux des heures de la période − variation des matériaux imputés à l'avancement − autres coûts (sous-traitance, location, bennes) datés de la période. La marge de la semaine et la marge cumulée sont ainsi toujours cohérentes entre elles. Négative si la période a coûté plus qu'elle n'a produit",
+    source: "Journal d'avancement daté, registre de pointage, lignes de commande, enveloppes matériaux des lots, taux de frais généraux (Admin)" },
+  { cle: "margeCumulee", label: "Marge à l'avancement en fin de période",
+    formule: "La marge à l'avancement calculée avec l'état du chantier en fin de période : production cumulée (prix de chaque ouvrage × son avancement exact à cette date) − coûts réels imputés jusqu'à cette date (main-d'œuvre, reprise d'antériorité comprise, frais généraux, matériaux imputés à l'avancement, autres coûts). Elle rattrape d'elle-même un avancement mal déclaré une semaine ou une commande saisie en retard",
+    source: "Journal d'avancement daté, registre de pointage, lignes de commande, enveloppes matériaux des lots, taux de frais généraux (Admin)" },
+  // ── Trois marges (étape 2 de la refonte, 24/10/2026) ──
+  { cle: "margeAvancement", label: "Marge à l'avancement",
+    formule: "Le constat, « où j'en suis » : production cumulée (prix de chaque ouvrage × son avancement exact, sans arrondi) − coûts réels imputés : main-d'œuvre (reprise d'antériorité comprise), frais généraux, sous-traitance / location / bennes / autres coûts, et matériaux imputés à l'avancement. Pour chaque lot, les matériaux consommés en théorie valent l'enveloppe matériaux du lot × son avancement ; la part commandée au-delà, dans la limite de l'enveloppe, est « en avance sur chantier » et n'est pas encore imputée ; un dépassement d'enveloppe est imputé tout de suite, un lot terminé impute tout. Les matériaux commandés sans lot sont imputés directement",
+    source: "Avancement des tâches, prix des ouvrages, registre de pointage, lignes de commande, enveloppes matériaux des lots, taux de frais généraux (Admin)" },
+  { cle: "materiauxEnAvance", label: "Matériaux en avance sur chantier",
+    formule: "Lot par lot : min( commandes de matériaux du lot − enveloppe du lot × avancement, enveloppe × (1 − avancement) ), jamais moins de 0. Ce sont des achats anticipés dans la limite de l'enveloppe : ils seront imputés au fur et à mesure de l'avancement",
+    source: "Lignes de commande (nature matériaux) + enveloppes matériaux des lots + avancement" },
+  { cle: "margeProbable", label: "Marge probable", projection: true,
+    formule: "« Si on continue au rythme actuel » : comme la marge à terminaison, mais les heures restantes de chaque lot sont multipliées par un coefficient : la dérive constatée du lot quand son avancement atteint le seuil réglé dans Admin (25 % par défaut), plafonnée (×5 par défaut) ; sous le seuil, la dérive moyenne de ce type de lot sur les chantiers terminés (pondérée par les heures, chantiers repris exclus, au moins 2 chantiers) ; à défaut ×1 ; ×1 aussi quand le conducteur a neutralisé la dérive du lot (avec un commentaire). Marge probable = marge à terminaison − Σ lots (heures restantes probables − heures restantes prévues) × (taux MO prévisionnel + taux de frais généraux en vigueur). Les heures « sans lot » restent dans les coûts réels, sans coefficient",
+    source: "Marge à terminaison, dérives des lots, dérives historiques des chantiers terminés, réglages Admin" },
+  { cle: "deriveLotHeuresEuros", label: "Dérive d'un lot en heures et en euros",
+    formule: "Heures attendues à cet avancement = heures prévues du lot × avancement exact ; écart en heures = heures réelles comparables − heures attendues ; écart en euros = écart en heures × (coût horaire réel moyen de la main-d'œuvre du lot + taux de frais généraux en vigueur). Le ratio ×N (heures réelles ÷ heures attendues) reste affiché à côté",
+    source: "Ouvrages du lot + registre de pointage + taux de frais généraux (Admin)" },
+  { cle: "budgetRestant", label: "Budget restant",
+    formule: "Vendu HT − coûts engagés à date (main-d'œuvre, matériaux et autres commandes, frais généraux). Ce n'est PAS une marge : c'est ce qu'il reste du prix de vente pour finir le chantier. Il baisse mécaniquement à chaque dépense, même sur un chantier qui gagne de l'argent (ancienne « marge nette »)",
+    source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
+  { cle: "heuresSansLot", label: "Heures sans lot",
+    formule: "Heures libres (sans tâche du phasage) + heures indirectes hors trajets (nettoyage, SAV, approvisionnement…) + heures des ouvrages rattachés à aucun lot, rapportées aux heures pointées hors trajets et hors reprise d'antériorité",
+    source: "Registre de pointage" },
 ];
 const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
+const signeEur = (n) => `${n >= 0 ? "+" : ""}${eur(n)}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // computeChantierFinance — le point d'entrée. Reçoit les données déjà chargées
@@ -793,6 +1009,9 @@ export function computeChantierFinance({
   // ── Frais généraux (24/10/2026) ──
   tauxFG = null,         // barème daté planning_config.fg_taux_horaires — absent = TAUX_FG_DEFAUT
   aujourdhui = null,     // "AAAA-MM-JJ" : date du taux des projections — absente = taux le plus récent
+  // ── Trois marges (étape 2, 24/10/2026) ──
+  seuilsMarges = null,       // planning_config.seuils_marges — absent = SEUILS_MARGES_DEFAUT
+  derivesHistoriques = null, // planning_config.derives_historiques_lots (.lots) — absent = pas d'historique
 } = {}) {
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
   const meta = phasage?.plan_travaux?.meta || {};
@@ -886,6 +1105,17 @@ export function computeChantierFinance({
     ...(ouvragesDuLot(ouvrages, lots, "_orphans").length > 0
       ? [{ id: "_orphans", label: "Sans lot", couleur: "#888888" }] : []),
   ];
+  // Trois marges : réglages, neutralisations, historique (paramètres).
+  const seuilsM = normaliserSeuilsMarges(seuilsMarges);
+  const neutralisations = neutralisationsDerive(phasage);
+  const repris = chantierRepris(phasage);
+  const historiqueLots = derivesHistoriques?.lots || derivesHistoriques || null;
+  const tauxHoraireProjete = tauxMOPrevEff + tauxFGActuel;
+  const heuresRestantesTache = (t) => {
+    const a = Math.max(0, Math.min(100, parseFloat(t.avancement) || 0));
+    const he = parseFloat(t.heures_estimees) || 0;
+    return a >= 100 ? 0 : he * (100 - a) / 100;
+  };
   const lotsOut = lotsEtOrphelins.map(l => {
     const lo = ouvragesDuLot(ouvrages, lots, l.id);
     const hv = lo.reduce((s, o) => s + heuresVenduesOuvrage(o), 0);
@@ -893,15 +1123,41 @@ export function computeChantierFinance({
     const hr = lo.reduce((s, o) => s + heuresReellesComparablesOuvrage(o, ppt), 0);
     const hhd = lo.reduce((s, o) => s + heuresHorsDevisOuvrage(o, ppt), 0);
     const av = lo.length > 0 ? avancementLot(ouvrages, lots, l.id) : 0;
-    // Ratio de dérive : (réelles/vendues) ÷ (avancement/100). 1,00 = dans le
-    // devis. Indéterminé (null) si pas d'heures vendues ou avancement nul.
+    // Avancement EXACT (non arrondi) : base de la dérive et de la marge probable.
+    const avEx = lo.length > 0 ? avancementLotExact(ouvrages, lots, l.id) : 0;
+    // Ratio de dérive : (réelles/prévues) ÷ (avancement exact/100). 1,00 = dans
+    // le devis. Indéterminé (null) si pas d'heures prévues ou avancement nul.
+    // Affiché tel quel (avancement arrondi) ; la marge probable et les alertes
+    // lisent ratioDeriveExact (avancement exact, sans arrondi).
     const ratioDerive = (hv > 0 && av > 0) ? (hr / hv) / (av / 100) : null;
+    const ratioDeriveExact = (hv > 0 && avEx > 0) ? (hr / hv) / (avEx / 100) : null;
+    // Dérive en heures et en euros : écart aux heures attendues à cet
+    // avancement, valorisé au coût horaire MO réel moyen du lot + FG du jour.
+    const heuresAttendues = hv * avEx / 100;
+    const ecartHeures = hr - heuresAttendues;
+    const hTous = lo.reduce((s, o) => s + heuresReellesOuvrage(o, ppt), 0);
+    const coutMOLot = lo.reduce((s, o) => s + coutMOOuvrage(o, ppt, tauxHoraires), 0);
+    const coutHoraireMO = hTous > 0 && coutMOLot > 0 ? coutMOLot / hTous : tauxMOPrevEff;
+    const ecartEuros = ecartHeures * (coutHoraireMO + tauxFGActuel);
+    // Marge probable : heures restantes × coefficient (et sa provenance).
+    const heuresRestantesPrevues = lo.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => ss + heuresRestantesTache(t), 0), 0);
+    const neutr = neutralisations[l.id] || null;
+    const coef = coefficientMargeProbable({ lotId: l.id, avancementExact: avEx, ratioDerive: ratioDeriveExact, neutralisation: neutr,
+      historique: l.id === "_orphans" ? null : historiqueLots, seuils: seuilsM });
+    const heuresRestantesProbables = heuresRestantesPrevues * coef.coefficient;
     return {
       id: l.id, label: l.label, couleur: l.couleur || null,
       nbOuvrages: lo.length,
       heuresVendues: hv, heuresReelles: hr,
       ...(hhd > 0 ? { heuresHorsDevis: hhd } : {}),
-      avancement: av, ratioDerive,
+      avancement: av, avancementExact: avEx, ratioDerive, ratioDeriveExact,
+      heuresAttendues, ecartHeures, ecartEuros, coutHoraireMO,
+      heuresRestantesPrevues, heuresRestantesProbables,
+      coefficient: coef.coefficient, provenanceCoefficient: coef.provenance,
+      ...(coef.plafonne ? { coefficientPlafonne: true } : {}),
+      ...(coef.nbChantiers ? { nbChantiersHistorique: coef.nbChantiers } : {}),
+      neutralisation: neutr,
+      ecartProbableEuros: (heuresRestantesProbables - heuresRestantesPrevues) * tauxHoraireProjete,
       vide: lo.length === 0,
     };
   });
@@ -978,6 +1234,29 @@ export function computeChantierFinance({
     - (coutMOTotalChantier + heuresRestantes * tauxMOPrevEff)
     - (coutMatChantier + (resteACommanderVal ?? 0))
     - fgProjete;
+
+  // ── Les trois marges (étape 2) ──
+  // Marge à l'avancement (le constat) : production cumulée exacte − coûts
+  // réels imputés (MO + FG + autres natures + matériaux imputés à l'avancement).
+  const productionCumuleeVal = productionCumulee(ouvrages);
+  const matImputes = materiauxImputesALAvancement({ ouvrages, commandeLignes, lots });
+  const coutsImputes = coutMOTotalChantier + fgChantier + matImputes.impute;
+  const margeAvancementVal = productionCumuleeVal - coutsImputes;
+  // Marge probable : marge à terminaison corrigée, lot par lot, des heures
+  // restantes × (coefficient − 1) au taux projeté (MO prév. + FG du jour).
+  const ecartProbableTotal = lotsOut.reduce((s, l) => s + l.ecartProbableEuros, 0);
+  const margeProbableVal = margeATerminaisonVal - ecartProbableTotal;
+  const heuresRestantesProbables = lotsOut.reduce((s, l) => s + l.heuresRestantesProbables, 0);
+  // Budget restant (ancienne « marge nette ») : ce qu'il reste du prix de
+  // vente une fois payés les coûts engagés — PAS une marge.
+  const budgetRestantVal = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier;
+  // Heures « sans lot » : pointées hors d'un lot (heures libres, indirectes
+  // hors trajet, tâches d'ouvrages sans lot), rapportées aux heures pointées
+  // hors trajets et hors reprise d'antériorité.
+  const heuresOrphelines = ouvragesDuLot(ouvrages, lots, "_orphans").reduce((s, o) => s + heuresReellesOuvrage(o, ppt), 0);
+  const heuresSansLot = extras.heuresLibre + Math.max(0, extras.heuresIndirect - trajet.heures) + heuresOrphelines;
+  const heuresBaseSansLot = heuresReellesTotalChantier - trajet.heures - repriseHeures;
+  const pctSansLot = heuresBaseSansLot > 0 ? (heuresSansLot / heuresBaseSansLot) * 100 : null;
 
   // Situation à facturer : avancement au-delà du % facturé (États financiers).
   const situationVal = situationAFacturerVal(avancementGlobal, pctFacture, prixHTChantier);
@@ -1509,9 +1788,101 @@ export function computeChantierFinance({
     renseigne: true,
   });
 
+  // ── Trois marges (étape 2) ──
+  const fmtCoef = (c) => `×${(Math.round(c * 100) / 100).toLocaleString("fr-FR")}`;
+  const reprisTexte = repris ? " · chantier repris" : "";
+  const matImputesVentilation = matImputes.lots
+    .filter(l => l.enveloppe > 0.5 || l.commandes > 0.5)
+    .map(l => ({ main: l.label,
+      sub: `commandé ${eur(l.commandes)} · enveloppe ${eur(l.enveloppe)} · consommé à l'avancement ${eur(l.consomme)}`
+        + (l.enAvance > 0.5 ? ` · ${eur(l.enAvance)} en avance` : ""),
+      right: eur(l.impute) }));
+  if (matImputes.sansLot > 0.5) matImputesVentilation.push({ main: "Matériaux sans lot", sub: "imputés directement", right: eur(matImputes.sansLot) });
+  if (Math.abs(matImputes.autresNatures) > 0.5) matImputesVentilation.push({ main: "Sous-traitance, location, bennes, autres", sub: "imputés directement", right: eur(matImputes.autresNatures) });
+
+  const margeAvancement = D({
+    cle: "margeAvancement", label: "Marge à l'avancement", format: "euro",
+    valeur: margeAvancementVal,
+    valeurTexte: signeEur(margeAvancementVal),
+    sousLabel: (productionCumuleeVal > 0 ? `${(margeAvancementVal / productionCumuleeVal * 100).toFixed(1)} % de la production` : "Production − coûts imputés") + reprisTexte,
+    formule: FORMULE.margeAvancement,
+    calculDetaille: `${eur(productionCumuleeVal)} produits − ${eur(coutMOTotalChantier)} main-d'œuvre − ${eur(fgChantier)} frais généraux − ${eur(matImputes.impute)} matériaux et autres coûts imputés = ${signeEur(margeAvancementVal)}`
+      + (matImputes.enAvance > 0.5 ? ` (${eur(matImputes.enAvance)} de matériaux en avance sur chantier non imputés)` : ""),
+    ventilation: [
+      { main: "Production", sub: "prix de chaque ouvrage × son avancement exact", right: `+ ${eur(productionCumuleeVal)}`, rightColor: "#22c55e" },
+      { main: "Coût main d'œuvre", sub: "tâches + trajets + indirect", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
+      { main: "Frais généraux", sub: `${texteTauxReel} × heures réelles`, right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
+      { main: "Matériaux et autres coûts imputés", sub: matImputes.enAvance > 0.5 ? `${eur(matImputes.enAvance)} de matériaux en avance non imputés` : "à l'avancement de chaque lot", right: `− ${eur(matImputes.impute)}`, rightColor: "#e15a5a" },
+      ...matImputesVentilation.map(r => ({ ...r, main: `↳ ${r.main}` })),
+    ],
+    titre: "Marge à l'avancement",
+    sousTitre: "Le constat : ce que le travail fait a rapporté, moins ce qu'il a coûté",
+    totalLabel: "Marge à l'avancement",
+    totalTexte: signeEur(margeAvancementVal),
+    source: "Avancement des tâches, prix des ouvrages, registre de pointage, lignes de commande, enveloppes matériaux des lots, taux de frais généraux (Admin)",
+    warnings: repris ? [{ code: "chantier_repris", gravite: "info", message: "Chantier repris : démarré avant l'application, ses données d'origine ne sont pas fiables." }] : [],
+    renseigne: prixHTChantier > 0,
+  });
+  const materiauxEnAvance = D({
+    cle: "materiauxEnAvance", label: "Matériaux en avance sur chantier", format: "euro",
+    valeur: matImputes.enAvance, valeurTexte: eur(matImputes.enAvance),
+    sousLabel: "Achats anticipés, dans l'enveloppe du lot",
+    formule: FORMULE.materiauxEnAvance,
+    calculDetaille: `${eur(matImputes.commandes)} commandés − ${eur(matImputes.impute)} imputés = ${eur(matImputes.enAvance)} en avance`,
+    ventilation: matImputesVentilation,
+    titre: "Matériaux en avance sur chantier",
+    vide: "Aucune commande.",
+    source: "Lignes de commande + enveloppes matériaux des lots + avancement",
+    renseigne: true,
+  });
+  const lotsAvecCoef = lotsOut.filter(l => !l.vide && l.heuresRestantesPrevues > 0.05);
+  const margeProbable = D({
+    cle: "margeProbable", label: "Marge probable", format: "euro", projection: true,
+    valeur: margeProbableVal,
+    valeurTexte: signeEur(margeProbableVal),
+    sousLabel: `Projection · si on continue au rythme actuel${reprisTexte}`,
+    formule: FORMULE.margeProbable,
+    calculDetaille: `${signeEur(margeATerminaisonVal)} (marge à terminaison) − ${eur(ecartProbableTotal)} (heures restantes corrigées de la dérive : ${fmtH(heuresRestantes)} h prévues → ${fmtH(heuresRestantesProbables)} h probables × ${fmtTauxFG(tauxHoraireProjete)}) = ${signeEur(margeProbableVal)}`,
+    ventilation: [
+      { main: "Marge à terminaison", sub: "si le reste se passe comme le devis", right: signeEur(margeATerminaisonVal) },
+      ...lotsAvecCoef.map(l => ({
+        main: l.label,
+        sub: `${fmtH(l.heuresRestantesPrevues)} h restantes ${fmtCoef(l.coefficient)} = ${fmtH(l.heuresRestantesProbables)} h · ${LIBELLES_PROVENANCE_COEF[l.provenanceCoefficient]}`
+          + (l.neutralisation ? ` (« ${l.neutralisation.commentaire} »)` : ""),
+        right: `${l.ecartProbableEuros > 0.5 ? "− " : l.ecartProbableEuros < -0.5 ? "+ " : ""}${eur(Math.abs(l.ecartProbableEuros))}`,
+        rightColor: l.ecartProbableEuros > 0.5 ? "#e15a5a" : l.ecartProbableEuros < -0.5 ? "#22c55e" : null,
+        lotId: l.id, valeur: -l.ecartProbableEuros,
+      })),
+    ],
+    titre: "Marge probable",
+    sousTitre: "Projection : marge à terminaison corrigée de la dérive de chaque lot",
+    totalLabel: "Marge probable",
+    totalTexte: signeEur(margeProbableVal),
+    source: "Marge à terminaison + dérives des lots (constatées, historiques ou neutralisées) + réglages Admin",
+    renseigne: prixHTChantier > 0,
+  });
+  const budgetRestant = D({
+    cle: "budgetRestant", label: "Budget restant", format: "euro",
+    valeur: budgetRestantVal,
+    valeurTexte: signeEur(budgetRestantVal),
+    sousLabel: "Vendu − coûts engagés · ce n'est pas une marge",
+    formule: FORMULE.budgetRestant,
+    calculDetaille: `${eur(prixHTChantier)} − ${eur(coutMOTotalChantier)} − ${eur(coutMatChantier)} − ${eur(fgChantier)} = ${signeEur(budgetRestantVal)}`,
+    ventilation: margeVentilation,
+    titre: "Budget restant",
+    sousTitre: "Ce qu'il reste du prix de vente une fois payés les coûts engagés",
+    totalLabel: "Budget restant",
+    totalTexte: signeEur(budgetRestantVal),
+    source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)",
+    renseigne: prixHTChantier > 0,
+  });
+
   return {
     venduHT, ecartVendu, moPrev, matPrev, margePrev, moReel, matReel, fg, marge, margePct,
     heuresVendues, heuresReelles, avancement, trajets, indirect, reprise,
+    // Trois marges (étape 2) + budget restant (ancienne « marge nette »).
+    margeAvancement, materiauxEnAvance, margeProbable, budgetRestant,
+    repris,
     // Projections (étape 6) — à afficher distinctement des chiffres à date.
     resteAFaire, margeATerminaison, situationAFacturer, resteACommander,
     lots: lotsOut,
@@ -1541,33 +1912,40 @@ export function computeChantierFinance({
       situationAFacturer: situationVal,
       resteACommander: resteACommanderVal,
       coutMatParNature, enveloppesMateriaux: enveloppes,
+      // Trois marges (étape 2)
+      productionCumulee: productionCumuleeVal, materiauxImputes: matImputes.impute,
+      materiauxEnAvance: matImputes.enAvance, materiauxImputesDetail: matImputes,
+      coutsImputes, margeAvancement: margeAvancementVal,
+      margeProbable: margeProbableVal, ecartProbableTotal, heuresRestantesProbables,
+      budgetRestant: budgetRestantVal,
+      heuresSansLot, pctSansLot, heuresBaseSansLot,
+      repris: repris != null, seuilsMarges: seuilsM,
     },
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MARGE RÉELLE DE LA SEMAINE — Bilan semaine (décision du 13/10/2026).
-// Remplace l'ancienne « marge générée » (points gagnés × marge à terminaison),
-// qui appliquait à chaque semaine le taux de marge final projeté, quoi
-// qu'aient coûté les heures et les achats de la semaine.
+// MARGE DE LA PÉRIODE — Bilan semaine (13/10/2026, refondue le 24/10/2026).
 //
-//   marge de la semaine = production − main-d'œuvre − matériaux − frais généraux
+//   marge de la période = marge à l'avancement en fin de période
+//                       − marge à l'avancement en début de période
 //
-// La période va du relevé d'avancement de début (EXCLU) au relevé de fin
-// (INCLUS) : production et coûts couvrent exactement les mêmes jours.
-//   - production : avec le journal d'avancement daté (étape 1C, paramètre
-//     `journal`), Σ ouvrage par ouvrage de prix × avancement exact gagné
-//     (productionPeriode, sans arrondi) — c'est aussi le « Généré » du bilan ;
-//     sans journal (appelants anciens) : prix vendu × points gagnés entre les
-//     deux relevés ;
-//   - main-d'œuvre : pointages DATÉS de la période × taux figé au pointage,
-//     même périmètre que la marge nette (tâches du plan, libres, indirects) ;
-//   - matériaux : lignes de commande datées de la période — date du document
-//     fournisseur, sinon date de saisie (décision : comptés à la commande) ;
-//   - frais généraux : heures de la période × taux FG en vigueur à leur date.
-// La marge depuis le début reprend computeChantierFinance sur les données
-// arrêtées à la fin de la période : même périmètre de coûts que la marge
-// nette (reprise d'antériorité et heures anciennes non datées comprises).
+// (étape 2 de la refonte des marges) : la marge de la semaine et la marge
+// cumulée sont ainsi toujours cohérentes entre elles — la somme des marges des
+// semaines est la marge à l'avancement.
+//
+// La période va du relevé de début (EXCLU) au relevé de fin (INCLUS) :
+//   - production : journal d'avancement daté (étape 1C, paramètre `journal`),
+//     Σ ouvrage par ouvrage de prix × avancement exact gagné, sans arrondi —
+//     c'est aussi le « Généré » du bilan ;
+//   - main-d'œuvre et frais généraux : différence des cumuls, soit exactement
+//     les heures pointées DATÉES de la période (taux figé, taux FG de leur date) ;
+//   - matériaux : variation des matériaux IMPUTÉS À L'AVANCEMENT (un achat
+//     anticipé dans l'enveloppe du lot ne pèse que quand le lot avance), plus
+//     les autres natures (sous-traitance, location, bennes) datées de la
+//     période (date du document fournisseur, sinon date de saisie).
+// Sans journal (ancien appelant) : production = prix vendu × points gagnés
+// entre les deux relevés, coûts datés de la période (méthode du 13/10/2026).
 // Une marge qu'on ne peut pas calculer reste null avec sa raison — jamais 0.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1580,8 +1958,8 @@ export function dateImputationLigne(l) {
 const datePointage = (p) => (p?.date ? String(p.date).slice(0, 10) : null);
 // Période (du, au] : du null = depuis le début, au null = sans limite.
 const dansPeriode = (d, du, au) => d != null && (du == null || d > du) && (au == null || d <= au);
-// Arrêt à la fin de période : une donnée sans date reste comptée (comme dans
-// la marge nette, qui ne sait pas la dater non plus).
+// Arrêt à une date : une donnée sans date reste comptée (on ne sait pas la
+// dater ; elle se retrouve dans les deux cumuls d'une période et s'annule).
 const avantFin = (d, au) => au == null || d == null || d <= au;
 const dateFr = (iso) => String(iso).split("-").reverse().join("/");
 const signe = (n) => `${n >= 0 ? "+" : ""}${eur(n)}`;
@@ -1592,25 +1970,53 @@ export function libellePeriodeMarge(du, au) {
   return `${debut}, ${fin}`;
 }
 
+// MARGE À L'AVANCEMENT À UNE DATE (fin de journée ; null = aujourd'hui) :
+// production cumulée exacte − coûts réels imputés arrêtés à cette date.
+// Rend { produit, mo, fg, materiaux (imputés + autres natures), enAvance,
+// marge } ou null (avec `raison`) si l'avancement est inconnu à cette date.
+export function margeAvancementALaDate({
+  phasage, pointages = [], commandeLignes = [], tauxHoraires = {}, tauxMOPrev = 0, lots = [],
+  tauxFG = null, journal = [], date = null,
+} = {}) {
+  const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
+  const lignes = (commandeLignes || []).filter(l => avantFin(dateImputationLigne(l), date));
+  const fin = computeChantierFinance({
+    phasage,
+    pointages: (pointages || []).filter(p => avantFin(datePointage(p), date)),
+    commandeLignes: lignes,
+    tauxHoraires, tauxMOPrev, lots, tauxFG,
+  });
+  const etat = date == null ? null : etatTachesALaDate(journal, date);
+  const produit = productionCumulee(ouvrages, etat);
+  const mat = materiauxImputesALAvancement({ ouvrages, commandeLignes: lignes, lots, etat });
+  if (produit == null || mat == null) {
+    const debut = debutJournal(journal);
+    return { inconnu: true, raison: `Avancement inconnu au ${dateFr(date)}${debut ? ` : le journal d'avancement de ce chantier commence le ${dateFr(debut)}.` : "."}` };
+  }
+  const mo = fin.brut.coutMOTotalChantier;
+  const fg = fin.brut.fgChantier;
+  return { produit, mo, fg, materiaux: mat.impute, enAvance: mat.enAvance, commandes: mat.commandes, marge: produit - mo - fg - mat.impute };
+}
+
 export function margeReelleSemaine({
   phasage,             // ligne phasages (ouvrages, plan_travaux…)
   pointages = [],      // TOUS les pointages du chantier (filtrés ici par date)
   commandeLignes = [], // TOUTES les lignes du chantier, avec created_at et commande.date_doc
-  tauxHoraires = {}, tauxMOPrev = 0, lots = [], // pour la marge depuis le début
+  tauxHoraires = {}, tauxMOPrev = 0, lots = [], // pour la marge à l'avancement
   tauxFG = null,          // barème daté des frais généraux (absent = TAUX_FG_DEFAUT)
   prixVendu = 0,          // prix vendu utilisé par le « Généré » du bilan
   avancementDebut = null, // % au relevé de début (0 pour un chantier nouveau)
   avancementFin = null,   // % au relevé de fin, ou actuel si la semaine est en cours ; null = inconnu
   du = null,              // date du relevé de début, EXCLUE (null = depuis le début)
   au = null,              // date du relevé de fin, INCLUSE (null = jusqu'à aujourd'hui)
-  journal = null,         // lignes du journal d'avancement du chantier (étape 1C) ; fourni → production exacte
+  journal = null,         // lignes du journal d'avancement du chantier (étape 1C) ; fourni → marge à l'avancement
 } = {}) {
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
   const baremeFG = normaliserBaremeFG(tauxFG);
   const vendu = parseFloat(prixVendu) || 0;
 
-  // ── Coûts de la période ──
-  // Même périmètre que coutMOTotalChantier : pointages des tâches du plan,
+  // ── Heures et lignes de la période (affichage, et seule base sans journal) ──
+  // Même périmètre que le coût MO total : pointages des tâches du plan,
   // pointages libres et indirects. Les heures d'une tâche supprimée du
   // phasage n'y sont pas — elles sont signalées, pas comptées.
   const idsTaches = new Set();
@@ -1619,68 +2025,84 @@ export function margeReelleSemaine({
   const ptsPeriode = (pointages || []).filter(p => dansPeriode(datePointage(p), du, au));
   const ptsComptes = ptsPeriode.filter(compte);
   const heures = sumHeures(ptsComptes);
-  const mo = sumCoutMO(ptsComptes);
   const heuresHorsPlan = sumHeures(ptsPeriode.filter(p => !compte(p)));
   const lignesPeriode = (commandeLignes || []).filter(l => dansPeriode(dateImputationLigne(l), du, au));
-  const materiaux = totalLignes(lignesPeriode);
   const tauxFGVus = new Set();
-  const fg = fgDePointages(ptsComptes, baremeFG, tauxFGVus);
+  const fgPeriodeDate = fgDePointages(ptsComptes, baremeFG, tauxFGVus);
   const texteTauxPeriode = texteTauxFG(tauxFGVus.size > 0 ? tauxFGVus : [tauxFGALaDate(baremeFG, au)]);
-  const couts = mo + materiaux + fg;
 
-  // ── Production ──
-  // Points des relevés : affichés pour repère (et seule base sans journal).
   const avDebut = avancementDebut == null ? NaN : parseFloat(avancementDebut);
   const avFin = avancementFin == null ? NaN : parseFloat(avancementFin);
   const avConnus = Number.isFinite(avDebut) && Number.isFinite(avFin);
   const points = avConnus ? avFin - avDebut : null;
   const modeJournal = Array.isArray(journal);
   const venduOuvrages = ouvrages.reduce((s, o) => s + prixHTOuvrage(o), 0);
-  // Avec le journal : production exacte, ouvrage par ouvrage, à la date de
-  // réalisation ; sans : points gagnés entre les deux relevés × prix vendu.
-  const prodPeriode = modeJournal ? productionPeriode({ ouvrages, journal, du, au }) : null;
-  const prodCumul = modeJournal ? productionPeriode({ ouvrages, journal, du: null, au }) : null;
-  const raison = modeJournal
-    ? (!(venduOuvrages > 0) ? "Chantier sans prix de vente : la production ne peut pas être chiffrée." : prodPeriode.raison)
-    : !avConnus
-      ? "Relevé d'avancement de fin de semaine absent : la production de la semaine n'est pas connue."
-      : !(vendu > 0)
-        ? "Chantier sans prix de vente : la production ne peut pas être chiffrée."
-        : null;
-  const calculable = raison == null;
-  const produit = !calculable ? null : modeJournal ? prodPeriode.valeur : Math.round(vendu * points / 100);
-  const marge = calculable ? produit - couts : null;
-  const produitCumulVal = modeJournal
-    ? (venduOuvrages > 0 ? prodCumul.valeur : null)
-    : (calculable ? Math.round(vendu * avFin / 100) : null);
 
-  // ── Marge depuis le début : briques du module, données arrêtées à « au » ──
-  // (avec le journal, elle reste connue même si la semaine ne l'est pas : elle
-  // ne dépend que de l'avancement à la fin de la période).
-  let cumul = null;
-  if (produitCumulVal != null) {
-    const fin = computeChantierFinance({
-      phasage,
-      pointages: (pointages || []).filter(p => avantFin(datePointage(p), au)),
-      commandeLignes: (commandeLignes || []).filter(l => avantFin(dateImputationLigne(l), au)),
-      tauxHoraires, tauxMOPrev, lots, tauxFG: baremeFG,
-    });
-    const b = fin.brut;
-    const produitCumul = produitCumulVal;
-    cumul = {
-      produit: produitCumul,
-      mo: b.coutMOTotalChantier,
-      materiaux: b.coutMatChantier,
-      fg: b.fgChantier,
-      marge: produitCumul - b.coutMOTotalChantier - b.coutMatChantier - b.fgChantier,
+  let produit = null, mo, fg, materiaux, raison = null, prodPeriode = null, cumul = null, enAvanceFin = null;
+  if (modeJournal) {
+    // ── Marge à l'avancement à la fin, puis au début de la période ──
+    const base = { phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG: baremeFG, journal };
+    const aFin = margeAvancementALaDate({ ...base, date: au });
+    const aDebut = du == null
+      ? { produit: 0, mo: 0, fg: 0, materiaux: 0, enAvance: 0, marge: 0 }
+      : margeAvancementALaDate({ ...base, date: du });
+    prodPeriode = productionPeriode({ ouvrages, journal, du, au });
+    // Coûts de la période : différence des cumuls (connue même si
+    // l'avancement du début ne l'est pas — les coûts, eux, sont datés).
+    const coutsA = (date) => {
+      if (date === undefined) return { mo: 0, fg: 0 };
+      const f = computeChantierFinance({
+        phasage, tauxHoraires, tauxMOPrev, lots, tauxFG: baremeFG,
+        pointages: (pointages || []).filter(p => avantFin(datePointage(p), date)),
+        commandeLignes: [],
+      });
+      return { mo: f.brut.coutMOTotalChantier, fg: f.brut.fgChantier };
     };
+    if (!aFin.inconnu && !aDebut.inconnu) {
+      mo = aFin.mo - aDebut.mo; fg = aFin.fg - aDebut.fg; materiaux = aFin.materiaux - aDebut.materiaux;
+    } else {
+      const cf = coutsA(au), cd = du == null ? { mo: 0, fg: 0 } : coutsA(du);
+      mo = cf.mo - cd.mo; fg = cf.fg - cd.fg; materiaux = totalLignes(lignesPeriode);
+    }
+    raison = !(venduOuvrages > 0) ? "Chantier sans prix de vente : la production ne peut pas être chiffrée."
+      : aFin.inconnu ? aFin.raison
+      : aDebut.inconnu ? aDebut.raison
+      : null;
+    if (raison == null) produit = aFin.produit - aDebut.produit;
+    if (venduOuvrages > 0 && !aFin.inconnu) {
+      cumul = { produit: aFin.produit, mo: aFin.mo, materiaux: aFin.materiaux, fg: aFin.fg, enAvance: aFin.enAvance, marge: aFin.marge };
+      enAvanceFin = aFin.enAvance;
+    }
+  } else {
+    // ── Ancienne méthode (sans journal) : coûts datés de la période ──
+    mo = sumCoutMO(ptsComptes);
+    fg = fgPeriodeDate;
+    materiaux = totalLignes(lignesPeriode);
+    raison = !avConnus
+      ? "Relevé d'avancement de fin de semaine absent : la production de la semaine n'est pas connue."
+      : !(vendu > 0) ? "Chantier sans prix de vente : la production ne peut pas être chiffrée." : null;
+    if (raison == null) {
+      produit = Math.round(vendu * points / 100);
+      const f = computeChantierFinance({
+        phasage, tauxHoraires, tauxMOPrev, lots, tauxFG: baremeFG,
+        pointages: (pointages || []).filter(p => avantFin(datePointage(p), au)),
+        commandeLignes: (commandeLignes || []).filter(l => avantFin(dateImputationLigne(l), au)),
+      });
+      const b = f.brut;
+      const produitCumul = Math.round(vendu * avFin / 100);
+      cumul = { produit: produitCumul, mo: b.coutMOTotalChantier, materiaux: b.coutMatChantier, fg: b.fgChantier,
+        marge: produitCumul - b.coutMOTotalChantier - b.coutMatChantier - b.fgChantier };
+    }
   }
+  const calculable = raison == null;
+  const couts = mo + materiaux + fg;
+  const marge = calculable ? produit - couts : null;
 
   const warnings = [];
   if (heuresHorsPlan > 0.05) {
     warnings.push({
       code: "heures_hors_plan", gravite: "info",
-      message: `${fmtH(heuresHorsPlan)} h pointées sur des tâches qui ne sont plus dans le phasage : non comptées, comme dans la marge nette.`,
+      message: `${fmtH(heuresHorsPlan)} h pointées sur des tâches qui ne sont plus dans le phasage : non comptées.`,
     });
   }
 
@@ -1697,7 +2119,10 @@ export function margeReelleSemaine({
           : "relevé de fin absent",
       right: produit != null ? signe(produit) : "—", rightColor: produit != null && produit < 0 ? "#e15a5a" : "#22c55e" },
     { main: "Main-d'œuvre", sub: `${fmtH(heures)} h pointées × taux de chaque ouvrier`, right: `− ${eur(mo)}`, rightColor: "#e15a5a" },
-    { main: "Matériaux", sub: `${lignesPeriode.length} ligne${lignesPeriode.length > 1 ? "s" : ""} de commande datée${lignesPeriode.length > 1 ? "s" : ""} de la période`, right: `− ${eur(materiaux)}`, rightColor: "#e15a5a" },
+    { main: "Matériaux", sub: modeJournal
+        ? `imputés à l'avancement des lots (+ sous-traitance, location, bennes datées de la période) · ${lignesPeriode.length} ligne${lignesPeriode.length > 1 ? "s" : ""} de commande datée${lignesPeriode.length > 1 ? "s" : ""} de la période`
+        : `${lignesPeriode.length} ligne${lignesPeriode.length > 1 ? "s" : ""} de commande datée${lignesPeriode.length > 1 ? "s" : ""} de la période`,
+      right: `${materiaux < 0 ? "+ " : "− "}${eur(Math.abs(materiaux))}`, rightColor: "#e15a5a" },
     { main: "Frais généraux", sub: `${fmtH(heures)} h × ${texteTauxPeriode}`, right: `− ${eur(fg)}`, rightColor: "#e15a5a" },
   ];
   // Détail de la production par ouvrage (journal daté).
@@ -1717,7 +2142,7 @@ export function margeReelleSemaine({
     achats[k].montant += totalLignes([l]);
   });
   Object.values(achats).sort((a, b) => b.montant - a.montant).forEach(a => {
-    ventilation.push({ main: `↳ ${a.fournisseur}`, sub: `commande du ${dateFr(a.date)}`, right: `− ${eur(a.montant)}` });
+    ventilation.push({ main: `↳ ${a.fournisseur}`, sub: `commande du ${dateFr(a.date)}${modeJournal ? " (imputée selon l'avancement du lot)" : ""}`, right: eur(a.montant) });
   });
   const parOuvrier = {};
   ptsComptes.forEach(p => {
@@ -1731,44 +2156,45 @@ export function margeReelleSemaine({
   });
 
   const source = modeJournal
-    ? "Journal d'avancement daté, registre de pointage, lignes de commande, taux de frais généraux (Admin)"
+    ? "Journal d'avancement daté, registre de pointage, lignes de commande, enveloppes matériaux des lots, taux de frais généraux (Admin)"
     : "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)";
   const semaine = {
-    cle: "margeSemaine", label: "Marge réelle de la semaine", format: "euro",
+    cle: "margeSemaine", label: "Marge de la période", format: "euro",
     valeur: marge,
     valeurTexte: calculable ? signe(marge) : "non calculable",
     sousLabel: calculable ? periodeTitre : raison,
     formule: FORMULE.margeSemaine,
     calculDetaille: calculable
-      ? `${eur(produit)} produits − ${eur(mo)} main-d'œuvre − ${eur(materiaux)} matériaux − ${eur(fg)} frais généraux = ${signe(marge)}`
+      ? `${eur(produit)} produits − ${eur(mo)} main-d'œuvre − ${eur(materiaux)} matériaux${modeJournal ? " imputés" : ""} − ${eur(fg)} frais généraux = ${signe(marge)}`
       : raison,
     ventilation,
-    titre: "Marge réelle de la semaine",
+    titre: "Marge de la période",
     sousTitre: periodeTitre,
     vide: null,
-    totalLabel: "Marge de la semaine",
+    totalLabel: "Marge de la période",
     totalTexte: calculable ? signe(marge) : "non calculable",
     // Non calculable : la raison passe en premier (c'est elle que l'infobulle montre).
     source, fraicheur: null, renseigne: calculable,
     warnings: calculable ? warnings : [{ code: "marge_non_calculable", gravite: "alerte", message: raison }, ...warnings],
   };
   const cumulee = cumul == null ? null : {
-    cle: "margeCumulee", label: "Marge réelle depuis le début", format: "euro",
+    cle: "margeCumulee", label: "Marge à l'avancement", format: "euro",
     valeur: cumul.marge,
     valeurTexte: signe(cumul.marge),
     sousLabel: au ? `Au relevé du ${dateFr(au)}` : "À ce jour",
     formule: FORMULE.margeCumulee,
-    calculDetaille: `${eur(cumul.produit)} produits (${modeJournal ? "prix de chaque ouvrage × son avancement exact" : `${avFin} % × ${eur(vendu)}`}) − ${eur(cumul.mo)} main-d'œuvre − ${eur(cumul.materiaux)} matériaux − ${eur(cumul.fg)} frais généraux = ${signe(cumul.marge)}`,
+    calculDetaille: `${eur(cumul.produit)} produits (${modeJournal ? "prix de chaque ouvrage × son avancement exact" : `${avFin} % × ${eur(vendu)}`}) − ${eur(cumul.mo)} main-d'œuvre − ${eur(cumul.materiaux)} matériaux${modeJournal ? " imputés" : ""} − ${eur(cumul.fg)} frais généraux = ${signe(cumul.marge)}`
+      + (cumul.enAvance > 0.5 ? ` (${eur(cumul.enAvance)} de matériaux en avance sur chantier non imputés)` : ""),
     ventilation: [
       { main: "Production cumulée", sub: modeJournal ? "prix de chaque ouvrage × son avancement exact" : `${avFin} % × ${eur(vendu)}`, right: signe(cumul.produit), rightColor: "#22c55e" },
       { main: "Main-d'œuvre", sub: "tous les pointages + reprise d'antériorité", right: `− ${eur(cumul.mo)}`, rightColor: "#e15a5a" },
-      { main: "Matériaux", sub: "toutes les commandes datées jusqu'à la fin de la période", right: `− ${eur(cumul.materiaux)}`, rightColor: "#e15a5a" },
+      { main: "Matériaux", sub: modeJournal ? "imputés à l'avancement des lots + autres coûts" : "toutes les commandes datées jusqu'à la fin de la période", right: `− ${eur(cumul.materiaux)}`, rightColor: "#e15a5a" },
       { main: "Frais généraux", sub: "heures totales × taux en vigueur à leur date", right: `− ${eur(cumul.fg)}`, rightColor: "#e15a5a" },
     ],
-    titre: "Marge réelle depuis le début",
+    titre: "Marge à l'avancement",
     sousTitre: au ? `Au relevé du ${dateFr(au)}` : "À ce jour",
     vide: null,
-    totalLabel: "Marge depuis le début",
+    totalLabel: "Marge à l'avancement",
     totalTexte: signe(cumul.marge),
     source, fraicheur: null, warnings: [], renseigne: true,
   };
@@ -1780,7 +2206,7 @@ export function margeReelleSemaine({
     // Production détaillée (journal daté) : ouvrages qui ont avancé, ouvrages inconnus.
     production: prodPeriode, modeJournal,
     heures, mo, materiaux, fg, couts, marge,
-    heuresHorsPlan, nbLignesMateriaux: lignesPeriode.length,
+    heuresHorsPlan, nbLignesMateriaux: lignesPeriode.length, materiauxEnAvanceFin: enAvanceFin,
     cumul, warnings, semaine, cumulee,
   };
 }

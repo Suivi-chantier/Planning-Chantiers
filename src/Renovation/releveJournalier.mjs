@@ -115,6 +115,13 @@ export function ligneReleve({ inputs, journal = [], dateISO, chantierNom = null,
   const fin = computeChantierFinance(entrees);
   const b = fin.brut;
   const warnings = [...fin.warnings];
+  // Dépassements d'enveloppe matériaux par lot (étape 1B) : repris dans le
+  // relevé, chiffrés, pour l'alerte de l'étape 2.
+  (b.enveloppesMateriaux?.depassements || []).forEach(d => {
+    const w = (b.enveloppesMateriaux.warnings || []).find(x => x.code === "depassement_enveloppe" && x.lotId === d.lotId);
+    warnings.push({ code: "depassement_enveloppe", gravite: "alerte", lotId: d.lotId, label: d.label,
+      euros: r2(d.euros), pct: d.pct == null ? null : r2(d.pct), message: w?.message || `Lot ${d.label} : dépassement d'enveloppe matériaux.` });
+  });
   if (inconnu) {
     warnings.push({ code: "avancement_inconnu", gravite: "info",
       message: "Avancement de ce jour inconnu (antérieur au journal d'avancement) : avancement et projections non renseignés." });
@@ -134,8 +141,10 @@ export function ligneReleve({ inputs, journal = [], dateISO, chantierNom = null,
     mo_reel: r2(b.coutMOTotalChantier),
     mat_reel: r2(b.coutMatChantier),
     fg: r2(b.fgChantier),
-    marge: r2(b.margeChantier),
-    marge_pct: r2(b.margePctChantier),
+    // Ancienne « marge nette » : plus écrite (ce n'est pas une marge, c'est le
+    // budget restant — colonne budget_restant). Étape 2, 24/10/2026.
+    marge: null,
+    marge_pct: null,
     avancement: inconnu ? null : b.avancementChantier,
     heures_vendues: r2(b.heuresVenduesChantier),
     heures_reelles: r2(b.heuresReellesTotalChantier),
@@ -144,11 +153,30 @@ export function ligneReleve({ inputs, journal = [], dateISO, chantierNom = null,
     reste_a_faire_eur: inconnu ? null : r2(b.resteAFaireEuros),
     situation_a_facturer: inconnu || b.situationAFacturer == null ? null : r2(b.situationAFacturer),
     reste_a_commander: b.resteACommander != null ? r2(b.resteACommander) : null,
+    // Trois marges (étape 2) : inconnues si l'avancement l'est à cette date.
+    production_cumulee: inconnu ? null : r2(b.productionCumulee),
+    marge_avancement: inconnu ? null : r2(b.margeAvancement),
+    materiaux_imputes: inconnu ? null : r2(b.materiauxImputes),
+    materiaux_en_avance: inconnu ? null : r2(b.materiauxEnAvance),
+    marge_probable: inconnu ? null : r2(b.margeProbable),
+    budget_restant: r2(b.budgetRestant),
+    heures_sans_lot: r2(b.heuresSansLot),
+    pct_sans_lot: b.pctSansLot == null ? null : r2(b.pctSansLot),
+    chantier_repris: b.repris === true,
     lots: fin.lots.filter(l => !l.vide).map(l => ({
       id: l.id, label: l.label,
       heuresVendues: r2(l.heuresVendues), heuresReelles: r2(l.heuresReelles),
       avancement: inconnu ? null : l.avancement, ratioDerive: inconnu || l.ratioDerive == null ? null : r2(l.ratioDerive),
       ...(l.heuresHorsDevis > 0 ? { heuresHorsDevis: r2(l.heuresHorsDevis) } : {}),
+      ...(inconnu ? {} : {
+        avancementExact: r2(l.avancementExact),
+        ratioDeriveExact: l.ratioDeriveExact == null ? null : r2(l.ratioDeriveExact),
+        heuresAttendues: r2(l.heuresAttendues), ecartHeures: r2(l.ecartHeures), ecartEuros: r2(l.ecartEuros),
+        heuresRestantesPrevues: r2(l.heuresRestantesPrevues), heuresRestantesProbables: r2(l.heuresRestantesProbables),
+        coefficient: r2(l.coefficient), provenanceCoefficient: l.provenanceCoefficient,
+        ecartProbableEuros: r2(l.ecartProbableEuros),
+        ...(l.neutralisation ? { neutralisation: l.neutralisation } : {}),
+      }),
     })),
     warnings,
     statut_completude: completude?.statut || "incomplete",

@@ -153,6 +153,12 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   `sql/202610_journal_avancement_rollback.sql`.
 - `20261024140000_releves_journaliers.sql` (1D) : table
   `chantier_releves_journaliers`.
+- `20261024160000_releves_trois_marges.sql` (refonte des marges, étape 2) :
+  colonnes des trois marges sur `chantier_releves_journaliers`
+  (production_cumulee, marge_avancement, materiaux_imputes,
+  materiaux_en_avance, marge_probable, budget_restant, heures_sans_lot,
+  pct_sans_lot, chantier_repris). Purement additive, appliquée le 24/10/2026
+  par la CLI liée avant la fusion.
 
 ## Règles
 
