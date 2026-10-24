@@ -45,6 +45,18 @@ const parPaquets = (ids, taille = 80) => {
 
 // Lecture paginée d'une table filtrée sur une colonne `in`. Toute erreur est
 // renvoyée telle quelle à l'appelant, qui l'inscrit dans `erreurs[]`.
+// Dernier relevé journalier de chaque semaine, par chantier (historique
+// d'avancement de l'export : un point par semaine, comme avant).
+function dernierReleveParSemaine(lignes) {
+  const m = new Map();
+  for (const l of lignes || []) {
+    const cle = `${l.chantier_id}|${l.week_id}`;
+    const prec = m.get(cle);
+    if (!prec || String(l.date_snapshot) > String(prec.date_snapshot)) m.set(cle, l);
+  }
+  return [...m.values()];
+}
+
 async function lireParIds(table, select, ids, { colonne = "chantier_id", ordre = null } = {}) {
   const lignes = [];
   for (const paquet of parPaquets(ids)) {
@@ -152,7 +164,9 @@ export async function chargerDonneesExportOperation({
     parIds("chantier_factures_client",
       "id, chantier_id, numero, ligne_nom, date_facture, montant_ht, statut, date_encaissement, document_nom, source"),
     parIds("planning_cells", "week_id, chantier_id, jour, planifie, reel, ouvriers"),
-    parIds("chantier_avancement_history", "chantier_id, avancement, taches_terminees, taches_total, date_snapshot"),
+    // Relevés journaliers (les relevés du vendredi sont arrêtés depuis le
+    // 24/10/2026) ; un point par semaine (le dernier relevé de la semaine).
+    parIds("chantier_releves_journaliers", "chantier_id, week_id, avancement, date_snapshot:date_releve"),
     // SUGGESTIONS DE MATÉRIAUX — jamais en lecture directe.
     // La table suggestions_materiaux_ouvriers est verrouillée par conception
     // (RLS active SANS policy et GRANT révoqués, cf.
@@ -295,7 +309,7 @@ export async function chargerDonneesExportOperation({
     plans: grouper(plansRes?.data),
     factures: grouper(facturesRes?.data),
     cells: grouper(cellsRes?.data),
-    avancement: grouper(avancementRes?.data),
+    avancement: grouper(dernierReleveParSemaine(avancementRes?.data)),
     // La RPC rend les suggestions de TOUS les chantiers : on ne garde que
     // celles de l'opération. Le filtre de sécurité, lui, est côté serveur.
     suggestions: grouper(suggestions.filter((s) => ids.includes(s?.chantier_id))),
