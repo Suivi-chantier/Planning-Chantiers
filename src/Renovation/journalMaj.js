@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "amelioration",
+    titre: "Qualité des comptes rendus : écart d'avancement déclaré / validé",
+    pages: [{ id: "qualite-cr", label: "Qualité des comptes rendus" }],
+    quoi: "La page montre maintenant, ouvrier par ouvrier, de combien l'avancement déclaré le soir diffère de celui que le conducteur retient à la validation.",
+    comment: "Mesuré pour les comptes rendus validés depuis le 24 octobre 2026 (l'avancement retenu est lu dans le journal d'avancement) ; avant cette date la case affiche « — ».",
+  },
+  {
+    date: "2026-10-24",
     type: "nouveaute",
     titre: "Bibliothèque : tâches souvent ajoutées en cours de chantier",
     pages: [{ id: "bibliotheque", label: "Bibliothèque" }],

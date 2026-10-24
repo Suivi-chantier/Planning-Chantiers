@@ -9,10 +9,8 @@
 // les tâches hors devis des phasages, puis on affiche. Une source illisible
 // rend ses indicateurs « indisponibles », jamais nuls.
 //
-// L'avancement retenu à la validation n'est gardé que dans l'historique du
-// phasage (plusieurs dizaines de Mo par période) : il n'est pas lu ici, et
-// l'écart d'avancement s'affiche « indisponible » tant qu'une lecture côté
-// serveur n'est pas en place.
+// L'avancement retenu à la validation est relu dans le journal d'avancement
+// daté (étape 1C), pour les comptes rendus validés depuis sa mise en service.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
@@ -22,7 +20,7 @@ import { ClipboardCheck, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
 import { celluleDeDate } from "./replanificationV1";
 import {
-  faitsComptesRendus, agreger, tendance, decoupesParOuvrierEtMois,
+  faitsComptesRendus, agreger, tendance, decoupesParOuvrierEtMois, avancementsValidesDepuisJournal,
   INDICATEURS_QUALITE, VERSION_V1, VERSION_V2, SEUILS,
 } from "./qualiteComptesRendusV1";
 
@@ -125,13 +123,13 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
     (async () => {
       const dates = joursEntre(debutPrec, fin).flatMap(ecrituresDate);
       const rap = await toutLire(() => supabase.from("rapports")
-        .select("id, ouvrier, chantier_id, chantier_nom, date_rapport, statut, taches, remarque, submitted_at, saisie_debut_le, formulaire_version, heures_indirectes")
+        .select("id, ouvrier, chantier_id, chantier_nom, date_rapport, statut, valide_le, taches, remarque, submitted_at, saisie_debut_le, formulaire_version, heures_indirectes")
         .in("date_rapport", dates).order("id"));
       if (annule) return;
       if (rap.erreur) { setEtat({ statut: "erreur" }); return; }
       const rapports = rap.lignes;
       const chantierIds = [...new Set(rapports.map(r => r.chantier_id).filter(Boolean))];
-      const [pts, hist, ph] = await Promise.all([
+      const [pts, hist, ph, jr] = await Promise.all([
         toutLire(() => supabase.from("pointages").select("id, rapport_id, tache_id, heures, type_pointage")
           .gte("date", debutPrec).lte("date", fin).not("rapport_id", "is", null).order("id")),
         // Anciennes versions des rapports (statut seulement) : un rapport est
@@ -141,6 +139,12 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
         chantierIds.length
           ? supabase.from("phasages").select("chantier_id, ouvrages").in("chantier_id", chantierIds)
           : Promise.resolve({ data: [] }),
+        // Journal d'avancement daté (étape 1C) : avancement retenu à la validation.
+        chantierIds.length
+          ? toutLire(() => supabase.from("avancement_journal")
+            .select("id, chantier_id, tache_id, rapport_id, source, avancement_avant, avancement_apres, date_realisation, created_at")
+            .in("chantier_id", chantierIds).order("id"))
+          : Promise.resolve({ lignes: [] }),
       ]);
       if (annule) return;
       const tachesHorsDevis = ph.error ? null : (ph.data || []).flatMap(p =>
@@ -151,6 +155,7 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
         pointages: pts.erreur ? null : pts.lignes,
         historique: hist.erreur ? null : hist.lignes,
         tachesHorsDevis,
+        avancementsValides: jr.erreur ? null : avancementsValidesDepuisJournal({ rapports, journal: jr.lignes }),
       });
     })();
     return () => { annule = true; };
@@ -160,7 +165,7 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
     if (etat.statut !== "ok") return null;
     const entree = {
       rapports: etat.rapports, pointages: etat.pointages, historique: etat.historique,
-      tachesHorsDevis: etat.tachesHorsDevis, avancementsValides: null,
+      tachesHorsDevis: etat.tachesHorsDevis, avancementsValides: etat.avancementsValides,
     };
     const courant = faitsComptesRendus({ ...entree, debut, fin });
     const precedent = faitsComptesRendus({ ...entree, debut: debutPrec, fin: finPrec });
@@ -312,7 +317,7 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
                   Les parts de lignes portent sur les lignes <b>avec des heures</b>. « — » : aucune ligne concernée sur la période (ce n'est pas 0 %). « ancien formulaire » : l'ancien formulaire ne permet pas cette mesure. « indisponible » : la donnée n'a pas pu être lue.
                 </p>
                 <p>
-                  <b>Écart d'avancement</b> : l'avancement retenu à la validation n'est gardé que dans l'historique du phasage, trop lourd pour être lu depuis cette page. Il reste « indisponible » ici tant qu'une lecture côté serveur n'est pas en place.
+                  <b>Écart d'avancement</b> : l'avancement retenu à la validation est relu dans le journal d'avancement. Il n'est mesuré que pour les comptes rendus validés depuis la mise en service du journal (24 octobre 2026) : avant, l'application ne gardait pas quelle validation avait fixé quel avancement. Une ligne non mesurable n'est pas comparée (elle ne compte pas pour 0) ; « — » = aucune ligne comparable sur la période.
                 </p>
                 <ul style={{ paddingLeft: 18, marginBottom: 0 }}>
                   {INDICATEURS_QUALITE.map(ind => <li key={ind.code} style={{ margin: "3px 0" }}><b>{ind.libelle}</b> — {ind.explication}</li>)}
