@@ -118,7 +118,9 @@ export function tendancesParLotV3({ releves, statuts = {}, exclus = [], seuilAva
       if (!l || l.id === "_orphans") continue;
       const av = num(l.avancementExact ?? l.avancement);
       const hr = num(l.heuresReelles), ha = num(l.heuresAttendues);
-      if (hr == null || ha == null || !(ha > 0)) continue;
+      // Un lot sans aucune heure pointée n'est pas comparable (heures rattachées
+      // ailleurs, ou saisies en bloc) : il fausserait la moyenne vers ×0.
+      if (hr == null || ha == null || !(ha > 0) || !(hr > 0)) continue;
       if (!termine && !(av >= seuilAvancementPct)) continue;
       if (!parLot.has(l.id)) parLot.set(l.id, { id: l.id, label: str(l.label) || l.id, hr: 0, ha: 0, ecartHeures: 0, ecartEuros: 0, chantiers: new Set() });
       const x = parLot.get(l.id);
