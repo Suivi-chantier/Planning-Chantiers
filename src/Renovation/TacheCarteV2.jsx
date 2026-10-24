@@ -32,6 +32,10 @@ import {
   MOTIFS_STATUT, MOTIFS_DEPASSEMENT, CODE_MOTIF_AUTRE, libelleMotifDepassement, libelleNature,
 } from "./motifsCompteRendu";
 import { Pastille } from "./OuvrierMesPhases";
+// Nouveau parcours (CR-3) : repères concrets, raccourcis de temps, « le reste
+// ici », tâche déjà déclarée par un collègue.
+import { REPERES, repereDeLigne, repereProposable, appliquerRepere, RACCOURCIS_MINUTES, appliquerRaccourci, resteIci } from "./compteRenduV3";
+import { BlocCollegue } from "./ParcoursCompteRendu";
 
 const SOMBRE = "#1a1f2e";
 const fmtH = (h) => fmtMinutes(Math.round(h * 60));
@@ -73,6 +77,8 @@ export default function TacheCarteV2({
   t, info, infosEtat, resteMin, onMaj, onSupprimer, chantiers = [], onOuvrirCommande, T, photos,
   onModifierNouvelle = null, horsConnexion = false, champPhotosApres = null, ancre = undefined, aSignaler = false,
   vientDEtreAjoutee = false,
+  // Nouveau parcours (CR-3) — absent = carte du formulaire v2, inchangée.
+  parcours = false, minutesJournee = 0, declarationsCollegues = null, onAccordCollegue = null, onDesaccordCollegue = null,
 }) {
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -196,6 +202,10 @@ export default function TacheCarteV2({
         </div>
       )}
 
+      {parcours && declarationsCollegues?.length > 0 && (
+        <BlocCollegue T={T} t={t} declarations={declarationsCollegues} onAccord={onAccordCollegue} onDesaccord={onDesaccordCollegue}/>
+      )}
+
       {/* Temps passé : − / + par quart d'heure, aucun clavier */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -224,8 +234,68 @@ export default function TacheCarteV2({
         </button>
       )}
 
+      {/* Nouveau parcours : raccourcis et « le reste ici » (tout le reste de la journée). */}
+      {parcours && tempsActif && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {RACCOURCIS_MINUTES.map(r => (
+            <button key={r.code} onClick={() => onMaj(x => apresTemps(appliquerRaccourci(x, r.code, { minutesJournee })))} style={{
+              minHeight: 42, padding: "0 12px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 14.5, fontWeight: 800,
+              border: `1.5px solid ${T.border}`, background: T.surface, color: SOMBRE,
+            }}>{r.label}</button>
+          ))}
+          {resteMin > 0 && (
+            <button onClick={() => onMaj(x => apresTemps(resteIci(x, resteMin)))} style={{
+              minHeight: 42, padding: "0 12px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 14.5, fontWeight: 800,
+              border: `1.5px dashed ${T.warning}`, background: T.warningBg, color: SOMBRE,
+            }}>Le reste ici (+{fmtMinutes(resteMin)})</button>
+          )}
+        </div>
+      )}
+
+      {/* Nouveau parcours : repères concrets au lieu d'un pourcentage libre. */}
+      {parcours && (() => {
+        const actuel = choixDeLigne(t);
+        const rep = repereDeLigne(t);
+        return (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+              {REPERES.map(r => {
+                const sel = rep === r.code;
+                const possible = repereProposable(r.code, avancementActuel);
+                return (
+                  <button key={r.code} aria-pressed={sel} disabled={!possible}
+                    onClick={() => onMaj(x => appliquerRepere(x, r.code, { avancementActuel, suivi: sq }))} style={{
+                      minHeight: 54, borderRadius: 14, cursor: possible ? "pointer" : "not-allowed", fontFamily: "inherit", fontSize: 16.5, fontWeight: 800,
+                      border: `2px solid ${sel ? SOMBRE : T.border}`, background: sel ? (r.code === "termine" ? "#166534" : SOMBRE) : T.surface,
+                      color: sel ? "#fff" : T.text, opacity: possible ? 1 : 0.45,
+                    }}>
+                    {r.label}{r.code !== "termine" && !sq ? <span style={{ fontWeight: 600, fontSize: 13 }}> · {r.avancement} %</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+            {avancementActuel != null && !sq && (
+              <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>Avant aujourd'hui : {Math.round(avancementActuel)} %</div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              {[{ id: "pas_commence", icon: Ban }, { id: "bloque", icon: Pause }].map(s => {
+                const sel = actuel === s.id;
+                return (
+                  <button key={s.id} aria-pressed={sel}
+                    onClick={() => onMaj(x => (sq ? appliquerChoixSuivi(x, s.id, sq) : appliquerChoix(x, s.id, { avancementActuel })))} style={{
+                      flex: 1, minHeight: 44, borderRadius: 12, cursor: "pointer", fontFamily: "inherit", fontSize: 14.5, fontWeight: 800,
+                      border: `1.5px solid ${sel ? SOMBRE : T.border}`, background: sel ? SOMBRE : T.bg, color: sel ? "#fff" : T.textSub,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    }}><Icon as={s.icon} size={15}/> {CHOIX[s.id]}</button>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
+
       {/* Statut : grille 2 × 2 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+      {!parcours && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
         {STATUTS_GRILLE.map(s => {
           const sel = choix === s.id;
           return (
@@ -239,7 +309,7 @@ export default function TacheCarteV2({
             </button>
           );
         })}
-      </div>
+      </div>}
 
       {/* Quantité posée (tâche suivie en quantité) */}
       {sq && quantiteAttendue(t) && (() => {
@@ -283,7 +353,7 @@ export default function TacheCarteV2({
       )}
 
       {/* Avancement (tâche suivie en pourcentage) */}
-      {!sq && (choix === "en_cours" || choix === "bloque") && (
+      {!sq && (parcours ? choix === "bloque" : (choix === "en_cours" || choix === "bloque")) && (
         <div style={{ marginTop: 12, padding: "12px", borderRadius: 14, background: T.bg }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 8 }}>
             Avancement de la tâche{avancementActuel != null ? <span style={{ fontWeight: 600, color: T.textSub }}> (avant : {Math.round(avancementActuel)} %)</span> : null}

@@ -2262,6 +2262,19 @@ function LigneEditable({
             Photo « après » manquante{ligne.photo_apres_raison === "hors_connexion" ? " (hors connexion)" : ligne.photo_apres_raison === "bouton" ? " (signalé par l'ouvrier)" : ""}
           </span>
         )}
+        {/* Nouveau parcours (CR-3) : tâche déjà déclarée par un collègue le même
+            jour — un désaccord est signalé ici, au conducteur de trancher. */}
+        {ligne.collegue?.ouvrier && (
+          <span style={{
+            alignSelf: "flex-start", fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999,
+            background: ligne.collegue.accord ? "rgba(80,200,120,0.15)" : "rgba(224,92,92,0.15)",
+            color: ligne.collegue.accord ? "#2f8f57" : "#c0392b",
+          }}>
+            {ligne.collegue.accord
+              ? `D'accord avec ${ligne.collegue.ouvrier}`
+              : `Pas d'accord avec ${ligne.collegue.ouvrier}, qui a déclaré ${ligne.collegue.etat === "termine" ? "terminée" : ligne.collegue.etat === "bloque" ? "bloquée" : "en cours"}`}
+          </span>
+        )}
         {/* Photos déclarées par l'ouvrier pour cette tâche (clic = ouvre en plein) */}
         {Array.isArray(ligne.photos) && ligne.photos.length > 0 && (
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>

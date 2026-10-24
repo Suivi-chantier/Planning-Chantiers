@@ -146,6 +146,10 @@ export function enrichirTache(t, ouvrage) {
   const etat = etatHeures({ vendues, validees, attente, avancement, horsDevis: !!t.hors_devis, venduesAilleurs });
   return {
     ...t,
+    // CR-3 : nom personnalisé du phasage (CR-2) affiché aux ouvriers, le nom
+    // du devis gardé à côté (correspondances, affichage en petit).
+    nom: String(t.nom_perso ?? "").trim() || t.nom,
+    nom_devis: t.nom,
     avancement,
     vendues, validees, attente,
     consommees: arrondi(validees + attente),
@@ -188,7 +192,7 @@ export function agregerOuvrage(o) {
   const avancement = taches.length ? avancementOuvrage({ taches: taches.map(pourAvancement) }) : 0;
   const horsDevis = taches.length > 0 && taches.every(t => t.hors_devis);
   return {
-    id: o.id, libelle: o.libelle, code: o.code ?? null, quantite: o.quantite, unite: o.unite,
+    id: o.id, libelle: String(o.libelle_perso ?? "").trim() || o.libelle, libelle_devis: o.libelle, code: o.code ?? null, quantite: o.quantite, unite: o.unite,
     ouvrageComplet: !!o.ouvrage_complet,
     taches,
     vendues: arrondi(vendues), venduesOuvrageEntier,
