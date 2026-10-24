@@ -1852,7 +1852,7 @@ export function computeChantierFinance({
           + (l.neutralisation ? ` (« ${l.neutralisation.commentaire} »)` : ""),
         right: `${l.ecartProbableEuros > 0.5 ? "− " : l.ecartProbableEuros < -0.5 ? "+ " : ""}${eur(Math.abs(l.ecartProbableEuros))}`,
         rightColor: l.ecartProbableEuros > 0.5 ? "#e15a5a" : l.ecartProbableEuros < -0.5 ? "#22c55e" : null,
-        lotId: l.id, valeur: -l.ecartProbableEuros,
+        lotId: l.id, valeur: l.ecartProbableEuros ? -l.ecartProbableEuros : 0,
       })),
     ],
     titre: "Marge probable",

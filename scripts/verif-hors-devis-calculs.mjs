@@ -10,6 +10,9 @@
 // 24/10/2026 : référence recalculée pour le taux de frais généraux unique et
 // daté — seuls les frais généraux et les marges ont bougé (diff vérifié champ
 // par champ avant de la réécrire), tout le reste est resté identique.
+// 24/10/2026 (étape 2) : référence réécrite pour les LIBELLÉS seulement :
+// « Marge nette » devient « Budget restant », le seuil de prime se compare à
+// la marge probable. Aucun chiffre n'a bougé (diff vérifié champ par champ).
 import * as CF from "../src/chantierFinance.mjs";
 import { qcdDepuisFinance } from "../src/Renovation/qcd.mjs";
 import { ouvragesComparablesV1 } from "../src/Renovation/echantillonCadencesV1.mjs";
