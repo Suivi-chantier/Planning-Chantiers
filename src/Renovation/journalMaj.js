@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Bilan de clôture d'un chantier terminé",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Quand un chantier arrive à 100 %, le Bilan propose son bilan de clôture : devis contre réel lot par lot et ouvrage par ouvrage (heures, matériaux, marge finale), et les cadences de la bibliothèque qui mériteraient d'être corrigées.",
+    comment: "Équipe → Bilan → section « Bilans de clôture » (chantiers à 100 % retenus dans la période) → « Voir le bilan de clôture ». Une cadence est proposée quand celle constatée sur le chantier s'écarte de plus de 15 % de la bibliothèque ; rien n'est modifié automatiquement. Pas de bilan de clôture pour un chantier repris.",
+  },
+  {
+    date: "2026-10-24",
     type: "amelioration",
     titre: "Bilan : décisions attendues, tendances par lot et semaine qui vient",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],

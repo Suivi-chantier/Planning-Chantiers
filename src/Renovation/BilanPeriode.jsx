@@ -26,6 +26,7 @@ import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3
 import PageBilanSemaine from "./BilanSemaine";
 import { rappelBlocagesV3, suggestionsDecisionsV3, tendancesParLotV3, semaineQuiVientV3 } from "./bilanDecisionsV3.js";
 import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
+import { bilanClotureV3 } from "./bilanClotureV3.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
 
 const ACCENT = "#FFC200";
@@ -33,7 +34,7 @@ const CHANTIERS_EXCLUS = ["DÉPOT"];
 const COLONNES_LEGERES = "chantier_id, chantier_nom, date_releve, avancement, vendu_ht, heures_vendues, heures_reelles, "
   + "production_cumulee, marge_avancement, marge_terminaison, marge_probable, budget_restant, materiaux_en_avance, "
   + "heures_sans_lot, pct_sans_lot, chantier_repris, statut_completude, cr_manquants";
-const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, reste_a_commander, cr_manquants`;
+const COLONNES_COMPLETES = `${COLONNES_RELEVES_ALERTES_V2}, materiaux_en_avance, materiaux_imputes, mat_reel, mat_prev, mo_reel, fg, reste_a_commander, couts_par_nature, cr_manquants`;
 
 const fmtEur = v => (v == null ? "—" : `${Math.round(v).toLocaleString("fr-FR")} €`);
 const fmtEurSigne = v => (v == null ? "—" : `${v > 0.5 ? "+" : v < -0.5 ? "−" : ""}${Math.round(Math.abs(v)).toLocaleString("fr-FR")} €`);
@@ -175,6 +176,64 @@ function useSemaineQuiVient(periode) {
   return etat;
 }
 
+// ── Bilan de clôture d'un chantier (chargé à la demande) ────────────────────
+function PanneauCloture({ chantierId, releveFin, T }) {
+  const [etat, setEtat] = useState({ charge: false });
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      const [ph, pts] = await Promise.all([
+        supabase.from("phasages").select("ouvrages").eq("chantier_id", chantierId),
+        lireToutParTranches((a, b) => supabase.from("pointages").select("tache_id, heures").eq("chantier_id", chantierId).order("id").range(a, b)),
+      ]);
+      if (annule) return;
+      const ouvrages = (ph.data || []).flatMap(r => r.ouvrages || []);
+      setEtat({ charge: true, erreur: ph.error || pts.error, bilan: bilanClotureV3({ releveFin, ouvrages, pointages: pts.data || [] }) });
+    })();
+    return () => { annule = true; };
+  }, [chantierId, releveFin]);
+  if (!etat.charge) return <div style={{ color: T.textMuted, fontSize: 13 }}>Chargement du bilan de clôture…</div>;
+  if (etat.erreur) return <div style={{ color: "#e15a5a", fontSize: 13 }}>Le phasage ou les pointages n'ont pas pu être chargés.</div>;
+  const b = etat.bilan;
+  if (!b.applicable) return <div style={{ color: T.textMuted, fontSize: 13 }}>{b.raison}</div>;
+  const cell = { padding: "3px 6px", borderTop: `1px solid ${T.border}` };
+  return (
+    <div style={{ fontSize: 13 }}>
+      <div style={{ marginBottom: 6 }}>
+        Vendu {fmtEur(b.totaux.vendu)} · main-d'œuvre {fmtEur(b.totaux.mainOeuvre)} · matériaux {fmtEur(b.totaux.materiaux)} (prévu {fmtEur(b.totaux.materiauxPrevus)})
+        · frais généraux {fmtEur(b.totaux.fraisGeneraux)} · <strong>marge finale {fmtEurSigne(b.totaux.margeFinale)}{b.totaux.margeFinalePct != null ? ` (${fmtPct(b.totaux.margeFinalePct)})` : ""}</strong>
+        · heures {fmtH(b.totaux.heuresReelles)} réelles / {fmtH(b.totaux.heuresPrevues)} prévues
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr style={{ color: T.textMuted, fontSize: 11, textAlign: "right" }}><th style={{ textAlign: "left" }}>Lot / ouvrage</th><th>Prévu</th><th>Réel</th><th>Écart</th><th>Cadence prévue → constatée</th></tr></thead>
+        <tbody>
+          {b.lots.map(l => (
+            <React.Fragment key={l.id}>
+              <tr style={{ textAlign: "right", fontWeight: 700 }}>
+                <td style={{ ...cell, textAlign: "left" }}>{l.label}</td><td style={cell}>{fmtH(l.heuresPrevues)}</td><td style={cell}>{fmtH(l.heuresReelles)}</td>
+                <td style={cell}>{l.ecartHeures == null ? "—" : `${fmtH(l.ecartHeures)} · ${fmtEurSigne(l.ecartEuros)}`}</td><td style={cell}/>
+              </tr>
+              {b.ouvrages.filter(o => o.lot === l.label).map(o => (
+                <tr key={o.id} style={{ textAlign: "right", color: T.textSub }}>
+                  <td style={{ ...cell, textAlign: "left", paddingLeft: 18 }}>{o.libelle}</td><td style={cell}>{fmtH(o.heuresPrevues)}</td><td style={cell}>{fmtH(o.heuresReelles)}</td>
+                  <td style={cell}>{o.ecartHeures == null ? "—" : fmtH(o.ecartHeures)}</td>
+                  <td style={cell}>{o.cadencePrevue == null ? "—" : `${o.cadencePrevue} → ${o.cadenceConstatee ?? "—"} h/${o.unite || "u"}`}</td>
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 8, fontWeight: 700 }}>Proposition de mise à jour des cadences de la bibliothèque</div>
+      {b.propositions.length === 0 ? <div style={{ color: T.textMuted }}>Aucune cadence ne s'écarte de plus de 15 % de la bibliothèque.</div>
+        : b.propositions.map(x => (
+          <div key={x.bibliothequeId + x.libelle}>{x.libelle} : {x.cadencePrevue} → <strong>{x.cadenceProposee} h/{x.unite || "u"}</strong> ({x.ecartPct > 0 ? "+" : ""}{fmtPct(x.ecartPct)})</div>
+        ))}
+      <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>Rien n'est modifié automatiquement : les cadences se corrigent dans la Bibliothèque, puis « Appliquer à tous les chantiers ».</div>
+    </div>
+  );
+}
+
 // ── Génération du PDF (html2pdf, chargé à la demande) ───────────────────────
 async function telechargerPdf(html, nomFichier) {
   const conteneur = document.createElement("div");
@@ -217,6 +276,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const reglages = useReglagesMarges();
   const donnees = useDonneesPeriode(periode);
   const semProchaine = useSemaineQuiVient(periode);
+  const [clotureOuverte, setClotureOuverte] = useState(null);
   const [decisionsChoix, setDecisionsChoix] = useState({ cle: null, valeurs: {} });
   const decisionsPeriode = decisionsChoix.cle === periode?.cle ? decisionsChoix.valeurs : {};
   const choisirDecision = (id, valeur) => setDecisionsChoix(c => ({ cle: periode.cle, valeurs: { ...(c.cle === periode.cle ? c.valeurs : {}), [id]: valeur } }));
@@ -521,6 +581,29 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
           {semaineQuiVient.indisponible ? <div style={{ fontSize: 13, color: T.textMuted }}>{semaineQuiVient.indisponible}</div>
             : semaineQuiVient.lignes.map((l, i) => <div key={i} style={{ fontSize: 13, padding: "2px 0" }}><strong>{l.titre}</strong> : {l.detail}</div>)}
         </div>
+
+        {/* Bilans de clôture */}
+        {(() => {
+          const idxC = indexerRelevesV3(donnees.releves);
+          const finis = calcul.synthese.filter(x => x.avancement >= 100);
+          if (!finis.length) return null;
+          return (
+            <div style={carte}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Bilans de clôture</div>
+              {finis.map(x => (
+                <div key={x.chantierId} style={{ borderTop: `1px solid ${T.border}`, padding: "6px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <strong>{x.nom}</strong>
+                    {x.repris ? <span style={{ fontSize: 12, color: T.textMuted }}>chantier repris : pas de bilan de clôture</span>
+                      : <button style={btn(clotureOuverte === x.chantierId)} onClick={() => setClotureOuverte(o => (o === x.chantierId ? null : x.chantierId))}>
+                        {clotureOuverte === x.chantierId ? "Masquer" : "Voir le bilan de clôture"}</button>}
+                  </div>
+                  {clotureOuverte === x.chantierId && <PanneauCloture chantierId={x.chantierId} releveFin={releveAuPlusTardV3(idxC.get(x.chantierId), donnees.bornes.dateFin)} T={T}/>}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Sélection et export */}
         <div style={carte}>
