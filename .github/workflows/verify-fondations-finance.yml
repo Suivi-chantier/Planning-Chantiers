@@ -35,3 +35,5 @@ jobs:
         run: node scripts/verif-chantier-finance-fixtures.mjs
       - name: Etape 2 - Trois marges, marge probable, derive des lots (donnees fictives)
         run: node scripts/verif-trois-marges.mjs
+      - name: Etape 2 - Nouvelles alertes des marges sur les releves journaliers (donnees fictives)
+        run: node scripts/verif-alertes-marges.mjs

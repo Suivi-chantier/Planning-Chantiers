@@ -38,6 +38,9 @@ import {
   etatPointsAttentionV1,
   MOTIF_CONSOMMATION_SANS_AVANCEMENT,
   MOTIF_PERTE_DE_MARGE,
+  MOTIF_MARGE_PROBABLE_EN_BAISSE, MOTIF_LOT_EN_DERIVE, MOTIF_HEURES_SANS_LOT,
+  MOTIF_PRODUCTION_HEURE_ABERRANTE, MOTIF_DEPASSEMENT_ENVELOPPE,
+  LIBELLES_MOTIFS_V1,
   formaterEurosV1,
   ETAT_RELEVE_ABSENT, ETAT_AUCUNE_DERIVE, ETAT_DERIVES,
 } from "./pointsAttentionV1.mjs";
@@ -74,6 +77,12 @@ export const LIBELLES_MOTIFS_ALERTE = Object.freeze({
   [MOTIF_TERMINE_EN_PERTE]: "terminé en perte",
   [MOTIF_PERTE_DE_MARGE]: "perte de marge",
   [MOTIF_CONSOMMATION_SANS_AVANCEMENT]: "consommation sans avancement",
+  // Alertes des marges (étape 2, relevés journaliers).
+  [MOTIF_MARGE_PROBABLE_EN_BAISSE]: LIBELLES_MOTIFS_V1[MOTIF_MARGE_PROBABLE_EN_BAISSE],
+  [MOTIF_LOT_EN_DERIVE]: LIBELLES_MOTIFS_V1[MOTIF_LOT_EN_DERIVE],
+  [MOTIF_HEURES_SANS_LOT]: LIBELLES_MOTIFS_V1[MOTIF_HEURES_SANS_LOT],
+  [MOTIF_PRODUCTION_HEURE_ABERRANTE]: LIBELLES_MOTIFS_V1[MOTIF_PRODUCTION_HEURE_ABERRANTE],
+  [MOTIF_DEPASSEMENT_ENVELOPPE]: LIBELLES_MOTIFS_V1[MOTIF_DEPASSEMENT_ENVELOPPE],
   [CODE_DERIVE_LOT]: "dérive sur un lot",
   [CODE_OUVRAGES_SANS_PRIX]: "ouvrages sans prix",
   [CODE_MARGE_SOUS_SEUIL_PRIME]: "marge sous le seuil de prime",
@@ -202,6 +211,11 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
       exclus.push(str(snap.chantier_nom) || chantierId);
       continue;
     }
+    // Chantier repris (étape 2) : aucune alerte automatique.
+    if (snap.chantier_repris === true) {
+      exclus.push(str(snap.chantier_nom) || chantierId);
+      continue;
+    }
 
     if (fiabiliteV1(snap)) margeSurestimee.push(str(snap.chantier_nom) || chantierId);
 
@@ -221,11 +235,15 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
       avancement != null && avancement < 100;
     if (margeTerminaisonNegative) motifs.push(MOTIF_MARGE_TERMINAISON_NEGATIVE);
     if (motifsDerive.includes(MOTIF_PERTE_DE_MARGE)) motifs.push(MOTIF_PERTE_DE_MARGE);
+    if (motifsDerive.includes(MOTIF_MARGE_PROBABLE_EN_BAISSE)) motifs.push(MOTIF_MARGE_PROBABLE_EN_BAISSE);
 
     // ── Motif À SURVEILLER ──────────────────────────────────────────────────
     if (motifsDerive.includes(MOTIF_CONSOMMATION_SANS_AVANCEMENT)) {
       motifs.push(MOTIF_CONSOMMATION_SANS_AVANCEMENT);
     }
+    // Alertes d'état des marges (étape 2) : à surveiller.
+    const MOTIFS_ETAT_V2 = [MOTIF_LOT_EN_DERIVE, MOTIF_HEURES_SANS_LOT, MOTIF_PRODUCTION_HEURE_ABERRANTE, MOTIF_DEPASSEMENT_ENVELOPPE];
+    MOTIFS_ETAT_V2.forEach(m => { if (motifsDerive.includes(m)) motifs.push(m); });
 
     // ── Motifs INFO ─────────────────────────────────────────────────────────
     // Le chantier est fini et il est en perte : c'est un fait acquis. Le
@@ -243,12 +261,16 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
     // PASSAGE CÂBLE). Une donnée manquante doit rester VISIBLE : c'est un
     // invariant du projet, pas un détail d'affichage.
     // Le drapeau de fiabilité reste posé EN PLUS sur tous ces chantiers.
-    for (const code of codes) motifs.push(code);
+    // (Le dépassement d'enveloppe des relevés journaliers est déjà un motif
+    // des alertes des marges : pas en double.)
+    for (const code of codes) if (!motifs.includes(code) && code !== MOTIF_DEPASSEMENT_ENVELOPPE) motifs.push(code);
 
     if (motifs.length === 0) continue;
 
-    const estCritique = motifs.includes(MOTIF_MARGE_TERMINAISON_NEGATIVE) || motifs.includes(MOTIF_PERTE_DE_MARGE);
-    const estASurveiller = !estCritique && motifs.includes(MOTIF_CONSOMMATION_SANS_AVANCEMENT);
+    const estCritique = motifs.includes(MOTIF_MARGE_TERMINAISON_NEGATIVE) || motifs.includes(MOTIF_PERTE_DE_MARGE)
+      || motifs.includes(MOTIF_MARGE_PROBABLE_EN_BAISSE);
+    const estASurveiller = !estCritique && (motifs.includes(MOTIF_CONSOMMATION_SANS_AVANCEMENT)
+      || MOTIFS_ETAT_V2.some(m => motifs.includes(m)));
     const niveau = estCritique ? NIVEAU_CRITIQUE : (estASurveiller ? NIVEAU_A_SURVEILLER : NIVEAU_INFO);
 
     // ── Impact € ────────────────────────────────────────────────────────────
@@ -258,6 +280,7 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
     if (margeTerminaisonNegative || termineEnPerte) impacts.push(Math.abs(margeTerminaison));
     const margePerdue = nombreOuNull(derive?.margePerdue);
     if (motifs.includes(MOTIF_PERTE_DE_MARGE) && margePerdue != null) impacts.push(Math.abs(margePerdue));
+    if (motifs.includes(MOTIF_MARGE_PROBABLE_EN_BAISSE) && margePerdue != null) impacts.push(Math.abs(margePerdue));
     const impactEuros = impacts.length ? round2(Math.max(...impacts)) : null;
 
     alertes.push({
@@ -272,7 +295,9 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
       fiabilite: fiabiliteV1(snap),
       explication: explicationDe({
         motifs, avancement, margeTerminaison, margePerdue,
-        explicationDerive: derive?.explication || null,
+        // Alertes des marges : le détail de chaque alerte, avec ses chiffres.
+        explicationDerive: derive?.explication || (Array.isArray(derive?.alertes)
+          ? derive.alertes.map(a => a.texte).join(" ; ").replace(/^./, c => c.toUpperCase()) + "." : null),
       }),
     });
   }
@@ -295,6 +320,7 @@ export function alertesV1({ snapshotsCourants, snapshotsPrecedents, pointsAttent
 
   return {
     version: ALERTES_VERSION,
+    source: pa.source,
     releveDisponible: pa.releveDisponible,
     relevePrecedentDisponible: pa.relevePrecedentDisponible,
     alertes,
@@ -331,6 +357,7 @@ export function alertesDuNiveauV1(resultat, niveau) {
 export function etatAlertesV1(resultat) {
   const r = resultat && typeof resultat === "object" ? resultat : {};
   const base = etatPointsAttentionV1({
+    source: r.source,
     releveDisponible: r.releveDisponible,
     relevePrecedentDisponible: r.relevePrecedentDisponible,
     lignes: listeSure(r.alertes),

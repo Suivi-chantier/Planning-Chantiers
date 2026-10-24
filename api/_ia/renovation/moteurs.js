@@ -20,14 +20,15 @@ let _cache = null;
 
 async function moteurs() {
   if (!_cache) {
-    const [finance, alertes, donneesAttention, donneesLiees, semaines] = await Promise.all([
+    const [finance, alertes, donneesAttention, donneesLiees, semaines, alertesMarges] = await Promise.all([
       import("../../../src/chantierFinance.mjs"),
       import("../../../src/Renovation/alertesV1.mjs"),
       import("../../../src/Renovation/pointsAttentionDonneesV1.mjs"),
       import("../../../src/Renovation/avancementDonneesLiees.mjs"),
       import("../../../src/Renovation/bilanSemaineProchaineV1.mjs"),
+      import("../../../src/Renovation/alertesMargesV2.mjs"),
     ]);
-    _cache = { finance, alertes, donneesAttention, donneesLiees, semaines };
+    _cache = { finance, alertes, donneesAttention, donneesLiees, semaines, alertesMarges };
   }
   return _cache;
 }

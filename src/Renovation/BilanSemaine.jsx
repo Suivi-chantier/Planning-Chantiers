@@ -22,11 +22,12 @@ import { libelleFinPrevisionnelleV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { semaineISOv1 } from "./planningEngineDataHelpersV1.js";
 import { libellePointAttentionV1, libelleMotifsV1, etatPointsAttentionV1, ETAT_RELEVE_ABSENT, ETAT_DERIVES } from "./pointsAttentionV1.js";
 import { suiviPointsAttentionV1, libelleSuiviV1, libelleDerivesArreteesV1 } from "./suiviPointsAttentionV1.js";
-import { preparerSemainesAttentionV1, auditDoublonsSnapshotsV1 } from "./pointsAttentionDonneesV1.js";
+import { preparerSemainesRelevesJournaliersV2, COLONNES_RELEVES_ALERTES_V2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
+import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { bilanSemaineEmailV1 } from "./bilanSemaineEmailV1.js";
 // Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
 import { explicationLigne } from "./motifsCompteRendu";
-import { chargerReglagesMarges } from "./reglagesMarges";
+import { chargerReglagesMarges, useReglagesMarges } from "./reglagesMarges";
 import {
   ChartBar, ArrowRight, Check, Clock, FileDown, MessageSquare, RefreshCw, X,
   ChevronLeft, ChevronRight, ChevronDown, Banknote, HardHat, Receipt, Percent,
@@ -1056,7 +1057,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
 
   // ── Points d'attention : consommation sans avancement (chantier 07) ─────────
   // Compare les snapshots financiers hebdomadaires de la semaine du bilan et de
-  // la précédente (chantier_snapshots_hebdo). Détection faite par le module pur
+  // la précédente (relevés journaliers, étape 2 des marges). Détection faite par le module pur
   // pointsAttentionV1 : ICI on ne fait que LIRE et transmettre, jamais écrire.
   // Les chiffres affichés sont exactement ceux que le cron a écrits depuis
   // computeChantierFinance — aucun recalcul parallèle.
@@ -1089,27 +1090,30 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     let cancelled = false;
     setSnapshotsCharges(false);
     (async () => {
-      // La table ne contient que les chantiers ACTIFS au moment du cron : c'est
-      // exactement le périmètre sur lequel une dérive mérite d'être remontée.
-      const { data, error } = await supabase
-        .from("chantier_snapshots_hebdo")
-        .select("chantier_id, chantier_nom, week_id, date_snapshot, created_at, avancement, heures_reelles, marge")
-        .in("week_id", semainesAttention)
-        .order("date_snapshot", { ascending: true });
-      if (cancelled) return;
-      if (error) { console.warn("Points d'attention : load", error.message); return; }
-      setSnapshotsCharges(true);
-      // Le cron a tourné deux fois en 2026-W31 : cette semaine porte des doublons
-      // (deux états différents pour un même chantier). On ne garde que la ligne
-      // la plus récemment écrite, ICI et nulle part ailleurs — les modules de
-      // calcul reçoivent des données déjà propres et restent purs.
-      // Lecture seule : rien n'est supprimé en base.
-      const audit = auditDoublonsSnapshotsV1(data || []);
-      if (audit.total > 0) {
-        console.warn("Points d'attention : doublons de relevé écartés —",
-          audit.parSemaine.map(x => `${x.week_id}: ${x.doublons}`).join(", "));
+      // Étape 2 des marges (24/10/2026) : les alertes se calculent sur les
+      // RELEVÉS JOURNALIERS. Pour chaque semaine, l'état de fin de semaine d'un
+      // chantier est son dernier relevé au plus tard le dimanche. On lit de
+      // trois semaines avant la plus ancienne semaine comparée (un chantier à
+      // l'arrêt garde son dernier relevé) jusqu'au dimanche de la semaine du
+      // bilan, par tranches de 1 000 lignes (plafond de l'API).
+      const plusAncienne = dimancheSemaineISOV2(semainesAttention[semainesAttention.length - 1]);
+      const fin = dimancheSemaineISOV2(weekId);
+      const debut = (() => { const d = new Date(`${plusAncienne}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 27); return d.toISOString().slice(0, 10); })();
+      const data = [];
+      for (let de = 0; ; de += 1000) {
+        const { data: page, error } = await supabase
+          .from("chantier_releves_journaliers")
+          .select(COLONNES_RELEVES_ALERTES_V2)
+          .gte("date_releve", debut).lte("date_releve", fin)
+          .order("date_releve", { ascending: true }).order("chantier_id", { ascending: true })
+          .range(de, de + 999);
+        if (cancelled) return;
+        if (error) { console.warn("Points d'attention : load", error.message); return; }
+        data.push(...(page || []));
+        if (!page || page.length < 1000) break;
       }
-      setSnapshotsAttention(preparerSemainesAttentionV1({ lignes: data || [], weekIds: semainesAttention }));
+      setSnapshotsCharges(true);
+      setSnapshotsAttention(preparerSemainesRelevesJournaliersV2({ lignes: data, weekIds: semainesAttention }));
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1118,13 +1122,18 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
   // Le suivi appelle lui-même pointsAttentionV1 deux fois : on lit `actifs`,
   // qui SONT les points d'attention de la semaine, étiquetés quand c'est
   // prouvable. Aucune seconde détection en parallèle ici.
+  // Alertes des marges (étape 2) : seuils réglés dans Admin.
+  const reglagesMarges = useReglagesMarges();
   const suiviAttention = useMemo(() => suiviPointsAttentionV1({
     snapshotsN:  snapshotsAttention[0] || [],
     snapshotsN1: snapshotsAttention[1] || [],
     snapshotsN2: snapshotsAttention[2] || [],
     historiqueAnterieur: snapshotsAttention.slice(3),
-  }), [snapshotsAttention]);
-  const pointsAttentionConso = { seuils: suiviAttention.seuils, lignes: suiviAttention.actifs };
+    detecter: alertesMargesV2,
+    seuils: reglagesMarges.seuilsMarges,
+  }), [snapshotsAttention, reglagesMarges]);
+  const pointsAttentionConso = { seuils: suiviAttention.seuils, lignes: suiviAttention.actifs, source: suiviAttention.source,
+    releveDisponible: suiviAttention.releveDisponible, relevePrecedentDisponible: suiviAttention.relevePrecedentDisponible };
   // Affichage borné aux 5 dérives les plus coûteuses ; le module les a déjà
   // triées par marge perdue décroissante.
   const pointsAttentionAffiches = suiviAttention.actifs.slice(0, MAX_POINTS_ATTENTION_AFFICHES);
@@ -1556,7 +1565,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         <div class="remarque-row" style="font-size:9.5pt;color:#2a2f37;margin:0 0 5pt;padding-left:16pt;position:relative;line-height:1.45;">
           <span style="position:absolute;left:0;top:0;color:${ORANGE};font-weight:800;">!</span>
           <strong style="color:${INK};">${esc(l.nom)}</strong> — ${esc(libellePointAttentionV1(l).replace(`${l.nom} — `, ""))}${badge}${libelleMotifsV1(l) ? `<span style="margin-left:5pt;font-size:7.5pt;color:${GREY};">[${esc(libelleMotifsV1(l))}]</span>` : ""}
-          <div style="font-size:8.5pt;color:${GREY};margin-top:1pt;">${esc(l.explication)}</div>
+          ${l.explication ? `<div style="font-size:8.5pt;color:${GREY};margin-top:1pt;">${esc(l.explication)}</div>` : ""}
         </div>`;
       }).join("");
       const resolusHTML = suiviAttention.resolus.length
@@ -2320,7 +2329,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             {!snapshotsCharges ? (
               /* Requête en cours : on ne conclut rien. */
               <div style={{ fontSize:12.5, color:T.textMuted, lineHeight:1.5, fontStyle:"italic" }}>
-                Lecture du relevé hebdomadaire…
+                Lecture des relevés journaliers…
               </div>
             ) : etatAttention.statut === ETAT_RELEVE_ABSENT ? (
               /* Cas c : pas encore de relevé. Ton NEUTRE, surtout pas vert —
@@ -2367,9 +2376,11 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                           </span>
                         )}
                       </div>
-                      <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
-                        {l.explication}
-                      </div>
+                      {l.explication && (
+                        <div style={{ marginTop:3, fontSize:11.5, color:T.textMuted, lineHeight:1.4 }}>
+                          {l.explication}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2400,12 +2411,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
                 <><strong>Pas encore assez d'historique pour dire ce qui est nouveau</strong> — il faut trois semaines
                 de relevés consécutifs. Les dérives sont affichées, sans étiquette.<br/></>
               )}
-              Deux détections automatiques, depuis la semaine précédente :
-              <strong> consommation sans avancement</strong> (avancement stable ± {pointsAttentionConso.seuils.avancementStableMaxPts} pt,
-              au moins {pointsAttentionConso.seuils.heuresAjouteesMin} h consommées et au moins {pointsAttentionConso.seuils.margePerdueMinEuros} € perdus)
-              et <strong>perte de marge</strong> (au moins {pointsAttentionConso.seuils.margePerdueGraveMinEuros} € perdus,
-              quel que soit l'avancement — un chantier qui progresse en coûtant plus cher que vendu reste une dérive).
-              Chiffres repris tels quels du snapshot financier hebdomadaire — aucun recalcul.
+              Détections automatiques, du dernier relevé de la semaine précédente au dernier relevé de cette semaine :
+              <strong> marge probable en baisse</strong> de plus de {pointsAttentionConso.seuils.alerteBaisseMargeProbableEuros} € (avec les lots responsables),
+              <strong> lot en dérive</strong> au-delà de ×{String(pointsAttentionConso.seuils.alerteDeriveLotRatio).replace(".", ",")} à partir de {pointsAttentionConso.seuils.alerteDeriveLotAvancementPct} % d'avancement,
+              <strong> heures sans lot</strong> au-delà de {pointsAttentionConso.seuils.alerteSansLotPct} %,
+              <strong> production par heure aberrante</strong> (plus de {String(pointsAttentionConso.seuils.alerteProductionHeureFacteur).replace(".", ",")} × la production par heure vendue),
+              <strong> dépassement d'enveloppe matériaux</strong> et <strong>consommation sans avancement</strong>.
+              Seuils réglables dans Réglages ; chantiers repris exclus. Chiffres repris tels quels des relevés journaliers — aucun recalcul.
             </div>
           </div>
 

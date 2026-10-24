@@ -331,7 +331,10 @@ await bloc("7. alertes : sortie d'alertesV1 sur le dernier relevé, DÉPOT exclu
   const r = await outil("alertes", {}, tables);
   verifier(r.semaine_releve === "2026-W38" && r.semaine_comparaison === "2026-W37" && r.date_releve === "2026-09-18", "semaine et date du relevé");
   const [cour, prec] = donneesAttention.preparerSemainesAttentionV1({ lignes: tables.chantier_snapshots_hebdo, weekIds: ["2026-W38", "2026-W37"] });
-  const attendu = alertesMod.alertesV1({ snapshotsCourants: cour, snapshotsPrecedents: prec, exclusions: ["DÉPOT"] });
+  const { alertesMargesV2 } = await import("../src/Renovation/alertesMargesV2.mjs");
+  const pointsAttention = alertesMargesV2({ snapshotsCourants: cour, snapshotsPrecedents: prec });
+  const attendu = alertesMod.alertesV1({ snapshotsCourants: cour, snapshotsPrecedents: prec, pointsAttention, exclusions: ["DÉPOT"] });
+  verifier(!r.alertes.some((a) => a.motifs.some((m) => m.code === "perte_de_marge")), "plus de règle « perte de marge » (étape 2)");
   verifier(egal(r.alertes.map((a) => [a.chantier_id, a.niveau, a.motifs.map((m) => m.code), a.impact_euros]),
     attendu.alertes.map((a) => [a.chantierId, a.niveau, a.motifs, a.impactEuros])), "mêmes alertes, même ordre que le moteur");
   verifier(egal(r.totaux, attendu.totaux), "mêmes totaux");

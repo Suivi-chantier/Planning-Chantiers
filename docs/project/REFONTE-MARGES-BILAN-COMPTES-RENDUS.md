@@ -193,7 +193,7 @@ chaque étape.
 | Ordre | Étape | Statut | Date | Résumé |
 |---|---|---|---|---|
 | 1 | Étape 1 — Fondations des données financières | ✅ En ligne | 2026-10-24 | Trouvée non en ligne au démarrage, mise en ligne le 24/10 avec l'accord de Loris : 3 migrations, reconstitution du passé (4 796 lignes), premiers relevés journaliers. Voir « Vérification de l'étape 1 ». |
-| 2 | Étape 2 — Les trois marges et les alertes | 🔄 En cours | 2026-10-24 | 1re mise en ligne : calcul des trois marges et nouvelles colonnes des relevés. |
+| 2 | Étape 2 — Les trois marges et les alertes | ✅ En ligne | 2026-10-24 | Trois marges (avancement, terminaison, probable), « marge nette » devenue « budget restant », relevés passés recalculés (3 686), nouvelles alertes sur les relevés journaliers. Question ouverte : coefficients historiques sous ×1. Voir « Étape 2 ». |
 | 3 | Étape 3 — Refonte du Bilan semaine | ⏳ À faire | | |
 | 4 | Étape 4 — Tâches hors devis | ⏳ À faire | | |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ⏳ À faire | | |
@@ -281,6 +281,130 @@ reconstitution du passé. Loris a donné son accord pour tout mettre en ligne.
   non corrigé à l'étape 1.
 - La colonne `marge` des relevés (journaliers et du vendredi) reste l'ancienne
   « marge nette » (vendu − coûts engagés) : c'est l'objet de l'étape 2.
+
+#### Étape 2 — Les trois marges et les nouvelles alertes (24/10/2026, en ligne)
+
+**Mises en ligne.** 2A (calcul des trois marges + relevés journaliers), 2B
+(affichage : la « marge nette » devient « budget restant »), 2C (nouvelles
+alertes). Migration `20261024160000` (nouvelles colonnes des relevés
+journaliers, purement additive) appliquée et vérifiée avant 2A.
+
+**Relevés des jours passés (accord de Loris).** 3 686 relevés journaliers
+calculés pour 45 chantiers, du 12/05/2026 au 24/10/2026 (à partir du premier
+jour du journal d'avancement de chaque chantier). Les 46 relevés qui
+existaient ont été recalculés avec les nouvelles colonnes, après sauvegarde
+dans `chantier_releves_journaliers_sauvegarde_20261024` (46 lignes, réservée au
+serveur). 22 relevés ont un avancement « inconnu » (jours antérieurs à la
+première valeur connue d'une tâche) : leurs marges restent vides, jamais 0.
+82 journées sont « incomplètes » (comptes rendus attendus manquants ou non
+validés).
+
+**Ce qui change pour Loris et les conducteurs.**
+- Chaque chantier affiche trois marges : **à l'avancement** (le constat :
+  production exacte − coûts imputés), **à terminaison** (si le reste suit le
+  devis, calcul inchangé) et **probable** (si on continue au rythme actuel).
+  L'ancienne « marge nette » s'appelle **budget restant** et n'est plus
+  présentée comme une marge nulle part (Phasage, Bilan, Opérations et son PDF,
+  Chantiers, assistant IA, relevés).
+- Matériaux **imputés à l'avancement** de chaque lot : un achat anticipé dans
+  l'enveloppe est « en avance sur chantier » ; un dépassement compte tout de
+  suite ; un lot terminé impute tout.
+- **Marge de la semaine** = marge à l'avancement fin − début : les semaines
+  s'additionnent exactement à la marge cumulée.
+- **Phasage** : détail de la marge probable lot par lot (dérive en heures et en
+  euros, coefficient et provenance), bouton « Neutraliser… » (commentaire
+  obligatoire, réversible), case « Chantier repris » dans Suivi direction.
+- **Alertes** (Bilan, page Alertes) : sur les relevés journaliers, une ligne par
+  chantier avec toutes ses alertes chiffrées ; plus de phrase grise répétée ;
+  « perte de marge » supprimée.
+- **Réglages → Taux horaires → « Marge probable et alertes »** : tous les
+  seuils (défauts : dérive appliquée à partir de 25 % d'avancement, plafond ×5,
+  historique sur 2 chantiers minimum, baisse de marge probable 500 €, lot à
+  ×1,3 dès 25 %, 10 % d'heures sans lot, production par heure ×2, dépassement
+  d'enveloppe à partir de 100 €, consommation sans avancement : 1 point, 2 h,
+  50 €) et les dérives historiques par type de lot.
+
+**Avant / après sur les vrais chantiers** (requête sur la base du 24/10/2026 ;
+semaine 2026-W43 = du dimanche 18/10 exclu au dimanche 25/10 inclus ; montants
+en €). Les chantiers à 100 % ne changent pas : leur production est égale au
+vendu, donc marge à l'avancement = ancien chiffre.
+
+| Chantier | Av. | Ancienne « marge nette » | Semaine W43 avant | Semaine W43 après | Marge à l'avancement | À terminaison | Probable | Mat. en avance |
+|---|---|---|---|---|---|---|---|---|
+| FOURMOND 102 | 41 % | 18 424 | −736 | −1 053 | 1 243 | 5 797 | −15 | 310 |
+| FOURMOND 101 | 46 % | 20 194 | −872 | −872 | 3 509 | 7 142 | 3 380 | 1 455 |
+| FOURMOND 001 | 34 % | 24 063 | −270 | −146 | −35 | 9 162 | 8 971 | 2 411 |
+| FOURMOND COMMUNS | 29 % | 4 416 | 0 | 0 | 239 | 1 484 | 1 996 | 0 |
+| KATHLEEN T2 | 41 % | 16 894 | +1 453 | +1 453 | 4 600 | 9 363 | 9 750 | 0 |
+| MONTILLERS APPT 1 (T3) | 6 % | 30 931 | +776 | +843 | 754 | 14 489 | 17 825 | 68 |
+| MONTILLERS APPT 2 (T2) | 1 % | 33 751 | −1 108 | −1 069 | −1 069 | 14 580 | 17 028 | 39 |
+| MONTILLERS APPT 3 (STUDIO) | 1 % | 25 968 | −102 | −35 | −35 | 9 691 | 11 682 | 68 |
+| MONTILLERS APPT 4 (T2) | 0 % | 39 218 | −393 | −306 | −306 | 15 489 | 17 196 | 87 |
+| BRIOLLAY APPT 1 | 56 % | 23 817 | 0 | 0 | 12 686 | 20 587 | 23 282 | 0 |
+| BRIOLLAY APPT 2 | 45 % | 26 843 | 0 | 0 | 9 580 | 22 479 | 24 524 | 0 |
+| BRIOLLAY APPT 3 | 48 % | 14 472 | 0 | 0 | 5 982 | 12 788 | 13 654 | 0 |
+| BRIOLLAY APPT 4 | 45 % | 15 768 | 0 | 0 | 6 310 | 13 591 | 14 586 | 0 |
+| BRIOLLAY APPT 5 | 51 % | 16 518 | 0 | 0 | 7 590 | 14 462 | 15 588 | 0 |
+| TOURBOUTON 101 | 36 % | 17 947 | 0 | 0 | 4 378 | 9 625 | 10 810 | 0 |
+| TOURBOUTON 102 | 46 % | 14 236 | 0 | 0 | 4 819 | 8 844 | 10 658 | 0 |
+| GILDAS BAUGE 2 | 91 % | 46 650 | 0 | 0 | 40 521 | 45 804 | 46 613 | 0 |
+| METOIS | 97 % | 79 050 | 0 | 0 | 76 205 | 78 684 | 79 026 | 0 |
+| LOUISON APPT 1 (T2) | 0 % | 31 501 | 0 | 0 | −89 | 9 153 | 12 050 | 0 |
+| LOUISON APPT 3 (T4) | 0 % | 68 039 | 0 | 0 | 0 | 11 028 | 15 808 | 0 |
+
+Explications des écarts importants :
+- L'ancienne « marge nette » d'un chantier à 0-1 % (LOUISON, MONTILLERS,
+  FOUGERAY) valait presque tout le vendu ; la marge à l'avancement y est de
+  0 € ou légèrement négative (les premières heures n'ont rien produit).
+- FOURMOND 102 : la marge probable tombe à −15 € parce que le lot « Murs
+  cloison doublages » dérive à ×2,68 à 38 % d'avancement ; ses 50 h de trop
+  se reportent sur les heures restantes.
+- FOURMOND 001 : 2 411 € de matériaux commandés en avance (dans l'enveloppe)
+  ne pèsent plus sur la marge à l'avancement, d'où une semaine W43 moins
+  négative (−146 € au lieu de −270 €).
+- FOURMOND 102 semaine W43 : −1 053 € au lieu de −736 € car les matériaux
+  sont imputés à l'avancement réel du lot, plus à la date de commande.
+- Production exacte et coûts réels : identiques à l'étape 1 sur tous les
+  chantiers (écart maximal 29 € de main-d'œuvre sur TOM & CAMILLE R+2, dû à
+  une tâche dont les heures anciennes ont été remplacées par des pointages).
+
+**Alertes avant / après, semaine 2026-W43** (page Alertes, DÉPOT exclu).
+- Avant (relevés du vendredi) : 8 critiques, dont 6 « perte de marge »
+  (FOURMOND 101, FOURMOND 102, KATHLEEN T2, MONTILLERS APPT 1, TOM & CAMILLE
+  RDC, FOURMOND 001) — KATHLEEN T2 a pourtant gagné 1 453 € cette semaine-là.
+- Après (relevés journaliers) : 5 critiques — BRIOLLAY et TOURBOUTON
+  CO-LIVING (marge à terminaison négative, inchangé), et marge probable en
+  baisse sur FOURMOND 102 (−3 681 €), FOURMOND 101 (−3 522 €) et MONTILLERS
+  APPT 2 (−1 180 €), chacune avec le lot responsable en heures et en euros.
+  8 « à surveiller » (lots en dérive, heures sans lot, consommation sans
+  avancement : TOM & CAMILLE R+1/R+2/RDC, FOURMOND 001, KATHLEEN T2,
+  MONTILLERS APPT 1, 3 et 4). KATHLEEN T2 et MONTILLERS APPT 1 ne sont plus
+  critiques : ils ont gagné de l'argent.
+
+**Points d'attention.**
+- **Dérives historiques sous ×1** (question pour Loris) : sur les chantiers
+  terminés exploitables (14 BOULEVARD DU ROI RENÉ, CHALONNES ENEDIS, 8 RUE
+  SAINT BLAISE, ROLAND - PLANCHER), Électricité sort à ×0,40 et Murs cloison
+  doublages à ×0,58, car une bonne partie des heures n'était pas pointée sur
+  les tâches. Résultat : la marge probable des chantiers peu avancés est plus
+  optimiste que la marge à terminaison (ex. LOUISON APPT 3 : 15 808 € contre
+  11 028 €). Les chantiers avec une reprise d'antériorité (ARTHUR RDC/R+1/R+2,
+  GILDAS BAUGE 2, MAUDUIT) sont exclus de ce calcul (choix technique noté au
+  journal des décisions). Faut-il ne jamais appliquer un coefficient inférieur
+  à ×1 ?
+- Aucun chantier n'est encore coché « repris » : TOM & CAMILLE (RDC, R+1, R+2)
+  et les chantiers avec reprise d'antériorité devraient probablement l'être.
+- L'assistant IA applique les nouvelles règles, mais sur le relevé du
+  vendredi (pas encore de marge probable dedans) : il passera aux relevés
+  journaliers avec la refonte du Bilan (étape 3).
+- Le module de l'ancienne règle (`pointsAttentionV1`) n'est plus utilisé par
+  l'application ; il pourra être retiré à l'étape 3 avec les relevés du
+  vendredi.
+- Écarts de l'étape 1 toujours ouverts : réglage des frais généraux jamais
+  enregistré (17,44 €/h par défaut), 673 lignes de commande sans lot
+  (19 682 €), liste d'aide de Commandes à passer non multipliée par la
+  quantité d'ouvrage, une commande saisie n'est reprise dans le relevé qu'au
+  rattrapage de nuit.
 
 ---
 

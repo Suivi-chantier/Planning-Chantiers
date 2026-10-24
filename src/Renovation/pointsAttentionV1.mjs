@@ -48,6 +48,14 @@ export const SEUILS_POINTS_ATTENTION_V1 = Object.freeze({
 // Les deux formes de dérive. Un chantier peut porter les deux à la fois.
 export const MOTIF_CONSOMMATION_SANS_AVANCEMENT = "consommation_sans_avancement";
 export const MOTIF_PERTE_DE_MARGE = "perte_de_marge";
+// Motifs des alertes des marges (étape 2, alertesMargesV2.mjs, relevés
+// journaliers). La règle « perte de marge » n'est plus utilisée par
+// l'application depuis le 24/10/2026 ; elle reste ici pour l'historique.
+export const MOTIF_MARGE_PROBABLE_EN_BAISSE = "marge_probable_en_baisse";
+export const MOTIF_LOT_EN_DERIVE = "lot_en_derive";
+export const MOTIF_HEURES_SANS_LOT = "heures_sans_lot";
+export const MOTIF_PRODUCTION_HEURE_ABERRANTE = "production_heure_aberrante";
+export const MOTIF_DEPASSEMENT_ENVELOPPE = "depassement_enveloppe";
 
 const str = v => (v == null ? "" : String(v).trim());
 const round2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
@@ -299,6 +307,12 @@ function formaterMarcheHeures(heuresAjoutees, heuresHorsDevisAjoutees = 0) {
 export function libellePointAttentionV1(ligne) {
   if (!ligne || typeof ligne !== "object") return "—";
   const nom = str(ligne.nom) || str(ligne.chantier_id) || "Chantier";
+  // Alertes des marges (étape 2) : une ligne, toutes les alertes du chantier,
+  // chacune avec ses chiffres — sans phrase qui répète la ligne principale.
+  if (Array.isArray(ligne.alertes)) {
+    const t = ligne.alertes.map(a => str(a?.texte)).filter(Boolean).join(" ; ");
+    return `${nom} — ${t || "à regarder"}.`;
+  }
   const delta = Number(ligne.avancementDelta) || 0;
   const motifs = Array.isArray(ligne.motifs) ? ligne.motifs : [];
   const marge = `marge en baisse de ${formaterEurosV1(ligne.margePerdue)} (${formaterEurosV1(ligne.margeAvant)} → ${formaterEurosV1(ligne.margeApres)})`;
@@ -339,6 +353,11 @@ function dontHorsDevis(h) {
 export const LIBELLES_MOTIFS_V1 = Object.freeze({
   [MOTIF_CONSOMMATION_SANS_AVANCEMENT]: "consommation sans avancement",
   [MOTIF_PERTE_DE_MARGE]: "perte de marge",
+  [MOTIF_MARGE_PROBABLE_EN_BAISSE]: "marge probable en baisse",
+  [MOTIF_LOT_EN_DERIVE]: "lot en dérive",
+  [MOTIF_HEURES_SANS_LOT]: "heures sans lot",
+  [MOTIF_PRODUCTION_HEURE_ABERRANTE]: "production par heure aberrante",
+  [MOTIF_DEPASSEMENT_ENVELOPPE]: "dépassement d'enveloppe matériaux",
 });
 
 /** "consommation sans avancement + perte de marge" · "" si aucun motif connu. */
@@ -366,13 +385,17 @@ export const ETAT_DERIVES = "derives";
 export function etatPointsAttentionV1(resultat) {
   const r = resultat && typeof resultat === "object" ? resultat : {};
   const lignes = Array.isArray(r.lignes) ? r.lignes : [];
+  // Relevés journaliers (étape 2) : messages propres à cette source.
+  const journalier = r.source === "releves_journaliers";
 
   if (r.releveDisponible === false) {
     return {
       statut: ETAT_RELEVE_ABSENT,
       ton: "neutre",
       nb: 0,
-      message: "Relevé hebdomadaire pas encore disponible pour cette semaine (il est produit le vendredi en fin de journée). Aucune comparaison possible.",
+      message: journalier
+        ? "Relevé journalier pas encore disponible pour cette semaine. Aucune comparaison possible."
+        : "Relevé hebdomadaire pas encore disponible pour cette semaine (il est produit le vendredi en fin de journée). Aucune comparaison possible.",
     };
   }
   if (r.relevePrecedentDisponible === false) {
@@ -395,6 +418,8 @@ export function etatPointsAttentionV1(resultat) {
     statut: ETAT_DERIVES,
     ton: "alerte",
     nb: lignes.length,
-    message: `${lignes.length} chantier${lignes.length > 1 ? "s" : ""} consomme${lignes.length > 1 ? "nt" : ""} des heures sans avancer.`,
+    message: journalier
+      ? `${lignes.length} chantier${lignes.length > 1 ? "s" : ""} à regarder.`
+      : `${lignes.length} chantier${lignes.length > 1 ? "s" : ""} consomme${lignes.length > 1 ? "nt" : ""} des heures sans avancer.`,
   };
 }

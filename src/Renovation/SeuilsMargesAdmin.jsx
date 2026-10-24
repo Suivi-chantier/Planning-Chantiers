@@ -18,6 +18,7 @@ const CHAMPS = [
   { cle: "alerteDeriveLotAvancementPct", label: "… avec au moins", unite: "% d'avancement du lot" },
   { cle: "alerteSansLotPct", label: "Heures « sans lot » au-delà de", unite: "% des heures du chantier" },
   { cle: "alerteProductionHeureFacteur", label: "Production par heure aberrante au-delà de", unite: "× la production par heure vendue" },
+  { cle: "alerteDepassementEnveloppeMinEuros", label: "Dépassement d'enveloppe matériaux d'un lot à partir de", unite: "€" },
   { titre: "Consommation sans avancement" },
   { cle: "consoAvancementStablePts", label: "Avancement considéré stable jusqu'à", unite: "point(s) de production" },
   { cle: "consoHeuresAjouteesMin", label: "Au moins", unite: "heures consommées sur la période" },
