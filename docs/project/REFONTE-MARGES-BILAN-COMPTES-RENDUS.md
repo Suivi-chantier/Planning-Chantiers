@@ -194,7 +194,7 @@ chaque étape.
 |---|---|---|---|---|
 | 1 | Étape 1 — Fondations des données financières | ✅ En ligne | 2026-10-24 | Trouvée non en ligne au démarrage, mise en ligne le 24/10 avec l'accord de Loris : 3 migrations, reconstitution du passé (4 796 lignes), premiers relevés journaliers. Voir « Vérification de l'étape 1 ». |
 | 2 | Étape 2 — Les trois marges et les alertes | ✅ En ligne | 2026-10-24 | Trois marges (avancement, terminaison, probable), « marge nette » devenue « budget restant », relevés passés recalculés (3 686), nouvelles alertes sur les relevés journaliers. Question ouverte : coefficients historiques sous ×1. Voir « Étape 2 ». |
-| 3 | Étape 3 — Refonte du Bilan semaine | ⏳ À faire | | |
+| 3 | Étape 3 — Refonte du Bilan semaine | 🟡 En cours — en attente de Loris pour 3.5 | 2026-10-24 | En ligne : 3.0 plancher ×1 (#155), 3.1-3.3 Bilan d'une période + présélection + version direction (#156), 3.4 version détaillée (#157), 3.6 décisions / tendances / semaine qui vient (#158), 3.7 bilan de clôture (#159). Reste : 3.5 bilans figés et rectifications + prévu / réalisé (question sur la table d'archive), assistant IA sur les relevés journaliers, sort des relevés du vendredi (question posée). Voir « Étape 3 ». |
 | 4 | Étape 4 — Tâches hors devis | ⏳ À faire | | |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ⏳ À faire | | |
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ⏳ À faire | | |
@@ -240,6 +240,27 @@ chaque étape.
 - **24/10/2026 — Chantier repris.** Réponse de Loris : il cochera lui-même
   « chantier repris » sur les trois TOM & CAMILLE ; rien n'est coché
   automatiquement.
+
+- **24/10/2026 — Étape 3 : découpage ajusté (choix technique).** 3.1, 3.2 et
+  3.3 sont livrées ensemble (#156) : la page d'une période n'a de sens
+  qu'avec sa sélection et son export. Le prévu / réalisé et le glissement de
+  la fin prévisionnelle passent en 3.5 : ils ont besoin du bilan précédent
+  archivé comme référence.
+- **24/10/2026 — Relevés journaliers recalculés après le plancher ×1 (choix
+  technique, même accord que le recalcul de l'étape 2).** 3 686 relevés
+  recalculés (12/05 → 24/10) avec le code en ligne, après sauvegarde complète
+  dans `chantier_releves_journaliers_sauvegarde_20261024b` (3 686 lignes,
+  réservée au serveur). Production et marge à l'avancement inchangées sur les
+  3 686 ; marge probable modifiée sur 2 368 relevés, toujours à la baisse
+  (au plus −5 379 €) ; ventilation des coûts par nature remplie partout.
+- **24/10/2026 — Tendances par lot : un lot sans aucune heure pointée est
+  exclu (choix technique).** Sur les chantiers terminés, des lots ont 0 h
+  rattachée (heures saisies en bloc ou ailleurs) : ils tiraient la moyenne
+  vers ×0 (Électricité ×0,5, Finitions ×0).
+- **24/10/2026 — Questions posées à Loris (en attente).** (1) Créer la table
+  d'archive des bilans exportés, lisible et modifiable par le bureau
+  seulement (droits d'accès → son accord) ; (2) arrêter les deux relevés du
+  vendredi et garder leurs tables en lecture seule.
 
 ### Comptes rendus des étapes
 
@@ -415,6 +436,77 @@ Explications des écarts importants :
   (19 682 €), liste d'aide de Commandes à passer non multipliée par la
   quantité d'ouvrage, une commande saisie n'est reprise dans le relevé qu'au
   rattrapage de nuit.
+
+#### Étape 3 — Refonte du Bilan (24/10/2026, en cours : 3.5 en attente)
+
+**Mises en ligne.** 3.0 coefficient de la marge probable jamais sous ×1
+(#155) ; 3.1-3.3 Bilan d'une période, présélection, version direction
+(#156) ; 3.4 version détaillée (#157, migration additive
+`20261024170000_releves_couts_par_nature` appliquée et vérifiée avant
+fusion) ; 3.6 décisions attendues, tendances, semaine qui vient (#158) ; 3.7
+bilan de clôture (#159). Scripts : `verif-bilan-periode.mjs` (68 contrôles,
+données fictives) dans Verify Fondations Finance ; `verif-trois-marges`
+complété (plancher ×1).
+
+**Ce qui change pour Loris et les conducteurs (Équipe → Bilan).**
+- On choisit une **semaine** (par défaut), un **mois** ou des **dates
+  libres**. Le Bilan compare le relevé du dernier jour travaillé avant la
+  période à celui du dernier jour travaillé de la période (W43 : du ven. 16/10
+  au jeu. 22/10).
+- Bandeau : production, marge de la période, évolution de la marge probable,
+  heures validées, comptes rendus non validés. Synthèse par chantier avec
+  pastille (légende sous le tableau), trois marges, € produits par heure,
+  mentions « démarrage », « réception / levée de réserves » (avec les heures
+  après réception) et « chantier repris ».
+- Les chantiers ayant eu de l'activité (heures pointées ou déclarées,
+  avancement, commande) sont cochés pour l'export ; les autres restent listés
+  avec « aucune activité sur la période ». Les choix manuels tiennent tant
+  qu'on reste sur la même période. Un avertissement liste les comptes rendus
+  non validés et les journées incomplètes.
+- **Version direction** (par défaut, 2 pages sur W43) : jamais aucun
+  commentaire d'ouvrier. **Version détaillée** (case à cocher) : une fiche par
+  chantier (lots avec écart en heures et en euros et provenance du
+  coefficient, ligne « sans lot » au-delà de 10 %, matériaux commandés /
+  imputés / en avance / reste à commander + coûts par nature, tâches résumées
+  par lot puis détail, présences, 1-2 photos choisies, synthèse proposée par
+  l'IA et relue, commentaires cochés) + annexe « Méthode de calcul ».
+- Page 2 : alertes de l'étape 2, décisions attendues (rappel des blocages
+  limité à 4 semaines ; propositions « Retenir / Écarter » : tâches en cours
+  depuis 3 semaines, comptes rendus qui parlent d'une attente), tendances par
+  lot, semaine qui vient (calculée à l'ouverture).
+- Bilan de clôture des chantiers à 100 % (pas pour un chantier repris) :
+  devis / réel par lot et ouvrage, marge finale, cadences de la bibliothèque à
+  revoir (écart de plus de 15 %), sans rien modifier automatiquement.
+- Retirés : « Tâches » du bandeau, « Situation à facturer », la marge nette
+  (déjà à l'étape 2), les phrases grises qui répètent la ligne (étape 2).
+  L'ancien détail des comptes rendus (et son brouillon d'e-mail) reste dans
+  l'onglet « Détail des comptes rendus ».
+
+**PDF de la semaine 2026-W43 sur les vraies données** (dumps de la base du
+24/10/2026, modules de l'application, état par défaut de la page : aucun choix
+manuel, aucune décision retenue, aucune synthèse ni photo ni commentaire
+choisis ; rendu par Chrome au lieu de html2pdf, même HTML) : direction
+2 pages, détaillée 8 pages. Chiffres W43 : 11 chantiers avec activité,
+production 9 152 €, marge de la période −327 €, marge probable −9 367 € sur
+la période, 232,8 h validées, 0 compte rendu non validé, 16 journées
+incomplètes (FOURMOND, MONTILLERS, TOM & CAMILLE), 11 chantiers avec au moins
+une alerte. Lot qui dérive le plus : Menuiserie (×1,61, 52 h, 1 947 €).
+La section « semaine qui vient » n'est pas calculée dans ce PDF généré hors de
+l'application (elle l'est dans la page).
+
+**Points d'attention.**
+- 3.5 (bilans figés, ligne « Rectifications », prévu / réalisé, glissement
+  de la fin) attend l'accord de Loris sur la table d'archive.
+- L'assistant IA lit encore le relevé du vendredi : à basculer sur les
+  relevés journaliers (en même temps que la décision sur les relevés du
+  vendredi).
+- « Semaine qui vient » : équipe, jours, heures et nombre de tâches par
+  chantier ; les commandes à passer et livraisons attendues n'y sont pas
+  encore.
+- Prévu / réalisé : sera exprimé à partir du bilan précédent archivé (3.5).
+- Les tendances et les dérives historiques restent faussées par les heures
+  mal rattachées des anciens chantiers ; TOM & CAMILLE ne sont pas encore
+  cochés « repris » (Loris le fera).
 
 ---
 
