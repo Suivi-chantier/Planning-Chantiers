@@ -49,3 +49,7 @@ create policy profero_collaborateurs_seulement on public.bilans_exports
   as restrictive for all to authenticated
   using ((select public.est_collaborateur_actif())) with check ((select public.est_collaborateur_actif()));
 
+
+-- Un bilan figé ne se modifie pas : retrait des droits par défaut de Supabase
+-- (appliqué par Loris le 24/10/2026).
+revoke update, delete, truncate on public.bilans_exports from authenticated;
