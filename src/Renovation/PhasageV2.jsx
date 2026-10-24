@@ -89,6 +89,9 @@ import {
 import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
 import { chargerAchatsTermines, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { demanderRecalculReleve } from "./relevesJournaliersApi";
+import HorsDevisPhasage from "./HorsDevisPhasage";
+import { tauxFGALaDate as tauxFGALaDateCF } from "../chantierFinance";
+import { syntheseHorsDevisChantierV2 } from "./horsDevisV2";
 // Trois marges (étape 2) : seuils Admin + dérives historiques, communs à toutes les pages.
 import { useReglagesMarges } from "./reglagesMarges";
 import { LIBELLES_PROVENANCE_COEF } from "../chantierFinance";
@@ -463,6 +466,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const [showSuiviDirection, setShowSuiviDirection] = useState(false);
   // Marge probable : détail par lot + neutralisation de la dérive (étape 2).
   const [margesLotsOuvert, setMargesLotsOuvert] = useState(false);
+  const [horsDevisOuvert, setHorsDevisOuvert] = useState(false);
   // Mode d'affichage : "list" (3 colonnes Lots/Ouvrages/Tâches) | "gantt" (timeline)
   //                     | "previsionnel" (calendrier client + export PDF)
   const [viewMode, setViewMode] = useState("list");
@@ -1021,6 +1025,31 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     setPhasage(p => ({ ...(p || { chantier_id: chantierId }), ouvrages: next }));
     scheduleSave(next);
   };
+
+  // ─── TÂCHES HORS DEVIS (étape 4) ─────────────────────────────────────────
+  // Cas A : les pointages passent d'abord sur la tâche existante, puis la
+  // tâche hors devis quitte le phasage. Avenant / cas A / cas B : le relevé
+  // journalier est recalculé depuis le premier jour déclaré de la tâche.
+  const tauxFGJour = React.useCallback((d) => tauxFGALaDateCF(tauxFG, d), [tauxFG]);
+  const appliquerHorsDevis = async (next, extra = {}) => {
+    if (extra.pointages) {
+      const { de, vers } = extra.pointages;
+      const { error } = await supabase.from("pointages").update({ tache_id: vers })
+        .eq("chantier_id", chantierId).eq("tache_id", de);
+      if (error) {
+        console.error("Réaffectation des pointages :", error.message);
+        alert("Les heures n'ont pas pu être réaffectées : rien n'a été modifié. Réessayez.");
+        return false;
+      }
+      setPointages(pts => pts.map(p => (String(p.tache_id) === String(de) ? { ...p, tache_id: vers } : p)));
+    }
+    updateOuvrages(next);
+    if (extra.recalculerDepuis) demanderRecalculReleve({ chantierId, date: extra.recalculerDepuis });
+    return true;
+  };
+  const resumeHorsDevis = useMemo(() => syntheseHorsDevisChantierV2({
+    ouvrages: phasage?.ouvrages || [], pointages, tauxFG: tauxFGJour, aujourdHui: new Date().toISOString().slice(0, 10),
+  }), [phasage, pointages, tauxFGJour]);
 
   // ─── CRUD OUVRAGES ──────────────────────────────────────────────────────
   const createOuvrage = (lotId) => {
@@ -2821,6 +2850,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               <Icon as={FileDown} size={14}/>
               PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : viewMode === "chrono" ? "Planning" : viewMode === "rang" ? "Rang" : ""}
             </button>
+            {resumeHorsDevis.taches.length > 0 && (
+              <button onClick={() => setHorsDevisOuvert(true)}
+                title="Tâches hors devis : réaffecter, intégrer, avenant ou geste commercial"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "8px 12px", borderRadius: RADIUS.md,
+                  border: `1px solid ${resumeHorsDevis.aArbitrer.nb > 0 ? "#e05c5c" : T.border}`, background: T.card,
+                  color: resumeHorsDevis.aArbitrer.nb > 0 ? "#e05c5c" : T.textSub,
+                  fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+                }}>
+                Hors devis · {resumeHorsDevis.taches.length}{resumeHorsDevis.aArbitrer.nb > 0 ? ` (${resumeHorsDevis.aArbitrer.nb} à arbitrer)` : ""}
+              </button>
+            )}
             <button onClick={() => setShowSuiviDirection(true)} title="Suivi direction (marge cible, prime)"
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -3595,6 +3637,14 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             else actuelles[lotId] = { commentaire, par: profil?.nom || profil?.email || null, le: new Date().toISOString().slice(0, 10) };
             saveMeta({ neutralisations_derive: actuelles });
           }}/>
+      )}
+
+      {horsDevisOuvert && (
+        <HorsDevisPhasage T={T} ouvrages={ouvrages} pointages={pointages} tauxFGALaDate={tauxFGJour}
+          bibliotheque={bibliotheque} auteur={profil?.nom || profil?.email || null}
+          aujourdHui={new Date().toISOString().slice(0, 10)}
+          semainesRappel={reglagesMarges.seuilsMarges?.horsDevisRappelSemaines}
+          onAppliquer={appliquerHorsDevis} onClose={() => setHorsDevisOuvert(false)}/>
       )}
 
       {/* ── Modale suivi direction ── */}
