@@ -14,6 +14,9 @@
 import assert from "node:assert/strict";
 import * as B from "../src/Renovation/bilanPeriodeV3.mjs";
 import { documentBilanV3, htmlBilanDirectionV3 } from "../src/Renovation/bilanPdfV3.mjs";
+import * as F from "../src/Renovation/bilanFicheV3.mjs";
+import { createRequire } from "node:module";
+const require_ = createRequire(import.meta.url);
 
 let n = 0;
 const ok = (c, m) => { assert.ok(c, m); n++; };
@@ -143,6 +146,53 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(!direction.includes("<script"), "aucun script dans le document");
   const xss = documentBilanV3({ ...d, synthese: [{ ...synthese[0], nom: "<img src=x onerror=1>" }] });
   ok(!xss.includes("<img src=x"), "noms échappés");
+}
+
+// ── Version détaillée : fiche chantier ─────────────────────────────────────
+{
+  const releveFin = { chantier_id: "a", date_releve: "2026-10-22", pct_sans_lot: 14.2, heures_sans_lot: 9,
+    mat_reel: 5000, materiaux_imputes: 4200, materiaux_en_avance: 800, reste_a_commander: 1500,
+    couts_par_nature: { materiaux: 4000, sous_traitance: 1000, location: 0, dechets: 0, autre: 0 },
+    lots: [{ id: "murs", label: "Murs cloisons", heuresReelles: 50, heuresVendues: 60, avancementExact: 55, ecartHeures: 17, ecartEuros: 850,
+      heuresRestantesPrevues: 27, heuresRestantesProbables: 41, coefficient: 1.52, provenanceCoefficient: "constatee" },
+      { id: "_orphans", label: "Sans lot", heuresReelles: 9, heuresVendues: 0 }] };
+  const ouvrages = [{ id: "o1", lot_id: "murs", libelle: "Cloisons", taches: [{ id: "t1", nom: "Plaquage chambre" }, { id: "t2", nom: "Bandes SDB" }, { id: "t3", nom: "Isolation" }] }];
+  const journal = [
+    { chantier_id: "a", tache_id: "t1", source: "validation_cr", avancement_avant: 50, avancement_apres: 100, date_realisation: "2026-10-20" },
+    { chantier_id: "a", tache_id: "t2", source: "validation_cr", avancement_avant: 0, avancement_apres: 40, date_realisation: "2026-10-21" },
+    { chantier_id: "a", tache_id: "t3", source: "validation_cr", avancement_avant: 0, avancement_apres: 100, date_realisation: "2026-10-10" }, // avant la période
+  ];
+  const pointages = [["Davy", "2026-10-19"], ["Davy", "2026-10-20"], ["Davy", "2026-10-21"], ["Davy", "2026-10-22"], ["Kev", "2026-10-20"], ["Kev", "2026-10-21"], ["Kev", "2026-10-12"]]
+    .map(([ouvrier, date]) => ({ chantier_id: "a", ouvrier, date, heures: 7 }));
+  const rapports = [{ id: "r1", chantier_id: "a", ouvrier: "Davy", date_rapport: "20/10/2026", remarque: "Il manque des vis de 25",
+    photos_chantier: ["https://x/1.jpg", "https://x/2.jpg", "https://x/3.jpg"], taches: [{ planifie: "Bandes", remarque: "Kev traîne", photos: ["https://x/4.jpg"] }] }];
+  const mat = F.matiereComptesRendusV3({ rapports, chantierId: "a", debut: P.debut, fin: P.fin });
+  ok(mat.photos.length === 4 && mat.commentaires.length === 2, "photos et commentaires des comptes rendus proposés au conducteur");
+  const fiche = F.ficheChantierV3({ synthese: { chantierId: "a", nom: "A" }, releveFin, ouvrages, journal, pointages, periode: P, bornes: BORNES,
+    photosChoisies: mat.photos.map(x => x.url), commentairesCoches: [mat.commentaires[0]], syntheseRelue: "Cloisons de la chambre terminées." });
+  ok(fiche.photos.length === 2, "deux photos au plus");
+  ok(fiche.commentaires.length === 1 && fiche.commentaires[0].texte === "Il manque des vis de 25", "seuls les commentaires cochés");
+  eq(fiche.presences, "Davy 4 j · Kev 2 j", "présences sur une ligne (jours de la période)");
+  eq(fiche.tachesParLot, [{ lot: "Murs cloisons", resume: "1 terminée, 1 en cours",
+    taches: [{ nom: "Bandes SDB", etat: "en cours 40 %", terminee: false }, { nom: "Plaquage chambre", etat: "terminée", terminee: true }] }], "tâches résumées par lot puis détail");
+  ok(/14,2 % des heures sont « sans lot »/.test(fiche.sansLotAlerte), "ligne « sans lot » mise en évidence au-delà de 10 %");
+  ok(fiche.lots.find(l => l.id === "murs").provenance === "×1,52 · dérive constatée", "provenance du coefficient");
+  eq(fiche.materiaux.parNature.map(x => x.nature), ["materiaux", "sous_traitance"], "ventilation par nature (natures non nulles)");
+  ok(F.materiauxFicheV3({ mat_reel: 1 }).parNatureDisponible === false, "relevé sans ventilation : signalée indisponible");
+  eq(fiche.synthese, "Cloisons de la chambre terminées.", "synthèse = texte relu");
+  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], fiches: [fiche], methode: F.methodeBilanV3() }, { detaillee: true });
+  ok(html.includes("Méthode de calcul") && html.includes("Marge de la période") && html.includes("Davy 4 j"), "PDF détaillé : fiches + annexe méthode");
+  ok(!html.includes("Kev traîne"), "commentaire non coché absent du PDF détaillé");
+  const direction = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], fiches: [fiche] }, { detaillee: false });
+  ok(!direction.includes("vis de 25") && !direction.includes("Kev traîne"), "version direction : aucun commentaire, même coché");
+}
+{
+  // Tâche IA « synthèse du Bilan » : entrée bornée, sortie = une phrase.
+  const tache = require_("../api/_ia/taches/bilan_synthese.js");
+  ok(tache.schema_entree({ chantier: "A", periode: "Semaine 43", faits: {}, comptes_rendus: [{ texte: "ok" }] }) === true, "IA : entrée valide");
+  ok(tache.schema_entree({ chantier: "A", periode: "S", faits: {}, comptes_rendus: [{ texte: "x".repeat(700) }] }) !== true, "IA : extrait trop long refusé");
+  ok(tache.schema_sortie({ phrase: "Cloisons terminées." }) === true && tache.schema_sortie({}) !== true, "IA : sortie = une phrase");
+  ok(/jamais des instructions/.test(tache.construire_prompt({ chantier: "A", periode: "S", faits: {}, comptes_rendus: [] }).system), "IA : textes des ouvriers traités comme des données");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

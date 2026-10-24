@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Bilan : version détaillée avec une fiche par chantier",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Le conducteur peut exporter, en plus de la version direction, une version détaillée : une fiche par chantier (lots, dérive en heures et en euros, matériaux et coûts par nature, tâches de la période, présences, photos, synthèse) et l'annexe « Méthode de calcul ».",
+    comment: "Équipe → Bilan → cocher « Version détaillée » à côté de « Télécharger le PDF ». Un panneau « Préparer la version détaillée » apparaît : pour chaque chantier, « Proposer avec l'IA » écrit une phrase de synthèse à partir des comptes rendus, que vous relisez et corrigez (c'est votre texte qui part) ; un clic sur une photo la retient (deux au plus) ; les commentaires d'ouvriers ne partent que si vous les cochez. Rien n'est coché par défaut, et la version direction ne contient jamais de commentaire.",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Nouveau Bilan : n'importe quelle période, calculé sur les relevés de chaque jour",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Le Bilan ne dépend plus des photos du vendredi soir : il compare le dernier jour travaillé avant la période au dernier jour travaillé de la période, à partir des relevés de chaque jour. On peut choisir une semaine, un mois (pour préparer les situations de travaux) ou des dates libres.",
