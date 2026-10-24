@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-25",
+    type: "amelioration",
+    titre: "Validation de fin de journée : toute la journée lisible d'un coup d'œil",
+    pages: [{ id: "validation", label: "Validation fin de journée" }],
+    quoi: "La page de validation montre la journée entière sans ouvrir les comptes rendus : un résumé (à valider, dont avec écarts, validés, non envoyés, heures déclarées sur heures attendues), puis chaque compte rendu sur une ligne avec ses tâches et leur état, ses photos, ses heures et ses écarts écrits en clair (dépassement d'heures et son motif, tâche créée et son motif, tâche bloquée, tâche prévue non faite). Gris = comme prévu, orange = écarts à regarder, rouge = à arbitrer. Un compte rendu « comme prévu » sans anomalie se valide directement avec le bouton « Valider » ; les autres s'ouvrent pour être vérifiés.",
+    comment: "Flèches pour passer au jour précédent ou suivant ; les jours précédents qui ont encore des comptes rendus à valider sont rappelés en haut. Regroupement par chantier (par défaut) ou par ouvrier, case « Écarts seulement ». Quand deux ouvriers ont déclaré la même tâche différemment, un encart la montre une seule fois : on saisit l'avancement retenu et « Appliquer aux deux » le reporte dans leurs deux comptes rendus. Un compte rendu attendu mais non envoyé apparaît en pointillés rouges dans son chantier, qui reste « incomplet » au Bilan. Les comptes rendus validés sont repliés en bas. Les règles de validation (contrôle des heures, enregistrement des heures et de l'avancement) ne changent pas.",
+  },
+  {
+    date: "2026-10-25",
     type: "nouveaute",
     titre: "Compte rendu du soir : raconter sa journée au micro, l'IA prépare le compte rendu",
     pages: [{ id: "validation", label: "Validation fin de journée" }],
