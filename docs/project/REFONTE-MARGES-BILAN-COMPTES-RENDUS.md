@@ -262,6 +262,21 @@ chaque étape.
   seulement (droits d'accès → son accord) ; (2) arrêter les deux relevés du
   vendredi et garder leurs tables en lecture seule.
 
+<<<<<<< HEAD
+- **24/10/2026 — Table d'archive des bilans.** Réponse de Loris : OUI pour
+  créer `bilans_exports`, lisible et modifiable par le bureau seulement
+  (mêmes règles que `achats_lots_termines` + « réservé aux collaborateurs »).
+  Réserve du pilote : le stockage « chantier-documents » est lisible par tous
+  les collaborateurs, ouvriers compris → les bilans n'y sont PAS rangés ; le
+  document exporté (HTML, qui redonne le PDF) est gardé dans la table
+  elle-même. Un bilan figé ne se modifie pas : le bureau peut lire et
+  ajouter, pas modifier ni supprimer.
+- **24/10/2026 — Migration `20261024180000_bilans_exports` non appliquée.**
+  L'application de la migration (qui pose des règles d'accès) a été refusée
+  par le garde-fou des autorisations de Claude Code ; elle n'a pas été
+  contournée. 3.5 attend qu'elle soit appliquée (par Loris ou après
+  autorisation) avant d'être fusionnée.
+=======
 - **24/10/2026 — Relevés du vendredi : option A.** Réponse de Loris : arrêter
   les deux tâches du vendredi (relevé hebdomadaire `chantier_snapshots_hebdo`
   et historique d'avancement `chantier_avancement_history`) APRÈS avoir
@@ -281,6 +296,7 @@ chaque étape.
   journaliers, test du doublon W31 à adapter). (2) et (3) : pas commencés.
   3.5 (#161, brouillon) attend l'application de la migration
   `bilans_exports`, gérée par le pilote avec Loris.
+>>>>>>> origin/main
 
 ### Comptes rendus des étapes
 

@@ -27,6 +27,7 @@ import PageBilanSemaine from "./BilanSemaine";
 import { rappelBlocagesV3, suggestionsDecisionsV3, tendancesParLotV3, semaineQuiVientV3 } from "./bilanDecisionsV3.js";
 import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanClotureV3 } from "./bilanClotureV3.js";
+import { ligneArchiveV3, rectificationsV3, prevuRealiseV3, derniersExportsParPeriodeV3 } from "./bilanArchiveV3.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
 
 const ACCENT = "#FFC200";
@@ -83,6 +84,26 @@ function useDonneesPeriode(periode) {
         lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, date_rapport, semaine, taches, remarque")
           .in("semaine", semainesDecisions).order("id").range(a, b)),
       ]);
+      // Bilans déjà exportés (8 semaines) et saisies faites après leur export.
+      const arch = await supabase.from("bilans_exports")
+        .select("periode_cle, periode_libelle, periode_debut, periode_fin, date_depart, date_fin, chiffres, exporte_le")
+        .gte("periode_fin", ajouterJoursV3(periode.debut, -60)).lt("periode_fin", periode.debut);
+      const archives = arch.error ? [] : (arch.data || []);
+      let tardifs = { pointages: [], journal: [], commandes: [] };
+      if (archives.length) {
+        const dmin = archives.map(a => a.date_depart).sort()[0], dmax = archives.map(a => a.date_fin).sort().pop();
+        const emin = archives.map(a => a.exporte_le).sort()[0];
+        const [tp, tj, tc] = await Promise.all([
+          lireToutParTranches((a, b) => supabase.from("pointages").select("chantier_id, date, created_at")
+            .gt("date", dmin).lte("date", dmax).gt("created_at", emin).order("id").range(a, b)),
+          lireToutParTranches((a, b) => supabase.from("avancement_journal").select("chantier_id, date_realisation, created_at, source")
+            .gt("date_realisation", dmin).lte("date_realisation", dmax).gt("created_at", emin).order("id").range(a, b)),
+          lireToutParTranches((a, b) => supabase.from("commande_lignes").select("chantier_id, created_at, commandes!inner(date_doc)")
+            .gt("commandes.date_doc", dmin).lte("commandes.date_doc", dmax).gt("created_at", emin).order("id").range(a, b)),
+        ]);
+        tardifs = { pointages: tp.data || [], journal: tj.data || [],
+          commandes: (tc.data || []).map(l => ({ chantier_id: l.chantier_id, created_at: l.created_at, date: l.commandes?.date_doc })) };
+      }
       const erreur = [rel, pts, rap, jou, cmd].map(r => r.error?.message).filter(Boolean)[0] || null;
       if (erreur) console.warn("Bilan période :", erreur);
       if (annule) return;
@@ -112,6 +133,7 @@ function useDonneesPeriode(periode) {
         pointages: pts.data || [], rapports: rap.data || [], journal: jou.data || [],
         commandes: (cmd.data || []).map(l => ({ chantier_id: l.chantier_id, date: l.commandes?.date_doc })),
         bilansHebdo: bh.data || [], rapportsDecisions: rapDec.data || [],
+        archives, archiveErreur: arch.error ? "L'archive des bilans exportés n'est pas disponible : rectifications et prévu / réalisé non calculés." : null, tardifs,
       });
     })();
     return () => { annule = true; };
@@ -313,8 +335,11 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     const relevesFinTous = [...idx.values()].map(l => releveAuPlusTardV3(l, bornes.dateFin)).filter(Boolean)
       .filter(r => !CHANTIERS_EXCLUS.includes(r.chantier_nom));
     const tendances = tendancesParLotV3({ releves: relevesFinTous, statuts, exclus: reglages.derivesDetail?.exclusReprise || [] });
+    const rectifications = rectificationsV3({ archives: donnees.archives, releves: idx, periode, ...donnees.tardifs })
+      .filter(r => retenus.some(c => c.id === r.chantierId));
+    const prevuRealise = prevuRealiseV3({ archives: donnees.archives, periode, synthese });
     return { activite, preselection, synthese, alertes, avertissements, bandeau, ligneSansActivite: ligneSansActiviteV3(preselection),
-      rappel, suggestions, tendances };
+      rappel, suggestions, tendances, rectifications, prevuRealise };
   }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges, reglages.derivesDetail, chantiers]);
   const semaineQuiVient = useMemo(() => {
     const ref = semProchaine.referentiel;
@@ -368,6 +393,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     decisions: decisionsRetenues,
     tendances: calcul.tendances,
     semaineQuiVient,
+    rectifications: calcul.rectifications,
+    prevuRealise: calcul.prevuRealise,
     genereLe: new Date().toLocaleDateString("fr-FR"),
     ...(detaillee && preparation ? {
       fiches: calcul.synthese.map(s => {
@@ -391,7 +418,16 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
       if (detaillee && !preparation) { setExport({ enCours: false, message: "Les données de la version détaillée sont encore en chargement." }); return; }
       const html = documentBilanV3(donneesExport(), { detaillee });
       await telechargerPdf(html, `Bilan-${detaillee ? "detaille-" : ""}${periode.cle.replace(/[^A-Za-z0-9-]/g, "_")}.pdf`);
-      setExport({ enCours: false, message: "PDF téléchargé." });
+      // Archive : le bilan exporté est figé (chiffres + document).
+      const { data: u } = await supabase.auth.getUser();
+      const prevu = Object.fromEntries((semProchaine.decoupe?.par_chantier || []).map(c => [c.chantier_id, c.heures_mo]));
+      const { error: errArch } = await supabase.from("bilans_exports").insert(ligneArchiveV3({ periode, bornes: donnees.bornes,
+        synthese: calcul.synthese, version: detaillee ? "detaillee" : "direction", documentHtml: html, exportePar: u?.user?.email || null,
+        prevuSemaineSuivante: prevu }));
+      if (errArch) console.warn("Archive du bilan :", errArch.message);
+      setExport({ enCours: false, message: errArch
+        ? "PDF téléchargé, mais le bilan n'a pas pu être archivé : il ne servira pas de référence aux rectifications."
+        : "PDF téléchargé et bilan archivé (figé)." });
     } catch (e) {
       console.error("Export du bilan :", e);
       setExport({ enCours: false, message: "Le PDF n'a pas pu être généré. Réessayez." });
@@ -580,6 +616,21 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
           <div style={{ fontWeight: 700, marginBottom: 6 }}>La semaine qui vient{semaineQuiVient.fenetre ? ` (du ${fmtJourV3(semaineQuiVient.fenetre.debut)} au ${fmtJourV3(semaineQuiVient.fenetre.fin)})` : ""}</div>
           {semaineQuiVient.indisponible ? <div style={{ fontSize: 13, color: T.textMuted }}>{semaineQuiVient.indisponible}</div>
             : semaineQuiVient.lignes.map((l, i) => <div key={i} style={{ fontSize: 13, padding: "2px 0" }}><strong>{l.titre}</strong> : {l.detail}</div>)}
+        </div>
+
+        {/* Rectifications et prévu / réalisé */}
+        <div style={carte}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Rectifications des bilans déjà exportés</div>
+          {donnees.archiveErreur ? <div style={{ fontSize: 13, color: "#e15a5a" }}>{donnees.archiveErreur}</div>
+            : calcul.rectifications.length === 0 ? <div style={{ fontSize: 13, color: T.textMuted }}>Aucune rectification.</div>
+              : calcul.rectifications.map((r, i) => (
+                <div key={i} style={{ fontSize: 13, padding: "2px 0" }}><strong>{r.nom}</strong> — {r.periode} : {fmtEurSigne(r.montant)} ({r.cause})</div>
+              ))}
+          <div style={{ fontWeight: 700, margin: "10px 0 6px" }}>Prévu / réalisé</div>
+          {!calcul.prevuRealise.disponible ? <div style={{ fontSize: 13, color: T.textMuted }}>{calcul.prevuRealise.raison}</div>
+            : calcul.prevuRealise.lignes.map(l => (
+              <div key={l.chantierId} style={{ fontSize: 13 }}><strong>{l.nom}</strong> : prévu {fmtH(l.heuresPrevues)} · réalisé {fmtH(l.heuresRealisees)}</div>
+            ))}
         </div>
 
         {/* Bilans de clôture */}

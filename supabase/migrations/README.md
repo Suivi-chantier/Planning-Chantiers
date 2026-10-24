@@ -163,6 +163,10 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   3.4) : colonne `couts_par_nature` (jsonb) sur
   `chantier_releves_journaliers`. Purement additive, appliquée le 24/10/2026
   par la CLI liée avant la fusion.
+- `20261024180000_bilans_exports.sql` (refonte du Bilan, étape 3.5) : table
+  `bilans_exports` (bilans figés), règles bureau + « réservé aux
+  collaborateurs » (accord de Loris du 24/10/2026). **NON appliquée** :
+  à appliquer avant la fusion de 3.5.
 
 ## Règles
 
