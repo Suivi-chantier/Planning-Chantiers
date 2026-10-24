@@ -637,6 +637,7 @@ export const SEUILS_MARGES_DEFAUT = Object.freeze({
   alerteDeriveLotAvancementPct: 25,
   alerteSansLotPct: 10,
   alerteProductionHeureFacteur: 2,
+  alerteDepassementEnveloppeMinEuros: 100, // dépassement d'enveloppe signalé à partir de ce montant
   // « Consommation sans avancement » (règle conservée, production exacte)
   consoAvancementStablePts: 1,
   consoHeuresAjouteesMin: 2,

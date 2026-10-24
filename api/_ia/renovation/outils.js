@@ -91,9 +91,18 @@ async function calculerAlertes(sb) {
     : [];
   const [courants, precedents] = m.donneesAttention.preparerSemainesAttentionV1({ lignes, weekIds });
 
+  // Étape 2 des marges : la détection est celle des alertes des marges (la
+  // règle « perte de marge » a disparu). Le relevé du vendredi ne porte pas
+  // encore la marge probable : l'assistant passera aux relevés journaliers
+  // avec la refonte du Bilan (étape 3).
+  const pointsAttention = m.alertesMarges.alertesMargesV2({
+    snapshotsCourants: courants || [], snapshotsPrecedents: precedents || [],
+    source: "releves_hebdomadaires",
+  });
   const resultat = m.alertes.alertesV1({
     snapshotsCourants: courants || [],
     snapshotsPrecedents: precedents || [],
+    pointsAttention,
     exclusions: CHANTIERS_EXCLUS_ALERTES,
   });
   const etat = m.alertes.etatAlertesV1(resultat);

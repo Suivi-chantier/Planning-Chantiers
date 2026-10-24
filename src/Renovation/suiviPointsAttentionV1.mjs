@@ -56,7 +56,10 @@ const listeSure = v => (Array.isArray(v) ? v : []);
  *   le cumul perdu : sans elle, le cumul s'arrête à ce qu'on peut prouver.
  * @param {object} [args.seuils]    mêmes seuils que pointsAttentionV1
  */
-export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, historiqueAnterieur, seuils } = {}) {
+// `detecter` (étape 2, 24/10/2026) : la détection à appliquer à chaque couple
+// de semaines — alertesMargesV2 sur les relevés journaliers pour le Bilan ;
+// pointsAttentionV1 par défaut (relevés hebdomadaires, historique).
+export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, historiqueAnterieur, seuils, detecter = pointsAttentionV1 } = {}) {
   const semaines = [snapshotsN, snapshotsN1, snapshotsN2, ...listeSure(historiqueAnterieur)];
 
   // Une détection par couple de semaines consécutives, de la plus récente à la
@@ -65,12 +68,12 @@ export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, h
   const detections = [];
   for (let i = 0; i + 1 < semaines.length; i++) {
     if (!releveExploitableV1(semaines[i]) || !releveExploitableV1(semaines[i + 1])) break;
-    detections.push(pointsAttentionV1({
+    detections.push(detecter({
       snapshotsCourants: semaines[i], snapshotsPrecedents: semaines[i + 1], seuils,
     }));
   }
 
-  const courant = detections[0] || pointsAttentionV1({
+  const courant = detections[0] || detecter({
     snapshotsCourants: snapshotsN, snapshotsPrecedents: snapshotsN1, seuils,
   });
 
@@ -90,6 +93,7 @@ export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, h
       releveDisponible: courant.releveDisponible,
       relevePrecedentDisponible: courant.relevePrecedentDisponible,
       comparaisonPossible: courant.comparaisonPossible,
+      source: courant.source,
       actifs: courant.lignes,
       resolus: [],
     };
@@ -130,6 +134,7 @@ export function suiviPointsAttentionV1({ snapshotsN, snapshotsN1, snapshotsN2, h
     releveDisponible: courant.releveDisponible,
     relevePrecedentDisponible: courant.relevePrecedentDisponible,
     comparaisonPossible: courant.comparaisonPossible,
+    source: courant.source,
     semainesComparees: detections.length,
     actifs,
     resolus,
@@ -196,7 +201,9 @@ export function libelleDerivesArreteesV1(resolus) {
   const details = liste.map(l => {
     const nom = String(l.nom || l.chantier_id || "Chantier").trim();
     const semaines = Number(l.cumulSemaines) || 0;
-    if (!semaines) return nom;
+    // Alerte d'état sans montant perdu (lot en dérive, heures sans lot…) :
+    // le nom suffit, jamais « 0 € perdus ».
+    if (!semaines || !(Number(l.cumulMargePerdue) > 0)) return nom;
     // Cumul incomplet = la série touche le bord de l'historique : on dit « au
     // moins », jamais un total qu'on ne peut pas prouver.
     const prefixe = l.cumulComplet === false ? "au moins " : "";

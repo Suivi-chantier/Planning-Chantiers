@@ -232,7 +232,8 @@ function baseSimulee(tables) {
   ok((val.match(/demanderRecalculReleve\(/g) || []).length >= 2, "validation ET « Corriger » demandent le recalcul");
   ok(/planifierRecalculReleve\(chantierId\)/.test(lire("src/Renovation/PhasageV2.jsx")), "phasage : recalcul après un changement d'avancement");
   // Le Bilan n'est pas branché sur les relevés journaliers à cette étape.
-  ok(!/chantier_releves_journaliers/.test(lire("src/Renovation/BilanSemaine.jsx")), "Bilan inchangé (refonte à l'étape 3)");
+  // Étape 2 des marges : le Bilan lit les relevés journaliers pour ses alertes.
+  ok(/chantier_releves_journaliers/.test(lire("src/Renovation/BilanSemaine.jsx")), "Bilan : alertes sur les relevés journaliers (étape 2)");
   // Module pur.
   const mod = lire("src/Renovation/releveJournalier.mjs");
   ok(!/supabase|new Date\(\)|Date\.now/.test(mod), "module sans base ni horloge");

@@ -18,7 +18,9 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS, getBranchAccent } from "../constants";
 import { Icon } from "../ui";
 import { getWeekId, getCurrentWeek } from "../constants";
-import { preparerSemainesAttentionV1 } from "./pointsAttentionDonneesV1.js";
+import { preparerSemainesRelevesJournaliersV2, COLONNES_RELEVES_ALERTES_V2, dimancheSemaineISOV2 } from "./pointsAttentionDonneesV1.js";
+import { alertesMargesV2 } from "./alertesMargesV2.js";
+import { useReglagesMarges } from "./reglagesMarges";
 // Mêmes helpers de semaine ISO que le Bilan Semaine : une seule façon de
 // nommer une semaine dans l'application.
 import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
@@ -114,14 +116,25 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
   useEffect(() => {
     let annule = false;
     (async () => {
-      const { data, error } = await supabase
-        .from("chantier_snapshots_hebdo")
-        .select("chantier_id, chantier_nom, week_id, date_snapshot, created_at, avancement, heures_reelles, marge, marge_terminaison, warnings")
-        .in("week_id", semaines)
-        .order("date_snapshot", { ascending: true });
-      if (annule) return;
-      if (error) { setErreur(error.message); setLignes([]); return; }
-      setLignes(data || []);
+      // Étape 2 des marges (24/10/2026) : relevés JOURNALIERS, du dimanche de
+      // la semaine précédente moins trois semaines (un chantier à l'arrêt garde
+      // son dernier relevé) au dimanche de la semaine courante, par tranches.
+      const fin = dimancheSemaineISOV2(semaines[0]);
+      const debut = (() => { const d = new Date(`${dimancheSemaineISOV2(semaines[semaines.length - 1])}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 27); return d.toISOString().slice(0, 10); })();
+      const data = [];
+      for (let de = 0; ; de += 1000) {
+        const { data: page, error } = await supabase
+          .from("chantier_releves_journaliers")
+          .select(COLONNES_RELEVES_ALERTES_V2)
+          .gte("date_releve", debut).lte("date_releve", fin)
+          .order("date_releve", { ascending: true }).order("chantier_id", { ascending: true })
+          .range(de, de + 999);
+        if (annule) return;
+        if (error) { setErreur(error.message); setLignes([]); return; }
+        data.push(...(page || []));
+        if (!page || page.length < 1000) break;
+      }
+      setLignes(data);
     })();
     return () => { annule = true; };
   }, [semaines.join(",")]);
@@ -129,17 +142,23 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
   // Tout le calcul est DÉLÉGUÉ. Le dédoublonnage des relevés vient du module
   // de données, la détection des dérives de pointsAttentionV1 (appelé par
   // alertesV1), le classement d'alertesV1.
+  const reglagesMarges = useReglagesMarges();
   const resultat = useMemo(() => {
     if (lignes === null) return null;
     // preparerSemainesAttentionV1 rend UN TABLEAU par semaine demandée, dans
     // l'ordre de `weekIds` : [0] = semaine courante, [1] = précédente.
-    const [courants, precedents] = preparerSemainesAttentionV1({ lignes, weekIds: semaines });
+    const [courants, precedents] = preparerSemainesRelevesJournaliersV2({ lignes, weekIds: semaines });
+    // Détection : alertes des marges (étape 2) ; classement : alertesV1.
+    const pointsAttention = alertesMargesV2({
+      snapshotsCourants: courants || [], snapshotsPrecedents: precedents || [], seuils: reglagesMarges.seuilsMarges,
+    });
     return alertesV1({
       snapshotsCourants: courants || [],
       snapshotsPrecedents: precedents || [],
+      pointsAttention,
       exclusions: CHANTIERS_EXCLUS,
     });
-  }, [lignes, semaines.join(",")]);
+  }, [lignes, semaines.join(","), reglagesMarges]);
 
   const etat = resultat ? etatAlertesV1(resultat) : null;
   const parNiveau = n => (resultat?.alertes || []).filter(a => a.niveau === n);
@@ -167,7 +186,7 @@ export default function PageAlertes({ T, branch = "renovation", onOuvrirChantier
 
         {lignes === null && (
           <div style={{ color: T.textMuted, textAlign: "center", padding: 40, fontSize: FONT.sm.size }}>
-            Lecture du relevé hebdomadaire…
+            Lecture des relevés journaliers…
           </div>
         )}
 

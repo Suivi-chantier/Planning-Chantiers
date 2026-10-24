@@ -39,7 +39,9 @@ assert.match(code, /import \{ pointsAttentionV1, releveExploitableV1, formaterEu
 assert.equal(/const semaineExploitable/.test(code), false, "pas de copie locale du détecteur de relevé");
 // La détection reste entièrement déléguée : le suivi appelle pointsAttentionV1
 // (en boucle sur les couples de semaines consécutives) et ne redéfinit aucune règle.
-assert.ok((code.match(/pointsAttentionV1\s*\(/g) || []).length >= 2, "le suivi doit appeler pointsAttentionV1, pas réimplémenter la détection");
+// Étape 2 des marges : la détection est un paramètre (`detecter`), par défaut
+// pointsAttentionV1 ; le Bilan y passe alertesMargesV2. Toujours déléguée.
+assert.ok(/detecter = pointsAttentionV1/.test(code) && (code.match(/detecter\s*\(/g) || []).length >= 2, "le suivi doit déléguer la détection, pas la réimplémenter");
 assert.equal(/avancementStableMaxPts|heuresAjouteesMin|margePerdueMinEuros|margePerdueGraveMinEuros/.test(code), false, "aucun seuil redéfini dans le suivi");
 // Garde sur les COLONNES, pas sur les mots français : les phrases affichées
 // contiennent légitimement « marge ». Le suivi ne lit aucune colonne de
