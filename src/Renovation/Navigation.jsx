@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
-  MessageSquare,
+  MessageSquare, ClipboardCheck,
 } from "lucide-react";
 import { LOGO_RENO_H, LOGO_RENO_V, getBranchAccent, RADIUS, FONT } from "../constants";
 import { Icon } from "../ui";
@@ -20,12 +20,12 @@ const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur de travaux"
 const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
+    "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
-    "equipe","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
+    "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
     "visite","info-client","journal-maj"
   ],
   commercial: [
@@ -54,6 +54,7 @@ const ALL_NAV_ITEMS = [
   { id:"encours-fournisseurs", icon:Wallet,      label:"Encours",    longLabel:"Encours fournisseurs" },
   { id:"planning-commandes", icon:ShoppingCart,  label:"À passer",   longLabel:"Commandes à passer" },
   { id:"equipe",           icon:Users,           label:"Équipe",     longLabel:"Équipe"              },
+  { id:"qualite-cr",       icon:ClipboardCheck,  label:"Qualité CR", longLabel:"Qualité des comptes rendus" },
   { id:"inventaire-equipes", icon:Wrench,        label:"Matériel",   longLabel:"Inventaire des équipes" },
   { id:"validation",       icon:CheckCircle2,    label:"Valid.",     longLabel:"Validation de fin de journée" },
   { id:"heures-salaries",  icon:Clock,           label:"Heures",     longLabel:"Heures des salariés" },
@@ -249,6 +250,7 @@ const allNav = [
   { id:"encours-fournisseurs", icon:Wallet,      label:"Encours fournisseurs" },
   { id:"planning-commandes", icon:ShoppingCart,  label:"Commandes à passer" },
   { id:"equipe",           icon:Users,           label:"Équipe"           },
+  { id:"qualite-cr",       icon:ClipboardCheck,  label:"Qualité des comptes rendus" },
   { id:"inventaire-equipes", icon:Wrench,        label:"Inventaire des équipes" },
   { id:"validation",       icon:CheckCircle2,    label:"Validation fin de journée" },
   { id:"heures-salaries",  icon:Clock,           label:"Heures des salariés" },

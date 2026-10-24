@@ -113,6 +113,23 @@ export const AIDE_CONTENU = {
       "Une nouvelle tâche indique ce qu'elle est devenue : créée, rattachée à une tâche existante, ou en attente de validation.",
     ],
   },
+  "qualite-cr": {
+    titre: "Qualité des comptes rendus",
+    sousTitre: "Ce que les comptes rendus du soir apportent au bureau, ouvrier par ouvrier.",
+    intro: "Un tableau d'indicateurs par ouvrier : temps de remplissage, heure d'envoi, corrections faites à la validation (avancement, lignes réaffectées, découpées, basculées), lignes sans tâche du phasage, lignes fourre-tout, remarques, photos des tâches terminées, comptes rendus rouverts.",
+    etapes: [
+      "Choisissez la durée (2, 4 ou 8 semaines) et déplacez la période avec les flèches.",
+      "Filtrez sur l'ancien ou le nouveau formulaire pour comparer les deux.",
+      "Survolez un indicateur pour sa définition, une case pour le détail (nombre de lignes concernées).",
+      "La flèche compare à la période précédente de même durée : verte = mieux, rouge = moins bien.",
+    ],
+    savoir: [
+      "Lecture seule : rien n'est modifié depuis cette page.",
+      "« — » veut dire « aucune ligne concernée », pas 0 %. « ancien formulaire » : mesure impossible sur l'ancien formulaire. « indisponible » : donnée non lue.",
+      "Le temps de remplissage est le temps pendant lequel le compte rendu est resté ouvert (de la première saisie à l'envoi), pas le temps passé à écrire.",
+      "L'écart d'avancement entre déclaré et validé reste « indisponible » sur cette page pour l'instant : cette donnée n'est gardée que dans l'historique du phasage.",
+    ],
+  },
   "planning-mensuel": {
     titre: "Planning mensuel",
     sousTitre: "Un calendrier du mois pour les dates et objectifs importants.",
