@@ -159,6 +159,10 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   materiaux_en_avance, marge_probable, budget_restant, heures_sans_lot,
   pct_sans_lot, chantier_repris). Purement additive, appliquée le 24/10/2026
   par la CLI liée avant la fusion.
+- `20261024170000_releves_couts_par_nature.sql` (refonte du Bilan, étape
+  3.4) : colonne `couts_par_nature` (jsonb) sur
+  `chantier_releves_journaliers`. Purement additive, appliquée le 24/10/2026
+  par la CLI liée avant la fusion.
 
 ## Règles
 

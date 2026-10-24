@@ -22,6 +22,7 @@ import {
   COULEURS_PASTILLES_V3, fmtJourV3,
 } from "./bilanPeriodeV3.js";
 import { documentBilanV3 } from "./bilanPdfV3.js";
+import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
 import PageBilanSemaine from "./BilanSemaine";
 
 const ACCENT = "#FFC200";
@@ -65,11 +66,11 @@ function useDonneesPeriode(periode) {
       const [rel, pts, rap, jou, cmd] = await Promise.all([
         lireToutParTranches((a, b) => supabase.from("chantier_releves_journaliers").select(COLONNES_LEGERES)
           .lte("date_releve", periode.fin).order("id").range(a, b)),
-        lireToutParTranches((a, b) => supabase.from("pointages").select("chantier_id, date, heures")
+        lireToutParTranches((a, b) => supabase.from("pointages").select("chantier_id, date, heures, ouvrier")
           .gte("date", avant).lte("date", periode.fin).order("id").range(a, b)),
         lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, chantier_nom, date_rapport, statut, semaine")
           .in("semaine", semainesCouvrant(periode.debut, periode.fin)).order("id").range(a, b)),
-        lireToutParTranches((a, b) => supabase.from("avancement_journal").select("chantier_id, source, avancement_avant, avancement_apres, date_realisation")
+        lireToutParTranches((a, b) => supabase.from("avancement_journal").select("chantier_id, tache_id, ouvrage_id, source, avancement_avant, avancement_apres, date_realisation, created_at")
           .gte("date_realisation", periode.debut).lte("date_realisation", periode.fin).order("id").range(a, b)),
         lireToutParTranches((a, b) => supabase.from("commande_lignes").select("chantier_id, commandes!inner(date_doc)")
           .gte("commandes.date_doc", periode.debut).lte("commandes.date_doc", periode.fin).order("id").range(a, b)),
@@ -107,6 +108,47 @@ function useDonneesPeriode(periode) {
     return () => { annule = true; };
   }, [periode?.cle]); // eslint-disable-line react-hooks/exhaustive-deps
   return etat;
+}
+
+// ── Données de la version détaillée (chargées seulement si elle est demandée)
+function useDonneesDetaillees(periode, actif, ids) {
+  const [etat, setEtat] = useState({ charge: false });
+  const cleIds = ids.join(",");
+  useEffect(() => {
+    if (!actif || !periode || !ids.length) { setEtat({ charge: false }); return undefined; }
+    let annule = false;
+    setEtat({ charge: false });
+    (async () => {
+      const [ph, rap] = await Promise.all([
+        supabase.from("phasages").select("chantier_id, ouvrages").in("chantier_id", ids),
+        lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, date_rapport, statut, taches, remarque, photos_chantier")
+          .in("semaine", semainesCouvrant(periode.debut, periode.fin)).in("chantier_id", ids).order("id").range(a, b)),
+      ]);
+      if (annule) return;
+      if (ph.error || rap.error) console.warn("Bilan détaillé :", ph.error?.message || rap.error?.message);
+      const ouvragesPar = {};
+      (ph.data || []).forEach(r => { ouvragesPar[r.chantier_id] = [...(ouvragesPar[r.chantier_id] || []), ...(r.ouvrages || [])]; });
+      setEtat({ charge: true, erreur: !!(ph.error || rap.error), ouvragesPar, rapports: rap.data || [] });
+    })();
+    return () => { annule = true; };
+  }, [actif, periode?.cle, cleIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  return etat;
+}
+
+async function proposerSynthese({ nom, periode, synthese, taches, commentaires }) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Session expirée");
+  const entree = {
+    chantier: String(nom).slice(0, 120), periode: String(periode.libelle).slice(0, 120),
+    faits: { avancement_debut: synthese.avancementDepart, avancement_fin: synthese.avancement, production_eur: synthese.production,
+      heures: synthese.heuresPeriode, taches: taches.map(t => `${t.lot} : ${t.resume}`) },
+    comptes_rendus: commentaires.slice(0, 80).map(c => ({ texte: String(c.texte).slice(0, 600) })),
+  };
+  const r = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ tache: "bilan_synthese", entree, contexte: { branche: "renovation", entite_type: "bilan_periode", entite_id: `${periode.cle}:${synthese.chantierId}` } }) });
+  const data = await r.json();
+  if (!r.ok || !data.ok) throw new Error(data.erreur?.message || "Proposition indisponible");
+  return data.resultat.phrase;
 }
 
 // ── Génération du PDF (html2pdf, chargé à la demande) ───────────────────────
@@ -179,19 +221,67 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     return { activite, preselection, synthese, alertes, avertissements, bandeau, ligneSansActivite: ligneSansActiviteV3(preselection) };
   }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges]);
 
+  // ── Version détaillée : préparation par le conducteur (par période) ──
+  const [detaillee, setDetaillee] = useState(false);
+  const [prep, setPrep] = useState({ cle: null, syntheses: {}, photos: {}, commentaires: {}, ia: {} });
+  const prepPeriode = prep.cle === periode?.cle ? prep : { cle: periode?.cle, syntheses: {}, photos: {}, commentaires: {}, ia: {} };
+  const majPrep = (champ, id, valeur) => setPrep(pr => {
+    const base = pr.cle === periode.cle ? pr : { cle: periode.cle, syntheses: {}, photos: {}, commentaires: {}, ia: {} };
+    return { ...base, [champ]: { ...base[champ], [id]: valeur } };
+  });
+  const idsRetenus = useMemo(() => (calcul ? calcul.synthese.map(s => s.chantierId) : []), [calcul]);
+  const det = useDonneesDetaillees(periode, detaillee, idsRetenus);
+  const preparation = useMemo(() => {
+    if (!detaillee || !det.charge || !calcul) return null;
+    const out = {};
+    for (const s of calcul.synthese) {
+      const matiere = matiereComptesRendusV3({ rapports: det.rapports, chantierId: s.chantierId, debut: periode.debut, fin: periode.fin });
+      const lotsLabels = Object.fromEntries((s.lots || []).map(l => [l.id, l.label]));
+      const taches = tachesParLotV3({ ouvrages: det.ouvragesPar[s.chantierId] || [],
+        journal: donnees.journal.filter(j => j.chantier_id === s.chantierId), dateDepart: donnees.bornes.dateDepart, dateFin: donnees.bornes.dateFin, lotsLabels });
+      out[s.chantierId] = { ...matiere, taches };
+    }
+    return out;
+  }, [detaillee, det, calcul, periode, donnees]);
+  const proposer = async (s) => {
+    majPrep("ia", s.chantierId, { enCours: true });
+    try {
+      const phrase = await proposerSynthese({ nom: s.nom, periode, synthese: s, taches: preparation[s.chantierId].taches, commentaires: preparation[s.chantierId].commentaires });
+      majPrep("syntheses", s.chantierId, phrase);
+      majPrep("ia", s.chantierId, { enCours: false, message: "Proposition de l'IA : relisez-la et corrigez-la si besoin, c'est votre texte qui part dans le PDF." });
+    } catch (e) {
+      majPrep("ia", s.chantierId, { enCours: false, message: `Proposition indisponible (${e.message}). Vous pouvez écrire la synthèse vous-même.` });
+    }
+  };
+
   const [export_, setExport] = useState({ enCours: false, message: null });
   const donneesExport = () => ({
     periode, bornes: donnees.bornes, bandeau: calcul.bandeau, synthese: calcul.synthese,
     ligneSansActivite: calcul.ligneSansActivite, avertissements: calcul.avertissements,
     alertes: calcul.alertes.releveDisponible ? calcul.alertes.lignes : null,
     genereLe: new Date().toLocaleDateString("fr-FR"),
+    ...(detaillee && preparation ? {
+      fiches: calcul.synthese.map(s => {
+        const idx = indexerRelevesV3(donnees.releves);
+        const coches = prepPeriode.commentaires[s.chantierId] || [];
+        return ficheChantierV3({ synthese: s, releveFin: releveAuPlusTardV3(idx.get(s.chantierId), donnees.bornes.dateFin),
+          ouvrages: det.ouvragesPar[s.chantierId] || [], journal: donnees.journal.filter(j => j.chantier_id === s.chantierId),
+          pointages: donnees.pointages, periode, bornes: donnees.bornes,
+          photosChoisies: prepPeriode.photos[s.chantierId] || [],
+          commentairesCoches: preparation[s.chantierId].commentaires.filter(c => coches.includes(c.id)),
+          syntheseRelue: prepPeriode.syntheses[s.chantierId] || "",
+          seuilSansLotPct: reglages.seuilsMarges?.alerteSansLotPct ?? 10 });
+      }),
+      methode: methodeBilanV3(),
+    } : {}),
   });
   const exporter = async () => {
     if (!calcul) return;
     setExport({ enCours: true, message: null });
     try {
-      const html = documentBilanV3(donneesExport(), { detaillee: false });
-      await telechargerPdf(html, `Bilan-${periode.cle.replace(/[^A-Za-z0-9-]/g, "_")}.pdf`);
+      if (detaillee && !preparation) { setExport({ enCours: false, message: "Les données de la version détaillée sont encore en chargement." }); return; }
+      const html = documentBilanV3(donneesExport(), { detaillee });
+      await telechargerPdf(html, `Bilan-${detaillee ? "detaille-" : ""}${periode.cle.replace(/[^A-Za-z0-9-]/g, "_")}.pdf`);
       setExport({ enCours: false, message: "PDF téléchargé." });
     } catch (e) {
       console.error("Export du bilan :", e);
@@ -342,7 +432,12 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
         <div style={carte}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontWeight: 700 }}>Chantiers à exporter</div>
-            <button style={btn(true)} disabled={export_.enCours} onClick={exporter}>{export_.enCours ? "Génération…" : "Télécharger le PDF"}</button>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <label style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="checkbox" checked={detaillee} onChange={e => setDetaillee(e.target.checked)}/> Version détaillée
+              </label>
+              <button style={btn(true)} disabled={export_.enCours} onClick={exporter}>{export_.enCours ? "Génération…" : "Télécharger le PDF"}</button>
+            </div>
           </div>
           {export_.message && <div style={{ fontSize: 12, color: T.textSub, marginBottom: 6 }}>{export_.message}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 4 }}>
@@ -354,6 +449,59 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
             ))}
           </div>
         </div>
+
+        {detaillee && (
+          <div style={carte}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Préparer la version détaillée</div>
+            <div style={{ fontSize: 12, color: T.textSub, marginBottom: 10 }}>
+              Pour chaque chantier : la synthèse (proposée par l'IA, à relire — c'est votre texte qui part), une ou deux photos, et les commentaires d'ouvriers à reprendre.
+              Rien n'est coché par défaut ; aucun commentaire n'apparaît jamais dans la version direction.
+            </div>
+            {!det.charge ? <div style={{ color: T.textMuted }}>Chargement des comptes rendus et des phasages…</div>
+              : calcul.synthese.map(s => {
+                const pr = preparation?.[s.chantierId] || { photos: [], commentaires: [], taches: [] };
+                const photosChoisies = prepPeriode.photos[s.chantierId] || [];
+                const coches = prepPeriode.commentaires[s.chantierId] || [];
+                const ia = prepPeriode.ia[s.chantierId] || {};
+                return (
+                  <div key={s.chantierId} style={{ borderTop: `1px solid ${T.border}`, padding: "10px 0" }}>
+                    <div style={{ fontWeight: 700 }}>{s.nom}</div>
+                    <div style={{ fontSize: 12, color: T.textSub, margin: "4px 0" }}>{pr.taches.map(t => `${t.lot} : ${t.resume}`).join(" · ") || "Aucune tâche modifiée sur la période."}</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <textarea value={prepPeriode.syntheses[s.chantierId] || ""} onChange={e => majPrep("syntheses", s.chantierId, e.target.value)}
+                        placeholder="Synthèse de la période (une phrase)" rows={2}
+                        style={{ flex: 1, background: T.bg, color: T.text, border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, fontSize: 13 }}/>
+                      <button style={btn(false)} disabled={ia.enCours} onClick={() => proposer(s)}>{ia.enCours ? "…" : "Proposer avec l'IA"}</button>
+                    </div>
+                    {ia.message && <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{ia.message}</div>}
+                    {pr.photos.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                        {pr.photos.slice(0, 24).map(ph => {
+                          const choisie = photosChoisies.includes(ph.url);
+                          return (
+                            <img key={ph.url} src={ph.url} alt="" title={`${ph.ouvrier} · ${fmtJourV3(ph.date)}`}
+                              onClick={() => majPrep("photos", s.chantierId, choisie ? photosChoisies.filter(u => u !== ph.url) : [...photosChoisies, ph.url].slice(-2))}
+                              style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6, cursor: "pointer", border: choisie ? `3px solid ${ACCENT}` : `1px solid ${T.border}` }}/>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {pr.commentaires.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        {pr.commentaires.map(c => (
+                          <label key={c.id} style={{ display: "flex", gap: 6, fontSize: 12, color: T.textSub }}>
+                            <input type="checkbox" checked={coches.includes(c.id)}
+                              onChange={e => majPrep("commentaires", s.chantierId, e.target.checked ? [...coches, c.id] : coches.filter(x => x !== c.id))}/>
+                            <span><strong>{c.ouvrier}</strong> ({fmtJourV3(c.date)}) : {c.texte}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        )}
       </>)}
     </div>
   );

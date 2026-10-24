@@ -153,6 +153,8 @@ export function ligneReleve({ inputs, journal = [], dateISO, chantierNom = null,
     reste_a_faire_eur: inconnu ? null : r2(b.resteAFaireEuros),
     situation_a_facturer: inconnu || b.situationAFacturer == null ? null : r2(b.situationAFacturer),
     reste_a_commander: b.resteACommander != null ? r2(b.resteACommander) : null,
+    // Ventilation des coûts engagés par nature (étape 3.4 du Bilan).
+    couts_par_nature: b.coutMatParNature ? Object.fromEntries(Object.entries(b.coutMatParNature).map(([k, v]) => [k, r2(v)])) : null,
     // Trois marges (étape 2) : inconnues si l'avancement l'est à cette date.
     production_cumulee: inconnu ? null : r2(b.productionCumulee),
     marge_avancement: inconnu ? null : r2(b.margeAvancement),
