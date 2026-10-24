@@ -311,6 +311,20 @@ chaque étape.
   commandés des ouvrages dont la date de besoin tombe au plus tard le dernier
   jour de la semaine qui vient (retards compris). La règle d'un ouvrage est
   extraite dans `commandesOuvrageV1.mjs` et utilisée par les deux pages.
+- **24/10/2026 — Étape 4 : découpage et choix techniques.** Quatre parties
+  mises en ligne une par une : 4A validation de fin de journée (choix du cas
+  A / B / C) ; 4B phasage (mêmes choix pour les tâches existantes, question
+  « Ce travail est-il facturé au client ? », avenant, geste commercial,
+  ouvrage « non facturé ») ; 4C Bilan et fiche chantier (décisions attendues,
+  rappel réglable, gestes commerciaux, heures par motif) ; 4D bibliothèque
+  (« tâches souvent ajoutées »). Aucune migration : le motif, le statut
+  d'arbitrage et la marque « ajoutée en cours de chantier » sont rangés dans
+  la tâche du phasage, comme les autres informations de la tâche. Les tâches
+  existantes restent « motif non renseigné » tant que personne ne les classe.
+  Un cas B pose les heures NORMALES comme heures estimées de la tâche (son
+  poids dans l'avancement) ; les heures prévues de l'ouvrage (heures du devis)
+  ne bougent pas. Un cas C reste « hors devis » (coût réel, pas d'avancement,
+  pas comparé aux heures prévues) jusqu'à son rattachement à un avenant.
 
 ### Comptes rendus des étapes
 

@@ -39,3 +39,5 @@ jobs:
         run: node scripts/verif-alertes-marges.mjs
       - name: Etape 3 - Bilan d une periode, preselection, version direction (donnees fictives)
         run: node scripts/verif-bilan-periode.mjs
+      - name: Etape 4 - Taches hors devis A / B / C (donnees fictives)
+        run: node scripts/verif-hors-devis-v2.mjs

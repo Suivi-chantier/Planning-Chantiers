@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Validation : choisir le cas d'une tâche hors devis (A, B ou C)",
+    pages: [{ id: "validation", label: "Validation" }],
+    quoi: "Quand un ouvrier propose une tâche qui n'est pas dans le phasage, le conducteur dit ce que c'est : A, la tâche existait (l'application propose les plus probables : nom proche, prévue ce jour-là, même lot) et les heures y sont rattachées sans rien créer ; B, un imprévu compris dans un ouvrage vendu, ajouté à l'ouvrage avec ses heures NORMALES (proposées par la bibliothèque quand c'est possible) — les heures prévues de l'ouvrage ne changent pas, la dérive reste visible ; C, un travail non vendu, rangé « à arbitrer » (avenant ou geste commercial).",
+    comment: "Validation → ouvrir le compte rendu → bloc « Nouvelle tâche proposée » ou « + Créer nouvelle tâche » : boutons « Quel cas ? ». Sans choix, la tâche est créée comme avant (motif non renseigné).",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Bilan : commandes de la semaine qui vient et glissement de la fin prévue",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "La section « La semaine qui vient » indique, par chantier, les matériaux encore à commander pour les ouvrages qui démarrent d'ici la fin de la semaine (ou déjà en retard) et les livraisons attendues (commandes passées dont la réception n'est pas encore saisie). Le Bilan affiche aussi la date de fin prévue de chaque chantier et de combien de jours elle a glissé depuis le bilan précédent.",

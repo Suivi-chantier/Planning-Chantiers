@@ -58,6 +58,7 @@ import {
 } from "./motifsCompteRendu";
 import { DIVERS_HORS_DEVIS, estOuvrageDivers } from "./compteRenduV2";
 import { demanderRecalculReleve } from "./relevesJournaliersApi";
+import ChoixCasHorsDevis from "./ChoixCasHorsDevis";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -253,6 +254,9 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const [rapports, setRapports] = useState([]);
   const [cellsJour, setCellsJour] = useState([]);
   const [phasages, setPhasages] = useState([]);
+  // Étape 4 : modèles de bibliothèque des ouvrages des phasages chargés
+  // (cadence + étapes), pour proposer les heures normales d'une tâche B.
+  const [bibliotheque, setBibliotheque] = useState([]);
   // Écriture refusée : le phasage a bougé ailleurs. On n'écrase rien et on
   // ne réessaie jamais tout seul — l'utilisateur recharge puis recommence.
   const [conflitPhasage, setConflitPhasage] = useState(false);
@@ -328,6 +332,15 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         .select("id,chantier_id,revision,plan_travaux,ouvrages")
         .in("chantier_id", chIds);
       setPhasages(phs || []);
+      const bIds = [...new Set((phs || []).flatMap(p => (Array.isArray(p.ouvrages) ? p.ouvrages : []).map(o => o?.bibliotheque_id)).filter(Boolean))];
+      const lus = [];
+      for (let i = 0; i < bIds.length; i += 100) {
+        const { data: b, error: eb } = await supabase.from("bibliotheque_ratios")
+          .select("id,unite,cadence,sous_taches").in("id", bIds.slice(i, i + 100));
+        if (eb) { console.warn("Bibliothèque (heures normales) :", eb.message); break; }
+        lus.push(...(b || []));
+      }
+      setBibliotheque(lus);
     } else {
       setPhasages([]);
     }
@@ -555,7 +568,8 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   // V1 (repli, chantier sans ouvrages) : crée dans plan_travaux[phase_id].
   // Retourne { tache_id, ouvrage_id?, phase_id? }.
   async function creerTacheDansPlan({ chantier_id, phase_id, nom, heures_vendues, ouvriers: ouvriersList,
-    ouvrage_id = null, nature = null, hors_devis = null, cree_par = null, rapport_id = null }) {
+    ouvrage_id = null, nature = null, hors_devis = null, cree_par = null, rapport_id = null,
+    cas = null, heures_normales = null, date = null }) {
     const ph = phasages.find(p => p.chantier_id === chantier_id);
     if (!ph) {
       alert(`Aucun phasage existant pour le chantier ${chantier_id}. Crée-le d'abord depuis la page Phasage.`);
@@ -566,10 +580,12 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     // ── V2 : tâche dans un ouvrage du chantier
     if (ouvrages.length > 0) {
       const newTache = {
-        ...tacheCreeeEnValidation({ id: genId(), nom, nature, hors_devis, ouvrier: cree_par, rapportId: rapport_id }),
+        ...tacheCreeeEnValidation({ id: genId(), nom, nature, hors_devis, ouvrier: cree_par, rapportId: rapport_id,
+          cas, heuresNormales: heures_normales, date, auteur: valideur }),
         ouvriers: Array.isArray(ouvriersList) ? ouvriersList : [],
       };
-      const ajout = ajouterTacheDansOuvrage(ouvrages, ouvrage_id, newTache, genId);
+      // Cas C (non vendu) : toujours dans « Divers / hors devis ».
+      const ajout = ajouterTacheDansOuvrage(ouvrages, cas === "C" ? null : ouvrage_id, newTache, genId);
       if (ajout.erreur) {
         alert("L'ouvrage choisi n'existe plus dans le phasage de ce chantier. Recharge la page et choisis-en un autre.");
         return null;
@@ -733,7 +749,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     //    Échec ou conflit : rien n'est écrit, le rapport reste à valider.
     if (lignes.some(propositionACreer)) {
       const res = await enregistrerCreationsProposees({
-        phasage: phCourant, lignes, rapport, genId, sauvegarder: sauvegarderCR,
+        phasage: phCourant, lignes, rapport, genId, sauvegarder: sauvegarderCR, auteur: valideur,
       });
       if (!res.ok) {
         if (res.code === "sans_ouvrages") {
@@ -743,7 +759,9 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           alert("Le rapport N'A PAS été validé :\n\n"
             + res.erreurs.map(e => `• « ${e.planifie || "(sans nom)"} » : ${e.code === "nom_vide"
               ? "donne un nom à la nouvelle tâche"
-              : "l'ouvrage proposé n'existe plus sur ce chantier, choisis-en un autre"}`).join("\n"));
+              : e.code === "heures_normales"
+                ? "cas B : indique les heures normales de ce travail"
+                : "l'ouvrage proposé n'existe plus sur ce chantier, choisis-en un autre"}`).join("\n"));
         } else if (res.code === "conflit") {
           setConflitPhasage(true);
           alert("Le phasage de ce chantier a été modifié ailleurs pendant ta validation.\n\n"
@@ -1383,6 +1401,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           tachesPlan={tachesPlanParChantier[opened.chantier_id] || []}
           ouvragesPlan={ouvragesPlanParChantier[opened.chantier_id] || []}
           phasageOuvrages={(phasages.find(p => p.chantier_id === opened.chantier_id)?.ouvrages) || []}
+          bibliotheque={bibliotheque}
           tacheExistante={(id) => {
             const ph = phasages.find(p => p.chantier_id === opened.chantier_id);
             return ph && Array.isArray(ph.ouvrages) ? trouverTache(ph.ouvrages, id) : null;
@@ -1508,7 +1527,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
 function ModaleRapport({
   rapport, T, acc, taux, alertes, avancementParTache, autresPropositions,
   tachesPlan, phases, ouvriersDispo, journeeCloturee = false,
-  ouvragesPlan = [], tacheExistante = () => null, phasageOuvrages = [],
+  ouvragesPlan = [], tacheExistante = () => null, phasageOuvrages = [], bibliotheque = [],
   chantiers = [], onChangerChantier, onBasculerLigne,
   nbChantiersDuJour = 1,
   autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
@@ -1525,6 +1544,16 @@ function ModaleRapport({
   // P6 : verrouille toute action si la journée est clôturée (sauf consultation).
   const valide = rapport.statut === "valide";
   const verrouille = valide || journeeCloturee;
+  // Étape 4 : tâches prévues ce jour-là (date prévue dans le phasage, ou déjà
+  // portées par une ligne du rapport) — premières propositions du cas A.
+  const tachesPrevuesJour = useMemo(() => {
+    const iso = frToISO(rapport.date_rapport);
+    const ids = new Set((rapport.taches || []).map(t => t.tache_id).filter(Boolean).map(String));
+    (phasageOuvrages || []).forEach(o => (o.taches || []).forEach(t => {
+      if (t?.id && String(t.date_prevue || "").slice(0, 10) === iso) ids.add(String(t.id));
+    }));
+    return [...ids];
+  }, [rapport, phasageOuvrages]);
 
   // Quantités posées : somme des quantités validées par tâche, HORS ce
   // rapport (cumul « avant »). Indisponible (colonnes absentes, réseau) :
@@ -1696,6 +1725,10 @@ function ModaleRapport({
 
   const validerCreation = async () => {
     if (!creerTacheState?.nom?.trim()) { alert("Renseigne le nom de la tâche."); return; }
+    if (creerTacheState.cas === "B" && !(parseFloat(creerTacheState.heures_normales) > 0)) {
+      alert("Cas B : indique les heures normales de ce travail (le poids de la tâche dans l'avancement).");
+      return;
+    }
     if (!creerTacheState.useOuvrages && !creerTacheState.phase_id) {
       alert("Renseigne au moins le nom et la phase.");
       return;
@@ -1713,6 +1746,9 @@ function ModaleRapport({
         hors_devis: creerTacheState.hors_devis === true,
         cree_par: rapport.ouvrier || null,
         rapport_id: rapport.id,
+        cas: creerTacheState.cas || null,
+        heures_normales: creerTacheState.heures_normales ?? null,
+        date: frToISO(rapport.date_rapport),
       } : {}),
     });
     if (res?.tache_id) {
@@ -1848,6 +1884,9 @@ function ModaleRapport({
                   ouvrier={rapport.ouvrier}
                   dejaCreee={li.proposition ? tacheExistante(idTacheProposee(rapport.id, li.origineIdx)) : null}
                   suggestion={li.proposition ? suggestionProposition(li) : null}
+                  phasageOuvrages={phasageOuvrages}
+                  bibliotheque={bibliotheque}
+                  tachesPrevuesJour={tachesPrevuesJour}
                   phases={phases}
                   avancementActuel={li.tache_id ? avancementParTache[String(li.tache_id)] : null}
                   autres={li.tache_id ? (autresPropositions[String(li.tache_id)] || []) : []}
@@ -2011,6 +2050,8 @@ function ModaleRapport({
           setState={setCreerTacheState}
           phases={phases}
           ouvragesPlan={ouvragesPlan}
+          phasageOuvrages={phasageOuvrages}
+          bibliotheque={bibliotheque}
           T={T} acc={acc}
           onValider={validerCreation}
           onClose={() => setCreerTacheState(null)}
@@ -2043,6 +2084,7 @@ function ModaleRapport({
 function LigneEditable({
   ligne, T, acc, valide, tachesPlan, phases,
   ouvragesPlan = [], ouvrier = null, dejaCreee = null, suggestion = null,
+  phasageOuvrages = [], bibliotheque = [], tachesPrevuesJour = [],
   qte = null, suiviQte = null, qteRapport = 0, termineeRapport = false, onQte = () => {},
   avancementActuel, autres, onChange, onChangeTache, onSplit, onRemove, onBasculer,
 }) {
@@ -2191,6 +2233,7 @@ function LigneEditable({
         </div>
         {ligne.proposition && (
           <BlocProposition ligne={ligne} T={T} valide={valide} ouvragesPlan={ouvragesPlan}
+            phasageOuvrages={phasageOuvrages} bibliotheque={bibliotheque} tachesPrevuesJour={tachesPrevuesJour}
             ouvrier={ouvrier} dejaCreee={dejaCreee} suggestion={suggestion}
             onChange={onChange} onChangeTache={onChangeTache}/>
         )}
@@ -2370,7 +2413,8 @@ function BlocQuantite({ qte, suivi, qteRapport, termineeRapport, heures, valide,
 // existante (menu au-dessus, ou suggestion d'une tâche au nom proche).
 const libelleOuvrageOption = (o) => `${o.code ? `${o.code} · ` : ""}${libelleCourt(o.libelle, 80)}`;
 
-function BlocProposition({ ligne, T, valide, ouvragesPlan, ouvrier, dejaCreee, suggestion, onChange, onChangeTache }) {
+function BlocProposition({ ligne, T, valide, ouvragesPlan, phasageOuvrages = [], bibliotheque = [], tachesPrevuesJour = [],
+  ouvrier, dejaCreee, suggestion, onChange, onChangeTache }) {
   const p = ligne.proposition || {};
   const c = ligne.creation;
   const violet = "#7c3aed";
@@ -2416,6 +2460,12 @@ function BlocProposition({ ligne, T, valide, ouvragesPlan, ouvrier, dejaCreee, s
             <input type="text" value={c.nom || ""} onChange={e => onChange({ creation: { ...c, nom: e.target.value }, planifie: e.target.value })} style={champ}/>
           </div>
           <div style={{ gridColumn: "1 / -1" }}>
+            <ChoixCasHorsDevis valeur={c} onChange={setCreation} onRattacher={(id) => onChangeTache(id)}
+              nom={c.nom || ligne.planifie} ouvrages={phasageOuvrages} bibliotheque={bibliotheque}
+              tachesPrevuesJour={tachesPrevuesJour} T={T}/>
+          </div>
+          {!c.cas && <>
+          <div style={{ gridColumn: "1 / -1" }}>
             <label style={miniLabel(T)}>Ouvrage</label>
             <select value={c.ouvrage_id || ouvragesPlan.find(o => o.divers)?.id || ""} onChange={e => setCreation({ ouvrage_id: e.target.value || null })} style={champ}>
               {!ouvrageConnu && <option value={c.ouvrage_id}>⚠ Ouvrage proposé introuvable sur ce chantier — choisis-en un</option>}
@@ -2444,8 +2494,9 @@ function BlocProposition({ ligne, T, valide, ouvragesPlan, ouvrier, dejaCreee, s
             <input type="checkbox" checked={c.hors_devis === true} onChange={e => setCreation({ hors_devis: e.target.checked })}/>
             Hors devis : ne consomme pas les heures prévues de l'ouvrage
           </label>
+          </>}
           <div style={{ gridColumn: "1 / -1", fontSize: 11, color: T.textSub }}>
-            Sera créée à la validation du rapport (sans heures prévues), au nom de {ouvrier || "l'ouvrier"}.
+            Sera créée à la validation du rapport{c.cas === "B" ? " (heures normales comme poids, ajoutée en cours de chantier)" : c.cas === "C" ? " dans « Divers / hors devis », à arbitrer" : " (sans heures prévues)"}, au nom de {ouvrier || "l'ouvrier"}.
           </div>
         </div>
       )}
@@ -2462,7 +2513,7 @@ function BlocProposition({ ligne, T, valide, ouvragesPlan, ouvrier, dejaCreee, s
 
 // ─── Sous-modale création nouvelle tâche du plan ─────────────────────────────
 
-function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], T, acc, onValider, onClose }) {
+function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], phasageOuvrages = [], bibliotheque = [], T, acc, onValider, onClose }) {
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, zIndex: 300,
@@ -2504,6 +2555,9 @@ function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], T, acc, 
           </div>
           {state.useOuvrages ? (
             <>
+              <ChoixCasHorsDevis valeur={state} onChange={(patch) => setState({ ...state, ...patch })}
+                nom={state.nom} ouvrages={phasageOuvrages} bibliotheque={bibliotheque} T={T}/>
+              {!state.cas && <>
               <div>
                 <label style={miniLabel(T)}>Ouvrage</label>
                 <select
@@ -2535,6 +2589,7 @@ function CreerTacheModale({ state, setState, phases, ouvragesPlan = [], T, acc, 
                 <input type="checkbox" checked={state.hors_devis === true} onChange={e => setState({ ...state, hors_devis: e.target.checked })}/>
                 Hors devis : ne consomme pas les heures prévues de l'ouvrage
               </label>
+              </>}
             </>
           ) : (
             <div>
