@@ -81,7 +81,7 @@ const SEMAINES_HISTORIQUE_ATTENTION = 8;
 // plan Bilan semaine) : MIGRATION À L'IDENTIQUE — même contenu, même HTML,
 // même PDF, mêmes calculs. La page charge elle-même ses données pour la
 // semaine sélectionnée (rapports, planning_cells, pointages, bilans_hebdo,
-// chantier_avancement_history).
+// chantier_releves_journaliers).
 
 // ─── HEURES PAR JOUR ─────────────────────────────────────────────────────────
 // Barème de REPLI du bilan : utilisé uniquement quand la semaine n'a aucun
@@ -412,10 +412,15 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         // plan_travaux contient meta.prix_vendu (montant du devis).
         // Sert au calcul "delta % → delta €" affiché à côté de la progression.
         supabase.from("phasages").select("chantier_id, plan_travaux, ouvrages").not("chantier_id", "is", null),
-        supabase.from("chantier_avancement_history")
-          .select("chantier_id, avancement, date_snapshot")
-          .lte("date_snapshot", dimancheIso)
-          .order("date_snapshot", { ascending: false }),
+        // Relevés JOURNALIERS (option A de Loris, 24/10/2026 : l'historique
+        // d'avancement du vendredi n'est plus écrit). Le plus récent d'abord ;
+        // un jour à l'avancement inconnu (avant le journal) est ignoré.
+        lireToutParTranches((a, b) => supabase.from("chantier_releves_journaliers")
+          .select("chantier_id, avancement, date_snapshot:date_releve")
+          .lte("date_releve", dimancheIso)
+          .not("avancement", "is", null)
+          .order("date_releve", { ascending: false }).order("chantier_id")
+          .range(a, b)),
         // Journal d'avancement daté (étape 1C) : la production de la semaine
         // en vient (prix × avancement gagné, à la date de réalisation).
         lireToutParTranches((a, b) => supabase.from("avancement_journal")

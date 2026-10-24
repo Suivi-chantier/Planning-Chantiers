@@ -12,7 +12,7 @@
 // moteurs.js) : ce fichier charge, appelle, et met en forme. Il ne somme pas,
 // ne multiplie pas, ne divise pas. Le seul traitement numérique est
 // l'arrondi au centime pour l'affichage — le même que celui du relevé
-// hebdomadaire. Le script de vérification le contrôle statiquement.
+// journalier. Le script de vérification le contrôle statiquement.
 //
 // UNE ABSENCE RESTE UNE ABSENCE. Une valeur inconnue est transmise à null,
 // accompagnée d'une phrase qui dit pourquoi. Un relevé absent n'est jamais
@@ -28,11 +28,15 @@ const { moteurs } = require("./moteurs");
 // scripts/verif-renovation-copilot-v1.mjs.
 const CHANTIERS_EXCLUS_ALERTES = ["DÉPOT"];
 
-// Colonnes des relevés hebdomadaires lues par la page Alertes, plus celles
-// dont l'historique d'une alerte a besoin.
-const COLONNES_RELEVE =
-  "chantier_id, chantier_nom, week_id, date_snapshot, created_at, avancement, " +
-  "heures_vendues, heures_reelles, marge, marge_terminaison, warnings";
+// Relevés JOURNALIERS (refonte du Bilan, étape 3 — option A de Loris du
+// 24/10/2026 : les relevés du vendredi ne sont plus écrits). Mêmes colonnes
+// que la page Alertes (COLONNES_RELEVES_ALERTES_V2 de pointsAttentionDonneesV1),
+// qui portent aussi tout ce dont l'historique d'une alerte a besoin.
+const TABLE_RELEVES = "chantier_releves_journaliers";
+// Fenêtre de lecture : du dimanche de la semaine de comparaison moins 27 jours
+// (un chantier à l'arrêt garde son dernier relevé) au dimanche de la semaine
+// du relevé — exactement la fenêtre de la page Alertes.
+const JOURS_AVANT_COMPARAISON = -27;
 
 // Mêmes colonnes que les États financiers pour la colonne « Facturé ProGBat ».
 const COLONNES_SITUATIONS =
@@ -70,34 +74,46 @@ function semainePrecedente(weekId, semaines) {
   return semaines.lundiSemaineISOv1(w53) === cible ? w53 : `${annee - 1}-W52`;
 }
 
-// Charge le dernier relevé et la semaine qui le précède, puis appelle le
-// moteur d'alertes — exactement la chaîne de la page Alertes :
-// preparerSemainesAttentionV1 → alertesV1 → etatAlertesV1.
+// Seuils des alertes réglés dans Admin (planning_config.seuils_marges) —
+// absents : les défauts du module, comme la page Alertes.
+async function lireSeuilsMarges(sb, m) {
+  const { data, error } = await sb.from("planning_config").select("value")
+    .eq("key", m.finance.CLE_CONFIG_SEUILS_MARGES).maybeSingle();
+  if (error) throw new Error(`planning_config : ${error.message}`);
+  return (data && data.value) || null;
+}
+
+// Charge les relevés journaliers de la semaine du dernier relevé et de la
+// semaine qui la précède, puis appelle le moteur d'alertes — exactement la
+// chaîne de la page Alertes : preparerSemainesRelevesJournaliersV2 →
+// alertesMargesV2 → alertesV1 → etatAlertesV1.
 async function calculerAlertes(sb) {
   const m = await moteurs();
   const { data: derniers, error } = await sb
-    .from("chantier_snapshots_hebdo")
-    .select("week_id, date_snapshot")
-    .order("date_snapshot", { ascending: false })
+    .from(TABLE_RELEVES)
+    .select("week_id, date_releve")
+    .order("date_releve", { ascending: false })
     .limit(1);
-  if (error) throw new Error(`chantier_snapshots_hebdo : ${error.message}`);
+  if (error) throw new Error(`${TABLE_RELEVES} : ${error.message}`);
 
   const semaine = str(derniers && derniers[0] && derniers[0].week_id) || null;
   const precedente = semaine ? semainePrecedente(semaine, m.semaines) : null;
   const weekIds = [semaine, precedente].filter(Boolean);
 
-  const lignes = weekIds.length
-    ? await fetchAll(sb, "chantier_snapshots_hebdo", COLONNES_RELEVE, (q) => q.in("week_id", weekIds))
-    : [];
-  const [courants, precedents] = m.donneesAttention.preparerSemainesAttentionV1({ lignes, weekIds });
+  let lignes = [];
+  if (weekIds.length) {
+    const fin = m.donneesAttention.dimancheSemaineISOV2(semaine);
+    const debut = m.semaines.ajouterJoursV1(
+      m.donneesAttention.dimancheSemaineISOV2(weekIds[weekIds.length - 1]), JOURS_AVANT_COMPARAISON);
+    lignes = await fetchAll(sb, TABLE_RELEVES, m.donneesAttention.COLONNES_RELEVES_ALERTES_V2,
+      (q) => q.gte("date_releve", debut).lte("date_releve", fin).order("date_releve", { ascending: true }));
+  }
+  const [courants, precedents] = m.donneesAttention.preparerSemainesRelevesJournaliersV2({ lignes, weekIds });
 
-  // Étape 2 des marges : la détection est celle des alertes des marges (la
-  // règle « perte de marge » a disparu). Le relevé du vendredi ne porte pas
-  // encore la marge probable : l'assistant passera aux relevés journaliers
-  // avec la refonte du Bilan (étape 3).
+  // Détection : alertes des marges (étape 2), avec les seuils d'Admin.
   const pointsAttention = m.alertesMarges.alertesMargesV2({
     snapshotsCourants: courants || [], snapshotsPrecedents: precedents || [],
-    source: "releves_hebdomadaires",
+    seuils: await lireSeuilsMarges(sb, m),
   });
   const resultat = m.alertes.alertesV1({
     snapshotsCourants: courants || [],
@@ -110,7 +126,7 @@ async function calculerAlertes(sb) {
   // Date du relevé : la plus récente des lignes retenues de la semaine.
   let dateReleve = null;
   for (const l of courants || []) {
-    const d = str(l.date_snapshot);
+    const d = str(l.date_releve).slice(0, 10);
     if (d && (!dateReleve || d > dateReleve)) dateReleve = d;
   }
 
@@ -199,7 +215,7 @@ const etat_chantier = {
   nom: "etat_chantier",
   description:
     "État financier et d'avancement d'UN chantier, calculé en direct par le module financier de " +
-    "l'application (celui du relevé hebdomadaire et de la fiche chantier) : avancement, vendu HT, " +
+    "l'application (celui des relevés journaliers et de la fiche chantier) : avancement, vendu HT, " +
     "marge, marge à terminaison, heures prévues et réelles, reste à faire, situation à facturer, " +
     "facturé ProGBat. Renvoie aussi la date des données et les avertissements de fiabilité, à " +
     "reprendre dans la réponse. Nécessite l'identifiant exact renvoyé par chercher_chantier.",
@@ -217,7 +233,7 @@ const etat_chantier = {
     }
     const m = await moteurs();
 
-    // MÊME chargement que le relevé hebdomadaire, restreint à ce chantier.
+    // MÊME chargement que le relevé journalier, restreint à ce chantier.
     const donnees = await chargerDonneesFinance(ctx.sb, { chantierId });
     const phasage = donnees.phasagesUniques.find((ph) => str(ph.chantier_id) === chantierId) || null;
     if (!phasage) {
@@ -299,7 +315,7 @@ const etat_chantier = {
 const alertes = {
   nom: "alertes",
   description:
-    "Les alertes du dernier relevé hebdomadaire, triées par le moteur de la page Alertes " +
+    "Les alertes du dernier relevé journalier (sa semaine comparée à la précédente), triées par le moteur de la page Alertes " +
     "(critique, à surveiller, information), dépôt exclu. Distingue trois états : relevé absent, " +
     "aucune alerte, alertes. Utiliser pour « quels chantiers sont en alerte ? », « par quoi " +
     "commencer cette semaine ? ».",
@@ -329,7 +345,8 @@ const expliquer_alerte = {
   nom: "expliquer_alerte",
   description:
     "Explique pourquoi UN chantier est en alerte : ses motifs dans le moteur d'alertes (dernier " +
-    "relevé) et l'historique de ses 8 derniers relevés hebdomadaires (avancement, heures, marge). " +
+    "relevé) et l'historique de ses 8 dernières semaines (dernier relevé journalier de chaque semaine : " +
+    "avancement, heures, budget restant, marges à l'avancement, à terminaison et probable). " +
     "Nécessite l'identifiant exact renvoyé par chercher_chantier.",
   schema: {
     type: "object",
@@ -360,28 +377,37 @@ const expliquer_alerte = {
       }
     }
 
-    // Historique : toutes les lignes du chantier, dédoublonnées par le module
-    // de données (le cron a tourné deux fois en 2026-W31), puis les 8 plus
-    // récentes semaines.
-    const lignes = await fetchAll(ctx.sb, "chantier_snapshots_hebdo", COLONNES_RELEVE,
-      (q) => q.eq("chantier_id", chantierId).order("date_snapshot", { ascending: false }));
-    const propres = m.donneesAttention.dedoublonnerSnapshotsV1(lignes)
-      .sort((a, b) => str(b.week_id).localeCompare(str(a.week_id)));
-    const audit = m.donneesAttention.auditDoublonsSnapshotsV1(lignes);
+    // Historique : les relevés journaliers du chantier, un par semaine (le
+    // dernier relevé de la semaine, choisi par le module de données), pour
+    // les 8 semaines les plus récentes qui ont un relevé.
+    const lignes = await fetchAll(ctx.sb, TABLE_RELEVES, m.donneesAttention.COLONNES_RELEVES_ALERTES_V2,
+      (q) => q.eq("chantier_id", chantierId).order("date_releve", { ascending: false }));
+    const semainesChantier = [];
+    for (const l of lignes) {
+      const w = str(l.week_id);
+      if (w && !semainesChantier.includes(w)) semainesChantier.push(w);
+      if (semainesChantier.length === NB_RELEVES_HISTORIQUE) break;
+    }
+    const parSemaine = m.donneesAttention.preparerSemainesRelevesJournaliersV2({ lignes, weekIds: semainesChantier });
 
-    const historique = propres.slice(0, NB_RELEVES_HISTORIQUE).map((l) => ({
-      semaine: str(l.week_id),
-      date: str(l.date_snapshot) || null,
-      avancement_pct: arrondi(l.avancement),
-      heures_vendues: arrondi(l.heures_vendues),
-      heures_reelles: arrondi(l.heures_reelles),
-      // Colonne `marge` du relevé hebdomadaire = budget restant (pas une marge).
-      budget_restant: arrondi(l.marge),
-      marge_a_terminaison: arrondi(l.marge_terminaison),
-    }));
+    const historique = semainesChantier.map((w, i) => {
+      const l = (parSemaine[i] || [])[0] || {};
+      return {
+        semaine: w,
+        date: str(l.date_releve).slice(0, 10) || null,
+        journee: str(l.statut_completude) || null,
+        avancement_pct: arrondi(l.avancement),
+        heures_vendues: arrondi(l.heures_vendues),
+        heures_reelles: arrondi(l.heures_reelles),
+        budget_restant: arrondi(l.budget_restant),
+        marge_a_l_avancement: arrondi(l.marge_avancement),
+        marge_a_terminaison: arrondi(l.marge_terminaison),
+        marge_probable: arrondi(l.marge_probable),
+      };
+    });
 
     const nom = (alerte && alerte.nom) || str(snapCourant && snapCourant.chantier_nom) ||
-      str(propres[0] && propres[0].chantier_nom) || chantierId;
+      str(lignes[0] && lignes[0].chantier_nom) || chantierId;
 
     return {
       type: "explication_alerte",
@@ -394,9 +420,8 @@ const expliquer_alerte = {
       raison_sans_alerte: raisonSansAlerte,
       historique,
       historique_vide: historique.length === 0
-        ? "Aucun relevé hebdomadaire enregistré pour ce chantier."
+        ? "Aucun relevé journalier enregistré pour ce chantier."
         : null,
-      doublons_ecartes: audit.total,
     };
   },
 };

@@ -38,6 +38,7 @@ class Requete {
   eq(c, v) { this.filtres.push((r) => String(r[c]) === String(v)); return this; }
   in(c, vs) { const s = new Set(vs.map(String)); this.filtres.push((r) => s.has(String(r[c]))); return this; }
   gte(c, v) { this.filtres.push((r) => String(r[c] ?? "") >= String(v)); return this; }
+  lte(c, v) { this.filtres.push((r) => String(r[c] ?? "") <= String(v)); return this; }
   order(c, { ascending = true } = {}) { this.tri = { c, ascending }; return this; }
   range(a, b) { this.plage = [a, b]; return this; }
   limit(n) { this.lim = n; return this; }
@@ -142,9 +143,12 @@ const pointage = (chantier_id, tache_id, heures, date) => ({
   id: `p-${chantier_id}-${tache_id}-${date}`, chantier_id, tache_id, heures, taux_horaire: 30,
   date, type_pointage: "tache", ouvrier: "Ouvrier fictif",
 });
-const snap = (chantier_id, chantier_nom, week_id, date_snapshot, v = {}) => ({
-  chantier_id, chantier_nom, week_id, date_snapshot, created_at: `${date_snapshot}T18:10:00Z`,
-  avancement: 50, heures_vendues: 100, heures_reelles: 40, marge: 3000, marge_terminaison: 2000, warnings: [], ...v,
+// Relevé JOURNALIER fictif (chantier_releves_journaliers) — l'assistant ne lit
+// plus les relevés du vendredi (option A de Loris, 24/10/2026).
+const snap = (chantier_id, chantier_nom, week_id, date_releve, v = {}) => ({
+  chantier_id, chantier_nom, week_id, date_releve, statut_completude: "complete",
+  avancement: 50, vendu_ht: 15000, heures_vendues: 100, heures_reelles: 40, budget_restant: 3000,
+  marge_avancement: 500, marge_terminaison: 2000, marge_probable: 1800, lots: [], warnings: [], ...v,
 });
 
 function fixtures() {
@@ -162,10 +166,10 @@ function fixtures() {
   const historiqueA = [];
   const semaines = ["2026-W29", "2026-W30", "2026-W31", "2026-W32", "2026-W33", "2026-W34", "2026-W35", "2026-W36", "2026-W37"];
   const vendredis = ["2026-07-17", "2026-07-24", "2026-07-31", "2026-08-07", "2026-08-14", "2026-08-21", "2026-08-28", "2026-09-04", "2026-09-11"];
-  semaines.forEach((w, i) => historiqueA.push(snap("ch-test-a", "CHANTIER TEST A", w, vendredis[i], { avancement: 10 + i * 5, heures_reelles: 10 + i * 5, marge: 4000 - i * 100 })));
-  // Doublon de relevé en W31 (le cron avait tourné deux fois) : la ligne la
-  // plus récemment écrite doit faire foi.
-  historiqueA.push({ ...snap("ch-test-a", "CHANTIER TEST A", "2026-W31", "2026-07-31", { avancement: 99, marge: -1 }), created_at: "2026-07-31T08:00:00Z" });
+  semaines.forEach((w, i) => historiqueA.push(snap("ch-test-a", "CHANTIER TEST A", w, vendredis[i], { avancement: 10 + i * 5, heures_reelles: 10 + i * 5, budget_restant: 4000 - i * 100 })));
+  // Plusieurs relevés journaliers dans la même semaine (mercredi puis
+  // vendredi de W31) : c'est le DERNIER relevé de la semaine qui fait foi.
+  historiqueA.push(snap("ch-test-a", "CHANTIER TEST A", "2026-W31", "2026-07-29", { avancement: 99, budget_restant: -1 }));
 
   return {
     planning_config: [
@@ -200,12 +204,12 @@ function fixtures() {
       { chantier_id: "ch-test-a", date_facture: "2026-08-01", progbat_situation_number: 1, progbat_achievement: 2000, progbat_deal_net_total: 15000 },
       { chantier_id: "ch-test-a", date_facture: "2026-09-10", progbat_situation_number: 2, progbat_achievement: 4500, progbat_deal_net_total: 15000 },
     ],
-    chantier_snapshots_hebdo: [
+    chantier_releves_journaliers: [
       ...historiqueA,
-      snap("ch-test-a", "CHANTIER TEST A", "2026-W38", "2026-09-18", { avancement: 55, heures_reelles: 60, marge: 3000, marge_terminaison: -1200,
+      snap("ch-test-a", "CHANTIER TEST A", "2026-W38", "2026-09-18", { avancement: 55, heures_reelles: 60, budget_restant: 3000, marge_terminaison: -1200,
         warnings: [{ code: "derive_lot", gravite: "alerte", message: "dérive fictive" }] }),
-      snap("ch-test-b", "CHANTIER TEST B", "2026-W37", "2026-09-11", { avancement: 40, heures_reelles: 20, marge: 2500 }),
-      snap("ch-test-b", "CHANTIER TEST B", "2026-W38", "2026-09-18", { avancement: 40, heures_reelles: 30, marge: 1900,
+      snap("ch-test-b", "CHANTIER TEST B", "2026-W37", "2026-09-11", { avancement: 40, heures_reelles: 20, budget_restant: 2500 }),
+      snap("ch-test-b", "CHANTIER TEST B", "2026-W38", "2026-09-18", { avancement: 40, heures_reelles: 30, budget_restant: 1900,
         warnings: [{ code: "fg_non_regle", gravite: "alerte", message: "frais généraux fictifs non renseignés" }] }),
       snap("depot-1", "DÉPOT", "2026-W37", "2026-09-11", { marge_terminaison: -5000 }),
       snap("depot-1", "DÉPOT", "2026-W38", "2026-09-18", { marge_terminaison: -5000 }),
@@ -330,7 +334,7 @@ await bloc("7. alertes : sortie d'alertesV1 sur le dernier relevé, DÉPOT exclu
   const tables = fixtures();
   const r = await outil("alertes", {}, tables);
   verifier(r.semaine_releve === "2026-W38" && r.semaine_comparaison === "2026-W37" && r.date_releve === "2026-09-18", "semaine et date du relevé");
-  const [cour, prec] = donneesAttention.preparerSemainesAttentionV1({ lignes: tables.chantier_snapshots_hebdo, weekIds: ["2026-W38", "2026-W37"] });
+  const [cour, prec] = donneesAttention.preparerSemainesRelevesJournaliersV2({ lignes: tables.chantier_releves_journaliers, weekIds: ["2026-W38", "2026-W37"] });
   const { alertesMargesV2 } = await import("../src/Renovation/alertesMargesV2.mjs");
   const pointsAttention = alertesMargesV2({ snapshotsCourants: cour, snapshotsPrecedents: prec });
   const attendu = alertesMod.alertesV1({ snapshotsCourants: cour, snapshotsPrecedents: prec, pointsAttention, exclusions: ["DÉPOT"] });
@@ -346,13 +350,13 @@ await bloc("7. alertes : sortie d'alertesV1 sur le dernier relevé, DÉPOT exclu
 });
 
 await bloc("8. alertes : relevé absent et « aucune alerte » restent distincts", async () => {
-  const vide = { ...fixtures(), chantier_snapshots_hebdo: [] };
+  const vide = { ...fixtures(), chantier_releves_journaliers: [] };
   const r = await outil("alertes", {}, vide);
   verifier(r.etat.statut === alertesMod.ETAT_RELEVE_ABSENT, `relevé absent attendu, reçu ${r.etat.statut}`);
   verifier(r.etat.message === alertesMod.etatAlertesV1(alertesMod.alertesV1({ snapshotsCourants: [], snapshotsPrecedents: [] })).message, "message du module, pas un texte maison");
   verifier(r.alertes.length === 0 && r.semaine_releve === null && r.date_releve === null, "aucune semaine inventée");
   verifier(!/aucune alerte/i.test(r.etat.message), "le relevé absent ne se lit pas « aucune alerte »");
-  const calme = { ...fixtures(), chantier_snapshots_hebdo: [
+  const calme = { ...fixtures(), chantier_releves_journaliers: [
     snap("ch-test-a", "CHANTIER TEST A", "2026-W37", "2026-09-11"), snap("ch-test-a", "CHANTIER TEST A", "2026-W38", "2026-09-18") ] };
   const c = await outil("alertes", {}, calme);
   verifier(c.etat.statut === alertesMod.ETAT_AUCUNE_DERIVE && c.alertes.length === 0, "relevé présent sans alerte : état « aucune alerte »");
@@ -364,21 +368,23 @@ await bloc("8. alertes : relevé absent et « aucune alerte » restent distincts
 // ─────────────────────────────────────────────────────────────────────────────
 // 9. expliquer_alerte
 // ─────────────────────────────────────────────────────────────────────────────
-await bloc("9. expliquer_alerte : motifs + 8 derniers relevés dédoublonnés", async () => {
+await bloc("9. expliquer_alerte : motifs + dernier relevé journalier de chacune des 8 dernières semaines", async () => {
   const r = await outil("expliquer_alerte", { chantier_id: "ch-test-a" });
   verifier(r.alerte && r.alerte.niveau === "critique" && r.alerte.motifs.some((m) => m.code === "marge_terminaison_negative"), "motifs du moteur");
   verifier(r.historique.length === 8, `8 relevés attendus, reçu ${r.historique.length}`);
   verifier(r.historique[0].semaine === "2026-W38" && r.historique[7].semaine === "2026-W31", "du plus récent au plus ancien");
   const w31 = r.historique.find((h) => h.semaine === "2026-W31");
-  verifier(w31 && w31.avancement_pct === 20 && w31.budget_restant === 3800, "doublon W31 : la ligne la plus récemment écrite fait foi");
-  verifier(r.doublons_ecartes === 1, "le doublon écarté est compté, pas masqué");
+  verifier(w31 && w31.date === "2026-07-31" && w31.avancement_pct === 20 && w31.budget_restant === 3800,
+    "deux relevés en W31 (mercredi, vendredi) : le dernier relevé de la semaine fait foi");
+  verifier(r.historique[0].marge_probable === 1800 && r.historique[0].marge_a_l_avancement === 500 && r.historique[0].journee === "complete",
+    "l'historique porte les trois marges et l'état de la journée");
   verifier(r.semaine_releve === "2026-W38" && r.date_releve === "2026-09-18", "date du relevé citée");
   const absent = await outil("expliquer_alerte", { chantier_id: "briollay-appt-2" });
   verifier(absent.alerte === null && /ne figure pas/.test(absent.raison_sans_alerte) && /n'est pas « aucune alerte »/.test(absent.raison_sans_alerte), "chantier absent du relevé : pas présenté comme « aucune alerte »");
   verifier(absent.historique.length === 0 && absent.historique_vide, "historique vide dit comme tel");
   const depot = await outil("expliquer_alerte", { chantier_id: "depot-1" });
   verifier(/exclu/.test(depot.raison_sans_alerte), "DÉPOT : exclusion expliquée");
-  const vide = await outil("expliquer_alerte", { chantier_id: "ch-test-a" }, { ...fixtures(), chantier_snapshots_hebdo: [] });
+  const vide = await outil("expliquer_alerte", { chantier_id: "ch-test-a" }, { ...fixtures(), chantier_releves_journaliers: [] });
   verifier(vide.etat_releve.statut === alertesMod.ETAT_RELEVE_ABSENT && vide.raison_sans_alerte === vide.etat_releve.message, "relevé absent transmis par expliquer_alerte");
 });
 
@@ -406,8 +412,8 @@ await bloc("10. Garde statique : aucun calcul financier dans api/_ia/renovation 
     for (const [re, quoi] of INTERDITS) verifier(!re.test(code), `${f} : ${quoi} interdit(e) — le calcul appartient aux modules`);
   }
   const outilsSrc = sansCommentaires(sourcesReno.find((s) => s.f === "outils.js").src);
-  for (const appel of ["computeChantierFinance(", "chargerDonneesFinance(", "alertesV1(", "etatAlertesV1(", "preparerSemainesAttentionV1(",
-    "dedoublonnerSnapshotsV1(", "auditDoublonsSnapshotsV1(", "indexerSituations(", "fiabiliteV1("]) {
+  for (const appel of ["computeChantierFinance(", "chargerDonneesFinance(", "alertesV1(", "etatAlertesV1(", "preparerSemainesRelevesJournaliersV2(",
+    "alertesMargesV2(", "indexerSituations(", "fiabiliteV1("]) {
     verifier(outilsSrc.includes(appel), `outils.js délègue à ${appel.slice(0, -1)}`);
   }
   const moteursSrc = sourcesReno.find((s) => s.f === "moteurs.js").src;

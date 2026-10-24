@@ -6,7 +6,7 @@
 //                                  (le module du relevé hebdo et de la fiche chantier)
 //   alertesV1.mjs                → tri des alertes, motifs, drapeau de fiabilité
 //                                  (le moteur de la page Alertes)
-//   pointsAttentionDonneesV1.mjs → dédoublonnage des relevés hebdomadaires
+//   pointsAttentionDonneesV1.mjs → relevé journalier retenu pour chaque semaine
 //   avancementDonneesLiees.mjs   → dernière situation ProGBat
 //                                  (colonne « Facturé ProGBat » des États financiers)
 //   bilanSemaineProchaineV1.mjs  → lundi d'une semaine ISO (nommage des semaines)

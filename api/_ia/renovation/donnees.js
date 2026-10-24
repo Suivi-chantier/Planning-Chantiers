@@ -34,8 +34,8 @@ const TABLES_AUTORISEES = new Set([
   "achats_lots_termines",
   // Réglages (taux, lots, états financiers) et liste des chantiers
   "planning_config",
-  // Relevés hebdomadaires, lus par les alertes
-  "chantier_snapshots_hebdo",
+  // Relevés journaliers (étape 1D), lus par les alertes et leur historique
+  "chantier_releves_journaliers",
   // Situations ProGBat (colonne « Facturé ProGBat » des États financiers)
   "chantier_factures_client",
 ]);
