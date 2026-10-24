@@ -11,6 +11,7 @@ import { allocationsDepuisCellules } from "./planningBaselineModelV1.js";
 import { normaliserEquipeLegacy, normaliserNomRessource, normaliserRessource } from "./planningResourceModelV1.js";
 import { CONSTRAINT_TYPES, normaliserContraintePlanning } from "./planningConstraintModelV1.js";
 import { calculerRangs, predecesseursEffectifs } from "./rang.js";
+import { nomTache } from "./libellesPhasageV1.mjs";
 import { regleGroupe } from "./planningRulesV1.js";
 import { CONFIANCE_GROUPE_V1, infererGroupeExecutionV1 } from "./planningGroupInferenceV1.js";
 import {
@@ -422,7 +423,7 @@ export function preparerSimulationPlanningGlobalV1({
               chantier_id: chantierId,
               tache_id: null,
               type: "tache_sans_identifiant",
-              explication: `Tâche « ${txt(tache?.nom) || "sans libellé"} » sans identifiant dans le phasage : elle ne peut pas être planifiée tant qu'elle n'a pas d'identifiant.`,
+              explication: `Tâche « ${txt(nomTache(tache)) || "sans libellé"} » sans identifiant dans le phasage : elle ne peut pas être planifiée tant qu'elle n'a pas d'identifiant.`,
             });
           }
           return;
@@ -456,7 +457,7 @@ export function preparerSimulationPlanningGlobalV1({
       if (!groupe.groupe_type_id) {
         const inference = infererGroupeExecutionV1({
           code: ouvrage?.code_ouvrage || ouvrage?.code || ouvrage?.identifiant || null,
-          nom: tache?.nom,
+          nom: nomTache(tache) || tache?.nom,
           lotId: ouvrage?.lot_id || ouvrage?.lotId || null,
           position: tacheIndex + 1,
         });
@@ -591,7 +592,7 @@ export function preparerSimulationPlanningGlobalV1({
         chantier_id: chantierId,
         site_id: siteId,
         groupe_type_id: groupe.groupe_type_id,
-        texte: txt(tache?.nom) || "Tâche sans libellé",
+        texte: txt(nomTache(tache)) || "Tâche sans libellé",
         heures_mo_restantes: restant,
         crew_size: Math.max(1, nomsTache.length || 1),
         candidate_resource_ids: candidates,

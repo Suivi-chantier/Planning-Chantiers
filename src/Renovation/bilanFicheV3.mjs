@@ -15,6 +15,7 @@
 //
 // Module PUR : aucune dépendance Supabase, aucune horloge, aucun effet de bord.
 // ─────────────────────────────────────────────────────────────────────────────
+import { libelleOuvrage, nomTache } from "./libellesPhasageV1.mjs";
 import { METHODE_CALCUL, NATURES_COUT } from "../chantierFinance.mjs";
 import { dateRapportIsoV3 } from "./bilanPeriodeV3.mjs";
 
@@ -77,7 +78,7 @@ export function tachesParLotV3({ ouvrages, journal, dateDepart, dateFin, lotsLab
   const tacheInfo = new Map();
   for (const o of listeSure(ouvrages)) {
     for (const t of listeSure(o.taches)) {
-      tacheInfo.set(str(t.id), { nom: str(t.nom_terrain) || str(t.nom) || str(t.label) || str(o.libelle) || "Tâche", lot: str(o.lot_id) || "_orphans" });
+      tacheInfo.set(str(t.id), { nom: str(nomTache(t)) || str(t.label) || str(libelleOuvrage(o)) || "Tâche", lot: str(o.lot_id) || "_orphans" });
     }
   }
   const etatFin = new Map();

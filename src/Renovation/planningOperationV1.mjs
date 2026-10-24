@@ -18,6 +18,7 @@
 //   listées avec leur raison, et une fin qu'on ne peut pas calculer reste
 //   « au-delà de l'horizon ».
 
+import { libelleOuvrage } from "./libellesPhasageV1.mjs";
 import { preparerSimulationReplanningV1 } from "./planningReplanningAdapterV1.js";
 import { planifierReplanningPropositionV1 } from "./planningReplanningEngineV1.js";
 import { allocationsDepuisCellules } from "./planningBaselineModelV1.js";
@@ -90,7 +91,7 @@ function ouvragesTachesPhasages(phasages = []) {
   const map = new Map();
   for (const ph of Array.isArray(phasages) ? phasages : []) {
     for (const o of Array.isArray(ph?.ouvrages) ? ph.ouvrages : []) {
-      const libelle = txt(o?.libelle) || txt(o?.code_ouvrage);
+      const libelle = txt(libelleOuvrage(o)) || txt(o?.code_ouvrage);
       if (!libelle) continue;
       for (const t of Array.isArray(o?.taches) ? o.taches : []) {
         if (txt(t?.id)) map.set(`${txt(ph.chantier_id)}::${txt(t.id)}`, libelle);

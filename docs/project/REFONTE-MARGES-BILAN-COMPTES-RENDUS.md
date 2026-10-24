@@ -197,7 +197,7 @@ chaque étape.
 | 3 | Étape 3 — Refonte du Bilan semaine | ✅ En ligne | 2026-10-24 | Bilan sur les relevés journaliers, période libre, présélection, versions direction et détaillée, bilans figés + Rectifications, prévu / réalisé, fin prévisionnelle et glissement, tendances, semaine qui vient (équipe + commandes + livraisons), bilan de clôture. Relevés du vendredi arrêtés (option A), plus aucun lecteur. PR #155 à #166. Voir « Étape 3 ». |
 | 4 | Étape 4 — Tâches hors devis | ✅ En ligne | 2026-10-24 | Cas A / B / C choisis à la validation et dans le phasage (« Ce travail est-il facturé au client ? »), avenant, geste commercial, ouvrage non facturé ; décisions « à arbitrer » dans le Bilan avec rappel réglable ; heures hors devis par cas dans la fiche chantier ; tâches souvent ajoutées dans la Bibliothèque. Aucune migration. Voir « Étape 4 ». |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ✅ En ligne | 2026-10-24 | Diagnostic réel sur 8 semaines, page « Qualité des comptes rendus » (bureau), module d'indicateurs réutilisable (compteur « lignes découpées » par ouvrier et par mois pour CR-5). Écart d'avancement déclaré / validé allumé à partir du journal d'avancement, sans fonction SQL. Voir « CR-1 ». |
-| 6 | CR-2 — Phasage lisible (libellés, pièces) | ⏳ À faire | | |
+| 6 | CR-2 — Phasage lisible (libellés, pièces) | 🔄 En cours | 2026-10-24 | Partie 1 (libellés personnalisés) mise en ligne ; partie 2 (pièces) à faire. |
 | 7 | CR-3 — Nouveau parcours du compte rendu | ⏳ À faire | | |
 | 8 | CR-4 — Dictée vocale et IA | ⏳ À faire | | |
 | 9 | CR-5 — Refonte de la page de validation | ⏳ À faire | | |
@@ -804,6 +804,44 @@ jamais 0. Le chiffre du passé (8 % de lignes modifiées) vient du diagnostic.
 
 **Points d'attention.** Mesure faite avant le nouveau parcours (CR-3) : c'est
 la référence « avant ». La même page donnera le « après ».
+#### CR-2 — Phasage lisible (en cours)
+
+**Partie 1 — libellés personnalisés (24/10/2026).** Dans le Phasage, un
+ouvrage ou une tâche se renomme directement dans la ligne (crayon ✎ ou
+double-clic, Entrée pour enregistrer, Échap pour annuler ; un nom vide reprend
+le libellé du devis). Le nom personnalisé est enregistré À CÔTÉ du libellé
+devis (`libelle_perso` sur l'ouvrage, `nom_perso` sur la tâche, dans le
+phasage — aucune migration) ; le libellé devis reste visible en petit sous le
+nom, dans le Phasage et dans la Validation, et se modifie toujours dans la
+fenêtre de l'ouvrage / de la tâche (« Libellé du devis »).
+
+**Inventaire des usages du libellé** (règle : ce qui sort vers le client ou
+ProGBat = libellé devis ; ce qui s'affiche dans l'application = nom
+personnalisé s'il existe, sinon libellé devis ; correspondance de noms = les
+deux).
+
+| Usage | Où | Libellé utilisé |
+|---|---|---|
+| Phasage : bulles ouvrage / tâche, listes, recherche, PDF phasage / prévisionnel / Gantt / rang, contrôles de groupe | PhasageV2 | personnalisé (+ devis en petit) ; recherche : les deux |
+| Fenêtre « Modifier l'ouvrage / la tâche » | PhasageV2 | les deux champs : « Libellé du devis » et « Nom sur le chantier » |
+| Ligne de planning créée depuis le phasage | PhasageV2 → planning | personnalisé |
+| Planning (moteur, assistant planning, planifier une opération, explications) | planningEngineAdapterV1, phasagePlanning, planningOperationV1 | personnalisé |
+| Objectifs de la semaine (lien planning ↔ tâche par le nom) | objectifsSemaine | correspondance : les deux |
+| Validation : liste des tâches, regroupement par ouvrage, choix du cas hors devis | Validation, ChoixCasHorsDevis | personnalisé (+ devis en petit sous la ligne) |
+| Validation : correspondance automatique du nom écrit par l'ouvrier, arbitrage par nom | Validation | les deux (meilleur score) |
+| Tâches hors devis : propositions du cas A, synthèse, décisions du Bilan | horsDevisV2, HorsDevisPhasage | proposition : les deux ; affichage : personnalisé |
+| Phasage : rapports d'une tâche (lien par nom des anciennes tâches) | PhasageV2 | les deux |
+| Bilan : fiche détaillée (tâches résumées par lot), bilan de clôture, décisions | bilanFicheV3, bilanClotureV3, bilanDecisionsV3 | personnalisé |
+| Retours du terrain | retoursTerrainV1 | personnalisé |
+| Fiche chantier (graphiques par ouvrage) | PageChantiers | personnalisé |
+| Commandes à passer (ouvrage du besoin) | PagePlanningCommandes | personnalisé (le rapprochement se fait par identifiant d'ouvrage, pas par nom) |
+| « Tâches souvent ajoutées » de la Bibliothèque | horsDevisV2 | libellé devis de la tâche ajoutée (le même nom d'un chantier à l'autre, comparé au modèle de la bibliothèque) |
+| Export de la fiche Opération (PDF / Markdown) | operationExportModele, operationMarkdown | **devis** (document qui sort de l'application) |
+| Page d'information client, documents de visite | PageInfoClient, generate-visite-docx | **devis** |
+| ProGBat (devis, inventaire, cadences) | progbat*, Edge Functions | **devis** (ne lit pas le phasage) |
+| Chiffrage, bibliothèque | Chiffrage, Bibliotheque | sans objet (avant le phasage) |
+| Écrans ouvriers (Mes phases, préparation, tâches actives, compte rendu) | fonctions serveur `ouvrier_*` | **devis pour l'instant** : ces fonctions renvoient le libellé devis. Les passer au nom personnalisé demande de modifier des fonctions à droits élevés (accord de Loris) — prévu avec le nouveau parcours (CR-3). |
+| Assistant IA Rénovation | api/_ia/renovation | sans objet (ne lit pas les noms de tâches du phasage) |
 
 ## 5. Cahier des charges des étapes
 

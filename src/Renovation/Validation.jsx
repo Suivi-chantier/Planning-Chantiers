@@ -59,6 +59,7 @@ import {
 import { DIVERS_HORS_DEVIS, estOuvrageDivers } from "./compteRenduV2";
 import { demanderRecalculReleve } from "./relevesJournaliersApi";
 import ChoixCasHorsDevis from "./ChoixCasHorsDevis";
+import { libelleOuvrage, nomTache, nomTacheDevis } from "./libellesPhasageV1";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -180,7 +181,7 @@ function scoreSimilariteNom(a, b) {
 function meilleureTachePlan(nomOuvrier, tachesPlan) {
   let best = null;
   for (const t of (tachesPlan || [])) {
-    const s = scoreSimilariteNom(nomOuvrier, t.nom);
+    const s = Math.max(scoreSimilariteNom(nomOuvrier, t.nom), t.nom_devis ? scoreSimilariteNom(nomOuvrier, t.nom_devis) : 0);
     if (!best || s > best.score) best = { tache: t, score: s };
   }
   return best;
@@ -401,7 +402,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
       if (ouvrages.length === 0) return;
       const liste = ouvrages.map(o => ({
-        id: o.id, libelle: String(o.libelle || "").trim() || "(sans libellé)",
+        id: o.id, libelle: libelleOuvrage(o) || "(sans libellé)",
         code: String(o.code_ouvrage || "").trim() || null, divers: estOuvrageDivers(o.libelle),
       }));
       const divers = liste.filter(o => o.divers);
@@ -422,7 +423,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       if (ouvrages.length > 0) {
         // V2 : tâches d'ouvrages, groupées par libellé d'ouvrage (`groupe`).
         ouvrages.forEach(o => (o.taches || []).forEach(t =>
-          taches.push({ id: t.id, nom: t.nom, ouvrage_id: o.id, phase_id: null, groupe: o.libelle || "(sans libellé)", ouvriers: t.ouvriers })
+          taches.push({ id: t.id, nom: nomTache(t), nom_devis: nomTacheDevis(t), ouvrage_id: o.id, phase_id: null, groupe: libelleOuvrage(o) || "(sans libellé)", ouvriers: t.ouvriers })
         ));
       } else {
         // Repli V1 : tâches de plan_travaux, groupées par phase.
@@ -958,10 +959,10 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
               touchedO = true;
               return { ...t, avancement: arbitresParId[tid] };
             }
-            const nom = (t.nom || "").trim().toLowerCase();
-            if (nom && arbitresParNom[nom] != null) {
+            const nomA = [nomTache(t), nomTacheDevis(t)].map(n => n.toLowerCase()).find(n => n && arbitresParNom[n] != null);
+            if (nomA) {
               touchedO = true;
-              return { ...t, avancement: arbitresParNom[nom] };
+              return { ...t, avancement: arbitresParNom[nomA] };
             }
             return t;
           }),
@@ -2122,6 +2123,12 @@ function LigneEditable({
         <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {ligne.planifie || "(sans titre)"}
         </div>
+        {(() => {
+          const tp = ligne.tache_id ? (tachesPlan || []).find(t => String(t.id) === String(ligne.tache_id)) : null;
+          return tp?.nom_devis && tp.nom_devis !== tp.nom
+            ? <div title={tp.nom_devis} style={{ fontSize: 11, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Devis : {tp.nom_devis}</div>
+            : null;
+        })()}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <select
             value={ligne.tache_id || (aCreer ? "__proposee__" : libre ? "__libre__" : "")}

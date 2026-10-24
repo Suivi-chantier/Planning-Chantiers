@@ -1,3 +1,4 @@
+import { libelleOuvrage } from "./libellesPhasageV1.mjs";
 // ─────────────────────────────────────────────────────────────────────────────
 // Bilan de CLÔTURE d'un chantier (refonte du Bilan, étape 3.7).
 //
@@ -55,7 +56,7 @@ export function bilanClotureV3({ releveFin, ouvrages, pointages, ecartCadenceMin
     const cadenceConstatee = reel > 0 && quantite > 0 ? round2(reel / quantite) : null;
     const ecartPct = cadencePrevue > 0 && cadenceConstatee != null ? round2((cadenceConstatee / cadencePrevue - 1) * 100) : null;
     return {
-      id: str(o.id), libelle: str(o.libelle) || "Ouvrage", lot: labelsLots[str(o.lot_id)] || str(o.lot_id) || "Sans lot",
+      id: str(o.id), libelle: str(libelleOuvrage(o)) || "Ouvrage", lot: labelsLots[str(o.lot_id)] || str(o.lot_id) || "Sans lot",
       quantite, unite: str(o.unite), prixHT: num(o.prix_ht),
       heuresPrevues: prevues, heuresReelles: round2(reel), ecartHeures: prevues != null ? round2(reel - prevues) : null,
       cadencePrevue, cadenceConstatee, ecartCadencePct: ecartPct, bibliothequeId: str(o.bibliotheque_id) || null,
