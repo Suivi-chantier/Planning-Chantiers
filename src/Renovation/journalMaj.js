@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "amelioration",
+    titre: "Marge probable : le coefficient d'un lot ne descend plus jamais sous ×1",
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "La marge probable ne peut plus être plus optimiste que la marge à terminaison. Les dérives historiques des anciens chantiers sortaient sous ×1 (électricité ×0,40, cloisons ×0,58) parce que leurs heures étaient mal rattachées aux tâches : elles rendaient la marge probable trop belle sur les chantiers peu avancés.",
+    comment: "Un coefficient constaté ou historique inférieur à 1 est ramené à ×1. Le détail de la marge probable (Phasage) l'indique : « ×0,4 ramenée à ×1 ».",
+  },
+  {
+    date: "2026-10-24",
+    type: "amelioration",
     titre: "Nouvelles alertes : la « perte de marge » est remplacée par la marge probable",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "alertes", label: "Alertes" }, { id: "admin", label: "Réglages" }],
     quoi: "L'ancienne alerte « perte de marge » se déclenchait dès qu'un chantier dépensait plus de 500 € dans la semaine, même quand il gagnait de l'argent. Elle disparaît. Les alertes se calculent maintenant sur les relevés de chaque jour et signalent : une marge probable en baisse de plus de 500 € (avec le ou les lots responsables, en heures et en euros), un lot qui dérive au-delà de ×1,3 à partir de 25 % d'avancement, plus de 10 % d'heures « sans lot », une production par heure anormalement haute (avancement à vérifier), un dépassement d'enveloppe matériaux d'un lot, et toujours la consommation sans avancement. Un chantier repris ne déclenche aucune alerte ; un chantier sans activité dans la semaine ne revient pas avec les mêmes constats.",

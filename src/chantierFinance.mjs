@@ -764,15 +764,19 @@ export function materiauxImputesALAvancement({ ouvrages = [], commandeLignes = [
 //   historique  : sous le seuil → dérive historique du même type de lot
 //                 (chantiers terminés, hors chantiers repris, ≥ N chantiers) ;
 //   aucune      : rien d'applicable → ×1.
+// Jamais sous ×1 (décision de Loris du 24/10/2026) : un coefficient constaté ou
+// historique inférieur à 1 est ramené à ×1 (plancher = true), pour que la
+// marge probable ne soit jamais plus optimiste que la marge à terminaison.
+const bornerCoef = (r, plafond) => Math.max(1, Math.min(r, plafond));
 export function coefficientMargeProbable({ lotId, avancementExact, ratioDerive, neutralisation = null, historique = null, seuils = SEUILS_MARGES_DEFAUT }) {
   const s = normaliserSeuilsMarges(seuils);
   if (neutralisation) return { coefficient: 1, provenance: "neutralisee" };
   if (avancementExact != null && avancementExact >= s.deriveSeuilAvancementPct && ratioDerive != null) {
-    return { coefficient: Math.min(ratioDerive, s.derivePlafond), provenance: "constatee", plafonne: ratioDerive > s.derivePlafond };
+    return { coefficient: bornerCoef(ratioDerive, s.derivePlafond), provenance: "constatee", plafonne: ratioDerive > s.derivePlafond, plancher: ratioDerive < 1, coefficientBrut: ratioDerive };
   }
   const h = historique?.[lotId];
   if (h && Number.isFinite(h.coef) && (h.nbChantiers || 0) >= s.historiqueMinChantiers) {
-    return { coefficient: Math.min(h.coef, s.derivePlafond), provenance: "historique", nbChantiers: h.nbChantiers };
+    return { coefficient: bornerCoef(h.coef, s.derivePlafond), provenance: "historique", nbChantiers: h.nbChantiers, plafonne: h.coef > s.derivePlafond, plancher: h.coef < 1, coefficientBrut: h.coef };
   }
   return { coefficient: 1, provenance: "aucune" };
 }
@@ -971,7 +975,7 @@ export const METHODE_CALCUL = [
     formule: "Lot par lot : min( commandes de matériaux du lot − enveloppe du lot × avancement, enveloppe × (1 − avancement) ), jamais moins de 0. Ce sont des achats anticipés dans la limite de l'enveloppe : ils seront imputés au fur et à mesure de l'avancement",
     source: "Lignes de commande (nature matériaux) + enveloppes matériaux des lots + avancement" },
   { cle: "margeProbable", label: "Marge probable", projection: true,
-    formule: "« Si on continue au rythme actuel » : comme la marge à terminaison, mais les heures restantes de chaque lot sont multipliées par un coefficient : la dérive constatée du lot quand son avancement atteint le seuil réglé dans Admin (25 % par défaut), plafonnée (×5 par défaut) ; sous le seuil, la dérive moyenne de ce type de lot sur les chantiers terminés (pondérée par les heures, chantiers repris exclus, au moins 2 chantiers) ; à défaut ×1 ; ×1 aussi quand le conducteur a neutralisé la dérive du lot (avec un commentaire). Marge probable = marge à terminaison − Σ lots (heures restantes probables − heures restantes prévues) × (taux MO prévisionnel + taux de frais généraux en vigueur). Les heures « sans lot » restent dans les coûts réels, sans coefficient",
+    formule: "« Si on continue au rythme actuel » : comme la marge à terminaison, mais les heures restantes de chaque lot sont multipliées par un coefficient : la dérive constatée du lot quand son avancement atteint le seuil réglé dans Admin (25 % par défaut), plafonnée (×5 par défaut) et jamais inférieure à ×1 ; sous le seuil, la dérive moyenne de ce type de lot sur les chantiers terminés (pondérée par les heures, chantiers repris exclus, au moins 2 chantiers), elle aussi ramenée à ×1 si elle est inférieure ; à défaut ×1 ; ×1 aussi quand le conducteur a neutralisé la dérive du lot (avec un commentaire). Marge probable = marge à terminaison − Σ lots (heures restantes probables − heures restantes prévues) × (taux MO prévisionnel + taux de frais généraux en vigueur). Les heures « sans lot » restent dans les coûts réels, sans coefficient",
     source: "Marge à terminaison, dérives des lots, dérives historiques des chantiers terminés, réglages Admin" },
   { cle: "deriveLotHeuresEuros", label: "Dérive d'un lot en heures et en euros",
     formule: "Heures attendues à cet avancement = heures prévues du lot × avancement exact ; écart en heures = heures réelles comparables − heures attendues ; écart en euros = écart en heures × (coût horaire réel moyen de la main-d'œuvre du lot + taux de frais généraux en vigueur). Le ratio ×N (heures réelles ÷ heures attendues) reste affiché à côté",
@@ -1150,6 +1154,7 @@ export function computeChantierFinance({
       heuresRestantesPrevues, heuresRestantesProbables,
       coefficient: coef.coefficient, provenanceCoefficient: coef.provenance,
       ...(coef.plafonne ? { coefficientPlafonne: true } : {}),
+      ...(coef.plancher ? { coefficientPlancher: true, coefficientBrut: coef.coefficientBrut } : {}),
       ...(coef.nbChantiers ? { nbChantiersHistorique: coef.nbChantiers } : {}),
       neutralisation: neutr,
       ecartProbableEuros: (heuresRestantesProbables - heuresRestantesPrevues) * tauxHoraireProjete,
@@ -1850,6 +1855,7 @@ export function computeChantierFinance({
       ...lotsAvecCoef.map(l => ({
         main: l.label,
         sub: `${fmtH(l.heuresRestantesPrevues)} h restantes ${fmtCoef(l.coefficient)} = ${fmtH(l.heuresRestantesProbables)} h · ${LIBELLES_PROVENANCE_COEF[l.provenanceCoefficient]}`
+          + (l.coefficientPlancher ? ` (${fmtCoef(l.coefficientBrut)} ramenée à ×1 : jamais sous ×1)` : "")
           + (l.neutralisation ? ` (« ${l.neutralisation.commentaire} »)` : ""),
         right: `${l.ecartProbableEuros > 0.5 ? "− " : l.ecartProbableEuros < -0.5 ? "+ " : ""}${eur(Math.abs(l.ecartProbableEuros))}`,
         rightColor: l.ecartProbableEuros > 0.5 ? "#e15a5a" : l.ecartProbableEuros < -0.5 ? "#22c55e" : null,

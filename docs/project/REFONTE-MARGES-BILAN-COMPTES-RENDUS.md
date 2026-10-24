@@ -231,6 +231,16 @@ chaque étape.
   par lot serait fausse (×0,0 à ×0,4). Ils sont exclus du calcul des dérives
   historiques, comme un chantier repris.
 
+- **24/10/2026 — Coefficient de la marge probable : jamais sous ×1.** Les
+  dérives historiques réelles sortaient sous ×1 (Électricité ×0,40, Murs
+  cloisons ×0,58), ce qui rendait la marge probable plus optimiste que la marge
+  à terminaison (LOUISON APPT 3 : 15 808 € contre 11 028 €). Réponse de Loris :
+  le coefficient ne descend jamais sous ×1, ni constaté ni historique (plancher
+  ×1 en plus du plafond ×5). Appliqué en tête de l'étape 3 (3.0).
+- **24/10/2026 — Chantier repris.** Réponse de Loris : il cochera lui-même
+  « chantier repris » sur les trois TOM & CAMILLE ; rien n'est coché
+  automatiquement.
+
 ### Comptes rendus des étapes
 
 _(Ajouter ici, pour chaque étape terminée, le compte rendu en langage métier.)_
