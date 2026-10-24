@@ -49,11 +49,11 @@ const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").repla
 async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   const parChantierId = (q) => (chantierId ? q.eq("chantier_id", chantierId) : q);
 
-  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux, cfgFG] = await Promise.all([
+  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux, cfgFG, achats] = await Promise.all([
     fetchAll(supabase, "phasages", "*", parChantierId),
     fetchAll(supabase, "pointages", "*", parChantierId),
     fetchAll(supabase, "commande_lignes",
-      "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, ouvrage_id, chantier_id, created_at",
+      "id, libelle, reference, quantite, unite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at",
       parChantierId),
     fetchAll(supabase, "facture_couts_chantiers", "id,chantier_id,montant_ht,nature,date_imputation", parChantierId),
     fetchAll(supabase, "avoirs_fournisseurs_imputations", "id,chantier_id,montant_ht,date_imputation,factures!inner(statut)", (q) => parChantierId(q).eq("factures.statut", "rapprochee")),
@@ -63,7 +63,11 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
     supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
     fetchAll(supabase, "materiaux_bibliotheque", "id, prix_unitaire"),
     supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
+    // Lots « achats terminés » : reste à commander à 0 (étape 1B).
+    fetchAll(supabase, "achats_lots_termines", "id, chantier_id, lot_id, termine_le, termine_par", parChantierId),
   ]);
+  const achatsParChantier = {};
+  achats.forEach(a => { (achatsParChantier[a.chantier_id] ||= []).push(a); });
   const tauxHoraires = cfgTaux.data?.value || {};
   // Barème daté des frais généraux (Admin) ; absent = défaut du module.
   const tauxFG = cfgFG.data?.value ?? null;
@@ -83,13 +87,15 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   // Écritures distinctes : jamais de réécriture des commandes ni de double ajout.
   avoirs.forEach(c => {
     (clByChantier[c.chantier_id] ||= []).push({ id: `avoir-${c.id}`, chantier_id: c.chantier_id,
-      libelle: "Avoir fournisseur", prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` });
+      libelle: "Avoir fournisseur", prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z`,
+      // Ajustement de facture, pas une commande : coût réel, hors enveloppe matériaux.
+      nature: "autre" });
   });
   factureCouts.forEach(c => {
     if (!c.chantier_id) return;
     (clByChantier[c.chantier_id] ||= []).push({ id: `facture-cout-${c.id}`, chantier_id: c.chantier_id,
       libelle: c.nature === 'frais' ? 'Frais de facture fournisseur' : 'Écart de facture fournisseur',
-      prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` });
+      prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z`, nature: "autre" });
   });
 
   // UN SEUL phasage par chantier : la table peut contenir des doublons de
@@ -140,6 +146,7 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
     tauxHoraires, tauxMOPrev, lots,
     pctFacture: pctFactureDe(ph), materiauxById,
     tauxFG, aujourdhui: surcharge.aujourdhui || null,
+    achatsTermines: achatsParChantier[ph.chantier_id] || [],
   });
 
   return {

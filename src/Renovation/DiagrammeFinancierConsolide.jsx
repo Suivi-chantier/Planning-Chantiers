@@ -21,6 +21,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabase";
 import { computeChantierFinance } from "../chantierFinance";
+import { lireToutParTranches } from "./lectureParTranches";
+import { chargerAchatsTermines, achatsTerminesParChantier } from "./achatsLotsTermines";
 import {
   seriesReellesChantier, consoliderSeries, fusionnerSeriesPourGraphe,
   rapprochementEtatsChantiers,
@@ -44,16 +46,21 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
     let actif = true;
     (async () => {
       const erreurs = [];
-      const [phRes, ptsRes, clRes, fcRes, avoirRes, cfgRes] = await Promise.all([
+      const [phRes, ptsRes, clRes, fcRes, avoirRes, cfgRes, achatsRes] = await Promise.all([
         supabase.from("phasages").select("id, chantier_id, chantier_nom, ouvrages, plan_travaux, prix_vendu, updated_at"),
-        supabase.from("pointages").select("*"),
-        supabase.from("commande_lignes")
-          .select("id, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)"),
+        // Par tranches : au-delà de 1 000 lignes, une lecture d'un coup est
+        // tronquée sans erreur (2 445 pointages et 1 692 lignes au 24/10/2026).
+        lireToutParTranches((a, b) => supabase.from("pointages").select("*").order("id").range(a, b)),
+        lireToutParTranches((a, b) => supabase.from("commande_lignes")
+          .select("id, quantite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)")
+          .order("id").range(a, b)),
         supabase.from("facture_couts_chantiers").select("id,chantier_id,montant_ht,nature,date_imputation"),
         supabase.from("avoirs_fournisseurs_imputations").select("id,chantier_id,montant_ht,date_imputation,factures!inner(statut)").eq("factures.statut","rapprochee"),
         supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "fg_taux_horaires"]),
+        chargerAchatsTermines(),
       ]);
-      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["corrections factures", fcRes], ["avoirs fournisseurs", avoirRes], ["réglages", cfgRes]]
+      const achatsParCh = achatsTerminesParChantier(achatsRes.data);
+      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["corrections factures", fcRes], ["avoirs fournisseurs", avoirRes], ["réglages", cfgRes], ["lots « achats terminés »", achatsRes]]
         .forEach(([nom, r]) => { if (r.error) erreurs.push(`${nom} : ${r.error.message}`); });
 
       // Un phasage par chantier : le plus récent (même règle que le cron).
@@ -74,10 +81,11 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
       const clByChantier = {};
       (clRes.data || []).forEach((l) => { (clByChantier[l.chantier_id] ||= []).push(l); });
       (avoirRes.data || []).forEach((c) => { (clByChantier[c.chantier_id] ||= []).push({ id: `avoir-${c.id}`, chantier_id: c.chantier_id,
-        libelle: "Avoir fournisseur", prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` }); });
+        libelle: "Avoir fournisseur", prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z`, nature: "autre" }); });
       (fcRes.data || []).forEach((c) => { (clByChantier[c.chantier_id] ||= []).push({ id: `facture-cout-${c.id}`, chantier_id: c.chantier_id,
         libelle: c.nature === "frais" ? "Frais de facture fournisseur" : "Écart de facture fournisseur",
-        prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z` }); });
+        prix_total: Number(c.montant_ht), created_at: `${c.date_imputation}T12:00:00Z`, nature: "autre" }); });
+      // (Avoirs et écarts de facture : nature « autre » — coûts réels, hors enveloppe matériaux.)
 
       // Références figées courantes, en UNE requête (.in).
       const refsRes = await loadReferencesFinancieres(phasages.map((ph) => ph.chantier_id));
@@ -87,7 +95,8 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
         const pointages = ptsByChantier[ph.chantier_id] || [];
         const commandeLignes = clByChantier[ph.chantier_id] || [];
         const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots: [],
-          tauxFG: cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10) });
+          tauxFG: cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10),
+          achatsTermines: achatsParCh[ph.chantier_id] || [] });
         const reelles = seriesReellesChantier({
           finance, pointages, commandeLignes, etatsFinanciers,
           chantierNom: ph.chantier_nom || ph.chantier_id,

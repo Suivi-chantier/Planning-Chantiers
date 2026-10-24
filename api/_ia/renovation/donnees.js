@@ -30,6 +30,8 @@ const TABLES_AUTORISEES = new Set([
   "facture_couts_chantiers",
   "avoirs_fournisseurs_imputations",
   "materiaux_bibliotheque",
+  // Lots « achats terminés » (reste à commander par enveloppe, étape 1B)
+  "achats_lots_termines",
   // Réglages (taux, lots, états financiers) et liste des chantiers
   "planning_config",
   // Relevés hebdomadaires, lus par les alertes

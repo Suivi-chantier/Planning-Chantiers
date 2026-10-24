@@ -918,7 +918,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="capture-cmd"        && (canAccess(role,"capture-cmd")        ? <PageCaptureCommandeMobile chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="capture-cmd"/>)}
           {p==="rapprochement"      && (canAccess(role,"rapprochement")      ? <PageRapprochementFactures T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="rapprochement"/>)}
           {p==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
-          {p==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
+          {p==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
           {p==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")}/> : <AccesRefuse T={T} page="equipe"/>)}
           {p==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
           {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}

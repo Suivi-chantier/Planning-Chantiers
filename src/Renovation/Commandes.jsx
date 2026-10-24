@@ -3,6 +3,8 @@ import { supabase, invoquerFonction } from "../supabase";
 import { chargerTousLesMateriaux } from "./chargerMateriaux";
 import { filtrerListeChoix } from "./materiauxCatalogueV1.js";
 import { repartirRemiseGlobale } from "./prixLignesAchat.js";
+import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
+import { lireToutParTranches } from "./lectureParTranches";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
@@ -366,6 +368,7 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
         materiau_id: tryMatchBiblio(l.designation, l.reference),
         phasage_id: "",
         lot_id: "",
+        nature: "materiaux",
       }));
 
       setLignes(lignesInit);
@@ -392,6 +395,10 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
   const handleImport = async () => {
     const toImport = lignes.filter(l => l.selected && l.designation.trim());
     if (toImport.length === 0) return;
+    // Lot obligatoire pour une ligne rattachée à un chantier (enveloppe matériaux).
+    const sansLot = lignesChantierSansLot(toImport, (l) => l.phasage_id || null);
+    if (sansLot.length > 0) { setErreur(messageLotObligatoire(sansLot.length)); return; }
+    setErreur("");
     setImporting(true);
     await onImport(toImport, fournisseurGlobal);
     setImporting(false);
@@ -705,6 +712,13 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
                               T={T}
                               compact
                             />
+                            {l.phasage_id && !l.lot_id && (
+                              <div style={{ fontSize: 10, color: "#e15a5a", fontWeight: 700, marginTop: 3 }}>Lot obligatoire</div>
+                            )}
+                            <select value={natureSaisie(l.nature)} onChange={e => updateLigne(l._id, "nature", e.target.value)}
+                              style={{ marginTop: 4, background: "#12162a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "5px 8px", color: P.text, fontFamily: "inherit", fontSize: 12, outline: "none", width: "100%", boxSizing: "border-box" }}>
+                              {NATURES_COUT.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}
+                            </select>
                           </div>
                         </div>
                       </div>
@@ -729,6 +743,9 @@ function ModaleImport({ onClose, onImport, materiaux, phasages, chantiers, lots,
                   fontFamily: "inherit", fontSize: 13, cursor: "pointer",
                 }}>← Reprendre</button>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                {step === "validation" && erreur && (
+                  <span style={{ fontSize: 12, color: "#e15a5a", fontWeight: 700, maxWidth: 360 }}>{erreur}</span>
+                )}
                 <span style={{ fontSize: 13, color: P.textMuted }}>
                   {nbSelected} ligne{nbSelected > 1 ? "s" : ""} à importer
                 </span>
@@ -970,10 +987,13 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     if (!silencieux) setLoading(true);
     // Nouveau modèle : une "ligne" d'affichage = une commande_ligne, enrichie
     // de l'en-tête commande (fournisseur, statuts, notes…).
-    const { data } = await supabase
+    // Par tranches : au-delà de 1 000 lignes, une lecture d'un coup s'arrête
+    // sans erreur — triées des plus anciennes aux plus récentes, ce sont les
+    // DERNIÈRES commandes qui disparaissaient de la page.
+    const { data } = await lireToutParTranches((a, b) => supabase
       .from("commande_lignes")
-      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, lot_id, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at)")
-      .order("created_at", { ascending: true });
+      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, lot_id, nature, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at)")
+      .order("created_at", { ascending: true }).order("id", { ascending: true }).range(a, b));
     if (data) {
       setRows(data.map(l => {
         const c = l.commande || {};
@@ -992,6 +1012,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           phasage_id:        l.phasage_id || null,
           phase_id:          l.phase_id || "",
           lot_id:            l.lot_id || "",
+          nature:            natureSaisie(l.nature),
           notes:             c.notes || "",
           ouvrier_demandeur: c.saisi_par || "",
           priorite:          "normal",
@@ -1055,6 +1076,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         phasage_id:  l.phasage_id || null,
         phase_id:    l.phase_id || null,
         lot_id:      l.lot_id || null,
+        nature:      natureSaisie(l.nature),
       };
     });
     await supabase.from("commande_lignes").insert(payload);
@@ -1072,12 +1094,15 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     const statut = row.statut || "a_completer";
     const qNum = toNum(row.quantite);
     const pNum = toNum(row.prix_ht);
+    // Lot obligatoire pour une ligne rattachée à un chantier (enveloppe matériaux).
+    if (lignesChantierSansLot([row]).length > 0) { alert(messageLotObligatoire(1)); return; }
     if (editRow) {
       // Mise à jour : ligne + en-tête de la commande parente.
       const { error } = await supabase.from("commande_lignes").update({
         libelle: row.article || "", quantite: qNum, prix_total: pNum,
         materiau_id: row.materiau_id || null, chantier_id: row.chantier_id || null,
         phasage_id: row.phasage_id || null, phase_id: row.phase_id || null, lot_id: row.lot_id || null,
+        nature: natureSaisie(row.nature),
       }).eq("id", editRow);
       if (error) { alert("Erreur sauvegarde : " + error.message); load(); return; }
       if (row.commande_id) {
@@ -1100,6 +1125,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         commande_id: cmd.id, libelle: row.article || "", quantite: qNum, prix_total: pNum,
         materiau_id: row.materiau_id || null, chantier_id: row.chantier_id || null,
         phasage_id: row.phasage_id || null, phase_id: row.phase_id || null, lot_id: row.lot_id || null,
+        nature: natureSaisie(row.nature),
       });
     }
     setEditRow(null); setNewRow(null); setEditDraft(null);
@@ -1205,6 +1231,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     if (!modaleCommande) return;
     const { row } = modaleCommande;
     const prix = parseFloat(modalePrix) || null;
+    if (modalePhaseId && !modaleLotId) { alert(messageLotObligatoire(1)); return; }
     const lineUpdate = { prix_total: prix };
     if (modalePhaseId) {
       lineUpdate.phasage_id = modalePhaseId;
@@ -1241,6 +1268,20 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
         .map(([phId]) => ({ phId }))
     : [];
   const phasesModale = phasesAvecTaches.length ? phasesAvecTaches : PHASES_DEFAUT.map(p => ({ phId: p.id }));
+
+  // Lot (obligatoire dès qu'un chantier est choisi) + nature du coût.
+  const renderLotNatureEditor = (draft, setDraft, style) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+      <select value={draft.lot_id || ""} onChange={e => setDraft(p => ({ ...p, lot_id: e.target.value }))}
+        style={{ ...style, borderColor: draft.chantier_id && !draft.lot_id ? "#e15a5a" : undefined }}>
+        <option value="">{draft.chantier_id ? "— Lot (obligatoire) —" : "— Lot —"}</option>
+        {lots.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+      </select>
+      <select value={natureSaisie(draft.nature)} onChange={e => setDraft(p => ({ ...p, nature: e.target.value }))} style={style}>
+        {NATURES_COUT.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}
+      </select>
+    </div>
+  );
 
   const renderBiblioRowEditor = (draft, setDraft) => (
     <div style={{ marginBottom: 4 }}>
@@ -1359,7 +1400,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                       background: T.inputBg, color: modaleLotId ? T.text : T.textMuted,
                       fontFamily: "inherit", fontSize: 13, outline: "none",
                     }}>
-                    <option value="">— Choisir un lot —</option>
+                    <option value="">— Choisir un lot (obligatoire) —</option>
                     {lots.map(l => (
                       <option key={l.id} value={l.id}>{l.label}</option>
                     ))}
@@ -1596,6 +1637,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                     <option value="">— Chantier —</option>
                     {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                   </select>
+                  {renderLotNatureEditor(editDraft, setEditDraft, { background: "#1e2336", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: "#e8eaf0", fontFamily: "inherit", fontSize: 12, width: "100%", outline: "none" })}
                 </td>
                 <td style={{ padding: "8px 10px" }}>
                   {renderBiblioRowEditor(editDraft, setEditDraft)}
@@ -1674,6 +1716,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                       <option value="">— Chantier —</option>
                       {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                     </select>
+                    {renderLotNatureEditor(editDraft, setEditDraft, { background: "#1e2336", border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", color: "#e8eaf0", fontFamily: "inherit", fontSize: 12, width: "100%", outline: "none" })}
                   </td>
                   <td style={{ padding: "8px 10px" }}>
                     {renderBiblioRowEditor(editDraft, setEditDraft)}
@@ -1859,6 +1902,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
                 <option value="">— Chantier —</option>
                 {chantiers.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
               </select>
+              {renderLotNatureEditor(editDraft, setEditDraft, field)}
             </div>
             <div><label style={lbl}>Article</label>
               {renderBiblioRowEditor(editDraft, setEditDraft)}

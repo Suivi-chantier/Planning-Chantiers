@@ -56,6 +56,8 @@ import { exporterDiagrammePDF } from "./diagrammeFinancierPdf";
 // financière n'y entre — c'est un document de terrain, pas de pilotage.
 import { buildPreparationDocHTML } from "./preparationChantierDoc";
 import { sauvegarderPhasage, MESSAGE_ERREUR_ECRITURE } from "./phasageEcriture.mjs";
+import { lireToutParTranches } from "./lectureParTranches";
+import { chargerAchatsTermines, achatsTerminesParChantier } from "./achatsLotsTermines";
 // Le rendu recharts du diagramme est chargé à la demande (React.lazy) pour
 // que le chunk "charts" ne pèse pas sur l'ouverture de la page Chantiers.
 const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierChart"));
@@ -1352,7 +1354,7 @@ function totalLignes(lignes) {
     (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
 }
 
-function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0, tauxFG = null) {
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0, tauxFG = null, achatsTermines = []) {
   const ouvrages = phasage?.ouvrages || [];
   const hasV2 = ouvrages.length > 0;
   if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, fg: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0, ecartVendu: null, fin: null };
@@ -1364,7 +1366,7 @@ function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraSt
   if (hasV2) {
     const fin = computeChantierFinance({
       phasage, pointages: pointagesChantier, commandeLignes, tauxHoraires, tauxMOPrev, lots: [],
-      tauxFG, aujourdhui: new Date().toISOString().slice(0, 10),
+      tauxFG, aujourdhui: new Date().toISOString().slice(0, 10), achatsTermines,
     });
     const b = fin.brut;
     return {
@@ -1766,6 +1768,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Source de vérité depuis la refonte commandes (cf. PhasageV2), remplace
   // l'estimation ouvrages[].cout_materiaux pour le "réel".
   const [commandeLignes, setCommandeLignes] = useState([]);
+  const [achatsParCh, setAchatsParCh] = useState({}); // { chantier_id: [lots « achats terminés »] }
   const [lightboxGal, setLightboxGal]     = useState(null);
   const [loadingTous, setLoadingTous]   = useState(false);
   const fileInputRef                    = useRef(null);
@@ -1788,7 +1791,9 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
       const { data, error } = await supabase.from("phasages").select("*");
       // Charge les pointages en parallèle. Si la table n'existe pas, on garde []
       // — calcFinances retombera sur le repli legacy automatiquement.
-      const { data: pts, error: ptsErr } = await supabase.from("pointages").select("*");
+      // Par tranches : au-delà de 1 000 pointages, une lecture d'un coup est
+      // tronquée sans erreur (et les coûts de la page avec).
+      const { data: pts, error: ptsErr } = await lireToutParTranches((a, b) => supabase.from("pointages").select("*").order("id").range(a, b));
       if (ptsErr?.code === "42P01") setPointages([]);
       else setPointages(pts || []);
       if (error) {
@@ -1834,12 +1839,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // soient justes. Si la table n'existe pas encore, on garde [].
   useEffect(() => {
     let cancelled = false;
-    supabase.from("commande_lignes")
-      .select("id, quantite, prix_unitaire, prix_total, lot_id, ouvrage_id, chantier_id")
+    // Par tranches (plus de 1 000 lignes en base) ; lot et nature servent au
+    // reste à commander par enveloppe de lot (chantierFinance).
+    lireToutParTranches((a, b) => supabase.from("commande_lignes")
+      .select("id, quantite, prix_unitaire, prix_total, lot_id, nature, ouvrage_id, chantier_id").order("id").range(a, b))
       .then(({ data, error }) => {
         if (cancelled) return;
         setCommandeLignes(error ? [] : (data || []));
       });
+    // Lots « achats terminés » (reste à commander à 0) ; lecture échouée → aucun.
+    chargerAchatsTermines().then(({ data }) => { if (!cancelled) setAchatsParCh(achatsTerminesParChantier(data)); });
     return () => { cancelled = true; };
   }, []);
 
@@ -2104,7 +2113,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Rechargement après une écriture du bloc Facturation (insert, encaissement,
   // suppression) : une seule source, la base — on ne recopie pas l'état local.
   const rechargerFactures = async () => setRechargeFactures(n => n + 1);
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev, tauxFG) : null;
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev, tauxFG, achatsParCh[selectedPhasage.chantier_id] || []) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // ─── DOSSIER DE PRÉPARATION (PDF papier pour l'équipe) ──────────────────────
@@ -2607,7 +2616,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             if (!ph) return;
             const ptsCh = pointages.filter(p => p.chantier_id === ph.chantier_id);
             const cmdCh = commandeLignes.filter(l => l.chantier_id === ph.chantier_id);
-            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh, tauxMOPrev, tauxFG);
+            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh, tauxMOPrev, tauxFG, achatsParCh[ph.chantier_id] || []);
             caTotal += f.prixVendu || 0;
             margeTotal += f.marge || 0;
           });
@@ -2711,7 +2720,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               const ptsIdx  = indexPointagesParTache(ptsCh);
               const extras  = sumLibreEtIndirect(ptsCh);
               const cmdCh   = phasage ? commandeLignes.filter(l => l.chantier_id === phasage.chantier_id) : [];
-              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh, tauxMOPrev, tauxFG) : null;
+              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh, tauxMOPrev, tauxFG, achatsParCh[phasage.chantier_id] || []) : null;
               const photo   = photoMap[chantier.id];
               const statut  = getStatut(chantier, phasage);
 

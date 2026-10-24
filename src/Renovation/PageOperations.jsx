@@ -22,6 +22,7 @@ import { loadOperations, loadGroupesTypes, loadEquipes, FONT, RADIUS, getBranchA
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar } from "../mobileUI";
 import { computeChantierFinance, eur, fmtH, couleurMarge } from "../chantierFinance";
+import { chargerAchatsTermines, achatsTerminesParChantier } from "./achatsLotsTermines";
 import { seriesReellesChantier, consoliderSeries, fusionnerSeriesPourGraphe } from "./diagrammeFinancier";
 import { loadReferencesFinancieres } from "./referenceFinanciere";
 import { KpiCard } from "./chantierFinanceUI";
@@ -217,17 +218,18 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
     let actif = true;
     (async () => {
       const erreurs = [];
-      const [ops, phRes, ptsRes, clRes, cfgRes] = await Promise.all([
+      const [ops, phRes, ptsRes, clRes, cfgRes, achatsRes] = await Promise.all([
         loadOperations(),
         // select("*") volontaire : évite d'échouer si une colonne manque dans
         // le schéma de cette instance (même précaution que la fiche Chantier).
         supabase.from("phasages").select("*"),
         fetchTout("pointages", "*"),
         fetchTout("commande_lignes",
-          "id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at, fournisseur_nom)"),
+          "id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, lot_id, nature, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at, fournisseur_nom)"),
         supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "lots_travaux", "fg_taux_horaires"]),
+        chargerAchatsTermines(),
       ]);
-      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["réglages", cfgRes]]
+      [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["réglages", cfgRes], ["lots « achats terminés »", achatsRes]]
         .forEach(([nom, r]) => { if (r.error) erreurs.push(`${nom} : ${r.error.message}`); });
 
       // Un phasage par chantier : le plus récent (même règle que le cron snapshot).
@@ -252,7 +254,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       // `phasages` (filtré sur les phasages chiffrés) alimente les calculs ;
       // `parChantier` garde AUSSI les phasages vides, dont l'export Markdown a
       // besoin pour dire « ce chantier n'a pas de phasage exploitable ».
-      setEtat({ charge: true, phasages, phasagesParChantier: parChantier, ptsByChantier, clByChantier, cfg, refsParChantier: refsRes.parChantier || {}, erreurs });
+      setEtat({ charge: true, phasages, phasagesParChantier: parChantier, ptsByChantier, clByChantier, cfg, refsParChantier: refsRes.parChantier || {}, erreurs,
+        achatsParChantier: achatsTerminesParChantier(achatsRes.data) });
     })();
     return () => { actif = false; };
   }, []);
@@ -271,7 +274,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       const pointages = etat.ptsByChantier[ph.chantier_id] || [];
       const commandeLignes = etat.clByChantier[ph.chantier_id] || [];
       const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
-        tauxFG: etat.cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10) });
+        tauxFG: etat.cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10),
+        achatsTermines: etat.achatsParChantier?.[ph.chantier_id] || [] });
       const reelles = seriesReellesChantier({
         finance, pointages, commandeLignes, etatsFinanciers,
         chantierNom: ph.chantier_nom || ph.chantier_id,
