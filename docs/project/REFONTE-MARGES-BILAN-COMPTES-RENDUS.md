@@ -200,7 +200,7 @@ chaque étape.
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ✅ En ligne | 2026-10-24 | Libellés personnalisés d'ouvrages et de tâches (à côté du libellé devis, inventaire complet des usages) ; pièces du chantier : liste, rattachement de plusieurs tâches, filtre et regroupement, duplication par pièce à heures conservées. Aucune migration. Écrans ouvriers : libellé devis jusqu'au CR-3. Voir « CR-2 ». |
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
-| 9 | CR-5 — Refonte de la page de validation | ⏳ À faire | | |
+| 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
 
 ### Journal des décisions
 
@@ -383,6 +383,8 @@ chaque étape.
   existants la voient, Bilan compris). (7) Demande de matériel détectée :
   ouvre la demande de matériel existante avec la recherche préremplie
   (l'ouvrier choisit l'article et la quantité).
+
+- **25/10/2026 — CR-5 : choix techniques.** (1) Écarts et couleurs calculés par un module pur (`validationJourneeV1.mjs`) ; rouge = bloquée, tâche créée, heures sans tâche du phasage ; orange = dépassement, prévue non faite, désaccord avec un collègue, tâche déjà terminée, journée hors norme, ouvrier non planifié, total différent de l'attendu. (2) « Valider » direct = la validation de la fenêtre sans retouche, réservé aux comptes rendus comme prévu dont chaque ligne est rattachée à une tâche du phasage suivie en pourcentage. (3) Comptes rendus non envoyés : la fonction des relevés journaliers (`comptesRendusAttendus`), pour que « non envoyé » ici = « journée incomplète » au Bilan. (4) Avancement retenu d'une tâche faite à plusieurs : gardé par la page tant qu'elle est ouverte, appliqué aux comptes rendus validés ensuite (aucune nouvelle table). (5) Coût d'un dépassement : heures en trop × (coût moyen d'une heure de main-d'œuvre sur la tâche, à défaut le taux de l'ouvrier, + frais généraux du jour). (6) Compteur des tâches regroupées : module du suivi qualité (CR-1) sur les comptes rendus validés du mois. (7) Trois mises en ligne : journée (#177), détail (#178), répartition (#179).
 
 ### Comptes rendus des étapes
 
@@ -1151,6 +1153,263 @@ les photos du chantier, jamais exigée) ; ancien formulaire inchangé.
 - Rien n'a été essayé sur un vrai téléphone d'ouvrier : le comportement du
   micro sur iPhone en application installée est à confirmer au premier
   usage (le repli clavier est là dans tous les cas).
+
+#### CR-5 — Refonte de la page de validation (25/10/2026, en ligne)
+
+**Mises en ligne.** Trois demandes de fusion, chacune en ligne avant la
+suivante, contrôles verts à chaque fois : 1/3 page de la journée (#177),
+2/3 détail d'un compte rendu (#178), 3/3 répartition d'une tâche regroupée
+(#179). Aucune migration, aucun droit d'accès modifié.
+
+**Ce qui change pour Loris (Validation fin de journée, sur ordinateur).**
+- *La page de la journée.* En haut, la date avec des flèches jour précédent /
+  suivant, et un rappel des jours précédents qui ont encore des comptes rendus
+  à valider (« lun. 19 · 2 comptes rendus », cliquable). Un résumé : à valider
+  (dont avec écarts), validés (heures enregistrées), non envoyés (qui et sur
+  quel chantier), heures déclarées sur heures attendues, et une barre de
+  progression de la journée. Regroupement par chantier (par défaut) ou par
+  ouvrier, case « Écarts seulement », légende : gris = comme prévu,
+  orange = écarts à regarder, rouge = à arbitrer.
+- *Une ligne par compte rendu, lisible sans l'ouvrir* : l'ouvrier, le badge
+  « Comme prévu » / « N écarts » / « À arbitrer », les tâches en étiquettes
+  avec leur état, les écarts écrits en clair (dépassement d'heures avec les
+  chiffres et le motif, tâche créée et son motif, tâche bloquée avec motif et
+  remarque, tâche prévue non faite et pourquoi, désaccord avec un collègue,
+  journée différente de l'attendu, ouvrier non planifié), les vignettes des
+  photos et les heures. Bouton « Valider » direct seulement pour un compte
+  rendu « comme prévu » sans anomalie ; sinon « Ouvrir et valider ». Pas de
+  « tout valider d'un clic ».
+- *Tâche faite à plusieurs avec des états différents* : un encart en haut du
+  chantier la montre une seule fois (« Davy : en cours 50 % · Kev :
+  terminée »), avec « Avancement retenu » et « Appliquer aux deux » : la
+  valeur est reportée dans les comptes rendus des deux ouvriers.
+- *Compte rendu attendu mais non envoyé* : encart en pointillés rouges dans le
+  chantier, qui rappelle que la journée de ce chantier reste « incomplète » au
+  Bilan. C'est la même règle que les relevés journaliers (ouvriers planifiés
+  sur le chantier ce jour-là, hors absences) : le chiffre affiché ici est celui
+  du Bilan.
+- *Le détail d'un compte rendu* s'ouvre en grand : « Retour à la journée »,
+  « Ouvrier · Chantier », date et heure d'envoi, badge, « Compte rendu 2 sur
+  5 », « Valider », et le bouton principal « Valider et passer au suivant ·
+  [ouvrier] » (on ne passe au suivant que si la validation a réussi). Pour
+  chaque tâche : le chemin lot › ouvrage, le libellé devis en petit, une barre
+  de budget (heures pointées avant aujourd'hui, heures du jour de chaque
+  ouvrier, trait des heures prévues, dépassement en rouge avec son coût estimé
+  = heures en trop × (coût moyen d'une heure de main-d'œuvre sur la tâche +
+  frais généraux du jour), la méthode de l'étape 2), et l'avancement avant →
+  déclaré par chaque ouvrier → retenu (modifiable). La remarque reformulée
+  garde son lien « Voir le texte dicté d'origine ». Colonne de droite : la
+  journée de l'ouvrier (tous ses chantiers, trajets, heures indirectes, total
+  comparé à la journée attendue), les autres comptes rendus du chantier avec
+  leur statut (cliquables), les photos de fin de journée, et les corrections
+  (changer le chantier du compte rendu, ajouter une tâche).
+- *Répartir une tâche regroupée* : le bouton « Découper » d'une ligne ouvre
+  « Répartir sur les tâches du phasage ». En haut, ce que l'ouvrier a déclaré
+  (intitulé, heures, texte dicté, motif, photos) et le compteur « 3e tâche
+  regroupée de Steven ce mois-ci ». Une proposition tirée du texte dicté et du
+  planning du jour, qui dit pourquoi chaque tâche est proposée (« prévue au
+  planning ce jour-là », « le texte parle de « bandes » », « tâche standard
+  citée dans le texte »). Une ligne par tâche, sans limite : tâche du phasage
+  (avec recherche), heures ±15 min, en cours avec un pourcentage ou terminée.
+  « Parts égales » et « Selon les durées prévues », barre colorée, et
+  « Valider la répartition » qui ne s'active que quand le total est exactement
+  égal aux heures déclarées. Case « Garder les photos et le texte dicté sur
+  chaque tâche », cochée par défaut.
+- *Messages techniques* (« exécute le SQL du P6 », colonnes manquantes,
+  « Détail technique : … ») : retirés de l'écran, ils vont dans les journaux
+  techniques ; les messages d'erreur restants disent seulement quoi faire.
+
+**Ce qui ne change pas.** Le garde-fou des heures, le verrou d'écriture du
+phasage, la création des pointages, le journal d'avancement et la clôture de
+journée sont exactement les mêmes : « Valider » direct passe par la même
+validation que la fenêtre ouverte puis validée sans retouche.
+
+**Contrôles.** `verif-validation-journee.mjs` (données fictives, branché dans
+« Verify Fondations Finance ») couvre les cas exigés : arbitrage appliqué aux
+deux comptes rendus ; répartition qui doit tomber juste (bouton inactif
+sinon) ; parts égales et selon les durées prévues (somme toujours juste,
+au quart d'heure) ; compteur de tâches regroupées (calculé par le module du
+suivi qualité CR-1) ; compte rendu manquant affiché (règle des relevés
+journaliers). Plus : couleurs et écarts en clair, « Valider » direct réservé
+aux comptes rendus comme prévu, proposition expliquée, barre de budget, aucun
+message technique à l'écran.
+
+**Points d'attention.**
+- L'« avancement retenu » d'un encart est gardé tant que la page reste
+  ouverte : il est appliqué aux comptes rendus validés ensuite (direct ou
+  ouverts). Si la page est rechargée avant, il faut le ressaisir.
+- « Valider » direct n'est pas proposé pour une tâche suivie en quantité, ni
+  pour une ligne reçue d'un autre chantier : ces comptes rendus s'ouvrent.
+- « Garder les photos et le texte dicté sur chaque tâche » agit sur les lignes
+  de la fenêtre de validation : les photos et le texte restent de toute façon
+  attachés au compte rendu de l'ouvrier, qui n'est jamais réécrit.
+- Heures attendues : même calcul que le garde-fou (rythme de la semaine moins
+  les absences). Si les absences ne peuvent pas être lues, la page écrit
+  « attendu : inconnu » au lieu d'un chiffre.
+- Le compteur de tâches regroupées compte les découpes des comptes rendus
+  déjà validés du mois (comme la page Qualité) ; une découpe faite puis
+  annulée avant validation n'est pas comptée.
+
+### Compte rendu final du projet (25/10/2026)
+
+**Projet terminé.** Les neuf étapes du tableau de suivi sont en ligne.
+
+#### Ce qui a été livré, étape par étape
+1. **Étape 1 — Fondations des données financières** : taux de frais généraux
+   unique et daté, nature des coûts et reste à commander par lot, journal
+   d'avancement daté (passé reconstitué : 4 796 lignes) et relevé de chaque
+   chantier chaque jour, avec les comptes rendus manquants.
+2. **Étape 2 — Trois marges et nouvelles alertes** : marge à l'avancement, à
+   terminaison et probable sur chaque chantier, « marge nette » devenue
+   « Budget restant », case « chantier repris », neutralisation d'une dérive
+   par lot, et alertes fondées sur la marge probable au lieu de l'ancienne
+   « perte de marge ».
+3. **Étape 3 — Refonte du Bilan** : Bilan sur n'importe quelle période calculé
+   sur les relevés journaliers, versions direction et détaillée, bilans figés
+   et ligne « Rectifications », tendances par lot, semaine qui vient, prévu /
+   réalisé, bilan de clôture ; les deux relevés du vendredi sont arrêtés
+   (tables gardées).
+4. **Étape 4 — Tâches hors devis** : cas A / B / C choisis à la validation et
+   dans le phasage, avenant, geste commercial, décisions « à arbitrer » dans le
+   Bilan, tâches souvent ajoutées dans la Bibliothèque.
+5. **CR-1 — Diagnostic des comptes rendus** : page « Qualité des comptes
+   rendus » avec indicateurs par ouvrier et tendance.
+6. **CR-2 — Phasage lisible** : noms personnalisés d'ouvrages et de tâches (le
+   libellé devis reste pour le client et ProGBat), pièces du chantier,
+   duplication par pièce.
+7. **CR-3 — Nouveau compte rendu ouvrier** : journée prévue, « comme prévu » /
+   « pas comme prévu », phasage sur téléphone, temps au quart d'heure avec
+   raccourcis, tâches faites à plusieurs ; interrupteur de retour en arrière.
+8. **CR-4 — Dictée et IA** : « raconter sa journée au micro », l'IA prépare le
+   compte rendu que l'ouvrier relit et envoie, texte d'origine toujours gardé,
+   photo de fin de journée (coût estimé 1,5 à 3 € par mois).
+9. **CR-5 — Page de validation** : journée lisible d'un coup d'œil, écarts en
+   clair, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une
+   tâche faite à plusieurs, détail en grand avec budget de chaque tâche,
+   « Valider et passer au suivant », répartition d'une tâche regroupée.
+
+**Ce qui a changé** — pour la direction : un Bilan court (1 à 2 pages) dont
+les marges ne baissent plus mécaniquement chaque semaine, et des alertes qui
+ne se déclenchent plus sur un chantier qui gagne de l'argent ; pour les
+conducteurs : phasage plus lisible, tâches hors devis classées, validation
+plus rapide ; pour les ouvriers : compte rendu plus court, au micro si besoin.
+
+**Principaux chiffres avant / après (vrais chantiers, semaine 2026-W43).**
+Alertes critiques : 8 avant (dont 6 « perte de marge », y compris KATHLEEN T2
+qui avait gagné 1 453 € cette semaine-là), 5 après (BRIOLLAY et TOURBOUTON
+CO-LIVING : marge à terminaison négative ; marge probable en baisse sur
+FOURMOND 102, FOURMOND 101, MONTILLERS APPT 2, avec le lot responsable). La
+production et les coûts réels n'ont pas bougé d'une étape à l'autre (écart
+maximal 29 €). Détail dans les comptes rendus des étapes 2 et 3.
+
+#### Migrations appliquées
+| Migration | Ce qu'elle fait | Appliquée par |
+|---|---|---|
+| `20261024120000_nature_couts_achats_lots` | nature des coûts sur les lignes de commande, table des lots « achats terminés » | Claude (outil Supabase en ligne de commande), accord de Loris |
+| `20261024130000_journal_avancement` | journal d'avancement daté ; les 2 fonctions d'enregistrement du phasage y écrivent | Claude (ligne de commande), accord de Loris (droits confirmés a posteriori) |
+| `20261024140000_releves_journaliers` | relevé de chaque chantier chaque jour | Claude (ligne de commande), accord de Loris |
+| `20261024160000_releves_trois_marges` | colonnes des trois marges dans les relevés | Claude (ligne de commande) |
+| `20261024170000_releves_couts_par_nature` | coûts par nature dans les relevés | Claude (ligne de commande) |
+| `20261024180000_bilans_exports` | archive des bilans exportés (bureau seulement) | **Loris, à la main** dans l'éditeur SQL de Supabase, puis le correctif « revoke update, delete, truncate » (un bilan figé ne se modifie ni ne se supprime) ; enregistrée ensuite comme appliquée |
+| `20261025090000_cr3_parcours_ouvrier` | noms personnalisés, pièces, journée prévue et déclarations des collègues pour l'écran ouvrier | Claude (ligne de commande), accord de Loris (mêmes appelants, un ouvrier ne voit que ses chantiers) |
+| `20261025120000_cr4_dictee_photo_fin` | texte dicté et photos de fin de journée sur les comptes rendus | Claude (ligne de commande) |
+
+Données reconstituées ou recalculées (avec accord) : journal d'avancement du
+passé, 4 796 lignes ajoutées ; relevés journaliers du 12/05 au 24/10, 3 686
+relevés, recalculés deux fois avec sauvegarde
+(`chantier_releves_journaliers_sauvegarde_20261024`, 46 lignes ;
+`chantier_releves_journaliers_sauvegarde_20261024b`, 3 686 lignes).
+Étapes 4, CR-1, CR-2 et CR-5 : aucune migration.
+
+#### À tester en priorité (dans cet ordre)
+1. **Réglages → Taux horaires** : vérifier le taux de frais généraux (voir
+   ci-dessous) — il entre dans toutes les marges.
+2. **Validation fin de journée**, lundi soir, sur les vrais comptes rendus :
+   la page de la journée (couleurs, écarts en clair, non envoyés), « Valider »
+   sur un compte rendu gris, « Ouvrir et valider » sur un orange ou un rouge,
+   « Valider et passer au suivant », la barre de budget d'une tâche, l'encart
+   d'une tâche faite à plusieurs (« Appliquer aux deux »), et « Découper » sur
+   une tâche regroupée (répartition).
+3. **Compte rendu ouvrier** sur un téléphone Android ET un iPhone (application
+   installée) : « Journée comme prévu », « Ça ne s'est pas passé comme prévu »,
+   créer une tâche, le micro « Raconter ma journée », la photo de fin de
+   journée. En cas de problème : Réglages → Utilisateurs → « Nouveau parcours
+   du compte rendu » (éteint = ancien écran, brouillons gardés).
+4. **Phasage** d'un chantier en cours : les quatre cartes (budget restant et
+   trois marges), le détail de la marge probable par lot et « Neutraliser… »,
+   la case « Chantier repris » (à cocher sur les trois TOM & CAMILLE), renommer
+   un ouvrage ou une tâche, les pièces et « Dupliquer par pièce », le bouton
+   « Hors devis » (KATHLEEN, par exemple).
+5. **Équipe → Bilan** sur la semaine 43 : présélection des chantiers,
+   avertissements, export direction puis détaillé (relire la phrase de
+   synthèse IA avant), puis modifier un avancement daté de cette semaine et
+   vérifier la ligne « Rectifications » du bilan suivant.
+6. **Page Alertes** : les nouvelles alertes et leurs explications.
+7. **Commandes** : lot obligatoire, nature du coût, « achats terminés » sur un
+   lot.
+8. **Bibliothèque** (tâches souvent ajoutées) et **Qualité des comptes
+   rendus**.
+
+#### Réglages à vérifier dans Admin
+| Où | Réglage | Valeur actuelle |
+|---|---|---|
+| Réglages → Taux horaires | Taux de frais généraux, daté | **jamais enregistré** : l'application applique le défaut, 17,44 €/h depuis le 01/01/2026. Enregistrer la vraie valeur. |
+| Réglages → Taux horaires | Taux horaire de chaque ouvrier | doit être le COÛT CHARGÉ (décision métier 9) |
+| Réglages → Taux horaires → « Marge probable et alertes » | dérive constatée appliquée à partir de | 25 % d'avancement du lot |
+| idem | plafond / plancher du coefficient | ×5 / ×1 (le plancher n'est pas réglable : décision de Loris) |
+| idem | dérive historique : chantiers terminés minimum | 2 |
+| idem | alerte baisse de marge probable | 500 € |
+| idem | lot en dérive | ×1,3 dès 25 % d'avancement |
+| idem | heures sans lot | 10 % |
+| idem | production par heure aberrante | ×2 |
+| idem | dépassement d'enveloppe matériaux | à partir de 100 € |
+| idem | consommation sans avancement | 1 point / 2 h / 50 € |
+| idem → « Tâches hors devis » | rappel d'arbitrage | au-delà de 3 semaines |
+| Réglages → Utilisateurs | « Nouveau parcours du compte rendu » | activé pour tous |
+| Réglages → Vue d'ensemble | compteur du contrôle de nuit du journal d'avancement | doit rester à 0 écart |
+| Réglages → Accès | page « Qualité des comptes rendus » | visible pour admin (automatique) ; **pas** pour conducteur (absente de la liste enregistrée) : à cocher si les conducteurs doivent la voir |
+
+#### Points restés ouverts
+- **TOM & CAMILLE** (RDC, R+1, R+2) : à cocher « chantier repris » par Loris ;
+  d'ici là, ils entrent dans les alertes et les tendances.
+- **673 lignes de commande sans lot** (19 682 €) : déduites du reste à
+  commander global, jamais d'un lot.
+- **Liste d'aide de « Commandes à passer »** : quantités encore calculées par
+  unité d'ouvrage (non multipliées par la quantité de l'ouvrage).
+- **Environ 350 tâches hors devis anciennes** à classer à la main (A / B / C),
+  surtout TOM & CAMILLE, BRIOLLAY et METOIS.
+- **Écrans ouvriers « Préparation » et « Chantier »** : affichent encore le
+  libellé du devis (leurs fonctions serveur n'ont pas été modifiées).
+- **`ouvrier_mes_phases`** ne vérifie pas que l'ouvrier est affecté au chantier
+  demandé (déjà le cas avant le projet, rien élargi ni restreint).
+- **Dépendances des tâches dupliquées par pièce** : les tâches qui dépendaient
+  de la tâche d'origine ne dépendent pas automatiquement de ses copies.
+- **Micro sur iPhone** quand l'application est installée sur l'écran
+  d'accueil : à confirmer à l'usage (le micro du clavier marche dans tous les
+  cas).
+- **Relevés du vendredi** : arrêtés, tables gardées en lecture pour
+  l'historique ; ils peuvent être relancés à la main.
+- **Prévu / réalisé, glissement de la fin et « Rectifications »** ne
+  fonctionnent qu'à partir du premier bilan exporté (avant : « pas de bilan
+  précédent »).
+- **Validation** : l'avancement retenu d'une tâche faite à plusieurs est gardé
+  tant que la page reste ouverte (voir CR-5).
+
+#### Entrées ajoutées au Journal des MAJ (`src/Renovation/journalMaj.js`)
+Frais généraux : un seul taux daté · Commandes : nature, lot obligatoire,
+reste à commander par lot · Avancement daté · Relevé de chaque chantier chaque
+jour · Trois marges par chantier · Nouvelles alertes · Coefficient jamais
+sous ×1 · Nouveau Bilan sur n'importe quelle période · Bilan détaillé ·
+Décisions attendues, tendances, semaine qui vient · Bilan de clôture · Bilans
+figés et rectifications · États financiers et export Opérations sur les
+relevés journaliers · Assistant IA sur les relevés journaliers · Relevés du
+vendredi arrêtés · Commandes de la semaine qui vient et glissement · Tâches
+hors devis à la validation, dans le phasage, au Bilan · Tâches souvent
+ajoutées · Qualité des comptes rendus (page, puis écart d'avancement) ·
+Renommer un ouvrage ou une tâche · Pièces du chantier · Nouveau parcours du
+compte rendu · Dictée et IA · Validation : la journée d'un coup d'œil · le
+détail en grand et « Valider et passer au suivant » · répartir une tâche
+« fourre-tout ».
 
 ---
 
