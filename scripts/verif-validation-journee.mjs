@@ -194,4 +194,13 @@ ok(/comptesRendusAttendus\(/.test(V), "non envoyés : la règle des relevés jou
 ok(/Appliquer aux deux/.test(VJ) && /dashed/.test(VJ) && /Écarts seulement/.test(VJ), "encarts et filtre présents");
 ok(!/Tout valider/i.test(VJ), "pas de « tout valider d'un clic »");
 
+// ── Détail d'un compte rendu ────────────────────────────────────────────────
+const VD = readFileSync(new URL("../src/Renovation/ValidationDetail.jsx", import.meta.url), "utf8");
+ok(/Retour à la journée/.test(VD) && /Compte rendu \{position\.index\} sur \{position\.total\}/.test(VD), "en-tête du détail : retour et position");
+ok(/Valider et passer au suivant · \$\{suivant\.ouvrier\}/.test(VD), "« Valider et passer au suivant · [ouvrier] »");
+ok(/if \(ok && suivant\) setOpenedId\(suivant\.id\)/.test(V) && /return true; \/\/ « Valider et passer au suivant »/.test(V), "on ne passe au suivant qu'après une validation réussie");
+ok(/budgetTache\(\{/.test(V) && /tauxFGALaDate\(baremeFG/.test(V), "barre de budget : méthode de l'étape 2 (MO + frais généraux du jour)");
+ok(/Voir le texte dicté d'origine/.test(V), "remarque reformulée avec accès au texte dicté d'origine");
+ok(/Journée de \{rapport\.ouvrier\}/.test(VD) && /Autres comptes rendus du chantier/.test(VD) && /Photos de fin de journée/.test(VD), "colonne latérale complète");
+
 console.log(`verif-validation-journee : ${nbOk} contrôles OK (données fictives)`);

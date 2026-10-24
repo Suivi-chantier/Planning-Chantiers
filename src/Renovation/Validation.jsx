@@ -69,7 +69,11 @@ import {
   heuresJourOuvrier,
 } from "./validationJourneeV1";
 import { comptesRendusAttendus } from "./releveJournalier.mjs";
-import { avancementChantier } from "../chantierFinance";
+import { avancementChantier, tacheHeuresVendues, tauxFGALaDate, TAUX_FG_DEFAUT } from "../chantierFinance";
+import { EnteteDetail, EnteteCarteTache, ColonneLaterale } from "./ValidationDetail";
+import { budgetTache, coutHoraireMoyen, grouperRapports } from "./validationJourneeV1";
+import { tacheEtOuvrage } from "./lignesValidation";
+import { loadLots } from "../constants";
 
 // Rapport envoyé par le formulaire bêta (colonne rapports.formulaire_version).
 const estRapportBeta = (r) => r?.formulaire_version === "v2";
@@ -294,6 +298,18 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   const valideur = profil?.nom || profil?.email || "Conducteur";
 
   useEffect(() => { loadPhases().then(setPhases); }, []);
+  // CR-5 : lots (chemin lot › ouvrage) et barème des frais généraux (coût
+  // d'un dépassement). Barème illisible : coût du dépassement « inconnu ».
+  const [lots, setLots] = useState([]);
+  const [baremeFG, setBaremeFG] = useState(undefined);
+  useEffect(() => {
+    loadLots().then(setLots);
+    supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.warn("Validation — barème des frais généraux :", error.message); setBaremeFG(null); return; }
+        setBaremeFG(Array.isArray(data?.value) && data.value.length ? data.value : TAUX_FG_DEFAUT);
+      });
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -545,6 +561,15 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       journeeCloturee: !!journeeCloturee,
       suiviEnQuantite: (id) => !!(ph && Array.isArray(ph.ouvrages) && suiviPourValidation(ph.ouvrages, id, 0)),
     });
+  };
+  // Ordre de passage du détail (« Compte rendu 2 sur 5 », « suivant ») : les
+  // comptes rendus à valider dans l'ordre de la page (par chantier).
+  const ordreAValider = useMemo(() => grouperRapports(rapports.filter(r => r.statut !== "valide"), "chantier")
+    .flatMap(g => g.rapports.map(r => r.id)), [rapports]);
+  const suivantDe = (id) => {
+    const i = ordreAValider.indexOf(id);
+    const autres = [...ordreAValider.slice(i + 1), ...ordreAValider.slice(0, Math.max(0, i))].filter(x => x !== id);
+    return autres.length ? rapports.find(r => r.id === autres[0]) || null : null;
   };
   // « Valider » direct : exactement la validation de la fenêtre ouverte puis
   // validée sans retouche (mêmes lignes, même garde-fou, mêmes écritures).
@@ -1058,6 +1083,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     setValidating(false);
     setOpenedId(null);
     await load();
+    return true; // « Valider et passer au suivant » n'avance qu'après une validation réussie
   }
 
   // ── Correction du chantier d'un rapport ────────────────────────────────────
@@ -1391,6 +1417,20 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           onCreerTache={(args) => creerTacheDansPlan({ ...args, chantier_id: opened.chantier_id })}
           onClose={() => setOpenedId(null)}
           onValider={({ lignes, indirectes }) => validerRapport({ rapport: opened, lignes, indirectes })}
+          classement={classements[opened.id] || null} classements={classements}
+          position={ordreAValider.includes(opened.id) ? { index: ordreAValider.indexOf(opened.id) + 1, total: ordreAValider.length } : null}
+          suivant={suivantDe(opened.id)}
+          onValiderEtSuivant={async ({ lignes, indirectes }) => {
+            const suivant = suivantDe(opened.id);
+            const ok = await validerRapport({ rapport: opened, lignes, indirectes });
+            if (ok && suivant) setOpenedId(suivant.id);
+          }}
+          onOuvrir={setOpenedId}
+          rapportsOuvrierJour={rapports.filter(r => r.ouvrier === opened.ouvrier && r.date_rapport === opened.date_rapport)}
+          rapportsChantierJour={rapports.filter(r => r.chantier_id === opened.chantier_id && r.id !== opened.id)}
+          heuresAttendues={heuresAttenduesParOuvrier[opened.ouvrier] ?? null}
+          lots={lots}
+          tauxFGJour={baremeFG ? tauxFGALaDate(baremeFG, frToISO(opened.date_rapport)) : null}
           onDevalider={() => devaliderRapport(opened)}
           validating={validating}
         />
@@ -1507,6 +1547,9 @@ function ModaleRapport({
   nbChantiersDuJour = 1,
   autresRapportsDuJour = [],   // [{ id, heures }] des AUTRES rapports du jour (poids trajet)
   onCreerTache, onClose, onValider, onDevalider, validating,
+  // CR-5 : détail d'un compte rendu (position, suivant, colonne latérale, budget)
+  classement = null, classements = {}, position = null, suivant = null, onValiderEtSuivant = null, onOuvrir = () => {},
+  rapportsOuvrierJour = [], rapportsChantierJour = [], heuresAttendues = null, lots = [], tauxFGJour = null,
 }) {
   // État local éditable : copie indépendante de rapport.taches[] pour ne pas
   // toucher au déclaratif d'origine de l'ouvrier (trace préservée).
@@ -1637,6 +1680,61 @@ function ModaleRapport({
     return [...prev.slice(0, i), modif, nouvelle, ...prev.slice(i + 1)];
   });
   const removeLigne = (rowId) => setLignes(prev => prev.filter(l => l.rowId !== rowId));
+  // Correction : ligne vide à rattacher à une tâche du phasage (ou à créer).
+  const ajouterLigne = () => setLignes(prev => [...prev, {
+    rowId: `a${genId()}`, _origine: false, tache_id: null, phase_id: null, planifie: "", heures: 0, heures_origine: 0,
+    statut: "en_cours", avancement_declare: null, avancement_arbitre: "", remarque: "", photos: [], bascules: [],
+  }]);
+
+  // CR-5 : barre de budget de chaque tâche. Heures pointées AVANT le jour du
+  // rapport (registre), heures du jour de tous les ouvriers (ce rapport tel
+  // qu'il est corrigé + les autres comptes rendus du chantier), heures prévues
+  // de la tâche ; coût d'une heure en trop = coût MO moyen de la tâche (à
+  // défaut le taux de l'ouvrier) + frais généraux du jour (méthode étape 2).
+  const [pointagesAvant, setPointagesAvant] = useState({});
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      const { data, error } = await supabase.from("pointages")
+        .select("tache_id, heures, taux_horaire, date, type_pointage")
+        .eq("chantier_id", rapport.chantier_id).lt("date", frToISO(rapport.date_rapport)).not("tache_id", "is", null);
+      if (annule) return;
+      if (error) { console.warn("Validation — heures avant le jour :", error.message); setPointagesAvant(null); return; }
+      const m = {};
+      (data || []).forEach(p => {
+        if (p.type_pointage && p.type_pointage !== "tache") return;
+        (m[String(p.tache_id)] ||= []).push(p);
+      });
+      setPointagesAvant(m);
+    })();
+    return () => { annule = true; };
+  }, [rapport.chantier_id, rapport.date_rapport]);
+  const enteteCarte = (li) => {
+    if (!li.tache_id) return {};
+    const id = String(li.tache_id);
+    const to = tacheEtOuvrage(phasageOuvrages, li.tache_id);
+    const lot = to?.ouvrage?.lot_id ? (lots || []).find(l => l.id === to.ouvrage.lot_id)?.label : null;
+    const chemin = to ? [lot, libelleOuvrage(to.ouvrage)].filter(Boolean).join(" › ") : null;
+    const devis = to ? nomTacheDevis(to.tache) : null;
+    const pts = pointagesAvant ? (pointagesAvant[id] || []) : null;
+    const heuresJour = [
+      { ouvrier: rapport.ouvrier, heures: lignes.filter(x => String(x.tache_id) === id).reduce((s, x) => s + (parseFloat(x.heures) || 0), 0) },
+      ...rapportsChantierJour.flatMap(r => (r.taches || []).filter(t => String(t.tache_id) === id)
+        .map(t => ({ ouvrier: r.ouvrier, heures: parseFloat(t.heures_reelles) || 0 }))),
+    ];
+    const budget = to && pts ? budgetTache({
+      heuresAvant: pts.reduce((s, p) => s + (parseFloat(p.heures) || 0), 0), heuresJour,
+      heuresPrevues: tacheHeuresVendues(to.tache), coutHoraire: coutHoraireMoyen(pts) ?? (taux || null), tauxFG: tauxFGJour,
+    }) : null;
+    const declarations = [
+      ...(li.avancement_declare != null ? [{ ouvrier: rapport.ouvrier, texte: `${li.avancement_declare} %` }] : []),
+      ...((autresPropositions[id] || []).map(a => ({ ouvrier: a.ouvrier, texte: a.quantite != null ? `${fmtQuantite(a.quantite)} ${a.unite}` : `${a.avancement} %` }))),
+    ];
+    return {
+      chemin, libelleDevis: devis && devis !== nomTache(to.tache) ? devis : null, budget,
+      avant: avancementParTache[id] ?? null, declarations, retenu: li.avancement_arbitre,
+    };
+  };
 
   // Bascule vers un autre chantier : la page écrit en base (rapport cible +
   // rapport d'origine), puis on reflète localement — la ligne disparaît si tout
@@ -1754,81 +1852,43 @@ function ModaleRapport({
   const updateIndirect = (idx, patch) => setIndirectes(prev => prev.map((x, i) => i === idx ? { ...x, ...patch } : x));
 
   return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "rgba(0,0,0,0.55)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: T.surface, color: T.text,
-        borderRadius: RADIUS.lg || 12,
-        width: "100%", maxWidth: 920, maxHeight: "92vh",
-        overflowY: "auto",
-        border: `1px solid ${T.border}`,
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: "16px 20px", borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-          position: "sticky", top: 0, background: T.surface, zIndex: 2,
-        }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              {rapport.ouvrier} — {rapport.chantier_nom || rapport.chantier_id}
-              {estRapportBeta(rapport) && <BadgeBeta/>}
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: T.bg, color: T.text, overflowY: "auto" }}>
+      <div>
+        <EnteteDetail
+          rapport={rapport} classement={classement} titreDate={dateLabel(rapport.date_rapport)}
+          position={position} suivant={suivant} T={T} acc={acc} verrouille={verrouille} validating={validating}
+          onRetour={onClose}
+          onValider={() => onValider({ lignes: lignesPourValidation(), indirectes })}
+          onValiderEtSuivant={() => onValiderEtSuivant?.({ lignes: lignesPourValidation(), indirectes })}
+          actionValide={valide ? (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 12, color: T.textSub, fontStyle: "italic" }}>
+                Validé{rapport.valide_par ? ` par ${rapport.valide_par}` : ""}
+              </span>
+              <button
+                onClick={onDevalider}
+                disabled={validating || journeeCloturee}
+                title={journeeCloturee ? "Journée clôturée — rouvre-la d'abord" : "Rouvrir ce rapport pour corriger une erreur"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "8px 16px", borderRadius: RADIUS.md,
+                  border: `1px solid ${T.border}`, background: "transparent", color: T.text,
+                  cursor: (validating || journeeCloturee) ? "not-allowed" : "pointer",
+                  fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+                  opacity: (validating || journeeCloturee) ? 0.5 : 1,
+                }}
+              >
+                <Icon as={LockOpen} size={13}/> {validating ? "…" : "Corriger"}
+              </button>
             </div>
-            {/* Correction : l'ouvrier s'est trompé de chantier sur son CR */}
-            {!verrouille && chantiers.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                <span style={{ fontSize: 11, color: T.textSub, textTransform: "uppercase", letterSpacing: .3, fontWeight: 600 }}>
-                  Chantier :
-                </span>
-                <select
-                  value={rapport.chantier_id || ""}
-                  onChange={e => { if (e.target.value) onChangerChantier?.(e.target.value); }}
-                  title="Réaffecter ce rapport à un autre chantier (erreur de saisie de l'ouvrier)"
-                  style={{
-                    padding: "3px 6px", borderRadius: RADIUS.md,
-                    border: `1px solid ${T.border}`, background: T.inputBg || T.surface, color: T.text,
-                    fontSize: 12, fontFamily: "inherit", maxWidth: 320,
-                  }}
-                >
-                  {/* Chantier courant absent de la liste (archivé ?) : option de repli */}
-                  {!chantiers.some(c => String(c.id) === String(rapport.chantier_id)) && (
-                    <option value={rapport.chantier_id || ""}>
-                      {libelleCourt(rapport.chantier_nom || rapport.chantier_id || "(inconnu)", 60)}
-                    </option>
-                  )}
-                  {[...chantiers].sort((a, b) => String(a.nom || a.id).localeCompare(String(b.nom || b.id))).map(c => (
-                    <option key={c.id} value={c.id}>{libelleCourt(c.nom || c.id, 60)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div style={{ fontSize: 12, color: T.textSub, marginTop: 2 }}>
-              {dateLabel(rapport.date_rapport)} · {fmtH(totalHTaches)}h tâches · taux {taux}€/h
-              {trajetMin > 0 && (
-                <span> · 🚗 Trajet {fmtH(totalHTrajet)}h
-                  {nbChantiersDuJour > 1
-                    ? <span style={{ fontStyle: "italic" }}> (quote-part de {fmtH(trajetMin / 60)}h, pondérée au temps passé)</span>
-                    : <span> ({parseInt(rapport.trajet_matin_min) || 0}min matin / {parseInt(rapport.trajet_soir_min) || 0}min soir)</span>
-                  }
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <StatutBadge statut={rapport.statut}/>
-            <button onClick={onClose} style={{
-              background: "transparent", border: "none", cursor: "pointer", padding: 4,
-              color: T.textSub, display: "flex", alignItems: "center",
-            }}>
-              <Icon as={X} size={20}/>
-            </button>
-          </div>
-        </div>
-
+          ) : journeeCloturee ? (
+            <span style={{ fontSize: 12, color: "#b27416", fontStyle: "italic", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Icon as={Lock} size={12}/> Journée clôturée — rouvre pour valider
+            </span>
+          ) : null}
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", gap: 18, padding: "14px 22px 30px", maxWidth: 1440, margin: "0 auto", alignItems: "start" }}>
+        <div style={{ minWidth: 0, background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.lg || 12 }}>
         {/* Alertes */}
         {alertes.length > 0 && (
           <div style={{ padding: "12px 20px 0", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1846,6 +1906,8 @@ function ModaleRapport({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {lignes.map(li => (
+                <div key={li.rowId} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <EnteteCarteTache {...enteteCarte(li)} T={T} acc={acc}/>
                 <LigneEditable
                   key={li.rowId}
                   ligne={li}
@@ -1873,6 +1935,7 @@ function ModaleRapport({
                   onBasculer={chantiers.length > 0 && onBasculerLigne ? () => ouvrirBascule(li.rowId) : null}
                   onRemove={() => removeLigne(li.rowId)}
                 />
+                </div>
               ))}
             </div>
           )}
@@ -1969,66 +2032,45 @@ function ModaleRapport({
           </div>
         )}
 
-        {/* Footer */}
-        <div style={{
-          padding: "12px 20px", borderTop: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-          position: "sticky", bottom: 0, background: T.surface,
-        }}>
-          <div style={{ fontSize: 13, color: T.textSub }}>
-            Total : <strong style={{ color: T.text }}>{fmtH(totalHTaches + totalHIndirect + totalHTrajet)}h</strong>
-            {totalHTrajet > 0 && <span style={{ color: T.textSub }}> (dont {fmtH(totalHTrajet)}h trajet)</span>}
-            {" · "}
-            Coût MO : <strong style={{ color: T.text }}>{totalCout.toFixed(2)}€</strong>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={{
-              padding: "8px 16px", borderRadius: RADIUS.md,
-              border: `1px solid ${T.border}`, background: "transparent", color: T.text,
-              cursor: "pointer", fontFamily: "inherit", fontSize: 13,
-            }}>
-              Fermer
-            </button>
-            {valide ? (
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12, color: T.textSub, fontStyle: "italic" }}>
-                  Validé{rapport.valide_par ? ` par ${rapport.valide_par}` : ""}
-                </span>
-                <button
-                  onClick={onDevalider}
-                  disabled={validating || journeeCloturee}
-                  title={journeeCloturee ? "Journée clôturée — rouvre-la d'abord" : "Rouvrir ce rapport pour corriger une erreur"}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 6,
-                    padding: "8px 16px", borderRadius: RADIUS.md,
-                    border: `1px solid ${T.border}`, background: "transparent", color: T.text,
-                    cursor: (validating || journeeCloturee) ? "not-allowed" : "pointer",
-                    fontFamily: "inherit", fontSize: 13, fontWeight: 700,
-                    opacity: (validating || journeeCloturee) ? 0.5 : 1,
-                  }}
-                >
-                  <Icon as={LockOpen} size={13}/> {validating ? "…" : "Corriger"}
-                </button>
-              </div>
-            ) : journeeCloturee ? (
-              <span style={{ fontSize: 12, color: "#b27416", fontStyle: "italic", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                <Icon as={Lock} size={12}/> Journée clôturée — rouvre pour valider
-              </span>
-            ) : (
-              <button
-                onClick={() => onValider({ lignes: lignesPourValidation(), indirectes })}
-                disabled={validating}
-                style={{
-                  padding: "8px 16px", borderRadius: RADIUS.md,
-                  border: "none", background: acc.accent, color: "#fff",
-                  cursor: validating ? "wait" : "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
-                  opacity: validating ? 0.6 : 1,
-                }}
-              >
-                {validating ? "Validation…" : "Valider le rapport"}
-              </button>
-            )}
-          </div>
+        {/* Totaux */}
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, fontSize: 13, color: T.textSub }}>
+          Total : <strong style={{ color: T.text }}>{fmtH(totalHTaches + totalHIndirect + totalHTrajet)}h</strong>
+          {totalHTrajet > 0 && <span> (dont {fmtH(totalHTrajet)}h trajet{nbChantiersDuJour > 1 ? `, quote-part de ${fmtH(trajetMin / 60)}h pondérée au temps passé` : ""})</span>}
+          {" · "}Coût MO : <strong style={{ color: T.text }}>{totalCout.toFixed(2)}€</strong>
+          {" · "}taux {taux}€/h
+        </div>
+        </div>
+
+        <ColonneLaterale
+          rapport={rapport} rapportsOuvrierJour={rapportsOuvrierJour} rapportsChantierJour={rapportsChantierJour}
+          heuresAttendues={heuresAttendues} classements={classements} T={T} acc={acc} onOuvrir={onOuvrir}
+          correction={!verrouille ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {chantiers.length > 0 && (
+                <label style={{ fontSize: 12, color: T.textSub, display: "flex", flexDirection: "column", gap: 4 }}>
+                  Chantier du compte rendu (erreur de l'ouvrier)
+                  <select
+                    value={rapport.chantier_id || ""}
+                    onChange={e => { if (e.target.value) onChangerChantier?.(e.target.value); }}
+                    style={{ padding: "5px 8px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: T.inputBg || T.surface, color: T.text, fontSize: 12.5, fontFamily: "inherit" }}
+                  >
+                    {!chantiers.some(c => String(c.id) === String(rapport.chantier_id)) && (
+                      <option value={rapport.chantier_id || ""}>{libelleCourt(rapport.chantier_nom || rapport.chantier_id || "(inconnu)", 60)}</option>
+                    )}
+                    {[...chantiers].sort((a, b) => String(a.nom || a.id).localeCompare(String(b.nom || b.id))).map(c => (
+                      <option key={c.id} value={c.id}>{libelleCourt(c.nom || c.id, 60)}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button onClick={ajouterLigne} style={{
+                display: "inline-flex", alignItems: "center", gap: 6, alignSelf: "flex-start",
+                padding: "6px 12px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent",
+                color: T.text, fontFamily: "inherit", fontSize: 12.5, cursor: "pointer",
+              }}><Icon as={Plus} size={13}/> Ajouter une tâche</button>
+            </div>
+          ) : null}
+        />
         </div>
       </div>
 

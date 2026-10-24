@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-25",
     type: "amelioration",
+    titre: "Validation : le détail d'un compte rendu en grand, et « Valider et passer au suivant »",
+    pages: [{ id: "validation", label: "Validation fin de journée" }],
+    quoi: "Un compte rendu s'ouvre maintenant en grand, avec tout ce qu'il faut pour décider sans chercher : pour chaque tâche, son chemin (lot › ouvrage), son libellé de devis, une barre de budget (heures pointées avant aujourd'hui, heures du jour de chaque ouvrier, trait des heures prévues, dépassement en rouge avec son coût estimé), et l'avancement d'avant, celui déclaré par chaque ouvrier et celui retenu. Sur le côté : la journée complète de l'ouvrier (ses autres chantiers, trajets, heures indirectes, total comparé à sa journée attendue), les autres comptes rendus du même chantier, les photos de fin de journée, et les corrections (changer le chantier du compte rendu, ajouter une tâche).",
+    comment: "En haut : « Retour à la journée », « Compte rendu 2 sur 5 », « Valider », et le bouton principal « Valider et passer au suivant · [ouvrier] », qui enchaîne les comptes rendus de la journée dans l'ordre de la page. Le coût d'une heure en trop suit la méthode du Bilan : coût moyen d'une heure de main-d'œuvre sur la tâche + frais généraux du jour. La validation elle-même ne change pas.",
+  },
+  {
+    date: "2026-10-25",
+    type: "amelioration",
     titre: "Validation de fin de journée : toute la journée lisible d'un coup d'œil",
     pages: [{ id: "validation", label: "Validation fin de journée" }],
     quoi: "La page de validation montre la journée entière sans ouvrir les comptes rendus : un résumé (à valider, dont avec écarts, validés, non envoyés, heures déclarées sur heures attendues), puis chaque compte rendu sur une ligne avec ses tâches et leur état, ses photos, ses heures et ses écarts écrits en clair (dépassement d'heures et son motif, tâche créée et son motif, tâche bloquée, tâche prévue non faite). Gris = comme prévu, orange = écarts à regarder, rouge = à arbitrer. Un compte rendu « comme prévu » sans anomalie se valide directement avec le bouton « Valider » ; les autres s'ouvrent pour être vérifiés.",
