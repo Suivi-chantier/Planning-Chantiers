@@ -45,3 +45,5 @@ jobs:
         run: node scripts/verif-libelles-phasage.mjs
       - name: CR-2 - Pieces du chantier, duplication par piece qui conserve les heures (donnees fictives)
         run: node scripts/verif-pieces-phasage.mjs
+      - name: CR-3 - Nouveau parcours du compte rendu ouvrier (donnees fictives)
+        run: node scripts/verif-compte-rendu-v3.mjs

@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-25",
+    type: "nouveaute",
+    titre: "Compte rendu du soir : nouveau parcours (journée prévue, comme prévu / pas comme prévu)",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" }],
+    quoi: "Le compte rendu des ouvriers devient plus court. À l'ouverture, l'ouvrier voit sa journée prévue et ce qui est attendu ce soir pour chaque tâche (« terminée ce soir », « en cours »). S'il a fait sa journée comme prévu, un bouton remplit tout ; sinon, il choisit ses tâches directement dans le phasage du chantier (par lot ou par pièce, avec les noms personnalisés et une recherche), indique où elles en sont avec des repères simples (commencé, à moitié, presque fini, terminé) et son temps au quart d'heure, avec des raccourcis (1 h, 2 h, 4 h, journée, « le reste ici »). Les tâches prévues non faites demandent une seule réponse : pourquoi. Quand un collègue a déjà déclaré une tâche, l'ouvrier confirme ou dit autre chose ; un désaccord apparaît à la validation.",
+    comment: "Réglages → Utilisateurs → « Nouveau parcours du compte rendu » : un interrupteur pour tous les ouvriers en même temps ; l'éteindre ramène immédiatement à l'écran actuel, sans perdre les brouillons. Les lignes envoyées sont les mêmes qu'avant : la validation, les pointages et le Bilan ne changent pas. Une tâche créée par l'ouvrier arrive avec son motif (pas trouvée / imprévu / demande du client), et le cas A / B / C est présélectionné à la validation.",
+  },
+  {
     date: "2026-10-24",
     type: "nouveaute",
     titre: "Phasage : les pièces du chantier",

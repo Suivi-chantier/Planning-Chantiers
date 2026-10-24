@@ -167,6 +167,13 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   `bilans_exports` (bilans figés), règles bureau + « réservé aux
   collaborateurs » (accord de Loris du 24/10/2026). **NON appliquée** :
   à appliquer avant la fusion de 3.5.
+- `20261025090000_cr3_parcours_ouvrier.sql` (refonte des comptes rendus,
+  CR-3) : `ouvrier_mes_phases` et `ouvrier_taches_actives` = corps de
+  production + ajouts seulement (noms personnalisés, pièces, lots) ; nouvelle
+  fonction lecture seule `ouvrier_journee_cr` (journée prévue, déclarations
+  du jour des collègues, réglage du parcours), droits authenticated seulement.
+  Accord de Loris du 24/10/2026. Appliquée le 25/10/2026 par la CLI liée
+  avant la fusion, enregistrée par `migration repair`.
 
 ## Règles
 

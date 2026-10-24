@@ -94,7 +94,7 @@ export default function OuvrierDashboard({ prenom, T, accent = "#FFC200" }) {
         const ch = chantiersData.find(c => c.id === t.chantier_id);
         retard.push({
           tache_id: id,
-          nom: t.nom || "(sans nom)",
+          nom: String(t.nom_perso ?? "").trim() || t.nom || "(sans nom)",
           chantier_nom: ch?.nom || t.chantier_nom || t.chantier_id,
           couleur: ch?.couleur || "#5b8af5",
           date_prevue: t.date_prevue || "",

@@ -19,6 +19,7 @@ import {
   ROLE_PAGES_DEFAULT_RENOVATION, ROLE_PAGES_DEFAULT_INVEST,
 } from "../access";
 import EspaceOuvrier from "./EspaceOuvrier";
+import { CODE_PARCOURS_V3, parcoursActif } from "./compteRenduV3";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
@@ -260,6 +261,11 @@ function OngletUtilisateurs({ T, acc }) {
   // Bascule : afficher un bandeau "connectez-vous" sur le formulaire public.
   const [espaceActif, setEspaceActif] = useState(false);
   const [bascLoading, setBascLoading] = useState(false);
+  // Nouveau parcours du compte rendu (CR-3) : planning_config/cr_parcours_v3
+  // = { actif }. Éteint = retour instantané à l'écran actuel (formulaire v2),
+  // pour tout le monde. Lu par les ouvriers via la RPC ouvrier_journee_cr.
+  const [parcoursCR, setParcoursCR] = useState(null);
+  const [parcoursLoading, setParcoursLoading] = useState(false);
   // Fonctionnalités bêta de l'espace ouvrier : planning_config/fonctionnalites_beta,
   // { code: [prénoms-planning] }. Lu et écrit par le bureau seulement ;
   // l'ouvrier ne lit que SES codes via la RPC mes_fonctionnalites_beta.
@@ -330,6 +336,8 @@ function OngletUtilisateurs({ T, acc }) {
       .then(({ data }) => { if (Array.isArray(data?.value) && data.value.length) setOuvriersConfig(data.value); });
     supabase.from("planning_config").select("value").eq("key", "espace_ouvrier_actif").maybeSingle()
       .then(({ data }) => setEspaceActif(data?.value === true));
+    supabase.from("planning_config").select("value").eq("key", CODE_PARCOURS_V3).maybeSingle()
+      .then(({ data }) => setParcoursCR(data?.value ?? null));
     supabase.from("planning_config").select("value").eq("key", "fonctionnalites_beta").maybeSingle()
       .then(({ data }) => setBetaConfig(data?.value && typeof data.value === "object" && !Array.isArray(data.value) ? data.value : {}));
   }, []);
@@ -356,6 +364,21 @@ function OngletUtilisateurs({ T, acc }) {
     flash("ok", actif
       ? `${prenom} n'a plus ${quoi} (à sa prochaine ouverture de l'espace ouvrier).`
       : `${prenom} a désormais ${quoi} (à sa prochaine ouverture de l'espace ouvrier).`);
+  };
+
+  // Nouveau parcours du compte rendu : on enregistre toujours une valeur
+  // explicite ({ actif }), le défaut du code ne compte plus ensuite.
+  const toggleParcoursCR = async () => {
+    const next = { actif: !parcoursActif(parcoursCR), le: new Date().toISOString() };
+    setParcoursLoading(true);
+    const { error } = await supabase.from("planning_config")
+      .upsert({ key: CODE_PARCOURS_V3, value: next }, { onConflict: "key" });
+    setParcoursLoading(false);
+    if (error) { flash("err", "Erreur : " + error.message); return; }
+    setParcoursCR(next);
+    flash("ok", next.actif
+      ? "Nouveau parcours du compte rendu activé pour tous les ouvriers (à leur prochaine ouverture du compte rendu)."
+      : "Retour à l'écran actuel du compte rendu pour tous les ouvriers (à leur prochaine ouverture du compte rendu). Les brouillons sont gardés.");
   };
 
   // Active/désactive le bandeau d'invitation sur le formulaire public.
@@ -576,6 +599,38 @@ function OngletUtilisateurs({ T, acc }) {
           }}/>
         </button>
       </div>
+
+      {/* ── Nouveau parcours du compte rendu (CR-3) ── */}
+      {(() => {
+        const actif = parcoursActif(parcoursCR);
+        return (
+          <div style={{
+            background:T.card, border:`1px solid ${actif ? "rgba(80,200,120,0.4)" : T.border}`,
+            borderRadius:12, padding:"14px 16px", margin:"14px 0",
+            display:"flex", alignItems:"center", justifyContent:"space-between", gap:14, flexWrap:"wrap",
+          }}>
+            <div style={{ flex:"1 1 260px", minWidth:0 }}>
+              <div style={{ fontWeight:800, fontSize:FONT.sm.size+1, color:T.text, marginBottom:3 }}>
+                Nouveau parcours du compte rendu {actif ? "· activé" : "· éteint"}
+              </div>
+              <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, lineHeight:1.5 }}>
+                Activé : l'ouvrier voit sa journée prévue, puis « Journée comme prévu » ou « Pas comme prévu » (phasage du chantier, repères, temps simplifié).
+                Éteint : retour immédiat à l'écran actuel, pour tous les ouvriers en même temps. Les brouillons en cours sont gardés dans les deux sens.
+                {parcoursCR == null ? " (Jamais réglé : réglage par défaut de l'application.)" : ""}
+              </div>
+            </div>
+            <button onClick={toggleParcoursCR} disabled={parcoursLoading} title={actif ? "Revenir à l'écran actuel" : "Activer le nouveau parcours"} style={{
+              flexShrink:0, width:54, height:30, borderRadius:999, border:"none", cursor: parcoursLoading ? "wait" : "pointer",
+              background: actif ? "#50c878" : T.border, position:"relative", transition:"background .2s", padding:0,
+            }}>
+              <span style={{
+                position:"absolute", top:3, left: actif ? 27 : 3, width:24, height:24, borderRadius:"50%",
+                background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.3)", transition:"left .2s",
+              }}/>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ── Aperçu de la vue collaborateur (lecture seule) ── */}
       <div style={{

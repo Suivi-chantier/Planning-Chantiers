@@ -29,18 +29,22 @@ import {
   quantiteValide, normaliserUnite, arrondi2, quantitePrevue,
 } from "./suiviQuantite.mjs";
 import { ORIGINE_NOUVELLE, DIVERS_HORS_DEVIS, estOuvrageDivers, texteProposition } from "./compteRenduV2.mjs";
-import { champsCasV2, appliquerPatchV2 } from "./horsDevisV2.mjs";
+import { champsCasV2, appliquerPatchV2, casDuMotif } from "./horsDevisV2.mjs";
 
 // Décision du conducteur sur une proposition, préremplie depuis l'ouvrier :
 // ouvrage proposé (null = « Divers / hors devis »), nature, et « Hors devis »
-// déduit de la nature (modifiable).
+// déduit de la nature (modifiable). Nouveau parcours (CR-3) : l'ouvrier a dit
+// pourquoi la tâche n'était pas dans la liste (motif_hd) → le cas A / B / C de
+// l'étape 4 est présélectionné (modifiable) ; sans motif, rien ne change.
 export function creationParDefaut(t) {
   const p = t?.proposition || {};
+  const cas = casDuMotif(p.motif_hd);
   return {
     nom: String(t?.planifie ?? "").trim(),
     ouvrage_id: p.ouvrage_id || null,
     nature: p.nature || null,
     hors_devis: horsDevisParDefaut(p.nature) === true,
+    ...(cas ? { cas } : {}),
   };
 }
 
@@ -71,6 +75,9 @@ export function lignesDepuisRapport(rapport) {
     depassement: t.depassement || null,
     // « phasage » : tâche ajoutée par l'ouvrier depuis le phasage (repère seul).
     origine: t.origine || null,
+    // Nouveau parcours (CR-3) : tâche déjà déclarée par un collègue le même
+    // jour — confirmée ou contestée (affichage seulement).
+    ...(t.collegue ? { collegue: { ...t.collegue } } : {}),
     // « nouvelle » : proposition de l'ouvrier (lecture seule) + décision du
     // conducteur (`creation`, null = ne rien créer). Absents sur toute autre
     // ligne : les lignes d'un rapport existant restent identiques.
