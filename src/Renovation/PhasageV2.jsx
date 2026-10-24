@@ -88,6 +88,7 @@ import {
 // la page Bilan semaine. La présentation vit là, le contenu dans les Donnee.
 import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFinanceUI";
 import { chargerAchatsTermines, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
+import { demanderRecalculReleve } from "./relevesJournaliersApi";
 // Heures prévues (16/10/2026) : cadence × quantité de la bibliothèque, à défaut
 // heures du devis (signalé). Elles vivent dans heures_devis / heures_vendues.
 import {
@@ -383,6 +384,26 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // sauvegarde ; le serveur ne l'utilise que si l'avancement a changé.
   const [datesAvancement, setDatesAvancement] = useState({});
   const datesAvancementRef = useRef({});
+  // Relevé journalier (étape 1D) : après une rafale de sauvegardes, UN recalcul
+  // demandé au serveur (il retrouve lui-même les jours touchés par le journal).
+  const recalculReleveRef = useRef(null);
+  // Empreinte des avancements déjà enregistrés : seul un changement
+  // d'avancement déclenche le recalcul (pas une modification de libellé).
+  const sigAvancementsRef = useRef(null);
+  const signatureAvancements = (ouvs) => JSON.stringify((ouvs || []).flatMap(o => (o.taches || []).map(t => [t.id, t.avancement ?? null])));
+  // Point de départ : les avancements du phasage tel qu'il a été chargé.
+  useEffect(() => {
+    sigAvancementsRef.current = phasage ? signatureAvancements(phasage.ouvrages) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phasage?.id]);
+  const planifierRecalculReleve = (idChantier) => {
+    if (!idChantier) return;
+    if (recalculReleveRef.current) clearTimeout(recalculReleveRef.current);
+    recalculReleveRef.current = setTimeout(() => {
+      recalculReleveRef.current = null;
+      demanderRecalculReleve({ chantierId: idChantier });
+    }, 8000);
+  };
   // Identité de la ligne écrite. Une REF, pas le state `phasage` : dans le
   // .then() du chargement, setPhasage(data) n'a pas encore re-rendu, donc
   // `phasage` y vaut encore null. S'y fier a fait créer un phasage EN DOUBLE
@@ -890,6 +911,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         return;
       }
       fileRef.current = fileSucces(fileRef.current, seq, data.revision);
+      if (lot.ouvrages) {
+        const sig = signatureAvancements(lot.ouvrages);
+        if (sigAvancementsRef.current != null && sig !== sigAvancementsRef.current) planifierRecalculReleve(chantierId);
+        sigAvancementsRef.current = sig;
+      }
       setAutoSaveStatus(fileRef.current.attente ? "pending" : "saved");
       if (fileRef.current.attente) pousserSauvegarde();   // ce qui s'est accumulé
     } catch (e) {

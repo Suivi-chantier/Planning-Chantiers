@@ -1,8 +1,9 @@
 name: Snapshot hebdomadaire de l'avancement chantiers
 
 # Prend une "photo" de l'avancement de chaque chantier actif chaque vendredi
-# 18h Paris (= 16h UTC été / 17h UTC hiver — on accepte le décalage de 1h en
-# hiver, sans impact métier).
+# soir : 18h30 UTC = 20h30 Paris en été, 19h30 en hiver (avant le 24/10/2026 :
+# 16h UTC, soit 17h Paris en hiver — trop tôt, les comptes rendus du jour
+# n'étaient pas encore validés).
 #
 # Sert au calcul de la progression hebdomadaire affichée dans
 # Équipe → Bilan semaine.
@@ -11,7 +12,7 @@ name: Snapshot hebdomadaire de l'avancement chantiers
 
 on:
   schedule:
-    - cron: '0 16 * * 5'        # Vendredi 16h UTC → 18h Paris (été), 17h (hiver)
+    - cron: '30 18 * * 5'       # Vendredi 18h30 UTC → 20h30 Paris (été), 19h30 (hiver)
   workflow_dispatch:            # Bouton "Run workflow" dans GitHub pour seed initial + tests
     inputs:
       initial:

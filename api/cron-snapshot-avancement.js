@@ -3,7 +3,7 @@
 // Pour chaque phasage actif en base, calcule l'avancement (pondéré par
 // heures vendues) et insère une ligne dans chantier_avancement_history.
 //
-// Déclenché chaque vendredi 18h Paris par GitHub Actions (workflow
+// Déclenché chaque vendredi 18h30 UTC (20h30 Paris en été, 19h30 en hiver) par GitHub Actions (workflow
 // cron-snapshot-avancement.yml). Permet à la page Équipe → Bilan
 // semaine d'afficher la progression gagnée durant la semaine en cours
 // (comparaison snapshot N-1 vs avancement actuel).

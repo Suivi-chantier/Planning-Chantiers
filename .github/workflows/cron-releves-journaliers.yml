@@ -1,0 +1,42 @@
+name: Relevés journaliers — rattrapage de nuit
+
+# Recalcule le relevé du jour de chaque chantier qui a bougé dans la journée
+# (journal d'avancement, pointages, lignes de commande, comptes rendus
+# validés), plus les relevés des jours suivants quand un jour passé a changé.
+# Idempotent. Refonte du Bilan semaine, étape 1D.
+#
+# 21h45 UTC = 23h45 Paris en été, 22h45 en hiver : tardif dans les deux cas,
+# toujours le même jour à Paris, et après le contrôle du journal d'avancement
+# (21h30 UTC, cron-journal-avancement.yml).
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '45 21 * * *'      # Tous les jours 21h45 UTC → 23h45 Paris (été), 22h45 (hiver)
+  workflow_dispatch:           # Bouton « Run workflow » dans GitHub pour tester
+
+jobs:
+  rattrapage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/releves-journaliers?mode=nuit
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 290 \
+            "https://planning-chantiers.vercel.app/api/releves-journaliers?mode=nuit")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le rattrapage des relevés journaliers a renvoyé un statut non-200"
+            exit 1
+          fi
