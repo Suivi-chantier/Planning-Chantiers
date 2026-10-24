@@ -25,6 +25,7 @@
 //   Lun-Ven 14h50 UTC      → rappel rapport ouvriers        (fenêtre)
 //   Lun-Ven 02h UTC        → veille échéances Invest        (fenêtre)
 //   Lun-Ven 05h UTC        → tableau de bord Invest par mail (?job=)
+//   Tous les jours 21h30 UTC → contrôle du journal d'avancement (?job=)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -34,6 +35,7 @@ const { runRappelRapport, parisNow, heureAttendue, envoyerMail } = require("./_c
 const { runRecapCommandes }    = require("./_cron/cron-recap-commandes.js");
 const { runInvestEcheances }   = require("./_cron/cron-invest-echeances.js");
 const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
+const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -68,6 +70,12 @@ const TACHES = {
   invest_tableau_bord: {
     fenetre: null,
     run: (req, supabase, t) => runInvestTableauBord(req, supabase, t, envoyerMail),
+  },
+  // Contrôle nocturne du journal d'avancement daté (refonte du Bilan, 1C) :
+  // compte les écarts entre l'état des tâches et le journal. Par `?job=` seulement.
+  journal_avancement: {
+    fenetre: null,
+    run: (req, supabase) => runJournalAvancement(req, supabase),
   },
 };
 

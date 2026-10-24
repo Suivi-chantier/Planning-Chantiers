@@ -7,8 +7,9 @@ import { chargerAchatsTermines, achatsTerminesParChantier } from "./achatsLotsTe
 import {
   computeChantierFinance, avancementChantier as cfAvancementChantier,
   couleurMarge, eur, METHODE_CALCUL, SEUIL_RATIO_DERIVE, fmtH as cfFmtH,
-  margeReelleSemaine, dateImputationLigne,
+  margeReelleSemaine, dateImputationLigne, productionPeriode,
 } from "../chantierFinance";
+import { lireToutParTranches } from "./lectureParTranches";
 import { KpiCard, KpiDetailModal, cfgFromDonnee, LotsTableau } from "./chantierFinanceUI";
 import { correctionRatiosPeriode } from "./reportRatiosBibliotheque.js";
 import { getCurrentWeek, getWeekId, getBranchAccent, FONT, RADIUS, LOGO_RENO_H } from "../constants";
@@ -405,7 +406,7 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
       // l'avancement d'aujourd'hui (qui mélangerait les semaines suivantes).
       const semaineTerminee = isoDe(today) > dimancheIso;
 
-      const [phasagesQ, snapshotsQ] = await Promise.all([
+      const [phasagesQ, snapshotsQ, journalQ] = await Promise.all([
         // plan_travaux contient meta.prix_vendu (montant du devis).
         // Sert au calcul "delta % → delta €" affiché à côté de la progression.
         supabase.from("phasages").select("chantier_id, plan_travaux, ouvrages").not("chantier_id", "is", null),
@@ -413,8 +414,19 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
           .select("chantier_id, avancement, date_snapshot")
           .lte("date_snapshot", dimancheIso)
           .order("date_snapshot", { ascending: false }),
+        // Journal d'avancement daté (étape 1C) : la production de la semaine
+        // en vient (prix × avancement gagné, à la date de réalisation).
+        lireToutParTranches((a, b) => supabase.from("avancement_journal")
+          .select("chantier_id, tache_id, avancement_avant, avancement_apres, date_realisation, created_at")
+          .order("id").range(a, b)),
       ]);
       if (cancelled) return;
+      // Journal illisible (table absente…) : null → ancienne méthode (points ×
+      // vendu), jamais une production à 0 faute de données.
+      const journalBy = journalQ.error ? null : {};
+      if (journalBy) (journalQ.data || []).forEach(l => { (journalBy[l.chantier_id] ||= []).push(l); });
+      const ouvragesByCh = {};
+      (phasagesQ.data || []).forEach(ph => { ouvragesByCh[ph.chantier_id] = Array.isArray(ph.ouvrages) ? ph.ouvrages : []; });
 
       // Relevé le plus récent par chantier avant lundi, et dans la semaine.
       const snapshotByCh = {};
@@ -483,19 +495,29 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         });
         const delta = maintenant == null ? null : maintenant - avant - correction.points;
         const prixVendu = prixVenduByCh[cid] || 0;
+        const dateFin = semaineTerminee ? (snapFin?.date_snapshot || dimancheIso) : null;
+        // « Généré » = production de la période, MÊME fonction que la marge de
+        // la semaine (productionPeriode) quand le journal est lisible.
+        const journal = journalBy ? (journalBy[cid] || []) : null;
+        const production = journal && (ouvragesByCh[cid] || []).length > 0
+          ? productionPeriode({ ouvrages: ouvragesByCh[cid], journal, du: snap?.date_snapshot || null, au: dateFin })
+          : null;
         map[cid] = {
           avant,
           maintenant,
           delta,
           correctionRatios: correction.points,
-          deltaEuros: delta != null && prixVendu > 0 ? Math.round(prixVendu * delta / 100) : null,
+          deltaEuros: production
+            ? (production.valeur != null ? Math.round(production.valeur) : null)
+            : (delta != null && prixVendu > 0 ? Math.round(prixVendu * delta / 100) : null),
+          production, journal: production ? journal : null,
           prixVendu,
           nouveau,
           dateAvant:  snap?.date_snapshot || null,
           // Fin de période : date du relevé de fin ; semaine terminée sans relevé
           // → le dimanche (les coûts restent ceux de la semaine, la marge est
           // « non calculable ») ; semaine en cours → null = jusqu'à aujourd'hui.
-          dateFin:    semaineTerminee ? (snapFin?.date_snapshot || dimancheIso) : null,
+          dateFin,
           semaineTerminee,
         };
       });
@@ -670,6 +692,8 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
         avancementFin: p.maintenant,
         du: p.dateAvant,
         au: p.dateFin,
+        // Journal daté : production exacte (sinon null → ancienne méthode).
+        journal: p.journal,
       });
     });
     return out;

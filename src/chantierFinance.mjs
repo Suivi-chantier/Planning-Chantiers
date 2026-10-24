@@ -256,6 +256,112 @@ export function avancementOuvrage(ouvrage) {
   return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
 }
 
+// Avancement EXACT d'un ouvrage (0-100, NON arrondi) : même pondération que
+// avancementOuvrage (heures estimées, sinon moyenne simple ; tâches hors devis
+// exclues sauf si toutes le sont), sans l'arrondi d'affichage. Sert à la
+// production en euros : un ouvrage à 0,4 % produit 0,4 % de son prix.
+// `etat` (optionnel) : Map tache_id → avancement à une date (etatTachesALaDate) ;
+// une tâche absente de la carte garde son avancement actuel. Une valeur
+// inconnue (null) rend l'avancement de l'ouvrage inconnu (null), jamais 0.
+export function avancementOuvrageExact(ouvrage, etat = null) {
+  const taches = tachesAvancement(ouvrage?.taches);
+  if (taches.length === 0) return 0;
+  const val = (t) => {
+    if (etat && etat.has(String(t.id))) return etat.get(String(t.id));
+    return Math.max(0, Math.min(100, parseFloat(t.avancement) || 0));
+  };
+  const vals = taches.map(val);
+  if (vals.some(v => v == null)) return null;
+  const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
+  if (totalHE > 0) {
+    return taches.reduce((s, t, i) => s + vals[i] * (parseFloat(t.heures_estimees) || 0), 0) / totalHE;
+  }
+  return vals.reduce((s, v) => s + v, 0) / taches.length;
+}
+
+// ── Journal d'avancement daté (étape 1C) ────────────────────────────────────
+// Une ligne = un changement d'avancement d'une tâche :
+//   { tache_id, avancement_avant, avancement_apres, date_realisation, created_at, … }
+// État d'une tâche à la date D (fin de journée) :
+//   - la valeur « après » de la ligne la plus récemment ÉCRITE parmi celles
+//     datées ≤ D (un compte rendu de mardi validé jeudi compte mardi, et une
+//     écriture plus récente l'emporte sur une plus ancienne) ;
+//   - sinon (rien avant D) : la valeur « avant » de la première ligne écrite
+//     après D — inconnue (null) si cette ligne ne la connaît pas (ligne
+//     initiale, début de l'historique) ;
+//   - aucune ligne du tout : la tâche n'a jamais changé, absente de la carte
+//     (avancementOuvrageExact prend alors son avancement actuel).
+// `date` null = aujourd'hui (dernière valeur écrite). Les tâches retirées du
+// phasage sont ignorées : c'est la composition ACTUELLE qui compte.
+const dateJ = (d) => (d ? String(d).slice(0, 10) : null);
+const numJ = (v) => (v == null || v === "" ? null : Math.max(0, Math.min(100, parseFloat(v))));
+export function etatTachesALaDate(journal, date = null) {
+  const parTache = new Map();
+  (journal || []).forEach(l => {
+    if (l?.tache_id == null) return;
+    const k = String(l.tache_id);
+    if (!parTache.has(k)) parTache.set(k, []);
+    parTache.get(k).push(l);
+  });
+  const D = dateJ(date);
+  const ecrit = (l) => String(l.created_at || "");
+  const etat = new Map();
+  parTache.forEach((lignes, k) => {
+    const avant = lignes.filter(l => D == null || dateJ(l.date_realisation) <= D);
+    if (avant.length > 0) {
+      const derniere = avant.reduce((a, b) => (ecrit(b) >= ecrit(a) ? b : a));
+      etat.set(k, numJ(derniere.avancement_apres));
+      return;
+    }
+    const premiere = lignes.reduce((a, b) => (ecrit(b) < ecrit(a) ? b : a));
+    etat.set(k, numJ(premiere.avancement_avant));
+  });
+  return etat;
+}
+
+// Première date connue du journal d'un chantier (pour dire d'où part la
+// connaissance de l'avancement), ou null.
+export function debutJournal(journal) {
+  return (journal || []).reduce((m, l) => {
+    const d = dateJ(l?.date_realisation);
+    return d && (!m || d < m) ? d : m;
+  }, null);
+}
+
+// PRODUCTION d'une période (du, au] = Σ ouvrage par ouvrage de
+// prix_ht × (avancement exact à « au » − avancement exact à « du ») ÷ 100,
+// sans arrondi. du null = début du chantier (0 %) ; au null = aujourd'hui
+// (avancement actuel des tâches). Ajouter un ouvrage ne change pas la
+// production passée des autres : chacun est compté avec son propre prix.
+// Rend { valeur, parOuvrage, inconnus, raison } — valeur null si l'avancement
+// d'un ouvrage valorisé est inconnu à l'une des deux dates (raison dite).
+export function productionPeriode({ ouvrages = [], journal = [], du = null, au = null } = {}) {
+  const etatFin = au == null ? null : etatTachesALaDate(journal, au);
+  const etatDebut = du == null ? null : etatTachesALaDate(journal, du);
+  const parOuvrage = [];
+  const inconnus = [];
+  let valeur = 0;
+  (ouvrages || []).forEach(o => {
+    const prix = prixHTOuvrage(o);
+    const avFin = avancementOuvrageExact(o, etatFin);
+    const avDebut = du == null ? 0 : avancementOuvrageExact(o, etatDebut);
+    if (avFin == null || avDebut == null) {
+      if (prix > 0) inconnus.push({ id: o.id, libelle: o.libelle || "(sans libellé)", date: avDebut == null ? du : au });
+      return;
+    }
+    const production = prix * (avFin - avDebut) / 100;
+    valeur += production;
+    if (prix > 0 && Math.abs(avFin - avDebut) > 1e-9) {
+      parOuvrage.push({ id: o.id, libelle: o.libelle || "(sans libellé)", prix, avDebut, avFin, production });
+    }
+  });
+  const debut = debutJournal(journal);
+  const raison = inconnus.length === 0 ? null
+    : `Avancement inconnu au ${String(inconnus[0].date).split("-").reverse().join("/")} pour ${inconnus.length} ouvrage${inconnus.length > 1 ? "s" : ""}`
+      + (debut ? ` : le journal d'avancement de ce chantier commence le ${debut.split("-").reverse().join("/")}.` : ".");
+  return { valeur: inconnus.length === 0 ? valeur : null, parOuvrage, inconnus, raison };
+}
+
 // ── Groupes chrono (vue chrono / cycle de vie chantier) ─────────────────────
 // Synthèse d'un groupe d'exécution : tâches rattachées via chrono_groupe_id.
 // Avancement pondéré par heures_vendues — MÊME convention que groupStats de la
@@ -657,12 +763,15 @@ export const METHODE_CALCUL = [
     source: "Coûts matériaux prévus des ouvrages vs lignes de commande (nature matériaux) + lots marqués « achats terminés »" },
   // ── Bilan semaine (13/10/2026) : marge RÉELLE, plus une part de la marge
   // à terminaison. Les coûts sont ceux réellement datés dans la période. ──
+  { cle: "production", label: "Production d'une période",
+    formule: "Somme, ouvrage par ouvrage, de son prix de vente × (avancement en fin de période − avancement en début de période), sans arrondi. L'avancement d'un ouvrage à une date vient du journal d'avancement daté : chaque tâche prend sa dernière valeur enregistrée à cette date (date de réalisation : jour du compte rendu, ou date choisie dans le phasage). Ajouter un ouvrage ne change pas la production passée des autres. Les tâches hors devis restent hors de l'avancement. Si l'avancement d'un ouvrage est inconnu à l'une des deux dates (avant le début du journal), la production est « non calculable », jamais 0",
+    source: "Journal d'avancement daté (validations de fin de journée, phasage) + prix de vente des ouvrages" },
   { cle: "margeSemaine", label: "Marge réelle de la semaine",
-    formule: "Production de la semaine (points d'avancement gagnés entre deux relevés × prix vendu) − main-d'œuvre pointée sur la même période (heures × taux figé de chaque ouvrier, trajets et indirect compris) − matériaux des commandes datées de la période (date du document fournisseur, sinon date de saisie) − frais généraux (heures de la période × taux de frais généraux en vigueur à la date de chaque heure). Négative si la semaine a coûté plus qu'elle n'a produit",
-    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
+    formule: "Production de la semaine (ouvrage par ouvrage : prix de vente × avancement gagné sur la période, sans arrondi, d'après le journal d'avancement daté — un compte rendu compte au jour du rapport, pas au jour de sa validation) − main-d'œuvre pointée sur la même période (heures × taux figé de chaque ouvrier, trajets et indirect compris) − matériaux des commandes datées de la période (date du document fournisseur, sinon date de saisie) − frais généraux (heures de la période × taux de frais généraux en vigueur à la date de chaque heure). Négative si la semaine a coûté plus qu'elle n'a produit",
+    source: "Journal d'avancement daté, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
   { cle: "margeCumulee", label: "Marge réelle depuis le début",
-    formule: "Production cumulée (avancement en fin de semaine × prix vendu) − tous les coûts réels jusqu'à la fin de la semaine (main-d'œuvre, reprise d'antériorité comprise, matériaux, frais généraux). Elle rattrape d'elle-même un avancement mal déclaré une semaine ou une commande saisie en retard",
-    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
+    formule: "Production cumulée (ouvrage par ouvrage : prix de vente × avancement exact en fin de période) − tous les coûts réels jusqu'à la fin de la semaine (main-d'œuvre, reprise d'antériorité comprise, matériaux, frais généraux). Elle rattrape d'elle-même un avancement mal déclaré une semaine ou une commande saisie en retard",
+    source: "Journal d'avancement daté, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
 ];
 const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
 
@@ -1446,8 +1555,11 @@ export function computeChantierFinance({
 //
 // La période va du relevé d'avancement de début (EXCLU) au relevé de fin
 // (INCLUS) : production et coûts couvrent exactement les mêmes jours.
-//   - production : prix vendu × points gagnés, MÊME arrondi que le « Généré »
-//     du bilan (c'est le même chiffre, l'appelant passe le même prix vendu) ;
+//   - production : avec le journal d'avancement daté (étape 1C, paramètre
+//     `journal`), Σ ouvrage par ouvrage de prix × avancement exact gagné
+//     (productionPeriode, sans arrondi) — c'est aussi le « Généré » du bilan ;
+//     sans journal (appelants anciens) : prix vendu × points gagnés entre les
+//     deux relevés ;
 //   - main-d'œuvre : pointages DATÉS de la période × taux figé au pointage,
 //     même périmètre que la marge nette (tâches du plan, libres, indirects) ;
 //   - matériaux : lignes de commande datées de la période — date du document
@@ -1491,6 +1603,7 @@ export function margeReelleSemaine({
   avancementFin = null,   // % au relevé de fin, ou actuel si la semaine est en cours ; null = inconnu
   du = null,              // date du relevé de début, EXCLUE (null = depuis le début)
   au = null,              // date du relevé de fin, INCLUSE (null = jusqu'à aujourd'hui)
+  journal = null,         // lignes du journal d'avancement du chantier (étape 1C) ; fourni → production exacte
 } = {}) {
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
   const baremeFG = normaliserBaremeFG(tauxFG);
@@ -1515,23 +1628,37 @@ export function margeReelleSemaine({
   const texteTauxPeriode = texteTauxFG(tauxFGVus.size > 0 ? tauxFGVus : [tauxFGALaDate(baremeFG, au)]);
   const couts = mo + materiaux + fg;
 
-  // ── Production : seulement si les deux relevés et le prix sont connus ──
+  // ── Production ──
+  // Points des relevés : affichés pour repère (et seule base sans journal).
   const avDebut = avancementDebut == null ? NaN : parseFloat(avancementDebut);
   const avFin = avancementFin == null ? NaN : parseFloat(avancementFin);
   const avConnus = Number.isFinite(avDebut) && Number.isFinite(avFin);
-  const raison = !avConnus
-    ? "Relevé d'avancement de fin de semaine absent : la production de la semaine n'est pas connue."
-    : !(vendu > 0)
-      ? "Chantier sans prix de vente : la production ne peut pas être chiffrée."
-      : null;
-  const calculable = raison == null;
   const points = avConnus ? avFin - avDebut : null;
-  const produit = calculable ? Math.round(vendu * points / 100) : null;
+  const modeJournal = Array.isArray(journal);
+  const venduOuvrages = ouvrages.reduce((s, o) => s + prixHTOuvrage(o), 0);
+  // Avec le journal : production exacte, ouvrage par ouvrage, à la date de
+  // réalisation ; sans : points gagnés entre les deux relevés × prix vendu.
+  const prodPeriode = modeJournal ? productionPeriode({ ouvrages, journal, du, au }) : null;
+  const prodCumul = modeJournal ? productionPeriode({ ouvrages, journal, du: null, au }) : null;
+  const raison = modeJournal
+    ? (!(venduOuvrages > 0) ? "Chantier sans prix de vente : la production ne peut pas être chiffrée." : prodPeriode.raison)
+    : !avConnus
+      ? "Relevé d'avancement de fin de semaine absent : la production de la semaine n'est pas connue."
+      : !(vendu > 0)
+        ? "Chantier sans prix de vente : la production ne peut pas être chiffrée."
+        : null;
+  const calculable = raison == null;
+  const produit = !calculable ? null : modeJournal ? prodPeriode.valeur : Math.round(vendu * points / 100);
   const marge = calculable ? produit - couts : null;
+  const produitCumulVal = modeJournal
+    ? (venduOuvrages > 0 ? prodCumul.valeur : null)
+    : (calculable ? Math.round(vendu * avFin / 100) : null);
 
   // ── Marge depuis le début : briques du module, données arrêtées à « au » ──
+  // (avec le journal, elle reste connue même si la semaine ne l'est pas : elle
+  // ne dépend que de l'avancement à la fin de la période).
   let cumul = null;
-  if (calculable) {
+  if (produitCumulVal != null) {
     const fin = computeChantierFinance({
       phasage,
       pointages: (pointages || []).filter(p => avantFin(datePointage(p), au)),
@@ -1539,7 +1666,7 @@ export function margeReelleSemaine({
       tauxHoraires, tauxMOPrev, lots, tauxFG: baremeFG,
     });
     const b = fin.brut;
-    const produitCumul = Math.round(vendu * avFin / 100);
+    const produitCumul = produitCumulVal;
     cumul = {
       produit: produitCumul,
       mo: b.coutMOTotalChantier,
@@ -1561,14 +1688,26 @@ export function margeReelleSemaine({
   const periode = libellePeriodeMarge(du, au);
   const periodeTitre = periode.charAt(0).toUpperCase() + periode.slice(1);
   const ventilation = [
-    { main: "Production", sub: avConnus
-        ? `${avDebut} % → ${avFin} % (${points >= 0 ? "+" : ""}${points} pt${Math.abs(points) > 1 ? "s" : ""}) × ${eur(vendu)}`
-        : "relevé de fin absent",
+    { main: "Production", sub: modeJournal
+        ? (prodPeriode.valeur != null
+            ? `${prodPeriode.parOuvrage.length} ouvrage${prodPeriode.parOuvrage.length > 1 ? "s ont" : " a"} avancé · prix × avancement gagné, à la date de réalisation`
+            : prodPeriode.raison)
+        : avConnus
+          ? `${avDebut} % → ${avFin} % (${points >= 0 ? "+" : ""}${points} pt${Math.abs(points) > 1 ? "s" : ""}) × ${eur(vendu)}`
+          : "relevé de fin absent",
       right: produit != null ? signe(produit) : "—", rightColor: produit != null && produit < 0 ? "#e15a5a" : "#22c55e" },
     { main: "Main-d'œuvre", sub: `${fmtH(heures)} h pointées × taux de chaque ouvrier`, right: `− ${eur(mo)}`, rightColor: "#e15a5a" },
     { main: "Matériaux", sub: `${lignesPeriode.length} ligne${lignesPeriode.length > 1 ? "s" : ""} de commande datée${lignesPeriode.length > 1 ? "s" : ""} de la période`, right: `− ${eur(materiaux)}`, rightColor: "#e15a5a" },
     { main: "Frais généraux", sub: `${fmtH(heures)} h × ${texteTauxPeriode}`, right: `− ${eur(fg)}`, rightColor: "#e15a5a" },
   ];
+  // Détail de la production par ouvrage (journal daté).
+  if (modeJournal && prodPeriode.valeur != null) {
+    [...prodPeriode.parOuvrage].sort((a, b) => b.production - a.production).forEach(p => {
+      ventilation.push({ main: `↳ ${p.libelle}`,
+        sub: `${p.avDebut.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} % → ${p.avFin.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} % × ${eur(p.prix)}`,
+        right: signe(p.production) });
+    });
+  }
   const achats = {};
   lignesPeriode.forEach(l => {
     const fournisseur = l?.commande?.fournisseur_nom || "Fournisseur non renseigné";
@@ -1591,7 +1730,9 @@ export function margeReelleSemaine({
     ventilation.push({ main: `↳ ${o.nom}`, sub: `${fmtH(o.heures)} h pointées`, right: `− ${eur(o.cout)}` });
   });
 
-  const source = "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)";
+  const source = modeJournal
+    ? "Journal d'avancement daté, registre de pointage, lignes de commande, taux de frais généraux (Admin)"
+    : "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)";
   const semaine = {
     cle: "margeSemaine", label: "Marge réelle de la semaine", format: "euro",
     valeur: marge,
@@ -1617,9 +1758,9 @@ export function margeReelleSemaine({
     valeurTexte: signe(cumul.marge),
     sousLabel: au ? `Au relevé du ${dateFr(au)}` : "À ce jour",
     formule: FORMULE.margeCumulee,
-    calculDetaille: `${eur(cumul.produit)} produits (${avFin} % × ${eur(vendu)}) − ${eur(cumul.mo)} main-d'œuvre − ${eur(cumul.materiaux)} matériaux − ${eur(cumul.fg)} frais généraux = ${signe(cumul.marge)}`,
+    calculDetaille: `${eur(cumul.produit)} produits (${modeJournal ? "prix de chaque ouvrage × son avancement exact" : `${avFin} % × ${eur(vendu)}`}) − ${eur(cumul.mo)} main-d'œuvre − ${eur(cumul.materiaux)} matériaux − ${eur(cumul.fg)} frais généraux = ${signe(cumul.marge)}`,
     ventilation: [
-      { main: "Production cumulée", sub: `${avFin} % × ${eur(vendu)}`, right: signe(cumul.produit), rightColor: "#22c55e" },
+      { main: "Production cumulée", sub: modeJournal ? "prix de chaque ouvrage × son avancement exact" : `${avFin} % × ${eur(vendu)}`, right: signe(cumul.produit), rightColor: "#22c55e" },
       { main: "Main-d'œuvre", sub: "tous les pointages + reprise d'antériorité", right: `− ${eur(cumul.mo)}`, rightColor: "#e15a5a" },
       { main: "Matériaux", sub: "toutes les commandes datées jusqu'à la fin de la période", right: `− ${eur(cumul.materiaux)}`, rightColor: "#e15a5a" },
       { main: "Frais généraux", sub: "heures totales × taux en vigueur à leur date", right: `− ${eur(cumul.fg)}`, rightColor: "#e15a5a" },
@@ -1636,6 +1777,8 @@ export function margeReelleSemaine({
     calculable, raison, du, au,
     avancementDebut: avConnus ? avDebut : null, avancementFin: avConnus ? avFin : null,
     points, prixVendu: vendu, produit,
+    // Production détaillée (journal daté) : ouvrages qui ont avancé, ouvrages inconnus.
+    production: prodPeriode, modeJournal,
     heures, mo, materiaux, fg, couts, marge,
     heuresHorsPlan, nbLignesMateriaux: lignesPeriode.length,
     cumul, warnings, semaine, cumulee,

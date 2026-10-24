@@ -378,6 +378,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // ce qui reste à écrire et l'état de conflit. Une ref, pas un state :
   // elle est lue et écrite dans des callbacks asynchrones.
   const fileRef = useRef(fileInitiale());
+  // Journal d'avancement daté (étape 1C) : date de réalisation choisie pour
+  // une tâche dont on modifie l'avancement ici. Envoyée avec chaque
+  // sauvegarde ; le serveur ne l'utilise que si l'avancement a changé.
+  const [datesAvancement, setDatesAvancement] = useState({});
+  const datesAvancementRef = useRef({});
   // Identité de la ligne écrite. Une REF, pas le state `phasage` : dans le
   // .then() du chargement, setPhasage(data) n'a pas encore re-rendu, donc
   // `phasage` y vaut encore null. S'y fier a fait créer un phasage EN DOUBLE
@@ -857,6 +862,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         p_revision_attendue: revisionAttendue,
         p_ouvrages: lot.ouvrages ?? null,
         p_plan_travaux: lot.plan_travaux ?? null,
+        p_journal: { source: "phasage", dates: { ...datesAvancementRef.current } },
       });
       if (error) {
         console.warn("sauvegarde phasage:", error.message);
@@ -1256,6 +1262,38 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       ? { ...o, taches: (o.taches || []).map(t => t.id === tacheId ? { ...t, ...patch } : t) }
       : o));
   };
+
+  // Date de réalisation d'un changement d'avancement saisi ici : préremplie
+  // avec le dernier jour où la tâche a été pointée (sinon aujourd'hui),
+  // modifiable — c'est la date que le journal retiendra.
+  const aujourdhuiISO = () => new Date().toISOString().slice(0, 10);
+  const dateAvancementDefaut = (t) => {
+    const auj = aujourdhuiISO();
+    const d = tachePointages(t).reduce((m, p) => {
+      const x = String(p.date || "").slice(0, 10);
+      return x && x <= auj && (!m || x > m) ? x : m;
+    }, null);
+    return d || auj;
+  };
+  const dateAvancementTache = (t) => datesAvancement[String(t.id)] || dateAvancementDefaut(t);
+  const choisirDateAvancement = (t, date) => {
+    const next = { ...datesAvancementRef.current, [String(t.id)]: date };
+    datesAvancementRef.current = next;
+    setDatesAvancement(next);
+  };
+  const majAvancementTache = (ouvrageId, t, n) => {
+    // La date affichée est figée pour cette modification (envoyée au serveur).
+    choisirDateAvancement(t, dateAvancementTache(t));
+    updateTache(ouvrageId, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) });
+  };
+  const champDateAvancement = (t, style = {}) => (
+    <input type="date" value={dateAvancementTache(t)} max={aujourdhuiISO()}
+      onClick={e => e.stopPropagation()}
+      onChange={e => { if (e.target.value) choisirDateAvancement(t, e.target.value); }}
+      title="Date à laquelle cet avancement a été réalisé (journal d'avancement)"
+      style={{ padding: "3px 6px", borderRadius: RADIUS.sm, border: `1px solid ${T.border}`,
+        background: T.fieldBg || T.card, color: T.textSub, fontSize: FONT.xs.size, fontFamily: "inherit", outline: "none", ...style }}/>
+  );
 
   // Tâche suivie en quantité : suivi (cumul = point de départ + quantités
   // validées du registre) et modification qui recalcule l'avancement d'une
@@ -3441,7 +3479,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                               {!(suiviQte(t, selectedOuvrage).mode === MODE_QUANTITE && suiviQte(t, selectedOuvrage).allumee) && (<>
                               <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
                                 onClick={e => e.stopPropagation()}
-                                entier onValeur={n => updateTache(selectedOuvrage.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
+                                entier onValeur={n => majAvancementTache(selectedOuvrage.id, t, n)} vide={0}
                                 placeholder="0"
                                 style={{
                                   width: 60, padding: "4px 8px", borderRadius: RADIUS.sm,
@@ -3450,6 +3488,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                   outline: "none", textAlign: "right",
                                 }}/>
                               <span style={{ fontSize: 10, color: T.textMuted }}>%</span>
+                              <span style={{ fontSize: 10, color: T.textMuted }}>réalisé le</span>
+                              {champDateAvancement(t)}
                               </>)}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -4249,9 +4289,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                     {suiviQte(t, o).avancement} % (calculé)
                   </div>
                 ) : (
-                <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
-                  entier onValeur={n => updateTache(o.id, t.id, { avancement: Math.max(0, Math.min(100, n || 0)) })} vide={0}
-                  placeholder="0" style={modalInp(T)}/>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <InputNombre min="0" max="100" valeur={t.avancement ?? ""}
+                    entier onValeur={n => majAvancementTache(o.id, t, n)} vide={0}
+                    placeholder="0" style={{ ...modalInp(T), flex: 1 }}/>
+                  <span style={{ fontSize: FONT.xs.size, color: T.textMuted, whiteSpace: "nowrap" }}>réalisé le</span>
+                  {champDateAvancement(t, { padding: "8px 10px" })}
+                </div>
                 )}
               </ModalField>
             </div>

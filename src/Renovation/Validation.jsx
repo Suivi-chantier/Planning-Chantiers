@@ -716,6 +716,10 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     // validation : chaque enregistrement repart de la dernière révision
     // (sinon le second tombait en conflit avec le premier).
     let phCourant = phasages.find(p => p.chantier_id === rapport.chantier_id) || null;
+    // Journal d'avancement daté : chaque changement d'avancement écrit par
+    // cette validation est daté du JOUR DU RAPPORT (pas du jour de validation).
+    const journalCR = { source: "validation_cr", date: frToISO(rapport.date_rapport), rapport_id: rapport.id, auteur: valideur };
+    const sauvegarderCR = (args) => sauvegarderPhasage({ ...args, journal: journalCR });
     const majPhCourant = (patch) => {
       phCourant = { ...phCourant, ...patch };
       const id = phCourant.id;
@@ -728,7 +732,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     //    Échec ou conflit : rien n'est écrit, le rapport reste à valider.
     if (lignes.some(propositionACreer)) {
       const res = await enregistrerCreationsProposees({
-        phasage: phCourant, lignes, rapport, genId, sauvegarder: sauvegarderPhasage,
+        phasage: phCourant, lignes, rapport, genId, sauvegarder: sauvegarderCR,
       });
       if (!res.ok) {
         if (res.code === "sans_ouvrages") {
@@ -944,7 +948,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           }),
         }));
         if (touchedO) {
-          const resO = await sauvegarderPhasage({
+          const resO = await sauvegarderCR({
             phasageId: phV2.id, revision: phV2.revision ?? 0, ouvrages: ouvragesNext,
           });
           if (!resO.ok) {
@@ -1168,7 +1172,10 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
         });
         if (Object.keys(patches).length > 0) {
           const next = appliquerPatches(ph.ouvrages, patches);
-          const resQ = await sauvegarderPhasage({ phasageId: ph.id, revision: ph.revision ?? 0, ouvrages: next });
+          // Journal : correction de l'avancement des tâches suivies en quantité,
+          // datée du jour du rapport rouvert.
+          const resQ = await sauvegarderPhasage({ phasageId: ph.id, revision: ph.revision ?? 0, ouvrages: next,
+            journal: { source: "correction", date: frToISO(rapport.date_rapport), rapport_id: rapport.id, auteur: valideur } });
           if (resQ.ok) {
             setPhasages(prev => prev.map(p => p.id === ph.id ? { ...p, ouvrages: next, revision: resQ.revision } : p));
           } else {
