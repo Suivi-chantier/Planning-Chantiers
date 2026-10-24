@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-25",
+    type: "nouveaute",
+    titre: "Validation : répartir une tâche « fourre-tout » sur les vraies tâches du phasage",
+    pages: [{ id: "validation", label: "Validation fin de journée" }],
+    quoi: "Certains ouvriers déclarent toute leur journée sur une seule tâche. Le bouton « Découper » d'une ligne ouvre maintenant la fenêtre « Répartir sur les tâches du phasage » : en haut, ce que l'ouvrier a déclaré (intitulé, heures, texte dicté, motif, photos) ; dessous, une proposition de répartition tirée du texte dicté et du planning du jour, qui dit pourquoi chaque tâche est proposée. On ajuste chaque ligne (tâche, heures au quart d'heure près, en cours avec un pourcentage ou terminée), on en ajoute ou on en retire.",
+    comment: "Deux boutons répartissent vite les heures : « Parts égales » et « Selon les durées prévues ». Une barre colorée montre la répartition, et « Valider la répartition » ne s'active que quand le total est exactement égal aux heures déclarées. La case « Garder les photos et le texte dicté sur chaque tâche » est cochée par défaut. La fenêtre affiche aussi combien de tâches regroupées l'ouvrier a déjà eues ce mois-ci (par exemple « 3e tâche regroupée de Steven ce mois-ci ») ; ce compteur est le même que celui de la page « Qualité des comptes rendus ». Rien n'est enregistré avant d'avoir validé le compte rendu.",
+  },
+  {
+    date: "2026-10-25",
     type: "amelioration",
     titre: "Validation : le détail d'un compte rendu en grand, et « Valider et passer au suivant »",
     pages: [{ id: "validation", label: "Validation fin de journée" }],

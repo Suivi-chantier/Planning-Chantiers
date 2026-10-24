@@ -203,4 +203,12 @@ ok(/budgetTache\(\{/.test(V) && /tauxFGALaDate\(baremeFG/.test(V), "barre de bud
 ok(/Voir le texte dicté d'origine/.test(V), "remarque reformulée avec accès au texte dicté d'origine");
 ok(/Journée de \{rapport\.ouvrier\}/.test(VD) && /Autres comptes rendus du chantier/.test(VD) && /Photos de fin de journée/.test(VD), "colonne latérale complète");
 
+// ── Fenêtre « Répartir sur les tâches du phasage » ──────────────────────────
+const RT = readFileSync(new URL("../src/Renovation/RepartirTache.jsx", import.meta.url), "utf8");
+ok(/disabled=\{!juste\}/.test(RT) && /repartitionJuste\(parts, total\)/.test(RT), "« Valider la répartition » seulement si le total tombe juste");
+ok(/Parts égales/.test(RT) && /Selon les durées prévues/.test(RT) && /ajusterQuartDHeure\(p\.heures, -1\)/.test(RT), "parts égales, selon les durées, ±15 min");
+ok(/useState\(true\)/.test(RT) && /Garder les photos et le texte dicté sur chaque tâche/.test(RT), "case cochée par défaut");
+ok(/Proposée : \{p\.raison\}/.test(RT), "chaque tâche proposée dit pourquoi");
+ok(/onSplit=\{\(\) => ouvrirRepartition\(li\.rowId\)\}/.test(V) && /decoupesParOuvrierEtMois\(faitsComptesRendus\(/.test(V), "« Découper » ouvre la répartition ; compteur du suivi qualité (CR-1)");
+
 console.log(`verif-validation-journee : ${nbOk} contrôles OK (données fictives)`);

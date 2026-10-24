@@ -71,7 +71,9 @@ import {
 import { comptesRendusAttendus } from "./releveJournalier.mjs";
 import { avancementChantier, tacheHeuresVendues, tauxFGALaDate, TAUX_FG_DEFAUT } from "../chantierFinance";
 import { EnteteDetail, EnteteCarteTache, ColonneLaterale } from "./ValidationDetail";
-import { budgetTache, coutHoraireMoyen, grouperRapports } from "./validationJourneeV1";
+import { budgetTache, coutHoraireMoyen, grouperRapports, lignesDepuisRepartition, rangTacheRegroupee } from "./validationJourneeV1";
+import RepartirTache from "./RepartirTache";
+import { faitsComptesRendus, decoupesParOuvrierEtMois } from "./qualiteComptesRendusV1";
 import { tacheEtOuvrage } from "./lignesValidation";
 import { loadLots } from "../constants";
 
@@ -1673,12 +1675,47 @@ function ModaleRapport({
   const totalCout = (totalHTaches + totalHIndirect + totalHTrajet) * taux;
 
   const updateLigne = (rowId, patch) => setLignes(prev => prev.map(l => l.rowId === rowId ? { ...l, ...patch } : l));
-  const splitLigne = (rowId) => setLignes(prev => {
-    const i = prev.findIndex(l => l.rowId === rowId);
-    if (i < 0) return prev;
-    const [modif, nouvelle] = decouperLigne(prev[i], `s${genId()}`);
-    return [...prev.slice(0, i), modif, nouvelle, ...prev.slice(i + 1)];
-  });
+  // « Découper » : fenêtre « Répartir sur les tâches du phasage » (CR-5). La
+  // ligne est remplacée par une ligne par tâche ; rien n'est écrit avant la
+  // validation. Le compteur vient du suivi qualité (CR-1) : lignes déjà
+  // découpées à la validation pour cet ouvrier ce mois-ci, + celle-ci.
+  const [repartirRowId, setRepartirRowId] = useState(null);
+  const [compteurRegroupees, setCompteurRegroupees] = useState(null);
+  const ouvrirRepartition = async (rowId) => {
+    setRepartirRowId(rowId);
+    setCompteurRegroupees(null);
+    const mois = String(frToISO(rapport.date_rapport) || "").slice(0, 7);
+    const { data: rs, error } = await supabase.from("rapports")
+      .select("id, ouvrier, chantier_id, date_rapport, statut, taches, heures_indirectes, remarque, formulaire_version")
+      .eq("ouvrier", rapport.ouvrier).eq("statut", "valide");
+    if (error) { console.warn("Validation — compteur des tâches regroupées :", error.message); return; }
+    const duMois = (rs || []).filter(r => String(frToISO(r.date_rapport) || "").slice(0, 7) === mois && r.id !== rapport.id);
+    const pts = [];
+    for (let i = 0; i < duMois.length; i += 100) {
+      const { data, error: e2 } = await supabase.from("pointages").select("rapport_id, tache_id, heures, type_pointage")
+        .in("rapport_id", duMois.slice(i, i + 100).map(r => r.id));
+      if (e2) { console.warn("Validation — compteur des tâches regroupées :", e2.message); return; }
+      pts.push(...(data || []));
+    }
+    const decoupes = decoupesParOuvrierEtMois(faitsComptesRendus({ rapports: duMois, pointages: pts }));
+    setCompteurRegroupees(rangTacheRegroupee(decoupes, rapport.ouvrier, mois).texte);
+  };
+  const appliquerRepartition = (parts, garder) => {
+    const origine = remarqueAffichee(rapport)?.origine || (rapport?.dictee?.texte_origine ?? "");
+    setLignes(prev => {
+      const i = prev.findIndex(l => l.rowId === repartirRowId);
+      if (i < 0) return prev;
+      const nouvelles = lignesDepuisRepartition({ ...prev[i], texte_dicte: origine }, parts,
+        { garderPhotosEtTexte: garder, genId: () => `r${genId()}` });
+      return [...prev.slice(0, i), ...nouvelles, ...prev.slice(i + 1)];
+    });
+    setRepartirRowId(null);
+  };
+  const dureesPrevues = useMemo(() => {
+    const m = {};
+    (phasageOuvrages || []).forEach(o => (o.taches || []).forEach(t => { if (t?.id != null) m[String(t.id)] = tacheHeuresVendues(t); }));
+    return m;
+  }, [phasageOuvrages]);
   const removeLigne = (rowId) => setLignes(prev => prev.filter(l => l.rowId !== rowId));
   // Correction : ligne vide à rattacher à une tâche du phasage (ou à créer).
   const ajouterLigne = () => setLignes(prev => [...prev, {
@@ -1931,7 +1968,7 @@ function ModaleRapport({
                   autres={li.tache_id ? (autresPropositions[String(li.tache_id)] || []) : []}
                   onChange={(patch) => updateLigne(li.rowId, patch)}
                   onChangeTache={(value) => onChangeTache(li.rowId, value)}
-                  onSplit={() => splitLigne(li.rowId)}
+                  onSplit={() => ouvrirRepartition(li.rowId)}
                   onBasculer={chantiers.length > 0 && onBasculerLigne ? () => ouvrirBascule(li.rowId) : null}
                   onRemove={() => removeLigne(li.rowId)}
                 />
@@ -2073,6 +2110,24 @@ function ModaleRapport({
         />
         </div>
       </div>
+
+      {/* Répartir une tâche regroupée sur les tâches du phasage (CR-5) */}
+      {repartirRowId && (() => {
+        const li = lignes.find(l => l.rowId === repartirRowId);
+        return li ? (
+          <RepartirTache
+            ligne={li}
+            texteDicte={remarqueAffichee(rapport)?.origine || (rapport?.dictee?.texte_origine ?? "")}
+            tachesPlan={tachesPlan}
+            tachesPrevuesJour={tachesPrevuesJour}
+            dureesPrevues={dureesPrevues}
+            compteur={compteurRegroupees}
+            T={T} acc={acc}
+            onValider={appliquerRepartition}
+            onClose={() => setRepartirRowId(null)}
+          />
+        ) : null;
+      })()}
 
       {/* Sous-modale création nouvelle tâche du plan */}
       {creerTacheState && (
@@ -2377,7 +2432,7 @@ function LigneEditable({
 
       {/* Actions */}
       <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
-        <button onClick={onSplit} disabled={valide} title="Splitter en 2 lignes" style={iconBtnStyle(T)}>
+        <button onClick={onSplit} disabled={valide} title="Découper : répartir sur les tâches du phasage" style={iconBtnStyle(T)}>
           <Icon as={Split} size={14}/>
         </button>
         {onBasculer && (
