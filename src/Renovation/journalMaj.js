@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Phasage : classer les tâches hors devis (réaffecter, intégrer, avenant, offert)",
+    pages: [{ id: "phasage", label: "Phasage" }],
+    quoi: "Toutes les tâches hors devis d'un chantier (y compris les anciennes, rangées dans « Divers / hors devis ») sont listées avec leurs heures et leur coût (main-d'œuvre + frais généraux), et un cas proposé automatiquement. Pour chacune, une question : « Ce travail est-il facturé au client ? ». Oui, dans le devis : les heures vont à la tâche existante (A) ou la tâche rejoint un ouvrage vendu avec ses heures normales (B). Oui, par un avenant : elle est rattachée à l'ouvrage d'avenant chiffré et produit — si c'était dans une semaine déjà exportée, l'écart sort dans « Rectifications ». Non : geste commercial, un coût sans production. Pas encore décidé : « à arbitrer ». Un ouvrage sans prix peut être marqué « non facturé ».",
+    comment: "Phasage → bouton « Hors devis » en haut (en rouge s'il reste des tâches à arbitrer) → « Classer » sur une tâche.",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Validation : choisir le cas d'une tâche hors devis (A, B ou C)",
     pages: [{ id: "validation", label: "Validation" }],
     quoi: "Quand un ouvrier propose une tâche qui n'est pas dans le phasage, le conducteur dit ce que c'est : A, la tâche existait (l'application propose les plus probables : nom proche, prévue ce jour-là, même lot) et les heures y sont rattachées sans rien créer ; B, un imprévu compris dans un ouvrage vendu, ajouté à l'ouvrage avec ses heures NORMALES (proposées par la bibliothèque quand c'est possible) — les heures prévues de l'ouvrage ne changent pas, la dérive reste visible ; C, un travail non vendu, rangé « à arbitrer » (avenant ou geste commercial).",
