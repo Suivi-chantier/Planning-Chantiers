@@ -220,7 +220,8 @@ const etat_chantier = {
       };
     }
 
-    const fin = m.finance.computeChantierFinance(donnees.inputsPour(phasage));
+    // aujourdhui : taux de frais généraux du jour pour les projections.
+    const fin = m.finance.computeChantierFinance(donnees.inputsPour(phasage, { aujourdhui: new Date().toISOString().slice(0, 10) }));
     const b = fin.brut;
 
     const situations = await fetchAll(ctx.sb, "chantier_factures_client", COLONNES_SITUATIONS,

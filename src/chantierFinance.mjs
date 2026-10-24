@@ -34,6 +34,70 @@ export const SEUIL_ECART_VENDU_EUR = 500;  // en €
 // Seuil « marge fragile » (orange) en % du vendu.
 export const SEUIL_MARGE_PCT_ORANGE = 15;
 
+// ── Frais généraux : UN barème daté pour toute l'entreprise (24/10/2026) ────
+// Réglage Admin, stocké dans planning_config sous la clé CLE_CONFIG_TAUX_FG :
+// [{ depuis: "AAAA-MM-JJ", taux: €/h }, …]. Il remplace le champ par phasage
+// plan_travaux.meta.fg_taux_horaire, qui n'est plus lu nulle part.
+//   - une heure pointée coûte le taux en vigueur à SA date ;
+//   - une heure sans date (reprise d'antériorité, heures anciennes saisies
+//     sur la tâche) coûte le taux le plus ancien ;
+//   - une heure à venir (projection) coûte le taux en vigueur aujourd'hui.
+// Barème absent ou vide → TAUX_FG_DEFAUT : il y a toujours un taux.
+export const CLE_CONFIG_TAUX_FG = "fg_taux_horaires";
+export const TAUX_FG_DEFAUT = Object.freeze([Object.freeze({ depuis: "2026-01-01", taux: 17.44 })]);
+const RE_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+// Barème propre, trié du plus ancien au plus récent ; une date en double
+// garde la dernière saisie. Entrées sans date valide ou taux négatif ignorées.
+export function normaliserBaremeFG(liste) {
+  const parDate = new Map();
+  (Array.isArray(liste) ? liste : []).forEach(e => {
+    const depuis = String(e?.depuis ?? "").slice(0, 10);
+    const taux = parseFloat(String(e?.taux ?? "").replace(",", "."));
+    if (!RE_DATE_ISO.test(depuis) || !Number.isFinite(taux) || taux < 0) return;
+    parDate.set(depuis, { depuis, taux });
+  });
+  const bareme = [...parDate.values()].sort((a, b) => a.depuis.localeCompare(b.depuis));
+  return bareme.length > 0 ? bareme : TAUX_FG_DEFAUT.map(e => ({ ...e }));
+}
+
+// Ajout d'un taux daté (réglage Admin) : les taux existants sont CONSERVÉS ;
+// une date déjà présente voit son taux remplacé. Rend { bareme } ou { erreur }.
+export function ajouterTauxFG(liste, { depuis, taux } = {}) {
+  const d = String(depuis ?? "").slice(0, 10);
+  const t = parseFloat(String(taux ?? "").replace(",", "."));
+  if (!RE_DATE_ISO.test(d)) return { erreur: "Indique la date à partir de laquelle ce taux s'applique." };
+  if (!Number.isFinite(t) || t < 0) return { erreur: "Indique un taux en €/h (0 ou plus)." };
+  return { bareme: normaliserBaremeFG([...normaliserBaremeFG(liste), { depuis: d, taux: Math.round(t * 100) / 100 }]) };
+}
+
+// Taux en vigueur à une date : dernière entrée dont « depuis » ≤ date. Date
+// absente ou antérieure au barème → taux le plus ancien.
+export function tauxFGALaDate(bareme, date) {
+  const b = Array.isArray(bareme) && bareme.length > 0 ? bareme : normaliserBaremeFG(bareme);
+  const d = date ? String(date).slice(0, 10) : null;
+  let taux = b[0].taux;
+  if (d) b.forEach(e => { if (e.depuis <= d) taux = e.taux; });
+  return taux;
+}
+
+// Frais généraux d'un jeu de pointages : Σ heures × taux à la date du pointage.
+// `tauxVus` (Set, optionnel) collecte les taux utilisés pour les libellés.
+export function fgDePointages(points, bareme, tauxVus = null) {
+  return (points || []).reduce((s, p) => {
+    const taux = tauxFGALaDate(bareme, p?.date);
+    if (tauxVus) tauxVus.add(taux);
+    return s + (parseFloat(p?.heures) || 0) * taux;
+  }, 0);
+}
+
+const fmtTauxFG = (taux) => `${(parseFloat(taux) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} €/h`;
+// « 17,44 €/h » si un seul taux a servi, sinon « taux en vigueur à chaque date ».
+const texteTauxFG = (tauxVus) => {
+  const l = [...(tauxVus || [])];
+  return l.length === 1 ? fmtTauxFG(l[0]) : "taux en vigueur à la date de chaque heure";
+};
+
 // ── Formatage (identique à PhasageV2 : fmtEur/eur = arrondi €, fmtH = h) ─────
 const num = (v) => {
   const n = parseFloat(v);
@@ -442,8 +506,8 @@ export const METHODE_CALCUL = [
     formule: "Somme des coûts matériaux estimés des ouvrages (matériaux liés de la bibliothèque)",
     source: "Bibliothèque de matériaux (cout_materiaux des ouvrages)" },
   { cle: "margePrev", label: "Marge prév.",
-    formule: "Vendu HT − déboursé prévisionnel (MO prévisionnelle + commandes prévisionnelles) − frais généraux prévisionnels (taux horaire FG × heures prévues)",
-    source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, Suivi direction" },
+    formule: "Vendu HT − déboursé prévisionnel (MO prévisionnelle + commandes prévisionnelles) − frais généraux prévisionnels (taux de frais généraux en vigueur aujourd'hui × heures prévues)",
+    source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, taux de frais généraux (Admin)" },
   { cle: "moReel", label: "Coût MO",
     formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
     source: "Registre de pointage (validations de fin de journée)" },
@@ -451,11 +515,11 @@ export const METHODE_CALCUL = [
     formule: "Somme des lignes de commande passées pour le chantier",
     source: "Lignes de commande du chantier" },
   { cle: "fg", label: "Frais généraux",
-    formule: "Taux horaire de frais généraux (Suivi direction) × heures réelles totales du chantier",
-    source: "Suivi direction (fg_taux_horaire) × registre de pointage" },
+    formule: "Chaque heure réelle du chantier × le taux de frais généraux en vigueur à la date de cette heure. Le taux est unique pour toute l'entreprise et daté (réglage Admin, 17,44 €/h depuis le 01/01/2026 par défaut) : un nouveau taux ne change pas les heures passées. Les heures sans date (reprise d'antériorité, heures anciennes) prennent le taux le plus ancien",
+    source: "Taux de frais généraux datés (Admin) × registre de pointage" },
   { cle: "marge", label: "Marge nette",
     formule: "Vendu HT − coût main d'œuvre − matériaux − frais généraux",
-    source: "Ouvrages du phasage, registre de pointage, lignes de commande, Suivi direction" },
+    source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
   { cle: "margePct", label: "Marge %",
     formule: "Marge nette ÷ vendu HT × 100",
     source: "Dérivé de la marge nette" },
@@ -479,8 +543,8 @@ export const METHODE_CALCUL = [
     formule: "Heures : somme des heures estimées restantes des tâches non terminées (heures estimées × part non faite). Euros : vendu HT × part du chantier restant à produire",
     source: "Tâches des ouvrages (heures estimées + avancement)" },
   { cle: "margeATerminaison", label: "Marge à terminaison", projection: true,
-    formule: "Vendu HT − (coût MO réel + heures restantes × taux MO prévisionnel) − (matériaux réels + reste à commander) − frais généraux projetés (taux × heures totales projetées)",
-    source: "Registre de pointage, tâches restantes, lignes de commande, bibliothèque de matériaux, Suivi direction" },
+    formule: "Vendu HT − (coût MO réel + heures restantes × taux MO prévisionnel) − (matériaux réels + reste à commander) − frais généraux projetés (frais généraux des heures déjà faites + heures restantes × taux de frais généraux en vigueur aujourd'hui)",
+    source: "Registre de pointage, tâches restantes, lignes de commande, bibliothèque de matériaux, taux de frais généraux (Admin)" },
   { cle: "situationAFacturer", label: "Situation à facturer", projection: true,
     formule: "(avancement % − % facturé) × vendu HT — si l'avancement dépasse le facturé, une situation est à émettre",
     source: "Avancement du chantier + % facturé des États financiers (CA à provisionner)" },
@@ -490,11 +554,11 @@ export const METHODE_CALCUL = [
   // ── Bilan semaine (13/10/2026) : marge RÉELLE, plus une part de la marge
   // à terminaison. Les coûts sont ceux réellement datés dans la période. ──
   { cle: "margeSemaine", label: "Marge réelle de la semaine",
-    formule: "Production de la semaine (points d'avancement gagnés entre deux relevés × prix vendu) − main-d'œuvre pointée sur la même période (heures × taux figé de chaque ouvrier, trajets et indirect compris) − matériaux des commandes datées de la période (date du document fournisseur, sinon date de saisie) − frais généraux (taux horaire × heures de la période). Négative si la semaine a coûté plus qu'elle n'a produit",
-    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, Suivi direction" },
+    formule: "Production de la semaine (points d'avancement gagnés entre deux relevés × prix vendu) − main-d'œuvre pointée sur la même période (heures × taux figé de chaque ouvrier, trajets et indirect compris) − matériaux des commandes datées de la période (date du document fournisseur, sinon date de saisie) − frais généraux (heures de la période × taux de frais généraux en vigueur à la date de chaque heure). Négative si la semaine a coûté plus qu'elle n'a produit",
+    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
   { cle: "margeCumulee", label: "Marge réelle depuis le début",
     formule: "Production cumulée (avancement en fin de semaine × prix vendu) − tous les coûts réels jusqu'à la fin de la semaine (main-d'œuvre, reprise d'antériorité comprise, matériaux, frais généraux). Elle rattrape d'elle-même un avancement mal déclaré une semaine ou une commande saisie en retard",
-    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, Suivi direction" },
+    source: "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
 ];
 const FORMULE = Object.fromEntries(METHODE_CALCUL.map(m => [m.cle, m.formule]));
 
@@ -512,10 +576,16 @@ export function computeChantierFinance({
   // ── Optionnels, pour les PROJECTIONS (étape 6) ──
   pctFacture = null,     // % facturé du chantier, fraction 0-1 (États financiers) — null = non disponible
   materiauxById = null,  // map { id: fiche } de materiaux_bibliotheque — null = reste à commander indisponible
+  // ── Frais généraux (24/10/2026) ──
+  tauxFG = null,         // barème daté planning_config.fg_taux_horaires — absent = TAUX_FG_DEFAUT
+  aujourdhui = null,     // "AAAA-MM-JJ" : date du taux des projections — absente = taux le plus récent
 } = {}) {
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
   const meta = phasage?.plan_travaux?.meta || {};
   const ppt = indexPointagesParTache(pointages);
+  const baremeFG = normaliserBaremeFG(tauxFG);
+  const tauxFGAncien = baremeFG[0].taux;
+  const tauxFGActuel = aujourdhui ? tauxFGALaDate(baremeFG, aujourdhui) : baremeFG[baremeFG.length - 1].taux;
   const lotLabelOf = (id) => (lots || []).find(l => l.id === id)?.label || null;
 
   // ── Briques de calcul (formules PhasageV2, inchangées) ──
@@ -537,17 +607,34 @@ export function computeChantierFinance({
   const commandesPrevChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);
   const tauxMOPrevEff = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT;
   const moPrevChantier = heuresVenduesChantier * tauxMOPrevEff;
-  const fgTauxHoraire = (() => {
-    const v = parseFloat(meta.fg_taux_horaire);
-    return Number.isFinite(v) ? v : 0;
-  })();
-  const fgChantier = fgTauxHoraire * heuresReellesTotalChantier;
+  // Frais généraux : chaque heure au taux de SA date (barème Admin). Mêmes
+  // heures que heuresReellesTotalChantier : tâches du plan (registre, sinon
+  // heures anciennes de la tâche au taux le plus ancien), libres + indirects,
+  // reprise d'antériorité au taux le plus ancien.
+  const tauxFGVus = new Set();
+  const fgTache = (t) => {
+    const pts = tachePointages(t, ppt);
+    if (pts.length > 0) return fgDePointages(pts, baremeFG, tauxFGVus);
+    const h = tacheHeuresReelles(t, ppt);
+    if (h > 0) tauxFGVus.add(tauxFGAncien);
+    return h * tauxFGAncien;
+  };
+  const fgOuvrage = (o) => (o?.taches || []).reduce((s, t) => s + fgTache(t), 0);
+  const ptsExtras = (pointages || []).filter(p => p.type_pointage === "indirect" || !p.tache_id);
+  const tauxFGVusExtras = new Set();
+  const fgExtras = fgDePointages(ptsExtras, baremeFG, tauxFGVusExtras);
+  tauxFGVusExtras.forEach(t => tauxFGVus.add(t));
+  if (repriseHeures > 0) tauxFGVus.add(tauxFGAncien);
+  const fgChantier = ouvrages.reduce((s, o) => s + fgOuvrage(o), 0) + fgExtras + repriseHeures * tauxFGAncien;
+  // Taux affiché : le taux du jour (c'est aussi celui des projections).
+  const fgTauxHoraire = tauxFGActuel;
+  const texteTauxReel = texteTauxFG(tauxFGVus.size > 0 ? tauxFGVus : [tauxFGActuel]);
   const margeChantier  = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier;
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;
   // Marge PRÉVISIONNELLE : le devis face à ce qu'on a prévu de dépenser —
-  // déboursé prévisionnel (MO prév. + commandes prév.) et FG au taux horaire
+  // déboursé prévisionnel (MO prév. + commandes prév.) et FG au taux du jour
   // appliqué aux heures VENDUES (pas encore pointées).
-  const fgPrevChantier = fgTauxHoraire * heuresVenduesChantier;
+  const fgPrevChantier = tauxFGActuel * heuresVenduesChantier;
   const deboursePrevChantier = moPrevChantier + commandesPrevChantier;
   const margePrevChantier = prixHTChantier - deboursePrevChantier - fgPrevChantier;
   const margePrevPctChantier = prixHTChantier > 0 ? (margePrevChantier / prixHTChantier) * 100 : 0;
@@ -687,7 +774,7 @@ export function computeChantierFinance({
   // Marge à terminaison : ce qu'il restera une fois le chantier fini, si les
   // heures restantes coûtent le taux MO prévisionnel et si le reste à
   // commander est effectivement commandé.
-  const fgProjete = fgTauxHoraire * (heuresReellesTotalChantier + heuresRestantes);
+  const fgProjete = fgChantier + tauxFGActuel * heuresRestantes;
   const margeATerminaisonVal = prixHTChantier
     - (coutMOTotalChantier + heuresRestantes * tauxMOPrevEff)
     - (coutMatChantier + (resteACommanderVal ?? 0))
@@ -697,13 +784,9 @@ export function computeChantierFinance({
   const situationVal = situationAFacturerVal(avancementGlobal, pctFacture, prixHTChantier);
 
   // ── Warnings agrégés (niveau chantier) ──
+  // (Plus d'avertissement « frais généraux non réglés » : le barème Admin
+  // donne toujours un taux, TAUX_FG_DEFAUT à défaut.)
   const warnings = [];
-  if (fgTauxHoraire <= 0) {
-    warnings.push({
-      code: "fg_non_regle", gravite: "alerte",
-      message: "Définis un taux horaire de frais généraux dans « Suivi direction » — sans lui, la marge est surestimée.",
-    });
-  }
   const ouvragesSansPrix = ouvrages.filter(o => prixHTOuvrage(o) <= 0).length;
   if (ouvragesSansPrix > 0 && ouvrages.length > 0) {
     warnings.push({
@@ -804,16 +887,17 @@ export function computeChantierFinance({
       cle: "libres", heures: extras.heuresLibre, valeur: extras.coutLibre });
   }
 
-  // « fg » : par ouvrage (heures réelles × taux) + ligne extras.
-  const fgVentilation = fgTauxHoraire > 0
-    ? ouvrages
-        .map(o => ({ main: o.libelle || "(sans libellé)", sub: lotLabelOf(o.lot_id), hr: heuresReellesOuvrage(o, ppt) }))
-        .filter(r => r.hr > 0)
-        .sort((a, b) => b.hr - a.hr)
-        .map(r => ({ main: r.main, sub: `${fmtH(r.hr)}h × ${fgTauxHoraire}€/h`, right: eur(r.hr * fgTauxHoraire) }))
-    : [];
-  if (fgTauxHoraire > 0 && hExtra > 0.05) {
-    fgVentilation.push({ main: "Trajets + indirect + libres", sub: `${fmtH(hExtra)}h × ${fgTauxHoraire}€/h`, right: eur(hExtra * fgTauxHoraire) });
+  // « fg » : par ouvrage (heures réelles × taux de leur date) + extras + reprise.
+  const fgVentilation = ouvrages
+    .map(o => ({ main: o.libelle || "(sans libellé)", hr: heuresReellesOuvrage(o, ppt), fg: fgOuvrage(o) }))
+    .filter(r => r.hr > 0)
+    .sort((a, b) => b.hr - a.hr)
+    .map(r => ({ main: r.main, sub: `${fmtH(r.hr)}h × ${texteTauxReel}`, right: eur(r.fg) }));
+  if (hExtra > 0.05) {
+    fgVentilation.push({ main: "Trajets + indirect + libres", sub: `${fmtH(hExtra)}h × ${texteTauxFG(tauxFGVusExtras)}`, right: eur(fgExtras) });
+  }
+  if (repriseHeures > 0) {
+    fgVentilation.push({ main: "Reprise d'antériorité", sub: `${fmtH(repriseHeures)}h × ${fmtTauxFG(tauxFGAncien)} (taux le plus ancien)`, right: eur(repriseHeures * tauxFGAncien) });
   }
 
   // « marge » : les 4 postes.
@@ -821,14 +905,14 @@ export function computeChantierFinance({
     { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
     { main: "Coût main d'œuvre", sub: "tâches + trajets + indirect", right: `− ${eur(coutMOTotalChantier)}`, rightColor: "#e15a5a" },
     { main: "Matériaux", sub: "commandes du chantier", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
-    { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × heures réelles` : "non réglés", right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
+    { main: "Frais généraux", sub: `${texteTauxReel} × heures réelles`, right: `− ${eur(fgChantier)}`, rightColor: "#e15a5a" },
   ];
 
   // « marge_prev » : vendu, déboursé prévisionnel (MO + matériaux), FG prévisionnels.
   const margePrevVentilation = [
     { main: "Vendu HT", sub: "prix de vente des ouvrages", right: `+ ${eur(prixHTChantier)}`, rightColor: "#22c55e" },
     { main: "Déboursé prévisionnel", sub: `MO prév. ${eur(moPrevChantier)} + matériaux prév. ${eur(commandesPrevChantier)}`, right: `− ${eur(deboursePrevChantier)}`, rightColor: "#e15a5a" },
-    { main: "Frais généraux prévisionnels", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${fmtH(heuresVenduesChantier)}h prévues` : "non réglés", right: `− ${eur(fgPrevChantier)}`, rightColor: "#e15a5a" },
+    { main: "Frais généraux prévisionnels", sub: `${fmtTauxFG(tauxFGActuel)} × ${fmtH(heuresVenduesChantier)}h prévues`, right: `− ${eur(fgPrevChantier)}`, rightColor: "#e15a5a" },
   ];
 
   // « mo_prev » : par ouvrage, heures vendues × taux global.
@@ -1001,8 +1085,8 @@ export function computeChantierFinance({
       : "Vendu − déboursé prévisionnel − FG prévisionnels",
     totalLabel: "Marge prévisionnelle",
     totalTexte: `${margePrevChantier >= 0 ? "+" : ""}${eur(margePrevChantier)}`,
-    source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, Suivi direction",
-    warnings: warnings.filter(w => ["fg_non_regle", "ouvrages_sans_prix"].includes(w.code)),
+    source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, taux de frais généraux (Admin)",
+    warnings: warnings.filter(w => w.code === "ouvrages_sans_prix"),
     renseigne: prixHTChantier > 0,
   });
 
@@ -1041,25 +1125,16 @@ export function computeChantierFinance({
   const fg = D({
     cle: "fg", label: "Frais généraux", format: "euro",
     valeur: fgChantier, valeurTexte: eur(fgChantier),
-    sousLabel: fgTauxHoraire > 0
-      ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles`
-      : "0 — à régler",
+    sousLabel: `${texteTauxReel} × ${heuresReellesTotalChantier.toFixed(0)}h réelles`,
     formule: FORMULE.fg,
-    calculDetaille: fgTauxHoraire > 0
-      ? `${fgTauxHoraire} €/h × ${fmtH(heuresReellesTotalChantier)}h réelles = ${eur(fgChantier)}`
-      : "Taux horaire de frais généraux non réglé → 0 € (marge surestimée).",
+    calculDetaille: `${fmtH(heuresReellesTotalChantier)}h réelles × ${texteTauxReel} = ${eur(fgChantier)}`,
     ventilation: fgVentilation,
     titre: "Frais généraux",
-    sousTitre: fgTauxHoraire > 0
-      ? `${fgTauxHoraire}€/h × ${heuresReellesTotalChantier.toFixed(0)}h réelles`
-      : "Taux horaire non réglé (Suivi direction)",
-    vide: fgTauxHoraire > 0
-      ? "Aucune heure réelle pointée."
-      : "Définis un taux horaire de frais généraux dans « Suivi direction » pour ventiler ce coût.",
+    sousTitre: `${texteTauxReel} × ${heuresReellesTotalChantier.toFixed(0)}h réelles`,
+    vide: "Aucune heure réelle pointée.",
     totalLabel: "Total frais généraux",
-    source: "Suivi direction (fg_taux_horaire) × registre de pointage",
-    warnings: warnings.filter(w => w.code === "fg_non_regle"),
-    renseigne: fgTauxHoraire > 0,
+    source: "Taux de frais généraux datés (Admin) × registre de pointage",
+    renseigne: true,
   });
 
   const marge = D({
@@ -1074,8 +1149,8 @@ export function computeChantierFinance({
     sousTitre: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : "Vendu − MO − Matériaux − FG",
     totalLabel: "Marge nette",
     totalTexte: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
-    source: "Ouvrages du phasage, registre de pointage, lignes de commande, Suivi direction",
-    warnings: warnings.filter(w => ["fg_non_regle", "ouvrages_sans_prix", "marge_sous_seuil_prime"].includes(w.code)),
+    source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)",
+    warnings: warnings.filter(w => ["ouvrages_sans_prix", "marge_sous_seuil_prime"].includes(w.code)),
     renseigne: prixHTChantier > 0,
   });
 
@@ -1169,14 +1244,13 @@ export function computeChantierFinance({
       { main: "MO restante estimée", sub: `${fmtH(heuresRestantes)}h × ${tauxMOPrevEff} €/h`, right: `− ${eur(heuresRestantes * tauxMOPrevEff)}`, rightColor: "#e15a5a" },
       { main: "Matériaux réels", sub: "commandes passées", right: `− ${eur(coutMatChantier)}`, rightColor: "#e15a5a" },
       { main: "Reste à commander", sub: materiauxById ? "matériaux prévus non commandés" : "bibliothèque non chargée → 0", right: `− ${eur(resteACommanderVal ?? 0)}`, rightColor: "#e15a5a" },
-      { main: "Frais généraux projetés", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire}€/h × ${fmtH(heuresReellesTotalChantier + heuresRestantes)}h` : "non réglés", right: `− ${eur(fgProjete)}`, rightColor: "#e15a5a" },
+      { main: "Frais généraux projetés", sub: `${eur(fgChantier)} déjà engagés + ${fmtH(heuresRestantes)}h restantes × ${fmtTauxFG(tauxFGActuel)}`, right: `− ${eur(fgProjete)}`, rightColor: "#e15a5a" },
     ],
     titre: "Marge à terminaison",
     sousTitre: "Projection : marge restante si les heures restantes coûtent le taux prévisionnel",
     totalLabel: "Marge à terminaison",
     totalTexte: `${margeATerminaisonVal >= 0 ? "+" : ""}${eur(margeATerminaisonVal)}`,
-    source: "Registre de pointage, tâches restantes, commandes, bibliothèque, Suivi direction",
-    warnings: warnings.filter(w => w.code === "fg_non_regle"),
+    source: "Registre de pointage, tâches restantes, commandes, bibliothèque, taux de frais généraux (Admin)",
     renseigne: prixHTChantier > 0,
   });
 
@@ -1228,7 +1302,9 @@ export function computeChantierFinance({
       heuresReellesTotalChantier, coutMOChantier, coutMOTotalChantier,
       heuresHorsDevisChantier, heuresComparablesChantier,
       coutMatChantier, commandesPrevChantier, moPrevChantier, tauxMOPrevEff,
-      fgTauxHoraire, fgChantier, margeChantier, margePctChantier,
+      // fgTauxHoraire = taux en vigueur aujourd'hui (celui des projections) ;
+      // le barème complet reste dans fgBareme.
+      fgTauxHoraire, fgBareme: baremeFG, fgChantier, margeChantier, margePctChantier,
       fgPrevChantier, deboursePrevChantier, margePrevChantier, margePrevPctChantier,
       avancementChantier: avancementGlobal,
       deriveChantier,
@@ -1260,7 +1336,7 @@ export function computeChantierFinance({
 //     même périmètre que la marge nette (tâches du plan, libres, indirects) ;
 //   - matériaux : lignes de commande datées de la période — date du document
 //     fournisseur, sinon date de saisie (décision : comptés à la commande) ;
-//   - frais généraux : taux horaire FG × heures de la période.
+//   - frais généraux : heures de la période × taux FG en vigueur à leur date.
 // La marge depuis le début reprend computeChantierFinance sur les données
 // arrêtées à la fin de la période : même périmètre de coûts que la marge
 // nette (reprise d'antériorité et heures anciennes non datées comprises).
@@ -1289,10 +1365,11 @@ export function libellePeriodeMarge(du, au) {
 }
 
 export function margeReelleSemaine({
-  phasage,             // ligne phasages (ouvrages, plan_travaux.meta.fg_taux_horaire…)
+  phasage,             // ligne phasages (ouvrages, plan_travaux…)
   pointages = [],      // TOUS les pointages du chantier (filtrés ici par date)
   commandeLignes = [], // TOUTES les lignes du chantier, avec created_at et commande.date_doc
   tauxHoraires = {}, tauxMOPrev = 0, lots = [], // pour la marge depuis le début
+  tauxFG = null,          // barème daté des frais généraux (absent = TAUX_FG_DEFAUT)
   prixVendu = 0,          // prix vendu utilisé par le « Généré » du bilan
   avancementDebut = null, // % au relevé de début (0 pour un chantier nouveau)
   avancementFin = null,   // % au relevé de fin, ou actuel si la semaine est en cours ; null = inconnu
@@ -1300,11 +1377,7 @@ export function margeReelleSemaine({
   au = null,              // date du relevé de fin, INCLUSE (null = jusqu'à aujourd'hui)
 } = {}) {
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
-  const meta = phasage?.plan_travaux?.meta || {};
-  const fgTauxHoraire = (() => {
-    const v = parseFloat(meta.fg_taux_horaire);
-    return Number.isFinite(v) ? v : 0;
-  })();
+  const baremeFG = normaliserBaremeFG(tauxFG);
   const vendu = parseFloat(prixVendu) || 0;
 
   // ── Coûts de la période ──
@@ -1321,7 +1394,9 @@ export function margeReelleSemaine({
   const heuresHorsPlan = sumHeures(ptsPeriode.filter(p => !compte(p)));
   const lignesPeriode = (commandeLignes || []).filter(l => dansPeriode(dateImputationLigne(l), du, au));
   const materiaux = totalLignes(lignesPeriode);
-  const fg = fgTauxHoraire * heures;
+  const tauxFGVus = new Set();
+  const fg = fgDePointages(ptsComptes, baremeFG, tauxFGVus);
+  const texteTauxPeriode = texteTauxFG(tauxFGVus.size > 0 ? tauxFGVus : [tauxFGALaDate(baremeFG, au)]);
   const couts = mo + materiaux + fg;
 
   // ── Production : seulement si les deux relevés et le prix sont connus ──
@@ -1345,7 +1420,7 @@ export function margeReelleSemaine({
       phasage,
       pointages: (pointages || []).filter(p => avantFin(datePointage(p), au)),
       commandeLignes: (commandeLignes || []).filter(l => avantFin(dateImputationLigne(l), au)),
-      tauxHoraires, tauxMOPrev, lots,
+      tauxHoraires, tauxMOPrev, lots, tauxFG: baremeFG,
     });
     const b = fin.brut;
     const produitCumul = Math.round(vendu * avFin / 100);
@@ -1359,12 +1434,6 @@ export function margeReelleSemaine({
   }
 
   const warnings = [];
-  if (fgTauxHoraire <= 0) {
-    warnings.push({
-      code: "fg_non_regle", gravite: "alerte",
-      message: "Définis un taux horaire de frais généraux dans « Suivi direction » — sans lui, la marge est surestimée.",
-    });
-  }
   if (heuresHorsPlan > 0.05) {
     warnings.push({
       code: "heures_hors_plan", gravite: "info",
@@ -1382,7 +1451,7 @@ export function margeReelleSemaine({
       right: produit != null ? signe(produit) : "—", rightColor: produit != null && produit < 0 ? "#e15a5a" : "#22c55e" },
     { main: "Main-d'œuvre", sub: `${fmtH(heures)} h pointées × taux de chaque ouvrier`, right: `− ${eur(mo)}`, rightColor: "#e15a5a" },
     { main: "Matériaux", sub: `${lignesPeriode.length} ligne${lignesPeriode.length > 1 ? "s" : ""} de commande datée${lignesPeriode.length > 1 ? "s" : ""} de la période`, right: `− ${eur(materiaux)}`, rightColor: "#e15a5a" },
-    { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire} €/h × ${fmtH(heures)} h` : "non réglés", right: `− ${eur(fg)}`, rightColor: "#e15a5a" },
+    { main: "Frais généraux", sub: `${fmtH(heures)} h × ${texteTauxPeriode}`, right: `− ${eur(fg)}`, rightColor: "#e15a5a" },
   ];
   const achats = {};
   lignesPeriode.forEach(l => {
@@ -1406,7 +1475,7 @@ export function margeReelleSemaine({
     ventilation.push({ main: `↳ ${o.nom}`, sub: `${fmtH(o.heures)} h pointées`, right: `− ${eur(o.cout)}` });
   });
 
-  const source = "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, Suivi direction";
+  const source = "Relevés d'avancement hebdomadaires, registre de pointage, lignes de commande, taux de frais généraux (Admin)";
   const semaine = {
     cle: "margeSemaine", label: "Marge réelle de la semaine", format: "euro",
     valeur: marge,
@@ -1437,14 +1506,14 @@ export function margeReelleSemaine({
       { main: "Production cumulée", sub: `${avFin} % × ${eur(vendu)}`, right: signe(cumul.produit), rightColor: "#22c55e" },
       { main: "Main-d'œuvre", sub: "tous les pointages + reprise d'antériorité", right: `− ${eur(cumul.mo)}`, rightColor: "#e15a5a" },
       { main: "Matériaux", sub: "toutes les commandes datées jusqu'à la fin de la période", right: `− ${eur(cumul.materiaux)}`, rightColor: "#e15a5a" },
-      { main: "Frais généraux", sub: fgTauxHoraire > 0 ? `${fgTauxHoraire} €/h × heures totales` : "non réglés", right: `− ${eur(cumul.fg)}`, rightColor: "#e15a5a" },
+      { main: "Frais généraux", sub: "heures totales × taux en vigueur à leur date", right: `− ${eur(cumul.fg)}`, rightColor: "#e15a5a" },
     ],
     titre: "Marge réelle depuis le début",
     sousTitre: au ? `Au relevé du ${dateFr(au)}` : "À ce jour",
     vide: null,
     totalLabel: "Marge depuis le début",
     totalTexte: signe(cumul.marge),
-    source, fraicheur: null, warnings: warnings.filter(w => w.code === "fg_non_regle"), renseigne: true,
+    source, fraicheur: null, warnings: [], renseigne: true,
   };
 
   return {

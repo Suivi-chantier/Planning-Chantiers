@@ -51,7 +51,7 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
           .select("id, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at)"),
         supabase.from("facture_couts_chantiers").select("id,chantier_id,montant_ht,nature,date_imputation"),
         supabase.from("avoirs_fournisseurs_imputations").select("id,chantier_id,montant_ht,date_imputation,factures!inner(statut)").eq("factures.statut","rapprochee"),
-        supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers"]),
+        supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "fg_taux_horaires"]),
       ]);
       [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["corrections factures", fcRes], ["avoirs fournisseurs", avoirRes], ["réglages", cfgRes]]
         .forEach(([nom, r]) => { if (r.error) erreurs.push(`${nom} : ${r.error.message}`); });
@@ -86,7 +86,8 @@ export default function DiagrammeFinancierConsolide({ T, acc }) {
       const entrees = phasages.map((ph) => {
         const pointages = ptsByChantier[ph.chantier_id] || [];
         const commandeLignes = clByChantier[ph.chantier_id] || [];
-        const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots: [] });
+        const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots: [],
+          tauxFG: cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10) });
         const reelles = seriesReellesChantier({
           finance, pointages, commandeLignes, etatsFinanciers,
           chantierNom: ph.chantier_nom || ph.chantier_id,

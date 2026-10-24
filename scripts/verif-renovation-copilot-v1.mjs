@@ -172,17 +172,19 @@ function fixtures() {
       { key: "chantiers", value: chantiers },
       { key: "taux_horaires", value: { "Ouvrier fictif": 30 } },
       { key: "taux_mo_previsionnel", value: 28 },
+      // Barème de frais généraux de l'entreprise (fictif) : 12 €/h pour tous les chantiers.
+      { key: "fg_taux_horaires", value: [{ depuis: "2026-01-01", taux: 12 }] },
       { key: "lots_travaux", value: { items: [{ id: "lot1", label: "Plâtrerie" }] } },
       { key: "etats_financiers", value: { avancement: { periods: [{ id: "p1" }], rows: [{ chantier: "CHANTIER TEST A", values: { p1: { pctFacture: "30" } } }] } } },
     ],
     phasages: [
       { id: "ph-a-ancien", chantier_id: "ch-test-a", chantier_nom: "CHANTIER TEST A", updated_at: "2026-01-01T00:00:00Z",
-        plan_travaux: { meta: { fg_taux_horaire: 12 } }, ouvrages: [ouvrage("vieux", 999999, 1, 0)] },
+        plan_travaux: { meta: {} }, ouvrages: [ouvrage("vieux", 999999, 1, 0)] },
       { id: "ph-a", chantier_id: "ch-test-a", chantier_nom: "CHANTIER TEST A", updated_at: "2026-09-20T00:00:00Z",
-        plan_travaux: { meta: { fg_taux_horaire: 12 } }, ouvrages: [ouvrage("a1", 10000, 100, 50), ouvrage("a2", 5000, 40, 20)] },
-      // Frais généraux NON renseignés → fg_non_regle
+        plan_travaux: { meta: {} }, ouvrages: [ouvrage("a1", 10000, 100, 50), ouvrage("a2", 5000, 40, 20)] },
+      // Ancien réglage par phasage (99 €/h) : IGNORÉ, c'est le barème qui compte.
       { id: "ph-b", chantier_id: "ch-test-b", chantier_nom: "CHANTIER TEST B", updated_at: "2026-09-20T00:00:00Z",
-        plan_travaux: { meta: {} }, ouvrages: [ouvrage("b1", 8000, 80, 40)] },
+        plan_travaux: { meta: { fg_taux_horaire: 99 } }, ouvrages: [ouvrage("b1", 8000, 80, 40)] },
     ],
     pointages: [
       pointage("ch-test-a", "t-a1", 40, "2026-09-15"),
@@ -301,10 +303,21 @@ await bloc("5. etat_chantier : chiffres = chantierFinance, même chargement que 
   verifier(x.trouve === false && /ne peut pas être calculé/.test(x.message), "chantier sans phasage : impossibilité visible");
 });
 
-await bloc("6. etat_chantier : avertissement « frais généraux non renseignés » transmis", async () => {
-  const r = await outil("etat_chantier", { chantier_id: "ch-test-b" });
-  verifier(r.avertissements.some((w) => w.code === "fg_non_regle"), "warning fg_non_regle transmis");
-  verifier(r.fiabilite === alertesMod.MESSAGE_MARGE_SURESTIMEE, `drapeau de fiabilité du moteur d'alertes, reçu ${r.fiabilite}`);
+await bloc("6. etat_chantier : frais généraux au barème de l'entreprise, plus de drapeau « non renseignés »", async () => {
+  const tables = fixtures();
+  const r = await outil("etat_chantier", { chantier_id: "ch-test-b" }, tables);
+  const r2 = (v) => (v == null ? null : Number(Number(v).toFixed(2)));
+  // 30 h pointées × 12 €/h (barème en base) — l'ancien 99 €/h du phasage est ignoré.
+  const { brut: bB } = finance.computeChantierFinance({
+    phasage: tables.phasages.find((p) => p.id === "ph-b"),
+    pointages: tables.pointages.filter((p) => p.chantier_id === "ch-test-b"),
+    commandeLignes: tables.commande_lignes.filter((l) => l.chantier_id === "ch-test-b"),
+    tauxFG: [{ depuis: "2026-01-01", taux: 12 }],
+  });
+  verifier(Math.abs(bB.fgChantier - 360) < 0.01, `frais généraux B = 30 h × 12 €/h, obtenu ${bB.fgChantier}`);
+  verifier(r.chiffres.marge === r2(bB.margeChantier), `marge B calculée au barème (${r.chiffres.marge} vs ${r2(bB.margeChantier)})`);
+  verifier(!r.avertissements.some((w) => w.code === "fg_non_regle"), "plus d'avertissement fg_non_regle");
+  verifier(r.fiabilite === null, `pas de drapeau de fiabilité, reçu ${r.fiabilite}`);
   verifier(r.chiffres.facture_progbat === null && r.indisponibles.some((t) => /Aucune situation de travaux ProGBat/.test(t)), "facturé ProGBat absent dit comme tel");
   verifier(r.chiffres.situation_a_facturer === null && r.indisponibles.some((t) => /% facturé non disponible/.test(t)), "situation à facturer indisponible dite comme telle");
 });

@@ -543,6 +543,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
   // Taux horaire MO prévisionnel global (€/h) — sert à estimer le coût MO prévu
   // dans le phasage v2 et la page Chantiers. 0 = non réglé (repli sur défaut).
   const[tauxMOPrev,setTauxMOPrev]=useState(0);
+  // Barème daté des frais généraux (planning_config.fg_taux_horaires) — null = défaut du module.
+  const[tauxFG,setTauxFG]=useState(null);
   const[chantiers,setChantiers]=useState(DEFAULT_CHANTIERS);
   const[cells,setCells]=useState({});
   const[commandes,setCommandes]=useState({});
@@ -636,6 +638,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="ouvriers")setOuvriers(r.value);
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
         if(r.key==="taux_mo_previsionnel")setTauxMOPrev(parseFloat(r.value)||0);
+        if(r.key==="fg_taux_horaires")setTauxFG(Array.isArray(r.value)?r.value:null);
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
       });
@@ -673,6 +676,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
         if(r.key==="chantiers")setChantiers(r.value);
         if(r.key==="taux_horaires")setTauxHoraires(r.value||{});
         if(r.key==="taux_mo_previsionnel")setTauxMOPrev(parseFloat(r.value)||0);
+        if(r.key==="fg_taux_horaires")setTauxFG(Array.isArray(r.value)?r.value:null);
         if(r.key==="ouvrier_emails")setOuvrierEmails(r.value||{});
         setLastSync(new Date());
       })
@@ -905,7 +909,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
             const p=o.page, actif=o.id===ongletActif;
             return (
               <div key={o.id} style={{flex:1,display:actif?"flex":"none",minWidth:0,minHeight:0,overflow:"hidden"}}>
-          {p==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} profil={profil} initialSelectedId={actif?chantierToOpen:null} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
+          {p==="chantiers"          && (canAccess(role,"chantiers")          ? <PageChantiers chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} tauxFG={tauxFG} T={T} profil={profil} initialSelectedId={actif?chantierToOpen:null} onSelectionConsumed={() => setChantierToOpen(null)}/> : <AccesRefuse T={T} page="chantiers"/>)}
           {p==="dashboard"          && (canAccess(role,"dashboard")          ? <PageDashboard chantiers={chantiers} cells={cells} commandes={commandes} notesData={notesData} weekId={weekId} T={T} profil={profil}/> : <AccesRefuse T={T} page="dashboard"/>)}
           {p==="planning"           && (canAccess(role,"planning")           ? <PagePlanning chantiers={chantiers} ouvriers={ouvriers} ouvrierEmails={ouvrierEmails} vehicules={vehicules} cells={cells} setCells={setCells} commandes={commandes} setCommandes={setCommandes} notesData={notesData} setNotesData={setNotesData} weekId={weekId} view={view} setView={setView} year={year} week={week} setYear={setYear} setWeek={setWeek} T={T}/> : <AccesRefuse T={T} page="planning"/>)}
           {p==="planning-mensuel"   && (canAccess(role,"planning-mensuel")   ? <PagePlanningMensuel T={T} chantiers={chantiers}/> : <AccesRefuse T={T} page="planning-mensuel"/>)}
@@ -925,7 +929,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={actif?validationDate:null} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
           {p==="heures-salaries"    && (canAccess(role,"heures-salaries")    ? <PageHeuresSalaries chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} onGoToValidation={ouvrirValidation}/> : <AccesRefuse T={T} page="heures-salaries"/>)}
           {p==="plans"              && (canAccess(role,"plans")              ? <PagePlans T={T} chantiers={chantiers} branch={branch}/> : <AccesRefuse T={T} page="plans"/>)}
-          {p==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
+          {p==="phasage-v2"         && (canAccess(role,"phasage-v2")         ? <PagePhasageV2 chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} tauxMOPrev={tauxMOPrev} tauxFG={tauxFG} T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="phasage-v2"/>)}
           {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")} peutPlanifier={canAccess(role,"planning")}/> : <AccesRefuse T={T} page="operations"/>)}
           {p==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={actif?biblioOuvrageToOpen:null} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {p==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
@@ -935,7 +939,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
           {p==="guide-ouvrages"     && (canAccess(role,"guide-ouvrages")     ? <PageGuideOuvrages T={T}/> : <AccesRefuse T={T} page="guide-ouvrages"/>)}
           {p==="journal-maj"        && (canAccess(role,"journal-maj")        ? <PageJournalMaj T={T} branch={branch} onOuvrirPage={setPage} peutOuvrir={(id)=>canAccess(role,id)}/> : <AccesRefuse T={T} page="journal-maj"/>)}
-          {p==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
+          {p==="admin"              && (canAccess(role,"admin")              ? <PageAdmin ouvriers={ouvriers} setOuvriers={setOuvriers} ouvrierEmails={ouvrierEmails} setOuvrierEmails={setOuvrierEmails} tauxHoraires={tauxHoraires} setTauxHoraires={setTauxHoraires} tauxMOPrev={tauxMOPrev} setTauxMOPrev={setTauxMOPrev} tauxFG={tauxFG} setTauxFG={setTauxFG} chantiers={chantiers} setChantiers={setChantiers} saveConfig={saveConfig} theme={theme} setTheme={setTheme} T={T} profil={profil} branch={branch}/> : <AccesRefuse T={T} page="admin"/>)}
               </div>
             );
           })}

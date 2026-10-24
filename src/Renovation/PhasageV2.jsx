@@ -350,7 +350,7 @@ function PrevisionnelEditor({ prev, updatePrev, chantier, T, acc, onGenerer }) {
   );
 }
 
-function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxMOPrev = 0, T, branch = "renovation", profil = null }) {
+function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxMOPrev = 0, tauxFG = null, T, branch = "renovation", profil = null }) {
   const acc = getBranchAccent(branch);
 
   // ── État ────────────────────────────────────────────────────────────────
@@ -708,9 +708,11 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const chantier = chantiers.find(c => c.id === chantierId);
 
   // ─── CALCULS : une seule passe du module (source de vérité) ──────────────
+  // Frais généraux : barème daté de l'Admin (tauxFG) ; projections au taux du jour.
   const fin = useMemo(() => computeChantierFinance({
     phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
-  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots]);
+    tauxFG, aujourdhui: new Date().toISOString().slice(0, 10),
+  }), [phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG]);
 
   // TOUS les comptes rendus liés à la tâche `t`, du plus récent au plus ancien.
   // On matche par tache_id (tâches créées/planifiées en V2) OU par nom (tâches
@@ -1084,7 +1086,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   const {
     prixHTChantier, heuresVenduesChantier, heuresReellesTotalChantier,
     coutMOTotalChantier, coutMatChantier, commandesPrevChantier,
-    moPrevChantier, tauxMOPrevEff, fgTauxHoraire, fgChantier,
+    moPrevChantier, tauxMOPrevEff, fgChantier,
     margeChantier, margePctChantier,
     margePrevChantier, margePrevPctChantier,
     repriseHeures, repriseTaux, repriseCout,
@@ -1904,7 +1906,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
       ${kpiCell(`${Math.round(prixHTChantier).toLocaleString("fr-FR")} €`, "Vendu", "#f5c400")}
       ${kpiCell(`${Math.round(coutMOTotalChantier).toLocaleString("fr-FR")} €`, "Coût MO", "#60a5fa")}
       ${kpiCell(`${Math.round(coutMatChantier).toLocaleString("fr-FR")} €`, "Matériaux", "#f97316")}
-      ${kpiCell(`${Math.round(fgChantier).toLocaleString("fr-FR")} €`, `FG ${fgTauxHoraire ? fgTauxHoraire+"€/h" : ""}`, "#a78bfa")}
+      ${kpiCell(`${Math.round(fgChantier).toLocaleString("fr-FR")} €`, "Frais généraux", "#a78bfa")}
       ${kpiCell(`${margeChantier >= 0 ? "+" : ""}${Math.round(margeChantier).toLocaleString("fr-FR")} €`,
         `Marge ${prixHTChantier > 0 ? margePctChantier.toFixed(0) + "%" : ""}`,
         margeChantier >= 0 ? "#50c878" : "#ff6b6b")}
@@ -3486,10 +3488,12 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                 onChange={e => majChampMeta("marge_vendue_cible", e.target.value)}
                 placeholder="30" style={modalInp(T)}/>
             </ModalField>
-            <ModalField label="FG — Taux horaire (€/h)">
-              <input type="number" step="0.5" min="0" value={champMeta("fg_taux_horaire")}
-                onChange={e => majChampMeta("fg_taux_horaire", e.target.value)}
-                placeholder="5" style={modalInp(T)}/>
+            {/* Frais généraux : taux unique de l'entreprise, réglé dans Admin
+                (onglet Taux horaires) — plus de saisie par chantier. */}
+            <ModalField label="Frais généraux (taux du jour)">
+              <div style={{ ...modalInp(T), display: "flex", alignItems: "center", color: T.textSub }}>
+                {String(fin.brut.fgTauxHoraire).replace(".", ",")} €/h · réglé dans Admin
+              </div>
             </ModalField>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -3533,7 +3537,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             fontSize: FONT.xs.size + 1, color: T.textSub, lineHeight: 1.6,
           }}>
             <div><strong style={{ color: T.text }}>Marge cible</strong> : objectif de marge nette pour considérer le chantier rentable.</div>
-            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : taux horaire (€/h) multiplié par les heures réelles du chantier (tâches + trajets + indirect). Couvre admin, transport, etc. Déduit de la marge.</div>
+            <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Frais généraux</strong> : chaque heure réelle du chantier (tâches + trajets + indirect) × le taux en vigueur à la date de cette heure. Le taux est le même pour tous les chantiers et se règle dans Admin → Taux horaires. Couvre admin, transport, etc. Déduit de la marge.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Seuil prime</strong> : marge minimale à partir de laquelle l'équipe touche la prime.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Prime chantier</strong> : montant attribué à l'équipe si le seuil est dépassé.</div>
             <div style={{ marginTop: 4 }}><strong style={{ color: T.text }}>Reprise d'heures</strong> : heures (et coût) déjà consommés avant l'app. Ajoutées aux « Heures totales », au « Coût MO » et à la marge, mais rangées à part (« avant l'application »), sans fausser la répartition par mois ni par ouvrier.</div>

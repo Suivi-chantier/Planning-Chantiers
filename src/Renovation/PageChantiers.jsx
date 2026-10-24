@@ -1352,7 +1352,7 @@ function totalLignes(lignes) {
     (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
 }
 
-function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0) {
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0, tauxFG = null) {
   const ouvrages = phasage?.ouvrages || [];
   const hasV2 = ouvrages.length > 0;
   if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, fg: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0, ecartVendu: null, fin: null };
@@ -1364,6 +1364,7 @@ function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraSt
   if (hasV2) {
     const fin = computeChantierFinance({
       phasage, pointages: pointagesChantier, commandeLignes, tauxHoraires, tauxMOPrev, lots: [],
+      tauxFG, aujourdhui: new Date().toISOString().slice(0, 10),
     });
     const b = fin.brut;
     return {
@@ -1712,7 +1713,7 @@ function NotesChantier({ chantierId, T, accent }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
+export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, tauxFG = null, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
   // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
@@ -2103,7 +2104,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Rechargement après une écriture du bloc Facturation (insert, encaissement,
   // suppression) : une seule source, la base — on ne recopie pas l'état local.
   const rechargerFactures = async () => setRechargeFactures(n => n + 1);
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev) : null;
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev, tauxFG) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // ─── DOSSIER DE PRÉPARATION (PDF papier pour l'équipe) ──────────────────────
@@ -2606,7 +2607,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             if (!ph) return;
             const ptsCh = pointages.filter(p => p.chantier_id === ph.chantier_id);
             const cmdCh = commandeLignes.filter(l => l.chantier_id === ph.chantier_id);
-            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh);
+            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh, tauxMOPrev, tauxFG);
             caTotal += f.prixVendu || 0;
             margeTotal += f.marge || 0;
           });
@@ -2710,7 +2711,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               const ptsIdx  = indexPointagesParTache(ptsCh);
               const extras  = sumLibreEtIndirect(ptsCh);
               const cmdCh   = phasage ? commandeLignes.filter(l => l.chantier_id === phasage.chantier_id) : [];
-              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh) : null;
+              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh, tauxMOPrev, tauxFG) : null;
               const photo   = photoMap[chantier.id];
               const statut  = getStatut(chantier, phasage);
 

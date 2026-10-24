@@ -22,8 +22,10 @@ const phasage = {
     { id: "o1", prix_ht: 30000, heures_devis: 200, taches: [{ id: "t1", avancement: 40, heures_estimees: 100 }] },
     { id: "o2", prix_ht: 10000, heures_devis: 80, taches: [{ id: "t2", avancement: 20, heures_estimees: 50 }] },
   ],
-  plan_travaux: { meta: { fg_taux_horaire: 10 } },
+  plan_travaux: { meta: {} },
 };
+// Barème de frais généraux (réglage Admin) : 10 €/h sur toute la période.
+const tauxFG = [{ depuis: "2026-01-01", taux: 10 }];
 // Relevé de début le 02/10 (exclu), relevé de fin le 09/10 (inclus).
 const DU = "2026-10-02", AU = "2026-10-09";
 const pt = (date, heures, taux, extra = {}) => ({ date, heures, taux_horaire: taux, ouvrier: "Ouvrier A", tache_id: "t1", ...extra });
@@ -46,7 +48,7 @@ const commandeLignes = [
   ligne(200, { created_at: "2026-10-07T10:00:00Z", fournisseur: "Fournisseur Y" }), // sans date de document : date de saisie
   ligne(1000, { date_doc: "2026-10-20" }),                         // après la période
 ];
-const base = { phasage, pointages, commandeLignes, prixVendu: 40000 };
+const base = { phasage, pointages, commandeLignes, prixVendu: 40000, tauxFG };
 
 // ── 1. Date d'imputation d'un achat ─────────────────────────────────────────
 assert.equal(dateImputationLigne({ created_at: "2026-10-12T09:00:00Z", commande: { date_doc: "2026-10-06" } }), "2026-10-06");
@@ -101,9 +103,14 @@ assert.equal(dateImputationLigne({}), null);
   assert.equal(sansPrix.calculable, false);
   assert.match(sansPrix.raison, /sans prix de vente/);
 
-  const sansFG = margeReelleSemaine({ ...base, phasage: { ...phasage, plan_travaux: { meta: {} } }, avancementDebut: 30, avancementFin: 35, du: DU, au: AU });
-  assert.equal(sansFG.fg, 0);
-  assert.ok(sansFG.warnings.some(w => w.code === "fg_non_regle"), "frais généraux non réglés : signalé");
+  // Sans barème transmis : taux par défaut (17,44 €/h), jamais 0 — et donc
+  // plus d'avertissement « frais généraux non réglés ».
+  const sansFG = margeReelleSemaine({ ...base, tauxFG: null, avancementDebut: 30, avancementFin: 35, du: DU, au: AU });
+  proche(sansFG.fg, 26 * 17.44, "barème absent → 17,44 €/h");
+  assert.equal(sansFG.warnings.some(w => w.code === "fg_non_regle"), false);
+  // L'ancien réglage par phasage n'est plus lu.
+  const ancien = margeReelleSemaine({ ...base, phasage: { ...phasage, plan_travaux: { meta: { fg_taux_horaire: 99 } } }, avancementDebut: 30, avancementFin: 35, du: DU, au: AU });
+  proche(ancien.fg, 260, "meta.fg_taux_horaire ignoré");
 }
 
 // ── 5. Production : même arrondi que le « Généré » du bilan ─────────────────
@@ -115,7 +122,7 @@ assert.equal(dateImputationLigne({}), null);
 // ── 6. Depuis le début : mêmes coûts que la marge nette du module ───────────
 {
   const r = margeReelleSemaine({ ...base, avancementDebut: 30, avancementFin: 35, du: DU, au: null });
-  const fin = computeChantierFinance({ phasage, pointages, commandeLignes });
+  const fin = computeChantierFinance({ phasage, pointages, commandeLignes, tauxFG });
   const attendu = Math.round(40000 * 35 / 100) - fin.brut.coutMOTotalChantier - fin.brut.coutMatChantier - fin.brut.fgChantier;
   proche(r.cumul.marge, attendu, "marge depuis le début, sans date de fin");
   assert.equal(r.cumulee.cle, "margeCumulee");

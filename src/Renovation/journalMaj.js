@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "amelioration",
+    titre: "Frais généraux : un seul taux pour toute l'entreprise, daté, réglé dans Réglages",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }, { id: "chantiers", label: "Chantiers" }, { id: "operations", label: "Opérations" }],
+    quoi: "Le taux horaire de frais généraux se réglait chantier par chantier dans le phasage, et 14 chantiers n'en avaient pas : leur marge était surestimée. Il y a maintenant un seul taux pour toute l'entreprise — 17,44 €/h depuis le 01/01/2026 — appliqué à tous les chantiers, partout où une marge s'affiche (phasage, fiche chantier, Bilan de semaine, Opérations, relevé du vendredi, assistant).",
+    comment: "Réglages → Taux horaires → « Taux de frais généraux » : pour changer de taux, ajouter un nouveau taux avec sa date d'effet ; les anciens restent dans la liste. Chaque heure pointée compte au taux en vigueur le jour où elle a été faite, donc un nouveau taux ne change pas les frais généraux déjà passés. Les heures sans date (reprise d'antériorité, anciennes heures saisies sur la tâche) comptent au taux le plus ancien ; les heures restant à faire, au taux d'aujourd'hui. Le champ « FG — Taux horaire » du Suivi direction du phasage disparaît, ainsi que l'avertissement « Définis un taux horaire de frais généraux ».",
+  },
+  {
+    date: "2026-10-24",
     type: "nouveaute",
     titre: "Nouvelle page « Qualité des comptes rendus » : suivre, ouvrier par ouvrier, ce que valent les comptes rendus du soir",
     pages: [{ id: "qualite-cr", label: "Qualité des comptes rendus" }, { id: "equipe", label: "Équipe" }],

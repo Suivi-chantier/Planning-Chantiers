@@ -7,6 +7,9 @@
 // CE calcul avec le code de main au 06/10/2026 (commit d54712a), AVANT l'ajout
 // des tâches hors devis : la vérification exige que le code actuel redonne
 // exactement les mêmes chiffres sur les tâches existantes.
+// 24/10/2026 : référence recalculée pour le taux de frais généraux unique et
+// daté — seuls les frais généraux et les marges ont bougé (diff vérifié champ
+// par champ avant de la réécrire), tout le reste est resté identique.
 import * as CF from "../src/chantierFinance.mjs";
 import { qcdDepuisFinance } from "../src/Renovation/qcd.mjs";
 import { ouvragesComparablesV1 } from "../src/Renovation/echantillonCadencesV1.mjs";

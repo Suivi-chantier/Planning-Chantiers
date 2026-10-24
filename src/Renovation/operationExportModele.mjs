@@ -621,7 +621,9 @@ export function normaliserChantier({
       id: phasage.id,
       updatedAt: phasage.updated_at,
       montantDevis: nombreOuNull(meta.prix_vendu),
-      fgTauxHoraire: nombreOuNull(meta.fg_taux_horaire),
+      // Taux unique de l'entreprise (barème Admin), en vigueur aujourd'hui —
+      // le champ par phasage meta.fg_taux_horaire n'est plus lu.
+      fgTauxHoraire: nombreOuNull(finance?.brut?.fgTauxHoraire),
       margeCible: nombreOuNull(meta.marge_vendue_cible),
       repriseHeures: nombreOuNull(meta.reprise_heures),
       repriseTaux: nombreOuNull(meta.reprise_taux),
