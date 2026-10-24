@@ -16,6 +16,11 @@
 // moteur de planning pour la semaine suivante ; le bilan de cette semaine-là
 // les compare aux heures réalisées.
 //
+// Fin prévisionnelle : l'archive garde aussi la fin prévue par le moteur
+// (planningFinPrevisionnelleV1) ; le bilan suivant en tire le GLISSEMENT.
+// Une fin inconnue (au-delà de l'horizon, moteur pas encore calculé, pas de
+// bilan précédent) reste dite comme telle, jamais un glissement de 0 jour.
+//
 // Module PUR : aucune dépendance Supabase, aucune horloge, aucun effet de bord.
 // ─────────────────────────────────────────────────────────────────────────────
 import { releveAuPlusTardV3 } from "./bilanPeriodeV3.mjs";
@@ -31,7 +36,8 @@ const round2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const jour = v => str(v).slice(0, 10);
 
 /** Ligne à insérer dans bilans_exports (chiffres affichés, figés). */
-export function ligneArchiveV3({ periode, bornes, synthese, version, documentHtml = null, exportePar = null, prevuSemaineSuivante = {} }) {
+export function ligneArchiveV3({ periode, bornes, synthese, version, documentHtml = null, exportePar = null, prevuSemaineSuivante = {}, finsPrevues = null }) {
+  const fins = finsPrevues instanceof Map ? finsPrevues : null;
   return {
     periode_cle: periode.cle, periode_libelle: periode.libelle, periode_debut: periode.debut, periode_fin: periode.fin,
     date_depart: bornes.dateDepart, date_fin: bornes.dateFin,
@@ -43,11 +49,21 @@ export function ligneArchiveV3({ periode, bornes, synthese, version, documentHtm
         heuresPeriode: s.heuresPeriode, margeAvancement: s.margeAvancement, margeProbable: s.margeProbable,
         avancement: s.avancement,
         heuresPrevuesSemaineSuivante: num(prevuSemaineSuivante[s.chantierId]),
+        ...champsFinArchive(fins, s.chantierId),
       })),
     },
     document_html: documentHtml,
     exporte_par: exportePar,
   };
+}
+
+// Fin prévue d'un chantier telle qu'archivée : calculée ou non, connue ou
+// au-delà de l'horizon du planning.
+function champsFinArchive(fins, chantierId) {
+  if (!fins) return { finCalculee: false, finPrevue: null, finAuDelaHorizon: null };
+  const f = fins.get(str(chantierId));
+  if (!f) return { finCalculee: true, finPrevue: null, finAuDelaHorizon: null };
+  return { finCalculee: true, finPrevue: f.complet ? jour(f.fin_prevue) || null : null, finAuDelaHorizon: !f.complet };
 }
 
 /** Dernier export de chaque période (celui qui fait foi). */
@@ -123,4 +139,43 @@ export function prevuRealiseV3({ archives, periode, synthese }) {
       ecart: prevu != null && s.heuresPeriode != null ? round2(s.heuresPeriode - prevu) : null };
   }).filter(l => l.heuresPrevues != null || (l.heuresRealisees || 0) > 0);
   return { disponible: true, reference: str(prec.periode_libelle), lignes };
+}
+
+const joursEntre = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
+const fmtJour = d => { const [a, m, j] = jour(d).split("-"); return `${j}/${m}/${a}`; };
+
+/**
+ * Fin prévisionnelle de chaque chantier et son glissement depuis le bilan
+ * précédent (le dernier export d'une période terminée avant celle-ci).
+ * @param {object} args
+ * @param {Array}  args.archives   lignes de bilans_exports
+ * @param {object} args.periode    { debut }
+ * @param {Array}  args.synthese   [{ chantierId, nom }]
+ * @param {Map|null} args.fins     chantier_id → { fin_prevue, complet } (finPrevisionnelleParChantierV1) ; null = pas encore calculé
+ */
+export function finsPrevuesV3({ archives, periode, synthese, fins }) {
+  if (!(fins instanceof Map)) return { disponible: false, raison: "fin prévisionnelle : calcul du planning en cours", lignes: [] };
+  const prec = derniersExportsParPeriodeV3(archives).filter(a => jour(a.periode_fin) < periode.debut).pop() || null;
+  const precParId = new Map(listeSure(prec && prec.chiffres && prec.chiffres.chantiers).map(c => [str(c.chantierId), c]));
+  const lignes = listeSure(synthese).map(s => {
+    const f = fins.get(str(s.chantierId));
+    const finPrevue = f && f.complet ? jour(f.fin_prevue) || null : null;
+    const auDela = !!(f && !f.complet);
+    const texteFin = finPrevue ? `fin prévue le ${fmtJour(finPrevue)}`
+      : auDela ? "fin au-delà de l'horizon du planning" : "aucun travail restant au planning : fin non calculable";
+    let glissementJours = null;
+    let texteGlissement;
+    const p = precParId.get(str(s.chantierId));
+    if (!prec) texteGlissement = "pas de bilan précédent";
+    else if (!p || !p.finCalculee) texteGlissement = `fin non relevée au bilan « ${str(prec.periode_libelle)} »`;
+    else if (!p.finPrevue) texteGlissement = p.finAuDelaHorizon ? `au bilan « ${str(prec.periode_libelle)} » : déjà au-delà de l'horizon` : `pas de fin au bilan « ${str(prec.periode_libelle)} »`;
+    else if (!finPrevue) texteGlissement = `au bilan « ${str(prec.periode_libelle)} » : ${fmtJour(p.finPrevue)}`;
+    else {
+      glissementJours = joursEntre(p.finPrevue, finPrevue);
+      texteGlissement = glissementJours === 0 ? `inchangée depuis le bilan « ${str(prec.periode_libelle)} »`
+        : `${glissementJours > 0 ? "+" : "−"}${Math.abs(glissementJours)} j depuis le bilan « ${str(prec.periode_libelle)} » (${fmtJour(p.finPrevue)})`;
+    }
+    return { chantierId: s.chantierId, nom: s.nom, finPrevue, auDelaHorizon: auDela, glissementJours, texteFin, texteGlissement };
+  });
+  return { disponible: true, reference: prec ? str(prec.periode_libelle) : null, lignes };
 }

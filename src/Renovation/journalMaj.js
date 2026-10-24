@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Bilan : commandes de la semaine qui vient et glissement de la fin prévue",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "La section « La semaine qui vient » indique, par chantier, les matériaux encore à commander pour les ouvrages qui démarrent d'ici la fin de la semaine (ou déjà en retard) et les livraisons attendues (commandes passées dont la réception n'est pas encore saisie). Le Bilan affiche aussi la date de fin prévue de chaque chantier et de combien de jours elle a glissé depuis le bilan précédent.",
+    comment: "Équipe → Bilan : sections « La semaine qui vient » et « Fin prévisionnelle », aussi dans le PDF. Les commandes suivent exactement la règle de la page « Commandes à passer ». Une fin inconnue s'affiche « au-delà de l'horizon du planning », et sans bilan précédent exporté le glissement s'affiche « pas de bilan précédent » — jamais « 0 jour ».",
+  },
+  {
+    date: "2026-10-24",
     type: "amelioration",
     titre: "Assistant IA et détail du Bilan : relevés de chaque jour",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],

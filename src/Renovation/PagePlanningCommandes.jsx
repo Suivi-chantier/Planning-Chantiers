@@ -11,6 +11,9 @@ import { FONT, RADIUS, getBranchAccent, LOTS_DEFAUT, loadLots } from "../constan
 // ouvrage reste affichée comme aide.
 import { resteACommanderEnveloppes, eur } from "../chantierFinance";
 import { lireToutParTranches } from "./lectureParTranches";
+// Règle « à commander / marqué commandé / date de besoin » d'un ouvrage : la
+// même que la section « La semaine qui vient » du Bilan.
+import { etatMateriauxOuvrageV1 } from "./commandesOuvrageV1.js";
 import { chargerAchatsTermines, achatsTerminesParChantier, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { Icon } from "../ui";
 import {
@@ -276,12 +279,12 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
 
       const ouvrages = [];
       ouvragesRaw.forEach(o => {
-        // Matériaux prévus (depuis materiaux_liens, valorisés via la biblio)
-        const prevus = (o.materiaux_liens || [])
-          .filter(ml => ml && ml.materiau_id != null)
-          .map(ml => {
+        // Matériaux prévus / à commander / marqués commandés et date de besoin :
+        // règle partagée (commandesOuvrageV1), valorisée ici via la biblio.
+        const etat = etatMateriauxOuvrageV1({ ouvrage: o, chantierId: p.chantier_id, lignesCmd,
+          estConnu: id => !!matById[String(id)] });
+        const valoriser = ml => {
             const mat = matById[String(ml.materiau_id)];
-            if (!mat) return null;
             return {
               materiau_id:     ml.materiau_id,
               libelle:         mat.nom || "",
@@ -292,27 +295,17 @@ export default function PagePlanningCommandes({ chantiers = [], T, branch = "ren
               fournisseur_nom: mat.fournisseur || "",
               commande_le:     ml.commande_le || null,
             };
-          })
-          .filter(Boolean);
-
+        };
+        const prevus = etat.liens.map(valoriser);
         // Lignes déjà commandées rattachées à cet ouvrage (par ouvrage_id, repli matériau)
-        const lignesO = lignesCmd.filter(l =>
-          l.ouvrage_id === o.id ||
-          (!l.ouvrage_id && l.materiau_id && (o.materiaux_liens || []).some(ml => String(ml.materiau_id) === String(l.materiau_id) && l.chantier_id === p.chantier_id))
-        );
-        const matCommandes = new Set(lignesO.map(l => l.materiau_id != null ? String(l.materiau_id) : null).filter(Boolean));
-
+        const lignesO = etat.lignesOuvrage;
         // À commander = prévus sans ligne de commande saisie NI flag commande_le
         // (posé par « Passer commande » — la saisie réelle se fait à réception).
-        const aCommander = prevus.filter(pr => !matCommandes.has(String(pr.materiau_id)) && !pr.commande_le);
+        const aCommander = etat.aCommander.map(valoriser);
         // Marqués commandés via la page, en attente de la saisie réelle.
-        const marques = prevus.filter(pr => pr.commande_le && !matCommandes.has(String(pr.materiau_id)));
-
+        const marques = etat.marques.map(valoriser);
         // Date de besoin = date_prevue la plus proche parmi les tâches de l'ouvrage
-        let earliest = null;
-        (o.taches || []).forEach(t => {
-          if (t.date_prevue && (!earliest || t.date_prevue < earliest)) earliest = t.date_prevue;
-        });
+        const earliest = etat.dateBesoin;
 
         if (prevus.length === 0 && lignesO.length === 0) return; // ouvrage sans matériau ni commande : ignoré (son enveloppe compte quand même)
 

@@ -24,10 +24,12 @@ import {
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
 import PageBilanSemaine from "./BilanSemaine";
-import { rappelBlocagesV3, suggestionsDecisionsV3, tendancesParLotV3, semaineQuiVientV3 } from "./bilanDecisionsV3.js";
+import { rappelBlocagesV3, suggestionsDecisionsV3, tendancesParLotV3, semaineQuiVientV3, commandesSemaineQuiVientV3 } from "./bilanDecisionsV3.js";
+import { chargerTousLesMateriaux } from "./chargerMateriaux";
+import { finPrevisionnelleParChantierV1 } from "./planningFinPrevisionnelleV1.mjs";
 import { simulerPlanningGlobalV1 } from "./planningEngineDataV1.js";
 import { bilanClotureV3 } from "./bilanClotureV3.js";
-import { ligneArchiveV3, rectificationsV3, prevuRealiseV3, derniersExportsParPeriodeV3 } from "./bilanArchiveV3.js";
+import { ligneArchiveV3, rectificationsV3, prevuRealiseV3, derniersExportsParPeriodeV3, finsPrevuesV3 } from "./bilanArchiveV3.js";
 import { bilanSemaineProchaineV1, fenetreSemaineProchaineV1 } from "./bilanSemaineProchaineV1.mjs";
 
 const ACCENT = "#FFC200";
@@ -184,17 +186,46 @@ async function proposerSynthese({ nom, periode, synthese, taches, commentaires }
 
 // ── La semaine qui vient : moteur de planning lancé par défaut ──────────────
 function useSemaineQuiVient(periode) {
-  const [etat, setEtat] = useState({ decoupe: null, referentiel: null, erreur: null });
+  const [etat, setEtat] = useState({ decoupe: null, referentiel: null, erreur: null, fins: null });
   useEffect(() => {
     if (!periode) return undefined;
     let annule = false;
-    setEtat({ decoupe: null, referentiel: null, erreur: null });
+    setEtat({ decoupe: null, referentiel: null, erreur: null, fins: null });
     const fenetre = fenetreSemaineProchaineV1(semaineIsoV3(periode.fin));
     simulerPlanningGlobalV1({ startDate: fenetre.debut, horizonDays: 42 })
-      .then(out => { if (!annule) setEtat({ decoupe: bilanSemaineProchaineV1({ resultatMoteur: out, fenetre }), referentiel: out?.referentiel || null, erreur: null }); })
-      .catch(e => { if (!annule) setEtat({ decoupe: null, referentiel: null, erreur: e?.message || "erreur du moteur de planning" }); });
+      .then(out => { if (!annule) setEtat({ decoupe: bilanSemaineProchaineV1({ resultatMoteur: out, fenetre }), referentiel: out?.referentiel || null, erreur: null,
+        // Fin prévisionnelle par chantier (même module que la semaine qui vient).
+        fins: new Map(finPrevisionnelleParChantierV1(out).chantiers.map(c => [c.chantier_id, c])) }); })
+      .catch(e => { if (!annule) setEtat({ decoupe: null, referentiel: null, erreur: e?.message || "erreur du moteur de planning", fins: null }); });
     return () => { annule = true; };
   }, [periode?.cle]); // eslint-disable-line react-hooks/exhaustive-deps
+  return etat;
+}
+
+// ── Commandes de la semaine qui vient : mêmes données que « Commandes à
+// passer » (phasages, lignes de commande, matériaux de la bibliothèque).
+function useCommandesSemaineQuiVient(fenetre) {
+  const [etat, setEtat] = useState({ commandes: null, erreur: null });
+  useEffect(() => {
+    if (!fenetre?.fin) return undefined;
+    let annule = false;
+    setEtat({ commandes: null, erreur: null });
+    (async () => {
+      const [ph, lignes, mats] = await Promise.all([
+        supabase.from("phasages").select("chantier_id, ouvrages"),
+        lireToutParTranches((a, b) => supabase.from("commande_lignes").select("chantier_id, ouvrage_id, materiau_id").order("id").range(a, b)),
+        chargerTousLesMateriaux("id"),
+      ]);
+      if (annule) return;
+      const e0 = [ph.error, lignes.error, mats.error].find(Boolean);
+      const erreur = e0 ? (typeof e0 === "string" ? e0 : e0.message || "lecture impossible") : null;
+      if (erreur) { setEtat({ commandes: null, erreur }); return; }
+      const connus = new Set((mats.data || []).map(m => String(m.id)));
+      setEtat({ commandes: commandesSemaineQuiVientV3({ phasages: ph.data || [], lignesCmd: lignes.data || [], fenetre,
+        estConnu: id => connus.has(String(id)) }), erreur: null });
+    })();
+    return () => { annule = true; };
+  }, [fenetre?.debut, fenetre?.fin]); // eslint-disable-line react-hooks/exhaustive-deps
   return etat;
 }
 
@@ -298,6 +329,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const reglages = useReglagesMarges();
   const donnees = useDonneesPeriode(periode);
   const semProchaine = useSemaineQuiVient(periode);
+  const cmdProchaine = useCommandesSemaineQuiVient(semProchaine.decoupe?.fenetre || null);
   const [clotureOuverte, setClotureOuverte] = useState(null);
   const [decisionsChoix, setDecisionsChoix] = useState({ cle: null, valeurs: {} });
   const decisionsPeriode = decisionsChoix.cle === periode?.cle ? decisionsChoix.valeurs : {};
@@ -345,8 +377,13 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     const ref = semProchaine.referentiel;
     const nomChantier = id => (chantiers || []).find(c => c.id === id)?.nom || (ref?.chantiers || []).find(c => c.id === id)?.nom || id;
     const nomRessource = id => { const r = (ref?.ressources || []).find(x => x.id === id); return r?.nom_planning || r?.nom || id; };
-    return semaineQuiVientV3({ decoupe: semProchaine.decoupe, erreur: semProchaine.erreur, nomChantier, nomRessource });
-  }, [semProchaine, chantiers]);
+    return semaineQuiVientV3({ decoupe: semProchaine.decoupe, erreur: semProchaine.erreur, nomChantier, nomRessource,
+      commandes: cmdProchaine.commandes, erreurCommandes: cmdProchaine.erreur });
+  }, [semProchaine, cmdProchaine, chantiers]);
+  const finsPrevues = useMemo(() => (calcul
+    ? (semProchaine.erreur ? { disponible: false, raison: `fin prévisionnelle indisponible : ${semProchaine.erreur}`, lignes: [] }
+      : finsPrevuesV3({ archives: donnees.archives, periode, synthese: calcul.synthese, fins: semProchaine.fins }))
+    : null), [calcul, semProchaine, donnees, periode]);
   const decisionsRetenues = calcul ? [
     ...calcul.rappel.map(b => ({ titre: `${b.nom} (rappel ${b.semaine.replace(/^\d{4}-W/, "S")})`, detail: b.texte })),
     ...calcul.suggestions.filter(x => decisionsPeriode[x.id] === true).map(x => ({ titre: x.titre, detail: x.detail })),
@@ -395,6 +432,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     semaineQuiVient,
     rectifications: calcul.rectifications,
     prevuRealise: calcul.prevuRealise,
+    finsPrevues: finsPrevues || undefined,
     genereLe: new Date().toLocaleDateString("fr-FR"),
     ...(detaillee && preparation ? {
       fiches: calcul.synthese.map(s => {
@@ -423,7 +461,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
       const prevu = Object.fromEntries((semProchaine.decoupe?.par_chantier || []).map(c => [c.chantier_id, c.heures_mo]));
       const { error: errArch } = await supabase.from("bilans_exports").insert(ligneArchiveV3({ periode, bornes: donnees.bornes,
         synthese: calcul.synthese, version: detaillee ? "detaillee" : "direction", documentHtml: html, exportePar: u?.user?.email || null,
-        prevuSemaineSuivante: prevu }));
+        prevuSemaineSuivante: prevu, finsPrevues: semProchaine.fins }));
       if (errArch) console.warn("Archive du bilan :", errArch.message);
       setExport({ enCours: false, message: errArch
         ? "PDF téléchargé, mais le bilan n'a pas pu être archivé : il ne servira pas de référence aux rectifications."
@@ -630,6 +668,11 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
           {!calcul.prevuRealise.disponible ? <div style={{ fontSize: 13, color: T.textMuted }}>{calcul.prevuRealise.raison}</div>
             : calcul.prevuRealise.lignes.map(l => (
               <div key={l.chantierId} style={{ fontSize: 13 }}><strong>{l.nom}</strong> : prévu {fmtH(l.heuresPrevues)} · réalisé {fmtH(l.heuresRealisees)}</div>
+            ))}
+          <div style={{ fontWeight: 700, margin: "10px 0 6px" }}>Fin prévisionnelle</div>
+          {!finsPrevues || !finsPrevues.disponible ? <div style={{ fontSize: 13, color: T.textMuted }}>{finsPrevues?.raison || "fin prévisionnelle : calcul en cours"}</div>
+            : finsPrevues.lignes.map(l => (
+              <div key={l.chantierId} style={{ fontSize: 13 }}><strong>{l.nom}</strong> : {l.texteFin} · {l.texteGlissement}</div>
             ))}
         </div>
 

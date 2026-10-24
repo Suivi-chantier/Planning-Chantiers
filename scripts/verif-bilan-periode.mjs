@@ -18,6 +18,8 @@ import * as F from "../src/Renovation/bilanFicheV3.mjs";
 import * as D from "../src/Renovation/bilanDecisionsV3.mjs";
 import * as C from "../src/Renovation/bilanClotureV3.mjs";
 import * as A from "../src/Renovation/bilanArchiveV3.mjs";
+import { etatMateriauxOuvrageV1 } from "../src/Renovation/commandesOuvrageV1.mjs";
+import { readFileSync as lireFichier } from "node:fs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
 
@@ -293,6 +295,60 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const pr = A.prevuRealiseV3({ archives, periode: P, synthese: syn43 });
   ok(pr.disponible && pr.lignes[0].heuresPrevues === 30 && pr.lignes[0].ecart === -4, "prévu / réalisé : 30 h prévues, 26 h réalisées");
   ok(!A.prevuRealiseV3({ archives: [], periode: P, synthese: syn43 }).disponible, "sans bilan précédent : prévu indisponible, signalé");
+}
+
+// ── Semaine qui vient : commandes à passer et livraisons attendues ─────────
+{
+  // Ouvrage fictif : m1 déjà commandé (ligne saisie), m2 marqué « commandé le »
+  // sans réception, m3 à commander, m9 inconnu de la bibliothèque.
+  const ouv = (id, date, liens) => ({ id, libelle: `Ouvrage ${id}`, taches: [{ date_prevue: date }, { date_prevue: "2026-12-01" }], materiaux_liens: liens });
+  const o1 = ouv("o1", "2026-10-28", [{ materiau_id: "m1" }, { materiau_id: "m2", commande_le: "2026-10-20" }, { materiau_id: "m3" }, { materiau_id: "m9" }]);
+  const lignes = [{ chantier_id: "a", ouvrage_id: "o1", materiau_id: "m1" }];
+  const connus = id => ["m1", "m2", "m3", "m4"].includes(String(id));
+  const e1 = etatMateriauxOuvrageV1({ ouvrage: o1, chantierId: "a", lignesCmd: lignes, estConnu: connus });
+  eq([e1.liens.length, e1.aCommander.map(x => x.materiau_id), e1.marques.map(x => x.materiau_id), e1.dateBesoin],
+    [3, ["m3"], ["m2"], "2026-10-28"], "règle d'un ouvrage : à commander, marqué commandé, date de besoin");
+  // Même règle dans la page « Commandes à passer » (même chiffre = même service).
+  const pageCmd = lireFichier(new URL("../src/Renovation/PagePlanningCommandes.jsx", import.meta.url), "utf8");
+  ok(/etatMateriauxOuvrageV1(/.test(pageCmd) && !/const matCommandes = new Set/.test(pageCmd), "Commandes à passer utilise la même règle");
+  const o2 = ouv("o2", "2026-11-20", [{ materiau_id: "m4" }]); // besoin après la semaine qui vient
+  const FEN = { debut: "2026-10-26", fin: "2026-11-01" };
+  const cmd = D.commandesSemaineQuiVientV3({ phasages: [{ chantier_id: "a", ouvrages: [o1, o2] }, { chantier_id: "b", ouvrages: [ouv("o3", "2026-10-15", [{ materiau_id: "m4" }])] }],
+    lignesCmd: lignes, fenetre: FEN, estConnu: connus });
+  eq(cmd.get("a"), { aCommander: { articles: 1, ouvrages: ["Ouvrage o1"] }, attendus: { articles: 1, ouvrages: ["Ouvrage o1"] } }, "chantier a : 1 article à commander, 1 livraison attendue ; besoin après la fenêtre ignoré");
+  ok(cmd.get("b").aCommander.articles === 1, "besoin déjà passé et toujours pas commandé : compté");
+  const decoupe = { fenetre: FEN, par_chantier: [{ chantier_id: "a", resource_ids: ["r1"], jours: ["2026-10-26"], heures_mo: 8, taches: [] }], chantiers_au_dela_horizon: [] };
+  const sqv = D.semaineQuiVientV3({ decoupe, commandes: cmd });
+  ok(/à commander : 1 article (Ouvrage o1)/.test(sqv.lignes[0].detail) && /livraison attendue : 1 article commandé, réception non saisie/.test(sqv.lignes[0].detail), "semaine qui vient : commandes du chantier prévu");
+  ok(sqv.lignes.some(l => l.titre === "b" && /pas d'équipe prévue/.test(l.detail)), "chantier sans équipe mais avec une commande à passer : listé");
+  ok(D.semaineQuiVientV3({ decoupe }).lignes.some(l => /lecture en cours/.test(l.detail)), "commandes pas encore lues : dit comme tel");
+  ok(D.semaineQuiVientV3({ decoupe, erreurCommandes: "réseau" }).lignes.some(l => /indisponibles : réseau/.test(l.detail)), "commandes illisibles : dit comme tel, jamais « rien à commander »");
+}
+
+// ── Fin prévisionnelle et glissement depuis le bilan précédent ─────────────
+{
+  const P43 = { cle: "S:2026-W43", libelle: "Semaine 43", debut: "2026-10-19", fin: "2026-10-25" };
+  const syn = [{ chantierId: "a", nom: "A" }, { chantierId: "b", nom: "B" }, { chantierId: "c", nom: "C" }, { chantierId: "d", nom: "D" }];
+  const fins = new Map([["a", { fin_prevue: "2026-11-13", complet: true }], ["b", { fin_prevue: null, complet: false }],
+    ["c", { fin_prevue: "2026-11-20", complet: true }], ["d", { fin_prevue: "2026-12-04", complet: true }]]);
+  ok(!A.finsPrevuesV3({ archives: [], periode: P43, synthese: syn, fins: null }).disponible, "planning pas encore calculé : indisponible, signalé");
+  const sans = A.finsPrevuesV3({ archives: [], periode: P43, synthese: syn, fins });
+  ok(sans.lignes.every(l => l.glissementJours === null && l.texteGlissement === "pas de bilan précédent"), "sans bilan précédent : « pas de bilan précédent », jamais 0 jour");
+  ok(sans.lignes[1].finPrevue === null && /au-delà de l'horizon/.test(sans.lignes[1].texteFin), "fin au-delà de l'horizon : jamais une date");
+  const ligne42 = A.ligneArchiveV3({ periode: { cle: "S:2026-W42", libelle: "Semaine 42", debut: "2026-10-12", fin: "2026-10-18" },
+    bornes: { dateDepart: "2026-10-09", dateFin: "2026-10-16" }, synthese: syn, version: "direction",
+    finsPrevues: new Map([["a", { fin_prevue: "2026-11-10", complet: true }], ["b", { fin_prevue: "2026-11-01", complet: true }], ["d", { fin_prevue: "2026-12-04", complet: true }]]) });
+  eq(ligne42.chiffres.chantiers.map(c => [c.finCalculee, c.finPrevue, c.finAuDelaHorizon]),
+    [[true, "2026-11-10", false], [true, "2026-11-01", false], [true, null, null], [true, "2026-12-04", false]], "l'archive garde la fin prévue de chaque chantier");
+  ok(A.ligneArchiveV3({ periode: P43, bornes: {}, synthese: syn, version: "direction" }).chiffres.chantiers[0].finCalculee === false, "export avant le calcul du planning : fin « non calculée », pas null déguisé");
+  const avec = A.finsPrevuesV3({ archives: [{ ...ligne42, exporte_le: "2026-10-17T10:00:00Z" }], periode: P43, synthese: syn, fins });
+  const parId = Object.fromEntries(avec.lignes.map(l => [l.chantierId, l]));
+  ok(parId.a.glissementJours === 3 && /+3 j depuis le bilan « Semaine 42 » (10/11/2026)/.test(parId.a.texteGlissement), "glissement de +3 jours");
+  ok(parId.b.glissementJours === null && /01/11/2026/.test(parId.b.texteGlissement), "passé au-delà de l'horizon : pas de nombre de jours inventé");
+  ok(parId.c.glissementJours === null && /pas de fin au bilan/.test(parId.c.texteGlissement), "pas de fin au bilan précédent : dit comme tel");
+  ok(parId.d.glissementJours === 0 && /inchangée/.test(parId.d.texteGlissement), "même date : inchangée (0 jour connu)");
+  const html = documentBilanV3({ periode: P43, bornes: {}, bandeau: {}, synthese: [], alertes: [], finsPrevues: avec });
+  ok(/Fin prévisionnelle/.test(html) && /+3 j/.test(html), "fin prévisionnelle et glissement dans le PDF");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

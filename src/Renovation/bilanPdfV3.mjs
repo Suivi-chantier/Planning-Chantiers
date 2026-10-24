@@ -135,6 +135,13 @@ function prevuRealiseHtml(p) {
       <td class="n">${l.ecart == null ? "—" : e(`${l.ecart > 0 ? "+" : ""}${fmtH(l.ecart)}`)}</td></tr>`).join("")}</tbody></table>`;
 }
 
+function finsPrevuesHtml(p) {
+  if (!p) return "";
+  if (!p.disponible) return `<p class="note">${e(p.raison)}</p>`;
+  if (!listeSure(p.lignes).length) return `<p class="note">Aucun chantier retenu.</p>`;
+  return `<ul>${listeSure(p.lignes).map(l => `<li><strong>${e(l.nom)}</strong> : ${e(l.texteFin)} · ${e(l.texteGlissement)}</li>`).join("")}</ul>`;
+}
+
 function rectificationsHtml(r) {
   const l = listeSure(r);
   if (!l.length) return `<p class="note">Aucune rectification des bilans déjà exportés.</p>`;
@@ -164,6 +171,7 @@ export function htmlBilanDirectionV3(d) {
   ${d.tendances !== undefined ? `<h2>Tendances par lot (tous chantiers)</h2>${tendancesHtml(d.tendances)}` : ""}
   ${d.semaineQuiVient !== undefined ? `<h2>La semaine qui vient</h2>${semaineQuiVientHtml(d.semaineQuiVient)}` : ""}
   ${d.prevuRealise !== undefined ? `<h2>Prévu / réalisé</h2>${prevuRealiseHtml(d.prevuRealise)}` : ""}
+  ${d.finsPrevues !== undefined ? `<h2>Fin prévisionnelle</h2>${finsPrevuesHtml(d.finsPrevues)}` : ""}
   ${d.rectifications !== undefined ? `<h2>Rectifications</h2>${rectificationsHtml(d.rectifications)}` : ""}
   `;
 }

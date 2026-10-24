@@ -13,11 +13,14 @@
 //     repris exclus. Dérive moyenne pondérée par les heures (Σ heures réelles ÷
 //     Σ heures attendues), comme les dérives historiques de la marge probable.
 //   - La semaine qui vient : équipe prévue par chantier (proposition du moteur
-//     de planning), heures et tâches.
+//     de planning), heures et tâches, plus les commandes à passer et les
+//     livraisons attendues (règle de la page « Commandes à passer » :
+//     commandesOuvrageV1).
 //
 // Module PUR : aucune dépendance Supabase, aucune horloge, aucun effet de bord.
 // ─────────────────────────────────────────────────────────────────────────────
 import { dateRapportIsoV3, ajouterJoursV3, semaineIsoV3, lundiSemaineV3, fmtJourV3 } from "./bilanPeriodeV3.mjs";
+import { etatMateriauxOuvrageV1 } from "./commandesOuvrageV1.mjs";
 
 const str = v => (v == null ? "" : String(v).trim());
 const listeSure = v => (Array.isArray(v) ? v : []);
@@ -140,22 +143,84 @@ export function tendancesParLotV3({ releves, statuts = {}, exclus = [], seuilAva
 }
 
 /**
- * La semaine qui vient, à partir du découpage du moteur de planning
- * (bilanSemaineProchaineV1) : une ligne par chantier.
+ * Commandes de la semaine qui vient, par chantier : ouvrages dont la date de
+ * besoin tombe au plus tard le dernier jour de la fenêtre (y compris en
+ * retard) et qui ont encore des matériaux à commander ; ouvrages dont des
+ * matériaux sont marqués commandés sans réception saisie (livraison attendue).
+ * @param {object} args
+ * @param {Array}  args.phasages   [{ chantier_id, ouvrages }]
+ * @param {Array}  args.lignesCmd  lignes de commande (ouvrage_id, materiau_id, chantier_id)
+ * @param {object} args.fenetre    { debut, fin } de la semaine qui vient
+ * @param {Function} [args.estConnu] matériau présent dans la bibliothèque ?
+ * @returns {Map<string, { aCommander: { articles, ouvrages[] }, attendus: { articles, ouvrages[] } }>}
  */
-export function semaineQuiVientV3({ decoupe, nomChantier = id => id, nomRessource = id => id, erreur = null }) {
+export function commandesSemaineQuiVientV3({ phasages, lignesCmd = [], fenetre, estConnu } = {}) {
+  const out = new Map();
+  const finFenetre = str(fenetre && fenetre.fin).slice(0, 10);
+  if (!finFenetre) return out;
+  for (const p of listeSure(phasages)) {
+    const chantierId = str(p && p.chantier_id);
+    if (!chantierId) continue;
+    for (const o of listeSure(p.ouvrages)) {
+      const e = etatMateriauxOuvrageV1({ ouvrage: o, chantierId, lignesCmd, estConnu });
+      const libelle = str(o && (o.libelle || o.nom)) || "Ouvrage";
+      const aCommander = e.dateBesoin && e.dateBesoin <= finFenetre ? e.aCommander.length : 0;
+      const attendus = e.marques.length;
+      if (!aCommander && !attendus) continue;
+      if (!out.has(chantierId)) out.set(chantierId, { aCommander: { articles: 0, ouvrages: [] }, attendus: { articles: 0, ouvrages: [] } });
+      const c = out.get(chantierId);
+      if (aCommander) { c.aCommander.articles += aCommander; c.aCommander.ouvrages.push(libelle); }
+      if (attendus) { c.attendus.articles += attendus; c.attendus.ouvrages.push(libelle); }
+    }
+  }
+  return out;
+}
+
+const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? "s" : ""}`;
+const resumeOuvrages = l => (l.length > 3 ? `${l.slice(0, 3).join(", ")}…` : l.join(", "));
+
+function texteCommandes(c) {
+  if (!c) return null;
+  const parts = [];
+  if (c.aCommander.articles) parts.push(`à commander : ${pluriel(c.aCommander.articles, "article")} (${resumeOuvrages(c.aCommander.ouvrages)})`);
+  if (c.attendus.articles) parts.push(`livraison attendue : ${pluriel(c.attendus.articles, "article")} commandé${c.attendus.articles > 1 ? "s" : ""}, réception non saisie (${resumeOuvrages(c.attendus.ouvrages)})`);
+  return parts.join(" · ") || null;
+}
+
+/**
+ * La semaine qui vient, à partir du découpage du moteur de planning
+ * (bilanSemaineProchaineV1) : une ligne par chantier, complétée par les
+ * commandes à passer et les livraisons attendues.
+ * @param {object} args
+ * @param {Map}    [args.commandes]        résultat de commandesSemaineQuiVientV3 (null = pas encore lu)
+ * @param {string} [args.erreurCommandes]  lecture des commandes impossible
+ */
+export function semaineQuiVientV3({ decoupe, nomChantier = id => id, nomRessource = id => id, erreur = null, commandes = null, erreurCommandes = null }) {
   if (erreur) return { indisponible: `La semaine qui vient n'a pas pu être calculée : ${erreur}` };
   if (!decoupe) return { indisponible: "La semaine qui vient : calcul en cours." };
-  const lignes = listeSure(decoupe.par_chantier).map(c => ({
-    titre: nomChantier(c.chantier_id),
-    detail: [
-      listeSure(c.resource_ids).map(nomRessource).join(", ") || "équipe non affectée",
-      `${listeSure(c.jours).length} jour${listeSure(c.jours).length > 1 ? "s" : ""}`,
-      `${Math.round(num(c.heures_mo) || 0)} h`,
-      listeSure(c.taches).length ? `${listeSure(c.taches).length} tâche${listeSure(c.taches).length > 1 ? "s" : ""} prévue${listeSure(c.taches).length > 1 ? "s" : ""}` : null,
-    ].filter(Boolean).join(" · "),
-  }));
+  const cmd = commandes instanceof Map ? commandes : new Map();
+  const vus = new Set();
+  const lignes = listeSure(decoupe.par_chantier).map(c => {
+    vus.add(str(c.chantier_id));
+    return {
+      titre: nomChantier(c.chantier_id),
+      detail: [
+        listeSure(c.resource_ids).map(nomRessource).join(", ") || "équipe non affectée",
+        `${listeSure(c.jours).length} jour${listeSure(c.jours).length > 1 ? "s" : ""}`,
+        `${Math.round(num(c.heures_mo) || 0)} h`,
+        listeSure(c.taches).length ? `${listeSure(c.taches).length} tâche${listeSure(c.taches).length > 1 ? "s" : ""} prévue${listeSure(c.taches).length > 1 ? "s" : ""}` : null,
+        texteCommandes(cmd.get(str(c.chantier_id))),
+      ].filter(Boolean).join(" · "),
+    };
+  });
+  // Chantiers sans équipe prévue mais avec des commandes à suivre.
+  for (const [id, c] of cmd) {
+    if (vus.has(id)) continue;
+    lignes.push({ titre: nomChantier(id), detail: `pas d'équipe prévue · ${texteCommandes(c)}` });
+  }
   const au = listeSure(decoupe.chantiers_au_dela_horizon).map(c => nomChantier(c.chantier_id || c));
   if (au.length) lignes.push({ titre: "Au-delà de l'horizon du planning", detail: au.join(", ") });
+  if (erreurCommandes) lignes.push({ titre: "Commandes", detail: `commandes à passer et livraisons indisponibles : ${erreurCommandes}` });
+  else if (commandes === null) lignes.push({ titre: "Commandes", detail: "commandes à passer et livraisons : lecture en cours." });
   return { lignes, fenetre: decoupe.fenetre || null };
 }
