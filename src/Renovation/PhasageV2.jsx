@@ -6714,6 +6714,7 @@ function MargesLotsModal({ T, fin, chantierNom, onClose, onNeutraliser }) {
                     <div style={{ color: T.textMuted, fontSize: 10 }}>
                       {LIBELLES_PROVENANCE_COEF[l.provenanceCoefficient]}
                       {l.coefficientPlafonne ? " (plafonnée)" : ""}
+                      {l.coefficientPlancher ? ` (×${n1(l.coefficientBrut)} ramenée à ×1)` : ""}
                       {l.nbChantiersHistorique ? ` · ${l.nbChantiersHistorique} chantiers` : ""}
                     </div>
                     {l.neutralisation && (

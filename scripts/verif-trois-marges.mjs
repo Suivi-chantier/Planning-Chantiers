@@ -9,7 +9,7 @@
 //   - marge probable : lot à 10 % avec une dérive de ×3 (pas appliquée,
 //     historique utilisé), lot à 40 % avec une dérive de ×2 (appliquée),
 //     dérive neutralisée, historique avec moins de 2 chantiers (×1),
-//     chantier repris exclu de l'historique, plafond ×5 ;
+//     chantier repris exclu de l'historique, plafond ×5, plancher ×1 ;
 //   - dérive en heures et en euros ;
 //   - marge de la période = différence de deux marges à l'avancement ;
 //   - relevé journalier : nouvelles colonnes, ancienne « marge nette » plus écrite.
@@ -122,6 +122,16 @@ const HIST = { cloisons: { coef: 1.2, nbChantiers: 3 }, peinture: { coef: 1.5, n
   const g = fin([ouvrage("a", "cloisons", { av: 30 })], { pointages: [pointage("t-a", 300)] });
   proche(lot(g, "cloisons").coefficient, 5, "dérive ×10 plafonnée à ×5");
   ok(lot(g, "cloisons").coefficientPlafonne === true, "plafond signalé");
+  // Plancher ×1 (décision de Loris du 24/10/2026) : jamais sous ×1.
+  const k = fin([ouvrage("a", "cloisons", { av: 40 })], { pointages: [pointage("t-a", 28)] });
+  proche(lot(k, "cloisons").ratioDeriveExact, 0.7, "lot à 40 % : dérive constatée ×0,7");
+  proche(lot(k, "cloisons").coefficient, 1, "lot avancé à ×0,7 → coefficient ramené à ×1");
+  ok(lot(k, "cloisons").coefficientPlancher === true, "plancher ×1 signalé");
+  proche(k.brut.margeProbable, k.brut.margeATerminaison, "plancher : marge probable = marge à terminaison");
+  const hist04 = coefficientMargeProbable({ lotId: "elec", avancementExact: 5, ratioDerive: null,
+    historique: { elec: { coef: 0.4, nbChantiers: 3 } } });
+  ok(hist04.provenance === "historique" && hist04.coefficient === 1 && hist04.plancher === true,
+    "dérive historique ×0,4 → coefficient ×1");
   // Seuil réglable dans Admin.
   const h = fin([ouvrage("a", "cloisons", { av: 20 })], { pointages: [pointage("t-a", 40)], seuils: { deriveSeuilAvancementPct: 15 } });
   ok(lot(h, "cloisons").provenanceCoefficient === "constatee", "seuil réglé à 15 % : dérive d'un lot à 20 % appliquée");
