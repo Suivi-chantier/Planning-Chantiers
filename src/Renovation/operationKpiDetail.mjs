@@ -254,9 +254,24 @@ export const KPI_OPERATION = {
     titre: "Frais généraux", totalLabel: "Total frais généraux",
     consolider: null,
   },
+  // Marge à l'avancement (étape 2) : le constat — production − coûts imputés.
   marge: {
+    donnee: "margeAvancement", total: "margeAvancement", texteSigne: true,
+    titre: "Marge à l'avancement", totalLabel: "Marge à l'avancement",
+    consolider: ({ agg }) => ({
+      titre: "Toute l'opération",
+      lignes: [
+        { main: "Production", sub: "prix de chaque ouvrage × son avancement exact", right: `+ ${eur(agg.production)}`, rightColor: "#22c55e" },
+        { main: "Coût main d'œuvre", sub: "tâches + trajets + indirect", right: `− ${eur(agg.moReel)}`, rightColor: "#e15a5a" },
+        { main: "Frais généraux", sub: "taux horaire × heures réelles", right: `− ${eur(agg.fg)}`, rightColor: "#e15a5a" },
+        { main: "Matériaux et autres coûts imputés", sub: "à l'avancement de chaque lot", right: `− ${eur(agg.matImputes)}`, rightColor: "#e15a5a" },
+      ],
+    }),
+  },
+  // Budget restant (ancienne « marge nette ») : vendu − coûts engagés.
+  budget: {
     donnee: "marge", total: "marge", texteSigne: true,
-    titre: "Marge nette", totalLabel: "Marge nette",
+    titre: "Budget restant", totalLabel: "Budget restant",
     consolider: ({ agg }) => ({
       titre: "Toute l'opération",
       lignes: [

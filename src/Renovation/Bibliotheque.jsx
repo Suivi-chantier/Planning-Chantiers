@@ -1402,8 +1402,9 @@ function PageBibliotheque({ T,branch = "renovation", initialOuvrageId = null, on
   // (chantier_id, tache_id). On charge donc les deux, et le module pur fait
   // tout le reste — y compris décider ce qu'on a le droit d'en dire.
   async function loadEchantillon() {
+    // plan_travaux : la case « chantier repris » (exclu des cadences, étape 2).
     const { data: phasages, error: errPh } = await supabase
-      .from("phasages").select("chantier_id, ouvrages");
+      .from("phasages").select("chantier_id, ouvrages, plan_travaux");
     const { data: pointages, error: errPt } = await supabase
       .from("pointages").select("chantier_id, tache_id, heures, type_pointage")
       .eq("type_pointage", "tache");

@@ -923,12 +923,6 @@ export const METHODE_CALCUL = [
   { cle: "fg", label: "Frais généraux",
     formule: "Chaque heure réelle du chantier × le taux de frais généraux en vigueur à la date de cette heure. Le taux est unique pour toute l'entreprise et daté (réglage Admin, 17,44 €/h depuis le 01/01/2026 par défaut) : un nouveau taux ne change pas les heures passées. Les heures sans date (reprise d'antériorité, heures anciennes) prennent le taux le plus ancien",
     source: "Taux de frais généraux datés (Admin) × registre de pointage" },
-  { cle: "marge", label: "Marge nette",
-    formule: "Vendu HT − coût main d'œuvre − matériaux − frais généraux",
-    source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
-  { cle: "margePct", label: "Marge %",
-    formule: "Marge nette ÷ vendu HT × 100",
-    source: "Dérivé de la marge nette" },
   { cle: "avancement", label: "Avancement",
     formule: "Moyenne des avancements des ouvrages, pondérée par leur prix de vente (chaque ouvrage : moyenne de ses tâches pondérée par les heures estimées)",
     source: "Avancements des tâches saisis / déclarés en fin de journée" },
@@ -1278,10 +1272,13 @@ export function computeChantierFinance({
       message: `La somme des ouvrages (${eur(prixHTChantier)}) s'écarte de ${eur(Math.abs(ecartVenduVal))} du montant du devis renseigné (${eur(montantDevis)}) — avenant oublié ou ouvrage non chiffré ?`,
     });
   }
-  if (seuilPrime > 0 && prixHTChantier > 0 && margePctChantier < seuilPrime) {
+  // Seuil de prime : comparé à la MARGE PROBABLE (la meilleure estimation de
+  // la marge finale), plus au budget restant (étape 2).
+  const margeProbablePct = prixHTChantier > 0 ? (margeProbableVal / prixHTChantier) * 100 : 0;
+  if (seuilPrime > 0 && prixHTChantier > 0 && margeProbablePct < seuilPrime) {
     warnings.push({
       code: "marge_sous_seuil_prime", gravite: "alerte",
-      message: `Marge à ${margePctChantier.toFixed(1)} % du vendu, sous le seuil de prime (${seuilPrime} %).`,
+      message: `Marge probable à ${margeProbablePct.toFixed(1)} % du vendu, sous le seuil de prime (${seuilPrime} %).`,
     });
   }
   lotsOut.forEach(l => {
@@ -1619,32 +1616,36 @@ export function computeChantierFinance({
     renseigne: true,
   });
 
+  // Ancienne « marge nette » = BUDGET RESTANT (étape 2, 24/10/2026) : vendu −
+  // coûts engagés. Ce n'est pas une marge (un chantier à 0 % affichait 99 %).
+  // `marge` reste exporté sous ce nom pour les appelants, avec le libellé
+  // « Budget restant » ; « Marge % » sur cette base a disparu.
   const marge = D({
-    cle: "marge", label: "Marge nette", format: "euro",
+    cle: "budgetRestant", label: "Budget restant", format: "euro",
     valeur: margeChantier,
-    valeurTexte: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
-    sousLabel: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : null,
-    formule: FORMULE.marge,
+    valeurTexte: signeEur(margeChantier),
+    sousLabel: "Vendu − coûts engagés · ce n'est pas une marge",
+    formule: FORMULE.budgetRestant,
     calculDetaille: `${eur(prixHTChantier)} − ${eur(coutMOTotalChantier)} − ${eur(coutMatChantier)} − ${eur(fgChantier)} = ${eur(margeChantier)}`,
     ventilation: margeVentilation,
-    titre: "Marge nette",
-    sousTitre: prixHTChantier > 0 ? `${margePctChantier.toFixed(1)}% du vendu` : "Vendu − MO − Matériaux − FG",
-    totalLabel: "Marge nette",
-    totalTexte: `${margeChantier >= 0 ? "+" : ""}${eur(margeChantier)}`,
+    titre: "Budget restant",
+    sousTitre: "Ce qu'il reste du prix de vente une fois payés les coûts engagés",
+    totalLabel: "Budget restant",
+    totalTexte: signeEur(margeChantier),
     source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)",
-    warnings: warnings.filter(w => ["ouvrages_sans_prix", "marge_sous_seuil_prime"].includes(w.code)),
+    warnings: warnings.filter(w => w.code === "ouvrages_sans_prix"),
     renseigne: prixHTChantier > 0,
   });
-
+  // Part du vendu restant (plus présentée comme un % de marge).
   const margePct = D({
-    cle: "margePct", label: "Marge %", format: "pourcent",
+    cle: "budgetRestantPct", label: "Budget restant (% du vendu)", format: "pourcent",
     valeur: margePctChantier,
     valeurTexte: `${margePctChantier.toFixed(1)}%`,
-    formule: FORMULE.margePct,
+    formule: FORMULE.budgetRestant,
     calculDetaille: prixHTChantier > 0
       ? `${eur(margeChantier)} ÷ ${eur(prixHTChantier)} × 100 = ${margePctChantier.toFixed(1)} %`
       : "Vendu HT à 0 → pourcentage non calculable.",
-    source: "Dérivé de la marge nette",
+    source: "Dérivé du budget restant",
     renseigne: prixHTChantier > 0,
   });
 
@@ -1851,7 +1852,7 @@ export function computeChantierFinance({
           + (l.neutralisation ? ` (« ${l.neutralisation.commentaire} »)` : ""),
         right: `${l.ecartProbableEuros > 0.5 ? "− " : l.ecartProbableEuros < -0.5 ? "+ " : ""}${eur(Math.abs(l.ecartProbableEuros))}`,
         rightColor: l.ecartProbableEuros > 0.5 ? "#e15a5a" : l.ecartProbableEuros < -0.5 ? "#22c55e" : null,
-        lotId: l.id, valeur: -l.ecartProbableEuros,
+        lotId: l.id, valeur: l.ecartProbableEuros ? -l.ecartProbableEuros : 0,
       })),
     ],
     titre: "Marge probable",
@@ -1861,21 +1862,7 @@ export function computeChantierFinance({
     source: "Marge à terminaison + dérives des lots (constatées, historiques ou neutralisées) + réglages Admin",
     renseigne: prixHTChantier > 0,
   });
-  const budgetRestant = D({
-    cle: "budgetRestant", label: "Budget restant", format: "euro",
-    valeur: budgetRestantVal,
-    valeurTexte: signeEur(budgetRestantVal),
-    sousLabel: "Vendu − coûts engagés · ce n'est pas une marge",
-    formule: FORMULE.budgetRestant,
-    calculDetaille: `${eur(prixHTChantier)} − ${eur(coutMOTotalChantier)} − ${eur(coutMatChantier)} − ${eur(fgChantier)} = ${signeEur(budgetRestantVal)}`,
-    ventilation: margeVentilation,
-    titre: "Budget restant",
-    sousTitre: "Ce qu'il reste du prix de vente une fois payés les coûts engagés",
-    totalLabel: "Budget restant",
-    totalTexte: signeEur(budgetRestantVal),
-    source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)",
-    renseigne: prixHTChantier > 0,
-  });
+  const budgetRestant = marge;
 
   return {
     venduHT, ecartVendu, moPrev, matPrev, margePrev, moReel, matReel, fg, marge, margePct,

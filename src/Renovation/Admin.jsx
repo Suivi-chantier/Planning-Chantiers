@@ -25,6 +25,7 @@ import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
+import SeuilsMargesAdmin from "./SeuilsMargesAdmin.jsx";
 import ControleJournalAvancement from "./ControleJournalAvancement.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
 // étapes de facturation de la frise du cycle de vie, phase Travaux).
@@ -5293,6 +5294,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           {/* Taux de frais généraux de l'entreprise, daté (planning_config
               fg_taux_horaires) : remplace le réglage par phasage. */}
           <TauxFraisGenerauxAdmin T={T} tauxFG={tauxFG} setTauxFG={setTauxFG} saveConfig={saveConfig}/>
+
+          {/* Seuils de la marge probable et des alertes (planning_config
+              seuils_marges) + dérives historiques par type de lot. */}
+          <SeuilsMargesAdmin T={T} saveConfig={saveConfig}/>
 
           {/* TVA proposée aux NOUVEAUX projets de chiffrage. Chaque projet garde
               son propre taux (modifiable) ; un devis sans TVA n'est pas « prêt ». */}

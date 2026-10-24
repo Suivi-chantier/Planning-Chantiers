@@ -251,9 +251,15 @@ const etat_chantier = {
       chiffres: {
         avancement_pct: b.avancementChantier,
         vendu_ht: arrondi(b.prixHTChantier),
-        marge: arrondi(b.margeChantier),
-        marge_pct: arrondi(b.margePctChantier),
+        // Étape 2 : trois marges ; l'ancienne « marge nette » est le budget
+        // restant (vendu − coûts engagés), qui n'est PAS une marge.
+        marge_a_l_avancement: arrondi(b.margeAvancement),
+        production_cumulee: arrondi(b.productionCumulee),
+        materiaux_en_avance: arrondi(b.materiauxEnAvance),
         marge_a_terminaison: arrondi(b.margeATerminaison),
+        marge_probable: arrondi(b.margeProbable),
+        budget_restant: arrondi(b.margeChantier),
+        chantier_repris: b.repris === true,
         heures_vendues: arrondi(b.heuresVenduesChantier),
         heures_reelles: arrondi(b.heuresReellesTotalChantier),
         reste_a_faire_heures: arrondi(b.heuresRestantes),
@@ -360,7 +366,8 @@ const expliquer_alerte = {
       avancement_pct: arrondi(l.avancement),
       heures_vendues: arrondi(l.heures_vendues),
       heures_reelles: arrondi(l.heures_reelles),
-      marge: arrondi(l.marge),
+      // Colonne `marge` du relevé hebdomadaire = budget restant (pas une marge).
+      budget_restant: arrondi(l.marge),
       marge_a_terminaison: arrondi(l.marge_terminaison),
     }));
 

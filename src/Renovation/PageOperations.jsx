@@ -41,6 +41,7 @@ import { exporterOperationMarkdown } from "./operationExportData";
 // exporté doivent afficher rigoureusement les mêmes totaux, donc une seule
 // implémentation. La formule est inchangée (avancement pondéré par le vendu).
 import { agregerOperation } from "./operationExportModele.mjs";
+import { useReglagesMarges } from "./reglagesMarges";
 import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
   Building2, ArrowLeft, MapPin, HardHat, Wallet, Clock, Package, Receipt,
@@ -261,6 +262,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   }, []);
 
   // ── Finance par chantier (uniquement les chantiers rattachés à une opération) ──
+  const reglagesMarges = useReglagesMarges();
   const finParChantier = useMemo(() => {
     if (!etat.charge) return {};
     const rattaches = new Set(chantiers.filter((c) => c.operation_id).map((c) => c.id));
@@ -275,7 +277,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       const commandeLignes = etat.clByChantier[ph.chantier_id] || [];
       const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
         tauxFG: etat.cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10),
-        achatsTermines: etat.achatsParChantier?.[ph.chantier_id] || [] });
+        achatsTermines: etat.achatsParChantier?.[ph.chantier_id] || [],
+        seuilsMarges: reglagesMarges.seuilsMarges, derivesHistoriques: reglagesMarges.derivesHistoriques });
       const reelles = seriesReellesChantier({
         finance, pointages, commandeLignes, etatsFinanciers,
         chantierNom: ph.chantier_nom || ph.chantier_id,
@@ -283,7 +286,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       out[ph.chantier_id] = { finance, reelles, reference: etat.refsParChantier[ph.chantier_id]?.series || null };
     });
     return out;
-  }, [etat, chantiers]);
+  }, [etat, chantiers, reglagesMarges]);
 
   // ── Agrégats par opération (l'ordre des logements = l'ordre global des
   //    chantiers dans Réglages, le même que suit le Chemin de fer) ──
@@ -318,7 +321,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
   // ─── VUE LISTE ──────────────────────────────────────────────────────────────
   if (!selection) {
-    const totaux = parOperation.reduce((s, e) => ({ vendu: s.vendu + e.agg.vendu, marge: s.marge + e.agg.marge }), { vendu: 0, marge: 0 });
+    const totaux = parOperation.reduce((s, e) => ({ vendu: s.vendu + e.agg.vendu, marge: s.marge + e.agg.margeAvancement }), { vendu: 0, marge: 0 });
     return (
       <div className="pops-list" style={{ flex: 1, overflowY: "auto", background: bg, padding: "28px 32px" }}>
         <style>{`
@@ -368,7 +371,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
               <SummaryBar T={T} items={[
                 { label: "Opérations", value: operations.length,  color: acc.accent, icon: Building2 },
                 { label: "Vendu HT",   value: eur(totaux.vendu),  color: "#5b8af5",  icon: Wallet },
-                { label: "Marge nette", value: eur(totaux.marge), color: totaux.marge >= 0 ? "#22c55e" : "#e15a5a", icon: totaux.marge >= 0 ? TrendingUp : TrendingDown },
+                { label: "Marge à l'avancement", value: eur(totaux.marge), color: totaux.marge >= 0 ? "#22c55e" : "#e15a5a", icon: totaux.marge >= 0 ? TrendingUp : TrendingDown },
               ]}/>
             </div>
 
@@ -425,9 +428,9 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                         <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: text }}>{agg.vendu > 0 ? eur(agg.vendu) : "—"}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted }}>Marge nette</div>
-                        <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.marge, agg.margePct ?? 0) : textMuted }}>
-                          {agg.vendu > 0 ? `${eur(agg.marge)} · ${pctTxt(agg.margePct)}` : "—"}
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted }}>Marge à l'avancement</div>
+                        <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margeAvancement, agg.margeAvancementPct ?? 0) : textMuted }}>
+                          {agg.vendu > 0 ? `${eur(agg.margeAvancement)}${agg.margeAvancementPct != null ? ` · ${pctTxt(agg.margeAvancementPct)}` : ""}` : "—"}
                         </div>
                       </div>
                     </div>
@@ -449,7 +452,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
   // ─── VUE DÉTAILLÉE ──────────────────────────────────────────────────────────
   const { op, chantiersOp, agg } = selection;
-  const margeColor = agg.vendu > 0 ? couleurMarge(agg.marge, agg.margePct ?? 0) : textMuted;
+  const margeColor = agg.vendu > 0 ? couleurMarge(agg.margeAvancement, agg.margeAvancementPct ?? 0) : textMuted;
 
   // ─── EXPORT PDF « Dossier d'opération » ─────────────────────────────────────
   // Gabarit Profero commun (operationDoc.js). Deux parties :
@@ -651,7 +654,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
     { label: "Coût MO",     val: agg.moReel, color: "#f5a623" },
     { label: "Matériaux",   val: agg.mat,    color: "#5b8af5" },
     { label: "Frais gén.",  val: agg.fg,     color: "#c084fc" },
-    ...(agg.marge > 0 ? [{ label: "Marge", val: agg.marge, color: "#22c55e" }] : []),
+    ...(agg.marge > 0 ? [{ label: "Budget restant", val: agg.marge, color: "#9ca3af" }] : []),
   ].filter((s) => s.val > 0) : [];
 
   // Diagramme financier consolidé de l'opération (mêmes briques que le
@@ -822,10 +825,17 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
             <KpiCard T={T} icon={Receipt} iconColor="#c084fc" label="Frais généraux"
               value={agg.fg > 0 ? eur(agg.fg) : "—"}
               onClick={() => setKpiDetail("fg")}/>
-            <KpiCard T={T} icon={agg.marge >= 0 ? TrendingUp : TrendingDown} iconColor={margeColor} accent={margeColor} bold
-              label="Marge nette" value={agg.vendu > 0 ? eur(agg.marge) : "—"}
-              sub={agg.vendu > 0 ? `${pctTxt(agg.margePct)} du vendu` : "vendu HT non renseigné"}
+            <KpiCard T={T} icon={agg.margeAvancement >= 0 ? TrendingUp : TrendingDown} iconColor={margeColor} accent={margeColor} bold
+              label="Marge à l'avancement" value={agg.vendu > 0 ? eur(agg.margeAvancement) : "—"}
+              sub={agg.vendu > 0 ? (agg.margeAvancementPct != null ? `${pctTxt(agg.margeAvancementPct)} de la production` : "rien de produit pour l'instant") : "vendu HT non renseigné"}
               onClick={() => setKpiDetail("marge")}/>
+            <KpiCard T={T} icon={agg.margeProbable >= 0 ? TrendingUp : TrendingDown} iconColor="#8b5cf6"
+              label="Marge probable" value={agg.vendu > 0 ? eur(agg.margeProbable) : "—"}
+              sub={agg.vendu > 0 ? `${pctTxt(agg.margeProbablePct)} du vendu · si on continue au rythme actuel` : undefined}/>
+            <KpiCard T={T} icon={Wallet} iconColor="#9ca3af"
+              label="Budget restant" value={agg.vendu > 0 ? eur(agg.marge) : "—"}
+              sub="vendu − coûts engagés · ce n'est pas une marge"
+              onClick={() => setKpiDetail("budget")}/>
             <KpiCard T={T} icon={Banknote} iconColor="#22c55e" label="Marge prévisionnelle"
               value={agg.vendu > 0 ? eur(agg.margePrev) : "—"}
               sub={agg.vendu > 0 ? `${pctTxt(agg.margePrevPct)} au devis` : undefined}
@@ -860,7 +870,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   ))}
                   {agg.marge < 0 && (
                     <span style={{ fontSize: FONT.xs.size + 1, color: "#e15a5a", fontWeight: 700 }}>
-                      Coûts supérieurs au vendu : marge {eur(agg.marge)}
+                      Coûts supérieurs au vendu : budget restant {eur(agg.marge)}
                     </span>
                   )}
                 </div>
@@ -880,8 +890,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <th style={th}>Coût MO</th>
                   <th style={th}>Matériaux</th>
                   <th style={th}>Marge prév.</th>
-                  <th style={th}>Marge</th>
-                  <th style={th}>Marge %</th>
+                  <th style={th}>Marge à l'avancement</th>
+                  <th style={th}>Marge probable</th>
                   <th style={th}>Heures (réel/vendu)</th>
                 </tr>
               </thead>
@@ -890,7 +900,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   const f = finParChantier[c.id];
                   const b = f?.finance.brut;
                   const s = STATUTS[c.statut] || STATUTS.en_cours;
-                  const mColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margeChantier, b.margePctChantier ?? 0) : textMuted;
+                  const mColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margeAvancement, b.productionCumulee > 0 ? b.margeAvancement / b.productionCumulee * 100 : 0) : textMuted;
                   const mPrevColor = b && b.prixHTChantier > 0 ? couleurMarge(b.margePrevChantier, b.margePrevPctChantier ?? 0) : textMuted;
                   return (
                     <tr key={c.id} className={onOpenChantier ? "pops-row-clic" : undefined}
@@ -918,8 +928,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                           <td style={td}>{eur(b.coutMOTotalChantier)}</td>
                           <td style={td}>{eur(b.coutMatChantier)}</td>
                           <td style={{ ...td, fontWeight: 700, color: mPrevColor }}>{b.prixHTChantier > 0 ? eur(b.margePrevChantier) : "—"}</td>
-                          <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? eur(b.margeChantier) : "—"}</td>
-                          <td style={{ ...td, fontWeight: 700, color: mColor }}>{b.prixHTChantier > 0 ? pctTxt(b.margePctChantier) : "—"}</td>
+                          <td style={{ ...td, fontWeight: 800, color: mColor }}>{b.prixHTChantier > 0 ? `${eur(b.margeAvancement)}${b.repris ? " · repris" : ""}` : "—"}</td>
+                          <td style={{ ...td, fontWeight: 700, color: b.margeProbable >= 0 ? "#8b5cf6" : "#e15a5a" }}>{b.prixHTChantier > 0 ? eur(b.margeProbable) : "—"}</td>
                           <td style={td}>{fmtH(b.heuresReellesTotalChantier)}h / {fmtH(b.heuresVenduesChantier)}h{b.heuresHorsDevisChantier > 0 ? ` (dont ${fmtH(b.heuresHorsDevisChantier)}h hors devis)` : ""}</td>
                         </>
                       )}
@@ -935,8 +945,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                   <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.moReel)}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{eur(agg.mat)}</td>
                   <td style={{ ...td, fontWeight: 800, color: agg.vendu > 0 ? couleurMarge(agg.margePrev, agg.margePrevPct ?? 0) : textMuted }}>{agg.vendu > 0 ? eur(agg.margePrev) : "—"}</td>
-                  <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.marge) : "—"}</td>
-                  <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? pctTxt(agg.margePct) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: margeColor }}>{agg.vendu > 0 ? eur(agg.margeAvancement) : "—"}</td>
+                  <td style={{ ...td, fontWeight: 800, color: agg.margeProbable >= 0 ? "#8b5cf6" : "#e15a5a" }}>{agg.vendu > 0 ? eur(agg.margeProbable) : "—"}</td>
                   <td style={{ ...td, fontWeight: 800, color: text }}>{fmtH(agg.hReelles)}h / {fmtH(agg.hVendues)}h{agg.hHorsDevis > 0 ? ` (dont ${fmtH(agg.hHorsDevis)}h hors devis)` : ""}</td>
                 </tr>
               </tbody>
@@ -999,7 +1009,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
           derive:     { icon: Gauge,    color: "#818cf8" },
           mat:        { icon: Package,  color: "#5b8af5" },
           fg:         { icon: Receipt,  color: "#c084fc" },
-          marge:      { icon: agg.marge >= 0 ? TrendingUp : TrendingDown, color: margeColor },
+          marge:      { icon: agg.margeAvancement >= 0 ? TrendingUp : TrendingDown, color: margeColor },
+          budget:     { icon: Wallet, color: "#9ca3af" },
           marge_prev: { icon: Banknote, color: "#22c55e" },
         };
         const detail = detailKpiOperation(kpiDetail, {

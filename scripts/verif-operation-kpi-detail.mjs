@@ -113,7 +113,8 @@ test("vendu : par lot, tous logements confondus", () => {
 
 test("marges : les postes viennent d'agregerOperation", () => {
   const d = detailKpiOperation("marge", ctx);
-  assert.equal(d.totalTexte, `${agg.marge >= 0 ? "+" : ""}${Math.round(agg.marge).toLocaleString("fr-FR")} €`);
+  assert.equal(d.totalTexte, `${agg.margeAvancement >= 0 ? "+" : ""}${Math.round(agg.margeAvancement).toLocaleString("fr-FR")} €`);
+  assert.equal(detailKpiOperation("budget", ctx).totalTexte, `${agg.marge >= 0 ? "+" : ""}${Math.round(agg.marge).toLocaleString("fr-FR")} €`, "budget restant = ancienne marge nette");
   assert.equal(d.consolide.lignes.length, 4);
   assert.equal(detailKpiOperation("marge_prev", ctx).consolide.lignes.length, 3);
 });
@@ -173,7 +174,7 @@ test("dérive non calculable : affichée comme telle, jamais 0", () => {
 
 test("clé inconnue → null ; toutes les cartes ont une définition", () => {
   assert.equal(detailKpiOperation("inconnu", ctx), null);
-  ["vendu", "mo", "derive", "mat", "fg", "marge", "marge_prev"].forEach((k) => assert.ok(KPI_OPERATION[k], k));
+  ["vendu", "mo", "derive", "mat", "fg", "marge", "budget", "marge_prev"].forEach((k) => assert.ok(KPI_OPERATION[k], k));
 });
 
 let ko = 0;

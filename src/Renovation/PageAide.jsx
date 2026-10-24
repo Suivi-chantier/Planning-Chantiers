@@ -22,10 +22,10 @@ export const AIDE_CONTENU = {
   operations: {
     titre: "Opérations",
     sousTitre: "La fiche d'une opération : tous ses logements, ses finances et sa marge consolidées.",
-    intro: "Une opération regroupe plusieurs chantiers (les logements d'un même immeuble ou programme). Cette page additionne les chiffres de chaque logement — calculés exactement comme sur la fiche Chantier et le Phasage — pour donner la vision d'ensemble : vendu HT, coûts, marge nette, marge prévisionnelle, avancement pondéré et diagramme financier consolidé.",
+    intro: "Une opération regroupe plusieurs chantiers (les logements d'un même immeuble ou programme). Cette page additionne les chiffres de chaque logement — calculés exactement comme sur la fiche Chantier et le Phasage — pour donner la vision d'ensemble : vendu HT, coûts, marge à l'avancement, marge probable, marge prévisionnelle, avancement pondéré et diagramme financier consolidé.",
     etapes: [
       "Choisis une opération dans la liste (chaque carte résume déjà l'avancement, le vendu et la marge).",
-      "Lis les cartes financières en haut de la fiche : vendu HT, coût MO, matériaux, frais généraux, marge nette et marge prévisionnelle.",
+      "Lis les cartes financières en haut de la fiche : vendu HT, coût MO, matériaux, frais généraux, marge à l'avancement (le constat), marge probable (si on continue au rythme actuel), budget restant (vendu − coûts engagés, ce n'est pas une marge) et marge prévisionnelle.",
       "Parcours le tableau des logements : chaque ligne montre ses propres chiffres ; clique sur une ligne pour ouvrir la fiche du chantier.",
       "En bas, le diagramme financier cumule mois par mois les dépenses, la facturation et la valeur générée de toute l'opération.",
       "L'onglet « Chemin de fer » affiche la frise des logements dans le temps (l'ancienne page dédiée) : zoom semaines/jours, décalage des groupes et exports PDF (chemin de fer paysage, prévisionnel client, dossier de plans).",

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
-import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT, LOGO_RENO_H, loadOperations } from "../constants";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT, LOGO_RENO_H, loadOperations, loadLots } from "../constants";
+import { useReglagesMarges } from "./reglagesMarges";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers/avancement V2 : src/chantierFinance.js
 // (mêmes formules que Phasage V2). Les branches V1 legacy (plan_travaux sans
@@ -1354,19 +1355,22 @@ function totalLignes(lignes) {
     (s, l) => s + (parseFloat(l.prix_total) || ((parseFloat(l.prix_unitaire) || 0) * (parseFloat(l.quantite) || 0)) || 0), 0);
 }
 
-function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0, tauxFG = null, achatsTermines = []) {
+function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraStats = {}, pointagesChantier = [], commandeLignes = [], tauxMOPrev = 0, tauxFG = null, achatsTermines = [], contexteMarges = {}) {
   const ouvrages = phasage?.ouvrages || [];
   const hasV2 = ouvrages.length > 0;
   if (!hasV2 && !phasage?.plan_travaux) return { coutMO: 0, coutMat: 0, fg: 0, coutTotal: 0, prixVendu: 0, marge: 0, margePct: 0, ecartVendu: null, fin: null };
 
   // ── V2 : tout vient du module (mêmes chiffres que Phasage V2, au centime).
   // Le vendu est la SOMME DES OUVRAGES (plus le devis saisi), la marge est la
-  // MARGE NETTE (frais généraux déduits) et le coût MO gère le repli legacy
-  // par tâche + la reprise d'antériorité — exactement comme Phasage V2.
+  // MARGE À L'AVANCEMENT (étape 2 : production − coûts imputés ; l'ancienne
+  // « marge nette » est le budget restant) et le coût MO gère le repli legacy
+  // par tâche + la reprise d'antériorité — exactement comme Phasage V2. Lots,
+  // seuils et dérives historiques : les mêmes que Phasage V2 (marge probable).
   if (hasV2) {
     const fin = computeChantierFinance({
-      phasage, pointages: pointagesChantier, commandeLignes, tauxHoraires, tauxMOPrev, lots: [],
+      phasage, pointages: pointagesChantier, commandeLignes, tauxHoraires, tauxMOPrev, lots: contexteMarges.lots || [],
       tauxFG, aujourdhui: new Date().toISOString().slice(0, 10), achatsTermines,
+      seuilsMarges: contexteMarges.seuilsMarges || null, derivesHistoriques: contexteMarges.derivesHistoriques || null,
     });
     const b = fin.brut;
     return {
@@ -1375,8 +1379,11 @@ function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraSt
       fg: b.fgChantier,
       coutTotal: b.coutMOTotalChantier + b.coutMatChantier + b.fgChantier,
       prixVendu: b.prixHTChantier,
-      marge: b.margeChantier,
-      margePct: b.margePctChantier,
+      marge: b.margeAvancement,
+      margePct: b.productionCumulee > 0 ? (b.margeAvancement / b.productionCumulee) * 100 : 0,
+      budgetRestant: b.budgetRestant,
+      margeProbable: b.margeProbable,
+      repris: b.repris,
       ecartVendu: b.ecartVendu,
       montantDevis: b.montantDevis,
       moPrev: b.moPrevChantier,
@@ -1769,6 +1776,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // l'estimation ouvrages[].cout_materiaux pour le "réel".
   const [commandeLignes, setCommandeLignes] = useState([]);
   const [achatsParCh, setAchatsParCh] = useState({}); // { chantier_id: [lots « achats terminés »] }
+  // Trois marges (étape 2) : lots, seuils et dérives historiques communs.
+  const reglagesMarges = useReglagesMarges();
+  const [lotsCfg, setLotsCfg] = useState([]);
+  useEffect(() => { loadLots().then(l => setLotsCfg(l || [])); }, []);
+  const contexteMarges = { lots: lotsCfg, seuilsMarges: reglagesMarges.seuilsMarges, derivesHistoriques: reglagesMarges.derivesHistoriques };
   const [lightboxGal, setLightboxGal]     = useState(null);
   const [loadingTous, setLoadingTous]   = useState(false);
   const fileInputRef                    = useRef(null);
@@ -2113,7 +2125,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Rechargement après une écriture du bloc Facturation (insert, encaissement,
   // suppression) : une seule source, la base — on ne recopie pas l'état local.
   const rechargerFactures = async () => setRechargeFactures(n => n + 1);
-  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev, tauxFG, achatsParCh[selectedPhasage.chantier_id] || []) : null;
+  const finances         = selectedPhasage ? calcFinances(selectedPhasage, tauxHoraires, ptsIndexSelected, extraSelected, pointagesChantierSelected, commandeLignesSelected, tauxMOPrev, tauxFG, achatsParCh[selectedPhasage.chantier_id] || [], contexteMarges) : null;
   const adresseGeo       = selected ? chantierAdresses[selected] : null;
 
   // ─── DOSSIER DE PRÉPARATION (PDF papier pour l'équipe) ──────────────────────
@@ -2616,7 +2628,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             if (!ph) return;
             const ptsCh = pointages.filter(p => p.chantier_id === ph.chantier_id);
             const cmdCh = commandeLignes.filter(l => l.chantier_id === ph.chantier_id);
-            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh, tauxMOPrev, tauxFG, achatsParCh[ph.chantier_id] || []);
+            const f = calcFinances(ph, tauxHoraires, indexPointagesParTache(ptsCh), sumLibreEtIndirect(ptsCh), ptsCh, cmdCh, tauxMOPrev, tauxFG, achatsParCh[ph.chantier_id] || [], contexteMarges);
             caTotal += f.prixVendu || 0;
             margeTotal += f.marge || 0;
           });
@@ -2625,7 +2637,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               <SummaryBar T={T} items={[
                 { label: "Chantiers", value: chantiers.length, color: acc.accent, icon: HardHat },
                 { label: "CA total",  value: fmt(caTotal),     color: "#5b8af5",   icon: Wallet },
-                { label: "Marge",     value: fmt(margeTotal),  color: margeTotal >= 0 ? "#22c55e" : "#e15a5a", icon: TrendingUp },
+                { label: "Marge à l'avancement", value: fmt(margeTotal),  color: margeTotal >= 0 ? "#22c55e" : "#e15a5a", icon: TrendingUp },
               ]}/>
             </div>
           );
@@ -2720,7 +2732,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
               const ptsIdx  = indexPointagesParTache(ptsCh);
               const extras  = sumLibreEtIndirect(ptsCh);
               const cmdCh   = phasage ? commandeLignes.filter(l => l.chantier_id === phasage.chantier_id) : [];
-              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh, tauxMOPrev, tauxFG, achatsParCh[phasage.chantier_id] || []) : null;
+              const fin     = phasage ? calcFinances(phasage, tauxHoraires, ptsIdx, extras, ptsCh, cmdCh, tauxMOPrev, tauxFG, achatsParCh[phasage.chantier_id] || [], contexteMarges) : null;
               const photo   = photoMap[chantier.id];
               const statut  = getStatut(chantier, phasage);
 
@@ -2770,7 +2782,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, fontSize: FONT.xs.size + 1 }}>
                         <span style={{ color: textMuted }}>{fmt(fin.prixVendu)}</span>
                         <span style={{ color: fin.marge >= 0 ? "#22c55e" : "#e15a5a", fontWeight: 700 }}>
-                          {fin.marge >= 0 ? "+" : ""}{fmt(fin.marge)} <span style={{ opacity: .7, fontWeight: 600 }}>({fin.margePct.toFixed(0)}%)</span>
+                          {fin.marge >= 0 ? "+" : ""}{fmt(fin.marge)} <span style={{ opacity: .7, fontWeight: 600 }}>{fin.fin ? "à l'avancement" : `(${fin.margePct.toFixed(0)}%)`}</span>
                         </span>
                       </div>
                     )}
@@ -3460,10 +3472,12 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                 { label: "Coût main d'œuvre", val: fmt(finances.coutMO),   color: "#60a5fa",  sub: "Heures réelles",  icon: HardHat },
                 { label: "Coût matériaux",    val: fmt(finances.coutMat),  color: "#f59e0b",  sub: "Matériaux",        icon: Receipt },
                 ...(finances.fg > 0 ? [{ label: "Frais généraux", val: fmt(finances.fg), color: "#a78bfa", sub: "Taux × heures réelles", icon: Wallet }] : []),
-                { label: finances.fin ? "Marge nette" : "Marge brute",
+                { label: finances.fin ? "Marge à l'avancement" : "Marge brute",
                   val: fmt(finances.marge),
                   color: finances.marge >= 0 ? "#22c55e" : "#e15a5a",
-                  sub: `${finances.margePct.toFixed(1)}% du ${finances.fin ? "vendu" : "marché"}`,
+                  sub: finances.fin
+                    ? `${finances.margePct.toFixed(1)}% de la production · probable ${fmt(finances.margeProbable)}${finances.repris ? " · chantier repris" : ""}`
+                    : `${finances.margePct.toFixed(1)}% du marché`,
                   icon: finances.marge >= 0 ? TrendingUp : TrendingDown,
                   bold: true },
               ].map(s => (

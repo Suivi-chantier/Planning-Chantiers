@@ -84,12 +84,12 @@ const suivi = suiviPointsAttentionV1({
   assert.match(corps, /- Heures : 312 h/);
   assert.match(corps, /- Tâches terminées : 47/);
   assert.match(corps, /- Valeur générée : 18 400 €/);
-  assert.match(corps, /- Marge réelle de la semaine : 4 200 €/);
+  assert.match(corps, /- Marge de la semaine : 4 200 €/);
   assert.match(corps, /- Chantiers au bilan : 6/);
   // Un indicateur non transmis ne produit aucune ligne inventée.
   const partiel = bilanSemaineEmailV1({ periode, indicateursPortefeuille: { heures: 312 }, pointsAttention: points });
   assert.match(partiel.corps, /- Heures : 312 h/);
-  assert.equal(/Marge réelle|Valeur générée|Tâches terminées|Chantiers au bilan/.test(partiel.corps), false);
+  assert.equal(/Marge de la semaine|Valeur générée|Tâches terminées|Chantiers au bilan/.test(partiel.corps), false);
   // Aucun indicateur du tout : pas de titre orphelin.
   const aucun = bilanSemaineEmailV1({ periode, pointsAttention: points });
   assert.equal(/INDICATEURS/.test(aucun.corps), false);

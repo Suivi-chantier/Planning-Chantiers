@@ -861,6 +861,8 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
   const t = {
     nbChantiers: (chantiersOp || []).length, nbAvecPhasage: 0,
     vendu: 0, moReel: 0, mat: 0, fg: 0, marge: 0,
+    // Trois marges (étape 2) ; `marge` = budget restant (ancienne « marge nette »).
+    production: 0, matImputes: 0, margeAvancement: 0, margeATerminaison: 0, margeProbable: 0,
     moPrev: 0, matPrev: 0, fgPrev: 0, margePrev: 0,
     hVendues: 0, hReelles: 0, hHorsDevis: 0, hComparables: 0,
     avNum: 0, avDen: 0,
@@ -878,6 +880,11 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
     t.mat      += b.coutMatChantier || 0;
     t.fg       += b.fgChantier || 0;
     t.marge    += b.margeChantier || 0;
+    t.production += b.productionCumulee || 0;
+    t.matImputes += b.materiauxImputes || 0;
+    t.margeAvancement += b.margeAvancement || 0;
+    t.margeATerminaison += b.margeATerminaison || 0;
+    t.margeProbable += b.margeProbable || 0;
     t.moPrev   += b.moPrevChantier || 0;
     t.matPrev  += b.commandesPrevChantier || 0;
     t.fgPrev   += b.fgPrevChantier || 0;
@@ -892,6 +899,11 @@ export function agregerOperation(chantiersOp, finParChantier, statutsConnus = []
   });
   t.avancement = t.avDen > 0 ? Math.round(t.avNum / t.avDen) : 0;
   t.margePct = t.vendu > 0 ? (t.marge / t.vendu) * 100 : null;
+  t.budgetRestant = t.marge;
+  // Marge à l'avancement en % de la production (plus du vendu : un chantier
+  // peu avancé n'a encore presque rien produit).
+  t.margeAvancementPct = t.production > 0 ? (t.margeAvancement / t.production) * 100 : null;
+  t.margeProbablePct = t.vendu > 0 ? (t.margeProbable / t.vendu) * 100 : null;
   t.margePrevPct = t.vendu > 0 ? (t.margePrev / t.vendu) * 100 : null;
   // Dérive des heures vendues : même formule que la dérive d'un lot et que
   // `deriveChantier` (computeChantierFinance), sur les sommes de l'opération.
