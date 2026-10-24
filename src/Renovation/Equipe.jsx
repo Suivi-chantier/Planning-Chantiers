@@ -12,7 +12,7 @@ import {
   Users, ChartBar, Link2, Copy, HardHat, Building2, Calendar, Clock,
   Check, X, RefreshCw, MessageSquare, Pencil, Camera, FileDown, Trash2,
   ArrowRight, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, RotateCcw, ExternalLink,
-  FileText,
+  FileText, ClipboardCheck,
 } from "lucide-react";
 
 // ─── PAGE ÉQUIPE ──────────────────────────────────────────────────────────────
@@ -398,7 +398,7 @@ function CompteRenduClientModal({ rapports, chantiers, T, accent, onClose, defau
   );
 }
 
-function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation", onOuvrirBilan}) {
+function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation", onOuvrirBilan, onOuvrirQualite = null}) {
   const acc = getBranchAccent(branch);
   const [rapports, setRapports]       = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -598,6 +598,19 @@ function PageEquipe({chantiers, ouvriers, weekId, cells, T, branch = "renovation
             Le bilan de semaine a déménagé
             <Icon as={ArrowRight} size={13}/>
           </button>
+          {/* Indicateurs des comptes rendus (page à part, réservée au bureau). */}
+          {onOuvrirQualite && (
+            <button onClick={onOuvrirQualite} style={{
+              display:"inline-flex", alignItems:"center", gap:6,
+              background: "transparent", color: T.textSub, border: `1px solid ${T.border}`,
+              borderRadius: RADIUS.md, padding: "9px 16px",
+              fontFamily:"inherit", fontSize: FONT.sm.size, fontWeight:700,
+              cursor:"pointer",
+            }}>
+              <Icon as={ClipboardCheck} size={14}/>
+              Qualité des comptes rendus
+            </button>
+          )}
           <button onClick={()=>setShowCRClient(true)} style={{
             display:"inline-flex", alignItems:"center", gap:6,
             background: "transparent", color: acc.accent, border: `1px solid ${acc.border}`,
