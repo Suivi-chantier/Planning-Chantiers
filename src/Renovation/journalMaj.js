@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "amelioration",
+    titre: "Avancement daté : la production compte au jour où le travail a été fait",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "phasage-v2", label: "Phasage" }, { id: "admin", label: "Réglages" }],
+    quoi: "Chaque changement d'avancement d'une tâche est désormais enregistré avec sa date de réalisation. Un compte rendu du mardi validé le jeudi produit donc le mardi. La production d'une semaine se calcule ouvrage par ouvrage (prix de l'ouvrage × avancement gagné, sans arrondi) : un ouvrage qui avance de 0,4 % produit 0,4 % de son prix au lieu de 0 €, ajouter un ouvrage ne modifie plus la production des semaines passées, et une modification des heures estimées (qui change la pondération) n'est plus comptée comme du travail produit.",
+    comment: "Rien à faire à la validation de fin de journée : la date du compte rendu est reprise automatiquement, y compris après « Corriger » puis revalidation. Dans le phasage, à côté de l'avancement d'une tâche, un champ « réalisé le » est prérempli avec le dernier jour où la tâche a été pointée (sinon aujourd'hui) ; le modifier avant de changer l'avancement si le travail date d'un autre jour. Le Bilan de semaine calcule le « Généré » et la marge de la semaine avec cette production. Chaque nuit, un contrôle vérifie que rien n'a échappé au journal ; son résultat est affiché dans Réglages → Vue d'ensemble.",
+  },
+  {
+    date: "2026-10-24",
+    type: "amelioration",
     titre: "Commandes : nature du coût, lot obligatoire, et reste à commander par lot (« enveloppe »)",
     pages: [{ id: "planning-commandes", label: "Commandes à passer" }, { id: "commandes", label: "Commandes" }, { id: "capture-cmd", label: "Saisie commande" }, { id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Le reste à commander se calculait matériau par matériau : une commande saisie sans le lien vers le matériau prévu n'était pas reconnue, et la marge à terminaison comptait la dépense deux fois (dans les achats ET dans le « reste à commander »). Il se calcule maintenant lot par lot : pour chaque lot, le budget matériaux prévu (l'« enveloppe ») moins les commandes de matériaux du lot. La sous-traitance, la location de matériel et les bennes sont distinguées des matériaux : elles restent dans les coûts du chantier mais ne consomment pas l'enveloppe.",

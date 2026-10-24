@@ -25,6 +25,7 @@ import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
+import ControleJournalAvancement from "./ControleJournalAvancement.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
 // étapes de facturation de la frise du cycle de vie, phase Travaux).
 import { ECHEANCIER_DEFAUT, normaliserEcheancier, controleEcheancier } from "./facturationClient";
@@ -4845,6 +4846,9 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
         <div className="ac">
           <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Vue d'ensemble</div>
           <div style={{color:T.textSub,fontSize:FONT.xs.size+1,marginBottom:18}}>État global de l'application.</div>
+
+          {/* Compteur du contrôle nocturne du journal d'avancement (étape 1C). */}
+          <ControleJournalAvancement T={T}/>
 
           {/* KPI grid */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10,marginBottom:18}}>

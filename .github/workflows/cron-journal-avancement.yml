@@ -1,0 +1,44 @@
+name: Contrôle nocturne du journal d'avancement
+
+# Compare chaque soir l'état des tâches au journal d'avancement daté et compte
+# les écarts (refonte du Bilan semaine, étape 1C). Un compteur différent de 0
+# signale un chemin d'écriture qui a échappé au journal.
+#
+# 21h30 UTC = 23h30 Paris en été, 22h30 en hiver : après les validations de
+# fin de journée dans les deux cas. Appel explicite ?job=journal_avancement
+# (le dispatcher l'exécute sans regarder l'heure).
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '30 21 * * *'      # Tous les jours 21h30 UTC → 23h30 Paris (été), 22h30 (hiver)
+  workflow_dispatch:           # Bouton « Run workflow » dans GitHub pour tester
+
+jobs:
+  controle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=journal_avancement
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=journal_avancement")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          if echo "$body" | grep -q '"error"'; then
+            echo "::error::Le contrôle du journal a échoué"
+            exit 1
+          fi

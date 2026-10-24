@@ -34,14 +34,20 @@ export async function lireRevision({ phasageId = null, chantierId = null }) {
 }
 
 // Écrit UN phasage avec sa révision attendue.
+// `journal` (optionnel) : contexte du journal d'avancement daté (étape 1C) —
+// { source: "validation_cr" | "phasage" | "correction", date, dates: { tache_id: date },
+//   rapport_id, auteur }. Le serveur compare les tâches avant / après et date
+// chaque changement d'avancement ; sans contexte : source « phasage », date du
+// dernier pointage de la tâche, sinon aujourd'hui.
 // Renvoie { ok, code, revision } — code ∈ enregistre | conflit | refuse | erreur.
-export async function sauvegarderPhasage({ phasageId, revision, ouvrages = null, plan_travaux = null }) {
+export async function sauvegarderPhasage({ phasageId, revision, ouvrages = null, plan_travaux = null, journal = null }) {
   try {
     const { data, error } = await supabase.rpc("conducteur_sauvegarder_phasage_v2", {
       p_phasage_id: phasageId,
       p_revision_attendue: revision,
       p_ouvrages: ouvrages,
       p_plan_travaux: plan_travaux,
+      p_journal: journal,
     });
     if (error) { console.warn("sauvegarderPhasage:", error.message); return { ok: false, code: "erreur" }; }
     if (!data) { console.warn("sauvegarderPhasage: refusée pour ce compte"); return { ok: false, code: "refuse" }; }
@@ -54,7 +60,8 @@ export async function sauvegarderPhasage({ phasageId, revision, ouvrages = null,
 }
 
 // Écrit PLUSIEURS phasages en une transaction : tout ou rien.
-// `entrees` : [{ phasage_id, revision_attendue, ouvrages?, plan_travaux? }]
+// `entrees` : [{ phasage_id, revision_attendue, ouvrages?, plan_travaux?, journal? }]
+// (`journal` : contexte du journal d'avancement, comme sauvegarderPhasage).
 // Renvoie { ok, code, revisions, conflits }.
 export async function sauvegarderPhasagesLot(entrees) {
   try {

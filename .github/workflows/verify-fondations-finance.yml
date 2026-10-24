@@ -25,5 +25,9 @@ jobs:
         run: node scripts/verif-fg-taux-date.mjs
       - name: 1B - Nature des couts et reste a commander par enveloppe de lot (donnees fictives)
         run: node scripts/verif-enveloppes-lots.mjs
+      - name: Installer PGlite (PostgreSQL en memoire, hors package.json)
+        run: npm install --no-save --no-package-lock @electric-sql/pglite@0.5.8
+      - name: 1C - Journal d'avancement date et production exacte (SQL en memoire, donnees fictives)
+        run: node scripts/verif-journal-avancement.mjs
       - name: Module chantierFinance - valeurs calculees a la main (donnees fictives)
         run: node scripts/verif-chantier-finance-fixtures.mjs
