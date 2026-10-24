@@ -74,6 +74,9 @@ export function serialiserLigneV1(t) {
 export function construireRapports({
   taches, heuresIndirectes, planData, serialiser = serialiserLigneV1,
   ouvrier, dateKey, weekId, remarque, photosChantier, trajetMatin, trajetSoir, extra = {},
+  // CR-4 (parcours v3 seulement) : { chantier_id: [url] } des photos de fin de
+  // journée. null = colonne absente du rapport (ancien formulaire, v2 : inchangés).
+  photosFinJournee = null,
 }) {
   const tachesRemplies = filtrerTachesRemplies(taches);
   const indirectesRemplies = filtrerIndirectesRemplies(heuresIndirectes);
@@ -109,13 +112,22 @@ export function construireRapports({
       trajet_matin_min: parseInt(trajetMatin) || 0,
       trajet_soir_min: parseInt(trajetSoir) || 0,
       ...extra,
+      ...(photosFinJournee ? photosFin((photosChantier || {})[grp.chantier_id], photosFinJournee[grp.chantier_id]) : {}),
     };
   });
+}
+
+// Photos de fin de journée : listées à part ET ajoutées aux photos du
+// chantier (sans doublon), pour que tous les lecteurs existants les voient.
+function photosFin(chantier, fin) {
+  const liste = (Array.isArray(fin) ? fin : []).filter(Boolean);
+  const base = Array.isArray(chantier) ? chantier : [];
+  return { photos_chantier: [...base, ...liste.filter(u => !base.includes(u))], photos_fin_journee: liste };
 }
 
 // Colonnes du rapport qu'on peut retirer si la base ne les connaît pas encore
 // (code 42703) — l'envoi passe quand même, sans elles.
 export const COLONNES_FACULTATIVES = Object.freeze([
   "trajet_matin_min", "trajet_soir_min", "photos_chantier", "heures_indirectes",
-  "formulaire_version", "saisie_debut_le",
+  "formulaire_version", "saisie_debut_le", "dictee", "photos_fin_journee",
 ]);

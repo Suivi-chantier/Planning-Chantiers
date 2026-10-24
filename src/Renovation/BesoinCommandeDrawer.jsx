@@ -44,10 +44,13 @@ export default function BesoinCommandeDrawer({
   panier,
   onPanierChange,
   onClose,
+  // CR-4 : recherche préremplie depuis une demande de matériel détectée dans
+  // la dictée (« il manque des vis de 25 » → « vis 25 »).
+  rechercheInitiale = "",
 }) {
   injectStyles();
 
-  const [search, setSearch]             = useState("");
+  const [search, setSearch]             = useState(rechercheInitiale || "");
   const [catActive, setCatActive]       = useState("Tous");
   const searchRef = useRef(null);
 

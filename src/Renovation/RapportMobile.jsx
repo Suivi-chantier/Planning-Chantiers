@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { supabase } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
-import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW } from "../constants";
+import { JOURS, JOURS_JS, COULEURS_PALETTE, STATUTS, THEMES, emptyCell, emptyCommande, parseTachesFromPlanifie, DEFAULT_OUVRIERS, DEFAULT_CHANTIERS, LOGO_RENO_H, LOGO_RENO_V, getCurrentWeek, getWeekId, getTodayJour, FONT, RADIUS, SPACING, SEMANTIC, PROFERO_YELLOW, LOTS_DEFAUT } from "../constants";
 import { Icon } from "../ui";
 import { profilSemaine, libelleRythme, getISOWeek, fmtHeures } from "../rythmeSemaine";
 import {
   Check, X, Clock, Camera, Plus, Minus, RotateCw, ShoppingCart, Car,
   ClipboardList, AlertTriangle, MessageSquare, Zap, Users, BarChart3,
   Send, Pencil, ChevronRight, Sparkles, FileText, Coffee, Smile,
-  Hourglass, Calendar, RefreshCw, LogOut, ImagePlus, ListPlus, Trash2,
+  Hourglass, Calendar, RefreshCw, LogOut, ImagePlus, ListPlus, Trash2, Mic,
 } from "lucide-react";
 import BesoinCommandeDrawer from "./BesoinCommandeDrawer";
 // Socle commun aux deux formulaires (ancien et bêta v2) : quelles tâches
@@ -39,7 +39,14 @@ import {
   minutesJourneeTaches, appliquerFrise, messageRetour, CODE_PARCOURS_V3,
 } from "./compteRenduV3";
 import { suiviDepuisInfo, ligneDepuisPhasage } from "./compteRenduV2";
-import { AccueilJournee, PhasageMobileCR, EcranNonFaites, FriseHoraire, memoriserPhasage } from "./ParcoursCompteRendu";
+import { AccueilJournee, PhasageMobileCR, EcranNonFaites, FriseHoraire, memoriserPhasage, phasageMemorise } from "./ParcoursCompteRendu";
+// Dictée et préremplissage par l'IA (CR-4) : l'IA propose, l'ouvrier relit et
+// envoie ; le texte dicté d'origine part toujours avec le compte rendu.
+import { EcranDictee, BoutonMicro } from "./DicteeCompteRendu";
+import {
+  preparerEntreeDictee, validerSortieDictee, appliquerPropositions, dicteeAEnvoyer, TACHE_IA_DICTEE, TEXTE_MIN,
+} from "./dicteeCrV1";
+import { construireArbre } from "./phasageMobileV1";
 
 // ─── THÈME LIGHT CHANTIER ─────────────────────────────────────────────────────
 // Palette claire (lisibilité extérieure pour les ouvriers en plein soleil)
@@ -302,6 +309,15 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   const [paniers, setPaniers]       = useState({});      // { chantier_id: { articleId: {article, qty} } }
   const [besoinDrawer, setBesoinDrawer] = useState(null); // chantier_id du drawer ouvert
   const [photosChantier, setPhotosChantier] = useState({}); // { chantier_id: [url, ...] }
+  // CR-4 : photo de la zone en fin de journée (recommandée, jamais exigée) —
+  // { chantier_id: [url] } ; envoyée AUSSI dans photos_chantier.
+  const [photosFin, setPhotosFin] = useState({});
+  // CR-4 : texte raconté (toujours conservé tel quel) + reformulation.
+  //   { texte, source: "micro"|"clavier", remarqueReformulee, relue, prerempli }
+  const [dictee, setDictee] = useState(null);
+  const [analyseDictee, setAnalyseDictee] = useState({ etat: "attente" });
+  const [candidatsDictee, setCandidatsDictee] = useState(() => new Map());
+  const [besoinRecherche, setBesoinRecherche] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Accordéon des tâches (mode embarqué only) : index de la tâche ouverte (une
   // seule à la fois → limite le scroll). null = tout replié.
@@ -483,11 +499,11 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     try {
       const payload = {
         taches, trajetMatin, trajetSoir, heuresIndirectes, remarque,
-        paniers, photosChantier, planData,
+        paniers, photosChantier, planData, photosFin, dictee,
         ts: Date.now(),
         // Version du formulaire qui a écrit le brouillon : si la case bêta
         // change en cours de journée, l'autre formulaire sait le relire.
-        ...(estV2 ? { version: FORMULAIRE_V2, saisieDebut, parcours: { ecran: ecran === "phasage" || ecran === "non_faites" ? "detail" : ecran, branche, choisies } } : {}),
+        ...(estV2 ? { version: FORMULAIRE_V2, saisieDebut, parcours: { ecran: ecran === "phasage" || ecran === "non_faites" || ecran === "dictee" ? "detail" : ecran, branche, choisies } } : {}),
       };
       localStorage.setItem(brouillonKey(nom, dateKey), JSON.stringify(payload));
       setLastSaved(new Date());
@@ -495,7 +511,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       // QuotaExceeded ou JSON.stringify circular → on log mais on ne bloque pas
       console.warn("Sauvegarde brouillon:", e);
     }
-  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData, estV2, saisieDebut, ecran, branche, choisies]);
+  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData, estV2, saisieDebut, ecran, branche, choisies, photosFin, dictee]);
 
   const repartirDeZero = () => {
     effacerBrouillon();
@@ -506,6 +522,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setRemarque("");
     setPaniers({});
     setPhotosChantier({});
+    setPhotosFin({}); setDictee(null); setAnalyseDictee({ etat: "attente" });
     setLastSaved(null);
     setSaisieDebut(null);
     setBrouillonConverti(false);
@@ -610,6 +627,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         setRemarque(b.remarque || "");
         setPaniers(b.paniers || {});
         setPhotosChantier(b.photosChantier || {});
+        setPhotosFin(b.photosFin || {});
+        setDictee(b.dictee && typeof b.dictee === "object" ? b.dictee : null);
         if (b.planData) setPlanData(b.planData);
         setBrouillonRepris(true);
         const p = b.parcours || null;
@@ -633,6 +652,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setRemarque("");
     setPaniers({});
     setPhotosChantier({});
+    setPhotosFin({}); setDictee(null); setAnalyseDictee({ etat: "attente" });
     setLastSaved(null);
     loadTaches(nom);
   };
@@ -1007,13 +1027,29 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // Un rapport par chantier (tâches + heures indirectes côte à côte) — module
     // commun : l'ancien formulaire écrit exactement les mêmes rapports qu'avant
     // (serialiserLigneV1, aucune colonne en plus) ; le v2 y ajoute ses champs.
+    // CR-4 : texte dicté jamais analysé (pas de réseau au moment de la
+    // dictée) → la remarque est remise au propre maintenant, à côté du texte
+    // d'origine (non relue par l'ouvrier, et dit comme tel à la validation).
+    // Échec ou délai dépassé : on envoie sans, rien n'est bloqué.
+    let dicteeFinale = dictee;
+    if (parcoursOn && sessionActive && !horsConnexion && String(dictee?.texte || "").trim().length >= TEXTE_MIN && !dictee?.remarqueReformulee) {
+      try {
+        const s = await appelerIADictee(preparerEntreeDictee({ texte: dictee.texte, chantiers: [], minutesJournee: 0 }), 12000);
+        if (String(s?.remarque || "").trim()) dicteeFinale = { ...dictee, remarqueReformulee: s.remarque, relue: false };
+      } catch (e) { console.warn("Reformulation à l'envoi indisponible:", e?.message || e); }
+    }
+    const dicteeEnvoi = parcoursOn && dicteeFinale ? dicteeAEnvoyer({
+      texteOrigine: dicteeFinale.texte, source: dicteeFinale.source, remarqueReformulee: dicteeFinale.remarqueReformulee,
+      relue: dicteeFinale.relue, prerempli: dicteeFinale.prerempli,
+    }) : null;
     const rapportsAEnvoyer = construireRapports({
       taches: tachesEnvoi, heuresIndirectes, planData,
+      photosFinJournee: parcoursOn ? photosFin : null,
       // v2 : serialiserLigneV3 = la ligne v2, plus « collegue » et le motif d'une
       // tâche créée s'ils existent (rien d'autre ne change).
       serialiser: estV2 ? serialiserLigneV3 : serialiserLigneV1,
       ouvrier, dateKey, weekId, remarque, photosChantier, trajetMatin, trajetSoir,
-      extra: estV2 ? colonnesRapportV2(saisieDebut) : {},
+      extra: estV2 ? { ...colonnesRapportV2(saisieDebut), ...(dicteeEnvoi ? { dictee: dicteeEnvoi } : {}) } : {},
     });
 
     let insertError = null;
@@ -1105,6 +1141,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
     // CR envoyé → on efface le brouillon (sinon l'ouvrier le retrouverait demain).
     effacerBrouillon();
+    setPhotosFin({}); setDictee(null); setAnalyseDictee({ etat: "attente" });
     setBrouillonRepris(false);
     setBrouillonConverti(false);
     setSaisieDebut(null);
@@ -1274,6 +1311,95 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setEcran("detail");
     setToastAjout(`« ${creation.nom.trim().slice(0, 50)} » est dans ta journée`);
     setTimeout(() => setToastAjout(null), 3500);
+  };
+  // ── CR-4 : dictée et préremplissage par l'IA ──────────────────────────────
+  // L'IA reçoit le texte + les tâches du phasage déjà chargées sur le
+  // téléphone ; sa réponse est revalidée ici (validerSortieDictee) avant
+  // d'être montrée. Rien n'est appliqué sans « Utiliser et vérifier ».
+  const appelerIADictee = async (entree, delaiMs = 25000) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("La préparation automatique demande d'être connecté à ton espace.");
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const minuteur = setTimeout(() => ctrl?.abort(), delaiMs);
+    try {
+      const r = await fetch("/api/ai", {
+        method: "POST", signal: ctrl?.signal,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ tache: TACHE_IA_DICTEE, entree, contexte: { branche: "renovation", entite_type: "rapport", entite_id: `${ouvrier.trim()}:${dateKey}` } }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) throw new Error("La préparation automatique est indisponible pour le moment.");
+      if (validerSortieDictee(data.resultat, entree) !== true) throw new Error("La préparation automatique n'a pas donné de réponse sûre.");
+      return data.resultat;
+    } finally { clearTimeout(minuteur); }
+  };
+  const chargerCandidatsDictee = async () => {
+    const ids = [...new Set(taches.map(x => x.chantier_id).filter(Boolean))].slice(0, 6);
+    const prevuesIds = taches.filter(estLignePrevue).map(x => String(x.tache_id ?? "")).filter(Boolean);
+    const candidats = new Map();
+    const chantiersEntree = [];
+    for (const id of ids) {
+      let data = phasageMemorise(id);
+      if (!data && !horsConnexion) {
+        try {
+          const r = await supabase.rpc("ouvrier_mes_phases", { p_chantier_id: id, p_prenom: ouvrier.trim() || null, p_aujourdhui: todayISO });
+          if (!r.error && r.data && !r.data.acces_refuse) { data = r.data; memoriserPhasage(id, data); }
+        } catch { /* phasage indisponible : ce chantier n'est pas proposé */ }
+      }
+      if (!data) continue;
+      const arbre = construireArbre(data, { lotsDefaut: LOTS_DEFAUT, tachesDuJourIds: prevuesIds });
+      const ligne = taches.find(x => x.chantier_id === id);
+      const chantier = chantiers.find(c => c.id === id) || { id, nom: ligne?.chantier_nom || id, couleur: ligne?.chantier_couleur };
+      const nomsPieces = new Map(arbre.pieces.map(p => [p.id, p.nom]));
+      arbre.taches.forEach(x => candidats.set(x.id, { tache: { ...x, nom: x.nomAffiche }, chantier }));
+      chantiersEntree.push({ id, nom: chantier.nom, taches: arbre.taches.map(x => ({
+        id: x.id, nom: x.nomAffiche, ouvrage: x.ouvrageLibelle, piece: nomsPieces.get(x.pieceId) || null,
+        avancement: x.avancement, prevue: prevuesIds.includes(x.id),
+      })) });
+    }
+    return { candidats, chantiersEntree };
+  };
+  const ouvrirDictee = () => { touche(); setEcran("dictee"); };
+  const changerTexteDictee = (texte, source) => {
+    touche();
+    setDictee(d => ({ ...(d || {}), texte, source: source === "micro" || d?.source === "micro" ? "micro" : "clavier", remarqueReformulee: null, relue: false }));
+    setAnalyseDictee(a => (a.etat === "ok" || a.etat === "erreur" ? { etat: "attente" } : a));
+  };
+  const analyserDictee = async () => {
+    setAnalyseDictee({ etat: "encours" });
+    try {
+      const { candidats, chantiersEntree } = await chargerCandidatsDictee();
+      setCandidatsDictee(candidats);
+      const trajetMinutes = (parseInt(trajetMatin) || 0) + (parseInt(trajetSoir) || 0);
+      const indirectesHeures = filtrerIndirectesRemplies(heuresIndirectes).reduce((s, h) => s + (parseFloat(h.heures) || 0), 0);
+      const entree = preparerEntreeDictee({
+        texte: dictee?.texte || "", chantiers: chantiersEntree,
+        minutesJournee: minutesJourneeTaches({ cibleHeures, trajetMinutes, indirectesHeures }),
+      });
+      const sortie = await appelerIADictee(entree);
+      setAnalyseDictee({ etat: "ok", sortie });
+    } catch (e) {
+      setAnalyseDictee({ etat: "erreur", message: e?.name === "AbortError" ? "La préparation a pris trop de temps." : e?.message || null });
+    }
+  };
+  const appliquerDictee = ({ propositions, remarque: remarqueIA }) => {
+    touche();
+    const { taches: arr, indices } = appliquerPropositions(taches, propositions, { candidats: candidatsDictee, infosParTache });
+    setTaches(arr);
+    setChoisies(c => [...new Set([...c, ...indices.filter(i => estLignePrevue(arr[i]))])]);
+    setBranche(b => b || "autre");
+    const propre = String(remarqueIA || "").trim();
+    if (propre) setRemarque(r => (!r.trim() ? propre : r.includes(propre) ? r : `${r.trim()}\n${propre}`));
+    setDictee(d => ({ ...(d || {}), remarqueReformulee: propre || null, relue: true, prerempli: indices.length }));
+    setEcran("detail");
+    setToastAjout(indices.length ? `${indices.length} tâche${indices.length > 1 ? "s" : ""} préremplie${indices.length > 1 ? "s" : ""} : vérifie et envoie` : "Choisis tes tâches, puis envoie");
+    setTimeout(() => setToastAjout(null), 3500);
+  };
+  const commanderDepuisDictee = (m) => {
+    const id = taches.find(x => x.chantier_id)?.chantier_id;
+    if (!id) return;
+    setBesoinRecherche(String(m?.recherche || m?.texte || "").trim());
+    setBesoinDrawer(id);
   };
   const repondreNonFaite = (idx, motif) => {
     touche();
@@ -1563,7 +1689,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         return (
           <AccueilJournee T={T} groupes={[...map.values()]} cibleHeures={cibleHeures}
             fmtH={(h) => fmtHeures(h)} journeeEtat={journeeEtat}
-            onCommePrevu={commePrevu} onPasCommePrevu={pasCommePrevu}/>
+            onCommePrevu={commePrevu} onPasCommePrevu={pasCommePrevu} onDicter={ouvrirDictee}/>
         );
       })() : (<>
       {/* Nouveau parcours : rappel de la branche choisie, frise horaire. */}
@@ -1582,6 +1708,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             )}
             <button onClick={() => { if (window.confirm("Revenir à l'écran de la journée prévue ? Ce que tu as saisi sera effacé.")) repartirDeZero(); }} style={{ ...S.btn(T.textSub, "transparent"), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size, border: `1px solid ${T.border}` }}>
               Recommencer
+            </button>
+            <button onClick={ouvrirDictee} style={{ ...S.btn(T.text, T.bg), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size }}>
+              <Icon as={Mic} size={15}/> {dictee?.texte ? "Ma dictée" : "Raconter ma journée"}
             </button>
             {friseOption ? (
               <button onClick={() => setFriseOuverte(o => !o)} style={{ ...S.btn(T.text, T.bg), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size }}>
@@ -2236,6 +2365,23 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
 
       {/* Photos + besoins du chantier — affichés dans la section du chantier
           (pas pour le groupe "Autres tâches" qui n'a pas encore de chantier). */}
+      {group.cId && parcoursOn && (
+        <div style={{...S.card, margin: embedded ? "12px 14px 0" : S.card.margin, border:`1.5px solid ${group.chantier_couleur}55`}}>
+          <span style={{...S.sectionTitle(T.text)}}>
+            <Icon as={Camera} size={13} strokeWidth={2.2}/> Photo de fin de journée (recommandée)
+          </span>
+          <PhotosPicker
+            photos={photosFin[group.cId] || []}
+            onChange={(arr)=>{ touche(); setPhotosFin(p=>({...p,[group.cId]:arr})); }}
+            pathPrefix={`rapports/${ouvrier}/${dateKey}/fin-${group.cId}`}
+            color={group.chantier_couleur}
+            label="Une vue d'ensemble de la zone où tu as travaillé"
+          />
+          <div style={{fontSize:FONT.xs.size+1,color:T.textMuted,marginTop:6,fontStyle:"italic"}}>
+            Pas obligatoire. La photo « après » d'une tâche terminée reste possible sur la tâche.
+          </div>
+        </div>
+      )}
       {group.cId && (embedded ? (
         /* Version condensée : Photos repliables + Besoins en bouton direct. */
         <div style={{padding:"12px 14px", borderTop:`1px solid ${T.border}`, display:"flex", flexDirection:"column", gap:10}}>
@@ -2422,7 +2568,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               ...prev,
               [besoinDrawer]: typeof updater==="function" ? updater(prev[besoinDrawer]||{}) : updater,
             }))}
-            onClose={()=>setBesoinDrawer(null)}
+            onClose={()=>{ setBesoinDrawer(null); setBesoinRecherche(""); }}
+            rechercheInitiale={besoinRecherche}
           />
         );
       })()}
@@ -2433,9 +2580,17 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           <Icon as={MessageSquare} size={13} strokeWidth={2.2}/>
           Remarque générale de la journée
         </span>
-        <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
-          placeholder="Informations utiles…"
-          style={{...S.input,resize:"none",minHeight:80,fontSize:16}}/>
+        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+          <textarea value={remarque} onChange={e=>setRemarque(e.target.value)}
+            placeholder="Informations utiles…"
+            style={{...S.input,resize:"none",minHeight:80,fontSize:16,flex:1}}/>
+          {parcoursOn && <BoutonMicro T={T} valeur={remarque} onChange={setRemarque} taille={48}/>}
+        </div>
+        {parcoursOn && dictee?.texte && (
+          <div style={{fontSize:FONT.sm.size+1,color:T.textSub,marginTop:6}}>
+            Ton texte dicté d'origine est joint au compte rendu.
+          </div>
+        )}
       </div>
 
       {/* Bouton soumettre */}
@@ -2509,6 +2664,12 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
             onFermer={() => setEcran(taches.some(t => t.statut) || choisies.length || taches.some(t => !estLignePrevue(t)) ? "detail" : "accueil")}/>
         );
       })()}
+      {parcoursOn && ecran === "dictee" && (
+        <EcranDictee T={T} texte={dictee?.texte || ""} onTexte={changerTexteDictee} analyse={analyseDictee}
+          candidats={candidatsDictee} horsConnexion={horsConnexion} onAnalyser={analyserDictee}
+          onAppliquer={appliquerDictee} onCommander={commanderDepuisDictee}
+          onFermer={() => setEcran(taches.some(x => x.statut) || choisies.length || taches.some(x => !estLignePrevue(x)) ? "detail" : "accueil")}/>
+      )}
       {parcoursOn && ecran === "non_faites" && (
         <EcranNonFaites T={T} nonFaites={nonFaites} reponses={reponsesNonFaites}
           onRepondre={repondreNonFaite} onRetour={() => setEcran("detail")} onTerminer={() => setEcran("detail")}/>

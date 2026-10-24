@@ -199,7 +199,7 @@ chaque étape.
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ✅ En ligne | 2026-10-24 | Diagnostic réel sur 8 semaines, page « Qualité des comptes rendus » (bureau), module d'indicateurs réutilisable (compteur « lignes découpées » par ouvrier et par mois pour CR-5). Écart d'avancement déclaré / validé allumé à partir du journal d'avancement, sans fonction SQL. Voir « CR-1 ». |
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ✅ En ligne | 2026-10-24 | Libellés personnalisés d'ouvrages et de tâches (à côté du libellé devis, inventaire complet des usages) ; pièces du chantier : liste, rattachement de plusieurs tâches, filtre et regroupement, duplication par pièce à heures conservées. Aucune migration. Écrans ouvriers : libellé devis jusqu'au CR-3. Voir « CR-2 ». |
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
-| 8 | CR-4 — Dictée vocale et IA | ⏳ À faire | | |
+| 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ⏳ À faire | | |
 
 ### Journal des décisions
@@ -363,6 +363,26 @@ chaque étape.
   ne bouge qu'à la validation ; en afficher un créerait un second chiffre.
   (6) Une tâche créée par l'ouvrier porte son motif (`motif_hd`) et la
   validation présélectionne le cas A / B / C (modifiable).
+- **25/10/2026 — CR-4 : choix techniques.** (1) Transcription : la
+  reconnaissance vocale du navigateur (gratuite, aucun nouveau service ni
+  nouvelle clé) ; repli : le micro du clavier dans le même champ texte (voir
+  le compte rendu CR-4). (2) Une seule tâche IA `cr_dictee` sur la route
+  existante `/api/ai` (aucune nouvelle fonction serveur : 11 / 12), modèle
+  claude-haiku-4-5, rôles ouvrier / admin / conducteur, quotas et
+  coupe-circuit existants ; les tâches proposées viennent du phasage déjà sur
+  le téléphone (aucune donnée nouvelle exposée). (3) Sortie validée par le
+  même module des deux côtés (`dicteeCrV1.mjs`) ; seules les propositions
+  « sûres » d'une réponse non ambiguë sont préremplies, les autres restent
+  des suggestions à toucher. (4) Texte d'origine + remarque reformulée dans
+  une nouvelle colonne `rapports.dictee` ; la remarque relue par l'ouvrier
+  reste dans `remarque` (lue par la chaîne existante sans changement). (5)
+  Sans réseau au moment de la dictée : l'ouvrier remplit à la main ; à
+  l'envoi, la remarque est remise au propre (12 s au plus, sinon envoi sans),
+  marquée « non relue par l'ouvrier ». (6) Photo de fin de journée : colonne
+  `photos_fin_journee` ET ajoutée aux photos du chantier (tous les lecteurs
+  existants la voient, Bilan compris). (7) Demande de matériel détectée :
+  ouvre la demande de matériel existante avec la recherche préremplie
+  (l'ouvrier choisit l'article et la quantité).
 
 ### Comptes rendus des étapes
 
@@ -1031,6 +1051,106 @@ v2 sans le parcours est inchangé.
 - Écart aux règles : le script `verif-compte-rendu-v3` a été lancé en local
   pendant son écriture, et un contrôle de syntaxe esbuild sur les fichiers
   modifiés (aucun contrôle rouge à ce moment-là).
+
+#### CR-4 — Dictée vocale, préremplissage par l'IA, photo de fin de journée (25/10/2026, en ligne)
+
+**Ce qui change pour les ouvriers** (compte rendu du soir, nouveau parcours).
+- **« Raconter ma journée au micro »** : un gros bouton sur l'écran
+  d'accueil (et « Raconter ma journée » en haut du détail). L'ouvrier appuie,
+  parle (« J'ai fini le placo de la chambre, commencé les bandes dans la salle
+  de bain, il manque des vis de 25 »), relit le texte qui s'écrit, puis
+  « Préparer mon compte rendu ».
+- **Ce que l'IA propose** : les tâches concernées (prises dans le phasage du
+  chantier, noms personnalisés), leur état (commencé / à moitié / presque fini
+  / terminé), le temps quand il l'a dit, sa remarque remise au propre, et le
+  matériel qui manque (bouton « Demander » qui ouvre la demande de matériel
+  habituelle, recherche déjà remplie). Il voit un résumé « Ce que j'ai
+  compris », corrige la remarque, touche les suggestions incertaines s'il
+  veut, puis « Utiliser et vérifier » : les tâches sont remplies dans son
+  compte rendu, il ajuste le temps et **c'est lui qui envoie**. Rien n'est
+  envoyé par l'IA.
+- **Rien n'est prérempli sans certitude** : une tâche dont l'IA n'est pas
+  sûre reste une suggestion à toucher ; un texte trop vague ne remplit rien.
+  IA en panne, coupée par l'administrateur ou trop lente : un message, et le
+  formulaire reste utilisable normalement (« Remplir moi-même » toujours
+  présent).
+- **Le micro est aussi** dans la recherche du phasage, dans le nom d'une
+  tâche créée et à côté de la remarque générale.
+- **Photo de fin de journée** : un encadré par chantier, « Photo de fin de
+  journée (recommandée) » — une vue d'ensemble de la zone travaillée. Jamais
+  obligatoire ; la photo « après » d'une tâche terminée reste possible sur la
+  tâche.
+
+**Ce qui change à la validation.** La remarque affichée est celle que
+l'ouvrier a relue ; quand elle vient d'une dictée, un lien « Voir le texte
+dicté d'origine » montre ce qu'il a dit, mot pour mot (le texte d'origine est
+toujours gardé, colonne `rapports.dictee`). Une remarque remise au propre à
+l'envoi sans relecture (cas sans réseau) est signalée « reformulée par l'IA
+(non relue par l'ouvrier) ». Le titre des photos indique « dont N de fin de
+journée ». Les lignes reçues, les pointages et le Bilan ne changent pas.
+
+**Choix de la transcription.**
+| | Reconnaissance du navigateur (retenue) | Service côté serveur |
+|---|---|---|
+| Android (Chrome) | fonctionne, en français ; demande le réseau (sauf pack de langue hors ligne) | fonctionne |
+| iPhone (Safari) | fonctionne dans Safari ; dans l'application installée sur l'écran d'accueil, peut être refusée selon la version d'iOS → message clair et repli sur le micro du clavier | fonctionne |
+| Coût | 0 € | environ 0,005 € la minute, plus un nouveau fournisseur, une nouvelle clé et l'envoi de l'audio |
+| Sans réseau | non (comme le serveur) | non |
+| Repli | micro du clavier (Android et iPhone le font, souvent même hors ligne) dans le même champ | idem |
+
+La dictée du clavier est déjà sur tous les téléphones et marche partout ; le
+micro du navigateur n'ajoute qu'un gros bouton plus simple. Un service
+serveur coûterait plus, demanderait un nouveau fournisseur et n'apporterait
+rien hors réseau. **À vérifier par Loris sur un iPhone d'ouvrier** : si le
+gros bouton micro ne s'affiche pas ou affiche « utilise le micro de ton
+clavier », c'est le repli prévu, pas une panne.
+
+**Le texte de l'ouvrier reste une donnée.** Il voyage dans un champ JSON,
+jamais dans la consigne ; la consigne dit explicitement de ne suivre aucune
+instruction qu'il contiendrait ; la réponse est revalidée (serveur et
+téléphone) : seules des tâches de la liste fournie, des états connus, des
+durées au quart d'heure dans la limite de la journée passent — sinon rien
+n'est proposé.
+
+**Coût estimé de l'IA** (pour Loris : environ **1,5 à 3 € par mois**).
+Hypothèses : 10 ouvriers × 1 compte rendu par jour × 17,3 jours travaillés
+par mois (4 jours par semaine depuis le 19/10) = 173 comptes rendus ; pour
+comparaison, la base compte 108 journées de compte rendu de 7 ouvriers sur
+les 4 semaines du 28/09 au 24/10 (requête sur la base). Par analyse : un
+texte de 60 à 150 mots, 50 à 150 tâches du phasage proposées, soit environ
+4 000 à 6 500 jetons lus et 300 à 500 écrits, au tarif de claude-haiku-4-5
+retenu par l'application (0,92 € le million lus, 4,60 € le million écrits) :
+0,006 à 0,008 € l'analyse. Avec 1,3 à 2 analyses par compte rendu (une
+correction puis une nouvelle analyse) : 225 à 350 analyses, **1,4 à 2,8 €
+par mois**. Transcription : 0 €. Plafonds existants inchangés (5 € par
+utilisateur et par jour, 200 € par mois pour l'entreprise, coupe-circuit dans
+`planning_config.ia_config`).
+
+**Migration** `20261025120000_cr4_dictee_photo_fin` : deux colonnes
+facultatives sur `rapports` (`dictee`, `photos_fin_journee`). Purement
+additive : relue en entier, colonnes absentes avant, droits de la table
+inchangés (ils couvrent les nouvelles colonnes), appliquée le 25/10 par la
+CLI liée, enregistrée et vérifiée en base. L'envoi les retire de lui-même si
+elles manquaient. Aucune fonction serveur ouvrier modifiée.
+
+**Contrôle** `verif-dictee-cr` (données fictives, IA simulée), branché dans
+« Verify Fondations Finance » : texte dicté avec 3 tâches et une demande de
+matériel (lignes identiques à une saisie manuelle) ; texte ambigu (rien de
+prérempli, suggestions seulement) ; IA indisponible (formulaire inchangé,
+envoi jamais bloqué) ; texte d'origine conservé et visible à la validation ;
+réponses piégées refusées (tâche inventée, en double, état inconnu, durée
+hors limite, texte libre) ; photo de fin de journée (listée à part et dans
+les photos du chantier, jamais exigée) ; ancien formulaire inchangé.
+
+**Points d'attention / pour CR-5.**
+- Le compteur « tâches regroupées » et la répartition (CR-5) pourront
+  s'appuyer sur `rapports.dictee.texte_origine` pour proposer la
+  répartition (« à partir du texte dicté »).
+- Les écrans « Préparation » et « Chantier » de l'espace ouvrier gardent le
+  libellé du devis (inchangé depuis CR-3).
+- Rien n'a été essayé sur un vrai téléphone d'ouvrier : le comportement du
+  micro sur iPhone en application installée est à confirmer au premier
+  usage (le repli clavier est là dans tous les cas).
 
 ---
 

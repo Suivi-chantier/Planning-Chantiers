@@ -47,3 +47,5 @@ jobs:
         run: node scripts/verif-pieces-phasage.mjs
       - name: CR-3 - Nouveau parcours du compte rendu ouvrier (donnees fictives)
         run: node scripts/verif-compte-rendu-v3.mjs
+      - name: CR-4 - Dictee, preremplissage par l IA (simulee), photo de fin de journee (donnees fictives)
+        run: node scripts/verif-dictee-cr.mjs
