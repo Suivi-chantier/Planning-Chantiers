@@ -100,20 +100,35 @@ contrôle est rouge, on corrige d'abord ; on ne fusionne jamais au rouge.
 Une migration de base n'est pas couverte par cette règle : on dit ce qu'elle
 change et on demande avant de l'appliquer.
 
-Seule exception, décision de Loris du 24/10/2026 : en mode projet (voir
-« Projets longs »), une migration purement additive — création de table, de
-colonne, d'index, ou ajout de la policy `profero_collaborateurs_seulement` sur
-une nouvelle table — est appliquée sans demander, une fois vérifiée :
+Seule exception, décisions de Loris du 24/10/2026 : en mode projet (voir
+« Projets longs »), toute migration est appliquée sans demander, une fois
+vérifiée.
 
-- avant : relire le SQL en entier et confirmer qu'il ne fait que créer ;
-  vérifier sur la base que les objets créés n'existent pas déjà et que chaque
-  nouvelle table reçoit bien `profero_collaborateurs_seulement` ;
-- après : vérifier que la migration est bien enregistrée comme appliquée et
-  que l'application s'ouvre.
+- **Migration purement additive** — création de table, de colonne, d'index, ou
+  ajout de la policy `profero_collaborateurs_seulement` sur une nouvelle
+  table :
+  - avant : relire le SQL en entier et confirmer qu'il ne fait que créer ;
+    vérifier sur la base que les objets créés n'existent pas déjà et que
+    chaque nouvelle table reçoit bien `profero_collaborateurs_seulement` ;
+  - après : vérifier que la migration est bien enregistrée comme appliquée et
+    que l'application s'ouvre.
+- **Migration qui supprime, renomme ou réécrit des données** — mêmes
+  vérifications, et en plus :
+  - avant : compter sur la base les lignes touchées, et essayer la migration
+    dans une transaction annulée ;
+  - sauvegarder les données supprimées ou réécrites dans une table de
+    sauvegarde datée (qui reçoit `profero_collaborateurs_seulement`), pour
+    pouvoir revenir en arrière ;
+  - après : vérifier les comptes, et refaire le tableau avant / après sur les
+    vrais chantiers si des chiffres financiers sont touchés ;
+  - si le nombre de lignes touchées est très éloigné de ce qui était prévu,
+    on s'arrête.
 
-Le compte rendu dit ce qui a été vérifié. Raison : sur un projet long, attendre
-une réponse pour chaque table nouvelle bloquerait tout, et une migration
-additive n'efface rien. Hors mode projet, rien ne change.
+Le compte rendu dit ce qui a été vérifié, et pour une migration qui supprime
+ou réécrit : le nombre de lignes touchées et le nom de la sauvegarde. Raison :
+sur un projet long, attendre une réponse pour chaque migration bloquerait
+tout ; la vérification et la sauvegarde rendent chaque migration rattrapable.
+Hors mode projet, rien ne change.
 
 ## Projets longs : travail en autonomie
 
@@ -170,7 +185,6 @@ On est « en mode projet » quand Loris désigne un fichier de `docs/projets/`.
     de plus de 500 € ou de 2 points de marge. Ce tableau est recopié dans le
     compte rendu même quand tout passe.
 - Arrêts obligatoires, même si le fichier projet dit autre chose :
-  - migration qui supprime, renomme ou réécrit des données ;
   - reprise ou reconstitution de données appliquée pour de vrai (la simulation
     peut tourner seule) ;
   - toute modification des droits d'accès : policies, fonctions SECURITY
@@ -200,6 +214,8 @@ On est « en mode projet » quand Loris désigne un fichier de `docs/projets/`.
   ce qui a changé pour les conducteurs, les ouvriers et la direction ;
   principaux chiffres avant / après ; points en suspens ; entrées ajoutées dans
   `src/Renovation/journalMaj.js`.
+- Le message de fin commence par « Projet terminé » : c'est ce qui déclenche la
+  notification Windows « Projet terminé » (`.claude/hooks/notifier.mjs`).
 
 ### Hors mode projet
 
