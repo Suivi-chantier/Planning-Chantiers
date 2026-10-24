@@ -16,6 +16,7 @@ import * as B from "../src/Renovation/bilanPeriodeV3.mjs";
 import { documentBilanV3, htmlBilanDirectionV3 } from "../src/Renovation/bilanPdfV3.mjs";
 import * as F from "../src/Renovation/bilanFicheV3.mjs";
 import * as D from "../src/Renovation/bilanDecisionsV3.mjs";
+import * as C from "../src/Renovation/bilanClotureV3.mjs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
 
@@ -241,6 +242,24 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const sq = D.semaineQuiVientV3({ decoupe: { par_chantier: [{ chantier_id: "k", resource_ids: ["r1", "r2"], jours: ["2026-10-26", "2026-10-27"], heures_mo: 31.5, taches: ["t1"] }],
     chantiers_au_dela_horizon: [] }, nomChantier: () => "KATHLEEN", nomRessource: id => ({ r1: "Davy", r2: "Kev" }[id]) });
   eq(sq.lignes[0], { titre: "KATHLEEN", detail: "Davy, Kev · 2 jours · 32 h · 1 tâche prévue" }, "semaine qui vient : équipe prévue par chantier");
+}
+
+// ── Bilan de clôture ───────────────────────────────────────────────────────
+{
+  const releveFin = { avancement: 100, vendu_ht: 20000, heures_vendues: 100, heures_reelles: 130, mo_reel: 5200, mat_reel: 6000, mat_prev: 5500,
+    fg: 2267, marge_avancement: 6533, lots: [{ id: "murs", label: "Murs cloisons", heuresVendues: 60, heuresReelles: 90, ecartHeures: 30, ecartEuros: 1500 }] };
+  const ouvrages = [
+    { id: "o1", libelle: "Cloison 72/48", lot_id: "murs", quantite: 30, unite: "m²", heures_estimees: 60, bibliotheque_id: "b1", taches: [{ id: "t1" }, { id: "t2" }] },
+    { id: "o2", libelle: "Doublage", lot_id: "murs", quantite: 10, unite: "m²", heures_estimees: 10, bibliotheque_id: "b2", taches: [{ id: "t3" }] },
+  ];
+  const pointages = [{ tache_id: "t1", heures: 50 }, { tache_id: "t2", heures: 40 }, { tache_id: "t3", heures: 10.5 }];
+  const b = C.bilanClotureV3({ releveFin, ouvrages, pointages });
+  ok(b.applicable && b.totaux.margeFinale === 6533 && b.totaux.margeFinalePct === 32.67, "clôture : marge finale lue dans le relevé");
+  const o1 = b.ouvrages.find(o => o.id === "o1");
+  ok(o1.heuresReelles === 90 && o1.cadencePrevue === 2 && o1.cadenceConstatee === 3, "clôture : cadence prévue 2 h/m² → constatée 3 h/m²");
+  eq(b.propositions.map(x => x.bibliothequeId), ["b1"], "proposition de cadence seulement au-delà de 15 % d'écart (doublage +5 % non proposé)");
+  ok(!C.bilanClotureV3({ releveFin: { ...releveFin, chantier_repris: true }, ouvrages, pointages }).applicable, "pas de bilan de clôture pour un chantier repris");
+  ok(!C.bilanClotureV3({ releveFin: { ...releveFin, avancement: 95 }, ouvrages, pointages }).applicable, "pas de bilan de clôture avant 100 %");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);
