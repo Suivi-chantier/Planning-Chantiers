@@ -353,7 +353,7 @@ await bloc("8. alertes : relevé absent et « aucune alerte » restent distincts
   const vide = { ...fixtures(), chantier_releves_journaliers: [] };
   const r = await outil("alertes", {}, vide);
   verifier(r.etat.statut === alertesMod.ETAT_RELEVE_ABSENT, `relevé absent attendu, reçu ${r.etat.statut}`);
-  verifier(r.etat.message === alertesMod.etatAlertesV1(alertesMod.alertesV1({ snapshotsCourants: [], snapshotsPrecedents: [] })).message, "message du module, pas un texte maison");
+  verifier(r.etat.message === alertesMod.etatAlertesV1(alertesMod.alertesV1({ snapshotsCourants: [], snapshotsPrecedents: [], pointsAttention: (await import("../src/Renovation/alertesMargesV2.mjs")).alertesMargesV2({ snapshotsCourants: [], snapshotsPrecedents: [] }) })).message, "message du module, pas un texte maison");
   verifier(r.alertes.length === 0 && r.semaine_releve === null && r.date_releve === null, "aucune semaine inventée");
   verifier(!/aucune alerte/i.test(r.etat.message), "le relevé absent ne se lit pas « aucune alerte »");
   const calme = { ...fixtures(), chantier_releves_journaliers: [
