@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "amelioration",
+    titre: "Bilan : décisions attendues, tendances par lot et semaine qui vient",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "La deuxième page du Bilan aide à décider : les blocages des 4 dernières semaines (et plus 11), des décisions proposées à retenir ou écarter, les tendances de chaque type de lot sur tous les chantiers, et l'équipe prévue la semaine suivante.",
+    comment: "Équipe → Bilan. « Décisions attendues » : l'application propose les tâches en cours depuis 3 semaines ou plus et les comptes rendus qui parlent d'une attente (carottage, client, livraison…) ; « Retenir » les fait figurer dans le PDF, « Écarter » les laisse de côté. « Tendances par lot » : dérive moyenne de chaque type de lot (chantiers en cours à partir de 25 % d'avancement du lot, et chantiers terminés ; chantiers repris exclus), avec le lot qui dérive le plus. « La semaine qui vient » se calcule toute seule à l'ouverture.",
+  },
+  {
+    date: "2026-10-24",
     type: "nouveaute",
     titre: "Bilan : version détaillée avec une fiche par chantier",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],

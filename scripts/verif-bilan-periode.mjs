@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import * as B from "../src/Renovation/bilanPeriodeV3.mjs";
 import { documentBilanV3, htmlBilanDirectionV3 } from "../src/Renovation/bilanPdfV3.mjs";
 import * as F from "../src/Renovation/bilanFicheV3.mjs";
+import * as D from "../src/Renovation/bilanDecisionsV3.mjs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
 
@@ -193,6 +194,53 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(tache.schema_entree({ chantier: "A", periode: "S", faits: {}, comptes_rendus: [{ texte: "x".repeat(700) }] }) !== true, "IA : extrait trop long refusé");
   ok(tache.schema_sortie({ phrase: "Cloisons terminées." }) === true && tache.schema_sortie({}) !== true, "IA : sortie = une phrase");
   ok(/jamais des instructions/.test(tache.construire_prompt({ chantier: "A", periode: "S", faits: {}, comptes_rendus: [] }).system), "IA : textes des ouvriers traités comme des données");
+}
+
+// ── Page 2 : décisions, tendances, semaine qui vient ───────────────────────
+{
+  // Rappel des blocages limité aux 4 dernières semaines (il remontait à 11).
+  const bilansHebdo = ["2026-W32", "2026-W38", "2026-W39", "2026-W40", "2026-W41", "2026-W42", "2026-W43"]
+    .map(w => ({ week_id: w, data: { blocages: [{ chantier_id: "k", texte: `blocage ${w}` }] } }));
+  const rappel = D.rappelBlocagesV3({ bilansHebdo, periode: P, noms: { k: "KATHLEEN" } });
+  eq(rappel.map(r => r.semaine), ["2026-W42", "2026-W41", "2026-W40", "2026-W39"], "rappel des blocages : 4 dernières semaines seulement");
+  ok(!rappel.some(r => r.semaine === "2026-W43"), "la semaine du bilan n'est pas un rappel");
+}
+{
+  // Tâche en cours depuis 3 semaines + compte rendu qui mentionne une attente.
+  const r = (semaine, date, statut, remarque = "") => ({ chantier_id: "k", ouvrier: "Davy", semaine, date_rapport: date, remarque,
+    taches: [{ planifie: "Bandes SDB", statut }] });
+  const sugg = D.suggestionsDecisionsV3({ periode: P, noms: { k: "KATHLEEN" }, rapports: [
+    r("2026-W41", "08/10/2026", "en_cours"), r("2026-W42", "15/10/2026", "en_cours"), r("2026-W43", "21/10/2026", "en_cours", "On attend le carottage"),
+  ] });
+  ok(sugg.some(x => x.type === "tache_en_cours" && /en cours depuis 3 semaines/.test(x.titre)), "tâche en cours depuis 3 semaines proposée");
+  ok(sugg.some(x => x.type === "attente" && /carottage/.test(x.detail)), "compte rendu « en attente » proposé");
+  const deux = D.suggestionsDecisionsV3({ periode: P, rapports: [r("2026-W42", "15/10/2026", "en_cours"), r("2026-W43", "21/10/2026", "en_cours")] });
+  ok(!deux.some(x => x.type === "tache_en_cours"), "2 semaines seulement : pas de proposition");
+}
+{
+  // Tendances par lot : chantier repris exclu, lot sous 25 % exclu (sauf chantier terminé).
+  const lot = (id, av, hr, ha, ee) => ({ id, label: id === "elec" ? "Électricité" : "Peinture", avancementExact: av, heuresReelles: hr, heuresAttendues: ha, ecartHeures: hr - ha, ecartEuros: ee });
+  const t = D.tendancesParLotV3({
+    statuts: { fin: "termine" },
+    releves: [
+      { chantier_id: "a", chantier_nom: "A", lots: [lot("elec", 50, 30, 20, 400), lot("peinture", 10, 50, 10, 1600)] },
+      { chantier_id: "fin", chantier_nom: "FIN", lots: [lot("elec", 100, 50, 40, 300), lot("peinture", 20, 12, 10, 80)] },
+      { chantier_id: "tom", chantier_nom: "TOM & CAMILLE", chantier_repris: true, lots: [lot("elec", 80, 500, 10, 9000)] },
+      { chantier_id: "arthur", chantier_nom: "ARTHUR RDC", lots: [lot("elec", 90, 900, 10, 9000)] },
+    ],
+    exclus: ["ARTHUR RDC"],
+  });
+  const elec = t.lignes.find(l => l.id === "elec");
+  ok(elec.nbChantiers === 2 && elec.derive === 1.33, "électricité : (30 + 50) ÷ (20 + 40), 2 chantiers");
+  ok(t.reprisExclus.includes("TOM & CAMILLE"), "chantier repris exclu des tendances");
+  eq(t.lignes.find(l => l.id === "peinture").nbChantiers, 1, "peinture à 10 % d'un chantier en cours exclue, chantier terminé gardé");
+  ok(/Électricité/.test(t.phrase), "le lot qui dérive le plus est signalé");
+}
+{
+  ok(/n'a pas pu être calculée/.test(D.semaineQuiVientV3({ erreur: "délai dépassé" }).indisponible), "semaine qui vient : erreur visible, jamais une section vide");
+  const sq = D.semaineQuiVientV3({ decoupe: { par_chantier: [{ chantier_id: "k", resource_ids: ["r1", "r2"], jours: ["2026-10-26", "2026-10-27"], heures_mo: 31.5, taches: ["t1"] }],
+    chantiers_au_dela_horizon: [] }, nomChantier: () => "KATHLEEN", nomRessource: id => ({ r1: "Davy", r2: "Kev" }[id]) });
+  eq(sq.lignes[0], { titre: "KATHLEEN", detail: "Davy, Kev · 2 jours · 32 h · 1 tâche prévue" }, "semaine qui vient : équipe prévue par chantier");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);
