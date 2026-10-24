@@ -193,7 +193,7 @@ chaque étape.
 | Ordre | Étape | Statut | Date | Résumé |
 |---|---|---|---|---|
 | 1 | Étape 1 — Fondations des données financières | ✅ En ligne | 2026-10-24 | Trouvée non en ligne au démarrage, mise en ligne le 24/10 avec l'accord de Loris : 3 migrations, reconstitution du passé (4 796 lignes), premiers relevés journaliers. Voir « Vérification de l'étape 1 ». |
-| 2 | Étape 2 — Les trois marges et les alertes | ⏳ À faire | | |
+| 2 | Étape 2 — Les trois marges et les alertes | 🔄 En cours | 2026-10-24 | 1re mise en ligne : calcul des trois marges et nouvelles colonnes des relevés. |
 | 3 | Étape 3 — Refonte du Bilan semaine | ⏳ À faire | | |
 | 4 | Étape 4 — Tâches hors devis | ⏳ À faire | | |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ⏳ À faire | | |
@@ -215,6 +215,21 @@ chaque étape.
   appliquée sans lui demander, après vérification (règles de `CLAUDE.md`). Une
   migration qui supprime, renomme ou réécrit des données reste soumise à son
   accord.
+- **24/10/2026 — Droits posés par les migrations de l'étape 1.** Les
+  migrations de l'étape 1 avaient été présentées à tort à Loris comme
+  « purement additives » : elles posaient aussi des règles d'accès réservées
+  au bureau sur les nouvelles tables et remplaçaient les 2 fonctions
+  d'enregistrement du phasage (fonctions à droits élevés). Réponse de Loris :
+  il confirme a posteriori, on garde tout tel quel.
+- **24/10/2026 — Relevés journaliers des jours passés.** Réponse de Loris :
+  accord pour recalculer les relevés journaliers depuis mai 2026 à partir du
+  journal d'avancement reconstitué (ajout de relevés seulement).
+- **24/10/2026 — Dérives historiques : chantiers avec reprise d'antériorité
+  exclus (choix technique, étape 2).** Sur les vrais chantiers terminés,
+  ARTHUR (RDC, R+1, R+2), GILDAS BAUGE 2 et MAUDUIT ont l'essentiel de leurs
+  heures en « reprise d'antériorité », saisies en bloc, sans lot : leur dérive
+  par lot serait fausse (×0,0 à ×0,4). Ils sont exclus du calcul des dérives
+  historiques, comme un chantier repris.
 
 ### Comptes rendus des étapes
 

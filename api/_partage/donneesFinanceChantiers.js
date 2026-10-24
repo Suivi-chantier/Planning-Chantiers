@@ -49,7 +49,8 @@ const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").repla
 async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   const parChantierId = (q) => (chantierId ? q.eq("chantier_id", chantierId) : q);
 
-  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux, cfgFG, achats] = await Promise.all([
+  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux, cfgFG, achats,
+    cfgSeuilsMarges, cfgDerivesHist, cfgChantiers] = await Promise.all([
     fetchAll(supabase, "phasages", "*", parChantierId),
     fetchAll(supabase, "pointages", "*", parChantierId),
     fetchAll(supabase, "commande_lignes",
@@ -66,7 +67,15 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
     supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
     // Lots « achats terminés » : reste à commander à 0 (étape 1B).
     fetchAll(supabase, "achats_lots_termines", "id, chantier_id, lot_id, termine_le, termine_par", parChantierId),
+    // Trois marges (étape 2) : seuils Admin, dérives historiques par type de
+    // lot (calculées la nuit), liste des chantiers (statut « terminé »).
+    supabase.from("planning_config").select("value").eq("key", "seuils_marges").maybeSingle(),
+    supabase.from("planning_config").select("value").eq("key", "derives_historiques_lots").maybeSingle(),
+    supabase.from("planning_config").select("value").eq("key", "chantiers").maybeSingle(),
   ]);
+  const seuilsMarges = cfgSeuilsMarges?.data?.value ?? null;
+  const derivesHistoriques = cfgDerivesHist?.data?.value?.lots ?? null;
+  const chantiersConfig = Array.isArray(cfgChantiers?.data?.value) ? cfgChantiers.data.value : [];
   const achatsParChantier = {};
   achats.forEach(a => { (achatsParChantier[a.chantier_id] ||= []).push(a); });
   const tauxHoraires = cfgTaux.data?.value || {};
@@ -148,11 +157,13 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
     pctFacture: pctFactureDe(ph), materiauxById,
     tauxFG, aujourdhui: surcharge.aujourdhui || null,
     achatsTermines: achatsParChantier[ph.chantier_id] || [],
+    seuilsMarges, derivesHistoriques,
   });
 
   return {
     phasagesUniques, ptsByChantier, clByChantier,
     tauxHoraires, tauxMOPrev, lots, materiauxById, pctFactureDe, tauxFG,
+    seuilsMarges, derivesHistoriques, chantiersConfig,
     inputsPour,
   };
 }
