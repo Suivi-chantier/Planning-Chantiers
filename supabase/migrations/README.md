@@ -136,6 +136,24 @@ zone), RPC `creer_multi_ouvrage`. Additive, rejouable, s'applique seule.
 Retour arrière : `sql/202610_multi_ouvrages_chiffrage_rollback.sql`.
 Vérification : `node scripts/verif-multi-ouvrages.mjs`.
 
+Refonte du Bilan semaine, étape 1 — **trois migrations appliquées en
+production le 24/10/2026** (accord de Loris), chacune par la CLI liée
+(`supabase db query --linked -f …`, puis `migration repair --status applied`),
+avant la fusion de sa demande de fusion. Toutes additives et rejouables.
+- `20261024120000_nature_couts_achats_lots.sql` (1B) : colonne
+  `commande_lignes.nature` (1 692 lignes « materiaux »), table
+  `achats_lots_termines`.
+- `20261024130000_journal_avancement.sql` (1C) : tables `avancement_journal` et
+  `avancement_journal_controles`, déclencheur sur `phasages`, fonctions
+  d'enregistrement du phasage avec contexte du journal (corps comparé à la
+  production avant application : identique hors contexte). Initialisation :
+  3 151 lignes « initial ». Reconstitution du passé appliquée ensuite, à part,
+  après simulation : 4 796 lignes « reconstitution » (45 chantiers, du
+  12/05/2026 au 24/10/2026). Retour arrière :
+  `sql/202610_journal_avancement_rollback.sql`.
+- `20261024140000_releves_journaliers.sql` (1D) : table
+  `chantier_releves_journaliers`.
+
 ## Règles
 
 1. **Ne jamais exécuter de SQL directement dans l'éditeur Supabase.** Toute

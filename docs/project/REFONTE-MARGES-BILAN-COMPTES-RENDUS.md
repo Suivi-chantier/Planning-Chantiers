@@ -192,7 +192,7 @@ chaque étape.
 
 | Ordre | Étape | Statut | Date | Résumé |
 |---|---|---|---|---|
-| 1 | Étape 1 — Fondations des données financières | ✅ Terminée (avant ce document) | | À vérifier en début d'étape 2 |
+| 1 | Étape 1 — Fondations des données financières | ✅ En ligne | 2026-10-24 | Trouvée non en ligne au démarrage, mise en ligne le 24/10 avec l'accord de Loris : 3 migrations, reconstitution du passé (4 796 lignes), premiers relevés journaliers. Voir « Vérification de l'étape 1 ». |
 | 2 | Étape 2 — Les trois marges et les alertes | ⏳ À faire | | |
 | 3 | Étape 3 — Refonte du Bilan semaine | ⏳ À faire | | |
 | 4 | Étape 4 — Tâches hors devis | ⏳ À faire | | |
@@ -219,6 +219,53 @@ chaque étape.
 ### Comptes rendus des étapes
 
 _(Ajouter ici, pour chaque étape terminée, le compte rendu en langage métier.)_
+
+#### Vérification de l'étape 1 (24/10/2026, début de l'étape 2)
+
+**Ce qui a été trouvé.** Le document indiquait l'étape 1 comme terminée. En
+réalité, ses quatre parties étaient prêtes et vérifiées, mais aucune n'était
+en ligne : rien de fusionné, aucune des 3 migrations appliquée, pas de
+reconstitution du passé. Loris a donné son accord pour tout mettre en ligne.
+
+**Ce qui est maintenant en ligne (24/10/2026).**
+- 1A — Frais généraux : un seul taux pour l'entreprise, daté, réglé dans
+  Réglages. Le réglage n'a encore jamais été enregistré : l'application
+  applique le taux par défaut (17,44 €/h depuis le 01/01/2026). Le champ par
+  phasage n'est plus lu.
+- 1B — Commandes : nature de chaque coût (les 1 692 lignes existantes sont
+  « matériaux »), lot obligatoire à la saisie, lots « achats terminés »,
+  reste à commander calculé lot par lot (même calcul dans Commandes à passer et
+  dans la marge à terminaison).
+- 1C — Journal d'avancement daté : chaque changement d'avancement d'une tâche
+  est enregistré avec sa date de réalisation, par un seul mécanisme en base
+  qu'aucun écran ne peut contourner. Point de départ : 3 151 tâches. Le passé a
+  été reconstitué depuis l'historique des phasages : **4 796 lignes**, 45
+  chantiers, du 12/05/2026 au 24/10/2026, cohérentes à 100 % avec l'état
+  actuel des tâches (3 151 sur 3 151). La reconstitution n'a fait qu'ajouter
+  des lignes au journal (aucune donnée existante réécrite, donc pas de
+  sauvegarde nécessaire). Premier contrôle de nuit lancé à la main :
+  **0 écart** sur 3 151 tâches (compteur visible dans Réglages).
+- 1D — Relevés journaliers : premier calcul lancé à la main, 46 relevés
+  (45 chantiers au 24/10, plus FOURMOND 102 au 22/10, journée « incomplète » :
+  comptes rendus de Davy et Margaux manquants). Rattrapage chaque nuit
+  (21h45 UTC), contrôle du journal à 21h30 UTC ; relevés du vendredi
+  conservés, déplacés à 18h30 et 18h40 UTC.
+
+**Écarts avec le cahier des charges et points d'attention.**
+- Les relevés journaliers n'existent qu'à partir du 24/10/2026 (et du 22/10
+  pour FOURMOND 102) : rien n'a été recalculé pour les jours passés. Pour
+  comparer « du dernier jour travaillé de la semaine précédente au dernier jour
+  travaillé de la semaine courante » sur des semaines passées (dont 2026-W43),
+  il faudra un rattrapage des relevés des jours passés, maintenant possible
+  grâce au journal reconstitué (à prévoir aux étapes 2-3).
+- 673 lignes de commande rattachées à un chantier n'ont pas de lot
+  (19 682 € au total) : elles sont déduites du reste à commander global avec
+  un avertissement, mais ne peuvent pas être imputées à un lot.
+- La liste d'aide de « Commandes à passer » calcule encore les quantités par
+  unité d'ouvrage (sans multiplier par la quantité de l'ouvrage) : défaut connu,
+  non corrigé à l'étape 1.
+- La colonne `marge` des relevés (journaliers et du vendredi) reste l'ancienne
+  « marge nette » (vendu − coûts engagés) : c'est l'objet de l'étape 2.
 
 ---
 
