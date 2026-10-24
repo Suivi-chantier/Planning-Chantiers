@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
+    type: "nouveaute",
+    titre: "Nouveau Bilan : n'importe quelle période, calculé sur les relevés de chaque jour",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Le Bilan ne dépend plus des photos du vendredi soir : il compare le dernier jour travaillé avant la période au dernier jour travaillé de la période, à partir des relevés de chaque jour. On peut choisir une semaine, un mois (pour préparer les situations de travaux) ou des dates libres.",
+    comment: "Équipe → Bilan. En haut : Semaine / Mois / Dates libres. Le bandeau donne la production, la marge de la période, l'évolution de la marge probable, les heures validées et les comptes rendus non validés. Chaque chantier a une pastille de couleur (légende sous le tableau) et ses trois marges. Les chantiers qui ont eu de l'activité (heures, avancement ou commande sur la période) sont cochés pour l'export ; les autres restent dans la liste avec « aucune activité sur la période ». Un avertissement liste les comptes rendus non validés et les journées incomplètes. « Télécharger le PDF » produit la version direction (1 à 2 pages, sans aucun commentaire d'ouvrier). L'ancien détail des comptes rendus reste dans l'onglet « Détail des comptes rendus ».",
+  },
+  {
+    date: "2026-10-24",
     type: "amelioration",
     titre: "Marge probable : le coefficient d'un lot ne descend plus jamais sous ×1",
     pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan de semaine" }],

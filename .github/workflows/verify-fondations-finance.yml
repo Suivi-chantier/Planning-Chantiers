@@ -37,3 +37,5 @@ jobs:
         run: node scripts/verif-trois-marges.mjs
       - name: Etape 2 - Nouvelles alertes des marges sur les releves journaliers (donnees fictives)
         run: node scripts/verif-alertes-marges.mjs
+      - name: Etape 3 - Bilan d une periode, preselection, version direction (donnees fictives)
+        run: node scripts/verif-bilan-periode.mjs

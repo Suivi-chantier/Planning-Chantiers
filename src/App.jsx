@@ -59,7 +59,7 @@ import PagePlanningCommandes  from "./Renovation/PagePlanningCommandes";
 import BoutonAide             from "./Renovation/PageAide";
 import BulleTodo              from "./Renovation/BulleTodo";
 import PageEquipe             from "./Renovation/Equipe";
-import PageBilanSemaine       from "./Renovation/BilanSemaine";
+import PageBilanPeriode       from "./Renovation/BilanPeriode";
 import PageAlertes            from "./Renovation/PageAlertes";
 import PageRetoursTerrain     from "./Renovation/RetoursTerrain";
 import PageQualiteComptesRendus from "./Renovation/PageQualiteComptesRendus";
@@ -923,7 +923,7 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")} onOuvrirQualite={canAccess(role,"qualite-cr") ? ()=>setPage("qualite-cr") : null}/> : <AccesRefuse T={T} page="equipe"/>)}
           {p==="qualite-cr"         && (canAccess(role,"qualite-cr")         ? <PageQualiteComptesRendus T={T} branch={branch}/> : <AccesRefuse T={T} page="qualite-cr"/>)}
           {p==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
-          {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
+          {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanPeriode chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
           {p==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} onOuvrirChantier={(a)=>{ setChantierToOpen(a.chantierId); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="alertes"/>)}
           {p==="retours-terrain"    && (canAccess(role,"retours-terrain")    ? <PageRetoursTerrain T={T} branch={branch}/> : <AccesRefuse T={T} page="retours-terrain"/>)}
           {p==="validation"         && (canAccess(role,"validation")         ? <PageValidation chantiers={chantiers} ouvriers={ouvriers} tauxHoraires={tauxHoraires} T={T} branch={branch} profil={profil} initialDate={actif?validationDate:null} onInitialDateConsumed={() => setValidationDate(null)}/> : <AccesRefuse T={T} page="validation"/>)}
