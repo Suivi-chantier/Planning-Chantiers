@@ -62,6 +62,7 @@ import PageEquipe             from "./Renovation/Equipe";
 import PageBilanSemaine       from "./Renovation/BilanSemaine";
 import PageAlertes            from "./Renovation/PageAlertes";
 import PageRetoursTerrain     from "./Renovation/RetoursTerrain";
+import PageQualiteComptesRendus from "./Renovation/PageQualiteComptesRendus";
 import PageNotesOuvriers      from "./Renovation/PageNotesOuvriers";
 import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
@@ -915,7 +916,8 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="rapprochement"      && (canAccess(role,"rapprochement")      ? <PageRapprochementFactures T={T} branch={branch} profil={profil}/> : <AccesRefuse T={T} page="rapprochement"/>)}
           {p==="encours-fournisseurs" && (canAccess(role,"encours-fournisseurs") ? <PageEncoursFournisseurs T={T} branch={branch}/> : <AccesRefuse T={T} page="encours-fournisseurs"/>)}
           {p==="planning-commandes" && (canAccess(role,"planning-commandes") ? <PagePlanningCommandes chantiers={chantiers} T={T} branch={branch}/> : <AccesRefuse T={T} page="planning-commandes"/>)}
-          {p==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")}/> : <AccesRefuse T={T} page="equipe"/>)}
+          {p==="equipe"             && (canAccess(role,"equipe")             ? <PageEquipe chantiers={chantiers} ouvriers={ouvriers} weekId={weekId} cells={cells} T={T} onOuvrirBilan={()=>setPage("bilan-semaine")} onOuvrirQualite={canAccess(role,"qualite-cr") ? ()=>setPage("qualite-cr") : null}/> : <AccesRefuse T={T} page="equipe"/>)}
+          {p==="qualite-cr"         && (canAccess(role,"qualite-cr")         ? <PageQualiteComptesRendus T={T} branch={branch}/> : <AccesRefuse T={T} page="qualite-cr"/>)}
           {p==="inventaire-equipes" && (canAccess(role,"inventaire-equipes") ? <PageInventaireEquipes T={T} branch={branch} ouvriers={ouvriers} profil={profil}/> : <AccesRefuse T={T} page="inventaire-equipes"/>)}
           {p==="bilan-semaine"      && (canAccess(role,"bilan-semaine")      ? <PageBilanSemaine chantiers={chantiers} T={T}/> : <AccesRefuse T={T} page="bilan-semaine"/>)}
           {p==="alertes"            && (canAccess(role,"alertes")            ? <PageAlertes T={T} onOuvrirChantier={(a)=>{ setChantierToOpen(a.chantierId); setPage("chantiers"); }}/> : <AccesRefuse T={T} page="alertes"/>)}
