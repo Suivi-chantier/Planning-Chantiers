@@ -2165,7 +2165,7 @@ export function margeReelleSemaine({
     sousLabel: calculable ? periodeTitre : raison,
     formule: FORMULE.margeSemaine,
     calculDetaille: calculable
-      ? `${eur(produit)} produits − ${eur(mo)} main-d'œuvre − ${eur(materiaux)} matériaux imputés − ${eur(fg)} frais généraux = ${signe(marge)}`
+      ? `${eur(produit)} produits − ${eur(mo)} main-d'œuvre − ${eur(materiaux)} matériaux${modeJournal ? " imputés" : ""} − ${eur(fg)} frais généraux = ${signe(marge)}`
       : raison,
     ventilation,
     titre: "Marge de la période",

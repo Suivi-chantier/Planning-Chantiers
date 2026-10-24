@@ -108,7 +108,7 @@ async function calculerDerivesHistoriques(supabase, ctx, { maintenant = new Date
   const valeur = { calcule_le: maintenant.toISOString(), ...r };
   if (ecrire) {
     const { error } = await supabase.from("planning_config")
-      .upsert({ key: finance.CLE_CONFIG_DERIVES_HISTORIQUES, value: valeur }, { onConflict: "key" });
+      .upsert([{ key: finance.CLE_CONFIG_DERIVES_HISTORIQUES, value: valeur }], { onConflict: "key" });
     if (error) throw new Error(`planning_config/${finance.CLE_CONFIG_DERIVES_HISTORIQUES} : ${error.message}`);
   }
   // Les relevés de cette exécution lisent la valeur fraîche.
