@@ -125,6 +125,16 @@ function semaineQuiVientHtml(s) {
   return listeSectionHtml(s.lignes, "Rien de prévu.");
 }
 
+function prevuRealiseHtml(p) {
+  if (!p) return "";
+  if (!p.disponible) return `<p class="note">${e(p.raison)}</p>`;
+  if (!listeSure(p.lignes).length) return `<p class="note">Rien de prévu ni de réalisé sur les chantiers retenus.</p>`;
+  return `<p class="note">Heures prévues par le planning au bilan « ${e(p.reference)} », face aux heures validées.</p><table>
+    <thead><tr><th>Chantier</th><th class="n">Prévu</th><th class="n">Réalisé</th><th class="n">Écart</th></tr></thead>
+    <tbody>${listeSure(p.lignes).map(l => `<tr><td>${e(l.nom)}</td><td class="n">${e(fmtH(l.heuresPrevues))}</td><td class="n">${e(fmtH(l.heuresRealisees))}</td>
+      <td class="n">${l.ecart == null ? "—" : e(`${l.ecart > 0 ? "+" : ""}${fmtH(l.ecart)}`)}</td></tr>`).join("")}</tbody></table>`;
+}
+
 function rectificationsHtml(r) {
   const l = listeSure(r);
   if (!l.length) return `<p class="note">Aucune rectification des bilans déjà exportés.</p>`;
@@ -153,6 +163,7 @@ export function htmlBilanDirectionV3(d) {
   ${d.decisions !== undefined ? `<h2>Décisions attendues</h2>${listeSectionHtml(d.decisions, "Aucune décision en attente.")}` : ""}
   ${d.tendances !== undefined ? `<h2>Tendances par lot (tous chantiers)</h2>${tendancesHtml(d.tendances)}` : ""}
   ${d.semaineQuiVient !== undefined ? `<h2>La semaine qui vient</h2>${semaineQuiVientHtml(d.semaineQuiVient)}` : ""}
+  ${d.prevuRealise !== undefined ? `<h2>Prévu / réalisé</h2>${prevuRealiseHtml(d.prevuRealise)}` : ""}
   ${d.rectifications !== undefined ? `<h2>Rectifications</h2>${rectificationsHtml(d.rectifications)}` : ""}
   `;
 }

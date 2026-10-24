@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "nouveaute",
+    titre: "Bilans figés : rectifications et prévu / réalisé",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Chaque bilan exporté est archivé et ne change plus. Si une donnée d'une période déjà exportée arrive en retard (compte rendu validé tard, avancement modifié depuis le phasage, commande saisie après coup), le bilan suivant l'affiche dans une ligne « Rectifications » avec le chantier, la période, le montant et la cause. Le Bilan compare aussi les heures prévues par le planning au bilan précédent aux heures réellement validées.",
+    comment: "Équipe → Bilan : « Télécharger le PDF » archive automatiquement le bilan (chiffres et document). La section « Rectifications des bilans déjà exportés » et « Prévu / réalisé » apparaissent dans la page et dans le PDF.",
+  },
+  {
+    date: "2026-10-24",
+    type: "nouveaute",
     titre: "Bilan de clôture d'un chantier terminé",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "Quand un chantier arrive à 100 %, le Bilan propose son bilan de clôture : devis contre réel lot par lot et ouvrage par ouvrage (heures, matériaux, marge finale), et les cadences de la bibliothèque qui mériteraient d'être corrigées.",

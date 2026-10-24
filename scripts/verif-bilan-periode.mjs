@@ -17,6 +17,7 @@ import { documentBilanV3, htmlBilanDirectionV3 } from "../src/Renovation/bilanPd
 import * as F from "../src/Renovation/bilanFicheV3.mjs";
 import * as D from "../src/Renovation/bilanDecisionsV3.mjs";
 import * as C from "../src/Renovation/bilanClotureV3.mjs";
+import * as A from "../src/Renovation/bilanArchiveV3.mjs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
 
@@ -260,6 +261,38 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   eq(b.propositions.map(x => x.bibliothequeId), ["b1"], "proposition de cadence seulement au-delà de 15 % d'écart (doublage +5 % non proposé)");
   ok(!C.bilanClotureV3({ releveFin: { ...releveFin, chantier_repris: true }, ouvrages, pointages }).applicable, "pas de bilan de clôture pour un chantier repris");
   ok(!C.bilanClotureV3({ releveFin: { ...releveFin, avancement: 95 }, ouvrages, pointages }).applicable, "pas de bilan de clôture avant 100 %");
+}
+
+// ── Bilans figés et rectifications ─────────────────────────────────────────
+{
+  const W42 = B.periodeSemaineV3("2026-W42");
+  const bornes42 = { dateDepart: "2026-10-08", dateFin: "2026-10-15" };
+  // Bilan W42 exporté le 16/10 : marge de la période de A = +400 €.
+  const relAvant = B.indexerRelevesV3([rel("a", "2026-10-08", { marge_avancement: 1000 }), rel("a", "2026-10-15", { marge_avancement: 1400 })]);
+  const syn42 = B.syntheseChantiersV3({ releves: relAvant, chantiers: [{ id: "a", nom: "A" }], bornes: bornes42, periode: W42 });
+  const ligne = A.ligneArchiveV3({ periode: W42, bornes: bornes42, synthese: syn42, version: "direction", documentHtml: "<p>doc</p>", prevuSemaineSuivante: { a: 30 } });
+  eq(ligne.chiffres.chantiers[0].margePeriode, 400, "archive : marge de la période figée");
+  ok(ligne.date_depart === "2026-10-08" && ligne.date_fin === "2026-10-15" && ligne.version === "direction", "archive : bornes et version");
+  const archives = [{ ...ligne, exporte_le: "2026-10-16T17:00:00Z" }];
+  // Après l'export, un compte rendu du 14/10 est validé le 19/10 : le relevé du 15/10 est recalculé.
+  const relApres = B.indexerRelevesV3([rel("a", "2026-10-08", { marge_avancement: 1000 }), rel("a", "2026-10-15", { marge_avancement: 1250 })]);
+  const r = A.rectificationsV3({ archives, releves: relApres, periode: P,
+    pointages: [{ chantier_id: "a", date: "2026-10-14", created_at: "2026-10-19T08:00:00Z" }] });
+  ok(r.length === 1 && r[0].montant === -150 && r[0].periode === W42.libelle, "donnée rétrodatée : rectification de −150 € sur la semaine 42");
+  ok(/heures validées ou saisies après l'export/.test(r[0].cause), "cause de la rectification");
+  ok(A.rectificationsV3({ archives, releves: relAvant, periode: P }).length === 0, "rien n'a changé : aucune rectification");
+  // Un nouvel export de la même période fait foi.
+  const reexport = [...archives, { ...ligne, chiffres: { chantiers: [{ ...ligne.chiffres.chantiers[0], margePeriode: 250 }] }, exporte_le: "2026-10-20T08:00:00Z" }];
+  ok(A.rectificationsV3({ archives: reexport, releves: relApres, periode: P }).length === 0, "le dernier export de la période fait foi");
+  // La période courante n'est jamais « rectifiée ».
+  ok(A.rectificationsV3({ archives, releves: relApres, periode: W42 }).length === 0, "pas de rectification de la période en cours");
+  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], rectifications: r });
+  ok(/Rectifications/.test(html) && /−150/.test(html), "ligne « Rectifications » dans le PDF");
+  // Prévu / réalisé : 30 h prévues par le bilan W42 pour W43.
+  const syn43 = [{ chantierId: "a", nom: "A", heuresPeriode: 26 }];
+  const pr = A.prevuRealiseV3({ archives, periode: P, synthese: syn43 });
+  ok(pr.disponible && pr.lignes[0].heuresPrevues === 30 && pr.lignes[0].ecart === -4, "prévu / réalisé : 30 h prévues, 26 h réalisées");
+  ok(!A.prevuRealiseV3({ archives: [], periode: P, synthese: syn43 }).disponible, "sans bilan précédent : prévu indisponible, signalé");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);
