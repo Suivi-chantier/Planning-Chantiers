@@ -29,6 +29,7 @@ import {
   quantiteValide, normaliserUnite, arrondi2, quantitePrevue,
 } from "./suiviQuantite.mjs";
 import { ORIGINE_NOUVELLE, DIVERS_HORS_DEVIS, estOuvrageDivers, texteProposition } from "./compteRenduV2.mjs";
+import { champsCasV2, appliquerPatchV2 } from "./horsDevisV2.mjs";
 
 // Décision du conducteur sur une proposition, préremplie depuis l'ouvrier :
 // ouvrage proposé (null = « Divers / hors devis »), nature, et « Hors devis »
@@ -243,7 +244,11 @@ export function trouverTache(ouvrages, tacheId) {
 // Tâche créée depuis la Validation (proposition de l'ouvrier ou fenêtre
 // « + Créer nouvelle tâche »). Jamais d'heures vendues : une tâche ajoutée
 // en cours de chantier n'a pas été vendue.
-export function tacheCreeeEnValidation({ id, nom, nature = null, hors_devis = null, ouvrier = null, rapportId = null }) {
+// Étape 4 (refonte) : `cas` choisi par le conducteur — "B" (imprévu dans un
+// ouvrage vendu : ajoutée en cours de chantier, heures NORMALES comme poids)
+// ou "C" (non vendue : hors devis, à arbitrer). Sans cas : comme avant.
+export function tacheCreeeEnValidation({ id, nom, nature = null, hors_devis = null, ouvrier = null, rapportId = null,
+  cas = null, heuresNormales = null, date = null, auteur = null }) {
   const t = {
     id, nom: String(nom ?? "").trim(),
     heures_estimees: null, heures_reelles: null, avancement: 0,
@@ -254,8 +259,19 @@ export function tacheCreeeEnValidation({ id, nom, nature = null, hors_devis = nu
   if (hors_devis != null) t.hors_devis = hors_devis === true;
   if (ouvrier) t.cree_par = ouvrier;
   if (rapportId) t.cree_depuis_rapport = rapportId;
+  if (cas === "B" || cas === "C") {
+    const champs = champsCasV2({ cas, heuresNormales, date, auteur });
+    if (!champs.erreur) return appliquerPatchV2(t, { ...champs, nature: nature || (cas === "B" ? "imprevu" : "demande_client") });
+  }
   return t;
 }
+
+// « JJ/MM/AAAA » ou « AAAA-MM-JJ » → « AAAA-MM-JJ » (journée du rapport).
+const isoRapport = (d) => {
+  const s = String(d ?? "").trim();
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : (/^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null);
+};
 
 // Ajoute une tâche dans l'ouvrage `ouvrageId`, ou (null) dans « Divers / hors
 // devis », créé s'il n'existe pas — même règle qu'avant. Un ouvrage désigné
@@ -283,7 +299,8 @@ export function ajouterTacheDansOuvrage(ouvrages, ouvrageId, tache, genId) {
 //   modifie   true si au moins une tâche a été ajoutée
 //   erreurs   [{ rowId, code: "ouvrage_introuvable" | "nom_vide", planifie }]
 //   creees / reprises : pour information
-export function appliquerCreationsProposees({ ouvrages, lignes, rapport, genId }) {
+// `auteur` : le conducteur qui valide (cas B et C, étape 4).
+export function appliquerCreationsProposees({ ouvrages, lignes, rapport, genId, auteur = null }) {
   let courant = ouvrages || [];
   let modifie = false;
   const erreurs = [], creees = [], reprises = [];
@@ -297,11 +314,18 @@ export function appliquerCreationsProposees({ ouvrages, lignes, rapport, genId }
     }
     const nom = String(li.creation.nom ?? li.planifie ?? "").trim();
     if (!nom) { erreurs.push({ rowId: li.rowId, code: "nom_vide", planifie: li.planifie }); return li; }
+    const cas = li.creation.cas === "B" || li.creation.cas === "C" ? li.creation.cas : null;
+    if (cas === "B" && !(parseFloat(li.creation.heures_normales) > 0)) {
+      erreurs.push({ rowId: li.rowId, code: "heures_normales", planifie: li.planifie });
+      return li;
+    }
     const tache = tacheCreeeEnValidation({
       id, nom, nature: li.creation.nature, hors_devis: li.creation.hors_devis,
       ouvrier: rapport.ouvrier || null, rapportId: rapport.id,
+      cas, heuresNormales: li.creation.heures_normales, date: isoRapport(rapport.date_rapport), auteur,
     });
-    const r = ajouterTacheDansOuvrage(courant, li.creation.ouvrage_id, tache, genId);
+    // Cas C : toujours dans « Divers / hors devis » (travail non vendu).
+    const r = ajouterTacheDansOuvrage(courant, cas === "C" ? null : li.creation.ouvrage_id, tache, genId);
     if (r.erreur) { erreurs.push({ rowId: li.rowId, code: r.erreur, planifie: li.planifie }); return li; }
     courant = r.ouvrages;
     modifie = true;
@@ -319,11 +343,11 @@ export function appliquerCreationsProposees({ ouvrages, lignes, rapport, genId }
 // Rend { ok: true, lignes, phasage } (phasage à jour : ouvrages + révision),
 // ou { ok: false, code } — code ∈ sans_ouvrages | erreurs (+ erreurs) |
 // conflit | refuse | erreur. En cas d'échec, RIEN n'a été écrit.
-export async function enregistrerCreationsProposees({ phasage, lignes, rapport, genId, sauvegarder }) {
+export async function enregistrerCreationsProposees({ phasage, lignes, rapport, genId, sauvegarder, auteur = null }) {
   if (!(lignes || []).some(propositionACreer)) return { ok: true, lignes, phasage, ecrit: false };
   const ouvrages = Array.isArray(phasage?.ouvrages) ? phasage.ouvrages : [];
   if (!phasage || ouvrages.length === 0) return { ok: false, code: "sans_ouvrages" };
-  const res = appliquerCreationsProposees({ ouvrages, lignes, rapport, genId });
+  const res = appliquerCreationsProposees({ ouvrages, lignes, rapport, genId, auteur });
   if (res.erreurs.length > 0) return { ok: false, code: "erreurs", erreurs: res.erreurs };
   if (!res.modifie) return { ok: true, lignes: res.lignes, phasage, ecrit: false };
   const r = await sauvegarder({ phasageId: phasage.id, revision: phasage.revision ?? 0, ouvrages: res.ouvrages });
