@@ -217,9 +217,11 @@ function baseSimulee(tables) {
   const nuit = heureUTC(".github/workflows/cron-releves-journaliers.yml");
   ok(nuit + 1 >= 22 && nuit + 2 < 24, `rattrapage de nuit : ${nuit + 1} h en hiver, ${nuit + 2} h en été, même jour`);
   ok(nuit > heureUTC(".github/workflows/cron-journal-avancement.yml"), "après le contrôle du journal");
+  // Relevés du vendredi ARRÊTÉS (option A de Loris, 24/10/2026) : plus de
+  // déclenchement automatique, lancement manuel conservé, tables gardées.
   for (const f of [".github/workflows/cron-snapshot-avancement.yml", ".github/workflows/cron-snapshot-hebdo.yml"]) {
-    const h = heureUTC(f);
-    ok(h + 1 >= 19 && /\* \* 5'/.test(lire(f)), `${f} : vendredi, ${h + 1} h Paris en hiver (plus 17 h)`);
+    const y = lire(f);
+    ok(!/^\s*schedule:/m.test(y) && /^\s*workflow_dispatch:/m.test(y), `${f} : arrêté (pas de schedule), relançable à la main`);
   }
   // Fonctions serveur : plan Hobby, 12 au plus.
   const fonctions = readdirSync(join(racine, "api")).filter(f => f.endsWith(".js"));

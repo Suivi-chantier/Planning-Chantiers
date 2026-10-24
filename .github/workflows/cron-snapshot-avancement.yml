@@ -9,10 +9,17 @@ name: Snapshot hebdomadaire de l'avancement chantiers
 # Équipe → Bilan semaine.
 #
 # Secret requis : CRON_SECRET (déjà ajouté pour cron-dispatcher.yml).
+#
+# ARRÊTÉ le 24/10/2026 (option A de Loris, refonte du Bilan, étape 3) : le
+# Bilan, les alertes, les États financiers, l'export des Opérations et
+# l'assistant IA lisent les relevés JOURNALIERS (chantier_releves_journaliers).
+# Plus de déclenchement automatique ; la table est gardée telle quelle pour
+# l'historique (rien n'est supprimé). Pour relancer : remettre le bloc
+# « schedule » ci-dessous, ou lancer à la main (« Run workflow »).
 
 on:
-  schedule:
-    - cron: '30 18 * * 5'       # Vendredi 18h30 UTC → 20h30 Paris (été), 19h30 (hiver)
+  # schedule:                   # arrêté le 24/10/2026 (voir en tête)
+  #   - cron: '30 18 * * 5'     # Vendredi 18h30 UTC → 20h30 Paris (été), 19h30 (hiver)
   workflow_dispatch:            # Bouton "Run workflow" dans GitHub pour seed initial + tests
     inputs:
       initial:

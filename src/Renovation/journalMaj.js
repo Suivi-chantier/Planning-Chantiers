@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-24",
     type: "amelioration",
+    titre: "Relevés du vendredi soir arrêtés : une seule source de chiffres",
+    pages: [],
+    quoi: "Les deux relevés automatiques du vendredi soir (photo financière et photo d'avancement) ne sont plus pris. Toute l'application lit désormais les relevés de chaque jour : il n'y a plus deux chiffres différents pour la même semaine.",
+    comment: "Rien à faire. Les anciens relevés du vendredi restent enregistrés pour l'historique ; ils peuvent être relancés si besoin.",
+  },
+  {
+    date: "2026-10-24",
+    type: "amelioration",
     titre: "Assistant IA et détail du Bilan : relevés de chaque jour",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }],
     quoi: "L'assistant IA ne lit plus le relevé du vendredi soir : ses alertes sont exactement celles de la page Alertes (relevés journaliers, seuils réglés dans Admin, marge probable comprise). Quand on lui demande pourquoi un chantier est en alerte, il cite les 8 dernières semaines avec le budget restant et les trois marges. L'onglet « Détail des comptes rendus » du Bilan lit aussi l'avancement dans les relevés journaliers.",

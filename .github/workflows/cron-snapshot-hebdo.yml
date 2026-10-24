@@ -8,10 +8,17 @@ name: Snapshot hebdomadaire financier des chantiers
 # Les formules viennent de src/chantierFinance.js via /api/cron-snapshot-hebdo.
 #
 # Secret requis : CRON_SECRET (déjà en place).
+#
+# ARRÊTÉ le 24/10/2026 (option A de Loris, refonte du Bilan, étape 3) : le
+# Bilan, les alertes, les États financiers, l'export des Opérations et
+# l'assistant IA lisent les relevés JOURNALIERS (chantier_releves_journaliers).
+# Plus de déclenchement automatique ; la table est gardée telle quelle pour
+# l'historique (rien n'est supprimé). Pour relancer : remettre le bloc
+# « schedule » ci-dessous, ou lancer à la main (« Run workflow »).
 
 on:
-  schedule:
-    - cron: '40 18 * * 5'       # Vendredi 18h40 UTC → 20h40 Paris (été), 19h40 (hiver)
+  # schedule:                   # arrêté le 24/10/2026 (voir en tête)
+  #   - cron: '40 18 * * 5'     # Vendredi 18h40 UTC → 20h40 Paris (été), 19h40 (hiver)
   workflow_dispatch:            # Bouton "Run workflow" : test manuel + backfill
     inputs:
       backfill:
