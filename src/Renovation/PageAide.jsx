@@ -51,7 +51,7 @@ export const AIDE_CONTENU = {
     savoir: [
       "Un chantier « en cours » se déduit de son ACTIVITÉ (pointage récent ou avancement entre 1 et 99 %) — un chantier silencieux s'affiche quand même, avec un badge.",
       "Les chiffres financiers sont exactement ceux de la page Phasage (même module de calcul).",
-      "Un chiffre en italique pointillé = donnée non renseignée (ex : taux de frais généraux à régler), à ne pas confondre avec un vrai zéro.",
+      "Un chiffre en italique pointillé = donnée non renseignée (ex : % facturé absent des États financiers), à ne pas confondre avec un vrai zéro.",
     ],
     methode: METHODE_CALCUL,
   },

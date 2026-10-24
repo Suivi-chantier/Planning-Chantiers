@@ -24,7 +24,7 @@ const A = {
     prix_vendu: null,
     plan_travaux: { meta: {
       reprise_heures: 10, reprise_taux: 28,        // reprise = 280 €
-      fg_taux_horaire: 3,
+      fg_taux_horaire: 99,                         // ancien réglage par phasage : IGNORÉ depuis le 24/10/2026
       marge_vendue_cible: 20, seuil_prime: 15, prime: 500,
       prix_vendu: 15600,                           // devis → écart = −600 €
     } },
@@ -56,6 +56,7 @@ const A = {
   tauxHoraires: { Marc: 30, Ali: 25 },
   tauxMOPrev: 20,
   lots: LOTS,
+  tauxFG: [{ depuis: "2026-01-01", taux: 3 }],     // barème Admin : 3 €/h pour toutes les heures
 };
 const attenduA = {
   prixHTChantier: 15000,
@@ -116,10 +117,10 @@ const attenduB = {
   commandesPrevChantier: 0,
   moPrevChantier: 2000,                 // 80 × 25 (défaut)
   tauxMOPrevEff: 25,
-  fgTauxHoraire: 0,
-  fgChantier: 0,
-  margeChantier: 7625,
-  margePctChantier: 7625 / 8000 * 100,
+  fgTauxHoraire: 17.44,                 // aucun barème transmis → défaut 17,44 €/h
+  fgChantier: 218,                      // 12,5 h anciennes (non datées) × 17,44
+  margeChantier: 7407,                  // 8000 − 375 − 218
+  margePctChantier: 7407 / 8000 * 100,
   avancementChantier: 20,               // pas d'heures estimées → moyenne simple (40+0)/2
   trajetHeures: 0, trajetCout: 0,
   indirectHeures: 0, indirectCout: 0,
@@ -130,7 +131,7 @@ const attenduB = {
     _orphans:    { nbOuvrages: 1, heuresVendues: 80, heuresReelles: 12.5, avancement: 20, ratioDerive: (12.5 / 80) / 0.20 },
   },
   ecartVendu: null,
-  warningsCodes: ["fg_non_regle"],
+  warningsCodes: [],                    // plus d'avertissement « FG non réglés » : il y a toujours un taux
   dernierPointage: null,
 };
 
@@ -143,7 +144,7 @@ const attenduC = {
   prixHTChantier: 0, heuresVenduesChantier: 0, heuresReellesChantier: 0,
   heuresReellesTotalChantier: 0, coutMOChantier: 0, coutMOTotalChantier: 0,
   coutMatChantier: 0, commandesPrevChantier: 0, moPrevChantier: 0, tauxMOPrevEff: 20,
-  fgTauxHoraire: 0, fgChantier: 0, margeChantier: 0, margePctChantier: 0,
+  fgTauxHoraire: 17.44, fgChantier: 0, margeChantier: 0, margePctChantier: 0,
   avancementChantier: 0,
   trajetHeures: 0, trajetCout: 0, indirectHeures: 0, indirectCout: 0,
   repriseHeures: 0, repriseCout: 0,
@@ -152,7 +153,7 @@ const attenduC = {
     plomberie:   { nbOuvrages: 0, heuresVendues: 0, heuresReelles: 0, avancement: 0, ratioDerive: null },
   },
   ecartVendu: null,
-  warningsCodes: ["fg_non_regle"],
+  warningsCodes: [],
   dernierPointage: null,
 };
 
@@ -238,8 +239,10 @@ function verifierVentilationsA() {
   const moMains = mod.moReel.ventilation.map(r => r.main);
   eq("mo.rows", JSON.stringify(["Marc", "Ali", "Heures sans pointage nominatif", "Trajets", "Heures indirectes", "Heures libres"]), JSON.stringify(moMains));
   eq("mo.rows[2].right", "275 €", mod.moReel.ventilation[2]?.right);
-  // fg : 2 ouvrages avec heures + extras
-  eq("fg.rows.length", 3, mod.fg.ventilation.length);
+  // fg : 2 ouvrages avec heures + extras + reprise d'antériorité (ligne à part
+  // depuis le 24/10/2026 : elle était comptée sans ligne propre)
+  eq("fg.rows.length", 4, mod.fg.ventilation.length);
+  eq("fg.rows[3].right", "30 €", mod.fg.ventilation[3]?.right); // reprise 10 h × 3 €/h
   eq("fg.rows[0].right", "51 €", mod.fg.ventilation[0]?.right); // 17 h × 3 €/h
   // marge : 4 postes
   eq("marge.rows.length", 4, mod.marge.ventilation.length);
@@ -248,8 +251,9 @@ function verifierVentilationsA() {
   // renseigne
   eq("fg.renseigne (A, taux réglé)", true, mod.fg.renseigne);
   const modB = computeChantierFinance(B);
-  eq("fg.renseigne (B, taux absent)", false, modB.fg.renseigne);
-  eq("fg.valeur (B) — 0 faute de réglage", 0, modB.fg.valeur);
+  // Sans barème transmis : le taux par défaut s'applique (plus jamais « 0 faute de réglage »).
+  eq("fg.renseigne (B, barème absent → défaut)", true, modB.fg.renseigne);
+  eq("fg.valeur (B) — 12,5 h × 17,44 €/h", 218, modB.fg.valeur);
   eq("ecartVendu.renseigne (B, pas de devis)", false, modB.ecartVendu.renseigne);
 }
 

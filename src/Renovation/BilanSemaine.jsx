@@ -511,15 +511,18 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
     let cancelled = false;
     (async () => {
       try {
-        const [phQ, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, matQ] = await Promise.all([
+        const [phQ, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, matQ, cfgFG] = await Promise.all([
           supabase.from("phasages").select("*"),
           supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
           supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
           chargerTousLesMateriaux("id, prix_unitaire"),
+          supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
         ]);
         const phasages = phQ.data || [];
+        // Barème daté des frais généraux (Admin) ; absent = défaut du module.
+        const tauxFG = cfgFG.data?.value ?? null;
         const tauxHoraires = cfgTaux.data?.value || {};
         const tauxMOPrev = parseFloat(cfgTauxMO.data?.value) || 0;
         const items = cfgLots.data?.value?.items;
@@ -595,13 +598,13 @@ function BilanSemaineContent({ rapports, chantiers, weekId, onPrevWeek, onNextWe
             commandeLignes: clsBy[ph.chantier_id] || [],
             tauxHoraires, tauxMOPrev, lots: lotsCfg,
             pctFacture: nomCh in pctFactureParNom ? pctFactureParNom[nomCh] : null,
-            materiauxById,
+            materiauxById, tauxFG, aujourdhui,
           });
           finByCh[ph.chantier_id] = fin;
           entreesByCh[ph.chantier_id] = {
             phasage: ph, pointages: ptsBy[ph.chantier_id] || [],
             commandeLignes: clsBy[ph.chantier_id] || [],
-            tauxHoraires, tauxMOPrev, lots: lotsCfg,
+            tauxHoraires, tauxMOPrev, lots: lotsCfg, tauxFG,
           };
           const av = fin.brut.avancementChantier;
           const recent = (fin.fraicheur.dernierPointage || "") >= seuilActif;

@@ -24,6 +24,7 @@ import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
+import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
 // étapes de facturation de la frise du cycle de vie, phase Travaux).
 import { ECHEANCIER_DEFAUT, normaliserEcheancier, controleEcheancier } from "./facturationClient";
@@ -3082,7 +3083,7 @@ function PrevisualisationSyncProgbat({ T, acc }) {
   );
 }
 
-function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
+function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHoraires,setTauxHoraires,tauxMOPrev=0,setTauxMOPrev,tauxFG=null,setTauxFG,chantiers,setChantiers,saveConfig,theme,setTheme,T,profil,branch="renovation"}){
   const acc = getBranchAccent(branch);
   const [adminTab,setAdminTab]=useState("vue");
   const [newOuvrier,setNewOuvrier]=useState("");
@@ -5284,6 +5285,10 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               </span>
             )}
           </div>
+
+          {/* Taux de frais généraux de l'entreprise, daté (planning_config
+              fg_taux_horaires) : remplace le réglage par phasage. */}
+          <TauxFraisGenerauxAdmin T={T} tauxFG={tauxFG} setTauxFG={setTauxFG} saveConfig={saveConfig}/>
 
           {/* TVA proposée aux NOUVEAUX projets de chiffrage. Chaque projet garde
               son propre taux (modifiable) ; un devis sans TVA n'est pas « prêt ». */}

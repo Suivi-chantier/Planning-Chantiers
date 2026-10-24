@@ -1,0 +1,27 @@
+name: Verify Fondations Finance
+
+# Refonte du Bilan semaine, étape 1 (fondations des données financières).
+# Déclenché sur toute PR (pas de filtre de branche : cf. piège des PR empilées).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # verif-chantier-finance-fixtures importe la transcription de référence,
+      # qui charge @supabase/supabase-js (sans s'en servir hors connexion).
+      - name: Installer les dependances
+        run: npm ci
+      - name: 1A - Taux de frais generaux unique et date (donnees fictives)
+        run: node scripts/verif-fg-taux-date.mjs
+      - name: Module chantierFinance - valeurs calculees a la main (donnees fictives)
+        run: node scripts/verif-chantier-finance-fixtures.mjs

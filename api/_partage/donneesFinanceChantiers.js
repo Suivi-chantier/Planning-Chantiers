@@ -49,7 +49,7 @@ const normNom = (s) => (s || "").toString().toLowerCase().normalize("NFD").repla
 async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   const parChantierId = (q) => (chantierId ? q.eq("chantier_id", chantierId) : q);
 
-  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux] = await Promise.all([
+  const [phasages, pointages, commandeLignes, factureCouts, avoirs, cfgTaux, cfgTauxMO, cfgLots, cfgEtats, materiaux, cfgFG] = await Promise.all([
     fetchAll(supabase, "phasages", "*", parChantierId),
     fetchAll(supabase, "pointages", "*", parChantierId),
     fetchAll(supabase, "commande_lignes",
@@ -62,8 +62,11 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
     supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "etats_financiers").maybeSingle(),
     fetchAll(supabase, "materiaux_bibliotheque", "id, prix_unitaire"),
+    supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
   ]);
   const tauxHoraires = cfgTaux.data?.value || {};
+  // Barème daté des frais généraux (Admin) ; absent = défaut du module.
+  const tauxFG = cfgFG.data?.value ?? null;
   const tauxMOPrev = parseFloat(cfgTauxMO.data?.value) || 0;
   const itemsLots = cfgLots.data?.value?.items;
   const lots = Array.isArray(itemsLots) && itemsLots.length > 0
@@ -128,17 +131,20 @@ async function chargerDonneesFinance(supabase, { chantierId = null } = {}) {
   // Les entrées de computeChantierFinance pour un phasage. `surcharge` permet
   // au backfill de substituer l'état des ouvrages, pointages et lignes à une
   // date passée ; le % facturé reste lu sur le phasage d'origine.
+  // `surcharge.aujourdhui` : date du taux de frais généraux des projections
+  // (jour du relevé) — absente, le module prend le taux le plus récent.
   const inputsPour = (ph, surcharge = {}) => ({
     phasage: surcharge.phasage || ph,
     pointages: surcharge.pointages || ptsByChantier[ph.chantier_id] || [],
     commandeLignes: surcharge.commandeLignes || clByChantier[ph.chantier_id] || [],
     tauxHoraires, tauxMOPrev, lots,
     pctFacture: pctFactureDe(ph), materiauxById,
+    tauxFG, aujourdhui: surcharge.aujourdhui || null,
   });
 
   return {
     phasagesUniques, ptsByChantier, clByChantier,
-    tauxHoraires, tauxMOPrev, lots, materiauxById, pctFactureDe,
+    tauxHoraires, tauxMOPrev, lots, materiauxById, pctFactureDe, tauxFG,
     inputsPour,
   };
 }

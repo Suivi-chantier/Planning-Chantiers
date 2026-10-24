@@ -808,7 +808,7 @@ function ficheChantier(c, rang, m) {
     ["Fin prévue", dateFR(c.planning?.fin)],
     ["Phasage enregistré", c.phasage?.id ? `oui (modifié le ${dateHeureFR(c.phasage.updatedAt)})` : "non", { garder: true }],
     ["Montant de devis saisi", c.phasage ? euros(c.phasage.montantDevis) : null],
-    ["Taux de frais généraux", c.phasage && c.phasage.fgTauxHoraire != null
+    ["Taux de frais généraux en vigueur (réglage de l'entreprise)", c.phasage && c.phasage.fgTauxHoraire != null
       ? nombre(c.phasage.fgTauxHoraire, "€/h") : null],
     ["Marge vendue cible", c.phasage && c.phasage.margeCible != null ? pourcent(c.phasage.margeCible) : null],
     ["Reprise d'antériorité", c.phasage && (c.phasage.repriseHeures || c.phasage.repriseTaux)
@@ -1296,7 +1296,7 @@ function ficheChantier(c, rang, m) {
       "",
       ...listeDefinitions([
         ["Taux de main-d'œuvre prévisionnel appliqué", nombre(b.tauxMOPrevEff, "€/h")],
-        ["Taux de frais généraux appliqué", b.fgTauxHoraire > 0 ? nombre(b.fgTauxHoraire, "€/h") : "non réglé"],
+        ["Taux de frais généraux en vigueur aujourd'hui (chaque heure passée compte au taux de sa date)", nombre(b.fgTauxHoraire, "€/h")],
         ["Déboursé prévisionnel", euros(b.deboursePrevChantier)],
         ["Montant de devis saisi", b.montantDevis ? euros(b.montantDevis) : null],
       ]),

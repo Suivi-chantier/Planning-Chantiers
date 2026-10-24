@@ -58,7 +58,7 @@ function sumLibreEtIndirectRef(points) { // src/pointages.js L121
   return { heuresLibre, coutLibre, heuresIndirect, coutIndirect };
 }
 
-export function referencePhasageV2({ phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots }) {
+export function referencePhasageV2({ phasage, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG = null, aujourdhui = null }) {
   const ouvrages = phasage?.ouvrages || [];                       // PhasageV2 L599
   const pointagesParTache = indexPointagesParTacheRef(pointages); // L577
 
@@ -127,11 +127,29 @@ export function referencePhasageV2({ phasage, pointages, commandeLignes, tauxHor
   const tauxMOPrevEff = tauxMOPrev > 0 ? tauxMOPrev : TAUX_MO_PREV_DEFAUT_REF;            // L1045
   const moPrevChantier = heuresVenduesChantier * tauxMOPrevEff;                           // L1046
   const commandesPrevChantier = ouvrages.reduce((s, o) => s + coutMatOuvrage(o), 0);      // L1051
-  const fgTauxHoraire = (() => {                                                          // L1056
-    const v = parseFloat(phasage?.plan_travaux?.meta?.fg_taux_horaire);
-    return Number.isFinite(v) ? v : 0;
-  })();
-  const fgChantier = fgTauxHoraire * heuresReellesTotalChantier;                          // L1060
+  // Frais généraux (règle du 24/10/2026, réécrite ici sans le module) :
+  // barème daté unique (Admin, défaut 17,44 €/h depuis le 01/01/2026) ; une
+  // heure pointée au taux de sa date, une heure sans date (heures anciennes
+  // de la tâche, reprise) au taux le plus ancien, le taux affiché = celui du jour.
+  // meta.fg_taux_horaire n'est plus lu.
+  const baremeRef = (Array.isArray(tauxFG) && tauxFG.length > 0 ? tauxFG : [{ depuis: "2026-01-01", taux: 17.44 }])
+    .map(e => ({ depuis: String(e.depuis).slice(0, 10), taux: parseFloat(e.taux) }))
+    .sort((a, b) => (a.depuis < b.depuis ? -1 : 1));
+  const tauxAu = (d) => {
+    let t = baremeRef[0].taux;
+    for (const e of baremeRef) if (d && e.depuis <= String(d).slice(0, 10)) t = e.taux;
+    return t;
+  };
+  const fgTauxHoraire = aujourdhui ? tauxAu(aujourdhui) : baremeRef[baremeRef.length - 1].taux;
+  let fgChantier = repriseHeures * baremeRef[0].taux;
+  ouvrages.forEach(o => (o.taches || []).forEach(t => {
+    const pts = tachePointages(t);
+    if (pts.length > 0) pts.forEach(p => { fgChantier += (parseFloat(p.heures) || 0) * tauxAu(p.date); });
+    else fgChantier += tacheHeuresReelles(t) * baremeRef[0].taux;
+  }));
+  pointages.forEach(p => {
+    if (p.type_pointage === "indirect" || !p.tache_id) fgChantier += (parseFloat(p.heures) || 0) * tauxAu(p.date);
+  });
   const margeChantier  = prixHTChantier - coutMOTotalChantier - coutMatChantier - fgChantier; // L1062
   const margePctChantier = prixHTChantier > 0 ? (margeChantier / prixHTChantier) * 100 : 0;   // L1063
 
@@ -255,11 +273,14 @@ async function main() {
   const supaKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_KEY;
   const supabase = createClient(env.VITE_SUPABASE_URL, supaKey, { auth: { persistSession: false } });
 
-  const [cfgTaux, cfgTauxMO, cfgLots] = await Promise.all([
+  const [cfgTaux, cfgTauxMO, cfgLots, cfgFG] = await Promise.all([
     supabase.from("planning_config").select("value").eq("key", "taux_horaires").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "taux_mo_previsionnel").maybeSingle(),
     supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
+    supabase.from("planning_config").select("value").eq("key", "fg_taux_horaires").maybeSingle(),
   ]);
+  const tauxFG = cfgFG.data?.value ?? null;
+  const aujourdhui = new Date().toISOString().slice(0, 10);
   const tauxHoraires = cfgTaux.data?.value || {};
   const tauxMOPrev = parseFloat(cfgTauxMO.data?.value) || 0;
   const itemsLots = cfgLots.data?.value?.items;
@@ -299,7 +320,7 @@ async function main() {
     ]);
     const pointages = pts.data || [];
     const commandeLignes = cl.data || [];
-    const inputs = { phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots };
+    const inputs = { phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots, tauxFG, aujourdhui };
 
     const ref = referencePhasageV2(inputs);
     const mod = computeChantierFinance(inputs);

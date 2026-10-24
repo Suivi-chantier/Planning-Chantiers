@@ -147,7 +147,7 @@ module.exports = async function handler(req, res) {
         if (!ph.chantier_id) continue;
         const pts = ptsByChantier[ph.chantier_id] || [];
         const cl = clByChantier[ph.chantier_id] || [];
-        const inputs = inputsPour(ph, { pointages: pts, commandeLignes: cl });
+        const inputs = inputsPour(ph, { pointages: pts, commandeLignes: cl, aujourdhui: dateSnapshot });
         const { row, fin } = buildRow(cf, { ...ph, inputs }, weekId, dateSnapshot);
         if (!estActif(pts, fin.brut.avancementChantier, dateSnapshot)) {
           skipped.push({ chantier_id: ph.chantier_id, raison: "inactif" });
@@ -194,7 +194,7 @@ module.exports = async function handler(req, res) {
             : ph;
           const ptsAlors = ptsAll.filter(p => (p.date || "").slice(0, 10) <= friday);
           const clAlors = clAll.filter(l => !l.created_at || l.created_at.slice(0, 10) <= friday);
-          const inputs = inputsPour(ph, { phasage: phasageAlors, pointages: ptsAlors, commandeLignes: clAlors });
+          const inputs = inputsPour(ph, { phasage: phasageAlors, pointages: ptsAlors, commandeLignes: clAlors, aujourdhui: friday });
           const { row, fin } = buildRow(cf, { ...phasageAlors, inputs }, weekIdFor(friday), friday, [{
             code: "reconstitue", gravite: "info",
             message: `Snapshot reconstitué a posteriori (backfill du ${dateSnapshot}) : ouvrages via phasages_history, taux/réglages actuels.`,

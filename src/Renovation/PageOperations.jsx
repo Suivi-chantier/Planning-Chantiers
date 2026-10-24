@@ -225,7 +225,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
         fetchTout("pointages", "*"),
         fetchTout("commande_lignes",
           "id, libelle, reference, quantite, prix_unitaire, prix_total, materiau_id, ouvrage_id, chantier_id, created_at, commande:commandes(date_doc, created_at, fournisseur_nom)"),
-        supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "lots_travaux"]),
+        supabase.from("planning_config").select("key,value").in("key", ["taux_horaires", "taux_mo_previsionnel", "etats_financiers", "lots_travaux", "fg_taux_horaires"]),
       ]);
       [["phasages", phRes], ["pointages", ptsRes], ["lignes de commande", clRes], ["réglages", cfgRes]]
         .forEach(([nom, r]) => { if (r.error) erreurs.push(`${nom} : ${r.error.message}`); });
@@ -270,7 +270,8 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
       if (!rattaches.has(ph.chantier_id)) return;
       const pointages = etat.ptsByChantier[ph.chantier_id] || [];
       const commandeLignes = etat.clByChantier[ph.chantier_id] || [];
-      const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots });
+      const finance = computeChantierFinance({ phasage: ph, pointages, commandeLignes, tauxHoraires, tauxMOPrev, lots,
+        tauxFG: etat.cfg.fg_taux_horaires, aujourdhui: new Date().toISOString().slice(0, 10) });
       const reelles = seriesReellesChantier({
         finance, pointages, commandeLignes, etatsFinanciers,
         chantierNom: ph.chantier_nom || ph.chantier_id,

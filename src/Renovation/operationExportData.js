@@ -165,7 +165,7 @@ export async function chargerDonneesExportOperation({
     parIds("pointages",
       "id, chantier_id, tache_id, ouvrier, date, heures, taux_horaire, type_pointage, motif_indirect"),
     supabase.from("planning_config").select("key,value")
-      .in("key", ["taux_horaires", "taux_mo_previsionnel", "lots_travaux"]),
+      .in("key", ["taux_horaires", "taux_mo_previsionnel", "lots_travaux", "fg_taux_horaires"]),
   ]);
 
   [
@@ -259,6 +259,7 @@ export async function chargerDonneesExportOperation({
   const lots = reglesFraiches.lots_travaux?.items || cfg.lots_travaux?.items || [];
   const tauxHoraires = reglesFraiches.taux_horaires || cfg.taux_horaires || {};
   const tauxMOPrev = parseFloat(reglesFraiches.taux_mo_previsionnel ?? cfg.taux_mo_previsionnel) || 0;
+  const tauxFG = reglesFraiches.fg_taux_horaires ?? cfg.fg_taux_horaires ?? null;
   const materiauxById = {};
   (materiauxRes?.data || []).forEach((m) => { materiauxById[String(m.id)] = m; });
   const ratiosById = {};
@@ -327,7 +328,7 @@ export async function chargerDonneesExportOperation({
           phasage: ph,
           pointages: pointagesDe(c.id),
           commandeLignes: parChantier.lignes[c.id] || [],
-          tauxHoraires, tauxMOPrev, lots,
+          tauxHoraires, tauxMOPrev, lots, tauxFG, aujourdhui,
         }),
       };
     });
