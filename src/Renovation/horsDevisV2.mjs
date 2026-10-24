@@ -330,7 +330,7 @@ export function proposerMotifV2({ tache, ouvrage, ouvrages }) {
   }
   if (!estOuvrageDiversV2(ouvrage)) return { motif: "imprevu", cas: "B", raison: "déjà rangée dans un ouvrage vendu" };
   if (["imprevu", "oubli_phasage"].includes(str(tache?.nature))) return { motif: "imprevu", cas: "B", raison: `nature « ${str(tache.nature)} » : ouvrage à choisir` };
-  return { motif: "demande_client", cas: "C", raison: "hors de tout ouvrage vendu, sans tâche ressemblante : à arbitrer" };
+  return { motif: "demande_client", cas: "C", raison: "aucune tâche ressemblante dans le phasage : à examiner (non vendu par défaut)" };
 }
 
 // ── Synthèse par chantier (fiche chantier, Bilan) ───────────────────────────
@@ -494,4 +494,29 @@ export function ajouterEtapeModeleV2(sousTaches, nom, phaseId = null) {
   const l = liste(sousTaches);
   if (!str(nom) || l.some(s => ressemblanceNomsV2(s?.nom, nom) >= 0.8)) return l;
   return [...l, { nom: str(nom), ratio: 0, ...(phaseId ? { phaseId } : {}) }];
+}
+
+// ── Textes courts (fiche chantier, PDF) ─────────────────────────────────────
+const morceau = (libelle, v, avecCout = false) =>
+  (v && v.nb > 0 ? `${libelle} ${v.nb} · ${fmtH(v.heures)}${avecCout ? ` (${fmtEur(v.cout)})` : ""}` : null);
+
+/** « Hors devis : A non réaffectées 1 · 3 h ; B 2 · 5 h ; … » — null s'il n'y a rien. */
+export function texteHorsDevisV2(synthese) {
+  if (!synthese) return null;
+  const p = synthese.parMotif || {};
+  const parts = [
+    morceau("A non encore réaffectées", p.introuvable),
+    morceau("B ajoutées en cours de chantier", p.imprevu),
+    morceau("C à arbitrer", synthese.aArbitrer, true),
+    morceau("gestes commerciaux", synthese.gestesCommerciaux, true),
+    morceau("avenants", synthese.avenants),
+    morceau("non classées", p.non_renseigne),
+  ].filter(Boolean);
+  return parts.length ? `Hors devis : ${parts.join(" ; ")}` : null;
+}
+
+/** Bandeau de la version détaillée : gestes commerciaux de la période. */
+export function texteGestesPeriodeV2(g) {
+  if (!g) return null;
+  return g.heures > 0 ? `${fmtH(g.heures)}, ${fmtEur(g.cout)} (coût sans production)` : "aucun sur la période";
 }

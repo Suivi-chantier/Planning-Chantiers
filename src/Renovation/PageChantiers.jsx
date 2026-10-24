@@ -15,6 +15,8 @@ import {
   heuresReellesComparablesOuvrage as cfHeuresComparablesOuvrage,
   heuresHorsDevisOuvrage as cfHeuresHorsDevisOuvrage,
 } from "../chantierFinance";
+import { tauxFGALaDate as tauxFGALaDateHD } from "../chantierFinance";
+import { syntheseHorsDevisChantierV2, texteHorsDevisV2 } from "./horsDevisV2";
 // QCD (Point 2a) : calculs du triangle Qualité/Coût/Délai — module dédié,
 // indépendant des anciennes formules de la page Dashboard Analyse (jugées
 // fausses par le métier, page supprimée le 23/09/2026).
@@ -2064,6 +2066,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     ? pointages.filter(p => p.chantier_id === selectedPhasage.chantier_id)
     : [];
   const ptsIndexSelected = indexPointagesParTache(pointagesChantierSelected);
+  // Étape 4 : heures hors devis par motif et gestes commerciaux du chantier.
+  const texteHorsDevisSelected = selectedPhasage ? texteHorsDevisV2(syntheseHorsDevisChantierV2({
+    ouvrages: selectedPhasage.ouvrages || [], pointages: pointagesChantierSelected,
+    tauxFG: d => tauxFGALaDateHD(tauxFG, d), aujourdHui: new Date().toISOString().slice(0, 10),
+  })) : null;
   const extraSelected = sumLibreEtIndirect(pointagesChantierSelected);
   // Lignes de commande du chantier sélectionné → coût matériaux réel (V2).
   const commandeLignesSelected = selectedPhasage
@@ -3405,6 +3412,12 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                         {totalHeures.horsDevis > 0 && ` + ${fmtH(totalHeures.horsDevis)}h hors devis`}
                       </span>
                     </span>
+                    {texteHorsDevisSelected && (
+                      <span style={{ flexBasis: "100%", fontSize: FONT.xs.size + 1, color: textMuted }}
+                        title="Gérées depuis le Phasage, bouton « Hors devis » (coûts = main-d'œuvre + frais généraux)">
+                        {texteHorsDevisSelected}
+                      </span>
+                    )}
                     <span style={{
                       display: "inline-flex", alignItems: "center", gap: 4,
                       fontSize: FONT.xs.size + 1, fontWeight: 700, color: col,

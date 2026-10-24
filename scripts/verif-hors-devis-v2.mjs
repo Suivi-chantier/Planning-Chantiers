@@ -22,7 +22,9 @@ import {
   aArbitrerV2, gesteCommercialV2, rattacherAvenantV2, marquerNonFactureV2, syntheseHorsDevisChantierV2,
   decisionsHorsDevisV2, gestesCommerciauxPeriodeV2, tachesSouventAjouteesV2, ajouterEtapeModeleV2,
   proposerMotifV2, motifTacheV2, estTacheHorsDevisV2, ressemblanceNomsV2, MOTIF_NON_RENSEIGNE,
+  texteHorsDevisV2, texteGestesPeriodeV2,
 } from "../src/Renovation/horsDevisV2.mjs";
+import { SEUILS_MARGES_DEFAUT, normaliserSeuilsMarges } from "../src/chantierFinance.mjs";
 import {
   productionPeriode, avancementOuvrageExact, heuresReellesComparablesOuvrage, heuresVenduesOuvrage,
 } from "../src/chantierFinance.mjs";
@@ -230,6 +232,23 @@ const BIBLIO = [{ id: "b-cloison", libelle: "Cloison placo", unite: "m²", caden
   const res3 = appliquerCreationsProposees({ ouvrages: phasage(), lignes: lignesC, rapport: { id: "r2", date_rapport: "21/10/2026" }, genId: () => "g", auteur: "Conducteur fictif" });
   ok(res3.ouvrages.find(o => o.id === "o-divers").taches.some(t => t.id === "nt-r2-0" && t.arbitrage?.statut === "a_arbitrer"),
     "validation C : toujours rangée dans « Divers / hors devis », à arbitrer");
+}
+
+// ── Textes de la fiche chantier et du bandeau détaillé, réglage Admin ─────
+{
+  let ouv = gesteCommercialV2(phasage(), "t-hd-niche", { date: "2026-10-20", auteur: "Conducteur fictif" }).ouvrages;
+  ouv = aArbitrerV2(ouv, "t-hd-plaq", { date: "2026-10-20", auteur: "Conducteur fictif" }).ouvrages;
+  const s = syntheseHorsDevisChantierV2({ ouvrages: ouv, tauxFG: 10, aujourdHui: "2026-10-24", pointages: [
+    { tache_id: "t-hd-niche", heures: 4, taux_horaire: 30, date: "2026-10-14" },
+    { tache_id: "t-hd-plaq", heures: 2, taux_horaire: 30, date: "2026-10-20" },
+  ] });
+  const t = texteHorsDevisV2(s);
+  ok(/C à arbitrer 1 · 2 h \(80 €\)/.test(t) && /gestes commerciaux 1 · 4 h \(160 €\)/.test(t), `fiche : texte hors devis (${t})`);
+  egal(texteHorsDevisV2(syntheseHorsDevisChantierV2({ ouvrages: [], aujourdHui: "2026-10-24" })), null, "fiche : rien à dire → pas de ligne");
+  egal(texteGestesPeriodeV2({ heures: 0, cout: 0 }), "aucun sur la période", "bandeau : aucun geste sur la période (dit, pas omis)");
+  ok(/^2 h, 80 € \(coût sans production\)$/.test(texteGestesPeriodeV2({ heures: 2, cout: 80 })), "bandeau : gestes de la période");
+  egal(SEUILS_MARGES_DEFAUT.horsDevisRappelSemaines, 3, "Admin : rappel d'arbitrage à 3 semaines par défaut");
+  egal(normaliserSeuilsMarges({ horsDevisRappelSemaines: "5" }).horsDevisRappelSemaines, 5, "Admin : rappel réglable");
 }
 
 console.log(`verif-hors-devis-v2 : ${nb} contrôles OK (données fictives)`);
