@@ -198,7 +198,7 @@ chaque étape.
 | 4 | Étape 4 — Tâches hors devis | ✅ En ligne | 2026-10-24 | Cas A / B / C choisis à la validation et dans le phasage (« Ce travail est-il facturé au client ? »), avenant, geste commercial, ouvrage non facturé ; décisions « à arbitrer » dans le Bilan avec rappel réglable ; heures hors devis par cas dans la fiche chantier ; tâches souvent ajoutées dans la Bibliothèque. Aucune migration. Voir « Étape 4 ». |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ✅ En ligne | 2026-10-24 | Diagnostic réel sur 8 semaines, page « Qualité des comptes rendus » (bureau), module d'indicateurs réutilisable (compteur « lignes découpées » par ouvrier et par mois pour CR-5). Écart d'avancement déclaré / validé allumé à partir du journal d'avancement, sans fonction SQL. Voir « CR-1 ». |
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ✅ En ligne | 2026-10-24 | Libellés personnalisés d'ouvrages et de tâches (à côté du libellé devis, inventaire complet des usages) ; pièces du chantier : liste, rattachement de plusieurs tâches, filtre et regroupement, duplication par pièce à heures conservées. Aucune migration. Écrans ouvriers : libellé devis jusqu'au CR-3. Voir « CR-2 ». |
-| 7 | CR-3 — Nouveau parcours du compte rendu | ⏳ À faire | | |
+| 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ⏳ À faire | | |
 | 9 | CR-5 — Refonte de la page de validation | ⏳ À faire | | |
 
@@ -337,6 +337,32 @@ chaque étape.
   8 % mesurés directement le 24/10 : artefact de datation) : l'indicateur
   n'est donc mesuré que pour les comptes rendus validés depuis le 24/10/2026,
   et le chiffre du passé reste celui du diagnostic. Aucune migration.
+
+- **24/10/2026 — CR-3 : fonctions serveur des écrans ouvriers.** Réponse de
+  Loris : accord pour modifier les fonctions à droits élevés qui servent le
+  phasage aux téléphones (noms personnalisés, pièces, journée prévue,
+  déclarations du jour des collègues), sans nouvel appelant et sans élargir
+  ce qu'un ouvrier voit. Appliqué le 25/10 (migration
+  `20261025090000_cr3_parcours_ouvrier`).
+- **25/10/2026 — CR-3 : choix techniques.** (1) État attendu ce soir : le
+  moteur de planning ne dit pas qu'une tâche « doit finir » un jour donné ;
+  règle simple tirée du planning (toutes personnes) : encore planifiée après
+  aujourd'hui → « en cours » (avancement attendu au prorata des heures) ;
+  dernier jour planifié → « terminée ce soir », sauf si les heures du jour
+  couvrent moins de la moitié du reste ; ligne sans tâche du phasage → état
+  inconnu, l'ouvrier le dit. (2) Repères = 25 / 50 / 75 / 100 %, les valeurs
+  des boutons du formulaire v2 ; un repère sous l'avancement actuel n'est pas
+  proposé. (3) Interrupteur : `planning_config.cr_parcours_v3`, lu par les
+  ouvriers via la nouvelle fonction `ouvrier_journee_cr` (aucune règle
+  d'accès de `planning_config` modifiée) ; activé pour tous par défaut une
+  fois le parcours complet. (4) « Métier de l'ouvrier en premier » : les lots
+  où il a une tâche prévue aujourd'hui, puis ceux où il a déjà travaillé ou
+  est affecté, puis les autres — déduit des données, sans nouveau réglage.
+  (5) Message de retour sans « le chantier est à X % » : aucun chiffre
+  d'avancement chantier n'est partagé avec l'écran ouvrier, et l'avancement
+  ne bouge qu'à la validation ; en afficher un créerait un second chiffre.
+  (6) Une tâche créée par l'ouvrier porte son motif (`motif_hd`) et la
+  validation présélectionne le cas A / B / C (modifiable).
 
 ### Comptes rendus des étapes
 
@@ -881,6 +907,132 @@ juste, filtre, regroupement, rattachement).
   journal d'avancement et le Bilan la traitent sans changement. Les tâches
   qui dépendaient de la tâche d'origine ne dépendent pas automatiquement des
   copies (dépendances à revoir si besoin dans la vue Rang).
+#### CR-3 — Nouveau parcours du compte rendu ouvrier (25/10/2026, en ligne)
+
+**Ce qui change pour les ouvriers** (espace ouvrier → compte rendu).
+- **Écran d'accueil** : la journée prévue (chantiers, heures attendues) et,
+  pour chaque tâche prévue, l'état attendu ce soir (« terminée ce soir »,
+  « en cours ce soir (à moitié) », ou « à toi de dire où elle en est » quand
+  la ligne du planning n'est liée à aucune tâche du phasage). Deux gros
+  boutons :
+  - **« Journée comme prévu »** : chaque tâche prévue reçoit son état
+    attendu et sa durée prévue ; l'ouvrier vérifie, ajuste si besoin, ajoute
+    une photo ou une remarque s'il veut, et envoie ;
+  - **« Ça ne s'est pas passé comme prévu »** : il part du phasage du
+    chantier, pas de la liste des tâches prévues.
+- **Phasage sur téléphone** : grosses tuiles par lot (son métier en premier),
+  puis ouvrages, puis tâches, avec un fil de navigation ; ou par pièce. Noms
+  personnalisés partout (nom du devis en petit), recherche sur tout le
+  chantier, tâches terminées masquées (case « Voir les terminées »), point de
+  couleur gris / orange / vert (pas commencée / en cours / terminée),
+  sélection multiple avec « 3 tâches choisies → Suivant ». « Créer une
+  tâche » à chaque niveau, avec une seule question : « Pourquoi elle n'est
+  pas dans la liste ? » (je ne l'ai pas trouvée / travail imprévu / demande
+  du client ; une photo reste demandée pour une demande du client, comme
+  avant). Le phasage des chantiers du jour est gardé sur le téléphone dès
+  l'ouverture du compte rendu : il s'affiche sans réseau.
+- **Détail de chaque tâche** : repères concrets — Commencé (25 %), À moitié
+  (50 %), Presque fini (75 %), Terminé — ou la quantité posée pour les tâches
+  suivies en quantité ; « Pas commencé » et « Bloqué » restent disponibles.
+  Temps précis : durée prévue préremplie, ± 15 min, raccourcis 1 h / 2 h /
+  4 h / journée, « Le reste ici » qui pose tout le temps restant ; en option
+  (case à cocher, désactivée par défaut), une frise horaire (arrivée, départ,
+  pause, heure de début de chaque tâche → durées calculées). L'envoi reste
+  bloqué tant que le total n'est pas exact.
+- **Tâches prévues pas faites** (parcours « pas comme prévu ») : un dernier
+  écran court les liste avec une seule question pour toutes, « Pourquoi pas
+  faites aujourd'hui ? », ou une réponse tâche par tâche (motifs existants,
+  qui alimentent déjà « À replanifier » et le Bilan).
+- **Tâches faites à plusieurs** : quand un collègue a déjà déclaré la tâche
+  aujourd'hui, l'ouvrier voit « Davy a déclaré : bandes SDB terminée —
+  d'accord ? ». Oui → même état, il n'ajoute que son temps ; non → il dit son
+  état, et la validation affiche « Pas d'accord avec Davy, qui a déclaré
+  terminée ». Sans réseau, rien n'est affiché.
+- **Après l'envoi** : « Merci Davy ! Chambre 101 terminée, 1 en cours. Ton
+  conducteur va valider ta journée. » (exemple issu des tests, données
+  fictives). Pas de « le chantier est à X % » : il n'existe pas de chiffre
+  d'avancement chantier partagé avec l'écran ouvrier (voir le journal des
+  décisions).
+
+**Ce qui change pour Loris et les conducteurs.**
+- **Réglages → Utilisateurs → « Nouveau parcours du compte rendu »** :
+  interrupteur pour tous les ouvriers en même temps. **État : activé pour
+  tous** (réglage jamais enregistré = activé par défaut depuis le 25/10).
+  L'éteindre ramène immédiatement au formulaire actuel à la prochaine
+  ouverture du compte rendu ; les brouillons passent d'un écran à l'autre
+  sans perte (un brouillon commencé avant la mise en ligne s'ouvre
+  directement sur le détail).
+- **Validation** : les lignes reçues sont les mêmes qu'avant (mêmes statuts,
+  même avancement, mêmes heures). Deux ajouts visibles : le badge « D'accord
+  / Pas d'accord avec un collègue », et pour une tâche créée par l'ouvrier le
+  cas A / B / C présélectionné d'après son motif (modifiable). Aucune règle
+  de validation ne change ; l'avancement s'écrit toujours par le journal
+  d'avancement à la validation.
+
+**Comment se calcule l'état attendu ce soir** (règle simple, le moteur de
+planning ne marque pas de « fin prévue ce jour-là ») : la tâche est encore
+planifiée après aujourd'hui → en cours, avec l'avancement attendu = avancement
++ reste × heures du jour ÷ (heures du jour + heures planifiées après) ;
+aujourd'hui est son dernier jour planifié → terminée ce soir, sauf si les
+heures du jour couvrent moins de la moitié du reste (heures estimées × reste
+à faire) ; ligne du planning sans tâche du phasage → l'ouvrier le dit.
+Mesure sur les vraies données (planning et comptes rendus du 05/10 au
+23/10/2026, requête sur la base) : sur 98 tâches-jours où c'était le dernier
+jour planifié, 50 ont été déclarées terminées, 33 en cours, 15 pas faites ou
+bloquées ; sur 22 tâches-jours encore planifiées ensuite, 8 en cours, 2
+terminées, 12 pas faites ou bloquées. La règle est donc un point de départ
+que l'ouvrier corrige d'un tap, pas une certitude : le planning n'est
+souvent prolongé qu'après coup. Sur les semaines 41 à 43, 120 lignes du
+planning sur 218 (55 %) sont liées à une tâche du phasage ; les autres
+s'affichent « à toi de dire ».
+
+**Fonctions serveur modifiées (accord de Loris du 24/10)** — migration
+`20261025090000_cr3_parcours_ouvrier`, appliquée le 25/10 et enregistrée :
+- `ouvrier_mes_phases` : corps de production repris ligne à ligne (349 / 349
+  lignes retrouvées), 26 lignes ajoutées : `nom_perso`, `piece_id` (tâche),
+  `libelle_perso`, `lot_id` (ouvrage), `pieces`, `lots` (réponse). Même garde
+  (ouvrier testeur « mes_phases » ou « cr_v2 »), mêmes chantiers servis
+  qu'avant : avant comme après, la fonction sert le phasage de n'importe quel
+  chantier à un ouvrier autorisé (c'était déjà le cas — le panneau « J'ai
+  fait autre chose » s'en sert) ; rien n'a été élargi.
+- `ouvrier_taches_actives` : corps de production (110 / 110 lignes) + 1 ligne
+  (`nom_perso`).
+- **Nouvelle** `ouvrier_journee_cr` (lecture seule) : réglage du parcours,
+  journée prévue du chantier (heures du jour, heures planifiées après,
+  dernière date), et ce que les AUTRES ouvriers ont déclaré ce jour-là sur ce
+  chantier (tâche, état, avancement, quantité — ni heures ni remarques). Un
+  ouvrier ne l'obtient que pour un chantier où il est planifié dans la
+  semaine ; sinon seulement le réglage.
+- Droits vérifiés en base après application : les trois fonctions sont
+  exécutables par les utilisateurs connectés seulement (aucun accès anonyme),
+  comme les autres fonctions ouvrier.
+
+**Mises en ligne** : PR #174 (parcours complet, interrupteur éteint par
+défaut le temps de vérifier) puis PR d'activation (interrupteur allumé par
+défaut). Contrôle `verif-compte-rendu-v3` (données fictives) branché dans
+« Verify Fondations Finance » : les 7 cas demandés (« comme prévu » = mêmes
+lignes qu'une saisie manuelle avec les repères, « le reste ici », frise →
+durées, tâche créée avec chacun des 3 motifs et cas présélectionné, tâche
+prévue non faite avec motif, collègue confirmé puis contesté, envoi bloqué
+tant que le total n'est pas exact) et la navigation du phasage. Rendu des
+écrans vérifié hors application (rendu serveur, données fictives) ; le formulaire
+v2 sans le parcours est inchangé.
+
+**Points d'attention / pour CR-4.**
+- Les écrans « Mes phases » et le tableau de bord ouvrier affichent aussi
+  les noms personnalisés. Les écrans « Préparation » et « Chantier » de
+  l'espace ouvrier (fonctions `ouvrier_preparation_chantier`,
+  `ouvrier_chantier_detail`) gardent le libellé du devis : non modifiés.
+- La remarque générale et les remarques par tâche restent du texte tapé :
+  la dictée et la reformulation par l'IA arrivent à CR-4 (le texte d'origine
+  devra être gardé à côté).
+- La photo de fin de journée « de la zone » n'est pas encore distincte des
+  photos du chantier existantes : CR-4.
+- Écart aux règles : le script `verif-compte-rendu-v3` a été lancé en local
+  pendant son écriture, et un contrôle de syntaxe esbuild sur les fichiers
+  modifiés (aucun contrôle rouge à ce moment-là).
+
+---
 
 ## 5. Cahier des charges des étapes
 
