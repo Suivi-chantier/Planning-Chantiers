@@ -193,8 +193,8 @@ chaque étape.
 | Ordre | Étape | Statut | Date | Résumé |
 |---|---|---|---|---|
 | 1 | Étape 1 — Fondations des données financières | ✅ En ligne | 2026-10-24 | Trouvée non en ligne au démarrage, mise en ligne le 24/10 avec l'accord de Loris : 3 migrations, reconstitution du passé (4 796 lignes), premiers relevés journaliers. Voir « Vérification de l'étape 1 ». |
-| 2 | Étape 2 — Les trois marges et les alertes | ✅ En ligne | 2026-10-24 | Trois marges (avancement, terminaison, probable), « marge nette » devenue « budget restant », relevés passés recalculés (3 686), nouvelles alertes sur les relevés journaliers. Question ouverte : coefficients historiques sous ×1. Voir « Étape 2 ». |
-| 3 | Étape 3 — Refonte du Bilan semaine | 🟡 En cours — en attente de Loris pour 3.5 | 2026-10-24 | En ligne : 3.0 plancher ×1 (#155), 3.1-3.3 Bilan d'une période + présélection + version direction (#156), 3.4 version détaillée (#157), 3.6 décisions / tendances / semaine qui vient (#158), 3.7 bilan de clôture (#159). Reste : 3.5 bilans figés et rectifications + prévu / réalisé (question sur la table d'archive), assistant IA sur les relevés journaliers, sort des relevés du vendredi (question posée). Voir « Étape 3 ». |
+| 2 | Étape 2 — Les trois marges et les alertes | ✅ En ligne | 2026-10-24 | Trois marges (avancement, terminaison, probable), « marge nette » devenue « budget restant », relevés passés recalculés (3 686), nouvelles alertes sur les relevés journaliers. Coefficients sous ×1 : tranché par Loris (plancher ×1, livré en 3.0). Voir « Étape 2 ». |
+| 3 | Étape 3 — Refonte du Bilan semaine | ✅ En ligne | 2026-10-24 | Bilan sur les relevés journaliers, période libre, présélection, versions direction et détaillée, bilans figés + Rectifications, prévu / réalisé, fin prévisionnelle et glissement, tendances, semaine qui vient (équipe + commandes + livraisons), bilan de clôture. Relevés du vendredi arrêtés (option A), plus aucun lecteur. PR #155 à #166. Voir « Étape 3 ». |
 | 4 | Étape 4 — Tâches hors devis | ⏳ À faire | | |
 | 5 | CR-1 — Diagnostic chiffré des comptes rendus | ⏳ À faire | | |
 | 6 | CR-2 — Phasage lisible (libellés, pièces) | ⏳ À faire | | |
@@ -294,6 +294,23 @@ chaque étape.
   journaliers, test du doublon W31 à adapter). (2) et (3) : pas commencés.
   3.5 (#161, brouillon) attend l'application de la migration
   `bilans_exports`, gérée par le pilote avec Loris.
+- **24/10/2026 — Migration `bilans_exports` appliquée par Loris** dans
+  l'éditeur SQL de Supabase (la voie automatique était refusée), puis
+  enregistrée comme appliquée ; Loris a aussi exécuté le retrait des droits
+  de modification / suppression (`revoke update, delete, truncate`), vérifié
+  par le pilote (les utilisateurs connectés n'ont plus que lecture et ajout).
+  3.5 en ligne (#161).
+- **24/10/2026 — Étape 3 terminée.** (1b) assistant IA et onglet « Détail des
+  comptes rendus » sur les relevés journaliers (#164) ; (2) les deux tâches du
+  vendredi n'ont plus de déclenchement automatique, lancement manuel gardé,
+  tables conservées sans migration (#165) ; (3) commandes à passer et
+  livraisons attendues dans « La semaine qui vient », fin prévisionnelle et
+  glissement (#166). Choix faits : « livraison attendue » = matériau marqué
+  « commandé le » par la page Commandes à passer sans réception saisie (la
+  base n'a pas de date de livraison prévue) ; « à commander » = matériaux non
+  commandés des ouvrages dont la date de besoin tombe au plus tard le dernier
+  jour de la semaine qui vient (retards compris). La règle d'un ouvrage est
+  extraite dans `commandesOuvrageV1.mjs` et utilisée par les deux pages.
 
 ### Comptes rendus des étapes
 
@@ -470,14 +487,20 @@ Explications des écarts importants :
   quantité d'ouvrage, une commande saisie n'est reprise dans le relevé qu'au
   rattrapage de nuit.
 
-#### Étape 3 — Refonte du Bilan (24/10/2026, en cours : 3.5 en attente)
+#### Étape 3 — Refonte du Bilan (24/10/2026, en ligne)
 
 **Mises en ligne.** 3.0 coefficient de la marge probable jamais sous ×1
 (#155) ; 3.1-3.3 Bilan d'une période, présélection, version direction
 (#156) ; 3.4 version détaillée (#157, migration additive
 `20261024170000_releves_couts_par_nature` appliquée et vérifiée avant
 fusion) ; 3.6 décisions attendues, tendances, semaine qui vient (#158) ; 3.7
-bilan de clôture (#159). Scripts : `verif-bilan-periode.mjs` (68 contrôles,
+bilan de clôture (#159) ; 3.5 bilans figés, Rectifications, prévu / réalisé
+(#161, migration `20261024180000_bilans_exports` appliquée par Loris) ;
+bascule des derniers lecteurs des relevés du vendredi (#162 États financiers
+et export Opérations, #164 assistant IA et onglet « Détail des comptes
+rendus ») ; arrêt des deux tâches du vendredi (#165) ; commandes et
+livraisons de la semaine qui vient, fin prévisionnelle et glissement (#166).
+Scripts : `verif-bilan-periode.mjs` (96 contrôles,
 données fictives) dans Verify Fondations Finance ; `verif-trois-marges`
 complété (plancher ×1).
 
@@ -506,7 +529,20 @@ complété (plancher ×1).
 - Page 2 : alertes de l'étape 2, décisions attendues (rappel des blocages
   limité à 4 semaines ; propositions « Retenir / Écarter » : tâches en cours
   depuis 3 semaines, comptes rendus qui parlent d'une attente), tendances par
-  lot, semaine qui vient (calculée à l'ouverture).
+  lot, semaine qui vient (calculée à l'ouverture : équipe, jours, heures,
+  tâches, matériaux à commander et livraisons attendues par chantier).
+- **Bilans figés** : chaque PDF téléchargé est archivé (chiffres + document)
+  et ne change plus ; une donnée arrivée après coup sur une période déjà
+  exportée apparaît dans « Rectifications » du bilan suivant (chantier,
+  période, montant, cause). **Prévu / réalisé** : heures prévues par le
+  planning au bilan précédent face aux heures validées. **Fin
+  prévisionnelle** : date de fin prévue de chaque chantier et glissement en
+  jours depuis le bilan précédent (« au-delà de l'horizon du planning » ou
+  « pas de bilan précédent » quand on ne sait pas — jamais « 0 jour »).
+- **Relevés du vendredi arrêtés** : toute l'application (Bilan, Alertes,
+  États financiers, export Opérations, assistant IA) lit les relevés
+  journaliers ; les anciens relevés du vendredi restent enregistrés pour
+  l'historique et peuvent être relancés à la main.
 - Bilan de clôture des chantiers à 100 % (pas pour un chantier repris) :
   devis / réel par lot et ouvrage, marge finale, cadences de la bibliothèque à
   revoir (écart de plus de 15 %), sans rien modifier automatiquement.
@@ -527,19 +563,33 @@ une alerte. Lot qui dérive le plus : Menuiserie (×1,61, 52 h, 1 947 €).
 La section « semaine qui vient » n'est pas calculée dans ce PDF généré hors de
 l'application (elle l'est dans la page).
 
+**Fichiers PDF W43** (vraies données, générés le 24/10 avant 3.5) :
+`C:\Users\franz\AppData\Local\Temp\claude\c--Users-franz-Documents-AppProfero-Planning-Chantiers\4159b5ef-ac44-4c33-93a9-2dca97e1961a\scratchpad\Bilan-2026-W43-direction.pdf`
+et `…\scratchpad\Bilan-2026-W43-detaille.pdf` (dossier temporaire de la
+session : les régénérer depuis la page Bilan si besoin).
+
+**Migrations de l'étape.** `20261024170000_releves_couts_par_nature`
+(colonne ajoutée, appliquée après vérification) ;
+`20261024180000_bilans_exports` (nouvelle table réservée au bureau, accord
+de Loris, appliquée par Loris + retrait des droits de modification et de
+suppression). Aucune autre migration ; les tables des relevés du vendredi
+sont gardées telles quelles.
+
 **Points d'attention.**
-- 3.5 (bilans figés, ligne « Rectifications », prévu / réalisé, glissement
-  de la fin) attend l'accord de Loris sur la table d'archive.
-- L'assistant IA lit encore le relevé du vendredi : à basculer sur les
-  relevés journaliers (en même temps que la décision sur les relevés du
-  vendredi).
-- « Semaine qui vient » : équipe, jours, heures et nombre de tâches par
-  chantier ; les commandes à passer et livraisons attendues n'y sont pas
-  encore.
-- Prévu / réalisé : sera exprimé à partir du bilan précédent archivé (3.5).
+- Premier bilan exporté : « Prévu / réalisé » et le glissement de la fin
+  diront « pas de bilan précédent » jusqu'à ce qu'un premier bilan ait été
+  téléchargé (c'est lui qui sert de référence au suivant).
+- « Livraisons attendues » repose sur la marque « commandé le » posée par la
+  page Commandes à passer : une commande passée autrement n'y figure qu'à sa
+  saisie.
 - Les tendances et les dérives historiques restent faussées par les heures
   mal rattachées des anciens chantiers ; TOM & CAMILLE ne sont pas encore
   cochés « repris » (Loris le fera).
+- L'emplacement « tâches hors devis à arbitrer » des décisions attendues est
+  prêt mais vide : l'étape 4 le remplit (`suggestionsDecisionsV3` et la page).
+- Code mort laissé en place (aucun appel) : `pointsAttentionV1`, les
+  fonctions de dédoublonnage des relevés du vendredi et les deux routes
+  `api/cron-snapshot-*.js` (gardées pour un relancement manuel).
 
 ---
 
