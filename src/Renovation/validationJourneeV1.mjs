@@ -92,10 +92,11 @@ export function ecartsRapport(rapport, ctx = {}) {
       out.push({ niveau: "orange", code: "depassement",
         texte: `Dépassement d'heures sur « ${nom} »${chiffres} — ${libelleMotifDepassement(t.motif_depassement).toLowerCase()}` });
     }
+    // Depuis le parcours unique (CR-6), « Pas commencé » ne demande plus de
+    // motif : l'écart reste orange, sans motif affiché (même s'il en reste un
+    // sur un compte rendu plus ancien).
     if (t.statut === "non_faite" && !t.bloque && t.tache_id) {
-      const motif = t.motif ? libelleMotifStatut(t.motif) : null;
-      out.push({ niveau: "orange", code: "prevue_non_faite",
-        texte: `« ${nom} » prévue, pas faite${motif ? ` : ${motif.toLowerCase()}` : ""}` });
+      out.push({ niveau: "orange", code: "prevue_non_faite", texte: `« ${nom} » prévue, pas faite` });
     }
     if (t.collegue?.ouvrier && t.collegue.accord === false) {
       out.push({ niveau: "orange", code: "desaccord",

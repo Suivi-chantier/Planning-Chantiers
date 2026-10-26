@@ -1,12 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Compte rendu du soir — écrans du NOUVEAU PARCOURS (CR-3).
+// Compte rendu du soir — écrans du NOUVEAU PARCOURS (CR-3), parcours unique
+// depuis CR-6 : plus de choix entre deux boutons à l'ouverture, plus d'écran
+// final pour les tâches prévues non faites.
 //
-//   AccueilJournee   la journée prévue, l'état attendu ce soir de chaque tâche,
-//                    « Journée comme prévu » / « Ça ne s'est pas passé comme prévu »
+//   EnteteParcours   la journée attendue, la consigne, dictée et « J'ai fait
+//                    autre chose » ; la liste des tâches prévues suit directement
 //   PhasageMobileCR  le phasage du chantier : lot › ouvrage › tâche (ou pièce),
 //                    recherche, terminées masquées, sélection multiple,
-//                    « Créer une tâche » avec une seule question
-//   EcranNonFaites   les tâches prévues non choisies : « Pourquoi pas faites ? »
+//                    « Créer une tâche » avec une seule question ; en mode
+//                    « liaison », une seule tâche pour une ligne du planning
+//   BlocLiaison      ligne du planning non liée : la tâche la plus probable
 //   BlocCollegue     « Davy a déclaré : … — d'accord ? »
 //   FriseHoraire     option de l'ouvrier : heures de changement → durées
 //
@@ -22,10 +25,9 @@ import {
 import { LOTS_DEFAUT } from "../constants";
 import { BoutonMicro } from "./DicteeCompteRendu";
 import {
-  phraseAttendue, MOTIFS_CREATION, phraseCollegue, dureesDepuisFrise, minutesDeHeure,
+  MOTIFS_CREATION, phraseCollegue, dureesDepuisFrise, minutesDeHeure,
 } from "./compteRenduV3";
 import { fmtMinutes } from "./compteRenduV2";
-import { MOTIFS_STATUT } from "./motifsCompteRendu";
 import {
   construireArbre, tachesVisibles, rechercher, parPiece, aFaire, basculerSelection,
 } from "./phasageMobileV1";
@@ -52,72 +54,51 @@ export function phasageMemorise(chantierId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-export function AccueilJournee({ T, groupes, cibleHeures, fmtH, onCommePrevu, onPasCommePrevu, journeeEtat, onDicter = null }) {
-  const nbPrevues = groupes.reduce((s, g) => s + g.lignes.length, 0);
+// En-tête du parcours unique (CR-6) : la journée attendue, la consigne, et
+// les deux gestes qui ouvrent un autre écran (dictée, « J'ai fait autre
+// chose »). La liste des tâches prévues s'affiche juste en dessous, tout de
+// suite : il n'y a plus de choix « comme prévu / pas comme prévu ».
+export function EnteteParcours({ T, cibleHeures, fmtH, nbPrevues, journeeEtat, onDicter = null, onAutreChose, dicteeFaite = false, children = null }) {
   return (
-    <>
-      <div style={carte(T)}>
-        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 6 }}>
-          Ta journée prévue
-        </div>
-        <div style={{ fontSize: 16, color: T.text, marginBottom: 10 }}>
-          <Icon as={Clock} size={15}/> {fmtH(cibleHeures)} attendues aujourd'hui
-        </div>
-        {nbPrevues === 0 && (
-          <div style={{ fontSize: 15, color: T.textSub, lineHeight: 1.5 }}>Rien n'est planifié pour toi aujourd'hui.</div>
-        )}
-        {groupes.map(g => (
-          <div key={g.cle} style={{ marginTop: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 6 }}>
-              <span style={{ width: 12, height: 12, borderRadius: "50%", background: g.couleur, flexShrink: 0 }}/> {g.nom}
-            </div>
-            {g.lignes.map(({ t, attendu, idx }) => (
-              <div key={idx} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", borderTop: `1px solid ${T.border}` }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 16.5, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{t.planifie}</div>
-                  <div style={{ fontSize: 14, color: attendu?.etat === "termine" ? "#166534" : attendu?.etat === "en_cours" ? "#b45309" : T.textSub, fontWeight: 700 }}>
-                    → {phraseAttendue(attendu)}
-                  </div>
-                </div>
-                {t.heures_prevues > 0 && (
-                  <div style={{ fontSize: 14, color: T.textSub, whiteSpace: "nowrap" }}>{fmtMinutes(Math.round(t.heures_prevues * 60))}</div>
-                )}
-              </div>
-            ))}
-          </div>
-        ))}
-        {journeeEtat === "indisponible" && nbPrevues > 0 && (
-          <div style={{ marginTop: 10, fontSize: 13, color: T.textSub, fontStyle: "italic" }}>
-            <Icon as={WifiOff} size={13}/> État attendu indisponible (connexion) : tu le diras toi-même tâche par tâche.
-          </div>
-        )}
+    <div style={carte(T)}>
+      <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 1.2, textTransform: "uppercase", color: T.textMuted, marginBottom: 6 }}>
+        Ta journée
       </div>
-      <div style={{ padding: "4px 12px 24px", display: "grid", gap: 12 }}>
-        {nbPrevues > 0 && (
-          <button onClick={onCommePrevu} style={gros(T, "#166534")}>
-            <Icon as={Check} size={22} strokeWidth={2.8}/> Journée comme prévu
-          </button>
-        )}
-        <button onClick={onPasCommePrevu} style={gros(T, T.surface, SOMBRE)}>
-          <span style={{ border: `2px solid ${SOMBRE}`, borderRadius: 999, display: "inline-flex", padding: 2 }}><Icon as={X} size={16} strokeWidth={2.8}/></span>
-          {nbPrevues > 0 ? "Ça ne s'est pas passé comme prévu" : "Dire ce que j'ai fait"}
-        </button>
+      <div style={{ fontSize: 16, color: T.text, marginBottom: 6 }}>
+        <Icon as={Clock} size={15}/> {fmtH(cibleHeures)} attendues aujourd'hui
+      </div>
+      <div style={{ fontSize: 15, color: T.textSub, lineHeight: 1.45 }}>
+        {nbPrevues > 0
+          ? "Pour chaque tâche prévue, dis où elle en est et ton temps. Le « prévu » écrit en petit n'est qu'un repère."
+          : "Rien n'est planifié pour toi aujourd'hui : dis ce que tu as fait."}
+      </div>
+      {journeeEtat === "indisponible" && nbPrevues > 0 && (
+        <div style={{ marginTop: 8, fontSize: 13, color: T.textSub, fontStyle: "italic" }}>
+          <Icon as={WifiOff} size={13}/> Repères du planning indisponibles (connexion) : rien ne change pour toi, dis où en est chaque tâche.
+        </div>
+      )}
+      <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
         {onDicter && (
-          <button onClick={onDicter} style={gros(T, T.surface, SOMBRE)}>
-            <Icon as={Mic} size={22}/> Raconter ma journée au micro
+          <button onClick={onDicter} style={{ ...gros(T, T.surface, SOMBRE), minHeight: 56, fontSize: 17, border: `1.5px solid ${T.border}` }}>
+            <Icon as={Mic} size={20}/> {dicteeFaite ? "Ma dictée" : "Raconter ma journée au micro"}
           </button>
         )}
+        <button onClick={onAutreChose} style={{ ...gros(T, T.surface, SOMBRE), minHeight: 56, fontSize: 17, border: `2px dashed ${T.borderHover}` }}>
+          <Icon as={Plus} size={20}/> J'ai fait autre chose
+        </button>
       </div>
-    </>
+      {children}
+    </div>
   );
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // chantiers : [{ id, nom, couleur }] — ceux du jour d'abord.
 // dejaChoisies : Set des tache_id déjà dans la journée (choisies ou ajoutées).
 export function PhasageMobileCR({
   T, chantiers = [], tousChantiers = [], prenom, aujourdhuiISO, tachesDuJourIds = [], horsConnexion = false,
   dejaChoisies = new Set(), onValider, onCreer, onFermer, champPhotos = null,
+  // CR-6 : { texte } = rattacher UNE ligne du planning à une tâche (choix unique).
+  modeLiaison = null, creerDirect = false,
 }) {
   const [chantierId, setChantierId] = useState(chantiers[0]?.id || "");
   const [charges, setCharges] = useState({});
@@ -126,7 +107,7 @@ export function PhasageMobileCR({
   const [recherche, setRecherche] = useState("");
   const [montrerTerminees, setMontrerTerminees] = useState(false);
   const [selection, setSelection] = useState([]);    // tache_id
-  const [creation, setCreation] = useState(null);    // { ouvrage, nom, motif, photos }
+  const [creation, setCreation] = useState(() => (creerDirect ? { ouvrage: null, nom: modeLiaison?.texte || "", motif: null, photos: [] } : null)); // { ouvrage, nom, motif, photos }
 
   const chantier = chantiers.find(c => c.id === chantierId) || tousChantiers.find(c => c.id === chantierId) || null;
   useEffect(() => {
@@ -154,7 +135,7 @@ export function PhasageMobileCR({
   const arbre = useMemo(() => (charge?.etat === "ok"
     ? construireArbre(charge.data, { lotsDefaut: LOTS_DEFAUT, tachesDuJourIds }) : null), [charge, tachesDuJourIds]);
   const tachesParId = useMemo(() => new Map((arbre?.taches || []).map(t => [t.id, t])), [arbre]);
-  const choisir = (id) => setSelection(s => basculerSelection(s, id));
+  const choisir = (id) => setSelection(s => (modeLiaison ? (s[0] === id ? [] : [id]) : basculerSelection(s, id)));
   const changerChantier = (id) => { setChantierId(id); setChemin([]); setRecherche(""); };
 
   const lot = arbre && mode === "lots" && chemin[0] ? arbre.lots.find(l => l.id === chemin[0]) : null;
@@ -213,7 +194,7 @@ export function PhasageMobileCR({
     );
   };
   const boutonCreer = (o) => (
-    <button onClick={() => setCreation({ ouvrage: o ? { id: o.id, libelle: o.libelle } : null, nom: "", motif: null, photos: [] })} style={{
+    <button onClick={() => setCreation({ ouvrage: o ? { id: o.id, libelle: o.libelle } : null, nom: modeLiaison?.texte || "", motif: null, photos: [] })} style={{
       width: "100%", minHeight: 52, borderRadius: 14, border: `2px dashed ${T.borderHover}`, background: "transparent",
       color: T.text, fontFamily: "inherit", fontSize: 16, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4,
     }}><Icon as={Plus} size={18}/> Créer une tâche{o ? " ici" : ""}</button>
@@ -266,7 +247,7 @@ export function PhasageMobileCR({
         </div>
         <div style={{ padding: "4px 12px 24px" }}>
           <button disabled={!pret} onClick={() => { onCreer(creation, chantier); setCreation(null); }} style={{ ...gros(T, pret ? T.accent : T.border, SOMBRE), opacity: pret ? 1 : 0.6 }}>
-            <Icon as={Check} size={20}/> Ajouter à ma journée
+            <Icon as={Check} size={20}/> {modeLiaison ? "Créer la tâche (heures gardées)" : "Ajouter à ma journée"}
           </button>
         </div>
       </div>
@@ -278,8 +259,11 @@ export function PhasageMobileCR({
       <div style={{ background: "#16181d", padding: "14px 16px", color: "#fff", position: "sticky", top: 0, zIndex: 2 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={onFermer} aria-label="Fermer" style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer" }}><Icon as={X} size={24}/></button>
-          <div style={{ fontSize: 19, fontWeight: 800, flex: 1 }}>Qu'as-tu fait aujourd'hui ?</div>
+          <div style={{ fontSize: 19, fontWeight: 800, flex: 1 }}>{modeLiaison ? "C'est quelle tâche ?" : "Qu'as-tu fait aujourd'hui ?"}</div>
         </div>
+        {modeLiaison && (
+          <div style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", marginTop: 4 }}>Au planning : « {modeLiaison.texte} » — ses heures sont gardées.</div>
+        )}
         <div style={{ position: "relative", marginTop: 10 }}>
           <Icon as={Search} size={18} style={{ position: "absolute", left: 12, top: 15, color: T.textMuted }}/>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -391,7 +375,9 @@ export function PhasageMobileCR({
         <button disabled={selection.length === 0} onClick={() => onValider(selection.map(id => tachesParId.get(id)).filter(Boolean), chantier)} style={{
           ...gros(T, selection.length ? T.accent : T.border, SOMBRE), opacity: selection.length ? 1 : 0.6,
         }}>
-          <Icon as={ListChecks} size={20}/> {selection.length === 0 ? "Choisis tes tâches" : `${selection.length} tâche${selection.length > 1 ? "s" : ""} choisie${selection.length > 1 ? "s" : ""} → Suivant`}
+          <Icon as={ListChecks} size={20}/> {modeLiaison
+            ? (selection.length === 0 ? "Choisis la tâche" : "Choisir cette tâche")
+            : selection.length === 0 ? "Choisis tes tâches" : `${selection.length} tâche${selection.length > 1 ? "s" : ""} choisie${selection.length > 1 ? "s" : ""} → Ajouter à ma journée`}
         </button>
       </div>
     </div>
@@ -399,59 +385,52 @@ export function PhasageMobileCR({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// nonFaites : [{ t, idx }] ; reponses : { [idx]: motif } ; onRepondre(idx|null, motif)
-export function EcranNonFaites({ T, nonFaites, reponses, onRepondre, onRetour, onTerminer }) {
-  const [une, setUne] = useState(null); // idx répondu tâche par tâche
-  const toutes = nonFaites.every(x => reponses[x.idx]);
+// Ligne du planning non liée à une tâche du phasage (CR-6) : la proposition
+// la plus probable en tête (nom, lot, ouvrage), « Choisir dans le phasage »,
+// ou « Créer une tâche ». Rien n'est rattaché sans geste de l'ouvrier.
+//   proposition : propositionsLiaison(...)[0] ou null ; etat : ok | chargement | indisponible
+export function BlocLiaison({ T, proposition = null, etat = "ok", onAccepter, onChoisir, onCreer }) {
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1100, background: T.bg, overflowY: "auto", paddingBottom: 100 }}>
-      <div style={{ background: "#16181d", padding: "14px 16px", color: "#fff", display: "flex", alignItems: "center", gap: 10 }}>
-        <button onClick={onRetour} aria-label="Retour" style={{ background: "transparent", border: "none", color: "#fff", cursor: "pointer" }}><Icon as={ChevronLeft} size={24}/></button>
-        <div style={{ fontSize: 19, fontWeight: 800 }}>Tâches prévues pas faites</div>
+    <div style={{ marginTop: 10, padding: 12, borderRadius: 14, background: "#fff7ed", border: "1.5px solid #fed7aa" }}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: SOMBRE, lineHeight: 1.35 }}>
+        Cette ligne du planning n'est reliée à aucune tâche du phasage. C'est laquelle ?
       </div>
-      <div style={carte(T)}>
-        {nonFaites.map(({ t, idx }) => (
-          <div key={idx} style={{ padding: "8px 0", borderTop: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 16.5, fontWeight: 700, color: T.text }}>{t.planifie}</div>
-            <div style={{ fontSize: 13.5, color: reponses[idx] ? "#166534" : T.textSub }}>
-              {reponses[idx] ? `→ ${MOTIFS_STATUT.find(m => m.code === reponses[idx])?.label || reponses[idx]}` : "Pas encore de réponse"}
-              {" · "}<button onClick={() => setUne(une === idx ? null : idx)} style={{ background: "transparent", border: "none", padding: 0, color: T.info, fontFamily: "inherit", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
-                {une === idx ? "fermer" : "répondre pour celle-ci"}
-              </button>
-            </div>
-            {une === idx && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {MOTIFS_STATUT.map(m => (
-                  <button key={m.code} onClick={() => { onRepondre(idx, m.code); setUne(null); }} style={{
-                    minHeight: 42, padding: "0 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 14.5, fontWeight: 700,
-                    border: `2px solid ${reponses[idx] === m.code ? SOMBRE : T.border}`, background: reponses[idx] === m.code ? SOMBRE : T.surface, color: reponses[idx] === m.code ? "#fff" : T.text,
-                  }}>{m.label}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <div style={carte(T)}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: T.text, marginBottom: 8 }}>Pourquoi pas faites aujourd'hui ? (une réponse pour toutes)</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {MOTIFS_STATUT.map(m => (
-            <button key={m.code} onClick={() => onRepondre(null, m.code)} style={{
-              minHeight: 46, padding: "0 14px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 15, fontWeight: 700,
-              border: `2px solid ${T.border}`, background: T.surface, color: T.text,
-            }}>{m.label}</button>
-          ))}
+      {etat === "chargement" && <div style={{ fontSize: 13.5, color: T.textSub, marginTop: 6 }}>Recherche de la tâche la plus probable…</div>}
+      {etat === "indisponible" && (
+        <div style={{ fontSize: 13.5, color: T.textSub, marginTop: 6 }}>
+          <Icon as={WifiOff} size={13}/> Phasage du chantier indisponible pour l'instant : tu peux envoyer quand même, le conducteur la rattachera.
         </div>
-      </div>
-      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, padding: "10px 12px 16px", background: T.bg, borderTop: `1px solid ${T.border}` }}>
-        <button disabled={!toutes} onClick={onTerminer} style={{ ...gros(T, toutes ? T.accent : T.border, SOMBRE), opacity: toutes ? 1 : 0.6 }}>
-          <Icon as={Check} size={20}/> {toutes ? "Continuer" : "Réponds pour chaque tâche"}
+      )}
+      {proposition && (
+        <button onClick={onAccepter} style={{
+          width: "100%", textAlign: "left", marginTop: 8, minHeight: 56, borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+          border: `2px solid #166534`, background: "#f0fdf4", color: T.text, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <Icon as={Check} size={20} strokeWidth={2.8} style={{ color: "#166534", flexShrink: 0 }}/>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 12, fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: 0.3 }}>La plus probable</span>
+            <span style={{ display: "block", fontSize: 16.5, fontWeight: 800, lineHeight: 1.25 }}>{proposition.nom}</span>
+            <span style={{
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+              fontSize: 12.5, color: T.textSub, lineHeight: 1.35,
+            }}>{[proposition.lot, proposition.ouvrage, proposition.piece].filter(Boolean).join(" › ")}</span>
+          </span>
+        </button>
+      )}
+      {!proposition && etat === "ok" && (
+        <div style={{ fontSize: 13.5, color: T.textSub, marginTop: 6 }}>Aucune tâche du phasage ne ressemble à ce nom : choisis-la ou crée-la.</div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+        <button onClick={onChoisir} style={{ minHeight: 46, borderRadius: 12, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontFamily: "inherit", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+          Choisir dans le phasage
+        </button>
+        <button onClick={onCreer} style={{ minHeight: 46, borderRadius: 12, border: `1.5px dashed ${T.borderHover}`, background: T.surface, color: T.text, fontFamily: "inherit", fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>
+          Créer une tâche
         </button>
       </div>
     </div>
   );
 }
-
 // ═══════════════════════════════════════════════════════════════════════════
 // declarations : celles des collègues pour CETTE tâche ; t.collegue = réponse déjà donnée.
 export function BlocCollegue({ T, t, declarations, onAccord, onDesaccord }) {

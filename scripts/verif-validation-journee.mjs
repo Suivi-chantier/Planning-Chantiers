@@ -61,7 +61,10 @@ ok(/13 h pour 10 h prévues/.test(cDep.ecarts[0].texte), "dépassement chiffré 
 const rBloq = { ...rA, id: "rBloq", taches: [{ tache_id: "t3", planifie: "Faïence", statut: "en_cours", bloque: true, motif: "attente_materiel", remarque: "colle manquante", heures_reelles: 1 }] };
 ok(/bloquée : attente de matériel — « colle manquante »/.test(classerRapport(rBloq, ctxBase).ecarts[0].texte), "tâche bloquée avec motif et remarque");
 const rNonFaite = { ...rA, id: "rNF", taches: [...rA.taches, { tache_id: "t4", planifie: "Enduit", statut: "non_faite", motif: "manque_de_temps", heures_reelles: 0 }] };
-ok(classerRapport(rNonFaite, ctxBase).ecarts.some(e => e.code === "prevue_non_faite" && /manque de temps/.test(e.texte)), "tâche prévue non faite avec motif");
+// CR-6 : « prévue, pas faite » reste un écart orange, SANS motif affiché.
+const eNF = classerRapport(rNonFaite, ctxBase);
+ok(eNF.niveau === "ecarts" && eNF.ecarts.some(e => e.niveau === "orange" && e.code === "prevue_non_faite" && e.texte === "« Enduit » prévue, pas faite"), "tâche prévue non faite : écart orange, sans motif affiché");
+ok(!eNF.ecarts.some(e => /manque de temps|pourquoi|motif/i.test(e.texte)), "aucun motif évoqué pour une tâche prévue non faite");
 ok(classerRapport({ ...rA, ouvrier: "Inconnu" }, ctxBase).ecarts.some(e => e.code === "non_planifie"), "ouvrier non planifié signalé");
 ok(classerRapport(rA, { ...ctxBase, avancementParTache: { t2: 100 } }).ecarts.some(e => e.code === "deja_terminee"), "tâche déjà terminée pointée");
 ok(classerRapport(rA, { ...ctxBase, heuresAttendues: 9, heuresJourOuvrier: 8 }).ecarts.some(e => e.code === "total" && /8 h déclarées pour 9 h attendues/.test(e.texte)), "total différent de l'attendu");

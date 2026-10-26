@@ -1,16 +1,19 @@
 // Vérification CR-3 : nouveau parcours du compte rendu ouvrier (données fictives).
 // Exemple issu des tests, données fictives : chantier « C1 », tâches t1…t4.
+// Depuis CR-6 (parcours unique), « Journée comme prévu » et l'écran « Pourquoi
+// pas faites ? » n'existent plus : leurs contrôles sont retirés d'ici, le
+// parcours unique est vérifié par verif-cr6-parcours-unique.mjs.
 import assert from "node:assert/strict";
 import {
   parcoursActif, PARCOURS_ACTIF_PAR_DEFAUT, REPERES, repereDeLigne, repereProposable, appliquerRepere, repereAttendu,
-  etatAttenduCeSoir, phraseAttendue, lignesCommePrevu, estLignePrevue,
+  etatAttenduCeSoir, phraseAttendue, estLignePrevue,
   minutesJourneeTaches, appliquerRaccourci, resteIci,
-  dureesDepuisFrise, appliquerFrise, prevuesNonChoisies, appliquerNonFaite,
+  dureesDepuisFrise, appliquerFrise,
   MOTIFS_CREATION, ligneTacheCreee, declarationsParTache, phraseCollegue, confirmerCollegue, contesterCollegue,
   serialiserLigneV3, messageRetour,
 } from "../src/Renovation/compteRenduV3.mjs";
 import {
-  appliquerChoix, serialiserLigneV2, etatEnvoi, minutesDe, finaliserLignesV2, preremplirDurees,
+  appliquerChoix, serialiserLigneV2, etatEnvoi, minutesDe, preremplirDurees,
 } from "../src/Renovation/compteRenduV2.mjs";
 import {
   construireArbre, rechercher, parPiece, tachesVisibles, etatTache, basculerSelection, SANS_LOT,
@@ -61,22 +64,21 @@ eq(appliquerRepere(ligne("Bandes", "t1", 4), "commence", { avancementActuel: 40 
 eq(repereAttendu(70, 40), "presque_fini", "attendu 70 % → repère le plus proche (presque fini)");
 eq(repereAttendu(90, 80), null, "déjà au-delà de presque fini : aucun repère");
 
-// ── 1. « Comme prévu » = mêmes lignes qu'une saisie manuelle équivalente ────
+// ── 1. Repères saisis à la main = mêmes lignes que les boutons du v2 ───────
 const prevues = [ligne("Bandes chambre", "t1", 4), ligne("Plaquage SDB", "t2", 4), ligne("Ligne sans tâche", null, 1)];
-const attendus = {
-  0: etatAttenduCeSoir({ prevue: { heures_jour: 4, heures_apres: 4 }, info: infos.t1 }),
-  1: etatAttenduCeSoir({ prevue: { heures_jour: 8, heures_apres: 0 }, info: infos.t2 }),
-  2: etatAttenduCeSoir({ prevue: null }),
-};
-const commePrevu = lignesCommePrevu(prevues, attendus, infos);
+const saisies = [
+  appliquerRepere(prevues[0], "presque_fini", { avancementActuel: 40 }),
+  appliquerRepere(prevues[1], "termine", { avancementActuel: 0 }),
+  prevues[2],
+];
 const manuel = [
   { ...appliquerChoix(prevues[0], "en_cours", { avancementActuel: 40 }), avancement: "75" },
   appliquerChoix(prevues[1], "termine", { avancementActuel: 0 }),
   prevues[2],
 ];
-eq(commePrevu.map(serialiserLigneV3), manuel.map(serialiserLigneV2), "comme prévu : lignes identiques à la saisie manuelle (repères 25/50/75)");
-eq(commePrevu.map(minutesDe), [240, 240, 60], "comme prévu : durées prévues gardées");
-eq(commePrevu[2].statut, null, "comme prévu : ligne sans tâche reste à compléter");
+eq(saisies.map(serialiserLigneV3), manuel.map(serialiserLigneV2), "repères : lignes identiques à la saisie v2 (25/50/75/100)");
+eq(saisies.map(minutesDe), [240, 240, 60], "durées prévues préremplies et gardées");
+eq(saisies[2].statut, null, "ligne sans tâche : rien n'est choisi à la place de l'ouvrier");
 ok(estLignePrevue(prevues[0]) && !estLignePrevue({ ...prevues[0], origine: "phasage" }), "ligne prévue = venue du planning");
 
 // ── 2. « Le reste ici » et raccourcis ───────────────────────────────────────
@@ -115,14 +117,6 @@ for (const m of MOTIFS_CREATION) {
   eq(cas, { introuvable: "A", imprevu: "B", demande_client: "C" }[m.code], `validation : cas ${cas} présélectionné pour ${m.code}`);
 }
 eq(creationParDefaut({ planifie: "x", proposition: { nature: "imprevu" } }).cas, undefined, "ancienne proposition sans motif : aucun cas présélectionné (inchangé)");
-
-// ── 5. Tâche prévue non faite, avec motif ───────────────────────────────────
-const choisies = [0];
-const nonFaites = prevuesNonChoisies(prevues, choisies);
-eq(nonFaites.map(x => x.idx), [1, 2], "pas comme prévu : les prévues non choisies");
-t = appliquerNonFaite(prevues[1], "manque_de_temps", { avancementActuel: 0 });
-const sNF = serialiserLigneV3(finaliserLignesV2([t])[0]);
-eq([sNF.statut, sNF.motif, sNF.heures_reelles, sNF.avancement], ["non_faite", "manque_de_temps", 0, 0], "prévue non faite : Pas commencé + motif, 0 h, avancement du phasage");
 
 // ── 6. Tâche déjà déclarée par un collègue ──────────────────────────────────
 const decl = declarationsParTache([
