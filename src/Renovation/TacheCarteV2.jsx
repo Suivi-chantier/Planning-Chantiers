@@ -34,8 +34,14 @@ import {
 import { Pastille } from "./OuvrierMesPhases";
 // Nouveau parcours (CR-3) : repères concrets, raccourcis de temps, « le reste
 // ici », tâche déjà déclarée par un collègue.
-import { REPERES, repereDeLigne, repereProposable, appliquerRepere, RACCOURCIS_MINUTES, appliquerRaccourci, resteIci } from "./compteRenduV3";
-import { BlocCollegue } from "./ParcoursCompteRendu";
+// Parcours unique (CR-6) : « Pas commencé » sans motif (« Pas avancé
+// aujourd'hui » pour une tâche déjà avancée), prévu affiché comme simple
+// repère, ligne du planning non liée (proposition de tâche).
+import {
+  REPERES, repereDeLigne, repereProposable, appliquerRepere, RACCOURCIS_MINUTES, appliquerRaccourci, resteIci,
+  appliquerPasCommence, libellePasCommence,
+} from "./compteRenduV3";
+import { BlocCollegue, BlocLiaison } from "./ParcoursCompteRendu";
 
 const SOMBRE = "#1a1f2e";
 const fmtH = (h) => fmtMinutes(Math.round(h * 60));
@@ -79,6 +85,9 @@ export default function TacheCarteV2({
   vientDEtreAjoutee = false,
   // Nouveau parcours (CR-3) — absent = carte du formulaire v2, inchangée.
   parcours = false, minutesJournee = 0, declarationsCollegues = null, onAccordCollegue = null, onDesaccordCollegue = null,
+  // Parcours unique (CR-6) : repère « prévu : … » (jamais sélectionné), et
+  // ligne du planning non liée : { proposition, etat, onAccepter, onChoisir, onCreer }.
+  prevuTexte = null, liaison = null,
 }) {
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
@@ -86,7 +95,7 @@ export default function TacheCarteV2({
   const suivi = etatAvecAujourdhui(info, t);
   const requis = motifDepassementRequis(info, t);
   const dernier = info?.dernier_motif_depassement || null;
-  const problemes = problemesLigne(t, info && t.tache_id ? { [String(t.tache_id)]: info } : {}, { horsConnexion });
+  const problemes = problemesLigne(t, info && t.tache_id ? { [String(t.tache_id)]: info } : {}, { horsConnexion, parcours });
   // Suivi en quantité (null = en pourcentage, ou infos indisponibles).
   const sq = suiviDepuisInfo(info);
   const apresTemps = (x) => (sq ? apresMinutesSuivi(x, sq) : x);
@@ -201,6 +210,14 @@ export default function TacheCarteV2({
           <Icon as={Hourglass} size={13}/> Prévu au planning : {fmtH(t.heures_prevues)}
         </div>
       )}
+      {/* Parcours unique : le prévu, en petit, comme simple repère (jamais sélectionné). */}
+      {parcours && prevuTexte && (
+        <div style={{ fontSize: 13, color: T.textSub, marginTop: 2, fontStyle: "italic" }}>{prevuTexte}</div>
+      )}
+      {parcours && liaison && (
+        <BlocLiaison T={T} proposition={liaison.proposition} etat={liaison.etat}
+          onAccepter={liaison.onAccepter} onChoisir={liaison.onChoisir} onCreer={liaison.onCreer}/>
+      )}
 
       {parcours && declarationsCollegues?.length > 0 && (
         <BlocCollegue T={T} t={t} declarations={declarationsCollegues} onAccord={onAccordCollegue} onDesaccord={onDesaccordCollegue}/>
@@ -210,7 +227,7 @@ export default function TacheCarteV2({
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>Temps passé</div>
-          {!tempsActif && <div style={{ fontSize: 12.5, color: T.textSub }}>Pas commencé : 0 h</div>}
+          {!tempsActif && <div style={{ fontSize: 12.5, color: T.textSub }}>{parcours ? libellePasCommence(avancementActuel) : "Pas commencé"} : 0 h</div>}
         </div>
         <button aria-label="Retirer 15 minutes" disabled={!tempsActif || min <= 0}
           onClick={() => onMaj(x => apresTemps(changerMinutes(x, Math.max(0, minutesDe(x) - PAS_MINUTES))))} style={btnPasStyle(tempsActif && min > 0)}>
@@ -277,16 +294,21 @@ export default function TacheCarteV2({
             {avancementActuel != null && !sq && (
               <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>Avant aujourd'hui : {Math.round(avancementActuel)} %</div>
             )}
+            {!actuel && min <= 0 && !t.origine && !t.libre && (
+              <div style={{ fontSize: 12.5, color: T.textSub, marginTop: 4 }}>Sans temps ni état, elle partira comme « {libellePasCommence(avancementActuel).toLowerCase()} ».</div>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               {[{ id: "pas_commence", icon: Ban }, { id: "bloque", icon: Pause }].map(s => {
                 const sel = actuel === s.id;
+                const appliquer = (x) => (s.id === "pas_commence" ? appliquerPasCommence(x, { avancementActuel, suivi: sq })
+                  : sq ? appliquerChoixSuivi(x, s.id, sq) : appliquerChoix(x, s.id, { avancementActuel }));
                 return (
                   <button key={s.id} aria-pressed={sel}
-                    onClick={() => onMaj(x => (sq ? appliquerChoixSuivi(x, s.id, sq) : appliquerChoix(x, s.id, { avancementActuel })))} style={{
+                    onClick={() => onMaj(appliquer)} style={{
                       flex: 1, minHeight: 44, borderRadius: 12, cursor: "pointer", fontFamily: "inherit", fontSize: 14.5, fontWeight: 800,
                       border: `1.5px solid ${sel ? SOMBRE : T.border}`, background: sel ? SOMBRE : T.bg, color: sel ? "#fff" : T.textSub,
                       display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                    }}><Icon as={s.icon} size={15}/> {CHOIX[s.id]}</button>
+                    }}><Icon as={s.icon} size={15}/> {s.id === "pas_commence" ? libellePasCommence(avancementActuel) : CHOIX[s.id]}</button>
                 );
               })}
             </div>
@@ -391,8 +413,9 @@ export default function TacheCarteV2({
         </div>
       )}
 
-      {/* Motif : obligatoire pour Bloqué et Pas commencé */}
-      {(choix === "bloque" || choix === "pas_commence") && (
+      {/* Motif : obligatoire pour Bloqué ; pour Pas commencé seulement hors
+          parcours unique (CR-6 : « Pas commencé » ne demande aucun motif). */}
+      {(choix === "bloque" || (choix === "pas_commence" && !parcours)) && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: T.text, marginBottom: 8 }}>
             {choix === "bloque" ? "Qu'est-ce qui bloque ?" : "Pourquoi pas commencé ?"}

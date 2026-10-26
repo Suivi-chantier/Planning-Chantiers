@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-26",
     type: "amelioration",
+    titre: "Compte rendu du soir : un seul parcours, c'est l'ouvrier qui dit où en est chaque tâche",
+    pages: [{ id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" }],
+    quoi: "Les boutons « Journée comme prévu » et « Ça ne s'est pas passé comme prévu » disparaissent : le planning ne devine juste qu'environ une fois sur deux, et un compte rendu rempli d'office pouvait arriver faux en gris « comme prévu ». Désormais, l'ouvrier voit tout de suite, chantier par chantier, la liste de ses tâches prévues avec leur durée prévue déjà remplie, et il choisit lui-même l'état de chacune en un geste : Pas commencé, Commencé, À moitié, Presque fini, Terminé (ou la quantité posée), ou Bloqué avec son motif. Ce qui était prévu reste écrit en petit (« prévu : terminée ce soir »), comme simple repère. « Pas commencé » ne demande plus de motif ; pour une tâche déjà avancée, le bouton s'écrit « Pas avancé aujourd'hui » (l'avancement ne bouge pas). L'écran « Pourquoi pas faites aujourd'hui ? » est supprimé.",
+    comment: "« J'ai fait autre chose » ouvre le phasage du chantier : les tâches choisies ou créées s'ajoutent à la liste sans rien effacer. Une ligne du planning qui n'est reliée à aucune tâche du phasage propose la tâche la plus probable (nom, lot, ouvrage) : l'ouvrier l'accepte d'un geste, en choisit une autre dans le phasage ou crée une tâche ; la ligne garde ses heures. Quand un collègue a déjà déclaré la tâche, « Oui, d'accord » vaut choix de l'état. La dictée continue de remplir ce dont elle est sûre, l'ouvrier relit avant d'envoyer. L'envoi reste bloqué tant qu'une tâche avec des heures n'a pas d'état (le message dit laquelle) ou que le total n'est pas exact ; une tâche prévue laissée sans heures et sans état part comme « pas commencé ». Les brouillons en cours s'ouvrent sans rien perdre. À la validation, « prévue, pas faite » reste un écart orange, sans motif. Réglages → Utilisateurs → « Nouveau parcours du compte rendu » éteint ramène toujours à l'ancien formulaire.",
+  },
+  {
+    date: "2026-10-26",
+    type: "amelioration",
     titre: "Bilan détaillé : chaque fiche chantier explique le passage de la marge du devis à la marge probable",
     pages: [{ id: "bilan-semaine", label: "Bilan semaine" }],
     quoi: "Dans la version détaillée du Bilan, chaque fiche chantier commence par « Du devis au probable » : la marge que le devis laissait espérer, ce qui l'a fait bouger (heures en trop sur les lots, heures hors des lots, reste à faire réestimé, coût réel de la main-d'œuvre, matériaux, sous-traitance…), la marge à terminaison, puis la dérive des lots qui pèsent le plus jusqu'à la marge probable. Le tableau des lots ne garde que les lots commencés ou qui pèsent sur la marge ; les autres sont résumés en une ligne « À venir ». Les matériaux sont détaillés lot par lot.",

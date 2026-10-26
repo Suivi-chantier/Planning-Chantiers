@@ -30,16 +30,20 @@ import { cibleJourneeOuvrier, ressourceDeLOuvrier } from "./cibleJourneeOuvrier"
 import { fmtQuantite } from "./suiviQuantite";
 import TacheCarteV2 from "./TacheCarteV2";
 import PanneauAutreChose from "./PanneauAutreChose";
-// Nouveau parcours (CR-3) : accueil « journée prévue », phasage sur téléphone,
-// tâches prévues non faites, collègues. Réglage Admin cr_parcours_v3 (éteint =
-// formulaire v2 actuel, inchangé).
+// Nouveau parcours (CR-3), PARCOURS UNIQUE depuis CR-6 : la liste des tâches
+// prévues s'affiche tout de suite (heures préremplies, état choisi par
+// l'ouvrier, prévu en simple repère), « J'ai fait autre chose » ouvre le
+// phasage et AJOUTE des tâches, une ligne du planning non liée propose la
+// tâche la plus probable, collègues. Réglage Admin cr_parcours_v3 (éteint =
+// formulaire v2 d'avant, inchangé).
 import {
-  parcoursActif, etatAttenduCeSoir, lignesCommePrevu, estLignePrevue, prevuesNonChoisies, appliquerNonFaite,
+  parcoursActif, etatAttenduCeSoir, estLignePrevue, phrasePrevu, finaliserParcours, ajouterChoixPhasage,
+  reprendreBrouillonParcours, tachesPourLiaison, propositionsLiaison, lierLigneATache, creerTacheDepuisLigne,
   ligneTacheCreee, declarationsParTache, confirmerCollegue, contesterCollegue, serialiserLigneV3,
   minutesJourneeTaches, appliquerFrise, messageRetour, CODE_PARCOURS_V3,
 } from "./compteRenduV3";
-import { suiviDepuisInfo, ligneDepuisPhasage } from "./compteRenduV2";
-import { AccueilJournee, PhasageMobileCR, EcranNonFaites, FriseHoraire, memoriserPhasage, phasageMemorise } from "./ParcoursCompteRendu";
+import { suiviDepuisInfo } from "./compteRenduV2";
+import { EnteteParcours, PhasageMobileCR, FriseHoraire, memoriserPhasage, phasageMemorise } from "./ParcoursCompteRendu";
 // Dictée et préremplissage par l'IA (CR-4) : l'IA propose, l'ouvrier relit et
 // envoie ; le texte dicté d'origine part toujours avec le compte rendu.
 import { EcranDictee, BoutonMicro } from "./DicteeCompteRendu";
@@ -371,10 +375,14 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     try { return JSON.parse(localStorage.getItem(CODE_PARCOURS_V3) || "null"); } catch { return null; }
   });
   const parcoursOn = estV2 && parcoursActif(parcoursCfg);
-  // accueil | phasage | detail | non_faites ; branche : prevu | autre | null
-  const [ecran, setEcran] = useState("accueil");
-  const [branche, setBranche] = useState(null);
-  const [choisies, setChoisies] = useState([]);       // indices des lignes prévues retenues (« pas comme prévu »)
+  // detail (la liste) | phasage | dictee. Parcours unique (CR-6) : plus
+  // d'écran d'accueil à deux boutons ni d'écran « pas faites ».
+  const [ecran, setEcran] = useState("detail");
+  // Ligne du planning non liée en cours de rattachement : { idx, creer }.
+  const [liaisonEnCours, setLiaisonEnCours] = useState(null);
+  // Phasage des chantiers du jour (réponse ouvrier_mes_phases), pour proposer
+  // la tâche la plus probable d'une ligne du planning non liée.
+  const [phasagesJour, setPhasagesJour] = useState({});
   const [journee, setJournee] = useState({});         // { chantier_id: réponse ouvrier_journee_cr }
   const [journeeEtat, setJourneeEtat] = useState("chargement");
   const [friseOuverte, setFriseOuverte] = useState(false);
@@ -503,7 +511,8 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         ts: Date.now(),
         // Version du formulaire qui a écrit le brouillon : si la case bêta
         // change en cours de journée, l'autre formulaire sait le relire.
-        ...(estV2 ? { version: FORMULAIRE_V2, saisieDebut, parcours: { ecran: ecran === "phasage" || ecran === "non_faites" || ecran === "dictee" ? "detail" : ecran, branche, choisies } } : {}),
+        // Parcours unique : l'écran rouvert est toujours la liste.
+        ...(estV2 ? { version: FORMULAIRE_V2, saisieDebut, parcours: { ecran: "detail", unique: true } } : {}),
       };
       localStorage.setItem(brouillonKey(nom, dateKey), JSON.stringify(payload));
       setLastSaved(new Date());
@@ -511,7 +520,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       // QuotaExceeded ou JSON.stringify circular → on log mais on ne bloque pas
       console.warn("Sauvegarde brouillon:", e);
     }
-  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData, estV2, saisieDebut, ecran, branche, choisies, photosFin, dictee]);
+  }, [step, ouvrier, dateKey, taches, trajetMatin, trajetSoir, heuresIndirectes, remarque, paniers, photosChantier, planData, estV2, saisieDebut, photosFin, dictee]);
 
   const repartirDeZero = () => {
     effacerBrouillon();
@@ -526,7 +535,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setLastSaved(null);
     setSaisieDebut(null);
     setBrouillonConverti(false);
-    setEcran("accueil"); setBranche(null); setChoisies([]);
+    setEcran("detail"); setLiaisonEnCours(null);
     loadTaches(ouvrier.trim());
   };
 
@@ -593,7 +602,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     if (seq !== loadSeqRef.current) return; // date changée entre-temps
     setPlanData({ chantiersData });
     setTaches(estV2 ? preremplirDurees(tachesInit) : tachesInit);
-    setEcran("accueil"); setBranche(null); setChoisies([]);
+    setEcran("detail"); setLiaisonEnCours(null);
     setStep("rapport");
   };
 
@@ -631,10 +640,9 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         setDictee(b.dictee && typeof b.dictee === "object" ? b.dictee : null);
         if (b.planData) setPlanData(b.planData);
         setBrouillonRepris(true);
-        const p = b.parcours || null;
-        setEcran(p?.ecran || (tachesBrouillon.some(t => t.statut) ? "detail" : "accueil"));
-        setBranche(p?.branche || null);
-        setChoisies(Array.isArray(p?.choisies) ? p.choisies : []);
+        // Brouillon de l'ancien parcours (écran / branche / tâches choisies) ou
+        // du formulaire v2 : il s'ouvre sur la liste, chaque ligne telle quelle.
+        setEcran(reprendreBrouillonParcours({ taches: tachesBrouillon }).ecran); setLiaisonEnCours(null);
         setStep("rapport");
         return;
       }
@@ -752,8 +760,10 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // Source unique : la RPC ouvrier_mes_phases (onglet Phases), sans aucun
   // nouveau calcul. En cas d'échec, le formulaire reste utilisable : pas de
   // jauge ni de motif de dépassement, et l'écran le dit (« indisponibles »).
+  // Parcours unique : aussi les chantiers où une ligne du planning n'est liée
+  // à aucune tâche (leur phasage sert à proposer la tâche la plus probable).
   const chantiersAvecTaches = estV2
-    ? [...new Set(taches.filter(t => t.tache_id && t.chantier_id).map(t => t.chantier_id))].sort().join("|")
+    ? [...new Set(taches.filter(t => t.chantier_id && (t.tache_id || (parcoursOn && estLignePrevue(t)))).map(t => t.chantier_id))].sort().join("|")
     : "";
   useEffect(() => {
     if (!estV2 || !chantiersAvecTaches) { setInfosEtat("ok"); return; }
@@ -761,24 +771,27 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setInfosEtat("chargement");
     (async () => {
       const infos = {};
+      const payloads = {};
       let echec = false;
       for (const chId of chantiersAvecTaches.split("|")) {
         try {
           const { data, error } = await supabase.rpc("ouvrier_mes_phases", {
             p_chantier_id: chId, p_prenom: ouvrier.trim() || null, p_aujourdhui: todayISO,
           });
-          if (error || !data || data.acces_refuse) { echec = true; continue; }
+          if (error || !data || data.acces_refuse) { echec = true; payloads[chId] = phasageMemorise(chId); continue; }
           memoriserPhasage(chId, data);
+          payloads[chId] = data;
           (data.phases || []).forEach(ph => (ph.ouvrages || []).forEach(o => (o.taches || []).forEach(x => {
             if (x.id) infos[String(x.id)] = {
               ...x, phase_nom: ph.synthetique ? null : ph.nom, ouvrage_libelle: o.libelle,
               ouvrage_unite: o.unite ?? null, ouvrage_quantite: o.quantite ?? null,
             };
           })));
-        } catch { echec = true; }
+        } catch { echec = true; payloads[chId] = phasageMemorise(chId); }
       }
       if (annule) return;
       setInfosParTache(infos);
+      setPhasagesJour(payloads);
       setInfosEtat(echec ? "indisponible" : "ok");
     })();
     return () => { annule = true; };
@@ -931,6 +944,19 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       pathPrefix={`rapports/${ouvrier}/${dateKey}/nouvelle`} color={T.info} label="Photos"/>
   );
 
+  // État attendu ce soir de chaque ligne PRÉVUE (repère affiché, jamais
+  // appliqué) : le même calcul pour l'écran et pour le champ `prevu` envoyé.
+  const calculerAttendus = (arr) => {
+    const out = {};
+    (arr || []).forEach((t, idx) => {
+      if (!estLignePrevue(t)) return;
+      const info = t.tache_id ? infosParTache[String(t.tache_id)] || null : null;
+      const prevue = t.tache_id ? (journee[t.chantier_id]?.prevues || []).find(p => String(p.tache_id) === String(t.tache_id)) || null : null;
+      out[idx] = etatAttenduCeSoir({ prevue, info });
+    });
+    return out;
+  };
+
   const soumettre = async () => {
     if (preview) return; // aperçu admin : lecture seule
     if (absencesJour.etat === "chargement") { alert("Vérification de tes absences en cours… réessaie dans un instant."); return; }
@@ -940,11 +966,15 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     // Formulaire v2 : le bouton n'est actif que si tout est complet et le
     // total exact ; on refait le même contrôle ici (filet), puis on saute
     // directement à l'envoi — les contrôles ci-dessous sont ceux de l'ancien.
-    const tachesEnvoi = estV2 ? finaliserLignesV2(taches, infosParTache, { horsConnexion }) : taches;
+    // Parcours unique : une tâche prévue sans heures ni état part comme « pas
+    // commencé », et chaque ligne prévue garde le prévu affiché (`prevu`).
+    const tachesEnvoi = estV2
+      ? finaliserLignesV2(parcoursOn ? finaliserParcours(taches, { attendus: calculerAttendus(taches), infosParTache }) : taches, infosParTache, { horsConnexion })
+      : taches;
     if (estV2) {
       const e = etatEnvoi({
         taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache, horsConnexion,
-        indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
+        indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length, parcours: parcoursOn,
       });
       if (!e.peutEnvoyer) { alert(e.phrase || "Ton compte rendu n'est pas complet."); return; }
     } else {
@@ -1266,51 +1296,73 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
   // v2 : état du bouton d'envoi (total exact + lignes complètes) et reste en minutes.
   const envoiV2 = estV2 ? etatEnvoi({
     taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache, horsConnexion,
-    indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length,
+    indirectesInvalides: filtrerIndirectesInvalides(heuresIndirectes).length, parcours: parcoursOn,
   }) : null;
   // Ce qui empêche l'envoi, en clair (temps à placer, tâches incomplètes, heures
   // indirectes), et de quoi y emmener l'ouvrier : la carte s'ouvre (groupe
   // déplié), défile jusqu'à l'écran et s'entoure de rouge.
-  // Parcours « pas comme prévu » : les tâches prévues non choisies sont
-  // masquées du détail et traitées sur l'écran « pas faites ».
-  // (une ligne prévue déjà remplie — brouillon plus ancien — reste affichée).
-  const nonFaites = parcoursOn && branche === "autre"
-    ? prevuesNonChoisies(taches, choisies).filter(({ t }) => !t.statut || (t.statut === "non_faite" && !t.bloque))
-    : [];
-  const masquees = new Set(nonFaites.map(x => x.idx));
-  const nonFaitesRestantes = nonFaites.filter(({ t }) => !(t.statut === "non_faite" && t.motif));
-  const manques = estV2 ? resumeManques(envoiV2, taches).filter(m => !(m.type === "ligne" && masquees.has(m.idx) && nonFaitesRestantes.length)) : [];
+  // Parcours unique (CR-6) : toutes les lignes sont affichées ; ce qui manque
+  // pour envoyer suit les règles du parcours (état obligatoire dès qu'il y a
+  // des heures, « Pas commencé » sans motif).
+  const manques = estV2 ? resumeManques(envoiV2, taches) : [];
   const declParTache = parcoursOn ? declarationsParTache(Object.values(journee).flatMap(j => j?.declarations || [])) : {};
   const infoDe = (t) => (t?.tache_id ? infosParTache[String(t.tache_id)] || null : null);
-  const attendus = {};
-  if (parcoursOn) taches.forEach((t, idx) => {
-    if (!estLignePrevue(t)) return;
-    const prevue = t.tache_id ? (journee[t.chantier_id]?.prevues || []).find(p => String(p.tache_id) === String(t.tache_id)) || null : null;
-    attendus[idx] = etatAttenduCeSoir({ prevue, info: infoDe(t) });
-  });
-  const commePrevu = () => { touche(); setTaches(arr => lignesCommePrevu(arr, attendus, infosParTache)); setBranche("prevu"); setEcran("detail"); };
-  const pasCommePrevu = () => { touche(); setBranche("autre"); setEcran("phasage"); };
+  const attendus = parcoursOn ? calculerAttendus(taches) : {};
+  // Ligne du planning non liée : la tâche la plus probable du phasage du
+  // chantier (jamais une tâche déjà dans la journée).
+  const tachesLiaisonParChantier = {};
+  const liaisonDe = (t) => {
+    if (!parcoursOn || !estLignePrevue(t) || t.tache_id || !t.chantier_id) return null;
+    const payload = phasagesJour[t.chantier_id];
+    if (!payload) return { proposition: null, etat: infosEtat === "chargement" ? "chargement" : "indisponible" };
+    if (!tachesLiaisonParChantier[t.chantier_id]) {
+      tachesLiaisonParChantier[t.chantier_id] = tachesPourLiaison(construireArbre(payload, { lotsDefaut: LOTS_DEFAUT }));
+    }
+    const proposition = propositionsLiaison({
+      texte: t.planifie, taches: tachesLiaisonParChantier[t.chantier_id],
+      exclure: taches.map(x => x.tache_id).filter(Boolean), max: 1,
+    })[0] || null;
+    return { proposition, etat: "ok" };
+  };
+  const toast = (texte) => { setToastAjout(texte); setTimeout(() => setToastAjout(null), 3500); };
+  // « J'ai fait autre chose » : les tâches choisies s'AJOUTENT (rien n'est
+  // effacé ni modifié dans les lignes déjà là). En mode liaison : la tâche
+  // choisie rattache la ligne du planning, qui garde ses heures.
   const validerPhasage = (choix, chantier) => {
     touche();
-    const nouvellesChoisies = new Set(choisies);
-    let arr = [...taches];
-    choix.forEach(x => {
-      const i = arr.findIndex(l => String(l.tache_id ?? "") === String(x.id));
-      if (i >= 0) { if (estLignePrevue(arr[i])) nouvellesChoisies.add(i); return; }
-      arr = [...arr, ligneDepuisPhasage({ ...x, nom: x.nomAffiche }, chantier)];
-    });
-    setTaches(arr);
-    setChoisies([...nouvellesChoisies]);
+    if (liaisonEnCours) {
+      const { idx } = liaisonEnCours;
+      const x = choix[0];
+      if (x) {
+        setTaches(arr => arr.map((l, i) => (i === idx ? lierLigneATache(l, x, { proposee: false }) : l)));
+        toast(`Ligne rattachée à « ${String(x.nomAffiche || x.nom || "").slice(0, 50)} » : dis où elle en est`);
+      }
+      setLiaisonEnCours(null);
+      setEcran("detail");
+      return;
+    }
+    setTaches(arr => ajouterChoixPhasage(arr, choix, chantier));
     setEcran("detail");
-    if (choix.length) setToastAjout(`${choix.length} tâche${choix.length > 1 ? "s" : ""} dans ta journée`);
-    setTimeout(() => setToastAjout(null), 3500);
+    if (choix.length) toast(`${choix.length} tâche${choix.length > 1 ? "s" : ""} dans ta journée`);
   };
   const creerDepuisPhasage = (creation, chantier) => {
     touche();
-    setTaches(arr => [...arr, ligneTacheCreee({ nom: creation.nom, ouvrage: creation.ouvrage, motif: creation.motif, photos: creation.photos }, chantier)]);
+    if (liaisonEnCours) {
+      const { idx } = liaisonEnCours;
+      setTaches(arr => arr.map((l, i) => (i === idx ? creerTacheDepuisLigne(l, { nom: creation.nom, ouvrage: creation.ouvrage, motif: creation.motif, photos: creation.photos }, chantier) : l)));
+      setLiaisonEnCours(null);
+    } else {
+      setTaches(arr => [...arr, ligneTacheCreee({ nom: creation.nom, ouvrage: creation.ouvrage, motif: creation.motif, photos: creation.photos }, chantier)]);
+    }
     setEcran("detail");
-    setToastAjout(`« ${creation.nom.trim().slice(0, 50)} » est dans ta journée`);
-    setTimeout(() => setToastAjout(null), 3500);
+    toast(`« ${creation.nom.trim().slice(0, 50)} » est dans ta journée`);
+  };
+  const ouvrirPhasage = () => { touche(); setLiaisonEnCours(null); setEcran("phasage"); };
+  const ouvrirLiaison = (idx, creer = false) => { touche(); setLiaisonEnCours({ idx, creer }); setEcran("phasage"); };
+  const accepterProposition = (idx, proposition) => {
+    touche();
+    setTaches(arr => arr.map((l, i) => (i === idx ? lierLigneATache(l, proposition.tache, { proposee: true }) : l)));
+    toast(`Ligne rattachée à « ${String(proposition.nom || "").slice(0, 50)} » : dis où elle en est`);
   };
   // ── CR-4 : dictée et préremplissage par l'IA ──────────────────────────────
   // L'IA reçoit le texte + les tâches du phasage déjà chargées sur le
@@ -1386,8 +1438,6 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     touche();
     const { taches: arr, indices } = appliquerPropositions(taches, propositions, { candidats: candidatsDictee, infosParTache });
     setTaches(arr);
-    setChoisies(c => [...new Set([...c, ...indices.filter(i => estLignePrevue(arr[i]))])]);
-    setBranche(b => b || "autre");
     const propre = String(remarqueIA || "").trim();
     if (propre) setRemarque(r => (!r.trim() ? propre : r.includes(propre) ? r : `${r.trim()}\n${propre}`));
     setDictee(d => ({ ...(d || {}), remarqueReformulee: propre || null, relue: true, prerempli: indices.length }));
@@ -1401,12 +1451,6 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
     setBesoinRecherche(String(m?.recherche || m?.texte || "").trim());
     setBesoinDrawer(id);
   };
-  const repondreNonFaite = (idx, motif) => {
-    touche();
-    const cibles = idx == null ? nonFaites.map(x => x.idx) : [idx];
-    setTaches(arr => arr.map((t, i) => (cibles.includes(i) ? appliquerNonFaite(t, motif, { avancementActuel: infoDe(t)?.avancement ?? null }) : t)));
-  };
-  const reponsesNonFaites = Object.fromEntries(nonFaites.map(({ t, idx }) => [idx, t.statut === "non_faite" ? t.motif : null]));
   const allerA = (id) => setTimeout(() => {
     const el = typeof document !== "undefined" ? document.getElementById(id) : null;
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1678,39 +1722,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         </div>
       )}
 
-      {parcoursOn && ecran === "accueil" ? (() => {
-        const map = new Map();
-        taches.forEach((t, idx) => {
-          if (!estLignePrevue(t)) return;
-          const cle = t.chantier_id || "_";
-          if (!map.has(cle)) map.set(cle, { cle, nom: t.chantier_nom || "Chantier", couleur: t.chantier_couleur || T.info, lignes: [] });
-          map.get(cle).lignes.push({ t, idx, attendu: attendus[idx] });
-        });
-        return (
-          <AccueilJournee T={T} groupes={[...map.values()]} cibleHeures={cibleHeures}
-            fmtH={(h) => fmtHeures(h)} journeeEtat={journeeEtat}
-            onCommePrevu={commePrevu} onPasCommePrevu={pasCommePrevu} onDicter={ouvrirDictee}/>
-        );
-      })() : (<>
-      {/* Nouveau parcours : rappel de la branche choisie, frise horaire. */}
+      <>
+      {/* Parcours unique (CR-6) : la journée attendue et la consigne ; la liste
+          des tâches prévues suit directement (plus de « comme prévu »). */}
       {parcoursOn && (
-        <div style={{ ...S.card, padding: "12px 14px" }}>
-          <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>
-            {branche === "prevu" ? "Journée comme prévu : vérifie, ajuste si besoin, et envoie."
-              : branche === "autre" ? "Tes tâches du jour : dis où elles en sont et ton temps."
-              : "Ton compte rendu en cours."}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-            {branche === "autre" && (
-              <button onClick={() => setEcran("phasage")} style={{ ...S.btn(T.text, T.bg), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size }}>
-                <Icon as={Plus} size={15}/> Ajouter une tâche
-              </button>
-            )}
-            <button onClick={() => { if (window.confirm("Revenir à l'écran de la journée prévue ? Ce que tu as saisi sera effacé.")) repartirDeZero(); }} style={{ ...S.btn(T.textSub, "transparent"), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size, border: `1px solid ${T.border}` }}>
+        <EnteteParcours T={T} cibleHeures={cibleHeures} fmtH={(h) => fmtHeures(h)} journeeEtat={journeeEtat}
+          nbPrevues={taches.filter(estLignePrevue).length} onDicter={ouvrirDictee} dicteeFaite={!!dictee?.texte}
+          onAutreChose={ouvrirPhasage}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <button onClick={() => { if (window.confirm("Tout effacer et repartir du planning du jour ? Ce que tu as saisi sera perdu.")) repartirDeZero(); }} style={{ ...S.btn(T.textSub, "transparent"), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size, border: `1px solid ${T.border}` }}>
               Recommencer
-            </button>
-            <button onClick={ouvrirDictee} style={{ ...S.btn(T.text, T.bg), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size }}>
-              <Icon as={Mic} size={15}/> {dictee?.texte ? "Ma dictée" : "Raconter ma journée"}
             </button>
             {friseOption ? (
               <button onClick={() => setFriseOuverte(o => !o)} style={{ ...S.btn(T.text, T.bg), width: "auto", marginTop: 0, padding: "10px 14px", fontSize: FONT.base.size }}>
@@ -1724,11 +1745,11 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               try { localStorage.setItem(`cr_frise::${ouvrier.trim()}`, e.target.checked ? "1" : "0"); } catch { /* privé */ }
             }}/> Option : saisir mes heures avec une frise horaire
           </label>
-        </div>
+        </EnteteParcours>
       )}
       {parcoursOn && friseOption && friseOuverte && (
         <FriseHoraire T={T} cibleHeures={cibleHeures}
-          lignes={taches.map((t, idx) => ({ t, idx })).filter(({ t, idx }) => !masquees.has(idx) && t.statut !== "non_faite" && String(t.planifie ?? "").trim()).map(({ t, idx }) => ({ idx, nom: t.planifie }))}
+          lignes={taches.map((t, idx) => ({ t, idx })).filter(({ t }) => t.statut !== "non_faite" && String(t.planifie ?? "").trim()).map(({ t, idx }) => ({ idx, nom: t.planifie }))}
           onAppliquer={(durees) => { touche(); setTaches(arr => appliquerFrise(arr, durees)); setFriseOuverte(false); }}
           onFermer={() => setFriseOuverte(false)}/>
       )}
@@ -1993,7 +2014,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           <div style={{fontSize:FONT.base.size,color:T.textMuted,marginBottom:16,lineHeight:1.5}}>
             {todayJour ? `Rien n'est planifié pour toi ce ${todayJour}.` : "Bon week-end !"}
           </div>
-          <button onClick={parcoursOn ? () => { setBranche(b => b || "autre"); setEcran("phasage"); } : estV2 ? () => setPanneauAutreChose(true) : addTacheLibre} style={S.btn("#fff", T.text)}>
+          <button onClick={parcoursOn ? ouvrirPhasage : estV2 ? () => setPanneauAutreChose(true) : addTacheLibre} style={S.btn("#fff", T.text)}>
             <Icon as={Plus} size={16} strokeWidth={2.2}/>
             {estV2 ? "J'ai fait autre chose" : "Ajouter une tâche manuellement"}
           </button>
@@ -2053,7 +2074,6 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           {!collapsedChantiers[group.key] && (<>
 
       {group.items.map(({ t, idx }, gi) => {
-        if (masquees.has(idx)) return null;
         if (estV2) {
           // Formulaire bêta : une carte par tâche (TacheCarteV2), toutes ouvertes.
           const maj = (fn) => { touche(); setTaches(arr => arr.map((x, i) => i === idx ? fn(x) : x)); };
@@ -2072,6 +2092,16 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
               aSignaler={montrerManques}
               vientDEtreAjoutee={surbrillance === idx}
               parcours={parcoursOn}
+              prevuTexte={parcoursOn ? phrasePrevu(attendus[idx]) : null}
+              liaison={(() => {
+                const l = liaisonDe(t);
+                return l ? {
+                  ...l,
+                  onAccepter: () => l.proposition && accepterProposition(idx, l.proposition),
+                  onChoisir: () => ouvrirLiaison(idx, false),
+                  onCreer: () => ouvrirLiaison(idx, true),
+                } : null;
+              })()}
               minutesJournee={minutesJourneeTaches({ cibleHeures, trajetMinutes: totalTrajetMin, indirectesHeures: totalIndirectesH })}
               declarationsCollegues={parcoursOn && t.tache_id ? declParTache[String(t.tache_id)] || null : null}
               onAccordCollegue={() => { const d = (declParTache[String(t.tache_id)] || []).slice(-1)[0]; const info = infoDe(t); maj(x => confirmerCollegue(x, d, { avancementActuel: info?.avancement ?? null, suivi: suiviDepuisInfo(info) })); }}
@@ -2507,7 +2537,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
       {/* v2 : « J'ai fait autre chose » — choisir une tâche dans le phasage */}
       {estV2 && taches.length > 0 && (
         <div style={{padding:"0 12px 8px"}}>
-          <button onClick={parcoursOn ? () => { setBranche(b => b || "autre"); setEcran("phasage"); } : () => setPanneauAutreChose(true)} style={{
+          <button onClick={parcoursOn ? ouvrirPhasage : () => setPanneauAutreChose(true)} style={{
             width:"100%", minHeight:56, border:`2px dashed ${T.borderHover}`, borderRadius:RADIUS.xl,
             fontSize:FONT.md.size+1, fontWeight:800, cursor:"pointer", fontFamily:"inherit",
             background:T.surface, color:T.text, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
@@ -2630,12 +2660,7 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
         )}
         {/* Grisé tant que tout n'est pas complet, mais TOUCHABLE : il emmène
             alors à la première chose à compléter (au lieu de ne rien faire). */}
-        {parcoursOn && nonFaitesRestantes.length > 0 && (
-          <button onClick={() => setEcran("non_faites")} style={{ ...S.btn(T.text, T.warningBg), border: `2px solid ${T.warningBd}`, marginBottom: 10 }}>
-            {nonFaitesRestantes.length} tâche{nonFaitesRestantes.length > 1 ? "s" : ""} prévue{nonFaitesRestantes.length > 1 ? "s" : ""} pas faite{nonFaitesRestantes.length > 1 ? "s" : ""} : dis pourquoi <Icon as={ChevronRight} size={16}/>
-          </button>
-        )}
-        <button onClick={parcoursOn && nonFaitesRestantes.length > 0 ? () => setEcran("non_faites") : estV2 && !envoiV2.peutEnvoyer ? allerAuxManques : soumettre} disabled={submitting || preview} style={{
+        <button onClick={estV2 && !envoiV2.peutEnvoyer ? allerAuxManques : soumettre} disabled={submitting || preview} style={{
           width:"100%",padding:"18px",border:"none",borderRadius:RADIUS.xl+2,fontSize:FONT.lg.size,
           fontWeight:800,cursor:(submitting||preview||(estV2 && !envoiV2.peutEnvoyer))?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:.4,
           background: (submitting||preview||(estV2 && !envoiV2.peutEnvoyer)) ? T.borderHover : T.accent, color: T.accentText,
@@ -2648,31 +2673,36 @@ function PageRapportMobile({ prenomFige = null, embedded = false, preview = fals
           {preview ? "Aperçu — envoi désactivé" : submitting ? "Envoi en cours…" : "Valider mon compte rendu"}
         </button>
       </div>
-      </>)}
-      {/* Nouveau parcours : phasage du chantier et tâches prévues non faites. */}
+      </>
+      {/* Parcours unique : le phasage du chantier (« J'ai fait autre chose », ou
+          rattacher une ligne du planning non liée). */}
       {parcoursOn && ecran === "phasage" && (() => {
         const ids = [...new Set(taches.map(t => t.chantier_id).filter(Boolean))];
-        const chantiersDuJour = ids.map(id => chantiers.find(c => c.id === id)
-          || { id, nom: taches.find(t => t.chantier_id === id)?.chantier_nom || id, couleur: taches.find(t => t.chantier_id === id)?.chantier_couleur });
-        const dejaChoisies = new Set(taches.filter((t, idx) => t.tache_id && (!estLignePrevue(t) || choisies.includes(idx) || branche !== "autre")).map(t => String(t.tache_id)));
+        const chantierDe = (id) => chantiers.find(c => c.id === id)
+          || { id, nom: taches.find(t => t.chantier_id === id)?.chantier_nom || id, couleur: taches.find(t => t.chantier_id === id)?.chantier_couleur };
+        const chantiersDuJour = ids.map(chantierDe);
+        // Toute tâche déjà dans la journée (prévue, ajoutée ou rattachée) :
+        // affichée « déjà dans ta journée », jamais ajoutée deux fois.
+        const dejaChoisies = new Set(taches.filter(t => t.tache_id).map(t => String(t.tache_id)));
+        const ligneLiee = liaisonEnCours ? taches[liaisonEnCours.idx] : null;
         return (
-          <PhasageMobileCR T={T} chantiers={chantiersDuJour.length ? chantiersDuJour : chantiers.slice(0, 1)} tousChantiers={chantiers}
+          <PhasageMobileCR key={liaisonEnCours ? `liaison-${liaisonEnCours.idx}-${liaisonEnCours.creer ? "c" : "p"}` : "autre-chose"} T={T}
+            chantiers={ligneLiee ? [chantierDe(ligneLiee.chantier_id)] : (chantiersDuJour.length ? chantiersDuJour : chantiers.slice(0, 1))}
+            tousChantiers={ligneLiee ? [] : chantiers}
             prenom={ouvrier.trim()} aujourdhuiISO={todayISO} horsConnexion={horsConnexion}
             tachesDuJourIds={taches.filter(estLignePrevue).map(t => t.tache_id).filter(Boolean)}
             dejaChoisies={dejaChoisies} champPhotos={champPhotosNouvelle}
+            modeLiaison={ligneLiee ? { texte: String(ligneLiee.planifie ?? "").trim() } : null}
+            creerDirect={!!liaisonEnCours?.creer}
             onValider={validerPhasage} onCreer={creerDepuisPhasage}
-            onFermer={() => setEcran(taches.some(t => t.statut) || choisies.length || taches.some(t => !estLignePrevue(t)) ? "detail" : "accueil")}/>
+            onFermer={() => { setLiaisonEnCours(null); setEcran("detail"); }}/>
         );
       })()}
       {parcoursOn && ecran === "dictee" && (
         <EcranDictee T={T} texte={dictee?.texte || ""} onTexte={changerTexteDictee} analyse={analyseDictee}
           candidats={candidatsDictee} horsConnexion={horsConnexion} onAnalyser={analyserDictee}
           onAppliquer={appliquerDictee} onCommander={commanderDepuisDictee}
-          onFermer={() => setEcran(taches.some(x => x.statut) || choisies.length || taches.some(x => !estLignePrevue(x)) ? "detail" : "accueil")}/>
-      )}
-      {parcoursOn && ecran === "non_faites" && (
-        <EcranNonFaites T={T} nonFaites={nonFaites} reponses={reponsesNonFaites}
-          onRepondre={repondreNonFaite} onRetour={() => setEcran("detail")} onTerminer={() => setEcran("detail")}/>
+          onFermer={() => setEcran("detail")}/>
       )}
       {/* v2 : confirmation d'ajout d'une tâche (quelques secondes) */}
       {estV2 && toastAjout && (

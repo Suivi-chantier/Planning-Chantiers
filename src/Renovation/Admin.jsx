@@ -614,7 +614,7 @@ function OngletUtilisateurs({ T, acc }) {
                 Nouveau parcours du compte rendu {actif ? "· activé" : "· éteint"}
               </div>
               <div style={{ color:T.textSub, fontSize:FONT.xs.size+1, lineHeight:1.5 }}>
-                Activé : l'ouvrier voit sa journée prévue, puis « Journée comme prévu » ou « Pas comme prévu » (phasage du chantier, repères, temps simplifié).
+                Activé : l'ouvrier voit directement la liste de ses tâches prévues (heures préremplies) et dit lui-même où en est chacune ; « J'ai fait autre chose » ouvre le phasage du chantier (repères, temps simplifié, dictée).
                 Éteint : retour immédiat à l'écran actuel, pour tous les ouvriers en même temps. Les brouillons en cours sont gardés dans les deux sens.
                 {parcoursCR == null ? " (Jamais réglé : réglage par défaut de l'application.)" : ""}
               </div>

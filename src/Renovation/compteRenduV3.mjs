@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Compte rendu du soir — NOUVEAU PARCOURS (CR-3 du projet refonte).
+// Compte rendu du soir — NOUVEAU PARCOURS (CR-3 du projet refonte), devenu
+// PARCOURS UNIQUE à CR-6 (plus de « Journée comme prévu » / « Pas comme prévu »).
 //
 // Module PUR (aucun accès Supabase, aucune horloge). Façade : compteRenduV3.js.
 //
@@ -11,6 +12,13 @@
 //               contestée (accord false, son état à lui dans `etat`) ;
 //   proposition.motif_hd  — pour une tâche créée par l'ouvrier : introuvable
 //               (A) | imprevu (B) | demande_client (C), les motifs de l'étape 4.
+// Depuis le parcours unique (CR-6), deux autres champs facultatifs :
+//   prevu       { etat, avancement, repere } — le prévu affiché comme repère
+//               sur une ligne prévue (voir prevuMemorise) ;
+//   liaison     { texte_planning, proposee } — ligne du planning non liée que
+//               l'ouvrier a rattachée à une tâche du phasage (ou transformée
+//               en tâche créée) : le texte d'origine du planning, et si la
+//               tâche choisie était la proposition en tête.
 // La chaîne existante (Validation, pointages, bilan) les lit sans changement
 // de sens : un champ inconnu est ignoré.
 //
@@ -29,8 +37,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   appliquerChoix, appliquerChoixSuivi, changerMinutes, minutesDe, poserReste, choixDeLigne,
-  suiviDepuisInfo, serialiserLigneV2, ORIGINE_NOUVELLE, ligneNouvelleTache,
+  suiviDepuisInfo, serialiserLigneV2, ORIGINE_NOUVELLE, ligneNouvelleTache, ajouterDepuisPhasage,
 } from "./compteRenduV2.mjs";
+import { ressemblanceNomsV2 } from "./horsDevisV2.mjs";
 
 export const CODE_PARCOURS_V3 = "cr_parcours_v3";
 // Réglage absent (jamais touché dans Admin) : le parcours est actif pour tous
@@ -125,7 +134,7 @@ export function etatAttenduCeSoir({ prevue = null, info = null } = {}) {
   };
 }
 
-// Phrase courte de l'écran d'accueil : « terminée ce soir », « en cours ce soir »…
+// Phrase courte de l'état attendu : « terminée ce soir », « en cours ce soir »…
 export function phraseAttendue(attendu) {
   if (!attendu || attendu.etat === "inconnu") return "à toi de dire où elle en est";
   if (attendu.etat === "termine") return "terminée ce soir";
@@ -133,28 +142,176 @@ export function phraseAttendue(attendu) {
   return r ? `en cours ce soir (${r.label.toLowerCase()})` : "en cours ce soir";
 }
 
-// ── « Journée comme prévu » ─────────────────────────────────────────────────
-// Chaque tâche PRÉVUE (venue du planning) reçoit son état attendu, par les
-// MÊMES fonctions que la saisie manuelle (repères) ; la durée prévue est déjà
-// préremplie au chargement (preremplirDurees). État inconnu → la ligne reste
-// à compléter par l'ouvrier.
-//   attendus : { [idx]: etatAttenduCeSoir(...) }
+// ── PARCOURS UNIQUE (CR-6) ──────────────────────────────────────────────────
+// Plus de « Journée comme prévu » ni de « Pas comme prévu » : pour chaque
+// chantier du jour, l'ouvrier voit directement la liste de ses tâches PRÉVUES
+// (venues du planning), heures préremplies avec la durée prévue
+// (preremplirDurees), et choisit LUI-MÊME l'état de chaque tâche. L'état
+// attendu ce soir n'est plus jamais appliqué : il est affiché en petit comme
+// repère (« prévu : terminée ce soir ») et mémorisé sur la ligne envoyée
+// (`prevu`), pour mesurer plus tard la part des états déclarés identiques au
+// prévu. (Décision du 26/10/2026 : l'état attendu n'est juste qu'environ une
+// fois sur deux.)
 export const estLignePrevue = (t) => !!t && !t.origine && !t.libre;
-export function lignesCommePrevu(taches, attendus = {}, infosParTache = {}) {
+
+// Le repère affiché sous une tâche prévue ; null quand le prévu est inconnu
+// (ligne du planning sans tâche du phasage, ou planning illisible) : rien
+// n'est affiché plutôt qu'un faux repère.
+export function phrasePrevu(attendu) {
+  if (!attendu || attendu.etat === "inconnu") return null;
+  return `prévu : ${phraseAttendue(attendu)}`;
+}
+
+// Ce qui est mémorisé sur la ligne prévue envoyée (champ `prevu`) :
+//   { etat: "termine" | "en_cours" | "inconnu", avancement: 0-100 | null,
+//     repere: code du repère affiché (commence…termine) | null }
+// « inconnu » est écrit tel quel : une ligne sans repère n'est pas confondue
+// avec un rapport plus ancien (qui n'a pas de champ `prevu` du tout).
+export function prevuMemorise(attendu) {
+  if (!attendu || (attendu.etat !== "termine" && attendu.etat !== "en_cours")) {
+    return { etat: "inconnu", avancement: null, repere: null };
+  }
+  if (attendu.etat === "termine") return { etat: "termine", avancement: 100, repere: "termine" };
+  const av = Math.round(num(attendu.avancement));
+  return { etat: "en_cours", avancement: av, repere: repereAttendu(av, null) };
+}
+
+// « Pas commencé » du parcours unique : statut non_faite, 0 h, avancement du
+// phasage INCHANGÉ (comme avant : la chaîne ne fait jamais reculer un
+// avancement), et AUCUN motif.
+export function appliquerPasCommence(t, { avancementActuel = null, suivi = null } = {}) {
+  const next = suivi ? appliquerChoixSuivi(t, "pas_commence", suivi) : appliquerChoix(t, "pas_commence", { avancementActuel });
+  return { ...next, motif: null };
+}
+// Libellé du bouton : une tâche déjà avancée « n'a pas avancé aujourd'hui »
+// (même effet), pour ne pas laisser croire qu'on la remet à zéro.
+export const libellePasCommence = (avancementActuel) => (num(avancementActuel) > 0 ? "Pas avancé aujourd'hui" : "Pas commencé");
+
+// Juste avant l'envoi (parcours unique), sur les lignes PRÉVUES seulement :
+//   - une tâche prévue SANS heures et SANS état part comme « pas commencé »
+//     (non_faite, 0 h, avancement inchangé, sans motif) ;
+//   - chaque ligne prévue mémorise le prévu affiché (`prevu`).
+// Une tâche prévue AVEC des heures et sans état n'arrive jamais ici : l'envoi
+// est bloqué avant (problemesLigne, règle « etat »).
+//   attendus : { [idx]: etatAttenduCeSoir(...) } — les mêmes que l'écran.
+export function finaliserParcours(taches, { attendus = {}, infosParTache = {} } = {}) {
   return (taches || []).map((t, idx) => {
     if (!estLignePrevue(t)) return t;
-    const a = attendus[idx];
-    if (!a || a.etat === "inconnu") return t;
-    const info = t.tache_id ? infosParTache[String(t.tache_id)] || null : null;
-    const suivi = suiviDepuisInfo(info);
-    const avancementActuel = info?.avancement ?? null;
-    if (a.etat === "termine") return appliquerRepere(t, "termine", { avancementActuel, suivi });
-    const code = repereAttendu(a.avancement, avancementActuel);
-    if (code) return appliquerRepere(t, code, { avancementActuel, suivi });
-    // Déjà au-delà de « presque fini » sans finir ce soir : en cours, avancement inchangé.
-    const enCours = suivi ? appliquerChoixSuivi(t, "en_cours", suivi) : appliquerChoix(t, "en_cours", { avancementActuel });
-    return suivi ? enCours : { ...enCours, avancement: String(Math.round(num(avancementActuel))) };
+    let next = t;
+    if (!choixDeLigne(t) && minutesDe(t) <= 0) {
+      const info = t.tache_id ? infosParTache[String(t.tache_id)] || null : null;
+      next = appliquerPasCommence(t, { avancementActuel: info?.avancement ?? null, suivi: suiviDepuisInfo(info) });
+    }
+    return { ...next, prevu: prevuMemorise(attendus[idx]) };
   });
+}
+
+// « J'ai fait autre chose » : les tâches choisies dans le phasage s'AJOUTENT à
+// la liste ; aucune ligne déjà là n'est effacée ni modifiée, une tâche déjà
+// dans la journée n'est jamais ajoutée deux fois.
+export function ajouterChoixPhasage(taches, choix = [], chantier = null) {
+  let arr = [...(taches || [])];
+  for (const x of choix || []) arr = ajouterDepuisPhasage(arr, { ...x, nom: net(x?.nomAffiche) || net(x?.nom) }, chantier);
+  return arr;
+}
+
+// Brouillon repris dans le parcours unique. Un brouillon de l'ancien parcours
+// (CR-3 : parcours { ecran, branche, choisies }) ou un brouillon du formulaire
+// v2 sans parcours s'ouvre sur la liste : chaque ligne est gardée telle
+// quelle (heures, état déjà choisi, avancement, motifs, photos, remarques,
+// tâches ajoutées ou créées). Seul l'écran change.
+export function reprendreBrouillonParcours(brouillon) {
+  const taches = Array.isArray(brouillon?.taches) ? brouillon.taches.map(t => ({ ...t })) : [];
+  return { taches, ecran: "detail" };
+}
+
+// ── Ligne du planning non liée à une tâche du phasage ───────────────────────
+// L'ouvrier choisit la tâche dans le phasage ; la proposition la plus probable
+// est en tête. Score (0..1), du plus au moins important :
+//   - ressemblance des noms (ressemblanceNomsV2, la même que la proposition du
+//     cas A des tâches hors devis), nom personnalisé ou nom du devis : 45 % ;
+//   - part des mots de la ligne retrouvés dans le nom de la tâche : 20 % ;
+//   - part des mots retrouvés dans l'ouvrage, le lot ou la pièce : 10 % ;
+//   - tâche pas encore terminée : 25 % (une ligne du planning porte sur du
+//     travail à faire ; les terminées sont masquées dans le phasage).
+// Les mots d'action du planning (« terminer », « finir », « continuer »…) ne
+// comptent pas. Proposée seulement si les noms se ressemblent vraiment.
+const MOTS_ACTION = new Set(["terminer", "termine", "terminee", "finir", "fini", "finie", "continuer", "commencer",
+  "suite", "fin", "faire", "les", "des", "une", "pour", "avec", "dans", "sur", "aux", "par", "est"]);
+const normLiaison = (s) => net(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const motsLiaison = (s) => normLiaison(s).split(" ").filter(m => m.length >= 3 && !MOTS_ACTION.has(m));
+const motsProches = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+function couverture(mots, cible) {
+  if (!mots.length) return 0;
+  const b = motsLiaison(cible);
+  return mots.filter(m => b.some(x => motsProches(m, x))).length / mots.length;
+}
+const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+
+// Tâches du phasage à plat avec leur lot et leur pièce (arbre de phasageMobileV1).
+export function tachesPourLiaison(arbre) {
+  const pieces = new Map((arbre?.pieces || []).map(p => [p.id, p.nom]));
+  return (arbre?.lots || []).flatMap(l => (l.ouvrages || []).flatMap(o => (o.taches || []).map(x => ({
+    id: String(x.id), nom: net(x.nomAffiche) || net(x.nom), nomDevis: net(x.nomDevis) || net(x.nom),
+    ouvrage: net(o.libelle), ouvrageDevis: net(o.libelleDevis), lot: net(l.label), piece: pieces.get(x.pieceId) || null,
+    etat: x.etat || null, avancement: x.avancement ?? null, tache: x,
+  }))));
+}
+
+// texte : la ligne du planning ; taches : tachesPourLiaison(arbre) ;
+// exclure : tache_id déjà dans la journée (jamais proposées).
+// → [{ id, nom, lot, ouvrage, piece, score, raisons, tache }] (meilleure d'abord)
+export function propositionsLiaison({ texte, taches = [], exclure = [], max = 3 } = {}) {
+  const propre = motsLiaison(texte).join(" ");
+  const mots = motsLiaison(texte);
+  if (!mots.length) return [];
+  const exclus = new Set((exclure || []).map(String));
+  return (taches || []).filter(x => x?.id && !exclus.has(String(x.id))).map(x => {
+    const simNom = Math.max(ressemblanceNomsV2(propre, x.nom), ressemblanceNomsV2(propre, x.nomDevis || ""));
+    const couvNom = couverture(mots, `${x.nom} ${x.nomDevis || ""}`);
+    const couvCtx = couverture(mots, `${x.ouvrage || ""} ${x.ouvrageDevis || ""} ${x.lot || ""} ${x.piece || ""}`);
+    const aFaire = x.etat !== "terminee" && num(x.avancement) < 100;
+    const raisons = [];
+    if (simNom >= 0.8) raisons.push("nom très proche"); else if (simNom >= 0.3 || couvNom >= 0.5) raisons.push("mots en commun");
+    if (couvCtx > 0) raisons.push("même ouvrage, lot ou pièce");
+    if (aFaire) raisons.push("pas encore terminée");
+    return {
+      id: x.id, nom: x.nom, lot: x.lot, ouvrage: x.ouvrage, piece: x.piece, tache: x.tache,
+      score: r2(0.45 * simNom + 0.2 * couvNom + 0.1 * couvCtx + (aFaire ? 0.25 : 0)), simNom, couvNom, raisons,
+    };
+  }).filter(p => p.simNom >= 0.3 || p.couvNom >= 0.5)
+    .sort((a, b) => b.score - a.score || a.nom.localeCompare(b.nom, "fr"))
+    .slice(0, max)
+    .map(({ simNom, couvNom, ...p }) => p);
+}
+
+// La ligne du planning est rattachée à la tâche choisie : elle GARDE ses
+// heures (et ses photos, sa remarque) ; son nom devient celui de la tâche,
+// le texte du planning est gardé dans `liaison`. L'état est à redire :
+// l'avancement de référence est désormais celui de la tâche choisie.
+export function lierLigneATache(t, tache, { proposee = false } = {}) {
+  const { quantite_jour, unite, collegue, ...reste } = t || {};
+  return {
+    ...reste,
+    tache_id: String(tache?.id),
+    planifie: net(tache?.nomAffiche) || net(tache?.nom) || net(t?.planifie),
+    statut: null, avancement: "", bloque: false, motif: null,
+    liaison: { texte_planning: net(t?.liaison?.texte_planning) || net(t?.planifie), proposee: !!proposee },
+  };
+}
+
+// … ou il crée une tâche (une seule question, le motif A / B / C) : la ligne
+// devient une tâche créée, avec ses heures, ses photos et sa remarque.
+export function creerTacheDepuisLigne(t, { nom, ouvrage = null, motif, photos = [] } = {}, chantier = null) {
+  const toutes = [...new Set([...(Array.isArray(t?.photos) ? t.photos : []), ...(photos || [])])];
+  const neuve = ligneTacheCreee({ nom, ouvrage, motif, photos: toutes }, chantier || { id: t?.chantier_id, nom: t?.chantier_nom, couleur: t?.chantier_couleur });
+  return {
+    ...neuve,
+    heures_reelles: t?.heures_reelles ?? "",
+    ...(t?.heures_prevues != null ? { heures_prevues: t.heures_prevues } : {}),
+    remarque: t?.remarque || "",
+    liaison: { texte_planning: net(t?.liaison?.texte_planning) || net(t?.planifie), proposee: false },
+  };
 }
 
 // ── Temps : raccourcis et « le reste ici » ──────────────────────────────────
@@ -216,17 +373,6 @@ export function dureesDepuisFrise({ arrivee, depart, pause = null, segments = []
 // Pose les durées calculées sur les lignes (clé = index de la ligne).
 export function appliquerFrise(taches, durees) {
   return (taches || []).map((t, idx) => (durees[idx] != null ? changerMinutes(t, durees[idx]) : t));
-}
-
-// ── « Pas comme prévu » : tâches prévues non choisies ───────────────────────
-// choisies : indices des lignes que l'ouvrier a retenues (détail).
-export function prevuesNonChoisies(taches, choisies = []) {
-  const set = new Set(choisies);
-  return (taches || []).map((t, idx) => ({ t, idx })).filter(({ t, idx }) => estLignePrevue(t) && !set.has(idx));
-}
-// Une seule réponse pour toutes (ou tâche par tâche) : Pas commencé + motif.
-export function appliquerNonFaite(t, motif, { avancementActuel = null } = {}) {
-  return { ...appliquerChoix(t, "pas_commence", { avancementActuel }), motif: motif || null };
 }
 
 // ── Tâche créée par l'ouvrier : une seule question ─────────────────────────
@@ -294,6 +440,17 @@ export function serialiserLigneV3(t) {
   }
   if (t.origine === ORIGINE_NOUVELLE && t.proposition?.motif_hd && out.proposition) {
     out.proposition = { ...out.proposition, motif_hd: t.proposition.motif_hd };
+  }
+  if (t.prevu && typeof t.prevu === "object") {
+    const e = ["termine", "en_cours"].includes(t.prevu.etat) ? t.prevu.etat : "inconnu";
+    out.prevu = {
+      etat: e,
+      avancement: e === "inconnu" || t.prevu.avancement == null ? null : Math.round(num(t.prevu.avancement)),
+      repere: e === "inconnu" ? null : (REPERES.some(r => r.code === t.prevu.repere) ? t.prevu.repere : null),
+    };
+  }
+  if (t.liaison && net(t.liaison.texte_planning)) {
+    out.liaison = { texte_planning: net(t.liaison.texte_planning), proposee: t.liaison.proposee === true };
   }
   return out;
 }

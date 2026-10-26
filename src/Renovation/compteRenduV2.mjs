@@ -296,19 +296,31 @@ export function photoApresManquante(t) {
 // pas pu être chargées : on ne demande alors pas de motif de dépassement, et
 // la tâche se saisit en pourcentage).
 // La photo « après » n'est PAS un problème : recommandée, jamais exigée.
-export function problemesLigne(t, infosParTache = {}) {
+//
+// parcours (parcours unique du compte rendu, CR-6) : deux règles changent,
+// tout le reste est identique au formulaire v2 —
+//   - « Pas commencé » ne demande AUCUN motif (seul « Bloqué » en demande) ;
+//   - une tâche PRÉVUE (venue du planning) sans heures et sans état n'est pas
+//     un problème : elle part comme « pas commencé » (finaliserParcours,
+//     compteRenduV3.mjs). Avec des heures, l'état reste obligatoire (« etat »).
+// Sans `parcours`, le formulaire v2 garde exactement ses règles d'avant.
+const lignePrevue = (t) => !!t && !t.origine && !t.libre;
+export function problemesLigne(t, infosParTache = {}, { parcours = false } = {}) {
   const p = [];
   const choix = choixDeLigne(t);
   const min = minutesDe(t);
   const suivi = suiviDeLigne(t, infosParTache);
   if (t.libre && !t.chantier_id) p.push("chantier");
   if (!String(t.planifie ?? "").trim()) p.push("intitule");
-  if (!choix) { p.push("statut"); return p; }
+  if (!choix) {
+    if (parcours && lignePrevue(t) && min <= 0) return p;
+    p.push(parcours ? "etat" : "statut"); return p;
+  }
   if ((choix === "termine" || choix === "en_cours") && min <= 0) p.push("temps");
   if (suivi) {
     if (quantiteAttendue(t) && vide(t.quantite_jour)) p.push("quantite");
   } else if ((choix === "en_cours" || choix === "bloque") && vide(t.avancement)) p.push("avancement");
-  if ((choix === "pas_commence" || choix === "bloque") && !t.motif) p.push("motif");
+  if ((choix === "bloque" || (choix === "pas_commence" && !parcours)) && !t.motif) p.push("motif");
   const info = t.tache_id ? infosParTache[String(t.tache_id)] : null;
   if (motifDepassementRequis(info, t) && !t.motif_depassement) p.push("motif_depassement");
   const autre = t.motif === CODE_MOTIF_AUTRE
@@ -327,6 +339,7 @@ export const LIBELLES_PROBLEMES = Object.freeze({
   chantier: "choisis le chantier",
   intitule: "décris la tâche",
   statut: "choisis un statut",
+  etat: "dis où elle en est (Pas commencé, Commencé, À moitié, Presque fini, Terminé ou Bloqué)",
   temps: "indique le temps passé",
   avancement: "indique l'avancement",
   motif: "choisis un motif",
@@ -338,14 +351,16 @@ export const LIBELLES_PROBLEMES = Object.freeze({
 
 // État du bouton d'envoi : on n'envoie que si toutes les lignes sont complètes
 // ET que le total tombe exactement sur la cible.
-export function etatEnvoi({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache = {}, indirectesInvalides = 0, horsConnexion = false }) {
+// parcours : règles du parcours unique (voir problemesLigne).
+export function etatEnvoi({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures, infosParTache = {}, indirectesInvalides = 0, horsConnexion = false, parcours = false }) {
   const r = resteJournee({ taches, trajetMatin, trajetSoir, heuresIndirectes, cibleHeures });
   const remplies = (taches || []).filter(t => String(t.planifie ?? "").trim() || t.libre);
   // idx : position de la ligne dans `taches` (pour y emmener l'ouvrier).
-  const lignes = remplies.map((t, i) => ({ i, idx: taches.indexOf(t), problemes: problemesLigne(t, infosParTache) }))
+  const lignes = remplies.map((t, i) => ({ i, idx: taches.indexOf(t), problemes: problemesLigne(t, infosParTache, { parcours }) }))
     .filter(x => x.problemes.length > 0);
   const phrase = r.resteMin > 0 ? `Place encore ${fmtMinutes(r.resteMin)} pour envoyer`
     : r.resteMin < 0 ? `Tu dépasses de ${fmtMinutes(-r.resteMin)}`
+    : lignes.length === 1 && parcours ? `Complète « ${String(taches[lignes[0].idx]?.planifie ?? "").trim() || "la tâche ajoutée"} » pour envoyer`
     : lignes.length > 0 ? `Complète ${lignes.length} tâche${lignes.length > 1 ? "s" : ""} pour envoyer`
     : indirectesInvalides > 0 ? "Complète tes heures indirectes pour envoyer"
     : null;
