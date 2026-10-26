@@ -219,6 +219,14 @@ eq(lignesDepuisRapport(rapport(envoyees)), lignesDepuisRapport(rapport(sansPrevu
 eq(classerRapport(rapport(envoyees)), classerRapport(rapport(sansPrevu)), "validation : mêmes écarts et même couleur");
 const pointages = (r) => buildPointagesRapport({ chantier_id: "C1", ouvrier: "Paul", dateISO: "2026-10-26", taux: 30, rapport_id: "r1", taskLines: taskLinesPourPointages(lignesDepuisRapport(r)) });
 eq(pointages(rapport(envoyees)), pointages(rapport(sansPrevu)), "pointages (donc Bilan) : identiques");
-eq(faitsComptesRendus({ rapports: [rapport(envoyees)] }), faitsComptesRendus({ rapports: [rapport(sansPrevu)] }), "suivi qualité : faits identiques");
+// Depuis CR-6E, le suivi qualité LIT le prévu mémorisé (part des états
+// identiques au prévu, champ prevuCmp des lignes) ; tout le reste est identique.
+const faitsSansComparaison = (f) => ({ ...f, lignes: f.lignes.map(({ prevuCmp, ...l }) => l) });
+const faitsAvec = faitsComptesRendus({ rapports: [rapport(envoyees)] });
+const faitsSans = faitsComptesRendus({ rapports: [rapport(sansPrevu)] });
+eq(faitsSansComparaison(faitsAvec), faitsSansComparaison(faitsSans), "suivi qualité : faits identiques, hors comparaison au prévu (CR-6E)");
+eq(faitsAvec.lignes.map(l => (l.prevuCmp ? l.prevuCmp.identique : null)), [true, true, null, null],
+  "suivi qualité (CR-6E) : état comparé au prévu sur les lignes prévues au prévu connu seulement");
+eq(faitsSans.lignes.map(l => l.prevuCmp), [null, null, null, null], "suivi qualité (CR-6E) : sans prévu mémorisé, rien de comparé");
 
 console.log(`verif-cr6-parcours-unique : ${nbOk} contrôles OK (exemple issu des tests, données fictives)`);
