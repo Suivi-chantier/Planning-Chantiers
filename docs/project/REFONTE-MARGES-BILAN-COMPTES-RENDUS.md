@@ -219,7 +219,7 @@ chaque étape.
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
-| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). **6C en ligne** (#188) : compteur de lignes liées, proposition en un clic, proposition dès la saisie ; liaison des anciennes lignes = question ouverte. Voir « CR-6 ». |
+| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). **6C en ligne** (#188) : compteur de lignes liées, proposition en un clic, proposition dès la saisie ; liaison des anciennes lignes = question ouverte. **6D en ligne** (#190) : classement en masse des tâches hors devis (Phasage → Hors devis → « Classement en masse ») et des commandes sans lot (Commandes → « Lignes sans lot »). Voir « CR-6 ». |
 
 ### Journal des décisions
 
@@ -1537,6 +1537,100 @@ palière et mise en place » → « Mise en place de l'ouvrant porte palière »
 (Menuiserie). Effets d'une liaison en masse : heures déjà planifiées par
 tâche (donc durées proposées ensuite), équipe retenue pour une tâche côté
 ouvrier, bandeau « À replanifier ».
+
+**6D — Outils de classement en masse (en ligne, PR #190, sans migration ni
+changement de droits ; rien n'a été appliqué en base).**
+
+Où et qui (vérifié en base et dans `loadAccessConfig`) :
+- **Tâches hors devis** : Phasage → « Hors devis · N » → onglet « Classement
+  en masse », chantier par chantier. Page Phasage visible pour admin (en base
+  et automatique), super_admin, comptable ; **pas pour conducteur** : la liste
+  enregistrée en base ne contient pas le Phasage (la liste par défaut le
+  prévoit).
+- **Commandes sans lot** : Commandes → bouton « Lignes sans lot · N ». Page
+  visible pour admin (automatique), super_admin, conducteur, comptable.
+
+Ce qui change pour Loris : chaque tâche à classer montre le cas proposé (A /
+B / C / standard), pourquoi, un niveau de confiance et, pour A, la tâche du
+phasage proposée (lot › ouvrage) ; rien n'est coché au départ ; choix
+modifiable ligne par ligne ; « Appliquer la sélection » montre un récapitulatif
+à confirmer puis fait exactement ce que fait « Classer » une tâche à la fois
+(même code). Sur un chantier coché « Chantier repris », « Tout laisser en
+l'état » marque les tâches restantes (marque datée et signée dans la tâche,
+réversible par « Reprendre le classement ») : heures, coût et production
+inchangés, elles ne sont plus proposées. Aucun chantier n'est encore coché
+« repris » : le bouton apparaîtra quand la case sera cochée. Commandes : lot
+proposé avec son explication et sa confiance, filtres par chantier et
+confiance, lot modifiable, seules les lignes cochées sont écrites après
+confirmation ; les relevés journaliers des chantiers touchés sont recalculés
+depuis la plus ancienne date d'achat changée (mécanisme existant ; écart dans
+« Rectifications » si un bilan exporté est concerné).
+
+Effet d'un lot posé : avant, une ligne sans lot était imputée en entier tout de
+suite dans la marge à l'avancement ; après, elle entre dans l'enveloppe du lot
+(reste à commander du lot en baisse, dépassement si l'enveloppe est dépassée,
+« matériaux en avance » si le lot est peu avancé — la marge à l'avancement
+peut alors monter).
+
+Mesure réelle (base du 26/10, lecture seule) — **tâches hors devis à classer :
+429 tâches, 1 145 h** :
+
+| Cas proposé | Élevée | Moyenne | Faible | Total |
+|---|---|---|---|---|
+| A (la tâche existait) | 2 | 1 | 14 | 17 |
+| B (imprévu, ouvrage vendu) | 0 | 0 | 3 | 3 |
+| C (à arbitrer) | 2 | 0 | 341 | 343 |
+| Standard (à laisser) | 0 | 66 | 0 | 66 |
+
+Les 341 C « faibles » sont un « à examiner » par défaut (aucune tâche
+ressemblante). Principaux chantiers : TOM & CAMILLE R+2 47 tâches (173,5 h),
+RDC 47 (126,8 h), R+1 45 (128,2 h), BRIOLLAY 43 (165,3 h), METOIS 41
+(92,7 h), MAUDUIT 31 (65,3 h). Exemples réels : TOM & CAMILLE R+1 « Ratissage
+des murs » → A élevée vers « Ratissage des murs » ; METOIS « Enduit
+étanchéité douche » → A moyenne vers « Pose de l'enduit d'étanchéité
+douche » ; douteux : ARTHUR - R+1 « Mise en place d'un miroir » → A faible
+vers « Mise en place du WC » (signalé « « miroir » ne s'y retrouve pas »).
+
+**Commandes sans lot : 673 lignes, 19 681,59 €** :
+
+| Confiance | Lignes | Montant |
+|---|---|---|
+| Élevée | 0 | 0 € |
+| Moyenne | 278 | 5 752,71 € |
+| Faible | 352 | 11 736,80 € |
+| Aucune proposition | 43 | 2 192,08 € |
+
+Aucune « élevée » : aucune ligne n'a d'ouvrage rattaché et les mêmes
+matériaux sont presque toujours commandés sur d'autres chantiers. Exemples
+réels : KATHLEEN T2 « éco-contribution PMCB » → Plomberie sanitaire, moyenne
+(« les 18 autres lignes de ce bon sont du lot Plomberie sanitaire ») ; TOM &
+CAMILLE R+2 « ODACE INTERRUPTEUR VMC » → Électricité, moyenne (même libellé
+que 5 commandes) ; douteux : DÉPOT « PANTALON VICENTE » → Plomberie sanitaire,
+faible (chantier sans phasage).
+
+Niveaux de confiance — hors devis : élevée = nom quasi identique sans
+concurrente, ou cas déjà déclaré (motif enregistré) ; moyenne = tous les mots
+retrouvés sans concurrente, tâche standard, tâche déjà dans un ouvrage vendu ;
+faible = le reste (dont C par défaut). Commandes : élevée = ouvrage rattaché ou
+matériau prévu / toujours commandé sur ce lot du chantier ; moyenne = même bon,
+même libellé (≥ 2 commandes, ≥ 75 % sur un lot), même matériau ailleurs avec
+avis net ; faible = fournisseur, historique, libellé proche ; un indice
+contraire, un lot absent du phasage ou un chantier sans phasage baissent d'un
+cran (raison écrite). Contrôle `verif-cr6-classement-masse.mjs` (83 contrôles,
+données fictives) ; `verif-hors-devis-v2` reste vert.
+
+Points d'attention (pour Loris) :
+- **Conducteurs sans accès au Phasage** en base : à cocher dans Admin → Accès
+  s'ils doivent classer les tâches hors devis.
+- **DÉPOT** (97 lignes, 5 236 € : vêtements, balais…) : la règle « lot
+  obligatoire » de l'étape 1B s'y applique alors qu'un lot n'y a guère de
+  sens ; toutes ses propositions sont faibles.
+- **BRIOLLAY** : plusieurs lots proposés n'ont aucun ouvrage dans le phasage ;
+  les poser créerait un dépassement sur une enveloppe vide.
+- **Défaut existant constaté, non corrigé** : changer le lot d'une ligne à la
+  main sur la page Commandes ne recalcule pas les relevés journaliers (le
+  rattrapage de nuit ne voit que les lignes créées dans la journée). L'outil de
+  masse, lui, demande le recalcul.
 
 ### Compte rendu final du projet (25/10/2026)
 
