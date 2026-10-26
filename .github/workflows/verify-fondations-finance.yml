@@ -55,3 +55,5 @@ jobs:
         run: node scripts/verif-dictee-cr.mjs
       - name: CR-5 - Validation de la journee, arbitrage groupe, repartition d une tache regroupee (donnees fictives)
         run: node scripts/verif-validation-journee.mjs
+      - name: CR-6B - Ecart avancement incoherent (3 cas, seuils Admin) et avancement retenu garde au rechargement (donnees fictives)
+        run: node scripts/verif-cr6-avancement-incoherent.mjs

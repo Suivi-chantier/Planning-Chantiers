@@ -27,7 +27,7 @@
 //          tâche le même jour. À la validation, écriture du validé dans le
 //          plan_travaux, conservation du déclaré dans pointages.avancement_declare.
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabase";
 // Écriture versionnée : Validation réécrit ouvrages / plan_travaux depuis son
 // état React, qui peut être périmé. Le verrou optimiste l'empêche d'écraser
@@ -66,8 +66,16 @@ import { remarqueAffichee } from "./dicteeCrV1";
 import ValidationJournee from "./ValidationJournee";
 import {
   classerRapport, peutValiderDirect, resumeJournee, joursEnRetard, poserArbitrage, appliquerArbitrages,
-  heuresJourOuvrier,
+  heuresJourOuvrier, CLE_STOCKAGE_ARBITRAGES, arbitragesDuJour, stockerArbitragesDuJour, fusionnerArbitrages,
+  arbitragesEncoreUtiles,
 } from "./validationJourneeV1";
+// CR-6 : écart « avancement incohérent avec les heures » (module pur partagé
+// avec la page « Qualité des comptes rendus »).
+import {
+  CLE_CONFIG_AVANCEMENT_INCOHERENT, normaliserSeuilsAvancementIncoherent, donneesTachesIncoherence,
+  avancementsQuantiteRapport, heuresJourParTache,
+} from "./avancementIncoherentV1";
+import { lireToutParTranches } from "./lectureParTranches";
 import { comptesRendusAttendus } from "./releveJournalier.mjs";
 import { avancementChantier, tacheHeuresVendues, tauxFGALaDate, TAUX_FG_DEFAUT } from "../chantierFinance";
 import { EnteteDetail, EnteteCarteTache, ColonneLaterale } from "./ValidationDetail";
@@ -94,6 +102,23 @@ function BadgeBeta() {
 function dateKey(d = new Date()) {
   const pad = n => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// CR-6 : avancement retenu (tâche faite à plusieurs) gardé dans le stockage
+// du navigateur, pour survivre à un rechargement de la page avant validation.
+// Stockage illisible (navigation privée, données effacées) : undefined, la
+// page garde alors seulement ce qu'elle a en mémoire, comme avant.
+function lireStockageArbitrages() {
+  try { return window.localStorage.getItem(CLE_STOCKAGE_ARBITRAGES); } catch { return undefined; }
+}
+function ecrireStockageArbitrages(date, arbitrages) {
+  try {
+    // Les jours de plus de 60 jours sont oubliés (sauf celui qu'on regarde).
+    const d = new Date(); d.setDate(d.getDate() - 60);
+    const limite = dateKey(d) < date ? dateKey(d) : date;
+    const texte = stockerArbitragesDuJour(lireStockageArbitrages(), date, arbitrages, { garderDepuis: limite });
+    window.localStorage.setItem(CLE_STOCKAGE_ARBITRAGES, texte);
+  } catch (e) { console.warn("Validation — avancement retenu non mémorisé dans ce navigateur :", e); }
 }
 
 // Les rapports stockent date_rapport au format français "DD/MM/YYYY"
@@ -295,7 +320,36 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
   // tâche déclarée différemment par plusieurs ouvriers ({ chantier: { tâche: % } }).
   const [absences, setAbsences] = useState(null);
   const [enAttenteRecents, setEnAttenteRecents] = useState([]);
-  const [arbitrages, setArbitrages] = useState({});
+  // CR-6 : l'avancement retenu est aussi rangé dans le stockage du navigateur
+  // (par jour, chantier et tâche) : relu au chargement, oublié quand tous les
+  // comptes rendus qui portent la tâche sont validés.
+  const arbitragesRef = useRef({ date: null, valeurs: {} });
+  const [arbitragesEtat, setArbitragesEtat] = useState(arbitragesRef.current);
+  const arbitrages = arbitragesEtat.date === dateFilter ? arbitragesEtat.valeurs : {};
+  const fixerArbitrages = (date, valeurs) => {
+    const v = { date, valeurs };
+    arbitragesRef.current = v;
+    setArbitragesEtat(v);
+    ecrireStockageArbitrages(date, valeurs);
+  };
+  // Relit le stockage du jour (+ ce que la page a en mémoire) et ne garde que
+  // les tâches encore portées par un compte rendu à valider.
+  const rechargerArbitrages = (date, rapportsDuJour) => {
+    const stock = lireStockageArbitrages();
+    const lus = stock === undefined ? {} : arbitragesDuJour(stock, date);
+    const memoire = arbitragesRef.current.date === date ? arbitragesRef.current.valeurs : {};
+    fixerArbitrages(date, arbitragesEncoreUtiles(fusionnerArbitrages(lus, memoire), rapportsDuJour));
+  };
+  const appliquerArbitrage = (chId, tacheId, v) => {
+    const stock = lireStockageArbitrages();
+    const base = fusionnerArbitrages(stock === undefined ? {} : arbitragesDuJour(stock, dateFilter), arbitrages);
+    fixerArbitrages(dateFilter, poserArbitrage(base, chId, tacheId, v));
+  };
+  // CR-6 : données de l'écart « avancement incohérent » — heures pointées
+  // avant le jour (registre), journal d'avancement (avancement de la veille),
+  // seuils réglés dans Admin. null = illisible : les cas concernés se taisent.
+  const [incoherence, setIncoherence] = useState(null);
+  const [seuilsAvancement, setSeuilsAvancement] = useState(null);
 
   const valideur = profil?.nom || profil?.email || "Conducteur";
 
@@ -310,6 +364,13 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       .then(({ data, error }) => {
         if (error) { console.warn("Validation — barème des frais généraux :", error.message); setBaremeFG(null); return; }
         setBaremeFG(Array.isArray(data?.value) && data.value.length ? data.value : TAUX_FG_DEFAUT);
+      });
+    // Seuils de l'écart « avancement incohérent » (Admin) : jamais enregistrés
+    // ou illisibles → valeurs par défaut.
+    supabase.from("planning_config").select("value").eq("key", CLE_CONFIG_AVANCEMENT_INCOHERENT).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) console.warn("Validation — seuils de l'avancement incohérent :", error.message);
+        setSeuilsAvancement(normaliserSeuilsAvancementIncoherent(error ? null : data?.value));
       });
   }, []);
 
@@ -393,6 +454,33 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     } else {
       setPhasages([]);
     }
+
+    // CR-6 : heures pointées avant le jour et journal d'avancement des tâches
+    // des comptes rendus du jour (lus par tranches : jamais tronqués).
+    {
+      const tIds = [...new Set((rs || []).flatMap(r => (r.taches || []).map(t => t.tache_id)).filter(Boolean).map(String))];
+      let pointagesAvant = [], journal = [];
+      if (chIds.length > 0 && tIds.length > 0) {
+        for (let i = 0; i < tIds.length && (pointagesAvant || journal); i += 100) {
+          const ids = tIds.slice(i, i + 100);
+          const [p, j] = await Promise.all([
+            lireToutParTranches((a, b) => supabase.from("pointages")
+              .select("id, tache_id, heures, type_pointage, quantite_validee, date")
+              .in("chantier_id", chIds).in("tache_id", ids).lt("date", dateFilter).order("id").range(a, b)),
+            lireToutParTranches((a, b) => supabase.from("avancement_journal")
+              .select("id, tache_id, avancement_avant, avancement_apres, date_realisation, created_at")
+              .in("chantier_id", chIds).in("tache_id", ids).order("id").range(a, b)),
+          ]);
+          if (p.error) console.warn("Validation — heures avant le jour (avancement incohérent) :", p.error);
+          if (j.error) console.warn("Validation — journal d'avancement (avancement incohérent) :", j.error);
+          pointagesAvant = p.error || !pointagesAvant ? null : [...pointagesAvant, ...p.data];
+          journal = j.error || !journal ? null : [...journal, ...j.data];
+        }
+      }
+      setIncoherence({ date: dateFilter, pointagesAvant, journal });
+    }
+    // CR-6 : avancement retenu relu depuis le navigateur (et nettoyé).
+    rechargerArbitrages(dateFilter, rs || []);
 
     setLoading(false);
   };
@@ -537,18 +625,46 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
       .attendus.map(a => ({ ...a, chantier_id: chId,
         chantier_nom: chantiers.find(c => String(c.id) === String(chId))?.nom || rapports.find(r => String(r.chantier_id) === String(chId))?.chantier_nom || null })));
   }, [cellsJour, rapports, absences, dateFilter, chantiers]);
+  // CR-6 : contexte de l'écart « avancement incohérent » par chantier — mêmes
+  // sources que la barre de budget du détail (heures avant = registre des
+  // pointages, heures du jour = tous les comptes rendus du jour, heures
+  // prévues de la tâche) et avancement de la veille d'après le journal.
+  const incoherenceParChantier = useMemo(() => {
+    if (!incoherence || incoherence.date !== dateFilter || !seuilsAvancement) return {};
+    const m = {};
+    phasages.forEach(ph => {
+      const ouvrages = Array.isArray(ph.ouvrages) ? ph.ouvrages : [];
+      if (ouvrages.length === 0) return;
+      const ch = String(ph.chantier_id);
+      m[ch] = {
+        ouvrages,
+        donneesParTache: donneesTachesIncoherence({
+          ouvrages, date: dateFilter, journal: incoherence.journal, pointagesAvant: incoherence.pointagesAvant,
+        }),
+        heuresJourParTache: heuresJourParTache(rapports.filter(r => String(r.chantier_id) === ch)),
+      };
+    });
+    return m;
+  }, [incoherence, seuilsAvancement, phasages, rapports, dateFilter]);
   const classements = useMemo(() => {
     const m = {};
     rapports.forEach(r => {
+      const inc = incoherenceParChantier[String(r.chantier_id)];
       m[r.id] = classerRapport(r, {
         avancementParTache: avancementParTache[r.chantier_id] || {},
         ouvriersPlanifies: [...ouvriersPlanifies],
         heuresAttendues: heuresAttenduesParOuvrier[r.ouvrier] ?? null,
         heuresJourOuvrier: heuresJourOuvrier(rapports, r.ouvrier),
+        ...(inc ? { avancementIncoherent: {
+          seuils: seuilsAvancement, donneesParTache: inc.donneesParTache, heuresJourParTache: inc.heuresJourParTache,
+          avancementDeclareParTache: avancementsQuantiteRapport({
+            rapport: r, ouvrages: inc.ouvrages, pointagesAvant: incoherence?.pointagesAvant ?? null, date: dateFilter,
+          }),
+        } } : {}),
       });
     });
     return m;
-  }, [rapports, avancementParTache, ouvriersPlanifies, heuresAttenduesParOuvrier]);
+  }, [rapports, avancementParTache, ouvriersPlanifies, heuresAttenduesParOuvrier, incoherenceParChantier, seuilsAvancement, incoherence, dateFilter]);
   const resume = useMemo(() => resumeJournee({ rapports, classements, attendus, heuresAttenduesParOuvrier }),
     [rapports, classements, attendus, heuresAttenduesParOuvrier]);
   const joursRetard = useMemo(() => joursEnRetard(enAttenteRecents, dateFilter), [enAttenteRecents, dateFilter]);
@@ -558,6 +674,9 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
     return m;
   }, [phasages]);
   const peutDirect = (r) => {
+    // CR-6 : tant que les données du contrôle « avancement incohérent » ne
+    // sont pas arrivées, pas de « Valider » direct (on ne sait pas encore).
+    if (!seuilsAvancement || !incoherence || incoherence.date !== dateFilter) return false;
     const ph = phasages.find(p => p.chantier_id === r.chantier_id);
     return peutValiderDirect(r, classements[r.id], {
       journeeCloturee: !!journeeCloturee,
@@ -1379,7 +1498,7 @@ function PageValidation({ chantiers = [], ouvriers = [], tauxHoraires = {}, T, b
           rapports={rapports} classements={classements} attendus={attendus} resume={resume} joursRetard={joursRetard}
           avancementParChantier={avancementParChantier}
           arbitrages={arbitrages}
-          onAppliquerArbitrage={(chId, tacheId, v) => setArbitrages(prev => poserArbitrage(prev, chId, tacheId, v))}
+          onAppliquerArbitrage={appliquerArbitrage}
           peutDirect={peutDirect} onValiderDirect={validerDirect} onOuvrir={setOpenedId}
           validating={validating} journeeCloturee={!!journeeCloturee}
         />

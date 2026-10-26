@@ -27,6 +27,7 @@ import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
 import SeuilsMargesAdmin from "./SeuilsMargesAdmin.jsx";
+import SeuilsAvancementIncoherentAdmin from "./SeuilsAvancementIncoherentAdmin.jsx";
 import ControleJournalAvancement from "./ControleJournalAvancement.jsx";
 // Échéancier de facturation client (bloc Facturation de la fiche chantier +
 // étapes de facturation de la frise du cycle de vie, phase Travaux).
@@ -5353,6 +5354,11 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           {/* Seuils de la marge probable et des alertes (planning_config
               seuils_marges) + dérives historiques par type de lot. */}
           <SeuilsMargesAdmin T={T} saveConfig={saveConfig}/>
+
+          {/* CR-6 : seuils de l'écart « avancement incohérent » de la
+              validation des comptes rendus (planning_config
+              seuils_avancement_incoherent). */}
+          <SeuilsAvancementIncoherentAdmin T={T} saveConfig={saveConfig}/>
 
           {/* TVA proposée aux NOUVEAUX projets de chiffrage. Chaque projet garde
               son propre taux (modifiable) ; un devis sans TVA n'est pas « prêt ». */}
