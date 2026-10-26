@@ -219,7 +219,7 @@ chaque étape.
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
-| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. Voir « CR-6 ». |
+| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). Voir « CR-6 ». |
 
 ### Journal des décisions
 
@@ -1402,6 +1402,69 @@ Points d'attention :
 - Un brouillon commencé en « pas comme prévu » fait réapparaître les tâches
   prévues masquées : l'ouvrier doit dire leur état si elles ont des heures.
 - Rien n'a été essayé sur un vrai téléphone.
+
+**6B — Écart « avancement incohérent » et avancement retenu gardé (en ligne,
+PR #186, sans migration ni changement de droits).**
+
+Ce qui change pour Loris (Validation fin de journée) : un écart orange
+« avancement incohérent » retire le « Valider » direct ; le compte rendu doit
+être ouvert. Trois textes (exemples issus des tests, données fictives) :
+« « Bandes chambre » déclarée terminée avec 2 h pour 10 h prévues » ;
+« « Enduit séjour » passe de 50 % à 75 % (+25 points) sans aucune heure pointée
+dessus ce jour-là » ; « « Faïence douche » était terminée et revient « en cours
+60 % » ». Plusieurs cas sur une même tâche = un seul écart. L'« avancement
+retenu » d'une tâche faite à plusieurs ne se perd plus au rechargement.
+
+Réglages : Admin → Taux horaires → « Validation des comptes rendus :
+avancement incohérent » (clé `planning_config.seuils_avancement_incoherent`,
+jamais enregistrée = défauts : rapport heures / avancement 0,5 ; tâche d'au
+moins 2 h prévues ; 25 points sans heure ; cas « terminée qui revient » actif).
+
+Mesure sur les vrais comptes rendus du 12/10 au 25/10/2026 (113 comptes rendus,
+lecture seule, seuils par défaut) : **11 tâches sur 9 comptes rendus** auraient
+eu l'écart — 10 « déclarée en avance sur les heures », 0 « sans heure », 1
+« terminée qui revient » ; **aucun « Valider » direct perdu à cause de lui**
+(seuls 3 comptes rendus sur 113 l'auraient eu, les autres avaient déjà un autre
+écart, surtout des heures sans tâche du phasage).
+
+| Ouvrier | Comptes rendus | avec l'écart | Tâches |
+|---|---|---|---|
+| Davy | 18 | 2 | 4 |
+| Mohamed | 14 | 3 | 3 (dont 1 terminée qui revient) |
+| Selman | 16 | 2 | 2 |
+| Steven | 19 | 1 | 1 |
+| Venceslas | 22 | 1 | 1 |
+| Kev | 20 | 0 | 0 |
+| Margaux | 4 | 0 | 0 |
+
+Exemples réels (base) : 15/10, Davy, FOURMOND 101, « Isolation laine de verre
+120mm doublage » déclarée terminée avec 0,5 h pour 5,04 h prévues ; 13/10,
+Selman, FOURMOND 102, porte-fenêtre 225x140 déclarée terminée avec 2 h pour
+5,16 h ; 16/10, Mohamed, KATHLEEN T2, « Passages des gaines VMC » était
+terminée et revient « en cours 25 % » ; 22/10, Venceslas, MONTILLERS APPT 1,
+« Décollage et enlèvement de la tapisserie » à 75 % avec 4,75 h pour 26,69 h.
+Chiffres approchés : avancement de la veille lu dans le journal (passé
+reconstitué), heures prévues d'aujourd'hui, 134 lignes sans tâche du phasage
+non contrôlables, 129 tâches sur 249 sous 2 h prévues. Le cas « sans heure »
+vaut 0 parce que l'ancien formulaire ne permettait pas de déclarer un état sans
+heures ; il servira avec le parcours unique.
+
+Choix techniques (voir aussi le journal) : module pur
+`avancementIncoherentV1.mjs` (`ecartsAvancementIncoherentRapport`, réutilisé
+en 6E) ; heures avant / du jour / prévues = mêmes sources que la barre de
+budget de CR-5 ; heures du jour = toutes les personnes ; « terminée » = 100 %
+la veille d'après le journal (situation validée) ; « Pas avancé aujourd'hui »
+et « en cours 100 % » ne déclenchent pas ; le premier cas ne vise qu'une
+déclaration qui fait avancer la tâche ; tâche bloquée non contrôlée (déjà en
+rouge) ; donnée manquante = pas d'écart. Avancement retenu : gardé dans le
+navigateur (par jour, chantier, tâche), oublié une fois les comptes rendus
+validés — limite : seulement sur cet ordinateur. Contrôle
+`verif-cr6-avancement-incoherent.mjs` (91 contrôles, données fictives).
+
+**Bilan : pas repris (choix).** Le Bilan lit les relevés journaliers, sans
+détail par tâche : il faudrait une nouvelle colonne (migration + recalcul) ou
+un second circuit de calcul ; et au moment du Bilan l'écart a déjà été tranché
+à la validation. Le comptage par ouvrier va sur la page Qualité (6E).
 
 ### Compte rendu final du projet (25/10/2026)
 
