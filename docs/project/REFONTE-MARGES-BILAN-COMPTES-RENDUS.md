@@ -415,6 +415,28 @@ chaque étape.
   affichée avec « sans matériaux prévus », sans écart, et hors du total du
   bandeau (elle serait trop belle).
 
+- **26/10/2026 — Version détaillée du Bilan, fiches chantier (réponses de Loris
+  après lecture du PDF détaillé W43).** Plan du PDF inchangé (page 1 = direction,
+  « Détail des marges », alertes complètes, décisions, tendances, semaine qui
+  vient, fiches, méthode) ; pas d'alertes ni de prévu / réalisé dans les fiches.
+  En tête de chaque fiche : « Du devis au probable », étape par étape, en € et
+  en % du vendu. Lots utiles seulement (les autres en « À venir »), « Sans lot »
+  en heures seulement, lot terminé sans coefficient ; matériaux lot par lot.
+  Choix techniques : la décomposition est calculée dans chantierFinance
+  (`cascadeMargeDevisReleve`) À PARTIR DU SEUL relevé de fin (mêmes colonnes
+  que les marges, aucun recalcul des coûts) ; elle tombe exactement sur la
+  marge à terminaison et la marge probable (vérifié sur les 45 relevés réels du
+  22/10 : aucun « autres écarts »). Le détail des matériaux par lot réutilise
+  les deux fonctions de la marge (`resteACommanderEnveloppes`,
+  `materiauxImputesALAvancement`, réunies dans `materiauxParLot`) sur les
+  données arrêtées à la date du relevé, et n'est affiché que s'il retombe sur
+  les totaux du relevé à 1 € près — sinon la fiche dit pourquoi (pas de
+  colonne ajoutée aux relevés, pas de migration, pas de recalcul des relevés).
+  Correction : la ligne « Sans lot » du tableau des lots lisait les seules
+  heures des ouvrages sans lot (38,9 h pour FOURMOND 001) quand l'encadré
+  lisait les heures sans lot complètes (40,4 h : + heures libres et indirectes
+  hors trajets) ; la ligne lit désormais la même colonne que l'encadré.
+
 ### Comptes rendus des étapes
 
 _(Ajouter ici, pour chaque étape terminée, le compte rendu en langage métier.)_
@@ -1476,6 +1498,37 @@ passées ; le coût moyen réel d'une heure pointée sur la période (19,94 €/
 est au niveau du taux de main-d'œuvre prévisionnel réglé dans Admin (20 €/h).
 Si ce taux n'est pas le coût chargé, toutes les marges devis et à terminaison
 sont trop belles : à vérifier dans Admin (Réglages → Taux horaires).
+**Version détaillée, fiches chantier (26/10/2026).** Après lecture du PDF
+détaillé, chaque fiche commence par « Du devis au probable » : la marge devis,
+les postes qui mènent à la marge à terminaison (heures sur les lots au-delà de
+ce que l'avancement justifie, heures hors des lots — sans lot, trajets, hors
+devis —, reste à faire réestimé, coût réel de la main-d'œuvre face au taux
+prévisionnel, frais généraux, matériaux, sous-traitance et autres coûts), puis
+la dérive des 3 lots qui pèsent le plus jusqu'à la marge probable. Le tableau
+des lots ne garde que les lots commencés ou qui pèsent sur la marge ; les
+autres tiennent en une ligne « À venir ». Les matériaux sont détaillés par lot
+(enveloppe, commandé, imputé, en avance, reste à commander, dépassement), avec
+les commandes sans lot à part. Aucune migration.
+
+Exemple réel (base du 26/10/2026, relevé du 22/10) — FOURMOND 102 : marge
+devis 11 075 € (37 %) ; heures sur les lots au-delà de l'avancement +81,6 h
+−3 055 € ; heures hors des lots +28,5 h −1 068 € ; reste à faire réestimé
++24,3 h −909 € ; coût réel de la main-d'œuvre −245 € ; = marge à terminaison
+5 797 € (19 %) ; dérive Murs cloison doublages (×2,68) −4 335 €, Plomberie
+(×1,73) −1 087 €, Électricité (×1,29) −315 €, autres lots −76 € ; = marge
+probable −15 € (0 %). FOURMOND 101 : marge devis 12 923 € (38 %) ; −2 541 €
+(+67,9 h sur les lots), −1 693 € (+45,2 h hors des lots), −945 € (+25,2 h
+réestimées), −164 € (main-d'œuvre), −439 € (matériaux) ; = 7 142 € (21 %) ;
+dérive Murs cloison doublages (×2,34) −3 784 €, Menuiserie −106 €,
+Électricité −45 € ; = marge probable 3 207 € (9 %). Les trois TOM & CAMILLE
+n'ont aucun matériau prévu : leur fiche dit « marge devis non comparable » et
+ne donne que le passage de la marge à terminaison à la marge probable.
+
+Point d'attention : le poste « reste à faire réestimé » (+24 à +32 h sur les
+FOURMOND) signifie que les heures estimées des tâches restantes dépassent la
+part non faite des heures prévues des ouvrages : des tâches ont été ajoutées
+ou réévaluées dans le phasage. À regarder dans le phasage de ces chantiers.
+
 
 ---
 

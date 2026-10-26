@@ -162,16 +162,32 @@ function useDonneesDetaillees(periode, actif, ids) {
     let annule = false;
     setEtat({ charge: false });
     (async () => {
-      const [ph, rap] = await Promise.all([
+      // Matériaux par lot des fiches (26/10/2026) : journal d'avancement
+      // complet, lignes de commande (même sélection que les relevés),
+      // lots « achats terminés » et lots configurés des chantiers retenus.
+      const [ph, rap, jr, cl, ach, cfgLots] = await Promise.all([
         supabase.from("phasages").select("chantier_id, ouvrages").in("chantier_id", ids),
         lireToutParTranches((a, b) => supabase.from("rapports").select("id, ouvrier, chantier_id, date_rapport, statut, taches, remarque, photos_chantier")
           .in("semaine", semainesCouvrant(periode.debut, periode.fin)).in("chantier_id", ids).order("id").range(a, b)),
+        lireToutParTranches((a, b) => supabase.from("avancement_journal").select("chantier_id, tache_id, avancement_avant, avancement_apres, date_realisation, created_at")
+          .in("chantier_id", ids).order("id").range(a, b)),
+        lireToutParTranches((a, b) => supabase.from("commande_lignes").select("id, quantite, prix_unitaire, prix_total, lot_id, nature, chantier_id, created_at, commande:commandes(date_doc)")
+          .in("chantier_id", ids).order("id").range(a, b)),
+        supabase.from("achats_lots_termines").select("chantier_id, lot_id, termine_le, termine_par").in("chantier_id", ids),
+        supabase.from("planning_config").select("value").eq("key", "lots_travaux").maybeSingle(),
       ]);
       if (annule) return;
-      if (ph.error || rap.error) console.warn("Bilan détaillé :", ph.error?.message || rap.error?.message);
+      const err = ph.error || rap.error || jr.error || cl.error || ach.error || cfgLots.error;
+      if (err) console.warn("Bilan détaillé :", err.message);
       const ouvragesPar = {};
       (ph.data || []).forEach(r => { ouvragesPar[r.chantier_id] = [...(ouvragesPar[r.chantier_id] || []), ...(r.ouvrages || [])]; });
-      setEtat({ charge: true, erreur: !!(ph.error || rap.error), ouvragesPar, rapports: rap.data || [] });
+      const grouper = (rows) => { const m = {}; (rows || []).forEach(r => { (m[r.chantier_id] ||= []).push(r); }); return m; };
+      const items = cfgLots.data?.value?.items;
+      const lotsConfig = Array.isArray(items) ? items.map((l, i) => ({ id: l.id || `lot_${i}`, label: l.label || `Lot ${i + 1}` })) : [];
+      setEtat({ charge: true, erreur: !!(ph.error || rap.error), ouvragesPar, rapports: rap.data || [],
+        // null = non chargé : la fiche dit « détail par lot non chargé », jamais un détail faux.
+        journalPar: jr.error ? null : grouper(jr.data), commandesPar: cl.error ? null : grouper(cl.data),
+        achatsPar: grouper(ach.data), lotsConfig });
     })();
     return () => { annule = true; };
   }, [actif, periode?.cle, cleIds]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -513,7 +529,10 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
           photosChoisies: prepPeriode.photos[s.chantierId] || [],
           commentairesCoches: preparation[s.chantierId].commentaires.filter(c => coches.includes(c.id)),
           syntheseRelue: prepPeriode.syntheses[s.chantierId] || "",
-          seuilSansLotPct: reglages.seuilsMarges?.alerteSansLotPct ?? 10 });
+          seuilSansLotPct: reglages.seuilsMarges?.alerteSansLotPct ?? 10, baremeFG: reglages.baremeFG,
+          journalComplet: det.journalPar ? (det.journalPar[s.chantierId] || []) : undefined,
+          commandeLignes: det.commandesPar ? (det.commandesPar[s.chantierId] || []) : undefined,
+          achatsTermines: det.achatsPar?.[s.chantierId] || [], lotsConfig: det.lotsConfig || [] });
         return { ...fiche, horsDevis: texteHorsDevisV2(horsDevis.parChantier[s.chantierId]) };
       }),
       gestesCommerciaux: texteGestesPeriodeV2(horsDevis.gestes) || undefined,

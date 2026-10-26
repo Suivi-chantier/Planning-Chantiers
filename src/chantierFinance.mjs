@@ -677,6 +677,101 @@ export function eurParHeureDevis(vendu, heuresVendues) {
   const v = Number(vendu), h = Number(heuresVendues);
   return vendu != null && heuresVendues != null && Number.isFinite(v) && Number.isFinite(h) && h > 0 ? v / h : null;
 }
+// ── DU DEVIS AU PROBABLE (26/10/2026) ───────────────────────────────────────
+// Ce qui fait passer la marge devis à la marge à terminaison, puis à la marge
+// probable, lu dans UN relevé journalier (mêmes colonnes, aucun recalcul des
+// coûts). Avec t = taux MO prévisionnel (mo_prev ÷ heures prévues) + taux de
+// frais généraux à la date du relevé, la différence terminaison − devis se
+// décompose EXACTEMENT en :
+//   heures sur les lots au-delà de ce que l'avancement justifie (Σ écarts des
+//   lots) × t ; heures hors des lots (sans lot, trajets, hors devis, reprise)
+//   × t ; reste à faire réestimé (heures restantes des tâches − part non
+//   faite des heures prévues) × t ; coût réel de la main-d'œuvre face au taux
+//   prévisionnel ; frais généraux au taux de la date des heures face au taux
+//   du jour ; matériaux (commandés + reste à commander face au prévu) ; autres
+//   coûts (sous-traitance, location, déchets, autre).
+// Puis probable − terminaison = − Σ lots écart probable (dérive des heures
+// restantes). Les postes de moins d'1 € et les arrondis des colonnes vont
+// dans « autres écarts » : la cascade tombe juste sur les marges du relevé.
+// Rend { disponible:false, raison } quand elle n'a pas de sens : relevé
+// absent, avancement inconnu, marge devis inconnue, aucun matériau prévu
+// (la marge devis n'est alors pas comparable : seule la seconde moitié est
+// rendue, devisComparable = false).
+const nOuNull = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+export function cascadeMargeDevisReleve(releve, baremeFG = null) {
+  if (!releve) return { disponible: false, raison: "relevé pas encore disponible" };
+  const T = nOuNull(releve.marge_terminaison), P = nOuNull(releve.marge_probable);
+  if (T == null || P == null) return { disponible: false, raison: "avancement inconnu à cette date : marges non calculables" };
+  const vendu = nOuNull(releve.vendu_ht);
+  const pct = (x) => (x != null && vendu != null && vendu > 0 ? (x / vendu) * 100 : null);
+  const lots = Array.isArray(releve.lots) ? releve.lots : [];
+  // Seconde moitié : terminaison → probable, lot par lot.
+  const derives = lots.map(l => ({ id: l.id, label: l.id === "_orphans" ? "Sans lot" : l.label,
+    montant: -(nOuNull(l.ecartProbableEuros) || 0), coefficient: nOuNull(l.coefficient), provenance: l.provenanceCoefficient || null }))
+    .filter(d => Math.abs(d.montant) >= 1).sort((a, b) => a.montant - b.montant);
+  const principaux = derives.slice(0, 3);
+  const resteDerives = P - T - principaux.reduce((s, d) => s + d.montant, 0);
+  const versProbable = [
+    ...principaux.map(d => ({ cle: `derive:${d.id}`, libelle: `Dérive ${d.label}${d.coefficient != null ? ` (×${String(Math.round(d.coefficient * 100) / 100).replace(".", ",")})` : ""}`, montant: d.montant })),
+    ...(Math.abs(resteDerives) >= 1 ? [{ cle: "derive:autres", libelle: derives.length > 3 ? "Dérive des autres lots" : "Autres écarts (arrondis)", montant: resteDerives }] : []),
+  ];
+  const base = { disponible: true, vendu, terminaison: T, terminaisonPct: pct(T), probable: P, probablePct: pct(P), versProbable };
+  const D = margePrevueDevisReleve(releve, baremeFG);
+  const matPrev = nOuNull(releve.mat_prev);
+  if (D == null) return { ...base, devisComparable: false, raisonDevis: "marge devis inconnue" };
+  if (!(matPrev > 0)) return { ...base, devisComparable: false, devis: D, raisonDevis: "aucun matériau prévu au phasage" };
+  const Hv = nOuNull(releve.heures_vendues), H = nOuNull(releve.heures_reelles), Hrest = nOuNull(releve.reste_a_faire_h);
+  const moPrev = nOuNull(releve.mo_prev), moReel = nOuNull(releve.mo_reel), fgReel = nOuNull(releve.fg), matReel = nOuNull(releve.mat_reel);
+  if ([Hv, H, Hrest, moPrev, moReel, fgReel, matReel].some(x => x == null) || !(Hv > 0)) {
+    return { ...base, devisComparable: false, devis: D, raisonDevis: "heures prévues ou coûts du relevé inconnus" };
+  }
+  const tMO = moPrev / Hv;
+  const tFG = tauxFGALaDate(normaliserBaremeFG(baremeFG), releve.date_releve);
+  const t = tMO + tFG;
+  const lotsHorsSansLot = lots.filter(l => l.id !== "_orphans");
+  const hLots = lotsHorsSansLot.reduce((s, l) => s + (nOuNull(l.heuresReelles) || 0), 0);
+  const hAtt = lots.reduce((s, l) => s + (nOuNull(l.heuresAttendues) || 0), 0);
+  const rac = nOuNull(releve.reste_a_commander) ?? 0;
+  const cpn = releve.couts_par_nature && typeof releve.couts_par_nature === "object" ? releve.couts_par_nature : null;
+  const autres = cpn ? NATURES_COUT.filter(n => n.id !== "materiaux").reduce((s, n) => s + (nOuNull(cpn[n.id]) || 0), 0) : 0;
+  const hDeriveLots = hLots - hAtt;
+  const hHorsLots = H - hLots;
+  const hReestime = Hrest - (Hv - hAtt);
+  const fmtHc = (h) => `${h > 0 ? "+" : h < 0 ? "−" : ""}${(Math.round(Math.abs(h) * 10) / 10).toLocaleString("fr-FR")} h`;
+  const postes = [
+    { cle: "heuresLots", libelle: `Heures sur les lots ${hDeriveLots >= 0 ? "au-delà" : "en deçà"} de ce que l'avancement justifie (${fmtHc(hDeriveLots)})`, montant: -hDeriveLots * t, heures: hDeriveLots },
+    { cle: "heuresHorsLots", libelle: `Heures hors des lots : sans lot, trajets, hors devis (${fmtHc(hHorsLots)})`, montant: -hHorsLots * t, heures: hHorsLots },
+    { cle: "resteReestime", libelle: `Reste à faire réestimé : tâches ajoutées ou réévaluées (${fmtHc(hReestime)})`, montant: -hReestime * t, heures: hReestime },
+    { cle: "coutHoraireMO", libelle: `Coût réel de la main-d'œuvre face au taux prévisionnel (${(Math.round(tMO * 100) / 100).toLocaleString("fr-FR")} €/h)`, montant: tMO * H - moReel },
+    { cle: "tauxFG", libelle: "Frais généraux : taux à la date des heures face au taux du jour", montant: tFG * H - fgReel },
+    { cle: "materiaux", libelle: cpn ? "Matériaux : commandés + reste à commander face au prévu" : "Achats : commandés + reste à commander face aux matériaux prévus", montant: matPrev - (matReel - autres) - rac },
+    ...(cpn ? [{ cle: "autresCouts", libelle: "Sous-traitance, location, bennes et autres coûts", montant: -autres }] : []),
+  ];
+  const visibles = postes.filter(p => Math.abs(p.montant) >= 1);
+  const resteT = T - D - visibles.reduce((s, p) => s + p.montant, 0);
+  const versTerminaison = [...visibles, ...(Math.abs(resteT) >= 1 ? [{ cle: "autres", libelle: "Autres écarts (arrondis)", montant: resteT }] : [])];
+  return { ...base, devisComparable: true, devis: D, devisPct: pct(D), versTerminaison, tauxProjete: t };
+}
+
+// Matériaux lot par lot à une date : enveloppe, commandé, imputé, en avance,
+// reste à commander, dépassement — LES deux fonctions de la marge
+// (resteACommanderEnveloppes, materiauxImputesALAvancement), réunies par lot.
+// `etat` : état des tâches à la date (etatTachesALaDate) ; `commandeLignes`
+// déjà arrêtées à la date. null si l'avancement d'un ouvrage est inconnu.
+export function materiauxParLot({ ouvrages = [], commandeLignes = [], lots = [], achatsTermines = [], etat = null } = {}) {
+  const env = resteACommanderEnveloppes({ ouvrages, commandeLignes, lots, achatsTermines });
+  const imp = materiauxImputesALAvancement({ ouvrages, commandeLignes, lots, etat });
+  if (!imp) return null;
+  const impPar = new Map(imp.lots.map(l => [l.lotId, l]));
+  const lignes = env.lots.map(l => {
+    const i = impPar.get(l.lotId) || { impute: l.commandes, enAvance: 0 };
+    return { lotId: l.lotId, label: l.label, enveloppe: l.enveloppe, commandes: l.commandes, impute: i.impute, enAvance: i.enAvance,
+      reste: l.reste, achatsTermines: !!l.achatsTermines, depassement: l.depassement ? l.depassement.euros : null };
+  }).filter(l => Math.abs(l.enveloppe) >= 0.5 || Math.abs(l.commandes) >= 0.5);
+  return { lots: lignes, commandesSansLot: env.commandesSansLot, deductionSansLot: env.deductionSansLot,
+    reste: env.reste, enAvance: imp.enAvance, autresNatures: imp.autresNatures };
+}
+
 export function normaliserSeuilsMarges(valeur) {
   const v = valeur && typeof valeur === "object" ? valeur : {};
   const out = {};
@@ -1011,6 +1106,9 @@ export const METHODE_CALCUL = [
   { cle: "margeProbable", label: "Marge probable", projection: true,
     formule: "« Si on continue au rythme actuel » : comme la marge à terminaison, mais les heures restantes de chaque lot sont multipliées par un coefficient : la dérive constatée du lot quand son avancement atteint le seuil réglé dans Admin (25 % par défaut), plafonnée (×5 par défaut) et jamais inférieure à ×1 ; sous le seuil, la dérive moyenne de ce type de lot sur les chantiers terminés (pondérée par les heures, chantiers repris exclus, au moins 2 chantiers), elle aussi ramenée à ×1 si elle est inférieure ; à défaut ×1 ; ×1 aussi quand le conducteur a neutralisé la dérive du lot (avec un commentaire). Marge probable = marge à terminaison − Σ lots (heures restantes probables − heures restantes prévues) × (taux MO prévisionnel + taux de frais généraux en vigueur). Les heures « sans lot » restent dans les coûts réels, sans coefficient",
     source: "Marge à terminaison, dérives des lots, dérives historiques des chantiers terminés, réglages Admin" },
+  { cle: "cascadeDevisProbable", label: "Du devis au probable (fiche chantier du Bilan)",
+    formule: "Ce qui fait passer la marge devis à la marge à terminaison, lu dans le relevé de fin de période. Avec t = taux de main-d'œuvre prévisionnel + taux de frais généraux à la date du relevé : heures sur les lots au-delà (ou en deçà) de ce que leur avancement justifie × t ; heures hors des lots (sans lot, trajets, hors devis, reprise d'antériorité) × t ; reste à faire réestimé (heures restantes des tâches − part non faite des heures prévues : tâches ajoutées ou réévaluées) × t ; coût réel de la main-d'œuvre face au taux prévisionnel (taux × heures réelles − coût réel) ; frais généraux au taux de la date des heures face au taux du jour ; matériaux (prévu − commandés − reste à commander) ; sous-traitance, location, bennes et autres coûts. La somme est exactement la marge à terminaison ; les postes de moins d'1 € et les arrondis sont regroupés en « autres écarts ». Puis la marge probable = marge à terminaison − la dérive des heures restantes de chaque lot (les 3 lots qui pèsent le plus sont nommés). Sans matériau prévu au phasage, la marge devis n'est pas comparable et seule la seconde moitié est donnée",
+    source: "Relevé journalier de fin de période (mêmes colonnes que les marges)" },
   { cle: "deriveLotHeuresEuros", label: "Dérive d'un lot en heures et en euros",
     formule: "Heures attendues à cet avancement = heures prévues du lot × avancement exact ; écart en heures = heures réelles comparables − heures attendues ; écart en euros = écart en heures × (coût horaire réel moyen de la main-d'œuvre du lot + taux de frais généraux en vigueur). Le ratio ×N (heures réelles ÷ heures attendues) reste affiché à côté",
     source: "Ouvrages du lot + registre de pointage + taux de frais généraux (Admin)" },

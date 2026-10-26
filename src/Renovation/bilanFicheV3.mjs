@@ -1,10 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Fiche chantier de la version DÉTAILLÉE du Bilan (refonte, étape 3.4).
 //
+//   - en tête (26/10/2026) : « du devis au probable » — marge devis, ce qui
+//     mène à la marge à terminaison, puis la dérive des lots jusqu'à la marge
+//     probable ; dessous le constat à date et la période ;
 //   - tableau des lots : lu dans le relevé de fin de période (colonne lots),
-//     ligne « sans lot » mise en évidence au-delà du seuil (10 % par défaut) ;
-//   - matériaux : commandés, imputés, en avance, reste à commander, ventilation
-//     par nature des coûts — lus dans le relevé (même service) ;
+//     lots utiles seulement (les autres en « À venir »), ligne « sans lot »
+//     en heures seulement, mise en évidence au-delà du seuil (10 % par défaut) ;
+//   - matériaux : totaux du relevé (commandés, imputés, en avance, reste à
+//     commander, ventilation par nature) + détail par lot (enveloppe,
+//     commandé, imputé, en avance, reste, dépassement) ;
 //   - tâches résumées par lot (« Murs cloisons : 6 terminées, 2 en cours »),
 //     puis le détail : tâches dont l'avancement a bougé sur la période (journal
 //     d'avancement daté), état au dernier jour travaillé ;
@@ -16,7 +21,7 @@
 // Module PUR : aucune dépendance Supabase, aucune horloge, aucun effet de bord.
 // ─────────────────────────────────────────────────────────────────────────────
 import { libelleOuvrage, nomTache } from "./libellesPhasageV1.mjs";
-import { METHODE_CALCUL, NATURES_COUT } from "../chantierFinance.mjs";
+import { METHODE_CALCUL, NATURES_COUT, cascadeMargeDevisReleve, materiauxParLot, etatTachesALaDate, dateImputationLigne } from "../chantierFinance.mjs";
 import { dateRapportIsoV3 } from "./bilanPeriodeV3.mjs";
 
 const str = v => (v == null ? "" : String(v).trim());
@@ -32,38 +37,101 @@ export const LIBELLES_PROVENANCE_FICHE = Object.freeze({
   constatee: "dérive constatée", historique: "dérive historique", neutralisee: "neutralisée", aucune: "aucune",
 });
 
-/** Lignes de lots de la fiche, depuis la colonne `lots` du relevé. */
+const fmt1 = v => String(Math.round(v * 10) / 10).replace(".", ",");
+
+/**
+ * Lignes de lots de la fiche, depuis la colonne `lots` du relevé (choix de
+ * Loris du 26/10/2026 : lots UTILES seulement) :
+ *   - affichés : lots commencés (heures ou avancement), ou qui pèsent sur la
+ *     marge probable (écart probable d'au moins 1 €) ;
+ *   - les autres : une ligne « À venir : Sol 25 h · Plafond 36 h » ;
+ *   - « Sans lot » : les heures seulement, LE MÊME chiffre que l'encadré
+ *     (heures_sans_lot du relevé : heures libres, indirectes hors trajets,
+ *     ouvrages sans lot) — ni avancement ni coefficient ; les heures prévues
+ *     seulement si des ouvrages sans lot en prévoient ;
+ *   - lot terminé : « terminé » au lieu du coefficient.
+ */
 export function lotsFicheV3(releveFin, { seuilSansLotPct = 10 } = {}) {
-  const lots = listeSure(releveFin?.lots).map(l => ({
-    id: l.id, label: l.id === "_orphans" ? "Sans lot" : l.label, sansLot: l.id === "_orphans",
-    heuresReelles: num(l.heuresReelles), heuresVendues: num(l.heuresVendues),
-    avancement: num(l.avancement), avancementExact: num(l.avancementExact),
-    ecartHeures: num(l.ecartHeures), ecartEuros: num(l.ecartEuros),
-    heuresRestantesPrevues: num(l.heuresRestantesPrevues), heuresRestantesProbables: num(l.heuresRestantesProbables),
-    provenance: l.provenanceCoefficient
-      ? `×${String(Math.round(num(l.coefficient) * 100) / 100).replace(".", ",")} · ${LIBELLES_PROVENANCE_FICHE[l.provenanceCoefficient] || l.provenanceCoefficient}`
-      : "",
-  }));
-  const pct = num(releveFin?.pct_sans_lot);
+  const tous = listeSure(releveFin?.lots).map(l => {
+    const sansLot = l.id === "_orphans";
+    const avEx = num(l.avancementExact) ?? num(l.avancement);
+    const termine = !sansLot && avEx != null && avEx >= 100;
+    return {
+      id: l.id, label: sansLot ? "Sans lot" : l.label, sansLot, termine,
+      heuresReelles: num(l.heuresReelles), heuresVendues: num(l.heuresVendues),
+      avancement: num(l.avancement), avancementExact: num(l.avancementExact),
+      ecartHeures: num(l.ecartHeures), ecartEuros: num(l.ecartEuros),
+      heuresRestantesPrevues: num(l.heuresRestantesPrevues), heuresRestantesProbables: num(l.heuresRestantesProbables),
+      ecartProbableEuros: num(l.ecartProbableEuros),
+      provenance: termine ? "terminé" : l.provenanceCoefficient
+        ? `×${String(Math.round(num(l.coefficient) * 100) / 100).replace(".", ",")} · ${LIBELLES_PROVENANCE_FICHE[l.provenanceCoefficient] || l.provenanceCoefficient}`
+        : "",
+    };
+  });
   const hSansLot = num(releveFin?.heures_sans_lot);
+  const pct = num(releveFin?.pct_sans_lot);
+  const pese = l => Math.abs(l.ecartProbableEuros || 0) >= 1;
+  const commence = l => (l.heuresReelles || 0) > 0 || (l.avancementExact ?? l.avancement ?? 0) > 0;
+  const lots = [], aVenir = [];
+  for (const l of tous) {
+    if (l.sansLot) continue;
+    if (commence(l) || pese(l)) lots.push(l);
+    else aVenir.push(`${l.label} ${fmt1(l.heuresRestantesPrevues ?? l.heuresVendues ?? 0)} h`);
+  }
+  const orph = tous.find(l => l.sansLot) || null;
+  const hvSansLot = orph && (orph.heuresVendues || 0) > 0 ? orph.heuresVendues : null;
+  if ((hSansLot || 0) > 0 || hvSansLot != null) {
+    lots.push({ id: "_orphans", label: "Sans lot", sansLot: true, heuresReelles: hSansLot ?? 0, heuresVendues: hvSansLot });
+  }
   const sansLotAlerte = pct != null && pct > seuilSansLotPct
-    ? `${String(Math.round(pct * 10) / 10).replace(".", ",")} % des heures sont « sans lot » (${String(Math.round((hSansLot || 0) * 10) / 10).replace(".", ",")} h) : au-delà de ${seuilSansLotPct} %, les causes des dérives sont masquées.`
+    ? `${fmt1(pct)} % des heures sont « sans lot » (${fmt1(hSansLot || 0)} h) : au-delà de ${seuilSansLotPct} %, les causes des dérives sont masquées.`
     : null;
-  return { lots, sansLotAlerte };
+  return { lots, aVenir: aVenir.length ? `À venir : ${aVenir.join(" · ")}` : null, sansLotAlerte };
 }
 
-/** Bloc matériaux de la fiche (null si le relevé ne les a pas). */
-export function materiauxFicheV3(releveFin) {
+/**
+ * Bloc matériaux de la fiche (null si le relevé ne les a pas). Les totaux sont
+ * ceux du relevé ; le détail par lot vient de materiauxParLot (les deux
+ * fonctions de la marge) sur les données arrêtées à la date du relevé, et
+ * n'est montré que s'il retombe sur les totaux du relevé (à 1 € près) — sinon
+ * la fiche dit pourquoi il manque : jamais un détail qui contredit les totaux.
+ * `detail` : résultat de materiauxParLotALaDateV3 (undefined = non chargé).
+ */
+export function materiauxFicheV3(releveFin, detail = undefined) {
   if (!releveFin) return null;
   const parNature = releveFin.couts_par_nature && typeof releveFin.couts_par_nature === "object"
     ? NATURES_COUT.map(n => ({ nature: n.id, libelle: n.label, montant: num(releveFin.couts_par_nature[n.id]) }))
       .filter(x => x.montant != null && Math.abs(x.montant) > 0.5)
     : [];
+  const enAvance = num(releveFin.materiaux_en_avance), reste = num(releveFin.reste_a_commander);
+  let lots = null, raisonLots = null, sansLot = null;
+  if (detail === undefined) raisonLots = "détail par lot non chargé";
+  else if (detail == null) raisonLots = "détail par lot indisponible : avancement inconnu à cette date";
+  else if ((enAvance != null && Math.abs(detail.enAvance - enAvance) > 1) || (reste != null && Math.abs(detail.reste - reste) > 1)) {
+    raisonLots = "détail par lot indisponible : les commandes ou le phasage ont changé depuis le calcul du relevé (les totaux ci-dessus sont ceux du relevé)";
+  } else {
+    lots = detail.lots;
+    sansLot = detail.commandesSansLot > 0.5 ? { commandes: detail.commandesSansLot, deduction: detail.deductionSansLot } : null;
+  }
   return {
     commandes: num(releveFin.mat_reel), imputes: num(releveFin.materiaux_imputes),
-    enAvance: num(releveFin.materiaux_en_avance), resteACommander: num(releveFin.reste_a_commander),
+    enAvance, resteACommander: reste,
     parNature, parNatureDisponible: !!releveFin.couts_par_nature,
+    lots, sansLot, raisonLots,
   };
+}
+
+/**
+ * Détail des matériaux par lot à la date du relevé de fin : état des tâches à
+ * cette date (journal d'avancement COMPLET du chantier), lignes de commande
+ * imputées au plus tard ce jour-là (même règle que les relevés). undefined si
+ * les données ne sont pas chargées.
+ */
+export function materiauxParLotALaDateV3({ ouvrages, journalComplet, commandeLignes, achatsTermines = [], lots = [], dateFin }) {
+  if (!Array.isArray(journalComplet) || !Array.isArray(commandeLignes)) return undefined;
+  const etat = etatTachesALaDate(journalComplet, dateFin);
+  const lignes = commandeLignes.filter(l => { const d = dateImputationLigne(l); return d == null || d <= dateFin; });
+  return materiauxParLot({ ouvrages: listeSure(ouvrages), commandeLignes: lignes, lots, achatsTermines, etat });
 }
 
 /**
@@ -139,7 +207,7 @@ export function matiereComptesRendusV3({ rapports, chantierId, debut, fin }) {
 
 /** Annexe « Méthode de calcul » du Bilan (mêmes formules que le module finance). */
 export function methodeBilanV3() {
-  const garder = ["venduHT", "heuresVendues", "heuresReelles", "margePrev", "margeAvancement", "margeATerminaison", "margeProbable", "eurParHeureDevis", "budgetRestant", "materiauxEnAvance", "deriveLotHeuresEuros", "heuresSansLot"];
+  const garder = ["venduHT", "heuresVendues", "heuresReelles", "margePrev", "margeAvancement", "margeATerminaison", "margeProbable", "cascadeDevisProbable", "eurParHeureDevis", "budgetRestant", "materiauxEnAvance", "deriveLotHeuresEuros", "heuresSansLot"];
   const finance = METHODE_CALCUL.filter(m => garder.includes(m.cle)).map(m => ({ titre: m.label, texte: m.formule }));
   return [
     { titre: "Période et comparaison", texte: "Le Bilan compare deux relevés journaliers : celui du dernier jour travaillé avant la période et celui du dernier jour travaillé de la période (jour travaillé = au moins une heure pointée dans l'entreprise). Une donnée inconnue à ces dates reste « pas encore disponible », jamais 0." },
@@ -152,16 +220,30 @@ export function methodeBilanV3() {
 }
 
 /** Assemble la fiche d'un chantier pour le PDF détaillé. */
+// En tête de fiche (choix de Loris du 26/10/2026) : « du devis au probable »
+// (cascadeMargeDevisReleve, lue dans le relevé de fin), puis le constat à date
+// et la période, lus dans la synthèse du Bilan (mêmes chiffres que la page 1).
+export function margesFicheV3(synthese, releveFin, baremeFG = null) {
+  return {
+    cascade: cascadeMargeDevisReleve(releveFin, baremeFG),
+    constat: { margeAvancement: synthese?.margeAvancement ?? null, materiauxEnAvance: synthese?.materiauxEnAvance ?? null },
+    periode: { production: synthese?.production ?? null, margePeriode: synthese?.margePeriode ?? null },
+  };
+}
+
 export function ficheChantierV3({ synthese, releveFin, ouvrages, journal, pointages, periode, bornes,
-  photosChoisies = [], commentairesCoches = [], syntheseRelue = "", seuilSansLotPct = 10 }) {
-  const { lots, sansLotAlerte } = lotsFicheV3(releveFin, { seuilSansLotPct });
-  const lotsLabels = Object.fromEntries(lots.map(l => [l.id, l.label]));
+  photosChoisies = [], commentairesCoches = [], syntheseRelue = "", seuilSansLotPct = 10,
+  baremeFG = null, journalComplet = undefined, commandeLignes = undefined, achatsTermines = [], lotsConfig = [] }) {
+  const { lots, aVenir, sansLotAlerte } = lotsFicheV3(releveFin, { seuilSansLotPct });
+  const lotsLabels = Object.fromEntries(listeSure(releveFin?.lots).map(l => [l.id, l.label]));
+  const detailMat = materiauxParLotALaDateV3({ ouvrages, journalComplet, commandeLignes, achatsTermines, lots: lotsConfig, dateFin: bornes.dateFin });
   return {
     chantierId: synthese.chantierId, nom: synthese.nom,
     synthese: str(syntheseRelue) || null,
     presences: presencesV3({ pointages, chantierId: synthese.chantierId, debut: periode.debut, fin: periode.fin }),
-    lots, sansLotAlerte,
-    materiaux: materiauxFicheV3(releveFin),
+    marges: margesFicheV3(synthese, releveFin, baremeFG),
+    lots, aVenir, sansLotAlerte,
+    materiaux: materiauxFicheV3(releveFin, detailMat),
     tachesParLot: tachesParLotV3({ ouvrages, journal, dateDepart: bornes.dateDepart, dateFin: bornes.dateFin, lotsLabels }),
     photos: listeSure(photosChoisies).slice(0, 2),
     commentaires: listeSure(commentairesCoches).map(c => ({ ouvrier: c.ouvrier, texte: c.texte })),

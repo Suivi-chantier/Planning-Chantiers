@@ -255,24 +255,78 @@ export function htmlBilanDirectionV3(d) {
   return corpsBilanV3(d, false);
 }
 
-function ficheHtml(f) {
-  const lots = listeSure(f.lots).map(l => `<tr${l.sansLot ? ' style="background:#fff7ed"' : ""}>
+// « Du devis au probable » (choix de Loris du 26/10/2026) : chaque marge en €
+// et en % du vendu, les postes qui les relient (ils s'additionnent exactement).
+function cascadeHtml(mg) {
+  const c = mg?.cascade;
+  if (!c) return "";
+  if (!c.disponible) return `<p class="note"><strong>Du devis au probable :</strong> ${e(c.raison)}.</p>`;
+  const total = (libelle, montant, pct) => `<tr style="font-weight:bold;background:#f9fafb"><td>${e(libelle)}</td>
+    <td class="n" style="color:${couleurSigne(montant)}">${e(fmtEurSigne(montant))}</td><td class="n gris">${e(fmtPctSur(pct))}</td></tr>`;
+  const poste = p => `<tr><td style="padding-left:16px">${e(p.libelle)}</td>
+    <td class="n" style="color:${couleurSigne(p.montant)}">${e(fmtEurSigne(p.montant))}</td><td></td></tr>`;
+  const haut = c.devisComparable
+    ? `${total("Marge devis", c.devis, c.devisPct)}${listeSure(c.versTerminaison).map(poste).join("")}`
+    : `<tr><td colspan="3" class="gris">Marge devis non comparable : ${e(c.raisonDevis)}.</td></tr>`;
+  const constat = mg.constat || {}, per = mg.periode || {};
+  return `<table style="width:auto;min-width:62%">
+    <thead><tr><th>Du devis au probable</th><th class="n">€</th><th class="n">% du vendu</th></tr></thead>
+    <tbody>${haut}
+      ${total("= Marge à terminaison (si le reste se passe comme le devis)", c.terminaison, c.terminaisonPct)}
+      ${listeSure(c.versProbable).map(poste).join("")}
+      ${total("= Marge probable (au rythme constaté)", c.probable, c.probablePct)}
+    </tbody></table>
+    <p class="note">Constat à date : marge à l'avancement ${e(fmtEurSigne(constat.margeAvancement))} · matériaux en avance sur chantier ${e(fmtEur(constat.materiauxEnAvance))}
+      — Sur la période : production ${e(fmtEur(per.production))} · marge de la période ${e(fmtEurSigne(per.margePeriode))}</p>`;
+}
+
+function lotsFicheHtml(f) {
+  const lignes = listeSure(f.lots).map(l => l.sansLot
+    ? `<tr style="background:#fff7ed"><td>Sans lot</td><td class="n">${e(fmtH(l.heuresReelles))}${l.heuresVendues != null ? ` / ${e(fmtH(l.heuresVendues))}` : ""}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="gris">heures seulement</td></tr>`
+    : `<tr>
     <td>${e(l.label)}</td><td class="n">${e(fmtH(l.heuresReelles))} / ${e(fmtH(l.heuresVendues))}</td>
     <td class="n">${e(fmtPct(l.avancementExact ?? l.avancement))}</td>
     <td class="n" style="color:${couleurSigne(-(l.ecartHeures || 0))}">${l.ecartHeures == null ? "—" : `${e(fmtH(l.ecartHeures))} · ${e(fmtEurSigne(l.ecartEuros))}`}</td>
-    <td class="n">${l.heuresRestantesPrevues == null ? "—" : `${e(fmtH(l.heuresRestantesPrevues))} → ${e(fmtH(l.heuresRestantesProbables))}`}</td>
+    <td class="n">${l.termine || l.heuresRestantesPrevues == null ? "—" : `${e(fmtH(l.heuresRestantesPrevues))} → ${e(fmtH(l.heuresRestantesProbables))}`}</td>
     <td>${e(l.provenance || "")}</td></tr>`).join("");
-  const m = f.materiaux || null;
+  return `${lignes ? `<table><thead><tr><th>Lot</th><th class="n">Heures réelles / prévues</th><th class="n">Avancement</th><th class="n">Écart</th><th class="n">Restant prévu → probable</th><th>Coefficient</th></tr></thead>
+    <tbody>${lignes}</tbody></table>` : ""}
+    ${f.aVenir ? `<p class="note">${e(f.aVenir)}</p>` : ""}`;
+}
+
+function materiauxFicheHtml(m) {
+  if (!m) return "";
+  const natures = listeSure(m.parNature);
+  const ligneNature = !m.parNatureDisponible ? ""
+    : natures.length === 0 ? ""
+    : natures.length === 1 && natures[0].nature === "materiaux" ? `<p class="note">Par nature : uniquement des matériaux.</p>`
+    : `<p class="note">Par nature : ${natures.map(n => `${e(n.libelle)} ${e(fmtEur(n.montant))}`).join(" · ")}</p>`;
+  const lots = listeSure(m.lots);
+  const tableau = lots.length || m.sansLot
+    ? `<table><thead><tr><th>Lot</th><th class="n">Enveloppe</th><th class="n">Commandé</th><th class="n">Imputé</th><th class="n">En avance</th><th class="n">Reste à commander</th><th class="n">Dépassement</th></tr></thead>
+      <tbody>${lots.map(l => `<tr><td>${e(l.label)}${l.achatsTermines ? ` <span class="gris">(achats terminés)</span>` : ""}</td>
+        <td class="n">${e(fmtEur(l.enveloppe))}</td><td class="n">${e(fmtEur(l.commandes))}</td><td class="n">${e(fmtEur(l.impute))}</td>
+        <td class="n">${e(fmtEur(l.enAvance))}</td><td class="n">${e(fmtEur(l.reste))}</td>
+        <td class="n" style="color:${l.depassement ? "#c0392b" : "#6b7280"}">${l.depassement ? e(fmtEurSigne(l.depassement)) : "—"}</td></tr>`).join("")}
+      ${m.sansLot ? `<tr style="background:#fff7ed"><td>Commandes sans lot</td><td class="n">—</td><td class="n">${e(fmtEur(m.sansLot.commandes))}</td><td class="n">${e(fmtEur(m.sansLot.commandes))}</td><td class="n">—</td>
+        <td class="n">${m.sansLot.deduction >= 0.5 ? `−${e(fmtEur(m.sansLot.deduction))}` : "—"}</td><td class="n gris">lot à indiquer</td></tr>` : ""}</tbody></table>`
+    : m.raisonLots ? `<p class="note">${e(m.raisonLots[0].toUpperCase() + m.raisonLots.slice(1))}.</p>` : "";
+  return `<h3>Matériaux</h3>
+    <p class="note">Commandés ${e(fmtEur(m.commandes))} · imputés ${e(fmtEur(m.imputes))} · en avance sur chantier ${e(fmtEur(m.enAvance))} · reste à commander ${e(fmtEur(m.resteACommander))}</p>
+    ${ligneNature}${tableau}`;
+}
+
+function ficheHtml(f) {
   const taches = listeSure(f.tachesParLot);
   return `<div class="fiche">
     <h2>${e(f.nom)}</h2>
+    ${cascadeHtml(f.marges)}
     ${f.synthese ? `<p><strong>Synthèse :</strong> ${e(f.synthese)}</p>` : ""}
     ${f.presences ? `<p class="note"><strong>Présences :</strong> ${e(f.presences)}</p>` : ""}
     ${f.horsDevis ? `<p class="note">${e(f.horsDevis)}</p>` : ""}
-    <table><thead><tr><th>Lot</th><th class="n">Heures réelles / prévues</th><th class="n">Avancement</th><th class="n">Écart</th><th class="n">Restant prévu → probable</th><th>Coefficient</th></tr></thead>
-    <tbody>${lots}</tbody></table>
+    ${lotsFicheHtml(f)}
     ${f.sansLotAlerte ? `<p class="avert">${e(f.sansLotAlerte)}</p>` : ""}
-    ${m ? `<h3>Matériaux</h3><p class="note">Commandés ${e(fmtEur(m.commandes))} · imputés ${e(fmtEur(m.imputes))} · en avance sur chantier ${e(fmtEur(m.enAvance))} · reste à commander ${e(fmtEur(m.resteACommander))}${listeSure(m.parNature).length ? ` — ${listeSure(m.parNature).map(n => `${e(n.libelle)} ${e(fmtEur(n.montant))}`).join(" · ")}` : ""}</p>` : ""}
+    ${materiauxFicheHtml(f.materiaux)}
     ${taches.length ? `<h3>Tâches</h3><ul>${taches.map(t => `<li><strong>${e(t.lot)}</strong> : ${e(t.resume)}${listeSure(t.taches).length ? `<div class="gris">${listeSure(t.taches).map(x => `${e(x.nom)} (${e(x.etat)})`).join(" · ")}</div>` : ""}</li>`).join("")}</ul>` : ""}
     ${listeSure(f.photos).length ? `<div class="photos">${listeSure(f.photos).map(u => `<img src="${e(u)}" crossorigin="anonymous">`).join("")}</div>` : ""}
     ${listeSure(f.commentaires).length ? `<h3>Commentaires retenus</h3><ul>${listeSure(f.commentaires).map(c => `<li>${e(c.ouvrier)} : « ${e(c.texte)} »</li>`).join("")}</ul>` : ""}

@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-26",
     type: "amelioration",
+    titre: "Bilan détaillé : chaque fiche chantier explique le passage de la marge du devis à la marge probable",
+    pages: [{ id: "bilan-semaine", label: "Bilan semaine" }],
+    quoi: "Dans la version détaillée du Bilan, chaque fiche chantier commence par « Du devis au probable » : la marge que le devis laissait espérer, ce qui l'a fait bouger (heures en trop sur les lots, heures hors des lots, reste à faire réestimé, coût réel de la main-d'œuvre, matériaux, sous-traitance…), la marge à terminaison, puis la dérive des lots qui pèsent le plus jusqu'à la marge probable. Le tableau des lots ne garde que les lots commencés ou qui pèsent sur la marge ; les autres sont résumés en une ligne « À venir ». Les matériaux sont détaillés lot par lot.",
+    comment: "Équipe → Bilan semaine, cocher « Version détaillée » puis exporter. Les montants s'additionnent exactement et viennent du même relevé que les marges de la page 1. La ligne « Sans lot » donne désormais le même nombre d'heures que l'encadré rouge. Le détail des matériaux par lot n'apparaît que s'il retombe sur les totaux du relevé ; sinon la fiche dit pourquoi.",
+  },
+  {
+    date: "2026-10-26",
+    type: "amelioration",
     titre: "Bilan : le PDF direction met en avant la marge du devis face à la marge probable",
     pages: [{ id: "bilan-semaine", label: "Bilan semaine" }],
     quoi: "Le PDF du Bilan pour la direction est plus court et plus lisible. Pour chaque chantier, il montre ce que le devis laissait espérer (marge devis) et où le chantier va finir au rythme actuel (marge probable), en euros et en pourcentage du vendu, l'écart entre les deux et l'évolution de la semaine. L'euro produit par heure est affiché à côté de celui du devis. Le bandeau donne les mêmes repères pour l'ensemble des chantiers.",
