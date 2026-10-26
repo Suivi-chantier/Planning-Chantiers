@@ -110,16 +110,27 @@ travaillée visuellement.
 
 ### 2.2 Comptes rendus et validation
 
-- **C1. Deux branches** : écran d'accueil avec la journée prévue et l'état attendu
-  ce soir de chaque tâche ; « Journée comme prévu » ou « Pas comme prévu ».
-- **C2. Vue phasage mobile** pour « pas comme prévu » : lot › ouvrage › tâche,
+- **C1. Parcours unique** (révisé le 26/10/2026, CR-6 ; remplace les deux
+  branches « Journée comme prévu » / « Pas comme prévu ») : pour chaque chantier
+  du jour, l'ouvrier voit directement la liste de ses tâches prévues, heures
+  PRÉREMPLIES avec la durée prévue, état NON prérempli et OBLIGATOIRE choisi en
+  un geste (Pas commencé, Commencé, À moitié, Presque fini, Terminé, ou la
+  quantité posée ; « Bloqué » avec son motif), le prévu affiché en petit comme
+  simple repère, jamais sélectionné. « J'ai fait autre chose » ouvre le phasage
+  et AJOUTE des tâches à la liste sans rien effacer. « Pas commencé » ne demande
+  aucun motif.
+- **C2. Vue phasage mobile** (ouverte par « J'ai fait autre chose » depuis
+  CR-6 ; avant : branche « pas comme prévu ») : lot › ouvrage › tâche,
   métier de l'ouvrier en premier, recherche, tâches terminées masquées, sélection
   multiple, « Créer une tâche » avec le motif A / B / C. Les tâches prévues ne
   sont PAS proposées comme choix dans cette branche.
 - **C3. Temps PRÉCIS, saisie allégée** : durée prévue préremplie, « le reste
   ici », raccourcis 1 h / 2 h / 4 h / journée, ±15 min, frise horaire en OPTION
   (désactivée par défaut) ; envoi bloqué tant que le total n'est pas exact.
-- **C4. Tâches prévues non faites** : une question « pourquoi ? » à la fin.
+- ~~**C4. Tâches prévues non faites** : une question « pourquoi ? » à la fin.~~
+  **Supprimée le 26/10/2026 (CR-6)** : plus d'écran ni de motif pour les tâches
+  prévues non faites. À la validation, « prévue, pas faite » reste un écart
+  orange, sans motif affiché.
 - **C5.** Repères concrets ou quantités au lieu des pourcentages libres ; dictée
   vocale avec préremplissage par l'IA ; une photo de la zone en fin de journée
   (recommandée, jamais exigée) ; retour à l'ouvrier après l'envoi ; diagnostic
@@ -154,6 +165,13 @@ travaillée visuellement.
   pas fiable).
 - Liens de prévisualisation et attente de validation avant mise en ligne : NON,
   Loris teste à la fin du projet.
+- Boutons « Journée comme prévu » / « Ça ne s'est pas passé comme prévu » : NON
+  (écartés le 26/10/2026, CR-6) — l'état attendu tiré du planning n'est juste
+  qu'environ une fois sur deux ; un compte rendu faux arrivait en gris « comme
+  prévu », validable en un clic.
+- État des tâches prérempli d'après le planning : NON (CR-6) — c'est l'ouvrier
+  qui choisit l'état, le prévu n'est qu'un repère affiché.
+- Motif demandé pour les tâches prévues non faites : NON (CR-6).
 
 ---
 
@@ -201,6 +219,7 @@ chaque étape.
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
+| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. |
 
 ### Journal des décisions
 
@@ -436,6 +455,32 @@ chaque étape.
   heures des ouvrages sans lot (38,9 h pour FOURMOND 001) quand l'encadré
   lisait les heures sans lot complètes (40,4 h : + heures libres et indirectes
   hors trajets) ; la ligne lit désormais la même colonne que l'encadré.
+
+- **26/10/2026 — CR-6 ajoutée par Loris : le projet est rouvert.** Après
+  relecture, Loris remplace les deux branches du compte rendu par un parcours
+  unique (C1 révisé, C4 supprimé, trois idées ajoutées aux décisions écartées)
+  et demande des correctifs (écart « avancement incohérent », planning lié au
+  phasage, classement en masse, suivi qualité, avancement retenu gardé).
+  Mêmes règles que le reste du projet : migration purement additive sans
+  attendre, le reste avec son accord ; mise en ligne normale.
+- **26/10/2026 — CR-6 : découpage (choix du pilote).** Cinq mises en ligne,
+  chacune en ligne avant la suivante : **6A** parcours unique (cahier §1) ;
+  **6B** écart « avancement incohérent » à la validation, seuils dans Admin,
+  Bilan si simple, et avancement retenu gardé au rechargement (§2 et §6, tous
+  deux dans la validation) ; **6C** lignes du planning non liées au phasage
+  (§3) ; **6D** outils de classement en masse (§4) ; **6E** indicateurs de la
+  page « Qualité des comptes rendus » (§5) et compte rendu final de CR-6. Les
+  outils de classement en masse sont placés dans des pages existantes (pas de
+  nouvelle page, donc pas de changement de `src/access.js`).
+- **26/10/2026 — CR-6 : tâche prévue sans heures et sans état (question de
+  Loris « dis-moi si tu vois mieux »).** Retenu tel que proposé : elle part
+  comme « pas commencé », c'est-à-dire 0 h et avancement du phasage INCHANGÉ
+  (c'est déjà ce que la chaîne fait de « Pas commencé » : statut `non_faite`,
+  jamais de recul d'avancement), sans motif. À la validation, elle apparaît en
+  « prévue, pas faite » (écart orange). Précision d'affichage : pour une tâche
+  déjà avancée, le bouton s'écrit « Pas avancé aujourd'hui » plutôt que « Pas
+  commencé » (même effet), pour ne pas laisser croire qu'on remet la tâche à
+  zéro.
 
 ### Comptes rendus des étapes
 
@@ -2247,3 +2292,122 @@ l'écran.
   rendus ; répartition qui doit tomber juste ; répartition en parts égales et
   selon les durées prévues ; compteur de tâches regroupées ; compte rendu
   manquant affiché.
+
+---
+
+### CR-6 — Parcours unique du compte rendu et correctifs (ajoutée le 26/10/2026)
+
+#### Contexte
+Les 9 étapes précédentes sont en ligne. Après relecture, Loris change le
+parcours du compte rendu et demande des correctifs. Décisions métier mises à
+jour : C1 révisé (parcours unique), C4 supprimé, trois idées ajoutées aux
+décisions écartées (section 2.3). Mêmes règles communes que le reste du projet
+(section 3 et journal des décisions : migration purement additive sans
+attendre, le reste avec l'accord de Loris ; mise en ligne normale).
+
+#### Pourquoi
+Le diagnostic CR-1 et les mesures de CR-3 montrent que l'état « attendu ce
+soir » tiré du planning n'est juste qu'environ une fois sur deux (50 tâches
+terminées sur 98 dont c'était le dernier jour planifié). Avec « Journée comme
+prévu », l'application décide de l'état à la place de l'ouvrier, et un compte
+rendu faux arrive en gris « comme prévu », validable en un clic : risque
+d'avancement surestimé, donc de production et de marges fausses. À l'inverse,
+la branche « pas comme prévu » oblige l'ouvrier à tout refaire depuis le
+phasage pour un seul écart.
+
+#### 1. Parcours unique (remplace les deux boutons)
+- Pour chaque chantier du jour, l'ouvrier voit directement la liste de ses
+  tâches prévues :
+  - heures PRÉREMPLIES avec la durée prévue (outils existants : ±15 min,
+    raccourcis, « le reste ici », frise en option) ;
+  - état NON prérempli et OBLIGATOIRE, choisi en un geste : Pas commencé,
+    Commencé, À moitié, Presque fini, Terminé (ou la quantité posée pour une
+    tâche suivie en quantité) ; « Bloqué » reste disponible avec son motif ;
+  - le prévu affiché en petit comme simple repère (« prévu : terminée ce
+    soir », règle de CR-3), jamais sélectionné.
+- « Pas commencé » ne demande AUCUN motif. Le motif de dépassement d'heures et
+  celui de « Bloqué » restent comme aujourd'hui.
+- Un bouton « J'ai fait autre chose » ouvre la vue du phasage existante
+  (CR-3) ; les tâches choisies ou créées (motif A / B / C) s'ajoutent à la
+  liste sans rien effacer.
+- Ligne du planning non liée à une tâche du phasage : l'ouvrier choisit la
+  tâche dans le phasage, avec en tête la proposition la plus probable (nom,
+  lot, ouvrage) ; ou il crée une tâche avec son motif.
+- Tâche déjà déclarée par un collègue : « Davy a déclaré : terminée —
+  d'accord ? » ; « Oui » vaut choix de l'état.
+- La dictée et l'IA (CR-4) continuent de fonctionner : les états qu'elle
+  propose avec certitude sont remplis, l'ouvrier relit avant l'envoi comme
+  aujourd'hui.
+- L'envoi reste bloqué tant que chaque tâche avec des heures n'a pas d'état et
+  que le total n'est pas exact. Une tâche prévue sans heures et sans état est
+  envoyée comme « pas commencé » (voir le journal des décisions du 26/10).
+- À supprimer : les boutons « Journée comme prévu » / « Ça ne s'est pas passé
+  comme prévu » et l'écran final « Pourquoi pas faites aujourd'hui ? ».
+- Les brouillons existants s'ouvrent sans perte. L'interrupteur de Réglages →
+  Utilisateurs ramène toujours à l'ancien écran.
+- Validation : « prévue, pas faite » reste un écart orange, sans motif
+  affiché.
+
+#### 2. Nouvel écart à la validation : avancement incohérent avec les heures
+Un écart orange (donc plus de « Valider » direct) quand, sur une tâche :
+- l'avancement déclaré est nettement en avance sur les heures consommées :
+  (heures avant + heures du jour) ÷ (heures prévues × avancement déclaré)
+  < 0,5, pour une tâche d'au moins 2 h prévues ;
+- ou l'avancement gagne au moins 25 points sans heure pointée sur la tâche ce
+  jour-là ;
+- ou une tâche déclarée terminée revient « en cours » ou moins.
+Texte en clair, par exemple : « Bandes chambre déclarée terminée avec 2 h pour
+10 h prévues ». Seuils réglables dans Admin, avec ces valeurs par défaut. Même
+logique côté Bilan si c'est simple (sinon le dire).
+
+#### 3. Planning : lignes non liées à une tâche du phasage
+Aujourd'hui, seulement 55 % des lignes du planning sont liées à une tâche du
+phasage (mesure CR-3), ce qui crée la plupart des lignes « sans tâche » des
+comptes rendus (56 %, rattachées à la main à la validation).
+- Trouver d'où viennent les lignes non liées (création manuelle, import,
+  moteur…) et corriger à la source quand c'est possible.
+- Dans le planning, signaler chaque ligne non liée et proposer la tâche la
+  plus probable, à accepter en un clic (ou à choisir dans le phasage).
+- À la création d'une ligne de planning, proposer de la lier.
+- Un compteur « X % des lignes de la semaine liées au phasage ».
+
+#### 4. Outils de classement en masse
+- Tâches hors devis anciennes (environ 350, surtout TOM & CAMILLE, BRIOLLAY,
+  METOIS) : une liste par chantier avec, pour chaque tâche, le cas proposé
+  (A / B / C) et, pour le cas A, la tâche du phasage proposée ; cases à cocher
+  et « Appliquer la sélection ». Pour un chantier repris, possibilité de tout
+  laisser en l'état d'un clic.
+- Commandes sans lot (673 lignes, 19 682 €) : une liste avec le lot proposé
+  (d'après l'ouvrage, le matériau, le libellé, le fournisseur et l'historique
+  du chantier), cases à cocher et « Appliquer la sélection ».
+- Les propositions sont expliquées (« même matériau que 12 commandes du lot
+  Plomberie »). Rien n'est appliqué sans action de Loris.
+
+#### 5. Suivi qualité (page « Qualité des comptes rendus »)
+- Part des états déclarés identiques au prévu (mesure la fiabilité du
+  planning).
+- Nombre d'écarts « avancement incohérent » par ouvrier.
+- Part des lignes du planning liées au phasage.
+
+#### 6. Petit correctif
+L'« avancement retenu » d'une tâche faite à plusieurs (encart de la
+validation) ne doit plus se perdre si la page est rechargée avant validation.
+
+#### Règles propres à l'étape
+- Dans le compte rendu : le taux actuel de lignes de planning liées et ce qui a
+  été corrigé à la source ; le nombre de tâches hors devis et de lignes de
+  commande avec une proposition, par niveau de confiance ; et, sur les comptes
+  rendus réels des 2 dernières semaines, combien auraient déclenché l'écart
+  « avancement incohérent ».
+- Scripts verif-*.mjs, avec au minimum :
+  - envoi impossible tant qu'une tâche avec des heures n'a pas d'état ;
+  - aucun état prérempli d'après le planning ;
+  - « Pas commencé » sans motif ;
+  - « J'ai fait autre chose » ajoute sans effacer ;
+  - ligne de planning non liée → proposition ;
+  - écart « avancement incohérent » (les 3 cas) et plus de « Valider » direct ;
+  - classement en masse (rien d'appliqué sans sélection) ;
+  - avancement retenu conservé après rechargement ;
+  - un brouillon de l'ancien parcours s'ouvre sans perte.
+- Mettre à jour le tableau de suivi, le journal des décisions et le compte
+  rendu final du document, et une entrée dans journalMaj.js en langage métier.
