@@ -94,6 +94,18 @@ const MOTS_VIDES = new Set(["les", "des", "une", "pour", "avec", "dans", "sur", 
 const normaliser = s => str(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 const motsDe = s => normaliser(s).split(" ").filter(w => w.length > 2 && !MOTS_VIDES.has(w));
 const proches = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+// Mots significatifs d'un nom (mêmes règles que la ressemblance) — exportés
+// pour indexer de grandes listes avant d'appeler ressemblanceNomsV2 (CR-6D).
+export const motsNomV2 = s => motsDe(s);
+export const nomNormaliseV2 = s => normaliser(s);
+// Part (0..1) des mots significatifs de `a` retrouvés dans `b` : 1 quand le nom
+// `b` couvre tout le nom `a` (« Mise en place d'un miroir » / « Mise en place
+// du WC » : 2 mots sur 3 — « miroir » manque).
+export function couvertureNomsV2(a, b) {
+  const wa = motsDe(a), wb = motsDe(b);
+  if (wa.length === 0 || wb.length === 0) return 0;
+  return round2(wa.filter(x => wb.some(y => proches(x, y))).length / wa.length);
+}
 // Score 0..1 : part des mots de `a` retrouvés (au moins par leurs 4 premières
 // lettres) dans `b`, pondérée dans les deux sens (Dice).
 export function ressemblanceNomsV2(a, b) {
@@ -376,6 +388,10 @@ export function syntheseHorsDevisChantierV2({ ouvrages, pointages = [], tauxFG =
         ajouteeEnCours: t.ajoutee_en_cours === true, horsDevis: t.hors_devis === true,
         heures: round2(e.heures), cout: round2(e.mo + e.fg), coutMO: round2(e.mo), coutFG: round2(e.fg),
         premierJour: jours[0] || null, dernierJour: jours[jours.length - 1] || null, aArbitrerDepuis: depuis, rappel,
+        // CR-6D : « laissée en l'état » (plus proposée au classement, plus
+        // comptée « non classée » ; heures et coût inchangés). Une tâche
+        // classée ensuite (arbitrée, intégrée) n'est plus « laissée ».
+        laissee: (!statut && t.ajoutee_en_cours !== true) ? laisseeEnEtatV2(t) : null, aClasser: estAClasserV2(t, o),
         proposition: proposerMotifV2({ tache: t, ouvrage: o, ouvrages }),
       });
     }
@@ -390,8 +406,10 @@ export function syntheseHorsDevisChantierV2({ ouvrages, pointages = [], tauxFG =
       introuvable: total(x => x.motif === "introuvable"),          // A non encore réaffectées
       imprevu: total(x => x.motif === "imprevu"),                  // B
       demande_client: total(x => x.motif === "demande_client"),    // C (tous statuts)
-      non_renseigne: total(x => x.motif === MOTIF_NON_RENSEIGNE),
+      non_renseigne: total(x => x.motif === MOTIF_NON_RENSEIGNE && !x.laissee),
     },
+    laissees: total(x => !!x.laissee),
+    aClasser: total(x => x.aClasser),
     aArbitrer: total(x => x.arbitrage === "a_arbitrer"),
     gestesCommerciaux: total(x => x.arbitrage === "geste_commercial"),
     avenants: total(x => x.arbitrage === "avenant"),
@@ -513,6 +531,7 @@ export function texteHorsDevisV2(synthese) {
     morceau("gestes commerciaux", synthese.gestesCommerciaux, true),
     morceau("avenants", synthese.avenants),
     morceau("non classées", p.non_renseigne),
+    morceau("laissées en l'état", synthese.laissees),
   ].filter(Boolean);
   return parts.length ? `Hors devis : ${parts.join(" ; ")}` : null;
 }
@@ -521,4 +540,213 @@ export function texteHorsDevisV2(synthese) {
 export function texteGestesPeriodeV2(g) {
   if (!g) return null;
   return g.heures > 0 ? `${fmtH(g.heures)}, ${fmtEur(g.cout)} (coût sans production)` : "aucun sur la période";
+}
+
+// ── Classement en masse des tâches hors devis anciennes (CR-6, partie 6D) ──
+// Même service que le classement unitaire du phasage (« Classer ») : la
+// proposition est proposerMotifV2 (+ tachesProbablesV2 pour la cible du cas
+// A), et « Appliquer la sélection » enchaîne EXACTEMENT les fonctions du
+// classement unitaire (reaffecterCasAV2, integrerCasBV2, aArbitrerV2), une
+// tâche après l'autre — pas de second circuit.
+//
+// « Laisser en l'état » : une marque datée avec auteur DANS la tâche
+//   laissee_en_etat = { le: AAAA-MM-JJ, par, raison: "chantier_repris" | "standard" }
+// Rien d'autre ne change (hors_devis, motif, ouvrage, heures, pointages) : la
+// tâche garde ses heures et son coût, ne produit toujours rien, mais n'est
+// plus proposée au classement ni comptée « non classée ». Réversible
+// (reprendreClassementV2). Choisi sur la tâche plutôt que sur le chantier :
+// une tâche hors devis créée APRÈS la décision reste à classer, et la marque
+// suit la tâche si elle est déplacée.
+
+export const NIVEAUX_CONFIANCE = Object.freeze([
+  { code: "eleve",  label: "Élevée" },
+  { code: "moyen",  label: "Moyenne" },
+  { code: "faible", label: "Faible" },
+  { code: "aucune", label: "Aucune proposition" },
+]);
+export const libelleConfiance = code => NIVEAUX_CONFIANCE.find(n => n.code === code)?.label || "Aucune proposition";
+
+export const CHOIX_MASSE_V2 = Object.freeze([
+  { code: "A",       label: "A · réaffecter à la tâche existante" },
+  { code: "B",       label: "B · imprévu dans un ouvrage vendu" },
+  { code: "C",       label: "C · à arbitrer" },
+  { code: "laisser", label: "Laisser en l'état" },
+]);
+
+export function laisseeEnEtatV2(t) {
+  const m = t?.laissee_en_etat;
+  return m && typeof m === "object" ? { le: m.le || null, par: m.par || null, raison: m.raison || null } : null;
+}
+
+// Tâche encore « à classer » : hors devis, ni laissée en l'état, ni arbitrée
+// (à arbitrer / avenant / geste), ni déjà intégrée (B).
+export function estAClasserV2(tache, ouvrage) {
+  return estTacheHorsDevisV2(tache, ouvrage) && !laisseeEnEtatV2(tache) && !statutArbitrageV2(tache) && tache.ajoutee_en_cours !== true;
+}
+
+const ouvrageDe = (ouvrages, tacheId) => trouver(ouvrages, tacheId)?.ouvrage || null;
+export function cheminOuvrageV2(o, lots = []) {
+  const lot = liste(lots).find(l => str(l?.id) && str(l.id) === str(o?.lot_id));
+  const lib = str(libelleOuvrage(o)) || "(sans libellé)";
+  return `${lot ? str(lot.label) : "Sans lot"} › ${lib.length > 70 ? `${lib.slice(0, 67).trim()}…` : lib}`;
+}
+
+/**
+ * Lignes du classement en masse d'un chantier : chaque tâche à classer avec le
+ * cas proposé, l'explication, le niveau de confiance et, pour A, la tâche
+ * proposée (chemin lot › ouvrage). Niveaux :
+ *   élevée  : cas A au nom quasi identique (ressemblance ≥ 0,9) qui couvre
+ *             tous les mots de la tâche, sans seconde tâche aussi proche ;
+ *             cas B / C déjà déclaré (motif enregistré, nature « demande du
+ *             client ») ;
+ *   moyenne : cas A dont la tâche proposée reprend tous les mots de la tâche
+ *             hors devis, sans seconde tâche aussi proche ; tâche standard
+ *             (nettoyage, approvisionnement…) ; tâche déjà rangée dans un
+ *             ouvrage vendu (B) ;
+ *   faible  : cas A où un mot manque (« Mise en place d'un miroir » →
+ *             « Mise en place du WC ») ou deux tâches ressemblent autant ; C
+ *             par défaut (aucune tâche ressemblante : « à examiner ») ; B
+ *             d'après la seule nature « imprévu » (ouvrage à choisir).
+ * @returns {{ lignes: Array, synthese: object }}
+ */
+export function propositionsClassementMasseV2({ ouvrages, pointages = [], tauxFG = 0, aujourdHui = null, lots = [], bibliotheque = [] } = {}) {
+  const synthese = syntheseHorsDevisChantierV2({ ouvrages, pointages, tauxFG, aujourdHui });
+  const lignes = [];
+  for (const x of synthese.taches) {
+    if (!x.aClasser) continue;
+    const src = trouver(ouvrages, x.tache_id);
+    const t = src.tache, o = src.ouvrage;
+    const p = x.proposition || {};
+    const candidats = tachesProbablesV2({ nom: t.nom, ouvrages, exclure: [t.id], max: 5 })
+      .map(c => ({ ...c, chemin: cheminOuvrageV2(ouvrageDe(ouvrages, c.tache_id), lots), ressemblance: round2(Math.min(1, c.score / 0.6)),
+        couverture: couvertureNomsV2(t.nom, c.nom) }));
+    const cas = p.cas || null;
+    const motifDeclare = p.raison === "motif déjà enregistré";
+    let confiance = "faible", explication = p.raison || "", cible = null, ouvrageB = null, heuresNormales = null, applicable = true, nonApplicable = null;
+    if (cas === "A") {
+      cible = (p.cible && candidats.find(c => String(c.tache_id) === String(p.cible.tache_id))) || candidats[0] || null;
+      if (!cible) {
+        applicable = false; nonApplicable = "aucune tâche existante ressemblante : choisissez-la avec « Classer »";
+        explication = `${motifDeclare ? "Déclarée « tâche existante non trouvée »" : explication}, mais aucune tâche ressemblante dans le phasage`;
+        confiance = "faible";
+      } else {
+        const second = candidats.find(c => String(c.tache_id) !== String(cible.tache_id));
+        const unique = !second || second.ressemblance < cible.ressemblance - 0.1;
+        const complet = cible.couverture >= 1;
+        confiance = !unique || !complet ? "faible" : cible.ressemblance >= 0.9 ? "eleve" : "moyen";
+        const manque = complet ? null : motsNomV2(t.nom).filter(w => !motsNomV2(cible.nom).some(y => proches(w, y)));
+        explication = `${motifDeclare ? "Déclarée « tâche existante non trouvée » ; " : ""}ressemble à « ${cible.nom} » (${cible.chemin})`
+          + `${manque && manque.length ? ` — attention : « ${manque.join(" ")} » ne s'y retrouve pas` : ""}`
+          + `${!unique && second ? ` — attention : « ${second.nom} » ressemble autant` : ""}`;
+      }
+    } else if (cas === "B") {
+      ouvrageB = estOuvrageDiversV2(o) ? null : { id: o.id, chemin: cheminOuvrageV2(o, lots) };
+      heuresNormales = ouvrageB ? heuresNormalesProposeesV2({ nom: t.nom, ouvrage: o, bibliotheque }) : null;
+      confiance = motifDeclare ? "eleve" : (ouvrageB ? "moyen" : "faible");
+      explication = ouvrageB
+        ? `${motifDeclare ? "Déclarée « imprévu » ; d" : "D"}éjà rangée dans l'ouvrage vendu ${ouvrageB.chemin}`
+        : (motifDeclare ? "Déclarée « imprévu » : ouvrage à choisir" : explication);
+      if (!ouvrageB) { applicable = false; nonApplicable = "ouvrage vendu à choisir"; }
+      else if (!heuresNormales) { applicable = false; nonApplicable = "heures normales à indiquer (aucune étape ressemblante dans la bibliothèque)"; }
+    } else if (cas === "C") {
+      confiance = motifDeclare || str(t.nature) === "demande_client" ? "eleve" : "faible";
+      if (motifDeclare) explication = "Déclarée « demande du client » : à arbitrer";
+    } else {
+      confiance = "moyen";
+    }
+    lignes.push({
+      tache_id: x.tache_id, nom: x.nom, ouvrage_id: x.ouvrage_id, ouvrage: x.ouvrage, chemin: cheminOuvrageV2(o, lots),
+      heures: x.heures, cout: x.cout, premierJour: x.premierJour,
+      cas, standard: !cas, choix: cas || "laisser", confiance, explication,
+      cible, candidats, ouvrageB, heuresNormales, applicable, nonApplicable,
+    });
+  }
+  return { lignes, synthese };
+}
+
+/**
+ * Une ligne (avec le choix du conducteur) peut-elle être appliquée ?
+ * @param {object} c  { choix, cible_id, ouvrage_id, heures_normales }
+ * @returns {string|null}  raison du refus, null si applicable
+ */
+export function refusLigneMasseV2(ouvrages, tacheId, c = {}) {
+  if (!trouver(ouvrages, tacheId)) return "tâche introuvable dans le phasage (rechargez la page)";
+  if (c.choix === "A") return trouver(ouvrages, c.cible_id) && String(c.cible_id) !== String(tacheId) ? null : "tâche existante à choisir";
+  if (c.choix === "B") {
+    const o = liste(ouvrages).find(x => String(x.id) === String(c.ouvrage_id));
+    if (!o || estOuvrageDiversV2(o)) return "ouvrage vendu à choisir";
+    return num(c.heures_normales) > 0 ? null : "heures normales manquantes : indiquez-les (comme pour « Classer »)";
+  }
+  if (c.choix === "C" || c.choix === "laisser") return null;
+  return "cas à choisir";
+}
+
+/** Marque « laissée en l'état » sur des tâches (rien d'autre ne change). */
+export function laisserEnEtatV2(ouvrages, tacheIds, { date, auteur, raison = "standard" } = {}) {
+  const ids = new Set(liste(tacheIds).map(String));
+  if ([...ids].some(id => !trouver(ouvrages, id))) return { erreur: "tache_introuvable" };
+  const marque = { le: jour(date), par: str(auteur) || null, raison };
+  return { ouvrages: liste(ouvrages).map(o => ({ ...o,
+    taches: liste(o.taches).map(t => (ids.has(String(t.id)) ? { ...t, laissee_en_etat: marque } : t)) })) };
+}
+
+/**
+ * « Tout laisser en l'état » (chantier repris) : toutes les tâches encore à
+ * classer reçoivent la marque, d'un clic. Refusé si le chantier n'est pas
+ * marqué « repris ».
+ * @param {object|null} repris  chantierRepris(phasage) ({ le, par }) ou null
+ */
+export function laisserToutEnEtatV2(ouvrages, { repris, date, auteur } = {}) {
+  if (!repris) return { erreur: "chantier_non_repris" };
+  const ids = [];
+  for (const o of liste(ouvrages)) for (const t of liste(o.taches)) if (estAClasserV2(t, o)) ids.push(String(t.id));
+  if (ids.length === 0) return { ouvrages, nb: 0 };
+  const r = laisserEnEtatV2(ouvrages, ids, { date, auteur, raison: "chantier_repris" });
+  return r.erreur ? r : { ...r, nb: ids.length };
+}
+
+/** Retire la marque « laissée en l'état » (toutes les tâches, ou celles listées). */
+export function reprendreClassementV2(ouvrages, tacheIds = null) {
+  const ids = tacheIds ? new Set(liste(tacheIds).map(String)) : null;
+  return { ouvrages: liste(ouvrages).map(o => ({ ...o,
+    taches: liste(o.taches).map(t => ((!ids || ids.has(String(t.id))) && t.laissee_en_etat ? appliquerPatchV2(t, { laissee_en_etat: null }) : t)) })) };
+}
+
+/**
+ * Plan d'application de la sélection : SEULES les lignes cochées, dans
+ * l'ordre, chacune par la fonction du classement unitaire, sur le phasage
+ * issu de la précédente. Une ligne refusée (cible absente, heures normales
+ * manquantes…) est écartée et dite ; les autres passent.
+ * @param {Array} selection  [{ tache_id, choix, cible_id?, ouvrage_id?, heures_normales?, premierJour? }]
+ * @returns {{ etapes: Array<{ tache_id, choix, ouvrages, pointages, recalculerDepuis }>, refusees: Array<{ tache_id, choix, raison }>,
+ *             ouvrages, recalculerDepuis: string|null, compte: { A, B, C, laisser } }}
+ */
+export function planClassementMasseV2({ ouvrages, selection = [], date = null, auteur = null } = {}) {
+  let courant = ouvrages;
+  const etapes = [], refusees = [];
+  const compte = { A: 0, B: 0, C: 0, laisser: 0 };
+  for (const s of liste(selection)) {
+    const raison = refusLigneMasseV2(courant, s.tache_id, s);
+    if (raison) { refusees.push({ tache_id: s.tache_id, choix: s.choix || null, raison }); continue; }
+    let r;
+    if (s.choix === "A") r = reaffecterCasAV2(courant, s.tache_id, s.cible_id);
+    else if (s.choix === "B") r = integrerCasBV2(courant, s.tache_id, s.ouvrage_id, { heuresNormales: s.heures_normales, date, auteur });
+    else if (s.choix === "C") r = aArbitrerV2(courant, s.tache_id, { date, auteur });
+    else r = laisserEnEtatV2(courant, [s.tache_id], { date, auteur, raison: "standard" });
+    if (r.erreur) { refusees.push({ tache_id: s.tache_id, choix: s.choix, raison: r.erreur }); continue; }
+    courant = r.ouvrages;
+    compte[s.choix] += 1;
+    etapes.push({ tache_id: s.tache_id, choix: s.choix, ouvrages: courant, pointages: r.pointages || null,
+      recalculerDepuis: (s.choix === "A" || s.choix === "B") ? (jour(s.premierJour) || null) : null });
+  }
+  const dates = etapes.map(e => e.recalculerDepuis).filter(Boolean).sort();
+  return { etapes, refusees, ouvrages: courant, recalculerDepuis: dates[0] || null, compte };
+}
+
+/** « 12 tâches : 3 A, 9 C — Appliquer » (récapitulatif avant écriture). */
+export function texteConfirmationMasseV2(compte = {}) {
+  const parts = [["A", "A"], ["B", "B"], ["C", "C"], ["laisser", "laissée(s) en l'état"]]
+    .filter(([k]) => (compte[k] || 0) > 0).map(([k, l]) => `${compte[k]} ${l}`);
+  const n = ["A", "B", "C", "laisser"].reduce((s, k) => s + (compte[k] || 0), 0);
+  return n === 0 ? "Aucune tâche sélectionnée" : `${n} tâche${n > 1 ? "s" : ""} : ${parts.join(", ")} — Appliquer`;
 }

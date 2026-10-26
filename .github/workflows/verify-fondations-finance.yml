@@ -59,3 +59,5 @@ jobs:
         run: node scripts/verif-cr6-avancement-incoherent.mjs
       - name: CR-6C - Planning lie au phasage (proposition commune, lignes libres, compteur, lien pose au clic, donnees fictives)
         run: node scripts/verif-cr6-planning-lie.mjs
+      - name: CR-6D - Classement en masse (taches hors devis anciennes, lignes de commande sans lot, donnees fictives)
+        run: node scripts/verif-cr6-classement-masse.mjs
