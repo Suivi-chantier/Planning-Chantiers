@@ -28,12 +28,28 @@
 //                       → « en attente » = rapport rouvert (« Corriger »).
 //   tachesHorsDevis     ids des tâches marquées hors devis dans les phasages.
 //
+//   avancementIncoherent  (CR-6E) écarts « avancement incohérent » recalculés
+//                       par ecartsAvancementIncoherentPeriode() avec LA fonction
+//                       de la Validation (avancementIncoherentV1.mjs).
+//   cellulesPlanning    (CR-6E) lignes de planning_cells des semaines lues :
+//                       part liée au phasage par tauxLiaisonPlanning() (6C).
+//   rapports.taches[].prevu  (CR-6E) le prévu affiché à l'ouvrier sur une
+//                       ligne prévue (parcours unique, depuis le 26/10/2026).
+//
 // RÈGLE COMMUNE : une donnée absente donne un indicateur « indisponible » avec
 // sa raison ; une part sans aucune ligne concernée a un taux null (affiché
 // « — »), jamais 0 %.
 // ─────────────────────────────────────────────────────────────────────────────
 import { horsDevisParDefaut } from "./motifsCompteRendu.mjs";
 import { etatTachesALaDate } from "../chantierFinance.mjs";
+import { choixDeLigne } from "./compteRenduV2.mjs";
+import { repereAttendu } from "./compteRenduV3.mjs";
+import {
+  ecartsAvancementIncoherentRapport, donneesTachesIncoherence, heuresJourParTache, avancementsQuantiteRapport,
+  normaliserSeuilsAvancementIncoherent,
+} from "./avancementIncoherentV1.mjs";
+import { tauxLiaisonPlanning, lignesDeCellule, EXPLICATION_TAUX_LIAISON } from "./liaisonPlanningV1.mjs";
+import { semainesEntre } from "./replanificationV1.mjs";
 
 const texte = (v) => String(v ?? "").trim();
 const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
@@ -271,10 +287,131 @@ export const TRANCHES_HEURE = Object.freeze([
 ]);
 const trancheHeure = (h) => TRANCHES_HEURE.find(t => h >= t.de && h < t.a)?.cle || null;
 
+// ── CR-6E : trois indicateurs du suivi qualité (cahier CR-6 §5) ─────────────
+// 1. États déclarés identiques au prévu — fiabilité du PLANNING.
+// Le parcours unique (6A, 26/10/2026) mémorise sur chaque ligne prévue le
+// prévu affiché à l'ouvrier : prevu = { etat: termine | en_cours | inconnu,
+// avancement, repere }. Comparaison avec l'état que l'ouvrier a choisi :
+//   - identique = MÊME ÉTAT : terminée prévue et déclarée terminée ; en cours
+//     prévue et déclarée en cours, QUEL QUE SOIT le repère (commencé, à
+//     moitié, presque fini). Le repère prévu n'est qu'une estimation arrondie
+//     (repère le plus proche d'un avancement calculé) : exiger le même
+//     reprocherait au planning un arrondi. Le « même repère » est compté à
+//     part (memeRepere), sur les lignes en cours / en cours ;
+//   - « Pas commencé » (y compris une tâche prévue laissée sans heures ni
+//     état, envoyée comme « pas commencé ») et « Bloqué » = différent.
+// Non mesurable (null) : ligne sans `prevu` (compte rendu antérieur au
+// parcours unique, tâche ajoutée ou créée), prévu « inconnu » (ligne du
+// planning sans tâche du phasage), ou ligne sans état.
+export const DEBUT_MESURE_PREVU = "2026-10-26";
+export function comparaisonPrevu(t) {
+  const p = t?.prevu;
+  if (!p || typeof p !== "object" || (p.etat !== "termine" && p.etat !== "en_cours")) return null;
+  const declare = choixDeLigne(t);
+  if (!declare) return null;
+  let memeRepere = null;
+  if (p.etat === "en_cours" && declare === "en_cours") {
+    const av = nombreOuNull(t.avancement);
+    const repereDeclare = av == null ? null : repereAttendu(av, null);
+    memeRepere = p.repere && repereDeclare ? repereDeclare === p.repere : null;
+  }
+  return { prevu: p.etat, declare, identique: declare === p.etat, memeRepere };
+}
+
+// 2. Écarts « avancement incohérent » de tous les comptes rendus lus, avec LA
+// fonction de la Validation (ecartsAvancementIncoherentRapport) et le même
+// assemblage que Validation.jsx :
+//   - phasage du chantier (le dernier lu qui a des ouvrages) ; sans phasage, le
+//     compte rendu n'est pas contrôlé (comme à la Validation) ;
+//   - heures avant = pointages « tâche » du chantier datés AVANT le jour ;
+//   - heures du jour = tous les comptes rendus du chantier ce jour-là ;
+//   - avancement de la veille = journal d'avancement du chantier ;
+//   - tâches suivies en quantité = avancementsQuantiteRapport ;
+//   - seuils réglés dans Admin (planning_config), défauts sinon.
+// rapports : TOUS les comptes rendus des jours lus (ceux créés par une bascule
+// compris : leurs heures comptent dans les heures du jour) ; phasages :
+// [{ chantier_id, ouvrages }] ; pointages : [{ chantier_id, tache_id, heures,
+// type_pointage, quantite_validee, date }] ; journal : lignes
+// d'avancement_journal des chantiers.
+// → null si une source manque (indicateur « indisponible », jamais 0) ;
+//   sinon { parRapport: { [id]: [écarts] }, seuils } — seuls les comptes rendus
+//   CONTRÔLÉS y figurent (une liste vide = contrôlé, aucun écart).
+export function ecartsAvancementIncoherentPeriode({ rapports = [], phasages = null, pointages = null, journal = null, seuils = null } = {}) {
+  if (!phasages || !pointages || !journal) return null;
+  const s = normaliserSeuilsAvancementIncoherent(seuils);
+  const grouper = (liste, cle) => {
+    const m = new Map();
+    (liste || []).forEach(x => { const k = cle(x); if (k == null) return; if (!m.has(k)) m.set(k, []); m.get(k).push(x); });
+    return m;
+  };
+  const ouvragesParChantier = new Map();
+  phasages.forEach(p => {
+    const o = Array.isArray(p?.ouvrages) ? p.ouvrages : [];
+    if (o.length) ouvragesParChantier.set(String(p.chantier_id), o);
+  });
+  // Pointages sans date : exclus, comme le filtre « date < jour » de la Validation.
+  const pointagesParChantier = grouper(pointages.filter(p => p?.date), p => String(p.chantier_id ?? ""));
+  const journalParChantier = grouper(journal, l => String(l?.chantier_id ?? ""));
+  const rs = (rapports || []).map(r => ({ r, date: isoDate(r?.date_rapport), ch: String(r?.chantier_id ?? "") }));
+  const duJour = grouper(rs, x => (x.date ? `${x.ch}|${x.date}` : null));
+  const contextes = new Map();
+  const parRapport = {};
+  rs.forEach(({ r, date, ch }) => {
+    const ouvrages = ouvragesParChantier.get(ch);
+    if (!date || !ouvrages || r?.id == null) return;
+    const k = `${ch}|${date}`;
+    if (!contextes.has(k)) {
+      const pointagesAvant = (pointagesParChantier.get(ch) || []).filter(p => String(p.date).slice(0, 10) < date);
+      contextes.set(k, {
+        pointagesAvant,
+        donneesParTache: donneesTachesIncoherence({ ouvrages, date, journal: journalParChantier.get(ch) || [], pointagesAvant }),
+        heuresJourParTache: heuresJourParTache(duJour.get(k).map(x => x.r)),
+      });
+    }
+    const c = contextes.get(k);
+    parRapport[String(r.id)] = ecartsAvancementIncoherentRapport(r, {
+      seuils: s, donneesParTache: c.donneesParTache, heuresJourParTache: c.heuresJourParTache,
+      avancementDeclareParTache: avancementsQuantiteRapport({ rapport: r, ouvrages, pointagesAvant: c.pointagesAvant, date }),
+    });
+  });
+  return { parRapport, seuils: s };
+}
+
+// 3. Lignes du planning liées au phasage : tauxLiaisonPlanning (6C), sur
+// toutes les cases des semaines de la période. Par ouvrier : les lignes où il
+// est prévu (équipe de la ligne, à défaut celle de la case) — c'est la qualité
+// du planning qu'il a reçu, pas la sienne.
+const nomNormalise = (s) => sansAccents(s).trim();
+export function cellulesDeLOuvrier(cellules, ouvrier) {
+  const o = nomNormalise(ouvrier);
+  return (cellules || []).map(c => {
+    const equipeCase = Array.isArray(c?.ouvriers) ? c.ouvriers : [];
+    const taches = lignesDeCellule(c).filter(l => {
+      const equipe = Array.isArray(l?.ouvriers) && l.ouvriers.length > 0 ? l.ouvriers : equipeCase;
+      return equipe.some(x => nomNormalise(x) === o);
+    });
+    return { ...c, taches, planifie: "" };
+  }).filter(c => c.taches.length > 0);
+}
+// Taux semaine par semaine (ordre des semaines), pour le détail de la page.
+// semaines : liste des semaines à montrer (une semaine sans case = « aucune
+// ligne »), sinon celles des cases.
+export function liaisonPlanningParSemaine(cellules, semaines = null) {
+  const parSemaine = new Map((semaines || []).map(w => [String(w), []]));
+  (cellules || []).forEach(c => {
+    const w = String(c?.week_id ?? "");
+    if (semaines && !parSemaine.has(w)) return;
+    if (!parSemaine.has(w)) parSemaine.set(w, []);
+    parSemaine.get(w).push(c);
+  });
+  return [...parSemaine.keys()].sort().map(w => ({ weekId: w, ...tauxLiaisonPlanning(parSemaine.get(w)) }));
+}
+
 // ── Faits élémentaires ──────────────────────────────────────────────────────
 // Une ligne par ligne d'ouvrier, un fait par envoi, un fait par rapport.
 export function faitsComptesRendus({
   rapports = [], pointages = null, historique = null, avancementsValides = null, tachesHorsDevis = null,
+  avancementIncoherent = null, cellulesPlanning = null,
   debut = null, fin = null,
 }) {
   const dansPeriode = (d) => !!d && (!debut || d >= debut) && (!fin || d <= fin);
@@ -314,11 +451,14 @@ export function faitsComptesRendus({
     const versions = histParRapport ? (histParRapport.get(String(r.id)) || []) : null;
     faitsRapports.push({
       id: r.id, ouvrier: r.ouvrier, date: r._date, version, valide: r.statut === "valide",
+      chantierId: r.chantier_id ?? null, chantierNom: r.chantier_nom || null,
       remarqueVide: !texte(r.remarque),
       comparable: !!comparaison, decoupes: comparaison?.decoupes || 0, lignesCreees: comparaison?.lignesCreees || 0,
       ajoutees: comparaison?.ajoutees || 0, rattachees: comparaison?.rattachees || 0,
       dejaValide: versions ? aEteValide(r, versions) : null,
       reouvertures: versions ? nombreReouvertures(r, versions) : null,
+      // CR-6E : écarts « avancement incohérent » (null = non contrôlé).
+      incoherence: avancementIncoherent ? (avancementIncoherent.parRapport?.[String(r.id)] ?? null) : null,
     });
     const jour = heuresJour.get(`${r.ouvrier}|${r._date}`) || 0;
     (r.taches || []).forEach((t, idx) => {
@@ -359,6 +499,7 @@ export function faitsComptesRendus({
         plusieursTravaux: !k && decritPlusieursTravaux(t.planifie),
         remarque: texte(t.remarque),
         sansPhoto: terminee && !(Array.isArray(t.photos) && t.photos.length > 0),
+        prevuCmp: comparaisonPrevu(t),
       });
     });
   });
@@ -385,10 +526,19 @@ export function faitsComptesRendus({
     l.groupePlusieurs = k && groupesPlusieurs.has(k) && l.travaillee && l.avDeclare != null && !l.quantite ? k : null;
   });
 
+  // Planning : cases des semaines de la période (période inconnue = toutes).
+  const semaines = debut && fin ? semainesEntre(debut, fin) : null;
+  const dansSemaines = semaines ? new Set(semaines) : null;
+  const cellules = cellulesPlanning
+    ? cellulesPlanning.filter(c => !dansSemaines || dansSemaines.has(String(c?.week_id ?? "")))
+    : null;
+
   return {
     lignes, rapports: faitsRapports, envois: construireEnvois(rs), groupesPlusieurs,
+    cellulesPlanning: cellules, semaines,
     disponibles: {
       pointages: !!pointages, historique: !!historique, avancements: !!avancementsValides, horsDevis: !!horsDevis,
+      incoherence: !!avancementIncoherent, planning: !!cellulesPlanning,
     },
   };
 }
@@ -399,6 +549,8 @@ const INDISPO = {
   historique: "Historique des rapports non lu : impossible de savoir s'ils ont été rouverts.",
   avancements: "Journal d'avancement non lu : impossible de connaître l'avancement retenu à la validation.",
   horsDevis: "Phasages non lus : impossible de savoir quelles tâches sont hors devis.",
+  incoherence: "Pointages, journal d'avancement ou phasages non lus : impossible de refaire le contrôle « avancement incohérent ».",
+  planning: "Planning non lu : impossible de compter les lignes liées au phasage.",
 };
 const indisponible = (raison) => ({ indisponible: raison });
 
@@ -482,6 +634,49 @@ export function agreger(faits, { ouvrier = null, version = null } = {}) {
     ecartMoyenSiDifferent: differents.length ? arrondi(differents.reduce((s, g) => s + g.ecart, 0) / differents.length) : null,
   };
 
+  // CR-6E — 1. États déclarés identiques au prévu (toutes les lignes prévues
+  // mesurables, avec ou sans heures : « pas commencé » compte).
+  const P = L.map(l => l.prevuCmp).filter(Boolean);
+  const etatsVides = () => ({ termine: 0, en_cours: 0, pas_commence: 0, bloque: 0 });
+  const detailPrevu = { termine: etatsVides(), en_cours: etatsVides() };
+  P.forEach(c => { detailPrevu[c.prevu][c.declare]++; });
+  const reperesComparables = P.filter(c => c.memeRepere != null);
+  const prevuIdentique = {
+    ...part(P.filter(c => c.identique).length, P.length),
+    memeRepere: part(reperesComparables.filter(c => c.memeRepere).length, reperesComparables.length),
+    detail: detailPrevu,
+    depuis: DEBUT_MESURE_PREVU,
+  };
+
+  // CR-6E — 2. Écarts « avancement incohérent » (comptes rendus contrôlés).
+  let avancementIncoherent;
+  if (!d.incoherence) avancementIncoherent = indisponible(INDISPO.incoherence);
+  else {
+    const controles = R.filter(r => Array.isArray(r.incoherence));
+    const liste = controles.flatMap(r => r.incoherence.map(e => ({
+      date: r.date, ouvrier: r.ouvrier, chantierId: r.chantierId, chantierNom: r.chantierNom, rapportId: r.id,
+      tacheId: e.tache_id ?? null, cas: Array.isArray(e.cas) ? e.cas : [], texte: e.texte,
+    }))).sort((a, b) => String(a.date).localeCompare(String(b.date))
+      || String(a.ouvrier).localeCompare(String(b.ouvrier), "fr") || String(a.chantierNom).localeCompare(String(b.chantierNom), "fr"));
+    const parCas = { 1: 0, 2: 0, 3: 0 };
+    liste.forEach(e => e.cas.forEach(c => { if (parCas[c] != null) parCas[c]++; }));
+    avancementIncoherent = {
+      n: liste.length,
+      rapportsControles: controles.length,
+      rapportsNonControles: R.length - controles.length,
+      rapportsAvecEcart: controles.filter(r => r.incoherence.length > 0).length,
+      parCas, liste,
+    };
+  }
+
+  // CR-6E — 3. Lignes du planning liées au phasage (le formulaire n'y change
+  // rien : le filtre de version est sans objet ici).
+  const liaisonPlanning = !faits.cellulesPlanning
+    ? indisponible(INDISPO.planning)
+    : ouvrier
+      ? { ...tauxLiaisonPlanning(cellulesDeLOuvrier(faits.cellulesPlanning, ouvrier)), ouvrier }
+      : { ...tauxLiaisonPlanning(faits.cellulesPlanning), parSemaine: liaisonPlanningParSemaine(faits.cellulesPlanning, faits.semaines) };
+
   return {
     rapports: R.length,
     envois: E.length,
@@ -506,6 +701,9 @@ export function agreger(faits, { ouvrier = null, version = null } = {}) {
     photosManquantes: part(terminees.filter(l => l.sansPhoto).length, terminees.length),
     corriges,
     plusieurs,
+    prevuIdentique,
+    avancementIncoherent,
+    liaisonPlanning,
   };
 }
 
@@ -641,6 +839,17 @@ export const INDICATEURS_QUALITE = Object.freeze([
   { code: "plusieurs", libelle: "Avancements différents sur une tâche faite à plusieurs", unite: "%", meilleur: "bas",
     valeur: g => taux(g.plusieurs),
     explication: "Tâche déclarée le même jour par au moins deux ouvriers : part des cas où leurs avancements diffèrent (lignes en quantité exclues)." },
+  // CR-6E (cahier CR-6 §5).
+  { code: "prevuIdentique", libelle: "États déclarés identiques au prévu", unite: "%", meilleur: "haut",
+    valeur: g => taux(g.prevuIdentique),
+    explication: "Mesure la fiabilité du PLANNING, pas le travail de l'ouvrier : part des tâches prévues dont l'état choisi le soir par l'ouvrier est celui que le planning annonçait (« prévu : terminée ce soir » ou « prévu : en cours »). Identique = même état : terminée prévue et déclarée terminée, ou en cours prévue et déclarée en cours quel que soit le repère (commencé, à moitié, presque fini ; le repère identique est donné à part). « Pas commencé » ou « Bloqué » face à un prévu = différent. Mesuré depuis le parcours unique du 26/10/2026 : les comptes rendus plus anciens, les tâches ajoutées par l'ouvrier et les lignes sans prévu connu ne comptent pas." },
+  { code: "avancementIncoherent", libelle: "Écarts « avancement incohérent »", unite: "écarts", meilleur: "bas",
+    valeur: g => (g.avancementIncoherent && !g.avancementIncoherent.indisponible && g.avancementIncoherent.rapportsControles > 0
+      ? g.avancementIncoherent.n : null),
+    explication: "Nombre de tâches qui reçoivent l'écart orange « avancement incohérent » de la validation, avec la même règle et les mêmes seuils (Admin → Taux horaires) : 1. avancement déclaré nettement en avance sur les heures ; 2. avancement qui gagne beaucoup sans aucune heure pointée ce jour-là ; 3. tâche terminée qui revient en cours. Recalculé sur les comptes rendus de la période (chantiers avec un phasage), avec les heures prévues du phasage d'aujourd'hui et l'avancement de la veille relu dans le journal d'avancement." },
+  { code: "liaisonPlanning", libelle: "Lignes du planning liées au phasage", unite: "%", meilleur: "haut",
+    valeur: g => (g.liaisonPlanning && !g.liaisonPlanning.indisponible ? g.liaisonPlanning.pourcent : null),
+    explication: EXPLICATION_TAUX_LIAISON },
 ]);
 
 // Tendance d'un indicateur entre deux périodes.

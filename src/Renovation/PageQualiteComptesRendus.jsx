@@ -11,6 +11,17 @@
 //
 // L'avancement retenu à la validation est relu dans le journal d'avancement
 // daté (étape 1C), pour les comptes rendus validés depuis sa mise en service.
+//
+// CR-6E : trois indicateurs de plus, calculés par les MÊMES fonctions que
+// les écrans qui les montrent ailleurs :
+//   - états déclarés identiques au prévu (champ `prevu` des lignes prévues,
+//     parcours unique du 26/10/2026) ;
+//   - écarts « avancement incohérent » : ecartsAvancementIncoherentRapport de
+//     la Validation, mêmes données (pointages avant le jour, journal
+//     d'avancement, phasages) et mêmes seuils (Admin) ;
+//   - lignes du planning liées au phasage : tauxLiaisonPlanning du Planning.
+// Lectures bornées aux chantiers des comptes rendus lus (pointages : tâches
+// seulement, jusqu'à la fin de la période) et aux semaines de la période.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
@@ -18,11 +29,12 @@ import { FONT, RADIUS, getBranchAccent, getCurrentWeek, getWeekId } from "../con
 import { Icon } from "../ui";
 import { ClipboardCheck, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { lundiSemaineISOv1, ajouterJoursV1 } from "./bilanSemaineProchaineV1.mjs";
-import { celluleDeDate } from "./replanificationV1";
+import { celluleDeDate, semainesEntre } from "./replanificationV1";
 import {
   faitsComptesRendus, agreger, tendance, decoupesParOuvrierEtMois, avancementsValidesDepuisJournal,
-  INDICATEURS_QUALITE, VERSION_V1, VERSION_V2, SEUILS,
+  ecartsAvancementIncoherentPeriode, INDICATEURS_QUALITE, VERSION_V1, VERSION_V2, SEUILS,
 } from "./qualiteComptesRendusV1";
+import { CLE_CONFIG_AVANCEMENT_INCOHERENT } from "./avancementIncoherentV1";
 
 const PAGE = 1000;
 const DUREES = [2, 4, 8];
@@ -41,6 +53,14 @@ const joursEntre = (debut, fin) => {
   return out;
 };
 const virgule = (n) => String(n).replace(".", ",");
+const semaineCourte = (w) => String(w || "").replace(/^\d{4}-W0?/, "S");
+const ETATS_DECLARES = [
+  { cle: "termine", label: "terminée" },
+  { cle: "en_cours", label: "en cours" },
+  { cle: "pas_commence", label: "pas commencée" },
+  { cle: "bloque", label: "bloquée" },
+];
+const resumePrevu = (detail, prevu) => ETATS_DECLARES.map(e => `${detail[prevu][e.cle]} ${e.label}`).join(", ");
 
 // L'API renvoie au plus 1 000 lignes par requête, sans le dire : on lit par paquets.
 async function toutLire(construire) {
@@ -70,6 +90,27 @@ function contenuCase(code, g) {
       : { valeur: "—", titre: "Aucun envoi mesurable sur la période." };
     return { valeur: `${virgule(Math.round(v.medianeMin))} min`, detail: `80 % sous ${virgule(Math.round(v.p80Min))} min`,
       titre: `${v.n} envoi(s) mesuré(s)${v.rattrapagesExclus ? `, ${v.rattrapagesExclus} rattrapage(s) exclu(s)` : ""}${v.nonMesures ? `, ${v.nonMesures} envoi(s) de l'ancien formulaire non mesurable(s)` : ""}.` };
+  }
+  // CR-6E — états déclarés identiques au prévu (indicateur du planning).
+  if (code === "prevuIdentique") {
+    if (v.taux == null) return { valeur: "—", titre: "Pas encore mesurable : aucune tâche prévue avec un prévu connu sur la période. Mesuré depuis le parcours unique du 26/10/2026." };
+    const rep = v.memeRepere.d > 0 ? ` — en cours / en cours : même repère ${v.memeRepere.n}/${v.memeRepere.d}` : "";
+    return { valeur: `${Math.round(v.taux * 100)} %`, detail: `${v.n}/${v.d}`,
+      titre: `Terminée prévue → ${resumePrevu(v.detail, "termine")}. En cours prévue → ${resumePrevu(v.detail, "en_cours")}${rep}.` };
+  }
+  if (code === "avancementIncoherent") {
+    if (v.rapportsControles === 0) {
+      return { valeur: "—", titre: v.rapportsNonControles > 0
+        ? `Aucun compte rendu contrôlable : ${v.rapportsNonControles} sur un chantier sans phasage.`
+        : "Aucun compte rendu sur la période." };
+    }
+    return { valeur: String(v.n), detail: `cas 1 : ${v.parCas[1]} · 2 : ${v.parCas[2]} · 3 : ${v.parCas[3]}`,
+      titre: `${v.n} tâche(s) sur ${v.rapportsAvecEcart} compte(s) rendu(s), ${v.rapportsControles} contrôlé(s)${v.rapportsNonControles ? ` ; ${v.rapportsNonControles} non contrôlable(s) (chantier sans phasage)` : ""}.` };
+  }
+  if (code === "liaisonPlanning") {
+    const pour = v.ouvrier ? `Lignes du planning où ${v.ouvrier} est prévu(e) : c'est le planning qu'il ou elle a reçu, pas son travail. ` : "";
+    if (v.pourcent == null) return { valeur: "—", titre: `${pour}${v.libelle} sur la période.` };
+    return { valeur: `${v.pourcent} %`, detail: `${v.liees}/${v.comptees}`, titre: `${pour}${v.detail}.` };
   }
   if (code === "ecartAvancement") {
     if (v.n === 0) return { valeur: "—", titre: "Aucune ligne comparable sur la période." };
@@ -129,7 +170,7 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
       if (rap.erreur) { setEtat({ statut: "erreur" }); return; }
       const rapports = rap.lignes;
       const chantierIds = [...new Set(rapports.map(r => r.chantier_id).filter(Boolean))];
-      const [pts, hist, ph, jr] = await Promise.all([
+      const [pts, hist, ph, jr, ptsTaches, cel, cfg] = await Promise.all([
         toutLire(() => supabase.from("pointages").select("id, rapport_id, tache_id, heures, type_pointage")
           .gte("date", debutPrec).lte("date", fin).not("rapport_id", "is", null).order("id")),
         // Anciennes versions des rapports (statut seulement) : un rapport est
@@ -145,6 +186,19 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
             .select("id, chantier_id, tache_id, rapport_id, source, avancement_avant, avancement_apres, date_realisation, created_at")
             .in("chantier_id", chantierIds).order("id"))
           : Promise.resolve({ lignes: [] }),
+        // CR-6E : heures pointées sur les tâches avant chaque jour (« avancement
+        // incohérent »), sur les chantiers lus, jusqu'à la fin de la période.
+        chantierIds.length
+          ? toutLire(() => supabase.from("pointages")
+            .select("id, chantier_id, tache_id, heures, type_pointage, quantite_validee, date")
+            .in("chantier_id", chantierIds).not("tache_id", "is", null).lte("date", fin).order("id"))
+          : Promise.resolve({ lignes: [] }),
+        // CR-6E : cases du planning des semaines lues (lignes liées au phasage).
+        toutLire(() => supabase.from("planning_cells").select("id, week_id, jour, chantier_id, ouvriers, taches, planifie")
+          .in("week_id", semainesEntre(debutPrec, fin)).order("id")),
+        // CR-6E : seuils de l'« avancement incohérent » réglés dans Admin
+        // (jamais enregistrés ou illisibles : valeurs par défaut, comme la Validation).
+        supabase.from("planning_config").select("value").eq("key", CLE_CONFIG_AVANCEMENT_INCOHERENT).maybeSingle(),
       ]);
       if (annule) return;
       const tachesHorsDevis = ph.error ? null : (ph.data || []).flatMap(p =>
@@ -156,6 +210,14 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
         historique: hist.erreur ? null : hist.lignes,
         tachesHorsDevis,
         avancementsValides: jr.erreur ? null : avancementsValidesDepuisJournal({ rapports, journal: jr.lignes }),
+        avancementIncoherent: ecartsAvancementIncoherentPeriode({
+          rapports,
+          phasages: ph.error ? null : (ph.data || []),
+          pointages: ptsTaches.erreur ? null : ptsTaches.lignes,
+          journal: jr.erreur ? null : jr.lignes,
+          seuils: cfg.error ? null : cfg.data?.value,
+        }),
+        cellulesPlanning: cel.erreur ? null : cel.lignes,
       });
     })();
     return () => { annule = true; };
@@ -166,6 +228,7 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
     const entree = {
       rapports: etat.rapports, pointages: etat.pointages, historique: etat.historique,
       tachesHorsDevis: etat.tachesHorsDevis, avancementsValides: etat.avancementsValides,
+      avancementIncoherent: etat.avancementIncoherent, cellulesPlanning: etat.cellulesPlanning,
     };
     const courant = faitsComptesRendus({ ...entree, debut, fin });
     const precedent = faitsComptesRendus({ ...entree, debut: debutPrec, fin: finPrec });
@@ -291,6 +354,97 @@ export default function PageQualiteComptesRendus({ T, branch = "renovation" }) {
                 </div>
               </section>
             )}
+
+            {/* CR-6E — détail des trois indicateurs du suivi qualité */}
+            <section style={{ marginTop: 22 }}>
+              <h2 style={{ margin: "0 0 10px", fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text }}>États déclarés face au prévu</h2>
+              <div style={{ ...carte, fontSize: FONT.sm.size, lineHeight: 1.5 }}>
+                {total.prevuIdentique.d === 0 ? (
+                  <span style={{ color: T.textSub }}>
+                    Pas encore mesurable sur cette période : aucune tâche prévue avec un prévu connu. Mesuré depuis le parcours unique du compte rendu (26 octobre 2026) ; les comptes rendus plus anciens ne gardaient pas le prévu affiché à l'ouvrier.
+                  </span>
+                ) : (
+                  <>
+                    <div style={{ color: T.textSub, marginBottom: 6 }}>
+                      C'est le planning qui est mesuré : un écart veut dire que le planning annonçait autre chose que ce qui s'est passé, pas que l'ouvrier s'est trompé.
+                    </div>
+                    {[{ cle: "termine", label: "Prévue « terminée ce soir »" }, { cle: "en_cours", label: "Prévue « en cours »" }].map(p => {
+                      const ligne = total.prevuIdentique.detail[p.cle];
+                      const n = ETATS_DECLARES.reduce((s, e) => s + ligne[e.cle], 0);
+                      return (
+                        <div key={p.cle} style={{ margin: "3px 0" }}>
+                          <b>{p.label}</b> ({n}) → déclarée {ETATS_DECLARES.map(e => `${e.label} ${ligne[e.cle]}`).join(" · ")}
+                        </div>
+                      );
+                    })}
+                    <div style={{ color: T.textSub, marginTop: 4 }}>
+                      En cours prévue et déclarée en cours : même repère (commencé, à moitié, presque fini) {total.prevuIdentique.memeRepere.d > 0
+                        ? `${total.prevuIdentique.memeRepere.n} fois sur ${total.prevuIdentique.memeRepere.d}` : "— (aucun cas)"}.
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section style={{ marginTop: 22 }}>
+              <h2 style={{ margin: "0 0 10px", fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text }}>Écarts « avancement incohérent » de la période</h2>
+              <div style={{ ...carte, fontSize: FONT.sm.size }}>
+                {total.avancementIncoherent.indisponible ? (
+                  <span style={{ color: T.textMuted, fontStyle: "italic" }}>Indisponible : {total.avancementIncoherent.indisponible}</span>
+                ) : total.avancementIncoherent.rapportsControles === 0 ? (
+                  <span style={{ color: T.textSub }}>Aucun compte rendu contrôlable sur la période.</span>
+                ) : total.avancementIncoherent.n === 0 ? (
+                  <span style={{ color: T.textSub }}>Aucun écart sur les {total.avancementIncoherent.rapportsControles} comptes rendus contrôlés.</span>
+                ) : (
+                  <details open={total.avancementIncoherent.n <= 15}>
+                    <summary style={{ cursor: "pointer", fontWeight: 700, color: T.text }}>
+                      {total.avancementIncoherent.n} écart(s) sur {total.avancementIncoherent.rapportsAvecEcart} compte(s) rendu(s) — cas 1 : {total.avancementIncoherent.parCas[1]}, cas 2 : {total.avancementIncoherent.parCas[2]}, cas 3 : {total.avancementIncoherent.parCas[3]}
+                    </summary>
+                    <div style={{ overflowX: "auto", marginTop: 8 }}>
+                      <table style={{ borderCollapse: "collapse", width: "100%", color: T.text }}>
+                        <thead>
+                          <tr>{["Date", "Ouvrier", "Chantier", "Cas", "Écart"].map(h => <th key={h} style={{ ...th, textAlign: "left" }}>{h}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {total.avancementIncoherent.liste.map((e, i) => (
+                            <tr key={`${e.rapportId}-${e.tacheId}-${i}`}>
+                              <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap" }}>{dateCourte(e.date)}</td>
+                              <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap" }}>{e.ouvrier}</td>
+                              <td style={{ ...td, textAlign: "left" }}>{e.chantierNom || "—"}</td>
+                              <td style={{ ...td, textAlign: "left", whiteSpace: "nowrap" }}>{e.cas.join(" + ")}</td>
+                              <td style={{ ...td, textAlign: "left" }}>{e.texte}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                )}
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 8 }}>
+                  Cas 1 : avancement déclaré nettement en avance sur les heures. Cas 2 : avancement qui gagne beaucoup sans heure pointée ce jour-là. Cas 3 : tâche terminée qui revient en cours. Même contrôle et mêmes seuils que la validation de fin de journée ; pour les jours passés, les heures prévues sont celles du phasage d'aujourd'hui.
+                </div>
+              </div>
+            </section>
+
+            <section style={{ marginTop: 22 }}>
+              <h2 style={{ margin: "0 0 10px", fontSize: FONT.md.size + 1, fontWeight: 800, color: T.text }}>Planning lié au phasage, semaine par semaine</h2>
+              <div style={{ ...carte, fontSize: FONT.sm.size }}>
+                {total.liaisonPlanning.indisponible ? (
+                  <span style={{ color: T.textMuted, fontStyle: "italic" }}>Indisponible : {total.liaisonPlanning.indisponible}</span>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
+                    {total.liaisonPlanning.parSemaine.map(s => (
+                      <span key={s.weekId} title={s.detail || s.libelle}>
+                        <b>{semaineCourte(s.weekId)}</b> : {s.pourcent == null ? s.libelle : `${s.pourcent} % (${s.liees}/${s.comptees})`}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: FONT.xs.size + 1, color: T.textSub, marginTop: 8 }}>
+                  Même compteur que le planning. Par ouvrier : les lignes où il ou elle est prévu(e) (équipe de la ligne) — c'est la qualité du planning reçu, pas celle de l'ouvrier.
+                </div>
+              </div>
+            </section>
 
             {/* Compteur des lignes découpées (sert aussi à la Validation) */}
             <section style={{ marginTop: 22 }}>

@@ -102,6 +102,8 @@ jobs:
         run: node scripts/verif-retours-terrain.mjs
       - name: Qualite des comptes rendus - indicateurs par ouvrier (donnees fictives)
         run: node scripts/verif-qualite-comptes-rendus.mjs
+      - name: Qualite des comptes rendus - etats identiques au prevu, avancement incoherent, planning lie (CR-6E, donnees fictives)
+        run: node scripts/verif-cr6-qualite-indicateurs.mjs
       - name: Notes des ouvriers (note privee invisible du bureau, partage, memo chantier, reponses, photos, SQL)
         run: node scripts/verif-notes-ouvriers.mjs
       - name: Fiche Operation - detail des KPI et derive par phase (donnees fictives)
