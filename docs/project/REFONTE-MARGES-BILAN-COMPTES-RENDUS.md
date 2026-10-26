@@ -219,7 +219,7 @@ chaque étape.
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
-| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). Voir « CR-6 ». |
+| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). **6C en ligne** (#188) : compteur de lignes liées, proposition en un clic, proposition dès la saisie ; liaison des anciennes lignes = question ouverte. Voir « CR-6 ». |
 
 ### Journal des décisions
 
@@ -1465,6 +1465,78 @@ validés — limite : seulement sur cet ordinateur. Contrôle
 détail par tâche : il faudrait une nouvelle colonne (migration + recalcul) ou
 un second circuit de calcul ; et au moment du Bilan l'écart a déjà été tranché
 à la validation. Le comptage par ouvrier va sur la page Qualité (6E).
+
+**6C — Planning lié au phasage (en ligne, PR #188, sans migration ni
+changement de droits ; moteur de planning inchangé, ses 4 contrôles verts).**
+
+Taux de lignes du planning liées à une tâche du phasage (vraies données, base
+du 26/10, même fonction que le compteur) :
+
+| Semaine | Liées | Part |
+|---|---|---|
+| W36 | 38 / 96 | 40 % |
+| W37 | 37 / 74 | 50 % |
+| W38 | 36 / 77 | 47 % |
+| W39 | 87 / 118 | 74 % |
+| W40 | 56 / 78 | 72 % |
+| W41 | 12 / 39 | 31 % |
+| W42 | 72 / 129 | 56 % |
+| W43 | 36 / 50 | 72 % |
+| W44 (en cours) | 67 / 72 | 93 % |
+| W45 à W47 (déjà planifiées) | 140 / 140 | 100 % |
+
+W41-W43 : 120 / 218 = 55 %, la mesure de CR-3.
+
+D'où viennent les lignes non liées : **toutes ont été tapées à la main dans une
+case** (« + Ajouter une tâche ») ; les autres chemins (« Envoyer au planning »
+depuis le phasage, « Planifier », « Planifier une opération », moteur) posaient
+déjà le lien, et aucune ligne n'a perdu son lien après coup (historique
+vérifié). Sur les 103 lignes non liées de W41 à W44 : 28 (27 %) visaient une
+tâche créée ensuite à la validation (elle n'existait pas encore), 10 (10 %)
+une tâche qui existait déjà sous le même nom, 63 (61 %) une tâche ressemblante
+au nom différent, 2 sans rien de ressemblant (« RDV ENEDIS »).
+
+**Corrigé à la source** : la saisie à la main propose la tâche dès la création
+de la ligne (sans bloquer). Non corrigeable à la source : une ligne tapée pour
+un travail qui n'a pas encore de tâche.
+
+Ce qui change pour Loris (Planning) : compteur « X % des lignes de la semaine
+liées au phasage » en haut de la semaine (« aucune ligne » pour une semaine
+vide) ; un clic ouvre la liste des lignes à lier avec, pour chacune, la tâche
+la plus probable (lot › ouvrage › pièce) et « Lier » (un clic), « Choisir dans
+le phasage » ou « Pas une tâche du chantier » ; point orange devant chaque
+ligne non liée de la grille ; la même proposition dans la case, y compris
+pendant la saisie. « Lier » ne change ni le texte, ni la durée, ni l'équipe.
+Lignes « libres » ni signalées ni comptées : absence (congé, maladie, visite
+médicale, férié, RTT…), formation, trajet, passage au dépôt, ou marquées « Pas
+une tâche du chantier » (liste volontairement étroite : des phasages réels ont
+des tâches « Nettoyage », « Appro », « RDV Enedis »).
+
+Choix techniques : module pur `liaisonPlanningV1.mjs` (`tauxLiaisonPlanning`,
+réutilisé en 6E) ; la proposition de tâche (`propositionsLiaison`) y est
+déplacée et sert À LA FOIS à l'écran ouvrier (6A) et au planning (même
+fonction). Contrôle `verif-cr6-planning-lie.mjs` (76 contrôles, données
+fictives).
+
+Points d'attention : la proposition favorise les tâches pas encore terminées
+(sur une ancienne ligne, elle peut mettre une moins bonne tâche en tête :
+« Pose du Dumawall… » → « Pose appareillage », « Pose du dumawall » en
+deuxième) ; « Pas une tâche du chantier » ne vaut que dans le planning (l'écran
+ouvrier propose toujours une tâche) ; une ligne du compte rendu ne mémorise pas
+de quelle ligne du planning elle vient, donc la validation ne lie pas le
+planning en retour.
+
+**Question ouverte pour Loris — lier automatiquement les anciennes lignes ?**
+(non fait : c'est une reprise de données). 1 491 lignes non liées en base (W16
+à W44) ; avec la proposition livrée : confiance élevée 580 (dont 37 en
+W41-W44, 463 avant W36), moyenne 154, faible 530, aucune proposition 227.
+Exemples réels de confiance élevée : KATHLEEN T2 « Terminer la pose du
+tableau+ GTL » → « Pose tableau + GTL » ; FOURMOND 101 « Dépose de l'ancienne
+baie vitrée » → même nom. Exemple douteux : TOM & CAMILLE R+1 « Peindre porte
+palière et mise en place » → « Mise en place de l'ouvrant porte palière »
+(Menuiserie). Effets d'une liaison en masse : heures déjà planifiées par
+tâche (donc durées proposées ensuite), équipe retenue pour une tâche côté
+ouvrier, bandeau « À replanifier ».
 
 ### Compte rendu final du projet (25/10/2026)
 
