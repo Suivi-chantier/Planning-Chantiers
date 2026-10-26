@@ -5,6 +5,7 @@ import { filtrerListeChoix } from "./materiauxCatalogueV1.js";
 import { repartirRemiseGlobale } from "./prixLignesAchat.js";
 import { NATURES_COUT, lignesChantierSansLot, messageLotObligatoire, natureSaisie } from "./saisieLotNature.js";
 import { lireToutParTranches } from "./lectureParTranches";
+import LotsSansLotCommandes from "./LotsSansLotCommandes";
 import { COULEURS_PALETTE, THEMES, emptyCommande, getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, LOTS_DEFAUT, loadLots } from "../constants";
 import { Icon } from "../ui";
 import { useDirtyGuard } from "../hooks";
@@ -975,6 +976,8 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   const [modalePhaseInterne, setModalePhaseInterne] = useState("");
   const [modaleLotId, setModaleLotId] = useState("");
   const [modaleImport, setModaleImport] = useState(false);
+  // CR-6D : lignes rattachées à un chantier sans lot (même règle que la saisie).
+  const [modaleSansLot, setModaleSansLot] = useState(false);
 
   // Les demandes ouvrier sont désormais gérées sur la page « À passer » (paniers).
   // Cette page ne montre plus que les commandes issues de commande_lignes.
@@ -992,7 +995,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
     // DERNIÈRES commandes qui disparaissaient de la page.
     const { data } = await lireToutParTranches((a, b) => supabase
       .from("commande_lignes")
-      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, lot_id, nature, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at)")
+      .select("id, commande_id, libelle, reference, quantite, prix_total, prix_unitaire, prix_verrouille, materiau_id, chantier_id, phasage_id, phase_id, lot_id, ouvrage_id, nature, created_at, commande:commandes(fournisseur_nom, notes, saisi_par, statut_completude, statut_facturation, doc_numero, numero_en_attente, type_evenement, created_at, date_doc)")
       .order("created_at", { ascending: true }).order("id", { ascending: true }).range(a, b));
     if (data) {
       setRows(data.map(l => {
@@ -1012,6 +1015,10 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           phasage_id:        l.phasage_id || null,
           phase_id:          l.phase_id || "",
           lot_id:            l.lot_id || "",
+          // CR-6D (lignes sans lot) : ouvrage rattaché et date du document
+          // fournisseur (date d'imputation de l'achat).
+          ouvrage_id:        l.ouvrage_id || null,
+          date_doc:          c.date_doc || null,
           nature:            natureSaisie(l.nature),
           notes:             c.notes || "",
           ouvrier_demandeur: c.saisi_par || "",
@@ -1256,6 +1263,7 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
   );
 
   const ouvriersDansCmds = [...new Set(commandes.map(r => r.ouvrier_demandeur).filter(Boolean))];
+  const nbSansLot = lignesChantierSansLot(rows).length;
   const counts = Object.fromEntries(STATUTS_COMMANDES.map(k => [k, commandes.filter(r => r.statut === k).length]));
   const STATUTS = STATUTS_CMD;
   const phasageModale = phasages.find(p => p.id === modalePhaseId);
@@ -1318,6 +1326,12 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           .cmd-page .cmd-filters select{width:100%;flex:1 1 100%!important}
         }
       `}</style>
+
+      {/* Lignes sans lot : proposition de lot et application en masse (CR-6D) */}
+      {modaleSansLot && (
+        <LotsSansLotCommandes T={T} lignes={rows} chantiers={chantiers} lots={lots}
+          onApplique={() => load({ silencieux: true })} onClose={() => setModaleSansLot(false)}/>
+      )}
 
       {/* Modale import */}
       {modaleImport && (
@@ -1454,6 +1468,20 @@ function PageCommandes({ chantiers, T, branch = "renovation" }) {
           </div>
         </div>
         <div className="cmd-actions" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {nbSansLot > 0 && (
+            <button
+              onClick={() => setModaleSansLot(true)}
+              title="Lignes rattachées à un chantier sans lot : lot proposé, à vérifier et appliquer"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: "transparent", border: "1px solid #e05c5c",
+                borderRadius: RADIUS.md, padding: "8px 14px",
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700,
+                color: "#e05c5c", cursor: "pointer",
+              }}>
+              Lignes sans lot · {nbSansLot}
+            </button>
+          )}
           <button
             onClick={() => setModaleImport(true)}
             style={{

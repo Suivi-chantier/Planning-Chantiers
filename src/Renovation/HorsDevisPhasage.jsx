@@ -13,9 +13,12 @@
 // Un ouvrage à prix nul peut être marqué « non facturé ».
 // Les règles sont dans horsDevisV2.mjs ; ici, seulement l'affichage et les
 // appels au parent (qui écrit le phasage et, pour A, les pointages).
+// CR-6D : onglet « Classement en masse » (ClassementMasseHorsDevis.jsx), qui
+// passe par le même onAppliquer.
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useMemo, useState } from "react";
 import { libelleOuvrage } from "./libellesPhasageV1";
+import ClassementMasseHorsDevis from "./ClassementMasseHorsDevis";
 import {
   syntheseHorsDevisChantierV2, REPONSES_FACTURATION, tachesProbablesV2, heuresNormalesProposeesV2,
   reaffecterCasAV2, integrerCasBV2, rattacherAvenantV2, gesteCommercialV2, aArbitrerV2, marquerNonFactureV2,
@@ -46,9 +49,13 @@ const MESSAGES_ERREUR = {
  * @param {string}   props.aujourdHui    AAAA-MM-JJ
  * @param {number}   [props.semainesRappel]
  * @param {Function} props.onAppliquer   (ouvrages, { pointages?, recalculerDepuis? }) → Promise<boolean>
+ * @param {Array}    [props.lots]          lots (chemin lot › ouvrage du classement en masse)
+ * @param {object|null} [props.repris]     chantier repris ({ le, par }) : « Tout laisser en l'état »
+ * @param {Function} [props.onRecalculer]  (date) → recalcul du relevé journalier (classement en masse)
  */
 export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tauxFGALaDate, bibliotheque = [], auteur, aujourdHui,
-  semainesRappel, onAppliquer, onClose }) {
+  semainesRappel, onAppliquer, onClose, lots = [], repris = null, onRecalculer }) {
+  const [onglet, setOnglet] = useState("unitaire");   // "unitaire" | "masse" (CR-6D)
   const [ouvert, setOuvert] = useState(null);         // tache_id en cours de classement
   const [choix, setChoix] = useState({});             // { reponse, sous: "A"|"B", cible, ouvrage_id, heures_normales }
   const [occupe, setOccupe] = useState(false);
@@ -194,6 +201,19 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
           <div style={{ fontWeight: 800, fontSize: 16 }}>Tâches hors devis du chantier</div>
           <button type="button" onClick={onClose} style={{ ...bouton(false), border: "none" }}>Fermer</button>
         </div>
+        <div style={{ padding: "10px 16px 0", display: "flex", gap: 6 }}>
+          <button type="button" style={bouton(onglet === "unitaire")} onClick={() => setOnglet("unitaire")}>Une par une</button>
+          <button type="button" style={bouton(onglet === "masse")} onClick={() => setOnglet("masse")}>
+            Classement en masse{synthese.aClasser.nb > 0 ? ` · ${synthese.aClasser.nb} à classer` : ""}
+          </button>
+        </div>
+        {onglet === "masse" ? (
+          <div style={{ padding: 16 }}>
+            <ClassementMasseHorsDevis T={T} ouvrages={ouvrages} pointages={pointages} tauxFGALaDate={tauxFGALaDate} lots={lots}
+              bibliotheque={bibliotheque} auteur={auteur} aujourdHui={aujourdHui} repris={repris}
+              onAppliquer={onAppliquer} onRecalculer={onRecalculer}/>
+          </div>
+        ) : (
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {carte("À arbitrer", synthese.aArbitrer, synthese.rappels ? `${synthese.rappels} en attente depuis plus de ${semainesRappel ?? 3} sem.` : null)}
@@ -202,6 +222,7 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
             {carte("Gestes commerciaux", synthese.gestesCommerciaux)}
             {carte("Avenants", synthese.avenants)}
             {carte("Non classées", synthese.parMotif.non_renseigne)}
+            {synthese.laissees.nb > 0 && carte("Laissées en l'état", synthese.laissees)}
           </div>
           <div style={{ fontSize: 11.5, color: T.textSub, lineHeight: 1.5 }}>
             Coût = heures × (taux horaire chargé de l'ouvrier + frais généraux à la date de l'heure). Une tâche à arbitrer ou offerte reste un coût
@@ -217,10 +238,11 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 4, fontSize: 11.5 }}>
                 <span style={{ padding: "1px 7px", borderRadius: 999, background: T.card, border: `1px solid ${T.border}` }}>
-                  {l.arbitrage ? libelleArbitrage(l.arbitrage) : l.ajouteeEnCours ? "Ajoutée en cours de chantier" : libelleMotifHD(l.motif)}
+                  {l.arbitrage ? libelleArbitrage(l.arbitrage) : l.ajouteeEnCours ? "Ajoutée en cours de chantier"
+                    : l.laissee ? `Laissée en l'état${l.laissee.le ? ` le ${fmtJour(l.laissee.le)}` : ""}${l.laissee.par ? ` par ${l.laissee.par}` : ""}` : libelleMotifHD(l.motif)}
                 </span>
                 {l.rappel && <span style={{ color: "#e05c5c", fontWeight: 700 }}>à arbitrer depuis le {fmtJour(l.aArbitrerDepuis)}</span>}
-                {l.motif === MOTIF_NON_RENSEIGNE && l.proposition && (
+                {l.motif === MOTIF_NON_RENSEIGNE && !l.laissee && l.proposition && (
                   <span style={{ color: T.textSub }}>Proposé : {l.proposition.cas ? `cas ${l.proposition.cas}` : "rien"} — {l.proposition.raison}</span>
                 )}
                 {l.arbitrage !== "avenant" && (
@@ -247,6 +269,7 @@ export default function HorsDevisPhasage({ T, ouvrages = [], pointages = [], tau
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

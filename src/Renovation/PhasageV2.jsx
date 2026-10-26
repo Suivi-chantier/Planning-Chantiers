@@ -3721,6 +3721,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
           bibliotheque={bibliotheque} auteur={profil?.nom || profil?.email || null}
           aujourdHui={new Date().toISOString().slice(0, 10)}
           semainesRappel={reglagesMarges.seuilsMarges?.horsDevisRappelSemaines}
+          lots={lots} repris={fin.repris || null}
+          onRecalculer={(date) => demanderRecalculReleve({ chantierId, date })}
           onAppliquer={appliquerHorsDevis} onClose={() => setHorsDevisOuvert(false)}/>
       )}
 
