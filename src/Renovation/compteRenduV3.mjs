@@ -39,7 +39,6 @@ import {
   appliquerChoix, appliquerChoixSuivi, changerMinutes, minutesDe, poserReste, choixDeLigne,
   suiviDepuisInfo, serialiserLigneV2, ORIGINE_NOUVELLE, ligneNouvelleTache, ajouterDepuisPhasage,
 } from "./compteRenduV2.mjs";
-import { ressemblanceNomsV2 } from "./horsDevisV2.mjs";
 
 export const CODE_PARCOURS_V3 = "cr_parcours_v3";
 // Réglage absent (jamais touché dans Admin) : le parcours est actif pour tous
@@ -227,63 +226,11 @@ export function reprendreBrouillonParcours(brouillon) {
 
 // ── Ligne du planning non liée à une tâche du phasage ───────────────────────
 // L'ouvrier choisit la tâche dans le phasage ; la proposition la plus probable
-// est en tête. Score (0..1), du plus au moins important :
-//   - ressemblance des noms (ressemblanceNomsV2, la même que la proposition du
-//     cas A des tâches hors devis), nom personnalisé ou nom du devis : 45 % ;
-//   - part des mots de la ligne retrouvés dans le nom de la tâche : 20 % ;
-//   - part des mots retrouvés dans l'ouvrage, le lot ou la pièce : 10 % ;
-//   - tâche pas encore terminée : 25 % (une ligne du planning porte sur du
-//     travail à faire ; les terminées sont masquées dans le phasage).
-// Les mots d'action du planning (« terminer », « finir », « continuer »…) ne
-// comptent pas. Proposée seulement si les noms se ressemblent vraiment.
-const MOTS_ACTION = new Set(["terminer", "termine", "terminee", "finir", "fini", "finie", "continuer", "commencer",
-  "suite", "fin", "faire", "les", "des", "une", "pour", "avec", "dans", "sur", "aux", "par", "est"]);
-const normLiaison = (s) => net(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const motsLiaison = (s) => normLiaison(s).split(" ").filter(m => m.length >= 3 && !MOTS_ACTION.has(m));
-const motsProches = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
-function couverture(mots, cible) {
-  if (!mots.length) return 0;
-  const b = motsLiaison(cible);
-  return mots.filter(m => b.some(x => motsProches(m, x))).length / mots.length;
-}
-const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
-
-// Tâches du phasage à plat avec leur lot et leur pièce (arbre de phasageMobileV1).
-export function tachesPourLiaison(arbre) {
-  const pieces = new Map((arbre?.pieces || []).map(p => [p.id, p.nom]));
-  return (arbre?.lots || []).flatMap(l => (l.ouvrages || []).flatMap(o => (o.taches || []).map(x => ({
-    id: String(x.id), nom: net(x.nomAffiche) || net(x.nom), nomDevis: net(x.nomDevis) || net(x.nom),
-    ouvrage: net(o.libelle), ouvrageDevis: net(o.libelleDevis), lot: net(l.label), piece: pieces.get(x.pieceId) || null,
-    etat: x.etat || null, avancement: x.avancement ?? null, tache: x,
-  }))));
-}
-
-// texte : la ligne du planning ; taches : tachesPourLiaison(arbre) ;
-// exclure : tache_id déjà dans la journée (jamais proposées).
-// → [{ id, nom, lot, ouvrage, piece, score, raisons, tache }] (meilleure d'abord)
-export function propositionsLiaison({ texte, taches = [], exclure = [], max = 3 } = {}) {
-  const propre = motsLiaison(texte).join(" ");
-  const mots = motsLiaison(texte);
-  if (!mots.length) return [];
-  const exclus = new Set((exclure || []).map(String));
-  return (taches || []).filter(x => x?.id && !exclus.has(String(x.id))).map(x => {
-    const simNom = Math.max(ressemblanceNomsV2(propre, x.nom), ressemblanceNomsV2(propre, x.nomDevis || ""));
-    const couvNom = couverture(mots, `${x.nom} ${x.nomDevis || ""}`);
-    const couvCtx = couverture(mots, `${x.ouvrage || ""} ${x.ouvrageDevis || ""} ${x.lot || ""} ${x.piece || ""}`);
-    const aFaire = x.etat !== "terminee" && num(x.avancement) < 100;
-    const raisons = [];
-    if (simNom >= 0.8) raisons.push("nom très proche"); else if (simNom >= 0.3 || couvNom >= 0.5) raisons.push("mots en commun");
-    if (couvCtx > 0) raisons.push("même ouvrage, lot ou pièce");
-    if (aFaire) raisons.push("pas encore terminée");
-    return {
-      id: x.id, nom: x.nom, lot: x.lot, ouvrage: x.ouvrage, piece: x.piece, tache: x.tache,
-      score: r2(0.45 * simNom + 0.2 * couvNom + 0.1 * couvCtx + (aFaire ? 0.25 : 0)), simNom, couvNom, raisons,
-    };
-  }).filter(p => p.simNom >= 0.3 || p.couvNom >= 0.5)
-    .sort((a, b) => b.score - a.score || a.nom.localeCompare(b.nom, "fr"))
-    .slice(0, max)
-    .map(({ simNom, couvNom, ...p }) => p);
-}
+// est en tête. La proposition (propositionsLiaison) et la liste des tâches
+// candidates (tachesPourLiaison) vivent depuis CR-6C dans liaisonPlanningV1.mjs :
+// le planning du bureau propose la tâche d'une ligne non liée avec EXACTEMENT
+// la même fonction (même service). Réexportées ici, inchangées.
+export { tachesPourLiaison, propositionsLiaison } from "./liaisonPlanningV1.mjs";
 
 // La ligne du planning est rattachée à la tâche choisie : elle GARDE ses
 // heures (et ses photos, sa remarque) ; son nom devient celui de la tâche,

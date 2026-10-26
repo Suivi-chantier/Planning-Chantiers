@@ -1,6 +1,8 @@
 import PlanningExportModal from "./PlanningExportModal";
 import CellModal from "./CellModal";
 import BandeauAReplanifier from "./BandeauAReplanifier";
+import { PanneauLignesALier, cellulesDepuisCarte } from "./LiaisonLignePlanning";
+import { tauxLiaisonPlanning, etatLiaisonLigne } from "./liaisonPlanningV1";
 import PlanningBaselinePanel from "./PlanningBaselinePanel";
 import PlanningEngineSimulationPanel from "./PlanningEngineSimulationPanel";
 import { creerAllocationUid } from "./planningBaselineModelV1.js";
@@ -15,7 +17,7 @@ import { syncDatePrevueTache } from "./phasagePlanning";
 import { capaciteJour, estJourNonTravaille, libelleRythme, detailRythme, semainesDansAnnee } from "../rythmeSemaine";
 import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Printer, Calendar, Plus, CalendarCheck, Package, StickyNote,
-  ArrowRightLeft, Clock, TriangleAlert, Check, Snowflake,
+  ArrowRightLeft, Clock, TriangleAlert, Check, Snowflake, Link2,
   Sun, Cloud, CloudRain, CloudSnow, CloudDrizzle, CloudFog, Zap,
 } from "lucide-react";
 
@@ -57,6 +59,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
   const v = "planifie";
   const [showEmptyWeek, setShowEmptyWeek] = useState(false); // grille PC : afficher les chantiers sans tâche de la semaine
   const [modal, setModal] = useState(null);
+  // CR-6C : liste des lignes de la semaine à lier au phasage (ouverte depuis le compteur).
+  const [lignesALierOuvert, setLignesALierOuvert] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [baselineOpen, setBaselineOpen] = useState(false);
   const [simulationOpen, setSimulationOpen] = useState(false);
@@ -87,6 +91,13 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     return d;
   };
   const getDateDuJour = (dayIndex) => getDateJourSemaine(year, week, dayIndex);
+  // Date ISO d'un jour de la semaine affichée (« Lundi » → "2026-10-26").
+  const dateISODuJour = (jour) => { const i = JOURS.indexOf(jour); return i < 0 ? null : toIsoDate(getDateDuJour(i)); };
+
+  // ── CR-6C : « X % des lignes de la semaine liées au phasage ». Même fonction
+  //    que la page « Qualité des comptes rendus » (liaisonPlanningV1) : toutes
+  //    les cases de la semaine, lignes libres non comptées.
+  const tauxLiaison = useMemo(() => tauxLiaisonPlanning(cellulesDepuisCarte(cells)), [cells]);
 
   // ── Total d'heures par ouvrier sur la semaine, calculé depuis les tâches
   //    structurées (taches[].duree, distribuées sur taches[].ouvriers).
@@ -221,8 +232,8 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekId, cells, commandes, cibleReplan]);
 
-  const openModal = (cId, jour) => {
-    setModal({ cId, jour });
+  const openModal = (cId, jour, { lierUid = null } = {}) => {
+    setModal({ cId, jour, lierUid });
     const existing = cells[`${cId}_${jour}`] || emptyCell();
     const taches = parseTachesFromPlanifie(existing.planifie, existing.taches)
       .map(t => t.allocation_uid ? t : { ...t, allocation_uid: creerAllocationUid() });
@@ -554,6 +565,7 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
         ouvriers={ouvriers} vehicules={vehicules} saving={saving} onClose={closeModal}
         T={T} weekId={weekId} year={year} week={week}
         autresHeuresJour={heuresJourAutresChantiers(modal.jour, modal.cId)}
+        lierLigneUid={modal.lierUid || null}
       />}
 
       {/* ── HEADER ── */}
@@ -582,6 +594,19 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
               {libelleRythme(year, week)}
             </span>
           )}
+          <button onClick={() => setLignesALierOuvert(o => !o)}
+            title={[tauxLiaison.explication, tauxLiaison.detail, tauxLiaison.aLier > 0 ? "Cliquer pour voir les lignes à lier." : null].filter(Boolean).join("\n")}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "inherit",
+              fontSize: FONT.xs.size, fontWeight: 700, letterSpacing: .2, cursor: "pointer",
+              color: tauxLiaison.aLier > 0 ? "#b27416" : T.textSub,
+              background: tauxLiaison.aLier > 0 ? "rgba(245,166,35,.10)" : "transparent",
+              border: `1px solid ${tauxLiaison.aLier > 0 ? "rgba(245,166,35,.45)" : T.border}`,
+              borderRadius: RADIUS.pill, padding: "3px 10px", whiteSpace: "nowrap",
+            }}>
+            <Icon as={Link2} size={12}/>
+            {tauxLiaison.libelle}
+          </button>
         </div>
 
         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -627,6 +652,15 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
 
       {/* Tâches déclarées « Pas commencé » / « Bloqué », restées sans suite */}
       <BandeauAReplanifier weekId={weekId} chantiersVisibles={chantiers} T={T} onVoir={voirTacheAReplanifier} rafraichir={`${weekId}-${modal ? 1 : 0}`} marge={isMobile ? "10px 12px 0" : "10px 28px 0"}/>
+
+      {/* CR-6C : lignes de la semaine à lier au phasage */}
+      {lignesALierOuvert && (
+        <PanneauLignesALier cells={cells} setCells={setCells} chantiers={chantiersAll} weekId={weekId} T={T}
+          marge={isMobile ? "10px 12px 0" : "10px 28px 0"}
+          dateISO={dateISODuJour}
+          onChoisir={(it) => { if (isMobile) setMobileDay(it.jour); openModal(it.chantier_id, it.jour, { lierUid: it.allocation_uid }); }}
+          onFermer={() => setLignesALierOuvert(false)}/>
+      )}
 
       {/* === VUE MOBILE === */}
       {isMobile && (
@@ -733,6 +767,14 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                         {taches.length} tâche{taches.length > 1 ? "s" : ""}
                       </span>
                     )}
+                    {(() => {
+                      const n = taches.filter(t => etatLiaisonLigne(t) === "a_lier").length;
+                      return n > 0 ? (
+                        <span title="Lignes pas liées à une tâche du phasage" style={{ fontSize:10.5, fontWeight:800, color:"#b27416", flexShrink:0 }}>
+                          {n} à lier
+                        </span>
+                      ) : null;
+                    })()}
                     {commandes[c.id]?.trim() && <Icon as={Package} size={13} color="#f5a623"/>}
                     {notesData[c.id]?.trim() && <Icon as={StickyNote} size={13} color="#8070d0"/>}
                     {filled && (
@@ -958,6 +1000,10 @@ function PagePlanning({ chantiers: chantiersAll, ouvriers, ouvrierEmails, vehicu
                             <div style={{ fontSize:12, lineHeight:1.5, color: T.text, display:"flex", flexDirection:"column", gap:2 }}>
                               {displayTaches.length > 0 ? displayTaches.map((tache, ti) => (
                                 <div key={tache.id || ti} style={{ display:"flex", alignItems:"flex-start", gap:3 }}>
+                                  {etatLiaisonLigne(tache) === "a_lier" && (
+                                    <span title="Pas liée à une tâche du phasage — ouvre la case pour la lier"
+                                      style={{ width:6, height:6, borderRadius:"50%", background:"#f5a623", flexShrink:0, marginTop:6 }}/>
+                                  )}
                                   <span style={{ flex:1, minWidth:0, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{tache.text}</span>
                                   <button
                                     className="tache-move-btn"

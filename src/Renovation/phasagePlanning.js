@@ -28,7 +28,31 @@ export async function loadPhasagePourPlanning(chantierId) {
     ouvrages: Array.isArray(data.ouvrages) ? data.ouvrages : [],
     chronoGroupes: Array.isArray(data.plan_travaux?.meta?.chrono_groupes)
       ? data.plan_travaux.meta.chrono_groupes : [],
+    // Pièces du chantier (CR-2) : la proposition de tâche d'une ligne non liée
+    // (CR-6C) cite la pièce, comme sur le téléphone.
+    pieces: Array.isArray(data.plan_travaux?.meta?.pieces) ? data.plan_travaux.meta.pieces : [],
   };
+}
+
+// Phasages de plusieurs chantiers d'un coup (lignes à lier de la semaine,
+// CR-6C) : { [chantier_id]: { ouvrages, pieces } }. Lecture seule. Doublon
+// de phasage sur un chantier : le premier est gardé (même règle que
+// loadPhasagesOperation). En cas d'erreur : null (jamais « aucun phasage »).
+export async function loadPhasagesPourLiaison(chantierIds) {
+  const ids = [...new Set((chantierIds || []).filter(Boolean))];
+  if (ids.length === 0) return {};
+  const { data, error } = await supabase.from("phasages")
+    .select("chantier_id, ouvrages, plan_travaux").in("chantier_id", ids);
+  if (error) { console.warn("loadPhasagesPourLiaison:", error.message); return null; }
+  const out = {};
+  (data || []).forEach(ph => {
+    if (out[ph.chantier_id]) return;
+    out[ph.chantier_id] = {
+      ouvrages: Array.isArray(ph.ouvrages) ? ph.ouvrages : [],
+      pieces: Array.isArray(ph.plan_travaux?.meta?.pieces) ? ph.plan_travaux.meta.pieces : [],
+    };
+  });
+  return out;
 }
 
 // ─── OPÉRATION : chargement groupé des phasages des chantiers frères ─────────
