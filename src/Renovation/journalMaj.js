@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-26",
     type: "amelioration",
+    titre: "Planning : les lignes pas rattachées au phasage sont signalées, avec la tâche la plus probable à lier d'un clic",
+    pages: [{ id: "planning", label: "Planning semaine" }],
+    quoi: "Une ligne tapée à la main dans une case du planning n'est rattachée à aucune tâche du phasage : l'ouvrier la retrouve « sans tâche » dans son compte rendu et il faut la rattacher à la main à la validation. Ces lignes sont maintenant repérées (petit point orange dans la grille, « N à lier » sur téléphone) et un compteur en haut du planning donne la part des lignes de la semaine liées au phasage, par exemple « 93 % des lignes de la semaine liées au phasage ». Une semaine sans ligne affiche « aucune ligne », jamais 0 % ni 100 %.",
+    comment: "Cliquer sur le compteur ouvre la liste des lignes à lier de la semaine : pour chacune, la tâche la plus probable (nom, lot, ouvrage, pièce — la même proposition que celle que voit l'ouvrier dans son compte rendu), « Lier » en un clic, « Choisir dans le phasage » ou « Pas une tâche du chantier » (absence, RDV…). Dans une case, la même proposition s'affiche sous chaque ligne non liée, y compris pendant qu'on tape une nouvelle ligne : on peut l'accepter, choisir une autre tâche ou l'ignorer, rien n'est bloqué et rien n'est lié sans clic. « Lier » ne change ni le texte, ni la durée, ni l'équipe de la ligne ; comme pour une tâche posée depuis le phasage, la date prévue de la tâche suit son premier jour planifié. Les lignes d'absence (congé, maladie, visite médicale…), de formation, de trajet ou de passage au dépôt ne sont ni signalées ni comptées.",
+  },
+  {
+    date: "2026-10-26",
+    type: "amelioration",
     titre: "Validation : un compte rendu dont l'avancement ne colle pas avec les heures n'est plus validable d'un clic",
     pages: [{ id: "validation", label: "Validation fin de journée" }, { id: "admin", label: "Réglages" }],
     quoi: "Un nouvel écart orange, « avancement incohérent », signale les déclarations à regarder de près avant de les valider : une tâche déclarée bien plus avancée que les heures passées dessus (par exemple « Bandes chambre » déclarée terminée avec 2 h pour 10 h prévues), une tâche qui gagne au moins 25 points d'avancement alors que personne n'y a pointé d'heure ce jour-là, ou une tâche qui était terminée et revient « en cours ». Le compte rendu passe alors en « écarts » : le bouton « Valider » direct disparaît, il faut l'ouvrir.",

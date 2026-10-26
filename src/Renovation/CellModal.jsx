@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase, photoTransform } from "../supabase";
-import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots } from "../constants";
+import { JOURS, STATUTS, emptyCell, parseTachesFromPlanifie, loadLots, LOTS_DEFAUT } from "../constants";
 import { useDirtyGuard } from "../hooks";
 import { loadPhasagePourPlanning, syncDatePrevueTache, planningParTache } from "./phasagePlanning";
 import { capaciteJour as capaciteJourRythme } from "../rythmeSemaine";
@@ -10,6 +10,8 @@ import { sortByChrono } from "./chronoTemplate";
 // Explication d'une ligne de compte rendu : la remarque, ou le motif du formulaire bêta + précision.
 import { explicationLigne } from "./motifsCompteRendu";
 import { creerAllocationUid } from "./planningBaselineModelV1.js";
+import { PropositionLiaison } from "./LiaisonLignePlanning";
+import { etatLiaisonLigne, natureLibre, tachesPourLiaisonDepuisPhasage, propositionsPourLigne, lierLignePlanning, marquerHorsPhasage } from "./liaisonPlanningV1";
 import { chargerVerrousAllocationsV1, indexerVerrousAllocationsV1, verrouillerAllocationV1, deverrouillerAllocationV1 } from "./planningAllocationLockDataV1.js";
 
 // Arrondi au quart d'heure (durée proposée par défaut depuis les heures
@@ -20,7 +22,7 @@ const arrondiQuart = (h) => {
   return Math.round(n * 4) / 4;
 };
 
-function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicules=[],saving,onClose,T,weekId,year,week,autresHeuresJour={}}){
+function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicules=[],saving,onClose,T,weekId,year,week,autresHeuresJour={},lierLigneUid=null}){
   if(!chantier)return null;
 
   // La journée se sauvegarde à la fermeture (onClose) : tant que l'éditeur est
@@ -118,9 +120,13 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // Chargé à la première ouverture du panneau (lazy), trié dans l'ordre chrono
   // métier. Ajouter une tâche au jour écrit immédiatement sa date_prevue dans
   // le phasage ; la retirer du jour efface la date (si elle vaut encore ce jour).
-  const [phasageOpen, setPhasageOpen] = useState(false);
+  // CR-6C : ouverte depuis « Choisir dans le phasage » (liste des lignes à
+  // lier de la semaine) → le phasage s'ouvre en mode « lier cette ligne ».
+  const [phasageOpen, setPhasageOpen] = useState(!!lierLigneUid);
+  const [lierUid, setLierUid] = useState(lierLigneUid || null); // ligne à lier par « Choisir dans le phasage »
   const [phasageData, setPhasageData] = useState(null); // { ouvrages, chronoGroupes }
   const [phasageLoading, setPhasageLoading] = useState(false);
+  const [phasageErreur, setPhasageErreur] = useState(false); // CR-6C : lecture échouée ≠ « aucune tâche »
   const [phasageLots, setPhasageLots] = useState([]);
   const [phasageSearch, setPhasageSearch] = useState("");
   // Heures déjà posées dans le planning par tâche liée (toutes semaines) :
@@ -135,7 +141,8 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
     // Charge à l'ouverture du panneau, OU dès que la cellule contient des
     // lignes liées au phasage (le recalcul de durée au changement d'ouvriers
     // a besoin des tâches du phasage même panneau fermé).
-    if (!phasageOpen && !(draft.taches || []).some(x => x.tache_id)) return;
+    // CR-6C : aussi dès qu'une ligne n'est pas liée (proposition de tâche).
+    if (!phasageOpen && !(draft.taches || []).some(x => x.tache_id || etatLiaisonLigne(x) === "a_lier")) return;
     if (phasageLoadRef.current === chantier.id) return;
     phasageLoadRef.current = chantier.id;
     setPhasageLoading(true);
@@ -145,7 +152,7 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
         setPhasageLots(lots || []);
         setPlanningMap(pmap || {});
       })
-      .catch(e => { console.warn("loadPhasagePourPlanning:", e?.message || e); phasageLoadRef.current = null; })
+      .catch(e => { console.warn("loadPhasagePourPlanning:", e?.message || e); phasageLoadRef.current = null; setPhasageErreur(true); })
       .finally(() => setPhasageLoading(false));
   }, [phasageOpen, chantier?.id, draft.taches]);
 
@@ -342,6 +349,35 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
   // À la suppression d'une ligne liée au phasage : recalcule la date depuis
   // les jours encore planifiés (premier jour restant) ; s'il n'en reste
   // aucun, efface la date si elle valait encore ce jour.
+  // ── CR-6C : ligne non liée → tâche du phasage ────────────────────────────
+  // Mêmes candidates et même proposition que le compte rendu de l'ouvrier
+  // (liaisonPlanningV1). Rien n'est lié sans clic.
+  const candidatesLiaison = React.useMemo(() => (phasageData
+    ? tachesPourLiaisonDepuisPhasage({ ouvrages: phasageData.ouvrages, pieces: phasageData.pieces || [], lots: phasageLots }, { lotsDefaut: LOTS_DEFAUT })
+    : []), [phasageData, phasageLots]);
+  // Phasage pas encore lu → « chargement » ; lecture échouée → « indisponible »
+  // (jamais présenté comme « aucune tâche ») ; lu mais vide → « sans_phasage ».
+  const etatPhasageLiaison = phasageLoading ? "chargement"
+    : !phasageData ? (phasageErreur ? "indisponible" : "chargement")
+    : candidatesLiaison.length === 0 ? "sans_phasage" : "ok";
+  const memeLigne = (x, ref) => (ref.allocation_uid ? x.allocation_uid === ref.allocation_uid : x.id === ref.id);
+  // Pose le lien sur la ligne (texte, durée, équipe inchangés) ; la date
+  // prévue du phasage suit le premier jour planifié, comme « + » du phasage.
+  const lierLigne = (ref, tacheId) => {
+    if (!tacheId) return;
+    setDraft(p => ({ ...p, taches: (p.taches || []).map(x => (memeLigne(x, ref) ? lierLignePlanning(x, tacheId) : x)) }));
+    setLierUid(null);
+    const iso = getDateISO();
+    if (iso) {
+      syncDatePrevueTache(chantier.id, tacheId, { addDates: [iso] })
+        .then(({ changed, date }) => { if (changed) majDateLocale(tacheId, date); });
+    }
+  };
+  const marquerLigne = (ref, oui) => {
+    setDraft(p => ({ ...p, taches: (p.taches || []).map(x => (memeLigne(x, ref) ? marquerHorsPhasage(x, oui) : x)) }));
+  };
+  const ligneALier = lierUid ? (draft.taches || []).find(x => x.allocation_uid === lierUid && !x.tache_id) : null;
+
   const onRemoveTache = (removed) => {
     if (!removed?.tache_id) return;
     const iso = getDateISO();
@@ -579,6 +615,38 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                       <span style={{fontSize:11,color:T.accent,marginLeft:4}}>→ Visible par tous</span>
                     )}
                   </div>
+                  {(()=>{
+                    // CR-6C : lien avec le phasage (proposition, choix, ou « pas une tâche »).
+                    const etat=etatLiaisonLigne(tache);
+                    if(etat==="vide") return null;
+                    const ref={allocation_uid:tache.allocation_uid,id:tache.id};
+                    if(etat==="liee"){
+                      const tp=tacheDuPhasage(tache.tache_id);
+                      return tp?(
+                        <div style={{paddingLeft:18,fontSize:11,color:T.textMuted}}>↳ Phasage : {tp.nom_perso||tp.nom||"(sans nom)"}</div>
+                      ):null;
+                    }
+                    if(etat==="libre"){
+                      const n=natureLibre(tache);
+                      return(
+                        <div style={{paddingLeft:18,fontSize:11,color:T.textMuted,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                          {n.marquee?"Pas une tâche du chantier : ni signalée, ni comptée dans le pourcentage.":("Ligne libre ("+n.label+") : pas à lier, pas comptée dans le pourcentage.")}
+                          {n.marquee&&(
+                            <button onClick={()=>marquerLigne(ref,false)} style={{border:"none",background:"transparent",color:T.accent,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,padding:0}}>Annuler</button>
+                          )}
+                        </div>
+                      );
+                    }
+                    const prop=etatPhasageLiaison==="ok"?propositionsPourLigne({ligne:tache,candidates:candidatesLiaison,tachesDeLaCase:draft.taches||[]})[0]||null:null;
+                    return(
+                      <div style={{paddingLeft:18}}>
+                        <PropositionLiaison T={T} etat={etatPhasageLiaison} proposition={prop}
+                          onLier={(p)=>lierLigne(ref,p.id)}
+                          onChoisir={()=>{setLierUid(tache.allocation_uid||null);setPhasageOpen(true);}}
+                          onPasUneTache={()=>marquerLigne(ref,true)}/>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
 
@@ -613,6 +681,13 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                     </div>
                   ):(
                     <>
+                      {ligneALier&&(
+                        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:T.text,
+                          background:"rgba(245,166,35,.10)",border:"1px solid rgba(245,166,35,.45)",borderRadius:8,padding:"6px 10px"}}>
+                          <span style={{flex:1,minWidth:0}}>Choisis la tâche à lier à « <strong>{ligneALier.text}</strong> » (la ligne garde son texte, sa durée et son équipe)</span>
+                          <button onClick={()=>setLierUid(null)} style={{border:"none",background:"transparent",color:T.textSub,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700}}>Annuler</button>
+                        </div>
+                      )}
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <input value={phasageSearch} onChange={e=>setPhasageSearch(e.target.value)}
                           placeholder="Filtrer (tâche, ouvrage, lot)…"
@@ -705,6 +780,12 @@ function CellModal({chantier,jour,draft,setDraft,commande,note,ouvriers,vehicule
                                     )}
                                     {added?(
                                       <span style={{flexShrink:0,fontSize:12,fontWeight:800,color:T.text}}>✓ Ajoutée</span>
+                                    ):ligneALier?(
+                                      <button onClick={()=>lierLigne({allocation_uid:ligneALier.allocation_uid,id:ligneALier.id},t.id)}
+                                        title="Lier la ligne à cette tâche"
+                                        style={{flexShrink:0,background:"#b27416",border:"none",borderRadius:7,
+                                          padding:"5px 12px",color:"#fff",fontFamily:"inherit",fontSize:12.5,
+                                          fontWeight:800,cursor:"pointer"}}>Lier</button>
                                     ):(
                                       <button onClick={()=>addFromPhasage(row)}
                                         title="Ajouter cette tâche au jour (le phasage garde comme date le premier jour planifié)"
