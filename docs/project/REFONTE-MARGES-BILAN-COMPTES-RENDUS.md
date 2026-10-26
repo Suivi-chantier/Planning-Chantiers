@@ -219,7 +219,7 @@ chaque étape.
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
-| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). **6C en ligne** (#188) : compteur de lignes liées, proposition en un clic, proposition dès la saisie ; liaison des anciennes lignes = question ouverte. **6D en ligne** (#190) : classement en masse des tâches hors devis (Phasage → Hors devis → « Classement en masse ») et des commandes sans lot (Commandes → « Lignes sans lot »). Voir « CR-6 ». |
+| 10 | CR-6 — Parcours unique du compte rendu et correctifs | ✅ En ligne | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Cinq mises en ligne (PR #184, #186, #188, #190, #192), aucune migration, aucun droit modifié. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. **6B en ligne** (#186) : écart orange « avancement incohérent » à la validation (seuils dans Admin), avancement retenu gardé au rechargement ; pas repris au Bilan (expliqué). **6C en ligne** (#188) : compteur de lignes liées, proposition en un clic, proposition dès la saisie ; liaison des anciennes lignes = question ouverte. **6D en ligne** (#190) : classement en masse des tâches hors devis (Phasage → Hors devis → « Classement en masse ») et des commandes sans lot (Commandes → « Lignes sans lot »). **6E en ligne** (#192) : trois indicateurs sur la page « Qualité des comptes rendus ». Voir « CR-6 » et « Compte rendu final de CR-6 ». |
 
 ### Journal des décisions
 
@@ -1346,7 +1346,7 @@ message technique à l'écran.
   déjà validés du mois (comme la page Qualité) ; une découpe faite puis
   annulée avant validation n'est pas comptée.
 
-#### CR-6 — Parcours unique du compte rendu et correctifs (26/10/2026, en cours)
+#### CR-6 — Parcours unique du compte rendu et correctifs (26/10/2026, en ligne)
 
 **6A — Parcours unique (en ligne, PR #184, sans migration ni changement de
 droits).**
@@ -1632,9 +1632,119 @@ Points d'attention (pour Loris) :
   rattrapage de nuit ne voit que les lignes créées dans la journée). L'outil de
   masse, lui, demande le recalcul.
 
+**6E — Suivi qualité (en ligne, PR #192, sans migration ni changement de
+droits ; page existante, mêmes personnes qu'avant).**
+
+Trois lignes ajoutées au tableau de la page « Qualité des comptes rendus »,
+au total et par ouvrier, avec la tendance, et trois encarts de détail :
+1. **États déclarés identiques au prévu** — mesure la fiabilité du PLANNING,
+   pas le travail de l'ouvrier. « Identique » = même état (terminée /
+   terminée, en cours / en cours quel que soit le repère ; le « même repère »
+   est compté à part dans le détail) ; « Pas commencé » ou « Bloqué » face à un
+   prévu = différent ; exclues : lignes sans prévu (avant le 26/10, tâches
+   ajoutées), prévu inconnu, sans état.
+2. **Écarts « avancement incohérent »** — même fonction que la validation (6B),
+   détail par cas et liste avec date, ouvrier, chantier et texte exact.
+3. **Lignes du planning liées au phasage** — même fonction et même explication
+   que le compteur du Planning (6C) ; par ouvrier = les lignes où il est prévu
+   (la qualité du planning qu'il a reçu).
+
+Valeurs réelles (base du 26/10, lecture seule) :
+
+| | 12/10 → 25/10 | W44 (en cours) |
+|---|---|---|
+| Identiques au prévu | — (aucun compte rendu du parcours unique encore) | — |
+| Avancement incohérent | 11 écarts sur 9 comptes rendus (113 contrôlés) : 10 cas 1, 0 cas 2, 1 cas 3 — 7 sur la période précédente | — (aucun compte rendu envoyé à l'heure de la mesure) |
+| Planning lié | 60 % (108 / 179) | 93 % (67 / 72) |
+
+Les chiffres retombent exactement sur les mesures de 6B et 6C. Planning lié
+par ouvrier (12/10 → 25/10) : Selman 94 %, Davy 92 %, Mohamed 81 %, Venceslas
+76 %, Steven 68 %, Margaux 12 %, Kev 8 % (3 / 40) — les lignes prévues pour Kev
+et Margaux sont presque toutes tapées à la main.
+
+Contrôle `verif-cr6-qualite-indicateurs.mjs` (80 contrôles, données fictives),
+dans « Verify Planning Replanning V1 » à côté du contrôle de la page Qualité.
+Un contrôle de 6A (qui vérifiait que le suivi qualité ne lisait pas le prévu)
+a été rouge une fois puis adapté. Points d'attention : écarts des jours passés
+recalculés avec les heures prévues d'aujourd'hui (écrit sur la page) ; la
+tendance des écarts compare des nombres bruts (le nombre de comptes rendus
+contrôlés est au survol) ; temps de chargement de la page non mesuré dans un
+navigateur (calcul ≈ 50 ms sur 231 comptes rendus).
+
+#### Compte rendu final de CR-6 (26/10/2026)
+
+**CR-6 terminée : les cinq parties sont en ligne** (PR #184, #186, #188, #190,
+#192, plus les mises à jour du document #183, #185, #187, #189, #191). Aucune
+migration, aucun droit d'accès modifié, aucune donnée réelle réécrite.
+
+Ce qui a changé :
+- **Pour les ouvriers** : un seul parcours. Les tâches prévues s'affichent tout
+  de suite, heures préremplies ; c'est l'ouvrier qui dit où en est chaque tâche
+  (rien n'est prérempli d'après le planning) ; « Pas commencé » sans motif ;
+  « J'ai fait autre chose » ajoute sans effacer ; une ligne du planning sans
+  tâche propose la plus probable.
+- **Pour Loris et les conducteurs** : à la validation, un écart orange
+  « avancement incohérent » (plus de « Valider » direct) et l'avancement
+  retenu qui ne se perd plus ; dans le planning, un compteur de lignes liées
+  au phasage et la liaison en un clic ; deux outils de classement en masse
+  (tâches hors devis, commandes sans lot) ; trois indicateurs de plus sur la
+  page Qualité.
+- **Pour la direction** : rien de visible tout de suite ; à terme, des
+  avancements plus justes (donc production et marges plus fiables) et moins de
+  lignes « sans lot » ou « sans tâche ».
+
+Chiffres réels clés : lignes du planning liées 55 % sur W41-W43 → 93 % sur
+W44 ; avancement incohérent sur les 2 dernières semaines : 11 tâches sur 9
+comptes rendus (aucun « Valider » direct perdu à cause de lui) ; tâches hors
+devis à classer : 429 (A 17, B 3, C 343, standard 66) ; commandes sans lot :
+673 lignes, 19 682 € (moyenne 278, faible 352, aucune proposition 43).
+
+À tester en priorité :
+1. Compte rendu ouvrier sur un vrai téléphone : choisir un état pour chaque
+   tâche, « J'ai fait autre chose », accepter la proposition d'une ligne sans
+   tâche, envoi bloqué tant qu'une tâche avec des heures n'a pas d'état.
+2. Validation du soir : un compte rendu avec « avancement incohérent » (orange,
+   pas de « Valider » direct) ; recharger la page après avoir saisi un
+   avancement retenu.
+3. Planning : le compteur et « Lier » sur une ligne de la semaine.
+4. Phasage → Hors devis → « Classement en masse » sur un chantier ; Commandes
+   → « Lignes sans lot » (commencer par les propositions « moyennes »).
+5. Qualité des comptes rendus : les trois nouvelles lignes après quelques
+   jours de parcours unique.
+
+Réglages Admin ajoutés : Taux horaires → « Validation des comptes rendus :
+avancement incohérent » (`planning_config.seuils_avancement_incoherent`,
+jamais enregistré = défauts 0,5 / 2 h / 25 points / cas « terminée qui
+revient » actif).
+
+Points en suspens (décisions de Loris) :
+- **Lier automatiquement les anciennes lignes du planning ?** (reprise de
+  données, non faite) — 580 propositions de confiance élevée, dont 37 sur
+  W41-W44 ; recommandation du pilote : les 37 récentes ou rien.
+- **Conducteurs sans accès au Phasage** dans la liste enregistrée en base
+  (donc sans le classement des tâches hors devis).
+- **DÉPOT** : lot obligatoire peu pertinent (97 lignes, 5 236 €).
+- **Chantier repris** : aucun chantier coché (TOM & CAMILLE), donc « Tout
+  laisser en l'état » n'apparaît nulle part.
+- **Défaut existant** : un changement de lot à la main dans Commandes ne
+  recalcule pas les relevés journaliers (l'outil de masse, lui, le fait).
+- Rattacher une ligne du planning non liée n'est pas obligatoire côté ouvrier ;
+  « Pas une tâche du chantier » ne vaut que dans le planning.
+
+Entrées ajoutées au Journal des MAJ (26/10) : Compte rendu du soir : un seul
+parcours · Validation : avancement retenu gardé au rechargement · Validation :
+avancement qui ne colle pas avec les heures · Planning : lignes pas rattachées
+au phasage signalées · Classement en masse (hors devis, commandes sans lot) ·
+Qualité des comptes rendus : trois nouveaux indicateurs.
+
 ### Compte rendu final du projet (25/10/2026)
 
 **Projet terminé.** Les neuf étapes du tableau de suivi sont en ligne.
+(Complété le 26/10/2026 par CR-6, ajoutée par Loris : voir « Compte rendu
+final de CR-6 » ci-dessus. Le point ouvert « avancement retenu gardé tant que
+la page reste ouverte » est corrigé ; « environ 350 tâches hors devis » et
+« 673 lignes de commande sans lot » ont maintenant leurs outils de classement
+en masse.)
 
 #### Ce qui a été livré, étape par étape
 1. **Étape 1 — Fondations des données financières** : taux de frais généraux
