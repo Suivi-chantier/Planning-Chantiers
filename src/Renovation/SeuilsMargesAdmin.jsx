@@ -25,6 +25,8 @@ const CHAMPS = [
   { cle: "consoMargePerdueMinEuros", label: "Marge à l'avancement en baisse d'au moins", unite: "€" },
   { titre: "Tâches hors devis" },
   { cle: "horsDevisRappelSemaines", label: "Rappel des tâches « à arbitrer » au-delà de", unite: "semaines sans décision (avenant ou geste commercial)" },
+  { titre: "PDF du Bilan, version direction" },
+  { cle: "bilanDirectionEnveloppeMinEuros", label: "Dépassement d'enveloppe matériaux affiché à partir de", unite: "€ (en dessous : version détaillée seulement)" },
 ];
 
 export default function SeuilsMargesAdmin({ T, saveConfig }) {

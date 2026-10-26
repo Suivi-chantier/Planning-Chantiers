@@ -107,7 +107,18 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
     if (c.chantier_repris === true) { reprisIgnores.push(nom); continue; }
     const p = precedents.get(chantierId) || null;
     const alertes = [];
-    const ajouter = (motif, texte, euros = null) => alertes.push({ motif, texte, euros: euros == null ? null : round2(euros) });
+    // `probleme`, `heures`, `lotId`, `avancementLot` : forme courte et chiffrée
+    // de la même alerte, pour les tableaux (PDF du Bilan). Le texte complet
+    // (page Alertes, assistant IA) ne change pas.
+    const ajouter = (motif, texte, euros = null, extra = {}) => alertes.push({
+      motif, texte, euros: euros == null ? null : round2(euros),
+      probleme: extra.probleme || texte,
+      heures: extra.heures == null ? null : round2(extra.heures),
+      lotId: extra.lotId ?? null,
+      avancementLot: extra.avancementLot == null ? null : round2(extra.avancementLot),
+      // Effet sur la marge, signé (négatif = perte) ; null = sans montant.
+      impactMarge: extra.impactMarge == null ? null : round2(extra.impactMarge),
+    });
 
     // ── 1. Marge probable en baisse (comparaison) ──
     const mp1 = num(c.marge_probable), mp0 = num(p?.marge_probable);
@@ -120,7 +131,12 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
             + (l.ecartHeures != null && l.ecartEuros != null ? ` (dérive ${signeH(l.ecartHeures)}, ${signeE(l.ecartEuros)})` : "")).join(" ; ")
         : "aucun lot n'a dérivé davantage : la baisse vient des coûts réels (main-d'œuvre, matériaux, frais généraux) ou du reste à commander";
       ajouter(MOTIF_MARGE_PROBABLE_EN_BAISSE,
-        `marge probable en baisse de ${formaterEurosV1(baisseProbable)} (${formaterEurosV1(mp0)} → ${formaterEurosV1(mp1)}) — ${detail}`, baisseProbable);
+        `marge probable en baisse de ${formaterEurosV1(baisseProbable)} (${formaterEurosV1(mp0)} → ${formaterEurosV1(mp1)}) — ${detail}`, baisseProbable, {
+          impactMarge: -baisseProbable,
+          probleme: `Marge probable en baisse (${formaterEurosV1(mp0)} → ${formaterEurosV1(mp1)})${resp.length
+            ? ` : ${resp.map(l => `lot ${l.label}`).join(", ")}` : " : coûts réels, aucun lot en cause"}`,
+          heures: resp.length ? resp.reduce((s, l) => s + (l.deltaHeures || 0), 0) : null,
+        });
     }
 
     // Activité sur la période : les alertes d'ÉTAT (lot en dérive, heures sans
@@ -142,7 +158,10 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
       if (r > s.alerteDeriveLotRatio && av >= s.alerteDeriveLotAvancementPct) {
         const h = num(l.ecartHeures), e = num(l.ecartEuros);
         ajouter(MOTIF_LOT_EN_DERIVE,
-          `lot ${l.label || l.id} en dérive ${fmtCoef(r)} à ${fmtPct(av)} d'avancement${h != null && e != null ? ` : ${signeH(h)}, ${signeE(e)}` : ""}`, e);
+          `lot ${l.label || l.id} en dérive ${fmtCoef(r)} à ${fmtPct(av)} d'avancement${h != null && e != null ? ` : ${signeH(h)}, ${signeE(e)}` : ""}`, e, {
+            probleme: `Lot ${l.label || l.id} en dérive ${fmtCoef(r)} (${fmtPct(av)} fait)`,
+            heures: h, lotId: l.id, avancementLot: av, impactMarge: e == null ? null : -e,
+          });
       }
     }
 
@@ -150,7 +169,9 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
     const pctSansLot = num(c.pct_sans_lot);
     if (actif && pctSansLot != null && pctSansLot > s.alerteSansLotPct) {
       ajouter(MOTIF_HEURES_SANS_LOT,
-        `${fmtPct(pctSansLot)} des heures sans lot${num(c.heures_sans_lot) != null ? ` (${formaterHeuresV1(num(c.heures_sans_lot))})` : ""} : nettoyage, SAV, approvisionnement… rattachés à aucun lot, la dérive des lots est masquée`);
+        `${fmtPct(pctSansLot)} des heures sans lot${num(c.heures_sans_lot) != null ? ` (${formaterHeuresV1(num(c.heures_sans_lot))})` : ""} : nettoyage, SAV, approvisionnement… rattachés à aucun lot, la dérive des lots est masquée`, null, {
+          probleme: `${fmtPct(pctSansLot)} des heures sans lot`, heures: num(c.heures_sans_lot),
+        });
     }
 
     // ── 4. Dépassement d'enveloppe matériaux ──
@@ -158,7 +179,10 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
       if (w?.code !== "depassement_enveloppe") continue;
       if (!((num(w.euros) ?? 0) >= s.alerteDepassementEnveloppeMinEuros)) continue;
       ajouter(MOTIF_DEPASSEMENT_ENVELOPPE,
-        `lot ${w.label || w.lotId} : matériaux au-delà de l'enveloppe de ${formaterEurosV1(num(w.euros) ?? 0)}${num(w.pct) != null ? ` (+${Math.round(num(w.pct))} %)` : ""}`, num(w.euros));
+        `lot ${w.label || w.lotId} : matériaux au-delà de l'enveloppe de ${formaterEurosV1(num(w.euros) ?? 0)}${num(w.pct) != null ? ` (+${Math.round(num(w.pct))} %)` : ""}`, num(w.euros), {
+          probleme: `Lot ${w.label || w.lotId} : matériaux au-delà de l'enveloppe${num(w.pct) != null ? ` (+${Math.round(num(w.pct))} %)` : ""}`,
+          lotId: w.lotId ?? null, impactMarge: num(w.euros) == null ? null : -num(w.euros),
+        });
     }
 
     // ── Comparaisons de période (production, heures, marge à l'avancement) ──
@@ -175,7 +199,10 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
       const parHeure = production / Math.max(heures, 1);
       if (parHeure > s.alerteProductionHeureFacteur * ref) {
         ajouter(MOTIF_PRODUCTION_HEURE_ABERRANTE,
-          `production de ${formaterEurosV1(production)} pour ${formaterHeuresV1(Math.max(heures, 0))} pointées (${formaterEurosV1(parHeure)} par heure, contre ${formaterEurosV1(ref)} au devis) : avancement à vérifier`);
+          `production de ${formaterEurosV1(production)} pour ${formaterHeuresV1(Math.max(heures, 0))} pointées (${formaterEurosV1(parHeure)} par heure, contre ${formaterEurosV1(ref)} au devis) : avancement à vérifier`, null, {
+            probleme: `Production par heure à vérifier : ${formaterEurosV1(parHeure)}/h (devis ${formaterEurosV1(ref)}/h)`,
+            heures: Math.max(heures, 0),
+          });
       }
     }
 
@@ -186,7 +213,10 @@ export function alertesMargesV2({ snapshotsCourants, snapshotsPrecedents, seuils
       if (stable && heures >= s.consoHeuresAjouteesMin && ma0 - ma1 >= s.consoMargePerdueMinEuros) {
         margePerdueConso = ma0 - ma1;
         ajouter(MOTIF_CONSOMMATION_SANS_AVANCEMENT,
-          `${formaterHeuresV1(heures)} consommées pour ${formaterEurosV1(Math.max(production, 0))} produits : la marge à l'avancement recule de ${formaterEurosV1(margePerdueConso)}`, margePerdueConso);
+          `${formaterHeuresV1(heures)} consommées pour ${formaterEurosV1(Math.max(production, 0))} produits : la marge à l'avancement recule de ${formaterEurosV1(margePerdueConso)}`, margePerdueConso, {
+            probleme: `Heures sans avancement (${formaterEurosV1(Math.max(production, 0))} produits)`,
+            heures, impactMarge: -margePerdueConso,
+          });
       }
     }
 

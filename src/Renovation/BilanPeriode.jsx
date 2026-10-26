@@ -19,7 +19,7 @@ import {
   periodeSemaineV3, periodeMoisV3, periodeLibreV3, bornesComparaisonV3, ajouterJoursV3, semaineIsoV3,
   indexerRelevesV3, releveAuPlusTardV3, syntheseChantiersV3, bandeauV3, activiteChantiersV3,
   preselectionChantiersV3, ligneSansActiviteV3, avertissementsExportV3, LEGENDE_PASTILLES_V3,
-  COULEURS_PASTILLES_V3, fmtJourV3,
+  COULEURS_PASTILLES_V3, fmtJourV3, resumeSansActiviteV3,
 } from "./bilanPeriodeV3.js";
 import { documentBilanV3 } from "./bilanPdfV3.js";
 import { ficheChantierV3, matiereComptesRendusV3, methodeBilanV3, tachesParLotV3 } from "./bilanFicheV3.js";
@@ -46,6 +46,14 @@ const fmtEurSigne = v => (v == null ? "—" : `${v > 0.5 ? "+" : v < -0.5 ? "−
 const fmtH = v => (v == null ? "—" : `${(Math.round(v * 10) / 10).toLocaleString("fr-FR")} h`);
 const fmtPct = v => (v == null ? "—" : `${(Math.round(v * 10) / 10).toLocaleString("fr-FR")} %`);
 const couleurSigne = (v, T) => (v == null ? T.textMuted : v < -0.5 ? "#e15a5a" : v > 0.5 ? "#22c55e" : T.text);
+// Pourcentage d'une part (marge / vendu) : « — » si inconnu, jamais 0 %.
+const fmtPctSur = v => {
+  if (v == null) return "—";
+  const r = Math.round(v);
+  return `${r < 0 ? "−" : ""}${Math.abs(r).toLocaleString("fr-FR")} %`;
+};
+const fmtEurH = v => (v == null ? "—" : `${Math.round(v).toLocaleString("fr-FR")} €/h`);
+const fleche = v => (v == null || Math.abs(v) < 1 ? "=" : v < 0 ? "▼" : "▲");
 const moisCourant = () => new Date().toISOString().slice(0, 7);
 
 function decalerSemaine(weekId, delta) {
@@ -369,6 +377,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const semProchaine = useSemaineQuiVient(periode);
   const cmdProchaine = useCommandesSemaineQuiVient(semProchaine.decoupe?.fenetre || null);
   const [clotureOuverte, setClotureOuverte] = useState(null);
+  const [detailMarges, setDetailMarges] = useState(false);
   const [decisionsChoix, setDecisionsChoix] = useState({ cle: null, valeurs: {} });
   const decisionsPeriode = decisionsChoix.cle === periode?.cle ? decisionsChoix.valeurs : {};
   const choisirDecision = (id, valeur) => setDecisionsChoix(c => ({ cle: periode.cle, valeurs: { ...(c.cle === periode.cle ? c.valeurs : {}), [id]: valeur } }));
@@ -394,7 +403,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     const alertes = alertesMargesV2({ snapshotsCourants: pick(bornes.dateFin), snapshotsPrecedents: pick(bornes.dateDepart), seuils: reglages.seuilsMarges });
     const alertesParChantier = Object.fromEntries(alertes.lignes.map(l => [l.chantier_id, l.alertes.map(a => ({ ...a, motif: a.motif }))]));
     const synthese = syntheseChantiersV3({ releves: idx, chantiers: retenus, bornes, periode, alertesParChantier,
-      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500 });
+      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500, baremeFG: reglages.baremeFG });
     const noms = Object.fromEntries(enCours.map(c => [c.id, c.nom]));
     const avertissements = avertissementsExportV3({ periode, chantierIds: retenus.map(c => c.id), rapports, relevesLignes: releves, noms });
     const bandeau = bandeauV3({ synthese, nbComptesRendusNonValides: avertissements.nbNonValides });
@@ -409,8 +418,9 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
       .filter(r => retenus.some(c => c.id === r.chantierId));
     const prevuRealise = prevuRealiseV3({ archives: donnees.archives, periode, synthese });
     return { activite, preselection, synthese, alertes, avertissements, bandeau, ligneSansActivite: ligneSansActiviteV3(preselection),
+      resumeSansActivite: resumeSansActiviteV3(preselection),
       rappel, suggestions, tendances, rectifications, prevuRealise };
-  }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges, reglages.derivesDetail, chantiers]);
+  }, [donnees, periode, enCours, choixPeriode, reglages.seuilsMarges, reglages.derivesDetail, reglages.baremeFG, chantiers]);
   const semaineQuiVient = useMemo(() => {
     const ref = semProchaine.referentiel;
     const nomChantier = id => (chantiers || []).find(c => c.id === id)?.nom || (ref?.chantiers || []).find(c => c.id === id)?.nom || id;
@@ -484,8 +494,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
   const [export_, setExport] = useState({ enCours: false, message: null });
   const donneesExport = () => ({
     periode, bornes: donnees.bornes, bandeau: calcul.bandeau, synthese: calcul.synthese,
-    ligneSansActivite: calcul.ligneSansActivite, avertissements: calcul.avertissements,
-    alertes: calcul.alertes.releveDisponible ? calcul.alertes.lignes : null,
+    ligneSansActivite: calcul.ligneSansActivite, resumeSansActivite: calcul.resumeSansActivite, avertissements: calcul.avertissements,
+    alertes: calcul.alertes.releveDisponible ? calcul.alertes.lignes : null, seuilsMarges: reglages.seuilsMarges,
     decisions: decisionsRetenues,
     tendances: calcul.tendances,
     semaineQuiVient,
@@ -599,28 +609,42 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
 
         {/* Bandeau */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
-          {[
-            ["Production de la période", fmtEur(calcul.bandeau.production), T.text],
-            ["Marge de la période", fmtEurSigne(calcul.bandeau.margePeriode), couleurSigne(calcul.bandeau.margePeriode, T)],
-            ["Évolution de la marge probable", fmtEurSigne(calcul.bandeau.evolutionMargeProbable), couleurSigne(calcul.bandeau.evolutionMargeProbable, T)],
-            ["Heures validées", fmtH(calcul.bandeau.heuresValidees), T.text],
-            ["Comptes rendus non validés", String(calcul.bandeau.nbComptesRendusNonValides), calcul.bandeau.nbComptesRendusNonValides ? "#e15a5a" : T.text],
-          ].map(([l, v, c]) => (
+          {(() => {
+            const b = calcul.bandeau;
+            return [
+              ["Production de la période", fmtEur(b.production), T.text, []],
+              ["Marge de la période", fmtEurSigne(b.margePeriode), couleurSigne(b.margePeriode, T), [`${fmtPctSur(b.margePeriodePct)} de la production`]],
+              [b.nbChantiersHorsComparaison > 0 ? `Marge probable (${b.nbChantiersComparables} chantiers)` : "Marge probable, tous chantiers",
+                fmtEurSigne(b.margeProbableTotale), couleurSigne(b.margeProbableTotale, T), [
+                `${fmtPctSur(b.margeProbableTotalePct)} du vendu · devis ${fmtEurSigne(b.margeDevisTotale)} (${fmtPctSur(b.margeDevisTotalePct)})`,
+                b.evolutionMargeProbable == null ? "évolution sur la période : —" : `${fleche(b.evolutionMargeProbable)} ${fmtEurSigne(b.evolutionMargeProbable)} sur la période, tous chantiers`,
+                ...(b.nbChantiersHorsComparaison > 0 ? [`${b.nbChantiersHorsComparaison} chantier(s) hors total : marge devis inconnue ou sans matériaux prévus`] : [])]],
+              ["Heures validées", fmtH(b.heuresValidees), T.text, [`${fmtEurH(b.eurParHeure)} produits · devis ${fmtEurH(b.eurParHeureDevis)}`]],
+              ...(b.nbComptesRendusNonValides ? [["Comptes rendus non validés", String(b.nbComptesRendusNonValides), "#e15a5a", []]] : []),
+            ];
+          })().map(([l, v, c, sous]) => (
             <div key={l} style={{ ...carte, marginBottom: 0, padding: 12 }}>
               <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: c, marginTop: 4 }}>{v}</div>
+              {sous.map((x, i) => <div key={i} style={{ fontSize: 11, color: T.textSub, marginTop: 2 }}>{x}</div>)}
             </div>
           ))}
         </div>
 
         {/* Synthèse par chantier */}
         <div style={carte}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Synthèse par chantier</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+            <div style={{ fontWeight: 700 }}>Synthèse par chantier</div>
+            <label style={{ fontSize: 12, color: T.textSub, display: "flex", alignItems: "center", gap: 4 }}>
+              <input type="checkbox" checked={detailMarges} onChange={e => setDetailMarges(e.target.checked)}/> Détail des marges (version détaillée)
+            </label>
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr style={{ color: T.textMuted, fontSize: 11, textAlign: "right" }}>
-                <th style={{ textAlign: "left", padding: 6 }}>Chantier</th><th>Avancement</th><th>Production</th><th>Marge période</th>
-                <th>Marge à l'avancement</th><th>Marge à terminaison</th><th>Marge probable</th><th>€ produits / h</th>
+                <th style={{ textAlign: "left", padding: 6 }}>Chantier</th><th>Avancement</th><th>Vendu HT</th><th>Marge devis</th>
+                <th>Marge probable</th><th>Écart / devis</th><th>Sur la période</th><th>€ produits / h</th>
+                {detailMarges && (<><th>Production</th><th>Marge période</th><th>Marge à l'avancement</th><th>Marge à terminaison</th></>)}
               </tr></thead>
               <tbody>
                 {calcul.synthese.map(s => (
@@ -636,15 +660,19 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
                     </td>
                     {s.disponible ? (<>
                       <td>{fmtPct(s.avancement)}</td>
-                      <td>{fmtEur(s.production)}</td>
-                      <td style={{ color: couleurSigne(s.margePeriode, T) }}>{fmtEurSigne(s.margePeriode)}</td>
-                      <td style={{ color: couleurSigne(s.margeAvancement, T) }}>{fmtEurSigne(s.margeAvancement)}</td>
-                      <td style={{ color: couleurSigne(s.margeTerminaison, T) }}>{fmtEurSigne(s.margeTerminaison)}</td>
-                      <td style={{ color: couleurSigne(s.margeProbable, T) }}>{fmtEurSigne(s.margeProbable)}
-                        {s.evolutionMargeProbable != null && Math.abs(s.evolutionMargeProbable) >= 1 && <div style={{ fontSize: 10, color: T.textMuted }}>{fmtEurSigne(s.evolutionMargeProbable)} sur la période</div>}
-                      </td>
-                      <td>{s.eurParHeure == null ? "—" : `${fmtEur(s.eurParHeure)}/h`}</td>
-                    </>) : <td colSpan={7} style={{ color: T.textMuted, textAlign: "left" }}>relevé pas encore disponible</td>}
+                      <td>{fmtEur(s.vendu)}</td>
+                      <td style={{ color: couleurSigne(s.margeDevis, T) }}>{fmtEurSigne(s.margeDevis)}<div style={{ fontSize: 10, color: T.textMuted }}>{s.margeDevisSansMateriaux ? "sans matériaux prévus" : fmtPctSur(s.margeDevisPct)}</div></td>
+                      <td style={{ color: couleurSigne(s.margeProbable, T) }}>{fmtEurSigne(s.margeProbable)}<div style={{ fontSize: 10, color: T.textMuted }}>{fmtPctSur(s.margeProbablePct)}</div></td>
+                      <td style={{ color: couleurSigne(s.ecartDevis, T) }}>{fmtEurSigne(s.ecartDevis)}</td>
+                      <td style={{ color: couleurSigne(s.evolutionMargeProbable, T) }}>{s.evolutionMargeProbable == null ? "—" : `${fleche(s.evolutionMargeProbable)} ${fmtEurSigne(s.evolutionMargeProbable)}`}</td>
+                      <td>{fmtEurH(s.eurParHeure)}<div style={{ fontSize: 10, color: T.textMuted }}>devis {fmtEurH(s.eurParHeureDevis)}</div></td>
+                      {detailMarges && (<>
+                        <td>{fmtEur(s.production)}</td>
+                        <td style={{ color: couleurSigne(s.margePeriode, T) }}>{fmtEurSigne(s.margePeriode)}</td>
+                        <td style={{ color: couleurSigne(s.margeAvancement, T) }}>{fmtEurSigne(s.margeAvancement)}</td>
+                        <td style={{ color: couleurSigne(s.margeTerminaison, T) }}>{fmtEurSigne(s.margeTerminaison)}</td>
+                      </>)}
+                    </>) : <td colSpan={detailMarges ? 11 : 7} style={{ color: T.textMuted, textAlign: "left" }}>relevé pas encore disponible</td>}
                   </tr>
                 ))}
               </tbody>

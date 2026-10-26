@@ -15,6 +15,9 @@
 // Module PUR : aucune dépendance Supabase, aucune horloge, aucun effet de bord.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { margePrevueDevisReleve, eurParHeureDevis, normaliserSeuilsMarges } from "../chantierFinance.mjs";
+import { MOTIF_LOT_EN_DERIVE, MOTIF_HEURES_SANS_LOT, MOTIF_DEPASSEMENT_ENVELOPPE } from "./pointsAttentionV1.mjs";
+
 export const BILAN_PERIODE_VERSION = "v3";
 
 const str = v => (v == null ? "" : String(v).trim());
@@ -174,7 +177,13 @@ function pastille({ margeProbable, evolutionMargeProbable, margePeriode, nbAutre
  * @param {object} [args.alertesParChantier]  { [id]: [{ motif }] } (alertesMargesV2)
  * @param {number} [args.seuilBaisse=500]
  */
-export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alertesParChantier = {}, seuilBaisse = 500 }) {
+// Pourcentage d'un montant sur une base : « — » (null) si la base est nulle,
+// négative ou inconnue — jamais 0 %.
+export const pctSurV3 = (montant, base) => (montant == null || base == null || !(base > 0) ? null : round2(montant / base * 100));
+
+// `baremeFG` : barème des frais généraux (planning_config.fg_taux_horaires),
+// pour la marge prévue au devis — absent = taux par défaut, comme partout.
+export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alertesParChantier = {}, seuilBaisse = 500, baremeFG = null }) {
   const out = [];
   for (const c of listeSure(chantiers)) {
     const id = str(c.id);
@@ -207,17 +216,36 @@ export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alert
     }
     if (repris) mentions.push({ code: "repris", texte: "chantier repris" });
 
+    // Devis → probable (choix de Loris du 26/10/2026) : marge prévue au devis
+    // (même fonction que la « Marge prév. » du Phasage), marge probable, écart.
+    const vendu = v(fin, "vendu_ht");
+    const margeDevis = fin ? margePrevueDevisReleve(fin, baremeFG) : null;
+    const margeProbable = disponible ? v(fin, "marge_probable") : null;
+    // Ouvrages sans matériaux prévus (vieux chantiers) : la marge devis ne
+    // compte aucun matériau, elle est trop belle. Le chiffre reste celui du
+    // Phasage, mais il est signalé, sans écart calculé, et sort du total du
+    // bandeau.
+    const margeDevisSansMateriaux = margeDevis != null && vendu > 0 && num(fin?.mat_prev) === 0;
+    const ecartDevis = margeProbable != null && margeDevis != null && !margeDevisSansMateriaux ? round2(margeProbable - margeDevis) : null;
+    const repereDevis = eurParHeureDevis(vendu, v(fin, "heures_vendues"));
+
     out.push({
       chantierId: id, nom: str(c.nom) || str(fin?.chantier_nom) || id,
       disponible, repris,
       dateFinReleve: fin ? jour(fin.date_releve) : null,
       dateDepartReleve: dep ? jour(dep.date_releve) : null,
       avancement, avancementDepart: v(dep, "avancement"),
-      vendu: v(fin, "vendu_ht"),
+      vendu,
       production, margePeriode, heuresPeriode, eurParHeure,
+      eurParHeureDevis: repereDevis == null ? null : round2(repereDevis),
       margeAvancement: disponible ? v(fin, "marge_avancement") : null,
       margeTerminaison: v(fin, "marge_terminaison"),
-      margeProbable: disponible ? v(fin, "marge_probable") : null,
+      margeProbable,
+      margeProbablePct: pctSurV3(margeProbable, vendu),
+      margeDevis: margeDevis == null ? null : round2(margeDevis),
+      margeDevisPct: pctSurV3(margeDevis, vendu),
+      margeDevisSansMateriaux,
+      ecartDevis,
       evolutionMargeProbable,
       budgetRestant: v(fin, "budget_restant"),
       materiauxEnAvance: v(fin, "materiaux_en_avance"),
@@ -237,14 +265,85 @@ export function bandeauV3({ synthese, nbComptesRendusNonValides = 0 }) {
     const vals = listeSure(synthese).map(s => s[k]).filter(x => x != null);
     return vals.length ? round2(vals.reduce((a, b) => a + b, 0)) : null;
   };
+  const production = somme("production");
+  const margePeriode = somme("margePeriode");
+  const heuresValidees = somme("heuresPeriode");
+  // Marge probable totale face à la marge devis totale : sur les seuls
+  // chantiers où les deux sont connues (et leur vendu), pour comparer des
+  // ensembles identiques ; sans les chantiers dont la marge devis ne compte
+  // aucun matériau prévu.
+  const comparables = listeSure(synthese).filter(s => s.margeProbable != null && s.margeDevis != null && s.vendu > 0 && !s.margeDevisSansMateriaux);
+  const total = k => (comparables.length ? round2(comparables.reduce((a, s) => a + s[k], 0)) : null);
+  const venduComparable = total("vendu");
+  const margeProbableTotale = total("margeProbable");
+  const margeDevisTotale = total("margeDevis");
+  // Repère du devis global : Σ vendu ÷ Σ heures prévues des chantiers retenus.
+  const avecRepere = listeSure(synthese).filter(s => s.eurParHeureDevis > 0 && s.vendu > 0);
+  const heuresPrevuesTot = avecRepere.reduce((a, s) => a + s.vendu / s.eurParHeureDevis, 0);
   return {
-    production: somme("production"),
-    margePeriode: somme("margePeriode"),
+    production,
+    margePeriode,
+    margePeriodePct: pctSurV3(margePeriode, production),
     evolutionMargeProbable: somme("evolutionMargeProbable"),
-    heuresValidees: somme("heuresPeriode"),
+    margeProbableTotale, margeDevisTotale, venduComparable,
+    margeProbableTotalePct: pctSurV3(margeProbableTotale, venduComparable),
+    margeDevisTotalePct: pctSurV3(margeDevisTotale, venduComparable),
+    nbChantiersComparables: comparables.length,
+    nbChantiersHorsComparaison: listeSure(synthese).filter(s => s.disponible).length - comparables.length,
+    heuresValidees,
+    eurParHeure: production != null && heuresValidees > 0 ? round2(production / heuresValidees) : null,
+    eurParHeureDevis: heuresPrevuesTot > 0 ? round2(avecRepere.reduce((a, s) => a + s.vendu, 0) / heuresPrevuesTot) : null,
     nbComptesRendusNonValides,
     nbIndisponibles: listeSure(synthese).filter(s => !s.disponible).length,
   };
+}
+
+// ── Alertes du PDF (choix de Loris du 26/10/2026) ───────────────────────────
+// Version DIRECTION : au plus `max` points par chantier, triés par montant en
+// jeu ; les constats qui reviennent chaque semaine passent dans la version
+// détaillée : lot déjà terminé en dérive, heures sans lot, petits
+// dépassements d'enveloppe (sous seuils.bilanDirectionEnveloppeMinEuros).
+// Version DÉTAILLÉE : toutes les alertes, même tri. Les règles d'alerte
+// (alertesMargesV2) ne changent pas : seulement ce que le PDF en montre.
+export function alerteVersionDetailleeSeulementV3(a, seuils = null) {
+  const s = normaliserSeuilsMarges(seuils);
+  if (a?.motif === MOTIF_HEURES_SANS_LOT) return true;
+  if (a?.motif === MOTIF_LOT_EN_DERIVE && num(a.avancementLot) != null && num(a.avancementLot) >= 100) return true;
+  if (a?.motif === MOTIF_DEPASSEMENT_ENVELOPPE && !((num(a.euros) ?? 0) >= s.bilanDirectionEnveloppeMinEuros)) return true;
+  return false;
+}
+export function alertesBilanV3(lignes, { version = "direction", seuils = null, max = 3 } = {}) {
+  if (lignes == null) return null;
+  const poids = a => Math.abs(num(a.impactMarge) ?? num(a.euros) ?? 0);
+  return listeSure(lignes).map(l => {
+    let items = listeSure(l.alertes)
+      .filter(a => version !== "direction" || !alerteVersionDetailleeSeulementV3(a, seuils))
+      .map(a => ({ motif: a.motif, probleme: str(a.probleme) || str(a.texte), heures: num(a.heures), impactMarge: num(a.impactMarge) }));
+    items.sort((a, b) => poids(b) - poids(a));
+    const total = items.length;
+    if (version === "direction") items = items.slice(0, max);
+    return { chantierId: str(l.chantier_id), nom: str(l.nom), items, nbMasques: total - items.length };
+  }).filter(l => l.items.length > 0);
+}
+
+/** « 16 journées incomplètes sur 10 chantiers » (version direction). */
+export function resumeJourneesIncompletesV3(avertissements) {
+  const n = avertissements?.nbJoursIncomplets || 0;
+  if (!n) return null;
+  const nbCh = listeSure(avertissements.lignes).filter(l => listeSure(l.joursIncomplets).length).length;
+  return `${n} journée${n > 1 ? "s" : ""} incomplète${n > 1 ? "s" : ""} sur ${nbCh} chantier${nbCh > 1 ? "s" : ""} (comptes rendus attendus manquants) : détail dans la version détaillée`;
+}
+/** Comptes rendus non validés (ligne d'avertissement, si > 0). */
+export function resumeNonValidesV3(avertissements) {
+  const n = avertissements?.nbNonValides || 0;
+  if (!n) return null;
+  const noms = listeSure(avertissements.lignes).filter(l => listeSure(l.nonValides).length).map(l => l.nom);
+  return `${n} compte${n > 1 ? "s" : ""} rendu${n > 1 ? "s" : ""} non validé${n > 1 ? "s" : ""} (${noms.join(", ")}) : chiffres incomplets`;
+}
+/** « 23 chantiers en cours sans activité » (version direction). */
+export function resumeSansActiviteV3(preselection) {
+  const n = listeSure(preselection).filter(p => !p.actif).length;
+  return n ? `${n} chantier${n > 1 ? "s" : ""} en cours sans activité sur la période` : null;
 }
 
 // ── Activité de la période et présélection des chantiers à exporter ─────────

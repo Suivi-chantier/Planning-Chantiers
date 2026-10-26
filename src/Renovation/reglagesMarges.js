@@ -7,16 +7,16 @@
 // est la même partout.
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { CLE_CONFIG_SEUILS_MARGES, CLE_CONFIG_DERIVES_HISTORIQUES } from "../chantierFinance";
+import { CLE_CONFIG_SEUILS_MARGES, CLE_CONFIG_DERIVES_HISTORIQUES, CLE_CONFIG_TAUX_FG } from "../chantierFinance";
 
 let promesse = null;
-let valeur = { seuilsMarges: null, derivesHistoriques: null, derivesCalculeesLe: null, charge: false };
+let valeur = { seuilsMarges: null, derivesHistoriques: null, derivesCalculeesLe: null, baremeFG: null, charge: false };
 const abonnes = new Set();
 
 export function chargerReglagesMarges({ forcer = false } = {}) {
   if (promesse && !forcer) return promesse;
   promesse = supabase.from("planning_config").select("key,value")
-    .in("key", [CLE_CONFIG_SEUILS_MARGES, CLE_CONFIG_DERIVES_HISTORIQUES])
+    .in("key", [CLE_CONFIG_SEUILS_MARGES, CLE_CONFIG_DERIVES_HISTORIQUES, CLE_CONFIG_TAUX_FG])
     .then(({ data, error }) => {
       if (error) console.warn("reglagesMarges :", error.message);
       const parCle = Object.fromEntries((data || []).map(r => [r.key, r.value]));
@@ -26,6 +26,8 @@ export function chargerReglagesMarges({ forcer = false } = {}) {
         derivesHistoriques: hist?.lots || null,
         derivesCalculeesLe: hist?.calcule_le || null,
         derivesDetail: hist,
+        // Barème des frais généraux (marge prévue au devis du Bilan) — absent = défaut.
+        baremeFG: Array.isArray(parCle[CLE_CONFIG_TAUX_FG]) ? parCle[CLE_CONFIG_TAUX_FG] : null,
         charge: true,
       };
       abonnes.forEach(f => f(valeur));
