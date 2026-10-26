@@ -219,7 +219,7 @@ chaque étape.
 | 7 | CR-3 — Nouveau parcours du compte rendu | ✅ En ligne | 2026-10-25 | Accueil « journée prévue » avec l'état attendu ce soir, « Journée comme prévu » / « Pas comme prévu », phasage sur téléphone (lot / pièce, noms personnalisés, recherche, sélection multiple, création avec motif), repères, raccourcis de temps et « le reste ici », frise en option, tâches prévues non faites, tâches faites à plusieurs, message de retour. Activé pour tous, interrupteur dans Réglages → Utilisateurs. PR #174 + activation. Voir « CR-3 ». |
 | 8 | CR-4 — Dictée vocale et IA | ✅ En ligne | 2026-10-25 | « Raconter ma journée au micro » : reconnaissance vocale du navigateur (repli : micro du clavier), l'IA propose tâches, états, temps, remarque reformulée et matériel ; l'ouvrier relit et envoie ; rien de prérempli sans certitude ; texte dicté d'origine toujours joint (visible à la validation) ; micro aussi dans la recherche du phasage, la tâche créée et la remarque ; photo de fin de journée recommandée. Migration additive (2 colonnes). Coût estimé : 1,5 à 3 € / mois. Voir « CR-4 ». |
 | 9 | CR-5 — Refonte de la page de validation | ✅ En ligne | 2026-10-25 | Page de la journée (résumé, écarts en clair, couleurs, « Valider » direct pour un compte rendu comme prévu, arbitrage d'une tâche faite à plusieurs, comptes rendus non envoyés), détail en grand (budget de chaque tâche, colonne latérale, « Valider et passer au suivant »), répartition d'une tâche regroupée avec compteur. Aucune migration. PR #177 à #179. Voir « CR-5 » et « Compte rendu final du projet ». |
-| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. |
+| 10 | CR-6 — Parcours unique du compte rendu et correctifs | 🔄 En cours | 2026-10-26 | Ajoutée par Loris le 26/10 après relecture. Découpage en 5 mises en ligne (voir journal des décisions) : 6A parcours unique, 6B écart « avancement incohérent » + avancement retenu gardé, 6C planning lié au phasage, 6D classement en masse, 6E suivi qualité + compte rendu. **6A en ligne** (#184) : liste des tâches prévues tout de suite, état obligatoire jamais prérempli, « J'ai fait autre chose », proposition pour une ligne du planning non liée. Voir « CR-6 ». |
 
 ### Journal des décisions
 
@@ -1345,6 +1345,63 @@ message technique à l'écran.
 - Le compteur de tâches regroupées compte les découpes des comptes rendus
   déjà validés du mois (comme la page Qualité) ; une découpe faite puis
   annulée avant validation n'est pas comptée.
+
+#### CR-6 — Parcours unique du compte rendu et correctifs (26/10/2026, en cours)
+
+**6A — Parcours unique (en ligne, PR #184, sans migration ni changement de
+droits).**
+
+Ce qui change pour les ouvriers (interrupteur « Nouveau parcours du compte
+rendu » allumé) :
+- Plus de « Journée comme prévu » / « Ça ne s'est pas passé comme prévu », plus
+  d'écran « Pourquoi pas faites aujourd'hui ? ». En haut, « Ta journée »
+  (heures attendues, « Raconter ma journée au micro », « J'ai fait autre
+  chose »), puis directement les tâches prévues, chantier par chantier.
+- Chaque tâche : heures préremplies avec la durée prévue ; état jamais
+  prérempli, choisi par l'ouvrier (Pas commencé, Commencé, À moitié, Presque
+  fini, Terminé, quantité posée, ou Bloqué avec son motif) ; le prévu écrit en
+  petit (« prévu : terminée ce soir »), rien quand il est inconnu.
+- « Pas commencé » ne demande plus de motif ; sur une tâche déjà avancée il
+  s'écrit « Pas avancé aujourd'hui » (0 h, avancement inchangé).
+- « J'ai fait autre chose » ouvre le phasage ; les tâches choisies ou créées
+  s'ajoutent à la liste sans rien effacer.
+- Ligne du planning non liée au phasage : un encadré propose « La plus
+  probable » (nom, lot › ouvrage › pièce), acceptée d'un geste ; sinon
+  « Choisir dans le phasage » ou « Créer une tâche » (nom prérempli, motif
+  demandé). La ligne garde ses heures, photos et remarque.
+- Collègue : « Oui, d'accord » vaut choix de l'état. Dictée : inchangée.
+- Envoi bloqué tant qu'une tâche avec des heures n'a pas d'état (le message
+  nomme la tâche) ou que le total n'est pas exact. Tâche prévue laissée sans
+  heures ni état → « pas commencé ».
+- Brouillons de l'ancien parcours et du formulaire v2 : s'ouvrent sur la liste,
+  lignes gardées. Interrupteur éteint : formulaire v2 d'avant, inchangé (le
+  motif de « Pas commencé » y reste demandé).
+
+Ce qui change pour Loris : à la validation, « « X » prévue, pas faite » reste
+orange, sans motif affiché (y compris pour les anciens comptes rendus ; le
+motif reste enregistré sur la ligne).
+
+Choix techniques : règles du parcours dans le module pur `compteRenduV3.mjs` ;
+proposition de tâche par la même ressemblance de noms que le cas A hors devis
+(`ressemblanceNomsV2`), mots d'action du planning (« terminer », « finir »)
+ignorés, aucune proposition si aucun nom ne ressemble ; chaque ligne prévue
+garde le prévu affiché (`prevu : {etat, avancement, repere}`) et une ligne
+rattachée garde le texte du planning (`liaison`) — aucun lecteur existant ne
+les lit, ils servent au suivi qualité (6E). Code des deux branches retiré.
+
+Contrôle `verif-cr6-parcours-unique.mjs` (65 contrôles, données fictives) dans
+« Verify Fondations Finance » ; `verif-compte-rendu-v3` (63) et
+`verif-validation-journee` (92) adaptés.
+
+Points d'attention :
+- Rattacher une ligne du planning non liée n'est pas obligatoire : ignorée,
+  elle arrive comme avant en rouge « sans tâche du phasage » à la validation
+  (le phasage peut manquer sans réseau).
+- En rattachant une ligne, l'état est à redire (l'avancement de référence
+  devient celui de la tâche choisie).
+- Un brouillon commencé en « pas comme prévu » fait réapparaître les tâches
+  prévues masquées : l'ouvrier doit dire leur état si elles ont des heures.
+- Rien n'a été essayé sur un vrai téléphone.
 
 ### Compte rendu final du projet (25/10/2026)
 
