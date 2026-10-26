@@ -9,6 +9,7 @@
 // arbitrage appliqué à plusieurs comptes rendus, répartition d'une tâche
 // regroupée et barre de budget d'une tâche.
 import { libelleMotifStatut, libelleMotifDepassement } from "./motifsCompteRendu.mjs";
+import { ecartsAvancementIncoherentRapport } from "./avancementIncoherentV1.mjs";
 
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 const net = (s) => String(s ?? "").trim();
@@ -65,7 +66,9 @@ const MOTIFS_CREATION = { introuvable: "pas trouvée dans la liste", imprevu: "t
 //   rouge  = à arbitrer : bloquée, tâche créée, hors devis / sans tâche
 //   orange = à regarder : dépassement, prévue non faite, désaccord avec un
 //            collègue, journée hors norme, ouvrier non planifié, tâche déjà
-//            à 100 %, total différent de l'attendu
+//            à 100 %, total différent de l'attendu, avancement incohérent
+//            avec les heures (CR-6 : ctx.avancementIncoherent, voir
+//            ecartsAvancementIncoherentRapport)
 export function ecartsRapport(rapport, ctx = {}) {
   const out = [];
   const avancements = ctx.avancementParTache || {};
@@ -106,6 +109,13 @@ export function ecartsRapport(rapport, ctx = {}) {
       out.push({ niveau: "orange", code: "deja_terminee", texte: `« ${nom} » pointée alors qu'elle est déjà terminée` });
     }
   });
+  // CR-6 : avancement incohérent avec les heures (module avancementIncoherentV1,
+  // le même que la page « Qualité des comptes rendus »). Sans ces données
+  // (ctx.avancementIncoherent absent), rien n'est contrôlé ni inventé.
+  if (ctx.avancementIncoherent) {
+    ecartsAvancementIncoherentRapport(rapport, ctx.avancementIncoherent)
+      .forEach(e => out.push({ niveau: e.niveau, code: e.code, texte: e.texte, cas: e.cas, tache_id: e.tache_id }));
+  }
   const hJour = ctx.heuresJourOuvrier != null ? num(ctx.heuresJourOuvrier) : heuresDeclarees(rapport);
   if (hJour > 10) out.push({ niveau: "orange", code: "journee_longue", texte: `Journée de ${fmtH(hJour)} h, au-dessus de 10 h` });
   const planifies = arr(ctx.ouvriersPlanifies);
@@ -251,6 +261,67 @@ export function appliquerArbitrages(lignes, arbitragesChantier) {
   const a = arbitragesChantier || {};
   return arr(lignes).map(li => (li.tache_id && a[String(li.tache_id)] != null
     ? { ...li, avancement_arbitre: a[String(li.tache_id)], _arbitrageGroupe: true } : li));
+}
+
+// ── Avancement retenu gardé au rechargement (CR-6, cahier §6) ───────────────
+// Les arbitrages sont rangés dans le stockage du navigateur (pas en base) :
+//   CLE_STOCKAGE_ARBITRAGES → texte JSON { [date ISO]: { [chantier]: { [tâche]: % } } }
+// La page lit/écrit ce texte (dans un try/catch) ; ces fonctions ne font que
+// le transformer. Limite : il n'existe que dans CE navigateur, sur CET
+// ordinateur (un autre poste ne le voit pas).
+export const CLE_STOCKAGE_ARBITRAGES = "profero.validation.arbitrages.v1";
+const lireJSON = (texte) => {
+  try { const v = JSON.parse(texte || "{}"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  catch { return {}; }
+};
+// Nettoie une valeur relue : seulement des pourcentages 0-100 entiers.
+function arbitragesPropres(v) {
+  const out = {};
+  if (!v || typeof v !== "object") return out;
+  Object.entries(v).forEach(([ch, taches]) => {
+    if (!taches || typeof taches !== "object") return;
+    Object.entries(taches).forEach(([t, a]) => {
+      const n = parseFloat(a);
+      if (!Number.isFinite(n)) return;
+      (out[String(ch)] ||= {})[String(t)] = Math.max(0, Math.min(100, Math.round(n)));
+    });
+  });
+  return out;
+}
+// Arbitrages enregistrés pour un jour (texte illisible ou absent : aucun).
+export function arbitragesDuJour(texteStocke, date) {
+  return arbitragesPropres(lireJSON(texteStocke)[String(date)]);
+}
+// Nouveau texte à stocker avec les arbitrages d'un jour (jour vide : retiré).
+// garderDepuis (date ISO, facultatif) : les jours plus anciens sont oubliés.
+export function stockerArbitragesDuJour(texteStocke, date, arbitrages, { garderDepuis = null } = {}) {
+  const tout = lireJSON(texteStocke);
+  const propres = arbitragesPropres(arbitrages);
+  if (Object.keys(propres).length > 0) tout[String(date)] = propres;
+  else delete tout[String(date)];
+  if (garderDepuis) Object.keys(tout).forEach(d => { if (d < garderDepuis) delete tout[d]; });
+  return JSON.stringify(tout);
+}
+// Réunit deux jeux d'arbitrages du même jour (le second l'emporte).
+export function fusionnerArbitrages(a, b) {
+  const out = arbitragesPropres(a);
+  Object.entries(arbitragesPropres(b)).forEach(([ch, taches]) => { out[ch] = { ...(out[ch] || {}), ...taches }; });
+  return out;
+}
+// Arbitrages encore utiles : une tâche arbitrée est oubliée dès que plus aucun
+// compte rendu À VALIDER de son chantier ce jour-là ne la porte (« Appliquer
+// aux deux » a servi : tous ont été validés).
+export function arbitragesEncoreUtiles(arbitrages, rapportsDuJour) {
+  const ouverts = new Set();
+  arr(rapportsDuJour).forEach(r => {
+    if (r?.statut === "valide") return;
+    arr(r?.taches).forEach(t => { if (t?.tache_id) ouverts.add(`${r.chantier_id}|${t.tache_id}`); });
+  });
+  const out = {};
+  Object.entries(arbitragesPropres(arbitrages)).forEach(([ch, taches]) => {
+    Object.entries(taches).forEach(([t, a]) => { if (ouverts.has(`${ch}|${t}`)) (out[ch] ||= {})[t] = a; });
+  });
+  return out;
 }
 
 // ── Répartir une tâche regroupée ────────────────────────────────────────────

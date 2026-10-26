@@ -25,6 +25,22 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-26",
     type: "amelioration",
+    titre: "Validation : un compte rendu dont l'avancement ne colle pas avec les heures n'est plus validable d'un clic",
+    pages: [{ id: "validation", label: "Validation fin de journée" }, { id: "admin", label: "Réglages" }],
+    quoi: "Un nouvel écart orange, « avancement incohérent », signale les déclarations à regarder de près avant de les valider : une tâche déclarée bien plus avancée que les heures passées dessus (par exemple « Bandes chambre » déclarée terminée avec 2 h pour 10 h prévues), une tâche qui gagne au moins 25 points d'avancement alors que personne n'y a pointé d'heure ce jour-là, ou une tâche qui était terminée et revient « en cours ». Le compte rendu passe alors en « écarts » : le bouton « Valider » direct disparaît, il faut l'ouvrir.",
+    comment: "Les heures comparées sont celles de la barre de budget du détail : heures déjà pointées sur la tâche avant ce jour, plus les heures de toutes les personnes sur la tâche ce jour-là, face aux heures prévues multipliées par l'avancement déclaré (Terminée = 100 % ; tâche suivie en quantité : l'avancement calculé depuis la quantité posée). Le contrôle ne vise que les tâches d'au moins 2 h prévues, et seulement si la déclaration fait avancer la tâche. « Terminée » veut dire : à 100 % la veille d'après le journal d'avancement ; « Pas avancé aujourd'hui » sur une tâche terminée ne déclenche rien. Quand une donnée manque (heures prévues inconnues…), rien n'est signalé. Les seuils (0,5 ; 2 h ; 25 points ; tâche terminée revenue en cours oui/non) se règlent dans Admin → Taux horaires → « Validation des comptes rendus : avancement incohérent ».",
+  },
+  {
+    date: "2026-10-26",
+    type: "correctif",
+    titre: "Validation : l'avancement retenu d'une tâche faite à plusieurs n'est plus perdu si la page est rechargée",
+    pages: [{ id: "validation", label: "Validation fin de journée" }],
+    quoi: "Quand deux ouvriers déclarent différemment une même tâche, l'« avancement retenu » choisi dans l'encart (« Appliquer aux deux ») restait seulement en mémoire de la page : un rechargement avant d'avoir validé les comptes rendus le faisait disparaître. Il est maintenant gardé.",
+    comment: "La valeur est rangée dans ce navigateur, pour le jour, le chantier et la tâche : elle est relue à l'ouverture de la page et oubliée dès que tous les comptes rendus qui portent la tâche sont validés. Elle n'est pas partagée entre ordinateurs : sur un autre poste (ou en navigation privée), il faut la ressaisir.",
+  },
+  {
+    date: "2026-10-26",
+    type: "amelioration",
     titre: "Compte rendu du soir : un seul parcours, c'est l'ouvrier qui dit où en est chaque tâche",
     pages: [{ id: "admin", label: "Réglages" }, { id: "validation", label: "Validation fin de journée" }],
     quoi: "Les boutons « Journée comme prévu » et « Ça ne s'est pas passé comme prévu » disparaissent : le planning ne devine juste qu'environ une fois sur deux, et un compte rendu rempli d'office pouvait arriver faux en gris « comme prévu ». Désormais, l'ouvrier voit tout de suite, chantier par chantier, la liste de ses tâches prévues avec leur durée prévue déjà remplie, et il choisit lui-même l'état de chacune en un geste : Pas commencé, Commencé, À moitié, Presque fini, Terminé (ou la quantité posée), ou Bloqué avec son motif. Ce qui était prévu reste écrit en petit (« prévu : terminée ce soir »), comme simple repère. « Pas commencé » ne demande plus de motif ; pour une tâche déjà avancée, le bouton s'écrit « Pas avancé aujourd'hui » (l'avancement ne bouge pas). L'écran « Pourquoi pas faites aujourd'hui ? » est supprimé.",
