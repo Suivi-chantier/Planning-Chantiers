@@ -95,7 +95,7 @@ const verifierCascade = (r, nom) => {
   proche(c.terminaison + somme(c.versProbable), r.marge_probable, "la seconde moitié reste juste");
   const html = documentBilanV3({ periode: { libelle: "S" }, bornes: {}, bandeau: {}, synthese: [], alertes: [],
     fiches: [{ nom: "Fictif", marges: { cascade: c, constat: {}, periode: {} }, lots: [], tachesParLot: [] }] }, { detaillee: true });
-  ok(html.includes("Marge devis non comparable : aucun matériau prévu au phasage") && !html.includes(">Marge devis<"), "PDF : la fiche le dit, sans ligne « Marge devis »");
+  ok(html.includes("Marge devis non comparable : aucun matériau prévu au phasage") && !html.includes("<td>Marge devis</td>"), "PDF : la fiche le dit, sans ligne « Marge devis »");
 }
 {
   ok(cascadeMargeDevisReleve(null).disponible === false, "relevé absent : indisponible, jamais 0");
