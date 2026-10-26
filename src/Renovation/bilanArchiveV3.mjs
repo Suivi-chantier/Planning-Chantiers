@@ -47,6 +47,7 @@ export function ligneArchiveV3({ periode, bornes, synthese, version, documentHtm
       chantiers: listeSure(synthese).map(s => ({
         chantierId: s.chantierId, nom: s.nom, production: s.production, margePeriode: s.margePeriode,
         heuresPeriode: s.heuresPeriode, margeAvancement: s.margeAvancement, margeProbable: s.margeProbable,
+        vendu: s.vendu ?? null, margeDevis: s.margeDevis ?? null,
         avancement: s.avancement,
         heuresPrevuesSemaineSuivante: num(prevuSemaineSuivante[s.chantierId]),
         ...champsFinArchive(fins, s.chantierId),

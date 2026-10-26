@@ -644,7 +644,39 @@ export const SEUILS_MARGES_DEFAUT = Object.freeze({
   consoMargePerdueMinEuros: 50,
   // Tâches hors devis (étape 4) : rappel des tâches « à arbitrer » au-delà de N semaines
   horsDevisRappelSemaines: 3,
+  // PDF du Bilan, version direction (26/10/2026) : un dépassement d'enveloppe
+  // matériaux n'y figure qu'à partir de ce montant (en dessous : version détaillée)
+  bilanDirectionEnveloppeMinEuros: 500,
 });
+
+// ── MARGE PRÉVUE AU DEVIS (26/10/2026) ──────────────────────────────────────
+// Ce que le devis laissait espérer : vendu HT − main-d'œuvre prévue (heures
+// prévues × taux MO prévisionnel) − matériaux prévus − frais généraux des
+// heures prévues au taux en vigueur. C'est la « Marge prév. » du Phasage et
+// le point de départ de la marge à terminaison (à 0 % d'avancement, sans
+// tâche ajoutée, les deux sont égales). Une seule formule : computeChantierFinance
+// et le Bilan (qui lit les colonnes des relevés journaliers) l'appellent.
+export function margePrevueDevis({ vendu, moPrev, matPrev, heuresVendues, tauxFG }) {
+  const v = [vendu, moPrev, matPrev, heuresVendues, tauxFG].map(x => (x == null || x === "" ? NaN : Number(x)));
+  if (v.some(x => !Number.isFinite(x))) return null;
+  const [vd, mo, mat, hv, fg] = v;
+  return vd - mo - mat - fg * hv;
+}
+
+// Marge prévue au devis d'un relevé journalier (colonnes vendu_ht, mo_prev,
+// mat_prev, heures_vendues), frais généraux au taux en vigueur à la date du
+// relevé (comme le relevé lui-même). null si une colonne manque : jamais 0.
+export function margePrevueDevisReleve(releve, baremeFG = null) {
+  if (!releve) return null;
+  return margePrevueDevis({ vendu: releve.vendu_ht, moPrev: releve.mo_prev, matPrev: releve.mat_prev,
+    heuresVendues: releve.heures_vendues, tauxFG: tauxFGALaDate(normaliserBaremeFG(baremeFG), releve.date_releve) });
+}
+
+// Repère du devis : € de vente par heure prévue (vendu HT ÷ heures prévues).
+export function eurParHeureDevis(vendu, heuresVendues) {
+  const v = Number(vendu), h = Number(heuresVendues);
+  return vendu != null && heuresVendues != null && Number.isFinite(v) && Number.isFinite(h) && h > 0 ? v / h : null;
+}
 export function normaliserSeuilsMarges(valeur) {
   const v = valeur && typeof valeur === "object" ? valeur : {};
   const out = {};
@@ -918,8 +950,8 @@ export const METHODE_CALCUL = [
   { cle: "matPrev", label: "Commandes prév.",
     formule: "Somme des coûts matériaux estimés des ouvrages (matériaux liés de la bibliothèque)",
     source: "Bibliothèque de matériaux (cout_materiaux des ouvrages)" },
-  { cle: "margePrev", label: "Marge prév.",
-    formule: "Vendu HT − déboursé prévisionnel (MO prévisionnelle + commandes prévisionnelles) − frais généraux prévisionnels (taux de frais généraux en vigueur aujourd'hui × heures prévues)",
+  { cle: "margePrev", label: "Marge prévue au devis",
+    formule: "Ce que le devis laissait espérer : vendu HT − déboursé prévisionnel (heures prévues × taux de main-d'œuvre prévisionnel + matériaux prévus des ouvrages) − frais généraux prévisionnels (heures prévues × taux de frais généraux en vigueur à la date du calcul). C'est le point de départ de la marge à terminaison : à 0 % d'avancement, sans tâche ajoutée en cours de chantier, les deux sont égales. Affichée « Marge prév. » dans le Phasage et « Marge devis » dans le Bilan, avec son pourcentage du vendu (« — » si le vendu est nul)",
     source: "Ouvrages du phasage, taux Admin, bibliothèque de matériaux, taux de frais généraux (Admin)" },
   { cle: "moReel", label: "Coût MO",
     formule: "Heures pointées × taux horaire de chaque ouvrier (taux figé au pointage) + heures libres + trajets et heures indirectes + reprise d'antériorité",
@@ -985,6 +1017,9 @@ export const METHODE_CALCUL = [
   { cle: "budgetRestant", label: "Budget restant",
     formule: "Vendu HT − coûts engagés à date (main-d'œuvre, matériaux et autres commandes, frais généraux). Ce n'est PAS une marge : c'est ce qu'il reste du prix de vente pour finir le chantier. Il baisse mécaniquement à chaque dépense, même sur un chantier qui gagne de l'argent (ancienne « marge nette »)",
     source: "Ouvrages du phasage, registre de pointage, lignes de commande, taux de frais généraux (Admin)" },
+  { cle: "eurParHeureDevis", label: "€ produits par heure et repère du devis",
+    formule: "€ produits par heure = production de la période ÷ heures pointées de la période. Repère du devis = vendu HT ÷ heures prévues du chantier : ce qu'une heure rapporte si le chantier se déroule comme le devis",
+    source: "Relevés journaliers (production cumulée, heures, vendu HT, heures prévues)" },
   { cle: "heuresSansLot", label: "Heures sans lot",
     formule: "Heures libres (sans tâche du phasage) + heures indirectes hors trajets (nettoyage, SAV, approvisionnement…) + heures des ouvrages rattachés à aucun lot, rapportées aux heures pointées hors trajets et hors reprise d'antériorité",
     source: "Registre de pointage" },
@@ -1070,7 +1105,8 @@ export function computeChantierFinance({
   // appliqué aux heures VENDUES (pas encore pointées).
   const fgPrevChantier = tauxFGActuel * heuresVenduesChantier;
   const deboursePrevChantier = moPrevChantier + commandesPrevChantier;
-  const margePrevChantier = prixHTChantier - deboursePrevChantier - fgPrevChantier;
+  const margePrevChantier = margePrevueDevis({ vendu: prixHTChantier, moPrev: moPrevChantier, matPrev: commandesPrevChantier,
+    heuresVendues: heuresVenduesChantier, tauxFG: tauxFGActuel });
   const margePrevPctChantier = prixHTChantier > 0 ? (margePrevChantier / prixHTChantier) * 100 : 0;
   const avancementGlobal = avancementChantier(ouvrages);
   const trajet = statsTrajet(pointages);

@@ -139,13 +139,13 @@ export function matiereComptesRendusV3({ rapports, chantierId, debut, fin }) {
 
 /** Annexe « Méthode de calcul » du Bilan (mêmes formules que le module finance). */
 export function methodeBilanV3() {
-  const garder = ["venduHT", "heuresVendues", "heuresReelles", "margeAvancement", "margeATerminaison", "margeProbable", "budgetRestant", "materiauxEnAvance", "deriveLotHeuresEuros", "heuresSansLot"];
+  const garder = ["venduHT", "heuresVendues", "heuresReelles", "margePrev", "margeAvancement", "margeATerminaison", "margeProbable", "eurParHeureDevis", "budgetRestant", "materiauxEnAvance", "deriveLotHeuresEuros", "heuresSansLot"];
   const finance = METHODE_CALCUL.filter(m => garder.includes(m.cle)).map(m => ({ titre: m.label, texte: m.formule }));
   return [
     { titre: "Période et comparaison", texte: "Le Bilan compare deux relevés journaliers : celui du dernier jour travaillé avant la période et celui du dernier jour travaillé de la période (jour travaillé = au moins une heure pointée dans l'entreprise). Une donnée inconnue à ces dates reste « pas encore disponible », jamais 0." },
     { titre: "Production de la période", texte: "Production cumulée (Σ prix HT des ouvrages × avancement exact, sans arrondi) au relevé de fin − production cumulée au relevé de départ." },
     { titre: "Marge de la période", texte: "Marge à l'avancement au relevé de fin − marge à l'avancement au relevé de départ : les périodes s'additionnent exactement à la marge cumulée." },
-    { titre: "€ produits par heure", texte: "Production de la période ÷ heures validées de la période." },
+    { titre: "Écart à la marge devis", texte: "Marge probable − marge prévue au devis : ce que le chantier perd (ou gagne) par rapport à ce que le devis laissait espérer. Le bandeau compare les totaux sur les chantiers où les deux marges sont connues ; les pourcentages sont rapportés au vendu HT (« — » si le vendu est nul)." },
     { titre: "Pastilles", texte: "Rouge : marge probable négative ou en baisse au-delà du seuil d'alerte. Orange : marge de la période négative ou autre alerte. Vert : aucune de ces situations. Gris : relevé pas encore disponible." },
     ...finance,
   ];

@@ -20,6 +20,8 @@ import * as C from "../src/Renovation/bilanClotureV3.mjs";
 import * as A from "../src/Renovation/bilanArchiveV3.mjs";
 import { etatMateriauxOuvrageV1 } from "../src/Renovation/commandesOuvrageV1.mjs";
 import { readFileSync as lireFichier } from "node:fs";
+import { computeChantierFinance, margePrevueDevisReleve } from "../src/chantierFinance.mjs";
+import { MOTIF_LOT_EN_DERIVE, MOTIF_HEURES_SANS_LOT, MOTIF_DEPASSEMENT_ENVELOPPE, MOTIF_MARGE_PROBABLE_EN_BAISSE } from "../src/Renovation/pointsAttentionV1.mjs";
 import { createRequire } from "node:module";
 const require_ = createRequire(import.meta.url);
 
@@ -349,6 +351,91 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(parId.d.glissementJours === 0 && /inchangée/.test(parId.d.texteGlissement), "même date : inchangée (0 jour connu)");
   const html = documentBilanV3({ periode: P43, bornes: {}, bandeau: {}, synthese: [], alertes: [], finsPrevues: avec });
   ok(/Fin prévisionnelle/.test(html) && html.includes("+3 j"), "fin prévisionnelle et glissement dans le PDF");
+}
+
+// ── PDF direction retravaillé (choix de Loris du 26/10/2026) ────────────────
+// Exemple issu des tests, données fictives.
+{
+  // Marge prévue au devis = marge à terminaison à 0 % d'avancement (sans tâche ajoutée).
+  const FG = [{ depuis: "2026-01-01", taux: 10 }];
+  const ouv = (id, lot, prix, heures, mat) => ({ id, libelle: id, lot_id: lot, prix_ht: prix, heures_devis: heures, cout_materiaux: mat,
+    taches: [{ id: `t-${id}`, nom: id, avancement: 0, heures_estimees: heures, heures_vendues: heures }] });
+  const f = computeChantierFinance({ phasage: { ouvrages: [ouv("o1", "l1", 10000, 100, 2000), ouv("o2", "l2", 6000, 40, 500)], plan_travaux: { meta: {} } },
+    lots: [{ id: "l1", label: "L1" }, { id: "l2", label: "L2" }], tauxMOPrev: 20, tauxFG: FG, aujourdhui: "2026-10-24" });
+  // 16 000 − 140 h × 20 − 2 500 − 140 h × 10 = 9 300
+  ok(Math.abs(f.brut.margePrevChantier - 9300) < 0.01, `marge devis : ${f.brut.margePrevChantier}`);
+  ok(Math.abs(f.brut.margePrevChantier - f.brut.margeATerminaison) < 0.01, "marge devis = marge à terminaison à 0 % d'avancement");
+  const releve = { vendu_ht: f.brut.prixHTChantier, mo_prev: f.brut.moPrevChantier, mat_prev: f.brut.commandesPrevChantier,
+    heures_vendues: f.brut.heuresVenduesChantier, date_releve: "2026-10-24" };
+  ok(Math.abs(margePrevueDevisReleve(releve, FG) - f.brut.margePrevChantier) < 0.01, "même fonction depuis les colonnes du relevé");
+  eq(margePrevueDevisReleve({ ...releve, mo_prev: null }, FG), null, "colonne manquante : marge devis inconnue, jamais 0");
+}
+{
+  // % avec un vendu nul : « — », jamais 0 %.
+  eq(B.pctSurV3(500, 0), null, "pourcentage sur un vendu nul : inconnu");
+  eq(B.pctSurV3(500, null), null, "pourcentage sur un vendu inconnu : inconnu");
+  eq(B.pctSurV3(2500, 10000), 25, "pourcentage du vendu");
+  const releves = B.indexerRelevesV3([rel("z", "2026-10-15", { vendu_ht: 0, mo_prev: 0, mat_prev: 0, heures_vendues: 0 }),
+    rel("z", "2026-10-22", { vendu_ht: 0, mo_prev: 0, mat_prev: 0, heures_vendues: 0 })]);
+  const syn = B.syntheseChantiersV3({ releves, chantiers: [{ id: "z", nom: "Z" }], bornes: BORNES, periode: P });
+  ok(syn[0].margeDevisPct === null && syn[0].margeProbablePct === null && syn[0].eurParHeureDevis === null, "vendu nul : pourcentages et repère inconnus");
+  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: B.bandeauV3({ synthese: syn }), synthese: syn, alertes: [] });
+  ok(!/>0\s%</.test(html) && html.includes("—"), "vendu nul : « — » dans le PDF, jamais 0 %");
+  const r2 = B.indexerRelevesV3([rel("a", "2026-10-15", { mo_prev: 2000, mat_prev: 1000, heures_vendues: 100 }),
+    rel("a", "2026-10-22", { mo_prev: 2000, mat_prev: 1000, heures_vendues: 100, marge_probable: 1500 })]);
+  const s2 = B.syntheseChantiersV3({ releves: r2, chantiers: [{ id: "a", nom: "A" }], bornes: BORNES, periode: P, baremeFG: [{ depuis: "2026-01-01", taux: 10 }] });
+  // 10 000 − 2 000 − 1 000 − 100 h × 10 = 6 000 ; probable 1 500 → écart −4 500.
+  ok(s2[0].margeDevis === 6000 && s2[0].margeDevisPct === 60 && s2[0].ecartDevis === -4500 && s2[0].eurParHeureDevis === 100, "marge devis, % du vendu, écart, repère du devis");
+  // Chantier sans matériaux prévus : marge devis signalée, sans écart, hors total du bandeau.
+  const r3 = B.indexerRelevesV3([rel("v", "2026-10-15", { mo_prev: 2000, mat_prev: 0, heures_vendues: 100 }),
+    rel("v", "2026-10-22", { mo_prev: 2000, mat_prev: 0, heures_vendues: 100 })]);
+  const s3 = B.syntheseChantiersV3({ releves: r3, chantiers: [{ id: "v", nom: "V" }], bornes: BORNES, periode: P });
+  ok(s3[0].margeDevisSansMateriaux === true && s3[0].ecartDevis === null, "sans matériaux prévus : signalé, écart inconnu");
+  const band = B.bandeauV3({ synthese: [...s2, ...s3] });
+  ok(band.nbChantiersComparables === 1 && band.nbChantiersHorsComparaison === 1 && band.margeDevisTotale === 6000, "bandeau : chantier sans matériaux prévus hors total");
+  ok(documentBilanV3({ periode: P, bornes: BORNES, bandeau: band, synthese: s3, alertes: [] }).includes("sans matériaux prévus"), "PDF : « sans matériaux prévus »");
+}
+{
+  // Alertes : lot terminé en dérive absent de la direction, présent en détaillée ;
+  // au plus 3 points par chantier, triés par montant.
+  const a = (motif, impactMarge, extra = {}) => ({ motif, texte: `texte ${motif}`, probleme: `pb ${motif} ${impactMarge}`, impactMarge, heures: 5, ...extra });
+  const lignes = [{ chantier_id: "c", nom: "C", alertes: [
+    a(MOTIF_LOT_EN_DERIVE, -100, { avancementLot: 40 }),
+    a(MOTIF_LOT_EN_DERIVE, -900, { avancementLot: 100 }),
+    a(MOTIF_MARGE_PROBABLE_EN_BAISSE, -3000),
+    a(MOTIF_HEURES_SANS_LOT, null),
+    a(MOTIF_DEPASSEMENT_ENVELOPPE, -200, { euros: 200 }),
+    a(MOTIF_DEPASSEMENT_ENVELOPPE, -800, { euros: 800 }),
+    a(MOTIF_LOT_EN_DERIVE, -400, { avancementLot: 60 }),
+  ] }];
+  const dir = B.alertesBilanV3(lignes, { version: "direction" });
+  eq(dir[0].items.map(i => i.impactMarge), [-3000, -800, -400], "direction : 3 points au plus, triés par montant");
+  ok(dir[0].nbMasques === 1, "direction : le 4e point est compté, pas affiché");
+  ok(!dir[0].items.some(i => i.motif === MOTIF_HEURES_SANS_LOT), "direction : heures sans lot en version détaillée");
+  const det = B.alertesBilanV3(lignes, { version: "detaillee" });
+  ok(det[0].items.length === 7 && det[0].items.some(i => i.impactMarge === -900), "détaillée : toutes les alertes, lot terminé compris");
+  const htmlDir = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: lignes }, { detaillee: false });
+  const htmlDet = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: lignes }, { detaillee: true });
+  ok(!htmlDir.includes("pb lot_en_derive -900") && htmlDet.includes("pb lot_en_derive -900"), "lot terminé en dérive : absent de la direction, présent en détaillée");
+  ok(!htmlDir.includes("pb depassement_enveloppe -200"), "petit dépassement d'enveloppe : version détaillée seulement");
+  ok((htmlDet.match(/la dérive des lots est masquée/g) || []).length <= 1 && !htmlDir.includes("la dérive des lots est masquée"), "phrase des heures sans lot : une fois au plus");
+  const w = B.alertesBilanV3([{ chantier_id: "d", nom: "D", alertes: [a(MOTIF_LOT_EN_DERIVE, -50, { avancementLot: 100 })] }], { version: "direction" });
+  eq(w, [], "chantier dont tous les points sont des constats : absent de la direction");
+}
+{
+  // Allègements : journées incomplètes et chantiers sans activité résumés en direction.
+  const av = { nbNonValides: 0, nbJoursIncomplets: 3, lignes: [
+    { nom: "A", nonValides: [], joursIncomplets: [{ date: "2026-10-20" }, { date: "2026-10-21" }] },
+    { nom: "B", nonValides: [], joursIncomplets: [{ date: "2026-10-20" }] }],
+    textes: ["3 journées incomplètes (A : lun. 20/10, mar. 21/10 ; B : lun. 20/10)"] };
+  ok(/^3 journées incomplètes sur 2 chantiers/.test(B.resumeJourneesIncompletesV3(av)), "journées incomplètes : une ligne courte");
+  eq(B.resumeSansActiviteV3([{ actif: false }, { actif: false }, { actif: true }]), "2 chantiers en cours sans activité sur la période", "sans activité : leur nombre");
+  const d = { periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], avertissements: av,
+    ligneSansActivite: "Chantiers en cours sans activité : X, Y", resumeSansActivite: "2 chantiers en cours sans activité sur la période" };
+  const dir = documentBilanV3(d, { detaillee: false });
+  const det = documentBilanV3(d, { detaillee: true });
+  ok(dir.includes("2 chantiers en cours sans activité") && !dir.includes("X, Y") && det.includes("X, Y"), "liste des chantiers sans activité : version détaillée seulement");
+  ok(!dir.includes("mar. 21/10") && det.includes("mar. 21/10"), "détail des journées incomplètes : version détaillée seulement");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

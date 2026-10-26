@@ -386,6 +386,35 @@ chaque étape.
 
 - **25/10/2026 — CR-5 : choix techniques.** (1) Écarts et couleurs calculés par un module pur (`validationJourneeV1.mjs`) ; rouge = bloquée, tâche créée, heures sans tâche du phasage ; orange = dépassement, prévue non faite, désaccord avec un collègue, tâche déjà terminée, journée hors norme, ouvrier non planifié, total différent de l'attendu. (2) « Valider » direct = la validation de la fenêtre sans retouche, réservé aux comptes rendus comme prévu dont chaque ligne est rattachée à une tâche du phasage suivie en pourcentage. (3) Comptes rendus non envoyés : la fonction des relevés journaliers (`comptesRendusAttendus`), pour que « non envoyé » ici = « journée incomplète » au Bilan. (4) Avancement retenu d'une tâche faite à plusieurs : gardé par la page tant qu'elle est ouverte, appliqué aux comptes rendus validés ensuite (aucune nouvelle table). (5) Coût d'un dépassement : heures en trop × (coût moyen d'une heure de main-d'œuvre sur la tâche, à défaut le taux de l'ouvrier, + frais généraux du jour). (6) Compteur des tâches regroupées : module du suivi qualité (CR-1) sur les comptes rendus validés du mois. (7) Trois mises en ligne : journée (#177), détail (#178), répartition (#179).
 
+- **26/10/2026 — Retouche du PDF du Bilan (réponses de Loris après lecture du PDF W43).**
+  (1) Tableau des chantiers de la version direction : « Devis → probable » —
+  avancement, vendu HT, marge devis (€ et % du vendu), marge probable (€ et %),
+  écart marge probable − marge devis, évolution de la marge probable sur la
+  période, € produits par heure avec le repère du devis (vendu HT ÷ heures
+  prévues). Les marges à l'avancement, à terminaison et de la période par
+  chantier passent dans la version détaillée (« Détail des marges »).
+  (2) Alertes en tableau (chantier, problème, heures, effet sur la marge), au
+  plus 3 points par chantier triés par montant ; lot déjà terminé en dérive,
+  heures sans lot et dépassements d'enveloppe sous 500 € (nouveau réglage
+  Admin) : version détaillée seulement. Les règles d'alerte ne changent pas
+  (page Alertes, assistant IA inchangés). (3) Bandeau : production, marge de
+  la période en € et en % de la production, marge probable totale face à la
+  marge devis totale (€ et % du vendu, évolution sur la période), heures
+  validées avec € produits par heure face au repère du devis ; comptes rendus
+  non validés seulement s'il y en a. (4) Journées incomplètes et chantiers sans
+  activité résumés en une ligne (détail en version détaillée). Tendances par
+  lot et semaine qui vient : inchangées. Choix techniques : la « marge devis »
+  est la « Marge prév. » qui existait déjà dans le Phasage (même fonction,
+  `margePrevueDevis` de chantierFinance), relue dans le Bilan depuis les
+  colonnes des relevés journaliers (vendu, MO prévue, matériaux prévus,
+  heures prévues) + frais généraux au taux de la date du relevé ; pas de
+  migration. La référence financière figée du Point 5 n'a pas été reprise :
+  c'est une série mensuelle pour le diagramme, pas une marge de devis par
+  chantier. Un chantier dont les ouvrages n'ont aucun matériau prévu (21
+  relevés sur 45 au 22/10, dont les trois TOM & CAMILLE) voit sa marge devis
+  affichée avec « sans matériaux prévus », sans écart, et hors du total du
+  bandeau (elle serait trop belle).
+
 ### Comptes rendus des étapes
 
 _(Ajouter ici, pour chaque étape terminée, le compte rendu en langage métier.)_
@@ -1410,6 +1439,43 @@ Renommer un ouvrage ou une tâche · Pièces du chantier · Nouveau parcours du
 compte rendu · Dictée et IA · Validation : la journée d'un coup d'œil · le
 détail en grand et « Valider et passer au suivant » · répartir une tâche
 « fourre-tout ».
+
+#### Retouche du PDF du Bilan (26/10/2026)
+À la lecture du PDF de la semaine 43, Loris a demandé de retravailler ce qui
+est mis en avant, surtout les marges. La version direction montre maintenant,
+pour chaque chantier, la marge prévue au devis face à la marge probable (en
+euros et en pourcentage du vendu), l'écart entre les deux, l'évolution de la
+semaine et l'euro produit par heure à côté de celui du devis. Les autres
+marges sont dans la version détaillée. Les alertes sont un tableau court (au
+plus 3 points par chantier, du plus coûteux au moins coûteux) ; les constats
+qui reviennent chaque semaine sont renvoyés à la version détaillée. Les
+journées incomplètes et les chantiers sans activité tiennent chacun en une
+ligne. La page Bilan affiche le même tableau (case « Détail des marges » pour
+voir les autres colonnes). Aucune migration.
+
+Bandeau de la semaine 43 sur les vraies données (base du 26/10/2026,
+comparaison du ven. 16/10 au jeu. 22/10) : production 9 152 € ; marge de la
+semaine −327 € (−4 % de la production) ; marge probable des 8 chantiers
+comparables 72 706 €, soit 28 % du vendu, contre 107 534 € (42 %) au devis,
+en baisse de 9 367 € sur la semaine (tous chantiers) ; 232,8 h validées,
+39 €/h produits contre 120 €/h au devis. Trois chantiers sont hors du total :
+les trois TOM & CAMILLE, dont les ouvrages n'ont aucun matériau prévu.
+
+Quelques lignes du nouveau tableau (vraies données) :
+
+| Chantier | Avancement | Vendu HT | Marge devis | Marge probable | Écart / devis | Semaine |
+|---|---|---|---|---|---|---|
+| FOURMOND 102 | 41 % | 29 793 € | 11 075 € (37 %) | −15 € (0 %) | −11 090 € | −3 681 € |
+| FOURMOND 101 | 46 % | 33 900 € | 12 923 € (38 %) | 3 207 € (9 %) | −9 716 € | −3 482 € |
+| KATHLEEN T2 | 41 % | 20 815 € | 10 381 € (50 %) | 9 232 € (44 %) | −1 149 € | −43 € |
+| MONTILLERS APPT 1 (T3) | 6 % | 32 156 € | 14 789 € (46 %) | 14 489 € (45 %) | −300 € | +506 € |
+
+Points d'attention : l'écart au devis des FOURMOND (−9 000 à −11 000 €) vient
+des lots en dérive (murs, cloisons, doublages surtout) et des heures déjà
+passées ; le coût moyen réel d'une heure pointée sur la période (19,94 €/h)
+est au niveau du taux de main-d'œuvre prévisionnel réglé dans Admin (20 €/h).
+Si ce taux n'est pas le coût chargé, toutes les marges devis et à terminaison
+sont trop belles : à vérifier dans Admin (Réglages → Taux horaires).
 
 ---
 

@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-26",
+    type: "amelioration",
+    titre: "Bilan : le PDF direction met en avant la marge du devis face à la marge probable",
+    pages: [{ id: "bilan-semaine", label: "Bilan semaine" }],
+    quoi: "Le PDF du Bilan pour la direction est plus court et plus lisible. Pour chaque chantier, il montre ce que le devis laissait espérer (marge devis) et où le chantier va finir au rythme actuel (marge probable), en euros et en pourcentage du vendu, l'écart entre les deux et l'évolution de la semaine. L'euro produit par heure est affiché à côté de celui du devis. Le bandeau donne les mêmes repères pour l'ensemble des chantiers.",
+    comment: "Les alertes sont un tableau court : au plus 3 points par chantier, du plus coûteux au moins coûteux, avec les heures et l'effet sur la marge. Les constats qui reviennent chaque semaine (lot déjà terminé, heures sans lot, petits dépassements de matériaux) sont dans la version détaillée, avec les marges à l'avancement et à terminaison. Les journées incomplètes et les chantiers sans activité tiennent en une ligne. Un chantier dont les ouvrages n'ont aucun matériau prévu affiche « sans matériaux prévus » sous sa marge devis et sort du total. Le seuil des dépassements de matériaux montrés à la direction (500 € par défaut) se règle dans Admin → Taux horaires → « Marge probable et alertes ».",
+  },
+  {
     date: "2026-10-25",
     type: "nouveaute",
     titre: "Validation : répartir une tâche « fourre-tout » sur les vraies tâches du phasage",
