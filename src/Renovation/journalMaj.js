@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-26",
     type: "amelioration",
+    titre: "Qualité des comptes rendus : trois nouveaux indicateurs — états conformes au prévu, avancements incohérents, planning lié au phasage",
+    pages: [{ id: "qualite-cr", label: "Qualité des comptes rendus" }],
+    quoi: "La page suit maintenant aussi la fiabilité du planning et la cohérence des avancements, ouvrier par ouvrier et au total, avec la flèche de comparaison à la période précédente. 1) « États déclarés identiques au prévu » : sur les tâches prévues, la part où l'ouvrier déclare le soir l'état que le planning annonçait (terminée ou en cours). C'est le planning qui est mesuré, pas l'ouvrier. Ce n'est mesurable que depuis le nouveau parcours du compte rendu (26 octobre 2026) : avant, la page affiche « — ». 2) « Écarts avancement incohérent » : le nombre de tâches qui reçoivent l'écart orange de la validation (avancement en avance sur les heures, avancement qui gagne beaucoup sans heure, tâche terminée qui revient en cours), avec la liste des écarts. 3) « Lignes du planning liées au phasage » : le même pourcentage que le compteur du planning, sur les semaines de la période.",
+    comment: "Rien à régler : les trois lignes s'ajoutent au tableau (survoler le nom d'un indicateur donne son explication, survoler une case donne le détail). Sous le tableau : « États déclarés face au prévu » (par exemple combien de tâches prévues terminées ont été déclarées en cours, pas commencées ou bloquées), « Écarts avancement incohérent de la période » (date, ouvrier, chantier, cas et texte de l'écart, exactement celui de la validation) et « Planning lié au phasage, semaine par semaine ». Les écarts sont recalculés avec le même contrôle et les mêmes seuils que la validation (Admin → Taux horaires) ; pour les jours passés, les heures prévues sont celles du phasage d'aujourd'hui. Par ouvrier, le taux du planning porte sur les lignes où il est prévu : c'est la qualité du planning qu'il a reçu.",
+  },
+  {
+    date: "2026-10-26",
+    type: "amelioration",
     titre: "Classement en masse : les anciennes tâches hors devis et les lignes de commande sans lot se traitent par lots, avec une proposition expliquée",
     pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "commandes", label: "Commandes" }],
     quoi: "Il reste environ 430 tâches hors devis anciennes à classer (surtout TOM & CAMILLE, BRIOLLAY, METOIS) et environ 670 lignes de commande rattachées à un chantier sans lot (près de 20 000 €). Les traiter une par une était trop long. Deux listes les présentent maintenant d'un coup, chacune avec une proposition, la raison de cette proposition et un niveau de confiance (élevée, moyenne, faible, ou aucune proposition). Rien n'est changé tant qu'on n'a pas coché des lignes, cliqué « Appliquer la sélection » et confirmé le récapitulatif (par exemple « 12 tâches : 3 A, 9 C — Appliquer »).",
