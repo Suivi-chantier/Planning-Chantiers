@@ -503,6 +503,19 @@ chaque étape.
   (heures normales) et reprises. Les 104 ouvrages existants ne sont pas
   réécrits : signalés dans le phasage avec le bouton de correction. Une
   correction en masse serait une réécriture de données (accord + sauvegarde).
+- **29/10/2026 — Mise en ligne de la base d'heures unique (réponses de Loris
+  à l'avant/après réel).** (1) OUI à la mise en ligne et au recalcul des
+  relevés journaliers passés (depuis mai), après sauvegarde datée — Loris a
+  validé les 6 chantiers qui varient de plus de 500 € (effet voulu : les % à
+  106-129 % gonflaient le reste à faire, ceux à 77-80 % le réduisaient) ;
+  (2) les 89 ouvrages (31 chantiers) hors 100 % ne sont PAS corrigés en masse :
+  Loris corrige lui-même les modèles de la bibliothèque en cause (MU-001,
+  MU-002, E-002, MU-021, PL-002…) puis « Appliquer à tous les chantiers » ;
+  (3) OUI pour aligner l'écran ouvrier : `ouvrier_mes_phases` calcule
+  l'avancement d'ouvrage comme le bureau (base = heures de l'ouvrage, % ramenés
+  à 100) sans jamais envoyer au téléphone les % ni des montants ; mêmes
+  conditions que l'accord CR-3 (aucun nouvel appelant, corps comparé à la
+  production, un ouvrier ne voit que ce qu'il voyait).
 
 ### Comptes rendus des étapes
 
