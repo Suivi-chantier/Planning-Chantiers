@@ -334,7 +334,19 @@ begin
       case when (o.value->>'quantite') ~ '^-?[0-9]+([.,][0-9]+)?$'
            then replace(o.value->>'quantite', ',', '.')::numeric else null end as quantite,
       case when (o.value->>'heures_devis') ~ '^-?[0-9]+([.,][0-9]+)?$'
-           then replace(o.value->>'heures_devis', ',', '.')::numeric else 0 end as heures_devis
+           then replace(o.value->>'heures_devis', ',', '.')::numeric else 0 end as heures_devis,
+      -- 29/10/2026 : somme des % des tâches d'origine devis (hors hors devis,
+      -- reprises et tâches ajoutées en cours de chantier), pour répartir les
+      -- heures de l'ouvrage comme le bureau (chantierFinance.baseHeuresOuvrage).
+      -- Sert au calcul ci-dessous ; les % ne sortent jamais de la fonction.
+      (select coalesce(sum(x.r), 0)
+         from jsonb_array_elements(case when jsonb_typeof(o.value->'taches') = 'array'
+                                        then o.value->'taches' else '[]'::jsonb end) tt(v)
+         cross join lateral (select case when (tt.v->>'ratio') ~ '^[0-9]+([.,][0-9]+)?$' then replace(tt.v->>'ratio', ',', '.')::numeric else 0 end as r) x
+        where x.r > 0
+          and not coalesce(tt.v->'hors_devis' = 'true'::jsonb, false)
+                and coalesce(tt.v->>'nature', '') <> 'reprise'
+                and not coalesce(tt.v->'ajoutee_en_cours' = 'true'::jsonb, false)) as somme_ratios_base
     from jsonb_array_elements(v_ouvrages) with ordinality o(value, ordinality)
   ),
   tache as (
@@ -463,8 +475,20 @@ begin
                               then (t.data->>'avancement')::numeric else 0 end)),
         -- Poids de l'avancement d'un ouvrage (avancementOuvrage) : une durée,
         -- pas un montant.
-        'heures_estimees', case when (t.data->>'heures_estimees') ~ '^-?[0-9]+([.,][0-9]+)?$'
-                                then replace(t.data->>'heures_estimees', ',', '.')::numeric else null end,
+        -- 29/10/2026 : même base que le bureau (chantierFinance.heuresPrevuesTache) :
+        -- une tâche d'origine devis reçoit heures de l'ouvrage × son % ÷ la somme
+        -- des % (ramenés à 100 %) ; les autres gardent leurs heures estimées.
+        -- Seule la durée qui en résulte est renvoyée, jamais le %.
+        'heures_estimees', case
+          when ouv.heures_devis > 0 and ouv.somme_ratios_base > 0
+               and case when (t.data->>'ratio') ~ '^[0-9]+([.,][0-9]+)?$' then replace(t.data->>'ratio', ',', '.')::numeric else 0 end > 0
+               and not coalesce(t.data->'hors_devis' = 'true'::jsonb, false)
+                and coalesce(t.data->>'nature', '') <> 'reprise'
+                and not coalesce(t.data->'ajoutee_en_cours' = 'true'::jsonb, false)
+            then round(ouv.heures_devis * (case when (t.data->>'ratio') ~ '^[0-9]+([.,][0-9]+)?$' then replace(t.data->>'ratio', ',', '.')::numeric else 0 end) / ouv.somme_ratios_base, 6)
+          when (t.data->>'heures_estimees') ~ '^-?[0-9]+([.,][0-9]+)?$'
+            then replace(t.data->>'heures_estimees', ',', '.')::numeric
+          else null end,
         'ouvriers',    eq.liste,
         'est_mienne',  (v_prenom is not null and eq.liste ? v_prenom),
         'heures_vendues',  t.heures_vendues,

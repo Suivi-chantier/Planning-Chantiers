@@ -338,12 +338,15 @@ eq([g1.dateMin, g1.dateMax], ["2026-10-01", "2026-10-08"], "dates min – max de
 eq(g1.statut, "en_cours", "statut de phase");
 const ag1 = g1.ouvrages.find(o => o.id === "o1");
 // L'écran ouvrier ne reçoit pas les % des tâches (donnée financière, jamais
-// servie) : avancementOuvrage pondère alors par les heures estimées reçues.
-// Depuis le 29/10/2026, le bureau pondère par la part des heures de l'ouvrage
-// selon les % : les deux coïncident quand les heures estimées suivent les %
-// (cas des répartitions enregistrées à 100 %), pas sur cette fixture.
-const sansRatio = (o) => ({ ...o, taches: o.taches.map(({ ratio, ...t }) => t) });
-eq(ag1.avancement, avancementOuvrage(sansRatio(OUVRAGES[0])), "avancement d'ouvrage complet = avancementOuvrage sur ce que reçoit l'ouvrier");
+// servie). Depuis le 29/10/2026, la RPC lui envoie, pour chaque tâche
+// d'origine devis, la part des heures de l'ouvrage selon les % ramenés à
+// 100 % (heures_estimees) : il retrouve l'avancement du BUREAU, calculé ici
+// sur le phasage complet, % compris. Sur cette fixture, les heures estimées
+// (14 / 16 / 6) ne suivent pas les % (égaux) : sans ce calcul, l'écran
+// donnerait 61 % au lieu de 50 %.
+eq(ag1.avancement, avancementOuvrage(OUVRAGES[0]), "avancement d'ouvrage complet = celui du bureau (avancementOuvrage, % compris)");
+eq(ag1.avancement, 50, "les heures estimées qui ne suivent pas les % ne pèsent plus (14/16/6 donnerait 61 %)");
+proche(+taches.t1.heures_estimees, 40 * 1.2 / 3.6, "t1 : part de l'ouvrage (40 h × 1,2 ÷ 3,6)");
 const g2 = r.phases[1];
 eq(g2.ouvrages.find(o => o.id === "o4").vendues, 10, "ouvrage vendu en bloc : heures au niveau de l'ouvrage");
 eq(g2.vendues, 32, "phase 2 : 12 + 10 (part de o2) + 10 (o4)");
