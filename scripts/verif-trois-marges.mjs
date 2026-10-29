@@ -205,7 +205,9 @@ const HIST = { cloisons: { coef: 1.2, nbChantiers: 3 }, peinture: { coef: 1.5, n
 // ── 6. Avancement exact et production ───────────────────────────────────────
 {
   const ouvrages = [ouvrage("a", "cloisons", { prix: 3000, av: 33.3 }), ouvrage("b", "cloisons", { prix: 1000, av: 100 })];
-  proche(avancementLotExact(ouvrages, LOTS, "cloisons"), (33.3 * 3000 + 100 * 1000) / 4000, "avancement exact du lot, pondéré par le prix, sans arrondi");
+  // Depuis le 29/10/2026 : pondéré par les heures prévues des ouvrages (100 h
+  // chacun ici), plus par le prix — l'avancement d'un lot sert aux heures.
+  proche(avancementLotExact(ouvrages, LOTS, "cloisons"), (33.3 * 100 + 100 * 100) / 200, "avancement exact du lot, pondéré par les heures prévues, sans arrondi");
   proche(productionCumulee(ouvrages), 999 + 1000, "production cumulée sans arrondi");
 }
 
