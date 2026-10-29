@@ -207,6 +207,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const [schemaDevisManquant, setSchemaDevisManquant] = useState(false);
   // Zone dans laquelle le prochain « Ajouter » place l'ouvrage (libre, suggestions)
   const [zoneAjout, setZoneAjout]     = useState(ZONE_DEFAUT);
+  // Zone d'une ligne en cours de frappe : { id, valeur }. Les lignes sont
+  // groupées par zone : appliquer chaque lettre déplacerait la ligne (et son
+  // champ) dans un nouveau groupe et ferait perdre la saisie. On applique donc
+  // à la sortie du champ ou sur Entrée.
+  const [zoneSaisie, setZoneSaisie]   = useState(null);
   // Actualisation d'une ligne depuis la bibliothèque : { ligne, ouvrage, calcul, diffs, patch }
   const [actualisation, setActualisation] = useState(null);
   // Résultat du retour de la Bibliothèque (« Modifier matériaux ») :
@@ -662,6 +667,12 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
       setAutoSaveStatus(error ? "error" : "saved");
       libererSaisieLigne("ouvrages", id, "zone", n);
     });
+  }
+  function validerZoneSaisie() {
+    if (!zoneSaisie) return;
+    const sel = ouvrages.find(o => o.id === zoneSaisie.id);
+    if (sel && zoneSaisie.valeur !== (sel.zone ?? ZONE_DEFAUT)) updZone(zoneSaisie.id, zoneSaisie.valeur);
+    setZoneSaisie(null);
   }
   // TVA spécifique d'une ligne ("" = suit la TVA du projet)
   async function updTvaLigne(id, valeur) {
@@ -1458,7 +1469,10 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     const pill = (c) => ({ display:"inline-flex", alignItems:"center", gap:4, fontSize:FONT.xs.size+1, fontWeight:800, color:c, background:c+"1a", border:`1px solid ${c}40`, borderRadius:RADIUS.sm, padding:"4px 8px", whiteSpace:"nowrap" });
     return (
       <div className="ouvrage-edit-row" style={{ display:"flex", gap:6, marginTop:6, flexWrap:"wrap", alignItems:"center" }}>
-        <input list="pic-zones" placeholder="Zone" value={sel.zone ?? ZONE_DEFAUT} onChange={e=>updZone(sel.id,e.target.value)}
+        <input list="pic-zones" placeholder="Zone" value={zoneSaisie?.id === sel.id ? zoneSaisie.valeur : (sel.zone ?? ZONE_DEFAUT)}
+          onChange={e=>setZoneSaisie({ id: sel.id, valeur: e.target.value })}
+          onBlur={validerZoneSaisie}
+          onKeyDown={e=>{ if (e.key === "Enter") e.currentTarget.blur(); }}
           disabled={dansMulti}
           className="zone-input" title={dansMulti ? "Ouvrage regroupé dans un multi-ouvrage : le retirer du multi-ouvrage pour changer sa zone" : "Zone de cette occurrence (libre, suggestions proposées)"}
           style={{...inp,width:150,padding:"5px 8px",fontSize:FONT.xs.size+1,opacity:dansMulti?.55:1,cursor:dansMulti?"not-allowed":"text"}}/>
