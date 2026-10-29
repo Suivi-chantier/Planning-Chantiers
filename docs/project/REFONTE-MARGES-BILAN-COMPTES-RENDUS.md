@@ -2005,6 +2005,68 @@ FOURMOND) signifie que les heures estimées des tâches restantes dépassent la
 part non faite des heures prévues des ouvrages : des tâches ont été ajoutées
 ou réévaluées dans le phasage. À regarder dans le phasage de ces chantiers.
 
+#### Base d'heures unique (29/10/2026)
+
+Constat de Loris sur FOURMOND 102 (Électricité : 36,49 h « attendues ») : les
+heures attendues partaient des heures de l'ouvrage, les heures restantes des
+heures des tâches, qui ne concordaient pas (tâches à 55,9 h pour un ouvrage
+de 49 h, % à 106 %). Décisions de Loris : voir le Journal des décisions
+(29/10/2026, deux entrées).
+
+**Ce qui a changé (en ligne, #195 et #196).**
+- Une seule base : les heures prévues de l'ouvrage (bibliothèque, ou saisies à
+  la main dans le phasage — jamais écrasées par un report de la
+  bibliothèque). Chaque tâche d'origine devis en reçoit sa part selon son %,
+  ramené à 100 % dans le calcul. L'avancement d'un lot est pondéré par les
+  heures prévues. La production reste prix × avancement, ouvrage par ouvrage.
+- Une tâche de nature « Reprise » ne fait plus avancer l'ouvrage ; son temps
+  reste dans les coûts et la dérive.
+- Phasage : les % des tâches d'un ouvrage doivent faire 100 % pour
+  enregistrer (« Ajuster la dernière tâche », « Répartir l'écart ») ; la
+  provenance des heures prévues est affichée.
+- Écran ouvrier : `ouvrier_mes_phases` (migration `20261029120000`, accord de
+  Loris) renvoie pour chaque tâche d'origine devis sa part des heures de
+  l'ouvrage, calculée comme au bureau : l'avancement d'ouvrage affiché aux
+  ouvriers est celui du bureau. Vérifié sur la base : corps en base identique
+  au fichier, mêmes droits (authenticated, service_role), et sur le contenu
+  reçu par un vrai compte ouvrier (FOURMOND 102) seule la valeur de
+  `heures_estimees` change (37 tâches), aucun champ nouveau, aucun % ni
+  montant.
+
+**Avant → après sur les vrais chantiers** (mesuré le 29/10 avant la mise en
+ligne ; production et marge à l'avancement : moins de 50 € d'écart).
+
+| Chantier | Marge à terminaison | Marge probable |
+|---|---|---|
+| FOURMOND 102 | 4 440 → 5 188 € (+748) | −298 → 1 216 € (+1 514) |
+| FOURMOND 101 | 5 243 → 5 994 € (+751) | 1 517 → 3 194 € (+1 676) |
+| FOURMOND 001 | 8 608 → 9 390 € (+782) | 5 092 → 5 936 € (+844) |
+| BRIOLLAY APPT 1 | 20 587 → 21 459 € (+872) | 20 512 → 21 459 € (+947) |
+| TOURBOUTON 101 | +541 € | +541 € |
+| KATHLEEN T2 | −173 € | −440 € |
+| LOUISON APPT 3 | −434 € | −434 € |
+| FOUGERAY COMMUN | 6 434 → 4 974 € (−1 460) | −1 460 € |
+
+Six chantiers varient de plus de 500 € : validé par Loris (effet voulu).
+
+**Relevés journaliers.** Sauvegarde
+`chantier_releves_journaliers_sauvegarde_20261029` (3 697 lignes, lecture
+serveur seulement + « réservé aux collaborateurs »), puis recalcul de tous
+les relevés avec le nouveau calcul : 3 911 relevés pour 45 chantiers (les
+3 697 existants, tous recalculés, plus les jours manquants jusqu'au 29/10 ;
+aucun relevé perdu). Dérives historiques recalculées. Vérifié : FOURMOND 102
+au 29/10 = marge à terminaison 5 188 €, marge probable 1 216 €, comme
+l'avant/après.
+
+**Restent à Loris.** Corriger dans la Bibliothèque les modèles dont les % ne
+font pas 100 (MU-001, MU-002, E-002, MU-021, PL-002…) puis « Appliquer à tous
+les chantiers » : 89 ouvrages sur 31 chantiers sont concernés (aucune
+correction en masse). Vérifier les cadences nettement sous le devis
+(installation électrique T2 : 49 h contre 62 h, sur 5 chantiers ; T3 : 60 h
+contre 79,5 h ; doublage MU-001 sur 13 chantiers). Passer en nature
+« Reprise » les tâches qui corrigent une erreur (par exemple « Réparation
+mauvais emplacement de trou », FOURMOND 102).
+
 
 ---
 
