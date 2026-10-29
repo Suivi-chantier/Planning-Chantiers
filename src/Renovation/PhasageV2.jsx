@@ -94,8 +94,13 @@ import { KpiCard, KpiDetailModal, cfgFromDonnee, InfoBulle } from "./chantierFin
 import { chargerAchatsTermines, marquerAchatsTermines, annulerAchatsTermines } from "./achatsLotsTermines";
 import { demanderRecalculReleve } from "./relevesJournaliersApi";
 import HorsDevisPhasage from "./HorsDevisPhasage";
-import { tauxFGALaDate as tauxFGALaDateCF } from "../chantierFinance";
+import { tauxFGALaDate as tauxFGALaDateCF, baseHeuresOuvrage, heuresPrevuesTache } from "../chantierFinance";
 import { syntheseHorsDevisChantierV2 } from "./horsDevisV2";
+// Répartition en % des tâches d'origine devis : toujours 100 % (29/10/2026).
+import {
+  etatRepartition, lignesRepartition, verifierRepartition, ajusterDerniere, repartirEcart,
+  appliquerRepartition, retirerTacheRepartition, tacheDansRepartition,
+} from "./repartitionPourcentagesV1";
 // Trois marges (étape 2) : seuils Admin + dérives historiques, communs à toutes les pages.
 import { useReglagesMarges } from "./reglagesMarges";
 import { LIBELLES_PROVENANCE_COEF } from "../chantierFinance";
@@ -433,6 +438,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Pièces du chantier (CR-2) : panneau, filtre / regroupement de la colonne
   // Tâches, sélection multiple pour rattacher, duplication par pièce.
   const [piecesOuvert, setPiecesOuvert] = useState(false);
+  // Répartition en % ouverte : id de l'ouvrage (null = fermée).
+  const [repartitionOuvrageId, setRepartitionOuvrageId] = useState(null);
   const [pieceFiltre, setPieceFiltre] = useState("");
   const [grouperPieces, setGrouperPieces] = useState(false);
   const [selectionTaches, setSelectionTaches] = useState(null); // Set d'ids ou null
@@ -1088,8 +1095,9 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
 
   // Met à jour les heures PRÉVUES de l'ouvrage (champ heures_devis) ET les
   // redistribue sur ses tâches (selon leur ratio, à défaut leurs heures
-  // estimées, à défaut à parts égales). Saisie manuelle : marquée comme telle,
-  // et remplacée au prochain report de la bibliothèque (cadence × quantité).
+  // estimées, à défaut à parts égales). Saisie manuelle : marquée comme telle
+  // (heures_prevues_source "manuel") ; elle fait foi partout et n'est JAMAIS
+  // écrasée par un report de la bibliothèque (décision du 29/10/2026).
   // Les heures du devis Excel restent dans heures_devis_origine.
   const setOuvrageHeuresDevis = (id, value) => {
     updateOuvrages(ouvrages.map(o => {
@@ -1376,10 +1384,19 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
     updateTache(o.id, t.id, av == null ? patch : { ...patch, avancement: av });
   };
 
+  // Supprimer une tâche qui portait un % de la répartition rééquilibre les
+  // autres pour retomber à 100 % (retirerTacheRepartition).
   const deleteTache = (ouvrageId, tacheId) => {
-    updateOuvrages(ouvrages.map(o => o.id === ouvrageId
-      ? { ...o, taches: (o.taches || []).filter(t => t.id !== tacheId) }
-      : o));
+    updateOuvrages(ouvrages.map(o => o.id === ouvrageId ? retirerTacheRepartition(o, tacheId) : o));
+  };
+  // Enregistre une répartition en % (refusée si le total n'est pas 100 %).
+  const enregistrerRepartition = (ouvrageId, lignes) => {
+    const o = ouvrages.find(x => x.id === ouvrageId);
+    if (!o) return false;
+    const r = appliquerRepartition(o, lignes);
+    if (!r.ok) { alert(r.raison); return false; }
+    updateOuvrages(ouvrages.map(x => (x.id === ouvrageId ? r.ouvrage : x)));
+    return true;
   };
 
   // ─── VUE CHRONOLOGIQUE ────────────────────────────────────────────────────
@@ -3397,11 +3414,20 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                   </span>
                                 )}
                                 {hv > 0 && mentionHeuresPrevues(o) && (
-                                  <span title="Heures prévues = cadence × quantité de la bibliothèque ; les heures du devis sont indiquées pour information."
+                                  <span title="Provenance des heures prévues : cadence × quantité de la bibliothèque, saisie à la main dans le phasage (jamais écrasée par la bibliothèque), ou devis faute de cadence. Les heures du devis sont indiquées pour information."
                                     style={{ fontStyle: "italic" }}>
                                     {" "}({mentionHeuresPrevues(o)})
                                   </span>
                                 )}
+                                {(() => {
+                                  const er = etatRepartition(o);
+                                  return er.applicable && !er.ok ? (
+                                    <span title="Les % des tâches de cet ouvrage ne font pas 100 % : ouvrir l'ouvrage et cliquer sur le bouton % pour corriger"
+                                      style={{ color: "#e15a5a", fontWeight: 800 }}>
+                                      {" "}· % {String(er.total).replace(".", ",")} ≠ 100
+                                    </span>
+                                  ) : null;
+                                })()}
                                 {o.quantite ? `${showH ? " · " : ""}${o.quantite} ${o.unite || ""}` : ""}
                                 {o.prix_ht ? `${(showH||o.quantite) ? " · " : ""}${o.prix_ht.toLocaleString("fr-FR")} €` : ""}
                               </div>
@@ -3474,6 +3500,18 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                   <button onClick={() => createTache(selectedOuvrage.id)} style={addBtn}>
                     <Icon as={Plus} size={11}/> Tâche
                   </button>
+                  {(() => {
+                    const er = etatRepartition(selectedOuvrage);
+                    if (!er.applicable) return null;
+                    return (
+                      <button onClick={() => setRepartitionOuvrageId(selectedOuvrage.id)}
+                        title={er.ok ? "Répartition des heures prévues de l'ouvrage entre ses tâches : 100 %"
+                          : `Les % des tâches font ${String(er.total).replace(".", ",")} % au lieu de 100 % : cliquer pour corriger`}
+                        style={{ ...addBtn, ...(er.ok ? {} : { color: "#e15a5a", borderColor: "#e15a5a", fontWeight: 800 }) }}>
+                        {er.ok ? "% : 100" : `% : ${String(er.total).replace(".", ",")} ≠ 100`}
+                      </button>
+                    );
+                  })()}
                   <button onClick={() => setPiecesOuvert(true)} style={addBtn} title="Pièces du chantier">
                     Pièces{pieces.length ? ` · ${pieces.length}` : ""}
                   </button>
@@ -3586,7 +3624,7 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
                                   )}
                                 </div>
                               )}
-                              <InfoBulle contenu={avancementTacheDetail(t)} T={T} style={{ marginLeft: "auto" }}>
+                              <InfoBulle contenu={avancementTacheDetail(t, selectedOuvrage)} T={T} style={{ marginLeft: "auto" }}>
                                 <span style={{ fontSize: FONT.xs.size, color: av >= 100 ? "#22c55e" : T.textMuted, fontWeight: 800, cursor: "help" }}>
                                   {av}%
                                 </span>
@@ -4380,6 +4418,15 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
             onClose={() => setDuplication(null)} T={T} accent={acc.accent}/>
         );
       })()}
+      {repartitionOuvrageId && (() => {
+        const o = ouvrages.find(x => x.id === repartitionOuvrageId);
+        if (!o) return null;
+        return (
+          <RepartitionPourcentages ouvrage={o} nomOuvrage={libelleOuvrage(o) || "ouvrage"}
+            onEnregistrer={(lignes) => enregistrerRepartition(o.id, lignes)}
+            onClose={() => setRepartitionOuvrageId(null)} T={T} accent={acc.accent}/>
+        );
+      })()}
       {selectionTaches && (
         <BarreSelectionPieces nb={selectionTaches.size} pieces={pieces}
           onRattacher={rattacherSelection} onAnnuler={() => setSelectionTaches(null)} T={T} accent={acc.accent}/>
@@ -4534,11 +4581,34 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               );
             })()}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              <ModalField label="Heures estimées">
-                <InputNombre min="0" valeur={t.heures_estimees ?? ""}
-                  onValeur={n => updateTache(o.id, t.id, { heures_estimees: n })}
-                  placeholder="0" style={modalInp(T)}/>
-              </ModalField>
+              {(() => {
+                // Tâche d'origine devis : ses heures prévues sont une part des
+                // heures de l'ouvrage (son %) — elles ne se saisissent pas ici.
+                const base = baseHeuresOuvrage(o);
+                const parPart = base.active && tacheDansRepartition(t) && (parseFloat(t.ratio) || 0) > 0;
+                if (!parPart) {
+                  return (
+                    <ModalField label="Heures estimées">
+                      <InputNombre min="0" valeur={t.heures_estimees ?? ""}
+                        onValeur={n => updateTache(o.id, t.id, { heures_estimees: n })}
+                        placeholder="0" style={modalInp(T)}/>
+                    </ModalField>
+                  );
+                }
+                const h = heuresPrevuesTache(t, o, base);
+                return (
+                  <ModalField label="Heures prévues">
+                    <div title="Part des heures prévues de l'ouvrage, selon le % de la tâche (les % sont ramenés à 100 %)"
+                      style={{ ...modalInp(T), opacity: 0.8, cursor: "default" }}>
+                      {fmtH(h)} h · {String(Math.round((parseFloat(t.ratio) || 0) * 100) / 100).replace(".", ",")} %
+                    </div>
+                    <button type="button" onClick={() => setRepartitionOuvrageId(o.id)}
+                      style={{ marginTop: 4, background: "transparent", border: "none", padding: 0, color: acc.accent, fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      Modifier la répartition en %
+                    </button>
+                  </ModalField>
+                );
+              })()}
               <ModalField label="Heures réelles">
                 <InputNombre min="0" valeur={tacheHeuresReelles(t) || ""}
                   readOnly={tachePointages(t).length > 0}
@@ -6992,6 +7062,64 @@ function KpiCibleEtPrime({ T, margeCible, margePct, prime, seuilPrime, prixHT })
           seuilPrime > 0 ? (primeAcquise ? "✓ acquise" : `seuil ${seuilPrime}%`) : null,
           primeAcquise,
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Répartition en % des tâches d'un ouvrage (29/10/2026) ────────────────────
+// Les % des tâches d'origine devis se partagent les heures prévues de
+// l'ouvrage : ils doivent faire exactement 100 %. « Enregistrer » ne s'active
+// qu'à 100 % ; deux corrections d'un clic. Les tâches hors devis, ajoutées en
+// cours de chantier et de reprise sont hors de ce total (non listées).
+function RepartitionPourcentages({ ouvrage, nomOuvrage, onEnregistrer, onClose, T, accent }) {
+  const [lignes, setLignes] = useState(() => lignesRepartition(ouvrage));
+  const v = verifierRepartition(lignes);
+  const H = parseFloat(ouvrage?.heures_devis) || 0;
+  const fmtP = (n) => String(Math.round(n * 100) / 100).replace(".", ",");
+  const btn = { padding: "7px 12px", borderRadius: RADIUS.md, border: `1px solid ${T.border}`, background: "transparent",
+    color: T.text, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer" };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 710,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.modal || T.surface, borderRadius: RADIUS.xl,
+        border: `1px solid ${T.border}`, width: "100%", maxWidth: 560, boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+        display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
+        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: FONT.md.size, fontWeight: 800, color: T.text }}>Répartition en % — {nomOuvrage}</div>
+          <div style={{ fontSize: FONT.xs.size, color: T.textMuted, marginTop: 3 }}>
+            Les heures prévues de l'ouvrage{H > 0 ? ` (${fmtP(H)} h)` : ""} se partagent entre ses tâches selon ces %. Le total doit faire exactement 100 %.
+            Les tâches hors devis, ajoutées en cours de chantier ou de reprise n'en font pas partie.
+          </div>
+        </div>
+        <div style={{ padding: "14px 20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          {lignes.map((l, i) => (
+            <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: FONT.sm.size, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={l.nom}>{l.nom}</div>
+              <InputNombre min="0" max="100" valeur={l.ratio ?? ""}
+                onValeur={n => setLignes(ls => ls.map((x, k) => (k === i ? { ...x, ratio: n > 0 ? n : null } : x)))}
+                placeholder="—" style={{ ...modalInp(T), width: 90, textAlign: "right" }}/>
+              <span style={{ fontSize: FONT.xs.size, color: T.textMuted, width: 70, textAlign: "right" }}>
+                {H > 0 && l.ratio ? `${fmtP(H * l.ratio / 100)} h` : ""}
+              </span>
+            </div>
+          ))}
+          <div style={{ marginTop: 6, fontSize: FONT.sm.size, fontWeight: 800, color: v.ok ? "#22c55e" : "#e15a5a" }}>
+            Total : {fmtP(v.total)} %{v.ok ? "" : v.ecart > 0 ? ` — il manque ${fmtP(v.ecart)} %` : ` — ${fmtP(-v.ecart)} % de trop`}
+          </div>
+        </div>
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" style={btn} disabled={v.ok} onClick={() => setLignes(ajusterDerniere)}
+            title="La dernière tâche qui a un % absorbe l'écart">Ajuster la dernière tâche</button>
+          <button type="button" style={btn} disabled={v.ok} onClick={() => setLignes(repartirEcart)}
+            title="L'écart est réparti entre toutes les tâches au prorata de leur %">Répartir l'écart</button>
+          <button type="button" style={btn} onClick={onClose}>Annuler</button>
+          <button type="button" disabled={!v.ok} onClick={() => { if (onEnregistrer(lignes)) onClose(); }}
+            title={v.ok ? "" : "Le total doit faire exactement 100 %"}
+            style={{ ...btn, border: "none", background: v.ok ? accent : T.border, color: "#000", fontWeight: 800, cursor: v.ok ? "pointer" : "not-allowed", opacity: v.ok ? 1 : 0.6 }}>
+            Enregistrer
+          </button>
+        </div>
       </div>
     </div>
   );

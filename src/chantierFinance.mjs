@@ -240,43 +240,97 @@ export const heuresReellesOuvrage = (o, ppt) =>
 export const coutMOOuvrage = (o, ppt, tauxHoraires) =>
   (o?.taches || []).reduce((s, t) => s + coutMOTache(t, ppt, tauxHoraires), 0);
 
+// ── Heures prévues des tâches : UNE base, l'ouvrage (décision du 29/10/2026) ──
+// Les heures prévues de l'ouvrage (heures_devis : cadence de la bibliothèque ×
+// quantité, à défaut le devis) font foi. Une tâche d'origine devis (ratio > 0)
+// en reçoit sa part : heures de l'ouvrage × ratio ÷ Σ ratios des tâches
+// d'origine devis — les ratios sont ramenés à 100 % (106 % ou 77,5 % ne
+// gonflent ni ne réduisent plus l'ouvrage). Le champ heures_estimees de ces
+// tâches n'entre plus dans les calculs ; aucune donnée n'est réécrite.
+// Gardent leurs heures_estimees, EN PLUS de la base de l'ouvrage :
+//   - la tâche « ajoutée en cours de chantier » (cas B) : ses heures NORMALES
+//     sont son poids (étape 4), les heures vendues de l'ouvrage ne changent pas ;
+//   - une tâche sans ratio (ajoutée au phasage, ancien chantier) ;
+//   - une tâche hors devis (cas C), qui reste hors de l'avancement.
+// Sans heures prévues sur l'ouvrage, ou sans aucune tâche à ratio : on garde
+// les heures_estimees des tâches (le calcul d'avant, inchangé).
+// La tâche de REPRISE (refaire ou corriger un travail déjà fait : nature
+// « Reprise » choisie dans le phasage ou à la validation, t.nature ===
+// "reprise", NATURES_TACHE) ne fait pas avancer l'ouvrage : hors de
+// l'avancement ; ses heures réelles restent dans les coûts et dans la dérive.
+// Seule la nature EXPLICITE compte : rien n'est deviné d'après le nom.
+export const tacheReprise = (t) => t?.nature === "reprise";
+export const tacheAjouteeEnCours = (t) => t?.ajoutee_en_cours === true;
+const ratioTache = (t) => { const r = parseFloat(t?.ratio); return Number.isFinite(r) && r > 0 ? r : 0; };
+const tacheDeBase = (t) => !tacheHorsDevis(t) && !tacheReprise(t) && !tacheAjouteeEnCours(t) && ratioTache(t) > 0;
+export function baseHeuresOuvrage(ouvrage) {
+  const heures = heuresVenduesOuvrage(ouvrage);
+  const sommeRatios = (ouvrage?.taches || []).filter(tacheDeBase).reduce((s, t) => s + ratioTache(t), 0);
+  return { heures, sommeRatios, active: heures > 0 && sommeRatios > 0 };
+}
+// Heures prévues d'une tâche (voir ci-dessus). `base` : baseHeuresOuvrage(o),
+// à passer quand on parcourt toutes les tâches d'un ouvrage.
+export function heuresPrevuesTache(t, ouvrage, base = baseHeuresOuvrage(ouvrage)) {
+  if (base.active && tacheDeBase(t)) return base.heures * ratioTache(t) / base.sommeRatios;
+  return parseFloat(t?.heures_estimees) || 0;
+}
+// Heures restantes prévues d'une tâche : heures prévues × part non faite.
+// Une tâche à 100 % ne compte plus. Une reprise non terminée garde ses heures
+// estimées restantes (le temps sera passé, sans faire avancer l'ouvrage).
+export function heuresRestantesTache(t, ouvrage, base = baseHeuresOuvrage(ouvrage)) {
+  const a = Math.max(0, Math.min(100, parseFloat(t?.avancement) || 0));
+  if (a >= 100) return 0;
+  const h = tacheReprise(t) ? (parseFloat(t?.heures_estimees) || 0) : heuresPrevuesTache(t, ouvrage, base);
+  return h * (100 - a) / 100;
+}
+export const heuresRestantesOuvrage = (o) => {
+  const base = baseHeuresOuvrage(o);
+  return (o?.taches || []).reduce((s, t) => s + heuresRestantesTache(t, o, base), 0);
+};
+// Tâches qui portent l'avancement d'un ouvrage, avec leur poids (heures
+// prévues) : les comparables (hors devis exclues sauf si toutes le sont),
+// sans les reprises (sauf si l'ouvrage n'a que des reprises).
+function tachesPondereesOuvrage(ouvrage) {
+  const comp = tachesAvancement(ouvrage?.taches);
+  const sansReprise = comp.filter(t => !tacheReprise(t));
+  const taches = sansReprise.length > 0 ? sansReprise : comp;
+  const base = baseHeuresOuvrage(ouvrage);
+  return taches.map(t => ({ t, poids: heuresPrevuesTache(t, ouvrage, base) }));
+}
+
 // Avancement d'un ouvrage : moyenne des avancements de ses tâches, pondérée
-// par heures_estimees (moyenne simple si aucune heure estimée), ARRONDIE.
-// L'arrondi intermédiaire est volontaire : il se propage aux lots/chantier
-// exactement comme dans PhasageV2.
+// par leurs heures prévues (heuresPrevuesTache ; moyenne simple si aucune),
+// ARRONDIE. L'arrondi intermédiaire est volontaire : il se propage aux
+// lots/chantier exactement comme dans PhasageV2.
 export function avancementOuvrage(ouvrage) {
-  const taches = tachesAvancement(ouvrage?.taches);
-  if (taches.length === 0) return 0;
-  const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  if (totalHE > 0) {
-    return Math.round(
-      taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0) * (parseFloat(t.heures_estimees) || 0), 0) / totalHE
-    );
+  const tp = tachesPondereesOuvrage(ouvrage);
+  if (tp.length === 0) return 0;
+  const total = tp.reduce((s, x) => s + x.poids, 0);
+  if (total > 0) {
+    return Math.round(tp.reduce((s, x) => s + (parseFloat(x.t.avancement) || 0) * x.poids, 0) / total);
   }
-  return Math.round(taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length);
+  return Math.round(tp.reduce((s, x) => s + (parseFloat(x.t.avancement) || 0), 0) / tp.length);
 }
 
 // Avancement EXACT d'un ouvrage (0-100, NON arrondi) : même pondération que
-// avancementOuvrage (heures estimées, sinon moyenne simple ; tâches hors devis
-// exclues sauf si toutes le sont), sans l'arrondi d'affichage. Sert à la
+// avancementOuvrage (heures prévues des tâches, sinon moyenne simple ; tâches
+// hors devis et reprises exclues), sans l'arrondi d'affichage. Sert à la
 // production en euros : un ouvrage à 0,4 % produit 0,4 % de son prix.
 // `etat` (optionnel) : Map tache_id → avancement à une date (etatTachesALaDate) ;
 // une tâche absente de la carte garde son avancement actuel. Une valeur
 // inconnue (null) rend l'avancement de l'ouvrage inconnu (null), jamais 0.
 export function avancementOuvrageExact(ouvrage, etat = null) {
-  const taches = tachesAvancement(ouvrage?.taches);
-  if (taches.length === 0) return 0;
+  const tp = tachesPondereesOuvrage(ouvrage);
+  if (tp.length === 0) return 0;
   const val = (t) => {
     if (etat && etat.has(String(t.id))) return etat.get(String(t.id));
     return Math.max(0, Math.min(100, parseFloat(t.avancement) || 0));
   };
-  const vals = taches.map(val);
+  const vals = tp.map(x => val(x.t));
   if (vals.some(v => v == null)) return null;
-  const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  if (totalHE > 0) {
-    return taches.reduce((s, t, i) => s + vals[i] * (parseFloat(t.heures_estimees) || 0), 0) / totalHE;
-  }
-  return vals.reduce((s, v) => s + v, 0) / taches.length;
+  const total = tp.reduce((s, x) => s + x.poids, 0);
+  if (total > 0) return tp.reduce((s, x, i) => s + vals[i] * x.poids, 0) / total;
+  return vals.reduce((s, v) => s + v, 0) / tp.length;
 }
 
 // ── Journal d'avancement daté (étape 1C) ────────────────────────────────────
@@ -366,7 +420,7 @@ export function productionPeriode({ ouvrages = [], journal = [], du = null, au =
 // Synthèse d'un groupe d'exécution : tâches rattachées via chrono_groupe_id.
 // Avancement pondéré par heures_vendues — MÊME convention que groupStats de la
 // vue chrono (PhasageV2) ; elle diffère volontairement d'avancementOuvrage
-// (pondéré heures_estimees) : ne pas « harmoniser ».
+// (pondéré heures prévues des tâches) : ne pas « harmoniser ».
 // `termine` = toutes les tâches du groupe à 100 % (définition du cycle de vie).
 export function statsGroupeChrono(groupeId, ouvrages) {
   const toutes = (ouvrages || [])
@@ -404,18 +458,28 @@ export function ouvragesDuLot(ouvrages, lots, lotId) {
     : list.filter(o => o.lot_id === lotId);
 }
 
+// Poids d'un ouvrage dans l'avancement de son LOT (décision du 29/10/2026) :
+// ses heures prévues — l'avancement d'un lot sert aux heures (heures
+// attendues, dérive, coefficient de la marge probable). Repli sur le prix HT
+// si aucun ouvrage du lot n'a d'heures prévues, puis moyenne simple.
+// (L'avancement du CHANTIER reste pondéré par le prix : c'est la part du
+// vendu réalisée, production ÷ vendu.)
+function poidsOuvragesLot(lotOuvrages) {
+  const h = lotOuvrages.map(o => heuresVenduesOuvrage(o));
+  if (h.reduce((s, x) => s + x, 0) > 0) return { poids: h, base: "heures" };
+  const p = lotOuvrages.map(o => prixHTOuvrage(o));
+  if (p.reduce((s, x) => s + x, 0) > 0) return { poids: p, base: "prix" };
+  return { poids: lotOuvrages.map(() => 1), base: "moyenne" };
+}
+
 // Avancement d'un lot : moyenne des avancements (déjà arrondis) de ses
-// ouvrages, pondérée par prix_ht (moyenne simple si aucun prix), arrondie.
+// ouvrages, pondérée par leurs heures prévues (poidsOuvragesLot), arrondie.
 export function avancementLot(ouvrages, lots, lotId) {
   const lotOuvrages = ouvragesDuLot(ouvrages, lots, lotId);
   if (lotOuvrages.length === 0) return 0;
-  const totalPrix = lotOuvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
-  if (totalPrix > 0) {
-    return Math.round(
-      lotOuvrages.reduce((s, o) => s + avancementOuvrage(o) * (parseFloat(o.prix_ht) || 0), 0) / totalPrix
-    );
-  }
-  return Math.round(lotOuvrages.reduce((s, o) => s + avancementOuvrage(o), 0) / lotOuvrages.length);
+  const { poids } = poidsOuvragesLot(lotOuvrages);
+  const total = poids.reduce((s, x) => s + x, 0);
+  return Math.round(lotOuvrages.reduce((s, o, i) => s + avancementOuvrage(o) * poids[i], 0) / total);
 }
 
 // Avancement global du chantier : tous ouvrages confondus, pondéré prix_ht.
@@ -435,26 +499,41 @@ export function avancementChantier(ouvrages) {
 const fmt1 = (n) => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, "");
 
 export function avancementOuvrageDetail(ouvrage) {
-  const taches = tachesAvancement(ouvrage?.taches);
-  if (taches.length === 0) return "Aucune tâche";
-  const totalHE = taches.reduce((s, t) => s + (parseFloat(t.heures_estimees) || 0), 0);
-  if (totalHE > 0) {
-    const lines = taches.map((t, i) => {
+  const tp = tachesPondereesOuvrage(ouvrage);
+  if (tp.length === 0) return "Aucune tâche";
+  const reprises = (ouvrage?.taches || []).filter(tacheReprise).length;
+  const noteReprises = reprises > 0 && tp.every(x => !tacheReprise(x.t))
+    ? `\n(${reprises} tâche${reprises > 1 ? "s" : ""} de reprise : temps perdu, hors de l'avancement)` : "";
+  const total = tp.reduce((s, x) => s + x.poids, 0);
+  if (total > 0) {
+    const base = baseHeuresOuvrage(ouvrage);
+    const lines = tp.map(({ t, poids }, i) => {
       const av = parseFloat(t.avancement) || 0;
-      const h  = parseFloat(t.heures_estimees) || 0;
-      const faites = (av / 100) * h;
-      return `  ${i + 1}. "${t.nom || "(sans nom)"}" : ${av}% × ${fmt1(h)}h = ${fmt1(faites)}h`;
+      return `  ${i + 1}. "${t.nom || "(sans nom)"}" : ${av}% × ${fmt1(poids)}h = ${fmt1((av / 100) * poids)}h`;
     });
-    const heuresFaites = taches.reduce((s, t) => s + ((parseFloat(t.avancement) || 0) / 100) * (parseFloat(t.heures_estimees) || 0), 0);
-    return `Calcul pondéré par heures estimées :\n${lines.join("\n")}\n\nHeures faites = ${fmt1(heuresFaites)}h\nTotal heures = ${fmt1(totalHE)}h\n→ ${fmt1(heuresFaites)} / ${fmt1(totalHE)} = ${(heuresFaites / totalHE * 100).toFixed(2)} %`;
+    const heuresFaites = tp.reduce((s, x) => s + ((parseFloat(x.t.avancement) || 0) / 100) * x.poids, 0);
+    const titre = base.active
+      ? `Calcul pondéré par les heures prévues (${fmt1(base.heures)}h de l'ouvrage réparties selon les % des tâches, ramenés à 100 %)`
+      : "Calcul pondéré par heures estimées";
+    return `${titre} :\n${lines.join("\n")}\n\nHeures faites = ${fmt1(heuresFaites)}h\nTotal heures = ${fmt1(total)}h\n→ ${fmt1(heuresFaites)} / ${fmt1(total)} = ${(heuresFaites / total * 100).toFixed(2)} %${noteReprises}`;
   }
-  const moy = taches.reduce((s, t) => s + (parseFloat(t.avancement) || 0), 0) / taches.length;
-  return `Aucune heure estimée — moyenne simple :\n${taches.map((t, i) => `  ${i + 1}. "${t.nom || "(sans nom)"}" : ${parseFloat(t.avancement) || 0}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %`;
+  const moy = tp.reduce((s, x) => s + (parseFloat(x.t.avancement) || 0), 0) / tp.length;
+  return `Aucune heure prévue — moyenne simple :\n${tp.map(({ t }, i) => `  ${i + 1}. "${t.nom || "(sans nom)"}" : ${parseFloat(t.avancement) || 0}%`).join("\n")}\n\n→ Moyenne = ${moy.toFixed(2)} %${noteReprises}`;
 }
 
 export function avancementLotDetail(ouvrages, lots, lotId) {
   const lotOuvrages = ouvragesDuLot(ouvrages, lots, lotId);
   if (lotOuvrages.length === 0) return "Aucun ouvrage dans ce lot";
+  const { poids, base } = poidsOuvragesLot(lotOuvrages);
+  if (base === "heures") {
+    const totalH = poids.reduce((s, x) => s + x, 0);
+    const lines = lotOuvrages.map((o, i) => {
+      const a = avancementOuvrage(o);
+      return `  ${i + 1}. "${(o.libelle || "(sans libellé)").slice(0, 60)}" : ${a}% × ${fmt1(poids[i])}h = ${fmt1((a / 100) * poids[i])}h`;
+    });
+    const faites = lotOuvrages.reduce((s, o, i) => s + (avancementOuvrage(o) / 100) * poids[i], 0);
+    return `Calcul pondéré par les heures prévues des ouvrages :\n${lines.join("\n")}\n\nHeures faites = ${fmt1(faites)}h\nTotal heures prévues = ${fmt1(totalH)}h\n→ ${fmt1(faites)} / ${fmt1(totalH)} = ${(faites / totalH * 100).toFixed(2)} %`;
+  }
   const totalPrix = lotOuvrages.reduce((s, o) => s + (parseFloat(o.prix_ht) || 0), 0);
   if (totalPrix > 0) {
     const lines = lotOuvrages.map((o, i) => {
@@ -487,8 +566,18 @@ export function avancementChantierDetail(ouvrages) {
   return "Aucun prix HT renseigné — moyenne simple des % des ouvrages";
 }
 
-export function avancementTacheDetail(t) {
+// `ouvrage` (optionnel) : donne les heures PRÉVUES de la tâche (base de
+// l'ouvrage, heuresPrevuesTache) au lieu de son champ heures_estimees.
+export function avancementTacheDetail(t, ouvrage = null) {
   const av = parseFloat(t?.avancement) || 0;
+  if (tacheReprise(t)) return `Avancement saisi : ${av} %\nTâche de reprise : temps perdu, elle ne fait pas avancer l'ouvrage (ses heures restent dans les coûts et la dérive)`;
+  if (ouvrage) {
+    const base = baseHeuresOuvrage(ouvrage);
+    if (base.active && tacheDeBase(t)) {
+      const h = heuresPrevuesTache(t, ouvrage, base);
+      return `Avancement saisi : ${av} %\nHeures prévues : ${fmt1(h)}h (${fmt1(base.heures)}h de l'ouvrage × ${fmt1(ratioTache(t))} ÷ ${fmt1(base.sommeRatios)} %)\nHeures faites : ${av}% × ${fmt1(h)}h = ${fmt1((av / 100) * h)}h`;
+    }
+  }
   const h  = parseFloat(t?.heures_estimees);
   if (h != null && !isNaN(h)) {
     const faites = (av / 100) * h;
@@ -815,17 +904,18 @@ export function neutralisationsDerive(phasage) {
 }
 
 // Avancement EXACT d'un lot (0-100, non arrondi) : moyenne des avancements
-// exacts de ses ouvrages pondérée par leur prix (moyenne simple sans prix) —
-// même pondération que avancementLot, sans les arrondis. `etat` : état des
-// tâches à une date (etatTachesALaDate) ; null = aujourd'hui. null si inconnu.
+// exacts de ses ouvrages pondérée par leurs heures prévues (repli prix, puis
+// moyenne simple) — même pondération que avancementLot, sans les arrondis.
+// `etat` : état des tâches à une date (etatTachesALaDate) ; null =
+// aujourd'hui. null si inconnu.
 export function avancementLotExact(ouvrages, lots, lotId, etat = null) {
   const lo = ouvragesDuLot(ouvrages, lots, lotId);
   if (lo.length === 0) return 0;
   const vals = lo.map(o => avancementOuvrageExact(o, etat));
   if (vals.some(v => v == null)) return null;
-  const tp = lo.reduce((s, o) => s + prixHTOuvrage(o), 0);
-  if (tp > 0) return lo.reduce((s, o, i) => s + vals[i] * prixHTOuvrage(o), 0) / tp;
-  return vals.reduce((s, v) => s + v, 0) / lo.length;
+  const { poids } = poidsOuvragesLot(lo);
+  const total = poids.reduce((s, x) => s + x, 0);
+  return lo.reduce((s, o, i) => s + vals[i] * poids[i], 0) / total;
 }
 
 // Production cumulée à une date (ou aujourd'hui) : Σ prix × avancement exact.
@@ -1034,7 +1124,7 @@ export const METHODE_CALCUL = [
     formule: "Somme des prix HT des ouvrages − montant du devis renseigné",
     source: "Ouvrages du phasage vs montant de devis saisi" },
   { cle: "heuresVendues", label: "Heures prévues",
-    formule: "Somme des heures prévues des ouvrages : cadence × quantité de la bibliothèque, réparties entre les tâches selon les % ; à défaut de cadence, heures du devis (signalé « prévu = devis »)",
+    formule: "Somme des heures prévues des ouvrages : cadence × quantité de la bibliothèque, ou heures saisies à la main dans le phasage (jamais écrasées par la bibliothèque), à défaut de cadence heures du devis (signalé « prévu = devis »). Les heures prévues de l'ouvrage font foi : chaque tâche d'origine devis en reçoit sa part selon son %, les % étant ramenés à 100 %. Une tâche ajoutée en cours de chantier pèse ses heures normales, en plus",
     source: "Ouvrages du phasage (Phasage V2)" },
   { cle: "heuresReelles", label: "Heures totales",
     formule: "Heures pointées sur les tâches + heures libres + trajets et heures indirectes + reprise d'antériorité. Le % consommé compare aux heures prévues ces heures MOINS celles des tâches hors devis (travail non vendu), affichées à part ; le coût, lui, les compte toutes",
@@ -1058,7 +1148,7 @@ export const METHODE_CALCUL = [
     formule: "Chaque heure réelle du chantier × le taux de frais généraux en vigueur à la date de cette heure. Le taux est unique pour toute l'entreprise et daté (réglage Admin, 17,44 €/h depuis le 01/01/2026 par défaut) : un nouveau taux ne change pas les heures passées. Les heures sans date (reprise d'antériorité, heures anciennes) prennent le taux le plus ancien",
     source: "Taux de frais généraux datés (Admin) × registre de pointage" },
   { cle: "avancement", label: "Avancement",
-    formule: "Moyenne des avancements des ouvrages, pondérée par leur prix de vente (chaque ouvrage : moyenne de ses tâches pondérée par les heures estimées)",
+    formule: "Chantier : moyenne des avancements des ouvrages, pondérée par leur prix de vente (la part du vendu réalisée). Lot : moyenne des avancements de ses ouvrages pondérée par leurs heures prévues (repli : prix, puis moyenne simple) — c'est elle qui sert aux heures attendues, à la dérive et à la marge probable. Ouvrage : moyenne de ses tâches pondérée par leurs heures prévues (part des heures de l'ouvrage selon le %, ramené à 100 %). Les tâches hors devis et les reprises (nature « Reprise » : refaire ou corriger un travail) ne font pas avancer l'ouvrage ; leurs heures restent dans les coûts et la dérive",
     source: "Avancements des tâches saisis / déclarés en fin de journée" },
   { cle: "trajets", label: "Trajets",
     formule: "Heures de trajet pointées × taux horaire de l'ouvrier (déjà comptées dans le coût MO)",
@@ -1074,8 +1164,8 @@ export const METHODE_CALCUL = [
     source: "Ouvrages du lot + registre de pointage" },
   // ── Projections (étape 6) : où on va, pas seulement où on en est ──
   { cle: "resteAFaire", label: "Reste à faire", projection: true,
-    formule: "Heures : somme des heures estimées restantes des tâches non terminées (heures estimées × part non faite). Euros : vendu HT × part du chantier restant à produire",
-    source: "Tâches des ouvrages (heures estimées + avancement)" },
+    formule: "Heures : somme des heures prévues restantes des tâches non terminées (heures prévues de la tâche × part non faite ; une tâche d'origine devis reçoit sa part des heures de l'ouvrage selon son %, ramené à 100 %). Euros : vendu HT × part du chantier restant à produire",
+    source: "Tâches des ouvrages (heures prévues + avancement)" },
   { cle: "margeATerminaison", label: "Marge à terminaison", projection: true,
     formule: "Vendu HT − (coût MO réel + heures restantes × taux MO prévisionnel) − (matériaux réels + reste à commander) − frais généraux projetés (frais généraux des heures déjà faites + heures restantes × taux de frais généraux en vigueur aujourd'hui)",
     source: "Registre de pointage, tâches restantes, lignes de commande, coûts matériaux prévus des ouvrages, taux de frais généraux (Admin)" },
@@ -1246,11 +1336,6 @@ export function computeChantierFinance({
   const repris = chantierRepris(phasage);
   const historiqueLots = derivesHistoriques?.lots || derivesHistoriques || null;
   const tauxHoraireProjete = tauxMOPrevEff + tauxFGActuel;
-  const heuresRestantesTache = (t) => {
-    const a = Math.max(0, Math.min(100, parseFloat(t.avancement) || 0));
-    const he = parseFloat(t.heures_estimees) || 0;
-    return a >= 100 ? 0 : he * (100 - a) / 100;
-  };
   const lotsOut = lotsEtOrphelins.map(l => {
     const lo = ouvragesDuLot(ouvrages, lots, l.id);
     const hv = lo.reduce((s, o) => s + heuresVenduesOuvrage(o), 0);
@@ -1275,7 +1360,7 @@ export function computeChantierFinance({
     const coutHoraireMO = hTous > 0 && coutMOLot > 0 ? coutMOLot / hTous : tauxMOPrevEff;
     const ecartEuros = ecartHeures * (coutHoraireMO + tauxFGActuel);
     // Marge probable : heures restantes × coefficient (et sa provenance).
-    const heuresRestantesPrevues = lo.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => ss + heuresRestantesTache(t), 0), 0);
+    const heuresRestantesPrevues = lo.reduce((s, o) => s + heuresRestantesOuvrage(o), 0);
     const neutr = neutralisations[l.id] || null;
     const coef = coefficientMargeProbable({ lotId: l.id, avancementExact: avEx, ratioDerive: ratioDeriveExact, neutralisation: neutr,
       historique: l.id === "_orphans" ? null : historiqueLots, seuils: seuilsM });
@@ -1344,14 +1429,11 @@ export function computeChantierFinance({
     : null;
 
   // ── PROJECTIONS (étape 6) : du constat au pilotage ──
-  // Heures restantes estimées : tâches non terminées, heures_estimees × part
-  // restante. Une tâche à 100 % ne compte plus, une tâche sans heures estimées
-  // ne peut rien projeter.
-  const heuresRestantes = ouvrages.reduce((s, o) => s + (o.taches || []).reduce((ss, t) => {
-    const av = Math.max(0, Math.min(100, parseFloat(t.avancement) || 0));
-    const he = parseFloat(t.heures_estimees) || 0;
-    return ss + (av >= 100 ? 0 : he * (100 - av) / 100);
-  }, 0), 0);
+  // Heures restantes prévues : tâches non terminées, heures prévues de la
+  // tâche (base de l'ouvrage, heuresPrevuesTache) × part restante. Une tâche à
+  // 100 % ne compte plus, une tâche sans heures prévues ne peut rien projeter.
+  // Même somme que les lots (heuresRestantesOuvrage).
+  const heuresRestantes = ouvrages.reduce((s, o) => s + heuresRestantesOuvrage(o), 0);
   // Reste à faire en euros : la part du vendu restant à produire.
   const resteAFaireEuros = prixHTChantier * Math.max(0, 100 - avancementGlobal) / 100;
 

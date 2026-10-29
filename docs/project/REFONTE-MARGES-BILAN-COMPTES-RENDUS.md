@@ -481,6 +481,28 @@ chaque étape.
   déjà avancée, le bouton s'écrit « Pas avancé aujourd'hui » plutôt que « Pas
   commencé » (même effet), pour ne pas laisser croire qu'on remet la tâche à
   zéro.
+- **29/10/2026 — Une seule base d'heures : l'ouvrage (décisions de Loris).**
+  Constat sur FOURMOND 102 (Électricité : 36,49 h « attendues ») : les heures
+  attendues partaient des heures de l'ouvrage, les heures restantes des
+  heures des tâches, qui ne concordaient pas (tâches à 55,9 h pour un ouvrage
+  de 49 h, % à 106 %) ; 104 ouvrages sur 516 n'ont pas des % à 100. Décisions :
+  (1) les heures prévues de l'ouvrage font foi ; chaque tâche d'origine devis
+  en reçoit sa part selon son %, ramené à 100 % dans le calcul (aucune donnée
+  réécrite) ; l'avancement d'un LOT est pondéré par les heures prévues de ses
+  ouvrages (le chantier reste pondéré par le prix : part du vendu réalisée) ;
+  la production reste prix × avancement, ouvrage par ouvrage ; (2) la
+  bibliothèque reste la source des heures prévues, mais des heures saisies à
+  la main dans le phasage font foi partout et ne sont JAMAIS écrasées par un
+  report (heures_prevues_source « manuel ») ; la provenance s'affiche ;
+  (3) une tâche de reprise ne fait pas avancer l'ouvrage — critère retenu :
+  la nature « Reprise » déjà proposée au phasage et à la validation (aucune
+  tâche ne la porte aujourd'hui ; rien n'est deviné d'après le nom) ;
+  (4) les % des tâches d'origine devis font toujours 100 % : total affiché,
+  enregistrement refusé sinon, « ajuster la dernière tâche » / « répartir
+  l'écart », suppression qui rééquilibre ; hors du total : hors devis, cas B
+  (heures normales) et reprises. Les 104 ouvrages existants ne sont pas
+  réécrits : signalés dans le phasage avec le bouton de correction. Une
+  correction en masse serait une réécriture de données (accord + sauvegarde).
 
 ### Comptes rendus des étapes
 

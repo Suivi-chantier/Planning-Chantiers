@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-29",
     type: "correctif",
+    titre: "Phasage : les heures prévues de l'ouvrage font foi, les % des tâches font toujours 100 %",
+    pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan" }],
+    quoi: "Les heures attendues, les heures restantes et la dérive d'un lot ne partaient pas de la même base : les tâches d'un ouvrage pouvaient totaliser plus ou moins que l'ouvrage (par exemple 55,9 h de tâches pour une installation électrique prévue 49 h, ou des % qui font 106 %). Désormais une seule base : les heures prévues de l'ouvrage, partagées entre ses tâches selon leurs %. Une tâche de reprise (refaire ou corriger un travail) ne fait plus avancer l'ouvrage : son temps reste dans les coûts et la dérive.",
+    comment: "Phasage → colonne Tâches : un bouton « % » indique le total des % de l'ouvrage ; en rouge s'il ne fait pas 100 %, avec deux corrections d'un clic (« Ajuster la dernière tâche », « Répartir l'écart ») — « Enregistrer » ne s'active qu'à 100 %. Supprimer une tâche rééquilibre les autres. Les heures prévues saisies à la main sur un ouvrage ne sont plus jamais écrasées par la bibliothèque ; leur provenance s'affiche (cadence bibliothèque, saisi à la main, ou devis). Pour une reprise : « Modifier la tâche » → Nature « Reprise ». L'avancement d'un lot est maintenant pondéré par les heures prévues de ses ouvrages (celui du chantier reste la part du vendu réalisée).",
+  },
+  {
+    date: "2026-10-29",
+    type: "correctif",
     titre: "Chiffrage : le nom de la zone d'un ouvrage se tape à nouveau d'une traite",
     pages: [{ id: "info-client", label: "Chiffrage" }],
     quoi: "Dans l'onglet Ouvrages, taper le nom de la zone d'une ligne (par exemple « Cuisine ») faisait sortir du champ à chaque lettre : il fallait recliquer entre chaque lettre.",

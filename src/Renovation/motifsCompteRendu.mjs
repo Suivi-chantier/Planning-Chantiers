@@ -102,7 +102,7 @@ export const NATURES_TACHE = Object.freeze([
   { code: "demande_client", label: "Demande du client", description: "Le client a demandé un travail en plus", horsDevis: true },
   { code: "imprevu",        label: "Imprévu",           description: "Découvert en cours de travaux",          horsDevis: true },
   { code: "oubli_phasage",  label: "Oubli du phasage",  description: "Ça faisait partie du chantier mais pas de la liste", horsDevis: false },
-  { code: "reprise",        label: "Reprise",           description: "Refaire ou corriger un travail déjà fait", horsDevis: false },
+  { code: "reprise",        label: "Reprise",           description: "Refaire ou corriger un travail déjà fait (temps perdu : ne fait pas avancer l'ouvrage)", horsDevis: false },
 ]);
 export function libelleNature(code) {
   if (!code) return null;
