@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-10-29",
     type: "correctif",
+    titre: "Espace ouvrier : l'avancement d'un ouvrage est le même qu'au bureau",
+    pages: [],
+    quoi: "Sur le téléphone des ouvriers, l'avancement d'un ouvrage était pondéré par les heures estimées des tâches, qui ne suivaient pas toujours leurs %. Il pouvait donc différer de celui du Phasage. Il est maintenant calculé exactement comme au bureau.",
+    comment: "Rien à faire : chaque tâche reçoit sa part des heures prévues de l'ouvrage (ses % ramenés à 100), et les reprises ne font pas avancer l'ouvrage. Les ouvriers ne voient toujours ni pourcentages de répartition ni montants.",
+  },
+  {
+    date: "2026-10-29",
+    type: "correctif",
     titre: "Phasage : les heures prévues de l'ouvrage font foi, les % des tâches font toujours 100 %",
     pages: [{ id: "phasage-v2", label: "Phasage" }, { id: "bilan-semaine", label: "Bilan" }],
     quoi: "Les heures attendues, les heures restantes et la dérive d'un lot ne partaient pas de la même base : les tâches d'un ouvrage pouvaient totaliser plus ou moins que l'ouvrage (par exemple 55,9 h de tâches pour une installation électrique prévue 49 h, ou des % qui font 106 %). Désormais une seule base : les heures prévues de l'ouvrage, partagées entre ses tâches selon leurs %. Une tâche de reprise (refaire ou corriger un travail) ne fait plus avancer l'ouvrage : son temps reste dans les coûts et la dérive.",

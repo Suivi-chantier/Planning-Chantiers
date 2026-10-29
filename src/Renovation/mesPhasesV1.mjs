@@ -167,7 +167,10 @@ export function enrichirTache(t, ouvrage) {
 
 // Tâches transmises aux calculs d'avancement de chantierFinance : seul
 // l'indicateur EXPLICITE vaut « hors devis » (jamais celui deviné par la RPC).
-const pourAvancement = (t) => ({ avancement: t.avancement, heures_estimees: t.heures_estimees, hors_devis: t.marqueHorsDevis });
+// Depuis le 29/10/2026, heures_estimees reçu = heures prévues du bureau (part
+// de l'ouvrage selon les %, calculée par la RPC) ; la nature sert à écarter
+// les reprises, comme au bureau.
+const pourAvancement = (t) => ({ avancement: t.avancement, heures_estimees: t.heures_estimees, hors_devis: t.marqueHorsDevis, nature: t.nature });
 
 // ── Ouvrage, tel qu'il apparaît dans UNE phase ─────────────────────────────
 export function agregerOuvrage(o) {

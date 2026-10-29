@@ -179,6 +179,13 @@ avant la fusion de sa demande de fusion. Toutes additives et rejouables.
   d'origine + remarque reformulée) et `photos_fin_journee`. Purement
   additive, aucun droit modifié. Appliquée le 25/10/2026 par la CLI liée
   avant la fusion, enregistrée par `migration repair`.
+- `20261029120000_ouvrier_mes_phases_base_heures.sql` (base d'heures unique,
+  29/10/2026) : `ouvrier_mes_phases` = corps de production du 29/10 + deux
+  ajouts (somme des % des tâches d'origine devis par ouvrage ; heures prévues
+  de chaque tâche = part de l'ouvrage, comme `heuresPrevuesTache` du bureau).
+  Aucun champ nouveau, jamais de % ni de montant renvoyés, mêmes droits.
+  Accord de Loris du 29/10/2026. Appliquée par la CLI liée avant la fusion,
+  enregistrée par `migration repair`.
 
 ## Règles
 
