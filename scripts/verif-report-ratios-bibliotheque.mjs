@@ -52,7 +52,7 @@ const ouvrageChantier = () => ({
   assert.equal(r.ouvrage.heures_devis_origine, 30, "heures du devis gardées");
   assert.equal(r.ouvrage.heures_prevues_source, "bibliotheque");
   assert.equal(heuresDevisOrigine(r.ouvrage), 30);
-  assert.equal(mentionHeuresPrevues(r.ouvrage), "devis : 30 h");
+  assert.equal(mentionHeuresPrevues(r.ouvrage), "cadence bibliothèque · devis : 30 h");
   assert.deepEqual(r.ouvrage.taches.map(t => t.avancement), [100, 100, 0]);
   assert.equal(r.ouvrage.taches[0].heures_reelles, 7);
   assert.equal(r.ouvrage.prix_ht, 1000);

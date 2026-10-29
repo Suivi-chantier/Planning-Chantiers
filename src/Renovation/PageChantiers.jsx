@@ -10,7 +10,7 @@ import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from
 // ouvrages) gardent leur calcul historique, qui n'existe nulle part ailleurs.
 import {
   computeChantierFinance,
-  avancementChantier as cfAvancementChantier,
+  avancementChantier as cfAvancementChantier, avancementOuvrage as cfAvancementOuvrage,
   tacheHeuresReelles as cfTacheHeuresReelles,
   statsGroupeChrono,
   heuresReellesComparablesOuvrage as cfHeuresComparablesOuvrage,
@@ -3060,7 +3060,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     const rows = hasV2
                       ? ouvragesV2
                           .filter(o => (o.taches || []).length > 0)
-                          .map(o => ({ id: o.id, label: libelleOuvrage(o) || "(sans nom)", couleur: acc.accent, av: avPondere(o.taches || []) }))
+                          .map(o => ({ id: o.id, label: libelleOuvrage(o) || "(sans nom)", couleur: acc.accent, av: cfAvancementOuvrage(o) }))
                       : PHASES.map(ph => {
                           const taches = selectedPhasage.plan_travaux?.[ph.id] || [];
                           if (taches.length === 0) return null;

@@ -61,3 +61,5 @@ jobs:
         run: node scripts/verif-cr6-planning-lie.mjs
       - name: CR-6D - Classement en masse (taches hors devis anciennes, lignes de commande sans lot, donnees fictives)
         run: node scripts/verif-cr6-classement-masse.mjs
+      - name: Base d'heures unique (ouvrage), repartition en % a 100, reprises, heures saisies a la main (donnees fictives)
+        run: node scripts/verif-base-heures-ouvrage.mjs

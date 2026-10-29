@@ -12,7 +12,11 @@
 // donc jamais un chantier existant. Décision du 16/10/2026 : chaque
 // enregistrement d'un ouvrage de la bibliothèque est reporté automatiquement
 // sur TOUS les chantiers qui l'utilisent (terminés compris), et la
-// bibliothèque l'emporte sur un ajustement fait à la main sur le chantier.
+// bibliothèque l'emporte sur un ajustement fait à la main sur le chantier —
+// SAUF les heures prévues de l'ouvrage saisies à la main dans le phasage
+// (heures_prevues_source "manuel", décision du 29/10/2026) : jamais écrasées
+// par un report ; seuls les % des étapes sont repris, et ces heures saisies
+// sont réparties entre les tâches selon ces %.
 //
 // RÈGLE DE REPORT (même règle que l'import du devis, PhasageV2.confirmImport)
 // ---------------------------------------------------------------------------
@@ -70,8 +74,9 @@ export function mentionHeuresPrevues(ouvrage) {
   const devis = heuresDevisOrigine(ouvrage);
   const fmt = (n) => `${String(Math.round(n * 100) / 100).replace(".", ",")} h`;
   if (src === SOURCE_PREVUES_DEVIS) return "prévu = devis, pas de cadence";
-  if (devis == null) return src === SOURCE_PREVUES_MANUEL ? "prévu saisi à la main" : null;
-  return `${src === SOURCE_PREVUES_MANUEL ? "saisi à la main · " : ""}devis : ${fmt(devis)}`;
+  const libelleSource = src === SOURCE_PREVUES_MANUEL ? "saisi à la main" : "cadence bibliothèque";
+  if (devis == null) return libelleSource;
+  return `${libelleSource} · devis : ${fmt(devis)}`;
 }
 
 // Nom comparable : casse, accents et espaces multiples ignorés.
@@ -151,11 +156,15 @@ export function reporterSurOuvrage(ouvrage, ouvrageBiblio) {
   const taches = Array.isArray(ouvrage?.taches) ? ouvrage.taches : [];
   const sousTaches = Array.isArray(ouvrageBiblio?.sous_taches) ? ouvrageBiblio.sous_taches : [];
 
-  // Heures de l'ouvrage : cadence × quantité, sinon inchangées.
+  // Heures de l'ouvrage : saisies à la main (jamais écrasées), sinon cadence ×
+  // quantité, sinon inchangées.
+  const manuel = sourceHeuresPrevues(ouvrage) === SOURCE_PREVUES_MANUEL;
+  const heuresManuelles = manuel ? num(ouvrage?.heures_devis) : null;
   const cadence = num(ouvrageBiblio?.cadence);
   const quantite = num(ouvrage?.quantite);
-  const parCadence = cadence != null && cadence > 0 && quantite != null && quantite > 0;
-  const heuresOuvrage = parCadence ? arr2(cadence * quantite) : num(ouvrage?.heures_estimees);
+  const parCadence = !manuel && cadence != null && cadence > 0 && quantite != null && quantite > 0;
+  const heuresOuvrage = heuresManuelles != null ? heuresManuelles
+    : parCadence ? arr2(cadence * quantite) : num(ouvrage?.heures_estimees);
 
   // Les tâches hors devis ne sont jamais concernées (travail non vendu).
   const candidates = taches.map((t, i) => ({ t, i })).filter(({ t }) => t?.hors_devis !== true);
@@ -184,7 +193,7 @@ export function reporterSurOuvrage(ouvrage, ouvrageBiblio) {
     // connue ; sinon on redistribue le total déjà porté par les tâches
     // reconnues (à défaut les heures prévues de l'ouvrage).
     const ontVendues = reconnues.some(c => c.t.heures_vendues != null);
-    const totalVendues = parCadence ? heuresOuvrage
+    const totalVendues = (parCadence || heuresManuelles != null) ? heuresOuvrage
       : ontVendues ? reconnues.reduce((s, c) => s + (num(c.t.heures_vendues) || 0), 0)
       : num(ouvrage?.heures_devis);
     const vendues = totalVendues == null ? null
@@ -201,7 +210,8 @@ export function reporterSurOuvrage(ouvrage, ouvrageBiblio) {
 
   // Heures prévues de l'ouvrage + copie unique des heures du devis.
   const aOrigine = Object.prototype.hasOwnProperty.call(ouvrage || {}, "heures_devis_origine");
-  const prevues = parCadence ? {
+  // Saisie manuelle : heures prévues et provenance inchangées.
+  const prevues = manuel ? {} : parCadence ? {
     ...(aOrigine ? {} : { heures_devis_origine: num(ouvrage?.heures_devis) }),
     heures_devis: heuresOuvrage,
     heures_prevues_source: SOURCE_PREVUES_BIBLIOTHEQUE,
