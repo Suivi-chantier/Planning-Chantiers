@@ -23,6 +23,14 @@ export const TYPES_MAJ = {
 
 export const JOURNAL_MAJ = [
   {
+    date: "2026-10-29",
+    type: "correctif",
+    titre: "Chiffrage : le nom de la zone d'un ouvrage se tape à nouveau d'une traite",
+    pages: [{ id: "info-client", label: "Chiffrage" }],
+    quoi: "Dans l'onglet Ouvrages, taper le nom de la zone d'une ligne (par exemple « Cuisine ») faisait sortir du champ à chaque lettre : il fallait recliquer entre chaque lettre.",
+    comment: "On tape le nom de la zone normalement. La ligne passe dans sa nouvelle zone quand on quitte le champ (clic ailleurs, Tab) ou qu'on appuie sur Entrée, et c'est à ce moment-là que la zone est enregistrée.",
+  },
+  {
     date: "2026-10-26",
     type: "amelioration",
     titre: "Qualité des comptes rendus : trois nouveaux indicateurs — états conformes au prévu, avancements incohérents, planning lié au phasage",
