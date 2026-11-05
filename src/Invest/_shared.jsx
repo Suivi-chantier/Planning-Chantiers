@@ -80,7 +80,6 @@ Object.keys(ROLE_PAGES_DEFAULT_INVEST || {}).forEach(roleKey => {
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const LOT_TYPES  = ["Sélectionner","Studio","T1","T2","T3","T4","T5","T6","Commerce"];
 const NIVEAUX    = ["RDC","R+1","R+2","R+3","R+4","Autre"];
-const MAX_LOTS   = 10;
 const GESTION_PRICES = {Studio:42,T1:45.6,T2:40.8,T3:44.4,T4:44.4,T5:46.8,T6:49.2,Commerce:60,"Sélectionner":0};
 const DEFAULT_LOTS = [
   {type:"T4",m2:134,loyer:900,niveau:"RDC",comment:""},
@@ -200,15 +199,16 @@ function openFicheClientInvestisseurPDF(data = {}) {
 
   const maxLoyer = Math.max(1, ...lots.map(l => num(l.loyer)));
   const barAreaW = 330;
-  const barGap = lots.length > 1 ? Math.min(28, Math.max(10, 140 / lots.length)) : 20;
-  const barW = lots.length ? Math.max(18, Math.min(42, (barAreaW - barGap * Math.max(0, lots.length - 1)) / lots.length)) : 28;
+  const barGap = lots.length > 1 ? Math.min(28, Math.max(3, 140 / lots.length)) : 20;
+  const barW = lots.length ? Math.max(6, Math.min(42, (barAreaW - barGap * Math.max(0, lots.length - 1)) / lots.length)) : 28;
   const totalBarsW = lots.length * barW + Math.max(0, lots.length - 1) * barGap;
   const startX = Math.max(36, (420 - totalBarsW) / 2);
+  const showBarVal = (barW + barGap) >= 30;
   const barsSvg = lots.map((l,i) => {
     const h = Math.max(6, (num(l.loyer) / maxLoyer) * 150);
     const x = startX + i * (barW + barGap);
     const y = 178 - h;
-    return `<g><text x="${x + barW/2}" y="${Math.max(14, y-8)}" text-anchor="middle" class="svg-val">${fmtN(l.loyer)}</text><rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" class="bar"/><text x="${x + barW/2}" y="206" text-anchor="middle" class="svg-lbl">Appt ${i+1}</text></g>`;
+    return `<g>${showBarVal ? `<text x="${x + barW/2}" y="${Math.max(14, y-8)}" text-anchor="middle" class="svg-val">${fmtN(l.loyer)}</text>` : ""}<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" class="bar"/><text x="${x + barW/2}" y="206" text-anchor="middle" class="svg-lbl">${lots.length > 8 ? i+1 : `Appt ${i+1}`}</text></g>`;
   }).join("");
 
   const years = Array.from({length:8}, (_,i)=>i+1);
@@ -2081,7 +2081,6 @@ export {
   INVEST_ACC,
   LOT_TYPES,
   NIVEAUX,
-  MAX_LOTS,
   GESTION_PRICES,
   DEFAULT_LOTS,
   BUDGET_SECTIONS,
