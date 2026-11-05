@@ -157,7 +157,7 @@ const ouvragesInit = [
 ];
 const [{ id: PH }] = await q(`insert into public.phasages (chantier_id, ouvrages, updated_at) values ('C1', ${js(ouvragesInit)}, '2026-10-01T08:00:00Z') returning id`);
 await db.exec(`insert into public.pointages (chantier_id, tache_id, date, heures) values
-  ('C1', 't1', '2026-10-14', 8), ('C1', 't1', '2026-10-15', 8), ('C1', 't2', '2026-10-30', 4)`);
+  ('C1', 't1', '2026-10-14', 8), ('C1', 't1', '2026-10-15', 8), ('C1', 't2', '2099-12-31', 4)`);
 
 // 2a. La migration s'applique et initialise le journal.
 await db.exec(MIGRATION);
