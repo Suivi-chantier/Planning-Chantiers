@@ -533,3 +533,15 @@ commercial et chargé d'affaires à confirmer ; fonction `progbat-quote` à
 redéployer depuis le dépôt à l'occasion.
 
 **Entrées ajoutées dans `src/Renovation/journalMaj.js`** : une par lot (6).
+
+**Réserve sur la mise en ligne (06/11/2026, 08 h 28 UTC)** : juste après la
+fusion du lot 4 (#228), Vercel a refusé un déploiement pour dépassement du
+quota gratuit (« more than 100 » déploiements par jour, code
+`api-deployments-free-per-day`, réessai possible sous 24 h). Le déploiement de
+production du lot 4 a donc pu échouer ; la session ne peut pas le vérifier
+(pas d'accès à Vercel ni au site de production). Base de données et fonctions
+serveur du lot 4 sont, elles, déjà en place (ajouts seulement, sans effet sur
+l'application déjà en ligne). À faire par Loris : regarder dans Vercel si le
+dernier déploiement de production est « Ready » ; sinon « Redeploy » une fois
+le quota revenu, ou fusionner #229 (documentation) à ce moment-là, ce qui
+redéploie tout `main`.
