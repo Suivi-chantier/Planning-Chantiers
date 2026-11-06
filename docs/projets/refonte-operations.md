@@ -343,8 +343,8 @@ lecture seule pendant le développement, relances désactivées par défaut).
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Lot 1 — tables `operations` / `chantiers`, migration sauvegardée, `estChantierActif()` branché partout | en ligne | Auto (contrôles verts + migration vérifiée) | Comptes avant/après identiques, aucune page cassée, verif vert | [#215](https://github.com/Suivi-chantier/Planning-Chantiers/pull/215) (fusionnée) |
 | 2 | Lot 2 — statuts À l'étude / Perdu, statut d'opération calculé, parcours de chiffrage, règles de saisie uniques | en ligne | Auto | verif vert ; bouton devis grisé avec la liste du manquant | [#218](https://github.com/Suivi-chantier/Planning-Chantiers/pull/218) (fusionnée) |
-| 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | en cours | Auto | verif vert ; relances off par défaut | — |
-| 4 | Lot 4 — automatisation ProGBat (client, chantier, acompte, statut devis, liens) | à faire | Auto (aucune écriture ProGBat de test) | Vérifications en lecture notées ; verif vert | — |
+| 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | en ligne | Auto | verif vert ; relances off par défaut | [#221](https://github.com/Suivi-chantier/Planning-Chantiers/pull/221) (fusionnée) |
+| 4 | Lot 4 — automatisation ProGBat (client, chantier, acompte, statut devis, liens) | en cours | Auto (aucune écriture ProGBat de test) | Vérifications en lecture notées ; verif vert | — |
 | 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | à faire | Auto | verif vert ; accès documentés | — |
 | 6 | Lot 6 — rôle chargé d'affaires | à faire | Auto | verif vert ; accès documentés | — |
 
@@ -386,6 +386,20 @@ lecture seule pendant le développement, relances désactivées par défaut).
   pas redéployée : elle applique encore les anciennes règles (moins strictes),
   le bouton de l'application applique les nouvelles ; redéploiement prévu
   avec le lot 4, qui la modifie.
+- 06/11/2026 — Lot 3 livré en #221. Migration additive
+  `refonte_operations_lot3` (tables `chantier_cycle_vie`, `relances_cycle_vie`,
+  vides à la création). Reprise des anciennes étapes **à la lecture** : rien
+  n'est réécrit, l'ancien état reste dans le phasage. Nouvelle policy de
+  lecture « ouvriers : étape plans techniques » sur la nouvelle table : elle
+  recrée l'accès que les ouvriers avaient déjà aux plans d'exécution, aucune
+  policy existante n'est touchée. Relances : interrupteur éteint par défaut,
+  simulation sur la base = 0 relance aujourd'hui (aucun devis envoyé importé ;
+  1 acompte non réglé mais aucun chargé d'affaires renseigné). Contrôle rouge
+  corrigé par le pilote : la non-régression « hors devis » comparait la liste
+  des étapes de l'ancien cycle ; cette liste seule sort de la comparaison,
+  81 291 valeurs restent comparées. Sur demande de Loris (« avancer sans
+  attendre les vérifs »), le lot 4 commence par les vérifications ProGBat en
+  lecture pendant que les contrôles tournent.
 
 ## Comptes rendus
 
@@ -413,3 +427,15 @@ bouton « Créer le devis dans ProGBat » est grisé avec la liste de ce qui
 manque. Base : 46 chantiers (statuts inchangés), 19 opérations, 0 client
 après migration (comptes lus en base). 61 chiffrages sans devis devront être
 rattachés à une opération et complétés avant de créer leur devis.
+
+### Lot 3 — nouveau cycle de vie, relances (06/11/2026)
+
+Cycle de vie en 5 phases (Étude, Contrat, Préparation, Travaux, Réception),
+étapes à boutons Google Agenda et « Ouvrir dans ProGBat », imports de
+documents, étape « Autorisation reçue » partagée entre chantiers d'une même
+opération, synthèse en lecture seule sur la page Opération. Relances par
+e-mail au chargé d'affaires livrées éteintes (Réglages → Logistique →
+Relances). Reprise des étapes déjà cochées (comptes lus en base) : Devis signé
+8, Acompte encaissé 8, Levée des réserves 9, Plans d'exécution → Plans
+techniques 1, Visite de réception → Réception + PV 1 ; Réponse client (8),
+Commandes & appros (2), Situation 100 % (2) conservées sans être affichées.
