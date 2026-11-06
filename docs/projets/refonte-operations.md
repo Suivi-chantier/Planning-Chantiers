@@ -341,9 +341,9 @@ lecture seule pendant le développement, relances désactivées par défaut).
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Lot 1 — tables `operations` / `chantiers`, migration sauvegardée, `estChantierActif()` branché partout | à faire | Auto (contrôles verts + migration vérifiée) | Comptes avant/après identiques, aucune page cassée, verif vert | — |
-| 2 | Lot 2 — statuts À l'étude / Perdu, statut d'opération calculé, parcours de chiffrage, règles de saisie uniques | à faire | Auto | verif vert ; bouton devis grisé avec la liste du manquant | — |
-| 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | à faire | Auto | verif vert ; relances off par défaut | — |
+| 1 | Lot 1 — tables `operations` / `chantiers`, migration sauvegardée, `estChantierActif()` branché partout | en ligne | Auto (contrôles verts + migration vérifiée) | Comptes avant/après identiques, aucune page cassée, verif vert | [#215](https://github.com/Suivi-chantier/Planning-Chantiers/pull/215) (fusionnée) |
+| 2 | Lot 2 — statuts À l'étude / Perdu, statut d'opération calculé, parcours de chiffrage, règles de saisie uniques | en ligne | Auto | verif vert ; bouton devis grisé avec la liste du manquant | [#218](https://github.com/Suivi-chantier/Planning-Chantiers/pull/218) (fusionnée) |
+| 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | en cours | Auto | verif vert ; relances off par défaut | — |
 | 4 | Lot 4 — automatisation ProGBat (client, chantier, acompte, statut devis, liens) | à faire | Auto (aucune écriture ProGBat de test) | Vérifications en lecture notées ; verif vert | — |
 | 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | à faire | Auto | verif vert ; accès documentés | — |
 | 6 | Lot 6 — rôle chargé d'affaires | à faire | Auto | verif vert ; accès documentés | — |
@@ -358,7 +358,58 @@ lecture seule pendant le développement, relances désactivées par défaut).
   changements sont donc appliqués sans arrêt, chacun précédé d'une sauvegarde
   `_sauvegarde_refonte` et d'un script de retour arrière, et décrit dans le
   compte rendu.
+- 06/11/2026 — Lot 1 livré en #215. Choix retenus : les anciens blocs
+  `planning_config.chantiers` / `operations` restent tenus à jour par un
+  déclencheur (copie miroir), parce que trois fonctions SECURITY DEFINER de
+  l'espace ouvrier, le rapport mobile sans connexion et deux tâches serveur les
+  lisent encore : aucune fonction à droits élevés n'est modifiée et aucune
+  table n'est ouverte aux visiteurs non connectés. Aucun droit DELETE sur les
+  nouvelles tables (archivage par `archive_le`). Conflit avec `main` (page
+  Visites retirée, PDF du Bilan) résolu par le pilote. Re-synchronisation
+  lancée juste avant la fusion : 46 chantiers / 19 opérations, 0 absent.
+  Contrôles GitHub tous verts, prévisualisation Vercel « Ready ». Le site de
+  production n'est pas joignable depuis la session.
+- 06/11/2026 — Lot 2 livré en #218. Migration purement additive
+  `refonte_operations_lot2` (tables `clients`, `chantiers_statut_journal`,
+  colonnes client / chargé d'affaires / perte) ; aucune donnée réécrite.
+  Choix retenus : statut d'opération calculé dans l'ordre « au moins un actif →
+  En cours ; sinon un à l'étude → À l'étude ; sinon un terminé → Terminée ;
+  sinon tous perdus → Perdue ; aucun chantier → Sans chantier » ;
+  collaborateurs lus dans `utilisateurs` (liste complète visible du seul
+  administrateur, l'écran le dit) ; aucune reprise automatique des clients :
+  les 88 chiffrages existants se rattachent à la main ; « Perdu » réversible
+  avec motif et historique ; dé-valider la signature ne remet pas à l'étude.
+  Deux contrôles rouges corrigés par le pilote : copie serveur des règles de
+  saisie non resynchronisée, et vérification de l'export d'opération restée
+  sur l'ancienne pondération d'avancement (rouge aussi sur `main`, elle compare
+  maintenant au module de calcul). La fonction serveur `progbat-quote` n'est
+  pas redéployée : elle applique encore les anciennes règles (moins strictes),
+  le bouton de l'application applique les nouvelles ; redéploiement prévu
+  avec le lot 4, qui la modifie.
 
 ## Comptes rendus
 
-(À venir.)
+### Lot 1 — opérations et chantiers en tables (06/11/2026)
+
+Opérations et chantiers sont enregistrés un par un dans deux tables : modifier
+un chantier n'écrase plus les autres. Comptes lus en base : 12 opérations et
+46 chantiers avant (7 sans opération) ; 19 opérations et 46 chantiers après,
+chantiers identiques un par un. Opérations créées automatiquement : LAMARTINE,
+METOIS, GILDAS BAUGE 2, LOU, 14 BOULEVARD DU ROI RENÉ, MAUDUIT, DÉPOT.
+Sauvegarde `planning_config_sauvegarde_refonte` (3 lignes), retour arrière
+`sql/202611_refonte_operations_lot1_rollback.sql`. Règle unique
+`estChantierActif()` branchée sur toutes les pages qui listent des chantiers
+(liste dans `docs/project/REFONTE-OPERATIONS-COMPTE-RENDU.md`) ; rien ne change
+à l'écran.
+
+### Lot 2 — statuts, parcours de chiffrage, règles de saisie (06/11/2026)
+
+Statuts « À l'étude » et « Perdu » ajoutés, masqués partout sauf Opérations,
+Chantiers, Chiffrage et Réglages. « Marquer perdu » avec motif obligatoire,
+annulable. Statut d'opération calculé. Client saisi sur l'opération, chargé
+d'affaires sur le chantier (défaut : opération). Une seule liste de champs
+obligatoires, partagée par les formulaires et le contrôle d'avant-envoi ; le
+bouton « Créer le devis dans ProGBat » est grisé avec la liste de ce qui
+manque. Base : 46 chantiers (statuts inchangés), 19 opérations, 0 client
+après migration (comptes lus en base). 61 chiffrages sans devis devront être
+rattachés à une opération et complétés avant de créer leur devis.

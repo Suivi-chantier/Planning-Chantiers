@@ -10,6 +10,14 @@ import { buildChiffrageDocHTML } from "./chiffrageDoc";
 import { renderPlanDataURL } from "./planRendu";
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import ProgbatApercuDevis from "./ProgbatApercuDevis.jsx";
+// Refonte Opérations, lot 2 : parcours opération → chantier → client →
+// chiffrage, et LA liste unique des règles de saisie (reglesSaisieProgbat.mjs).
+import ParcoursChiffrage from "./ParcoursChiffrage.jsx";
+import { BadgeStatut, FicheClientModal, ChoixChargeAffaires, ListeManquants, Asterisque } from "./ComposantsCommerciaux.jsx";
+import { manquantsAvantDevis, estObligatoireProjet, projetDepuisClient, ecartsClientProjet, clientDepuisProjet } from "./reglesSaisieProgbat.js";
+import { statutAffiche, clientEffectif, chargeAffairesEffectif } from "./statutsChantier.js";
+import { chargerClients, chargerCollaborateurs, chargerLiensChiffrage, lierChiffrageChantier, libelleClient } from "./clientsDonnees.js";
+import { chargerOperations, modifierOperationCommercial } from "./chantiersDonnees.js";
 import ConditionsVenteChiffrage from "./ConditionsVenteChiffrage.jsx";
 import ConditionsVenteLigne from "./ConditionsVenteLigne.jsx";
 import { lireConditionsProjet, decrireConditionsLigne, lireModesLigne, libelleSource } from "./conditionsChiffrage.mjs";
@@ -131,13 +139,20 @@ function decoderLibelleCode(libelle) {
 // (bouton « Modifier matériaux » d'une ligne d'ouvrage). Au retour, les lignes
 // de CE chiffrage issues de l'ouvrage modifié sont réactualisées automatiquement
 // tant que le chiffrage n'est pas terminé.
-export default function PageInfoClient({ T, branch = "renovation", chantiers = [], onModifierMateriaux = null, retourBiblio = null, onRetourBiblioConsomme = null }) {
+export default function PageInfoClient({ T, branch = "renovation", chantiers = [], setChantiers = null, saveConfig = null, profil = null, onModifierMateriaux = null, retourBiblio = null, onRetourBiblioConsomme = null }) {
   const acc = getBranchAccent(branch);
   const [projets, setProjets]         = useState([]);
   const [projetId, setProjetId]       = useState(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
   const [infos, setInfos]             = useState(INFOS_VIDES);
+  // ── Lot 2 : rattachement chiffrage → chantier → opération, client, chargé d'affaires ──
+  const [liens, setLiens]             = useState({ parProjet: new Map(), erreur: null, charge: false });
+  const [operationsL2, setOperationsL2] = useState([]);
+  const [clientsL2, setClientsL2]     = useState([]);
+  const [collabL2, setCollabL2]       = useState({ collaborateurs: [], complete: true });
+  const [parcours, setParcours]       = useState(null);   // null | { mode: "nouveau" } | { mode: "rattacher", operationInitiale? }
+  const [ficheClientL2, setFicheClientL2] = useState(null); // { client? , initial? }
   const [ouvrages, setOuvrages]       = useState([]);
   // Multi-ouvrages du projet (profero_multi_ouvrages) : enveloppes d'affichage
   // qui regroupent plusieurs lignes d'une zone en UNE ligne de devis.
@@ -261,11 +276,20 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
     chargerProjets(retourBiblio?.projetId || null);
     chargerCategories();
     chargerBiblio();
+    chargerDonneesLot2();
     if (retourBiblio?.projetId) setTab("ouvrages");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── DATA ────────────────────────────────────────────────────────────────────
+  // Lot 2 : opérations, fiches client, collaborateurs et liens chiffrage → chantier.
+  async function chargerDonneesLot2() {
+    const [l, ops, cl, co] = await Promise.all([chargerLiensChiffrage(), chargerOperations(), chargerClients(), chargerCollaborateurs()]);
+    setLiens({ parProjet: l.parProjet, erreur: l.erreur, charge: true });
+    setOperationsL2(ops || []);
+    setClientsL2(cl.clients || []);
+    setCollabL2(co);
+  }
   // `preferId` : projet à rouvrir en priorité (retour de la Bibliothèque).
   async function chargerProjets(preferId = null) {
     setLoading(true);
@@ -814,20 +838,44 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   }
   async function delCote(id) { await supabase.from("profero_cotes").delete().eq("id",id); setCotes(p=>p.filter(c=>c.id!==id)); }
 
-  async function nouveauProjet() {
+  // Lot 2 : « Nouveau projet » ouvre le parcours imposé (opération →
+  // chantier → client) ; le chiffrage n'est créé qu'à la fin, déjà rattaché.
+  function nouveauProjet() { setParcours({ mode: "nouveau" }); }
+
+  // Fin du parcours : crée le chiffrage (ou complète celui affiché) et le
+  // rattache au chantier créé. → { ok, erreur? }
+  async function terminerParcours({ chantierId, client, chantier }) {
     const today = new Date().toISOString().split("T")[0];
-    const base = {
-      client_nom:"", client_prenom:"", adresse_bien:"", description_projet:"",
-      date_visite:today, observations:"", logements:[], statut:"prospect",
+    const champsChantier = {
+      chantier_adresse: chantier.adresse || "", chantier_adresse_complement: chantier.adresse_complement || "",
+      chantier_code_postal: chantier.code_postal || "", chantier_ville: chantier.ville || "",
+      logement_reference: chantier.reference_logement || "", type_logement: chantier.type_logement || "",
     };
-    // Pré-remplissages sûrs : pays, date de préparation du devis, TVA réglée dans Admin (sinon vide)
-    const v3 = { client_pays:"France", chantier_pays:"France", devis_date:today, tva_pct: biblio?.tvaDefaut ?? null };
-    let { data, error } = await supabase.from("profero_projets").insert({ ...base, ...v3 }).select().single();
-    if (erreurColonnesDevis(error)) {
-      setSchemaDevisManquant(true);
-      ({ data } = await supabase.from("profero_projets").insert(base).select().single());
+    let pid = null;
+    if (parcours?.mode === "rattacher" && projetId) {
+      const actuel = projets.find(p => p.id === projetId) || {};
+      // Devis déjà créé dans ProGBat : on ne réécrit rien, on rattache seulement.
+      const patch = actuel.progbat_devis_id ? {} : { ...champsChantier, ...projetDepuisClient(client), chantier_pays: infos.chantier_pays || "France" };
+      if (Object.keys(patch).length) {
+        const { error } = await supabase.from("profero_projets").update(patch).eq("id", projetId);
+        if (error) return { ok: false, erreur: `Mise à jour du chiffrage impossible : ${error.message}` };
+      }
+      pid = projetId;
+    } else {
+      const base = { adresse_bien:"", description_projet:"", date_visite:today, observations:"", logements:[], statut:"prospect" };
+      const v3 = { ...projetDepuisClient(client), ...champsChantier, chantier_pays:"France", devis_date:today, tva_pct: biblio?.tvaDefaut ?? null };
+      const { data, error } = await supabase.from("profero_projets").insert({ ...base, ...v3 }).select().single();
+      if (error || !data) return { ok: false, erreur: `Création du chiffrage impossible : ${error?.message || "réponse vide"}` };
+      setProjets(p => [data, ...p]);
+      pid = data.id;
     }
-    if(data){ setProjets(p=>[data,...p]); chargerProjet(data.id); }
+    const lien = await lierChiffrageChantier(pid, chantierId);
+    if (!lien.ok) return { ok: false, erreur: `Chantier créé, mais rattachement du chiffrage impossible : ${lien.erreur}` };
+    setLiens(l => { const m = new Map(l.parProjet); m.set(pid, chantierId); return { ...l, parProjet: m }; });
+    setParcours(null);
+    await chargerProjets(pid);
+    setTab(parcours?.mode === "rattacher" ? "client" : "ouvrages");
+    return { ok: true };
   }
 
   // Duplication « pour un autre logement » : même client, même adresse de
@@ -1404,6 +1452,53 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
   const heuresProjet = heuresDevis(ouvrages);
   const controlesMulti = validerMultiOuvrages({ multiOuvrages: multis || [], lignes: ouvrages, tvaPctDefaut: numOrNull(infos.tva_pct) });
   const preparation = verifierPreparationDevis(infos, ouvrages, totauxProjet, { multiOuvrages: multis, controlesMulti });
+
+  // ── Lot 2 : chantier / opération du chiffrage, client et chargé d'affaires effectifs ──
+  const projetCourant = projets.find(p => p.id === projetId) || null;
+  const chantierLieId = projetId ? liens.parProjet.get(projetId) || null : null;
+  const chantierLie = chantierLieId ? chantiers.find(c => c.id === chantierLieId) || null : null;
+  const operationLiee = chantierLie ? operationsL2.find(o => o.id === chantierLie.operation_id) || null : null;
+  const clientLieId = chantierLie ? clientEffectif(chantierLie, operationLiee).valeur : null;
+  const clientLie = clientLieId ? clientsL2.find(c => c.id === clientLieId) || null : null;
+  const chargeLie = chantierLie ? chargeAffairesEffectif(chantierLie, operationLiee) : { id: null, nom: null, source: null };
+  const devisDejaCree = !!projetCourant?.progbat_devis_id;
+  // LA liste unique : ce qui manque pour créer le devis (bouton grisé sinon).
+  const manquantsDevis = manquantsAvantDevis({
+    projet: infos,
+    rattachement: chantierLie ? { chantier_id: chantierLie.id, charge_affaires_id: chargeLie.id } : null,
+    referenceLogement: logementInfo.reference,
+    clientProgbat: !!projetCourant?.progbat_client_id,
+  });
+  // Le chiffrage porte une COPIE du client pour le devis : tant que le devis
+  // n'est pas créé, elle suit la fiche client du chantier (une seule source).
+  const ecartsClient = clientLie && !devisDejaCree ? ecartsClientProjet(infos, clientLie) : [];
+  useEffect(() => {
+    if (loading || !projetId || !clientLie || devisDejaCree || ecartsClient.length === 0) return;
+    updInfos(projetDepuisClient(clientLie));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projetId, loading, clientLie?.id, clientLie?.updated_at, ecartsClient.length, devisDejaCree]);
+  // Chargé d'affaires propre au chantier (vide = celui de l'opération).
+  const changerChargeChantier = async ({ id, nom }) => {
+    if (!chantierLie || !setChantiers || !saveConfig) return;
+    const u = chantiers.map(c => c.id === chantierLie.id ? { ...c, charge_affaires_id: id, charge_affaires_nom: nom } : c);
+    setChantiers(u);
+    await saveConfig("chantiers", u);
+  };
+  // Fiche client enregistrée depuis le chiffrage : rattachée à l'opération si
+  // elle n'en a pas, sinon propre au chantier (si différente).
+  const ficheClientEnregistree = async (client) => {
+    setClientsL2(l => [...l.filter(c => c.id !== client.id), client]);
+    setFicheClientL2(null);
+    if (!chantierLie || clientLieId === client.id) return;
+    if (operationLiee && !operationLiee.client_id) {
+      const r = await modifierOperationCommercial(operationLiee.id, { client_id: client.id });
+      if (r.ok) setOperationsL2(l => l.map(o => o.id === operationLiee.id ? { ...o, client_id: client.id } : o));
+    } else if (setChantiers && saveConfig) {
+      const u = chantiers.map(c => c.id === chantierLie.id ? { ...c, client_id: client.id } : c);
+      setChantiers(u);
+      await saveConfig("chantiers", u);
+    }
+  };
   const couleurLot = (label) => (biblio?.lots || []).find(l => l.label === label)?.couleur || "#8a90a0";
   const coutHoraireManquant = !!biblio && biblio.coutHoraire == null;
   const diagTaux = biblio ? diagnostiquerListe(biblio.tauxHoraires || []) : null;
@@ -2108,7 +2203,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 : { [`${prefixe}_code_postal`]: s.codePostal || infos[`${prefixe}_code_postal`] || "", [`${prefixe}_ville`]: s.ville || infos[`${prefixe}_ville`] || "" };
               const champ = (label, f, props = {}) => (
                 <div style={props.span ? { gridColumn:"1 / -1" } : undefined}>
-                  <label style={lbl}>{label}</label>
+                  <label style={lbl}>{label}{estObligatoireProjet(f, infos) && <Asterisque/>}</label>
                   {props.adresse
                     ? <AdresseInput style={inp} inputMode={props.inputMode} value={infos[f] ?? ""} placeholder={props.placeholder || ""}
                         type={props.adresse.type} champ={props.adresse.champ}
@@ -2120,6 +2215,34 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
               const typeCourant = infos.type_logement || (logementInfo.repli ? logementInfo.type : "");
               return (
               <div className="pic-section-narrow">
+                {/* ── Lot 2 : opération › chantier du chiffrage ── */}
+                {chantierLie ? carte("Opération et chantier", Building2, <>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:12, fontSize:FONT.sm.size, color:T.text }}>
+                    <strong>{operationLiee?.nom || "Opération introuvable"}</strong>
+                    <Icon as={ChevronRight} size={12}/>
+                    <strong>{chantierLie.nom}</strong>
+                    <BadgeStatut statut={statutAffiche(chantierLie)}/>
+                  </div>
+                  <label style={lbl}>Chargé d'affaires<Asterisque/></label>
+                  <ChoixChargeAffaires T={T} collaborateurs={collabL2.collaborateurs} complete={collabL2.complete}
+                    disabled={!setChantiers || !saveConfig}
+                    valeur={chantierLie.charge_affaires_id || ""} nomEnregistre={chantierLie.charge_affaires_nom || ""}
+                    heritage={operationLiee?.charge_affaires_id ? (operationLiee.charge_affaires_nom || "compte introuvable") : null}
+                    onChange={changerChargeChantier}/>
+                </>) : chantierLieId ? carte("Opération et chantier", AlertTriangle, (
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub }}>
+                    Ce chiffrage est rattaché au chantier « {chantierLieId} », qui n'est plus dans la liste (archivé ?). Le devis ne peut pas être créé tant que ce chantier n'est pas rétabli (Réglages → Chantiers).
+                  </div>
+                ), { warn:true }) : liens.charge && carte("Chiffrage sans chantier", AlertTriangle, <>
+                  <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6, marginBottom:10 }}>
+                    Ce chiffrage n'est rattaché à aucun chantier : <strong style={{color:T.text}}>impossible de créer le devis sans opération</strong>. Rattachez-le : choisir l'opération, créer le chantier (il naît « À l'étude ») et choisir le client.
+                    {liens.erreur && <div style={{ color:"#e15a5a" }}>Liens illisibles : {liens.erreur}</div>}
+                  </div>
+                  <button type="button" onClick={()=>setParcours({ mode:"rattacher" })} style={{...btn, display:"inline-flex", alignItems:"center", gap:6}}>
+                    <Icon as={Building2} size={12}/> Rattacher à une opération
+                  </button>
+                </>, { warn:true })}
+
                 {/* ── Carte : ancien projet multi-logements (lecture seule) ── */}
                 {logementInfo.aVerifier && carte("Ancien projet à vérifier", AlertTriangle, (
                   <div style={{ fontSize:FONT.sm.size, color:T.textSub, lineHeight:1.6 }}>
@@ -2129,6 +2252,29 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                 ), { warn:true })}
 
                 {/* ── Carte : client ── */}
+                {/* Lot 2 : chiffrage rattaché à un chantier qui a un client → la
+                    fiche client fait foi (copie automatique tant que le devis
+                    n'est pas créé). Sinon : anciens champs, à compléter. */}
+                {clientLie ? carte("Client", UserCircle, <>
+                  <div style={{ fontSize:FONT.sm.size, color:T.text, lineHeight:1.7 }}>
+                    <strong>{libelleClient(clientLie)}</strong> · {clientLie.type === "societe" ? "Société" : "Particulier"}<br/>
+                    {[clientLie.adresse, clientLie.adresse_complement, clientLie.code_postal, clientLie.ville, clientLie.pays].filter(Boolean).join(" ")}<br/>
+                    {clientLie.email} · {clientLie.telephone}<br/>
+                    <span style={{ color:T.textMuted }}>Identifiant ProGBat généré : {clientLie.code_progbat || "—"}</span>
+                  </div>
+                  {devisDejaCree && ecartsClientProjet(infos, clientLie).length > 0 && (
+                    <div style={{ marginTop:8, fontSize:FONT.xs.size+1, color:"#f5a623" }}>Le devis ProGBat a déjà été créé avec les coordonnées d'alors : elles ne sont plus recopiées.</div>
+                  )}
+                  <button type="button" onClick={()=>setFicheClientL2({ client: clientLie })} style={{...btnSec, marginTop:10, display:"inline-flex", alignItems:"center", gap:5}}>
+                    <Icon as={Pencil} size={11}/> Modifier la fiche client
+                  </button>
+                </>) : (<>
+                {chantierLie && (
+                  <div style={{ marginBottom:10, padding:"10px 12px", borderRadius:RADIUS.md, background:"rgba(245,166,35,0.10)", border:"1px solid rgba(245,166,35,0.4)", fontSize:FONT.sm.size, color:T.textSub }}>
+                    Ni ce chantier ni son opération n'ont de fiche client.{" "}
+                    <button type="button" onClick={()=>setFicheClientL2({ initial: { ...clientDepuisProjet(infos), adresse_complement: infos.client_adresse_complement || "", pays: infos.client_pays || "France" } })} style={{...btnSec, padding:"4px 10px"}}>Créer la fiche client depuis ce chiffrage</button>
+                  </div>
+                )}
                 {carte("Client", UserCircle, grille(<>
                   {champ("Nom", "client_nom", { placeholder:"Dupont" })}
                   {champ("Prénom", "client_prenom", { placeholder:"Jean" })}
@@ -2148,6 +2294,7 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                   {champ("Ville", "client_ville", { placeholder:"Angers", adresse:{ prefixe:"client", type:"commune", champ:"ville" } })}
                   {champ("Pays", "client_pays", { placeholder:"France" })}
                 </>))}
+                </>)}
 
                 {/* ── Carte : chantier & logement ── */}
                 {carte("Chantier & logement", Home, <>
@@ -2389,8 +2536,13 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                       <button onClick={()=>setShowModal(true)} style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
                         <Icon as={FileText} size={11}/> Aperçu du devis
                       </button>
-                      <button onClick={()=>setShowProgbat(true)} title="Aperçu du devis ProGBat reconstruit par le serveur, puis création d'un brouillon après confirmation." style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5}}>
-                        <Icon as={Send} size={11}/> {projets.find(p=>p.id===projetId)?.progbat_devis_id ? "Devis ProGBat (brouillon créé)" : "Aperçu ProGBat"}
+                      {/* Lot 2 : grisé tant qu'une règle de saisie n'est pas respectée
+                          (liste unique reglesSaisieProgbat.mjs), la liste s'affiche dessous. */}
+                      <button onClick={()=>{ if (devisDejaCree || manquantsDevis.length === 0) setShowProgbat(true); }}
+                        disabled={!devisDejaCree && manquantsDevis.length > 0}
+                        title={!devisDejaCree && manquantsDevis.length > 0 ? `Il manque : ${manquantsDevis.map(m => m.libelle).join(", ")}` : "Aperçu du devis ProGBat reconstruit par le serveur, puis création d'un brouillon après confirmation."}
+                        style={{...btnSec, display:"inline-flex", alignItems:"center", gap:5, ...(!devisDejaCree && manquantsDevis.length > 0 ? { opacity:.45, cursor:"not-allowed" } : {})}}>
+                        <Icon as={Send} size={11}/> {devisDejaCree ? "Devis ProGBat (brouillon créé)" : "Créer le devis dans ProGBat"}
                       </button>
                       <button onClick={async()=>{ if(!window.confirm("Retirer TOUTES les lignes de ce devis ?")) return; await supabase.from("profero_ouvrages_selectionnes").delete().eq("projet_id",projetId); await supabase.from("profero_multi_ouvrages").delete().eq("projet_id",projetId); setOuvrages([]); setMultis(prev => prev == null ? prev : []); setSelMulti({ zone: null, ids: [] }); }}
                         style={{...btnDng, display:"inline-flex", alignItems:"center", gap:5, padding:"8px 14px"}}>
@@ -2399,6 +2551,11 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
                     </div>
                   )}
                 </div>
+                {ouvrages.length > 0 && !devisDejaCree && manquantsDevis.length > 0 && (
+                  <div style={{ marginBottom:12 }}>
+                    <ListeManquants T={T} manquants={manquantsDevis} titre={`« Créer le devis dans ProGBat » est grisé : il manque ${manquantsDevis.length} information${manquantsDevis.length > 1 ? "s" : ""}`}/>
+                  </div>
+                )}
 
                 {multisErreur && (
                   <div style={{ marginBottom:10, padding:"9px 12px", borderRadius:RADIUS.md, background:"rgba(225,90,90,0.1)", border:"1px solid rgba(225,90,90,0.4)", color:"#e15a5a", fontSize:FONT.xs.size+1, fontWeight:700, display:"flex", alignItems:"center", gap:8 }}>
@@ -3214,7 +3371,22 @@ export default function PageInfoClient({ T, branch = "renovation", chantiers = [
 
       {/* ── DEVIS PROGBAT : aperçu reconstruit par le serveur + création d'un brouillon après confirmation ── */}
       {showProgbat && (
-        <ProgbatApercuDevis T={T} acc={acc} projetId={projetId} projet={infos} lignes={ouvrages} multiOuvrages={multis} lotsOrdre={lotsOrdre} onClose={()=>setShowProgbat(false)} onDevisCree={()=>chargerProjets()}/>
+        <ProgbatApercuDevis T={T} acc={acc} projetId={projetId} projet={infos} lignes={ouvrages} multiOuvrages={multis} lotsOrdre={lotsOrdre} manquants={devisDejaCree ? [] : manquantsDevis} onClose={()=>setShowProgbat(false)} onDevisCree={()=>chargerProjets()}/>
+      )}
+
+      {/* ── Lot 2 : parcours opération → chantier → client → chiffrage ── */}
+      {parcours && (
+        <ParcoursChiffrage T={T} operations={operationsL2} clients={clientsL2} collab={collabL2}
+          projet={parcours.mode === "rattacher" ? infos : null}
+          setChantiers={setChantiers}
+          onClientCree={(c) => setClientsL2(l => [...l.filter(x => x.id !== c.id), c])}
+          onOperationsModifiees={(op) => setOperationsL2(l => l.some(o => o.id === op.id) ? l.map(o => o.id === op.id ? { ...o, ...op } : o) : [...l, op])}
+          onClose={() => setParcours(null)}
+          onValider={terminerParcours}/>
+      )}
+      {ficheClientL2 && (
+        <FicheClientModal T={T} client={ficheClientL2.client || null} initial={ficheClientL2.initial || null}
+          onClose={() => setFicheClientL2(null)} onEnregistre={ficheClientEnregistree}/>
       )}
 
       {/* ── MODAL ACTUALISER UNE LIGNE DEPUIS LA BIBLIOTHÈQUE ── */}

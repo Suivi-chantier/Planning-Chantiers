@@ -15,9 +15,19 @@
 // explicite, voir archiverChantier).
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Colonnes FACULTATIVES (lot 2) : client, chargé d'affaires, perte. Elles ne
+ * sont écrites que si l'objet porte la clé : un objet venu d'ailleurs (copie
+ * planning_config, ancien écran) qui ne les connaît pas ne les efface jamais.
+ */
+export const COLONNES_CHANTIER_LOT2 = Object.freeze([
+  "client_id", "charge_affaires_id", "charge_affaires_nom",
+  "perdu_le", "perdu_par", "perdu_motif", "perdu_motif_detail",
+]);
+export const COLONNES_OPERATION_LOT2 = Object.freeze(["client_id", "charge_affaires_id", "charge_affaires_nom"]);
 /** Champs portés par une colonne ; tout le reste va dans `donnees` (jsonb). */
-export const COLONNES_CHANTIER = Object.freeze(["id", "nom", "couleur", "statut", "operation_id"]);
-export const COLONNES_OPERATION = Object.freeze(["id", "nom", "adresse", "couleur"]);
+export const COLONNES_CHANTIER = Object.freeze(["id", "nom", "couleur", "statut", "operation_id", ...COLONNES_CHANTIER_LOT2]);
+export const COLONNES_OPERATION = Object.freeze(["id", "nom", "adresse", "couleur", ...COLONNES_OPERATION_LOT2]);
 /** Champs propres aux tables, jamais recopiés dans `donnees`. */
 const CHAMPS_TECHNIQUES = ["ordre", "donnees", "archive_le", "created_at", "updated_at", "creee_automatiquement"];
 
@@ -58,6 +68,7 @@ export function depuisLigneChantier(ligne) {
   if (texteOuNull(ligne.statut)) o.statut = ligne.statut;
   if (texteOuNull(ligne.operation_id)) o.operation_id = ligne.operation_id;
   if (ligne.archive_le) o.archive_le = ligne.archive_le;
+  COLONNES_CHANTIER_LOT2.forEach((k) => { if (ligne[k] != null) o[k] = ligne[k]; });
   return o;
 }
 
@@ -70,6 +81,7 @@ export function depuisLigneOperation(ligne) {
   o.couleur = ligne.couleur || COULEUR_DEFAUT;
   if (ligne.creee_automatiquement) o.creee_automatiquement = true;
   if (ligne.archive_le) o.archive_le = ligne.archive_le;
+  COLONNES_OPERATION_LOT2.forEach((k) => { if (ligne[k] != null) o[k] = ligne[k]; });
   return o;
 }
 
@@ -82,6 +94,15 @@ export function trierLignes(lignes) {
 }
 
 // ─── Objets de l'application → champs de ligne ──────────────────────────────
+/** Colonnes facultatives présentes dans l'objet ("" → null). Absentes : non renvoyées. */
+function facultatives(objet, colonnes) {
+  const out = {};
+  colonnes.forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(objet, k) && objet[k] !== undefined) out[k] = texteOuNull(objet[k]);
+  });
+  return out;
+}
+
 export function versChampsChantier(objet) {
   return {
     id: txt(objet.id).trim(),
@@ -89,6 +110,7 @@ export function versChampsChantier(objet) {
     couleur: texteOuNull(objet.couleur) || COULEUR_DEFAUT,
     statut: texteOuNull(objet.statut),
     operation_id: texteOuNull(objet.operation_id),
+    ...facultatives(objet, COLONNES_CHANTIER_LOT2),
     donnees: restes(objet, COLONNES_CHANTIER),
   };
 }
@@ -99,6 +121,7 @@ export function versChampsOperation(objet) {
     nom: txt(objet.nom),
     adresse: txt(objet.adresse),
     couleur: texteOuNull(objet.couleur) || COULEUR_DEFAUT,
+    ...facultatives(objet, COLONNES_OPERATION_LOT2),
     donnees: restes(objet, COLONNES_OPERATION),
   };
 }
@@ -120,8 +143,8 @@ export function versChampsOperation(objet) {
 export function calculerEcritures(connues, liste, { type = "chantier" } = {}) {
   const versChamps = type === "operation" ? versChampsOperation : versChampsChantier;
   const champsComparés = type === "operation"
-    ? ["nom", "adresse", "couleur", "donnees"]
-    : ["nom", "couleur", "statut", "operation_id", "donnees"];
+    ? ["nom", "adresse", "couleur", ...COLONNES_OPERATION_LOT2, "donnees"]
+    : ["nom", "couleur", "statut", "operation_id", ...COLONNES_CHANTIER_LOT2, "donnees"];
   const map = connues instanceof Map ? connues : new Map();
   const voulus = [];
   const vus = new Set();
@@ -153,6 +176,7 @@ export function calculerEcritures(connues, liste, { type = "chantier" } = {}) {
     const patch = {};
     champsComparés.forEach((k) => {
       if (k === "operation_id" && !champs.operation_id) return;
+      if (champs[k] === undefined) return;   // colonne facultative absente de l'objet : on n'y touche pas
       const avant = k === "donnees" ? (connue.donnees || {}) : (connue[k] ?? null);
       if (!memeValeur(avant, champs[k] ?? null)) patch[k] = champs[k];
     });
