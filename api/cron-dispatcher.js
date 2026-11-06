@@ -37,6 +37,11 @@
 //   Lun-Ven 06h05 et 07h05 UTC → matériaux à commander (?job=push_materiaux) :
 //     celui qui tombe avant 8h Paris ne fait rien, l'autre envoie vers 8h05
 //     (cron-push-materiaux.yml)
+//   Lun-Ven 16h30 et 17h30 UTC → point du soir des conducteurs, C1 + C2
+//     (?job=point_conducteurs&pas_avant=18:30) : avant 18h30 Paris l'appel est
+//     ignoré, donc il part à 18h30 Paris en hiver comme en été ; le second
+//     passage d'été (19h30) voit le point déjà écrit et ne renvoie rien
+//     (cron-point-conducteurs.yml)
 //   Lun-Ven 07h05 et 08h05 UTC → alertes chantiers C4 / C5 / D1
 //     (?job=alertes_chantiers&pas_avant=9) : avant 9h Paris l'appel est
 //     ignoré, donc il part à 9h05 Paris en hiver comme en été ; le second
@@ -62,6 +67,7 @@ const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
 const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
 const { runFacturesAEmettre } = require("./_cron/cron-factures-a-emettre.js");
 const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
+const { runPointConducteurs }  = require("./_cron/cron-point-conducteurs.js");
 const { runAlertesChantiers }  = require("./_cron/cron-alertes-chantiers.js");
 const { runNouveauxChantiers, runSyntheseSemaine } = require("./_cron/cron-notifications-direction.js");
 
@@ -140,6 +146,14 @@ const TACHES = {
   push_materiaux: {
     fenetre: null,
     run: (req, supabase, t) => runPushMateriaux(req, supabase, t),
+  },
+  // Point du soir des conducteurs à 18h30 (C1 comptes rendus + C2 demandes de
+  // matériel), une seule notification par personne. Même règle « ouvriers
+  // attendus » que le rappel du compte rendu. `&simulation=1` : sans envoi ni
+  // écriture ; `&date=` en simulation seulement. Par `?job=` seulement.
+  point_conducteurs: {
+    fenetre: null,
+    run: (req, supabase, t) => runPointConducteurs(req, supabase, t),
   },
   // Notifications C4 / C5 / D1 (projet notifications-push, tâche 6) : niveaux
   // d'alerte recalculés avec la chaîne de la page Alertes (alertesEcranV1),

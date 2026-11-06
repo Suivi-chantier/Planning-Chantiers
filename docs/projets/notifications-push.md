@@ -219,13 +219,13 @@ Règle par défaut de `CLAUDE.md`. En plus :
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en ligne | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) (fusionnée le 06/11) |
-| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en cours (mise en ligne) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | [n°226](https://github.com/Suivi-chantier/Planning-Chantiers/pull/226) |
-| 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
+| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en ligne | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | [n°226](https://github.com/Suivi-chantier/Planning-Chantiers/pull/226) (fusionnée le 06/11) |
+| 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | en cours (mise en ligne) | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | [n°232](https://github.com/Suivi-chantier/Planning-Chantiers/pull/232) |
 | 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en ligne (ne partira pas avec les données actuelles, question à Loris) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | [n°223](https://github.com/Suivi-chantier/Planning-Chantiers/pull/223) (fusionnée le 06/11) |
-| 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
+| 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | en ligne | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | [n°231](https://github.com/Suivi-chantier/Planning-Chantiers/pull/231) (fusionnée le 06/11) |
 | 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en ligne | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | [n°224](https://github.com/Suivi-chantier/Planning-Chantiers/pull/224) (fusionnée le 06/11) |
-| 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données | — |
-| 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | à faire | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | — |
+| 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | en cours (parallèle) | Auto | Simulation sur les vraies données | — |
+| 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | en cours (parallèle) | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | — |
 | 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par Loris | à faire | **Arrêt** : Loris active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
 
 ## Journal des décisions
@@ -427,6 +427,29 @@ Signalé à Loris, non modifié (hors périmètre) : DÉPOT et BRIOLLAY « à
 émettre » avec un prix de vente à 0 € ; course possible sur le mail si deux
 personnes ouvrent la même fiche en même temps (antérieure au projet).
 
+**06/11/2026 (soir) — Fin d'étape 2 validée par Loris** : « La cloche
+fonctionne ». Vérifié en base : la notification de test de 21h19 UTC est
+dans la boîte, statut « envoyé », marquée lue.
+
+**06/11/2026 (soir) — Appareil enregistré au nom de François Huet.** La
+seule ligne de `push_subscriptions` (et la notification de test) appartient
+au compte `francois.huet@…`, pas à celui de Loris : le téléphone de test est
+connecté avec ce compte. Question posée à Loris (non bloquante).
+
+**06/11/2026 (soir) — Tâche 4 : C1 et C2 regroupés en un seul push.**
+`send-push` ne savait envoyer qu'un type par appel. Ajout d'un champ
+facultatif `groupe` (nouveau fichier `_partage/pushGroupeV1.mjs`, aucun
+fichier existant de `_partage/` modifié) : C1 et C2 gardent chacun leurs
+rôles, leur interrupteur et la préférence de chacun, et sont écrits en boîte
+sous leur propre type ; seul le push est réuni par personne. `send-push` v5
+déployée. Une demande de matériel non traitée revient chaque soir (c'est un
+rappel quotidien voulu par le catalogue : « regroupé dans le point de
+18h30 »). Pas de jours fériés, comme le mail de rappel.
+
+**06/11/2026 (soir) — Tâches 8 et 10 lancées en parallèle** (direction et
+comptable F2/D2/D3/D4 ; C3 sur « Commandes à passer »), un seul envoi chacune
+pour ménager la limite Vercel.
+
 ## À faire par Loris
 
 1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
@@ -554,4 +577,60 @@ suivant : 0.
 **Points connus.** DÉPOT et BRIOLLAY ont un prix de vente à 0 € et sont
 pourtant « à émettre » (comme dans le mail actuel). Une échéance qui devient
 prête après la notification du jour part le lendemain.
+
+### Tâche 3 — Écrans : cloche, préférences, Réglages › Notifications (06/11/2026) — en ligne
+
+**Ce qui a changé.** Cloche avec compteur de non lues (bas de la barre
+latérale sur ordinateur, barre du haut sur téléphone, jamais pour les
+ouvriers) ; « Mon profil » › « Ce que je reçois » (un interrupteur par type) ;
+Réglages › Logistique › Notifications (admin) : interrupteur général
+(coupé), une ligne par type avec rôles cochés (sans ouvrier), plage de
+silence, dernier envoi et personnes touchées, appareils par rôle. C1–C5 vont
+par défaut à conducteur + admin ; une personne ne reçoit jamais deux fois la
+même notification. Nouvelle fonction `notifications-pilotage` (admin,
+lecture seule de comptes).
+
+**Vérifié.** Demande de fusion n°226 : 15 contrôles GitHub + Vercel verts,
+fusionnée le 06/11 au soir (retardée par la limite Vercel). Aucune
+migration, aucune policy. Loris : « La cloche fonctionne ».
+
+**Point connu.** Comme tous les réglages de `planning_config`, la clé
+`notifications_push` peut techniquement être écrite par tout collaborateur du
+bureau ; seul l'écran est réservé aux admins.
+
+### Tâche 6 — Alertes chantiers C4, C5, D1 (06/11/2026) — en ligne
+
+**Ce qui a changé.** Le calcul de la page Alertes est sorti du composant dans
+`alertesEcranV1.mjs` (même résultat, vérifié au caractère près) ; la marge à
+terminaison est lue dans la colonne `marge_terminaison` du relevé journalier,
+sans recalcul. Job `?job=alertes_chantiers`, jours ouvrés 9h05 Paris : seules
+les aggravations partent (C5 aucun → à surveiller, C4 → critique, D1 marge
+≥ 0 → < 0), une notification par type et par passage. État dans
+`notifications_etat`. Premier passage : référence enregistrée, rien envoyé.
+Interrupteur coupé : l'état vu est quand même enregistré, pour qu'à
+l'activation seuls les changements postérieurs partent.
+
+**Vérifié.** Demande de fusion n°231 : 16 contrôles + Vercel verts,
+fusionnée. Aucune migration.
+
+**Simulation issue de la base (06/11, aucun envoi).** 45 chantiers :
+6 critiques, 3 à surveiller, 36 sans alerte ; marges à terminaison :
+8 négatives (dont 6 chantiers terminés), 37 positives, 0 inconnue.
+
+| Niveau | Chantier | Marge à terminaison | Avancement |
+|---|---|---|---|
+| Critique | BRIOLLAY | −70 140 € | 40 % |
+| Critique | TOURBOUTON CO-LIVING | −2 124 € | 87 % |
+| Critique | BRIOLLAY APPT 2 | 22 062 € | 48 % |
+| Critique | FOURMOND 001 | 6 940 € | 44 % |
+| Critique | KATHLEEN T2 | 8 136 € | 43 % |
+| Critique | MONTILLERS APPT 1 (T3) | 12 006 € | 15 % |
+| À surveiller | FOURMOND 101 | 4 948 € | 67 % |
+| À surveiller | FOURMOND 102 | 4 227 € | 65 % |
+| À surveiller | FOURMOND COMMUNS | 1 456 € | 30 % |
+
+Premier passage : 0 envoi, 90 états enregistrés. Entre le 30/10 et le
+06/11, une seule notification serait partie : C4 « 3 chantiers passent en
+critique » (BRIOLLAY APPT 2, KATHLEEN T2, MONTILLERS APPT 1), vers 4 admins
+(1 seul appareil enregistré) ; aucune C5 ni D1.
 

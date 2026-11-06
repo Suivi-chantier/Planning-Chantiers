@@ -587,7 +587,7 @@ test("16. dispatcher (nouveaux jobs, tous les anciens conservés), aucune foncti
   assert.match(disp, /synthese_semaine:\s*\{\s*fenetre:\s*null/);
   assert.match(disp, /runJournalAvancement\(req, supabase, t\)/);
   for (const job of ["recap_commandes", "rappel_rapport", "invest_echeances", "invest_tableau_bord", "journal_avancement", "relances_cycle_vie",
-    "push_reportes", "push_simulation", "factures_a_emettre", "push_materiaux", "alertes_chantiers"]) {
+    "push_reportes", "push_simulation", "factures_a_emettre", "push_materiaux", "point_conducteurs", "alertes_chantiers"]) {
     assert.match(disp, new RegExp(`${job}:\\s*\\{`), `job ${job} conservé`);
   }
   assert.match(lire(".github/workflows/verify-notifications-direction.yml"), /node scripts\/verif-notifications-direction\.mjs/);
