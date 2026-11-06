@@ -32,6 +32,14 @@ export const JOURNAL_MAJ = [
   },
   {
     date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Notification quand un chantier passe en alerte ou que sa marge à terminaison devient négative (envois automatiques encore coupés)",
+    pages: [{ id: "alertes", label: "Alertes" }, { id: "bilan-semaine", label: "Bilan de semaine" }],
+    quoi: "Chaque matin de semaine vers 9h, l'application regarde la page Alertes et la marge à terminaison de chaque chantier, et prévient seulement de ce qui vient de s'aggraver : un chantier qui passe en critique, un chantier qui passe « à surveiller » (conducteurs et administrateurs par défaut), une marge à terminaison qui devient négative (administrateurs par défaut). Un chantier qui reste dans le même état ne renvoie rien le lendemain ; s'il s'améliore puis rechute, on est prévenu à nouveau. Les niveaux sont exactement ceux de la page Alertes. Une marge à terminaison inconnue ne déclenche rien. Comme pour les autres notifications, rien ne part tant que l'interrupteur général de Réglages › Notifications est coupé, et l'application note quand même l'état des chantiers : le jour où il est allumé, seuls les changements survenus après partent, pas l'arriéré.",
+    comment: "Rien à faire. Il y a au plus une notification par sujet et par matin, qui regroupe les chantiers (« 2 chantiers passent en critique : … »). La toucher ouvre la fiche du chantier quand il n'y en a qu'un, sinon la page Alertes (ou le Bilan de semaine pour la marge à terminaison). Chacun peut couper ces types dans « Mon profil ».",
+  },
+  {
+    date: "2026-11-06",
     type: "amelioration",
     titre: "Bilan de semaine et Alertes s'ouvrent plus vite",
     pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "alertes", label: "Alertes" }],

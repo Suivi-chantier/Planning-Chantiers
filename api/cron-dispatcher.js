@@ -42,6 +42,10 @@
 //     ignoré, donc il part à 18h30 Paris en hiver comme en été ; le second
 //     passage d'été (19h30) voit le point déjà écrit et ne renvoie rien
 //     (cron-point-conducteurs.yml)
+//   Lun-Ven 07h05 et 08h05 UTC → alertes chantiers C4 / C5 / D1
+//     (?job=alertes_chantiers&pas_avant=9) : avant 9h Paris l'appel est
+//     ignoré, donc il part à 9h05 Paris en hiver comme en été ; le second
+//     passage d'été (10h05) ne trouve rien de nouveau (cron-alertes-chantiers.yml)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -57,6 +61,7 @@ const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-report
 const { runFacturesAEmettre } = require("./_cron/cron-factures-a-emettre.js");
 const { runPushMateriaux }     = require("./_cron/cron-push-materiaux.js");
 const { runPointConducteurs }  = require("./_cron/cron-point-conducteurs.js");
+const { runAlertesChantiers }  = require("./_cron/cron-alertes-chantiers.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -140,6 +145,16 @@ const TACHES = {
   point_conducteurs: {
     fenetre: null,
     run: (req, supabase, t) => runPointConducteurs(req, supabase, t),
+  },
+  // Notifications C4 / C5 / D1 (projet notifications-push, tâche 6) : niveaux
+  // d'alerte recalculés avec la chaîne de la page Alertes (alertesEcranV1),
+  // comparés à l'état déjà vu (notifications_etat) ; seules les AGGRAVATIONS
+  // partent, une notification par type et par passage. Premier passage :
+  // référence enregistrée, rien d'envoyé. `&simulation=1` : sans écriture ni
+  // envoi. Par `?job=` seulement.
+  alertes_chantiers: {
+    fenetre: null,
+    run: (req, supabase, t) => runAlertesChantiers(req, supabase, t),
   },
 };
 
