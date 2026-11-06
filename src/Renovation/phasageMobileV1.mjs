@@ -8,16 +8,29 @@
 // nom_perso, lot_id, piece_id, pieces, lots) : rien n'est recalculé, l'état
 // d'une tâche est lu dans son avancement.
 //
+// Préparer le chantier (06/11/2026) : depuis la migration 20261106120000, la
+// fonction renvoie aussi mur / quantite_part par tâche, consigne /
+// consignes_murs / photos par pièce et ouvrages_logement. Ces champs sont
+// facultatifs : absents (avant la migration, copie locale ancienne), ils
+// valent null / [] et l'écran n'affiche rien de vide.
+//
 // Métier de l'ouvrier en premier : les lots où il a une tâche prévue
 // aujourd'hui, puis ceux où il a déjà travaillé ou est affecté (est_mienne,
 // mes_heures), puis les autres, dans l'ordre des lots de l'Admin.
 // ─────────────────────────────────────────────────────────────────────────────
 const net = (v) => String(v ?? "").trim();
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+const numOuNull = (v) => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+const tableau = (v) => (Array.isArray(v) ? v : []);
 const norm = (s) => net(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ");
 
 export const SANS_LOT = "_sans_lot";
 export const SANS_PIECE = "_sans_piece";
+export const TOUT_LOGEMENT = "_tout_logement";
 
 export const nomAffiche = (t) => net(t?.nom_perso) || net(t?.nom) || "(sans nom)";
 export const libelleAffiche = (o) => net(o?.libelle_perso) || net(o?.libelle) || "(sans nom)";
@@ -50,6 +63,7 @@ export function construireArbre(payload, { lotsDefaut = [], tachesDuJourIds = []
         ...t, id: String(t.id), nomAffiche: nomAffiche(t), nomDevis: net(t.nom),
         ouvrage_id: id, ouvrageLibelle: e.libelle, etat: etatTache(t),
         pieceId: net(t.piece_id) || null, duJour: duJour.has(String(t.id)),
+        mur: net(t.mur) || null, quantite_part: numOuNull(t.quantite_part), unitePart: net(o.unite) || null,
       });
     });
     parOuvrage.set(id, e);
@@ -73,9 +87,33 @@ export function construireArbre(payload, { lotsDefaut = [], tachesDuJourIds = []
   const liste = [...lots.values()]
     .map(l => ({ ...l, prioritaire: rang(l) < 2, rang: rang(l) }))
     .sort((a, b) => a.rang - b.rang || a.ordre - b.ordre || a.label.localeCompare(b.label, "fr"));
-  const pieces = (payload?.pieces || []).filter(p => net(p?.id) && net(p?.nom)).map(p => ({ id: net(p.id), nom: net(p.nom) }));
-  return { lots: liste, pieces, taches: liste.flatMap(l => l.ouvrages.flatMap(o => o.taches)) };
+  const pieces = (payload?.pieces || []).filter(p => net(p?.id) && net(p?.nom)).map(pieceLue);
+  const ouvragesLogement = [...new Set(tableau(payload?.ouvrages_logement).map(net).filter(Boolean))];
+  return { lots: liste, pieces, ouvragesLogement, taches: liste.flatMap(l => l.ouvrages.flatMap(o => o.taches)) };
 }
+
+// Pièce lue : id, nom, et ce que le conducteur a préparé (consigne, consignes
+// par mur, photos). Les textes vides sont écartés ; rien d'autre n'est gardé.
+function pieceLue(p) {
+  const murs = [];
+  tableau(p?.consignes_murs).forEach(c => {
+    const mur = net(c?.mur); const texte = net(c?.texte);
+    if (mur && texte && !murs.some(m => m.mur.toLowerCase() === mur.toLowerCase())) murs.push({ mur, texte });
+  });
+  const photos = [...new Set(tableau(p?.photos).filter(x => typeof x === "string").map(net).filter(Boolean))];
+  return { id: net(p.id), nom: net(p.nom), consigne: net(p?.consigne) || null, consignes_murs: murs, photos };
+}
+
+// Sous-titre d'une tâche découpée : « Mur côté rue · 14 m² », « 26 m² »,
+// « Mur côté rue », ou "" (rien à afficher). Unité de l'ouvrage, m² à défaut.
+export function sousTitrePart(t) {
+  const q = numOuNull(t?.quantite_part);
+  const qte = q == null ? "" : `${String(Math.round(q * 100) / 100).replace(".", ",")} ${net(t?.unitePart) || "m²"}`;
+  return [net(t?.mur), qte].filter(Boolean).join(" · ");
+}
+
+// La pièce a-t-elle quelque chose à montrer en haut de l'écran ?
+export const aDesConsignes = (p) => !!(net(p?.consigne) || tableau(p?.consignes_murs).length || tableau(p?.photos).length);
 
 // Tâches visibles : terminées masquées sauf demande.
 export const tachesVisibles = (taches, { montrerTerminees = false } = {}) =>
@@ -99,14 +137,26 @@ export function rechercher(arbre, texte, { montrerTerminees = false } = {}) {
     });
 }
 
-// Navigation par pièce : [{ id, nom, taches }] dans l'ordre des pièces, puis
-// « Sans pièce » s'il en reste.
+// Navigation par pièce : [{ id, nom, consigne, consignes_murs, photos, taches }]
+// dans l'ordre des pièces (meta.pieces), puis « Tout le logement » (tâches sans
+// pièce des ouvrages placés « Tout le logement » à la préparation), puis
+// « Sans pièce » pour toutes les autres (pas de pièce, ou pièce retirée).
+// Aucune tâche n'est cachée ; une pièce sans tâche visible n'est pas listée
+// (comme avant).
 export function parPiece(arbre, { montrerTerminees = false } = {}) {
   const taches = tachesVisibles(arbre?.taches, { montrerTerminees });
-  const out = (arbre?.pieces || []).map(p => ({ id: p.id, nom: p.nom, taches: taches.filter(t => t.pieceId === p.id) }));
+  const out = (arbre?.pieces || []).map(p => ({
+    id: p.id, nom: p.nom, consigne: p.consigne ?? null, consignes_murs: tableau(p.consignes_murs), photos: tableau(p.photos),
+    taches: taches.filter(t => t.pieceId === p.id),
+  }));
   const connues = new Set(out.map(p => p.id));
+  const logement = new Set(tableau(arbre?.ouvragesLogement));
   const sans = taches.filter(t => !t.pieceId || !connues.has(t.pieceId));
-  if (sans.length) out.push({ id: SANS_PIECE, nom: "Sans pièce", taches: sans });
+  const tout = sans.filter(t => !t.pieceId && logement.has(String(t.ouvrage_id)));
+  const reste = sans.filter(t => !tout.includes(t));
+  const vide = { consigne: null, consignes_murs: [], photos: [] };
+  if (tout.length) out.push({ id: TOUT_LOGEMENT, nom: "Tout le logement", ...vide, taches: tout });
+  if (reste.length) out.push({ id: SANS_PIECE, nom: "Sans pièce", ...vide, taches: reste });
   return out.filter(p => p.taches.length > 0);
 }
 

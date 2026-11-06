@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "nouveaute",
+    titre: "Préparer le chantier : consignes et photos par pièce, visibles pièce par pièce sur le téléphone des ouvriers",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Le conducteur de travaux peut écrire une consigne pour chaque pièce (par exemple « protéger le parquet existant »), une consigne pour un mur précis (« Mur côté rue : gaine électrique à conserver ») et ajouter des photos de la pièce. Les ouvriers retrouvent tout cela sur leur téléphone, en haut de l'écran de la pièce, juste au-dessus des tâches à y faire. Chaque tâche découpée indique où travailler : « Mur côté rue · 14 m² ». Les ouvriers ne voient toujours ni prix, ni pourcentages.",
+    comment: "Bureau : Phasage → « Préparer le chantier » → étape « Consignes & plans » : une carte par pièce, avec la consigne (micro pour la dicter), « + Consigne sur un mur » et le bouton « Photo ». Le contrôle final dit si toutes les tâches ont une pièce. « Terminer la préparation » enregistre et note que le logement est prêt. Téléphone des ouvriers : compte rendu → « J'ai fait autre chose » → « Par pièce ». Les pièces apparaissent dans l'ordre choisi par le conducteur ; en touchant une pièce, on voit ses consignes et ses photos (toucher une photo l'agrandit), puis « À faire ici » avec, sous chaque tâche, le mur et les m². Des onglets en haut permettent de passer d'une pièce à l'autre. Les tâches des ouvrages prévus dans tout le logement sont dans « Tout le logement », les autres tâches sans pièce dans « Sans pièce » : aucune tâche n'est cachée. Une pièce sans consigne ni photo n'affiche rien de plus qu'avant.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
     titre: "Phasage : « Préparer le chantier », pour dire aux ouvriers dans quelle pièce et sur quel mur travailler",
     pages: [{ id: "phasage-v2", label: "Phasage" }],
     quoi: "Un ouvrage du devis (par exemple « Doublage de mur, 50 m² ») couvre souvent plusieurs murs dans plusieurs pièces, mais ses tâches ne disaient pas où travailler. Le conducteur de travaux peut maintenant, une fois par logement, définir les pièces puis répartir chaque ouvrage par pièce et, si besoin, par mur, en m². Les tâches portent alors un libellé clair, par exemple « Pose ossature métallique doublage — Chambre, mur extérieur ». Les heures sont réparties au prorata des m² : le total des heures estimées, des heures vendues et des % de chaque ouvrage ne change pas, ni les chiffres du chantier.",
