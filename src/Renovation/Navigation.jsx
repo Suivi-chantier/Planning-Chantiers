@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useIsMobile } from "../hooks";
 import {
   LayoutDashboard, HardHat, Calendar, CalendarDays, ClipboardList, Package,
-  Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, Search, IdCard, FileText, Settings,
+  Users, Ruler, ListChecks, BookOpen, BookMarked, Layers, IdCard, FileText, Settings,
   ChevronLeft, ChevronRight, Sun, Moon, LogOut, LayoutGrid, Menu, X, ShoppingCart,
   Calculator, CheckCircle2, Camera, Receipt, Wallet,
   Pencil, Check, RotateCcw, GripVertical, Clock, ChartBar, Newspaper, Wrench, Building2, Lightbulb, Bell, NotebookPen,
@@ -21,15 +21,15 @@ const ROLE_PAGES = {
   admin: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
-    "visite","info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
+    "info-client","etats-financiers","guide-ouvrages","journal-maj","admin"
   ],
   conducteur: [
     "dashboard","chantiers","planning","bilan-semaine","alertes","retours-terrain","planning-mensuel","notes-todo","notes-ouvriers","commandes","capture-cmd","rapprochement","encours-fournisseurs","planning-commandes",
     "equipe","qualite-cr","inventaire-equipes","validation","heures-salaries","plans","phasage-v2","operations","bibliotheque","biblio-materiaux","suggestions-mat",
-    "visite","info-client","journal-maj"
+    "info-client","journal-maj"
   ],
   commercial: [
-    "dashboard","chantiers","planning","notes-ouvriers","plans","visite","info-client","journal-maj"
+    "dashboard","chantiers","planning","notes-ouvriers","plans","info-client","journal-maj"
   ],
   comptable: [
     "dashboard","chantiers","bilan-semaine","notes-ouvriers","commandes","biblio-materiaux","phasage-v2","operations","heures-salaries","etats-financiers","journal-maj"
@@ -63,7 +63,6 @@ const ALL_NAV_ITEMS = [
   { id:"operations",       icon:Building2,       label:"Opérations", longLabel:"Opérations" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio.",    longLabel:"Biblio. ouvrages"    },
   { id:"biblio-materiaux", icon:Layers,          label:"Matériaux",  longLabel:"Biblio. matériaux"   },
-  { id:"visite",           icon:Search,          label:"Visites",    longLabel:"Visites chantier"    },
   { id:"info-client",      icon:IdCard,          label:"Chiffrage",  longLabel:"Chiffrage"           },
   { id:"etats-financiers", icon:Calculator,      label:"États fin.", longLabel:"États financiers"    },
   { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions",longLabel:"Suggestions de matériaux" },
@@ -259,7 +258,6 @@ const allNav = [
   { id:"operations",       icon:Building2,       label:"Opérations" },
   { id:"bibliotheque",     icon:BookOpen,        label:"Biblio. ouvrages" },
   { id:"biblio-materiaux", icon:Layers,          label:"Biblio. matériaux"},
-  { id:"visite",           icon:Search,          label:"Visites chantier" },
   { id:"info-client",      icon:IdCard,          label:"Chiffrage"        },
   { id:"etats-financiers", icon:Calculator,      label:"États financiers"   },
   { id:"suggestions-mat",  icon:Lightbulb,       label:"Suggestions de matériaux" },
