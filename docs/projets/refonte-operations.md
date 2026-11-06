@@ -346,7 +346,7 @@ lecture seule pendant le développement, relances désactivées par défaut).
 | 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | en ligne | Auto | verif vert ; relances off par défaut | [#221](https://github.com/Suivi-chantier/Planning-Chantiers/pull/221) (fusionnée) |
 | 4 | Lot 4 — automatisation ProGBat (client, chantier, acompte, statut devis, liens) | en cours | Auto (aucune écriture ProGBat de test) | Vérifications en lecture notées ; verif vert | — |
 | 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | en ligne | Auto | verif vert ; accès documentés | [#222](https://github.com/Suivi-chantier/Planning-Chantiers/pull/222) (fusionnée) |
-| 6 | Lot 6 — rôle chargé d'affaires | en cours | Auto | verif vert ; accès documentés | — |
+| 6 | Lot 6 — rôle chargé d'affaires | en ligne | Auto | verif vert ; accès documentés | [#225](https://github.com/Suivi-chantier/Planning-Chantiers/pull/225) (fusionnée) |
 
 ## Journal des décisions
 
@@ -413,6 +413,22 @@ lecture seule pendant le développement, relances désactivées par défaut).
   disparaît. Point à confirmer par Loris au test : commercial et comptable
   voient désormais les marges agrégées par opération et peuvent marquer un
   chantier perdu. Lot 6 lancé sur la même deuxième branche, repartie de `main`.
+- 06/11/2026 — Demande de Loris ajoutée au lot 4 : pouvoir choisir dans
+  l'application un client déjà créé dans ProGBat (les clients existent déjà
+  dans ProGBat ; en créer dans l'application ferait des doublons). Lecture
+  seule de la liste des clients ProGBat, fiche locale liée par
+  `progbat_client_id` unique, « + Nouveau client » précédé d'un avertissement
+  sur les clients ProGBat ressemblants. Jamais de rapprochement automatique.
+- 06/11/2026 — Lot 6 livré en #225, contrôles verts. Rôle `charge_affaires` :
+  Opérations, fiche chantier, Chiffrage, Journal des MAJ ; ni finances
+  globales ni Réglages ; validation limitée aux étapes Étude et Contrat, à
+  l'écran et en base (2 policies RESTRICTIVES additives sur
+  `chantier_cycle_vie`, migration `refonte_operations_lot6`). Aucune fonction
+  SECURITY DEFINER ni contrainte modifiée (`est_collaborateur_actif()` ne
+  regarde pas le rôle). Accès en base : rôle ajouté, autres rôles identiques ;
+  sauvegardes `planning_config_sauvegarde_refonte` id 7 et 8. Rôle attribué à
+  personne : Loris choisira. Le chargé d'affaires voit, comme le commercial,
+  les totaux vendu/marge des opérations : à confirmer par Loris.
 
 ## Comptes rendus
 
