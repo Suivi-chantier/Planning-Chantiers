@@ -545,3 +545,8 @@ l'application déjà en ligne). À faire par Loris : regarder dans Vercel si le
 dernier déploiement de production est « Ready » ; sinon « Redeploy » une fois
 le quota revenu, ou fusionner #229 (documentation) à ce moment-là, ce qui
 redéploie tout `main`.
+- 06/11/2026 — Constat de Loris dans Vercel : dernière production « Ready »
+  = fusion du lot 6 (#225) ; le lot 4 (#228) n'avait pas été mis en
+  production. #229 fusionnée à 08 h 45 UTC ; nouvelle mise en ligne de `main`
+  relancée par cette mise à jour du fichier projet, pour que le lot 4 parte
+  bien en production.
