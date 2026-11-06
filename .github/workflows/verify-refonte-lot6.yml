@@ -1,0 +1,31 @@
+name: Verify Refonte Opérations, lot 6 (rôle chargé d'affaires)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'sql/202611_refonte_operations_lot6*'
+      - 'supabase/migrations/*_refonte_operations_lot6.sql'
+      - 'scripts/verif-refonte-lot6.mjs'
+      - '.github/workflows/verify-refonte-lot6.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (build)
+        run: npm ci
+      - name: Pages du rôle, finances et réglages absents, étapes Étude/Contrat, collaborateur non ouvrier
+        run: node scripts/verif-refonte-lot6.mjs
+      - name: Build Vite (fiche chantier, menu, réglages)
+        run: npm run build

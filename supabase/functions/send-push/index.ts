@@ -1,18 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// send-push — envoi des notifications sur téléphone (Web Push, clés VAPID).
-// Projet docs/projets/notifications-push.md.
+// send-push — envoi des notifications sur téléphone (Web Push, clés VAPID) et
+// écriture dans la boîte de réception (table notifications).
+// Projet docs/projets/notifications-push.md, tâches 1 et 2.
 //
-// Tâche 1 (ici) : mode « test » seulement.
-//   POST { mode: "test" } avec le jeton d'un collaborateur bureau
-//   → envoie la notification de test à tous SES appareils enregistrés,
-//     même quand l'interrupteur général (tâche 2) est coupé.
+// POST { mode: "test" } avec le jeton d'un collaborateur bureau
+//   → notification de test sur tous SES appareils, écrite aussi dans SA boîte.
+//     Fonctionne même interrupteur général coupé et en plage de silence
+//     (c'est un test demandé à la main).
 //
-// Tâche 2 (à venir, refusé ici avec 501) : mode « serveur ».
-//   Appel serveur muni d'un secret (en-tête dédié), destinataires par rôle
-//   (jamais « ouvrier »), interrupteur général, préférences, plage de silence
-//   et report, écriture dans la boîte de réception. La boucle d'envoi
-//   `envoyerAuxAppareils` ci-dessous est celle que le mode serveur réutilisera.
+// POST { mode: "serveur", type, titre, texte, lien, cle_regroupement?, simulation? }
+//   Réservé au serveur : en-tête « Authorization: Bearer <clé service role> »
+//   (même clé que le dispatcher Vercel, SUPABASE_SERVICE_ROLE_KEY ; aucun
+//   nouveau secret). Relit les réglages (planning_config.notifications_push) à
+//   chaque appel, puis le moteur pur _partage/notificationsPushV1.mjs décide :
+//   destinataires par rôle (jamais « ouvrier »), préférences, plage de silence
+//   et report, regroupement (une notification par utilisateur, type et clé :
+//   rejouer le même appel ne crée aucun doublon). Interrupteur général coupé ou
+//   type désactivé → rien n'est envoyé ni écrit.
+//   `simulation: true` → aucun envoi, aucune écriture : renvoie qui aurait
+//   reçu quoi (calculé même interrupteur coupé, avec `bloque_par`).
 //
+// POST { mode: "reportes" } — même secret serveur. Envoie les push reportés
+//   dont l'heure est venue (job ?job=push_reportes du dispatcher), après avoir
+//   revérifié interrupteur, type, préférence et plage de silence.
+//
+// Clés VAPID absentes : la notification est quand même écrite en boîte, avec
+// push_statut « serveur_non_configure » (une impossibilité reste visible).
 // Après chaque envoi : réponse 404 / 410 du service push → la ligne
 // d'abonnement est supprimée ; succès → last_used_at mis à jour ; autre erreur
 // → ligne gardée, échec signalé (pushRegles.suiteReponseService).
@@ -22,17 +35,23 @@
 // VAPID du serveur sont configurées. Sert au contrôle après déploiement.
 //
 // Bibliothèque : npm:web-push (chiffrement aes128gcm + signature VAPID).
-// Secrets : VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT. Absents → 503.
+// Secrets : VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT.
 // « Verify JWT » activé (supabase/config.toml).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import webpush from "npm:web-push@3.6.7"
 import { createECDH, randomBytes } from "node:crypto"
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { corsHeaders, identifierAppelant, json, lireClesVapid } from "../_partage/pushServeur.ts"
+import {
+  clientServeur, corsHeaders, estAppelServeur, identifierAppelant, json, lireClesVapid,
+} from "../_partage/pushServeur.ts"
 import {
   chargeUtileTest, resumerEnvoi, suiteReponseService, validerDemandeSendPush,
 } from "../_partage/pushRegles.mjs"
+import {
+  CLE_REGLAGES, TYPE_TEST, chargeUtile, decisionRattrapage, normaliserReglages, planifierEnvoi,
+  planifierTest, preferenceActive, statutApresEnvoi, validerContenu,
+} from "../_partage/notificationsPushV1.mjs"
 
 type Abonnement = { id: string; endpoint: string; p256dh: string; auth: string; appareil: string | null }
 type Resultat = { id: string; appareil: string | null; ok: boolean; statut: number | null; suite: string }
@@ -91,6 +110,205 @@ function autoControleChiffrement(): { ok: boolean; erreur?: string } {
   }
 }
 
+const iso = (ms: number | null | undefined) => (typeof ms === "number" ? new Date(ms).toISOString() : null)
+
+/** Envoie une notification de la boîte à tous les appareils de son destinataire, puis note le résultat. */
+async function pousserNotification(
+  admin: SupabaseClient,
+  notif: { id: string; type: string; titre: string; texte: string; lien: string },
+  appareils: Abonnement[],
+): Promise<{ statut: string; resultats: Resultat[] }> {
+  const resultats = await envoyerAuxAppareils(admin, appareils, chargeUtile(notif))
+  const statut = statutApresEnvoi(resultats)
+  await admin.from("notifications").update({
+    push_statut: statut,
+    push_envoye_le: statut === "envoye" ? new Date().toISOString() : null,
+  }).eq("id", notif.id)
+  return { statut, resultats }
+}
+
+async function lireReglages(admin: SupabaseClient) {
+  const { data, error } = await admin.from("planning_config").select("value").eq("key", CLE_REGLAGES).maybeSingle()
+  if (error) throw new Error("Lecture des réglages de notification impossible.")
+  return normaliserReglages(data?.value ?? null)
+}
+
+async function lireAppareils(admin: SupabaseClient, ids: string[]) {
+  const parUtilisateur: Record<string, Abonnement[]> = {}
+  if (!ids.length) return parUtilisateur
+  const { data, error } = await admin.from("push_subscriptions")
+    .select("id, user_id, endpoint, p256dh, auth, appareil").in("user_id", ids)
+  if (error) throw new Error("Lecture des abonnements impossible.")
+  for (const a of data ?? []) (parUtilisateur[a.user_id] ??= []).push(a as Abonnement)
+  return parUtilisateur
+}
+
+async function lirePreferences(admin: SupabaseClient, ids: string[]) {
+  const prefs: Record<string, Record<string, boolean>> = {}
+  if (!ids.length) return prefs
+  const { data, error } = await admin.from("notifications_preferences").select("user_id, types").in("user_id", ids)
+  if (error) throw new Error("Lecture des préférences impossible.")
+  for (const p of data ?? []) prefs[p.user_id] = p.types ?? {}
+  return prefs
+}
+
+/** Utilisateurs de l'application, rattachés à leur compte de connexion (par e-mail). */
+async function lireUtilisateurs(admin: SupabaseClient) {
+  const { data, error } = await admin.from("utilisateurs").select("email, nom, role, actif, branches")
+  if (error) throw new Error("Lecture des utilisateurs impossible.")
+  const comptes = new Map<string, string>()
+  for (let page = 1; page <= 20; page++) {
+    const { data: lot, error: e } = await admin.auth.admin.listUsers({ page, perPage: 1000 })
+    if (e) throw new Error("Lecture des comptes de connexion impossible.")
+    for (const u of lot.users) if (u.email) comptes.set(u.email.toLowerCase(), u.id)
+    if (lot.users.length < 1000) break
+  }
+  return (data ?? []).map((u) => ({
+    ...u,
+    auth_id: u.email ? comptes.get(String(u.email).toLowerCase()) ?? null : null,
+  }))
+}
+
+// ── Mode « serveur » : un type du catalogue, destinataires par rôle ─────────
+async function modeServeur(admin: SupabaseClient, corps: unknown) {
+  const contenu = validerContenu(corps)
+  if (!contenu.ok) return json({ error: contenu.erreur }, contenu.statut)
+  const maintenant = Date.now()
+  const reglages = await lireReglages(admin)
+  const utilisateurs = await lireUtilisateurs(admin)
+  const ids = utilisateurs.map((u) => u.auth_id).filter(Boolean) as string[]
+  const [appareils, preferences] = await Promise.all([lireAppareils(admin, ids), lirePreferences(admin, ids)])
+  const cles = lireClesVapid()
+
+  // Regroupement : qui a déjà cette notification (même type, même clé) ?
+  const avant = planifierEnvoi({ reglages, type: contenu.type, cle: contenu.cle_regroupement ?? undefined,
+    utilisateurs: [], maintenantMs: maintenant, vapidConfiguree: cles.ok })
+  const { data: deja, error: errDeja } = await admin.from("notifications").select("user_id")
+    .eq("type", contenu.type).eq("cle_regroupement", avant.cle)
+  if (errDeja) throw new Error("Lecture de la boîte de réception impossible.")
+
+  const nbAppareils: Record<string, number> = {}
+  for (const [id, l] of Object.entries(appareils)) nbAppareils[id] = l.length
+  const plan = planifierEnvoi({
+    reglages, type: contenu.type, cle: avant.cle, utilisateurs, preferences, appareils: nbAppareils,
+    dejaNotifies: (deja ?? []).map((d) => d.user_id), maintenantMs: maintenant,
+    vapidConfiguree: cles.ok, simulation: contenu.simulation,
+  })
+  if (!plan.ok) return json({ error: plan.erreur }, 400)
+  const resume = { ...plan.resume, prochain_creneau: iso(plan.resume.prochain_creneau), avertissements: reglages.avertissements }
+
+  if (contenu.simulation) {
+    return json({
+      ok: true, simulation: true, resume,
+      detail: plan.lignes.map((l) => ({ role: l.role, nom: l.nom, push_statut: l.push_statut, push_prevu_le: iso(l.push_prevu_le) })),
+    })
+  }
+  if (!plan.lignes.length) return json({ ok: true, simulation: false, resume, envoyes: 0, echecs: 0 })
+
+  // Écriture en boîte AVANT l'envoi. L'index unique (user_id, type,
+  // cle_regroupement) garantit l'absence de doublon même si deux passages se
+  // croisent : seules les lignes réellement créées sont envoyées.
+  const { data: crees, error: errIns } = await admin.from("notifications").upsert(
+    plan.lignes.map((l) => ({
+      user_id: l.user_id, type: contenu.type, titre: contenu.titre, texte: contenu.texte, lien: contenu.lien,
+      cle_regroupement: plan.cle, push_statut: l.push_statut, push_prevu_le: iso(l.push_prevu_le),
+    })),
+    { onConflict: "user_id,type,cle_regroupement", ignoreDuplicates: true },
+  ).select("id, user_id, type, titre, texte, lien, push_statut")
+  if (errIns) throw new Error("Écriture dans la boîte de réception impossible.")
+
+  if (cles.ok) webpush.setVapidDetails(cles.sujet, cles.publique, cles.privee)
+  let envoyes = 0, echecs = 0, ecrites = 0
+  for (const n of crees ?? []) {
+    ecrites++
+    if (n.push_statut !== "a_envoyer" || !cles.ok) continue
+    const { statut } = await pousserNotification(admin, n, appareils[n.user_id] ?? [])
+    if (statut === "envoye") envoyes++; else echecs++
+  }
+  return json({
+    ok: true, simulation: false, resume,
+    ecrites_en_boite: ecrites, doublons_evites: plan.lignes.length - ecrites + resume.doublons, envoyes, echecs,
+  })
+}
+
+// ── Mode « reportes » : rattrapage des push reportés dont l'heure est venue ──
+async function modeReportes(admin: SupabaseClient) {
+  const maintenant = Date.now()
+  const { data: dus, error } = await admin.from("notifications")
+    .select("id, user_id, type, titre, texte, lien")
+    .eq("push_statut", "reporte").lte("push_prevu_le", new Date(maintenant).toISOString())
+    .order("push_prevu_le", { ascending: true }).limit(500)
+  if (error) throw new Error("Lecture des notifications reportées impossible.")
+  if (!dus?.length) return json({ ok: true, dues: 0, envoyes: 0, echecs: 0, autres: {} })
+
+  const reglages = await lireReglages(admin)
+  const ids = [...new Set(dus.map((n) => n.user_id))]
+  const [appareils, preferences] = await Promise.all([lireAppareils(admin, ids), lirePreferences(admin, ids)])
+  const cles = lireClesVapid()
+  if (cles.ok) webpush.setVapidDetails(cles.sujet, cles.publique, cles.privee)
+
+  let envoyes = 0, echecs = 0
+  const autres: Record<string, number> = {}
+  for (const n of dus) {
+    const d = decisionRattrapage({
+      reglages, type: n.type, prefActive: preferenceActive(preferences[n.user_id], n.type),
+      nbAppareils: (appareils[n.user_id] ?? []).length, vapidConfiguree: cles.ok, maintenantMs: maintenant,
+    })
+    if (d.push_statut === "a_envoyer") {
+      const { statut } = await pousserNotification(admin, n, appareils[n.user_id] ?? [])
+      if (statut === "envoye") envoyes++; else echecs++
+      continue
+    }
+    await admin.from("notifications").update({ push_statut: d.push_statut, push_prevu_le: iso(d.push_prevu_le) })
+      .eq("id", n.id).eq("push_statut", "reporte")
+    autres[d.push_statut] = (autres[d.push_statut] ?? 0) + 1
+  }
+  return json({ ok: true, dues: dus.length, envoyes, echecs, autres, configure: cles.ok })
+}
+
+// ── Mode « test » : l'utilisateur connecté, ses propres appareils ───────────
+async function modeTest(req: Request) {
+  const qui = await identifierAppelant(req)
+  if (!qui.ok) return qui.reponse
+
+  const cles = lireClesVapid()
+  const { data: abonnements, error } = await qui.admin
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth, appareil")
+    .eq("user_id", qui.userId)
+  if (error) return json({ error: "Lecture des abonnements impossible." }, 500)
+
+  // Le test est écrit dans la boîte de l'appelant dans tous les cas, avec son
+  // statut réel (serveur non configuré, aucun appareil…).
+  const charge = chargeUtileTest()
+  const plan = planifierTest({ nbAppareils: abonnements?.length ?? 0, vapidConfiguree: cles.ok })
+  const { data: notif, error: errIns } = await qui.admin.from("notifications").insert({
+    user_id: qui.userId, type: TYPE_TEST, titre: charge.title, texte: charge.body, lien: charge.url,
+    cle_regroupement: null, push_statut: plan.push_statut,
+  }).select("id").single()
+  if (errIns) console.warn("send-push : écriture du test en boîte impossible", errIns.message)
+
+  if (!cles.ok) return json({ configure: false, code: cles.code, error: cles.erreur, ecrit_en_boite: !errIns }, cles.statut)
+  if (!abonnements?.length) {
+    return json({ ok: false, code: "aucun_appareil", error: "Aucun appareil enregistré : activez d'abord les notifications.", ecrit_en_boite: !errIns }, 409)
+  }
+  webpush.setVapidDetails(cles.sujet, cles.publique, cles.privee)
+  const resultats = await envoyerAuxAppareils(qui.admin, abonnements as Abonnement[], charge)
+  const resume = resumerEnvoi(resultats)
+  if (notif?.id) {
+    const statut = statutApresEnvoi(resultats)
+    await qui.admin.from("notifications").update({
+      push_statut: statut, push_envoye_le: statut === "envoye" ? new Date().toISOString() : null,
+    }).eq("id", notif.id)
+  }
+  return json({
+    ok: resume.envoyes > 0,
+    ...resume,
+    ecrit_en_boite: !errIns,
+    details: resultats.map(({ appareil, ok, statut, suite }) => ({ appareil, ok, statut, suite })),
+  })
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
   if (req.method === "GET") {
@@ -107,33 +325,18 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Méthode non autorisée." }, 405)
 
   try {
-    const demande = validerDemandeSendPush(await req.json().catch(() => ({})))
+    const corps = await req.json().catch(() => ({}))
+    const demande = validerDemandeSendPush(corps)
     if (!demande.ok) return json({ error: demande.erreur }, demande.statut)
 
-    // ── Mode « test » : l'utilisateur connecté, ses propres appareils ───────
-    const qui = await identifierAppelant(req)
-    if (!qui.ok) return qui.reponse
-
-    const cles = lireClesVapid()
-    if (!cles.ok) return json({ configure: false, code: cles.code, error: cles.erreur }, cles.statut)
-    webpush.setVapidDetails(cles.sujet, cles.publique, cles.privee)
-
-    const { data: abonnements, error } = await qui.admin
-      .from("push_subscriptions")
-      .select("id, endpoint, p256dh, auth, appareil")
-      .eq("user_id", qui.userId)
-    if (error) return json({ error: "Lecture des abonnements impossible." }, 500)
-    if (!abonnements?.length) {
-      return json({ ok: false, code: "aucun_appareil", error: "Aucun appareil enregistré : activez d'abord les notifications." }, 409)
+    if (demande.serveur) {
+      // Secret serveur vérifié AVANT toute lecture.
+      if (!estAppelServeur(req)) return json({ error: "Réservé aux appels du serveur." }, 401)
+      const admin = clientServeur()
+      if (!admin) return json({ error: "Configuration serveur incomplète." }, 500)
+      return demande.mode === "reportes" ? await modeReportes(admin) : await modeServeur(admin, corps)
     }
-
-    const resultats = await envoyerAuxAppareils(qui.admin, abonnements as Abonnement[], chargeUtileTest())
-    const resume = resumerEnvoi(resultats)
-    return json({
-      ok: resume.envoyes > 0,
-      ...resume,
-      details: resultats.map(({ appareil, ok, statut, suite }) => ({ appareil, ok, statut, suite })),
-    })
+    return await modeTest(req)
   } catch (err) {
     return json({ error: (err as Error).message }, 500)
   }

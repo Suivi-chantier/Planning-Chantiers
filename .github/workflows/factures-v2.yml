@@ -5,6 +5,10 @@ on:
       - 'src/Renovation/RapprochementFactures.jsx'
       - 'src/Renovation/rapprochementFactures.mjs'
       - 'src/Renovation/PageEncoursFournisseurs.jsx'
+      - 'src/Renovation/VueAchatsParMois.jsx'
+      - 'src/Renovation/achatsParMois.mjs'
+      - 'src/Renovation/encoursDoc.js'
+      - 'scripts/verif-achats-par-mois.mjs'
       - 'tests/rapprochementFactures.test.mjs'
       - '.github/workflows/factures-v2.yml'
   workflow_dispatch:
@@ -19,4 +23,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --test tests/rapprochementFactures.test.mjs
+      - name: Achats par mois de commande (module, données fictives)
+        run: node scripts/verif-achats-par-mois.mjs
       - run: npm run build

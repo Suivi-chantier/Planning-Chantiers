@@ -340,6 +340,215 @@ brouillon », 19 « en attente », 0 accepté, 0 refusé, **3 introuvables**
 (devis supprimés dans ProGBat). Aucun chiffrage n'est encore rattaché à un
 chantier (`chantier_projets` vide) : ces statuts n'apparaîtront sur les fiches
 chantier qu'après rattachement (lot 2).
+### Lot 5 — Opérations devient la porte d'entrée
+
+**Bureau (conducteurs, comptable, commerciaux, direction).**
+- **Menu** : « Opérations » remonte juste sous le tableau de bord ;
+  « Chantiers » (la liste) **disparaît du menu**, sur ordinateur comme sur
+  téléphone. Quelqu'un qui avait réordonné son menu garde son ordre ;
+  Opérations y apparaît (en fin de liste s'il ne l'avait pas encore).
+- **Page Opérations** : onglets **À l'étude · En cours · Terminées · Perdues ·
+  Sans chantier**, chacun avec son nombre. Le statut de l'opération est celui
+  du lot 2, calculé à partir de ses chantiers, jamais saisi. Une opération est
+  dans un seul onglet. « Sans chantier » (opération vide, ou dont tous les
+  chantiers sont archivés) a son propre onglet, **toujours affiché**, même à 0 :
+  une opération vide n'est ni « à l'étude » ni « terminée ». Un onglet vide
+  l'écrit (« Aucune opération perdue. »). L'onglet choisi est retenu sur
+  l'appareil ; par défaut « En cours » (ou le premier onglet non vide).
+- **Fiche d'une opération** : en-tête, client et chargé d'affaires (lot 2),
+  puis **« Chantiers et cycle de vie »** : la synthèse (« 2/5 devis
+  signés »…) et **la liste de ses chantiers**, chacun avec sa couleur, son
+  statut et sa **mini-frise** (envoyé, signé, autorisation, préparé,
+  réceptionné). **Un clic sur un chantier ouvre sa fiche.** Si les étapes ne
+  se chargent pas, la liste reste et chaque ligne dit « frise indisponible ».
+  Puis les onglets habituels : Synthèse (indicateurs), Chemin de fer,
+  Planifier.
+- **Fiche chantier** : **inchangée**, avec en plus en haut le fil d'Ariane
+  **« Opérations › nom de l'opération › chantier »**. Cliquer sur le nom de
+  l'opération y revient ; « Opérations » ramène à la liste. Le bouton
+  « Retour » devient **« Retour à l'opération »**. Opération introuvable :
+  « Opération introuvable » en rouge (jamais un vide).
+- **Liens « ouvrir le chantier » existants** : il y en a trois, tous vérifiés
+  et passés par le même chemin (`ouvrirFicheChantier` dans `App.jsx`) :
+  Opérations (clic sur un chantier), Alertes (clic sur une alerte), Notes des
+  ouvriers (nom du chantier). Ils ouvrent la fiche directement, comme avant.
+  Les liens « Chantiers » du Journal des MAJ mènent maintenant à Opérations.
+
+**Ouvriers : rien ne change.** L'espace ouvrier est un écran à part (routé
+dès la connexion pour le rôle ouvrier) ; son onglet « Opérations » / ses
+chantiers restent en accès direct, sans passer par la page bureau. Aucun
+fichier de l'espace ouvrier n'est modifié.
+
+**Qui voit quoi** — lu en base le 06/11/2026
+(`planning_config.access_pages_renovation`), avant / après. Rappel de la
+règle : la liste enregistrée en base remplace la liste par défaut pour chaque
+rôle, **sauf l'administrateur**, qui reçoit en plus automatiquement toute
+page de sa liste par défaut (fin de `loadAccessConfig`).
+
+| Rôle (comptes actifs) | Opérations avant | Opérations après | Fiche chantier (`chantiers`) | Liste Chantiers dans le menu |
+|---|---|---|---|---|
+| Administrateur (4) | oui, par attribution automatique seulement | **oui** (en base + automatique) | oui | non (était oui) |
+| Super administrateur (0) | non | **oui** | oui | non (était oui) |
+| Conducteur de travaux (0) | non | **oui** | oui | non (était oui) |
+| Comptable (1) | non | **oui** | oui | non (était oui) |
+| Commercial (2) | non | **oui** | oui | non (était oui) |
+| Ouvrier (7) | non | non | non (espace ouvrier) | — |
+
+Comptes actifs lus dans `utilisateurs` le 06/11/2026 (un compte
+« agent_edl » existe aussi : rôle sans liste Rénovation, inchangé).
+
+- Modification en base, **appliquée avant la fusion** (compatible avec
+  l'ancien code : Opérations existait déjà ; avec l'ancien code, ces rôles
+  voient simplement une entrée de menu de plus). **Rien n'est retiré** :
+  « chantiers » reste dans chaque liste, il porte désormais le droit d'ouvrir
+  la fiche. Seule la ligne `access_pages_renovation` est modifiée (une page
+  ajoutée à 5 rôles : 24→25, 22→23, 16→17, 18→19, 9→10 pages). Aucune
+  policy, fonction ou rôle touché.
+- **Sauvegarde** : `planning_config_sauvegarde_refonte`, ligne **id 4**,
+  motif « lot5 : avant ajout de operations aux rôles qui ont chantiers
+  (06/11/2026) ».
+- Script appliqué : `sql/202611_refonte_operations_lot5_acces.sql` ;
+  **retour arrière** : `sql/202611_refonte_operations_lot5_acces_rollback.sql`
+  (retire « operations » seulement des rôles qui ne l'avaient pas dans la
+  sauvegarde ; option de restauration exacte).
+- `src/access.js` (listes par défaut) : « operations » ajouté au commercial
+  (les autres l'avaient déjà) ; la page « chantiers » s'appelle « Fiche
+  chantier (via Opérations) » dans Réglages → Accès.
+- **À savoir** : la page Opérations montre les chiffres de l'opération
+  (vendu, marges) ; les commerciaux et le comptable les voyaient déjà sur la
+  fiche chantier (bloc financier), ils les voient maintenant aussi agrégés
+  par opération. Ils peuvent aussi « Marquer perdu » et renseigner client /
+  chargé d'affaires depuis la fiche de l'opération (bloc du lot 2). Pour le
+  restreindre : Réglages → Accès (ou lot 6, rôle chargé d'affaires).
+
+**E-mails** : aucun changement.
+
+### Lot 6 — Rôle « Chargé d'affaires »
+
+**Nouveau rôle** (identifiant technique `charge_affaires`, libellé « Chargé
+d'affaires ») que l'administrateur peut attribuer dans Réglages →
+Utilisateurs. **Aucun compte ne l'a aujourd'hui** (lu en base le 06/11/2026 :
+4 administrateurs, 2 commerciaux actifs, 1 comptable, 1 agent EDL, 7
+ouvriers actifs) : rien ne change pour personne tant que Loris ne l'attribue
+pas.
+
+**Ce que fait le chargé d'affaires.**
+- Pages : **Opérations** (porte d'entrée), **fiche chantier**, **Chiffrage**,
+  **Journal des MAJ**. Il crée opérations, chantiers et clients (parcours
+  « Nouveau projet » du Chiffrage, fiche de l'opération), fait le chiffrage
+  et crée les devis dans ProGBat (bouton existant, mêmes règles de saisie).
+- Cycle de vie : il **valide les étapes des phases Étude et Contrat** (visite
+  avant chiffrage, devis envoyé, devis signé, acompte, autorisation…). Les
+  phases **Préparation, Travaux et Réception lui sont en lecture seule** :
+  les étapes s'affichent sans boutons, avec la phrase « Lecture seule : en
+  tant que chargé d'affaires, vous validez les étapes des phases Étude et
+  Contrat… ». Il ne peut pas non plus « Déclarer comme phase en cours » ni
+  « Revenir à l'automatique » (ce choix pilote toute la frise).
+- **La base le garantit aussi** : deux policies restrictives sur
+  `chantier_cycle_vie` refusent à un compte `charge_affaires` l'écriture de
+  toute étape hors Étude/Contrat (et de la phase déclarée). Pour les autres
+  rôles, rien ne change.
+- Il **n'a pas** : États financiers, Bilan de semaine, Encours fournisseurs,
+  Rapprochement factures, Heures des salariés, Réglages, ni le tableau de
+  bord, le planning, les commandes, les bibliothèques (ouvrages, matériaux :
+  modifiables par tous ceux qui les ouvrent), le phasage ou la validation.
+- Il apparaît dans la liste des chargés d'affaires proposés (opération et
+  chantier, lot 2) : la règle « comptes actifs hors ouvriers » est maintenant
+  une fonction unique testée (`estCollaborateurProposable`).
+
+**Droits en base (SQL)** : aligné sur le **commercial**, le rôle existant le
+plus proche. Cartographie faite le 06/11/2026 :
+- `est_collaborateur_actif()` ne regarde pas le rôle (fiche active suffit) :
+  **reconnu collaborateur sans modification**. `est_ouvrier()` = rôle
+  exactement « ouvrier » : **jamais traité comme un ouvrier**. Aucune
+  contrainte CHECK sur `utilisateurs.role`. Le déclencheur
+  `utilisateurs_proteger_champs_sensibles` empêche toujours un
+  non-administrateur de changer son propre rôle. **Aucune fonction ni
+  contrainte modifiée**, aucune fonction qui écrit dans
+  `invest_dossier_etapes` touchée.
+- Toutes les policies « bureau » (`NOT est_ouvrier()`) lui ouvrent, comme au
+  commercial : opérations, chantiers, clients, chiffrages, liens chiffrage →
+  chantier, journal des statuts, cycle de vie (limité ci-dessus),
+  `planning_config`.
+- Listes de rôles nommées, où il **n'est pas** ajouté (le commercial n'y est
+  pas non plus) : `facture_frais` et bucket `factures-privees` (admin,
+  conducteur, bureau, comptable), `planning_semaine_export` (admin,
+  conducteur), fonctions `conducteur_*_suggestion_materiau` (admin,
+  conducteur), `ia_jobs` (admin), `is_admin()`. Fonction
+  `portail_gestionnaire()` (admin, commercial — gestion du portail client
+  Invest) : **non ouverte** au chargé d'affaires (rôle Rénovation).
+- Fonctions serveur `admin-users` / `admin-users-local` : réservées à
+  l'administrateur, aucune liste de rôles à compléter.
+
+**Qui voit quoi** — lu en base après modification le 06/11/2026
+(`planning_config.access_pages_renovation`). Rappel : la liste en base
+remplace la liste par défaut pour chaque rôle, **sauf l'administrateur**,
+qui reçoit en plus automatiquement toute page de sa liste par défaut (fin de
+`loadAccessConfig`).
+
+| Rôle (comptes actifs) | Pages en base | Opérations | Fiche chantier | Chiffrage | Pages financières globales | Réglages |
+|---|---|---|---|---|---|---|
+| **Chargé d'affaires (0)** — nouveau | **4** : operations, chantiers, info-client, journal-maj | **oui** | **oui** | **oui** | **non** | **non** |
+| Administrateur (4) | 25 (inchangé) + attribution automatique de toute page de sa liste par défaut | oui | oui | oui | oui | oui |
+| Super administrateur (0) | 23 (inchangé) | oui | oui | oui | oui (États financiers) | oui |
+| Conducteur de travaux (0) | 17 (inchangé) | oui | oui | oui | non | non |
+| Comptable (1) | 19 (inchangé) | oui | oui | oui | oui (États financiers) | non |
+| Commercial (2) | 10 (inchangé) | oui | oui | non | non | non |
+| Ouvrier (7) | 0 (espace ouvrier) | — | — | — | — | — |
+
+- **L'administrateur voit-il le rôle ?** Oui : dans Réglages → Utilisateurs
+  (choix du rôle) et Réglages → Accès (ligne « Chargé d'affaires » réglable
+  comme les autres). Le rôle lui-même n'ajoute aucune page à l'admin.
+- **Qui d'autre ?** Personne ne voit plus ni moins qu'avant : les 6 autres
+  lignes de la configuration sont identiques à la sauvegarde (contrôlé en
+  base).
+- Modification en base, **appliquée avant la fusion** (compatible avec
+  l'ancien code : un compte qui aurait le rôle avant la fusion verrait ses 4
+  pages, la base limitant déjà le cycle de vie) :
+  - `access_roles_renovation` : rôle ajouté en fin de liste (6 → 7 rôles ;
+    sans cela il n'était pas proposé dans Réglages, la liste en base remplaçant
+    la liste par défaut) ;
+  - `access_pages_renovation` : clé `charge_affaires` ajoutée (4 pages) ;
+    rien retiré ni modifié ailleurs.
+  - **Sauvegardes** : `planning_config_sauvegarde_refonte`, lignes **id 7**
+    (`access_pages_renovation`) et **id 8** (`access_roles_renovation`), motif
+    « lot6 : avant ajout du rôle charge_affaires (06/11/2026) ». Essai d'abord
+    dans une transaction annulée (mêmes résultats).
+  - Script appliqué : `sql/202611_refonte_operations_lot6_acces.sql` ;
+    **retour arrière** : `sql/202611_refonte_operations_lot6_acces_rollback.sql`
+    (retire la seule clé et la seule entrée du rôle ; option de restauration
+    exacte).
+- Migration `supabase/migrations/20261106071527_refonte_operations_lot6.sql`
+  (version **20261106071527**, enregistrée comme appliquée) : deux policies
+  **restrictives** sur `chantier_cycle_vie` (création, modification), rien
+  d'autre. Essai complet dans une transaction annulée avec un compte
+  `charge_affaires` fictif (exemple issu des tests, données fictives : le
+  compte n'existait que dans la transaction) : collaborateur actif = vrai,
+  ouvrier = faux ; lit 46 chantiers, 19 opérations, 88 chiffrages, et
+  seulement sa propre fiche `utilisateurs` ; « Devis signé » créé puis
+  modifié ; « Plans techniques », déclaration de phase et renommage d'une
+  étape en « Plans techniques » refusés ; un administrateur réel crée et
+  modifie toujours « Plans techniques ». Après application : 7 policies sur
+  la table (5 avant). **Retour arrière** :
+  `sql/202611_refonte_operations_lot6_rollback.sql` (retire les deux
+  policies).
+- Code : `src/Renovation/roleChargeAffaires.mjs` (module pur : pages, pages
+  interdites, `peutValiderEtape`, `peutDeclarerPhase`, message de lecture
+  seule) ; rôle et pages par défaut dans `src/access.js` et dans le repli du
+  menu `Navigation.jsx` (sans cette entrée, un rôle inconnu du repli retombait
+  sur le menu administrateur) ; libellé dans `App.jsx`, `Navigation.jsx`,
+  `Admin.jsx` ; bouton « Ouvrir les Réglages » de la page Opérations réservé
+  à qui a Réglages.
+
+**À savoir** : comme le commercial, le chargé d'affaires voit les chiffres de
+vente et de marge **dans Opérations** (totaux de la liste, synthèse de chaque
+opération) et sur la fiche chantier (bloc financier, facturation). Ce ne sont
+pas des pages financières globales, mais si Loris veut les lui masquer, c'est
+une évolution à part.
+
+**E-mails** : aucun changement (relances : inchangées ; le chargé d'affaires
+désigné sur un chantier reçoit les relances comme avant, quel que soit son
+rôle).
 
 ---
 
@@ -387,6 +596,16 @@ chantier qu'après rattachement (lot 2).
 | 06/11/2026 | **Lot 4 — Facture d'acompte** : seulement si « Devis signé » est validé (table du lot 3 ou ancienne coche reprise), 50 % (`advanceRate`), refusée si une facture d'acompte existe déjà pour ce devis (synchronisation des factures ou lecture de ProGBat) ou si la lecture des factures échoue. | Anti-doublon maximal sur une écriture comptable. | — |
 | 06/11/2026 | **Lot 4 — Statut des devis** : tâche planifiée de la base (`progbat-devis-statut`, toutes les heures à 37 de 6 h à 19 h UTC) → fonction `progbat-devis-statut-cron` (GET des devis). Un devis supprimé dans ProGBat (404) est enregistré « introuvable » (valeur -1) et affiché, jamais présenté comme « pas encore lu ». | Pas de webhook ProGBat ; le dispatcher Vercel n'a pas de clé ProGBat. | `select cron.unschedule('progbat-devis-statut')`. |
 | 06/11/2026 | **Lot 4 — `progbat-quote` non redéployée.** Comparaison faite avec la version en ligne (v9) : elle sait déjà envoyer thirdId / businessId / yardId ; ses seules différences avec le dépôt sont les règles de saisie du lot 2 (contrôlées aussi par le bouton) et des fonctions d'heures du chiffrage sans effet sur le devis. | Recopier à la main 150 Ko de code de prix pour un redéploiement sans effet fonctionnel sur le lot 4 présentait plus de risque que d'intérêt. | Redéployer depuis le dépôt (`supabase functions deploy progbat-quote`). |
+| 06/11/2026 | **Lot 5 — L'identifiant de page « chantiers » est gardé** comme droit d'ouvrir la fiche chantier ; seule l'entrée de menu disparaît (liste `PAGES_HORS_MENU` de `navigationOperations.mjs`, lue par le menu latéral et la barre mobile). | Le plus prudent : aucun droit retiré, les liens existants (Alertes, Notes des ouvriers, Opérations) et les réglages d'accès en base continuent de fonctionner sans réécriture. | Retirer « chantiers » de `PAGES_HORS_MENU`. |
+| 06/11/2026 | **Lot 5 — « operations » ajouté en base** à tous les rôles qui avaient « chantiers » (admin, super_admin, conducteur, comptable, commercial), **avant la fusion**, sans rien retirer. | Compatible avec l'ancien et le nouveau code ; sans cela, ces rôles n'auraient plus eu de porte d'entrée vers leurs chantiers (la liste en base remplace la liste par défaut, sauf pour l'admin). Admin ajouté aussi pour que la ligne en base se lise seule. | `sql/202611_refonte_operations_lot5_acces_rollback.sql` (sauvegarde id 4). |
+| 06/11/2026 | **Lot 5 — La liste Chantiers reste joignable en repli**, seulement si un rôle a « chantiers » sans « operations » (cas qui n'existe plus en base) : « Retour » de la fiche y ramène alors comme avant. Sinon « Retour » ramène à l'opération, et un lien générique vers « chantiers » (Journal des MAJ) mène à Opérations. La page d'arrivée n'est jamais la liste Chantiers. | Ne jamais perdre l'accès à ses chantiers si quelqu'un modifie les accès dans Réglages → Accès. | — |
+| 06/11/2026 | **Lot 5 — Onglet « Sans chantier »** toujours affiché (même à 0), à côté des quatre onglets demandés. Onglet par défaut : En cours, sinon le premier non vide ; choix retenu sur l'appareil. | « Une impossibilité doit rester visible » : une opération vide ne doit ni disparaître ni passer pour « terminée ». | — |
+| 06/11/2026 | **Lot 5 — La liste des chantiers de la fiche Opération est le bloc « Chantiers et cycle de vie »** du lot 3 (mini-frise `resumeCycleVieChantier`), rendu cliquable, plutôt qu'un nouveau tableau. Le tableau financier des logements (onglet Synthèse) reste cliquable lui aussi. | Un seul calcul de la frise ; la liste est visible quel que soit l'onglet choisi (Synthèse, Chemin de fer, Planifier). | — |
+| 06/11/2026 | **Lot 6 — Identifiant du rôle : `charge_affaires`**, libellé « Chargé d'affaires ». | Distinct de l'identifiant de page « chantiers » ; même forme que les colonnes `charge_affaires_id` du lot 2. | `sql/202611_refonte_operations_lot6_acces_rollback.sql` (après avoir changé le rôle des comptes concernés). |
+| 06/11/2026 | **Lot 6 — Pages du rôle : Opérations, fiche chantier, Chiffrage, Journal des MAJ**, rien d'autre. Pas de tableau de bord, planning, commandes, bibliothèques, phasage. Interdites et contrôlées : États financiers, Bilan de semaine, Encours fournisseurs, Rapprochement factures, Heures des salariés, Réglages (et l'ancien identifiant « dashboard-analyse »). | Cahier des charges (« Opérations, fiche chantier et chiffrage ; pas de pages financières globales ni d'administration »). Journal des MAJ ajouté : il n'affiche aucune donnée et c'est là que les nouveautés sont expliquées. Bibliothèques exclues : ce qui y est modifié change les prix de tous les chiffrages. | Réglages → Accès (ligne « Chargé d'affaires »). |
+| 06/11/2026 | **Lot 6 — Phases autres qu'Étude et Contrat en lecture seule**, et pas de « Déclarer comme phase en cours » ; une étape dont la phase est inconnue (groupe d'exécution, échéance de facturation) est en lecture seule. Garanti **à l'écran** (`peutValiderEtape`) **et en base** (2 policies restrictives sur `chantier_cycle_vie`). | Le plus prudent ; la base empêche un contournement par un ancien onglet ou un appel direct. La liste d'étapes de la base est comparée à celle du module par `verif-refonte-lot6` : une étape en trop en base fait échouer le contrôle ; une étape ajoutée plus tard à Étude/Contrat sans migration est signalée (le chargé d'affaires verrait alors un refus d'enregistrer, jamais un droit de trop). | `sql/202611_refonte_operations_lot6_rollback.sql`. |
+| 06/11/2026 | **Lot 6 — Droits SQL alignés sur le commercial** : aucune fonction (`est_collaborateur_actif`, `est_ouvrier`, `mon_role`…) ni contrainte modifiée ; pas d'ajout aux listes de rôles nommées (factures de frais, export du planning, suggestions de matériaux, portail client Invest). | Le rôle est déjà collaborateur actif et non ouvrier ; ne lui donner aucun droit de plus qu'au commercial. | — |
+| 06/11/2026 | **Lot 6 — Configuration d'accès en base modifiée avant la fusion** (liste des rôles + pages du rôle), sans rien retirer aux autres rôles ; sauvegardes id 7 et 8. Le rôle n'est attribué à personne. | Compatible avec l'ancien code ; sans la ligne en base, le rôle n'était pas proposé dans Réglages (la liste en base remplace la liste par défaut). | `sql/202611_refonte_operations_lot6_acces_rollback.sql`. |
 
 ---
 
@@ -526,6 +745,21 @@ plus haut). Retour arrière : `sql/202611_refonte_operations_lot4_rollback.sql`.
   25/08/2025 signalée non réglée (voir « Données migrées »).
 - Lot 3 : la facture d'acompte se crée encore à la main dans ProGBat après la
   signature (automatisation au lot 4).
+- Lot 5 : rien d'obligatoire. Si les commerciaux ou le comptable ne doivent
+  pas voir les marges agrégées par opération, ou ne doivent pas pouvoir
+  « Marquer perdu », le dire : Réglages → Accès, ou rôle chargé d'affaires
+  (lot 6).
+- Lot 6 : **attribuer le rôle « Chargé d'affaires »** aux personnes qui
+  portent les affaires (Réglages → Utilisateurs → modifier → Rôle). Aucun
+  compte ne l'a aujourd'hui. Attention : un commercial qui passe chargé
+  d'affaires perd les pages qu'il avait en plus (tableau de bord, planning,
+  notes, équipe, plans, notes des ouvriers) et gagne le Chiffrage ; ajuster
+  si besoin dans Réglages → Accès. Puis, sur chaque opération en cours,
+  choisir ce chargé d'affaires (Opérations → fiche de l'opération).
+- Lot 6 : dire si le chargé d'affaires doit voir le tableau de bord, le
+  planning ou les plans (non par défaut), et s'il doit ne pas voir les
+  totaux de vente et de marge de la page Opérations (visibles aujourd'hui,
+  comme pour le commercial).
 
 - Lot 4 : **ajouter des droits à l'application ProGBat** dont le jeton est
   `PROGBAT_PRIVATE_ACCESS_TOKEN` (celui des devis), sur le « Portail
@@ -694,3 +928,55 @@ dossier.
 10. **Coupure** : si un message « état incertain » apparaît, vérifier dans
     ProGBat ; « J'ai vérifié dans ProGBat : rien n'a été créé » rouvre la
     création.
+### Lot 5
+
+1. **Menu** (compte administrateur, sur ordinateur puis sur téléphone) :
+   « Chantiers » n'apparaît plus ; « Opérations » est sous le tableau de bord.
+2. **Opérations** : cinq onglets avec leur nombre (À l'étude, En cours,
+   Terminées, Perdues, Sans chantier) ; la somme des nombres = le nombre
+   d'opérations en haut de page. Ouvrir « Sans chantier » : une opération
+   sans logement y figure (ou « Aucune opération sans chantier. »).
+3. **Fiche d'une opération en cours** : bloc « Chantiers et cycle de vie »
+   avec un chantier par ligne (statut + mini-frise) ; les onglets Synthèse,
+   Chemin de fer, Planifier fonctionnent comme avant.
+4. **Clic sur un chantier** : la fiche chantier habituelle s'ouvre, avec
+   « Opérations › nom de l'opération › chantier » en haut. Cliquer sur le nom
+   de l'opération → retour à la fiche de l'opération ; « Retour à
+   l'opération » → idem ; « Opérations » → la liste, sur le dernier onglet
+   choisi.
+5. **Alertes** → cliquer une alerte : la fiche du chantier s'ouvre. **Notes
+   des ouvriers** → cliquer le nom d'un chantier : idem.
+6. **Journal des MAJ** → une entrée qui cite « Chantiers » : le lien mène à
+   Opérations.
+7. **Compte commercial ou comptable** : Opérations est dans le menu, la fiche
+   d'un chantier s'ouvre depuis l'opération ; Chantiers n'est plus dans le
+   menu.
+8. **Compte ouvrier** (téléphone) : l'espace ouvrier est identique ; l'onglet
+   des chantiers s'ouvre directement.
+
+### Lot 6
+
+1. **Administrateur → Réglages → Utilisateurs** : modifier un compte de test,
+   la liste des rôles propose « Chargé d'affaires » ; l'enregistrer.
+   **Réglages → Accès** : une ligne « Chargé d'affaires » avec Opérations,
+   Fiche chantier, Chiffrage et Journal des MAJ cochés, rien d'autre.
+2. **Se connecter avec ce compte** : le menu montre Opérations, Chiffrage et
+   Journal des MAJ (la fiche chantier s'ouvre depuis une opération). Pas de
+   tableau de bord, États financiers, Bilan, Encours, Factures, Heures,
+   Réglages. À la connexion, la page d'arrivée est Opérations.
+3. **Chiffrage → Nouveau projet** : créer une opération, un chantier, un
+   client ; le chiffrage s'ouvre. Le bouton « Créer le devis dans ProGBat »
+   suit les mêmes règles qu'avant (ne pas cliquer sur un vrai dossier pour
+   tester).
+4. **Fiche d'un chantier → Cycle de vie** : phase Étude, cocher « Visite
+   avant chiffrage » puis la décocher : enregistré. Phase Contrat : importer
+   un devis signé de test avec une date, puis le dé-valider : enregistré.
+5. Cliquer **Préparation**, **Travaux**, **Réception** : les étapes
+   s'affichent sans boutons, avec « Lecture seule : … ». Aucun bouton
+   « Déclarer comme phase en cours ».
+6. **Opérations → fiche d'une opération** : la liste des chargés d'affaires
+   propose ce compte (en compte administrateur : tous les collaborateurs
+   actifs hors ouvriers, chargé d'affaires compris).
+7. **Compte conducteur / administrateur** : la frise se valide sur toutes les
+   phases comme avant.
+8. Remettre le compte de test à son rôle d'origine.

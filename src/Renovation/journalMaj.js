@@ -24,6 +24,38 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "amelioration",
+    titre: "Bilan de semaine et Alertes s'ouvrent plus vite",
+    pages: [{ id: "bilan-semaine", label: "Bilan de semaine" }, { id: "alertes", label: "Alertes" }],
+    quoi: "À chaque ouverture, le Bilan de semaine téléchargeait environ 13 Mo de données, dont 8 Mo de relevés journaliers dont il n'utilisait qu'une petite partie (environ 300 relevés sur 2 500). Il ne télécharge plus que ce qui sert : les points d'attention, la progression et les finances s'affichent plus vite, surtout sur téléphone ou en 4G. Aucun chiffre ne change.",
+    comment: "Rien à faire : la page s'ouvre comme avant. Les relevés réellement utilisés (le dernier de chaque chantier pour chaque semaine) sont lus en entier, les autres ne sont plus téléchargés ; les longues listes (journal d'avancement, pointages, lignes de commande) sont lues par paquets en parallèle au lieu de l'une après l'autre, et les phasages ne sont plus lus deux fois.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Nouveau rôle « Chargé d'affaires » : opérations, chantiers, clients, chiffrage et devis, sans les finances globales ni les réglages",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }, { id: "info-client", label: "Chiffrage" }, { id: "admin", label: "Réglages" }],
+    quoi: "Un nouveau rôle peut être attribué aux personnes qui portent les affaires, de la première visite à la signature. Le chargé d'affaires voit Opérations, la fiche chantier, le Chiffrage et le Journal des MAJ. Il crée les opérations, les chantiers et les clients, fait le chiffrage, crée les devis dans ProGBat et valide les étapes des phases Étude et Contrat du cycle de vie (visite avant chiffrage, devis envoyé, devis signé, acompte, autorisation). Les phases Préparation, Travaux et Réception lui sont en lecture seule, comme le choix de la phase en cours : l'écran l'indique, et la base de données refuse aussi l'enregistrement. Il ne voit ni les États financiers, ni le Bilan, ni les encours et factures fournisseurs, ni les heures des salariés, ni les Réglages. Il apparaît dans la liste des chargés d'affaires des opérations et des chantiers. Aucun compte n'a encore ce rôle : rien ne change pour personne tant qu'un administrateur ne l'attribue pas.",
+    comment: "Administrateur : Réglages → Utilisateurs, modifier la personne et choisir le rôle « Chargé d'affaires ». Les pages de ce rôle se règlent comme les autres dans Réglages → Accès. Chargé d'affaires : menu → Opérations, puis une opération et un chantier ; dans « Cycle de vie du chantier », les étapes Étude et Contrat se valident comme d'habitude ; sur les autres phases, les étapes sont affichées sans boutons, avec la mention « Lecture seule ». Un nouveau chiffrage se lance depuis Chiffrage → « Nouveau projet ».",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Opérations devient la porte d'entrée : onglets À l'étude, En cours, Terminées, Perdues, et la fiche chantier s'ouvre depuis son opération",
+    pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Fiche chantier" }],
+    quoi: "On retrouve ses chantiers en partant de l'opération (l'immeuble), puis du logement. La page Opérations est rangée en onglets selon le statut de l'opération, calculé à partir de ses chantiers : À l'étude, En cours, Terminées, Perdues, et un onglet « Sans chantier » pour les opérations encore vides, pour qu'aucune ne disparaisse. La fiche d'une opération montre son client, la liste de ses chantiers avec la mini-frise d'avancement de chacun (devis envoyé, signé, autorisation, préparé, réceptionné), puis les onglets habituels (synthèse financière, chemin de fer, planifier). La page Chantiers (la liste) n'est plus dans le menu : la fiche chantier, elle, ne change pas. Tous ceux qui voyaient la page Chantiers voient maintenant Opérations. L'espace ouvrier ne change pas : les ouvriers gardent leur accès direct à leurs chantiers.",
+    comment: "Menu → Opérations (juste sous le tableau de bord) : choisissez un onglet, puis cliquez sur une opération. Dans « Chantiers et cycle de vie », cliquez sur un chantier : sa fiche s'ouvre, avec en haut « Opérations › nom de l'opération › chantier ». Cliquez sur le nom de l'opération (ou sur « Retour à l'opération ») pour revenir à l'opération, ou sur « Opérations » pour revenir à la liste. Les liens « ouvrir le chantier » des Alertes et des Notes des ouvriers ouvrent toujours la fiche directement.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Encours fournisseurs : nouvelle vue « Par mois d'achat » (ce qu'on a acheté chaque mois, par fournisseur et par chantier)",
+    pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "L'encours range les montants au mois où on les paie (utile pour la trésorerie). La nouvelle vue range chaque achat au mois où il a été commandé ou acheté : on voit combien on a acheté en octobre, chez qui, et pour quel chantier — pour suivre les coûts et les marges et comparer avec l'avancement du mois. Exemple : les BL Rexel d'octobre restent en octobre même si la facture récapitulative n'est à payer qu'en novembre.",
+    comment: "En haut de la page Encours fournisseurs, choisir « Par mois d'achat » (le choix est retenu sur l'appareil). Trois chiffres pour le mois en cours : acheté, dont facturé, dont en attente de facture. Chaque mois se déplie en « Par fournisseur » (liste des documents avec les badges facturé / en attente / écart) ou « Par chantier » (les achats sans chantier apparaissent en orange dans « À affecter »). Filtres fournisseur, chantier et statut ; export PDF. Un BL d'un mois terminé encore en attente chez un fournisseur à facture récapitulative, alors que la facture du mois est saisie, porte le badge rouge « absent de la facture » : c'est à réclamer au fournisseur.",
+  },
+  {
+    date: "2026-11-06",
     type: "nouveaute",
     titre: "ProGBat : le client et le chantier se créent depuis le chiffrage, la facture d'acompte depuis la fiche chantier, et le statut du devis remonte tout seul",
     pages: [{ id: "operations", label: "Opérations" }, { id: "info-client", label: "Chiffrage" }, { id: "chantiers", label: "Chantiers" }, { id: "admin", label: "Réglages" }],

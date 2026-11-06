@@ -1,0 +1,30 @@
+name: Verify Refonte Opérations, lot 5 (Opérations porte d'entrée, navigation, accès)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'sql/202611_refonte_operations_lot5*'
+      - 'scripts/verif-refonte-lot5.mjs'
+      - '.github/workflows/verify-refonte-lot5.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Dépendances (build)
+        run: npm ci
+      - name: Onglets par statut d'opération, menu sans Chantiers, liens vers la fiche, accès par rôle, espace ouvrier
+        run: node scripts/verif-refonte-lot5.mjs
+      - name: Build Vite (Opérations, fiche chantier, menu)
+        run: npm run build

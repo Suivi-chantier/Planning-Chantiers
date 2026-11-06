@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { supabase } from "../supabase";
 import { controlerFiche, genererCodeClient } from "./reglesSaisieProgbat.js";
+import { estCollaborateurProposable } from "./roleChargeAffaires.js";
 
 const COLS_CLIENT = "id, type, nom, prenom, raison_sociale, contact_nom, adresse, adresse_complement, code_postal, ville, pays, email, telephone, code_progbat, progbat_client_id, archive_le, created_at, updated_at";
 const CHAMPS_SAISIS = ["type", "nom", "prenom", "raison_sociale", "contact_nom", "adresse", "adresse_complement", "code_postal", "ville", "pays", "email", "telephone"];
@@ -75,7 +76,9 @@ export async function enregistrerClient(fiche, { id = null } = {}) {
 export async function chargerCollaborateurs() {
   const { data, error } = await supabase.from("utilisateurs").select("id, nom, email, role, actif").order("nom");
   if (error) return { collaborateurs: [], complete: false, erreur: error.message };
-  const collaborateurs = (data || []).filter((u) => u.actif !== false && u.role !== "ouvrier");
+  // Lot 6 : règle unique (roleChargeAffaires.mjs) — actifs hors ouvriers, le
+  // rôle « Chargé d'affaires » compris.
+  const collaborateurs = (data || []).filter(estCollaborateurProposable);
   return { collaborateurs, complete: (data || []).length > 1, erreur: null };
 }
 

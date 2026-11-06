@@ -131,23 +131,38 @@ export function chargeUtileTest() {
 
 /**
  * Modes acceptés par send-push.
- *  - "test"    : l'utilisateur connecté s'envoie un test sur tous SES appareils
- *                (fonctionne même quand l'interrupteur général est coupé).
- *  - "serveur" : envois automatiques (destinataires par rôle, préférences,
- *                plage de silence, boîte de réception). Réservé à un appel
- *                serveur muni d'un secret ; arrive en tâche 2, refusé ici.
+ *  - "test"     : l'utilisateur connecté s'envoie un test sur tous SES appareils
+ *                 (fonctionne même quand l'interrupteur général est coupé et
+ *                 pendant la plage de silence). Écrit aussi dans sa boîte.
+ *  - "serveur"  : envoi automatique d'un type du catalogue (destinataires par
+ *                 rôle, préférences, plage de silence, boîte de réception).
+ *                 Réservé à un appel serveur muni de la clé service role.
+ *                 `simulation: true` : aucun envoi, aucune écriture.
+ *  - "reportes" : rattrapage des push reportés dont l'heure est venue
+ *                 (job ?job=push_reportes du dispatcher). Même secret.
  */
-export const MODES_SEND_PUSH = Object.freeze(["test", "serveur"]);
+export const MODES_SEND_PUSH = Object.freeze(["test", "serveur", "reportes"]);
+export const MODES_SERVEUR = Object.freeze(["serveur", "reportes"]);
 
 export function validerDemandeSendPush(corps) {
   const mode = String(corps?.mode || "test");
   if (!MODES_SEND_PUSH.includes(mode)) {
     return { ok: false, statut: 400, erreur: "Mode d'envoi inconnu." };
   }
-  if (mode === "serveur") {
-    return { ok: false, statut: 501, erreur: "Envois automatiques pas encore disponibles (étape 2 du projet)." };
-  }
-  return { ok: true, mode };
+  return { ok: true, mode, serveur: MODES_SERVEUR.includes(mode) };
+}
+
+/**
+ * Le jeton présenté est-il la clé serveur (service role) ? Comparaison sans
+ * sortie anticipée. Clé absente du serveur → toujours faux (fermé par défaut).
+ */
+export function estCleServeur(jeton, cleServeur) {
+  const a = String(jeton || "");
+  const b = String(cleServeur || "");
+  if (!a || !b) return false;
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) diff |= (a.charCodeAt(i % (a.length || 1)) ^ b.charCodeAt(i));
+  return diff === 0;
 }
 
 /**

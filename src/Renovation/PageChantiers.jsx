@@ -40,6 +40,8 @@ import {
   chargerRelances, chargerReglagesRelances,
 } from "./cycleVieDonnees";
 import { decisionRelance, referencesRelances } from "./relancesCycleVie";
+// Lot 6 : le chargé d'affaires ne valide que les étapes Étude et Contrat.
+import { peutValiderPhase, peutDeclarerPhase, messageLectureSeule } from "./roleChargeAffaires";
 import { lienProgbat } from "./progbatLiens";
 import { lienGoogleAgenda, adresseChantierAgenda } from "./agendaGoogle";
 import {
@@ -84,6 +86,7 @@ const DiagrammeFinancierChart = React.lazy(() => import("./DiagrammeFinancierCha
 import { Icon } from "../ui";
 import { CARD_SHADOW, SummaryBar, MobileTabs } from "../mobileUI";
 import { useIsMobile } from "./Navigation";
+import { filArianeChantier } from "./navigationOperations.js";
 import {
   HardHat, Building2, ArrowLeft, Pencil, Camera, Link2, MapPin,
   ChevronLeft, ChevronRight, ExternalLink, X, Check, ClipboardList,
@@ -859,7 +862,10 @@ function EtapeCycleVie({ etape, peutModifier, actions, T }) {
 // le positionnement vient de computeCycleVie (src/Renovation/cycleVie.js),
 // sur le modèle de la frise CRM Invest — phase déclarée à la main PRIORITAIRE,
 // phase déduite toujours visible à côté, raisons affichées.
-function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier, onDeclarer, actionsEtape, enrichirEtape, anciennesPieces = [], erreurChargement = null, T }) {
+function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturation, peutModifier: peutModifierBase, role = "commercial", onDeclarer, actionsEtape, enrichirEtape, anciennesPieces = [], erreurChargement = null, T }) {
+  // Lot 6 (roleChargeAffaires.mjs) : déclarer la phase à la main est fermé au
+  // chargé d'affaires ; les étapes ne sont modifiables que dans ses phases.
+  const peutModifier = !!peutModifierBase && peutDeclarerPhase(role);
   const [saving, setSaving] = useState(false);
   const [phaseVue, setPhaseVue] = useState(null); // phase consultée (null = suivre la phase en cours)
   const surface   = T?.surface   || "#262a32";
@@ -993,6 +999,8 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
               return enrichirEtape ? enrichirEtape(ev) : ev;
             });
             const estPhaseCourante = phaseVueId === cv.phaseId;
+            const peutModifierEtapes = !!peutModifierBase && peutValiderPhase({ role, phaseId: phaseVueId });
+            const lectureSeule = peutModifierBase ? messageLectureSeule({ role, phaseId: phaseVueId }) : null;
             return (
               <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${border}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
@@ -1028,6 +1036,11 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
                     </>
                   )}
                 </div>
+                {lectureSeule && (
+                  <div style={{ fontSize: FONT.xs.size + 1, color: textMuted, fontWeight: 600, marginBottom: 8 }}>
+                    {lectureSeule}
+                  </div>
+                )}
                 {etapes.length === 0 ? (
                   <div style={{ fontSize: FONT.sm.size, color: textMuted, fontStyle: "italic" }}>
                     {cvCtx?.phasageExiste ? "Aucun groupe d'exécution défini dans la vue chrono du phasage." : "Aucun phasage lié à ce chantier : les groupes d'exécution apparaîtront avec le phasage."}
@@ -1035,7 +1048,7 @@ function FriseCycleVie({ cv, cvCtx, chronoGroupes, statsGroupes, etapesFacturati
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {etapes.map(e => (
-                      <EtapeCycleVie key={e.id} etape={e} peutModifier={peutModifier} actions={actionsEtape} T={T}/>
+                      <EtapeCycleVie key={e.id} etape={e} peutModifier={peutModifierEtapes} actions={actionsEtape} T={T}/>
                     ))}
                   </div>
                 )}
@@ -1810,7 +1823,7 @@ function NotesChantier({ chantierId, T, accent }) {
 }
 
 // ─── PAGE PRINCIPALE ──────────────────────────────────────────────────────────
-export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, tauxFG = null, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed }) {
+export default function PageChantiers({ chantiers = [], setChantiers, saveConfig, tauxHoraires = {}, tauxMOPrev = 0, tauxFG = null, T, profil = null, branch = "renovation", initialSelectedId = null, onSelectionConsumed, onOuvrirOperation = null }) {
   const acc = getBranchAccent(branch);
   const [phasages, setPhasages]         = useState([]);
   // P9 : pointages globaux (tous chantiers) pour dériver heures réelles + coût MO
@@ -3075,7 +3088,13 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         background: surface, borderBottom: `1px solid ${border}`,
         padding: "14px 28px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
       }}>
-        <button onClick={() => { setSelected(null); setCompteRendus([]); }} style={{
+        {/* Lot 5 : « Retour » ramène à l'opération du chantier (la liste
+            Chantiers n'est plus dans le menu) ; sans accès à Opérations ou
+            sans opération, retour à la liste comme avant. */}
+        <button onClick={() => {
+          if (onOuvrirOperation && selectedChantier?.operation_id) { onOuvrirOperation(selectedChantier.operation_id); return; }
+          setSelected(null); setCompteRendus([]);
+        }} style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           background: "transparent", border: `1px solid ${border}`,
           borderRadius: RADIUS.md, padding: "6px 12px",
@@ -3086,9 +3105,25 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           onMouseEnter={e => { e.currentTarget.style.borderColor = acc.accent; e.currentTarget.style.color = acc.accent; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = border; e.currentTarget.style.color = textSub; }}>
           <Icon as={ArrowLeft} size={14}/>
-          Retour
+          {onOuvrirOperation && selectedChantier?.operation_id ? "Retour à l'opération" : "Retour"}
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Lot 5 : fil d'Ariane Opérations › Opération › Chantier. */}
+          {(() => {
+            const fa = filArianeChantier(selectedChantier, cvD.operations || []);
+            const lien = (libelle, cible) => onOuvrirOperation
+              ? <button onClick={() => onOuvrirOperation(cible)} style={{ border: "none", background: "none", padding: 0, color: acc.accent, fontFamily: "inherit", fontSize: "inherit", fontWeight: 700, cursor: "pointer" }}>{libelle}</button>
+              : <span>{libelle}</span>;
+            return (
+              <nav aria-label="Fil d'Ariane" style={{ fontSize: FONT.xs.size + 1, color: textMuted, marginBottom: 2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {lien("Opérations", null)}<span>›</span>
+                {!cvD.charge ? <span>…</span>
+                  : fa.operationConnue ? lien(fa.operationNom, fa.operationId)
+                  : <span style={{ color: "#e15a5a", fontWeight: 700 }}>{fa.operationNom}</span>}
+                <span>›</span><span style={{ color: textSub, fontWeight: 600 }}>{fa.chantierNom}</span>
+              </nav>
+            );
+          })()}
           <h1 style={{ fontSize: FONT.xl.size, fontWeight: 800, color: text, margin: 0, letterSpacing: -0.3 }}>{selectedChantier?.nom || "Chantier"}</h1>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
             {/* Sélecteur de statut — toujours présent (même sans phasage) */}
@@ -3208,7 +3243,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
         {/* ── Frise du cycle de vie (Point 2a) : sous le bandeau QCD ── */}
         <FriseCycleVie cv={cv} cvCtx={cvCtx} chronoGroupes={chronoGroupesSelected} statsGroupes={statsGroupesSelected}
           etapesFacturation={etapesFacturationTravaux(etatFact)}
-          peutModifier={!!(cvD.charge && !cvD.erreur)} onDeclarer={declarerPhaseCV}
+          peutModifier={!!(cvD.charge && !cvD.erreur)} role={profil?.role || "commercial"} onDeclarer={declarerPhaseCV}
           enrichirEtape={enrichirEtapeCV} anciennesPieces={anciennesPiecesCV}
           erreurChargement={cvD.charge ? cvD.erreur : null}
           actionsEtape={{
