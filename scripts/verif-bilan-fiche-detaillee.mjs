@@ -15,7 +15,7 @@
 //     les totaux du relevé ;
 //   - cascade conditionnelle (projet « Bilan détaillé », étape 6) : cascade
 //     seulement si la marge probable baisse de plus du seuil ou si la pastille
-//     est rouge ; sinon « Marge probable stable (±X €) » ou « en hausse » ;
+//     est rouge ; sinon « Marge probable stable (−X €) / (+X €), écart signé » ou « en hausse » ;
 //     évolution inconnue → cascade (jamais un « stable » inventé) ;
 //   - méthode de calcul (étape 7) : absente par défaut, présente sur demande ;
 //     version direction inchangée (même HTML qu'avant la tâche 3).
@@ -179,14 +179,17 @@ const verifierCascade = (r, nom) => {
   ok(A({ evolutionMargeProbable: -800, couleurPastille: "vert", seuilBaisse: 500 }).afficherCascade, "baisse de 800 € > seuil 500 € : cascade");
   ok(A({ evolutionMargeProbable: 0, couleurPastille: "rouge", seuilBaisse: 500 }).afficherCascade, "pastille rouge sans baisse : cascade");
   const stable = A({ evolutionMargeProbable: -200, couleurPastille: "vert", seuilBaisse: 500 });
-  ok(!stable.afficherCascade && stable.texte === `Marge probable stable (±200${N}€)`, "baisse de 200 € ≤ seuil : « Marge probable stable (±200 €) »");
-  ok(A({ evolutionMargeProbable: -500, couleurPastille: "orange", seuilBaisse: 500 }).texte === `Marge probable stable (±500${N}€)`, "baisse égale au seuil : stable (même règle que la pastille)");
-  ok(A({ evolutionMargeProbable: 350.4, couleurPastille: "vert", seuilBaisse: 500 }).texte === `Marge probable stable (±350${N}€)`, "petite hausse : stable, arrondie à l'euro");
+  ok(!stable.afficherCascade && stable.texte === `Marge probable stable (−200${N}€)`, "baisse de 200 € ≤ seuil : « Marge probable stable (−200 €) », écart signé");
+  ok(A({ evolutionMargeProbable: -500, couleurPastille: "orange", seuilBaisse: 500 }).texte === `Marge probable stable (−500${N}€)`, "baisse égale au seuil : stable (même règle que la pastille)");
+  ok(A({ evolutionMargeProbable: 350.4, couleurPastille: "vert", seuilBaisse: 500 }).texte === `Marge probable stable (+350${N}€)`, "petite hausse : stable (+350 €), arrondie à l'euro");
+  ok(A({ evolutionMargeProbable: -216.6, couleurPastille: "vert", seuilBaisse: 500 }).texte === `Marge probable stable (−217${N}€)`, "petite baisse : « stable (−217 €) », signe moins typographique");
+  ok(A({ evolutionMargeProbable: 0, couleurPastille: "vert", seuilBaisse: 500 }).texte === `Marge probable stable (0${N}€)`, "aucun écart : « stable (0 €) », sans signe");
+  ok(A({ evolutionMargeProbable: 0.4, couleurPastille: "vert", seuilBaisse: 500 }).texte === `Marge probable stable (0${N}€)`, "écart de moins de 0,5 € : « 0 € », comme les euros signés du PDF");
   const hausse = A({ evolutionMargeProbable: 1800, couleurPastille: "vert", seuilBaisse: 500 });
   ok(!hausse.afficherCascade && hausse.texte === `Marge probable en hausse (+1${N}800${N}€)`, "hausse de plus du seuil : « en hausse », jamais « stable »");
   const inconnue = A({ evolutionMargeProbable: null, couleurPastille: "vert", seuilBaisse: 500 });
   ok(inconnue.afficherCascade && inconnue.texte === null, "évolution inconnue : cascade, aucun « stable » inventé");
-  ok(A({ evolutionMargeProbable: -800, couleurPastille: "vert", seuilBaisse: 1000 }).texte === `Marge probable stable (±800${N}€)`, "le seuil vient du paramètre (1 000 €)");
+  ok(A({ evolutionMargeProbable: -800, couleurPastille: "vert", seuilBaisse: 1000 }).texte === `Marge probable stable (−800${N}€)`, "le seuil vient du paramètre (1 000 €)");
 
   // De bout en bout : synthèse du Bilan → fiches → PDF détaillé.
   const P44 = B.periodeSemaineV3("2026-W44");
@@ -214,7 +217,7 @@ const verifierCascade = (r, nom) => {
   const cascade = html => html.includes("<th>Du devis au probable</th>");
   ok(cascade(fiche("BAISSE")), "PDF (données fictives) : cascade pour la marge probable en baisse de 800 €");
   ok(cascade(fiche("NEGATIVE")), "PDF (données fictives) : cascade pour la pastille rouge sans baisse");
-  ok(!cascade(fiche("STABLE")) && fiche("STABLE").includes(`Marge probable stable (±200${N}€)`), "PDF (données fictives) : « Marge probable stable (±200 €) » sans cascade");
+  ok(!cascade(fiche("STABLE")) && fiche("STABLE").includes(`Marge probable stable (−200${N}€)`), "PDF (données fictives) : « Marge probable stable (−200 €) » sans cascade");
   ok(!cascade(fiche("HAUSSE")) && fiche("HAUSSE").includes(`Marge probable en hausse (+800${N}€)`) && !fiche("HAUSSE").includes("stable"), "PDF (données fictives) : « en hausse (+800 €) » sans cascade");
   ok(cascade(fiche("INCONNU")) && !fiche("INCONNU").includes("Marge probable stable"), "PDF (données fictives) : évolution inconnue → cascade");
   ok(["BAISSE", "STABLE", "HAUSSE"].every(nom => fiche(nom).includes("Constat à date")), "PDF (données fictives) : le constat à date reste sur toutes les fiches");

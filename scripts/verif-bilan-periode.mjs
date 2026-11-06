@@ -587,7 +587,7 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(/<td>TOTAL<\/td>/.test(lignes[0]) && lignes[0].includes(`1${N}000${N}€`), "PDF détaillé (données fictives) : ligne TOTAL en tête, production reprise du bandeau");
   ok(lignes[0].includes("+300") && lignes[0].includes("30" + N + "%"), "PDF détaillé (données fictives) : marge de la période du TOTAL reprise du bandeau");
   ok(lignes[1].includes("▲▼=·▲▲") && lignes[1].includes(`+600${N}€`) && lignes[1].includes("bonne"), "PDF détaillé (données fictives) : tendance « · » et évolution, fiabilité");
-  ok(lignes[2].includes("inconnue") && /<td class="n">—<\/td>/.test(lignes[2]), "PDF détaillé (données fictives) : « — » pour la fourchette, fiabilité « inconnue »");
+  ok(lignes[2].includes("inconnue") && /<td class="n retour">—<\/td>/.test(lignes[2]), "PDF détaillé (données fictives) : « — » pour la fourchette, fiabilité « inconnue »");
   ok(lignes[3].includes("relevé pas encore disponible"), "PDF détaillé (données fictives) : chantier sans relevé signalé");
   // Version mois : libellés « sur la période ».
   ok(documentBilanV3({ ...d, periode: B.periodeMoisV3("2026-10") }, { detaillee: true }).includes("Généré sur la période"), "PDF détaillé (données fictives) : libellé adapté au mois");
@@ -603,6 +603,87 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(dir.includes("Vendu HT") && dir.includes("Écart / devis") && dir.includes("Sur la période"), "PDF direction (données fictives) : tableau « Devis → probable » inchangé");
   ok(!dir.includes("Fourchette") && !dir.includes("Fiabilité") && !dir.includes("Tendance 6 semaines") && !dir.includes("TOTAL")
     && !dir.includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
+}
+
+// ── Tâche 5 du projet « Bilan détaillé » (06/11/2026) ──────────────────────
+// 1) Contrôle statique : la page Bilan charge toutes les colonnes de relevé
+//    que lisent la marge prévue au devis (margePrevueDevisReleve, appelée par
+//    syntheseChantiersV3) et la cascade « du devis au probable »
+//    (cascadeMargeDevisReleve). Sans mo_prev, la marge devis était « inconnue »
+//    partout dans le Bilan alors que la colonne est remplie en base.
+{
+  const src = p => lireFichier(new URL(p, import.meta.url), "utf8");
+  const page = src("../src/Renovation/BilanPeriode.jsx");
+  const finance = src("../src/chantierFinance.mjs");
+  const periodeV3 = src("../src/Renovation/bilanPeriodeV3.mjs");
+  const alertesSrc = src("../src/Renovation/pointsAttentionDonneesV1.mjs");
+  const colonnesDe = txt => new Set(txt.split(",").map(c => c.trim()).filter(Boolean));
+  // COLONNES_RELEVES_ALERTES_V2 : chaîne concaténée dans pointsAttentionDonneesV1.mjs.
+  const mAl = alertesSrc.match(/export const COLONNES_RELEVES_ALERTES_V2 =([\s\S]*?);/);
+  ok(!!mAl, "statique : COLONNES_RELEVES_ALERTES_V2 trouvée");
+  const alertesCols = [...mAl[1].matchAll(/"([^"]*)"/g)].map(m => m[1]).join("");
+  const mC = page.match(/const COLONNES_COMPLETES = `([^`]*)`;/);
+  ok(!!mC, "statique : COLONNES_COMPLETES trouvée dans BilanPeriode.jsx");
+  const chargees = colonnesDe(mC[1].replace("${COLONNES_RELEVES_ALERTES_V2}", alertesCols));
+  // Colonnes lues (« releve.x ») dans le corps des deux fonctions de chantierFinance.
+  const corpsFonction = (txt, nom) => {
+    const i = txt.indexOf(`export function ${nom}(`);
+    const j = txt.indexOf("\nexport ", i + 1);
+    return i < 0 ? "" : txt.slice(i, j < 0 ? undefined : j);
+  };
+  const lues = new Set();
+  for (const nom of ["margePrevueDevisReleve", "cascadeMargeDevisReleve"]) {
+    const corps = corpsFonction(finance, nom);
+    ok(corps.length > 0, `statique : ${nom} trouvée dans chantierFinance.mjs`);
+    for (const m of corps.matchAll(/\breleve\.([a-z_]+)/g)) lues.add(m[1]);
+  }
+  // syntheseChantiersV3 lit aussi fin?.mat_prev (marge devis sans matériaux prévus).
+  for (const m of corpsFonction(periodeV3, "syntheseChantiersV3").matchAll(/\bfin\?\.([a-z_]+)/g)) lues.add(m[1]);
+  ok(["vendu_ht", "mo_prev", "mat_prev", "heures_vendues", "date_releve", "reste_a_faire_h"].every(c => lues.has(c)),
+    "statique : colonnes de la marge devis et de la cascade repérées");
+  const manquantes = [...lues].filter(c => !chargees.has(c));
+  eq(manquantes, [], "statique : BilanPeriode charge toutes les colonnes lues pour la marge devis et la cascade (dont mo_prev)");
+}
+
+// 2) Libellé court de la fiabilité et pluriel — exemple issu des tests, données fictives.
+{
+  const N = "\u202f";
+  const lot = (h, prov, o = {}) => ({ avancement: 50, heuresRestantesPrevues: h, provenanceCoefficient: prov, ...o });
+  const f1 = B.fiabiliteMargeProbableV3({ avancement: 43.2, lots: [lot(70, "constatee"), lot(30, "aucune")] });
+  eq(B.libelleCourtFiabiliteV3(f1, 43.2), `43${N}% avancé · 70${N}% constaté`, "fiabilité : libellé court « 43 % avancé · 70 % constaté »");
+  ok(f1.raison === `43${N}% avancé · coefficients constatés sur 70${N}% des heures restantes`, "fiabilité : la phrase complète reste dans raison");
+  const f2 = B.fiabiliteMargeProbableV3({ avancement: 100, lots: [] });
+  eq(B.libelleCourtFiabiliteV3(f2, 100), `100${N}% avancé · aucune heure restante`, "fiabilité : libellé court sans heure restante");
+  eq(B.libelleCourtFiabiliteV3(B.fiabiliteMargeProbableV3({ avancement: null, lots: [] }), null), "avancement inconnu", "fiabilité : avancement inconnu, rien d'inventé");
+  const f4 = B.fiabiliteMargeProbableV3({ avancement: 30, lots: [{ avancement: 10 }] });
+  eq(B.libelleCourtFiabiliteV3(f4, 30), `30${N}% avancé · heures restantes illisibles`, "fiabilité : heures restantes illisibles signalées");
+  ok(B.libelleCourtFiabiliteV3(f1, 43.2).length <= 30, "fiabilité : libellé court (2 lignes au plus)");
+  eq([0, 1, 2, 7].map(B.nbChantiersV3), ["0 chantier", "1 chantier", "2 chantiers", "7 chantiers"], "pluriel : 0 et 1 au singulier");
+
+  // 3) PDF détaillé : mention du TOTAL seulement si le total ne couvre pas tous
+  //    les chantiers affichés ; plus de saut de page forcé avant les alertes.
+  const P44 = B.periodeSemaineV3("2026-W44");
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]);
+  const rel = (id, date, o = {}) => ({ chantier_id: id, chantier_nom: id.toUpperCase(), date_releve: date, avancement: 50,
+    vendu_ht: 10000, heures_vendues: 100, heures_reelles: 40, production_cumulee: 5000, marge_avancement: 1000,
+    marge_terminaison: 2000, marge_probable: 1500, budget_restant: 6000, mat_prev: 1000, mo_prev: 3000, chantier_repris: false, ...o });
+  const doc = (releves, chantiers) => {
+    const syn = B.syntheseChantiersV3({ releves: B.indexerRelevesV3(releves), chantiers, bornes: BOR, periode: P44 });
+    const d = { periode: P44, bornes: BOR, bandeau: B.bandeauV3({ synthese: syn }), synthese: syn, alertes: [] };
+    return { det: documentBilanV3(d, { detaillee: true }), dir: documentBilanV3(d, { detaillee: false }), bandeau: d.bandeau };
+  };
+  const tousComparables = doc([rel("a", "2026-10-22"), rel("a", "2026-10-29"), rel("b", "2026-10-29")], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
+  ok(tousComparables.bandeau.margeProbableTotale === 3000, "TOTAL (données fictives) : marge probable totale des 2 chantiers");
+  ok(!tousComparables.det.includes("comme le bandeau"), "TOTAL (données fictives) : pas de mention quand tous les chantiers sont dans le total");
+  const unSurDeux = doc([rel("a", "2026-10-29"), rel("b", "2026-10-29", { mo_prev: null })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
+  ok(unSurDeux.det.includes(`<div class="gris petit retour">1 chantier, comme le bandeau</div>`), "TOTAL (données fictives) : « 1 chantier, comme le bandeau » sur une 2e ligne, au singulier");
+  ok(unSurDeux.det.includes("Marge probable (1 chantier)") && !unSurDeux.det.includes("(1 chantiers)"), "bandeau (données fictives) : « 1 chantier » au singulier");
+  const aucun = doc([rel("a", "2026-10-29", { mo_prev: null })], [{ id: "a", nom: "A" }]);
+  ok(aucun.det.includes("Marge probable (0 chantier)") && aucun.det.includes("0 chantier, comme le bandeau"), "bandeau et TOTAL (données fictives) : « 0 chantier » au singulier");
+  const avantAlertes = h => h.slice(Math.max(0, h.indexOf("<h2>Alertes</h2>") - 60), h.indexOf("<h2>Alertes</h2>"));
+  ok(!avantAlertes(tousComparables.det).includes(`class="saut"`), "PDF détaillé (données fictives) : pas de saut de page forcé avant les alertes");
+  ok(avantAlertes(tousComparables.dir).includes(`class="saut"`), "PDF direction (données fictives) : saut de page avant les alertes conservé");
+  ok(tousComparables.det.includes(`<table class="synthese-detaillee">`) && tousComparables.det.includes(`<col style="width:23%">`), "PDF détaillé (données fictives) : largeurs de colonnes fixées");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

@@ -535,6 +535,29 @@ export function fiabiliteMargeProbableV3({ avancement, lots, seuils = null } = {
 }
 
 /**
+ * Libellé court de la fiabilité, pour la cellule du tableau de synthèse du PDF
+ * détaillé (2 lignes au plus) : « 43 % avancé · 70 % constaté ». La phrase
+ * complète reste dans `fiabilite.raison`. Aucune donnée inventée : avancement
+ * ou couverture inconnus → « avancement inconnu » / « heures restantes
+ * illisibles ».
+ * @param {object} fiabilite  résultat de fiabiliteMargeProbableV3
+ * @param {number|null} avancement  avancement du chantier (%)
+ */
+export function libelleCourtFiabiliteV3(fiabilite, avancement) {
+  const f = fiabilite && typeof fiabilite === "object" ? fiabilite : {};
+  const av = num(avancement);
+  if (!f.niveau || av == null) {
+    if (av == null) return "avancement inconnu";
+    return /illisibles/.test(String(f.raison || "")) ? `${fmtPctEntier(av)} avancé · heures restantes illisibles` : `${fmtPctEntier(av)} avancé`;
+  }
+  const couv = num(f.couverturePct);
+  return `${fmtPctEntier(av)} avancé · ${couv == null ? "aucune heure restante" : `${fmtPctEntier(couv)} constaté`}`;
+}
+
+/** « 0 chantier », « 1 chantier », « 2 chantiers » : 0 et 1 au singulier (règle française). */
+export const nbChantiersV3 = n => `${n} chantier${Number(n) >= 2 ? "s" : ""}`;
+
+/**
  * Les `nb` fins de semaine de la tendance, de la plus ancienne à la plus
  * récente : la dernière est la date de fin de la période (un dimanche pour
  * une semaine), les autres la précèdent de 7 jours en 7 jours. Aucune horloge.
