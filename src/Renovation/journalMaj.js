@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "correctif",
+    titre: "Plus d'écran blanc muet après une mise à jour de l'application",
+    pages: [{ id: "dashboard", label: "Tableau de bord" }],
+    quoi: "Après une mise à jour, un ordinateur pouvait garder en mémoire une ancienne version de l'application et n'afficher qu'un écran blanc, même après la réparation automatique. Désormais, si cette réparation ne suffit pas, l'application affiche un message clair avec un bouton « Effacer la mémoire et recharger », au lieu d'un écran blanc.",
+    comment: "Si le message apparaît : cliquez sur le bouton. Vos données ne sont pas touchées, elles sont sur le serveur.",
+  },
+  {
+    date: "2026-11-06",
     type: "amelioration",
     titre: "Bilan : les PDF prennent le design des documents Profero",
     pages: [{ id: "bilan-semaine", label: "Bilan" }],
