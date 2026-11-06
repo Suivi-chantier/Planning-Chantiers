@@ -225,6 +225,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
 | 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en cours (parallèle) | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | — |
 | 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données | — |
+| 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | à faire | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | — |
 | 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par Loris | à faire | **Arrêt** : Loris active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
 
 ## Journal des décisions
@@ -384,6 +385,10 @@ prévisionnelles » du mail du vendredi est vide elle aussi. Changer la règle
 étant hors périmètre, rien n'a été modifié. Question : *garder C3 telle
 quelle, ou la rebrancher (plus tard) sur la logique de « Commandes à
 passer » ?*
+Réponse de Loris (06/11/2026) : « On modifiera cette notif ». Décision : on
+ajoute la tâche 10 (C3 branchée sur la logique de « Commandes à passer »),
+menée après les tâches 6 et 8, avant la simulation finale. Le mail du
+vendredi n'est pas touché (règle 8).
 
 ## À faire par Loris
 
