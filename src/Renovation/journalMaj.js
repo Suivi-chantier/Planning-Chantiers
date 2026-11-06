@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "nouveaute",
+    titre: "Encours fournisseurs : nouvelle vue « Par mois d'achat » (ce qu'on a acheté chaque mois, par fournisseur et par chantier)",
+    pages: [{ id: "encours-fournisseurs", label: "Encours fournisseurs" }],
+    quoi: "L'encours range les montants au mois où on les paie (utile pour la trésorerie). La nouvelle vue range chaque achat au mois où il a été commandé ou acheté : on voit combien on a acheté en octobre, chez qui, et pour quel chantier — pour suivre les coûts et les marges et comparer avec l'avancement du mois. Exemple : les BL Rexel d'octobre restent en octobre même si la facture récapitulative n'est à payer qu'en novembre.",
+    comment: "En haut de la page Encours fournisseurs, choisir « Par mois d'achat » (le choix est retenu sur l'appareil). Trois chiffres pour le mois en cours : acheté, dont facturé, dont en attente de facture. Chaque mois se déplie en « Par fournisseur » (liste des documents avec les badges facturé / en attente / écart) ou « Par chantier » (les achats sans chantier apparaissent en orange dans « À affecter »). Filtres fournisseur, chantier et statut ; export PDF. Un BL d'un mois terminé encore en attente chez un fournisseur à facture récapitulative, alors que la facture du mois est saisie, porte le badge rouge « absent de la facture » : c'est à réclamer au fournisseur.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
     titre: "Mon profil : activer les notifications sur votre téléphone et recevoir une notification de test",
     pages: [],
     quoi: "Première étape des notifications sur téléphone pour le bureau (conducteurs, comptable, direction, commerciaux). Vous pouvez dès maintenant les activer sur votre téléphone et vérifier qu'elles arrivent avec une notification de test. Les envois automatiques (point du soir des conducteurs, factures à émettre, chantiers en alerte, nouveaux chantiers…) arriveront ensuite. Les ouvriers ne reçoivent aucune notification et ne voient rien de nouveau. Les mails existants ne changent pas.",

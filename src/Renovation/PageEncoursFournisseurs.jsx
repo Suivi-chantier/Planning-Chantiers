@@ -4,6 +4,12 @@ import { FONT, RADIUS, SPACING, SEMANTIC, getBranchAccent, LOGO_RENO_H } from ".
 import { buildEncoursDocHTML } from "./encoursDoc";
 import { Icon } from "../ui";
 import { Wallet, Loader2, ChevronDown, ChevronRight, Printer } from "lucide-react";
+import VueAchatsParMois from "./VueAchatsParMois";
+
+// Deux lectures des mêmes achats : par échéance de paiement (trésorerie) ou par
+// mois d'achat (coûts et marges). Le dernier choix est mémorisé sur l'appareil.
+const CLE_VUE = "encours.vue";
+const lireVue = () => { try { return localStorage.getItem(CLE_VUE) === "achat" ? "achat" : "echeance"; } catch { return "echeance"; } };
 
 const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const moisLabel = (ym) => {
@@ -51,6 +57,8 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
   const [items, setItems] = useState([]);        // { mois, fournisseur, montant, paye }
   const [fFilter, setFFilter] = useState("all");
   const [ouverts, setOuverts] = useState({});     // { [mois]: true } — mois déplié
+  const [vue, setVue] = useState(lireVue);         // "echeance" | "achat"
+  const choisirVue = (v) => { setVue(v); try { localStorage.setItem(CLE_VUE, v); } catch { /* navigation privée */ } };
 
   useEffect(() => {
     (async () => {
@@ -195,17 +203,18 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
     setTimeout(() => { w.focus(); w.print(); }, 200);
   };
 
-  return (
-    <div style={page}>
+  // En-tête commun aux deux vues : titre, sélecteur de regroupement, bouton PDF.
+  const entete = ({ sousTitre, onPDF }) => (
+    <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: SPACING.lg }}>
         <div style={{ width: 36, height: 36, borderRadius: RADIUS.md, background: acc.bg10, color: acc.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <Icon as={Wallet} size={20} strokeWidth={2} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ margin: 0, fontSize: FONT.xl.size, fontWeight: 800, color: T.text }}>Encours fournisseurs</h1>
-          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>Montants regroupés par mois d'échéance de paiement (selon le mode de chaque fournisseur)</div>
+          <div style={{ fontSize: FONT.xs.size + 1, color: T.textMuted }}>{sousTitre}</div>
         </div>
-        <button onClick={exporterPDF} title="Exporter en PDF" style={{
+        <button onClick={onPDF} title="Exporter en PDF" style={{
           display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0,
           background: "transparent", border: `1px solid ${T.border}`, borderRadius: RADIUS.md,
           padding: "8px 12px", color: T.textSub, fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
@@ -213,6 +222,29 @@ export default function PageEncoursFournisseurs({ T, branch = "renovation" }) {
           <Icon as={Printer} size={14} /> PDF
         </button>
       </div>
+      <div role="tablist" aria-label="Regroupement" style={{ display: "flex", gap: 4, padding: 4, marginBottom: SPACING.md, background: T.surface, border: `1px solid ${T.border}`, borderRadius: RADIUS.md }}>
+        {[["echeance", "Par échéance de paiement"], ["achat", "Par mois d'achat"]].map(([v, lib]) => (
+          <button key={v} role="tab" aria-selected={vue === v} onClick={() => choisirVue(v)} style={{
+            flex: 1, padding: "8px 10px", borderRadius: RADIUS.sm || 6, border: "none", cursor: "pointer", fontFamily: "inherit",
+            fontSize: FONT.sm.size, fontWeight: 700, background: vue === v ? acc.bg10 : "transparent", color: vue === v ? acc.accent : T.textSub,
+          }}>{lib}</button>
+        ))}
+      </div>
+    </>
+  );
+
+  if (vue === "achat") {
+    return (
+      <div style={page}>
+        <VueAchatsParMois T={T} acc={acc} entete={entete} />
+        <style>{`@keyframes spinkf{to{transform:rotate(360deg)}}.spin{animation:spinkf 1s linear infinite}`}</style>
+      </div>
+    );
+  }
+
+  return (
+    <div style={page}>
+      {entete({ sousTitre: "Montants regroupés par mois d'échéance de paiement (selon le mode de chaque fournisseur)", onPDF: exporterPDF })}
 
       {/* Totaux + filtre */}
       <div style={{ display: "flex", gap: SPACING.sm, marginBottom: SPACING.md, flexWrap: "wrap" }}>
