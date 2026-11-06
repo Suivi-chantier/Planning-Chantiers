@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "amelioration",
+    titre: "La page « Visites chantier » est retirée : les contrôles se font dans le cycle de vie",
+    pages: [{ id: "chantiers", label: "Chantiers" }],
+    quoi: "Les contrôles de chantier se font désormais uniquement depuis le cycle de vie de la fiche chantier. L'ancienne page « Visites chantier », qui n'était plus utilisée que pour consulter d'anciennes visites, disparaît du menu pour tout le monde, ainsi que son export Word. Dans Réglages, la vue d'ensemble n'affiche plus le compteur « Visites en cours » ni la liste des dernières visites.",
+    comment: "Rien ne change dans la façon de contrôler : ouvrir la fiche du chantier, puis le cycle de vie. Les anciennes visites ne sont pas effacées : elles restent en base, dans la sauvegarde complète des Réglages et dans l'export d'une opération pour ChatGPT.",
+  },
+  {
+    date: "2026-11-06",
+    type: "amelioration",
     titre: "Bilan : la marge à terminaison apparaît dans les deux PDF, et la version direction est plus courte",
     pages: [{ id: "bilan-semaine", label: "Bilan" }],
     quoi: "La marge à terminaison (où le chantier finit si le reste se passe comme le devis) apparaît maintenant dans le tableau des chantiers des deux PDF du Bilan, juste avant la marge probable, en euros et en % du vendu. Le bandeau donne aussi son total (« à terminaison »), calculé sur exactement les mêmes chantiers que le total de la marge probable, pour pouvoir comparer les deux. Quand elle n'est pas connue pour un chantier, on affiche « — », jamais 0. Aucun calcul ne change : le chiffre est celui déjà enregistré chaque jour. La version direction s'arrête désormais après les alertes, les décisions attendues et les tendances par lot : la semaine qui vient (avec ses longues listes d'articles à commander), le prévu / réalisé, la fin prévisionnelle et les rectifications n'y figurent plus. Ils restent dans la version détaillée.",
