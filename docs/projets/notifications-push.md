@@ -220,12 +220,12 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en ligne | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) (fusionnée le 06/11) |
 | 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en ligne | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | [n°226](https://github.com/Suivi-chantier/Planning-Chantiers/pull/226) (fusionnée le 06/11) |
-| 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | en cours (mise en ligne) | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | [n°232](https://github.com/Suivi-chantier/Planning-Chantiers/pull/232) |
+| 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | en ligne | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | [n°232](https://github.com/Suivi-chantier/Planning-Chantiers/pull/232) (fusionnée le 06/11) |
 | 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en ligne (ne partira pas avec les données actuelles, question à Loris) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | [n°223](https://github.com/Suivi-chantier/Planning-Chantiers/pull/223) (fusionnée le 06/11) |
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | en ligne | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | [n°231](https://github.com/Suivi-chantier/Planning-Chantiers/pull/231) (fusionnée le 06/11) |
 | 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en ligne | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | [n°224](https://github.com/Suivi-chantier/Planning-Chantiers/pull/224) (fusionnée le 06/11) |
-| 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | en cours (parallèle) | Auto | Simulation sur les vraies données | — |
-| 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | en cours (parallèle) | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | — |
+| 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | en ligne | Auto | Simulation sur les vraies données | [n°234](https://github.com/Suivi-chantier/Planning-Chantiers/pull/234) (fusionnée le 06/11) |
+| 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | en attente de Loris | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | [n°233](https://github.com/Suivi-chantier/Planning-Chantiers/pull/233) (contrôles verts, non fusionnée) |
 | 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par Loris | à faire | **Arrêt** : Loris active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
 
 ## Journal des décisions
@@ -450,6 +450,33 @@ rappel quotidien voulu par le catalogue : « regroupé dans le point de
 comptable F2/D2/D3/D4 ; C3 sur « Commandes à passer »), un seul envoi chacune
 pour ménager la limite Vercel.
 
+**06/11/2026 (soir) — Tâche 10 arrêtée : 1 895 commandes au premier
+passage.** L'écran « Commandes à passer » n'a pas de date butoir : il liste
+tout article lié à un ouvrage et pas encore commandé. Sur la base : 1 895
+articles (175 340 € HT, 42 chantiers), dont 641 avec une date de besoin
+passée, 468 sans date, 18 sur 3 chantiers terminés. Écran avant / module /
+job : identiques. Mais la première notification après activation serait
+« 1895 commandes à passer » : chiffre très éloigné de ce que le projet
+laissait attendre, donc arrêt obligatoire. Demande de fusion n°233 laissée
+ouverte. **Question à Loris** : a) seulement les articles dont la date de
+besoin arrive dans les 7 prochains jours, chacun une fois, l'arriéré
+enregistré sans envoi (recommandé) ; b) seulement les articles ajoutés à
+partir de maintenant ; c) laisser tomber C3 pour l'instant (coupée par
+défaut).
+
+**06/11/2026 (soir) — Tâche 8 : choix et constats.** D2 se déclenche sur
+l'étape « Devis signé » validée (lue par `cycleVie.etatsCycleVie`, comme la
+fiche chantier), premier passage silencieux, état vu enregistré même
+interrupteur coupé. Constat signalé à Loris : `chantier_cycle_vie` est vide ;
+le 05/11, les devis signés de KATHLEEN T2, FOUGERAY 001/101/102/201 et
+FOUGERAY COMMUN ont été joints sur l'ancienne étape « Réponse client », qui
+ne compte pas comme signature (ni pour D2, ni pour la bascule « Planifié »).
+D3 : `cron-snapshot-hebdo` est arrêté depuis le 24/10 ; les chiffres
+viennent des fonctions du Bilan semaine (`bilanPeriodeV3`) sur les relevés
+journaliers ; sans relevé, « relevé pas encore disponible », sans chiffre.
+Le contrôle `verify-refonte-lot4.yml` échoue sur `main` (hors de ce projet,
+il ne fait pas partie des contrôles des demandes de fusion) : signalé.
+
 ## À faire par Loris
 
 1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
@@ -633,4 +660,52 @@ Premier passage : 0 envoi, 90 états enregistrés. Entre le 30/10 et le
 06/11, une seule notification serait partie : C4 « 3 chantiers passent en
 critique » (BRIOLLAY APPT 2, KATHLEEN T2, MONTILLERS APPT 1), vers 4 admins
 (1 seul appareil enregistré) ; aucune C5 ni D1.
+
+### Tâche 4 — Point du soir des conducteurs, C1 + C2 (06/11/2026) — en ligne
+
+**Ce qui a changé.** Chaque jour ouvré à 18h30 Paris, une seule notification
+par personne résume les comptes rendus reçus, les ouvriers attendus qui n'ont
+pas rendu le leur, et les demandes de matériel en attente. S'il n'y a rien à
+dire, rien ne part ; si des ouvriers étaient attendus et qu'aucun CR n'est
+arrivé, la notification part. La règle « ouvriers attendus » est sortie du
+mail de rappel (`ouvriersAttendusV1.mjs`) sans réécriture ; le mail est
+inchangé.
+
+**Vérifié.** Demande de fusion n°232 : 17 contrôles + Vercel verts,
+fusionnée. `send-push` v5 déployée (401 sans jeton, auto-contrôle 200).
+
+**Simulation issue de la base (rien envoyé).**
+
+| Jour | CR reçus | Attendus | Manquants | Demandes | Notification |
+|---|---|---|---|---|---|
+| Lun 02/11 | 6 | 6 | 0 | 1 | « 6 CR reçus, 0 manquant, 1 demande de matériel » |
+| Mar 03/11 | 6 | 6 | 0 | 1 | « 6 CR reçus, 0 manquant, 1 demande de matériel » |
+| Mer 04/11 | 7 | 7 | 0 | 1 | « 7 CR reçus, 0 manquant, 1 demande de matériel » |
+| Jeu 05/11 | 7 | 7 | 0 | 1 | « 7 CR reçus, 0 manquant, 1 demande de matériel » |
+| Ven 06/11 | 0 | 0 | 0 | 1 | « 1 demande de matériel en attente » |
+
+Destinataires par défaut : 4 admins (aucun conducteur), 1 appareil.
+
+### Tâche 8 — Encours, nouveau chantier, synthèse, écart du journal (06/11/2026) — en ligne
+
+**Ce qui a changé.** F2 : push court après le mail de l'encours du vendredi
+(calcul sorti du mail dans `encoursFournisseursV1.mjs`, mail identique au
+caractère près sur les vraies données). D2 : « Nouveau chantier signé », 8h45
+Paris. D3 : synthèse de la semaine le lundi 8h30 (chiffres du Bilan
+semaine). D4 : écart du journal d'avancement en boîte seule, sans push.
+
+**Vérifié.** Demande de fusion n°234 : 17 contrôles + Vercel verts,
+fusionnée. Aucune migration.
+
+**Simulation issue de la base (rien envoyé).**
+
+| Type | Résultat |
+|---|---|
+| F2, ven. 06/11 | « Encours fournisseurs : 31 813,81 € HT à payer » |
+| D2 | aucun « Devis signé » validé sur 30 jours ; premier passage : 0 envoi, 8 chantiers enregistrés |
+| D3, semaine 44 | production 13 665 € · marge +2 446 € (18 %) · 252,6 h |
+| D4, 7 derniers jours | 7 contrôles, 0 écart : rien |
+
+Push par personne : admin environ 1 le lundi (+ D2, rare) ; comptable 1 le
+vendredi.
 
