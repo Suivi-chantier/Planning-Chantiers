@@ -125,8 +125,8 @@ correspondance « À placer ».
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Tranche 1a — Moteur de calcul du découpage (module pur `preparationChantierV1.mjs` + façade, script `verif-preparation-chantier.mjs` branché dans un workflow) ; bouton « Préparer le chantier » dans Phasage V2, parcours plein écran, étape « Les pièces », « Enregistrer et quitter » / reprise | en ligne | Auto (contrôles verts) | Vérifications vertes sur GitHub ; le parcours s'ouvre, les pièces s'enregistrent, la reprise revient à la bonne étape | [#199](https://github.com/Suivi-chantier/Planning-Chantiers/pull/199) |
-| 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en cours | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (ouverte, en attente de l'accord de Loris) |
-| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | à faire | Auto | Consignes et photos relues après rechargement ; contrôle final juste | — |
+| 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | en ligne | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | [#200](https://github.com/Suivi-chantier/Planning-Chantiers/pull/200) (fusionnée après accord de Loris) |
+| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | en cours | Auto | Consignes et photos relues après rechargement ; contrôle final juste | — |
 | 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | à faire | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
 | 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | à faire | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | — |
 
@@ -266,6 +266,17 @@ le parcours même si Phasage V2 est en pause pour conflit de révision.
 - *Constat sur les vraies données* : les 6 tâches de MU-001 totalisent
   107 % de ratios et 31,93 h estimées pour 30 h prévues sur l'ouvrage. Le
   découpage conserve ces totaux sans les corriger (hors périmètre).
+
+**06/11/2026 — Démonstration présentée à Loris.** Question : « je mets
+l'étape 2 en ligne dès que les deux derniers contrôles sont verts ? ».
+Réponse de Loris : « Oui, mets l'étape 2 en ligne ». Le découpage de
+démonstration (pièces hypothétiques) n'est pas enregistré sur LOUISON APPT 2 :
+c'est le conducteur qui fera la vraie répartition.
+
+**06/11/2026 — Tâche 2 en ligne.** Demande de fusion #200 fusionnée, tous
+les contrôles verts ; la version de test Vercel s'est construite sans
+erreur. Le site de production n'est pas joignable depuis la session : son
+ouverture n'a pas pu être contrôlée directement.
 
 ## Comptes rendus
 
