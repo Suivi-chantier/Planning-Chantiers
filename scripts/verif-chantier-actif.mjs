@@ -33,8 +33,8 @@ test("1. modules purs : ni Supabase, ni horloge ; façades .js présentes", () =
 });
 
 // ─── 2. La règle ────────────────────────────────────────────────────────────
-test("2. statuts actuels : seul « terminé » sort des listes de chantiers en vie", () => {
-  assert.deepEqual([...STATUTS_CHANTIER], ["planifie", "en_cours", "en_pause", "termine"]);
+test("2. statuts d'exploitation : seul « terminé » sort des listes de chantiers en vie", () => {
+  assert.deepEqual([...STATUTS_CHANTIER], ["a_l_etude", "planifie", "en_cours", "en_pause", "termine", "perdu"], "lot 2 : À l'étude et Perdu ajoutés");
   assert.equal(estChantierActif({ id: "a" }), true, "sans statut = actif");
   assert.equal(estChantierActif({ id: "a", statut: "" }), true);
   assert.equal(estChantierActif({ id: "a", statut: "planifie" }), true);
@@ -61,9 +61,10 @@ test("4. archivé, sans identifiant, non-objet : jamais affiché", () => {
   assert.equal(estChantierActif("a"), false);
 });
 
-test("5. lot 1 : aucun statut hors exploitation (comportement visible inchangé)", () => {
-  assert.deepEqual([...STATUTS_HORS_EXPLOITATION], []);
-  const liste = [{ id: "a" }, { id: "b", statut: "termine" }, { id: "c", statut: "en_pause" }, { id: "d", archive_le: "x" }];
+test("5. lot 2 : « À l'étude » et « Perdu » n'apparaissent dans aucune liste filtrée", () => {
+  assert.deepEqual([...STATUTS_HORS_EXPLOITATION], ["a_l_etude", "perdu"]);
+  const liste = [{ id: "a" }, { id: "b", statut: "termine" }, { id: "c", statut: "en_pause" }, { id: "d", archive_le: "x" },
+    { id: "e", statut: "a_l_etude" }, { id: "f", statut: "perdu" }];
   assert.deepEqual(filtrerChantiersActifs(liste).map(c => c.id), ["a", "c"]);
   assert.deepEqual(filtrerChantiersActifs(liste, { inclureTermines: true }).map(c => c.id), ["a", "b", "c"]);
   assert.deepEqual(filtrerChantiersActifs(null), []);

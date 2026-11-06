@@ -17,6 +17,7 @@ import { supabase } from "../supabase";
 import { FONT, RADIUS } from "../constants";
 import { Icon } from "../ui";
 import { X, AlertTriangle, Check, Layers, Home, UserCircle, MapPin, FileText, Receipt, RefreshCw, Code2, Copy, Send, ShieldAlert, Lock } from "lucide-react";
+import { ListeManquants } from "./ComposantsCommerciaux.jsx";
 import { construirePayloadDevisProGBat, hacherDevis, formaterPct, ENDPOINT_CREATION_DEVIS, ENDPOINT_TAUX_TVA } from "./progbatQuotePayload.mjs";
 
 const fmtEur = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
@@ -40,7 +41,11 @@ async function appelerProgbatQuote(body) {
   return { ok: false, code: "transport", error: error?.message || "Appel de la fonction progbat-quote impossible." };
 }
 
-export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, lotsOrdre, multiOuvrages = [], onClose, onDevisCree }) {
+// `manquants` (lot 2) : ce que la liste unique des règles de saisie
+// (reglesSaisieProgbat.mjs) trouve manquant dans l'application (chantier,
+// chargé d'affaires, fiche client…). Tant qu'elle n'est pas vide, la création
+// est refusée, même si le serveur accepterait.
+export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, lotsOrdre, multiOuvrages = [], manquants = [], onClose, onDevisCree }) {
   const [prep, setPrep] = useState(null);             // réponse serveur `prepare`
   const [chargement, setChargement] = useState(true);
   const [erreurServeur, setErreurServeur] = useState(null);
@@ -101,7 +106,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   };
 
   const creer = async () => {
-    if (creation || !prep?.peut_creer || !pariteOk) return;     // garde contre le double déclenchement
+    if (creation || !prep?.peut_creer || !pariteOk || manquants.length > 0) return;     // garde contre le double déclenchement
     setCreation(true);
     try {
       const rep = await appelerProgbatQuote({ action: "create", projectId: projetId, logementReference: prep.logement_reference || projet?.logement_reference || undefined, expectedPayloadHash: prep.payloadHash, confirmed: true });
@@ -151,7 +156,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   const nbLies = compteurs?.lies ?? 0;
   const nbLignes = compteurs?.lignes ?? 0;
   const tousLies = nbLignes > 0 && nbLies === nbLignes;
-  const peutCreer = !!prep?.peut_creer && pariteOk && tousLies && !resultat?.ok && !incertain && !devisExistant;
+  const peutCreer = !!prep?.peut_creer && pariteOk && tousLies && !resultat?.ok && !incertain && !devisExistant && manquants.length === 0;
 
   return (
     <div onClick={(e) => e.target === e.currentTarget && !creation && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }}>
@@ -220,6 +225,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
           {!devisExistant && !incertain && bandeau("#4db8ff", AlertTriangle, "Aperçu uniquement — rien n'est envoyé à ProGBat. Seule la confirmation explicite du bouton « Créer le brouillon dans ProGBat » déclenche une création.")}
 
           {erreurServeur && bandeau("#e15a5a", X, <>{erreurServeur}</>)}
+          {!devisExistant && manquants.length > 0 && <div style={{ marginBottom: 12 }}><ListeManquants T={T} manquants={manquants} titre="Création refusée : il manque dans l'application" /></div>}
 
           {/* Statut de validité */}
           {prep && (

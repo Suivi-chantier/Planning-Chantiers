@@ -23,6 +23,7 @@
 //  • AUCUNE URL SIGNÉE NI CHEMIN DE STOCKAGE dans le modèle : des documents on
 //    ne garde que nom, type, catégorie, date et auteur.
 // ─────────────────────────────────────────────────────────────────────────────
+import { STATUTS_CHANTIER } from "./chantierActif.js";
 import { supabase } from "../supabase";
 import { loadGroupesTypes, loadEquipes } from "../constants";
 import { computeChantierFinance } from "../chantierFinance";
@@ -83,7 +84,8 @@ const grouper = (lignes, cle = "chantier_id") => {
 
 // Statuts connus de l'écran Opérations — ils servent à ranger un chantier dont
 // le statut est vide ou inconnu, exactement comme la page le fait.
-const STATUTS_CONNUS = ["en_cours", "termine", "planifie", "en_pause"];
+// Lot 2 : la liste vient de la règle unique (À l'étude et Perdu compris).
+const STATUTS_CONNUS = [...STATUTS_CHANTIER];
 
 // ─── CHARGEMENT ──────────────────────────────────────────────────────────────
 

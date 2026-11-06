@@ -1,0 +1,30 @@
+name: Verify Refonte Opérations, lot 2 (statuts, parcours de chiffrage, règles de saisie)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'supabase/migrations/*refonte_operations*'
+      - 'supabase/functions/progbat-quote/**'
+      - 'sql/202611_refonte_operations*'
+      - 'scripts/verif-refonte-lot2.mjs'
+      - 'scripts/sync-progbat-edge-lib.mjs'
+      - '.github/workflows/verify-refonte-lot2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Statuts À l'étude / Perdu, bascule, statut d'opération, liste unique des règles de saisie, migration additive
+        run: node scripts/verif-refonte-lot2.mjs
+      - name: Copies lib des Edge Functions ProGBat à jour (règles de saisie comprises)
+        run: node scripts/sync-progbat-edge-lib.mjs --check

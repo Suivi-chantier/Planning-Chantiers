@@ -21,23 +21,32 @@
 // Dans les deux cas, un chantier archivé (« supprimé » depuis
 // l'Administration) ou hors exploitation n'apparaît jamais.
 //
-// Lot 2 : ajouter "a_l_etude" et "perdu" à STATUTS_HORS_EXPLOITATION. Ils
-// disparaîtront alors de TOUTES les pages qui passent par ce module, sans
-// toucher aux pages. Seule la page Opérations les liste (elle lit la liste
-// complète, sans ce filtre).
+// Lot 2 : "a_l_etude" et "perdu" sont dans STATUTS_HORS_EXPLOITATION. Ils
+// disparaissent de TOUTES les pages qui passent par ce module, sans toucher
+// aux pages. Seules les pages à liste complète les montrent : Opérations,
+// Chantiers (gestion), Chiffrage et Réglages.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Statuts connus aujourd'hui, dans l'ordre du cycle. Absent = « Planifié ». */
-export const STATUTS_CHANTIER = Object.freeze(["planifie", "en_cours", "en_pause", "termine"]);
+/**
+ * Statuts connus, dans l'ordre du cycle. Absent = « Planifié ».
+ * Lot 2 : « À l'étude » (avant la signature) et « Perdu » (affaire non
+ * signée). Libellés et couleurs : statutsChantier.mjs.
+ */
+export const STATUTS_CHANTIER = Object.freeze(["a_l_etude", "planifie", "en_cours", "en_pause", "termine", "perdu"]);
+
+/** Chantier en cours de chiffrage, pas encore signé. */
+export const STATUT_A_L_ETUDE = "a_l_etude";
+/** Affaire non signée, marquée perdue (motif obligatoire). */
+export const STATUT_PERDU = "perdu";
 
 /** Statut d'un chantier soldé. */
 export const STATUT_TERMINE = "termine";
 
 /**
- * Statuts qui ne sortent jamais de la page Opérations.
- * Vide au lot 1 (comportement inchangé). Lot 2 : ["a_l_etude", "perdu"].
+ * Statuts qui ne sortent jamais de la page Opérations (et des pages à liste
+ * complète). Vide au lot 1 ; lot 2 : à l'étude et perdu.
  */
-export const STATUTS_HORS_EXPLOITATION = Object.freeze([]);
+export const STATUTS_HORS_EXPLOITATION = Object.freeze([STATUT_A_L_ETUDE, STATUT_PERDU]);
 
 /** Statut nettoyé ("" ou absent → null). */
 export function statutDuChantier(chantier) {

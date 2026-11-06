@@ -200,6 +200,7 @@ assert.equal(compl160.prix.prix_vente_ht, 360, "après modification du coefficie
 const TAXES = [{ id: 705, rate: 10, label: "10 %", saleDefault: true }];
 const projet = {
   client_nom: "Dupont", client_prenom: "Marie", client_societe: "", client_adresse: "12 rue des Lilas", client_code_postal: "49000", client_ville: "Angers", client_pays: "France",
+  client_email: "marie.dupont@exemple.test", client_telephone: "0600000000", // lot 2 : obligatoires (règle Profero)
   chantier_adresse: "5 avenue du Parc", chantier_code_postal: "49100", chantier_ville: "Angers", chantier_pays: "France",
   logement_reference: "Appartement 101", type_logement: "T2", devis_objet: "Rénovation", devis_validite: "2026-10-31", tva_pct: 10, devis_num_commande_client: "",
 };

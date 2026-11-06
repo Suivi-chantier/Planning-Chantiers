@@ -24,6 +24,14 @@ export const TYPES_MAJ = {
 export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
+    type: "nouveaute",
+    titre: "Chantiers « À l'étude » et « Perdu », nouveau chiffrage guidé (opération → chantier → client) et champs obligatoires pour le devis ProGBat",
+    pages: [{ id: "info-client", label: "Chiffrage" }, { id: "operations", label: "Opérations" }, { id: "chantiers", label: "Chantiers" }],
+    quoi: "Deux nouveaux statuts de chantier. « À l'étude » : le chantier est en cours de chiffrage, pas encore signé. « Perdu » : l'affaire n'a pas été signée. Ces chantiers n'apparaissent que dans Opérations (et dans les listes de gestion : Chantiers, Chiffrage, Réglages) : ni dans le planning, ni dans les bilans, ni chez les ouvriers. Quand l'étape « Devis signé » du cycle de vie est validée, un chantier à l'étude passe tout seul en « Planifié ». Chaque opération affiche son statut, calculé à partir de ses chantiers (à l'étude, en cours, terminée, perdue). Le client se saisit une fois sur l'opération et sert à tous ses chantiers ; chaque chantier a un chargé d'affaires. Pour créer le devis dans ProGBat, tout ce que ProGBat exige (et l'e-mail et le téléphone du client) doit être rempli : un astérisque rouge marque ces champs, et tant qu'il manque quelque chose, le bouton « Créer le devis dans ProGBat » est grisé avec la liste de ce qui manque. Le code postal et la ville du chantier sont désormais obligatoires. Les 46 chantiers existants gardent leur statut.",
+    comment: "Chiffrage → « Nouveau projet » : choisir ou créer l'opération, puis créer le chantier (référence du logement, adresse, chargé d'affaires : il naît « À l'étude »), puis choisir ou créer le client ; le chiffrage s'ouvre ensuite. Un ancien chiffrage sans chantier affiche « Rattacher à une opération » : même parcours, ses adresses sont reprises. Dans Opérations, la fiche d'une opération montre le client et le chargé d'affaires de l'opération, et pour chaque chantier son statut, son client et son chargé d'affaires (vide = comme l'opération). Le bouton « Marquer perdu » (chantier à l'étude, dans Opérations ou sur la fiche chantier) demande un motif ; la date et votre nom sont enregistrés, et « Annuler « perdu » » remet le chantier à l'étude en gardant la trace. La liste complète des collaborateurs n'est visible que par un administrateur : un autre utilisateur peut se désigner lui-même chargé d'affaires.",
+  },
+  {
+    date: "2026-11-06",
     type: "amelioration",
     titre: "Opérations et chantiers : chaque modification n'écrase plus celle d'un collègue, et chaque chantier a son opération",
     pages: [{ id: "operations", label: "Opérations" }, { id: "chantiers", label: "Chantiers" }, { id: "admin", label: "Réglages" }],

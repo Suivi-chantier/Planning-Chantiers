@@ -59,6 +59,10 @@
 
 import { parseCodeOuvrage } from "./codeOuvrage.mjs";
 import {
+  controlerFiche, clientDepuisProjet, chantierDepuisProjet, devisDepuisProjet,
+  genererCodeClient, genererNomChantierProgbat, genererCodeChantierProgbat,
+} from "./reglesSaisieProgbat.mjs";
+import {
   num, arrondirMontant, normaliserUnite, ligneEstSnapshot, totauxDevis,
   grouperParLotZone, lireLogementProjet, indexerMultiOuvrages,
 } from "./chiffragePricing.mjs";
@@ -506,11 +510,14 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
   const erreurs = [];
   const avertissements = [];
   const err = (code, message) => erreurs.push({ code, message });
+  // Règles de saisie : LA liste unique (reglesSaisieProgbat.mjs), la même que
+  // celle des formulaires. Seules les règles portant sur le chiffrage
+  // (`serveur: true`) sont vérifiables ici.
+  const regle = (m) => err(m.code, m.message);
   const champs = {};
   const index = taxes instanceof Map ? taxes : indexerTauxTva(taxes).parTaux;
 
   const logement = lireLogementProjet(projet);
-  if (!logement.reference) err("logement_reference_absente", "Référence du logement manquante (ex : Appartement 101)");
   if (logement.aVerifier) err("logement_multiple", "Ancien projet multi-logements : un devis ProGBat = un logement, découper le projet");
   if (!logement.type) avertissements.push("Type de logement non renseigné");
   else if (logement.repli) avertissements.push(logement.message);
@@ -519,23 +526,20 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
   const client = identiteClient(projet);
   const thirdId = versEntier(projet.progbat_client_id);
   if (str(projet.progbat_client_id) && thirdId == null) err("client_progbat_invalide", `Identifiant client ProGBat non numérique (${str(projet.progbat_client_id)})`);
-  if (client.vide) err("client_absent", "Identité ou raison sociale du client manquante");
   if (thirdId != null) {
+    if (client.vide) err("client_absent", "Identité ou raison sociale du client manquante");
     champs.thirdId = thirdId;
     avertissements.push(`Client ProGBat existant (thirdId ${thirdId}) : ses coordonnées ProGBat feront foi, celles du projet ne sont pas transmises`);
   } else {
+    controlerFiche("client", clientDepuisProjet(projet), { serveurSeulement: true }).forEach(regle);
     if (client.societe) { champs.clientBusinessName = client.societe; if (client.contact) champs.clientName = client.contact; }
     else if (client.contact) champs.clientName = client.contact;
     const adr = str(projet.client_adresse), cp = str(projet.client_code_postal), ville = str(projet.client_ville);
-    if (!adr) err("client_adresse_absente", "Adresse de facturation du client manquante");
-    if (!cp) err("client_code_postal_absent", "Code postal de facturation du client manquant");
-    if (!ville) err("client_ville_absente", "Ville de facturation du client manquante");
     if (adr) champs.clientAddress = adr;
     if (str(projet.client_adresse_complement)) champs.clientAddress2 = str(projet.client_adresse_complement);
     if (cp) champs.clientPostcode = cp;
     if (ville) champs.clientCity = ville;
     if (str(projet.client_pays)) champs.clientCountry = str(projet.client_pays);
-    else avertissements.push("Pays du client non renseigné");
   }
 
   // ── Affaire & chantier ──
@@ -545,18 +549,20 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
   if (str(projet.progbat_yard_id) && yardId == null) err("chantier_progbat_invalide", "Identifiant de chantier ProGBat non numérique");
   if (businessId != null) champs.businessId = businessId;
   if (yardId != null) champs.yardId = yardId;
+  // Référence du logement : toujours exigée ; adresse, code postal et ville du
+  // chantier (bloquants depuis le lot 2) : seulement si le chantier ProGBat
+  // n'existe pas encore (sinon ses coordonnées ProGBat font foi).
+  const ficheChantier = chantierDepuisProjet(projet, { referenceLogement: logement.reference });
+  controlerFiche("chantier", ficheChantier, { serveurSeulement: true })
+    .filter((m) => businessId == null || m.champ === "reference_logement")
+    .forEach(regle);
   if (businessId == null) {
-    const adrChantier = str(projet.chantier_adresse);
-    const repli = !adrChantier && str(projet.adresse_bien);
-    const adresse = adrChantier || str(projet.adresse_bien);
-    if (!adresse) err("chantier_adresse_absente", "Adresse du chantier manquante");
-    else if (repli) avertissements.push("Adresse du chantier reprise de l'ancien champ « adresse du bien » : à structurer (rue, code postal, ville)");
-    const cp = str(projet.chantier_code_postal), ville = str(projet.chantier_ville);
-    if (!cp) avertissements.push("Code postal du chantier non renseigné");
-    if (!ville) avertissements.push("Ville du chantier non renseignée");
-    const label = [client.affichage, logement.reference].filter(Boolean).join(" — ");
+    const repli = !str(projet.chantier_adresse) && str(projet.adresse_bien);
+    if (repli) avertissements.push("Adresse du chantier reprise de l'ancien champ « adresse du bien » : à structurer (rue, code postal, ville)");
+    const cp = ficheChantier.code_postal, ville = ficheChantier.ville;
+    const label = genererNomChantierProgbat({ clientAffichage: client.affichage, reference: logement.reference });
     if (label) champs.businessLabel = label;
-    if (adresse) champs.businessAddress = adresse;
+    if (ficheChantier.adresse) champs.businessAddress = ficheChantier.adresse;
     if (str(projet.chantier_adresse_complement)) champs.businessAddress2 = str(projet.chantier_adresse_complement);
     if (cp) champs.businessPostcode = cp;
     if (ville) champs.businessCity = ville;
@@ -568,12 +574,15 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
   }
 
   // ── Devis ──
-  const objet = str(projet.devis_objet);
-  if (!objet) err("objet_absent", "Objet du devis manquant");
-  else champs.object = objet;
+  const ficheDevis = devisDepuisProjet(projet);
+  const manqueDevis = controlerFiche("devis", ficheDevis, { serveurSeulement: true });
+  const manque = (champ) => manqueDevis.find((m) => m.champ === champ);
+  if (manque("objet")) regle(manque("objet"));
+  else champs.object = ficheDevis.objet;
 
   const validite = formaterDateISO(projet.devis_validite);
-  if (!validite) err("validite_absente", str(projet.devis_validite) ? `Date de validité invalide (${str(projet.devis_validite)})` : "Date de validité du devis manquante");
+  if (manque("validite")) regle(manque("validite"));
+  else if (!validite) err("validite_absente", `Date de validité invalide (${str(projet.devis_validite)})`);
   else {
     champs.validityDate = validite;
     const ref = formaterDateISO(aujourdHui);
@@ -581,7 +590,7 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
   }
 
   const tvaProjet = num(projet.tva_pct);
-  if (tvaProjet == null) err("tva_projet_absente", "Taux de TVA du devis non choisi");
+  if (tvaProjet == null) err("tva_projet_absente", manque("tva_pct")?.message || "Taux de TVA du devis non choisi");
   else {
     const t = trouverTaxRateId(tvaProjet, index);
     if (t.id == null) err("tva_sans_correspondance", `${t.erreur} (TVA par défaut du devis)`);
@@ -590,7 +599,16 @@ export function construireEnTeteDevis(projet = {}, { taxes = null, aujourdHui = 
 
   if (str(projet.devis_num_commande_client)) champs.clientOrderNumber = str(projet.devis_num_commande_client);
 
-  return { champs, erreurs, avertissements, logement, client, tvaProjet };
+  // Identifiants que le lot 4 enverra à ProGBat (création du client et du
+  // chantier) : générés ici, jamais saisis. Pas transmis dans le devis.
+  const codeClient = genererCodeClient(clientDepuisProjet(projet));
+  const generes = {
+    code_client: codeClient,
+    nom_chantier: genererNomChantierProgbat({ clientAffichage: client.affichage, reference: logement.reference }),
+    code_chantier: genererCodeChantierProgbat({ codeClient, reference: logement.reference }),
+  };
+
+  return { champs, erreurs, avertissements, logement, client, tvaProjet, generes };
 }
 
 // ─── Audit structurel du payload (indépendant de la construction) ────────────
