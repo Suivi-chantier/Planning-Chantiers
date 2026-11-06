@@ -146,7 +146,8 @@ test("9. accès par défaut (src/access.js) : tout rôle qui a « chantiers » a
   const bloc = src.match(/export const ROLE_PAGES_DEFAULT_RENOVATION = \{([\s\S]*?)\n\};/)[1];
   const roles = {};
   for (const m of bloc.matchAll(/(\w+): \[([\s\S]*?)\]/g)) roles[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-  assert.deepEqual(Object.keys(roles).sort(), ["admin", "commercial", "comptable", "conducteur", "ouvrier"]);
+  // Lot 6 : rôle « charge_affaires » ajouté (ses pages exactes : verif-refonte-lot6).
+  assert.deepEqual(Object.keys(roles).sort(), ["admin", "charge_affaires", "commercial", "comptable", "conducteur", "ouvrier"]);
   for (const [role, pages] of Object.entries(roles)) {
     if (pages.includes("chantiers")) assert.ok(pages.includes("operations"), `${role} : operations`);
   }

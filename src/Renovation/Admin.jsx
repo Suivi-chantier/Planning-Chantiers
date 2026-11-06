@@ -71,7 +71,7 @@ function OngletMailEncours({ T, acc }) {
   const [saving, setSaving]   = useState(false);
   const [msg, setMsg]         = useState(null);  // { type:"ok"|"err", txt }
 
-  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur", commercial:"Commercial", comptable:"Comptable", ouvrier:"Ouvrier" };
+  const ROLE_LABELS = { admin:"Administrateur", conducteur:"Conducteur", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires", ouvrier:"Ouvrier" };
 
   useEffect(() => {
     (async () => {
@@ -301,9 +301,10 @@ function OngletUtilisateurs({ T, acc }) {
     { value:"conducteur", label:"Conducteur de travaux" },
     { value:"commercial", label:"Commercial" },
     { value:"comptable",  label:"Comptable" },
+    { value:"charge_affaires", label:"Chargé d'affaires" },
   ]);
-  const [ROLE_LABELS, setRoleLabels] = useState({ admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable" });
-  const [ROLE_COLORS, setRoleColors] = useState({ admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc" });
+  const [ROLE_LABELS, setRoleLabels] = useState({ admin:"Administrateur", conducteur:"Conducteur de travaux", commercial:"Commercial", comptable:"Comptable", charge_affaires:"Chargé d'affaires" });
+  const [ROLE_COLORS, setRoleColors] = useState({ admin:"#FFC200", conducteur:"#50c878", commercial:"#4db8ff", comptable:"#c084fc", charge_affaires:"#14b8a6" });
   useEffect(() => {
     let cancelled = false;
     Promise.all([loadAccessConfig("renovation"), loadAccessConfig("invest")]).then(([reno, inv]) => {
