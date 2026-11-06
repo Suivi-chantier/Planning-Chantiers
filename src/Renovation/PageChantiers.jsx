@@ -33,6 +33,12 @@ import {
   computeCycleVie, evaluerEtape, lireEtatsEtapes, lirePhaseDeclaree,
   CV_META_PHASE_DECLAREE, CV_META_ETAPES,
 } from "./cycleVie";
+import {
+  STATUTS_AFFICHAGE, STATUTS_CHOIX_MANUEL, decisionBasculeSignature, preparerPerte, preparerAnnulationPerte,
+  peutMarquerPerdu, estChantierPerdu, estChantierAEtude,
+} from "./statutsChantier";
+import { journaliserStatut } from "./chantiersDonnees";
+import { MarquerPerduModal, AnnulerPerteModal, ResumePerte } from "./ComposantsCommerciaux.jsx";
 // Facturation client : échéancier contractuel (acompte 50 %, démarrage 20 %,
 // situations, solde), registre des factures émises/encaissées et pont vers la
 // frise du cycle de vie. Remplace les anciennes « factures de situation »
@@ -83,12 +89,8 @@ loadPhases().then(p => { PHASES = p; });
 // Format heures : 1 décimale max, sans .0 si entier (évite "11.200000003h")
 const fmtH = (n) => +(parseFloat(n) || 0).toFixed(1);
 
-const STATUTS = {
-  en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
-  termine:  { label: "Terminé",   color: "#22c55e", bg: "rgba(34,197,94,0.15)"  },
-  planifie: { label: "Planifié",  color: "#3b82f6", bg: "rgba(59,130,246,0.15)" },
-  en_pause: { label: "En pause",  color: "#f97316", bg: "rgba(249,115,22,0.15)" },
-};
+// Libellés et couleurs : table unique (statutsChantier.mjs, lot 2 : À l'étude, Perdu).
+const STATUTS = STATUTS_AFFICHAGE;
 
 function StatutBadge({ statut }) {
   const s = STATUTS[statut] || STATUTS.en_cours;
@@ -2585,6 +2587,50 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
     }
   };
 
+  // ── Lot 2 : « Marquer perdu », annulation, bascule à la signature ──
+  // Les règles (qui peut être perdu, motif, champs écrits, entrée de journal)
+  // viennent de statutsChantier.mjs ; ici on ne fait qu'écrire. L'écriture du
+  // chantier passe par saveConfig (une seule ligne modifiée en base).
+  const [modalePerte, setModalePerte] = useState(null); // "perdu" | "annuler" | null
+  const appliquerStatutCommercial = async (chantierId, champs, journal) => {
+    if (!setChantiers || !saveConfig) return { ok: false, erreurs: ["Modification non autorisée sur cet écran"] };
+    const u = chantiers.map(c => c.id === chantierId ? { ...c, ...champs } : c);
+    setChantiers(u);
+    await saveConfig("chantiers", u);
+    const j = await journaliserStatut(journal);
+    if (!j.ok) alert(`Le statut est enregistré, mais l'historique n'a pas pu être écrit : ${j.erreur}`);
+    return { ok: true };
+  };
+  const marquerPerdu = async ({ motif, detail }) => {
+    const p = preparerPerte(selectedChantier, { motif, detail, auteur: profil?.nom || profil?.email || "", le: new Date().toISOString() });
+    if (!p.ok) return p;
+    const r = await appliquerStatutCommercial(selectedChantier.id, p.champs, p.journal);
+    if (r.ok) setModalePerte(null);
+    return r;
+  };
+  const annulerPerte = async ({ raison }) => {
+    const p = preparerAnnulationPerte(selectedChantier, { raison, auteur: profil?.nom || profil?.email || "" });
+    if (!p.ok) return p;
+    const r = await appliquerStatutCommercial(selectedChantier.id, p.champs, p.journal);
+    if (r.ok) setModalePerte(null);
+    return r;
+  };
+  // Bascule automatique : étape « Devis signé » validée sur un chantier « À
+  // l'étude » → « Planifié », chantier par chantier, une seule fois.
+  const basculeFaite = useRef(new Set());
+  const decisionBascule = selectedChantier ? decisionBasculeSignature(selectedChantier, cvEtats) : { basculer: false };
+  useEffect(() => {
+    if (!decisionBascule.basculer || !selectedChantier || basculeFaite.current.has(selectedChantier.id)) return;
+    if (!setChantiers || !saveConfig) return;
+    basculeFaite.current.add(selectedChantier.id);
+    appliquerStatutCommercial(selectedChantier.id, { statut: decisionBascule.nouveauStatut }, {
+      chantier_id: selectedChantier.id, evenement: "bascule_signature",
+      ancien_statut: selectedChantier.statut || null, nouveau_statut: decisionBascule.nouveauStatut,
+      motif: "devis_signe", detail: decisionBascule.raison, auteur: profil?.nom || profil?.email || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decisionBascule.basculer, selectedChantier?.id]);
+
   // ── Styles communs (cohérent avec autres pages) ──
   const sectionTitle = {
     fontSize: FONT.xs.size, fontWeight: 700, color: textMuted,
@@ -2661,9 +2707,11 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
           }, {});
           const filters = [
             { key: "tous",     label: "Tous",      count: chantiers.length, color: textSub },
+            { key: "a_l_etude", label: "À l'étude", count: counts.a_l_etude || 0, color: STATUTS.a_l_etude.color, bg: STATUTS.a_l_etude.bg },
             { key: "planifie", label: "Planifié",  count: counts.planifie || 0, color: STATUTS.planifie.color, bg: STATUTS.planifie.bg },
             { key: "en_cours", label: "En cours",  count: counts.en_cours || 0, color: STATUTS.en_cours.color, bg: STATUTS.en_cours.bg },
             { key: "termine",  label: "Terminé",   count: counts.termine  || 0, color: STATUTS.termine.color,  bg: STATUTS.termine.bg  },
+            { key: "perdu",    label: "Perdu",     count: counts.perdu    || 0, color: STATUTS.perdu.color,    bg: STATUTS.perdu.bg    },
           ];
           return (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
@@ -2866,7 +2914,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                   <Icon as={ChevronLeft} size={11} color={textMuted} style={{ transform: "rotate(-90deg)" }}/>
                 )}
               </button>
-              {statutMenuOpen && setChantiers && (
+              {statutMenuOpen && setChantiers && !estChantierPerdu(selectedChantier) && (
                 <>
                   <div onClick={() => setStatutMenuOpen(false)}
                     style={{ position: "fixed", inset: 0, zIndex: 100 }}/>
@@ -2877,7 +2925,8 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                     padding: 6, minWidth: 160,
                     display: "flex", flexDirection: "column", gap: 2,
                   }}>
-                    {["planifie", "en_cours", "en_pause", "termine"].map(s => {
+                    {/* « Perdu » ne s'obtient que par le bouton « Marquer perdu » (motif obligatoire). */}
+                    {STATUTS_CHOIX_MANUEL.map(s => {
                       const def = STATUTS[s];
                       const isCur = getStatut(selectedChantier, selectedPhasage) === s;
                       return (
@@ -2904,6 +2953,27 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
                 </>
               )}
             </div>
+            {/* Lot 2 : « Marquer perdu » (chantier À l'étude) / « Annuler perdu ». */}
+            {setChantiers && peutMarquerPerdu(selectedChantier).ok && (
+              <button onClick={() => setModalePerte("perdu")} title="Affaire non signée : motif obligatoire, arrête toutes les relances"
+                style={{ background: "transparent", border: `1px solid ${STATUTS.perdu.color}80`, color: STATUTS.perdu.color, borderRadius: RADIUS.pill, padding: "2px 10px", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                Marquer perdu
+              </button>
+            )}
+            {setChantiers && estChantierPerdu(selectedChantier) && (
+              <button onClick={() => setModalePerte("annuler")} title="Remettre le chantier à l'étude (la perte reste dans l'historique)"
+                style={{ background: "transparent", border: `1px solid ${border}`, color: textSub, borderRadius: RADIUS.pill, padding: "2px 10px", fontSize: FONT.xs.size, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                Annuler « perdu »
+              </button>
+            )}
+            {estChantierPerdu(selectedChantier) && <ResumePerte chantier={selectedChantier} T={T}/>}
+            {estChantierAEtude(selectedChantier) && !selectedPhasage && (
+              <span style={{ fontSize: FONT.xs.size + 1, color: "#f5a623" }}>
+                Passage automatique en Planifié impossible pour l'instant : l'étape « Devis signé » se valide dans le cycle de vie, qui n'apparaît qu'avec un phasage.
+              </span>
+            )}
+            {modalePerte === "perdu" && <MarquerPerduModal T={T} chantier={selectedChantier} onClose={() => setModalePerte(null)} onValider={marquerPerdu}/>}
+            {modalePerte === "annuler" && <AnnulerPerteModal T={T} chantier={selectedChantier} onClose={() => setModalePerte(null)} onValider={annulerPerte}/>}
             {selectedPhasage ? (
               <>
                 <span style={{ fontSize: FONT.xs.size + 1, color: textMuted }}>{selectedPhasage.chantier_nom}</span>

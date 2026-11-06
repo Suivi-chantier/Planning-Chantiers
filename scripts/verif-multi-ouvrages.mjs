@@ -26,6 +26,8 @@ const MAINTENANT = new Date("2026-10-21T10:00:00Z");
 const LOTS = ["Démolition", "Plomberie sanitaire", "Électricité", "Finitions générales"];
 const projet = () => ({
   id: PID, client_nom: "Dupont", client_prenom: "Marie", client_societe: "",
+  // Lot 2 (Refonte Opérations) : e-mail et téléphone obligatoires (règle Profero).
+  client_email: "marie.dupont@exemple.test", client_telephone: "0600000000",
   client_adresse: "12 rue des Lilas", client_code_postal: "49000", client_ville: "Angers", client_pays: "France",
   chantier_adresse: "5 avenue du Parc", chantier_code_postal: "49100", chantier_ville: "Angers", chantier_pays: "France",
   logement_reference: "Appartement 101", type_logement: "T2",

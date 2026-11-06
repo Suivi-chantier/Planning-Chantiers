@@ -41,6 +41,10 @@ import { exporterOperationMarkdown } from "./operationExportData";
 // exporté doivent afficher rigoureusement les mêmes totaux, donc une seule
 // implémentation. La formule est inchangée (avancement pondéré par le vendu).
 import { agregerOperation } from "./operationExportModele.mjs";
+import { STATUTS_AFFICHAGE, statutOperation } from "./statutsChantier.js";
+import { estChantierActif } from "./chantierActif.js";
+import { BadgeStatut } from "./ComposantsCommerciaux.jsx";
+import OperationCommercial from "./OperationCommercial.jsx";
 import { useReglagesMarges } from "./reglagesMarges";
 import { detailKpiOperation, carteDeriveOperation } from "./operationKpiDetail";
 import {
@@ -58,12 +62,8 @@ const CheminDeFerVue = React.lazy(() => import("./CheminDeFer"));
 // (chunk séparé — le moteur n'est chargé que si on ouvre l'onglet).
 const PlanificationOperation = React.lazy(() => import("./PlanificationOperation"));
 
-const STATUTS = {
-  en_cours: { label: "En cours",  color: "#FFC300", bg: "rgba(255,195,0,0.15)"  },
-  termine:  { label: "Terminé",   color: "#22c55e", bg: "rgba(34,197,94,0.15)"  },
-  planifie: { label: "Planifié",  color: "#3b82f6", bg: "rgba(59,130,246,0.15)" },
-  en_pause: { label: "En pause",  color: "#f97316", bg: "rgba(249,115,22,0.15)" },
-};
+// Libellés et couleurs : table unique (statutsChantier.mjs ; lot 2 : À l'étude, Perdu).
+const STATUTS = STATUTS_AFFICHAGE;
 
 function ProgressBar({ value, color, height = 6 }) {
   const pct = Math.min(100, Math.max(0, value || 0));
@@ -194,7 +194,7 @@ function KpiOperationModal({ detail, pres, opNom, T, onClose }) {
   );
 }
 
-export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false }) {
+export default function PageOperations({ chantiers = [], T, branch = "renovation", onOpenChantier, onOuvrirAdmin, peutPlanifier = false, setChantiers = null, saveConfig = null, profil = null }) {
   const acc = getBranchAccent(branch);
   const [operations, setOperations] = useState(null); // null = chargement
   const [etat, setEtat] = useState({ charge: false, phasages: [], phasagesParChantier: {}, ptsByChantier: {}, clByChantier: {}, cfg: {}, refsParChantier: {}, erreurs: [] });
@@ -265,7 +265,9 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
   const reglagesMarges = useReglagesMarges();
   const finParChantier = useMemo(() => {
     if (!etat.charge) return {};
-    const rattaches = new Set(chantiers.filter((c) => c.operation_id).map((c) => c.id));
+    // Chiffres : seulement les chantiers en exploitation (un chantier À
+    // l'étude ou Perdu n'est pas vendu — règle unique estChantierActif).
+    const rattaches = new Set(chantiers.filter((c) => c.operation_id && estChantierActif(c, { inclureTermines: true })).map((c) => c.id));
     const tauxHoraires = etat.cfg.taux_horaires || {};
     const tauxMOPrev = parseFloat(etat.cfg.taux_mo_previsionnel) || 0;
     const etatsFinanciers = etat.cfg.etats_financiers || null;
@@ -392,6 +394,7 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
                           </div>
                         )}
                       </div>
+                      {(() => { const so = statutOperation(chantiersOp); return <BadgeStatut operation statut={so.statut} title={`Statut calculé : ${so.raison}`}/>; })()}
                       <span style={{
                         fontSize: FONT.xs.size, fontWeight: 700, padding: "3px 10px", borderRadius: RADIUS.pill,
                         background: acc.bg10, color: acc.accent, whiteSpace: "nowrap", flexShrink: 0,
@@ -763,10 +766,15 @@ export default function PageOperations({ chantiers = [], T, branch = "renovation
 
       {bandeauErreurs && <div style={{ marginBottom: 14 }}>{bandeauErreurs}</div>}
 
+      {/* Lot 2 : statut calculé, client et chargé d'affaires, Marquer perdu. */}
+      <OperationCommercial T={T} op={op} chantiersOp={chantiersOp} chantiers={chantiers}
+        setChantiers={setChantiers} saveConfig={saveConfig} profil={profil}
+        onOperationModifiee={(maj) => setOperations((l) => (l || []).map((o) => (o.id === maj.id ? { ...o, ...maj } : o)))}/>
+
       {chantiersOp.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: textMuted }}>
           <div style={{ fontSize: FONT.base.size, fontWeight: 600, marginBottom: 8 }}>Aucun chantier rattaché à cette opération.</div>
-          <div style={{ fontSize: FONT.sm.size }}>Le rattachement se fait dans Réglages → Opérations (colonne Opération du tableau des chantiers).</div>
+          <div style={{ fontSize: FONT.sm.size }}>Un nouveau chantier se crée depuis Chiffrage → « Nouveau chiffrage » (opération → chantier → client). Le déplacement d'un chantier existant se fait dans Réglages → Chantiers.</div>
         </div>
       ) : (
         <>

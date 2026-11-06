@@ -21,8 +21,9 @@ import {
   calculerEcritures, depuisLigneChantier, depuisLigneOperation, trierLignes,
 } from "./chantiersTables.js";
 
-const COLS_CHANTIER = "id, operation_id, nom, couleur, statut, ordre, donnees, archive_le, created_at";
-const COLS_OPERATION = "id, nom, adresse, couleur, ordre, donnees, creee_automatiquement, archive_le, created_at";
+// Lot 2 : client, chargé d'affaires et perte (colonnes facultatives).
+const COLS_CHANTIER = "id, operation_id, nom, couleur, statut, ordre, donnees, archive_le, created_at, client_id, charge_affaires_id, charge_affaires_nom, perdu_le, perdu_par, perdu_motif, perdu_motif_detail";
+const COLS_OPERATION = "id, nom, adresse, couleur, ordre, donnees, creee_automatiquement, archive_le, created_at, client_id, charge_affaires_id, charge_affaires_nom";
 // Clés d'anti-écho (configSync) : nos propres écritures reviennent en temps
 // réel quelques centaines de ms plus tard, on ne les réapplique pas.
 export const CLE_ECHO_CHANTIERS = "table:chantiers";
@@ -213,4 +214,53 @@ export function abonnerChantiersOperations(rappel, nomCanal = "chantiers-operati
     Object.values(minuteries).forEach(clearTimeout);
     supabase.removeChannel(canal);
   };
+}
+
+// ─── Lot 2 : journal des statuts commerciaux ─────────────────────────────────
+/**
+ * Ajoute une entrée au journal (marqué perdu, perte annulée, bascule à la
+ * signature). L'entrée est préparée par statutsChantier.mjs. Le journal ne se
+ * modifie ni ne s'efface. Renvoie { ok, erreur }.
+ */
+export async function journaliserStatut(entree) {
+  const { error } = await supabase.from("chantiers_statut_journal").insert(entree);
+  if (error) console.error("journaliserStatut :", error.message);
+  return { ok: !error, erreur: error?.message || null };
+}
+
+/** Historique des statuts commerciaux d'un chantier (plus récent d'abord). */
+export async function chargerJournalStatut(chantierId) {
+  const { data, error } = await supabase.from("chantiers_statut_journal")
+    .select("id, evenement, ancien_statut, nouveau_statut, motif, detail, auteur, le")
+    .eq("chantier_id", chantierId).order("le", { ascending: false });
+  return { lignes: data || [], erreur: error?.message || null };
+}
+
+// ─── Lot 2 : client / chargé d'affaires d'une opération, création ───────────
+const CHAMPS_COMMERCIAUX_OPERATION = ["client_id", "charge_affaires_id", "charge_affaires_nom"];
+
+/**
+ * Modifie UNIQUEMENT le client et/ou le chargé d'affaires d'une opération
+ * (jamais ses autres champs : un objet partiel ne peut rien effacer).
+ */
+export function modifierOperationCommercial(id, patch) {
+  const propre = {};
+  CHAMPS_COMMERCIAUX_OPERATION.forEach((k) => { if (k in (patch || {})) propre[k] = patch[k] || null; });
+  if (!Object.keys(propre).length) return Promise.resolve({ ok: true });
+  return enFile(async () => {
+    marquerEcritureConfig(CLE_ECHO_OPERATIONS);
+    const res = await supabase.from("operations").update(propre).eq("id", id).select(COLS_OPERATION).single();
+    marquerEcritureConfig(CLE_ECHO_OPERATIONS);
+    if (res.error) { signalerEchec(`Enregistrement de l'opération impossible : ${res.error.message}`); return { ok: false, erreur: res.error.message }; }
+    if (connues.operation) connues.operation.set(res.data.id, res.data);
+    return { ok: true, operation: depuisLigneOperation(res.data) };
+  });
+}
+
+/** Crée une opération (parcours de chiffrage). → { ok, operation } */
+export async function creerOperation(objet) {
+  const r = await sauverOperations([objet]);
+  if (r?.erreurs?.length) return { ok: false, erreur: r.erreurs.join(" ; ") };
+  const ligne = connues.operation?.get(objet.id);
+  return { ok: !!ligne, operation: ligne ? depuisLigneOperation(ligne) : null, erreur: ligne ? null : "Opération non créée" };
 }

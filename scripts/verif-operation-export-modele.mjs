@@ -13,6 +13,8 @@ const {
   await chargerModuleSource("../src/Renovation/operationExportModele.mjs", import.meta.url);
 const { construireMarkdownOperation } =
   await chargerModuleSource("../src/Renovation/operationMarkdown.mjs", import.meta.url);
+const { avancementOuvrage } =
+  await chargerModuleSource("../src/chantierFinance.mjs", import.meta.url);
 
 const cas = [];
 const test = (nom, fn) => cas.push([nom, fn]);
@@ -183,9 +185,14 @@ test("les ouvrages reprennent les champs du phasage sans en inventer", () => {
   assert.equal(o.quantite, 20, "la quantité texte « 20 » doit devenir un nombre");
   assert.equal(o.prixHT, 4000);
   assert.equal(o.heuresDevis, 40);
-  // avancementOuvrage de chantierFinance : pondération par heures_estimees sur
-  // TOUTES les tâches de l'ouvrage — (100×6 + 0×8 + 50×3) / 17 = 44.
-  assert.equal(o.avancement, 44, "l'avancement doit venir du module de calcul, pas d'une règle locale");
+  // L'avancement doit être celui de avancementOuvrage (chantierFinance), quelle
+  // que soit sa règle de pondération : depuis « une seule base d'heures »
+  // (répartition en % des heures de l'ouvrage), il ne vaut plus le 44 de la
+  // pondération par heures_estimees. On compare donc au module lui-même, et on
+  // vérifie qu'il ne s'agit pas d'une moyenne simple locale ((100+0+50)/3 = 50).
+  const attendu = avancementOuvrage(PHASAGE.ouvrages[0]);
+  assert.equal(o.avancement, attendu, "l'avancement doit venir du module de calcul, pas d'une règle locale");
+  assert.notEqual(attendu, 50, "le jeu d'essai doit distinguer la pondération d'une moyenne simple");
 });
 
 test("un ouvrage sans libellé ni lot connu ne produit ni vide ni null d'affichage", () => {

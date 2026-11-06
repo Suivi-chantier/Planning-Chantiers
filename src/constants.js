@@ -601,6 +601,10 @@ export async function loadOperations() {
         nom:     o.nom     || `Opération ${i + 1}`,
         adresse: o.adresse || "",
         couleur: o.couleur || "#888888",
+        // Lot 2 : client et chargé d'affaires par défaut de l'opération.
+        client_id: o.client_id || null,
+        charge_affaires_id: o.charge_affaires_id || null,
+        charge_affaires_nom: o.charge_affaires_nom || null,
       }));
     }
   } catch (e) { console.warn("loadOperations:", e?.message || e); }
