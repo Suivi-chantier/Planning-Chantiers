@@ -1,11 +1,12 @@
 // supabase/functions/_partage/pushServeur.ts
 //
-// Partie serveur commune aux Edge Functions push-abonnement et send-push :
+// Partie serveur commune aux Edge Functions push-abonnement, send-push et
+// notifications-boite :
 // CORS, réponses JSON, identification de l'appelant. Les décisions elles-mêmes
 // vivent dans pushRegles.mjs (pur, testé par scripts/verif-notifications-push.mjs).
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { clesVapid, decisionAppelantPush, extraireJeton } from "./pushRegles.mjs"
+import { clesVapid, decisionAppelantPush, estCleServeur, extraireJeton } from "./pushRegles.mjs"
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,4 +75,22 @@ export async function identifierAppelant(req: Request): Promise<Identification> 
   const decision = decisionAppelantPush({ appelant, profil, collaborateurActif })
   if (!decision.autorise) return { ok: false, reponse: json({ error: decision.erreur }, decision.statut) }
   return { ok: true, admin, userId: appelant!.id, role: String(profil!.role) }
+}
+
+/** Client service role (accès aux tables fermées au navigateur). */
+export function clientServeur(): SupabaseClient | null {
+  const url = Deno.env.get("SUPABASE_URL")
+  const cleService = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+  if (!url || !cleService) return null
+  return createClient(url, cleService, { auth: { autoRefreshToken: false, persistSession: false } })
+}
+
+/**
+ * Appel de serveur à serveur (dispatcher Vercel) : le jeton « Bearer » doit
+ * être la clé service role, déjà connue des deux côtés (Vercel :
+ * SUPABASE_SERVICE_ROLE_KEY ; Supabase : injectée dans les Edge Functions).
+ * Aucun nouveau secret. Clé absente du serveur → refus (fermé par défaut).
+ */
+export function estAppelServeur(req: Request): boolean {
+  return estCleServeur(extraireJeton(req.headers.get("Authorization")), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "")
 }

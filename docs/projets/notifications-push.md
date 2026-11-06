@@ -217,7 +217,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne (test téléphone en attente des secrets) | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
+| 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | à faire | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | — |
 | 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | à faire | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
@@ -299,22 +299,55 @@ tâche.
   écran précis des tâches suivantes. Sans onglet ouvert, une fenêtre s'ouvre
   sur l'adresse.
 
+**06/11/2026 — Loris a saisi les 3 secrets VAPID ; la notification de test
+est reçue sur son téléphone** (vérifié en base : 1 appareil enregistré, dernier
+envoi réussi). Fin d'étape 1 validée.
+
+**06/11/2026 — Tâche 2 : choix techniques.**
+- **Emplacement des réglages** : `planning_config`, clé `notifications_push`
+  (même rangement que le réglage « facture à émettre », clé
+  `echeancier_facturation`, qui reste séparé et inchangé). Forme :
+  `{ actif, types: { C1: { actif, roles } … D4 }, silence: { debut, fin, jours } }`.
+  La clé est **absente** à la livraison : `send-push` prend alors les valeurs
+  par défaut, interrupteur général **coupé**. Le rôle `ouvrier` est retiré à
+  la lecture, même s'il est écrit à la main en base. Rôles par défaut : C1–C5
+  conducteur ; F1, F2 comptable ; D1, D3, D4 admin ; D2 admin + conducteur.
+  D4 est en boîte seule (pas de push), comme le catalogue.
+- **Préférences** : table `notifications_preferences` (une ligne par
+  personne, types coupés en jsonb). Une préférence coupée supprime le push
+  mais **garde** la notification dans la boîte (statut « desactive »), pour que
+  rien ne se perde.
+- **Destinataires** : utilisateurs actifs des rôles cochés, avec un compte de
+  connexion (rapprochement par e-mail, `utilisateurs.id` ≠ identifiant de
+  connexion), jamais ouvrier, **et rattachés à la Rénovation** (un compte
+  Invest seul — commerciaux, agent EDL — n'est pas destinataire même si son
+  rôle est coché). C'est une précision par rapport au point tranché « tous
+  les utilisateurs actifs des rôles cochés » (les rôles proposés sont ceux de
+  la Rénovation) : à confirmer par Loris, facile à retirer si besoin.
+- **Secret serveur** : la clé service role, déjà présente des deux côtés
+  (Vercel `SUPABASE_SERVICE_ROLE_KEY`, Supabase l'injecte dans les Edge
+  Functions). `send-push` compare le jeton « Bearer » à cette clé avant toute
+  lecture. Aucun nouveau secret.
+- **Regroupement** : index unique (personne, type, clé de regroupement) ;
+  clé par défaut = type + jour de Paris. Rejouer un envoi ne crée aucun
+  doublon, même si deux passages se croisent.
+- **Créneau du rattrapage** : `.github/workflows/cron-push-reportes.yml`,
+  `?job=push_reportes` du dispatcher, **deux** créneaux les jours ouvrés,
+  05h05 et 06h05 UTC : l'un tombe à 7h05 Paris selon la saison, l'autre ne
+  trouve rien (en hiver, à 6h05, rien n'est encore dû ; en été, à 8h05, tout
+  est parti). Pas de correction à faire au changement d'heure. Le même
+  workflow, lancé à la main avec un type (ex. D2), fait une simulation sans
+  envoi (`?job=push_simulation&type=D2`).
+- **Module pur** `supabase/functions/_partage/notificationsPushV1.mjs`
+  (même emplacement que `pushRegles.mjs`), façade front
+  `src/notificationsPushV1.js`.
+
 ## À faire par Loris
 
-1. **Saisir les 3 secrets** dans Supabase › Edge Functions › Secrets :
-   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Les valeurs ont
-   été transmises par la session (fichier hors du dépôt) ; elles ne sont pas
-   recopiées ici. Sans eux, le profil affiche « Pas encore configurées sur le
-   serveur » et aucun envoi n'est possible.
-2. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
+1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
    Variables, Production) avec la même valeur que `VAPID_PUBLIC_KEY` (clé
    publique, sans risque). Facultatif : sans elle, l'application demande la
-   clé au serveur.
-3. **Tester sur son téléphone** (après les secrets) : ouvrir l'application
-   installée, toucher l'icône téléphone en haut › « Activer les
-   notifications » › accepter › « Envoyer une notification de test » ; la
-   notification doit arriver et ouvrir l'application. Sur iPhone,
-   l'application doit être installée sur l'écran d'accueil (iOS 16.4 minimum).
+   clé au serveur (c'est ce qui se passe aujourd'hui, et ça fonctionne).
 
 ## Comptes rendus
 

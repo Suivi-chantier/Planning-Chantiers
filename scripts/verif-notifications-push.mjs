@@ -11,6 +11,11 @@
 //      fonction SECURITY DEFINER), rien dans l'espace ouvrier, aucune demande
 //      d'autorisation au chargement, aucune clé privée dans le dépôt.
 //
+//   4. tâche 2 : moteur des envois (réglages, destinataires sans ouvrier,
+//      préférences, plage de silence et report, changement d'heure,
+//      regroupement), migration de la boîte, Edge Function de la boîte,
+//      job de rattrapage. Données fictives.
+//
 // Aucun réseau, aucune base, aucun déploiement.
 //   node scripts/verif-notifications-push.mjs
 import assert from "node:assert/strict";
@@ -18,6 +23,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as N from "../src/notificationsPush.mjs";
 import * as R from "../supabase/functions/_partage/pushRegles.mjs";
+import * as V from "../supabase/functions/_partage/notificationsPushV1.mjs";
 
 const chemin = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
 const lire = (rel) => readFileSync(chemin(rel), "utf8");
@@ -204,24 +210,34 @@ test("12. réponse du service push : 404/410 → suppression, 2xx → date d'uti
   ]), { appareils: 3, envoyes: 1, supprimes: 1, echecs: 1 });
 });
 
-test("13. send-push : seul le test est ouvert, les envois serveur attendent la tâche 2", () => {
-  assert.deepEqual(R.validerDemandeSendPush({ mode: "test" }), { ok: true, mode: "test" });
-  assert.deepEqual(R.validerDemandeSendPush({}), { ok: true, mode: "test" });
-  assert.equal(R.validerDemandeSendPush({ mode: "serveur" }).statut, 501);
+test("13. send-push : test ouvert aux collaborateurs, serveur et rattrapage réservés au secret serveur", () => {
+  assert.deepEqual(R.validerDemandeSendPush({ mode: "test" }), { ok: true, mode: "test", serveur: false });
+  assert.deepEqual(R.validerDemandeSendPush({}), { ok: true, mode: "test", serveur: false });
+  assert.deepEqual(R.validerDemandeSendPush({ mode: "serveur" }), { ok: true, mode: "serveur", serveur: true });
+  assert.deepEqual(R.validerDemandeSendPush({ mode: "reportes" }), { ok: true, mode: "reportes", serveur: true });
   assert.equal(R.validerDemandeSendPush({ mode: "tout_le_monde" }).statut, 400);
+  // Clé serveur : fermé par défaut.
+  assert.equal(R.estCleServeur("abc", "abc"), true);
+  assert.equal(R.estCleServeur("abd", "abc"), false);
+  assert.equal(R.estCleServeur("ab", "abc"), false);
+  assert.equal(R.estCleServeur("abcd", "abc"), false);
+  assert.equal(R.estCleServeur("", ""), false, "clé absente du serveur : refus");
+  assert.equal(R.estCleServeur(null, "abc"), false);
+  assert.equal(R.estCleServeur("abc", undefined), false);
   const t = R.chargeUtileTest();
   assert.equal(t.url, "/");
   assert.ok(t.title && t.body);
 });
 
 test("14. modules purs : aucun accès Supabase, aucune horloge", () => {
-  for (const f of ["src/notificationsPush.mjs", "supabase/functions/_partage/pushRegles.mjs"]) {
+  for (const f of ["src/notificationsPush.mjs", "supabase/functions/_partage/pushRegles.mjs", "supabase/functions/_partage/notificationsPushV1.mjs"]) {
     const code = sansCommentaires(lire(f));
     assert.ok(!/supabase/i.test(code.replace(/supabase\/functions/g, "")), `${f} : pas de Supabase`);
     assert.ok(!/Date\.now|new Date|Math\.random|fetch\(|setTimeout/.test(code), `${f} : pas d'horloge ni d'effet`);
     assert.ok(!/^import /m.test(code), `${f} : aucune dépendance`);
   }
   assert.match(lire("src/notificationsPush.js"), /export \* from "\.\/notificationsPush\.mjs"/);
+  assert.match(lire("src/notificationsPushV1.js"), /export \* from "\.\.\/supabase\/functions\/_partage\/notificationsPushV1\.mjs"/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -313,6 +329,7 @@ test("21. Edge Functions : JWT exigé, appelant contrôlé avant toute écriture
   const config = lire("supabase/config.toml");
   assert.match(config, /\[functions\.push-abonnement\]\s*\nverify_jwt = true/);
   assert.match(config, /\[functions\.send-push\]\s*\nverify_jwt = true/);
+  assert.match(config, /\[functions\.notifications-boite\]\s*\nverify_jwt = true/);
   const abo = sansCommentaires(lire("supabase/functions/push-abonnement/index.ts"));
   for (const methode of ["POST", "DELETE"]) {
     const bloc = abo.slice(abo.indexOf(`req.method === "${methode}"`));
@@ -323,11 +340,18 @@ test("21. Edge Functions : JWT exigé, appelant contrôlé avant toute écriture
   }
   assert.match(abo, /\.eq\("user_id", qui\.userId\)/);
   const envoi = sansCommentaires(lire("supabase/functions/send-push/index.ts"));
-  const iQui = envoi.indexOf("identifierAppelant(req)");
-  const iLecture = envoi.indexOf('.from("push_subscriptions")\n      .select');
+  const blocTest = envoi.slice(envoi.indexOf("async function modeTest"));
+  const iQui = blocTest.indexOf("identifierAppelant(req)");
+  const iLecture = blocTest.indexOf('.from("push_subscriptions")');
   assert.ok(iQui > 0 && iQui < iLecture, "send-push : appelant contrôlé avant lecture des appareils");
-  assert.match(envoi, /\.eq\("user_id", qui\.userId\)/, "test : seulement SES appareils");
+  assert.match(blocTest, /\.eq\("user_id", qui\.userId\)/, "test : seulement SES appareils");
   assert.match(envoi, /suiteReponseService\(statut\)/);
+  // Modes serveur : secret vérifié avant toute lecture.
+  const porte = envoi.slice(envoi.indexOf("Deno.serve("));
+  const iSecret = porte.indexOf("if (!estAppelServeur(req)) return");
+  const iClient = porte.indexOf("clientServeur()");
+  assert.ok(iSecret > 0 && iSecret < iClient, "send-push serveur : secret contrôlé avant tout accès");
+  assert.match(lire("supabase/functions/_partage/pushServeur.ts"), /estCleServeur\(extraireJeton\(req\.headers\.get\("Authorization"\)\), Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/);
   const serveur = sansCommentaires(lire("supabase/functions/_partage/pushServeur.ts"));
   assert.match(serveur, /rpc\("est_collaborateur_actif"\)/);
   assert.match(serveur, /Deno\.env\.get\("VAPID_PRIVATE_KEY"\)/);
@@ -339,12 +363,319 @@ test("22. aucune clé privée VAPID écrite dans le dépôt", () => {
     "supabase/functions/send-push/index.ts", "supabase/functions/push-abonnement/index.ts",
     "src/notificationsPush.mjs", "src/Renovation/ProfilNotifications.jsx", "public/push-sw.js",
     "vite.config.js", "docs/projets/notifications-push.md",
+    "supabase/functions/_partage/notificationsPushV1.mjs", "supabase/functions/notifications-boite/index.ts",
+    "api/_cron/cron-push-reportes.js", ".github/workflows/cron-push-reportes.yml",
   ];
   for (const f of fichiers) {
     const code = lire(f);
     assert.ok(!/VAPID_PRIVATE_KEY\s*[=:]\s*["']?[A-Za-z0-9_-]{40,}/.test(code), `${f} : pas de clé privée`);
     assert.ok(!/privateKey:\s*["'][A-Za-z0-9_-]{40,}["']/.test(code), `${f} : pas de clé privée en dur`);
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4. Moteur des envois (tâche 2) — exécuté, données fictives
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ms = (iso) => Date.parse(iso);
+const iso = (n) => (n == null ? null : new Date(n).toISOString());
+const S = V.SILENCE_DEFAUT;
+// Utilisateurs fictifs (aucune donnée réelle).
+const UTILISATEURS = [
+  { auth_id: "a1", nom: "Admin Un", role: "admin", actif: true, branches: ["renovation", "invest"] },
+  { auth_id: "a2", nom: "Admin Deux", role: "admin", actif: true, branches: ["renovation"] },
+  { auth_id: "c1", nom: "Conducteur Un", role: "conducteur", actif: true, branches: ["renovation"] },
+  { auth_id: "k1", nom: "Comptable", role: "comptable", actif: true, branches: ["renovation"] },
+  { auth_id: "o1", nom: "Ouvrier Un", role: "ouvrier", actif: true, branches: ["renovation"] },
+  { auth_id: "o2", nom: "Ouvrier Deux", role: "Ouvrier", actif: true, branches: ["renovation"] },
+  { auth_id: "x1", nom: "Ancien admin", role: "admin", actif: false, branches: ["renovation"] },
+  { auth_id: null, nom: "Admin sans compte", role: "admin", actif: true, branches: ["renovation"] },
+  { auth_id: "i1", nom: "Commercial Invest", role: "commercial", actif: true, branches: ["invest"] },
+];
+const ALLUME = (surcharges = {}) => V.normaliserReglages({ actif: true, ...surcharges });
+const MARDI_10H = ms("2026-11-10T09:00:00Z"); // mardi 10h00 Paris (heure d'hiver)
+const plan = (p) => V.planifierEnvoi({
+  reglages: ALLUME(), type: "D2", utilisateurs: UTILISATEURS,
+  appareils: { a1: 1, a2: 2, c1: 1, k1: 1, o1: 1, o2: 1, i1: 1 },
+  maintenantMs: MARDI_10H, vapidConfiguree: true, ...p,
+});
+
+test("23. réglages : absents → défauts, interrupteur général COUPÉ, catalogue C1…D4", () => {
+  const r = V.normaliserReglages(null);
+  assert.equal(r.actif, false, "livré coupé");
+  assert.equal(r.source, "defaut");
+  assert.deepEqual(Object.keys(r.types), ["C1", "C2", "C3", "C4", "C5", "F1", "F2", "D1", "D2", "D3", "D4"]);
+  for (const c of ["C1", "C2", "C3", "C4", "C5"]) assert.deepEqual(r.types[c].roles, ["conducteur"], c);
+  for (const c of ["F1", "F2"]) assert.deepEqual(r.types[c].roles, ["comptable"], c);
+  for (const c of ["D1", "D3", "D4"]) assert.deepEqual(r.types[c].roles, ["admin"], c);
+  assert.deepEqual(r.types.D2.roles, ["admin", "conducteur"]);
+  assert.ok(Object.values(r.types).every((t) => t.actif === true));
+  assert.deepEqual(r.silence, { debut: "20:00", fin: "07:00", jours: ["samedi", "dimanche"] });
+  assert.equal(V.typeDuCatalogue("D4").push, false, "D4 : boîte seulement");
+  assert.equal(V.normaliserReglages({ actif: "oui" }).actif, false, "seul true allume");
+  assert.equal(V.CLE_REGLAGES, "notifications_push");
+  // Le réglage mail « facture à émettre » est une autre clé, non lue ici.
+  assert.notEqual(V.CLE_REGLAGES, "echeancier_facturation");
+  // Aucun rôle ouvrier dans le catalogue.
+  for (const t of V.CATALOGUE) assert.ok(!t.roles.includes("ouvrier"), t.code);
+});
+
+test("24. ouvrier : jamais destinataire, même coché à la main en base", () => {
+  const r = V.normaliserReglages({ actif: true, types: { D2: { actif: true, roles: ["admin", "ouvrier", " OUVRIER "] } } });
+  assert.deepEqual(r.types.D2.roles, ["admin"]);
+  assert.ok(r.avertissements.some((a) => /ouvrier/.test(a)));
+  // Même si des réglages bruts (non normalisés) contiennent « ouvrier ».
+  const brut = { actif: true, types: { D2: { actif: true, roles: ["ouvrier", "admin"] } }, silence: S };
+  const d = V.destinataires({ reglages: brut, type: "D2", utilisateurs: UTILISATEURS });
+  assert.ok(d.liste.every((u) => u.role !== "ouvrier"));
+  assert.equal(d.ignores.ouvrier, 2);
+  const p = plan({ reglages: brut });
+  assert.ok(p.lignes.every((l) => !["o1", "o2"].includes(l.user_id)));
+});
+
+test("25. destinataires : actifs des rôles cochés, avec compte, rattachés à la Rénovation", () => {
+  const p = plan({});
+  assert.deepEqual(p.lignes.map((l) => l.user_id).sort(), ["a1", "a2", "c1"]);
+  assert.deepEqual(p.resume.destinataires_par_role, { admin: 2, conducteur: 1 });
+  assert.deepEqual(p.resume.ignores, { ouvrier: 0, inactif: 1, sans_compte: 1, hors_renovation: 0 });
+  assert.equal(p.resume.a_envoyer, 3);
+  assert.equal(p.resume.envoi_reel, true);
+  const commercial = V.planifierEnvoi({
+    reglages: ALLUME({ types: { F2: { actif: true, roles: ["commercial"] } } }), type: "F2",
+    utilisateurs: UTILISATEURS, maintenantMs: MARDI_10H, vapidConfiguree: true,
+  });
+  assert.equal(commercial.lignes.length, 0);
+  assert.equal(commercial.resume.ignores.hors_renovation, 1, "un compte Invest seul n'est pas destinataire");
+});
+
+test("26. aucun rôle coché : zéro destinataire, rien n'est écrit", () => {
+  const p = plan({ reglages: ALLUME({ types: { D2: { actif: true, roles: [] } } }) });
+  assert.equal(p.resume.bloque_par, "aucun_role");
+  assert.equal(p.lignes.length, 0);
+  assert.equal(p.resume.destinataires, 0);
+});
+
+test("27. type désactivé : rien n'est envoyé ni écrit", () => {
+  const p = plan({ reglages: ALLUME({ types: { D2: { actif: false, roles: ["admin"] } } }) });
+  assert.equal(p.resume.bloque_par, "type_desactive");
+  assert.equal(p.lignes.length, 0);
+  assert.equal(p.resume.envoi_reel, false);
+});
+
+test("28. interrupteur général coupé : rien (ni push ni boîte) ; la simulation calcule quand même", () => {
+  const coupe = V.normaliserReglages(null);
+  const p = plan({ reglages: coupe });
+  assert.equal(p.resume.bloque_par, "interrupteur_coupe");
+  assert.equal(p.lignes.length, 0);
+  assert.equal(p.resume.envoi_reel, false);
+  const sim = plan({ reglages: coupe, simulation: true });
+  assert.equal(sim.resume.bloque_par, "interrupteur_coupe", "la simulation dit que l'envoi réel serait bloqué");
+  assert.equal(sim.resume.envoi_reel, false);
+  assert.deepEqual(sim.resume.destinataires_par_role, { admin: 2, conducteur: 1 });
+  // Le test demandé à la main passe malgré l'interrupteur coupé et la plage de silence.
+  assert.deepEqual(V.planifierTest({ nbAppareils: 1, vapidConfiguree: true }), { push_statut: "a_envoyer", push_prevu_le: null });
+  const envoi = sansCommentaires(lire("supabase/functions/send-push/index.ts"));
+  const blocTest = envoi.slice(envoi.indexOf("async function modeTest"), envoi.indexOf("Deno.serve("));
+  assert.ok(!/lireReglages|planifierEnvoi|estEnSilence/.test(blocTest), "le test ne lit ni l'interrupteur ni la plage de silence");
+  assert.match(blocTest, /from\("notifications"\)\.insert\(/, "le test est écrit dans la boîte");
+});
+
+test("29. préférence coupée : pas de push, la notification reste en boîte", () => {
+  const p = plan({ preferences: { a1: { D2: false }, a2: { C1: false } } });
+  const parId = Object.fromEntries(p.lignes.map((l) => [l.user_id, l.push_statut]));
+  assert.equal(parId.a1, "desactive");
+  assert.equal(parId.a2, "a_envoyer", "couper C1 ne coupe pas D2");
+  assert.equal(p.resume.desactives, 1);
+  assert.equal(V.preferenceActive(undefined, "D2"), true, "activé par défaut");
+  assert.equal(V.preferenceActive({ D2: true }, "D2"), true);
+  assert.equal(V.validerPreferences({ types: { C1: false, D2: true } }).ok, true);
+  assert.equal(V.validerPreferences({ types: { Z9: false } }).ok, false);
+  assert.equal(V.validerPreferences({ types: { C1: "non" } }).ok, false);
+  assert.equal(V.validerPreferences({}).ok, false);
+});
+
+test("30. impossibilités visibles : aucun appareil, serveur non configuré, D4 boîte seule", () => {
+  const p = plan({ appareils: {}, vapidConfiguree: true });
+  assert.ok(p.lignes.every((l) => l.push_statut === "aucun_appareil"));
+  const q = plan({ vapidConfiguree: false });
+  assert.ok(q.lignes.every((l) => l.push_statut === "serveur_non_configure"), "écrit en boîte avec statut explicite");
+  assert.equal(q.resume.serveur_non_configure, 3);
+  const d4 = V.planifierEnvoi({ reglages: ALLUME(), type: "D4", utilisateurs: UTILISATEURS, appareils: { a1: 1 }, maintenantMs: MARDI_10H, vapidConfiguree: true });
+  assert.ok(d4.lignes.every((l) => l.push_statut === "boite_seule"));
+  assert.deepEqual(V.planifierTest({ nbAppareils: 0, vapidConfiguree: false }).push_statut, "serveur_non_configure");
+  assert.deepEqual(V.planifierTest({ nbAppareils: 0, vapidConfiguree: true }).push_statut, "aucun_appareil");
+  for (const l of [...p.lignes, ...q.lignes, ...d4.lignes]) assert.ok(V.PUSH_STATUTS.includes(l.push_statut));
+  assert.equal(V.statutApresEnvoi([{ ok: false, suite: "garder" }, { ok: true, suite: "marquer_utilise" }]), "envoye");
+  assert.equal(V.statutApresEnvoi([{ ok: false, suite: "garder" }]), "echec");
+  assert.equal(V.statutApresEnvoi([{ ok: false, suite: "supprimer" }]), "aucun_appareil");
+  assert.equal(V.statutApresEnvoi([]), "aucun_appareil");
+});
+
+test("31. plage de silence : vendredi 19h59 / 20h00, dimanche, matin 6h59 / 7h00", () => {
+  // Vendredi 06/11/2026, heure d'hiver (UTC+1).
+  assert.equal(V.estEnSilence(ms("2026-11-06T18:59:00Z"), S), false, "vendredi 19h59");
+  assert.equal(V.estEnSilence(ms("2026-11-06T19:00:00Z"), S), true, "vendredi 20h00");
+  assert.equal(V.estEnSilence(ms("2026-11-08T11:00:00Z"), S), true, "dimanche midi");
+  assert.equal(V.estEnSilence(ms("2026-11-07T09:00:00Z"), S), true, "samedi 10h");
+  assert.equal(V.estEnSilence(ms("2026-11-09T05:59:00Z"), S), true, "lundi 6h59");
+  assert.equal(V.estEnSilence(ms("2026-11-09T06:00:00Z"), S), false, "lundi 7h00");
+  // Heure d'été (UTC+2) : 7h00 Paris = 5h00 UTC.
+  assert.equal(V.estEnSilence(ms("2026-07-01T04:59:00Z"), S), true, "mercredi 6h59 (été)");
+  assert.equal(V.estEnSilence(ms("2026-07-01T05:00:00Z"), S), false, "mercredi 7h00 (été)");
+  assert.equal(V.estEnSilence(ms("2026-07-01T17:59:00Z"), S), false, "mercredi 19h59 (été)");
+  assert.equal(V.estEnSilence(ms("2026-07-01T18:00:00Z"), S), true, "mercredi 20h00 (été)");
+  // Plage réglée autrement.
+  const midi = { debut: "12:00", fin: "14:00", jours: [] };
+  assert.equal(V.estEnSilence(ms("2026-11-10T11:30:00Z"), midi), true);
+  assert.equal(V.estEnSilence(ms("2026-11-10T13:00:00Z"), midi), false);
+  assert.equal(V.estEnSilence(ms("2026-11-08T11:00:00Z"), { debut: "20:00", fin: "20:00", jours: [] }), false);
+});
+
+test("32. prochain créneau : lundi 7h, changement d'heure compris", () => {
+  assert.equal(iso(V.prochainCreneau(ms("2026-11-06T18:59:00Z"), S)), "2026-11-06T18:59:00.000Z", "autorisé : maintenant");
+  assert.equal(iso(V.prochainCreneau(ms("2026-11-06T19:00:00Z"), S)), "2026-11-09T06:00:00.000Z", "vendredi 20h → lundi 7h");
+  assert.equal(iso(V.prochainCreneau(ms("2026-11-08T11:00:00Z"), S)), "2026-11-09T06:00:00.000Z", "dimanche → lundi 7h");
+  assert.equal(iso(V.prochainCreneau(ms("2026-11-10T22:30:00Z"), S)), "2026-11-11T06:00:00.000Z", "mardi 23h30 → mercredi 7h");
+  assert.equal(iso(V.prochainCreneau(ms("2026-11-11T02:00:00Z"), S)), "2026-11-11T06:00:00.000Z", "mercredi 3h → mercredi 7h");
+  // Passage à l'heure d'été : dimanche 28/03/2027 (2h → 3h).
+  assert.equal(iso(V.prochainCreneau(ms("2027-03-26T20:00:00Z"), S)), "2027-03-29T05:00:00.000Z", "vendredi 21h CET → lundi 7h CEST");
+  assert.equal(iso(V.prochainCreneau(ms("2027-03-27T20:00:00Z"), S)), "2027-03-29T05:00:00.000Z", "samedi soir → lundi 7h CEST");
+  assert.equal(iso(V.prochainCreneau(ms("2027-03-28T01:30:00Z"), S)), "2027-03-29T05:00:00.000Z", "dimanche 3h30 CEST → lundi 7h");
+  // Passage à l'heure d'hiver : dimanche 25/10/2026 (3h → 2h).
+  assert.equal(iso(V.prochainCreneau(ms("2026-10-23T18:30:00Z"), S)), "2026-10-26T06:00:00.000Z", "vendredi 20h30 CEST → lundi 7h CET");
+  assert.equal(iso(V.prochainCreneau(ms("2026-10-25T00:30:00Z"), S)), "2026-10-26T06:00:00.000Z", "dimanche 2h30 → lundi 7h CET");
+  assert.equal(V.parisVersUtcMs(2027, 3, 29, 7, 0), ms("2027-03-29T05:00:00Z"));
+  assert.equal(V.parisVersUtcMs(2026, 10, 26, 7, 0), ms("2026-10-26T06:00:00Z"));
+  assert.equal(V.partiesParis(ms("2026-10-25T00:30:00Z")).heure, 2);
+  assert.equal(V.partiesParis(ms("2026-10-25T01:30:00Z")).heure, 2, "2h30 existe deux fois");
+  // Tous les jours bloqués : aucun créneau, et c'est dit.
+  const jamais = { debut: "20:00", fin: "07:00", jours: [...V.JOURS] };
+  assert.equal(V.prochainCreneau(ms("2026-11-10T09:00:00Z"), jamais), null);
+});
+
+test("33. envoi pendant la plage de silence : écrit en boîte, push reporté au prochain créneau", () => {
+  const vendredi21h = ms("2026-11-06T20:00:00Z");
+  const p = plan({ maintenantMs: vendredi21h });
+  assert.ok(p.lignes.length === 3);
+  assert.ok(p.lignes.every((l) => l.push_statut === "reporte"));
+  assert.ok(p.lignes.every((l) => iso(l.push_prevu_le) === "2026-11-09T06:00:00.000Z"));
+  assert.equal(p.resume.reportes, 3);
+  assert.equal(iso(p.resume.prochain_creneau), "2026-11-09T06:00:00.000Z");
+  // Préférence coupée l'emporte sur le report ; D4 reste en boîte seule.
+  const q = plan({ maintenantMs: vendredi21h, preferences: { a1: { D2: false } } });
+  assert.equal(q.lignes.find((l) => l.user_id === "a1").push_statut, "desactive");
+  const jamais = V.normaliserReglages({ actif: true, silence: { debut: "20:00", fin: "07:00", jours: [...V.JOURS] } });
+  assert.ok(plan({ reglages: jamais }).lignes.every((l) => l.push_statut === "aucun_creneau"));
+});
+
+test("34. rattrapage à 7h05 : revérifie interrupteur, type, préférence, silence", () => {
+  const lundi7h05 = ms("2026-11-09T06:05:00Z");
+  const base = { reglages: ALLUME(), type: "D2", prefActive: true, nbAppareils: 1, vapidConfiguree: true, maintenantMs: lundi7h05 };
+  assert.equal(V.decisionRattrapage(base).push_statut, "a_envoyer");
+  assert.equal(V.decisionRattrapage({ ...base, reglages: V.normaliserReglages(null) }).push_statut, "annule", "interrupteur coupé entre-temps");
+  assert.equal(V.decisionRattrapage({ ...base, reglages: ALLUME({ types: { D2: { actif: false } } }) }).push_statut, "annule");
+  assert.equal(V.decisionRattrapage({ ...base, prefActive: false }).push_statut, "desactive");
+  assert.equal(V.decisionRattrapage({ ...base, nbAppareils: 0 }).push_statut, "aucun_appareil");
+  assert.equal(V.decisionRattrapage({ ...base, vapidConfiguree: false }).push_statut, "serveur_non_configure");
+  const tot = V.decisionRattrapage({ ...base, maintenantMs: ms("2026-11-09T05:05:00Z") });
+  assert.equal(tot.push_statut, "reporte", "6h05 en hiver : encore en silence");
+  assert.equal(iso(tot.push_prevu_le), "2026-11-09T06:00:00.000Z");
+});
+
+test("35. regroupement idempotent : une notification par type et par créneau", () => {
+  const premier = plan({});
+  assert.equal(premier.cle, "D2:2026-11-10", "clé par défaut : type + jour de Paris");
+  const second = plan({ dejaNotifies: premier.lignes.map((l) => l.user_id) });
+  assert.equal(second.lignes.length, 0, "rejouer le job ne crée aucun doublon");
+  assert.equal(second.resume.doublons, 3);
+  const partiel = plan({ dejaNotifies: ["a1"] });
+  assert.deepEqual(partiel.lignes.map((l) => l.user_id).sort(), ["a2", "c1"]);
+  assert.equal(plan({ cle: "D2:chantier-42" }).cle, "D2:chantier-42", "clé fournie par l'appelant");
+  assert.equal(V.cleRegroupementParDefaut("C1", ms("2026-11-06T23:30:00Z")), "C1:2026-11-07", "jour de Paris, pas d'UTC");
+  // La base garantit l'unicité même si deux passages se croisent.
+  const sql = sansCommentairesSql(lire(`supabase/migrations/${MIGRATION_BOITE}`)).toLowerCase();
+  assert.match(sql, /create unique index if not exists notifications_regroupement_uniq\s+on public\.notifications \(user_id, type, cle_regroupement\)/);
+  const envoi = sansCommentaires(lire("supabase/functions/send-push/index.ts"));
+  assert.match(envoi, /onConflict: "user_id,type,cle_regroupement", ignoreDuplicates: true/);
+});
+
+test("36. contenu d'un envoi serveur : type du catalogue, lien interne seulement", () => {
+  const ok = V.validerContenu({ type: "D2", titre: "Nouveau chantier", texte: "X", lien: "/chantiers/42", cle_regroupement: "D2:42" });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.simulation, false);
+  assert.equal(V.validerContenu({ type: "D2", titre: "t", simulation: true }).simulation, true);
+  assert.equal(V.validerContenu({ type: "D2", titre: "t" }).lien, "/");
+  assert.equal(V.validerContenu({ type: "Z1", titre: "t" }).ok, false);
+  assert.equal(V.validerContenu({ type: "test", titre: "t" }).ok, false, "le test ne passe pas par le mode serveur");
+  assert.equal(V.validerContenu({ type: "D2", titre: "" }).ok, false);
+  for (const lien of ["https://ailleurs.fr", "//ailleurs.fr", "javascript:alert(1)", "chantiers"]) {
+    assert.equal(V.validerContenu({ type: "D2", titre: "t", lien }).ok, false, lien);
+  }
+  assert.deepEqual(V.chargeUtile({ type: "D2", titre: "T", texte: "B", lien: "/x" }),
+    { title: "T", body: "B", url: "/x", tag: "profero-D2", icon: "/pwa-192.png" });
+});
+
+const MIGRATION_BOITE = readdirSync(chemin("supabase/migrations")).find((f) => /_notifications_boite\.sql$/.test(f));
+
+test("37. migration boîte : deux tables, seule la policy restrictive, aucune fonction", () => {
+  assert.ok(MIGRATION_BOITE, "migration *_notifications_boite.sql présente");
+  const sql = sansCommentairesSql(lire(`supabase/migrations/${MIGRATION_BOITE}`)).toLowerCase();
+  const tables = (sql.match(/create table if not exists public\.\w+/g) || []).map((t) => t.split(".").pop());
+  assert.deepEqual(tables, ["notifications", "notifications_preferences"]);
+  for (const t of tables) {
+    assert.match(sql, new RegExp(`alter table public\\.${t} enable row level security`));
+    assert.match(sql, new RegExp(`revoke all on public\\.${t} from anon`));
+    assert.match(sql, new RegExp(`revoke all on public\\.${t} from authenticated`));
+    assert.match(sql, new RegExp(`create policy profero_collaborateurs_seulement on public\\.${t}\\s+as restrictive for all to authenticated\\s+using \\(\\(select public\\.est_collaborateur_actif\\(\\)\\)\\) with check \\(\\(select public\\.est_collaborateur_actif\\(\\)\\)\\)`));
+  }
+  const policies = sql.match(/create policy\s+\w+/g) || [];
+  assert.deepEqual(policies.map((p) => p.split(/\s+/).pop()), ["profero_collaborateurs_seulement", "profero_collaborateurs_seulement"],
+    "aucune autre policy (journal du 06/11/2026)");
+  assert.ok(!/as permissive/.test(sql));
+  assert.ok(!/security definer/.test(sql), "aucune fonction SECURITY DEFINER");
+  assert.ok(!/create (or replace )?function/.test(sql), "aucune fonction");
+  assert.ok(!/grant [^;]* to (authenticated|anon)/.test(sql), "aucun droit direct pour le navigateur");
+  assert.ok(!/\b(drop table|delete from|update |truncate|insert into)/.test(sql), "purement additive");
+  assert.ok(!/alter table (?!public\.notifications(_preferences)? enable row level security)/.test(sql), "aucune table existante modifiée");
+  assert.ok(!/planning_config/.test(sql), "les réglages ne sont pas écrits par la migration (absents = interrupteur coupé)");
+  for (const s of V.PUSH_STATUTS) assert.match(sql, new RegExp(`'${s}'`), `statut ${s} accepté par la base`);
+  for (const c of [...V.CODES_TYPES, "test"]) assert.match(sql, new RegExp(`'${c}'`), `type ${c} accepté par la base`);
+});
+
+test("38. boîte de réception : appelant identifié, toujours limitée à ses propres lignes", () => {
+  const code = sansCommentaires(lire("supabase/functions/notifications-boite/index.ts"));
+  const iQui = code.indexOf("identifierAppelant(req)");
+  const iRefus = code.indexOf("if (!qui.ok) return qui.reponse");
+  const iTable = code.indexOf('.from("notifications');
+  assert.ok(iQui > 0 && iQui < iRefus && iRefus < iTable, "identification avant toute lecture");
+  const requetes = code.split(/admin\.from\(/).slice(1);
+  assert.ok(requetes.length >= 6);
+  for (const r of requetes) {
+    assert.match(r.slice(0, 400), /user_id(", userId\)|: userId)/, `requête limitée à l'appelant : ${r.slice(0, 60)}`);
+  }
+  assert.match(code, /action === "marquer_lu"/);
+  assert.match(code, /action === "tout_marquer_lu"/);
+  assert.match(code, /action === "preferences"/);
+  assert.match(code, /vue === "compteur"/);
+});
+
+test("39. rattrapage : job ?job=push_reportes, deux créneaux 7h05 (été / hiver), aucune fonction Vercel ajoutée", () => {
+  const disp = lire("api/cron-dispatcher.js");
+  assert.match(disp, /push_reportes: \{\s*fenetre: null,/);
+  assert.match(disp, /require\("\.\/_cron\/cron-push-reportes\.js"\)/);
+  const job = lire("api/_cron/cron-push-reportes.js");
+  assert.match(job, /mode: "reportes"/);
+  assert.match(job, /Authorization: `Bearer \$\{cle\}`/);
+  assert.match(job, /process\.env\.SUPABASE_SERVICE_ROLE_KEY/);
+  assert.ok(!/VITE_SUPABASE_KEY/.test(job), "jamais la clé anon");
+  const wf = lire(".github/workflows/cron-push-reportes.yml");
+  assert.match(wf, /cron: '5 5 \* \* 1-5'/);
+  assert.match(wf, /cron: '5 6 \* \* 1-5'/);
+  assert.match(wf, /job=push_reportes/);
+  // Plafond des 12 fonctions Vercel : rien de nouveau à la racine de api/.
+  const fonctions = readdirSync(chemin("api")).filter((f) => !f.startsWith("_"));
+  assert.ok(fonctions.length <= 12, `${fonctions.length} fonctions Vercel`);
+  assert.ok(!fonctions.some((f) => /push|notif/i.test(f)), "aucune fonction Vercel pour les notifications");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
