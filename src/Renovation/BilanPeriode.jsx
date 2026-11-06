@@ -419,7 +419,7 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     const alertes = alertesMargesV2({ snapshotsCourants: pick(bornes.dateFin), snapshotsPrecedents: pick(bornes.dateDepart), seuils: reglages.seuilsMarges });
     const alertesParChantier = Object.fromEntries(alertes.lignes.map(l => [l.chantier_id, l.alertes.map(a => ({ ...a, motif: a.motif }))]));
     const synthese = syntheseChantiersV3({ releves: idx, chantiers: retenus, bornes, periode, alertesParChantier,
-      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500, baremeFG: reglages.baremeFG });
+      seuilBaisse: reglages.seuilsMarges?.alerteBaisseMargeProbableEuros ?? 500, baremeFG: reglages.baremeFG, seuils: reglages.seuilsMarges });
     const noms = Object.fromEntries(enCours.map(c => [c.id, c.nom]));
     const avertissements = avertissementsExportV3({ periode, chantierIds: retenus.map(c => c.id), rapports, relevesLignes: releves, noms });
     const bandeau = bandeauV3({ synthese, nbComptesRendusNonValides: avertissements.nbNonValides });

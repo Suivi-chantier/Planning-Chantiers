@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "amelioration",
+    titre: "Bilan détaillé : le PDF s'ouvre sur un tableau qui dit combien on a généré, combien on a gagné et où va chaque chantier",
+    pages: [{ id: "bilan-semaine", label: "Bilan" }],
+    quoi: "En tête du PDF détaillé, un seul tableau répond aux trois questions de la semaine, chantier par chantier et au total (ligne TOTAL en haut, mêmes chiffres que le bandeau) : combien d'argent on a généré (production), combien on a gagné en marge cette semaine (en euros et en % de la production), et où va chaque chantier — sa marge probable, la fourchette dans laquelle elle se situe (« entre +8 400 € et +11 200 € », ou « pas de dérive en cours »), sa fiabilité (bonne, moyenne ou faible, avec la raison : avancement et part des heures restantes dont le rythme est déjà constaté) et sa tendance sur 6 semaines (▲ ▼ = semaine par semaine, · quand il n'y a pas eu de relevé dans la semaine, puis l'évolution en euros). Le tableau « Détail des marges » qui suit montre aussi la marge probable, le budget restant et les euros produits par heure, avec le repère du devis. Une donnée inconnue s'affiche « — », jamais 0. Aucun calcul de marge ne change, et la version direction reste identique.",
+    comment: "Équipe → Bilan → cocher « Version détaillée » → « Télécharger le PDF ». Le nouveau tableau remplace, dans la version détaillée seulement, le tableau « Devis → probable » ; le détail des marges vient juste après. Les seuils de fiabilité se règlent dans l'écran Admin des seuils de marges.",
+  },
+  {
+    date: "2026-11-06",
+    type: "amelioration",
     titre: "« Préparer le chantier » reprend le style des autres écrans de l'application",
     pages: [{ id: "phasage-v2", label: "Phasage" }],
     quoi: "Le parcours « Préparer le chantier » ne remplace plus tout l'écran avec de gros titres et de gros boutons : il s'ouvre dans une grande fenêtre, comme les autres fenêtres du Phasage, avec les mêmes tailles de texte, les mêmes boutons et le même en-tête. Rien ne change dans son fonctionnement.",
