@@ -3,10 +3,8 @@
 Règles complètes : `CLAUDE.md`, section « Projets longs : travail en autonomie ».
 Maquette validée : https://claude.ai/artifact/YVNjAGP7ruWaBJCCyFS87V
 
-> **Statut du fichier : proposition, en attente de Loris.** Les sections de
-> Loris ci-dessous ont été recopiées depuis sa demande du 06/11/2026, sans
-> rien ajouter. Elles ne deviennent définitives qu'après son accord ; ensuite,
-> Claude ne les modifie plus.
+> Sections de Loris recopiées depuis sa demande du 06/11/2026 et validées par
+> lui le même jour. Projet lancé en autonomie le 06/11/2026.
 
 ---
 
@@ -124,19 +122,13 @@ correspondance « À placer ».
 
 ## Tâches
 
-Proposition de découpage (voir question 2 du journal : la demande prévoit une
-demande de fusion par tranche, `CLAUDE.md` demande « en cas de doute, plus
-fin »).
-
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
-| 1 | Tranche 1a — Moteur de calcul du découpage (module pur `preparationChantierV1.mjs` + façade, script `verif-preparation-chantier.mjs` branché dans un workflow). Rien de visible dans l'appli. | en attente de Loris | Auto (contrôles verts) | Les 4 vérifications demandées passent sur GitHub | — |
-| 2 | Tranche 1b — Parcours : bouton dans Phasage V2, écran plein écran, étape « Les pièces », « Enregistrer et quitter » / reprise | à faire | Auto (contrôles verts) | Le parcours s'ouvre, les pièces s'enregistrent et la reprise revient à la bonne étape | — |
-| 3 | Tranche 1c — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | à faire | **Arrêt avant fusion** : démonstration sur un vrai chantier non commencé, rien d'enregistré sans accord | Tableau avant / après du doublage sur le chantier choisi, totaux identiques au centième | — |
-| 4 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | à faire | Auto | Consignes et photos relues après rechargement ; contrôle final juste | — |
-| 5 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | à faire | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
-| 6 | Tranche 3a — Moteur de copie (correspondance des ouvrages, reprise en proportion, jamais d'avancement / heures / ouvriers) + vérifications | à faire | Auto | Vérifications de copie vertes sur GitHub | — |
-| 7 | Tranche 3b — Étape « Point de départ » (choix du logement, cases à cocher) + entrée `journalMaj.js` | à faire | Auto | Copie d'un logement préparé vers un logement vierge de la même opération, à vérifier à l'étape 3 | — |
+| 1 | Tranche 1a — Moteur de calcul du découpage (module pur `preparationChantierV1.mjs` + façade, script `verif-preparation-chantier.mjs` branché dans un workflow) ; bouton « Préparer le chantier » dans Phasage V2, parcours plein écran, étape « Les pièces », « Enregistrer et quitter » / reprise | en cours | Auto (contrôles verts) | Vérifications vertes sur GitHub ; le parcours s'ouvre, les pièces s'enregistrent, la reprise revient à la bonne étape | — |
+| 2 | Tranche 1b — Étape « Où se fait chaque ouvrage » (3 modes, reste à placer, granularité par tâche, aperçu ouvriers) + entrée `journalMaj.js` | à faire | **Arrêt avant fusion** : démonstration sur LOUISON APPT 2 (T2), rien d'enregistré sans accord | Tableau avant / après du doublage MU-001 (50 m²), totaux identiques au centième | — |
+| 3 | Tranche 2a — Étape « Consignes & plans » (consignes, consignes par mur, photos, dictée, contrôle final) | à faire | Auto | Consignes et photos relues après rechargement ; contrôle final juste | — |
+| 4 | Tranche 2b — Vue ouvrier par pièce (onglets, consignes, photos, tâches avec mur et m²) + entrée `journalMaj.js` | à faire | Auto | Téléphone : navigation par pièce dans l'ordre de `meta.pieces` | — |
+| 5 | Tranche 3 — Copie depuis un autre logement (moteur de correspondance + étape « Point de départ ») + vérifications + entrée `journalMaj.js` | à faire | Auto | Vérifications de copie vertes ; copie d'un logement préparé vers un logement vierge de la même opération | — |
 
 ## Journal des décisions
 
@@ -166,7 +158,20 @@ phasage) : à contrôler avant la démonstration.
 3. Chantier de démonstration pour la tranche 1 : LOUISON APPT 2 (T2,
    doublage 50 m²) ? (oui / autre)
 
-Réponses : en attente.
+Réponses de Loris (06/11/2026) : 1. oui ; 2. « fais comme tu penses être
+le mieux » ; 3. oui, LOUISON APPT 2 (T2).
+
+**06/11/2026 — Découpage retenu : 5 demandes de fusion.** Raison : Loris
+souhaite que ça aille vite ; chaque mise en ligne coûte une attente des
+contrôles GitHub et du déploiement. Le moteur de calcul est regroupé avec
+l'étape « Les pièces » (tâche 1), et la copie (moteur + écran) tient en une
+seule tâche (tâche 5). La démonstration avant mise en ligne de la
+répartition est conservée (tâche 2).
+
+**06/11/2026 — Organisation des branches.** Toutes les tâches passent par la
+branche `claude/hopeful-thompson-3jxtxn`, repartie de `main` après chaque
+fusion. Le fichier projet est mis à jour dans la demande de fusion de chaque
+tâche.
 
 ## Comptes rendus
 
