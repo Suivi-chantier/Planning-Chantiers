@@ -418,6 +418,76 @@ dernière migration, `SECURITY DEFINER`, propriétaire `postgres`,
 **06/11/2026 — Tâche 4 en ligne.** Demande de fusion #202 fusionnée, tous les
 contrôles verts. Loris demande d'enchaîner sur la tâche 5.
 
+**06/11/2026 — Tâche 5 : état constaté sur la base (requête en lecture seule).**
+`planning_config.chantiers` : 46 logements, dont 39 portent un `operation_id`
+(champ facultatif de chaque logement, lu côté bureau par App.jsx et transmis
+à Phasage V2 dans `chantiers`). 10 opérations regroupent au moins deux
+logements, soit 37 logements qui partagent une opération. Louison
+(`op_1786892220454`, 4 logements), Fougeray (`op_1790777390357`, 6 dont les
+communs) et Montillers (`op_1788961701401`, 4) ont chacun leur opération.
+Aucun phasage ne porte encore `meta.preparation` (donc aucun « terminée ») ;
+un seul phasage a des pièces.
+
+**06/11/2026 — Tâche 5 : choix techniques.**
+
+- *Module pur voisin* `preparationCopieV1.mjs` (+ façade `.js`), pour ne pas
+  alourdir `preparationChantierV1.mjs` ; il réutilise `prorata`,
+  `ouvrageDejaDecoupe`, `tacheCommencee`, `preparationDuPhasage`.
+- *Logements proposés* : même `operation_id`, hors logement ouvert, dont la
+  préparation est terminée (`meta.preparation.terminee`). Si AUCUN logement
+  de l'opération n'a ce repère, repli : des pièces ET au moins un ouvrage
+  placé (`ouvrages_places` non vide ou un ouvrage déjà découpé) ; l'écran le
+  dit (« Préparation en cours »). Raison : aujourd'hui aucun logement n'a le
+  repère, et les préparations commencées avant la tranche 2a n'en ont pas.
+- *Lecture des phasages source* : petit chargeur en lecture seule
+  `preparationSourcesLoader.js` (table `phasages`, policy `bureau_all`, même
+  choix de ligne que Phasage V2 avec `choisirPhasage`). Aucune écriture : la
+  copie vers le logement ouvert passe uniquement par `saveMeta` de Phasage
+  V2, en UN enregistrement (pièces + préparation). Phasage V2 transmet
+  seulement la liste des autres logements de l'opération (une ligne).
+- *Correspondance des ouvrages* : par `bibliotheque_id`, puis à défaut par
+  libellé identique (espaces regroupés, casse ignorée). Retenue seulement si
+  elle est unique dans les deux sens ; sinon « ambigu » ou « aucune » →
+  l'ouvrage reste « À placer ». Le libellé sert aussi à départager deux
+  candidats de même `bibliotheque_id` quand il est lui-même unique.
+- *Correspondance des tâches* (granularité) : par `nom` de bibliothèque, puis
+  par libellé (`nom_perso` sans le suffixe « — pièce »). Reprise « par mur »
+  si une part source porte un mur, sinon « par pièce ». Deux tâches cible de
+  même nom → pas de reprise (granularité par défaut).
+- *Répartition proposée, jamais appliquée par la copie* : rangée dans
+  `meta.preparation.propositions[ouvrageCibleId] = { mode, lignes | pieceId,
+  granularites, source }`, enregistrée avec les pièces. Choix de la base
+  plutôt que de l'état de l'écran : la proposition survit à « Enregistrer et
+  quitter » et à un rechargement. À l'étape 3, l'ouvrage affiche «
+  proposition à vérifier » et l'écran est pré-rempli ; rien ne change tant
+  que le conducteur n'a pas cliqué « Valider cet ouvrage » (même chemin que
+  la tâche 2 : `decouperOuvrage` → `dupliquerTacheParPieces`). La
+  proposition est retirée à la validation. Une proposition dont une pièce a
+  été retirée est ignorée.
+- *Modes repris* : ouvrage source découpé → « Plusieurs pièces / murs »
+  (lignes en proportion de la quantité cible, centième, la dernière ligne
+  absorbe l'écart) ; ouvrage source « Tout le logement » → « Tout le
+  logement » ; toutes les
+  tâches source dans une même pièce → « Une seule pièce ». Quantité cible
+  absente → pas de proposition par m².
+- *Pas de proposition* pour un ouvrage cible déjà découpé, déjà placé, ou
+  dont toutes les tâches sont commencées. Les tâches commencées d'un ouvrage
+  proposé restent intouchées à la validation (règle de la tâche 1).
+- *Pièces* : nouveaux identifiants ; table ancien → nouvel identifiant pour
+  traduire les lignes. Une pièce du même nom déjà créée dans le logement est
+  réutilisée et garde ses consignes (elle ne reçoit celles de la source que
+  si elle n'en a pas).
+- *Photos* (décochées par défaut) : copie des chemins seulement, mêmes
+  fichiers dans le bucket `photos`. Sans risque : retirer une photo d'une
+  pièce ne supprime jamais le fichier (règle de la tâche 3).
+- *Jamais copiés* : la copie ne renvoie aucune tâche ; avancement, heures
+  pointées, heures réelles, quantité terminée et ouvriers ne peuvent donc pas
+  passer (vérifié dans le script).
+- *Première ouverture* : le parcours s'ouvre sur « Point de départ » quand
+  aucune étape n'est enregistrée et qu'il n'y a aucune pièce ; sinon reprise
+  à l'étape enregistrée. Bouton « Retour : point de départ » à l'étape des
+  pièces.
+
 ## Comptes rendus
 
 **Tâche 1 — Tranche 1a (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
@@ -652,3 +722,74 @@ chantier : la réponse ne diffère de l'actuelle que par les champs ajoutés.
 Aucun changement de droits d'accès. L'écran n'a pas pu être essayé dans un
 navigateur depuis la session (pas de dépendances installées) : la
 construction est contrôlée par GitHub.
+
+**Tâche 5 — Tranche 3 (06/11/2026, demande de fusion ouverte, pas encore en ligne).**
+
+Ce qui change pour le conducteur de travaux :
+
+- « Préparer le chantier » s'ouvre maintenant sur l'étape **« Point de
+  départ »** (première ouverture d'un logement). Elle propose les autres
+  logements de la même opération dont la préparation est terminée, avec ce
+  qu'ils contiennent (pièces, ouvrages répartis, consignes) et le nombre
+  d'ouvrages identiques au devis ; ou **« Partir de zéro »**.
+- Cases à cocher : les pièces, la répartition, les consignes, les plans et
+  photos (décoché par défaut). Cocher la répartition ou les consignes coche
+  aussi les pièces ; décocher les pièces décoche le reste.
+- **« Copier et continuer »** crée les pièces (avec leurs consignes) et
+  ouvre l'étape des pièces pour vérification. Un bandeau résume : nombre de
+  pièces, de répartitions proposées, d'ouvrages sans équivalent.
+- À l'étape « Où se fait chaque ouvrage », chaque ouvrage retrouvé porte
+  **« proposition à vérifier »** et s'ouvre pré-rempli (lignes pièce / mur /
+  m² recalculées en proportion). Rien n'est appliqué tant que le conducteur
+  n'a pas cliqué « Valider cet ouvrage ». Les ouvrages sans équivalent
+  restent « À placer ».
+- L'avancement, les heures et les ouvriers ne sont jamais copiés ; une
+  tâche déjà commencée et un ouvrage déjà découpé ne sont jamais touchés.
+- Nouvelle entrée dans le journal des mises à jour (Phasage).
+
+Vérifications : vérification automatique complétée (180 contrôles, données
+fictives) — correspondance par bibliothèque, par libellé, ambiguïté ;
+proportion et arrondi ; aucune copie d'avancement, d'heures ni d'ouvriers ;
+photos non copiées par défaut ; nouveaux identifiants de pièces ; totaux
+d'heures estimées, vendues et ratios identiques après copie puis
+validation. Aucune migration, aucun changement de droits d'accès.
+L'écran n'a pas pu être essayé dans un navigateur depuis la session (pas
+de dépendances installées) : la construction est contrôlée par GitHub.
+
+#### Simulation sur deux vrais logements : LOUISON APPT 2 (T2) → LOUISON APPT 4 (STUDIO)
+
+Source : requêtes en lecture seule sur la base du 06/11/2026, calcul en
+mémoire avec le module de copie ; rien n'a été écrit en base.
+**Réels** : les ouvrages des deux logements, leur référence de
+bibliothèque, leur libellé (comparé par empreinte), leurs quantités, les
+tâches et heures des deux doublages MU-001. **Hypothétiques** : les pièces
+et la répartition de LOUISON APPT 2 (celles de la démonstration de la
+tâche 2 ; aucun logement n'est encore préparé pour de vrai).
+
+| Correspondance des ouvrages (réelle) | Nombre |
+|---|---:|
+| Ouvrages de LOUISON APPT 4 | 18 |
+| Retrouvés par référence de bibliothèque | 14 |
+| Retrouvés par libellé identique (P-910 douche : référence différente, même libellé) | 1 |
+| Ambigus | 0 |
+| Sans équivalent → « À placer » (S-012 plancher, électricité T1, MU-051 joints) | 3 |
+
+Ouvrages de LOUISON APPT 2 sans équivalent dans APPT 4 : D-0062, MA-005,
+ME-038, P-1002, E-002 (électricité T2).
+
+Doublage MU-001 : 50 m² dans APPT 2, 35 m² dans APPT 4 (réel). Proposition
+calculée à partir de la répartition hypothétique :
+
+| Pièce | Mur | APPT 2 (hypothèse) | APPT 4 (proposé, en proportion) |
+|---|---|---:|---:|
+| Séjour / cuisine | Mur côté rue | 14 | 9,8 |
+| Séjour / cuisine | Mur côté palier | 12 | 8,4 |
+| Chambre | Mur extérieur | 16 | 11,2 |
+| Salle d'eau | Mur extérieur | 8 | 5,6 |
+| **Total** | | **50** | **35** |
+
+Granularité reprise : ossature, isolation, plaquage par mur ; bandes, 2e
+passe, passe de finition par pièce. Après validation (simulée) : 6 tâches
+→ 21 tâches ; totaux de l'ouvrage identiques avant / après : 22,35 h
+estimées, 22,96 h vendues, 107 % de ratios (écart 0 ; les 107 % et l'écart
+estimé / vendu existent déjà sur les vraies données, comme pour APPT 2).

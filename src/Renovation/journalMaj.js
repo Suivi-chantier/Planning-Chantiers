@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "nouveaute",
+    titre: "Préparer le chantier : reprendre la préparation d'un autre logement de la même opération",
+    pages: [{ id: "phasage-v2", label: "Phasage" }],
+    quoi: "Dans une opération à plusieurs logements, les logements se ressemblent souvent. Une fois un logement préparé (pièces, répartition des ouvrages, consignes), le conducteur de travaux peut repartir de lui pour le logement suivant au lieu de tout refaire : les pièces et les consignes sont reprises, et la répartition de chaque ouvrage est proposée, recalculée en proportion quand les quantités diffèrent (par exemple un doublage de 50 m² réparti sur 4 murs devient la même répartition sur 35 m²). Rien n'est appliqué sans vérification : chaque ouvrage se valide un par un, comme avant. L'avancement, les heures et les ouvriers ne sont jamais copiés, et le total des heures de chaque ouvrage ne change pas.",
+    comment: "Phasage → « Préparer le chantier » → nouvelle première étape « Point de départ ». Les logements de la même opération dont la préparation est terminée sont proposés, avec le nombre d'ouvrages identiques au devis ; ou « Partir de zéro ». Cases à cocher : les pièces, la répartition, les consignes, les plans et photos (décoché par défaut, car un plan est propre à chaque logement). « Copier et continuer » crée les pièces, puis à l'étape « Où se fait chaque ouvrage » chaque ouvrage retrouvé affiche « proposition à vérifier » : on contrôle les lignes pièce / mur / m², on corrige si besoin, puis « Valider cet ouvrage ». Un ouvrage est retrouvé par sa référence de bibliothèque, ou à défaut par un libellé identique ; s'il n'y a pas d'équivalent (ou plusieurs possibles), il reste « À placer ». Une tâche déjà commencée et un ouvrage déjà découpé ne sont jamais modifiés.",
+  },
+  {
+    date: "2026-11-06",
+    type: "nouveaute",
     titre: "Préparer le chantier : consignes et photos par pièce, visibles pièce par pièce sur le téléphone des ouvriers",
     pages: [{ id: "phasage-v2", label: "Phasage" }],
     quoi: "Le conducteur de travaux peut écrire une consigne pour chaque pièce (par exemple « protéger le parquet existant »), une consigne pour un mur précis (« Mur côté rue : gaine électrique à conserver ») et ajouter des photos de la pièce. Les ouvriers retrouvent tout cela sur leur téléphone, en haut de l'écran de la pièce, juste au-dessus des tâches à y faire. Chaque tâche découpée indique où travailler : « Mur côté rue · 14 m² ». Les ouvriers ne voient toujours ni prix, ni pourcentages.",

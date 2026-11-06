@@ -11,10 +11,16 @@ import {
   piecesPourEnregistrement, mursDeLaPiece, nbTachesParPiece, controleFinal, marquerPreparationTerminee,
 } from "../src/Renovation/preparationChantierV1.mjs";
 import { piecesDuPhasage, ajouterPiece, renommerPiece, deplacerPiece, supprimerPiece } from "../src/Renovation/piecesPhasageV1.mjs";
+import {
+  OPTIONS_DEFAUT, basculerOption, logementsSources, correspondanceOuvrages, granularitesReprises, lignesSource,
+  lignesEnProportion, copierPieces, compterPiecesACreer, copierPreparation, resumeSource, propositionPourOuvrage,
+  retirerProposition, preparationApresCopie, libelleNormalise,
+} from "../src/Renovation/preparationCopieV1.mjs";
 
 let nbOk = 0;
 const eq = (a, b, m) => { assert.deepEqual(a, b, m); nbOk++; };
 const ok = (v, m) => { assert.ok(v, m); nbOk++; };
+const r2s = (L) => Math.round(L.reduce((s, l) => s + l.quantite, 0) * 100) / 100;
 const geler = (o) => { Object.freeze(o); Object.values(o).forEach(v => v && typeof v === "object" && geler(v)); return o; };
 
 // Données fictives : un logement, trois pièces.
@@ -283,5 +289,153 @@ eq(controleFinal([ouvsF[0]], [], prepF).sansPiece.length, 2, "aucune pièce déf
 eq(controleFinal([ouvsF[1]], pieces, { ouvrages_places: ["o2"] }).sansPiece.length, 2, "ouvrage placé sans choix noté : jamais deviné « tout le logement »");
 eq(controleFinal([{ id: "o5", libelle: "Électricité", taches: [{ id: "g1", nom: "Tableau", piece_id: "sej" }, { id: "g2", nom: "Mise en service" }] }], pieces, { ouvrages_places: ["o5"], ouvrages_logement: ["o5"] }),
   { etat: "logement", total: 2, sansPiece: [], toutLeLogement: [{ id: "g2", nom: "Mise en service", ouvrage: "Électricité", ouvrage_id: "o5" }] }, "tout le logement avec une tâche déjà rattachée : seule la tâche sans pièce est listée");
+
+
+// ── Tranche 3 : copie depuis un autre logement (données fictives) ──
+// Options et dépendances.
+eq(OPTIONS_DEFAUT, { pieces: true, repartition: true, consignes: true, photos: false }, "options : photos décochées par défaut");
+eq(basculerOption(OPTIONS_DEFAUT, "pieces", false), { pieces: false, repartition: false, consignes: false, photos: false }, "décocher les pièces décoche tout");
+eq(basculerOption({ pieces: false, repartition: false, consignes: false, photos: false }, "consignes", true), { pieces: true, repartition: false, consignes: true, photos: false }, "cocher les consignes coche les pièces");
+eq(basculerOption({ pieces: false, repartition: false, consignes: false, photos: false }, "repartition", true).pieces, true, "cocher la répartition coche les pièces");
+
+// Logements source fictifs.
+const piecesA = [
+  { id: "a-sej", nom: "Séjour / cuisine", consigne: "Protéger le parquet", consignes_murs: [{ mur: "Mur côté rue", texte: "Gaine à conserver" }], photos: ["preparation/logement-a/a-sej/1.jpg"] },
+  { id: "a-ch", nom: "Chambre" },
+  { id: "a-sde", nom: "Salle d'eau", consigne: "Plaques hydro" },
+];
+// Source : doublage déjà découpé (50 m²), avec avancement / heures / ouvriers sur ses tâches
+// (ils ne doivent JAMAIS passer dans la cible).
+const doublageA = decouperOuvrage(
+  { id: "oa-dbl", bibliotheque_id: "bib-dbl", libelle: "Doublage de mur", quantite: 50, unite: "m²", taches: [
+    { id: "ta1", nom: "Pose ossature doublage", heures_estimees: 10, heures_vendues: 10, ratio: 40 },
+    { id: "ta2", nom: "Bandes et 1ère passe doublage", heures_estimees: 5, heures_vendues: 5, ratio: 20 },
+  ] },
+  [{ piece_id: "a-sej", mur: "Mur côté rue", quantite: 14 }, { piece_id: "a-sej", mur: "Mur côté palier", quantite: 12 }, { piece_id: "a-ch", mur: "Mur extérieur", quantite: 16 }, { piece_id: "a-sde", mur: "Mur extérieur", quantite: 8 }],
+  { pieces: piecesA, nouveauxIds: ["ta1b", "ta1c", "ta1d", "ta2b", "ta2c"] },
+).ouvrage;
+ok(doublageA && doublageA.taches.length === 7, "source fictive : doublage découpé en 7 tâches");
+const doublageASale = { ...doublageA, taches: doublageA.taches.map(t => ({ ...t, avancement: 60, heures_reelles: 3, quantite_terminee: { le: "2026-11-01" }, ouvriers: ["Ouvrier fictif"] })) };
+const sourceA = geler({
+  chantier_id: "logement-a", nom: "LOGEMENT A (fictif)",
+  meta: { pieces: piecesA, preparation: { etape: "consignes", ouvrages_places: ["oa-dbl", "oa-wc", "oa-net"], ouvrages_logement: ["oa-net"], terminee: true } },
+  ouvrages: [
+    doublageASale,
+    { id: "oa-wc", bibliotheque_id: "bib-wc", libelle: "WC suspendu", quantite: 1, taches: [{ id: "w1", nom: "Pose WC", piece_id: "a-sde", heures_estimees: 3, avancement: 100, ouvriers: ["Ouvrier fictif"] }] },
+    { id: "oa-net", bibliotheque_id: "bib-net", libelle: "Nettoyage fin de chantier", quantite: 1, taches: [{ id: "n1", nom: "Nettoyage", heures_estimees: 2 }] },
+    { id: "oa-dou", bibliotheque_id: "bib-dou-A", libelle: "Receveur de douche  80 x 80", quantite: 1, taches: [{ id: "d1", nom: "Pose receveur", piece_id: "a-sde", heures_estimees: 2 }] },
+    { id: "oa-pt1", bibliotheque_id: "bib-porte", libelle: "Porte intérieure", quantite: 1, taches: [] },
+    { id: "oa-pt2", bibliotheque_id: "bib-porte", libelle: "Porte intérieure", quantite: 1, taches: [] },
+    { id: "oa-elec", bibliotheque_id: "bib-elec-t2", libelle: "Électricité T2", quantite: 1, taches: [] },
+  ],
+});
+const sourceB = { chantier_id: "logement-b", nom: "LOGEMENT B (fictif)", meta: { pieces: [{ id: "b1", nom: "Entrée" }], preparation: { ouvrages_places: ["x"] } }, ouvrages: [] };
+const sourceVide = { chantier_id: "logement-c", nom: "LOGEMENT C (fictif)", meta: {}, ouvrages: [] };
+eq(logementsSources([sourceA, sourceB, sourceVide]).logements.map(s => s.chantier_id), ["logement-a"], "logements proposés : préparation terminée");
+eq(logementsSources([sourceB, sourceVide]), { critere: "partielle", logements: [sourceB] }, "aucune préparation terminée : repli sur pièces + ouvrage placé");
+eq(logementsSources([sourceVide]).logements, [], "logement sans préparation : jamais proposé");
+
+// Logement cible fictif (vierge) : doublage 35 m².
+const cibleOuvrages = geler([
+  { id: "oc-dbl", bibliotheque_id: "bib-dbl", libelle: "DOUBLAGE de mur (autre libellé)", quantite: 35, unite: "m²", taches: [
+    { id: "tc1", nom: "Pose ossature doublage", heures_estimees: 7, heures_vendues: 7, ratio: 40 },
+    { id: "tc2", nom: "Bandes et 1ère passe doublage", heures_estimees: 3.5, heures_vendues: 3.5, ratio: 20 },
+    { id: "tc3", nom: "Tâche ajoutée à la main", heures_estimees: 1, heures_vendues: 1, ratio: 5 },
+  ] },
+  { id: "oc-wc", bibliotheque_id: "bib-wc", libelle: "WC suspendu", quantite: 1, taches: [{ id: "cw1", nom: "Pose WC", heures_estimees: 3 }] },
+  { id: "oc-net", bibliotheque_id: "bib-net", libelle: "Nettoyage fin de chantier", quantite: 1, taches: [{ id: "cn1", nom: "Nettoyage", heures_estimees: 2 }] },
+  { id: "oc-dou", bibliotheque_id: "bib-dou-C", libelle: "receveur de douche 80 x 80 ", quantite: 1, taches: [{ id: "cd1", nom: "Pose receveur", heures_estimees: 2 }] },
+  { id: "oc-pt", bibliotheque_id: "bib-porte", libelle: "Porte intérieure", quantite: 1, taches: [] },
+  { id: "oc-elec", bibliotheque_id: "bib-elec-t1", libelle: "Électricité T1", quantite: 1, taches: [] },
+  { id: "oc-dbl2", bibliotheque_id: "bib-autre", libelle: "Isolation sans quantité", quantite: null, taches: [] },
+]);
+
+// Correspondance des ouvrages.
+eq(libelleNormalise("  Receveur de douche  80 x 80 "), "receveur de douche 80 x 80", "libellé normalisé : espaces et casse");
+const corr = correspondanceOuvrages(sourceA.ouvrages, cibleOuvrages);
+eq(corr.map(c => [c.cible_id, c.source_id, c.par, c.raison || null]), [
+  ["oc-dbl", "oa-dbl", "bibliotheque", null],
+  ["oc-wc", "oa-wc", "bibliotheque", null],
+  ["oc-net", "oa-net", "bibliotheque", null],
+  ["oc-dou", "oa-dou", "libelle", null],
+  ["oc-pt", null, null, "ambigu"],
+  ["oc-elec", null, null, "aucune"],
+  ["oc-dbl2", null, null, "aucune"],
+], "correspondance : par bibliotheque_id, puis par libellé ; deux candidats → ambigu, pas de correspondance");
+eq(correspondanceOuvrages([{ id: "s", bibliotheque_id: "b" }], [{ id: "c1", bibliotheque_id: "b" }, { id: "c2", bibliotheque_id: "b" }]).map(c => c.source_id), [null, null], "deux ouvrages cible pour une source : ambigu des deux côtés");
+
+// Correspondance des tâches et granularité.
+eq(granularitesReprises(doublageA, cibleOuvrages[0]), { tc1: "mur", tc2: "piece" }, "granularité reprise : par mur / par pièce ; tâche sans équivalent → défaut");
+eq(granularitesReprises({ taches: [{ id: "x", nom: "Autre nom", nom_perso: "Ponçage — Chambre", quantite_part: 3 }] }, { taches: [{ id: "y", nom: "Ponçage" }] }), { y: "piece" }, "tâche retrouvée par libellé (sans le suffixe de pièce)");
+eq(granularitesReprises(doublageA, { taches: [{ id: "y1", nom: "Pose ossature doublage" }, { id: "y2", nom: "Pose ossature doublage" }] }), {}, "deux tâches cible de même nom : ambigu, pas de reprise");
+
+// Répartition en proportion.
+eq(lignesSource(doublageA).map(l => [l.piece_id, l.mur, l.quantite]), [["a-sej", "Mur côté rue", 14], ["a-sej", "Mur côté palier", 12], ["a-ch", "Mur extérieur", 16], ["a-sde", "Mur extérieur", 8]], "répartition source lue sur la tâche la plus découpée");
+const prop35 = lignesEnProportion(lignesSource(doublageA), 35);
+eq(prop35.map(l => l.quantite), [9.8, 8.4, 11.2, 5.6], "proportion 50 → 35 m²");
+eq(lignesEnProportion([{ piece_id: "p", quantite: 1 }, { piece_id: "q", quantite: 1 }, { piece_id: "r", quantite: 1 }], 10).map(l => l.quantite), [3.33, 3.33, 3.34], "proportion : arrondi au centième, la dernière ligne absorbe l'écart");
+eq(r2s(lignesEnProportion([{ piece_id: "p", quantite: 7 }, { piece_id: "q", quantite: 13 }], 17.3)), 17.3, "proportion : somme = quantité cible");
+eq(lignesEnProportion(lignesSource(doublageA), null), null, "quantité cible absente : pas de répartition par m²");
+
+// Pièces : nouveaux identifiants, consignes, photos.
+eq(compterPiecesACreer(piecesA, []), 3, "trois pièces à créer");
+const cp1 = copierPieces(piecesA, [], ["n1", "n2", "n3"]);
+eq(cp1.pieces.map(p => p.id), ["n1", "n2", "n3"], "pièces copiées avec de nouveaux identifiants");
+eq(cp1.correspondance, { "a-sej": "n1", "a-ch": "n2", "a-sde": "n3" }, "table de correspondance ancien id → nouvel id");
+ok(cp1.pieces.every(p => !("photos" in p)), "photos non copiées par défaut");
+eq(cp1.pieces[0].consignes_murs, [{ mur: "Mur côté rue", texte: "Gaine à conserver" }], "consignes par mur copiées");
+eq(copierPieces(piecesA, [], ["n1", "n2", "n3"], { photos: true }).pieces[0].photos, ["preparation/logement-a/a-sej/1.jpg"], "photos copiées seulement si cochées (mêmes chemins)");
+ok(copierPieces(piecesA, [], ["n1", "n2", "n3"], { consignes: false }).pieces.every(p => !p.consigne && !p.consignes_murs), "consignes décochées : non copiées");
+const cp2 = copierPieces(piecesA, [{ id: "deja", nom: "chambre", consigne: "Consigne locale" }], ["m1", "m2"]);
+eq([cp2.pieces.map(p => p.id), cp2.correspondance["a-ch"], cp2.pieces[0].consigne], [["deja", "m1", "m2"], "deja", "Consigne locale"], "pièce de même nom déjà là : réutilisée, sa consigne gardée");
+ok(!copierPieces(piecesA, [], ["n1"]).ok, "identifiants manquants : refus");
+
+// Copie complète.
+const cibleMeta = geler({ pieces: [], preparation: { etape: "depart" } });
+const copie = copierPreparation(sourceA, { meta: cibleMeta, ouvrages: cibleOuvrages }, { options: OPTIONS_DEFAUT, nouveauxIds: ["p1", "p2", "p3"] });
+ok(copie.ok, "copie acceptée");
+eq(Object.keys(copie.propositions).sort(), ["oc-dbl", "oc-dou", "oc-net", "oc-wc"], "propositions pour les ouvrages qui ont une correspondance");
+eq(copie.propositions["oc-dbl"].lignes, [
+  { piece_id: "p1", mur: "Mur côté rue", quantite: 9.8 }, { piece_id: "p1", mur: "Mur côté palier", quantite: 8.4 },
+  { piece_id: "p2", mur: "Mur extérieur", quantite: 11.2 }, { piece_id: "p3", mur: "Mur extérieur", quantite: 5.6 },
+], "proposition doublage : nouvelles pièces, m² en proportion");
+eq([copie.propositions["oc-wc"].mode, copie.propositions["oc-wc"].pieceId], ["piece", "p3"], "proposition « une seule pièce » (tâche source commencée ignorée pour le mode, rien d'autre copié)");
+eq(copie.propositions["oc-net"].mode, "logement", "proposition « tout le logement »");
+eq(copie.propositions["oc-dou"].source, { chantier_id: "logement-a", ouvrage_id: "oa-dou", correspondance: "libelle" }, "proposition : origine notée");
+eq(copie.resume, { pieces: 3, propositions: 4, parBibliotheque: 3, parLibelle: 1, ambigus: 1, sansCorrespondance: 3 }, "résumé de la copie");
+const json = JSON.stringify({ pieces: copie.pieces, propositions: copie.propositions });
+ok(!/avancement|heures_reelles|heures_estimees|heures_vendues|quantite_terminee|ouvriers|Ouvrier fictif/.test(json), "aucune copie d'avancement, d'heures, de quantité terminée ni d'ouvriers");
+ok(!("ouvrages" in copie) || Array.isArray(copie.ouvrages) && copie.ouvrages.every(o => !("taches" in o)), "la copie ne renvoie aucune tâche : les ouvrages cible ne sont pas modifiés");
+eq(copierPreparation(sourceA, { meta: cibleMeta, ouvrages: cibleOuvrages }, { options: { ...OPTIONS_DEFAUT, repartition: false }, nouveauxIds: ["p1", "p2", "p3"] }).propositions, {}, "répartition décochée : aucune proposition");
+eq(copierPreparation(sourceA, { meta: cibleMeta, ouvrages: cibleOuvrages }, { options: { pieces: false }, nouveauxIds: [] }).pieces, [], "pièces décochées : rien n'est copié");
+
+// Cible commencée / déjà découpée / déjà placée : pas de proposition.
+const cibleCommencee = cibleOuvrages.map(o => (o.id === "oc-wc" ? { ...o, taches: [{ ...o.taches[0], avancement: 10 }] } : o));
+eq(copierPreparation(sourceA, { meta: cibleMeta, ouvrages: cibleCommencee }, { nouveauxIds: ["p1", "p2", "p3"] }).ouvrages.find(o => o.cible_id === "oc-wc").raison, "cible_commencee", "ouvrage cible entièrement commencé : intouché");
+const dejaDecoupee = cibleOuvrages.map(o => (o.id === "oc-dbl" ? { ...o, taches: [{ ...o.taches[0], quantite_part: 35 }] } : o));
+eq(copierPreparation(sourceA, { meta: cibleMeta, ouvrages: dejaDecoupee }, { nouveauxIds: ["p1", "p2", "p3"] }).propositions["oc-dbl"], undefined, "ouvrage cible déjà découpé : jamais redécoupé");
+eq(copierPreparation(sourceA, { meta: { preparation: { ouvrages_places: ["oc-net"] } }, ouvrages: cibleOuvrages }, { nouveauxIds: ["p1", "p2", "p3"] }).propositions["oc-net"], undefined, "ouvrage cible déjà placé : pas de proposition");
+
+// Proposition stockée dans meta.preparation, puis validation par le chemin de la tâche 2.
+const prepCopie = preparationApresCopie(cibleMeta.preparation, copie, { source: sourceA, options: OPTIONS_DEFAUT, le: "2026-11-06T12:00:00Z" });
+eq(prepCopie.copie, { depuis: "logement-a", nom: "LOGEMENT A (fictif)", options: OPTIONS_DEFAUT, le: "2026-11-06T12:00:00Z" }, "trace de la copie dans la préparation");
+eq(prepCopie.ouvrages_places, [], "la copie ne marque aucun ouvrage « placé »");
+const pDbl = propositionPourOuvrage(prepCopie, "oc-dbl", copie.pieces);
+ok(pDbl && pDbl.mode === "plusieurs", "proposition relue pour l'étape 3");
+eq(propositionPourOuvrage(prepCopie, "oc-dbl", copie.pieces.slice(0, 1)), null, "proposition ignorée si une de ses pièces a été retirée");
+eq(propositionPourOuvrage(prepCopie, "oc-elec", copie.pieces), null, "ouvrage sans correspondance : aucune proposition (À placer)");
+const valide = decouperOuvrage(cibleOuvrages[0], pDbl.lignes, { pieces: copie.pieces, granularites: pDbl.granularites,
+  nouveauxIds: Array.from({ length: compterIdsNecessaires(cibleOuvrages[0], pDbl.lignes, { granularites: pDbl.granularites }) }, (_, i) => `v${i}`) });
+ok(valide.ok, "validation de la proposition (decouperOuvrage → dupliquerTacheParPieces)");
+eq(totauxOuvrage(valide.ouvrage), totauxOuvrage(cibleOuvrages[0]), "copie puis validation : heures estimées, vendues et ratios identiques avant / après");
+eq(totauxOuvrage(valide.ouvrage), { heures_estimees: 11.5, heures_vendues: 11.5, ratio: 65 }, "totaux de l'ouvrage cible fictif");
+eq(valide.ouvrage.taches.filter(t => t.nom === "Pose ossature doublage").map(t => t.quantite_part), [9.8, 8.4, 11.2, 5.6], "ossature : une part par mur, m² proposés");
+eq(valide.ouvrage.taches.filter(t => t.nom === "Bandes et 1ère passe doublage").map(t => t.quantite_part), [18.2, 11.2, 5.6], "bandes : par pièce, comme la source");
+ok(valide.ouvrage.taches.every(t => !t.avancement && !(t.ouvriers || []).length && !t.heures_reelles && !t.quantite_terminee), "tâches validées : ni avancement, ni heures réelles, ni ouvriers venus de la source");
+const apresValid = retirerProposition(marquerOuvragePlace(prepCopie, "oc-dbl", "plusieurs"), "oc-dbl");
+eq([apresValid.ouvrages_places, "oc-dbl" in apresValid.propositions, Object.keys(apresValid.propositions).length], [["oc-dbl"], false, 3], "validation : ouvrage placé, sa proposition consommée, les autres gardées");
+
+// Résumé d'une carte.
+eq(resumeSource(sourceA, cibleOuvrages), { pieces: 3, repartis: 3, consignes: 3, photos: 1, identiques: 4, totalCible: 7 }, "carte du logement source");
 
 console.log(`verif-preparer-le-chantier : ${nbOk} contrôles OK (données fictives)`);
