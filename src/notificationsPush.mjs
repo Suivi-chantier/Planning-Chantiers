@@ -28,7 +28,7 @@ export function phraseRole(role) {
     case "comptable":
       return "Vous recevrez les factures de situation à émettre et l'encours fournisseurs du vendredi.";
     case "admin":
-      return "Vous recevrez ce qui touche la rentabilité (marge à terminaison qui devient négative), les nouveaux chantiers signés et la synthèse de la semaine.";
+      return "Vous recevrez ce qui touche la rentabilité (marge à terminaison qui devient négative), les nouveaux chantiers signés et la synthèse de la semaine, ainsi que, par défaut, ce que reçoivent les conducteurs (point du soir de 18h30, demandes de matériel, matériaux à commander, chantiers qui passent en alerte). Chaque type peut être coupé ci-dessous.";
     default:
       return "Aucun envoi automatique n'est prévu pour votre rôle pour l'instant. Vous pouvez déjà activer les notifications sur ce téléphone : les réglages pourront vous en adresser plus tard.";
   }

@@ -14,8 +14,8 @@
  * Recharger interromprait une saisie en cours, ce que src/pwa.js interdit
  * (même règle que la mise à jour différée). On met l'onglet au premier plan
  * et on lui transmet l'adresse par message (type « profero-notification ») ;
- * l'application pourra s'y rendre elle-même quand les liens vers un écran
- * précis existeront (tâches suivantes du projet).
+ * l'application s'y rend elle-même, sans rechargement (src/App.jsx,
+ * lienVersNavigation de notificationsPushV1.mjs, tâche 3 du projet).
  */
 
 self.addEventListener('push', function (event) {

@@ -283,6 +283,8 @@ function Sidebar({
   // Tout l'ancien contenu de la topbar :
   profil, theme, setTheme, onLogout, peutChangerBranche, onRetourPortail,
   onOuvrirProfil = null,
+  // Cloche des notifications (bouton déjà construit par App.jsx ; null pour un ouvrier).
+  cloche = null,
   syncing = false, connected = true, lastSync = null,
 }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar_collapsed") === "1");
@@ -572,6 +574,7 @@ function Sidebar({
             <Icon as={LayoutGrid} size={16}/>
           </button>
         )}
+        {cloche}
         <BoutonAide page={page} T={T} branch={branch}
           style={sidebarBtnStyle("rgba(255,255,255,0.55)")}
           hoverBg="rgba(255,255,255,0.06)"/>

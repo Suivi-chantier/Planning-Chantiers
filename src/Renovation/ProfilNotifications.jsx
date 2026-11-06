@@ -20,7 +20,7 @@
 // les Edge Functions push-abonnement et send-push.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Smartphone, X, BellRing, Send, BellOff, RefreshCw } from "lucide-react";
+import { Smartphone, X, BellRing, Send, BellOff, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { supabase } from "../supabase";
 import { isVercelPreviewHost } from "../pwa";
 import { Icon } from "../ui";
@@ -32,9 +32,12 @@ import {
 
 const FONCTION_ABONNEMENT = "push-abonnement";
 const FONCTION_ENVOI = "send-push";
+const FONCTION_BOITE = "notifications-boite";
 
 // ── Appels aux Edge Functions (session obligatoire, statut HTTP conservé) ────
-async function appelerFonction(nom, { method = "POST", body } = {}) {
+// Exporté : aussi utilisé par la cloche (ClocheNotifications.jsx) et l'onglet
+// Réglages › Notifications (ReglagesNotificationsAdmin.jsx).
+export async function appelerFonction(nom, { method = "POST", body } = {}) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     const e = new Error("Session expirée : reconnectez-vous.");
@@ -246,7 +249,7 @@ export function BlocNotificationsTelephone({ role, T }) {
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Notifications sur ce téléphone</h3>
       </div>
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: T.textSub }}>
-        {phraseRole(role)} Les envois automatiques arriveront prochainement ; pour l'instant, vous pouvez activer les notifications et recevoir une notification de test.
+        {phraseRole(role)} Les envois automatiques arriveront prochainement ; pour l'instant, vous pouvez activer les notifications et recevoir une notification de test. Tout ce qui vous est envoyé reste visible dans la cloche.
       </p>
 
       <div role="status" style={{
@@ -290,6 +293,122 @@ export function BlocNotificationsTelephone({ role, T }) {
   );
 }
 
+/**
+ * Préférences par type (tâche 3) : une ligne par type que le rôle reçoit
+ * d'après Réglages › Notifications, avec un interrupteur. Par défaut tout est
+ * activé. Lecture et écriture via notifications-boite. Une erreur de lecture
+ * reste visible : elle ne ressemble jamais à « aucune notification ».
+ */
+export function BlocPreferencesNotifications({ role, T }) {
+  const [etat, setEtat] = useState("chargement"); // chargement | ok | erreur
+  const [donnees, setDonnees] = useState(null);
+  const [erreur, setErreur] = useState(null);
+  const [enCours, setEnCours] = useState(null); // code en cours d'enregistrement
+  const [message, setMessage] = useState(null);
+  const concerne = roleConcerne(role);
+
+  const charger = useCallback(async () => {
+    if (!concerne) return;
+    setEtat("chargement"); setErreur(null);
+    try {
+      const rep = await appelerFonction(`${FONCTION_BOITE}?vue=preferences`, { method: "GET" });
+      if (!rep || typeof rep.preferences !== "object" || !Array.isArray(rep.catalogue)) throw new Error("Réponse illisible du serveur.");
+      setDonnees(rep); setEtat("ok");
+    } catch (e) {
+      setErreur(e.message); setEtat("erreur");
+    }
+  }, [concerne]);
+
+  useEffect(() => { charger(); }, [charger]);
+
+  if (!concerne) return null;
+
+  const basculer = async (code) => {
+    if (!donnees || enCours) return;
+    const avant = donnees.preferences;
+    const valeur = !(avant[code] !== false);
+    setMessage(null);
+    setEnCours(code);
+    setDonnees({ ...donnees, preferences: { ...avant, [code]: valeur } });
+    try {
+      const rep = await appelerFonction(FONCTION_BOITE, { method: "POST", body: { action: "preferences", types: { [code]: valeur } } });
+      if (rep?.preferences) setDonnees((d) => ({ ...d, preferences: rep.preferences }));
+    } catch (e) {
+      setDonnees((d) => ({ ...d, preferences: avant }));
+      setMessage(`Préférence non enregistrée : ${e.message}`);
+    } finally {
+      setEnCours(null);
+    }
+  };
+
+  const titre = (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Icon as={SlidersHorizontal} size={18} color={T.accent}/>
+      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Ce que je reçois</h3>
+    </div>
+  );
+
+  if (etat === "chargement") {
+    return <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>{titre}
+      <div style={{ fontSize: 13, color: T.textMuted }}>Lecture de vos préférences…</div></section>;
+  }
+  if (etat === "erreur") {
+    return (
+      <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>{titre}
+        <div role="alert" style={{ border: "1px solid rgba(239,68,68,0.35)", background: "rgba(239,68,68,0.10)", borderRadius: 10, padding: "10px 12px", fontSize: 13, lineHeight: 1.5, color: T.text }}>
+          <strong style={{ color: "#ef4444" }}>Préférences illisibles pour l'instant.</strong> {erreur}
+        </div>
+        <div><button type="button" onClick={charger} style={bouton(T, T.textSub, false)}><Icon as={RefreshCw} size={16}/> Réessayer</button></div>
+      </section>
+    );
+  }
+
+  const libelles = Object.fromEntries(donnees.catalogue.map((t) => [t.code, t]));
+  const recevables = (donnees.recevables || []).filter((c) => libelles[c]);
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {titre}
+      {!donnees.interrupteur_general && (
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: T.textSub }}>
+          Les envois automatiques ne sont pas encore mis en route. Vos choix s'appliqueront dès leur activation.
+        </p>
+      )}
+      {recevables.length === 0 ? (
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: T.textSub, border: `1px dashed ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
+          Aucun type de notification n'est adressé à votre rôle dans les réglages actuels.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+          {recevables.map((code, i) => {
+            const t = libelles[code];
+            const actif = donnees.preferences[code] !== false;
+            return (
+              <label key={code} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: enCours ? "default" : "pointer",
+                borderTop: i ? `1px solid ${T.border}` : "none", minHeight: 44,
+              }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.4, color: actif ? T.text : T.textMuted }}>
+                  {t.libelle}
+                  {t.push === false && <span style={{ display: "block", fontSize: 11, color: T.textMuted }}>Dans la cloche seulement (pas sur le téléphone)</span>}
+                </span>
+                <input type="checkbox" role="switch" checked={actif} disabled={!!enCours} onChange={() => basculer(code)}
+                  aria-label={`${t.libelle} : ${actif ? "activée" : "coupée"}`}
+                  style={{ width: 20, height: 20, accentColor: "#22c55e", cursor: enCours ? "default" : "pointer" }}/>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: T.textMuted }}>
+        Une notification coupée n'arrive plus sur le téléphone, mais reste visible dans la cloche.
+      </p>
+      {message && (
+        <div role="alert" style={{ borderLeft: "3px solid #ef4444", padding: "6px 10px", fontSize: 13, lineHeight: 1.5, color: T.text, background: "rgba(239,68,68,0.10)", borderRadius: 4 }}>{message}</div>
+      )}
+    </section>
+  );
+}
+
 /** Panneau « Mon profil » (bureau). Ne s'affiche jamais pour un ouvrier. */
 export default function PanneauProfil({ profil, role, T, onClose }) {
   useEffect(() => {
@@ -325,6 +444,8 @@ export default function PanneauProfil({ profil, role, T, onClose }) {
         </div>
         <div style={{ height: 1, background: T.border }}/>
         <BlocNotificationsTelephone role={role} T={T}/>
+        <div style={{ height: 1, background: T.border }}/>
+        <BlocPreferencesNotifications role={role} T={T}/>
       </div>
     </div>
   );

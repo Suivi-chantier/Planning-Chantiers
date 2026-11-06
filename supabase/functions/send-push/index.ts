@@ -52,6 +52,7 @@ import {
   CLE_REGLAGES, TYPE_TEST, chargeUtile, decisionRattrapage, normaliserReglages, planifierEnvoi,
   planifierTest, preferenceActive, statutApresEnvoi, validerContenu,
 } from "../_partage/notificationsPushV1.mjs"
+import { lireUtilisateurs } from "../_partage/utilisateursPush.ts"
 
 type Abonnement = { id: string; endpoint: string; p256dh: string; auth: string; appareil: string | null }
 type Resultat = { id: string; appareil: string | null; ok: boolean; statut: number | null; suite: string }
@@ -152,22 +153,8 @@ async function lirePreferences(admin: SupabaseClient, ids: string[]) {
   return prefs
 }
 
-/** Utilisateurs de l'application, rattachés à leur compte de connexion (par e-mail). */
-async function lireUtilisateurs(admin: SupabaseClient) {
-  const { data, error } = await admin.from("utilisateurs").select("email, nom, role, actif, branches")
-  if (error) throw new Error("Lecture des utilisateurs impossible.")
-  const comptes = new Map<string, string>()
-  for (let page = 1; page <= 20; page++) {
-    const { data: lot, error: e } = await admin.auth.admin.listUsers({ page, perPage: 1000 })
-    if (e) throw new Error("Lecture des comptes de connexion impossible.")
-    for (const u of lot.users) if (u.email) comptes.set(u.email.toLowerCase(), u.id)
-    if (lot.users.length < 1000) break
-  }
-  return (data ?? []).map((u) => ({
-    ...u,
-    auth_id: u.email ? comptes.get(String(u.email).toLowerCase()) ?? null : null,
-  }))
-}
+// lireUtilisateurs : _partage/utilisateursPush.ts (même lecture que
+// notifications-pilotage, pour les appareils par rôle).
 
 // ── Mode « serveur » : un type du catalogue, destinataires par rôle ─────────
 async function modeServeur(admin: SupabaseClient, corps: unknown) {

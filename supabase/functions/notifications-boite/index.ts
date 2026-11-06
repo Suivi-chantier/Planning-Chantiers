@@ -5,7 +5,11 @@
 //
 //   GET                       → { notifications: [...50 dernières], non_lues }
 //   GET  ?vue=compteur        → { non_lues }
-//   GET  ?vue=preferences     → { preferences: { C1: true, … }, catalogue }
+//   GET  ?vue=preferences     → { preferences: { C1: true, … }, catalogue,
+//                                 recevables: [codes que son rôle reçoit d'après
+//                                 Réglages › Notifications], interrupteur_general, role }
+//                                 (tâche 3 : la seule lecture hors de ses lignes
+//                                 est le réglage commun planning_config.notifications_push)
 //   POST { action: "marquer_lu", id }      → marque UNE notification comme lue
 //   POST { action: "tout_marquer_lu" }     → marque toutes les siennes
 //   POST { action: "preferences", types: { C1: false, … } } → enregistre
@@ -19,7 +23,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { corsHeaders, identifierAppelant, json } from "../_partage/pushServeur.ts"
-import { CATALOGUE, preferenceActive, validerPreferences } from "../_partage/notificationsPushV1.mjs"
+import {
+  CATALOGUE, CLE_REGLAGES, normaliserReglages, preferenceActive, typesRecevables, validerPreferences,
+} from "../_partage/notificationsPushV1.mjs"
 
 const COLONNES = "id, type, titre, texte, lien, created_at, lu_le, push_statut, push_prevu_le, push_envoye_le"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -31,7 +37,7 @@ Deno.serve(async (req) => {
   try {
     const qui = await identifierAppelant(req)
     if (!qui.ok) return qui.reponse
-    const { admin, userId } = qui
+    const { admin, userId, role } = qui
 
     const compterNonLues = async () => {
       const { count, error } = await admin.from("notifications")
@@ -48,9 +54,21 @@ Deno.serve(async (req) => {
         const { data, error } = await admin.from("notifications_preferences")
           .select("types").eq("user_id", userId).maybeSingle()
         if (error) return json({ error: "Lecture des préférences impossible." }, 500)
+        // Réglages communs (pas une ligne de l'utilisateur) : quels types son
+        // rôle peut recevoir, et l'interrupteur général.
+        const { data: cfg, error: errCfg } = await admin.from("planning_config")
+          .select("value").eq("key", CLE_REGLAGES).maybeSingle()
+        if (errCfg) return json({ error: "Lecture des réglages de notification impossible." }, 500)
+        const reglages = normaliserReglages(cfg?.value ?? null)
         const preferences: Record<string, boolean> = {}
         for (const t of CATALOGUE) preferences[t.code] = preferenceActive(data?.types, t.code)
-        return json({ preferences, catalogue: CATALOGUE.map(({ code, libelle, push }) => ({ code, libelle, push })) })
+        return json({
+          preferences,
+          catalogue: CATALOGUE.map(({ code, libelle, push }) => ({ code, libelle, push })),
+          recevables: typesRecevables({ reglages, role }),
+          interrupteur_general: reglages.actif === true,
+          role,
+        })
       }
       if (vue !== "liste") return json({ error: "Vue inconnue." }, 400)
       const { data, error } = await admin.from("notifications").select(COLONNES)

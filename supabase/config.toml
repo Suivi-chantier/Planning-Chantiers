@@ -87,3 +87,8 @@ verify_jwt = true
 
 [functions.notifications-boite]
 verify_jwt = true
+
+# Suivi de l'onglet Réglages › Notifications : administrateurs seulement
+# (rôle vérifié dans le code avant toute lecture), lecture seule.
+[functions.notifications-pilotage]
+verify_jwt = true
