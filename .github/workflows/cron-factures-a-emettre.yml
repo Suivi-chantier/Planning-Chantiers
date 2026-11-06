@@ -1,0 +1,74 @@
+name: Facture à émettre — notification F1 (8h15, jours ouvrés)
+
+# Projet docs/projets/notifications-push.md, tâche 7.
+# Chaque jour ouvré, le serveur relit les échéanciers de facturation et envoie
+# le push F1 « facture à émettre » (comptable par défaut) pour chaque échéance
+# qui vient d'atteindre son déclencheur. Même détection que la fiche chantier
+# (src/Renovation/factureAEmettre.mjs). Le MAIL n'est pas envoyé par ce job :
+# il reste envoyé par la fiche chantier, comme avant.
+#
+# Heure d'été / heure d'hiver : un cron GitHub est en UTC. Plutôt qu'un seul
+# créneau à corriger deux fois par an, DEUX créneaux, et le job ignore tout
+# appel avant 8h Paris (&pas_avant=8) :
+#   06h15 UTC = 08h15 Paris en été   (07h15 en hiver : ignoré)
+#   07h15 UTC = 08h15 Paris en hiver (09h15 en été : passage sans doublon,
+#                                     chaque push n'existe qu'une fois)
+#
+# Bouton « Run workflow » : simulation cochée (par défaut) = liste de ce qui
+# serait envoyé, échéance par échéance, sans rien envoyer ni écrire.
+#
+# Secret requis : CRON_SECRET (déjà présent pour les autres crons GitHub).
+
+on:
+  schedule:
+    - cron: '15 6 * * 1-5'     # Lun-Ven 06h15 UTC → 08h15 Paris (été)
+    - cron: '15 7 * * 1-5'     # Lun-Ven 07h15 UTC → 08h15 Paris (hiver)
+  workflow_dispatch:
+    inputs:
+      simulation:
+        description: "Simulation sans envoi ni écriture"
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  factures:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron-dispatcher?job=factures_a_emettre
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EVENEMENT: ${{ github.event_name }}
+          SIMULATION: ${{ github.event.inputs.simulation }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant"
+            exit 1
+          fi
+          if [ "$EVENEMENT" = "schedule" ]; then
+            job="factures_a_emettre&pas_avant=8"
+          elif [ "$SIMULATION" = "true" ]; then
+            job="factures_a_emettre&simulation=1"
+          else
+            job="factures_a_emettre"
+          fi
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://planning-chantiers.vercel.app/api/cron-dispatcher?job=$job")
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          body=$(echo "$response" | sed 's/HTTP_STATUS:[0-9]*$//')
+          echo "Status: $status"
+          echo "Body  : $body"
+          if [ "$status" != "200" ]; then
+            echo "::error::Le dispatcher a renvoyé un statut non-200"
+            exit 1
+          fi
+          # Le dispatcher répond 200 même quand la tâche échoue : il range
+          # l'erreur dans son résumé. On la fait remonter.
+          if echo "$body" | grep -q '"error":'; then
+            echo "::error::Le job « facture à émettre » a échoué — voir le corps de la réponse"
+            exit 1
+          fi
+          if echo "$body" | grep -qE '"echecs":[1-9]'; then
+            echo "::warning::Au moins un envoi a échoué — voir le corps de la réponse"
+          fi

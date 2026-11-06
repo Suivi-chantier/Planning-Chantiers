@@ -56,5 +56,5 @@ async function runPushSimulation(req) {
 }
 
 // appelerSendPush est aussi utilisé par les jobs des types du catalogue
-// (ex. api/_cron/cron-push-materiaux.js, C3).
+// (ex. api/_cron/cron-push-materiaux.js, C3 ; cron-factures-a-emettre.js, F1).
 module.exports = { runPushReportes, runPushSimulation, appelerSendPush };

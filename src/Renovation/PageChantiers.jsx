@@ -2,7 +2,7 @@ import { libelleOuvrage } from "./libellesPhasageV1";
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { supabase, photoTransform, getClientId } from "../supabase";
 import { envoyerEmailApi } from "../emailApi";
-import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, calcAvancementPondere, TAUX_MO_PREV_DEFAUT, LOGO_RENO_H, loadOperations, loadLots } from "../constants";
+import { getBranchAccent, FONT, RADIUS, PHASES_DEFAUT, loadPhases, TAUX_MO_PREV_DEFAUT, LOGO_RENO_H, loadOperations, loadLots } from "../constants";
 import { useReglagesMarges } from "./reglagesMarges";
 import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from "../pointages";
 // SOURCE DE VÉRITÉ des calculs financiers/avancement V2 : src/chantierFinance.js
@@ -10,7 +10,7 @@ import { indexPointagesParTache, heuresEff, coutMOEff, sumLibreEtIndirect } from
 // ouvrages) gardent leur calcul historique, qui n'existe nulle part ailleurs.
 import {
   computeChantierFinance,
-  avancementChantier as cfAvancementChantier, avancementOuvrage as cfAvancementOuvrage,
+  avancementOuvrage as cfAvancementOuvrage,
   tacheHeuresReelles as cfTacheHeuresReelles,
   statsGroupeChrono,
   heuresReellesComparablesOuvrage as cfHeuresComparablesOuvrage,
@@ -55,10 +55,15 @@ import { MarquerPerduModal, AnnulerPerteModal, ResumePerte } from "./ComposantsC
 // frise du cycle de vie. Remplace les anciennes « factures de situation »
 // indexées sur le seul avancement.
 import {
-  ECHEANCIER_DEFAUT, normaliserEcheancier, lireEcheancierChantier, lireMontantReference,
-  etatFacturation, etapesFacturationTravaux, facturationParLigne,
+  ECHEANCIER_DEFAUT, normaliserEcheancier, etapesFacturationTravaux, facturationParLigne,
 } from "./facturationClient";
 import FacturationChantier from "./FacturationChantier";
+// Facture à émettre (notification F1) : détection, statut du chantier, phasage
+// retenu et avancement, partagés avec le job serveur (module pur).
+import {
+  statutChantier, trouverPhasage, avancementPhasage, etatFacturationChantier,
+  echeancesAPrevenir, cleDrapeauMail,
+} from "./factureAEmettre";
 import PageSuggestionsMateriaux from "./PageSuggestionsMateriaux";
 import PageNotesOuvriers from "./PageNotesOuvriers";
 // Documents du cycle de vie : bucket privé "chantier-documents" (URLs signées).
@@ -1513,11 +1518,8 @@ function calcFinances(phasage, tauxHoraires = {}, pointagesIndexes = {}, extraSt
 function calcAvancement(phasage) {
   // V2 : avancement du module (pondéré heures_estimees par ouvrage puis
   // prix_ht au chantier — identique à Phasage V2). Repli V1 : plan_travaux.
-  const ouvrages = phasage?.ouvrages || [];
-  if (ouvrages.length > 0) return cfAvancementChantier(ouvrages);
-  if (!phasage?.plan_travaux) return 0;
-  const allTaches = PHASES.flatMap(ph => (phasage.plan_travaux[ph.id] || []));
-  return calcAvancementPondere(ouvrages, allTaches);
+  // Le calcul vit dans factureAEmettre.mjs (partagé avec le job serveur).
+  return avancementPhasage(phasage, PHASES.map(ph => ph.id));
 }
 
 function getLastTaches(phasage, n = 5) {
@@ -1547,27 +1549,7 @@ function chantierMatchCR(chantierNom, crAdresse) {
   return mots.some(m => adr.includes(m));
 }
 
-function trouverPhasage(phasages, chantier) {
-  if (!chantier) return null;
-  // 1. Match exact par chantier_id (lien explicite)
-  const exact = phasages.find(p => p.chantier_id === chantier.id);
-  if (exact) return exact;
-
-  // 2. Match par nom normalisé : on cherche dans les deux sens et par mot.
-  const nomCh = normalise(chantier.nom);
-  const motsCh = nomCh.split(" ").filter(m => m.length > 2);
-  if (motsCh.length === 0) return null;
-
-  return phasages.find(p => {
-    const nomPh = normalise(p.chantier_nom || "");
-    if (!nomPh) return false;
-    // Inclusion directe dans les deux sens
-    if (nomPh.includes(nomCh) || nomCh.includes(nomPh)) return true;
-    // Au moins un mot significatif en commun
-    const motsPh = nomPh.split(" ").filter(m => m.length > 2);
-    return motsCh.some(m => motsPh.includes(m));
-  }) || null;
-}
+// trouverPhasage : déplacé dans factureAEmettre.mjs (partagé avec le job serveur).
 
 const fmt = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n || 0);
 
@@ -1839,8 +1821,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Statut effectif d'un chantier : chantier.statut (source de vérité) ; fallback
   // sur phasage.statut pour compat avec l'existant ; défaut "en_cours" si phasage
   // présent, "planifie" sinon.
-  const getStatut = (chantier, phasage) =>
-    chantier?.statut || phasage?.statut || (phasage ? "en_cours" : "planifie");
+  const getStatut = statutChantier; // factureAEmettre.mjs (partagé avec le job serveur)
 
   // Met à jour le statut d'un chantier dans la config globale.
   const updateChantierStatut = (chantierId, nouveauStatut) => {
@@ -2520,14 +2501,9 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // phasage, sinon réglage Admin, sinon défaut Profero), montant du marché et
   // état de chaque échéance. Alimente le bloc Facturation ET les étapes de
   // facturation de la frise (Travaux, et « Facture de solde » en Réception).
-  const echeancierChantier = lireEcheancierChantier(metaSelected, echeancierDefaut);
-  const montantRefFact = lireMontantReference(metaSelected, finances?.prixVendu || 0);
-  const etatFact = etatFacturation({
-    echeancier: echeancierChantier.lignes,
-    factures: facturesClient,
-    montantReference: montantRefFact.montant,
-    avancement,
-    etatsEtapes: cvEtats,
+  const { echeancierChantier, montantRefFact, etatFact } = etatFacturationChantier({
+    meta: metaSelected, echeancierDefaut, prixVendu: finances?.prixVendu || 0,
+    factures: facturesClient, avancement, etatsEtapes: cvEtats,
   });
   const todayCV = new Date().toISOString().slice(0, 10);
   const acompteCV = cvD.charge ? etatAcompteChantier({ factures: cvD.factures, reglements: cvD.reglements }) : null;
@@ -2731,13 +2707,16 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
   // Vercel : plafond des 12 atteint — la détection se fait à l'ouverture de la
   // fiche). Drapeau PLAT par échéance dans meta (facture_mail_<ligneId>), posé
   // seulement si l'envoi a réussi ; garde de session anti-doublon pendant
-  // l'aller-retour réseau.
+  // l'aller-retour réseau. La détection (échéances prêtes non prévenues) vit
+  // dans factureAEmettre.mjs, partagée avec le job serveur du push F1
+  // (?job=factures_a_emettre), qui n'envoie QUE le push et n'écrit jamais ce
+  // drapeau : le mail reste envoyé d'ici, comme avant.
   const notifSituationRef = useRef(null);
   useEffect(() => {
     if (!selectedPhasage?.id || !selectedChantier) return;
-    if (getStatut(selectedChantier, selectedPhasage) === "termine") return; // chantier soldé : pas de relance
     if (!rolesSituations.length) return; // aucun rôle coché en Admin : pas de notification
-    const aPrevenir = etatFact.lignes.filter(l => l.prete && !metaSelected[`facture_mail_${l.id}`]);
+    // Chantier soldé, échéance non prête ou déjà prévenue : rien (module partagé).
+    const aPrevenir = echeancesAPrevenir({ chantier: selectedChantier, phasage: selectedPhasage, etatFact });
     if (!aPrevenir.length) return;
     const cle = `${selectedPhasage.id}:${aPrevenir.map(l => l.id).join(",")}`;
     if (notifSituationRef.current === cle) return;
@@ -2773,7 +2752,7 @@ export default function PageChantiers({ chantiers = [], setChantiers, saveConfig
             subject: `Facture à émettre — ${selectedChantier.nom} (${ligne.nom}, ${ligne.pct} %)`,
             html,
           }, { source: "facture-situation" });
-          if (res.ok) await saveMetaPhasage({ [`facture_mail_${ligne.id}`]: new Date().toISOString() });
+          if (res.ok) await saveMetaPhasage({ [cleDrapeauMail(ligne.id)]: new Date().toISOString() });
         } catch { /* réessaiera à une prochaine ouverture de la fiche */ }
       }
     })();
