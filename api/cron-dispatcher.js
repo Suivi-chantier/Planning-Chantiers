@@ -30,6 +30,10 @@
 //   Lun-Ven 05h05 et 06h05 UTC → push reportés (?job=push_reportes) : l'un des
 //     deux tombe à 7h05 Paris selon la saison, l'autre ne trouve rien à faire
 //     (cron-push-reportes.yml)
+//   Lun-Ven 06h15 et 07h15 UTC → push F1 « facture à émettre »
+//     (?job=factures_a_emettre&pas_avant=8) : avant 8h Paris l'appel est
+//     ignoré, donc il part à 8h15 Paris en hiver comme en été ; le second
+//     passage d'été (9h15) ne renvoie rien de nouveau (cron-factures-a-emettre.yml)
 
 const { createClient } = require("@supabase/supabase-js");
 const { verifierAppelServeur } = require("./_lib/autorisationServeur");
@@ -42,6 +46,7 @@ const { runInvestTableauBord } = require("./_cron/cron-invest-tableau-bord.js");
 const { runJournalAvancement } = require("./_cron/cron-journal-avancement.js");
 const { runRelancesCycleVie }  = require("./_cron/cron-relances-cycle-vie.js");
 const { runPushReportes, runPushSimulation } = require("./_cron/cron-push-reportes.js");
+const { runFacturesAEmettre } = require("./_cron/cron-factures-a-emettre.js");
 
 // Une tâche = un nom, une fenêtre horaire Paris (ou null si elle ne s'appelle
 // que par `?job=`), et la fonction à exécuter.
@@ -102,6 +107,14 @@ const TACHES = {
   push_simulation: {
     fenetre: null,
     run: (req) => runPushSimulation(req),
+  },
+  // Push F1 « facture à émettre » (projet notifications-push, tâche 7) : même
+  // détection que la fiche chantier (factureAEmettre.mjs). N'envoie QUE le
+  // push ; le mail reste envoyé par la fiche, comme avant. Par `?job=`
+  // seulement ; `&simulation=1` liste sans rien envoyer ni écrire.
+  factures_a_emettre: {
+    fenetre: null,
+    run: (req, supabase, t) => runFacturesAEmettre(req, supabase, t),
   },
 };
 

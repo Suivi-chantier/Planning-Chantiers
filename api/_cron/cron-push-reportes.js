@@ -55,4 +55,5 @@ async function runPushSimulation(req) {
   });
 }
 
-module.exports = { runPushReportes, runPushSimulation };
+// appelerSendPush est aussi utilisé par cron-factures-a-emettre.js (push F1).
+module.exports = { runPushReportes, runPushSimulation, appelerSendPush };
