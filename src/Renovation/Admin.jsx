@@ -24,6 +24,7 @@ import { CODE_PARCOURS_V3, parcoursActif } from "./compteRenduV3";
 import PlanningResourcesAdmin from "./PlanningResourcesAdmin";
 import ProgbatInventaire from "./ProgbatInventaireAdmin.jsx";
 import ProgbatFamilleMultiAdmin from "./ProgbatFamilleMultiAdmin.jsx";
+import ProgbatManagersAdmin from "./ProgbatManagersAdmin.jsx";
 import TauxHorairesVenteAdmin from "./TauxHorairesVenteAdmin.jsx";
 import CoefficientsVenteAdmin from "./CoefficientsVenteAdmin.jsx";
 import TauxFraisGenerauxAdmin from "./TauxFraisGenerauxAdmin.jsx";
@@ -5292,6 +5293,8 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
           <ProgbatInventaire T={T} acc={acc} />
           {/* Famille ProGBat des ouvrages « MULTI-… » (multi-ouvrages du chiffrage) */}
           <ProgbatFamilleMultiAdmin T={T} acc={acc} />
+          {/* Lot 4 : chargé d'affaires → responsable du chantier ProGBat (managerId) */}
+          <ProgbatManagersAdmin T={T} acc={acc} />
         </div>
       )}
 

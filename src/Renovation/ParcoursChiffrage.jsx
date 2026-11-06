@@ -22,6 +22,7 @@ import { STATUT_A_L_ETUDE } from "./statutsChantier.js";
 import { chargerChantiers, creerOperation, modifierOperationCommercial, sauverChantiers } from "./chantiersDonnees.js";
 import { libelleClient } from "./clientsDonnees.js";
 import { Asterisque, ChoixClient, ChoixChargeAffaires, FicheClientModal, ListeManquants } from "./ComposantsCommerciaux.jsx";
+import { ChoixClientProgbatModal } from "./ClientsProgbat.jsx";
 
 const slug = (s) => String(s || "chantier").trim().toLowerCase().replace(/\s+/g, "-").slice(0, 40);
 
@@ -36,6 +37,7 @@ export default function ParcoursChiffrage({
   const btnSec = { background: "transparent", color: c.textSub, border: `1px solid ${c.border}`, borderRadius: 7, padding: "8px 14px", fontFamily: "inherit", fontSize: 12, cursor: "pointer" };
 
   const [etape, setEtape] = useState(1);
+  const [choixProgbat, setChoixProgbat] = useState(false);   // lot 4 : client ProGBat existant
   // 1. Opération
   const [opId, setOpId] = useState(operationInitiale || "");
   const [nouvelleOp, setNouvelleOp] = useState(!operations.length);
@@ -213,11 +215,16 @@ export default function ParcoursChiffrage({
             <label style={{ ...lbl, marginBottom: 0 }}>Client<Asterisque /></label>
             <ChoixClient T={T} clients={clients} valeur={clientId}
               heritage={op?.client_id ? (libelleClient(clients.find((x) => x.id === op.client_id)) || "client introuvable") : null}
-              onChange={(id) => setClientId(id || "")} onNouveau={() => setFicheOuverte(true)} />
+              onChange={(id) => setClientId(id || "")} onNouveau={() => setFicheOuverte(true)}
+              onProgbat={() => setChoixProgbat(true)} />
+            {choixProgbat && (
+              <ChoixClientProgbatModal T={T} onClose={() => setChoixProgbat(false)}
+                onChoisi={(client) => { setChoixProgbat(false); onClientCree?.(client); setClientId(client.id); }} />
+            )}
             {clientChoisi && (
               <div style={{ fontSize: FONT.sm.size, color: c.textSub, lineHeight: 1.5 }}>
                 {libelleClient(clientChoisi)} — {[clientChoisi.adresse, clientChoisi.code_postal, clientChoisi.ville].filter(Boolean).join(" ")} — {clientChoisi.email} — {clientChoisi.telephone}
-                <br />Identifiant ProGBat généré : <strong style={{ color: c.text }}>{clientChoisi.code_progbat || "—"}</strong>
+                <br />{clientChoisi.progbat_client_id ? <>Client ProGBat n° {clientChoisi.progbat_client_id} : <strong style={{ color: c.text }}>{clientChoisi.code_progbat || "—"}</strong></> : <>Identifiant ProGBat généré : <strong style={{ color: c.text }}>{clientChoisi.code_progbat || "—"}</strong></>}
               </div>
             )}
             {projet && (
