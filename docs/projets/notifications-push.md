@@ -218,12 +218,12 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
-| 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en cours | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) |
-| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | à faire | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
+| 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en ligne | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) (fusionnée le 06/11) |
+| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en cours (parallèle) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
-| 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | à faire | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | — |
+| 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en cours (parallèle) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | — |
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
-| 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | à faire | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | — |
+| 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en cours (parallèle) | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | — |
 | 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données | — |
 | 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par Loris | à faire | **Arrêt** : Loris active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
 
@@ -352,6 +352,28 @@ policy restrictive `profero_collaborateurs_seulement`. `send-push` et
 `notifications-boite` ont ensuite été redéployées avec les fichiers complets
 du dépôt.
 
+**06/11/2026 — Pas de compte « conducteur » : réponse de Loris.** Constat
+en base : aucun utilisateur actif n'a le rôle `conducteur` (4 admins,
+2 commerciaux, 1 comptable, 7 ouvriers, 1 agent EDL). Question posée à Loris :
+qui reçoit C1–C5 ? Réponse : « c'est moi le conducteur, mais je suis
+également admin, il faudrait pouvoir avoir plusieurs rôles ». Décision :
+les plusieurs rôles par compte touchent aux droits d'accès (arrêt obligatoire)
+et sortent du périmètre — projet séparé à proposer plus tard. Dans ce projet,
+les valeurs par défaut de C1–C5 deviennent **conducteur + admin** (modifiables
+dans Réglages › Notifications ; chaque admin peut couper un type dans son
+profil ; une personne ne reçoit jamais deux fois la même notification).
+Accepté par Loris (« ok ça me va »). Mis en œuvre dans la tâche 3.
+
+**06/11/2026 — Tâches en parallèle, à la demande de Loris.** Loris demande de
+lancer les lots suivants en parallèle quand c'est sans risque. Les tâches 3
+(écrans), 5 (matériaux à commander) et 7 (facture à émettre côté serveur)
+ne dépendent que de la tâche 2 et sont menées en même temps, chacune sur sa
+branche (`claude/vigilant-bell-fp6fv0-t3`, `-t5`, `-t7`) et sa demande de
+fusion, mises en ligne l'une après l'autre quand leurs contrôles sont verts.
+Les tâches 4 et 6 attendent la tâche 3 (destinataires admin) ; la tâche 9
+attend tout le reste. Le fichier projet n'est modifié que par la session
+principale pour éviter les conflits.
+
 ## À faire par Loris
 
 1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
@@ -397,3 +419,32 @@ toucher, la suppression d'un appareil périmé. Voir « À faire par Loris ».
 - La migration `ouvrier_mes_phases_pieces_consignes` du dépôt est
   enregistrée en base sous un autre numéro (20261106021209). Elle est bien
   appliquée, rien à faire.
+
+### Tâche 2 — Moteur et boîte côté serveur (06/11/2026) — en ligne
+
+**Ce qui a changé.** Rien de visible pour l'instant : le moteur d'envoi est en
+place côté serveur (boîte de réception, préférences, réglages, plage de
+silence avec report au matin, regroupement sans doublon, rattrapage à 7h05
+les jours ouvrés). L'interrupteur général est **coupé** (aucun réglage en
+base = valeurs par défaut).
+
+**Vérifié.** Demande de fusion n°220 : 12 contrôles GitHub verts, fusionnée.
+Migration `20261106063848_notifications_boite` purement additive, appliquée
+par la session principale (les 2 tables n'existaient pas ; après : seule la
+policy `profero_collaborateurs_seulement`, enregistrée dans les
+migrations). `send-push` (v3) et `notifications-boite` (v2) déployées depuis
+le dépôt : auto-contrôle 200 avec clés configurées ; tous les appels sans
+connexion ou avec la clé anonyme refusés (401). Aucune ligne écrite en boîte
+pendant les tests.
+
+**Simulation (calcul du module sur les vrais utilisateurs lus en base le
+06/11, avant la décision « admins par défaut »).** D2 : 4 admins, 0
+conducteur ; C1 : 0 destinataire (aucun conducteur) ; F1 : 1 comptable, sans
+appareil enregistré ; D4 : 4 admins, boîte seule. Seul 1 admin a un
+appareil enregistré (Loris).
+
+**Non vérifié.** Le test depuis le profil qui s'écrit aussi dans la boîte, la
+boîte avec une vraie session, et une simulation via `send-push` en mode
+serveur (faite après mise en ligne par le workflow « Notifications
+reportées », `simulation_type = D2`).
+
