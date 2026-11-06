@@ -221,7 +221,7 @@ Règle par défaut de `CLAUDE.md`. En plus :
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en ligne | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) (fusionnée le 06/11) |
 | 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en cours (parallèle) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | — |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
-| 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en cours (parallèle) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | — |
+| 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en ligne (ne partira pas avec les données actuelles, question à Loris) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | [n°223](https://github.com/Suivi-chantier/Planning-Chantiers/pull/223) (fusionnée le 06/11) |
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
 | 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en cours (parallèle) | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | — |
 | 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données | — |
@@ -374,6 +374,17 @@ Les tâches 4 et 6 attendent la tâche 3 (destinataires admin) ; la tâche 9
 attend tout le reste. Le fichier projet n'est modifié que par la session
 principale pour éviter les conflits.
 
+**06/11/2026 — Question à Loris (non bloquante) : C3 « matériaux à
+commander ».** Le calcul repris tel quel du récap du vendredi lit les
+matériaux prévisionnels saisis **par phase**. En base, aucun des 49 phasages
+n'en a (4 phases ont une date butoir, mais une liste vide). L'écran
+« Commandes à passer » utilise une autre saisie, **par ouvrage**. Avec les
+données actuelles, C3 ne partira donc jamais, et la partie « commandes
+prévisionnelles » du mail du vendredi est vide elle aussi. Changer la règle
+étant hors périmètre, rien n'a été modifié. Question : *garder C3 telle
+quelle, ou la rebrancher (plus tard) sur la logique de « Commandes à
+passer » ?*
+
 ## À faire par Loris
 
 1. **Saisir `VITE_VAPID_PUBLIC_KEY`** dans Vercel (Settings › Environment
@@ -447,4 +458,29 @@ appareil enregistré (Loris).
 boîte avec une vraie session, et une simulation via `send-push` en mode
 serveur (faite après mise en ligne par le workflow « Notifications
 reportées », `simulation_type = D2`).
+
+### Tâche 5 — Matériaux à commander, C3 (06/11/2026) — en ligne
+
+**Ce qui a changé.** Le calcul « matériaux à commander, date butoir atteinte »
+est sorti du récap du vendredi dans un module partagé
+(`materiauxACommanderV1.mjs`), déplacé sans réécriture ; le mail du vendredi
+l'utilise et ne change pas. Nouvel envoi quotidien `?job=push_materiaux` à
+8h05 Paris (jours ouvrés) : une seule notification « N matériaux à commander
+aujourd'hui », rien si la liste est vide. Interrupteur coupé : rien ne part.
+
+**Vérifié.** Demande de fusion n°223 : 13 contrôles verts, fusionnée.
+Tableau avant / après issu de la base (ancien code du récap et nouveau
+module, mêmes données) :
+
+| Jour | Ancien calcul | Nouveau module |
+|---|---|---|
+| 06/11/2026 | liste vide | liste vide |
+| 13/11/2026 | liste vide | liste vide |
+
+Identiques — mais vides, car aucun matériau n'est saisi par phase (voir la
+question à Loris dans le journal).
+
+**Points connus.** L'application n'ouvre pas encore directement l'écran
+« Commandes à passer » depuis le lien (même comportement que le bouton du
+mail aujourd'hui).
 
