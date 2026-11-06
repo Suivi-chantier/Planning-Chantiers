@@ -55,6 +55,7 @@ import { confirmPerteMassive } from "../guards";
 import { useDirtyGuard } from "../hooks";
 import LibelleEditable from "./LibelleEditable";
 import { PiecesPanel, BarreSelectionPieces, DuplicationPieces, BadgePiece } from "./PiecesPhasage";
+import PreparationChantier from "./PreparationChantier";
 import { piecesDuPhasage, rattacherTaches, detacherPiece, filtrerParPiece, grouperParPiece, SANS_PIECE } from "./piecesPhasageV1";
 import { libelleOuvrage, libelleOuvrageDevis, nomTache, nomTacheDevis, aLibellePerso, aNomPerso, textesTache, tacheCorrespond, patchLibelleOuvrage, patchNomTache } from "./libellesPhasageV1";
 // Méthode des rangs (Point 4a) : calculs PURS — chaînage par défaut déduit de
@@ -438,6 +439,8 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
   // Pièces du chantier (CR-2) : panneau, filtre / regroupement de la colonne
   // Tâches, sélection multiple pour rattacher, duplication par pièce.
   const [piecesOuvert, setPiecesOuvert] = useState(false);
+  // Parcours « Préparer le chantier » (plein écran) ouvert ou non.
+  const [preparationOuverte, setPreparationOuverte] = useState(false);
   // Répartition en % ouverte : id de l'ouvrage (null = fermée).
   const [repartitionOuvrageId, setRepartitionOuvrageId] = useState(null);
   const [pieceFiltre, setPieceFiltre] = useState("");
@@ -2915,6 +2918,16 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
               <Icon as={FileDown} size={14}/>
               PDF {viewMode === "gantt" ? "Gantt" : viewMode === "previsionnel" ? "Prévisionnel" : viewMode === "chrono" ? "Planning" : viewMode === "rang" ? "Rang" : ""}
             </button>
+            <button onClick={() => setPreparationOuverte(true)}
+              title="Parcours guidé : pièces du logement, puis répartition des ouvrages par pièce"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 14px", borderRadius: RADIUS.md,
+                border: `1px solid ${acc.border}`, background: acc.bg10, color: acc.accent,
+                fontFamily: "inherit", fontSize: FONT.sm.size, fontWeight: 700, cursor: "pointer",
+              }}>
+              Préparer le chantier
+            </button>
             {resumeHorsDevis.taches.length > 0 && (
               <button onClick={() => setHorsDevisOuvert(true)}
                 title="Tâches hors devis : réaffecter, intégrer, avenant ou geste commercial"
@@ -4403,6 +4416,13 @@ function PagePhasageV2({ chantiers = [], ouvriers = [], tauxHoraires = {}, tauxM
         );
       })()}
 
+      {/* ── Parcours « Préparer le chantier » (plein écran) ── */}
+      {preparationOuverte && (
+        <PreparationChantier chantierNom={chantier?.nom || ""} meta={phasage?.plan_travaux?.meta || {}}
+          ouvrages={ouvrages} auteur={profil?.nom || profil?.email || null}
+          onSaveMeta={saveMeta} onOuvragesChange={updateOuvrages}
+          onFermer={() => setPreparationOuverte(false)} T={T}/>
+      )}
       {/* ── Modale édition tâche ── */}
       {piecesOuvert && (
         <PiecesPanel pieces={pieces} onChange={setPieces} onSupprimer={supprimerPieceChantier}
