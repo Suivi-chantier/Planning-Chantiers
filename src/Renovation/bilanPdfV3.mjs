@@ -6,8 +6,10 @@
 //     pastille et légende, mentions, chantiers sans activité, journées
 //     incomplètes ; page 2 : alertes, décisions attendues, tendances par lot,
 //     semaine qui vient, rectifications.
-//   - DÉTAILLÉE : la version direction + une fiche par chantier + l'annexe
-//     « Méthode de calcul ».
+//   - DÉTAILLÉE : la version direction, dont le tableau des chantiers est
+//     remplacé par la synthèse « où va chaque chantier » (06/11/2026), + le
+//     détail des marges + une fiche par chantier + l'annexe « Méthode de
+//     calcul ».
 //
 // RÈGLE : les commentaires bruts des ouvriers (et toute appréciation d'un
 // ouvrier sur un autre) n'apparaissent JAMAIS dans la version direction. La
@@ -121,22 +123,78 @@ function syntheseHtml(synthese) {
       « Sur la période » : évolution de la marge probable. Pourcentages : part du vendu HT.</p>`;
 }
 
+// Version DÉTAILLÉE (projet « Bilan détaillé », 06/11/2026) : le tableau
+// répond d'abord à 3 questions — combien on a généré, combien on a gagné en
+// marge sur la période, où va chaque chantier. Ligne TOTAL en tête, reprise du
+// bandeau (mêmes chiffres, même calcul). Fourchette, fiabilité et tendance
+// sont calculées dans syntheseChantiersV3 (ouVaLeChantierV3) : ici, rien que
+// de l'affichage.
+const NIVEAUX_FIABILITE = { bonne: "bonne", moyenne: "moyenne", faible: "faible" };
+const COULEURS_FIABILITE = { bonne: "#15803d", moyenne: "#b45309", faible: "#c0392b" };
+function syntheseDetailleeHtml(synthese, bandeau, periode) {
+  const b = bandeau || {};
+  const semaine = periode?.type === "semaine";
+  const total = `<tr style="font-weight:bold;background:#f9fafb">
+      <td>TOTAL</td>
+      <td></td>
+      <td class="n">${e(fmtEur(b.production))}</td>
+      ${celluleMarge(b.margePeriode, b.margePeriodePct)}
+      <td class="n" style="color:${couleurSigne(b.margeProbableTotale)}">${e(fmtEurSigne(b.margeProbableTotale))}<div class="gris">${e(fmtPctSur(b.margeProbableTotalePct))}${
+        b.nbChantiersHorsComparaison > 0 ? ` · ${e(`${b.nbChantiersComparables} chantier${b.nbChantiersComparables > 1 ? "s" : ""}`)}, comme le bandeau` : ""}</div></td>
+      <td></td><td></td><td></td>
+    </tr>`;
+  const lignes = listeSure(synthese).map(s => {
+    const coul = COULEURS_PASTILLES_V3[s.pastille?.couleur] || COULEURS_PASTILLES_V3.gris;
+    const tete = `<td><span class="pastille" style="background:${coul}"></span>${e(s.nom)}${mentionsHtml(s)}</td>`;
+    if (!s.disponible) return `<tr>${tete}<td colspan="7" class="gris">relevé pas encore disponible</td></tr>`;
+    const fia = s.fiabilite || {};
+    const niveau = NIVEAUX_FIABILITE[fia.niveau];
+    const t = s.tendance || {};
+    const evo = t.evolution ?? null;
+    return `<tr>${tete}
+      <td class="n">${e(fmtPct(s.avancement))}</td>
+      <td class="n">${e(fmtEur(s.production))}</td>
+      ${celluleMarge(s.margePeriode, s.margePeriodePct)}
+      ${celluleMarge(s.margeProbable, s.margeProbablePct)}
+      <td class="n">${e(s.fourchette?.texte || "—")}</td>
+      <td><span style="color:${niveau ? COULEURS_FIABILITE[fia.niveau] : "#6b7280"}">${e(niveau || "inconnue")}</span>${fia.raison ? `<div class="gris">${e(fia.raison)}</div>` : ""}</td>
+      <td class="n"><span style="letter-spacing:1px">${e(t.texteAffiche || "—")}</span><div style="color:${couleurSigne(evo)}">${e(fmtEurSigne(evo))}</div></td>
+    </tr>`;
+  }).join("");
+  return `<table>
+    <thead><tr><th>Chantier</th><th class="n">Avancement</th><th class="n">${semaine ? "Généré cette semaine" : "Généré sur la période"}</th>
+      <th class="n">${semaine ? "Marge de la semaine" : "Marge de la période"}</th><th class="n">Marge probable</th><th class="n">Fourchette</th>
+      <th>Fiabilité</th><th class="n">Tendance 6 semaines</th></tr></thead>
+    <tbody>${total}${lignes}</tbody></table>
+    <p class="note">Généré : production de la période. Marge de la ${semaine ? "semaine" : "période"} : en % de la production. Marge probable : où le chantier va finir au rythme constaté, en % du vendu HT.
+      Fourchette : de la marge probable à la marge si le reste se passe comme le devis. Fiabilité : selon l'avancement et la part des heures restantes dont le rythme est constaté.
+      Tendance : marge probable en fin de chacune des 6 dernières semaines (▲ hausse, ▼ baisse, = stable, · pas de relevé dans la semaine), puis l'évolution sur ces semaines.</p>`;
+}
+
 // Version détaillée seulement : les autres marges, chantier par chantier.
 function margesDetailHtml(synthese) {
+  const signe = v => `<td class="n" style="color:${couleurSigne(v)}">${e(fmtEurSigne(v))}</td>`;
   const lignes = listeSure(synthese).filter(s => s.disponible).map(s => `<tr>
       <td>${e(s.nom)}</td>
       <td class="n">${e(fmtEur(s.production))}</td>
-      <td class="n" style="color:${couleurSigne(s.margePeriode)}">${e(fmtEurSigne(s.margePeriode))}</td>
-      <td class="n" style="color:${couleurSigne(s.margeAvancement)}">${e(fmtEurSigne(s.margeAvancement))}</td>
-      <td class="n" style="color:${couleurSigne(s.margeTerminaison)}">${e(fmtEurSigne(s.margeTerminaison))}</td>
+      ${signe(s.margePeriode)}
+      ${signe(s.margeAvancement)}
+      ${signe(s.margeTerminaison)}
+      ${signe(s.margeProbable)}
       <td class="n">${e(fmtEur(s.materiauxEnAvance))}</td>
+      ${signe(s.budgetRestant)}
+      <td class="n">${e(fmtEurH(s.eurParHeure))}<div class="gris">devis ${e(fmtEurH(s.eurParHeureDevis))}</div></td>
     </tr>`).join("");
   if (!lignes) return "";
   return `<h2>Détail des marges</h2><table>
     <thead><tr><th>Chantier</th><th class="n">Production</th><th class="n">Marge de la période</th><th class="n">Marge à l'avancement</th>
-      <th class="n">Marge à terminaison</th><th class="n">Matériaux en avance</th></tr></thead>
+      <th class="n">Marge à terminaison</th><th class="n">Marge probable</th><th class="n">Matériaux en avance</th><th class="n">Budget restant</th>
+      <th class="n">€ produits / h</th></tr></thead>
     <tbody>${lignes}</tbody></table>
-    <p class="note">Marge à l'avancement : le constat à date (production − coûts imputés). Marge à terminaison : où le chantier finit si le reste se passe comme le devis.</p>`;
+    <p class="note">Marge de la période : ce que la marge à l'avancement a gagné ou perdu entre les deux relevés comparés.
+      Marge à l'avancement : le constat à date (production − coûts imputés).
+      Marge à terminaison : où le chantier finit si le reste se passe comme le devis.
+      Marge probable : où le chantier finit si les lots continuent au rythme constaté.</p>`;
 }
 
 const legendeHtml = () => `<div class="note"><strong>Pastilles :</strong> ${LEGENDE_PASTILLES_V3.map(l =>
@@ -231,7 +289,7 @@ function corpsBilanV3(d, detaillee) {
   <div class="sous-titre">Comparaison du ${e(fmtJourV3(b.dateDepart))} (dernier jour travaillé avant la période) au ${e(fmtJourV3(b.dateFin))} (dernier jour travaillé de la période)${d.genereLe ? ` · généré le ${e(d.genereLe)}` : ""}</div>
   ${avert}
   ${bandeauHtml(d.bandeau || {})}
-  ${syntheseHtml(d.synthese)}
+  ${detaillee ? syntheseDetailleeHtml(d.synthese, d.bandeau, p) : syntheseHtml(d.synthese)}
   ${legendeHtml()}
   ${sansActivite ? `<p class="note">${e(sansActivite)}</p>` : ""}
   ${detaillee ? margesDetailHtml(d.synthese) : ""}

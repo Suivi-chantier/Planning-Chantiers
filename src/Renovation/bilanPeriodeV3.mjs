@@ -183,8 +183,14 @@ export const pctSurV3 = (montant, base) => (montant == null || base == null || !
 
 // `baremeFG` : barème des frais généraux (planning_config.fg_taux_horaires),
 // pour la marge prévue au devis — absent = taux par défaut, comme partout.
-export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alertesParChantier = {}, seuilBaisse = 500, baremeFG = null }) {
+// `seuils` : réglages des marges (seuils de fiabilité) ; `nbSemainesTendance`
+// : longueur de la tendance de la marge probable (Bilan détaillé, 06/11/2026).
+export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alertesParChantier = {}, seuilBaisse = 500, baremeFG = null,
+  seuils = null, nbSemainesTendance = 6 }) {
   const out = [];
+  // Tendance : le dernier point est le dernier jour retenu de la période, pour
+  // coïncider avec la marge probable de la synthèse.
+  const finsSemaines = finsSemainesTendanceV3(bornes.dateFin, nbSemainesTendance);
   for (const c of listeSure(chantiers)) {
     const id = str(c.id);
     const liste = releves?.get(id) || [];
@@ -228,6 +234,7 @@ export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alert
     const margeDevisSansMateriaux = margeDevis != null && vendu > 0 && num(fin?.mat_prev) === 0;
     const ecartDevis = margeProbable != null && margeDevis != null && !margeDevisSansMateriaux ? round2(margeProbable - margeDevis) : null;
     const repereDevis = eurParHeureDevis(vendu, v(fin, "heures_vendues"));
+    const margeTerminaison = v(fin, "marge_terminaison");
 
     out.push({
       chantierId: id, nom: str(c.nom) || str(fin?.chantier_nom) || id,
@@ -236,10 +243,10 @@ export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alert
       dateDepartReleve: dep ? jour(dep.date_releve) : null,
       avancement, avancementDepart: v(dep, "avancement"),
       vendu,
-      production, margePeriode, heuresPeriode, eurParHeure,
+      production, margePeriode, margePeriodePct: pctSurV3(margePeriode, production), heuresPeriode, eurParHeure,
       eurParHeureDevis: repereDevis == null ? null : round2(repereDevis),
       margeAvancement: disponible ? v(fin, "marge_avancement") : null,
-      margeTerminaison: v(fin, "marge_terminaison"),
+      margeTerminaison,
       margeProbable,
       margeProbablePct: pctSurV3(margeProbable, vendu),
       margeDevis: margeDevis == null ? null : round2(margeDevis),
@@ -254,6 +261,7 @@ export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alert
       alertes,
       mentions,
       pastille: pastille({ margeProbable: disponible ? v(fin, "marge_probable") : null, evolutionMargeProbable, margePeriode, nbAutresAlertes, seuilBaisse, disponible }),
+      ...ouVaLeChantierV3({ releves: liste, avancement, lots: fin?.lots, margeProbable, margeTerminaison: disponible ? margeTerminaison : null, finsSemaines, seuils }),
     });
   }
   return out;
@@ -577,4 +585,26 @@ export function tendanceMargeProbableV3({ releves, finsSemaines } = {}) {
   const evolution = connues.length >= 2 ? round2(connues[connues.length - 1] - connues[0]) : null;
   const symboles = semaines.map(x => x.symbole);
   return { semaines, valeurs: semaines.map(x => x.valeur), symboles, texteSymboles: symboles.join(""), reference, evolution };
+}
+
+/**
+ * « Où va le chantier » (Bilan détaillé) : fourchette, fiabilité et tendance
+ * de la marge probable d'un chantier, lues dans ses relevés. Une semaine de la
+ * tendance sans relevé dans la semaine s'affiche « · » (décision du pilote du
+ * 06/11/2026), même si le relevé au plus tard d'une semaine précédente donne
+ * une valeur.
+ * @param {object} args
+ * @param {Array}  args.releves       relevés DU chantier, triés par date
+ * @param {number|null} args.avancement   avancement du relevé de fin
+ * @param {Array}  args.lots          colonne `lots` du relevé de fin
+ * @param {number|null} args.margeProbable, args.margeTerminaison
+ * @param {string[]} args.finsSemaines finsSemainesTendanceV3(bornes.dateFin)
+ * @returns {{ fourchette, fiabilite, tendance }} ; tendance.texteAffiche = symboles affichés
+ */
+export function ouVaLeChantierV3({ releves, avancement, lots, margeProbable, margeTerminaison, finsSemaines, seuils = null } = {}) {
+  const fourchette = fourchetteMargeProbableV3({ margeProbable, margeTerminaison });
+  const fiabilite = fiabiliteMargeProbableV3({ avancement, lots, seuils });
+  const t = tendanceMargeProbableV3({ releves, finsSemaines });
+  const symbolesAffiches = t.semaines.map(x => (x.releveDansLaSemaine ? x.symbole : "·"));
+  return { fourchette, fiabilite, tendance: { ...t, symbolesAffiches, texteAffiche: symbolesAffiches.join("") } };
 }

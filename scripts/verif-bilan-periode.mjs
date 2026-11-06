@@ -541,4 +541,65 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
     && B.fourchetteMargeProbableV3({}).connue === false, "fourchette (données fictives) : inconnue → « — », jamais 0");
 }
 
+// ── Bilan détaillé : synthèse « où va chaque chantier » (données fictives) ──
+{
+  const N = "\u202f";
+  const P44 = B.periodeSemaineV3("2026-W44"); // 26/10 → 01/11
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]); // fin = jeu. 29/10
+  const lot2 = (id, h, prov, av = 40) => ({ id, label: id, avancementExact: av, heuresRestantesPrevues: h, provenanceCoefficient: prov });
+  const r = (id, d, o = {}) => rel(id, d, { mat_prev: 1000, mo_prev: 3000, ...o });
+  // Chantier « a » : un relevé chaque semaine sauf celle qui finit le 15/10 (aucun relevé du 09/10 au 15/10) ;
+  // chantier « s » sans marge à terminaison ni heures restantes lisibles (fourchette et fiabilité inconnues) ; « g » sans relevé.
+  const releves = B.indexerRelevesV3([
+    r("a", "2026-09-17", { marge_probable: 1000 }),
+    r("a", "2026-09-24", { marge_probable: 1100 }),
+    r("a", "2026-10-01", { marge_probable: 1000 }),
+    r("a", "2026-10-08", { marge_probable: 1000 }),
+    r("a", "2026-10-22", { marge_probable: 1300, production_cumulee: 5000, marge_avancement: 1000 }),
+    r("a", "2026-10-29", { avancement: 70, marge_probable: 1600, marge_terminaison: 2000, production_cumulee: 6000, marge_avancement: 1300,
+      heures_reelles: 60, budget_restant: 4200, lots: [lot2("m", 80, "constatee"), lot2("p", 20, "aucune")] }),
+    r("s", "2026-10-22"),
+    r("s", "2026-10-29", { marge_terminaison: null, lots: [{ id: "x", label: "X", avancement: null }] }), // heures restantes illisibles
+  ]);
+  const syn = B.syntheseChantiersV3({ releves, chantiers: [{ id: "a", nom: "A" }, { id: "s", nom: "S" }, { id: "g", nom: "G" }], bornes: BOR, periode: P44 });
+  const [a, sInc] = syn;
+  eq(a.tendance.semaines.map(x => x.date), ["2026-09-24", "2026-10-01", "2026-10-08", "2026-10-15", "2026-10-22", "2026-10-29"],
+    "synthèse détaillée (données fictives) : le dernier point de la tendance est le dernier jour retenu de la période");
+  eq(a.tendance.symbolesAffiches, ["▲", "▼", "=", "·", "▲", "▲"], "synthèse détaillée (données fictives) : « · » pour la semaine sans relevé");
+  ok(a.tendance.evolution === 600 && a.margePeriodePct === 30, "synthèse détaillée (données fictives) : évolution 1 600 − 1 000 et marge de la période en % de la production");
+  ok(a.fiabilite.niveau === "bonne" && a.fourchette.texte === `entre +1${N}600${N}€ et +2${N}000${N}€`, "synthèse détaillée (données fictives) : fiabilité et fourchette par chantier");
+  ok(sInc.fourchette.texte === "—" && sInc.fiabilite.niveau === null, "synthèse détaillée (données fictives) : fourchette et fiabilité inconnues");
+
+  const bandeau = B.bandeauV3({ synthese: syn });
+  const d = { periode: P44, bornes: BOR, bandeau, synthese: syn, alertes: [], genereLe: "06/11/2026" };
+  const det = documentBilanV3(d, { detaillee: true });
+  const dir = documentBilanV3(d, { detaillee: false });
+  // Tableau de synthèse détaillé : 8 colonnes dans l'ordre, ligne TOTAL en tête.
+  const tetes = ["Chantier", "Avancement", "Généré cette semaine", "Marge de la semaine", "Marge probable", "Fourchette", "Fiabilité", "Tendance 6 semaines"];
+  const thead = det.slice(det.indexOf("<thead>"), det.indexOf("</thead>"));
+  const enTetes = [...thead.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  eq(enTetes, tetes, "PDF détaillé (données fictives) : 8 colonnes de la synthèse, dans l'ordre");
+  const corps = det.slice(det.indexOf("<tbody>"), det.indexOf("</tbody>"));
+  const lignes = corps.split("<tr").slice(1);
+  ok(/<td>TOTAL<\/td>/.test(lignes[0]) && lignes[0].includes(`1${N}000${N}€`), "PDF détaillé (données fictives) : ligne TOTAL en tête, production reprise du bandeau");
+  ok(lignes[0].includes("+300") && lignes[0].includes("30" + N + "%"), "PDF détaillé (données fictives) : marge de la période du TOTAL reprise du bandeau");
+  ok(lignes[1].includes("▲▼=·▲▲") && lignes[1].includes(`+600${N}€`) && lignes[1].includes("bonne"), "PDF détaillé (données fictives) : tendance « · » et évolution, fiabilité");
+  ok(lignes[2].includes("inconnue") && /<td class="n">—<\/td>/.test(lignes[2]), "PDF détaillé (données fictives) : « — » pour la fourchette, fiabilité « inconnue »");
+  ok(lignes[3].includes("relevé pas encore disponible"), "PDF détaillé (données fictives) : chantier sans relevé signalé");
+  // Version mois : libellés « sur la période ».
+  ok(documentBilanV3({ ...d, periode: B.periodeMoisV3("2026-10") }, { detaillee: true }).includes("Généré sur la période"), "PDF détaillé (données fictives) : libellé adapté au mois");
+  // Détail des marges : budget restant et €/h avec repère devis, une phrase par marge.
+  const marges = det.slice(det.indexOf("<h2>Détail des marges</h2>"));
+  ok(marges.includes("Budget restant") && marges.includes("€ produits / h") && marges.includes(`+4${N}200${N}€`) && marges.includes("devis 100"),
+    "PDF détaillé (données fictives) : détail des marges avec budget restant et €/h (repère devis)");
+  const theadM = marges.slice(marges.indexOf("<thead>"), marges.indexOf("</thead>"));
+  eq([...theadM.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]), ["Chantier", "Production", "Marge de la période", "Marge à l'avancement",
+    "Marge à terminaison", "Marge probable", "Matériaux en avance", "Budget restant", "€ produits / h"], "PDF détaillé (données fictives) : colonnes du détail des marges");
+  ok(det.indexOf("<h2>Détail des marges</h2>") < det.indexOf("<h2>Alertes</h2>"), "PDF détaillé (données fictives) : détail des marges juste après la synthèse, avant les alertes");
+  // Version direction inchangée : ancien tableau « Devis → probable », aucune nouvelle colonne.
+  ok(dir.includes("Vendu HT") && dir.includes("Écart / devis") && dir.includes("Sur la période"), "PDF direction (données fictives) : tableau « Devis → probable » inchangé");
+  ok(!dir.includes("Fourchette") && !dir.includes("Fiabilité") && !dir.includes("Tendance 6 semaines") && !dir.includes("TOTAL")
+    && !dir.includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
+}
+
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);
