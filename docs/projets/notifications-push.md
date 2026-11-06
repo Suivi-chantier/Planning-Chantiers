@@ -219,11 +219,11 @@ Règle par défaut de `CLAUDE.md`. En plus :
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Étape 1 — Plomberie : clés VAPID, table `push_subscriptions`, `public/push-sw.js` importé par le service worker, Edge Function `send-push` (envoi de test), Edge Function d'abonnement, profil : « Activer les notifications » + « Envoyer une notification de test » + état réel (activées / refusées / non prises en charge / iPhone à installer), rôles bureau seulement ; script `verif-notifications-push.mjs` | en ligne | Auto (migration additive vérifiée) ; test sur téléphone par Loris (non bloquant pour la suite) | Contrôles verts ; abonnement enregistré en base depuis un navigateur ; test reçu par Loris | [n°217](https://github.com/Suivi-chantier/Planning-Chantiers/pull/217) (fusionnée le 06/11) |
 | 2 | Étape 2a — Moteur et boîte côté serveur : table `notifications`, réglages en base (interrupteur général livré **coupé**, types C1–D4 avec rôles par défaut, plage de silence), module pur `notificationsPushV1.mjs` (destinataires par rôle sans ouvrier, préférences, plage de silence, report, regroupement), `send-push` complet + job de rattrapage des envois reportés | en ligne | Auto | Contrôles verts ; la notification de test est écrite dans la boîte ; un envoi en plage de silence est reporté (vérifs) | [n°220](https://github.com/Suivi-chantier/Planning-Chantiers/pull/220) (fusionnée le 06/11) |
-| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | bloquée (limite de déploiements Vercel, reprise le 07/11) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | [n°226](https://github.com/Suivi-chantier/Planning-Chantiers/pull/226) (contrôles GitHub verts, Vercel rouge) |
+| 3 | Étape 2b — Écrans : cloche avec compteur dans la navigation bureau, liste, « tout marquer comme lu », préférences par type dans le profil, onglet Réglages › Notifications complet (suivi des envois, appareils par rôle) + entrée `journalMaj.js` | en cours (mise en ligne) | Auto | Décocher un rôle dans les Réglages fait qu'il ne reçoit plus le test suivant ; le rôle ouvrier n'est jamais proposé | [n°226](https://github.com/Suivi-chantier/Planning-Chantiers/pull/226) |
 | 4 | Étape 3 — Point conducteurs 18h30 (C1 + C2) : job `?job=point_conducteurs`, créneau GitHub Actions (technique heure été/hiver de `cron-rappel-rapport`), logique « ouvriers attendus » partagée avec le rappel, entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données d'un jour ouvré (sans envoi) : une seule notification par conducteur | — |
 | 5 | Étape 4a — Matériaux à commander (C3) : extraction du calcul de `cron-recap-commandes` en module `.mjs` partagé, envoi quotidien | en ligne (ne partira pas avec les données actuelles, question à Loris) | Auto | Le récap du vendredi reste identique (même liste avant / après sur les vraies données) | [n°223](https://github.com/Suivi-chantier/Planning-Chantiers/pull/223) (fusionnée le 06/11) |
 | 6 | Étape 4b — Alertes C4, C5 et marge négative D1 : table d'état notifié, job qui recalcule avec `alertesV1` et ne notifie que les aggravations, premier passage silencieux | à faire | Auto ; tableau de simulation recopié dans le compte rendu | Simulation sur les vrais chantiers : qui aurait reçu quoi ; premier passage = 0 envoi | — |
-| 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | prête, en attente de Vercel (reprise le 07/11) | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | [n°224](https://github.com/Suivi-chantier/Planning-Chantiers/pull/224) (contrôles GitHub verts) |
+| 7 | Étape 5a — Facture à émettre (F1) côté serveur : extraction de la détection de `PageChantiers.jsx` en `.mjs`, job quotidien, même drapeau anti-doublon que le mail | en ligne | Auto | Aucune échéance n'a deux envois (mail + push) ; la fiche chantier se comporte comme avant | [n°224](https://github.com/Suivi-chantier/Planning-Chantiers/pull/224) (fusionnée le 06/11) |
 | 8 | Étape 5b — F2 encours vendredi, D2 nouveau chantier, D3 synthèse semaine, D4 écart du journal (boîte seule) + entrée `journalMaj.js` | à faire | Auto | Simulation sur les vraies données | — |
 | 10 | C3 rebranchée sur la logique de l'écran « Commandes à passer » (saisie par ouvrage), extraite en module `.mjs` partagé avec l'écran ; mail du vendredi inchangé | à faire | Auto | Simulation sur les vraies données : la liste correspond à ce qu'affiche « Commandes à passer » | — |
 | 9 | Simulation des 7 derniers jours par personne (aucun envoi), puis activation de l'interrupteur général par Loris | à faire | **Arrêt** : Loris active ; arrêt si quelqu'un dépasse 3 push par jour en moyenne | Tableau par personne recopié dans le compte rendu | — |
@@ -422,9 +422,7 @@ premier passage après activation, 0 au suivant. Migration
 après accord explicite de Loris (« vas-y pour la table » — la première
 tentative avait expiré faute de réponse à la confirmation Supabase) :
 version **20261106084227**, seule policy `profero_collaborateurs_seulement`,
-aucun droit pour anon / authenticated. **À la reprise : renommer le fichier de
-la PR n°224 `20261106130000_notifications_etat.sql` en
-`20261106084227_notifications_etat.sql`.**
+aucun droit pour anon / authenticated. Fichier renommé `20261106084227_notifications_etat.sql` dans la PR n°224.
 Signalé à Loris, non modifié (hors périmètre) : DÉPOT et BRIOLLAY « à
 émettre » avec un prix de vente à 0 € ; course possible sur le mail si deux
 personnes ouvrent la même fiche en même temps (antérieure au projet).
@@ -527,4 +525,33 @@ question à Loris dans le journal).
 **Points connus.** L'application n'ouvre pas encore directement l'écran
 « Commandes à passer » depuis le lien (même comportement que le bouton du
 mail aujourd'hui).
+
+### Tâche 7 — Facture à émettre côté serveur, F1 (06/11/2026) — en ligne
+
+**Ce qui a changé.** La détection « facture de situation à émettre » est
+sortie de la fiche chantier dans un module partagé (`factureAEmettre.mjs`),
+déplacée sans réécriture : la fiche envoie le même mail, aux mêmes
+destinataires, avec le même drapeau. Nouveau job quotidien
+`?job=factures_a_emettre` (8h15 Paris, jours ouvrés) : il n'envoie **que le
+push**, au plus une notification F1 par jour (« N factures à émettre » +
+liste), et chaque échéance n'est notifiée qu'une fois (table
+`notifications_etat`). Il ne touche ni au mail ni au drapeau. Interrupteur
+coupé : rien ne part et rien n'est inscrit.
+
+**Vérifié.** Demande de fusion n°224 : 14 contrôles GitHub verts + Vercel
+vert, fusionnée le 06/11 au soir (retardée par la limite de déploiements
+Vercel). Migration `20261106084227_notifications_etat` purement additive,
+appliquée après accord de Loris, seule policy
+`profero_collaborateurs_seulement`.
+
+**Simulation issue de la base (06/11, aucun envoi).** 43 échéances prêtes
+sur les chantiers non terminés, dont 29 déjà prévenues par mail ;
+14 sans mail : BRIOLLAY S1 ; DÉPOT démarrage et S1 ; BRIOLLAY APPT 1 à 5
+(démarrage et S1 chacun) ; KATHLEEN T2 S1. Premier passage après activation :
+**1 notification « 14 factures à émettre »** pour le comptable ; passage
+suivant : 0.
+
+**Points connus.** DÉPOT et BRIOLLAY ont un prix de vente à 0 € et sont
+pourtant « à émettre » (comme dans le mail actuel). Une échéance qui devient
+prête après la notification du jour part le lendemain.
 
