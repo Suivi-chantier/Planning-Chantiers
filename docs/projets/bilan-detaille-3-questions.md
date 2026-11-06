@@ -312,3 +312,80 @@ bloqué), seules les prévisualisations Vercel ont été vérifiées.
 - « Bilan : la marge prévue au devis réapparaît, avec le total de la marge
   probable ».
 
+
+## Suite du 06/11/2026 — marge à terminaison et PDF direction allégé
+
+Demande de Loris (après le projet) : « Il faut ajouter la marge à terminaison,
+je ne la vois pas sur le PDF mensuel », puis, sur le PDF direction d'octobre :
+« les 3 dernières pages ne servent à rien, retire-les ».
+
+- **Marge à terminaison** (où le chantier finit si le reste se passe comme le
+  devis) : nouvelle colonne juste avant la marge probable, en € et en % du
+  vendu, dans le tableau des chantiers des deux versions du PDF ; « — » si
+  elle n'est pas connue, jamais 0. Le bandeau donne son total « à
+  terminaison », calculé sur exactement les mêmes chantiers que le total de
+  la marge probable (inconnu dès qu'un de ces chantiers n'a pas de marge à
+  terminaison). La ligne TOTAL du PDF détaillé le reprend. Chiffre déjà
+  enregistré dans chaque relevé : aucun calcul ne change.
+- **Version direction** : elle s'arrête après les alertes, les décisions
+  attendues et les tendances par lot. La semaine qui vient, le prévu /
+  réalisé, la fin prévisionnelle et les rectifications ne sont plus que dans
+  la version détaillée. Seul l'affichage est retiré : ce qui est archivé à
+  chaque export ne change pas, les rectifications et le prévu / réalisé des
+  bilans suivants continuent de fonctionner.
+
+Semaine 2026-W44, chiffres lus en base (relevés du 29/10/2026), PDF
+reconstitués hors application :
+
+| Chantier | Marge à terminaison | Marge probable |
+|---|---|---|
+| FOURMOND 001 | +8 518,02 € (21,1 %) | +4 134,52 € (10,2 %) |
+| FOURMOND 101 | +5 830,41 € (17,2 %) | +3 205,73 € (9,5 %) |
+| FOURMOND 102 | +4 586,03 € (15,4 %) | +953,75 € (3,2 %) |
+| FOURMOND COMMUNS | +1 501,73 € (25,4 %) | +1 501,73 € (25,4 %) |
+| KATHLEEN T2 | +9 068,48 € (41,6 %) | +8 314,10 € (38,2 %) |
+| MONTILLERS APPT 2 (T2) | +14 782,54 € (41,9 %) | +14 709,79 € (41,7 %) |
+| MONTILLERS APPT 4 (T2) | +15 777,86 € (39,8 %) | +14 757,33 € (37,3 %) |
+| Total du bandeau (7 chantiers) | +60 065 € (29 %) | +47 577 € (23 %) |
+
+PDF direction : 2 pages ; PDF détaillé : 8 pages, tableau du haut lisible
+avec les noms de chantier sur une ligne. Entrée ajoutée dans `journalMaj.js`
+(« Bilan : la marge à terminaison apparaît dans les deux PDF, et la version
+direction est plus courte »).
+
+## Suite du 06/11/2026 — design des PDF
+
+Demande de Loris : « Il faut aussi revoir le design du PDF [du Bilan], il y a
+un skill dédié au design des PDF de Profero ».
+
+- **Ce qui change** : seulement la présentation des deux PDF (direction et
+  détaillé), à la charte des documents Profero (celle du compte rendu
+  client) : en-tête bleu nuit avec le logo, « BILAN » ou « BILAN DÉTAILLÉ » en
+  jaune, la période en grand (« SEMAINE 44 », « OCTOBRE 2026 »), les dates
+  comparées, des pastilles (dates, nombre de chantiers, date de génération)
+  et à droite un encadré jaune « généré cette semaine / sur la période ».
+  Dessous, les chiffres clés en cartes (tous les chiffres et sous-lignes de
+  l'ancien bandeau), titres en majuscules soulignés de jaune, tableaux à
+  en-tête bleu nuit, ligne TOTAL sur fond jaune pâle, pied « Profero —
+  Rénovation & réhabilitation · Document interne ». Pastilles rouge / orange
+  / vert / gris inchangées.
+- **Fiches chantier** : chacune commence par une carte (nom, du devis au
+  probable, présences) jamais coupée ; une fiche qui tient sur une page passe
+  entière à la page suivante.
+- **Une seule source** : couleurs, halos et polices sont dans
+  `src/Renovation/charteDocProfero.mjs`, lu par le PDF du Bilan et par les
+  autres documents (rendu de ces derniers identique, vérifié).
+- **Polices** : Barlow ajoutée au lien Google Fonts de l'application (le PDF
+  est une capture de la page, seules les polices chargées sont rendues).
+
+Vérification sur la semaine 2026-W44, chiffres lus en base, PDF reconstitués
+hors application avec le même moteur que l'application (html2pdf) : tous les
+chiffres et tous les textes à partir des chiffres clés sont identiques
+avant / après (132 montants et pourcentages en version direction, 626 en
+version détaillée) ; le seul ajout est la production répétée dans l'encadré
+jaune (13 665 €). Exemple de chiffres inchangés : production 13 665 €, marge
+de la période +2 446 €, marge à terminaison +60 065 €, marge probable
++47 577 €. PDF direction : 2 pages (inchangé) ; PDF détaillé : 10 pages
+(8 avant), une fiche chantier par page au lieu de fiches coupées. Entrée
+ajoutée dans `journalMaj.js` (« Bilan : les PDF prennent le design des
+documents Profero »).

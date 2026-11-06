@@ -225,15 +225,59 @@ const verifierCascade = (r, nom) => {
   // Méthode de calcul : absente par défaut, présente quand elle est jointe.
   ok(!det.includes("Méthode de calcul"), "PDF détaillé (données fictives) : pas de méthode de calcul par défaut");
   const avecMethode = documentBilanV3({ ...d, methode: F.methodeBilanV3() }, { detaillee: true });
-  ok(avecMethode.includes("<h2>Méthode de calcul</h2>") && avecMethode.includes("Du devis au probable") && avecMethode.startsWith(det.slice(0, det.lastIndexOf("</div>"))),
+  ok(avecMethode.includes("<h2>Méthode de calcul</h2>") && avecMethode.includes("Du devis au probable") && avecMethode.startsWith(det.slice(0, det.indexOf(`<div class="pied">`)).trimEnd()),
     "PDF détaillé (données fictives) : méthode jointe en annexe, le reste identique");
 
-  // Version direction : même HTML qu'avant la tâche 3 (empreinte relevée sur ce jeu fictif avant la modification).
+  // Version direction : empreinte de son HTML sur ce jeu fictif. Relevée avant
+  // la tâche 3 (HTML inchangé par les tâches 3 à 5), puis mise à jour le
+  // 06/11/2026 pour un changement VOULU de la version direction (demande de
+  // Loris) : colonne « Marge à terminaison » et total « à terminaison » dans
+  // le bandeau. Toute autre modification de la version direction doit faire
+  // échouer ce contrôle.
   const dir = documentBilanV3(d, { detaillee: false });
   ok(dir === documentBilanV3({ ...d, fiches: undefined }, { detaillee: false }) && dir === documentBilanV3({ ...d, methode: F.methodeBilanV3() }, { detaillee: false }),
     "PDF direction (données fictives) : ni fiches ni méthode");
-  eq(createHash("sha256").update(dir).digest("hex"), "787982abf4104a18e13543624388f33ba6467d1c95c3a7ec7296307c173ac79f",
-    "PDF direction (données fictives) : HTML identique à celui d'avant la tâche 3");
+  // Empreinte mise à jour le 06/11/2026 pour un 2e changement VOULU : l'habillage
+  // des PDF du Bilan au design des documents Profero (héros, chiffres clés,
+  // titres, tableaux, pied « Document interne »). Les chiffres et les textes
+  // n'ont pas bougé (vérifié sur la semaine 2026-W44 réelle, avant / après).
+  eq(createHash("sha256").update(dir).digest("hex"), "4c3a9b61428b70eaaedd3c6cedb2e76532cea5cfbb68d88025c4810fa37d12f4",
+    "PDF direction (données fictives) : HTML identique à celui attendu (design Profero du 06/11/2026)");
+
+  // ── Design des documents Profero (06/11/2026) ──
+  for (const [nom, html, surtitre] of [["direction", dir, "Bilan"], ["détaillé", det, "Bilan détaillé"]]) {
+    const hero = html.slice(html.indexOf(`<div class="hero">`), html.indexOf(`<div class="bandeau">`));
+    ok(html.indexOf(`<div class="hero">`) >= 0 && html.indexOf(`<div class="hero">`) < html.indexOf(`<div class="bandeau">`), `PDF ${nom} (données fictives) : héros en tête, avant les chiffres clés`);
+    ok(hero.includes(`<div class="eb">${surtitre}</div>`) && hero.includes("<h1>Semaine 44</h1>"), `PDF ${nom} (données fictives) : surtitre « ${surtitre} » et période en titre`);
+    ok(hero.includes(`<span class="pill">26/10 → 01/11/2026</span>`) && hero.includes(`<span class="pill">5 chantiers</span>`) && hero.includes("Comparaison du jeu. 22/10"),
+      `PDF ${nom} (données fictives) : pastilles (dates, chantiers) et dates de comparaison`);
+    ok(hero.includes(`<div class="hero-kpi">`) && hero.includes("Généré cette semaine"), `PDF ${nom} (données fictives) : bloc jaune « généré » dans le héros`);
+    ok(!hero.includes("<img"), `PDF ${nom} (données fictives) : pas de logo sans URL (jamais d'image cassée)`);
+    ok(/<div class="pied"><b>Profero — Rénovation &amp; réhabilitation<\/b><span>Document interne<\/span><\/div>\s*<\/div>$/.test(html), `PDF ${nom} (données fictives) : pied « Document interne » en fin de document`);
+    ok(!/undefined|NaN|null/.test(html.replace(/<style>[\s\S]*?<\/style>/, "")), `PDF ${nom} (données fictives) : ni « undefined », ni « NaN », ni « null »`);
+  }
+  const avecLogo = documentBilanV3({ ...d, logoUrl: "https://x.test/logos/profero-reno-h.png?a=1&b=\"2" }, { detaillee: false });
+  ok(avecLogo.includes(`<img class="logo" src="https://x.test/logos/profero-reno-h.png?a=1&amp;b=&quot;2" alt="Profero" crossorigin="anonymous">`), "PDF (données fictives) : logo dans le héros, URL échappée");
+  const mois = documentBilanV3({ ...d, periode: B.periodeMoisV3("2026-10") }, { detaillee: true });
+  ok(mois.includes("<h1>Octobre 2026</h1>") && mois.includes(`<span class="pill">01/10 → 31/10/2026</span>`) && mois.includes("Généré sur la période"), "PDF (données fictives) : héros d'un mois");
+  // Couleurs du STYLE : uniquement la charte (charteDocProfero.mjs, skill
+  // « profero-pdf ») et, porteuses d'information, l'ambre des pastilles
+  // « mention » et le rouge des avertissements. Les pastilles d'état des
+  // chantiers (rouge / orange / vert / gris) et les couleurs des montants
+  // (positif vert, négatif rouge) sont écrites dans le HTML, pas dans le STYLE.
+  const CHARTE = ["#1a1f2e", "#ffc200", "#5a6478", "#e4e8f2", "#eef1f7", "#f4f6fa", "#fff", "#ffffff", "#fff8dc", "#fafbfd",
+    "#aeb6c8", "#e8ebf2", "#6b5200", "#9aa2b4", // héros, bloc jaune et pied de la charte
+    "#161b28", "#232c42", "#2e2840", "#69582d", "#292a41", "#2c3e66", "#1c2334"]; // dégradé et halos du héros (charteDocProfero.mjs)
+  const INFORMATION = ["#fef3c7", "#92400e", "#fde68a", "#fee2e2", "#991b1b"]; // mention (ambre), avertissement (rouge)
+  for (const html of [dir, det]) {
+    const style = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+    const hors = [...new Set((style.match(/#[0-9a-fA-F]{3,6}\b/g) || []).map(c => c.toLowerCase()))].filter(c => !CHARTE.includes(c) && !INFORMATION.includes(c));
+    eq(hors, [], "PDF (données fictives) : aucune couleur hors charte dans le STYLE du Bilan");
+    const rgba = [...new Set(style.match(/rgba\([^)]*\)/g) || [])].filter(c => !/^rgba\((255,255,255|26,31,46|255,194,0),/.test(c.replace(/\s/g, "")));
+    eq(rgba, [], "PDF (données fictives) : transparences uniquement en blanc, encre ou jaune de la charte");
+    ok(!/box-shadow/.test(style), "PDF (données fictives) : aucune ombre portée");
+    ok(!/rgba\([^)]*,\s*0\)|transparent/.test(style), "PDF (données fictives) : aucun dégradé vers le transparent");
+  }
 }
 
 console.log(`verif-bilan-fiche-detaillee : ${nb} contrôles OK (données fictives)`);

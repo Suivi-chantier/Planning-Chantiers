@@ -247,6 +247,7 @@ export function syntheseChantiersV3({ releves, chantiers, bornes, periode, alert
       eurParHeureDevis: repereDevis == null ? null : round2(repereDevis),
       margeAvancement: disponible ? v(fin, "marge_avancement") : null,
       margeTerminaison,
+      margeTerminaisonPct: pctSurV3(margeTerminaison, vendu),
       margeProbable,
       margeProbablePct: pctSurV3(margeProbable, vendu),
       margeDevis: margeDevis == null ? null : round2(margeDevis),
@@ -285,6 +286,11 @@ export function bandeauV3({ synthese, nbComptesRendusNonValides = 0 }) {
   const venduComparable = total("vendu");
   const margeProbableTotale = total("margeProbable");
   const margeDevisTotale = total("margeDevis");
+  // Marge à terminaison totale (06/11/2026) : sur EXACTEMENT les mêmes
+  // chantiers que la marge probable totale, pour que les deux totaux se
+  // comparent. Si l'un d'eux n'a pas de marge à terminaison, le total est
+  // inconnu (« — »), jamais une somme partielle.
+  const margeTerminaisonTotale = comparables.length && comparables.every(s => s.margeTerminaison != null) ? total("margeTerminaison") : null;
   // Repère du devis global : Σ vendu ÷ Σ heures prévues des chantiers retenus.
   const avecRepere = listeSure(synthese).filter(s => s.eurParHeureDevis > 0 && s.vendu > 0);
   const heuresPrevuesTot = avecRepere.reduce((a, s) => a + s.vendu / s.eurParHeureDevis, 0);
@@ -296,6 +302,8 @@ export function bandeauV3({ synthese, nbComptesRendusNonValides = 0 }) {
     margeProbableTotale, margeDevisTotale, venduComparable,
     margeProbableTotalePct: pctSurV3(margeProbableTotale, venduComparable),
     margeDevisTotalePct: pctSurV3(margeDevisTotale, venduComparable),
+    margeTerminaisonTotale,
+    margeTerminaisonTotalePct: pctSurV3(margeTerminaisonTotale, venduComparable),
     nbChantiersComparables: comparables.length,
     nbChantiersHorsComparaison: listeSure(synthese).filter(s => s.disponible).length - comparables.length,
     heuresValidees,

@@ -61,7 +61,7 @@ retiré là où il l'était déjà, gardé là où il était déjà montré.
 | Commandes, capture de commande, planning des commandes | montrés | liste filtrée par `App.jsx` |
 | Équipe (capacité des équipes) | montrés | liste filtrée par `App.jsx` |
 | Validation des journées, heures des salariés | montrés | liste filtrée par `App.jsx` |
-| Phasage, plans, visite de chantier | montrés | liste filtrée par `App.jsx` |
+| Phasage, plans | montrés | liste filtrée par `App.jsx` |
 | Notes des ouvriers, notes & todo (bureau) | montrés | liste filtrée par `App.jsx` |
 | Alertes | — | un relevé d'un chantier hors des listes ne donne pas d'alerte (`PageAlertes.jsx`) |
 | États financiers | montrés | `EtatsFinanciers.jsx` |

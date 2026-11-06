@@ -3162,7 +3162,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
   const [newChOp, setNewChOp]         = useState("");
 
   // ─── NOUVELLES CONFIGS (Bloc 1) ──────────────────────────────────────────
-  const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, visitesEnCours: 0, ouvriersActifs: 0, derniersRapports: [], dernieresVisites: [] });
+  const [stats, setStats]               = useState({ chantiersActifs: 0, projetsEnCours: 0, ouvriersActifs: 0, derniersRapports: [] });
   const [backuping, setBackuping]       = useState(false);
 
   // ─── PHASES DE TRAVAUX (Bloc 2) ──────────────────────────────────────────
@@ -3257,18 +3257,15 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
     if (adminTab !== "vue") return;
     const loadStats = async () => {
       try {
-        const [{ data: projets }, { data: visites }, { data: rapports }] = await Promise.all([
+        const [{ data: projets }, { data: rapports }] = await Promise.all([
           supabase.from("profero_projets").select("id, statut, client_nom, client_prenom, date_visite").order("created_at", { ascending: false }).limit(20),
-          supabase.from("visites_chantier").select("id, chantier_id, chantier_nom, date, statut, audit").order("date", { ascending: false }).limit(10),
           supabase.from("rapports").select("id, ouvrier, chantier_nom, date_rapport, submitted_at").order("submitted_at", { ascending: false }).limit(5),
         ]);
         setStats({
           chantiersActifs: chantiers.length,
           ouvriersActifs: ouvriers.length,
           projetsEnCours: (projets || []).filter(p => !["abandonne","signe"].includes(p.statut || "prospect")).length,
-          visitesEnCours: (visites || []).filter(v => (v.statut || "en_cours") === "en_cours").length,
           derniersRapports: rapports || [],
-          dernieresVisites: visites?.slice(0, 5) || [],
         });
       } catch (e) { console.warn("stats load:", e.message); }
     };
@@ -4054,7 +4051,7 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
             <div>
               <div style={{fontWeight:800,fontSize:FONT.md.size,marginBottom:4,color:T.text}}>Phases de travaux</div>
               <div style={{color:T.textSub,fontSize:FONT.xs.size+1,lineHeight:1.6,maxWidth:560}}>
-                Phases utilisées dans le Phasage, la Bibliothèque d'ouvrages, les Visites de chantier et la page Chantiers.
+                Phases utilisées dans le Phasage, la Bibliothèque d'ouvrages et la page Chantiers.
                 Les modifications s'appliquent aux nouvelles entrées et au prochain affichage.
               </div>
             </div>
@@ -4922,7 +4919,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               { label:"Chantiers actifs",  val:stats.chantiersActifs, icon:Building2,    color:acc.accent },
               { label:"Équipe",            val:stats.ouvriersActifs,  icon:HardHat,      color:"#5b9cf6" },
               { label:"Projets commerciaux",val:stats.projetsEnCours, icon:Briefcase,    color:"#a78bfa" },
-              { label:"Visites en cours",  val:stats.visitesEnCours,  icon:ClipboardCheck,color:"#22c55e" },
             ].map(s => (
               <div key={s.label} style={{
                 background:T.surface,border:`1px solid ${T.border}`,
@@ -4967,32 +4963,6 @@ function PageAdmin({ouvriers,setOuvriers,ouvrierEmails,setOuvrierEmails,tauxHora
               )}
             </div>
 
-            {/* Dernières visites */}
-            <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:RADIUS.lg,padding:14}}>
-              <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:FONT.xs.size,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:T.textMuted,marginBottom:10}}>
-                <Icon as={ClipboardCheck} size={11}/>
-                Dernières visites de chantier
-              </div>
-              {stats.dernieresVisites.length === 0 ? (
-                <div style={{color:T.textMuted,fontSize:FONT.sm.size,fontStyle:"italic"}}>Aucune visite récente.</div>
-              ) : (
-                stats.dernieresVisites.map(v => {
-                  const toutes = Object.values(v.audit || {}).flat();
-                  const nb_nok = toutes.filter(t => t.statut === "nok").length;
-                  const nb_res = toutes.filter(t => t.statut === "reserve").length;
-                  return (
-                    <div key={v.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${T.sectionDivider||T.border}`}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:FONT.sm.size,fontWeight:700,color:T.text}}>{v.chantier_nom}</div>
-                        <div style={{fontSize:FONT.xs.size,color:T.textMuted}}>{v.date} · {toutes.length} pts</div>
-                      </div>
-                      {nb_nok > 0 && <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#e15a5a",background:"rgba(239,68,68,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>{nb_nok} NOK</span>}
-                      {nb_res > 0 && <span style={{fontSize:FONT.xs.size,fontWeight:700,color:"#f59e0b",background:"rgba(245,158,11,0.15)",padding:"1px 7px",borderRadius:RADIUS.pill}}>{nb_res} rés</span>}
-                    </div>
-                  );
-                })
-              )}
-            </div>
           </div>
         </div>
       )}

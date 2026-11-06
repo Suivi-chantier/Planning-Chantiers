@@ -150,7 +150,7 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const detaillee = documentBilanV3(d, { detaillee: true });
   ok(detaillee.includes("rien fait"), "version détaillée : seulement les commentaires cochés (passés explicitement)");
   ok(direction.includes("Pastilles"), "légende des pastilles présente");
-  ok(documentBilanV3({ ...d, synthese: [{ ...synthese[0], disponible: false, pastille: { couleur: "gris" }, mentions: [] }] }).includes("colspan=\"7\" class=\"gris\">relevé pas encore disponible"),
+  ok(documentBilanV3({ ...d, synthese: [{ ...synthese[0], disponible: false, pastille: { couleur: "gris" }, mentions: [] }] }).includes("colspan=\"8\" class=\"gris\">relevé pas encore disponible"),
     "chantier sans relevé : « relevé pas encore disponible » dans le PDF");
   ok(!direction.includes("<script"), "aucun script dans le document");
   const xss = documentBilanV3({ ...d, synthese: [{ ...synthese[0], nom: "<img src=x onerror=1>" }] });
@@ -295,8 +295,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(A.rectificationsV3({ archives: reexport, releves: relApres, periode: P }).length === 0, "le dernier export de la période fait foi");
   // La période courante n'est jamais « rectifiée ».
   ok(A.rectificationsV3({ archives, releves: relApres, periode: W42 }).length === 0, "pas de rectification de la période en cours");
-  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], rectifications: r });
-  ok(/Rectifications/.test(html) && /−150/.test(html), "ligne « Rectifications » dans le PDF");
+  const html = documentBilanV3({ periode: P, bornes: BORNES, bandeau: {}, synthese: [], alertes: [], rectifications: r }, { detaillee: true });
+  ok(/Rectifications/.test(html) && /−150/.test(html), "ligne « Rectifications » dans le PDF détaillé");
   // Prévu / réalisé : 30 h prévues par le bilan W42 pour W43.
   const syn43 = [{ chantierId: "a", nom: "A", heuresPeriode: 26 }];
   const pr = A.prevuRealiseV3({ archives, periode: P, synthese: syn43 });
@@ -354,8 +354,8 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   ok(parId.b.glissementJours === null && parId.b.texteGlissement.includes("01/11/2026"), "passé au-delà de l'horizon : pas de nombre de jours inventé");
   ok(parId.c.glissementJours === null && /pas de fin au bilan/.test(parId.c.texteGlissement), "pas de fin au bilan précédent : dit comme tel");
   ok(parId.d.glissementJours === 0 && /inchangée/.test(parId.d.texteGlissement), "même date : inchangée (0 jour connu)");
-  const html = documentBilanV3({ periode: P43, bornes: {}, bandeau: {}, synthese: [], alertes: [], finsPrevues: avec });
-  ok(/Fin prévisionnelle/.test(html) && html.includes("+3 j"), "fin prévisionnelle et glissement dans le PDF");
+  const html = documentBilanV3({ periode: P43, bornes: {}, bandeau: {}, synthese: [], alertes: [], finsPrevues: avec }, { detaillee: true });
+  ok(/Fin prévisionnelle/.test(html) && html.includes("+3 j"), "fin prévisionnelle et glissement dans le PDF détaillé");
 }
 
 // ── PDF direction retravaillé (choix de Loris du 26/10/2026) ────────────────
@@ -577,11 +577,12 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const d = { periode: P44, bornes: BOR, bandeau, synthese: syn, alertes: [], genereLe: "06/11/2026" };
   const det = documentBilanV3(d, { detaillee: true });
   const dir = documentBilanV3(d, { detaillee: false });
-  // Tableau de synthèse détaillé : 8 colonnes dans l'ordre, ligne TOTAL en tête.
-  const tetes = ["Chantier", "Avancement", "Généré cette semaine", "Marge de la semaine", "Marge probable", "Fourchette", "Fiabilité", "Tendance 6 semaines"];
+  // Tableau de synthèse détaillé : 9 colonnes dans l'ordre (marge à terminaison
+  // juste avant la marge probable, 06/11/2026), ligne TOTAL en tête.
+  const tetes = ["Chantier", "Avancement", "Généré cette semaine", "Marge de la semaine", "Marge à terminaison", "Marge probable", "Fourchette", "Fiabilité", "Tendance 6 semaines"];
   const thead = det.slice(det.indexOf("<thead>"), det.indexOf("</thead>"));
   const enTetes = [...thead.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
-  eq(enTetes, tetes, "PDF détaillé (données fictives) : 8 colonnes de la synthèse, dans l'ordre");
+  eq(enTetes, tetes, "PDF détaillé (données fictives) : 9 colonnes de la synthèse, dans l'ordre");
   const corps = det.slice(det.indexOf("<tbody>"), det.indexOf("</tbody>"));
   const lignes = corps.split("<tr").slice(1);
   ok(/<td>TOTAL<\/td>/.test(lignes[0]) && lignes[0].includes(`1${N}000${N}€`), "PDF détaillé (données fictives) : ligne TOTAL en tête, production reprise du bandeau");
@@ -599,10 +600,11 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   eq([...theadM.matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]), ["Chantier", "Production", "Marge de la période", "Marge à l'avancement",
     "Marge à terminaison", "Marge probable", "Matériaux en avance", "Budget restant", "€ produits / h"], "PDF détaillé (données fictives) : colonnes du détail des marges");
   ok(det.indexOf("<h2>Détail des marges</h2>") < det.indexOf("<h2>Alertes</h2>"), "PDF détaillé (données fictives) : détail des marges juste après la synthèse, avant les alertes");
-  // Version direction inchangée : ancien tableau « Devis → probable », aucune nouvelle colonne.
+  // Version direction : tableau « Devis → probable », sans les colonnes de la version détaillée.
   ok(dir.includes("Vendu HT") && dir.includes("Écart / devis") && dir.includes("Sur la période"), "PDF direction (données fictives) : tableau « Devis → probable » inchangé");
   ok(!dir.includes("Fourchette") && !dir.includes("Fiabilité") && !dir.includes("Tendance 6 semaines") && !dir.includes("TOTAL")
-    && !dir.includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
+    // « Généré » : seulement dans le héros (bloc jaune, date de génération), jamais dans les tableaux.
+    && !dir.slice(dir.indexOf("<table")).includes("Généré") && !dir.includes("Détail des marges") && !dir.includes("Budget restant"), "PDF direction (données fictives) : aucune nouvelle colonne");
 }
 
 // ── Tâche 5 du projet « Bilan détaillé » (06/11/2026) ──────────────────────
@@ -683,7 +685,81 @@ const BORNES = B.bornesComparaisonV3(P, ["2026-10-15", "2026-10-22"]);
   const avantAlertes = h => h.slice(Math.max(0, h.indexOf("<h2>Alertes</h2>") - 60), h.indexOf("<h2>Alertes</h2>"));
   ok(!avantAlertes(tousComparables.det).includes(`class="saut"`), "PDF détaillé (données fictives) : pas de saut de page forcé avant les alertes");
   ok(avantAlertes(tousComparables.dir).includes(`class="saut"`), "PDF direction (données fictives) : saut de page avant les alertes conservé");
-  ok(tousComparables.det.includes(`<table class="synthese-detaillee">`) && tousComparables.det.includes(`<col style="width:23%">`), "PDF détaillé (données fictives) : largeurs de colonnes fixées");
+  ok(tousComparables.det.includes(`<table class="synthese-detaillee">`) && tousComparables.det.includes(`<col style="width:21%">`)
+    && (tousComparables.det.match(/<col style="width:(\d+)%">/g) || []).map(c => Number(c.match(/\d+/)[0])).reduce((a, b) => a + b, 0) === 100,
+    "PDF détaillé (données fictives) : 9 largeurs de colonnes fixées, 100 % au total");
+}
+
+// ── Marge à terminaison dans les deux PDF, version direction allégée ────────
+// Demande de Loris du 06/11/2026. Exemple issu des tests, données fictives.
+{
+  const N = "\u202f";
+  const P44 = B.periodeSemaineV3("2026-W44");
+  const BOR = B.bornesComparaisonV3(P44, ["2026-10-22", "2026-10-29"]);
+  const rel = (id, date, o = {}) => ({ chantier_id: id, chantier_nom: id.toUpperCase(), date_releve: date, avancement: 50,
+    vendu_ht: 10000, heures_vendues: 100, heures_reelles: 40, production_cumulee: 5000, marge_avancement: 1000,
+    marge_terminaison: 2000, marge_probable: 1500, budget_restant: 6000, mat_prev: 1000, mo_prev: 3000, chantier_repris: false, ...o });
+  const docs = (releves, chantiers, extra = {}) => {
+    const syn = B.syntheseChantiersV3({ releves: B.indexerRelevesV3(releves), chantiers, bornes: BOR, periode: P44 });
+    const d = { periode: P44, bornes: BOR, bandeau: B.bandeauV3({ synthese: syn }), synthese: syn, alertes: [], ...extra };
+    return { syn, bandeau: d.bandeau, det: documentBilanV3(d, { detaillee: true }), dir: documentBilanV3(d, { detaillee: false }) };
+  };
+  const entetes = (html, debut = 0) => {
+    const i = html.indexOf("<thead>", debut);
+    return [...html.slice(i, html.indexOf("</thead>", i)).matchAll(/<th[^>]*>([^<]*)<\/th>/g)].map(m => m[1]);
+  };
+  const avant = (liste, a, b) => liste.indexOf(a) >= 0 && liste.indexOf(a) + 1 === liste.indexOf(b);
+
+  // A : 2 000 à terminaison ; B : 2 500 ; C : marge devis inconnue (hors total) avec 9 000 à terminaison.
+  const jeu = docs([rel("a", "2026-10-29"), rel("b", "2026-10-29", { marge_terminaison: 2500, marge_probable: 1800 }),
+    rel("c", "2026-10-29", { mo_prev: null, marge_terminaison: 9000 })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }, { id: "c", nom: "C" }]);
+  ok(jeu.syn[0].margeTerminaison === 2000 && jeu.syn[0].margeTerminaisonPct === 20, "synthèse (données fictives) : marge à terminaison lue dans le relevé, en % du vendu");
+  ok(avant(entetes(jeu.dir), "Marge à terminaison", "Marge probable"), "PDF direction (données fictives) : « Marge à terminaison » juste avant « Marge probable »");
+  ok(avant(entetes(jeu.det), "Marge à terminaison", "Marge probable"), "PDF détaillé (données fictives) : « Marge à terminaison » juste avant « Marge probable »");
+  // Total à terminaison : exactement les chantiers de la marge probable totale (C exclu des deux).
+  ok(jeu.bandeau.nbChantiersComparables === 2 && jeu.bandeau.margeProbableTotale === 3300 && jeu.bandeau.margeTerminaisonTotale === 4500,
+    "bandeau (données fictives) : total à terminaison sur les 2 mêmes chantiers que la marge probable totale (C hors des deux)");
+  ok(jeu.bandeau.margeTerminaisonTotalePct === 22.5 && jeu.bandeau.margeProbableTotalePct === 16.5, "bandeau (données fictives) : pourcentages sur le même vendu");
+  ok(jeu.dir.includes(`à terminaison +4${N}500${N}€ (23${N}%)`) && jeu.det.includes(`à terminaison +4${N}500${N}€ (23${N}%)`), "bandeau (données fictives) : « à terminaison +4 500 € » dans les deux versions");
+  const corpsDet = jeu.det.slice(jeu.det.indexOf("<tbody>"), jeu.det.indexOf("</tbody>"));
+  const total = corpsDet.split("<tr").slice(1)[0];
+  ok(/<td>TOTAL<\/td>/.test(total) && total.includes(`+4${N}500${N}€`) && total.indexOf(`+4${N}500${N}€`) < total.indexOf(`+3${N}300${N}€`),
+    "PDF détaillé (données fictives) : TOTAL à terminaison repris du bandeau, avant la marge probable");
+  ok(jeu.dir.includes("Marge à terminaison : où le chantier finit si le reste se passe comme le devis."), "PDF direction (données fictives) : phrase d'explication de la marge à terminaison");
+
+  // Marge à terminaison inconnue : « — », jamais 0 ; total inconnu, jamais partiel.
+  const inc = docs([rel("a", "2026-10-29"), rel("b", "2026-10-29", { marge_terminaison: null })], [{ id: "a", nom: "A" }, { id: "b", nom: "B" }]);
+  ok(inc.syn[1].margeTerminaison === null && inc.syn[1].margeTerminaisonPct === null, "synthèse (données fictives) : marge à terminaison inconnue");
+  ok(inc.bandeau.margeProbableTotale === 3000 && inc.bandeau.margeTerminaisonTotale === null, "bandeau (données fictives) : un chantier sans marge à terminaison → total inconnu, pas de somme partielle");
+  ok(inc.dir.includes("à terminaison — (—)") && inc.det.includes("à terminaison — (—)"), "bandeau (données fictives) : « — » pour le total à terminaison inconnu");
+  for (const [nom, html] of [["direction", inc.dir], ["détaillé", inc.det]]) {
+    const ligneB = html.slice(html.indexOf("</thead>")).split("<tr").find(l => l.includes(">B<"));
+    const cellules = [...ligneB.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1]);
+    const iTerm = entetes(html).indexOf("Marge à terminaison");
+    ok(cellules[iTerm].startsWith("—") && !/>0\s?€|^0/.test(cellules[iTerm]), `PDF ${nom} (données fictives) : « — » pour une marge à terminaison inconnue, jamais 0`);
+  }
+  const aucun = docs([rel("a", "2026-10-29", { mo_prev: null })], [{ id: "a", nom: "A" }]);
+  ok(aucun.bandeau.margeProbableTotale === null && aucun.bandeau.margeTerminaisonTotale === null, "bandeau (données fictives) : aucun chantier comparable → les deux totaux inconnus");
+
+  // Version direction allégée : ni semaine qui vient, ni prévu / réalisé, ni fin prévisionnelle, ni rectifications.
+  const sections = {
+    decisions: [{ titre: "Décision", detail: "à prendre" }],
+    tendances: { lignes: [] },
+    semaineQuiVient: { lignes: [{ titre: "A", detail: "2 jours" }] },
+    prevuRealise: { disponible: true, reference: "Semaine 43", lignes: [{ nom: "A", heuresPrevues: 30, heuresRealisees: 26, ecart: -4 }] },
+    finsPrevues: { disponible: true, lignes: [{ nom: "A", texteFin: "fin le 10/12/2026", texteGlissement: "inchangée" }] },
+    rectifications: [{ nom: "A", periode: "Semaine 42", montant: -150, cause: "heures validées après l'export" }],
+  };
+  const all = docs([rel("a", "2026-10-29")], [{ id: "a", nom: "A" }], sections);
+  const titres = ["<h2>La semaine qui vient</h2>", "<h2>Prévu / réalisé</h2>", "<h2>Fin prévisionnelle</h2>", "<h2>Rectifications</h2>"];
+  ok(titres.every(t => !all.dir.includes(t)), "PDF direction (données fictives) : sans semaine qui vient, prévu / réalisé, fin prévisionnelle ni rectifications");
+  ok(titres.every(t => all.det.includes(t)), "PDF détaillé (données fictives) : garde les 4 sections");
+  ok(all.dir.includes("<h2>Décisions attendues</h2>") && all.dir.includes("<h2>Tendances par lot (tous chantiers)</h2>") && all.dir.includes("<h2>Alertes</h2>"),
+    "PDF direction (données fictives) : s'arrête après les alertes, décisions et tendances");
+  ok(all.dir.indexOf("<h2>Tendances par lot (tous chantiers)</h2>") > all.dir.indexOf("<h2>Décisions attendues</h2>"), "PDF direction (données fictives) : tendances en dernier");
+  // Les données archivées ne changent pas : la ligne d'archive garde les heures prévues de la semaine suivante.
+  const arch = A.ligneArchiveV3({ periode: P44, bornes: BOR, synthese: all.syn, version: "direction", prevuSemaineSuivante: { a: 32 } });
+  ok(arch.chiffres.chantiers[0].heuresPrevuesSemaineSuivante === 32, "archive direction (données fictives) : heures prévues de la semaine suivante toujours archivées");
 }
 
 console.log(`verif-bilan-periode : ${n} contrôles OK (données fictives)`);

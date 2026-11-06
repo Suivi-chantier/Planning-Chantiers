@@ -70,9 +70,6 @@ import PageValidation         from "./Renovation/Validation";
 import PagePlans              from "./Renovation/Plans";
 import PageAdmin              from "./Renovation/Admin";
 import PageRapportMobile      from "./Renovation/RapportMobile";
-// VisiteChantier (2 600 lignes) : module gelé en consultation depuis les
-// contrôles de fin de groupe (Point 2 b) → chargé à la demande comme
-// PhasageV2/Bibliotheque, plus dans le bundle principal.
 // Chargement paresseux qui survit à un chunk disparu.
 //
 // L'application est une PWA à service worker « prompt » (skipWaiting: false) :
@@ -118,7 +115,6 @@ function lazyAvecReprise(importer, cle) {
   );
 }
 
-const PageVisiteChantier = lazy(() => import("./Renovation/VisiteChantier"));
 import PageInfoClient         from "./Renovation/PageInfoClient";
 import PageChantiers          from "./Renovation/PageChantiers";
 
@@ -962,7 +958,6 @@ function MainApp({ user, profil, onLogout, onRetourPortail }) {
           {p==="operations"         && (canAccess(role,"operations")         ? <PageOperations chantiers={chantiers} T={T} branch={branch} onOpenChantier={ouvrirFicheChantier} onOuvrirAdmin={()=>setPage("admin")} peutPlanifier={canAccess(role,"planning")}/> : <AccesRefuse T={T} page="operations"/>)}
           {p==="bibliotheque"       && (canAccess(role,"bibliotheque")       ? <PageBibliotheque T={T} branch={branch} initialOuvrageId={actif?biblioOuvrageToOpen:null} onOuvrageConsumed={()=>setBiblioOuvrageToOpen(null)} onRetourChiffrage={allerBiblio ? revenirAuChiffrage : null}/> : <AccesRefuse T={T} page="bibliotheque"/>)}
           {p==="biblio-materiaux"   && (canAccess(role,"biblio-materiaux")   ? <PageBibliothequeMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="biblio-materiaux"/>)}
-          {p==="visite"             && (canAccess(role,"visite")             ? <PageVisiteChantier chantiers={chantiersExploitation} ouvriers={ouvriers} T={T} branch={branch} onOuvrirControles={() => setPage("phasage-v2")}/> : <AccesRefuse T={T} page="visite"/>)}
           {p==="info-client"        && (canAccess(role,"info-client")        ? <PageInfoClient T={T} branch={branch} chantiers={chantiers} onModifierMateriaux={canAccess(role,"bibliotheque") ? ouvrirOuvrageBiblio : null} retourBiblio={actif?retourChiffrage:null} onRetourBiblioConsomme={()=>setRetourChiffrage(null)}/> : <AccesRefuse T={T} page="info-client"/>)}
           {p==="etats-financiers"   && (canAccess(role,"etats-financiers")   ? <PageEtatsFinanciers T={T} branch={branch}/> : <AccesRefuse T={T} page="etats-financiers"/>)}
           {p==="suggestions-mat"    && (canAccess(role,"suggestions-mat")    ? <PageSuggestionsMateriaux T={T} branch={branch}/> : <AccesRefuse T={T} page="suggestions-mat"/>)}
