@@ -22,7 +22,10 @@ import { chargerClients, chargerCollaborateurs, libelleClient } from "./clientsD
 import { journaliserStatut, modifierOperationCommercial } from "./chantiersDonnees.js";
 import {
   BadgeStatut, FicheClientModal, ChoixClient, ChoixChargeAffaires, MarquerPerduModal, AnnulerPerteModal, ResumePerte,
+  ListeManquants,
 } from "./ComposantsCommerciaux.jsx";
+import { ChoixClientProgbatModal } from "./ClientsProgbat.jsx";
+import { controlerFiche } from "./reglesSaisieProgbat.js";
 
 export default function OperationCommercial({ T, op, chantiersOp = [], chantiers = [], setChantiers, saveConfig, profil, onOperationModifiee }) {
   const [clients, setClients] = useState([]);
@@ -30,6 +33,8 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
   const [collab, setCollab] = useState({ collaborateurs: [], complete: true });
   const [ficheClient, setFicheClient] = useState(null);   // { cible: "operation" | chantierId, client? }
   const [perte, setPerte] = useState(null);               // { mode: "perdu" | "annuler", chantier }
+  const [choixProgbat, setChoixProgbat] = useState(null); // { cible: "operation" | chantierId } — lot 4
+  const [infoProgbat, setInfoProgbat] = useState(null);   // message après choix d'un client ProGBat
   const peutModifier = !!(setChantiers && saveConfig);
   const border = T.border, text = T.text, textSub = T.textSub, textMuted = T.textMuted;
 
@@ -70,6 +75,18 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
     else if (cible) await majChantier(cible, { client_id: client.id });
   };
 
+  // Lot 4 (demande de Loris du 06/11) : client ProGBat existant → fiche locale.
+  const clientProgbatChoisi = async (client, rep) => {
+    setClients((l) => [...l.filter((c) => c.id !== client.id), client]);
+    const cible = choixProgbat?.cible;
+    setChoixProgbat(null);
+    setInfoProgbat({ texte: rep?.message || "Client ProGBat repris.", manquants: rep?.manquants || [] });
+    if (cible === "operation") await majOperation({ client_id: client.id });
+    else if (cible) await majChantier(cible, { client_id: client.id });
+  };
+  // Fiche reprise de ProGBat incomplète au regard des règles Profero : on le dit.
+  const manquantsFiche = (cl) => (cl ? controlerFiche("client", cl) : []);
+
   const lbl = { fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase", color: textMuted, marginBottom: 4 };
   const caOp = op.charge_affaires_id ? { id: op.charge_affaires_id, nom: op.charge_affaires_nom } : null;
 
@@ -89,7 +106,11 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
           <div style={lbl}>Client de l'opération (par défaut pour ses chantiers)</div>
           <ChoixClient T={T} clients={clients} valeur={op.client_id || ""} disabled={!peutModifier}
             onChange={(id) => majOperation({ client_id: id })}
-            onNouveau={peutModifier ? () => setFicheClient({ cible: "operation" }) : null} />
+            onNouveau={peutModifier ? () => setFicheClient({ cible: "operation" }) : null}
+            onProgbat={peutModifier ? () => setChoixProgbat({ cible: "operation" }) : null} />
+          {clientOp && manquantsFiche(clientOp).length > 0 && (
+            <div style={{ marginTop: 6 }}><ListeManquants T={T} manquants={manquantsFiche(clientOp)} titre="Fiche client incomplète (règles Profero, à compléter avant le devis) :" /></div>
+          )}
           {clientOp && peutModifier && (
             <button onClick={() => setFicheClient({ cible: "operation", client: clientOp })} style={{ marginTop: 6, background: "transparent", border: "none", color: textSub, cursor: "pointer", fontSize: FONT.xs.size + 1, display: "inline-flex", alignItems: "center", gap: 4, padding: 0, fontFamily: "inherit" }}>
               <Icon as={Pencil} size={11} /> Modifier la fiche de {libelleClient(clientOp)}
@@ -132,7 +153,11 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
                       <ChoixClient T={T} clients={clients} valeur={c.client_id || ""} disabled={!peutModifier}
                         heritage={clientOp ? libelleClient(clientOp) : (op.client_id ? "client introuvable" : "aucun")}
                         onChange={(id) => majChantier(c.id, { client_id: id })}
-                        onNouveau={peutModifier ? () => setFicheClient({ cible: c.id }) : null} />
+                        onNouveau={peutModifier ? () => setFicheClient({ cible: c.id }) : null}
+                        onProgbat={peutModifier ? () => setChoixProgbat({ cible: c.id }) : null} />
+                      {c.client_id && clientParId.get(c.client_id) && manquantsFiche(clientParId.get(c.client_id)).length > 0 && (
+                        <div style={{ fontSize: FONT.xs.size, color: "#f5a623", marginTop: 3 }}>Fiche incomplète : {manquantsFiche(clientParId.get(c.client_id)).map((m) => m.libelle).join(", ")}</div>
+                      )}
                       {!ce.valeur && <div style={{ fontSize: FONT.xs.size, color: "#f5a623", marginTop: 3 }}>Aucun client</div>}
                     </td>
                     <td style={{ padding: "8px" }}>
@@ -163,6 +188,15 @@ export default function OperationCommercial({ T, op, chantiersOp = [], chantiers
         </div>
       )}
 
+      {infoProgbat && (
+        <div style={{ marginTop: 10, fontSize: FONT.xs.size + 1, color: infoProgbat.manquants.length ? "#f5a623" : "#22c55e", fontWeight: 700 }}>
+          {infoProgbat.texte}
+          <button onClick={() => setInfoProgbat(null)} style={{ marginLeft: 8, background: "transparent", border: "none", color: textMuted, cursor: "pointer", fontFamily: "inherit" }}>×</button>
+        </div>
+      )}
+      {choixProgbat && (
+        <ChoixClientProgbatModal T={T} onClose={() => setChoixProgbat(null)} onChoisi={clientProgbatChoisi} />
+      )}
       {ficheClient && (
         <FicheClientModal T={T} client={ficheClient.client || null} onClose={() => setFicheClient(null)} onEnregistre={clientEnregistre} />
       )}

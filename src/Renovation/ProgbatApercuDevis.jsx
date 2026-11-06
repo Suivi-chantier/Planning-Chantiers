@@ -19,6 +19,8 @@ import { Icon } from "../ui";
 import { X, AlertTriangle, Check, Layers, Home, UserCircle, MapPin, FileText, Receipt, RefreshCw, Code2, Copy, Send, ShieldAlert, Lock } from "lucide-react";
 import { ListeManquants } from "./ComposantsCommerciaux.jsx";
 import { construirePayloadDevisProGBat, hacherDevis, formaterPct, ENDPOINT_CREATION_DEVIS, ENDPOINT_TAUX_TVA } from "./progbatQuotePayload.mjs";
+import ProgbatClientChantier from "./ProgbatClientChantier.jsx";
+import { decisionDevis } from "./progbatAutomatisation.js";
 
 const fmtEur = (n) => n == null ? "—" : `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 const fmtQte = (q) => q == null ? "—" : Number(q).toLocaleString("fr-FR", { maximumFractionDigits: 4 });
@@ -57,6 +59,23 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   const [resultat, setResultat] = useState(null);     // réponse serveur `create`
   const [verif, setVerif] = useState(null);           // réponse serveur `verifier_existant`
   const [verifEnCours, setVerifEnCours] = useState(false);
+  // Lot 4 : client et chantier ProGBat avant le devis (thirdId, businessId, yardId).
+  const [etapesPg, setEtapesPg] = useState(null);
+  const [contourne, setContourne] = useState(false);
+  const decisionPg = decisionDevis(etapesPg);
+  // Le devis porte les identifiants ProGBat enregistrés sur le chiffrage
+  // (reportés par le serveur depuis la fiche client et le chantier) : la
+  // reconstitution locale doit les connaître pour que son empreinte soit celle du serveur.
+  const projetPg = useMemo(() => {
+    if (!etapesPg || projet?.progbat_devis_id || etapesPg.devis?.fait) return projet;
+    const s = (v) => String(v);
+    return {
+      ...projet,
+      progbat_client_id: etapesPg.client?.thirdId != null ? s(etapesPg.client.thirdId) : (projet?.progbat_client_id ?? null),
+      progbat_business_id: etapesPg.chantier?.businessId != null ? s(etapesPg.chantier.businessId) : (projet?.progbat_business_id ?? null),
+      progbat_yard_id: etapesPg.chantier?.yardId != null ? s(etapesPg.chantier.yardId) : (projet?.progbat_yard_id ?? null),
+    };
+  }, [projet, etapesPg]);
 
   const preparer = async () => {
     setChargement(true); setErreurServeur(null);
@@ -88,8 +107,8 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
 
   // Reconstitution locale (même générateur, mêmes taux) : JSON technique + contrôle de parité
   const local = useMemo(
-    () => prep ? construirePayloadDevisProGBat({ projet, lignes, lotsOrdre, taxes: prep.taux, liaisons: prep.liaisons ?? null, multiOuvrages, structuresMulti: prep.structures_multi ?? null }) : null,
-    [prep, projet, lignes, lotsOrdre, multiOuvrages],
+    () => prep ? construirePayloadDevisProGBat({ projet: projetPg, lignes, lotsOrdre, taxes: prep.taux, liaisons: prep.liaisons ?? null, multiOuvrages, structuresMulti: prep.structures_multi ?? null }) : null,
+    [prep, projetPg, lignes, lotsOrdre, multiOuvrages],
   );
   const jsonPayload = useMemo(() => local ? JSON.stringify(local.payload, null, 2) : "", [local]);
   useEffect(() => {
@@ -106,7 +125,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   };
 
   const creer = async () => {
-    if (creation || !prep?.peut_creer || !pariteOk || manquants.length > 0) return;     // garde contre le double déclenchement
+    if (creation || !prep?.peut_creer || !pariteOk || manquants.length > 0 || !(decisionPg.autorise || (decisionPg.contournement && contourne))) return;     // garde contre le double déclenchement
     setCreation(true);
     try {
       const rep = await appelerProgbatQuote({ action: "create", projectId: projetId, logementReference: prep.logement_reference || projet?.logement_reference || undefined, expectedPayloadHash: prep.payloadHash, confirmed: true });
@@ -156,7 +175,7 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
   const nbLies = compteurs?.lies ?? 0;
   const nbLignes = compteurs?.lignes ?? 0;
   const tousLies = nbLignes > 0 && nbLies === nbLignes;
-  const peutCreer = !!prep?.peut_creer && pariteOk && tousLies && !resultat?.ok && !incertain && !devisExistant && manquants.length === 0;
+  const peutCreer = !!prep?.peut_creer && pariteOk && tousLies && !resultat?.ok && !incertain && !devisExistant && manquants.length === 0 && (decisionPg.autorise || (decisionPg.contournement && contourne));
 
   return (
     <div onClick={(e) => e.target === e.currentTarget && !creation && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, backdropFilter: "blur(4px)" }}>
@@ -222,6 +241,21 @@ export default function ProgbatApercuDevis({ T, acc, projetId, projet, lignes, l
           {!resultat && exportPrec?.statut === "failed" && !devisExistant && bandeau("#f5a623", AlertTriangle, <>Dernière tentative échouée ({fmtDate(exportPrec.finished_at || exportPrec.started_at)}{exportPrec.http_status ? `, HTTP ${exportPrec.http_status}` : ""}){exportPrec.message ? ` : ${exportPrec.message}` : ""}. Une nouvelle tentative est possible.</>)}
 
           {/* Bandeau périmètre */}
+          {/* Lot 4 : client puis chantier ProGBat, avant le devis */}
+          {!devisExistant && (
+            <ProgbatClientChantier T={T} acc={acc} projetId={projetId} onEtat={setEtapesPg} onChange={() => { preparer(); if (typeof onDevisCree === "function") onDevisCree({ ids_progbat: true }); }} />
+          )}
+          {!devisExistant && etapesPg && !decisionPg.autorise && (
+            <div style={{ marginBottom: 12, fontSize: FONT.xs.size + 1, fontWeight: 700, color: "#f5a623" }}>
+              {decisionPg.raison}
+              {decisionPg.contournement && (
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 6, fontWeight: 600, color: T.textSub, cursor: "pointer" }}>
+                  <input type="checkbox" checked={contourne} onChange={e => setContourne(e.target.checked)} />
+                  <span>ProGBat a refusé la création (droit manquant : {decisionPg.droits_manquants.join(", ")}). Créer quand même le devis comme avant le lot 4, sans client ni chantier ProGBat reliés (« Chantier : Aucun » dans ProGBat).</span>
+                </label>
+              )}
+            </div>
+          )}
           {!devisExistant && !incertain && bandeau("#4db8ff", AlertTriangle, "Aperçu uniquement — rien n'est envoyé à ProGBat. Seule la confirmation explicite du bouton « Créer le brouillon dans ProGBat » déclenche une création.")}
 
           {erreurServeur && bandeau("#e15a5a", X, <>{erreurServeur}</>)}

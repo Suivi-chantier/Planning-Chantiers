@@ -441,7 +441,8 @@ await test("11. branchements : dispatcher, créneau, écran, pas d'écriture dan
   const page = sansCommentaires(lire("src/Renovation/PageChantiers.jsx"));
   assert.ok(!/CV_META_ETAPES|\[\s*["']cycle_vie_etapes["']\s*\]\s*:/.test(page), "la fiche n'écrit plus meta.cycle_vie_etapes");
   assert.match(page, /ecrireEtapeCycleVie\(/);
-  assert.match(page, /création automatique à venir \(lot 4\)/);
+  // Lot 4 : le texte d'attente est remplacé par le bouton de la facture d'acompte.
+  assert.match(page, /<AcompteProgbat/);
   assert.match(lire("src/Renovation/PageOperations.jsx"), /<SyntheseCycleVieOperation/);
   assert.match(lire("src/Renovation/Admin.jsx"), /<ReglagesRelancesAdmin/);
   for (const f of ["api/_cron/cron-relances-cycle-vie.js", "src/Renovation/cycleVieDonnees.js", "src/Renovation/relancesCycleVie.mjs"]) {
