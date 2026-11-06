@@ -25,6 +25,14 @@ export const JOURNAL_MAJ = [
   {
     date: "2026-11-06",
     type: "amelioration",
+    titre: "Bilan : les PDF prennent le design des documents Profero",
+    pages: [{ id: "bilan-semaine", label: "Bilan" }],
+    quoi: "Les deux PDF du Bilan (direction et détaillé) ont maintenant la même présentation que les autres documents Profero, comme le compte rendu client : un en-tête bleu nuit avec le logo, « Bilan » ou « Bilan détaillé » en jaune, la période en grand (« Semaine 44 », « Octobre 2026 »), les dates comparées, le nombre de chantiers et la date de génération, et à droite, dans un encadré jaune, ce qui a été généré sur la période. Les chiffres clés (production, marge de la période, marge probable, heures) sont présentés en cartes juste dessous, les titres en majuscules soulignés de jaune, les tableaux avec un en-tête bleu nuit et la ligne TOTAL sur fond jaune pâle. Chaque fiche chantier commence par une carte (nom, du devis au probable, présences) et passe entière à la page suivante plutôt que d'être coupée quand elle tient sur une page. En bas : « Profero — Rénovation & réhabilitation · Document interne ». Aucun chiffre, aucune colonne et aucun texte ne change : seule la présentation est nouvelle. Les pastilles de couleur des chantiers restent les mêmes.",
+    comment: "Rien à faire : exportez le Bilan comme d'habitude. La version détaillée peut compter une ou deux pages de plus, une fiche chantier n'étant plus coupée en deux quand elle tient sur une page.",
+  },
+  {
+    date: "2026-11-06",
+    type: "amelioration",
     titre: "La page « Visites chantier » est retirée : les contrôles se font dans le cycle de vie",
     pages: [{ id: "chantiers", label: "Chantiers" }],
     quoi: "Les contrôles de chantier se font désormais uniquement depuis le cycle de vie de la fiche chantier. L'ancienne page « Visites chantier », qui n'était plus utilisée que pour consulter d'anciennes visites, disparaît du menu pour tout le monde, ainsi que son export Word. Dans Réglages, la vue d'ensemble n'affiche plus le compteur « Visites en cours » ni la liste des dernières visites.",

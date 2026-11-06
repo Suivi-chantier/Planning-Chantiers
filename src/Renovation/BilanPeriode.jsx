@@ -11,7 +11,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import { lireToutParTranches } from "./lectureParTranches";
-import { getCurrentWeek, getWeekId } from "../constants";
+import { getCurrentWeek, getWeekId, LOGO_RENO_H } from "../constants";
 import { useReglagesMarges } from "./reglagesMarges";
 import { alertesMargesV2 } from "./alertesMargesV2.js";
 import { COLONNES_RELEVES_ALERTES_V2 } from "./pointsAttentionDonneesV1.js";
@@ -361,6 +361,12 @@ async function telechargerPdf(html, nomFichier) {
   conteneur.innerHTML = html;
   document.body.appendChild(conteneur);
   try {
+    // html2canvas ne rend que les polices déjà chargées : Barlow (texte) et
+    // Barlow Condensed (titres, chiffres), liées dans index.html, sont
+    // attendues avant la capture ; en cas d'échec, repli Arial.
+    try {
+      await Promise.all(["400 11px Barlow", "600 11px Barlow", "700 11px Barlow", "800 20px 'Barlow Condensed'"].map(f => document.fonts.load(f)));
+    } catch { /* repli Arial */ }
     const html2pdf = (await import("html2pdf.js")).default;
     const opts = {
       margin: [12, 10, 14, 10], filename: nomFichier, image: { type: "jpeg", quality: 0.95 },
@@ -526,6 +532,8 @@ export default function PageBilanPeriode({ chantiers = [], T, branch = "renovati
     prevuRealise: calcul.prevuRealise,
     finsPrevues: finsPrevues || undefined,
     genereLe: new Date().toLocaleDateString("fr-FR"),
+    // Logo du héros (charte des documents Profero) : URL absolue, comme les autres documents.
+    logoUrl: `${window.location.origin}${LOGO_RENO_H}`,
     ...(detaillee && preparation ? {
       fiches: calcul.synthese.map(s => {
         const idx = indexerRelevesV3(donnees.releves);
