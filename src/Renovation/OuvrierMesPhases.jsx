@@ -8,7 +8,7 @@
 // validation et avancement.
 //
 // Préparer le chantier (06/11/2026) : quand le conducteur a défini les pièces,
-// une vue « Par pièce » range les mêmes tâches par pièce (ordre choisi par le
+// un bouton « Par pièce » (la vue par phase reste celle d'ouverture) range les mêmes tâches par pièce (ordre choisi par le
 // conducteur), avec les consignes et photos de la pièce en haut ; chaque tâche
 // affiche ce que le conducteur a personnalisé (nom, pièce, mur, m², nom du
 // devis d'origine). Mêmes tâches, mêmes heures : rien n'est recalculé.
@@ -363,8 +363,8 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
       setPayload(data);
       const r = construireMesPhases(data);
       setVue(r.nbMiennes > 0 ? "miennes" : "tout");
-      // Pièces définies par le conducteur → on ouvre directement par pièce.
-      setRangement(r.pieces.length > 0 ? "piece" : "phase");
+      // Toujours par phase à l'ouverture ; « Par pièce » sur demande.
+      setRangement("phase");
       setPieceId(null);
       setOuvertes(new Set(r.phaseEnCoursId ? [r.phaseEnCoursId] : []));
     });
@@ -452,7 +452,7 @@ export default function OuvrierMesPhases({ prenom, T, accent = "#FFC200", hero }
         {/* Bascule Par pièce / Par phase (seulement si le conducteur a défini les pièces) */}
         {aDesPieces && (
           <div style={{ display: "flex", gap: 4, padding: 4, borderRadius: 14, background: "#e4e8f2" }}>
-            {[["piece", "Par pièce"], ["phase", "Par phase"]].map(([id, label]) => (
+            {[["phase", "Par phase"], ["piece", "Par pièce"]].map(([id, label]) => (
               <button key={id} onClick={() => setRangement(id)} aria-pressed={rangement === id} style={{
                 flex: 1, minHeight: 44, borderRadius: 11, border: "none", cursor: "pointer", fontFamily: "inherit",
                 fontSize: 15, fontWeight: 800,
