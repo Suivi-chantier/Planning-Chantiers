@@ -106,8 +106,8 @@ Règle par défaut de `CLAUDE.md`.
 | N° | Tâche | Statut | Validation | Preuve de réussite | Demande de fusion |
 |----|-------|--------|------------|--------------------|-------------------|
 | 1 | Calculs sans changement d'affichage : `fiabiliteMargeProbableV3`, tendance 6 semaines, fourchette (fonctions pures dans `bilanPeriodeV3.mjs`), seuils de fiabilité dans `normaliserSeuilsMarges` + `SeuilsMargesAdmin`, tests dans `scripts/verif-bilan-periode.mjs` (ou nouveau `verif-*` branché) | en ligne | Auto (contrôles verts) | Les 4 cas de fiabilité demandés + cas de tendance et de fourchette verts sur GitHub ; aucune formule de `chantierFinance.mjs` modifiée | [#206](https://github.com/Suivi-chantier/Planning-Chantiers/pull/206) (fusionnée) |
-| 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | en cours | Auto | Contrôles verts ; version direction inchangée | — |
-| 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | à faire | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | — |
+| 2 | Haut du PDF détaillé : nouveau tableau de synthèse (ligne TOTAL, fourchette, fiabilité, tendance) + détail des marges complété (budget restant, €/h avec repère devis, une phrase par marge) ; chargement des relevés sur 6 semaines dans `BilanPeriode.jsx` + entrée `journalMaj.js` | en ligne | Auto | Contrôles verts ; version direction inchangée | [#208](https://github.com/Suivi-chantier/Planning-Chantiers/pull/208) (fusionnée) |
+| 3 | Fiches et annexe : cascade seulement si baisse > seuil ou pastille rouge, sinon « Marge probable stable (±X €) » ; méthode retirée, case « Joindre la méthode de calcul » décochée par défaut + entrée `journalMaj.js` | en cours | Auto | Contrôles verts ; méthode absente par défaut, présente si cochée | — |
 | 4 | PDF d'exemple : ancien et nouveau PDF détaillé de la dernière semaine réelle, construits depuis la base | à faire | Livrable à Loris | Deux PDF sur les vrais chantiers, chiffres de marge identiques entre ancien et nouveau | — |
 
 ## Journal des décisions
@@ -142,6 +142,8 @@ Règle par défaut de `CLAUDE.md`.
   autre qu'une semaine, les en-têtes deviennent « Généré sur la période » /
   « Marge de la période ». Chargement des relevés inchangé : il couvrait déjà
   les 6 semaines.
+- 06/11/2026 — #208 fusionnée, contrôles tous verts, prévisualisation Vercel
+  « Ready ». Tâche 3 lancée.
 
 ## Comptes rendus
 
