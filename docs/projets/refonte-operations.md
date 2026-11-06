@@ -345,8 +345,8 @@ lecture seule pendant le développement, relances désactivées par défaut).
 | 2 | Lot 2 — statuts À l'étude / Perdu, statut d'opération calculé, parcours de chiffrage, règles de saisie uniques | en ligne | Auto | verif vert ; bouton devis grisé avec la liste du manquant | [#218](https://github.com/Suivi-chantier/Planning-Chantiers/pull/218) (fusionnée) |
 | 3 | Lot 3 — cycle de vie 5 phases, reprise des étapes, relances (désactivées), synthèse opération | en ligne | Auto | verif vert ; relances off par défaut | [#221](https://github.com/Suivi-chantier/Planning-Chantiers/pull/221) (fusionnée) |
 | 4 | Lot 4 — automatisation ProGBat (client, chantier, acompte, statut devis, liens) | en cours | Auto (aucune écriture ProGBat de test) | Vérifications en lecture notées ; verif vert | — |
-| 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | en cours | Auto | verif vert ; accès documentés | — |
-| 6 | Lot 6 — rôle chargé d'affaires | à faire | Auto | verif vert ; accès documentés | — |
+| 5 | Lot 5 — navigation Opérations porte d'entrée, liste Chantiers retirée | en ligne | Auto | verif vert ; accès documentés | [#222](https://github.com/Suivi-chantier/Planning-Chantiers/pull/222) (fusionnée) |
+| 6 | Lot 6 — rôle chargé d'affaires | en cours | Auto | verif vert ; accès documentés | — |
 
 ## Journal des décisions
 
@@ -404,6 +404,15 @@ lecture seule pendant le développement, relances désactivées par défaut).
   lot 4, sur une deuxième branche `claude/zealous-lovelace-oraraf-lot5`. Raison :
   le lot 5 (navigation, accès) touche peu les fichiers du lot 4 (ProGBat). Le
   lot 6 reste après le lot 5, dont il dépend.
+- 06/11/2026 — Lot 5 livré en #222, contrôles verts. Accès modifiés en base :
+  « operations » ajouté aux 5 rôles qui avaient « chantiers » (admin,
+  super_admin, conducteur, comptable, commercial), rien retiré ; sauvegarde
+  `planning_config_sauvegarde_refonte` (ligne 4), retour arrière
+  `sql/202611_refonte_operations_lot5_acces_rollback.sql`. L'identifiant
+  « chantiers » reste le droit d'ouvrir la fiche ; seule l'entrée de menu
+  disparaît. Point à confirmer par Loris au test : commercial et comptable
+  voient désormais les marges agrégées par opération et peuvent marquer un
+  chantier perdu. Lot 6 lancé sur la même deuxième branche, repartie de `main`.
 
 ## Comptes rendus
 
